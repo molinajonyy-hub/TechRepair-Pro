@@ -1,0 +1,494 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { Plus, Search, Eye, Phone, Mail, Users, Download, Upload } from 'lucide-react'
+import { Loader } from '../components/ui/Loader'
+import { customersService, ordersService } from '../services/api'
+import { useLoading } from '../contexts/LoadingContext'
+import { ModalImportExcel } from '../components/ModalImportExcel'
+import { ExcelService, ExcelRow } from '../services/excelService'
+import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
+
+type CustomerSummary = {
+  id: string
+  name: string
+  phone?: string
+  email?: string
+}
+
+type CustomerStats = {
+  orders: number
+  total: number
+}
+
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat('es-AR', {
+    style: 'currency',
+    currency: 'ARS',
+    maximumFractionDigits: 0,
+  }).format(Number.isFinite(value) ? value : 0)
+
+export function Customers() {
+  const { businessId } = useAuth()
+  const [searchTerm, setSearchTerm] = useState('')
+  const [customers, setCustomers] = useState<CustomerSummary[]>([])
+  const [orders, setOrders] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [showImportModal, setShowImportModal] = useState(false)
+  const { showLoading, hideLoading } = useLoading()
+
+  useEffect(() => {
+    if (loading) {
+      showLoading('Cargando clientes...')
+    } else {
+      hideLoading()
+    }
+  }, [loading, showLoading, hideLoading])
+
+  useEffect(() => {
+    void loadCustomers()
+  }, [])
+
+  const loadCustomers = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      const [customersResult, ordersResult] = await Promise.allSettled([
+        customersService.getAll(),
+        ordersService.getAll(),
+      ])
+
+      if (customersResult.status === 'rejected') {
+        throw customersResult.reason
+      }
+
+      setCustomers((customersResult.value || []) as CustomerSummary[])
+
+      if (ordersResult.status === 'fulfilled') {
+        setOrders(ordersResult.value || [])
+      } else {
+        console.error('Error loading customer stats:', ordersResult.reason)
+        setOrders([])
+      }
+    } catch (err: any) {
+      setError(err.message || 'Error al cargar clientes')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleExportCustomers = async () => {
+    try {
+      // Obtener datos completos de clientes
+      const { data: fullCustomers } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('business_id', businessId)
+
+      const exportData = (fullCustomers || []).map((customer: any) => ({
+        'Nombre y apellido': customer.name,
+        'Teléfono': customer.phone || '',
+        'Email': customer.email || '',
+        'Documento': customer.document || '',
+        'Dirección': customer.address || '',
+        'Ciudad': customer.city || '',
+        'Observaciones': customer.notes || '',
+        'Fecha de alta': customer.created_at || '',
+        'Estado': customer.active ? 'Activo' : 'Inactivo'
+      }))
+
+      ExcelService.exportToExcel(exportData, 'clientes', 'Clientes')
+      alert('Clientes exportados exitosamente')
+    } catch (error) {
+      alert('Error al exportar clientes: ' + (error instanceof Error ? error.message : 'Error desconocido'))
+    }
+  }
+
+  const handleImportCustomers = async (data: ExcelRow[]) => {
+    showLoading('Importando clientes...')
+    let created = 0
+    let updated = 0
+
+    try {
+      for (const row of data) {
+        const phone = row['Teléfono'] || row['telefono'] || row['phone']
+        const email = row['Email'] || row['email']
+        const document = row['Documento'] || row['documento'] || row['document']
+
+        // Buscar si existe por teléfono, email o documento
+        const { data: existingCustomer } = await supabase
+          .from('customers')
+          .select('*')
+          .or(`phone.eq.${phone},email.eq.${email},document.eq.${document}`)
+          .eq('business_id', businessId)
+          .limit(1)
+          .maybeSingle()
+
+        const customerData = {
+          name: row['Nombre y apellido'] || row['nombre'] || row['name'] || '',
+          phone: phone || '',
+          email: email || '',
+          document: document || '',
+          address: row['Dirección'] || row['direccion'] || row['address'] || '',
+          city: row['Ciudad'] || row['ciudad'] || row['city'] || '',
+          notes: row['Observaciones'] || row['observaciones'] || row['notes'] || '',
+          active: row['Estado'] === 'Activo' || row['estado'] === 'activo' || true,
+          business_id: businessId
+        }
+
+        if (existingCustomer) {
+          await supabase
+            .from('customers')
+            .update(customerData)
+            .eq('id', existingCustomer.id)
+          updated++
+        } else {
+          await supabase
+            .from('customers')
+            .insert([customerData])
+          created++
+        }
+      }
+
+      loadCustomers()
+      return { created, updated }
+    } catch (error) {
+      console.error('Error importando clientes:', error)
+      throw error
+    } finally {
+      hideLoading()
+    }
+  }
+
+  const handleDownloadTemplate = () => {
+    const headers = [
+      'Nombre y apellido',
+      'Teléfono',
+      'Email',
+      'Documento',
+      'Dirección',
+      'Ciudad',
+      'Observaciones',
+      'Fecha de alta',
+      'Estado'
+    ]
+
+    const exampleData = [{
+      'Nombre y apellido': 'Juan Pérez',
+      'Teléfono': '5493512345678',
+      'Email': 'juan.perez@email.com',
+      'Documento': '12345678',
+      'Dirección': 'Av. Corrientes 1234',
+      'Ciudad': 'Buenos Aires',
+      'Observaciones': 'Cliente frecuente',
+      'Fecha de alta': '2024-01-15',
+      'Estado': 'Activo'
+    }]
+
+    ExcelService.createTemplate(headers, 'plantilla_clientes', exampleData)
+  }
+
+
+  const filteredCustomers = useMemo(() => {
+    const normalizedQuery = searchTerm.trim().toLowerCase()
+
+    if (!normalizedQuery) {
+      return customers
+    }
+
+    return customers.filter((customer) =>
+      [customer.name, customer.phone, customer.email]
+        .filter(Boolean)
+        .some((value) => value!.toLowerCase().includes(normalizedQuery))
+    )
+  }, [customers, searchTerm])
+
+  const customerStats = useMemo(() => {
+    return orders.reduce<Record<string, CustomerStats>>((stats, order) => {
+      const customerId = order.customer?.id
+
+      if (!customerId) {
+        return stats
+      }
+
+      const currentStats = stats[customerId] || { orders: 0, total: 0 }
+      const total =
+        typeof order.total_cost === 'number' && order.total_cost > 0
+          ? order.total_cost
+          : order.estimated_total || 0
+
+      stats[customerId] = {
+        orders: currentStats.orders + 1,
+        total: currentStats.total + total,
+      }
+
+      return stats
+    }, {})
+  }, [orders])
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
+        <Loader size="lg" text="Cargando clientes..." />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: '2rem' }}>
+        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#ffffff', marginBottom: '1rem' }}>
+          Clientes
+        </h1>
+        <div style={{ padding: '1.5rem', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '0.75rem' }}>
+          <p style={{ color: '#f87171', marginBottom: '1rem' }}>Error al cargar clientes: {error}</p>
+          <button onClick={() => void loadCustomers()} className="btn btn-outline">
+            Reintentar
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+          <div style={{
+            width: '44px', height: '44px', borderRadius: '0.75rem',
+            background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2))',
+            border: '1px solid rgba(99,102,241,0.3)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+          }}>
+            <Users size={22} style={{ color: '#818cf8' }} />
+          </div>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#f8fafc' }}>Clientes</h1>
+            <p style={{ margin: 0, fontSize: '0.8rem', color: '#475569' }}>Gestiona la base de datos de clientes</p>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <button onClick={handleDownloadTemplate} style={{
+            display: 'flex', alignItems: 'center', gap: '0.5rem',
+            padding: '0.5rem 0.875rem',
+            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+            color: '#94a3b8', borderRadius: '0.5rem', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem'
+          }}>
+            <Download size={15} />
+            Plantilla
+          </button>
+          <button onClick={handleExportCustomers} style={{
+            display: 'flex', alignItems: 'center', gap: '0.5rem',
+            padding: '0.5rem 0.875rem',
+            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+            color: '#94a3b8', borderRadius: '0.5rem', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem'
+          }}>
+            <Download size={15} />
+            Exportar
+          </button>
+          <button onClick={() => setShowImportModal(true)} style={{
+            display: 'flex', alignItems: 'center', gap: '0.5rem',
+            padding: '0.5rem 0.875rem',
+            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+            color: '#94a3b8', borderRadius: '0.5rem', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem'
+          }}>
+            <Upload size={15} />
+            Importar
+          </button>
+          <Link to="/customers/new" style={{
+            display: 'flex', alignItems: 'center', gap: '0.5rem',
+            padding: '0.625rem 1.25rem',
+            background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+            border: 'none', color: '#ffffff', borderRadius: '0.625rem',
+            cursor: 'pointer', fontWeight: 600, textDecoration: 'none',
+            boxShadow: '0 4px 12px rgba(99,102,241,0.35)', fontSize: '0.875rem'
+          }}>
+            <Plus size={18} />
+            Nuevo Cliente
+          </Link>
+        </div>
+      </div>
+
+      <div
+        style={{
+          marginBottom: '1.5rem',
+          padding: '1rem',
+          backgroundColor: '#0f1829',
+          border: '1px solid rgba(255,255,255,0.06)',
+          borderRadius: '0.75rem',
+          display: 'flex',
+          gap: '1rem',
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
+          <Search size={18} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+          <input
+            type="text"
+            placeholder="Buscar cliente..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '0.625rem 0.75rem 0.625rem 2.5rem',
+              backgroundColor: 'rgba(15,23,42,0.8)',
+              border: '1px solid rgba(51,65,85,0.6)',
+              borderRadius: '0.5rem',
+              color: '#f1f5f9',
+              outline: 'none',
+            }}
+          />
+        </div>
+      </div>
+
+      <div
+        style={{
+          backgroundColor: '#0f1829',
+          border: '1px solid rgba(255,255,255,0.06)',
+          borderRadius: '0.75rem',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ padding: 0 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>
+                  Cliente
+                </th>
+                <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>
+                  Contacto
+                </th>
+                <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>
+                  Ordenes
+                </th>
+                <th style={{ padding: '1rem', textAlign: 'right', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>
+                  Total
+                </th>
+                <th style={{ padding: '1rem', textAlign: 'right', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>
+                  Acciones
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredCustomers.length === 0 ? (
+                <tr>
+                  <td colSpan={5}>
+                    {customers.length === 0 ? (
+                      <div style={{ padding: '4rem 2rem', textAlign: 'center' }}>
+                        <div style={{
+                          width: '64px',
+                          height: '64px',
+                          borderRadius: '50%',
+                          backgroundColor: 'rgba(15,23,42,0.8)',
+                          margin: '0 auto 1.5rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}>
+                          <Users size={32} style={{ color: '#64748b' }} />
+                        </div>
+                        <h3 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#ffffff', marginBottom: '0.5rem' }}>
+                          Todavía no tenés clientes
+                        </h3>
+                        <p style={{ color: '#94a3b8', fontSize: '0.9375rem', marginBottom: '1.5rem', maxWidth: '400px', margin: '0 auto 1.5rem' }}>
+                          Comenzá agregando tu primer cliente para empezar a gestionar sus reparaciones.
+                        </p>
+                        <Link
+                          to="/customers/new"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            padding: '0.75rem 1.5rem',
+                            background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                            border: 'none',
+                            color: '#ffffff',
+                            borderRadius: '0.625rem',
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                            textDecoration: 'none',
+                            fontSize: '0.875rem',
+                            boxShadow: '0 4px 12px rgba(99,102,241,0.35)'
+                          }}
+                        >
+                          <Plus size={16} />
+                          Crear Primer Cliente
+                        </Link>
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>
+                        <p>No se encontraron clientes para "{searchTerm}"</p>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ) : (
+                filteredCustomers.map((customer) => {
+                  const stats = customerStats[customer.id] || { orders: 0, total: 0 }
+
+                  return (
+                    <tr key={customer.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                      <td style={{ padding: '1rem' }}>
+                        <Link to={`/customers/${customer.id}`} style={{ color: '#818cf8', fontWeight: 500, textDecoration: 'none' }}>
+                          {customer.name}
+                        </Link>
+                      </td>
+                      <td style={{ padding: '1rem' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <span style={{ fontSize: '0.875rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <Phone size={14} /> {customer.phone || 'Sin telefono'}
+                          </span>
+                          <span style={{ fontSize: '0.875rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <Mail size={14} /> {customer.email || 'Sin email'}
+                          </span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '1rem', color: '#94a3b8' }}>
+                        {stats.orders}
+                      </td>
+                      <td style={{ padding: '1rem', textAlign: 'right', fontWeight: 600, color: '#ffffff' }}>
+                        {formatCurrency(stats.total)}
+                      </td>
+                      <td style={{ padding: '1rem', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                          <Link
+                            to={`/customers/${customer.id}`}
+                            style={{
+                              padding: '0.5rem',
+                              backgroundColor: 'rgba(255,255,255,0.05)',
+                              border: '1px solid rgba(255,255,255,0.08)',
+                              borderRadius: '0.375rem',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              textDecoration: 'none',
+                            }}
+                          >
+                            <Eye size={16} style={{ color: '#94a3b8' }} />
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Modal Importar Excel */}
+      <ModalImportExcel
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onImport={handleImportCustomers}
+        title="Importar Clientes"
+        requiredColumns={[]}
+        downloadTemplate={handleDownloadTemplate}
+      />
+    </div>
+  )
+}
