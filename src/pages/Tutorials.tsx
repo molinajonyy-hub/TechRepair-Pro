@@ -3,7 +3,7 @@
  */
 import { useState } from 'react'
 import {
-  BookOpen, ChevronDown, ChevronRight, ExternalLink,
+  ChevronDown, ChevronRight, ExternalLink,
   CheckCircle, AlertTriangle, Info, FileText, Shield,
   Settings, Upload, Key, Globe, Terminal
 } from 'lucide-react'
@@ -73,18 +73,6 @@ function Screenshot({ label, children }: { label: string, children: React.ReactN
   )
 }
 
-function CodeBlock({ children }: { children: string }) {
-  return (
-    <pre style={{
-      background: '#0f172a', color: '#e2e8f0', borderRadius: '0.625rem',
-      padding: '1rem', fontSize: '0.8rem', overflowX: 'auto',
-      border: '1px solid rgba(255,255,255,0.08)', margin: '1rem 0',
-      fontFamily: 'monospace', lineHeight: 1.6,
-    }}>
-      <code>{children}</code>
-    </pre>
-  )
-}
 
 function LinkBtn({ href, children }: { href: string, children: React.ReactNode }) {
   return (
@@ -251,45 +239,68 @@ function TutorialARCA() {
           <StepBadge n={3} />
           <div>
             <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 700 }}>
-              Generá el certificado digital (CSR)
+              Generá el CSR desde TechRepair
             </h2>
             <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-              Creá una clave privada y un pedido de certificado (CSR)
+              Con un solo click TechRepair genera la clave privada y el CSR por vos
             </p>
           </div>
         </div>
 
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7, marginLeft: '3rem' }}>
-          Desde Administración de Certificados, hacé clic en <strong>"Agregar alias"</strong>.
-          Vas a necesitar generar un archivo CSR (Certificate Signing Request).
-          Podés hacerlo desde tu PC con OpenSSL:
-        </p>
-
         <div style={{ marginLeft: '3rem' }}>
-          <Callout type="info">
-            Si no tenés OpenSSL instalado en Windows, podés descargarlo desde{' '}
-            <LinkBtn href="https://slproweb.com/products/Win32OpenSSL.html">slproweb.com</LinkBtn>{' '}
-            o usar el que viene con Git para Windows.
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7 }}>
+            Andá a <strong>Configuración → ARCA / Facturación Electrónica</strong> en el sidebar.
+            Asegurate de tener completos el <strong>CUIT emisor</strong> y la <strong>Razón Social</strong>.
+            Luego hacé clic en el botón <strong>"Generar CSR para AFIP"</strong>.
+          </p>
+
+          <Screenshot label="Configuración → ARCA — botón Generar CSR">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', maxWidth: 460 }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '0.75rem',
+                padding: '0.75rem', background: 'rgba(99,102,241,0.08)',
+                border: '1px solid rgba(99,102,241,0.2)', borderRadius: '0.5rem',
+              }}>
+                <Settings size={18} color="#6366f1" />
+                <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#818cf8' }}>
+                  Configuración → ARCA / Facturación Electrónica
+                </span>
+              </div>
+              <div style={{
+                padding: '1rem', background: 'rgba(251,191,36,0.06)',
+                border: '1px solid rgba(251,191,36,0.2)', borderRadius: '0.5rem',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <AlertTriangle size={14} color="#fbbf24" />
+                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#fbbf24' }}>Certificado Digital</span>
+                </div>
+                <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                  Si no tenés certificado, generá un CSR y presentalo ante AFIP para obtener el tuyo.
+                </p>
+                <div style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+                  padding: '0.5rem 1rem',
+                  background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.4)',
+                  borderRadius: '0.5rem', color: '#818cf8', fontSize: '0.8rem', fontWeight: 600,
+                }}>
+                  <FileText size={14} />
+                  Generar CSR para AFIP
+                </div>
+              </div>
+            </div>
+          </Screenshot>
+
+          <Callout type="success">
+            <strong>Al hacer clic</strong>, TechRepair genera automáticamente una clave privada RSA 2048 bits,
+            crea el CSR con tus datos fiscales, <strong>guarda la clave privada de forma segura en la base de datos</strong>
+            y descarga el archivo <code style={{ fontFamily: 'monospace' }}>.csr</code> en tu computadora.
+            No necesitás instalar nada.
           </Callout>
 
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
-            <strong>1.</strong> Abrí una terminal y generá la clave privada:
-          </p>
-          <CodeBlock>openssl genrsa -out techrepair.key 2048</CodeBlock>
-
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
-            <strong>2.</strong> Generá el CSR (reemplazá los datos con los tuyos):
-          </p>
-          <CodeBlock>{`openssl req -new -key techrepair.key -out techrepair.csr \\
-  -subj "/C=AR/O=Mi Taller SRL/CN=techrepair/serialNumber=CUIT 20123456789"`}</CodeBlock>
-
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
-            Esto genera dos archivos importantes:
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
             {[
-              { icon: Key, name: 'techrepair.key', desc: 'Tu clave privada — NUNCA la compartas', color: '#f87171' },
-              { icon: FileText, name: 'techrepair.csr', desc: 'El pedido de certificado — este se sube a ARCA', color: '#34d399' },
+              { icon: Key, name: 'Clave privada', desc: 'Guardada automáticamente y encriptada en TechRepair — no la necesitás descargar', color: '#34d399' },
+              { icon: FileText, name: 'archivo.csr', desc: 'Se descarga en tu PC — este es el que subís a ARCA en el paso siguiente', color: '#818cf8' },
             ].map(f => (
               <div key={f.name} style={{
                 display: 'flex', gap: '0.75rem', alignItems: 'center',
@@ -423,21 +434,22 @@ function TutorialARCA() {
           <StepBadge n={6} />
           <div>
             <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 700 }}>
-              Configurá el certificado en TechRepair
+              Subí el certificado emitido por ARCA en TechRepair
             </h2>
             <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-              Subí tu clave privada y certificado en Configuración → ARCA
+              Solo necesitás el .crt — la clave privada ya está guardada
             </p>
           </div>
         </div>
 
         <div style={{ marginLeft: '3rem' }}>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7 }}>
-            Andá a <strong>Configuración → ARCA / Facturación Electrónica</strong> en el sidebar
-            de TechRepair y completá los siguientes campos:
+            Volvé a <strong>Configuración → ARCA / Facturación Electrónica</strong>. Como la clave privada
+            ya se guardó automáticamente en el Paso 3, <strong>solo necesitás subir el certificado .crt</strong>
+            que descargaste de ARCA:
           </p>
 
-          <Screenshot label="Configuración de ARCA en TechRepair — Configuración → ARCA">
+          <Screenshot label="Configuración de ARCA — solo subir el certificado .crt">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: 480 }}>
               <div style={{
                 display: 'flex', alignItems: 'center', gap: '0.75rem',
@@ -449,26 +461,39 @@ function TutorialARCA() {
                   Configuración → ARCA / Facturación Electrónica
                 </span>
               </div>
-              {[
-                { label: 'CUIT', placeholder: '20-12345678-9', hint: 'Tu número de CUIT sin guiones' },
-                { label: 'Punto de venta', placeholder: '1', hint: 'El número de punto de venta habilitado en ARCA' },
-                { label: 'Certificado (.crt)', placeholder: '---- BEGIN CERTIFICATE ----...', hint: 'Pegá el contenido del archivo techrepair.crt', mono: true },
-                { label: 'Clave privada (.key)', placeholder: '---- BEGIN RSA PRIVATE KEY ----...', hint: 'Pegá el contenido del archivo techrepair.key', mono: true },
-              ].map(f => (
-                <div key={f.label}>
-                  <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
-                    {f.label}
-                  </label>
-                  <div style={{
-                    border: '1px solid var(--border-color)', borderRadius: '0.5rem',
-                    padding: '0.5rem 0.75rem', fontSize: f.mono ? '0.7rem' : '0.875rem',
-                    color: 'var(--text-muted)', background: 'var(--bg-main)',
-                    fontFamily: f.mono ? 'monospace' : 'inherit',
-                    minHeight: f.mono ? '60px' : 'auto',
-                  }}>{f.placeholder}</div>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{f.hint}</div>
+
+              {/* Clave privada — ya guardada */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '0.75rem',
+                padding: '0.75rem', background: 'rgba(52,211,153,0.06)',
+                border: '1px solid rgba(52,211,153,0.2)', borderRadius: '0.5rem',
+              }}>
+                <CheckCircle size={16} color="#34d399" />
+                <div>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#34d399' }}>Clave privada</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Guardada automáticamente en el Paso 3</div>
                 </div>
-              ))}
+              </div>
+
+              {/* Certificado — a completar */}
+              <div key="cert">
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
+                  Certificado (.crt) <span style={{ color: '#f87171' }}>*</span>
+                </label>
+                <div style={{
+                  border: '2px dashed rgba(99,102,241,0.4)', borderRadius: '0.5rem',
+                  padding: '1.25rem', textAlign: 'center', background: 'var(--bg-main)',
+                }}>
+                  <Upload size={20} color="var(--text-muted)" style={{ marginBottom: '0.5rem', display: 'block', margin: '0 auto 0.5rem' }} />
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    Pegá el contenido del archivo <strong style={{ fontFamily: 'monospace' }}>.crt</strong> descargado de ARCA
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                  Abrí el .crt con el Bloc de Notas, seleccioná todo (Ctrl+A) y copialo acá
+                </div>
+              </div>
+
               <div style={{
                 background: '#6366f1', borderRadius: '0.5rem', padding: '0.625rem',
                 textAlign: 'center', color: '#fff', fontSize: '0.875rem', fontWeight: 600,
@@ -477,9 +502,7 @@ function TutorialARCA() {
           </Screenshot>
 
           <Callout type="info">
-            Para copiar el contenido del certificado y la clave en Windows, abrí una terminal en la carpeta donde están los archivos y ejecutá:<br /><br />
-            <code style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>type techrepair.crt</code> y <code style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>type techrepair.key</code><br /><br />
-            Luego seleccioná todo el texto y copialo.
+            Para ver el contenido del certificado en Windows, abrí el archivo <code style={{ fontFamily: 'monospace' }}>.crt</code> con el <strong>Bloc de Notas</strong> (clic derecho → Abrir con → Bloc de notas), seleccioná todo y copialo.
           </Callout>
         </div>
       </section>
@@ -565,7 +588,7 @@ function TutorialARCA() {
             { label: 'Login con Clave Fiscal', url: 'https://auth.afip.gob.ar/contribuyente_/login.xhtml' },
             { label: 'Manual WSAA (autenticación)', url: 'https://www.afip.gob.ar/ws/WSAA/WSAA.ObtenerCertificado.pdf' },
             { label: 'Manual WSFEV1 (factura electrónica)', url: 'https://www.afip.gob.ar/facturadecreditoelectronica/documentos/manual_wsfecm.pdf' },
-            { label: 'OpenSSL para Windows', url: 'https://slproweb.com/products/Win32OpenSSL.html' },
+            { label: 'Administración de Certificados Digitales (ARCA)', url: 'https://auth.afip.gob.ar/contribuyente_/login.xhtml' },
           ].map(r => (
             <div key={r.url} style={{
               display: 'flex', alignItems: 'center', gap: '0.75rem',
