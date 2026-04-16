@@ -39,7 +39,7 @@ export function PaymentPending() {
 
   useEffect(() => {
     if (isActive) {
-      setTimeout(() => navigate('/subscription'), 2500)
+      setTimeout(() => navigate('/'), 2500)
     }
   }, [isActive, navigate])
 
