@@ -102,17 +102,20 @@ const CYCLE_NAMES: Record<string, string> = {
 
 // ─────────────────────────────────────────────────────────────────
 // Auth helper — verifies Supabase JWT and returns authenticated user
+// Uses a user-scoped client (anon key + user JWT) for reliable verification
 // ─────────────────────────────────────────────────────────────────
-async function getAuthUser(
-  supabase: ReturnType<typeof createClient>,
-  req: Request
-) {
+async function getAuthUser(req: Request) {
   const authHeader = req.headers.get('Authorization')
   if (!authHeader?.startsWith('Bearer ')) return null
 
-  const { data: { user }, error } = await supabase.auth.getUser(
-    authHeader.replace('Bearer ', '')
+  // Create a user-scoped client with the token from the request
+  const userClient = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_ANON_KEY')!,
+    { global: { headers: { Authorization: authHeader } } }
   )
+
+  const { data: { user }, error } = await userClient.auth.getUser()
   if (error || !user) return null
   return user
 }
@@ -134,7 +137,7 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
 
-    const user = await getAuthUser(supabase, req)
+    const user = await getAuthUser(req)
     if (!user) return json({ error: 'Unauthorized' }, 401)
 
     const body = await req.json()
