@@ -1,6 +1,6 @@
 {
-  "installCommand": "rm -rf node_modules package-lock.json && npm install",
-  "buildCommand": "npm run build",
+  "installCommand": "npm install --include=optional",
+  "buildCommand": "npm install @rollup/rollup-linux-x64-gnu --no-save 2>/dev/null; npm run build",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
