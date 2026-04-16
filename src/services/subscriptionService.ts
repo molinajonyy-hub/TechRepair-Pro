@@ -15,36 +15,28 @@ import type {
   BillingCycle,
 } from '../types/subscription'
 
-// Edge function URL — uses VITE_SUPABASE_URL which is always the project URL
-const EDGE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/mp-subscription`
-
 // ── Helper: authenticated edge function call ──────────────────
-// Refreshes the session token before each call to avoid 401s from expired JWTs
+// Uses supabase.functions.invoke() which automatically sets both
+// the 'apikey' (anon key) and 'Authorization' (user JWT) headers
+// required by the Supabase API gateway.
 async function callEdge<T>(action: string, payload: Record<string, unknown>): Promise<T> {
-  // getSession may return a stale token; refreshSession ensures it's valid
+  // Ensure user is logged in before calling
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('No hay sesión activa. Iniciá sesión nuevamente.')
 
-  const res = await fetch(EDGE_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
-    },
-    body: JSON.stringify({ action, ...payload }),
+  const { data, error } = await supabase.functions.invoke('mp-subscription', {
+    body: { action, ...payload },
   })
 
-  let body: any
-  try {
-    body = await res.json()
-  } catch {
-    throw new Error(`Edge function returned non-JSON response (status ${res.status})`)
+  if (error) {
+    // FunctionsHttpError has a .context with the response body
+    const msg = (error as any)?.context?.error
+      ?? (error as any)?.message
+      ?? `Error en la función de pago`
+    throw new Error(msg)
   }
 
-  if (!res.ok) {
-    throw new Error(body?.error ?? `Error en la función de pago (${res.status})`)
-  }
-  return body as T
+  return data as T
 }
 
 // ── Get subscription info for current business ─────────────────
