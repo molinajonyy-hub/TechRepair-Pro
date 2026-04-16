@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Search, Eye, Phone, Mail, Users, Download, Upload } from 'lucide-react'
+import { Plus, Search, Eye, Phone, Mail, Users, Download, Upload, Pencil, Trash2, X, Loader2 } from 'lucide-react'
 import { Loader } from '../components/ui/Loader'
 import { customersService, ordersService } from '../services/api'
 import { useLoading } from '../contexts/LoadingContext'
@@ -37,6 +37,67 @@ export function Customers() {
   const [error, setError] = useState<string | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const { showLoading, hideLoading } = useLoading()
+
+  // ── Editar cliente ───────────────────────────────────────────
+  const [editingCustomer, setEditingCustomer] = useState<any | null>(null)
+  const [editForm, setEditForm] = useState({ name: '', phone: '', email: '', address: '', notes: '' })
+  const [editLoading, setEditLoading] = useState(false)
+  const [editError, setEditError] = useState('')
+
+  const openEdit = (customer: CustomerSummary) => {
+    setEditingCustomer(customer)
+    setEditForm({
+      name: customer.name || '',
+      phone: (customer as any).phone || '',
+      email: customer.email || '',
+      address: (customer as any).address || '',
+      notes: (customer as any).notes || '',
+    })
+    setEditError('')
+  }
+
+  const handleEditSave = async () => {
+    if (!editingCustomer) return
+    if (!editForm.name.trim()) { setEditError('El nombre es obligatorio'); return }
+    setEditLoading(true)
+    setEditError('')
+    try {
+      await customersService.update(editingCustomer.id, {
+        name: editForm.name.trim(),
+        phone: editForm.phone.trim(),
+        email: editForm.email.trim(),
+        address: editForm.address.trim(),
+        notes: editForm.notes.trim(),
+      })
+      setEditingCustomer(null)
+      await loadCustomers()
+    } catch (err: any) {
+      setEditError(err.message || 'Error al guardar')
+    } finally {
+      setEditLoading(false)
+    }
+  }
+
+  // ── Eliminar cliente ─────────────────────────────────────────
+  const [deletingCustomer, setDeletingCustomer] = useState<CustomerSummary | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+
+  const handleDeleteConfirm = async () => {
+    if (!deletingCustomer) return
+    setDeleteLoading(true)
+    setDeleteError('')
+    try {
+      const { error } = await supabase.from('customers').delete().eq('id', deletingCustomer.id)
+      if (error) throw error
+      setDeletingCustomer(null)
+      await loadCustomers()
+    } catch (err: any) {
+      setDeleteError(err.message || 'Error al eliminar')
+    } finally {
+      setDeleteLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (loading) {
@@ -456,6 +517,7 @@ export function Customers() {
                         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                           <Link
                             to={`/customers/${customer.id}`}
+                            title="Ver detalle"
                             style={{
                               padding: '0.5rem',
                               backgroundColor: 'rgba(255,255,255,0.05)',
@@ -469,6 +531,36 @@ export function Customers() {
                           >
                             <Eye size={16} style={{ color: '#94a3b8' }} />
                           </Link>
+                          <button
+                            title="Editar cliente"
+                            onClick={() => openEdit(customer)}
+                            style={{
+                              padding: '0.5rem',
+                              backgroundColor: 'rgba(99,102,241,0.08)',
+                              border: '1px solid rgba(99,102,241,0.2)',
+                              borderRadius: '0.375rem',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Pencil size={16} style={{ color: '#818cf8' }} />
+                          </button>
+                          <button
+                            title="Eliminar cliente"
+                            onClick={() => { setDeletingCustomer(customer); setDeleteError('') }}
+                            style={{
+                              padding: '0.5rem',
+                              backgroundColor: 'rgba(248,113,113,0.08)',
+                              border: '1px solid rgba(248,113,113,0.2)',
+                              borderRadius: '0.375rem',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Trash2 size={16} style={{ color: '#f87171' }} />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -489,6 +581,126 @@ export function Customers() {
         requiredColumns={[]}
         downloadTemplate={handleDownloadTemplate}
       />
+
+      {/* ── Modal Editar Cliente ─────────────────────────────── */}
+      {editingCustomer && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1100,
+          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem',
+        }} onClick={() => setEditingCustomer(null)}>
+          <div style={{
+            background: '#0f1829', border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '1rem', padding: '1.75rem', width: '100%', maxWidth: 480,
+            boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <h2 style={{ margin: 0, color: '#f8fafc', fontSize: '1.125rem', fontWeight: 700 }}>Editar Cliente</h2>
+              <button onClick={() => setEditingCustomer(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: '0.25rem' }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {[
+                { label: 'Nombre *', key: 'name', placeholder: 'Nombre y apellido' },
+                { label: 'Teléfono', key: 'phone', placeholder: 'Ej: 5493512345678' },
+                { label: 'Email', key: 'email', placeholder: 'correo@ejemplo.com' },
+                { label: 'Dirección', key: 'address', placeholder: 'Av. Corrientes 1234, CABA' },
+                { label: 'Notas', key: 'notes', placeholder: 'Observaciones...' },
+              ].map(f => (
+                <div key={f.key}>
+                  <label style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '0.375rem' }}>{f.label}</label>
+                  <input
+                    type="text"
+                    value={(editForm as any)[f.key]}
+                    onChange={e => setEditForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                    placeholder={f.placeholder}
+                    style={{
+                      width: '100%', padding: '0.625rem 0.875rem', boxSizing: 'border-box',
+                      background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(51,65,85,0.6)',
+                      borderRadius: '0.5rem', color: '#f1f5f9', fontSize: '0.9rem', outline: 'none',
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {editError && (
+              <p style={{ color: '#f87171', fontSize: '0.85rem', marginTop: '0.75rem', marginBottom: 0 }}>{editError}</p>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
+              <button onClick={() => setEditingCustomer(null)} style={{
+                flex: 1, padding: '0.75rem', borderRadius: '0.5rem', cursor: 'pointer',
+                background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8', fontWeight: 500,
+              }}>Cancelar</button>
+              <button onClick={handleEditSave} disabled={editLoading} style={{
+                flex: 1, padding: '0.75rem', borderRadius: '0.5rem', cursor: 'pointer',
+                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none',
+                color: '#fff', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                opacity: editLoading ? 0.7 : 1,
+              }}>
+                {editLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+                {editLoading ? 'Guardando...' : 'Guardar cambios'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Confirmar Eliminación ──────────────────────── */}
+      {deletingCustomer && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1100,
+          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem',
+        }} onClick={() => setDeletingCustomer(null)}>
+          <div style={{
+            background: '#0f1829', border: '1px solid rgba(248,113,113,0.2)',
+            borderRadius: '1rem', padding: '1.75rem', width: '100%', maxWidth: 420,
+            boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+              <div style={{
+                width: 56, height: 56, borderRadius: '50%', margin: '0 auto 1rem',
+                background: 'rgba(248,113,113,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Trash2 size={24} color="#f87171" />
+              </div>
+              <h2 style={{ margin: '0 0 0.5rem', color: '#f8fafc', fontSize: '1.1rem', fontWeight: 700 }}>
+                ¿Eliminar cliente?
+              </h2>
+              <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.9rem' }}>
+                Se eliminará a <strong style={{ color: '#f1f5f9' }}>{deletingCustomer.name}</strong> permanentemente.
+                Esta acción no se puede deshacer.
+              </p>
+            </div>
+
+            {deleteError && (
+              <p style={{ color: '#f87171', fontSize: '0.85rem', textAlign: 'center', marginBottom: '1rem' }}>{deleteError}</p>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button onClick={() => setDeletingCustomer(null)} style={{
+                flex: 1, padding: '0.75rem', borderRadius: '0.5rem', cursor: 'pointer',
+                background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8', fontWeight: 500,
+              }}>Cancelar</button>
+              <button onClick={handleDeleteConfirm} disabled={deleteLoading} style={{
+                flex: 1, padding: '0.75rem', borderRadius: '0.5rem', cursor: 'pointer',
+                background: '#ef4444', border: 'none', color: '#fff', fontWeight: 600,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                opacity: deleteLoading ? 0.7 : 1,
+              }}>
+                {deleteLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+                {deleteLoading ? 'Eliminando...' : 'Sí, eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }
