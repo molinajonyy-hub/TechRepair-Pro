@@ -1,5 +1,5 @@
 {
-  "installCommand": "npm install --include=optional",
+  "installCommand": "npm install --no-package-lock && npm install --no-save --no-package-lock @rollup/rollup-linux-x64-gnu@4.60.1",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
