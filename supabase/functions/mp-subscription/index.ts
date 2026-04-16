@@ -28,10 +28,10 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': 'https://tech-repair-pro-molinajonyy-hubs-projects.vercel.app',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Max-Age': '86400',
+  'Vary': 'Origin',
 }
 
 const MP_BASE = 'https://api.mercadopago.com'
@@ -173,7 +173,7 @@ async function handleCreate(
   }
 
   // ── Verify user belongs to this business ─────────────────────
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('id, role')
     .eq('user_id', user.id)
@@ -182,7 +182,10 @@ async function handleCreate(
     .maybeSingle()
 
   if (!profile) {
-    return json({ error: 'Forbidden: user does not belong to this business' }, 403)
+    return json({
+      error: 'Forbidden: user does not belong to this business',
+      debug: { userId: user.id, businessId: business_id, profileError: profileError?.message }
+    }, 403)
   }
 
   // ── Resolve MP Plan ID ────────────────────────────────────────
@@ -213,34 +216,10 @@ async function handleCreate(
     }
   }
 
-  // ── Build preapproval reason (shown to payer in MP checkout) ──
-  const planName  = PLAN_NAMES[plan]  ?? `Plan ${plan}`
-  const cycleName = CYCLE_NAMES[billing_cycle] ?? billing_cycle
-  const reason    = `${planName} (${cycleName})`
-
-  // ── Create preapproval in MP ──────────────────────────────────
-  // Idempotency key: stable per business + plan + cycle combination
-  const idempotencyKey = `create-${business_id}-${plan}-${billing_cycle}`
-
-  const preapproval = await mpFetch('/preapproval', {
-    method: 'POST',
-    body: JSON.stringify({
-      preapproval_plan_id: planId,
-      reason,
-      payer_email,
-      back_url: back_url ?? `${Deno.env.get('APP_URL') ?? ''}/subscription/pending`,
-      status:   'pending',
-      // external_reference lets us find the business when we get the webhook
-      // before mp_preapproval_id is saved (race condition window)
-      external_reference: business_id,
-    }),
-  }, idempotencyKey)
-
-  // ── Save preapproval to DB ────────────────────────────────────
-  const { error: updateErr } = await supabase
+  // ── Marcar negocio como pending_activation en DB ─────────────
+  await supabase
     .from('businesses')
     .update({
-      mp_preapproval_id:      preapproval.id,
       mp_preapproval_plan_id: planId,
       mp_payer_email:         payer_email,
       subscription_plan:      plan,
@@ -249,16 +228,18 @@ async function handleCreate(
     })
     .eq('id', business_id)
 
-  if (updateErr) {
-    console.error('[mp-subscription] Failed to save preapproval to DB:', updateErr)
-    // Don't throw — the preapproval was created in MP, return init_point regardless
-  }
+  // ── Construir URL de checkout de MP (redirect flow) ───────────
+  // En lugar de crear el preapproval via API (que requiere card_token_id),
+  // redirigimos al usuario al checkout del plan donde MP maneja todo.
+  // Cuando el usuario pague, MP llama al webhook y activamos el negocio.
+  const appUrl = back_url ?? `${Deno.env.get('APP_URL') ?? ''}/subscription/pending`
+  const checkoutUrl = `https://www.mercadopago.com.ar/subscriptions/checkout?preapproval_plan_id=${planId}&payer_email=${encodeURIComponent(payer_email)}&external_reference=${business_id}&back_url=${encodeURIComponent(appUrl)}`
 
-  console.log(`[mp-subscription] Created preapproval ${preapproval.id} for business ${business_id}`)
+  console.log(`[mp-subscription] Redirecting business ${business_id} to MP checkout for plan ${planId}`)
 
   return json({
-    init_point:     preapproval.init_point,
-    preapproval_id: preapproval.id,
+    init_point:     checkoutUrl,
+    preapproval_id: null,
   })
 }
 

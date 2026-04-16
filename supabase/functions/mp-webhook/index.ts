@@ -70,9 +70,9 @@ async function verifySignature(
 ): Promise<boolean> {
   const secret = Deno.env.get('MP_WEBHOOK_SECRET')
   if (!secret) {
-    // Dev mode: skip validation when secret not configured
-    console.warn('[mp-webhook] MP_WEBHOOK_SECRET not set — skipping signature check')
-    return true
+    // Sin secret configurado → rechazar siempre (nunca saltear en producción)
+    console.error('[mp-webhook] MP_WEBHOOK_SECRET no configurado — rechazando request')
+    return false
   }
 
   const signature = req.headers.get('x-signature') || ''
