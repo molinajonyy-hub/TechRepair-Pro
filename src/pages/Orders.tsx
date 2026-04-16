@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
-import { Plus, Search, Filter, Eye, Edit, Trash2, ClipboardList, Printer } from 'lucide-react'
-import { useOrders } from '../hooks/useOrders'
+import { Link, useNavigate } from 'react-router-dom'
+import { Plus, Search, Filter, Eye, Edit, Trash2, ClipboardList, Printer, X, Loader2 } from 'lucide-react'
+import { useOrders, OrderListItem } from '../hooks/useOrders'
 import { STATUS_CONFIG } from '../types/orderStatus'
 import { useLoading } from '../contexts/LoadingContext'
 import { ServiceOrderPrint } from '../components/print/ServiceOrderPrint'
+import { supabase } from '../lib/supabase'
 
 const getStatusStyle = (status: string) => {
   const config = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]
@@ -55,10 +56,32 @@ const getPriorityStyle = (priority: string) => {
 
 export function Orders() {
   const [searchTerm, setSearchTerm] = useState('')
-  const { orders, loading, error } = useOrders()
+  const { orders, loading, error, refresh: refetch } = useOrders()
   const { showLoading, hideLoading } = useLoading()
+  const navigate = useNavigate()
   const [printingOrder, setPrintingOrder] = useState<any>(null)
   const printRef = useRef<HTMLDivElement>(null)
+
+  // Delete state
+  const [deletingOrder, setDeletingOrder] = useState<OrderListItem | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const handleDeleteConfirm = async () => {
+    if (!deletingOrder) return
+    setDeleteLoading(true)
+    setDeleteError(null)
+    try {
+      const { error: err } = await supabase.from('orders').delete().eq('id', deletingOrder.id)
+      if (err) throw err
+      setDeletingOrder(null)
+      refetch()
+    } catch (e: any) {
+      setDeleteError(e.message || 'Error al eliminar la orden')
+    } finally {
+      setDeleteLoading(false)
+    }
+  }
 
   const handlePrint = (order: any) => {
     setPrintingOrder(order)
@@ -341,26 +364,30 @@ export function Orders() {
                         }} title="Ver">
                           <Eye size={16} style={{ color: '#94a3b8' }} />
                         </Link>
-                        <button style={{
-                          padding: '0.5rem',
-                          backgroundColor: 'rgba(255,255,255,0.05)',
-                          border: '1px solid rgba(255,255,255,0.08)',
-                          borderRadius: '0.375rem',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center'
-                        }} title="Editar">
-                          <Edit size={16} style={{ color: '#94a3b8' }} />
+                        <button
+                          onClick={() => navigate(`/orders/${order.id}`)}
+                          style={{
+                            padding: '0.5rem',
+                            backgroundColor: 'rgba(139,92,246,0.1)',
+                            border: '1px solid rgba(139,92,246,0.2)',
+                            borderRadius: '0.375rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center'
+                          }} title="Editar">
+                          <Edit size={16} style={{ color: '#a78bfa' }} />
                         </button>
-                        <button style={{
-                          padding: '0.5rem',
-                          backgroundColor: 'rgba(255,255,255,0.05)',
-                          border: '1px solid rgba(255,255,255,0.08)',
-                          borderRadius: '0.375rem',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center'
-                        }} title="Eliminar">
+                        <button
+                          onClick={() => { setDeleteError(null); setDeletingOrder(order) }}
+                          style={{
+                            padding: '0.5rem',
+                            backgroundColor: 'rgba(239,68,68,0.08)',
+                            border: '1px solid rgba(239,68,68,0.2)',
+                            borderRadius: '0.375rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center'
+                          }} title="Eliminar">
                           <Trash2 size={16} style={{ color: '#ef4444' }} />
                         </button>
                       </div>
@@ -372,6 +399,60 @@ export function Orders() {
           </table>
         </div>
       </div>
+
+      {/* Modal de confirmación de eliminación */}
+      {deletingOrder && (
+        <div style={{
+          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50
+        }}>
+          <div style={{
+            backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '0.75rem', padding: '1.5rem', width: '100%', maxWidth: '420px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0, color: '#f8fafc', fontWeight: 700 }}>Eliminar Orden</h3>
+              <button onClick={() => setDeletingOrder(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}>
+                <X size={20} />
+              </button>
+            </div>
+            <p style={{ color: '#94a3b8', marginBottom: '0.5rem' }}>
+              ¿Estás seguro que querés eliminar la orden <strong style={{ color: '#f8fafc' }}>#{deletingOrder.id.slice(0, 8)}</strong>
+              {deletingOrder.customer?.name ? ` de ${deletingOrder.customer.name}` : ''}?
+            </p>
+            <p style={{ color: '#64748b', fontSize: '0.8rem', marginBottom: '1.5rem' }}>
+              Esta acción no se puede deshacer.
+            </p>
+            {deleteError && (
+              <p style={{ color: '#f87171', fontSize: '0.85rem', marginBottom: '1rem' }}>{deleteError}</p>
+            )}
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setDeletingOrder(null)}
+                disabled={deleteLoading}
+                style={{
+                  padding: '0.5rem 1rem', backgroundColor: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem',
+                  color: '#94a3b8', cursor: 'pointer', fontWeight: 500
+                }}>
+                Cancelar
+              </button>
+              <button
+                onClick={handleDeleteConfirm}
+                disabled={deleteLoading}
+                style={{
+                  padding: '0.5rem 1rem', backgroundColor: '#dc2626',
+                  border: 'none', borderRadius: '0.5rem',
+                  color: '#fff', cursor: deleteLoading ? 'not-allowed' : 'pointer',
+                  fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem',
+                  opacity: deleteLoading ? 0.7 : 1
+                }}>
+                {deleteLoading ? <><Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> Eliminando...</> : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Componente de impresión oculto */}
       {printingOrder && (
