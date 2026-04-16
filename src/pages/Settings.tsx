@@ -141,6 +141,7 @@ export default function Settings() {
   })
   const [testingConnection, setTestingConnection] = useState(false)
   const [syncingParameters, setSyncingParameters] = useState(false)
+  const [generandoCSR, setGenerandoCSR] = useState(false)
 
   // Preferencias
   const [darkMode, setDarkMode] = useState(false)
@@ -286,6 +287,61 @@ export default function Settings() {
       alert('❌ Error al sincronizar: ' + (error.message || 'Error desconocido'))
     } finally {
       setSyncingParameters(false)
+    }
+  }
+
+  const handleGenerarCSR = async () => {
+    if (!businessId) return alert('No hay negocio seleccionado')
+    const cuit = arcaConfig.cuit_emisor || businessSettings.cuit
+    if (!cuit) return alert('Completá el CUIT emisor en la configuración de ARCA antes de generar el CSR.')
+    const razon = businessSettings.razon_social || businessSettings.nombre_comercial
+    if (!razon) return alert('Completá la Razón Social en los datos del negocio.')
+
+    setGenerandoCSR(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Sin sesión activa')
+
+      const res = await supabase.functions.invoke('generate-csr', {
+        body: {
+          business_id: businessId,
+          razon_social: razon,
+          cuit,
+          provincia: businessSettings.provincia || 'Buenos Aires',
+          localidad: businessSettings.localidad || '',
+          email: businessSettings.email || '',
+        },
+      })
+
+      if (res.error || !res.data?.success) {
+        throw new Error(res.data?.error || res.error?.message || 'Error al generar CSR')
+      }
+
+      const csrPem: string = res.data.csr_pem
+
+      // Descargar automáticamente
+      const blob = new Blob([csrPem], { type: 'application/x-pem-file' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `csr_${cuit.replace(/\D/g, '')}_${new Date().toISOString().split('T')[0]}.csr`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      alert(
+        '✅ CSR generado y descargado.\n\n' +
+        'Pasos siguientes:\n' +
+        '1. Ingresá a https://auth.afip.gob.ar/contribuyente con tu clave fiscal nivel 3.\n' +
+        '2. Administrador de Relaciones → Crear Alias → Cargar el archivo .csr descargado.\n' +
+        '3. AFIP te emitirá un certificado .crt — descargalo.\n' +
+        '4. Volvé aquí y subí el certificado .crt en el campo "Certificado".'
+      )
+    } catch (e: any) {
+      alert('❌ Error: ' + (e.message || 'Error desconocido al generar CSR'))
+    } finally {
+      setGenerandoCSR(false)
     }
   }
 
@@ -1181,9 +1237,29 @@ export default function Settings() {
                     <AlertTriangle size={16} style={{ color: '#f59e0b' }} />
                     <span style={{ color: '#f59e0b', fontWeight: 500, fontSize: '0.875rem' }}>Certificado Digital</span>
                   </div>
-                  <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: 0 }}>
-                    Sube tu certificado digital (.p12, .pfx, .crt) y clave privada para conectar con AFIP. Los archivos serán cifrados automáticamente.
+                  <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: '0 0 0.75rem 0' }}>
+                    Si no tenés certificado, generá un CSR (Certificate Signing Request) y presentalo ante AFIP para obtener el tuyo. Luego subí el .crt aquí.
                   </p>
+                  <button
+                    onClick={handleGenerarCSR}
+                    disabled={generandoCSR}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+                      padding: '0.5rem 1rem',
+                      backgroundColor: generandoCSR ? 'rgba(99,102,241,0.5)' : 'rgba(99,102,241,0.15)',
+                      border: '1px solid rgba(99,102,241,0.4)',
+                      borderRadius: '0.5rem',
+                      color: '#818cf8',
+                      cursor: generandoCSR ? 'not-allowed' : 'pointer',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {generandoCSR
+                      ? <><Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> Generando CSR...</>
+                      : <><FileText size={15} /> Generar CSR para AFIP</>
+                    }
+                  </button>
                 </div>
 
                 <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem' }}>
