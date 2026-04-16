@@ -20,9 +20,9 @@ import type {
 // the 'apikey' (anon key) and 'Authorization' (user JWT) headers
 // required by the Supabase API gateway.
 async function callEdge<T>(action: string, payload: Record<string, unknown>): Promise<T> {
-  // Ensure user is logged in before calling
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) throw new Error('No hay sesión activa. Iniciá sesión nuevamente.')
+  // Use getUser() instead of getSession() — validates with server and auto-refreshes expired tokens
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) throw new Error('No hay sesión activa. Iniciá sesión nuevamente.')
 
   const { data, error } = await supabase.functions.invoke('mp-subscription', {
     body: { action, ...payload },
