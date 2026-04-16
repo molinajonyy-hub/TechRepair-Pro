@@ -1,5 +1,5 @@
 {
-  "installCommand": "rm -f package-lock.json && npm install",
+  "installCommand": "npm install && npm install @rollup/rollup-linux-x64-gnu --no-save",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
