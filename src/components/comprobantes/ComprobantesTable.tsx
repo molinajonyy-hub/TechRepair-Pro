@@ -1,20 +1,28 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { 
-  FileText, 
-  Receipt, 
-  RotateCcw, 
-  Eye, 
+import {
+  FileText,
+  Receipt,
+  RotateCcw,
+  Eye,
   Filter,
   Search,
   ChevronDown,
   FileSpreadsheet,
-  Printer
+  Printer,
+  Pencil,
+  Trash2,
+  Ban,
+  Loader2,
 } from 'lucide-react';
 import { TipoComprobante, Comprobante } from '../../hooks/useComprobantes';
 
 interface ComprobantesTableProps {
   comprobantes: Comprobante[];
+  onEdit?: (comprobante: Comprobante) => void;
+  onAnular?: (comprobante: Comprobante) => void;
+  onEliminar?: (comprobante: Comprobante) => void;
+  actionLoading?: string | null; // id del comprobante en proceso
 }
 
 const tipoConfig: Record<TipoComprobante, { 
@@ -71,7 +79,7 @@ const estadoConfig: Record<string, {
   }
 };
 
-export function ComprobantesTable({ comprobantes }: ComprobantesTableProps) {
+export function ComprobantesTable({ comprobantes, onEdit, onAnular, onEliminar, actionLoading }: ComprobantesTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [tipoFilter, setTipoFilter] = useState<TipoComprobante | 'todos'>('todos');
   const [estadoFilter, setEstadoFilter] = useState<'todos' | 'borrador' | 'emitido' | 'anulado'>('todos');
@@ -508,30 +516,85 @@ export function ComprobantesTable({ comprobantes }: ComprobantesTableProps) {
                         </span>
                       </td>
                       <td style={{ padding: '1rem', textAlign: 'right' }}>
-                        <Link
-                          to={`/comprobantes/${comprobante.id}`}
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            padding: '0.5rem 1rem',
-                            backgroundColor: '#4f46e5',
-                            color: '#ffffff',
-                            borderRadius: '0.5rem',
-                            textDecoration: 'none',
-                            fontSize: '0.875rem',
-                            transition: 'background-color 0.15s ease'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = '#4338ca';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = '#4f46e5';
-                          }}
-                        >
-                          <Eye size={16} />
-                          Ver
-                        </Link>
+                        <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end', alignItems: 'center' }}>
+                          {/* Ver */}
+                          <Link
+                            to={`/comprobantes/${comprobante.id}`}
+                            title="Ver detalle"
+                            style={{
+                              display: 'inline-flex', alignItems: 'center',
+                              padding: '0.4rem',
+                              backgroundColor: 'rgba(255,255,255,0.05)',
+                              border: '1px solid rgba(255,255,255,0.08)',
+                              borderRadius: '0.375rem',
+                              textDecoration: 'none'
+                            }}
+                          >
+                            <Eye size={15} style={{ color: '#94a3b8' }} />
+                          </Link>
+
+                          {/* Editar — solo borrador */}
+                          {comprobante.estado === 'borrador' && onEdit && (
+                            <button
+                              title="Editar"
+                              onClick={() => onEdit(comprobante)}
+                              disabled={actionLoading === comprobante.id}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center',
+                                padding: '0.4rem',
+                                backgroundColor: 'rgba(139,92,246,0.1)',
+                                border: '1px solid rgba(139,92,246,0.25)',
+                                borderRadius: '0.375rem',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              <Pencil size={15} style={{ color: '#a78bfa' }} />
+                            </button>
+                          )}
+
+                          {/* Anular — solo emitido */}
+                          {comprobante.estado === 'emitido' && onAnular && (
+                            <button
+                              title="Anular comprobante"
+                              onClick={() => onAnular(comprobante)}
+                              disabled={actionLoading === comprobante.id}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center',
+                                padding: '0.4rem',
+                                backgroundColor: 'rgba(245,158,11,0.1)',
+                                border: '1px solid rgba(245,158,11,0.25)',
+                                borderRadius: '0.375rem',
+                                cursor: actionLoading === comprobante.id ? 'not-allowed' : 'pointer',
+                                opacity: actionLoading === comprobante.id ? 0.5 : 1
+                              }}
+                            >
+                              {actionLoading === comprobante.id
+                                ? <Loader2 size={15} style={{ color: '#f59e0b', animation: 'spin 1s linear infinite' }} />
+                                : <Ban size={15} style={{ color: '#f59e0b' }} />
+                              }
+                            </button>
+                          )}
+
+                          {/* Eliminar — solo borrador */}
+                          {comprobante.estado === 'borrador' && onEliminar && (
+                            <button
+                              title="Eliminar borrador"
+                              onClick={() => onEliminar(comprobante)}
+                              disabled={actionLoading === comprobante.id}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center',
+                                padding: '0.4rem',
+                                backgroundColor: 'rgba(239,68,68,0.08)',
+                                border: '1px solid rgba(239,68,68,0.2)',
+                                borderRadius: '0.375rem',
+                                cursor: actionLoading === comprobante.id ? 'not-allowed' : 'pointer',
+                                opacity: actionLoading === comprobante.id ? 0.5 : 1
+                              }}
+                            >
+                              <Trash2 size={15} style={{ color: '#ef4444' }} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

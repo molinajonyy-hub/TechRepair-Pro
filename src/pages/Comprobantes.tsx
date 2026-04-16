@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react';
-import { Plus, RefreshCw, FileText, TrendingUp, Receipt } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, RefreshCw, FileText, TrendingUp, Receipt, X, Loader2, AlertTriangle } from 'lucide-react';
 import { useComprobantes, TipoComprobante } from '../hooks/useComprobantes';
+import { Comprobante } from '../hooks/useComprobantes';
 import { ComprobantesTable } from '../components/comprobantes/ComprobantesTable';
 import { ModalCrearComprobante } from '../components/comprobantes/ModalCrearComprobante';
 import { Loader } from '../components/ui/Loader';
 import { useAuth } from '../contexts/AuthContext';
 import ArcaService from '../services/arcaService';
+import { supabase } from '../lib/supabase';
 
 export default function ComprobantesPage() {
   const { businessId } = useAuth();
+  const navigate = useNavigate();
   const {
     comprobantes,
     loading,
@@ -20,6 +24,117 @@ export default function ComprobantesPage() {
 
   const [showModal, setShowModal] = useState(false);
   const [creando, setCreando] = useState(false);
+
+  // ── Acción: Editar ────────────────────────────────────────────────
+  const handleEdit = (comp: Comprobante) => {
+    navigate(`/comprobantes/${comp.id}`)
+  }
+
+  // ── Acción: Anular (emitido → anulado + stock + finanzas) ────────
+  const [anulando, setAnulando] = useState<Comprobante | null>(null)
+  const [anulandoMotivo, setAnulandoMotivo] = useState('')
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const confirmarAnular = async () => {
+    if (!anulando) return
+    setActionLoading(anulando.id)
+    setActionError(null)
+    try {
+      // 1. Obtener items con inventory_id
+      const { data: items } = await supabase
+        .from('comprobante_items')
+        .select('inventory_id, cantidad')
+        .eq('comprobante_id', anulando.id)
+        .not('inventory_id', 'is', null)
+
+      // 2. Devolver stock
+      if (items && items.length > 0) {
+        for (const item of items) {
+          if (!item.inventory_id) continue
+          const { data: inv } = await supabase
+            .from('inventory')
+            .select('stock_quantity')
+            .eq('id', item.inventory_id)
+            .single()
+          if (inv) {
+            await supabase
+              .from('inventory')
+              .update({ stock_quantity: (inv.stock_quantity || 0) + item.cantidad })
+              .eq('id', item.inventory_id)
+            // Movimiento de inventario
+            await supabase.from('inventory_movements').insert({
+              inventory_id: item.inventory_id,
+              business_id: businessId,
+              type: 'return',
+              quantity: item.cantidad,
+              notes: `Anulación comprobante ${anulando.numero || anulando.id.slice(0, 8)}`,
+            })
+          }
+        }
+      }
+
+      // 3. Revertir entrada de finanzas si existe
+      const { data: finEntry } = await supabase
+        .from('business_finance_entries')
+        .select('id, amount')
+        .eq('reference_id', anulando.id)
+        .maybeSingle()
+      if (finEntry) {
+        await supabase.from('business_finance_entries').insert({
+          business_id: businessId,
+          type: 'expense',
+          category: 'anulacion_comprobante',
+          amount: finEntry.amount,
+          description: `Reversión por anulación comprobante ${anulando.numero || anulando.id.slice(0, 8)}`,
+          reference_id: anulando.id,
+          date: new Date().toISOString(),
+        })
+      }
+
+      // 4. Marcar como anulado
+      const { error: updErr } = await supabase
+        .from('comprobantes')
+        .update({
+          estado: 'anulado',
+          afip_response: { anulacion: { motivo: anulandoMotivo || null, fecha: new Date().toISOString() } },
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', anulando.id)
+      if (updErr) throw updErr
+
+      setAnulando(null)
+      setAnulandoMotivo('')
+      await listarComprobantes()
+    } catch (e: any) {
+      setActionError(e.message || 'Error al anular el comprobante')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  // ── Acción: Eliminar borrador ─────────────────────────────────────
+  const [eliminando, setEliminando] = useState<Comprobante | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const confirmarEliminar = async () => {
+    if (!eliminando) return
+    setDeleteLoading(true)
+    setDeleteError(null)
+    try {
+      // Eliminar items primero
+      await supabase.from('comprobante_items').delete().eq('comprobante_id', eliminando.id)
+      const { error: delErr } = await supabase.from('comprobantes').delete().eq('id', eliminando.id)
+      if (delErr) throw delErr
+      setEliminando(null)
+      await listarComprobantes()
+    } catch (e: any) {
+      setDeleteError(e.message || 'Error al eliminar el comprobante')
+    } finally {
+      setDeleteLoading(false)
+    }
+  }
 
   useEffect(() => {
     cargarComprobantes();
@@ -266,6 +381,10 @@ export default function ComprobantesPage() {
       {/* Table */}
       <ComprobantesTable
         comprobantes={comprobantes}
+        onEdit={handleEdit}
+        onAnular={(comp) => { setActionError(null); setAnulandoMotivo(''); setAnulando(comp) }}
+        onEliminar={(comp) => { setDeleteError(null); setEliminando(comp) }}
+        actionLoading={actionLoading}
       />
 
       {/* Loading State */}
@@ -325,6 +444,67 @@ export default function ComprobantesPage() {
         onCrear={handleCrearComprobante}
         loading={creando}
       />
+
+      {/* Modal Anular Comprobante */}
+      {anulando && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div style={{ backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.75rem', padding: '1.5rem', width: '100%', maxWidth: '440px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <AlertTriangle size={18} style={{ color: '#f59e0b' }} />
+                <h3 style={{ margin: 0, color: '#f8fafc', fontWeight: 700 }}>Anular Comprobante</h3>
+              </div>
+              <button onClick={() => setAnulando(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
+            </div>
+            <p style={{ color: '#94a3b8', marginBottom: '0.5rem' }}>
+              Vas a anular el comprobante <strong style={{ color: '#f8fafc' }}>{anulando.numero || `#${anulando.id.slice(0, 8)}`}</strong> por <strong style={{ color: '#f8fafc' }}>${anulando.total.toLocaleString('es-AR')}</strong>.
+            </p>
+            <p style={{ color: '#64748b', fontSize: '0.8rem', marginBottom: '1rem' }}>
+              Esto restaurará el stock de los productos incluidos y revertirá el registro en finanzas.
+            </p>
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.4rem' }}>Motivo (opcional)</label>
+              <input
+                type="text"
+                placeholder="Ej: Error en precio, cliente canceló..."
+                value={anulandoMotivo}
+                onChange={e => setAnulandoMotivo(e.target.value)}
+                style={{ width: '100%', padding: '0.5rem 0.75rem', backgroundColor: 'rgba(15,23,42,0.8)', border: '1px solid rgba(51,65,85,0.6)', borderRadius: '0.5rem', color: '#f1f5f9', outline: 'none', boxSizing: 'border-box' }}
+              />
+            </div>
+            {actionError && <p style={{ color: '#f87171', fontSize: '0.85rem', marginBottom: '1rem' }}>{actionError}</p>}
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button onClick={() => setAnulando(null)} disabled={!!actionLoading} style={{ padding: '0.5rem 1rem', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', color: '#94a3b8', cursor: 'pointer', fontWeight: 500 }}>Cancelar</button>
+              <button onClick={confirmarAnular} disabled={!!actionLoading} style={{ padding: '0.5rem 1rem', backgroundColor: '#d97706', border: 'none', borderRadius: '0.5rem', color: '#fff', cursor: actionLoading ? 'not-allowed' : 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', opacity: actionLoading ? 0.7 : 1 }}>
+                {actionLoading ? <><Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> Anulando...</> : 'Confirmar Anulación'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Eliminar Borrador */}
+      {eliminando && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div style={{ backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.75rem', padding: '1.5rem', width: '100%', maxWidth: '420px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0, color: '#f8fafc', fontWeight: 700 }}>Eliminar Borrador</h3>
+              <button onClick={() => setEliminando(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
+            </div>
+            <p style={{ color: '#94a3b8', marginBottom: '0.5rem' }}>
+              ¿Eliminás el borrador <strong style={{ color: '#f8fafc' }}>{eliminando.numero || `#${eliminando.id.slice(0, 8)}`}</strong>? Esta acción no se puede deshacer.
+            </p>
+            <p style={{ color: '#64748b', fontSize: '0.8rem', marginBottom: '1.25rem' }}>Como es un borrador, no afecta stock ni finanzas.</p>
+            {deleteError && <p style={{ color: '#f87171', fontSize: '0.85rem', marginBottom: '1rem' }}>{deleteError}</p>}
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button onClick={() => setEliminando(null)} disabled={deleteLoading} style={{ padding: '0.5rem 1rem', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', color: '#94a3b8', cursor: 'pointer', fontWeight: 500 }}>Cancelar</button>
+              <button onClick={confirmarEliminar} disabled={deleteLoading} style={{ padding: '0.5rem 1rem', backgroundColor: '#dc2626', border: 'none', borderRadius: '0.5rem', color: '#fff', cursor: deleteLoading ? 'not-allowed' : 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', opacity: deleteLoading ? 0.7 : 1 }}>
+                {deleteLoading ? <><Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> Eliminando...</> : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
