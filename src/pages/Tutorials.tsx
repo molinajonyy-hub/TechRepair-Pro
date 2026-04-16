@@ -1,0 +1,703 @@
+/**
+ * Tutorials.tsx — Centro de tutoriales y guías
+ */
+import { useState } from 'react'
+import {
+  BookOpen, ChevronDown, ChevronRight, ExternalLink,
+  CheckCircle, AlertTriangle, Info, FileText, Shield,
+  Settings, Upload, Key, Globe, Terminal
+} from 'lucide-react'
+
+// ── Componentes de ayuda ──────────────────────────────────────────
+
+function StepBadge({ n }: { n: number }) {
+  return (
+    <div style={{
+      width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+      background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      color: '#fff', fontWeight: 700, fontSize: '0.875rem',
+      boxShadow: '0 2px 8px rgba(99,102,241,0.4)',
+    }}>{n}</div>
+  )
+}
+
+function Callout({ type, children }: { type: 'info' | 'warning' | 'success', children: React.ReactNode }) {
+  const styles = {
+    info:    { bg: 'rgba(99,102,241,0.08)',  border: 'rgba(99,102,241,0.3)',  color: '#818cf8', Icon: Info },
+    warning: { bg: 'rgba(251,191,36,0.08)',  border: 'rgba(251,191,36,0.3)',  color: '#fbbf24', Icon: AlertTriangle },
+    success: { bg: 'rgba(52,211,153,0.08)',  border: 'rgba(52,211,153,0.3)',  color: '#34d399', Icon: CheckCircle },
+  }
+  const s = styles[type]
+  return (
+    <div style={{
+      display: 'flex', gap: '0.75rem', alignItems: 'flex-start',
+      background: s.bg, border: `1px solid ${s.border}`,
+      borderRadius: '0.75rem', padding: '0.875rem 1rem', margin: '1rem 0',
+    }}>
+      <s.Icon size={17} color={s.color} style={{ flexShrink: 0, marginTop: 2 }} />
+      <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>{children}</div>
+    </div>
+  )
+}
+
+function Screenshot({ label, children }: { label: string, children: React.ReactNode }) {
+  return (
+    <div style={{ margin: '1.25rem 0' }}>
+      <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontStyle: 'italic' }}>
+        📸 {label}
+      </p>
+      <div style={{
+        border: '1px solid var(--border-color)', borderRadius: '0.75rem',
+        overflow: 'hidden', background: 'var(--bg-card)',
+        boxShadow: 'var(--shadow-sm)',
+      }}>
+        <div style={{
+          background: 'var(--bg-sidebar)', borderBottom: '1px solid var(--border-color)',
+          padding: '0.5rem 0.875rem', display: 'flex', gap: '0.4rem', alignItems: 'center',
+        }}>
+          {['#ff5f57','#febc2e','#28c840'].map(c => (
+            <div key={c} style={{ width: 10, height: 10, borderRadius: '50%', background: c }} />
+          ))}
+          <div style={{
+            flex: 1, marginLeft: '0.5rem', background: 'var(--bg-main)',
+            borderRadius: '0.375rem', padding: '0.2rem 0.75rem',
+            fontSize: '0.7rem', color: 'var(--text-muted)',
+          }}>
+            arca.gob.ar
+          </div>
+        </div>
+        <div style={{ padding: '1.25rem' }}>{children}</div>
+      </div>
+    </div>
+  )
+}
+
+function CodeBlock({ children }: { children: string }) {
+  return (
+    <pre style={{
+      background: '#0f172a', color: '#e2e8f0', borderRadius: '0.625rem',
+      padding: '1rem', fontSize: '0.8rem', overflowX: 'auto',
+      border: '1px solid rgba(255,255,255,0.08)', margin: '1rem 0',
+      fontFamily: 'monospace', lineHeight: 1.6,
+    }}>
+      <code>{children}</code>
+    </pre>
+  )
+}
+
+function LinkBtn({ href, children }: { href: string, children: React.ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" style={{
+      display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
+      color: '#6366f1', fontSize: '0.875rem', fontWeight: 500,
+      textDecoration: 'none', borderBottom: '1px solid rgba(99,102,241,0.3)',
+      paddingBottom: '1px',
+    }}>
+      {children} <ExternalLink size={12} />
+    </a>
+  )
+}
+
+// ── Tutorial ARCA ─────────────────────────────────────────────────
+
+function TutorialARCA() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
+
+      {/* Introducción */}
+      <div style={{
+        background: 'linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.05))',
+        border: '1px solid rgba(99,102,241,0.2)', borderRadius: '1rem', padding: '1.5rem',
+      }}>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+          <div style={{
+            width: 48, height: 48, borderRadius: '0.75rem', flexShrink: 0,
+            background: 'rgba(99,102,241,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Shield size={24} color="#6366f1" />
+          </div>
+          <div>
+            <h3 style={{ margin: '0 0 0.5rem', color: 'var(--text-primary)', fontSize: '1.1rem' }}>
+              ¿Qué es ARCA?
+            </h3>
+            <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7 }}>
+              ARCA (Agencia de Recaudación y Control Aduanero) es el organismo fiscal argentino,
+              anteriormente conocido como AFIP. La integración con ARCA te permite emitir
+              <strong> facturas electrónicas oficiales (CAE)</strong> directamente desde TechRepair,
+              con validez legal ante la ARCA.
+            </p>
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginTop: '1.25rem' }}>
+          {['Factura A, B y C electrónica','CAE automático','Validez legal','Sin papel'].map(t => (
+            <span key={t} style={{
+              background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.2)',
+              borderRadius: '2rem', padding: '0.25rem 0.75rem',
+              fontSize: '0.775rem', color: '#818cf8', fontWeight: 500,
+            }}>{t}</span>
+          ))}
+        </div>
+      </div>
+
+      <Callout type="warning">
+        <strong>Antes de empezar:</strong> Necesitás tener tu CUIT activo en ARCA y acceso con Clave Fiscal nivel 3 o superior. Si no tenés Clave Fiscal, primero creala en <LinkBtn href="https://auth.afip.gob.ar/contribuyente_/login.xhtml">auth.afip.gob.ar</LinkBtn>
+      </Callout>
+
+      {/* PASO 1 */}
+      <section>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <StepBadge n={1} />
+          <div>
+            <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 700 }}>
+              Ingresá al portal de ARCA con tu Clave Fiscal
+            </h2>
+            <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              Accedé con CUIT + Clave Fiscal al portal oficial
+            </p>
+          </div>
+        </div>
+
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7, marginLeft: '3rem' }}>
+          Ingresá a <LinkBtn href="https://auth.afip.gob.ar/contribuyente_/login.xhtml">auth.afip.gob.ar</LinkBtn> con
+          tu CUIT y Clave Fiscal. Si es la primera vez, vas a necesitar nivel 3 para acceder a los web services.
+        </p>
+
+        <Screenshot label="Portal de ingreso de ARCA">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', maxWidth: 380 }}>
+            <div style={{ textAlign: 'center', marginBottom: '0.5rem' }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: '0.75rem',
+                background: 'linear-gradient(135deg, #0ea5e9, #0284c7)',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.5rem',
+              }}>
+                <Shield size={24} color="#fff" />
+              </div>
+              <h4 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1rem' }}>ARCA</h4>
+              <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                Agencia de Recaudación y Control Aduanero
+              </p>
+            </div>
+            {[
+              { label: 'CUIT / CUIL / CDI', placeholder: '20-12345678-9', type: 'text' },
+              { label: 'Clave Fiscal', placeholder: '••••••••', type: 'password' },
+            ].map(f => (
+              <div key={f.label}>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>{f.label}</label>
+                <div style={{
+                  border: '1px solid var(--border-color)', borderRadius: '0.5rem',
+                  padding: '0.5rem 0.75rem', fontSize: '0.875rem', color: 'var(--text-muted)',
+                  background: 'var(--bg-main)',
+                }}>{f.placeholder}</div>
+              </div>
+            ))}
+            <div style={{
+              background: '#0ea5e9', borderRadius: '0.5rem', padding: '0.625rem',
+              textAlign: 'center', color: '#fff', fontSize: '0.875rem', fontWeight: 600,
+            }}>Ingresar</div>
+          </div>
+        </Screenshot>
+      </section>
+
+      {/* PASO 2 */}
+      <section>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <StepBadge n={2} />
+          <div>
+            <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 700 }}>
+              Accedé a "Administración de Certificados Digitales"
+            </h2>
+            <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              Desde el menú principal → Servicios → WSASS
+            </p>
+          </div>
+        </div>
+
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7, marginLeft: '3rem' }}>
+          Una vez logueado, buscá el servicio <strong>"Administración de Certificados Digitales"</strong> en
+          el buscador de servicios o en el menú. También podés ir directo a: <LinkBtn href="https://wsaahomo.afip.gov.ar/ws/services/LoginCms?WSDL">WSAA Homologación</LinkBtn>
+        </p>
+
+        <Screenshot label="Menú de servicios de ARCA — buscar 'Certificados'">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{
+              border: '1px solid var(--border-color)', borderRadius: '0.5rem',
+              padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem',
+              background: 'var(--bg-main)',
+            }}>
+              <Globe size={14} color="var(--text-muted)" />
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Buscar servicio...</span>
+            </div>
+            {[
+              { name: 'Administración de Certificados Digitales', desc: 'WSASS — Gestión de certificados para web services', active: true },
+              { name: 'Facturación Electrónica (WSFEV1)', desc: 'Emisión de comprobantes electrónicos', active: false },
+            ].map(s => (
+              <div key={s.name} style={{
+                border: `1px solid ${s.active ? '#6366f1' : 'var(--border-color)'}`,
+                background: s.active ? 'rgba(99,102,241,0.08)' : 'transparent',
+                borderRadius: '0.5rem', padding: '0.75rem',
+              }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: s.active ? '#818cf8' : 'var(--text-primary)' }}>{s.name}</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{s.desc}</div>
+              </div>
+            ))}
+          </div>
+        </Screenshot>
+      </section>
+
+      {/* PASO 3 */}
+      <section>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <StepBadge n={3} />
+          <div>
+            <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 700 }}>
+              Generá el certificado digital (CSR)
+            </h2>
+            <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              Creá una clave privada y un pedido de certificado (CSR)
+            </p>
+          </div>
+        </div>
+
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7, marginLeft: '3rem' }}>
+          Desde Administración de Certificados, hacé clic en <strong>"Agregar alias"</strong>.
+          Vas a necesitar generar un archivo CSR (Certificate Signing Request).
+          Podés hacerlo desde tu PC con OpenSSL:
+        </p>
+
+        <div style={{ marginLeft: '3rem' }}>
+          <Callout type="info">
+            Si no tenés OpenSSL instalado en Windows, podés descargarlo desde{' '}
+            <LinkBtn href="https://slproweb.com/products/Win32OpenSSL.html">slproweb.com</LinkBtn>{' '}
+            o usar el que viene con Git para Windows.
+          </Callout>
+
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+            <strong>1.</strong> Abrí una terminal y generá la clave privada:
+          </p>
+          <CodeBlock>openssl genrsa -out techrepair.key 2048</CodeBlock>
+
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+            <strong>2.</strong> Generá el CSR (reemplazá los datos con los tuyos):
+          </p>
+          <CodeBlock>{`openssl req -new -key techrepair.key -out techrepair.csr \\
+  -subj "/C=AR/O=Mi Taller SRL/CN=techrepair/serialNumber=CUIT 20123456789"`}</CodeBlock>
+
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+            Esto genera dos archivos importantes:
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {[
+              { icon: Key, name: 'techrepair.key', desc: 'Tu clave privada — NUNCA la compartas', color: '#f87171' },
+              { icon: FileText, name: 'techrepair.csr', desc: 'El pedido de certificado — este se sube a ARCA', color: '#34d399' },
+            ].map(f => (
+              <div key={f.name} style={{
+                display: 'flex', gap: '0.75rem', alignItems: 'center',
+                background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+                borderRadius: '0.625rem', padding: '0.75rem',
+              }}>
+                <f.icon size={18} color={f.color} />
+                <div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'monospace' }}>{f.name}</div>
+                  <div style={{ fontSize: '0.775rem', color: 'var(--text-muted)' }}>{f.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* PASO 4 */}
+      <section>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <StepBadge n={4} />
+          <div>
+            <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 700 }}>
+              Subí el CSR a ARCA y descargá el certificado
+            </h2>
+            <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              ARCA firma tu CSR y te entrega el certificado (.crt)
+            </p>
+          </div>
+        </div>
+
+        <div style={{ marginLeft: '3rem' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7 }}>
+            En "Administración de Certificados Digitales", hacé clic en <strong>"Agregar alias"</strong>,
+            poné un nombre (ej: <code style={{ background: 'var(--bg-card)', padding: '0 0.3rem', borderRadius: 3 }}>techrepair</code>)
+            y subí el archivo <code style={{ background: 'var(--bg-card)', padding: '0 0.3rem', borderRadius: 3 }}>techrepair.csr</code>.
+          </p>
+
+          <Screenshot label="Pantalla de 'Agregar alias' en ARCA">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: 420 }}>
+              <div>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>Alias del certificado</label>
+                <div style={{
+                  border: '2px solid #6366f1', borderRadius: '0.5rem',
+                  padding: '0.5rem 0.75rem', fontSize: '0.875rem', color: 'var(--text-primary)',
+                  background: 'var(--bg-main)',
+                }}>techrepair</div>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>Archivo CSR</label>
+                <div style={{
+                  border: '2px dashed var(--border-color)', borderRadius: '0.5rem',
+                  padding: '1.25rem', textAlign: 'center',
+                  background: 'var(--bg-main)',
+                }}>
+                  <Upload size={20} color="var(--text-muted)" style={{ marginBottom: '0.5rem' }} />
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                    Arrastrá o seleccioná <strong>techrepair.csr</strong>
+                  </div>
+                </div>
+              </div>
+              <div style={{
+                background: '#0ea5e9', borderRadius: '0.5rem', padding: '0.625rem',
+                textAlign: 'center', color: '#fff', fontSize: '0.875rem', fontWeight: 600,
+              }}>Agregar certificado</div>
+            </div>
+          </Screenshot>
+
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7 }}>
+            ARCA procesa el CSR y te permite descargar el certificado firmado.
+            Descargalo y guardalo como <code style={{ background: 'var(--bg-card)', padding: '0 0.3rem', borderRadius: 3 }}>techrepair.crt</code>.
+          </p>
+        </div>
+      </section>
+
+      {/* PASO 5 */}
+      <section>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <StepBadge n={5} />
+          <div>
+            <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 700 }}>
+              Habilitá el servicio "Facturación Electrónica" en ARCA
+            </h2>
+            <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              Autorizá tu certificado para acceder al web service de facturación (WSFEV1)
+            </p>
+          </div>
+        </div>
+
+        <div style={{ marginLeft: '3rem' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7 }}>
+            Volvé al portal de ARCA → <strong>Mis Servicios</strong> → buscá
+            <strong> "Facturación Electrónica - WSFEV1"</strong> y habilitalo para el alias
+            que acabás de crear (<code style={{ background: 'var(--bg-card)', padding: '0 0.3rem', borderRadius: 3 }}>techrepair</code>).
+          </p>
+
+          <Screenshot label="Habilitación del servicio WSFEV1 en ARCA">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
+                Servicios habilitados para: <strong style={{ color: 'var(--text-primary)' }}>CUIT 20-12345678-9</strong>
+              </div>
+              {[
+                { name: 'Facturación Electrónica (WSFEV1)', enabled: true },
+                { name: 'Consulta de Padrón ARCA', enabled: false },
+                { name: 'Liquidación de IVA', enabled: false },
+              ].map(s => (
+                <div key={s.name} style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  border: '1px solid var(--border-color)', borderRadius: '0.5rem',
+                  padding: '0.75rem 1rem', background: s.enabled ? 'rgba(52,211,153,0.05)' : 'transparent',
+                }}>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>{s.name}</span>
+                  <div style={{
+                    padding: '0.2rem 0.6rem', borderRadius: '1rem', fontSize: '0.7rem', fontWeight: 600,
+                    background: s.enabled ? 'rgba(52,211,153,0.15)' : 'rgba(255,255,255,0.05)',
+                    color: s.enabled ? '#34d399' : 'var(--text-muted)',
+                    border: `1px solid ${s.enabled ? 'rgba(52,211,153,0.3)' : 'var(--border-color)'}`,
+                  }}>
+                    {s.enabled ? '✓ Habilitado' : 'Deshabilitado'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Screenshot>
+        </div>
+      </section>
+
+      {/* PASO 6 */}
+      <section>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <StepBadge n={6} />
+          <div>
+            <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 700 }}>
+              Configurá el certificado en TechRepair
+            </h2>
+            <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              Subí tu clave privada y certificado en Configuración → ARCA
+            </p>
+          </div>
+        </div>
+
+        <div style={{ marginLeft: '3rem' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7 }}>
+            Andá a <strong>Configuración → ARCA / Facturación Electrónica</strong> en el sidebar
+            de TechRepair y completá los siguientes campos:
+          </p>
+
+          <Screenshot label="Configuración de ARCA en TechRepair — Configuración → ARCA">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: 480 }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '0.75rem',
+                padding: '0.75rem', background: 'rgba(99,102,241,0.08)',
+                border: '1px solid rgba(99,102,241,0.2)', borderRadius: '0.5rem',
+              }}>
+                <Settings size={18} color="#6366f1" />
+                <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#818cf8' }}>
+                  Configuración → ARCA / Facturación Electrónica
+                </span>
+              </div>
+              {[
+                { label: 'CUIT', placeholder: '20-12345678-9', hint: 'Tu número de CUIT sin guiones' },
+                { label: 'Punto de venta', placeholder: '1', hint: 'El número de punto de venta habilitado en ARCA' },
+                { label: 'Certificado (.crt)', placeholder: '---- BEGIN CERTIFICATE ----...', hint: 'Pegá el contenido del archivo techrepair.crt', mono: true },
+                { label: 'Clave privada (.key)', placeholder: '---- BEGIN RSA PRIVATE KEY ----...', hint: 'Pegá el contenido del archivo techrepair.key', mono: true },
+              ].map(f => (
+                <div key={f.label}>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
+                    {f.label}
+                  </label>
+                  <div style={{
+                    border: '1px solid var(--border-color)', borderRadius: '0.5rem',
+                    padding: '0.5rem 0.75rem', fontSize: f.mono ? '0.7rem' : '0.875rem',
+                    color: 'var(--text-muted)', background: 'var(--bg-main)',
+                    fontFamily: f.mono ? 'monospace' : 'inherit',
+                    minHeight: f.mono ? '60px' : 'auto',
+                  }}>{f.placeholder}</div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{f.hint}</div>
+                </div>
+              ))}
+              <div style={{
+                background: '#6366f1', borderRadius: '0.5rem', padding: '0.625rem',
+                textAlign: 'center', color: '#fff', fontSize: '0.875rem', fontWeight: 600,
+              }}>Guardar configuración</div>
+            </div>
+          </Screenshot>
+
+          <Callout type="info">
+            Para copiar el contenido del certificado y la clave en Windows, abrí una terminal en la carpeta donde están los archivos y ejecutá:<br /><br />
+            <code style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>type techrepair.crt</code> y <code style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>type techrepair.key</code><br /><br />
+            Luego seleccioná todo el texto y copialo.
+          </Callout>
+        </div>
+      </section>
+
+      {/* PASO 7 */}
+      <section>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <StepBadge n={7} />
+          <div>
+            <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 700 }}>
+              Emití tu primera factura electrónica
+            </h2>
+            <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              Probá la integración emitiendo un comprobante desde una orden
+            </p>
+          </div>
+        </div>
+
+        <div style={{ marginLeft: '3rem' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7 }}>
+            Andá a cualquier <strong>Orden completada</strong> → hacé clic en <strong>"Generar comprobante"</strong> →
+            elegí el tipo de factura (A, B o C según corresponda) →
+            TechRepair se va a conectar automáticamente con ARCA y te va a devolver el <strong>CAE</strong> (Código de Autorización Electrónico).
+          </p>
+
+          <Screenshot label="Generación de comprobante con CAE desde una orden">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', maxWidth: 400 }}>
+              <div style={{
+                background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.3)',
+                borderRadius: '0.625rem', padding: '1rem',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <CheckCircle size={16} color="#34d399" />
+                  <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#34d399' }}>CAE obtenido exitosamente</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                  {[
+                    { label: 'Tipo', value: 'Factura B' },
+                    { label: 'Número', value: '0001-00000001' },
+                    { label: 'CAE', value: '74123456789012' },
+                    { label: 'Vencimiento CAE', value: '26/04/2026' },
+                  ].map(r => (
+                    <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>{r.label}</span>
+                      <span style={{ color: 'var(--text-primary)', fontWeight: 500, fontFamily: r.label === 'CAE' || r.label === 'Número' ? 'monospace' : 'inherit' }}>{r.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <div style={{
+                  flex: 1, background: '#6366f1', borderRadius: '0.5rem', padding: '0.5rem',
+                  textAlign: 'center', color: '#fff', fontSize: '0.8rem', fontWeight: 600,
+                }}>Descargar PDF</div>
+                <div style={{
+                  flex: 1, background: 'transparent', border: '1px solid var(--border-color)',
+                  borderRadius: '0.5rem', padding: '0.5rem',
+                  textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem',
+                }}>Enviar por WhatsApp</div>
+              </div>
+            </div>
+          </Screenshot>
+
+          <Callout type="success">
+            <strong>¡Listo!</strong> Tu integración con ARCA está funcionando. A partir de ahora,
+            cada factura que emitas desde TechRepair va a tener CAE válido y podrás descargarla en PDF o
+            enviarla por WhatsApp directamente al cliente.
+          </Callout>
+        </div>
+      </section>
+
+      {/* Recursos adicionales */}
+      <section style={{
+        background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+        borderRadius: '1rem', padding: '1.5rem',
+      }}>
+        <h3 style={{ margin: '0 0 1rem', color: 'var(--text-primary)', fontSize: '1rem', fontWeight: 700 }}>
+          📚 Recursos útiles
+        </h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+          {[
+            { label: 'Portal ARCA (ex AFIP)', url: 'https://www.afip.gob.ar' },
+            { label: 'Login con Clave Fiscal', url: 'https://auth.afip.gob.ar/contribuyente_/login.xhtml' },
+            { label: 'Manual WSAA (autenticación)', url: 'https://www.afip.gob.ar/ws/WSAA/WSAA.ObtenerCertificado.pdf' },
+            { label: 'Manual WSFEV1 (factura electrónica)', url: 'https://www.afip.gob.ar/facturadecreditoelectronica/documentos/manual_wsfecm.pdf' },
+            { label: 'OpenSSL para Windows', url: 'https://slproweb.com/products/Win32OpenSSL.html' },
+          ].map(r => (
+            <div key={r.url} style={{
+              display: 'flex', alignItems: 'center', gap: '0.75rem',
+              padding: '0.625rem 0.875rem', border: '1px solid var(--border-color)',
+              borderRadius: '0.625rem', background: 'var(--bg-main)',
+            }}>
+              <Terminal size={14} color="var(--text-muted)" />
+              <LinkBtn href={r.url}>{r.label}</LinkBtn>
+            </div>
+          ))}
+        </div>
+      </section>
+
+    </div>
+  )
+}
+
+// ── Listado de tutoriales ─────────────────────────────────────────
+
+const TUTORIALS = [
+  {
+    id: 'arca',
+    title: 'Integración con ARCA (Factura Electrónica)',
+    description: 'Configurá tu certificado digital y empezá a emitir facturas A, B y C con CAE válido.',
+    icon: Shield,
+    color: '#6366f1',
+    duration: '20 min',
+    level: 'Intermedio',
+    component: TutorialARCA,
+  },
+]
+
+// ── Página principal ──────────────────────────────────────────────
+
+export function Tutorials() {
+  const [selected, setSelected] = useState<string | null>(null)
+  const tutorial = TUTORIALS.find(t => t.id === selected)
+
+  return (
+    <div style={{ maxWidth: 860, margin: '0 auto' }}>
+
+      {/* Header */}
+      <div style={{ marginBottom: '2rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+          {selected && (
+            <button
+              onClick={() => setSelected(null)}
+              style={{
+                background: 'transparent', border: 'none', cursor: 'pointer',
+                color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.375rem',
+                fontSize: '0.875rem', padding: 0,
+              }}
+            >
+              <ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} />
+              Tutoriales
+            </button>
+          )}
+          <h1 style={{
+            margin: 0, color: 'var(--text-primary)', fontSize: '1.75rem', fontWeight: 700,
+          }}>
+            {selected ? tutorial?.title : 'Tutoriales'}
+          </h1>
+        </div>
+        {!selected && (
+          <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.95rem' }}>
+            Guías paso a paso para sacarle el máximo provecho a TechRepair.
+          </p>
+        )}
+      </div>
+
+      {/* Lista de tutoriales */}
+      {!selected && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {TUTORIALS.map(t => {
+            const Icon = t.icon
+            return (
+              <button
+                key={t.id}
+                onClick={() => setSelected(t.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '1.25rem',
+                  background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+                  borderRadius: '1rem', padding: '1.25rem 1.5rem',
+                  cursor: 'pointer', textAlign: 'left', width: '100%',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLElement).style.borderColor = t.color
+                  ;(e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'
+                  ;(e.currentTarget as HTMLElement).style.boxShadow = `0 4px 20px ${t.color}20`
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-color)'
+                  ;(e.currentTarget as HTMLElement).style.transform = 'none'
+                  ;(e.currentTarget as HTMLElement).style.boxShadow = 'none'
+                }}
+              >
+                <div style={{
+                  width: 52, height: 52, borderRadius: '0.875rem', flexShrink: 0,
+                  background: `${t.color}18`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Icon size={26} color={t.color} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '1rem', marginBottom: '0.25rem' }}>
+                    {t.title}
+                  </div>
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginBottom: '0.625rem' }}>
+                    {t.description}
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    {[{ label: `⏱ ${t.duration}` }, { label: `📊 ${t.level}` }].map(b => (
+                      <span key={b.label} style={{
+                        fontSize: '0.75rem', color: 'var(--text-muted)',
+                        background: 'var(--bg-main)', border: '1px solid var(--border-color)',
+                        padding: '0.2rem 0.6rem', borderRadius: '0.375rem',
+                      }}>{b.label}</span>
+                    ))}
+                  </div>
+                </div>
+                <ChevronDown size={18} color="var(--text-muted)" style={{ transform: 'rotate(-90deg)', flexShrink: 0 }} />
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Tutorial seleccionado */}
+      {selected && tutorial && (
+        <tutorial.component />
+      )}
+    </div>
+  )
+}

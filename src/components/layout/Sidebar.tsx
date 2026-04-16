@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   BarChart3,
+  BookOpen,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -38,6 +39,7 @@ const menuItems = [
   { path: '/settings', icon: Settings, label: 'Configuración' },
   { path: '/currency-settings', icon: Coins, label: 'Moneda' },
   { path: '/subscription', icon: CreditCard, label: 'Suscripción' },
+  { path: '/tutorials', icon: BookOpen, label: 'Tutoriales' },
 ];
 
 const expandedWidth = 260;

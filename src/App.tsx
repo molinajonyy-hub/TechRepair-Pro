@@ -33,6 +33,7 @@ import { Plans } from './pages/Plans'
 import { PaymentPending } from './pages/PaymentPending'
 import { SubscriptionSuspended } from './pages/SubscriptionSuspended'
 import { AdminSubscriptions } from './pages/AdminSubscriptions'
+import { Tutorials } from './pages/Tutorials'
 
 function AppContent() {
   const { loadingState } = useLoading()
@@ -82,6 +83,7 @@ function AppContent() {
             <Route path="/subscription/pending" element={<PaymentPending />} />
             <Route path="/subscription/suspended" element={<SubscriptionSuspended />} />
             <Route path="/admin/subscriptions" element={<AdminSubscriptions />} />
+            <Route path="/tutorials" element={<Tutorials />} />
           </Route>
         </Route>
       </Routes>
