@@ -14,6 +14,7 @@ import { Dashboard } from './pages/Dashboard'
 import { Expenses } from './pages/Expenses'
 import { Finance } from './pages/Finance'
 import { Inventory } from './pages/Inventory'
+import { AuthCallback } from './pages/AuthCallback'
 import { Login } from './pages/Login'
 import { NewCustomer } from './pages/NewCustomer'
 import { NewOrder } from './pages/NewOrder'
@@ -49,6 +50,7 @@ function AppContent() {
       <Routes>
         <Route path="/landing" element={<LandingPage />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/accept-invite" element={<AcceptInvite />} />
         <Route path="/no-business" element={<NoBusiness />} />
         <Route path="/customer-portal" element={<CustomerPortal />} />

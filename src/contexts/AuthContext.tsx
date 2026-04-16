@@ -345,11 +345,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(true);
 
     try {
+      // Usar VITE_APP_URL si está definido (para producción),
+      // o window.location.origin como fallback (para desarrollo local).
+      // La URL /auth/callback debe estar en la lista de URLs permitidas en Supabase.
+      const appUrl = (import.meta.env.VITE_APP_URL as string | undefined)?.replace(/\/$/, '')
+        || window.location.origin;
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/login`,
+          redirectTo: `${appUrl}/auth/callback`,
           queryParams: {
+            access_type: 'offline',
             prompt: 'select_account',
           },
         },
@@ -358,6 +365,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) {
         throw error;
       }
+      // signInWithOAuth redirige el browser — el código posterior no se ejecuta
     } finally {
       setLoading(false);
     }

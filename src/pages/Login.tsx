@@ -277,6 +277,21 @@ export function Login() {
 
   const from = location.state?.from?.pathname || '/dashboard'
 
+  // Detectar errores OAuth que redirigen de vuelta al login (ej: acceso denegado)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const oauthError = params.get('error')
+    const oauthErrorDesc = params.get('error_description')
+    if (oauthError) {
+      const msg = oauthErrorDesc
+        ? decodeURIComponent(oauthErrorDesc.replace(/\+/g, ' '))
+        : oauthError === 'access_denied'
+        ? 'Cancelaste el inicio de sesión con Google.'
+        : `Error de Google: ${oauthError}`
+      setError(msg)
+    }
+  }, [location.search])
+
   useEffect(() => { emailInputRef.current?.focus() }, [])
 
   useEffect(() => {
