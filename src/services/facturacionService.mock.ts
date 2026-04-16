@@ -45,6 +45,7 @@ export const facturacionServiceMock = {
         id: generateId(),
         order_id: data.order_id,
         customer_id: data.customer_id,
+        business_id: null,
         tipo: data.tipo,
         numero: generateNumero(data.tipo, data.punto_venta || '0001'),
         punto_venta: data.punto_venta || '0001',
@@ -52,6 +53,10 @@ export const facturacionServiceMock = {
         subtotal,
         impuestos,
         total,
+        currency: 'ARS',
+        total_ars: total,
+        total_usd: 0,
+        exchange_rate: 1,
         estado: 'borrador',
         cae: null,
         cae_vencimiento: null,
@@ -69,6 +74,8 @@ export const facturacionServiceMock = {
         cantidad: item.cantidad,
         precio_unitario: item.precio_unitario,
         subtotal: item.cantidad * item.precio_unitario,
+        currency: 'ARS' as const,
+        exchange_rate: 1,
         inventory_id: item.inventory_id || null,
         orden: index
       }));
@@ -166,6 +173,8 @@ export const facturacionServiceMock = {
       cantidad: item.cantidad,
       precio_unitario: item.precio_unitario,
       subtotal: item.cantidad * item.precio_unitario,
+      currency: item.currency || 'ARS',
+      exchange_rate: item.exchange_rate || 1,
       inventory_id: item.inventory_id || null,
       orden: storage.items.filter(i => i.comprobante_id === comprobanteId).length
     };

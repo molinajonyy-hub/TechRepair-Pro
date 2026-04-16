@@ -1,4 +1,4 @@
-import { Search } from 'lucide-react'
+import { GlobalSearch } from './GlobalSearch'
 import { NotificationsDropdown } from './NotificationsDropdown'
 
 export function TopHeader() {
@@ -18,49 +18,12 @@ export function TopHeader() {
         backdropFilter: 'blur(18px)',
       }}
     >
-      {/* Right Section */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         gap: '1rem'
       }}>
-        {/* Search */}
-        <div style={{
-          position: 'relative',
-          display: 'flex',
-          alignItems: 'center'
-        }}>
-          <Search size={18} style={{
-            position: 'absolute',
-            left: '0.75rem',
-            color: 'var(--text-muted)'
-          }} />
-          <input
-            type="text"
-            placeholder="Buscar..."
-            style={{
-              backgroundColor: 'var(--input-bg)',
-              border: '1px solid var(--input-border)',
-              borderRadius: '0.75rem',
-              padding: '0.625rem 0.875rem 0.625rem 2.5rem',
-              color: 'var(--text-primary)',
-              fontSize: '0.875rem',
-              width: '240px',
-              outline: 'none',
-              boxShadow: 'var(--shadow-sm)',
-            }}
-            onFocus={(event) => {
-              event.currentTarget.style.borderColor = 'var(--input-focus-border)';
-              event.currentTarget.style.boxShadow = '0 0 0 3px var(--accent-primary-light)';
-            }}
-            onBlur={(event) => {
-              event.currentTarget.style.borderColor = 'var(--input-border)';
-              event.currentTarget.style.boxShadow = 'var(--shadow-sm)';
-            }}
-          />
-        </div>
-
-        {/* Notifications Dropdown */}
+        <GlobalSearch />
         <NotificationsDropdown />
       </div>
     </header>

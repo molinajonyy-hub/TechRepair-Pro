@@ -5,6 +5,7 @@ import {
   ChevronRight,
   ClipboardList,
   Coins,
+  CreditCard,
   DollarSign,
   FileText,
   LayoutDashboard,
@@ -36,6 +37,7 @@ const menuItems = [
   { path: '/users', icon: Users, label: 'Usuarios' },
   { path: '/settings', icon: Settings, label: 'Configuración' },
   { path: '/currency-settings', icon: Coins, label: 'Moneda' },
+  { path: '/subscription', icon: CreditCard, label: 'Suscripción' },
 ];
 
 const expandedWidth = 260;

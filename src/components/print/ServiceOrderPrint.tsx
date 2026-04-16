@@ -180,9 +180,6 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
           ) : null}
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a', lineHeight: '1.2' }}>{businessName}</div>
-            {s.telefono && (
-              <div style={{ fontSize: '7.5px', color: '#64748b' }}>{s.telefono}</div>
-            )}
           </div>
         </div>
 

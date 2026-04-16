@@ -55,8 +55,10 @@ const ESTADO_CONFIG: Record<string, { label: string; dot: string; text: string; 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmt = (v: number) =>
-  new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(v)
+const fmt = (v: number, currency: 'ARS' | 'USD' = 'ARS') =>
+  new Intl.NumberFormat(currency === 'USD' ? 'en-US' : 'es-AR', {
+    style: 'currency', currency
+  }).format(v)
 
 const fmtFecha = (s: string) =>
   new Date(s).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -397,11 +399,11 @@ function DocItems({ items, editable, onAddItem, onUpdateItem, onDeleteItem }: {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: 'var(--bg-surface)' }}>
-              {['#', 'Descripción', 'Cant.', 'Precio unit.', 'Subtotal'].map((h, i) => (
+              {['#', 'Descripción', 'Cant.', 'Moneda', 'Precio unit.', 'Subtotal'].map((h, i) => (
                 <th key={h} style={{
                   padding: '0.5rem 0.875rem', fontSize: '0.68rem', fontWeight: 700,
                   textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-subtle)',
-                  textAlign: i === 0 ? 'center' : i <= 1 ? 'left' : 'right',
+                  textAlign: i === 0 ? 'center' : i <= 1 ? 'left' : 'center',
                   borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap',
                 }}>{h}</th>
               ))}
@@ -426,13 +428,29 @@ function DocItems({ items, editable, onAddItem, onUpdateItem, onDeleteItem }: {
                     ? <input type="number" value={editForm.cantidad || 0} onChange={e => setEditForm({ ...editForm, cantidad: Number(e.target.value) })} min="0.01" step="0.01" style={{ ...INPUT_S, width: 70, textAlign: 'right' }} />
                     : <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{item.cantidad}</span>}
                 </td>
+                {/* Currency badge */}
+                <td style={{ padding: '0.625rem 0.5rem', textAlign: 'center' }}>
+                  {(() => {
+                    const c = item.currency || 'ARS'
+                    const isUSD = c === 'USD'
+                    return (
+                      <span style={{
+                        fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.06em',
+                        padding: '0.15rem 0.45rem', borderRadius: 4,
+                        background: isUSD ? 'rgba(16,185,129,0.12)' : 'rgba(99,102,241,0.12)',
+                        color: isUSD ? 'var(--success)' : 'var(--accent-primary)',
+                        border: `1px solid ${isUSD ? 'rgba(16,185,129,0.3)' : 'rgba(99,102,241,0.3)'}`,
+                      }}>{c}</span>
+                    )
+                  })()}
+                </td>
                 <td style={{ padding: '0.625rem 0.875rem', textAlign: 'right' }}>
                   {editingItem === item.id
                     ? <input type="number" value={editForm.precio_unitario || 0} onChange={e => setEditForm({ ...editForm, precio_unitario: Number(e.target.value) })} min="0" step="0.01" style={{ ...INPUT_S, width: 110, textAlign: 'right' }} />
-                    : <span style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: '0.875rem' }}>{fmt(item.precio_unitario)}</span>}
+                    : <span style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: '0.875rem' }}>{fmt(item.precio_unitario, item.currency || 'ARS')}</span>}
                 </td>
                 <td style={{ padding: '0.625rem 0.875rem', textAlign: 'right' }}>
-                  <span style={{ color: 'var(--text-primary)', fontFamily: 'monospace', fontWeight: 600, fontSize: '0.875rem' }}>{fmt(item.subtotal)}</span>
+                  <span style={{ color: 'var(--text-primary)', fontFamily: 'monospace', fontWeight: 600, fontSize: '0.875rem' }}>{fmt(item.subtotal, item.currency || 'ARS')}</span>
                 </td>
                 {editable && (
                   <td style={{ padding: '0.5rem 0.625rem', textAlign: 'center' }}>
@@ -453,7 +471,7 @@ function DocItems({ items, editable, onAddItem, onUpdateItem, onDeleteItem }: {
             ))}
             {items.length === 0 && (
               <tr>
-                <td colSpan={editable ? 6 : 5} style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-subtle)', fontSize: '0.875rem' }}>
+                <td colSpan={editable ? 7 : 6} style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-subtle)', fontSize: '0.875rem' }}>
                   No hay ítems en este comprobante
                 </td>
               </tr>
@@ -467,29 +485,113 @@ function DocItems({ items, editable, onAddItem, onUpdateItem, onDeleteItem }: {
 
 // ─── Totals ───────────────────────────────────────────────────────────────────
 
-function DocTotales({ comprobante }: { comprobante: Comprobante }) {
-  const tipo = comprobante.tipo
-  const showIva = tipo === 'factura_a'
-  const esNC   = tipo === 'nota_credito'
-  const sign   = esNC ? '- ' : ''
+function DocTotales({ comprobante, items }: { comprobante: Comprobante; items: ComprobanteItem[] }) {
+  const tipo      = comprobante.tipo
+  const esRemito  = tipo === 'remito'
+  const showIva   = tipo === 'factura_a'
+  const esNC      = tipo === 'nota_credito'
+  const sign      = esNC ? '- ' : ''
+  const currency  = comprobante.currency || 'ARS'
+  const exchangeRate = comprobante.exchange_rate || 1
 
+  // ── Shared total block style ──────────────────────────────────────────────
+  const totalBlockStyle = (isUSD: boolean) => ({
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    marginTop: '0.5rem', padding: '0.75rem 1rem',
+    borderRadius: 'var(--radius-md)',
+    background: esNC
+      ? 'var(--error-subtle)'
+      : isUSD ? 'rgba(16,185,129,0.10)' : 'var(--accent-primary-subtle)',
+    border: `1px solid ${esNC ? 'var(--error)' : isUSD ? 'rgba(16,185,129,0.35)' : 'var(--accent-primary-light)'}`,
+  })
+
+  // ── REMITO: split by item currency ───────────────────────────────────────
+  if (esRemito) {
+    const itemsARS    = items.filter(i => (i.currency || 'ARS') === 'ARS')
+    const itemsUSD    = items.filter(i => i.currency === 'USD')
+    const hasARS      = itemsARS.length > 0
+    const hasUSD      = itemsUSD.length > 0
+    const mixed       = hasARS && hasUSD
+    const subtotalARS = itemsARS.reduce((s, i) => s + i.subtotal, 0)
+    const subtotalUSD = itemsUSD.reduce((s, i) => s + i.subtotal, 0)
+
+    return (
+      <div style={{ padding: '1rem 1.5rem', background: 'var(--bg-card)', display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ width: mixed ? 340 : 280 }}>
+          <SectionLabel>Resumen de importes</SectionLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {mixed ? (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.375rem 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Subtotal <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>(ARS)</span></span>
+                  <span style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: '0.875rem' }}>{fmt(subtotalARS, 'ARS')}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.375rem 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Subtotal <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>(USD)</span></span>
+                  <span style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: '0.875rem' }}>{fmt(subtotalUSD, 'USD')}</span>
+                </div>
+              </>
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.375rem 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Subtotal</span>
+                <span style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                  {hasUSD ? fmt(subtotalUSD, 'USD') : fmt(subtotalARS, 'ARS')}
+                </span>
+              </div>
+            )}
+
+            {hasARS && (
+              <div style={totalBlockStyle(false)}>
+                <div>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', margin: 0 }}>Total</p>
+                  <p style={{ color: 'var(--text-subtle)', fontSize: '0.65rem', margin: '0.125rem 0 0' }}>Pesos Argentinos (ARS)</p>
+                </div>
+                <span style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '1.5rem', color: 'var(--text-primary)' }}>
+                  {fmt(subtotalARS, 'ARS')}
+                </span>
+              </div>
+            )}
+            {hasUSD && (
+              <div style={totalBlockStyle(true)}>
+                <div>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', margin: 0 }}>Total</p>
+                  <p style={{ color: 'var(--success)', fontSize: '0.65rem', margin: '0.125rem 0 0' }}>
+                    Dólares (USD){exchangeRate > 1 ? ` · T/C $${exchangeRate.toLocaleString('es-AR')}` : ''}
+                  </p>
+                </div>
+                <span style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '1.5rem', color: 'var(--success)' }}>
+                  {fmt(subtotalUSD, 'USD')}
+                </span>
+              </div>
+            )}
+            {!hasARS && !hasUSD && (
+              <div style={totalBlockStyle(false)}>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', margin: 0 }}>Total</p>
+                <span style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '1.5rem', color: 'var(--text-primary)' }}>
+                  {fmt(0, 'ARS')}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── FACTURAS / NOTA DE CRÉDITO: single currency total ────────────────────
   return (
-    <div style={{
-      padding: '1rem 1.5rem',
-      background: 'var(--bg-card)',
-      display: 'flex', justifyContent: 'flex-end',
-    }}>
+    <div style={{ padding: '1rem 1.5rem', background: 'var(--bg-card)', display: 'flex', justifyContent: 'flex-end' }}>
       <div style={{ width: 280 }}>
         <SectionLabel>Resumen de importes</SectionLabel>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.375rem 0', borderBottom: '1px solid var(--border-subtle)' }}>
             <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Subtotal</span>
-            <span style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: '0.875rem' }}>{sign}{fmt(comprobante.subtotal)}</span>
+            <span style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: '0.875rem' }}>{sign}{fmt(comprobante.subtotal, 'ARS')}</span>
           </div>
           {showIva && (
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.375rem 0', borderBottom: '1px solid var(--border-subtle)' }}>
               <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>IVA 21% <span style={{ color: 'var(--text-subtle)', fontSize: '0.75rem' }}>(R.I.)</span></span>
-              <span style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: '0.875rem' }}>{sign}{fmt(comprobante.impuestos)}</span>
+              <span style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: '0.875rem' }}>{sign}{fmt(comprobante.impuestos, 'ARS')}</span>
             </div>
           )}
           {tipo === 'factura_c' && (
@@ -497,25 +599,20 @@ function DocTotales({ comprobante }: { comprobante: Comprobante }) {
               IVA incluido en el precio
             </p>
           )}
-          {/* Total */}
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            marginTop: '0.625rem', padding: '0.875rem 1rem',
-            borderRadius: 'var(--radius-md)',
-            background: esNC ? 'var(--error-subtle)' : 'var(--accent-primary-subtle)',
-            border: `1px solid ${esNC ? 'var(--error)' : 'var(--accent-primary-light)'}`,
-          }}>
+          <div style={totalBlockStyle(currency === 'USD')}>
             <div>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', margin: 0 }}>
                 {esNC ? 'Total a devolver' : 'Total a pagar'}
               </p>
-              <p style={{ color: 'var(--text-subtle)', fontSize: '0.65rem', margin: '0.125rem 0 0' }}>Pesos Argentinos (ARS)</p>
+              <p style={{ color: 'var(--text-subtle)', fontSize: '0.65rem', margin: '0.125rem 0 0' }}>
+                Pesos Argentinos (ARS)
+              </p>
             </div>
             <span style={{
               fontFamily: 'monospace', fontWeight: 900, fontSize: '1.5rem',
               color: esNC ? 'var(--error)' : 'var(--text-primary)',
             }}>
-              {sign}{fmt(comprobante.total)}
+              {sign}{fmt(comprobante.total, 'ARS')}
             </span>
           </div>
         </div>
@@ -527,14 +624,6 @@ function DocTotales({ comprobante }: { comprobante: Comprobante }) {
 // ─── Footer ───────────────────────────────────────────────────────────────────
 
 function DocFooter({ comprobante, profile }: { comprobante: Comprobante; profile: OrderPrintSettings }) {
-  const wa = profile.orden_whatsapp
-  const ig = profile.orden_instagram
-  const em = profile.orden_email_visible || profile.email
-  const contactParts: string[] = []
-  if (profile.comp_mostrar_whatsapp && wa) contactParts.push(wa)
-  if (profile.comp_mostrar_instagram && ig) contactParts.push(`@${ig.replace(/^@/, '')}`)
-  if (profile.comp_mostrar_email && em) contactParts.push(em)
-
   return (
     <div>
       {/* Thank you + notes */}
@@ -555,24 +644,6 @@ function DocFooter({ comprobante, profile }: { comprobante: Comprobante; profile
               {profile.comp_notas}
             </p>
           )}
-        </div>
-      )}
-
-      {/* Contact strip */}
-      {contactParts.length > 0 && (
-        <div style={{
-          padding: '0.625rem 1.5rem',
-          background: 'var(--bg-tertiary)',
-          borderTop: '1px solid var(--border-subtle)',
-          display: 'flex', justifyContent: 'center', alignItems: 'center',
-          gap: '0.25rem', flexWrap: 'wrap',
-        }}>
-          {contactParts.map((part, i) => (
-            <span key={i} style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
-              {i > 0 && <span style={{ margin: '0 0.375rem', color: 'var(--border-strong)' }}>·</span>}
-              {part}
-            </span>
-          ))}
         </div>
       )}
 
@@ -608,7 +679,7 @@ export function ComprobanteDocumento({
       <Divider />
       <DocItems items={items} editable={editable} onAddItem={onAddItem} onUpdateItem={onUpdateItem} onDeleteItem={onDeleteItem} />
       <Divider />
-      <DocTotales comprobante={comprobante} />
+      <DocTotales comprobante={comprobante} items={items} />
       <DocFooter comprobante={comprobante} profile={profile} />
     </div>
   )

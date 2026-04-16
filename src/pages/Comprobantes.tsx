@@ -84,12 +84,17 @@ export default function ComprobantesPage() {
     }
   };
 
-  // Calcular estadísticas
+  // Calcular estadísticas separadas por moneda
   const totalEmitido = comprobantes.filter(c => c.estado === 'emitido').length;
   const totalBorrador = comprobantes.filter(c => c.estado === 'borrador').length;
-  const montoTotal = comprobantes
-    .filter(c => c.estado === 'emitido')
-    .reduce((sum, c) => sum + c.total, 0);
+  const emitidos = comprobantes.filter(c => c.estado === 'emitido');
+  const montoTotalARS = emitidos
+    .filter(c => (c.currency || 'ARS') === 'ARS')
+    .reduce((sum, c) => sum + (c.total_ars || c.total || 0), 0);
+  const montoTotalUSD = emitidos
+    .filter(c => c.currency === 'USD')
+    .reduce((sum, c) => sum + (c.total_usd || c.total || 0), 0);
+  const hayUSD = montoTotalUSD > 0;
 
   return (
     <div>
@@ -171,7 +176,7 @@ export default function ComprobantesPage() {
           </div>
         </div>
 
-        {/* Card 2 - Monto */}
+        {/* Card 2 - Monto ARS */}
         <div style={{
           padding: '1.5rem',
           backgroundColor: '#0f1829',
@@ -187,18 +192,18 @@ export default function ComprobantesPage() {
               <TrendingUp size={20} color="#ffffff" />
             </div>
             <span style={{ fontSize: '0.875rem', color: '#94a3b8', fontWeight: 500 }}>
-              Total Facturado
+              Total Facturado ARS
             </span>
           </div>
           <div style={{ fontSize: '2rem', fontWeight: 700, color: '#ffffff' }}>
-            ${montoTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+            ${montoTotalARS.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
           </div>
           <div style={{ marginTop: '0.75rem', fontSize: '0.875rem', color: '#64748b' }}>
-            En comprobantes emitidos
+            En pesos argentinos
           </div>
         </div>
 
-        {/* Card 3 - Promedio */}
+        {/* Card 3 - Monto USD */}
         <div style={{
           padding: '1.5rem',
           backgroundColor: '#0f1829',
@@ -214,14 +219,14 @@ export default function ComprobantesPage() {
               <FileText size={20} color="#ffffff" />
             </div>
             <span style={{ fontSize: '0.875rem', color: '#94a3b8', fontWeight: 500 }}>
-              Promedio
+              Total Facturado USD
             </span>
           </div>
-          <div style={{ fontSize: '2rem', fontWeight: 700, color: '#ffffff' }}>
-            ${totalEmitido > 0 ? (montoTotal / totalEmitido).toFixed(2) : '0.00'}
+          <div style={{ fontSize: '2rem', fontWeight: 700, color: hayUSD ? '#34d399' : '#ffffff' }}>
+            {hayUSD ? `U$D ${montoTotalUSD.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : 'U$D 0.00'}
           </div>
           <div style={{ marginTop: '0.75rem', fontSize: '0.875rem', color: '#64748b' }}>
-            Por comprobante emitido
+            En dólares estadounidenses
           </div>
         </div>
       </div>

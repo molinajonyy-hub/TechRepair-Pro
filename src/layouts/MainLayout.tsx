@@ -3,6 +3,8 @@ import { Sidebar } from '../components/layout/Sidebar'
 import { TopHeader } from '../components/layout/TopHeader'
 import { useAuth } from '../contexts/AuthContext'
 import { useSidebar } from '../hooks/useSidebar'
+import { SubscriptionGuard } from '../components/subscription/SubscriptionGuard'
+import { SubscriptionBanner } from '../components/subscription/SubscriptionBanner'
 
 export function MainLayout() {
   const { businessId, profileError, user } = useAuth()
@@ -59,7 +61,12 @@ export function MainLayout() {
               </p>
             </div>
           ) : (
-            <Outlet />
+            // SubscriptionBanner and SubscriptionGuard only render when businessId is confirmed
+            // This prevents them from crashing before auth is fully loaded
+            <SubscriptionGuard>
+              <SubscriptionBanner />
+              <Outlet />
+            </SubscriptionGuard>
           )}
         </div>
       </div>

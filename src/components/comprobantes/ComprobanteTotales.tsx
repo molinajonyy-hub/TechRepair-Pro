@@ -5,13 +5,18 @@ interface ComprobanteTotalesProps {
   impuestos: number;
   total: number;
   tipo: TipoComprobante;
+  currency?: 'ARS' | 'USD';
+  exchangeRate?: number;
 }
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(value);
+function formatCurrency(value: number, currency: 'ARS' | 'USD' = 'ARS') {
+  return new Intl.NumberFormat(currency === 'USD' ? 'en-US' : 'es-AR', {
+    style: 'currency',
+    currency
+  }).format(value);
 }
 
-export function ComprobanteTotales({ subtotal, impuestos, total, tipo }: ComprobanteTotalesProps) {
+export function ComprobanteTotales({ subtotal, impuestos, total, tipo, currency = 'ARS', exchangeRate }: ComprobanteTotalesProps) {
   const showIva = tipo === 'factura_a';
   const esNotaCredito = tipo === 'nota_credito';
   const sign = esNotaCredito ? '- ' : '';
@@ -27,7 +32,7 @@ export function ComprobanteTotales({ subtotal, impuestos, total, tipo }: Comprob
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.375rem 0', borderBottom: '1px solid var(--border-subtle)' }}>
           <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Subtotal</span>
           <span style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: '0.875rem' }}>
-            {sign}{formatCurrency(subtotal)}
+            {sign}{formatCurrency(subtotal, currency)}
           </span>
         </div>
 
@@ -39,7 +44,7 @@ export function ComprobanteTotales({ subtotal, impuestos, total, tipo }: Comprob
               <span style={{ color: 'var(--text-subtle)', fontSize: '0.75rem' }}>(Resp. Inscripto)</span>
             </span>
             <span style={{ color: 'var(--text-secondary)', fontFamily: 'monospace', fontSize: '0.875rem' }}>
-              {sign}{formatCurrency(impuestos)}
+              {sign}{formatCurrency(impuestos, currency)}
             </span>
           </div>
         )}
@@ -69,14 +74,16 @@ export function ComprobanteTotales({ subtotal, impuestos, total, tipo }: Comprob
               {esNotaCredito ? 'Total a devolver' : 'Total a pagar'}
             </p>
             <p style={{ color: 'var(--text-subtle)', fontSize: '0.68rem', margin: '0.125rem 0 0' }}>
-              Pesos Argentinos (ARS)
+              {currency === 'USD'
+                ? `Dólares (USD)${exchangeRate && exchangeRate > 1 ? ` · T/C $${exchangeRate.toLocaleString('es-AR')}` : ''}`
+                : 'Pesos Argentinos (ARS)'}
             </p>
           </div>
           <span style={{
             fontFamily: 'monospace', fontWeight: 800, fontSize: '1.5rem',
             color: esNotaCredito ? 'var(--error)' : 'var(--text-primary)',
           }}>
-            {sign}{formatCurrency(total)}
+            {sign}{formatCurrency(total, currency)}
           </span>
         </div>
       </div>

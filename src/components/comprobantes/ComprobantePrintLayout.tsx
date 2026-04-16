@@ -27,8 +27,8 @@ interface Props {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmt = (v: number) =>
-  new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(v)
+const fmt = (v: number, currency: 'ARS' | 'USD' = 'ARS') =>
+  new Intl.NumberFormat(currency === 'USD' ? 'en-US' : 'es-AR', { style: 'currency', currency }).format(v)
 
 const fmtFecha = (s: string) =>
   new Date(s).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -58,6 +58,7 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
   const tipoLabel  = TIPO_LABEL[comprobante.tipo]  ?? comprobante.tipo.toUpperCase()
   const tipoLetra  = TIPO_LETRA[comprobante.tipo]  ?? '?'
   const nombre     = profile.nombre_comercial || 'Mi Negocio'
+  const esRemito   = comprobante.tipo === 'remito'
   const showIva    = comprobante.tipo === 'factura_a'
   const esNC       = comprobante.tipo === 'nota_credito'
   const sign       = esNC ? '- ' : ''
@@ -66,11 +67,6 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
   const em         = profile.orden_email_visible || profile.email
   const addr       = profile.domicilio_fiscal
   const condicion  = comprobante.condicion_fiscal || cliente?.condicion_fiscal
-
-  const contactParts: string[] = []
-  if (profile.comp_mostrar_whatsapp && wa) contactParts.push(wa)
-  if (profile.comp_mostrar_instagram && ig) contactParts.push(`@${ig.replace(/^@/, '')}`)
-  if (profile.comp_mostrar_email && em) contactParts.push(em)
 
   return (
     <div className="comprobante-print-layout">
@@ -307,50 +303,124 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
               <th className="center" style={{ width: '28pt' }}>#</th>
               <th>Descripción</th>
               <th className="right" style={{ width: '46pt' }}>Cant.</th>
+              <th className="center" style={{ width: '42pt' }}>Moneda</th>
               <th className="right" style={{ width: '90pt' }}>Precio unit.</th>
               <th className="right" style={{ width: '90pt' }}>Subtotal</th>
             </tr>
           </thead>
           <tbody>
             {items.length === 0 ? (
-              <tr><td colSpan={5} style={{ textAlign: 'center', color: '#999', padding: '14pt' }}>Sin ítems</td></tr>
-            ) : items.map((item, idx) => (
-              <tr key={item.id}>
-                <td className="center" style={{ color: '#777' }}>{idx + 1}</td>
-                <td style={{ fontWeight: 500 }}>{item.descripcion}</td>
-                <td className="right">{item.cantidad}</td>
-                <td className="right cpl-mono">{fmt(item.precio_unitario)}</td>
-                <td className="right cpl-mono" style={{ fontWeight: 700 }}>{fmt(item.subtotal)}</td>
-              </tr>
-            ))}
+              <tr><td colSpan={6} style={{ textAlign: 'center', color: '#999', padding: '14pt' }}>Sin ítems</td></tr>
+            ) : items.map((item, idx) => {
+              const itemCurrency = item.currency || 'ARS'
+              const isUSD = itemCurrency === 'USD'
+              return (
+                <tr key={item.id}>
+                  <td className="center" style={{ color: '#777' }}>{idx + 1}</td>
+                  <td style={{ fontWeight: 500 }}>{item.descripcion}</td>
+                  <td className="right">{item.cantidad}</td>
+                  <td className="center">
+                    <span style={{
+                      fontSize: '7.5pt', fontWeight: 700, padding: '1pt 5pt',
+                      borderRadius: '3pt',
+                      background: isUSD ? '#d1fae5' : '#e0e7ff',
+                      color: isUSD ? '#065f46' : '#3730a3',
+                      border: `0.5pt solid ${isUSD ? '#6ee7b7' : '#a5b4fc'}`,
+                    }}>{itemCurrency}</span>
+                  </td>
+                  <td className="right cpl-mono">{fmt(item.precio_unitario, itemCurrency)}</td>
+                  <td className="right cpl-mono" style={{ fontWeight: 700 }}>{fmt(item.subtotal, itemCurrency)}</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
 
       {/* ── TOTALS ────────────────────────────────────────────────────── */}
-      <div className="cpl-totals">
-        <div className="cpl-totals-inner">
-          <div className="cpl-total-row">
-            <span style={{ color: '#555' }}>Subtotal</span>
-            <span className="cpl-mono">{sign}{fmt(comprobante.subtotal)}</span>
+      {esRemito ? (() => {
+        // REMITO: split totals by item currency
+        const itemsARS    = items.filter(i => (i.currency || 'ARS') === 'ARS')
+        const itemsUSD    = items.filter(i => i.currency === 'USD')
+        const hasARS      = itemsARS.length > 0
+        const hasUSD      = itemsUSD.length > 0
+        const mixed       = hasARS && hasUSD
+        const subtotalARS = itemsARS.reduce((s, i) => s + i.subtotal, 0)
+        const subtotalUSD = itemsUSD.reduce((s, i) => s + i.subtotal, 0)
+        const exchangeRate = comprobante.exchange_rate || 1
+
+        return (
+          <div className="cpl-totals">
+            <div className="cpl-totals-inner" style={{ width: mixed ? '280pt' : '220pt' }}>
+              {mixed ? (
+                <>
+                  <div className="cpl-total-row">
+                    <span style={{ color: '#555' }}>Subtotal ARS</span>
+                    <span className="cpl-mono">{fmt(subtotalARS, 'ARS')}</span>
+                  </div>
+                  <div className="cpl-total-row">
+                    <span style={{ color: '#555' }}>Subtotal USD</span>
+                    <span className="cpl-mono">{fmt(subtotalUSD, 'USD')}</span>
+                  </div>
+                </>
+              ) : (
+                <div className="cpl-total-row">
+                  <span style={{ color: '#555' }}>Subtotal</span>
+                  <span className="cpl-mono">{hasUSD ? fmt(subtotalUSD, 'USD') : fmt(subtotalARS, 'ARS')}</span>
+                </div>
+              )}
+              {(hasARS || (!hasARS && !hasUSD)) && (
+                <div className="cpl-total-final">
+                  <div>
+                    <span className="cpl-total-label">Total</span>
+                    <div style={{ fontSize: '8pt', color: '#aaa', marginTop: '1pt' }}>Pesos Argentinos (ARS)</div>
+                  </div>
+                  <span className="cpl-total-amount">{fmt(subtotalARS, 'ARS')}</span>
+                </div>
+              )}
+              {hasUSD && (
+                <div className="cpl-total-final" style={{ marginTop: '6pt', background: '#064e3b' }}>
+                  <div>
+                    <span className="cpl-total-label">Total</span>
+                    <div style={{ fontSize: '8pt', color: '#6ee7b7', marginTop: '1pt' }}>
+                      Dólares (USD){exchangeRate > 1 ? ` · T/C $${exchangeRate.toLocaleString('es-AR')}` : ''}
+                    </div>
+                  </div>
+                  <span className="cpl-total-amount">{fmt(subtotalUSD, 'USD')}</span>
+                </div>
+              )}
+            </div>
           </div>
-          {showIva && (
+        )
+      })() : (
+        // FACTURA / NOTA DE CRÉDITO: single ARS total
+        <div className="cpl-totals">
+          <div className="cpl-totals-inner">
             <div className="cpl-total-row">
-              <span style={{ color: '#555' }}>IVA 21% (Resp. Inscripto)</span>
-              <span className="cpl-mono">{sign}{fmt(comprobante.impuestos)}</span>
+              <span style={{ color: '#555' }}>Subtotal</span>
+              <span className="cpl-mono">{sign}{fmt(comprobante.subtotal, 'ARS')}</span>
             </div>
-          )}
-          {comprobante.tipo === 'factura_c' && (
-            <div className="cpl-total-row">
-              <span style={{ color: '#888', fontStyle: 'italic', fontSize: '8.5pt' }}>IVA incluido en el precio</span>
+            {showIva && (
+              <div className="cpl-total-row">
+                <span style={{ color: '#555' }}>IVA 21% (Resp. Inscripto)</span>
+                <span className="cpl-mono">{sign}{fmt(comprobante.impuestos, 'ARS')}</span>
+              </div>
+            )}
+            {comprobante.tipo === 'factura_c' && (
+              <div className="cpl-total-row">
+                <span style={{ color: '#888', fontStyle: 'italic', fontSize: '8.5pt' }}>IVA incluido en el precio</span>
+              </div>
+            )}
+            <div className="cpl-total-final" style={esNC ? { background: '#7f1d1d' } : {}}>
+              <div>
+                <span className="cpl-total-label">{esNC ? 'Total a devolver' : 'Total a pagar'}</span>
+                <div style={{ fontSize: '8pt', color: '#aaa', marginTop: '1pt' }}>Pesos Argentinos (ARS)</div>
+              </div>
+              <span className="cpl-total-amount">{sign}{fmt(comprobante.total, 'ARS')}</span>
             </div>
-          )}
-          <div className="cpl-total-final" style={esNC ? { background: '#7f1d1d' } : {}}>
-            <span className="cpl-total-label">{esNC ? 'Total a devolver' : 'Total a pagar'}</span>
-            <span className="cpl-total-amount">{sign}{fmt(comprobante.total)}</span>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ── FOOTER ────────────────────────────────────────────────────── */}
       <div className="cpl-footer">
@@ -361,9 +431,6 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
           <p style={{ fontSize: '8.5pt', color: '#666', fontStyle: 'italic', margin: '3pt 0' }}>
             {profile.comp_notas}
           </p>
-        )}
-        {contactParts.length > 0 && (
-          <p className="cpl-footer-contact">{contactParts.join('  ·  ')}</p>
         )}
         <p className="cpl-footer-id">
           ID: {comprobante.id}

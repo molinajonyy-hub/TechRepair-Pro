@@ -4,6 +4,7 @@ import {
   Loader2, AlertCircle, CheckCircle, Pencil, Trash2, RefreshCw,
   ArrowUpRight, ArrowDownRight, Minus, Filter,
   Wallet, Building2, User, Users, Layers, Activity, Award, Target,
+  Package,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { currencyService } from '../services/currencyService'
@@ -820,6 +821,408 @@ function MovementsTable({
   )
 }
 
+// ─── Inventory Analytics Types ───────────────────────────────────────────────
+
+interface InvProduct {
+  id: string; name: string; category: string
+  stock: number; costPrice: number; salePrice: number
+  capitalInv: number; valorPot: number; gananciaPot: number
+  marginCost: number; marginSale: number
+}
+
+interface InvAnalytics {
+  capitalInvertido: number
+  valorPotencial: number
+  gananciaPotencial: number
+  margenCostoPromedio: number
+  rentabilidadVentaPromedio: number
+  comprasCurrent: number
+  comprasPrev: number
+  growthPct: number | null
+  growthNominal: number
+  byCategory: { category: string; capital: number; valor: number; count: number }[]
+  products: InvProduct[]
+  totalItems: number
+  itemsConStock: number
+}
+
+type InvSortKey = 'name' | 'stock' | 'capitalInv' | 'valorPot' | 'gananciaPot' | 'marginCost' | 'marginSale'
+
+// ─── Inventory Metrics Section ────────────────────────────────────────────────
+
+function InventoryMetrics({ data, loading }: { data: InvAnalytics | null; loading: boolean }) {
+  const [sortKey, setSortKey] = useState<InvSortKey>('capitalInv')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+
+  const handleSort = (key: InvSortKey) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('desc') }
+  }
+
+  if (loading) return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '6rem' }}>
+      <Loader2 size={36} style={{ color: '#6366f1', animation: 'spin 1s linear infinite' }} />
+    </div>
+  )
+
+  if (!data) return (
+    <div style={{ textAlign: 'center', padding: '4rem 2rem', backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem' }}>
+      <Package size={40} style={{ color: '#1e3a5f', marginBottom: '0.75rem' }} />
+      <p style={{ margin: 0, color: '#334155', fontWeight: 500 }}>No hay datos de inventario disponibles</p>
+      <p style={{ margin: '0.25rem 0 0', color: '#1e293b', fontSize: '0.8rem' }}>Agregá productos al inventario para ver las métricas</p>
+    </div>
+  )
+
+  const gananciaPct = data.capitalInvertido > 0
+    ? (data.gananciaPotencial / data.capitalInvertido) * 100 : 0
+
+  const sorted = [...data.products].sort((a, b) => {
+    const av = a[sortKey as keyof InvProduct]
+    const bv = b[sortKey as keyof InvProduct]
+    if (typeof av === 'string' && typeof bv === 'string')
+      return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+    return sortDir === 'asc' ? Number(av) - Number(bv) : Number(bv) - Number(av)
+  })
+
+  const topByCapital = [...data.products].sort((a, b) => b.capitalInv - a.capitalInv).slice(0, 8)
+  const maxCapital = topByCapital[0]?.capitalInv || 1
+
+  const sortArrow = (key: InvSortKey) =>
+    sortKey === key ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''
+
+  const CAT_COLORS = ['#818cf8','#34d399','#60a5fa','#fbbf24','#f87171','#c084fc','#fb923c','#38bdf8']
+
+  const growthColor = data.growthPct !== null && data.growthPct >= 0 ? '#fbbf24' : '#f87171'
+
+  return (
+    <>
+      {/* ── Summary Strip ── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap',
+        padding: '0.75rem 1.25rem', marginBottom: '1.25rem',
+        backgroundColor: 'rgba(99,102,241,0.05)',
+        border: '1px solid rgba(99,102,241,0.12)',
+        borderRadius: '0.625rem',
+      }}>
+        <Package size={14} style={{ color: '#6366f1' }} />
+        <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
+          <strong style={{ color: '#e2e8f0' }}>{data.totalItems}</strong> productos en total ·{' '}
+          <strong style={{ color: '#e2e8f0' }}>{data.itemsConStock}</strong> con stock
+        </span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+            Margen prom. sobre costo: <strong style={{ color: '#818cf8' }}>{data.margenCostoPromedio.toFixed(1)}%</strong>
+          </span>
+          <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+            Rentabilidad prom. sobre venta: <strong style={{ color: '#34d399' }}>{data.rentabilidadVentaPromedio.toFixed(1)}%</strong>
+          </span>
+        </div>
+      </div>
+
+      {/* ── Hero KPI Cards ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(248px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+
+        {/* Card 1: Capital Invertido */}
+        <div style={{
+          background: 'linear-gradient(135deg,#0f1829 0%,#0a1628 100%)',
+          border: '1px solid rgba(96,165,250,0.2)', borderTop: '3px solid #60a5fa',
+          borderRadius: '0.875rem', padding: '1.5rem', position: 'relative', overflow: 'hidden',
+          boxShadow: '0 4px 24px rgba(96,165,250,0.08)',
+        }}>
+          <div style={{ position: 'absolute', top: 0, right: 0, width: '120px', height: '120px', background: 'radial-gradient(circle at top right,rgba(96,165,250,0.12) 0%,transparent 70%)' }} />
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.875rem' }}>
+              <div style={{ width: '34px', height: '34px', borderRadius: '0.5rem', backgroundColor: 'rgba(96,165,250,0.12)', border: '1px solid rgba(96,165,250,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <DollarSign size={17} style={{ color: '#60a5fa' }} />
+              </div>
+              <span style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Capital Invertido en Stock</span>
+            </div>
+            <div style={{ fontSize: '2.1rem', fontWeight: 900, color: '#60a5fa', fontFamily: 'monospace', letterSpacing: '-0.03em', lineHeight: 1 }}>
+              {fmtCompact(data.capitalInvertido)}
+            </div>
+            <div style={{ fontSize: '0.73rem', color: '#334155', marginTop: '0.3rem', fontFamily: 'monospace' }}>{fmt(data.capitalInvertido)}</div>
+            <div style={{ marginTop: '0.75rem', fontSize: '0.68rem', color: '#1e3a5f', fontStyle: 'italic' }}>Σ (stock × precio_costo)</div>
+          </div>
+        </div>
+
+        {/* Card 2: Valor Potencial de Venta */}
+        <div style={{
+          background: 'linear-gradient(135deg,#0f1829 0%,#0a1628 100%)',
+          border: '1px solid rgba(52,211,153,0.2)', borderTop: '3px solid #34d399',
+          borderRadius: '0.875rem', padding: '1.5rem', position: 'relative', overflow: 'hidden',
+          boxShadow: '0 4px 24px rgba(52,211,153,0.08)',
+        }}>
+          <div style={{ position: 'absolute', top: 0, right: 0, width: '120px', height: '120px', background: 'radial-gradient(circle at top right,rgba(52,211,153,0.12) 0%,transparent 70%)' }} />
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.875rem' }}>
+              <div style={{ width: '34px', height: '34px', borderRadius: '0.5rem', backgroundColor: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <TrendingUp size={17} style={{ color: '#34d399' }} />
+              </div>
+              <span style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Valor Potencial de Venta</span>
+            </div>
+            <div style={{ fontSize: '2.1rem', fontWeight: 900, color: '#34d399', fontFamily: 'monospace', letterSpacing: '-0.03em', lineHeight: 1 }}>
+              {fmtCompact(data.valorPotencial)}
+            </div>
+            <div style={{ fontSize: '0.73rem', color: '#334155', marginTop: '0.3rem', fontFamily: 'monospace' }}>{fmt(data.valorPotencial)}</div>
+            <div style={{ marginTop: '0.75rem', fontSize: '0.68rem', color: '#1e3a5f', fontStyle: 'italic' }}>Σ (stock × precio_venta)</div>
+          </div>
+        </div>
+
+        {/* Card 3: Ganancia Potencial Bruta */}
+        <div style={{
+          background: 'linear-gradient(135deg,#0f1829 0%,#0a1628 100%)',
+          border: `1px solid ${data.gananciaPotencial >= 0 ? 'rgba(129,140,248,0.22)' : 'rgba(248,113,113,0.22)'}`,
+          borderTop: `3px solid ${data.gananciaPotencial >= 0 ? '#818cf8' : '#f87171'}`,
+          borderRadius: '0.875rem', padding: '1.5rem', position: 'relative', overflow: 'hidden',
+          boxShadow: `0 4px 24px ${data.gananciaPotencial >= 0 ? 'rgba(129,140,248,0.08)' : 'rgba(248,113,113,0.07)'}`,
+        }}>
+          <div style={{ position: 'absolute', top: 0, right: 0, width: '120px', height: '120px', background: `radial-gradient(circle at top right,${data.gananciaPotencial >= 0 ? 'rgba(129,140,248,0.12)' : 'rgba(248,113,113,0.1)'} 0%,transparent 70%)` }} />
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.875rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <div style={{ width: '34px', height: '34px', borderRadius: '0.5rem', backgroundColor: data.gananciaPotencial >= 0 ? 'rgba(129,140,248,0.1)' : 'rgba(248,113,113,0.1)', border: `1px solid ${data.gananciaPotencial >= 0 ? 'rgba(129,140,248,0.18)' : 'rgba(248,113,113,0.18)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Award size={17} style={{ color: data.gananciaPotencial >= 0 ? '#818cf8' : '#f87171' }} />
+                </div>
+                <span style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Ganancia Potencial Bruta</span>
+              </div>
+              <span style={{ fontSize: '0.82rem', fontWeight: 800, fontFamily: 'monospace', color: data.gananciaPotencial >= 0 ? '#818cf8' : '#f87171', backgroundColor: data.gananciaPotencial >= 0 ? 'rgba(129,140,248,0.1)' : 'rgba(248,113,113,0.1)', padding: '0.2rem 0.5rem', borderRadius: '0.3rem' }}>
+                {gananciaPct >= 0 ? '+' : ''}{gananciaPct.toFixed(1)}%
+              </span>
+            </div>
+            <div style={{ fontSize: '2.1rem', fontWeight: 900, color: data.gananciaPotencial >= 0 ? '#818cf8' : '#f87171', fontFamily: 'monospace', letterSpacing: '-0.03em', lineHeight: 1 }}>
+              {data.gananciaPotencial < 0 ? '−' : '+'}{fmtCompact(Math.abs(data.gananciaPotencial))}
+            </div>
+            <div style={{ fontSize: '0.73rem', color: '#334155', marginTop: '0.3rem', fontFamily: 'monospace' }}>{fmt(data.gananciaPotencial)}</div>
+            <div style={{ marginTop: '0.75rem', fontSize: '0.68rem', color: '#1e3a5f', fontStyle: 'italic' }}>Valor potencial − Capital invertido</div>
+          </div>
+        </div>
+
+        {/* Card 4: Crecimiento del Capital */}
+        <div style={{
+          background: 'linear-gradient(135deg,#0f1829 0%,#0a1628 100%)',
+          border: `1px solid ${data.growthPct !== null ? (data.growthPct >= 0 ? 'rgba(251,191,36,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(255,255,255,0.06)'}`,
+          borderTop: `3px solid ${data.growthPct !== null ? growthColor : '#334155'}`,
+          borderRadius: '0.875rem', padding: '1.5rem', position: 'relative', overflow: 'hidden',
+          boxShadow: data.growthPct !== null ? `0 4px 24px ${data.growthPct >= 0 ? 'rgba(251,191,36,0.07)' : 'rgba(248,113,113,0.07)'}` : 'none',
+        }}>
+          <div style={{ position: 'absolute', top: 0, right: 0, width: '120px', height: '120px', background: `radial-gradient(circle at top right,${data.growthPct !== null ? (data.growthPct >= 0 ? 'rgba(251,191,36,0.1)' : 'rgba(248,113,113,0.08)') : 'rgba(255,255,255,0.03)'} 0%,transparent 70%)` }} />
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.875rem' }}>
+              <div style={{ width: '34px', height: '34px', borderRadius: '0.5rem', backgroundColor: data.growthPct !== null ? (data.growthPct >= 0 ? 'rgba(251,191,36,0.1)' : 'rgba(248,113,113,0.1)') : 'rgba(255,255,255,0.04)', border: `1px solid ${data.growthPct !== null ? (data.growthPct >= 0 ? 'rgba(251,191,36,0.2)' : 'rgba(248,113,113,0.2)') : 'rgba(255,255,255,0.06)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {data.growthPct !== null && data.growthPct >= 0
+                  ? <ArrowUpRight size={17} style={{ color: '#fbbf24' }} />
+                  : data.growthPct !== null
+                  ? <ArrowDownRight size={17} style={{ color: '#f87171' }} />
+                  : <TrendingUp size={17} style={{ color: '#334155' }} />}
+              </div>
+              <span style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Crecimiento del Capital</span>
+            </div>
+            {data.growthPct !== null ? (
+              <>
+                <div style={{ fontSize: '2.1rem', fontWeight: 900, color: growthColor, fontFamily: 'monospace', letterSpacing: '-0.03em', lineHeight: 1 }}>
+                  {data.growthPct >= 0 ? '+' : ''}{data.growthPct.toFixed(1)}%
+                </div>
+                <div style={{ fontSize: '0.82rem', fontWeight: 700, fontFamily: 'monospace', marginTop: '0.3rem', color: data.growthNominal >= 0 ? '#34d399' : '#f87171' }}>
+                  {data.growthNominal >= 0 ? '+' : '−'}{fmt(Math.abs(data.growthNominal))}
+                </div>
+                <div style={{ marginTop: '0.625rem', fontSize: '0.69rem', color: '#334155', lineHeight: 1.5 }}>
+                  Compras período actual: {fmtCompact(data.comprasCurrent)}<br />
+                  Período anterior: {fmtCompact(data.comprasPrev)}
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e3a5f', marginTop: '0.25rem' }}>—</div>
+                <div style={{ marginTop: '0.5rem', fontSize: '0.73rem', color: '#334155', lineHeight: 1.5 }}>
+                  Registrá compras en el período seleccionado para comparar la evolución del capital.
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Category Chart + Top Items ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
+
+        {/* Capital por categoría */}
+        <div style={{ backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem', padding: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+            <BarChart3 size={15} style={{ color: '#818cf8' }} />
+            <h3 style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Capital invertido por categoría
+            </h3>
+          </div>
+          {data.byCategory.length === 0 ? (
+            <p style={{ color: '#334155', fontSize: '0.8rem', textAlign: 'center', padding: '2rem 0', margin: 0 }}>Sin datos</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem' }}>
+              {data.byCategory.map((cat, i) => {
+                const maxCat = data.byCategory[0].capital
+                const pct = maxCat > 0 ? (cat.capital / maxCat) * 100 : 0
+                const color = CAT_COLORS[i % CAT_COLORS.length]
+                const ganCat = cat.valor - cat.capital
+                return (
+                  <div key={cat.category}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                      <span style={{ fontSize: '0.76rem', color: '#64748b' }}>
+                        {cat.category}
+                        <span style={{ color: '#334155', marginLeft: '0.35rem' }}>({cat.count})</span>
+                      </span>
+                      <div style={{ display: 'flex', gap: '0.75rem' }}>
+                        <span style={{ fontSize: '0.72rem', color: '#475569', fontFamily: 'monospace' }}>
+                          inv: <span style={{ color }}>{fmtCompact(cat.capital)}</span>
+                        </span>
+                        <span style={{ fontSize: '0.72rem', color: '#475569', fontFamily: 'monospace' }}>
+                          gan: <span style={{ color: ganCat >= 0 ? '#34d399' : '#f87171' }}>{fmtCompact(ganCat)}</span>
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ height: '7px', backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: '999px', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${pct}%`, borderRadius: '999px', background: `linear-gradient(90deg,${color}cc,${color}77)`, transition: 'width 0.4s ease' }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Top productos por capital */}
+        <div style={{ backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem', padding: '1.25rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+            <Award size={15} style={{ color: '#fbbf24' }} />
+            <h3 style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Top productos por capital invertido
+            </h3>
+          </div>
+          {topByCapital.length === 0 ? (
+            <p style={{ color: '#334155', fontSize: '0.8rem', textAlign: 'center', padding: '2rem 0', margin: 0 }}>Sin productos con stock</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
+              {topByCapital.map((item, i) => {
+                const rentColor = item.marginSale >= 35 ? '#34d399' : item.marginSale >= 20 ? '#fbbf24' : item.marginSale >= 10 ? '#f97316' : '#f87171'
+                return (
+                  <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                    <span style={{ fontSize: '0.65rem', color: '#334155', width: '16px', textAlign: 'right', flexShrink: 0 }}>{i + 1}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.15rem' }}>
+                        <span style={{ fontSize: '0.75rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '160px' }}>
+                          {item.name}
+                        </span>
+                        <span style={{ fontSize: '0.72rem', color: '#60a5fa', fontFamily: 'monospace', fontWeight: 700, flexShrink: 0, marginLeft: '0.375rem' }}>
+                          {fmtCompact(item.capitalInv)}
+                        </span>
+                      </div>
+                      <div style={{ height: '4px', backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: '999px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${maxCapital > 0 ? (item.capitalInv / maxCapital) * 100 : 0}%`, background: 'linear-gradient(90deg,#60a5fa,#3b82f6)', borderRadius: '999px' }} />
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: rentColor, flexShrink: 0, minWidth: '32px', textAlign: 'right' }}>
+                      {item.marginSale.toFixed(0)}%
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Per-Product Profitability Table ── */}
+      <div style={{ backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem', overflow: 'hidden' }}>
+        <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <Package size={15} style={{ color: '#818cf8' }} />
+          <h3 style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Rentabilidad por producto
+          </h3>
+          <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: '#334155' }}>
+            {data.products.length} producto{data.products.length !== 1 ? 's' : ''}
+          </span>
+          <span style={{ fontSize: '0.68rem', color: '#1e3a5f', fontStyle: 'italic' }}>Clic en encabezado para ordenar</span>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+            <thead>
+              <tr style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}>
+                {([
+                  { key: 'name' as InvSortKey, label: 'Producto' },
+                  { key: 'stock' as InvSortKey, label: 'Stock' },
+                  { key: null, label: 'Costo Unit.' },
+                  { key: null, label: 'Precio Venta' },
+                  { key: 'capitalInv' as InvSortKey, label: 'Capital Inv.' },
+                  { key: 'valorPot' as InvSortKey, label: 'Valor Pot.' },
+                  { key: 'marginCost' as InvSortKey, label: 'Margen/Costo %' },
+                  { key: 'marginSale' as InvSortKey, label: 'Rent./Venta %' },
+                  { key: 'gananciaPot' as InvSortKey, label: 'Gan. Potencial' },
+                ]).map((col, i) => (
+                  <th key={i}
+                    onClick={col.key ? () => handleSort(col.key as InvSortKey) : undefined}
+                    style={{
+                      padding: '0.625rem 0.875rem', textAlign: i <= 1 ? 'left' : 'right',
+                      color: col.key && sortKey === col.key ? '#818cf8' : '#334155',
+                      fontWeight: 600, fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em',
+                      borderBottom: '1px solid rgba(255,255,255,0.05)', whiteSpace: 'nowrap',
+                      cursor: col.key ? 'pointer' : 'default', userSelect: 'none',
+                    }}>
+                    {col.label}{col.key ? sortArrow(col.key) : ''}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((p, i) => {
+                const mc = p.marginCost
+                const ms = p.marginSale
+                const mcColor = mc >= 60 ? '#34d399' : mc >= 30 ? '#fbbf24' : mc >= 10 ? '#f97316' : '#f87171'
+                const msColor = ms >= 35 ? '#34d399' : ms >= 20 ? '#fbbf24' : ms >= 10 ? '#f97316' : '#f87171'
+                return (
+                  <tr key={p.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.025)', backgroundColor: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                    <td style={{ padding: '0.6rem 0.875rem', color: '#e2e8f0', maxWidth: '200px' }}>
+                      <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                      <span style={{ display: 'block', fontSize: '0.65rem', color: '#334155' }}>{p.category}</span>
+                    </td>
+                    <td style={{ padding: '0.6rem 0.875rem', textAlign: 'right', fontFamily: 'monospace', color: p.stock > 0 ? '#94a3b8' : '#475569' }}>
+                      {p.stock}
+                    </td>
+                    <td style={{ padding: '0.6rem 0.875rem', textAlign: 'right', fontFamily: 'monospace', color: '#64748b', whiteSpace: 'nowrap' }}>
+                      {fmt(p.costPrice)}
+                    </td>
+                    <td style={{ padding: '0.6rem 0.875rem', textAlign: 'right', fontFamily: 'monospace', color: '#64748b', whiteSpace: 'nowrap' }}>
+                      {fmt(p.salePrice)}
+                    </td>
+                    <td style={{ padding: '0.6rem 0.875rem', textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color: '#60a5fa', whiteSpace: 'nowrap' }}>
+                      {fmtCompact(p.capitalInv)}
+                    </td>
+                    <td style={{ padding: '0.6rem 0.875rem', textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color: '#34d399', whiteSpace: 'nowrap' }}>
+                      {fmtCompact(p.valorPot)}
+                    </td>
+                    <td style={{ padding: '0.6rem 0.875rem', textAlign: 'right' }}>
+                      <span style={{ display: 'inline-block', padding: '0.15rem 0.45rem', borderRadius: '0.3rem', backgroundColor: `${mcColor}14`, color: mcColor, fontFamily: 'monospace', fontWeight: 700, fontSize: '0.75rem' }}>
+                        {mc.toFixed(1)}%
+                      </span>
+                    </td>
+                    <td style={{ padding: '0.6rem 0.875rem', textAlign: 'right' }}>
+                      <span style={{ display: 'inline-block', padding: '0.15rem 0.45rem', borderRadius: '0.3rem', backgroundColor: `${msColor}14`, color: msColor, fontFamily: 'monospace', fontWeight: 700, fontSize: '0.75rem' }}>
+                        {ms.toFixed(1)}%
+                      </span>
+                    </td>
+                    <td style={{ padding: '0.6rem 0.875rem', textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                      <span style={{ color: p.gananciaPot >= 0 ? '#818cf8' : '#f87171' }}>
+                        {p.gananciaPot < 0 ? '−' : '+'}{fmtCompact(Math.abs(p.gananciaPot))}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ─── Main Finance Component ───────────────────────────────────────────────────
 
 export function Finance() {
@@ -837,6 +1240,8 @@ export function Finance() {
   const [showModal, setShowModal] = useState(false)
   const [editingEntry, setEditingEntry] = useState<FinanceEntry | null>(null)
   const [activeChartTab, setActiveChartTab] = useState<'bars' | 'donut' | 'line'>('bars')
+  const [activeMainTab, setActiveMainTab] = useState<'movimientos' | 'inventario'>('movimientos')
+  const [invData, setInvData] = useState<InvAnalytics | null>(null)
 
   // Ganancia real de operaciones (order_parts)
   const [opProfit, setOpProfit] = useState<{
@@ -911,6 +1316,80 @@ export function Finance() {
       } catch {
         setOpProfit(null)
       }
+
+      // ── Inventory Analytics ──
+      try {
+        const { data: rawInv } = await supabase
+          .from('inventory')
+          .select('id, name, category, stock_quantity, cost_price, sale_price')
+          .eq('business_id', businessId)
+          .eq('is_active', true)
+
+        const invArr = rawInv || []
+        const allProducts: InvProduct[] = invArr.map((item: any) => {
+          const stock = item.stock_quantity || 0
+          const cost = item.cost_price || 0
+          const sale = item.sale_price || 0
+          const capitalInv = stock * cost
+          const valorPot = stock * sale
+          const gananciaPot = valorPot - capitalInv
+          const marginCost = cost > 0 ? ((sale - cost) / cost) * 100 : 0
+          const marginSale = sale > 0 ? ((sale - cost) / sale) * 100 : 0
+          return {
+            id: item.id, name: item.name || 'Sin nombre',
+            category: item.category || 'Sin categoría',
+            stock, costPrice: cost, salePrice: sale,
+            capitalInv, valorPot, gananciaPot, marginCost, marginSale,
+          }
+        })
+
+        const withStock = allProducts.filter(p => p.stock > 0)
+        const capitalInvertido = withStock.reduce((s, p) => s + p.capitalInv, 0)
+        const valorPotencial = withStock.reduce((s, p) => s + p.valorPot, 0)
+        const gananciaPotencial = valorPotencial - capitalInvertido
+
+        const totalCap = capitalInvertido || 1
+        const margenCostoPromedio = withStock.reduce((s, p) => s + p.marginCost * (p.capitalInv / totalCap), 0)
+        const rentabilidadVentaPromedio = withStock.reduce((s, p) => s + p.marginSale * (p.capitalInv / totalCap), 0)
+
+        const catMap: Record<string, { capital: number; valor: number; count: number }> = {}
+        withStock.forEach(p => {
+          if (!catMap[p.category]) catMap[p.category] = { capital: 0, valor: 0, count: 0 }
+          catMap[p.category].capital += p.capitalInv
+          catMap[p.category].valor += p.valorPot
+          catMap[p.category].count += 1
+        })
+        const byCategory = Object.entries(catMap)
+          .map(([category, v]) => ({ category, ...v }))
+          .sort((a, b) => b.capital - a.capital)
+
+        // Compare purchases: current period vs same-duration previous period
+        const periodMs = Math.max(86400000, new Date(to).getTime() - new Date(from).getTime())
+        const prevFrom = new Date(new Date(from).getTime() - periodMs).toISOString().split('T')[0]
+
+        const [currPurch, prevPurch] = await Promise.all([
+          supabase.from('purchases').select('total').eq('business_id', businessId)
+            .gte('purchase_date', from).lte('purchase_date', to),
+          supabase.from('purchases').select('total').eq('business_id', businessId)
+            .gte('purchase_date', prevFrom).lt('purchase_date', from),
+        ])
+
+        const comprasCurrent = (currPurch.data || []).reduce((s: number, p: any) => s + (p.total || 0), 0)
+        const comprasPrev = (prevPurch.data || []).reduce((s: number, p: any) => s + (p.total || 0), 0)
+        const growthPct = comprasPrev > 0 ? ((comprasCurrent - comprasPrev) / comprasPrev) * 100 : null
+        const growthNominal = comprasCurrent - comprasPrev
+
+        setInvData({
+          capitalInvertido, valorPotencial, gananciaPotencial,
+          margenCostoPromedio, rentabilidadVentaPromedio,
+          comprasCurrent, comprasPrev, growthPct, growthNominal,
+          byCategory, products: allProducts,
+          totalItems: invArr.length, itemsConStock: withStock.length,
+        })
+      } catch {
+        // inventory metrics are non-critical — silently ignore
+      }
+
     } catch (err: any) {
       setError(err.message ?? 'Error al cargar datos financieros')
     } finally {
@@ -1009,6 +1488,40 @@ export function Finance() {
           </button>
         </div>
       </div>
+
+      {/* ── Main Tabs ── */}
+      <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '0' }}>
+        {([
+          { key: 'movimientos', label: 'Movimientos y Finanzas', icon: BarChart3 },
+          { key: 'inventario', label: 'Inventario', icon: Package },
+        ] as const).map(tab => {
+          const Icon = tab.icon
+          return (
+            <button key={tab.key} onClick={() => setActiveMainTab(tab.key)} style={{
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+              padding: '0.625rem 1.125rem',
+              background: 'none', cursor: 'pointer',
+              fontSize: '0.875rem', fontWeight: activeMainTab === tab.key ? 700 : 500,
+              color: activeMainTab === tab.key ? '#818cf8' : '#475569',
+              border: 'none',
+              borderBottom: `2px solid ${activeMainTab === tab.key ? '#6366f1' : 'transparent'}`,
+              marginBottom: '-1px',
+              transition: 'all 0.15s',
+            }}>
+              <Icon size={15} />
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* ── Inventario Tab Content ── */}
+      {activeMainTab === 'inventario' && (
+        <InventoryMetrics data={invData} loading={loading} />
+      )}
+
+      {/* ── Movimientos Tab Content ── */}
+      {activeMainTab === 'movimientos' && <>
 
       {/* ── Period Filter ── */}
       <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1437,6 +1950,9 @@ CREATE POLICY "bfe_delete" ON business_finance_entries FOR DELETE
           />
         </>
       )}
+
+      {/* end movimientos tab */}
+      </>}
 
       {/* ── Entry Modal ── */}
       {showModal && (

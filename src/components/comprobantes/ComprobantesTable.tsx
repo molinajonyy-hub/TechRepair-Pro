@@ -89,10 +89,11 @@ export function ComprobantesTable({ comprobantes }: ComprobantesTableProps) {
     return matchesSearch && matchesTipo && matchesEstado;
   });
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('es-AR', {
+  const formatCurrency = (value: number, currency?: string) => {
+    const curr = currency === 'USD' ? 'USD' : 'ARS';
+    return new Intl.NumberFormat(curr === 'USD' ? 'en-US' : 'es-AR', {
       style: 'currency',
-      currency: 'ARS'
+      currency: curr
     }).format(value);
   };
 
@@ -110,12 +111,13 @@ export function ComprobantesTable({ comprobantes }: ComprobantesTableProps) {
       return;
     }
 
-    const headers = ['Tipo', 'Número', 'Fecha', 'Cliente', 'Total', 'Estado'];
+    const headers = ['Tipo', 'Número', 'Fecha', 'Cliente', 'Moneda', 'Total', 'Estado'];
     const rows = data.map(comp => [
       tipoConfig[comp.tipo].label,
       comp.numero || '-',
       formatDate(comp.fecha),
       (comp as any).cliente_nombre || 'Sin cliente',
+      (comp as any).currency || 'ARS',
       comp.total.toFixed(2),
       estadoConfig[comp.estado].label
     ]);
@@ -452,9 +454,46 @@ export function ComprobantesTable({ comprobantes }: ComprobantesTableProps) {
                         </span>
                       </td>
                       <td style={{ padding: '1rem', textAlign: 'right' }}>
-                        <span style={{ color: '#ffffff', fontSize: '0.875rem', fontWeight: 500 }}>
-                          {formatCurrency(comprobante.total)}
-                        </span>
+                        {comprobante.tipo === 'remito' ? (() => {
+                          const arsTotal = comprobante.total_ars ?? comprobante.total
+                          const usdTotal = comprobante.total_usd ?? 0
+                          const hasBoth  = arsTotal > 0 && usdTotal > 0
+                          const onlyUSD  = usdTotal > 0 && arsTotal === 0
+                          return (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.3rem' }}>
+                              {/* ARS row */}
+                              {(arsTotal > 0 || (!hasBoth && !onlyUSD)) && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  <span style={{ color: '#ffffff', fontSize: '0.875rem', fontWeight: 500 }}>
+                                    {formatCurrency(arsTotal, 'ARS')}
+                                  </span>
+                                  <span style={{
+                                    fontSize: '0.6rem', fontWeight: 700, padding: '0.1rem 0.35rem',
+                                    borderRadius: 3, background: 'rgba(99,102,241,0.15)',
+                                    color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)',
+                                  }}>ARS</span>
+                                </div>
+                              )}
+                              {/* USD row */}
+                              {usdTotal > 0 && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                  <span style={{ color: '#34d399', fontSize: '0.875rem', fontWeight: 500 }}>
+                                    {formatCurrency(usdTotal, 'USD')}
+                                  </span>
+                                  <span style={{
+                                    fontSize: '0.6rem', fontWeight: 700, padding: '0.1rem 0.35rem',
+                                    borderRadius: 3, background: 'rgba(16,185,129,0.15)',
+                                    color: '#34d399', border: '1px solid rgba(16,185,129,0.3)',
+                                  }}>USD</span>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })() : (
+                          <span style={{ color: '#ffffff', fontSize: '0.875rem', fontWeight: 500 }}>
+                            {formatCurrency(comprobante.total, 'ARS')}
+                          </span>
+                        )}
                       </td>
                       <td style={{ padding: '1rem' }}>
                         <span style={{

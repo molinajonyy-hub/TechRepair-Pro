@@ -26,6 +26,12 @@ import { UsersManagement } from './pages/UsersManagement'
 import { CajaPage } from './pages/CajaPage'
 import Settings from './pages/Settings'
 import { LandingPage } from './pages/LandingPage'
+// ── Subscription ─────────────────────────────────────────────
+import { Subscription } from './pages/Subscription'
+import { Plans } from './pages/Plans'
+import { PaymentPending } from './pages/PaymentPending'
+import { SubscriptionSuspended } from './pages/SubscriptionSuspended'
+import { AdminSubscriptions } from './pages/AdminSubscriptions'
 
 function AppContent() {
   const { loadingState } = useLoading()
@@ -68,6 +74,12 @@ function AppContent() {
             <Route path="/caja" element={<CajaPage />} />
             <Route path="/currency-settings" element={<CurrencySettings />} />
             <Route path="/settings" element={<Settings />} />
+            {/* Subscription */}
+            <Route path="/subscription" element={<Subscription />} />
+            <Route path="/subscription/plans" element={<Plans />} />
+            <Route path="/subscription/pending" element={<PaymentPending />} />
+            <Route path="/subscription/suspended" element={<SubscriptionSuspended />} />
+            <Route path="/admin/subscriptions" element={<AdminSubscriptions />} />
           </Route>
         </Route>
       </Routes>

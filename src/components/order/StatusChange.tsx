@@ -88,6 +88,26 @@ export function StatusChange({ orderId, currentStatus, order, onStatusChange }: 
         notes: notes || getTransitionDescription(currentStatus, selectedStatus)
       })
 
+      // Crear notificación del cambio de estado
+      try {
+        await supabase.from('notifications').insert({
+          type: 'status_change',
+          title: `Estado de orden actualizado`,
+          message: `${STATUS_CONFIG[currentStatus].label} → ${STATUS_CONFIG[selectedStatus].label}${notes ? `: ${notes}` : ''}`,
+          order_id: orderId,
+          customer_id: order.customer_id || order.customer?.id || null,
+          is_read: false,
+          metadata: {
+            from_status: currentStatus,
+            to_status: selectedStatus,
+            changed_by: userId,
+            notes: notes || null,
+          }
+        })
+      } catch {
+        // Notificación no crítica — no interrumpir el flujo principal
+      }
+
       setSuccess(true)
       setSelectedStatus('')
       setNotes('')

@@ -26,6 +26,7 @@ const SAMPLE_COMPROBANTE: Comprobante = {
   id: 'preview-00000000-0000-0000-0000-000000000000',
   order_id: null,
   customer_id: null,
+  business_id: null,
   tipo: 'factura_c',
   numero: '00000001',
   punto_venta: '0001',
@@ -33,6 +34,10 @@ const SAMPLE_COMPROBANTE: Comprobante = {
   subtotal: 32500,
   impuestos: 0,
   total: 32500,
+  currency: 'ARS',
+  total_ars: 32500,
+  total_usd: 0,
+  exchange_rate: 1,
   estado: 'emitido',
   cae: null,
   cae_vencimiento: null,
@@ -43,9 +48,9 @@ const SAMPLE_COMPROBANTE: Comprobante = {
 }
 
 const SAMPLE_ITEMS: ComprobanteItem[] = [
-  { id: '1', comprobante_id: 'preview', descripcion: 'Diagnóstico y reparación', cantidad: 1, precio_unitario: 15000, subtotal: 15000, orden: 1 },
-  { id: '2', comprobante_id: 'preview', descripcion: 'Cambio de pantalla', cantidad: 1, precio_unitario: 12500, subtotal: 12500, orden: 2 },
-  { id: '3', comprobante_id: 'preview', descripcion: 'Mano de obra', cantidad: 1, precio_unitario: 5000, subtotal: 5000, orden: 3 },
+  { id: '1', comprobante_id: 'preview', descripcion: 'Diagnóstico y reparación', cantidad: 1, precio_unitario: 15000, subtotal: 15000, currency: 'ARS', exchange_rate: 1, orden: 1 },
+  { id: '2', comprobante_id: 'preview', descripcion: 'Cambio de pantalla', cantidad: 1, precio_unitario: 12500, subtotal: 12500, currency: 'ARS', exchange_rate: 1, orden: 2 },
+  { id: '3', comprobante_id: 'preview', descripcion: 'Mano de obra', cantidad: 1, precio_unitario: 5000, subtotal: 5000, currency: 'ARS', exchange_rate: 1, orden: 3 },
 ]
 
 const SAMPLE_CLIENTE = { id: 'cl-preview', name: 'María García', cuit: '20-30123456-9', condicion_fiscal: 'Consumidor Final' }

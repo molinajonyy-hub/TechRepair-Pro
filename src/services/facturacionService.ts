@@ -17,6 +17,10 @@ export interface Comprobante {
   subtotal: number;
   impuestos: number;
   total: number;
+  currency: 'ARS' | 'USD';
+  total_ars: number;
+  total_usd: number;
+  exchange_rate: number;
   estado: 'borrador' | 'emitido' | 'anulado';
   cae: string | null;
   cae_vencimiento: string | null;
@@ -33,6 +37,8 @@ export interface ComprobanteItem {
   cantidad: number;
   precio_unitario: number;
   subtotal: number;
+  currency: 'ARS' | 'USD';
+  exchange_rate: number;
   inventory_id?: string | null;
   orden: number;
 }
@@ -266,10 +272,13 @@ export const facturacionService = {
     customer_id: string | null;
     business_id: string;
     created_by?: string;
+    exchange_rate?: number;
     items: {
       descripcion: string;
       cantidad: number;
       precio_unitario: number;
+      currency?: 'ARS' | 'USD';
+      exchange_rate?: number;
       inventory_id?: string;
     }[];
   }): Promise<{
@@ -278,6 +287,12 @@ export const facturacionService = {
     error?: string;
   }> {
     try {
+      const exchangeRate = data.exchange_rate || 1;
+
+      // Determinar moneda dominante del comprobante (la que tenga más items)
+      const itemsUSD = data.items.filter(i => i.currency === 'USD').length;
+      const currency: 'ARS' | 'USD' = itemsUSD > data.items.length / 2 ? 'USD' : 'ARS';
+
       // 1. Crear comprobante sin orden
       const { data: comprobante, error: comprobanteError } = await supabase
         .from('comprobantes')
@@ -289,9 +304,13 @@ export const facturacionService = {
           condicion_fiscal: data.condicion_fiscal || 'Consumidor Final',
           business_id: data.business_id,
           created_by: data.created_by || null,
+          currency,
+          exchange_rate: exchangeRate,
           subtotal: 0,
           impuestos: 0,
-          total: 0
+          total: 0,
+          total_ars: 0,
+          total_usd: 0
         })
         .select()
         .single();
@@ -309,6 +328,8 @@ export const facturacionService = {
         cantidad: item.cantidad,
         precio_unitario: item.precio_unitario,
         subtotal: item.cantidad * item.precio_unitario,
+        currency: item.currency || 'ARS',
+        exchange_rate: item.exchange_rate || exchangeRate,
         inventory_id: item.inventory_id || null,
         orden: index,
         business_id: data.business_id,
@@ -421,7 +442,7 @@ export const facturacionService = {
   }): Promise<Comprobante[]> {
     let query = supabase
       .from('comprobantes')
-      .select('*')
+      .select('*, comprobante_items(id, currency, subtotal)')
       .order('created_at', { ascending: false });
 
     if (filters?.businessId) {
@@ -450,7 +471,26 @@ export const facturacionService = {
       return [];
     }
 
-    return data || [];
+    // Compute total_ars / total_usd from joined items on the fly
+    // (handles old records where these columns may not be set correctly)
+    const result = (data || []).map((comp: any) => {
+      const itemsList: { currency?: string; subtotal: number }[] = comp.comprobante_items || [];
+      const computed_ars = itemsList
+        .filter(i => (i.currency || 'ARS') === 'ARS')
+        .reduce((s, i) => s + (i.subtotal || 0), 0);
+      const computed_usd = itemsList
+        .filter(i => i.currency === 'USD')
+        .reduce((s, i) => s + (i.subtotal || 0), 0);
+      return {
+        ...comp,
+        total_ars: computed_ars,
+        total_usd: computed_usd,
+        // Remove nested items from the flat comprobante object
+        comprobante_items: undefined,
+      };
+    });
+
+    return result as Comprobante[];
   },
 
   /**
@@ -705,12 +745,32 @@ export const facturacionService = {
    * Recalcular totales manualmente
    */
   async recalcularTotales(comprobanteId: string): Promise<void> {
-    const { error } = await supabase.rpc('recalcular_totales_comprobante', {
+    // Try the RPC first
+    const { error: rpcError } = await supabase.rpc('recalcular_totales_comprobante', {
       p_comprobante_id: comprobanteId
     });
+    if (rpcError) {
+      console.error('Error en RPC recalcular_totales:', rpcError);
+    }
 
-    if (error) {
-      console.error('Error recalculando totales:', error);
+    // Always compute and persist total_ars / total_usd from items directly
+    const { data: itemRows } = await supabase
+      .from('comprobante_items')
+      .select('currency, subtotal')
+      .eq('comprobante_id', comprobanteId);
+
+    if (itemRows && itemRows.length > 0) {
+      const total_ars = itemRows
+        .filter((i: any) => (i.currency || 'ARS') === 'ARS')
+        .reduce((s: number, i: any) => s + (i.subtotal || 0), 0);
+      const total_usd = itemRows
+        .filter((i: any) => i.currency === 'USD')
+        .reduce((s: number, i: any) => s + (i.subtotal || 0), 0);
+
+      await supabase
+        .from('comprobantes')
+        .update({ total_ars, total_usd })
+        .eq('id', comprobanteId);
     }
   },
 
