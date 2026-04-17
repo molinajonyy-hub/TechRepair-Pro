@@ -235,8 +235,18 @@ export function Inventory() {
     }
   }, [formData.base_price, formData.cost_price_usd, formData.exchange_rate_used, formData.base_currency, formData.auto_update_price, userManuallyEditedSalePrice, userManuallyEditedCostPrice])
 
-  const isLowStock = (item: any) => item.stock_quantity > 0 && item.stock_quantity <= item.min_stock
-  const isOutOfStock = (item: any) => item.stock_quantity === 0
+  // Las comprobaciones de stock tienen en cuenta el stock efectivo: para un producto
+  // base con variantes, el stock es la suma de sus variantes, no el del propio padre
+  // (que siempre queda en 0). Esto evita que productos con variantes aparezcan como
+  // "agotados" cuando en realidad tienen stock en las variantes.
+  const isLowStock = (item: any) => {
+    const eff = getEffectiveStock(item)
+    return eff.stock_quantity > 0 && eff.stock_quantity <= eff.min_stock
+  }
+  const isOutOfStock = (item: any) => {
+    const eff = getEffectiveStock(item)
+    return eff.stock_quantity === 0
+  }
 
   const matchesInventoryFilters = (item: any) => {
     const normalizedSearch = searchTerm.toLowerCase()
@@ -298,6 +308,29 @@ export function Inventory() {
     const directMatch = matchesInventoryFilters(item)
     const variantMatch = (variantsByParent[item.id] || []).some(matchesInventoryFilters)
     return directMatch || variantMatch
+  })
+
+  // Listas efectivas para el banner/contador de alertas:
+  //  - Incluye variantes cuyo stock propio está agotado/bajo.
+  //  - Incluye productos base sin variantes cuyo stock está agotado/bajo.
+  //  - EXCLUYE productos base con variantes cuando el total de variantes > 0.
+  const effectiveOutOfStockItems = items.filter(item => {
+    if (isVariantItem(item)) return (item.stock_quantity || 0) === 0
+    const variants = variantsByParent[item.id] || []
+    if (variants.length === 0) return (item.stock_quantity || 0) === 0
+    return variants.reduce((sum, v) => sum + (v.stock_quantity || 0), 0) === 0
+  })
+  const effectiveLowStockItems = items.filter(item => {
+    if (isVariantItem(item)) {
+      return (item.stock_quantity || 0) > 0 && (item.stock_quantity || 0) <= (item.min_stock || 0)
+    }
+    const variants = variantsByParent[item.id] || []
+    if (variants.length === 0) {
+      return (item.stock_quantity || 0) > 0 && (item.stock_quantity || 0) <= (item.min_stock || 0)
+    }
+    const totalStock = variants.reduce((sum, v) => sum + (v.stock_quantity || 0), 0)
+    const totalMin = variants.reduce((sum, v) => sum + (v.min_stock || 0), 0)
+    return totalStock > 0 && totalStock <= totalMin
   })
 
   const getVariantName = (item: any, parentItem?: any) => {
@@ -1299,7 +1332,7 @@ export function Inventory() {
           <div>
             <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#f8fafc' }}>Inventario</h1>
             <p style={{ margin: 0, fontSize: '0.8rem', color: '#475569' }}>
-              {rootItems.length} productos base · {variantItems.length} variantes · {lowStockItems.length} stock bajo · {outOfStockItems.length} agotados
+              {rootItems.length} productos base · {variantItems.length} variantes · {effectiveLowStockItems.length} stock bajo · {effectiveOutOfStockItems.length} agotados
             </p>
           </div>
         </div>
@@ -1426,7 +1459,7 @@ export function Inventory() {
         </div>
 
       {/* Alertas de stock bajo */}
-      {(lowStockItems.length > 0 || outOfStockItems.length > 0) && (
+      {(effectiveLowStockItems.length > 0 || effectiveOutOfStockItems.length > 0) && (
         <div style={{ 
           marginBottom: '1.5rem', 
           padding: '1rem', 
@@ -1442,14 +1475,14 @@ export function Inventory() {
           <AlertTriangle size={20} style={{ color: '#fbbf24' }} />
           <div style={{ flex: 1, minWidth: '240px' }}>
             <p style={{ color: '#fbbf24', fontWeight: 600, margin: 0 }}>
-              {lowStockItems.length} con stock bajo · {outOfStockItems.length} agotados
+              {effectiveLowStockItems.length} con stock bajo · {effectiveOutOfStockItems.length} agotados
             </p>
             <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: 0 }}>
               Los productos con 1 unidad quedan en stock bajo y con 0 se marcan como agotados
             </p>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            {lowStockItems.length > 0 && (
+            {effectiveLowStockItems.length > 0 && (
               <button
                 onClick={() => applyStockStatusFilter('low')}
                 style={{
@@ -1466,7 +1499,7 @@ export function Inventory() {
                 Ver stock bajo
               </button>
             )}
-            {outOfStockItems.length > 0 && (
+            {effectiveOutOfStockItems.length > 0 && (
               <button
                 onClick={() => applyStockStatusFilter('out')}
                 style={{
