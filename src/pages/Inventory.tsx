@@ -609,6 +609,19 @@ export function Inventory() {
         }
       }
 
+      // Pre-flight: validar que el código base no esté duplicado en la DB
+      const otherItemsCodes = new Set(
+        items
+          .filter(i => i.id !== editingItem?.id)
+          .map(i => (i.code || '').trim())
+          .filter(Boolean)
+      )
+      if (cleanedCode && otherItemsCodes.has(cleanedCode)) {
+        setFormError(`El código "${cleanedCode}" ya está siendo usado por otro producto. Probá con otro.`)
+        setIsSubmitting(false)
+        return
+      }
+
       const productPayload = {
         ...basePayload,
         name: baseName,
@@ -630,7 +643,17 @@ export function Inventory() {
       if (formData.has_variants && parentProductId) {
         const keptVariantIds = new Set<string>()
 
+        // Códigos a evitar: los del lote actual + los de otros productos en DB
+        // (excepto el padre y las variantes propias que estamos editando)
+        const ownVariantIds = new Set(existingChildVariants.map(v => v.id))
+        const externalCodes = new Set(
+          items
+            .filter(i => i.id !== parentProductId && !ownVariantIds.has(i.id))
+            .map(i => (i.code || '').trim())
+            .filter(Boolean)
+        )
         const usedCodes = new Set<string>()
+
         for (let index = 0; index < formData.variants.length; index++) {
           const variant = formData.variants[index]
           const variantName = variant.name.trim()
@@ -640,9 +663,14 @@ export function Inventory() {
           if (!variantCode) {
             let suffix = index + 1
             variantCode = `${parentProductCode}-VAR-${String(suffix).padStart(2, '0')}`
-            while (usedCodes.has(variantCode)) {
+            while (usedCodes.has(variantCode) || externalCodes.has(variantCode)) {
               suffix += 1
               variantCode = `${parentProductCode}-VAR-${String(suffix).padStart(2, '0')}`
+            }
+          } else if (!variant.id) {
+            // Variante nueva con código manual: validar contra DB
+            if (externalCodes.has(variantCode) || usedCodes.has(variantCode)) {
+              throw new Error(`El código "${variantCode}" de la variante "${variantName}" ya está en uso. Cambialo o dejá vacío para autogenerar.`)
             }
           }
           usedCodes.add(variantCode)
