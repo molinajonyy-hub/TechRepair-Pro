@@ -1024,7 +1024,6 @@ export function Inventory() {
           backgroundColor: isVariant ? 'rgba(15, 23, 42, 0.55)' : 'transparent'
         }}
       >
-        <td style={{ padding: '1rem', fontFamily: 'monospace', color: isVariant ? '#38bdf8' : '#4f46e5' }}>{item.code}</td>
         <td style={{ padding: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', paddingLeft: isVariant ? '1.5rem' : 0 }}>
             {isVariant && (
@@ -1589,21 +1588,12 @@ export function Inventory() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                <th style={{ 
-                  padding: '1rem', 
-                  textAlign: 'left', 
-                  fontSize: '0.875rem', 
-                  fontWeight: 500, 
-                  color: '#94a3b8' 
-                }}>
-                  Código
-                </th>
-                <th style={{ 
-                  padding: '1rem', 
-                  textAlign: 'left', 
-                  fontSize: '0.875rem', 
-                  fontWeight: 500, 
-                  color: '#94a3b8' 
+                <th style={{
+                  padding: '1rem',
+                  textAlign: 'left',
+                  fontSize: '0.875rem',
+                  fontWeight: 500,
+                  color: '#94a3b8'
                 }}>
                   Producto
                 </th>
@@ -1675,7 +1665,7 @@ export function Inventory() {
             <tbody>
               {displayedItems.length === 0 ? (
                 <tr>
-                  <td colSpan={9}>
+                  <td colSpan={8}>
                     {rootItems.length === 0 && variantItems.length === 0 ? (
                       <div style={{ padding: '4rem 2rem', textAlign: 'center' }}>
                         <div style={{
