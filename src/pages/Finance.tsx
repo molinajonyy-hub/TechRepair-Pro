@@ -1321,11 +1321,27 @@ export function Finance() {
       try {
         const { data: rawInv } = await supabase
           .from('inventory')
-          .select('id, name, category, stock_quantity, cost_price, sale_price')
+          .select('id, name, category, stock_quantity, cost_price, sale_price, supplier_code')
           .eq('business_id', businessId)
           .eq('is_active', true)
 
-        const invArr = rawInv || []
+        // Detectar variantes y productos-padre con variantes.
+        // Convención: las variantes tienen supplier_code = 'variant_parent:<id_del_padre>'.
+        // Los productos base con variantes no deben contarse como "stock" en el panel
+        // financiero (ese stock ya vive en las variantes), solo los productos simples
+        // y las variantes cuentan.
+        const VARIANT_PARENT_PREFIX = 'variant_parent:'
+        const rawInvArr = rawInv || []
+        const parentIdsWithVariants = new Set<string>()
+        rawInvArr.forEach((it: any) => {
+          const sc = typeof it.supplier_code === 'string' ? it.supplier_code : ''
+          if (sc.startsWith(VARIANT_PARENT_PREFIX)) {
+            const pid = sc.slice(VARIANT_PARENT_PREFIX.length)
+            if (pid) parentIdsWithVariants.add(pid)
+          }
+        })
+        const invArr = rawInvArr.filter((it: any) => !parentIdsWithVariants.has(it.id))
+
         const allProducts: InvProduct[] = invArr.map((item: any) => {
           const stock = item.stock_quantity || 0
           const cost = item.cost_price || 0
