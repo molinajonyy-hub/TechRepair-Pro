@@ -290,6 +290,50 @@ export default function Settings() {
     }
   }
 
+  const handleSaveArcaConfig = async () => {
+    if (!businessId) return
+    setSaving(true)
+    try {
+      const { data: existing } = await supabase
+        .from('arca_config')
+        .select('id')
+        .eq('business_id', businessId)
+        .maybeSingle()
+
+      const payload = {
+        business_id: businessId,
+        cuit_emisor: arcaConfig.cuit_emisor,
+        ambiente: arcaConfig.ambiente,
+        punto_venta: arcaConfig.punto_venta,
+        web_service: arcaConfig.web_service,
+        alias: arcaConfig.alias,
+        cert_file: arcaConfig.cert_file || null,
+        private_key: arcaConfig.private_key || null,
+        expires_at: arcaConfig.expires_at || null,
+        updated_at: new Date().toISOString(),
+      }
+
+      if (existing) {
+        const { error } = await supabase
+          .from('arca_config')
+          .update(payload)
+          .eq('business_id', businessId)
+        if (error) throw error
+      } else {
+        const { error } = await supabase
+          .from('arca_config')
+          .insert({ ...payload, estado_conexion: 'desconectado' })
+        if (error) throw error
+      }
+
+      alert('✅ Configuración ARCA guardada correctamente.')
+    } catch (e: any) {
+      alert('❌ Error al guardar: ' + (e.message || 'Error desconocido'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const handleGenerarCSR = async () => {
     if (!businessId) return alert('No hay negocio seleccionado')
     const cuit = arcaConfig.cuit_emisor || businessSettings.cuit
@@ -1262,8 +1306,40 @@ export default function Settings() {
                   </button>
                 </div>
 
+                {/* Campo certificado .crt */}
+                <div style={{ marginTop: '1.25rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>
+                    Certificado (.crt) emitido por AFIP
+                  </label>
+                  <textarea
+                    value={arcaConfig.cert_file || ''}
+                    onChange={(e) => setArcaConfig({ ...arcaConfig, cert_file: e.target.value })}
+                    placeholder={'-----BEGIN CERTIFICATE-----\nMIID...\n-----END CERTIFICATE-----'}
+                    rows={5}
+                    style={{
+                      width: '100%',
+                      padding: '0.625rem 0.75rem',
+                      backgroundColor: 'rgba(15,23,42,0.8)',
+                      border: arcaConfig.cert_file ? '1px solid rgba(52,211,153,0.4)' : '1px solid rgba(51,65,85,0.6)',
+                      borderRadius: '0.5rem',
+                      color: '#f1f5f9',
+                      outline: 'none',
+                      fontFamily: 'monospace',
+                      fontSize: '0.75rem',
+                      resize: 'vertical',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                  <p style={{ margin: '0.3rem 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+                    Abrí el archivo .crt con el Bloc de Notas, seleccioná todo (Ctrl+A) y pegalo acá.
+                    {arcaConfig.cert_file && <span style={{ color: '#34d399', marginLeft: '0.5rem' }}>✓ Certificado cargado</span>}
+                  </p>
+                </div>
+
                 <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem' }}>
                   <button
+                    onClick={handleSaveArcaConfig}
+                    disabled={saving}
                     style={{
                       flex: 1,
                       display: 'flex',
@@ -1271,17 +1347,17 @@ export default function Settings() {
                       justifyContent: 'center',
                       gap: '0.5rem',
                       padding: '0.75rem',
-                      background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                      background: saving ? 'rgba(99,102,241,0.5)' : 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
                       border: 'none',
                       color: '#ffffff',
                       borderRadius: '0.625rem',
-                      cursor: 'pointer',
+                      cursor: saving ? 'not-allowed' : 'pointer',
                       fontWeight: 600,
                       boxShadow: '0 4px 12px rgba(99,102,241,0.35)'
                     }}
                   >
-                    <Save size={18} />
-                    Guardar Configuración
+                    {saving ? <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={18} />}
+                    {saving ? 'Guardando...' : 'Guardar Configuración'}
                   </button>
                   <button
                     onClick={handleSyncParameters}
