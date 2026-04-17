@@ -382,9 +382,16 @@ export function Inventory() {
       has_variants: childVariants.length > 0,
       variants: childVariants.map((variant) => ({
         id: variant.id,
+        code: variant.code,
         name: getVariantName(variant, item),
         stock_quantity: variant.stock_quantity,
-        sale_price: variant.sale_price
+        sale_price: variant.sale_price,
+        cost_price: variant.cost_price,
+        cost_price_usd: variant.cost_price_usd,
+        base_price: variant.base_price,
+        base_currency: variant.base_currency,
+        exchange_rate_used: variant.exchange_rate_used,
+        location: variant.location
       })),
       stock_quantity: item.stock_quantity,
       min_stock: item.min_stock,
@@ -623,11 +630,24 @@ export function Inventory() {
       if (formData.has_variants && parentProductId) {
         const keptVariantIds = new Set<string>()
 
+        const usedCodes = new Set<string>()
         for (let index = 0; index < formData.variants.length; index++) {
           const variant = formData.variants[index]
           const variantName = variant.name.trim()
+          // Si la variante ya existe (tiene id), conservar su código original.
+          // Si es nueva, generar uno único basado en el código del padre.
+          let variantCode = variant.code?.trim()
+          if (!variantCode) {
+            let suffix = index + 1
+            variantCode = `${parentProductCode}-VAR-${String(suffix).padStart(2, '0')}`
+            while (usedCodes.has(variantCode)) {
+              suffix += 1
+              variantCode = `${parentProductCode}-VAR-${String(suffix).padStart(2, '0')}`
+            }
+          }
+          usedCodes.add(variantCode)
           const variantPayload = {
-            code: variant.code?.trim() || `${parentProductCode}-VAR-${String(index + 1).padStart(2, '0')}`,
+            code: variantCode,
             name: `${baseName} - ${variantName}`,
             description: cleanedDescription,
             category: categoryValue,
@@ -694,7 +714,11 @@ export function Inventory() {
 
       closeModal()
     } catch (err: any) {
-      setFormError(err.message || 'Error al guardar producto')
+      const rawMsg = err?.message || ''
+      const friendly = /duplicate key|unique|409|violates/i.test(rawMsg)
+        ? `El código ingresado ya está siendo usado por otro producto. Probá con otro.`
+        : rawMsg || 'Error al guardar producto'
+      setFormError(friendly)
     } finally {
       setIsSubmitting(false)
     }
@@ -717,6 +741,21 @@ export function Inventory() {
         return { ...rest, ...overrides }
       }
 
+      // Genera un código único que no colisiona con ningún producto existente
+      const existingCodes = new Set(items.map(i => (i.code || '').trim()).filter(Boolean))
+      const makeUniqueCode = (baseCode: string, fallbackSuffix = 'COPY') => {
+        const seed = `${baseCode}-${fallbackSuffix}`
+        if (!existingCodes.has(seed)) {
+          existingCodes.add(seed)
+          return seed
+        }
+        let n = 2
+        while (existingCodes.has(`${seed}-${n}`)) n++
+        const final = `${seed}-${n}`
+        existingCodes.add(final)
+        return final
+      }
+
       if (isVariant) {
         const parentId = getVariantParentId(item)
         const parentItem = parentId ? items.find(i => i.id === parentId) : null
@@ -724,10 +763,9 @@ export function Inventory() {
           alert('No se encontró el producto base de esta variante')
           return
         }
-        const existingVariants = variantsByParent[parentItem.id] || []
         const variantName = getVariantName(item, parentItem)
         const newVariantName = `${variantName} (copia)`
-        const newCode = `${parentItem.code}-VAR-${String(existingVariants.length + 1).padStart(2, '0')}`
+        const newCode = makeUniqueCode(item.code || parentItem.code, 'COPY')
         await addItem(buildCopyPayload(item, {
           code: newCode,
           name: `${parentItem.name} - ${newVariantName}`,
@@ -736,7 +774,7 @@ export function Inventory() {
         }) as any)
       } else {
         const childVariants = variantsByParent[item.id] || []
-        const newCode = `${item.code}-COPY`
+        const newCode = makeUniqueCode(item.code, 'COPY')
         const newName = `${item.name} (copia)`
         const duplicated = await addItem(buildCopyPayload(item, {
           code: newCode,
@@ -747,8 +785,10 @@ export function Inventory() {
           for (let i = 0; i < childVariants.length; i++) {
             const variant = childVariants[i]
             const variantName = getVariantName(variant, item)
+            const variantBaseCode = `${newCode}-VAR-${String(i + 1).padStart(2, '0')}`
+            const variantCode = makeUniqueCode(variantBaseCode, 'DUP')
             await addItem(buildCopyPayload(variant, {
-              code: `${newCode}-VAR-${String(i + 1).padStart(2, '0')}`,
+              code: variantCode,
               name: `${newName} - ${variantName}`,
               subcategory: variantName,
               supplier_code: buildVariantParentReference(duplicated.id)
@@ -757,7 +797,11 @@ export function Inventory() {
         }
       }
     } catch (err: any) {
-      alert('Error al duplicar: ' + (err.message || 'Error desconocido'))
+      const rawMsg = err?.message || ''
+      const friendly = /duplicate|unique|409|violates/i.test(rawMsg)
+        ? 'Ya existe un producto con ese código. Cambiá el código del producto original o reintentá.'
+        : rawMsg || 'Error desconocido'
+      alert('Error al duplicar: ' + friendly)
     } finally {
       hideLoading()
     }
