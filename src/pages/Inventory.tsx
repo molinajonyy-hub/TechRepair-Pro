@@ -522,6 +522,7 @@ export function Inventory() {
     e.preventDefault()
     setIsSubmitting(true)
     setFormError('')
+    showLoading(editingItem ? 'Guardando cambios...' : 'Creando producto...')
 
     try {
       const isVariantMode = Boolean(variantParentItem)
@@ -579,11 +580,12 @@ export function Inventory() {
         }
 
         if (editingItem) {
-          await updateItem(editingItem.id, variantPayload)
+          await updateItem(editingItem.id, variantPayload, { skipReload: true })
         } else {
-          await addItem(variantPayload as any)
+          await addItem(variantPayload as any, { skipReload: true })
         }
 
+        await refresh({ background: true })
         closeModal()
         return
       }
@@ -633,9 +635,9 @@ export function Inventory() {
       let parentProductCode = editingItem?.code || cleanedCode
 
       if (editingItem) {
-        await updateItem(editingItem.id, productPayload)
+        await updateItem(editingItem.id, productPayload, { skipReload: true })
       } else {
-        const createdProduct = await addItem(productPayload as any)
+        const createdProduct = await addItem(productPayload as any, { skipReload: true })
         parentProductId = createdProduct?.id || ''
         parentProductCode = createdProduct?.code || cleanedCode
       }
@@ -695,9 +697,9 @@ export function Inventory() {
 
           if (variant.id) {
             keptVariantIds.add(variant.id)
-            await updateItem(variant.id, variantPayload)
+            await updateItem(variant.id, variantPayload, { skipReload: true })
           } else {
-            const createdVariant = await addItem(variantPayload as any)
+            const createdVariant = await addItem(variantPayload as any, { skipReload: true })
             if (createdVariant?.id) {
               keptVariantIds.add(createdVariant.id)
             }
@@ -719,8 +721,6 @@ export function Inventory() {
           if (deleteVariantsError) {
             throw deleteVariantsError
           }
-
-          await refresh()
         }
       } else if (editingItem && existingChildVariants.length > 0) {
         let deleteQuery = supabase
@@ -736,10 +736,9 @@ export function Inventory() {
         if (deleteVariantsError) {
           throw deleteVariantsError
         }
-
-        await refresh()
       }
 
+      await refresh({ background: true })
       closeModal()
     } catch (err: any) {
       const rawMsg = err?.message || ''
@@ -749,6 +748,7 @@ export function Inventory() {
       setFormError(friendly)
     } finally {
       setIsSubmitting(false)
+      hideLoading()
     }
   }
 
@@ -799,7 +799,7 @@ export function Inventory() {
           name: `${parentItem.name} - ${newVariantName}`,
           subcategory: newVariantName,
           supplier_code: buildVariantParentReference(parentItem.id)
-        }) as any)
+        }) as any, { skipReload: true })
       } else {
         const childVariants = variantsByParent[item.id] || []
         const newCode = makeUniqueCode(item.code, 'COPY')
@@ -807,7 +807,7 @@ export function Inventory() {
         const duplicated = await addItem(buildCopyPayload(item, {
           code: newCode,
           name: newName
-        }) as any)
+        }) as any, { skipReload: true })
 
         if (duplicated?.id && childVariants.length > 0) {
           for (let i = 0; i < childVariants.length; i++) {
@@ -820,10 +820,12 @@ export function Inventory() {
               name: `${newName} - ${variantName}`,
               subcategory: variantName,
               supplier_code: buildVariantParentReference(duplicated.id)
-            }) as any)
+            }) as any, { skipReload: true })
           }
         }
       }
+
+      await refresh({ background: true })
     } catch (err: any) {
       const rawMsg = err?.message || ''
       const friendly = /duplicate|unique|409|violates/i.test(rawMsg)
@@ -949,7 +951,7 @@ export function Inventory() {
         }
       }
 
-      refresh()
+      await refresh({ background: true })
       return { created, updated }
     } catch (error) {
       console.error('Error importando inventario:', error)

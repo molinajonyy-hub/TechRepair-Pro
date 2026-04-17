@@ -40,9 +40,10 @@ export function useInventory() {
     void loadInventory()
   }, [businessId])
 
-  async function loadInventory() {
+  async function loadInventory(options?: { background?: boolean }) {
+    const background = options?.background === true
     try {
-      setLoading(true)
+      if (!background) setLoading(true)
       setError(null)
 
       let query = supabase
@@ -62,11 +63,14 @@ export function useInventory() {
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error al cargar inventario')
     } finally {
-      setLoading(false)
+      if (!background) setLoading(false)
     }
   }
 
-  async function addItem(item: Omit<InventoryItem, 'id' | 'created_at' | 'updated_at'>) {
+  async function addItem(
+    item: Omit<InventoryItem, 'id' | 'created_at' | 'updated_at'>,
+    options?: { skipReload?: boolean }
+  ) {
     try {
       const { data, error: insertError } = await supabase
         .from('inventory')
@@ -79,14 +83,20 @@ export function useInventory() {
         .single()
 
       if (insertError) throw insertError
-      await loadInventory()
+      if (!options?.skipReload) {
+        await loadInventory({ background: true })
+      }
       return data
     } catch (err: unknown) {
       throw err instanceof Error ? err : new Error('Error desconocido')
     }
   }
 
-  async function updateItem(id: string, updates: Partial<InventoryItem>) {
+  async function updateItem(
+    id: string,
+    updates: Partial<InventoryItem>,
+    options?: { skipReload?: boolean }
+  ) {
     try {
       let updateQuery = supabase
         .from('inventory')
@@ -99,7 +109,9 @@ export function useInventory() {
 
       const { error: updateError } = await updateQuery
       if (updateError) throw updateError
-      await loadInventory()
+      if (!options?.skipReload) {
+        await loadInventory({ background: true })
+      }
     } catch (err: unknown) {
       throw err instanceof Error ? err : new Error('Error desconocido')
     }
