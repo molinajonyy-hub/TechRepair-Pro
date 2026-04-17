@@ -175,6 +175,9 @@ export function Inventory() {
     auto_update_price: true
   })
 
+  // Lista combinada: categorías predefinidas + las que el usuario ya creó
+  const allCategories = Array.from(new Set([...CATEGORIES, ...categories])).sort()
+
   const [calculatedPrice, setCalculatedPrice] = useState(0)
   const [calculatedCostARS, setCalculatedCostARS] = useState(0)
   const [userManuallyEditedSalePrice, setUserManuallyEditedSalePrice] = useState(false)
@@ -1776,7 +1779,7 @@ export function Inventory() {
                   >
                     <option value="">Seleccionar...</option>
                     <option value="NUEVA_CATEGORIA">+ Nueva categoría</option>
-                    {CATEGORIES.map(cat => (
+                    {allCategories.map(cat => (
                       <option key={cat} value={cat}>{cat}</option>
                     ))}
                   </select>
