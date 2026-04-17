@@ -11,6 +11,8 @@ import {
   Upload,
   DollarSign,
   ChevronDown,
+  ChevronRight,
+  Copy,
   Loader2
 } from 'lucide-react'
 import { useInventory } from '../hooks/useInventory'
@@ -82,7 +84,20 @@ export function Inventory() {
   const [formError, setFormError] = useState('')
   const [currencySettings, setCurrencySettings] = useState<any>(null)
   const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({})
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const tableRef = useRef<HTMLDivElement | null>(null)
+
+  const toggleExpanded = (id: string) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
 
   useEffect(() => {
     if (loading) {
@@ -253,21 +268,34 @@ export function Inventory() {
     return acc
   }, {})
 
+  // Ordenar variantes: las más nuevas arriba
+  Object.keys(variantsByParent).forEach(parentId => {
+    variantsByParent[parentId].sort((a, b) => {
+      const aTime = new Date(a.created_at || 0).getTime()
+      const bTime = new Date(b.created_at || 0).getTime()
+      return bTime - aTime
+    })
+  })
+
+  // Calcula stock efectivo (suma de variantes) para un producto base
+  const getEffectiveStock = (item: any) => {
+    if (isVariantItem(item)) {
+      return { stock_quantity: item.stock_quantity || 0, min_stock: item.min_stock || 0 }
+    }
+    const variants = variantsByParent[item.id] || []
+    if (variants.length === 0) {
+      return { stock_quantity: item.stock_quantity || 0, min_stock: item.min_stock || 0 }
+    }
+    const stock_quantity = variants.reduce((sum, v) => sum + (v.stock_quantity || 0), 0)
+    const min_stock = variants.reduce((sum, v) => sum + (v.min_stock || 0), 0)
+    return { stock_quantity, min_stock }
+  }
+
   const displayedItems = rootItems.filter(item => {
     const directMatch = matchesInventoryFilters(item)
     const variantMatch = (variantsByParent[item.id] || []).some(matchesInventoryFilters)
     return directMatch || variantMatch
   })
-
-  const getVisibleVariants = (parentId: string, showAllForParent = false) => {
-    const parentVariants = variantsByParent[parentId] || []
-
-    if (showAllForParent || (!searchTerm && !selectedCategory && stockStatusFilter === 'all')) {
-      return parentVariants
-    }
-
-    return parentVariants.filter(matchesInventoryFilters)
-  }
 
   const getVariantName = (item: any, parentItem?: any) => {
     if (item?.subcategory) {
@@ -669,6 +697,69 @@ export function Inventory() {
     }
   }
 
+  const handleDuplicate = async (item: any) => {
+    try {
+      showLoading('Duplicando producto...')
+      const isVariant = isVariantItem(item)
+
+      const buildCopyPayload = (source: any, overrides: Record<string, any> = {}) => {
+        const {
+          id: _id,
+          created_at: _ca,
+          updated_at: _ua,
+          created_by: _cb,
+          business_id: _bi,
+          ...rest
+        } = source
+        return { ...rest, ...overrides }
+      }
+
+      if (isVariant) {
+        const parentId = getVariantParentId(item)
+        const parentItem = parentId ? items.find(i => i.id === parentId) : null
+        if (!parentItem) {
+          alert('No se encontró el producto base de esta variante')
+          return
+        }
+        const existingVariants = variantsByParent[parentItem.id] || []
+        const variantName = getVariantName(item, parentItem)
+        const newVariantName = `${variantName} (copia)`
+        const newCode = `${parentItem.code}-VAR-${String(existingVariants.length + 1).padStart(2, '0')}`
+        await addItem(buildCopyPayload(item, {
+          code: newCode,
+          name: `${parentItem.name} - ${newVariantName}`,
+          subcategory: newVariantName,
+          supplier_code: buildVariantParentReference(parentItem.id)
+        }) as any)
+      } else {
+        const childVariants = variantsByParent[item.id] || []
+        const newCode = `${item.code}-COPY`
+        const newName = `${item.name} (copia)`
+        const duplicated = await addItem(buildCopyPayload(item, {
+          code: newCode,
+          name: newName
+        }) as any)
+
+        if (duplicated?.id && childVariants.length > 0) {
+          for (let i = 0; i < childVariants.length; i++) {
+            const variant = childVariants[i]
+            const variantName = getVariantName(variant, item)
+            await addItem(buildCopyPayload(variant, {
+              code: `${newCode}-VAR-${String(i + 1).padStart(2, '0')}`,
+              name: `${newName} - ${variantName}`,
+              subcategory: variantName,
+              supplier_code: buildVariantParentReference(duplicated.id)
+            }) as any)
+          }
+        }
+      }
+    } catch (err: any) {
+      alert('Error al duplicar: ' + (err.message || 'Error desconocido'))
+    } finally {
+      hideLoading()
+    }
+  }
+
   const handleInventoryDelete = async (item: any) => {
     const childVariants = isVariantItem(item) ? [] : variantsByParent[item.id] || []
     const confirmationMessage = childVariants.length > 0
@@ -833,6 +924,13 @@ export function Inventory() {
     const isVariant = options?.isVariant || false
     const parentItem = options?.parentItem
     const variantCount = isVariant ? 0 : (variantsByParent[item.id] || []).length
+    const hasVariants = !isVariant && variantCount > 0
+    const effective = getEffectiveStock(item)
+    const displayStock = effective.stock_quantity
+    const displayMinStock = effective.min_stock
+    const effectiveOutOfStock = displayStock === 0
+    const effectiveLowStock = displayStock > 0 && displayStock <= displayMinStock
+    const isExpanded = hasVariants && expandedRows.has(item.id)
     const costPrice = item.cost_price || 0
     const salePrice = item.sale_price || 0
     const margin = salePrice - costPrice
@@ -855,6 +953,25 @@ export function Inventory() {
             {isVariant && (
               <div style={{ width: '0.75rem', height: '1px', backgroundColor: 'rgba(148, 163, 184, 0.5)' }} />
             )}
+            {hasVariants ? (
+              <button
+                onClick={() => toggleExpanded(item.id)}
+                title={isExpanded ? 'Ocultar variantes' : 'Mostrar variantes'}
+                style={{
+                  padding: '0.25rem',
+                  backgroundColor: 'rgba(56,189,248,0.1)',
+                  border: '1px solid rgba(56,189,248,0.25)',
+                  borderRadius: '0.375rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#38bdf8'
+                }}
+              >
+                {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              </button>
+            ) : null}
             <Package size={16} style={{ color: isVariant ? '#38bdf8' : '#64748b' }} />
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -900,13 +1017,18 @@ export function Inventory() {
         <td style={{ padding: '1rem', textAlign: 'center' }}>
           <span style={{
             fontWeight: 600,
-            color: isOutOfStock(item) ? '#ef4444' : isLowStock(item) ? '#fbbf24' : '#34d399'
+            color: effectiveOutOfStock ? '#ef4444' : effectiveLowStock ? '#fbbf24' : '#34d399'
           }}>
-            {item.stock_quantity}
+            {displayStock}
           </span>
           <span style={{ color: '#64748b', fontSize: '0.75rem' }}>
-            /{item.min_stock}
+            /{displayMinStock}
           </span>
+          {hasVariants && (
+            <div style={{ color: '#64748b', fontSize: '0.6875rem', marginTop: '0.125rem' }}>
+              Total variantes
+            </div>
+          )}
         </td>
         <td style={{ padding: '1rem', textAlign: 'right', color: '#94a3b8' }}>
           <div>
@@ -938,7 +1060,7 @@ export function Inventory() {
           </span>
         </td>
         <td style={{ padding: '1rem', textAlign: 'center' }}>
-          {isOutOfStock(item) ? (
+          {effectiveOutOfStock ? (
             <span style={{
               padding: '0.25rem 0.75rem',
               backgroundColor: 'rgba(239, 68, 68, 0.1)',
@@ -949,7 +1071,7 @@ export function Inventory() {
             }}>
               Agotado
             </span>
-          ) : isLowStock(item) ? (
+          ) : effectiveLowStock ? (
             <span style={{
               padding: '0.25rem 0.75rem',
               backgroundColor: 'rgba(245, 158, 11, 0.1)',
@@ -1011,6 +1133,21 @@ export function Inventory() {
               title="Editar"
             >
               <Edit size={16} style={{ color: '#94a3b8' }} />
+            </button>
+            <button
+              onClick={() => handleDuplicate(item)}
+              style={{
+                padding: '0.5rem',
+                backgroundColor: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(139,92,246,0.25)',
+                borderRadius: '0.375rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center'
+              }}
+              title="Duplicar"
+            >
+              <Copy size={16} style={{ color: '#a78bfa' }} />
             </button>
             <button
               onClick={() => handleInventoryDelete(item)}
@@ -1510,12 +1647,21 @@ export function Inventory() {
               ) : (
                 displayedItems.map((item) => {
                   const parentMatchesDirectly = matchesInventoryFilters(item)
-                  const visibleVariants = getVisibleVariants(item.id, parentMatchesDirectly && stockStatusFilter === 'all')
+                  const hasActiveFilters = Boolean(searchTerm) || Boolean(selectedCategory) || stockStatusFilter !== 'all'
+                  const parentVariants = variantsByParent[item.id] || []
+                  const filteredVariants = parentVariants.filter(matchesInventoryFilters)
+                  const autoExpandForFilter = hasActiveFilters && filteredVariants.length > 0 && !parentMatchesDirectly
+                  const isExpanded = expandedRows.has(item.id) || autoExpandForFilter
+                  const variantsToShow = !isExpanded
+                    ? []
+                    : hasActiveFilters && !parentMatchesDirectly
+                      ? filteredVariants
+                      : parentVariants
 
                   return (
                     <Fragment key={item.id}>
                       {renderInventoryRow(item)}
-                      {visibleVariants.map(variant => renderInventoryRow(variant, { isVariant: true, parentItem: item }))}
+                      {variantsToShow.map(variant => renderInventoryRow(variant, { isVariant: true, parentItem: item }))}
                     </Fragment>
                   )
                 })
