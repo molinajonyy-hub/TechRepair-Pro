@@ -343,20 +343,24 @@ serve(async (req: Request) => {
   } catch (err: any) {
     console.error('afip-wsaa error:', err)
 
+    const errMsg = err?.message || 'Error interno en WSAA'
+
     // Marcar error en DB si hay business_id
     try {
       const body = await req.clone().json().catch(() => ({}))
       if (body?.business_id) {
         await supabase
           .from('arca_config')
-          .update({ estado_conexion: 'error', ultimo_error: err?.message || 'Error desconocido' })
+          .update({ estado_conexion: 'error', ultimo_error: errMsg })
           .eq('business_id', body.business_id)
       }
     } catch (_) { /* ignorar */ }
 
+    // Retornar 200 con success:false — un 500 hace que el cliente Supabase
+    // descarte el body y muestre solo "Edge Function returned a non-2xx status code".
     return new Response(
-      JSON.stringify({ success: false, error: err?.message || 'Error interno en WSAA' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ success: false, error: errMsg }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
 })
