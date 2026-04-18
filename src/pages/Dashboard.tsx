@@ -14,12 +14,9 @@ import {
   Lock
 } from 'lucide-react'
 import { useDashboardStats } from '../hooks/useDashboardStats'
-import { useOrders } from '../hooks/useOrders'
 import { useComprobantes } from '../hooks/useComprobantes'
 import { STATUS_CONFIG } from '../types/orderStatus'
-import { Loader } from '../components/ui/Loader'
 import { currencyService } from '../services/currencyService'
-import { useLoading } from '../contexts/LoadingContext'
 import { TasksModule } from '../components/tasks/TasksModule'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -39,11 +36,10 @@ const getStatusBadgeStyle = (status: string) => {
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState('orders')
   const { stats, loading: statsLoading, error: statsError, refresh: refreshStats } = useDashboardStats()
-  const { orders, loading: ordersLoading, error: ordersError } = useOrders()
-  const { comprobantes, loading: comprobantesLoading, listarComprobantes } = useComprobantes()
-  const { showLoading, hideLoading } = useLoading()
+  const { comprobantes, listarComprobantes } = useComprobantes()
   const { businessId } = useAuth()
   const navigate = useNavigate()
+  const [comprobantesLoaded, setComprobantesLoaded] = useState(false)
   const [dolarRate, setDolarRate] = useState<number | null>(null)
   const [dolarLoading, setDolarLoading] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
@@ -53,16 +49,7 @@ export function Dashboard() {
   const [movimientosCaja, setMovimientosCaja] = useState<any[]>([])
   const [movimientosLoading, setMovimientosLoading] = useState(false)
 
-  const loading = statsLoading || ordersLoading || comprobantesLoading || movimientosLoading
-  const error = statsError || ordersError
-
-  useEffect(() => {
-    if (loading) {
-      showLoading('Cargando dashboard...')
-    } else {
-      hideLoading()
-    }
-  }, [loading, showLoading, hideLoading])
+  const error = statsError
 
   useEffect(() => {
     loadDolarRate()
@@ -118,11 +105,13 @@ export function Dashboard() {
     loadCajaStatus()
   }, [loadCajaStatus])
 
+  // Comprobantes: lazy — solo carga cuando el usuario abre esa pestaña
   useEffect(() => {
-    if (businessId) {
+    if (activeTab === 'comprobantes' && businessId && !comprobantesLoaded) {
       listarComprobantes()
+      setComprobantesLoaded(true)
     }
-  }, [businessId, listarComprobantes])
+  }, [activeTab, businessId, comprobantesLoaded, listarComprobantes])
 
   useEffect(() => {
     if (businessId && cajaId) {
@@ -186,15 +175,7 @@ export function Dashboard() {
     subtitle: 'USD/ARS'
   }
 
-  const recentOrders = orders.slice(0, 5)
-
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
-        <Loader size="lg" text="Cargando inicio..." />
-      </div>
-    )
-  }
+  const recentOrders = stats?.recentOrders ?? []
 
   if (error) {
     return (
@@ -324,7 +305,25 @@ export function Dashboard() {
       {/* Módulo de Tareas */}
       <TasksModule />
 
-      {hasNoData ? (
+      {statsLoading && !stats ? (
+        /* Skeleton cards mientras carga la primera vez */
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+          {[0, 1, 2, 3, 4].map(i => (
+            <div key={i} style={{
+              padding: '1.5rem',
+              backgroundColor: '#0f1829',
+              border: '1px solid rgba(255,255,255,0.06)',
+              borderTop: '3px solid rgba(255,255,255,0.08)',
+              borderRadius: '0.75rem',
+              animation: 'pulse 1.5s ease-in-out infinite',
+            }}>
+              <div style={{ height: '0.875rem', width: '60%', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: '0.25rem', marginBottom: '0.75rem' }} />
+              <div style={{ height: '1.875rem', width: '40%', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: '0.25rem', marginBottom: '0.75rem' }} />
+              <div style={{ height: '0.75rem', width: '70%', backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: '0.25rem' }} />
+            </div>
+          ))}
+        </div>
+      ) : hasNoData ? (
         <div style={{
           backgroundColor: '#0f1829',
           border: '1px solid rgba(255,255,255,0.06)',
@@ -625,8 +624,8 @@ export function Dashboard() {
                               #{order.id.slice(0, 8)}
                             </Link>
                           </td>
-                          <td style={{ padding: '1rem', color: '#94a3b8' }}>{order.customer?.name || 'Sin cliente'}</td>
-                          <td style={{ padding: '1rem', color: '#94a3b8' }}>{order.device ? `${order.device.brand} ${order.device.model}` : 'Sin dispositivo'}</td>
+                          <td style={{ padding: '1rem', color: '#94a3b8' }}>{order.customer_name || '—'}</td>
+                          <td style={{ padding: '1rem', color: '#94a3b8' }}>{order.device_label || '—'}</td>
                           <td style={{ padding: '1rem' }}>
                             <span style={getStatusBadgeStyle(order.status)}>
                               {STATUS_CONFIG[order.status as keyof typeof STATUS_CONFIG]?.label || order.status}
@@ -697,7 +696,13 @@ export function Dashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {movimientosCaja.length === 0 ? (
+                    {movimientosLoading ? (
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>
+                          Cargando movimientos...
+                        </td>
+                      </tr>
+                    ) : movimientosCaja.length === 0 ? (
                       <tr>
                         <td colSpan={4} style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>
                           {cajaStatus === 'open' ? 'No hay movimientos registrados' : 'La caja está cerrada'}

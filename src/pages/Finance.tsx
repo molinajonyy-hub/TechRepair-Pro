@@ -860,8 +860,13 @@ function InventoryMetrics({ data, loading }: { data: InvAnalytics | null; loadin
   }
 
   if (loading) return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '6rem' }}>
-      <Loader2 size={36} style={{ color: '#6366f1', animation: 'spin 1s linear infinite' }} />
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', padding: '0.5rem 0' }}>
+      {[0,1,2,3,4,5].map(i => (
+        <div key={i} style={{ padding: '1.25rem', backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem' }}>
+          <div style={{ height: '0.75rem', width: '55%', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: '0.25rem', marginBottom: '0.75rem' }} />
+          <div style={{ height: '1.5rem', width: '40%', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: '0.25rem' }} />
+        </div>
+      ))}
     </div>
   )
 

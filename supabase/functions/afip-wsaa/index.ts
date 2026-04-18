@@ -56,10 +56,33 @@ function buildTRA(service = 'wsfe'): string {
 // Firma del TRA con PKCS7 CMS (node-forge)
 // ──────────────────────────────────────────────
 
+// ──────────────────────────────────────────────
+// Verificar que el certificado y la clave privada coincidan
+// ──────────────────────────────────────────────
+
+function verifyCertKeyMatch(cert: any, privateKey: any): void {
+  // Comparar el módulo RSA del certificado con el de la clave privada
+  const certPubMod  = cert.publicKey.n.toString(16)
+  const privKeyMod  = privateKey.n.toString(16)
+  if (certPubMod !== privKeyMod) {
+    throw new Error(
+      'El certificado y la clave privada NO coinciden. ' +
+      'Asegurate de haber generado el CSR desde TechRepair (no de una fuente externa), ' +
+      'subido ESE .csr a AFIP y pegado el .crt recibido. ' +
+      'Si regeneraste el CSR después de recibir el certificado, debés solicitar un nuevo certificado a AFIP.'
+    )
+  }
+}
+
 function signTRAWithPEM(traXml: string, certPem: string, privateKeyPem: string): string {
   const cert       = forge.pki.certificateFromPem(certPem)
   const privateKey = forge.pki.privateKeyFromPem(privateKeyPem)
 
+  // Verificar coincidencia cert ↔ clave antes de firmar
+  verifyCertKeyMatch(cert, privateKey)
+
+  // AFIP WSAA: usar SHA-256 sin authenticatedAttributes opcionales
+  // para máxima compatibilidad con el servidor de homologación
   const p7 = forge.pkcs7.createSignedData()
   p7.content = forge.util.createBuffer(traXml, 'utf8')
   p7.addCertificate(cert)
@@ -73,7 +96,7 @@ function signTRAWithPEM(traXml: string, certPem: string, privateKeyPem: string):
       { type: forge.pki.oids.signingTime, value: new Date() },
     ],
   })
-  p7.sign({ detached: false })
+  p7.sign()
 
   const der = forge.asn1.toDer(p7.toAsn1()).getBytes()
   return forge.util.encode64(der)
@@ -96,6 +119,8 @@ function signTRAWithPFX(traXml: string, pfxBase64: string, pfxPassword = ''): st
   if (!keyBag?.key) throw new Error('No se encontró la clave privada en el PFX')
   const privateKey = keyBag.key
 
+  verifyCertKeyMatch(cert, privateKey)
+
   const p7 = forge.pkcs7.createSignedData()
   p7.content = forge.util.createBuffer(traXml, 'utf8')
   p7.addCertificate(cert)
@@ -109,7 +134,7 @@ function signTRAWithPFX(traXml: string, pfxBase64: string, pfxPassword = ''): st
       { type: forge.pki.oids.signingTime, value: new Date() },
     ],
   })
-  p7.sign({ detached: false })
+  p7.sign()
 
   const der = forge.asn1.toDer(p7.toAsn1()).getBytes()
   return forge.util.encode64(der)

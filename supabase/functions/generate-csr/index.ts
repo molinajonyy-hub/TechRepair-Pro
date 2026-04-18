@@ -133,7 +133,6 @@ serve(async (req: Request) => {
           // Limpiar certificado anterior (ya no es válido con esta nueva clave)
           cert_file: null,
           pfx_file: null,
-          cae: null,
           wsaa_token: null,
           wsaa_sign: null,
           wsaa_token_expires: null,
@@ -150,12 +149,11 @@ serve(async (req: Request) => {
         .from('arca_config')
         .insert({
           business_id,
-          cuit_emisor: cuitNormalizado,
+          cuit: cuitNormalizado,
+          razon_social,
           private_key: privateKeyPem,
           ambiente: 'homologacion',
           punto_venta: 1,
-          web_service: 'wsfe',
-          alias: razon_social.toLowerCase().replace(/\s+/g, '_').slice(0, 30),
           estado_conexion: 'csr_generado',
         })
 

@@ -71,15 +71,16 @@ interface SalesPoint {
 interface ArcaConfig {
   id?: string
   business_id?: string
-  cuit_emisor: string
+  cuit: string
+  razon_social?: string
   ambiente: 'homologacion' | 'produccion'
   punto_venta: number
   web_service: string
   cert_file?: string
   private_key?: string
   pfx_file?: string
-  certificate_password?: string
-  alias: string
+  pfx_password?: string
+  alias?: string
   expires_at?: string
   estado_conexion: string
   ultima_sincronizacion?: string
@@ -132,7 +133,7 @@ export default function Settings() {
 
   // Configuración ARCA
   const [arcaConfig, setArcaConfig] = useState<ArcaConfig>({
-    cuit_emisor: '',
+    cuit: '',
     ambiente: 'homologacion',
     punto_venta: 1,
     web_service: 'wsfev1',
@@ -302,12 +303,13 @@ export default function Settings() {
 
       const payload = {
         business_id: businessId,
-        cuit_emisor: arcaConfig.cuit_emisor,
+        cuit: arcaConfig.cuit || null,
+        razon_social: arcaConfig.razon_social || null,
         ambiente: arcaConfig.ambiente,
         punto_venta: arcaConfig.punto_venta,
-        web_service: arcaConfig.web_service,
-        alias: arcaConfig.alias,
-        cert_file: arcaConfig.cert_file || null,
+        web_service: arcaConfig.web_service || 'wsfev1',
+        alias: arcaConfig.alias || null,
+        cert_file: arcaConfig.cert_file?.trim() || null,
         private_key: arcaConfig.private_key || null,
         expires_at: arcaConfig.expires_at || null,
         updated_at: new Date().toISOString(),
@@ -336,7 +338,7 @@ export default function Settings() {
 
   const handleGenerarCSR = async () => {
     if (!businessId) return alert('No hay negocio seleccionado')
-    const cuit = arcaConfig.cuit_emisor || businessSettings.cuit
+    const cuit = arcaConfig.cuit || businessSettings.cuit
     if (!cuit) return alert('Completá el CUIT emisor en la configuración de ARCA antes de generar el CSR.')
     const razon = businessSettings.razon_social || businessSettings.nombre_comercial
     if (!razon) return alert('Completá la Razón Social en los datos del negocio.')
@@ -1136,7 +1138,7 @@ export default function Settings() {
                 <div style={{ marginBottom: '1rem' }}>
                   <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Certificado:</span>
                   <span style={{ color: '#ffffff', fontWeight: 500, fontSize: '0.875rem', marginLeft: '0.5rem' }}>
-                    {arcaConfig.alias || 'No cargado'}
+                    {arcaConfig.cert_file ? '✓ Cargado' : 'No cargado'}
                   </span>
                 </div>
 
@@ -1149,9 +1151,14 @@ export default function Settings() {
                   </div>
                 )}
 
+                {!arcaConfig.cert_file && !arcaConfig.pfx_file && (
+                  <p style={{ fontSize: '0.75rem', color: '#f59e0b', margin: '0.5rem 0 0 0' }}>
+                    ⚠️ Cargá un certificado .crt para probar la conexión
+                  </p>
+                )}
                 <button
                   onClick={handleTestArcaConnection}
-                  disabled={testingConnection}
+                  disabled={testingConnection || (!arcaConfig.cert_file && !arcaConfig.pfx_file)}
                   style={{
                     width: '100%',
                     display: 'flex',
@@ -1159,14 +1166,14 @@ export default function Settings() {
                     justifyContent: 'center',
                     gap: '0.5rem',
                     padding: '0.75rem',
-                    backgroundColor: testingConnection ? '#059669' : '#10b981',
+                    backgroundColor: (!arcaConfig.cert_file && !arcaConfig.pfx_file) ? '#374151' : testingConnection ? '#059669' : '#10b981',
                     border: 'none',
                     color: '#ffffff',
                     borderRadius: '0.5rem',
-                    cursor: testingConnection ? 'not-allowed' : 'pointer',
+                    cursor: (testingConnection || (!arcaConfig.cert_file && !arcaConfig.pfx_file)) ? 'not-allowed' : 'pointer',
                     fontWeight: 500,
-                    marginTop: '1rem',
-                    opacity: testingConnection ? 0.8 : 1
+                    marginTop: '0.5rem',
+                    opacity: (!arcaConfig.cert_file && !arcaConfig.pfx_file) ? 0.5 : testingConnection ? 0.8 : 1
                   }}
                 >
                   {testingConnection ? <Loader2 size={18} className="spin" /> : <CheckCircle size={18} />}
@@ -1183,8 +1190,8 @@ export default function Settings() {
                     <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>CUIT Emisor *</label>
                     <input
                       type="text"
-                      value={arcaConfig.cuit_emisor}
-                      onChange={(e) => setArcaConfig({ ...arcaConfig, cuit_emisor: e.target.value })}
+                      value={arcaConfig.cuit || ''}
+                      onChange={(e) => setArcaConfig({ ...arcaConfig, cuit: e.target.value })}
                       placeholder="XX-XXXXXXXX-X"
                       style={{
                         width: '100%',
@@ -1261,7 +1268,7 @@ export default function Settings() {
                   <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Alias del Certificado</label>
                   <input
                     type="text"
-                    value={arcaConfig.alias}
+                    value={arcaConfig.alias || ''}
                     onChange={(e) => setArcaConfig({ ...arcaConfig, alias: e.target.value })}
                     placeholder="Ej: Certificado Producción 2024"
                     style={{

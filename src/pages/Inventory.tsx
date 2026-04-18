@@ -16,7 +16,6 @@ import {
   Loader2
 } from 'lucide-react'
 import { useInventory } from '../hooks/useInventory'
-import { Loader } from '../components/ui/Loader'
 import { useAuth } from '../contexts/AuthContext'
 import { currencyService } from '../services/currencyService'
 import { calcularPrecioLocal, convertirMoneda, calcularRentabilidad } from '../utils/priceCalculator'
@@ -60,7 +59,6 @@ export function Inventory() {
   const {
     items,
     categories,
-    loading,
     error,
     refresh,
     addItem,
@@ -96,14 +94,6 @@ export function Inventory() {
       return next
     })
   }
-
-  useEffect(() => {
-    if (loading) {
-      showLoading('Cargando inventario...')
-    } else {
-      hideLoading()
-    }
-  }, [loading, showLoading, hideLoading])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1362,14 +1352,6 @@ export function Inventory() {
     ? isVariantModal ? 'Editar Variante' : 'Editar Producto'
     : isVariantModal ? 'Nueva Variante' : 'Nuevo Producto'
   const modalSubmitLabel = editingItem ? 'Guardar Cambios' : isVariantModal ? 'Crear Variante' : 'Crear Producto'
-
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
-        <Loader size="lg" text="Cargando inventario..." />
-      </div>
-    )
-  }
 
   if (error) {
     return (

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, Search, Eye, Phone, Mail, Users, Download, Upload, Pencil, Trash2, X, Loader2 } from 'lucide-react'
-import { Loader } from '../components/ui/Loader'
 import { customersService, ordersService } from '../services/api'
 import { useLoading } from '../contexts/LoadingContext'
 import { ModalImportExcel } from '../components/ModalImportExcel'
@@ -33,7 +32,6 @@ export function Customers() {
   const [searchTerm, setSearchTerm] = useState('')
   const [customers, setCustomers] = useState<CustomerSummary[]>([])
   const [orders, setOrders] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const { showLoading, hideLoading } = useLoading()
@@ -100,20 +98,11 @@ export function Customers() {
   }
 
   useEffect(() => {
-    if (loading) {
-      showLoading('Cargando clientes...')
-    } else {
-      hideLoading()
-    }
-  }, [loading, showLoading, hideLoading])
-
-  useEffect(() => {
     void loadCustomers()
   }, [])
 
   const loadCustomers = async () => {
     try {
-      setLoading(true)
       setError(null)
 
       const [customersResult, ordersResult] = await Promise.allSettled([
@@ -135,8 +124,6 @@ export function Customers() {
       }
     } catch (err: any) {
       setError(err.message || 'Error al cargar clientes')
-    } finally {
-      setLoading(false)
     }
   }
 
@@ -288,14 +275,6 @@ export function Customers() {
       return stats
     }, {})
   }, [orders])
-
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
-        <Loader size="lg" text="Cargando clientes..." />
-      </div>
-    )
-  }
 
   if (error) {
     return (

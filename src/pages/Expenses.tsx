@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { Plus, Receipt, Calendar, DollarSign, Wallet, RefreshCw } from 'lucide-react'
 import { ModalCrearGasto } from '../components/expenses/ModalCrearGasto'
 import { useAuth } from '../contexts/AuthContext'
-import { useLoading } from '../contexts/LoadingContext'
 import { supabase } from '../lib/supabase'
 
 type Expense = {
@@ -19,20 +18,11 @@ const categories = ['Inventario', 'Operativos', 'Equipamiento', 'Marketing', 'Ot
 
 export function Expenses() {
   const { businessId, user } = useAuth()
-  const { showLoading, hideLoading } = useLoading()
   const [activeFilter, setActiveFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
   const [creando, setCreando] = useState(false)
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    if (loading) {
-      showLoading('Cargando gastos...')
-    } else {
-      hideLoading()
-    }
-  }, [loading, showLoading, hideLoading])
 
   useEffect(() => {
     if (businessId) {

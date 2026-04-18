@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Plus, Search, Filter, Eye, Edit, Trash2, ClipboardList, Printer, X, Loader2 } from 'lucide-react'
 import { useOrders, OrderListItem } from '../hooks/useOrders'
 import { STATUS_CONFIG } from '../types/orderStatus'
-import { useLoading } from '../contexts/LoadingContext'
 import { ServiceOrderPrint } from '../components/print/ServiceOrderPrint'
 import { supabase } from '../lib/supabase'
 
@@ -56,8 +55,7 @@ const getPriorityStyle = (priority: string) => {
 
 export function Orders() {
   const [searchTerm, setSearchTerm] = useState('')
-  const { orders, loading, error, refresh: refetch } = useOrders()
-  const { showLoading, hideLoading } = useLoading()
+  const { orders, error, refresh: refetch } = useOrders()
   const navigate = useNavigate()
   const [printingOrder, setPrintingOrder] = useState<any>(null)
   const printRef = useRef<HTMLDivElement>(null)
@@ -134,14 +132,6 @@ export function Orders() {
       }
     }, 150)
   }
-
-  useEffect(() => {
-    if (loading) {
-      showLoading('Cargando órdenes...')
-    } else {
-      hideLoading()
-    }
-  }, [loading, showLoading, hideLoading])
 
   if (error) {
     return (
