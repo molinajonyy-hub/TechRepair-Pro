@@ -1109,10 +1109,54 @@ export default function Settings() {
 
         {activeTab === 'arca' && (
           <div style={{ backgroundColor: '#0f1829', borderRadius: '0.75rem', padding: '2rem', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <h2 style={{ color: '#ffffff', fontSize: '1.25rem', fontWeight: 600, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <h2 style={{ color: '#ffffff', fontSize: '1.25rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <Server size={24} style={{ color: '#6366f1' }} />
               Integración ARCA / AFIP
             </h2>
+
+            {/* Banner de estado por etapa */}
+            {arcaConfig.estado_conexion === 'csr_generado' && !arcaConfig.cert_file && (
+              <div style={{ marginBottom: '1.5rem', padding: '1rem 1.25rem', backgroundColor: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.35)', borderRadius: '0.625rem' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                  <AlertTriangle size={18} style={{ color: '#fbbf24', flexShrink: 0, marginTop: 2 }} />
+                  <div>
+                    <p style={{ margin: '0 0 0.4rem', color: '#fbbf24', fontWeight: 700, fontSize: '0.9rem' }}>
+                      CSR generado — completá el proceso antes de salir de esta pantalla
+                    </p>
+                    <p style={{ margin: 0, color: '#d1a740', fontSize: '0.82rem', lineHeight: 1.6 }}>
+                      <strong>1.</strong> Subí el archivo <code style={{ background: 'rgba(0,0,0,0.3)', padding: '0 4px', borderRadius: 3 }}>.csr</code> descargado a AFIP → Administrador de Relaciones de Clave Fiscal → Crear alias.<br />
+                      <strong>2.</strong> En AFIP, autorizá el alias para el servicio <strong>"Facturación Electrónica"</strong> (wsfe).<br />
+                      <strong>3.</strong> Descargá el <code style={{ background: 'rgba(0,0,0,0.3)', padding: '0 4px', borderRadius: 3 }}>.crt</code> que AFIP te emite y pegalo en el campo de abajo.<br />
+                      <strong>4.</strong> Hacé clic en <strong>"Guardar Configuración"</strong>.<br />
+                      <strong style={{ color: '#f87171' }}>⚠️ No vuelvas a hacer clic en "Generar CSR" hasta terminar — genera una nueva clave y el certificado anterior quedará inválido.</strong>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {arcaConfig.estado_conexion === 'error' && arcaConfig.ultimo_error && (
+              <div style={{ marginBottom: '1.5rem', padding: '1rem 1.25rem', backgroundColor: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '0.625rem' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                  <XCircle size={18} style={{ color: '#f87171', flexShrink: 0, marginTop: 2 }} />
+                  <div>
+                    <p style={{ margin: '0 0 0.3rem', color: '#f87171', fontWeight: 700, fontSize: '0.875rem' }}>Error de conexión AFIP</p>
+                    <p style={{ margin: 0, color: '#fca5a5', fontSize: '0.8rem', lineHeight: 1.5, fontFamily: 'monospace', wordBreak: 'break-word' }}>
+                      {arcaConfig.ultimo_error}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {arcaConfig.estado_conexion === 'conectado' && (
+              <div style={{ marginBottom: '1.5rem', padding: '0.875rem 1.25rem', backgroundColor: 'rgba(52,211,153,0.07)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: '0.625rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <CheckCircle size={18} style={{ color: '#34d399' }} />
+                <p style={{ margin: 0, color: '#34d399', fontWeight: 600, fontSize: '0.875rem' }}>
+                  Conexión activa con AFIP — podés emitir comprobantes electrónicos
+                </p>
+              </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem' }}>
               {/* Panel izquierdo - Estado */}
@@ -1301,9 +1345,19 @@ export default function Settings() {
                     <AlertTriangle size={16} style={{ color: '#f59e0b' }} />
                     <span style={{ color: '#f59e0b', fontWeight: 500, fontSize: '0.875rem' }}>Certificado Digital</span>
                   </div>
-                  <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: '0 0 0.75rem 0' }}>
-                    Si no tenés certificado, generá un CSR (Certificate Signing Request) y presentalo ante AFIP para obtener el tuyo. Luego subí el .crt aquí.
+                  <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: '0 0 0.5rem 0' }}>
+                    Generá un CSR (Certificate Signing Request) y presentalo ante AFIP para obtener tu certificado. Luego pegá el .crt en el campo de abajo.
                   </p>
+                  {arcaConfig.cert_file && (
+                    <p style={{ color: '#f87171', fontSize: '0.78rem', margin: '0 0 0.75rem 0', lineHeight: 1.5 }}>
+                      ⚠️ <strong>Ya tenés un certificado cargado.</strong> Si generás un nuevo CSR, la clave privada cambia y el certificado actual queda inválido — tendrás que pedir uno nuevo a AFIP.
+                    </p>
+                  )}
+                  {!arcaConfig.cert_file && (
+                    <p style={{ color: '#64748b', fontSize: '0.78rem', margin: '0 0 0.75rem 0', lineHeight: 1.5 }}>
+                      Una vez generado el CSR, <strong style={{ color: '#fbbf24' }}>no vuelvas a hacer clic aquí</strong> hasta haber completado todo el proceso con AFIP y guardado el .crt.
+                    </p>
+                  )}
                   <button
                     onClick={handleGenerarCSR}
                     disabled={generandoCSR}

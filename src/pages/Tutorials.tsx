@@ -297,6 +297,10 @@ function TutorialARCA() {
             No necesitás instalar nada.
           </Callout>
 
+          <Callout type="warning">
+            <strong>⚠️ Importante:</strong> Una vez que descargaste el CSR, <strong>no vuelvas a hacer clic en "Generar CSR"</strong> hasta haber completado todos los pasos siguientes (subir a AFIP, pegar el .crt y guardar). Cada vez que generás un nuevo CSR se crea una clave privada diferente, y el certificado anterior queda inválido.
+          </Callout>
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>
             {[
               { icon: Key, name: 'Clave privada', desc: 'Guardada automáticamente y encriptada en TechRepair — no la necesitás descargar', color: '#34d399' },
@@ -382,49 +386,74 @@ function TutorialARCA() {
           <StepBadge n={5} />
           <div>
             <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 700 }}>
-              Habilitá el servicio "Facturación Electrónica" en ARCA
+              Autorizá el alias para acceder a Facturación Electrónica
             </h2>
             <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-              Autorizá tu certificado para acceder al web service de facturación (WSFEV1)
+              Paso obligatorio — sin esto AFIP rechaza la conexión con "Computador no autorizado"
             </p>
           </div>
         </div>
 
         <div style={{ marginLeft: '3rem' }}>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7 }}>
-            Volvé al portal de ARCA → <strong>Mis Servicios</strong> → buscá
-            <strong> "Facturación Electrónica - WSFEV1"</strong> y habilitalo para el alias
-            que acabás de crear (<code style={{ background: 'var(--bg-card)', padding: '0 0.3rem', borderRadius: 3 }}>techrepair</code>).
+            Con el certificado ya descargado, volvé al portal de ARCA en{' '}
+            <LinkBtn href="https://auth.afip.gob.ar/contribuyente_/login.xhtml">auth.afip.gob.ar</LinkBtn>.
+            Ingresá a <strong>"Administrador de Relaciones de Clave Fiscal"</strong> (aparece en el listado de servicios).
           </p>
 
-          <Screenshot label="Habilitación del servicio WSFEV1 en ARCA">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
-                Servicios habilitados para: <strong style={{ color: 'var(--text-primary)' }}>CUIT 20-12345678-9</strong>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7, marginTop: '0.75rem' }}>
+            Dentro del Administrador de Relaciones, seguí estos pasos:
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', margin: '1rem 0 1.25rem' }}>
+            {[
+              { n: 1, text: 'Hacé clic en "Nueva Relación".' },
+              { n: 2, text: 'En "Representante", seleccioná el alias que acabás de crear (el mismo nombre que pusiste en AFIP al subir el CSR).' },
+              { n: 3, text: 'En "Servicio", buscá y seleccioná "WSFE — Factura Electrónica" (también puede aparecer como "Facturación Electrónica - WSFEv1").' },
+              { n: 4, text: 'En "Representado", ingresá tu propio CUIT (el del negocio que va a facturar).' },
+              { n: 5, text: 'Confirmá la relación. AFIP te va a pedir confirmar con clave fiscal.' },
+            ].map(({ n, text }) => (
+              <div key={n} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+                <div style={{
+                  minWidth: 24, height: 24, borderRadius: '50%', background: 'rgba(99,102,241,0.2)',
+                  border: '1px solid rgba(99,102,241,0.5)', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, color: '#818cf8', flexShrink: 0
+                }}>{n}</div>
+                <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>{text}</p>
               </div>
+            ))}
+          </div>
+
+          <Screenshot label="Administrador de Relaciones de Clave Fiscal — nueva relación">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxWidth: 420 }}>
               {[
-                { name: 'Facturación Electrónica (WSFEV1)', enabled: true },
-                { name: 'Consulta de Padrón ARCA', enabled: false },
-                { name: 'Liquidación de IVA', enabled: false },
-              ].map(s => (
-                <div key={s.name} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  border: '1px solid var(--border-color)', borderRadius: '0.5rem',
-                  padding: '0.75rem 1rem', background: s.enabled ? 'rgba(52,211,153,0.05)' : 'transparent',
-                }}>
-                  <span style={{ fontSize: '0.85rem', color: 'var(--text-primary)' }}>{s.name}</span>
+                { label: 'Representante (alias)', value: 'molina.jonyy2', ok: true },
+                { label: 'Servicio', value: 'WSFE — Factura Electrónica', ok: true },
+                { label: 'Representado (CUIT)', value: '20-37629616-5', ok: true },
+              ].map(({ label, value, ok }) => (
+                <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 500 }}>{label}</label>
                   <div style={{
-                    padding: '0.2rem 0.6rem', borderRadius: '1rem', fontSize: '0.7rem', fontWeight: 600,
-                    background: s.enabled ? 'rgba(52,211,153,0.15)' : 'rgba(255,255,255,0.05)',
-                    color: s.enabled ? '#34d399' : 'var(--text-muted)',
-                    border: `1px solid ${s.enabled ? 'rgba(52,211,153,0.3)' : 'var(--border-color)'}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    border: `1px solid ${ok ? 'rgba(52,211,153,0.3)' : 'var(--border-color)'}`,
+                    borderRadius: '0.4rem', padding: '0.5rem 0.75rem',
+                    background: ok ? 'rgba(52,211,153,0.05)' : 'var(--bg-main)',
                   }}>
-                    {s.enabled ? '✓ Habilitado' : 'Deshabilitado'}
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-primary)', fontFamily: 'monospace' }}>{value}</span>
+                    {ok && <CheckCircle size={14} color="#34d399" />}
                   </div>
                 </div>
               ))}
+              <div style={{
+                background: '#6366f1', borderRadius: '0.4rem', padding: '0.5rem',
+                textAlign: 'center', color: '#fff', fontSize: '0.8rem', fontWeight: 600, marginTop: '0.25rem'
+              }}>Confirmar relación</div>
             </div>
           </Screenshot>
+
+          <Callout type="warning">
+            <strong>Este paso es obligatorio y se omite fácilmente.</strong> Si no autorizás el alias para el servicio wsfe, AFIP devuelve el error <code style={{ fontFamily: 'monospace' }}>"Computador no autorizado a acceder al servicio"</code> aunque el certificado esté bien configurado. Completalo antes de probar la conexión desde TechRepair.
+          </Callout>
         </div>
       </section>
 
