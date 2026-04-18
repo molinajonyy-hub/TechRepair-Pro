@@ -2,6 +2,32 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 
+// Normaliza cualquier error (Supabase PostgrestError, Error nativo, string, objeto)
+// a una instancia de Error que además conserva los metadatos relevantes
+// (code, details, hint) como propiedades. Esto es crítico para que el código
+// consumidor pueda detectar violaciones de unique constraint (Postgres 23505)
+// y hacer retry automático.
+function toError(err: unknown): Error {
+  if (err instanceof Error) {
+    return err
+  }
+  if (err && typeof err === 'object') {
+    const anyErr = err as Record<string, unknown>
+    const message = typeof anyErr.message === 'string' && anyErr.message
+      ? anyErr.message
+      : 'Error desconocido'
+    const wrapped = new Error(message)
+    if (typeof anyErr.code !== 'undefined') (wrapped as any).code = anyErr.code
+    if (typeof anyErr.details !== 'undefined') (wrapped as any).details = anyErr.details
+    if (typeof anyErr.hint !== 'undefined') (wrapped as any).hint = anyErr.hint
+    return wrapped
+  }
+  if (typeof err === 'string' && err) {
+    return new Error(err)
+  }
+  return new Error('Error desconocido')
+}
+
 export interface InventoryItem {
   id: string
   code: string
@@ -88,7 +114,7 @@ export function useInventory() {
       }
       return data
     } catch (err: unknown) {
-      throw err instanceof Error ? err : new Error('Error desconocido')
+      throw toError(err)
     }
   }
 
@@ -113,7 +139,7 @@ export function useInventory() {
         await loadInventory({ background: true })
       }
     } catch (err: unknown) {
-      throw err instanceof Error ? err : new Error('Error desconocido')
+      throw toError(err)
     }
   }
 
@@ -132,7 +158,7 @@ export function useInventory() {
       if (deleteError) throw deleteError
       await loadInventory()
     } catch (err: unknown) {
-      throw err instanceof Error ? err : new Error('Error desconocido')
+      throw toError(err)
     }
   }
 
@@ -151,7 +177,7 @@ export function useInventory() {
       if (updateError) throw updateError
       await loadInventory()
     } catch (err: unknown) {
-      throw err instanceof Error ? err : new Error('Error desconocido')
+      throw toError(err)
     }
   }
 
