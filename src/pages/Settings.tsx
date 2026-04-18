@@ -18,17 +18,17 @@ import {
   Loader2,
   RefreshCw,
   Printer,
-  MessageCircle,
+
 } from 'lucide-react'
 import { OrderPrintSettings } from '../components/settings/OrderPrintSettings'
-import { WhatsAppSettings } from '../components/settings/WhatsAppSettings'
+
 import { ComprobantePrintSettings } from '../components/settings/ComprobantePrintSettings'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import ArcaService from '../services/arcaService'
 import { uploadBusinessLogo } from '../lib/storageSetup'
 
-type TabType = 'datos' | 'puntos' | 'arca' | 'preferencias' | 'seguridad' | 'orden' | 'whatsapp' | 'comprobante'
+type TabType = 'datos' | 'puntos' | 'arca' | 'preferencias' | 'seguridad' | 'orden' | 'comprobante'
 
 interface BusinessSettings {
   id?: string
@@ -566,7 +566,6 @@ export default function Settings() {
     { id: 'seguridad' as TabType, label: 'Seguridad', icon: Shield },
     { id: 'orden' as TabType, label: 'Orden Impresa', icon: Printer },
     { id: 'comprobante' as TabType, label: 'Comprobantes', icon: FileText },
-    { id: 'whatsapp' as TabType, label: 'WhatsApp', icon: MessageCircle },
   ]
 
   if (loading) {
@@ -1673,12 +1672,6 @@ export default function Settings() {
         {activeTab === 'comprobante' && (
           <div className="card" style={{ padding: '2rem' }}>
             <ComprobantePrintSettings />
-          </div>
-        )}
-
-        {activeTab === 'whatsapp' && (
-          <div style={{ backgroundColor: '#0f1829', borderRadius: '0.75rem', padding: '2rem', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <WhatsAppSettings />
           </div>
         )}
 
