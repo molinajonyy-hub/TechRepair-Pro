@@ -35,6 +35,7 @@ import { PaymentPending } from './pages/PaymentPending'
 import { SubscriptionSuspended } from './pages/SubscriptionSuspended'
 import { AdminSubscriptions } from './pages/AdminSubscriptions'
 import { Tutorials } from './pages/Tutorials'
+import WhatsAppPage from './pages/WhatsApp'
 
 function AppContent() {
   const { loadingState } = useLoading()
@@ -86,6 +87,7 @@ function AppContent() {
             <Route path="/subscription/suspended" element={<SubscriptionSuspended />} />
             <Route path="/admin/subscriptions" element={<AdminSubscriptions />} />
             <Route path="/tutorials" element={<Tutorials />} />
+            <Route path="/whatsapp" element={<WhatsAppPage />} />
           </Route>
         </Route>
       </Routes>
