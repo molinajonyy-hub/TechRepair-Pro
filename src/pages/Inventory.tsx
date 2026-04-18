@@ -57,17 +57,15 @@ const getVariantParentId = (item: any) => {
 const isVariantItem = (item: any) => Boolean(getVariantParentId(item))
 
 export function Inventory() {
-  const { 
-    items, 
-    categories, 
-    lowStockItems,
-    outOfStockItems,
-    loading, 
-    error, 
-    refresh, 
-    addItem, 
-    updateItem, 
-    deleteItem 
+  const {
+    items,
+    categories,
+    loading,
+    error,
+    refresh,
+    addItem,
+    updateItem,
+    deleteItem
   } = useInventory()
   const { businessId } = useAuth()
   const { showLoading, hideLoading } = useLoading()
@@ -1379,7 +1377,7 @@ export function Inventory() {
         <AlertTriangle size={48} style={{ color: '#ef4444' }} />
         <h3 style={{ color: '#ffffff', marginTop: '1rem' }}>Error al cargar inventario</h3>
         <p style={{ color: '#94a3b8' }}>{error}</p>
-        <button onClick={refresh} style={{
+        <button onClick={() => { void refresh() }} style={{
           marginTop: '1rem',
           padding: '0.625rem 1.25rem',
           background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',

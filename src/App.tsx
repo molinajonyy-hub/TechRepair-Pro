@@ -23,6 +23,7 @@ import { OrderDetail } from './pages/OrderDetail'
 import { Orders } from './pages/Orders'
 import { Reports } from './pages/Reports'
 import { Suppliers } from './pages/Suppliers'
+import { Warranties } from './pages/Warranties'
 import { UsersManagement } from './pages/UsersManagement'
 import { CajaPage } from './pages/CajaPage'
 import Settings from './pages/Settings'
@@ -65,6 +66,7 @@ function AppContent() {
             <Route path="/orders/:id" element={<OrderDetail />} />
             <Route path="/comprobantes" element={<Comprobantes />} />
             <Route path="/comprobantes/:id" element={<Comprobante />} />
+            <Route path="/warranties" element={<Warranties />} />
             <Route path="/customers" element={<Customers />} />
             <Route path="/customers/new" element={<NewCustomer />} />
             <Route path="/customers/:id" element={<CustomerDetail />} />
