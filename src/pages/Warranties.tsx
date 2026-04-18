@@ -254,16 +254,8 @@ export function Warranties() {
     }
   }
 
-  // ── Estado inicial de carga
-  if (loading && items.length === 0) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
-        <RefreshCw className="animate-spin" size={32} style={{ color: '#6366f1' }} />
-      </div>
-    )
-  }
-
-  // contadores rápidos para header
+  // contadores rápidos para header (debe ir ANTES del early return para no romper
+  // el orden de hooks entre renders — React error #310).
   const counts = useMemo(() => {
     let a = 0
     let s = 0
@@ -276,6 +268,15 @@ export function Warranties() {
     })
     return { active: a, soon: s, expired: e, total: items.length }
   }, [items])
+
+  // ── Estado inicial de carga
+  if (loading && items.length === 0) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
+        <RefreshCw className="animate-spin" size={32} style={{ color: '#6366f1' }} />
+      </div>
+    )
+  }
 
   return (
     <div>
