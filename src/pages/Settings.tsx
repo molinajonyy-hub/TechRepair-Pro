@@ -301,7 +301,7 @@ export default function Settings() {
         .eq('business_id', businessId)
         .maybeSingle()
 
-      const payload = {
+      const payload: Record<string, any> = {
         business_id: businessId,
         cuit: arcaConfig.cuit || null,
         razon_social: arcaConfig.razon_social || null,
@@ -310,7 +310,9 @@ export default function Settings() {
         web_service: arcaConfig.web_service || 'wsfev1',
         alias: arcaConfig.alias || null,
         cert_file: arcaConfig.cert_file?.trim() || null,
-        private_key: arcaConfig.private_key || null,
+        // NO incluir private_key en el payload de guardar config:
+        // la clave privada solo se actualiza al generar el CSR (generate-csr edge function).
+        // Si se incluyera aquí, el estado stale de React pisaría la clave correcta en DB.
         expires_at: arcaConfig.expires_at || null,
         updated_at: new Date().toISOString(),
       }
@@ -375,6 +377,17 @@ export default function Settings() {
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
+
+      // Recargar arcaConfig desde DB para que la nueva clave privada quede en el estado
+      // (si no se hace esto, "Guardar Configuración" pisa la nueva clave con la vieja)
+      try {
+        const { data: freshConfig } = await supabase
+          .from('arca_config')
+          .select('*')
+          .eq('business_id', businessId)
+          .single()
+        if (freshConfig) setArcaConfig(freshConfig)
+      } catch { /* ignorar */ }
 
       alert(
         '✅ CSR generado y descargado.\n\n' +
