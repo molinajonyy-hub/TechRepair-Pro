@@ -229,29 +229,35 @@ export interface StatusHistoryEntry {
   order_id: string
   from_status: OrderStatus
   to_status: OrderStatus
-  changed_by: string // user_id
-  changed_by_name?: string // user name
+  changed_by?: string | null // user_id (created_by en BD)
+  changed_by_name?: string
   notes?: string
   created_at?: string
+  business_id: string
 }
 
 export async function recordStatusChange(
   supabase: any,
   entry: StatusHistoryEntry
 ): Promise<void> {
+  // Esquema real de la tabla status_history:
+  // id, order_id, status (nuevo estado), note, created_at, created_by, business_id
+  const noteText = entry.notes
+    || `${STATUS_CONFIG[entry.from_status].label} → ${STATUS_CONFIG[entry.to_status].label}`
+
   const { error } = await supabase
     .from('status_history')
     .insert({
       order_id: entry.order_id,
-      from_status: entry.from_status,
-      to_status: entry.to_status,
-      changed_by: entry.changed_by,
-      notes: entry.notes,
-      created_at: new Date().toISOString()
+      status: entry.to_status,
+      note: noteText,
+      created_by: entry.changed_by ?? null,
+      business_id: entry.business_id,
+      created_at: new Date().toISOString(),
     })
-  
+
   if (error) {
-    console.error('Error recording status change:', error)
+    if (import.meta.env.DEV) console.warn('Error recording status change:', error)
     throw new Error('No se pudo registrar el cambio de estado')
   }
 }
