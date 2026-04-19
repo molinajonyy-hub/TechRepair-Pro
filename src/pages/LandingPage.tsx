@@ -590,7 +590,7 @@ function ForTechnicians() {
   return (
     <section style={{ background: 'rgba(255,255,255,0.015)', borderTop: '1px solid rgba(255,255,255,0.05)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
       <div className="lp-section">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3.5rem', alignItems: 'center' }}>
+        <div className="lp-for-tech-outer" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3.5rem', alignItems: 'center' }}>
           {/* Left */}
           <div>
             <div className="lp-section-label"><AppleEmoji emoji="💡" size={14} style={{marginRight:'0.3rem'}} /> Hecho para vos</div>

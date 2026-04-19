@@ -570,7 +570,8 @@
   .lp-hero-grid       { grid-template-columns: 1fr !important; }
   .lp-mock-hide       { display: none !important; }
   .lp-nav             { display: none !important; }
-  .lp-header-cta .lp-btn-outline { display: none !important; }
+  /* Mostrar Ingresar y ocultar Probar gratis en el header mobile */
+  .lp-header-cta .lp-btn-primary { display: none !important; }
   .lp-mobile-menu-btn { display: flex !important; }
   .lp-plans-grid      { grid-template-columns: 1fr !important; max-width: 440px; margin: 0 auto; }
   .lp-section         { padding: 4rem 1.25rem !important; }
@@ -579,11 +580,14 @@
   .lp-footer-inner    { gap: 2rem !important; }
   .lp-hero-title      { font-size: clamp(1.75rem, 7vw, 3rem) !important; }
   .lp-section-title   { font-size: clamp(1.5rem, 5vw, 2.25rem) !important; }
+  /* Outer ForTech section: colapsar a 1 columna */
+  .lp-for-tech-outer  { grid-template-columns: 1fr !important; gap: 2rem !important; }
 }
 
 @media (max-width: 640px) {
   .lp-features-grid     { grid-template-columns: 1fr !important; }
   .lp-benefits-grid     { grid-template-columns: 1fr !important; }
+  /* Cards de ForTech: 2 columnas en 640px, 1 en muy chico */
   .lp-for-tech-grid     { grid-template-columns: 1fr 1fr !important; }
   .lp-footer-grid       { grid-template-columns: 1fr !important; }
   .lp-integrations-grid { grid-template-columns: 1fr !important; }
@@ -597,9 +601,14 @@
   .lp-section           { padding: 3rem 1rem !important; }
   .lp-header-inner      { padding: 0 1rem !important; }
   .lp-plans-grid        { max-width: 100% !important; }
+  /* Outer ForTech: asegurar 1 col en mobile */
+  .lp-for-tech-outer    { grid-template-columns: 1fr !important; gap: 1.5rem !important; }
+  /* Mostrar Ingresar en mobile, es el btn outline */
+  .lp-header-cta .lp-btn-outline { display: inline-flex !important; }
 }
 
 @media (max-width: 400px) {
   .lp-for-tech-grid     { grid-template-columns: 1fr !important; }
-  .lp-hero-title        { font-size: 1.625rem !important; }
+  .lp-hero-title        { font-size: 1.5rem !important; }
+  .lp-section           { padding: 2.5rem 0.875rem !important; }
 }
