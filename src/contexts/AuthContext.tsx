@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import type { AppPermissions } from '../config/permissions';
 
 export type UserRole = 'owner' | 'admin' | 'manager' | 'tech' | 'sales' | 'cashier' | 'viewer';
 
@@ -13,6 +14,7 @@ export interface Profile {
   full_name?: string;
   email?: string;
   phone?: string;
+  permissions?: Partial<AppPermissions> | null;
   created_at: string;
   updated_at: string;
 }
@@ -115,7 +117,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loadProfile = async (currentUser: User) => {
     if (profileLoadingDisabledRef.current) {
-      console.log('Profile loading disabled, skipping');
       return null;
     }
 
@@ -173,7 +174,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             continue;
           }
 
-          console.warn('Error loading profile:', error);
+          if (import.meta.env.DEV) console.warn('Error loading profile:', error);
 
           if (cachedProfile) {
             setProfile(cachedProfile);

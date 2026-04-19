@@ -52,10 +52,11 @@ export function Dashboard() {
   const error = statsError
 
   useEffect(() => {
-    loadDolarRate()
-    // Actualizar cada 5 minutos
-    const interval = setInterval(loadDolarRate, 5 * 60 * 1000)
-    return () => clearInterval(interval)
+    let isMounted = true
+    const safeFetch = async () => { if (isMounted) await loadDolarRate() }
+    safeFetch()
+    const interval = setInterval(safeFetch, 5 * 60 * 1000)
+    return () => { isMounted = false; clearInterval(interval) }
   }, [])
 
   const loadDolarRate = async () => {
@@ -67,13 +68,10 @@ export function Dashboard() {
 
       // Actualizar precios de productos vinculados al dólar
       if (businessId && rate) {
-        const result = await currencyService.updateProductPricesByExchangeRate(businessId, rate)
-        if (result.updated > 0) {
-          console.log(`Actualizados ${result.updated} productos vinculados al dólar blue`)
-        }
+        await currencyService.updateProductPricesByExchangeRate(businessId, rate)
       }
-    } catch (error) {
-      console.error('Error loading dolar rate:', error)
+    } catch {
+      // Fallo silencioso — el valor anterior se mantiene visible
     } finally {
       setDolarLoading(false)
     }
@@ -130,8 +128,8 @@ export function Dashboard() {
         .order('created_at', { ascending: false })
         .limit(10)
       setMovimientosCaja(data || [])
-    } catch (error) {
-      console.error('Error loading movimientos caja:', error)
+    } catch {
+      // error silencioso — tabla puede no existir en todos los planes
     } finally {
       setMovimientosLoading(false)
     }

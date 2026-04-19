@@ -189,7 +189,14 @@ export function resolvePermissions(
   role: string,
   customPermissions?: Partial<AppPermissions> | null
 ): AppPermissions {
-  const defaults = ROLE_DEFAULT_PERMISSIONS[role] ?? ROLE_DEFAULT_PERMISSIONS['viewer']
+  const defaults = ROLE_DEFAULT_PERMISSIONS[role]
+  if (!defaults) {
+    // Rol desconocido — aplicar permisos mínimos y advertir en desarrollo
+    if (import.meta.env.DEV) {
+      console.warn(`[permissions] Rol desconocido: "${role}". Aplicando permisos de viewer.`)
+    }
+    return { ...ROLE_DEFAULT_PERMISSIONS['viewer'] }
+  }
   if (!customPermissions) return { ...defaults }
   return { ...defaults, ...customPermissions }
 }

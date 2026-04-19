@@ -59,15 +59,20 @@ export const OrderPrintPreviewModal: React.FC<OrderPrintPreviewModalProps> = ({
   const printRef = useRef<HTMLDivElement>(null)
   const [orderItems, setOrderItems] = useState<PrintOrderItem[]>([])
 
-  // Fetch order_items when modal opens
+  // Fetch order_items when modal opens — reset al cerrar
   useEffect(() => {
-    if (!isOpen || !order?.id) return
+    if (!isOpen) { setOrderItems([]); return }
+    if (!order?.id) return
     supabase
       .from('order_items')
       .select('tipo, descripcion, cantidad, precio_unitario, cliente_paga_repuesto')
       .eq('order_id', order.id)
       .order('created_at', { ascending: true })
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          if (import.meta.env.DEV) console.warn('[PrintModal] Error cargando ítems:', error.message)
+          return
+        }
         if (data) setOrderItems(data as PrintOrderItem[])
       })
   }, [isOpen, order?.id])

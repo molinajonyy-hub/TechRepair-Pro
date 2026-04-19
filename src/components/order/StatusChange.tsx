@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { CheckCircle, Loader2, AlertTriangle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import {
@@ -20,7 +20,7 @@ interface StatusChangeProps {
 }
 
 export function StatusChange({ orderId, currentStatus, order, onStatusChange }: StatusChangeProps) {
-  const { businessId } = useAuth()
+  const { businessId, user } = useAuth()
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | ''>('')
   const [isUpdating, setIsUpdating] = useState(false)
   const [error, setError] = useState('')
@@ -28,6 +28,14 @@ export function StatusChange({ orderId, currentStatus, order, onStatusChange }: 
   const [success, setSuccess] = useState(false)
   const [notes, setNotes] = useState('')
   const [whatsappSent, setWhatsappSent] = useState(false)
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current)
+    }
+  }, [])
 
   // Obtener transiciones permitidas desde el estado actual
   const allowedTransitions = getAllowedTransitions(currentStatus)
@@ -78,7 +86,7 @@ export function StatusChange({ orderId, currentStatus, order, onStatusChange }: 
       if (updateError) throw updateError
 
       // 3. Registrar en el historial
-      const userId = 'system' // En producción: obtener del auth context
+      const userId = user?.id ?? 'system'
       
       await recordStatusChange(supabase, {
         order_id: orderId,
@@ -123,7 +131,8 @@ export function StatusChange({ orderId, currentStatus, order, onStatusChange }: 
           .catch(() => { /* silencioso, no interrumpir el flujo */ })
       }
 
-      setTimeout(() => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current)
+      successTimerRef.current = setTimeout(() => {
         setSuccess(false)
         setWhatsappSent(false)
       }, 4000)

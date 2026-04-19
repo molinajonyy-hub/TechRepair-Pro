@@ -112,7 +112,7 @@ export function useOrderSimple(orderId: string | undefined) {
           .single()
 
         if (orderError) {
-          console.error('Error loading order:', orderError)
+          if (import.meta.env.DEV) if (import.meta.env.DEV) console.warn('Error loading order:', orderError)
           throw new Error('No se pudo cargar la orden: ' + orderError.message)
         }
 
@@ -121,7 +121,6 @@ export function useOrderSimple(orderId: string | undefined) {
           return
         }
 
-        console.log('✅ Order loaded (simple):', orderData)
 
         const result: OrderDetailSimple = {
           ...orderData,
@@ -140,11 +139,10 @@ export function useOrderSimple(orderId: string | undefined) {
               .eq('id', orderData.customer_id)
               .single()
             if (customerData) {
-              console.log('✅ Customer loaded:', customerData)
               result.customer = customerData
             }
           } catch (err) {
-            console.warn('Could not load customer:', err)
+            if (import.meta.env.DEV) console.warn('Could not load customer:', err)
           }
         }
 
@@ -157,11 +155,10 @@ export function useOrderSimple(orderId: string | undefined) {
               .eq('id', orderData.device_id)
               .single()
             if (deviceData) {
-              console.log('✅ Device loaded:', deviceData)
               result.device = deviceData
             }
           } catch (err) {
-            console.warn('Could not load device:', err)
+            if (import.meta.env.DEV) console.warn('Could not load device:', err)
           }
         }
 
@@ -174,11 +171,10 @@ export function useOrderSimple(orderId: string | undefined) {
               .eq('id', orderData.technician_id)
               .single()
             if (data) {
-              console.log('✅ Technician loaded:', data)
               result.technician = data
             }
           } catch (err) {
-            console.warn('Could not load technician:', err)
+            if (import.meta.env.DEV) console.warn('Could not load technician:', err)
           }
         }
 
@@ -191,11 +187,10 @@ export function useOrderSimple(orderId: string | undefined) {
             .single()
           
           if (checklistData) {
-            console.log('✅ Checklist loaded')
             result.checklist = checklistData
           }
         } catch (err) {
-          console.warn('Could not load checklist:', err)
+          if (import.meta.env.DEV) console.warn('Could not load checklist:', err)
         }
 
         // Cargar repuestos
@@ -207,11 +202,10 @@ export function useOrderSimple(orderId: string | undefined) {
             .order('added_at', { ascending: false })
           
           if (partsData) {
-            console.log('✅ Parts loaded:', partsData.length, 'parts')
             result.parts = partsData
           }
         } catch (err) {
-          console.warn('Could not load parts:', err)
+          if (import.meta.env.DEV) console.warn('Could not load parts:', err)
         }
 
         // Cargar pagos
@@ -223,7 +217,6 @@ export function useOrderSimple(orderId: string | undefined) {
             .order('payment_date', { ascending: false })
           
           if (paymentsData) {
-            console.log('✅ Payments loaded:', paymentsData.length, 'payments')
             result.payments = paymentsData
             // Recalcular balance
             const totalPaid = paymentsData.filter((p: any) => p.payment_status === 'completed').reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
@@ -231,7 +224,7 @@ export function useOrderSimple(orderId: string | undefined) {
             result.balance_pending = (result.total_cost || 0) - totalPaid
           }
         } catch (err) {
-          console.warn('Could not load payments:', err)
+          if (import.meta.env.DEV) console.warn('Could not load payments:', err)
         }
 
         // Cargar historial de estados
@@ -243,11 +236,10 @@ export function useOrderSimple(orderId: string | undefined) {
             .order('created_at', { ascending: false })
           
           if (historyData) {
-            console.log('✅ History loaded:', historyData.length, 'entries')
             result.history = historyData
           }
         } catch (err) {
-          console.warn('Could not load status history:', err)
+          if (import.meta.env.DEV) console.warn('Could not load status history:', err)
         }
 
         // Cargar inspecciones (checklist recepción y final)
@@ -258,19 +250,18 @@ export function useOrderSimple(orderId: string | undefined) {
             .eq('order_id', orderId)
           
           if (inspectionsData && inspectionsData.length > 0) {
-            console.log('✅ Inspections loaded:', inspectionsData.length)
             result.inspections = {
               reception: inspectionsData.find((i: any) => i.type === 'reception'),
               final: inspectionsData.find((i: any) => i.type === 'final')
             }
           }
         } catch (err) {
-          console.warn('Could not load inspections:', err)
+          if (import.meta.env.DEV) console.warn('Could not load inspections:', err)
         }
 
         setOrder(result)
       } catch (err: unknown) {
-        console.error('❌ Error in fetchOrder:', err)
+        if (import.meta.env.DEV) if (import.meta.env.DEV) console.warn('❌ Error in fetchOrder:', err)
         setError(err instanceof Error ? err.message : 'Error al cargar la orden')
       } finally {
         setLoading(false)
@@ -340,7 +331,7 @@ export function useOrderSimple(orderId: string | undefined) {
           result.checklist = checklistData
         }
       } catch (err) {
-        console.warn('Could not load checklist:', err)
+        if (import.meta.env.DEV) console.warn('Could not load checklist:', err)
       }
 
       // Recargar repuestos
@@ -354,7 +345,7 @@ export function useOrderSimple(orderId: string | undefined) {
           result.parts = partsData
         }
       } catch (err) {
-        console.warn('Could not load parts:', err)
+        if (import.meta.env.DEV) console.warn('Could not load parts:', err)
       }
 
       // Recargar pagos
@@ -371,7 +362,7 @@ export function useOrderSimple(orderId: string | undefined) {
           result.balance_pending = (result.total_cost || 0) - totalPaid
         }
       } catch (err) {
-        console.warn('Could not load payments:', err)
+        if (import.meta.env.DEV) console.warn('Could not load payments:', err)
       }
 
       // Recargar historial
@@ -386,7 +377,7 @@ export function useOrderSimple(orderId: string | undefined) {
           result.history = historyData
         }
       } catch (err) {
-        console.warn('Could not load status history:', err)
+        if (import.meta.env.DEV) console.warn('Could not load status history:', err)
       }
 
       // Recargar inspecciones
@@ -403,7 +394,7 @@ export function useOrderSimple(orderId: string | undefined) {
           }
         }
       } catch (err) {
-        console.warn('Could not load inspections:', err)
+        if (import.meta.env.DEV) console.warn('Could not load inspections:', err)
       }
 
       setOrder(result)

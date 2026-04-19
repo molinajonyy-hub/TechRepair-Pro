@@ -54,7 +54,7 @@ export const usersService = {
     }
 
     if (!data) {
-      throw new Error('No se recibio el token de invitacion');
+      throw new Error('No se recibió el token de invitación');
     }
 
     return data;
@@ -132,23 +132,4 @@ export const usersService = {
     }
   },
 
-  async createInvitationWithPermissions(
-    email: string,
-    role: string,
-    businessId: string,
-    customPermissions?: Partial<AppPermissions> | null
-  ): Promise<string> {
-    // First create the invitation token
-    const token = await usersService.createInvitation(email, role, businessId);
-
-    // If custom permissions provided, store them in the invitation for later use
-    if (customPermissions && Object.keys(customPermissions).length > 0) {
-      await supabase
-        .from('business_invitations')
-        .update({ metadata: { permissions: customPermissions } } as any)
-        .eq('token', token);
-    }
-
-    return token;
-  },
 };
