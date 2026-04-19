@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import '../css/landing.css'
+import { AppleEmoji } from '../components/ui/AppleEmoji'
 
 // ─────────────────────────────────────────────────────────────────────
 // Icons (inline SVG to avoid extra deps)
@@ -188,10 +189,9 @@ function MockDashboard() {
               width: '28px', height: '28px',
               borderRadius: '0.4rem',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '12px',
               background: i === 0 ? 'rgba(99,102,241,0.2)' : 'transparent',
               cursor: 'default',
-            }}>{icon}</div>
+            }}><AppleEmoji emoji={icon} size={13} /></div>
           ))}
         </div>
 
@@ -284,8 +284,10 @@ function MockDashboard() {
         gap: '1rem',
         alignItems: 'center',
       }}>
-        {['📱 24 reparaciones activas', '📦 Stock: 142 items', '💵 Caja: $156.800'].map((item, i) => (
-          <span key={i} style={{ color: '#475569', fontSize: '10px' }}>{item}</span>
+        {[['📱','24 reparaciones activas'], ['📦','Stock: 142 items'], ['💵','Caja: $156.800']].map(([emoji, text], i) => (
+          <span key={i} style={{ color: '#475569', fontSize: '10px', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+            <AppleEmoji emoji={emoji} size={11} />{text}
+          </span>
         ))}
       </div>
     </div>
@@ -432,14 +434,15 @@ function Hero({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
             {/* Badge */}
             <div className="lp-fade-up lp-d-0">
               <div style={{
-                display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
-                padding: '0.35rem 1rem',
-                background: 'rgba(99,102,241,0.1)',
-                border: '1px solid rgba(99,102,241,0.25)',
+                display: 'flex', alignItems: 'center', gap: '0.5rem',
+                padding: '0.5rem 1.25rem',
+                background: 'rgba(15,20,35,0.85)',
+                border: '1px solid rgba(99,102,241,0.2)',
                 borderRadius: '999px',
+                width: 'fit-content',
               }}>
-                <span style={{ fontSize: '13px' }}>⚡</span>
-                <span style={{ color: '#818cf8', fontSize: '0.8rem', fontWeight: 700, letterSpacing: '0.04em' }}>
+                <AppleEmoji emoji="⚡" size={14} />
+                <span style={{ color: '#e2e8f0', fontSize: '0.82rem', fontWeight: 600, letterSpacing: '0.02em' }}>
                   Sistema en la nube · Listo para usar hoy
                 </span>
               </div>
@@ -455,7 +458,7 @@ function Hero({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
                 color: '#f8fafc',
                 margin: 0,
               }}>
-                Gestioná tu taller de celulares{' '}
+                Gestioná tu taller o local de celulares{' '}
                 <span className="lp-gradient-text">de punta a punta</span>
               </h1>
             </div>
@@ -503,27 +506,6 @@ function Hero({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
               </button>
             </div>
 
-            {/* Social proof */}
-            <div className="lp-fade-up lp-d-5" style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-              <div style={{ display: 'flex' }}>
-                {['J', 'M', 'P', 'A', 'C'].map((l, i) => (
-                  <div key={i} style={{
-                    width: '28px', height: '28px', borderRadius: '50%',
-                    background: `hsl(${200 + i * 30}, 70%, 50%)`,
-                    border: '2px solid #09090b',
-                    marginLeft: i > 0 ? '-8px' : 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '11px', fontWeight: 700, color: '#fff',
-                  }}>{l}</div>
-                ))}
-              </div>
-              <div>
-                <div style={{ display: 'flex', gap: '2px' }}>
-                  {[1,2,3,4,5].map(i => <span key={i} style={{ color: '#f59e0b', fontSize: '12px' }}>★</span>)}
-                </div>
-                <span style={{ color: '#475569', fontSize: '0.78rem' }}>+200 talleres ya lo usan</span>
-              </div>
-            </div>
           </div>
 
           {/* Right column — Mock dashboard */}
@@ -611,7 +593,7 @@ function ForTechnicians() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3.5rem', alignItems: 'center' }}>
           {/* Left */}
           <div>
-            <div className="lp-section-label">💡 Hecho para vos</div>
+            <div className="lp-section-label"><AppleEmoji emoji="💡" size={14} style={{marginRight:'0.3rem'}} /> Hecho para vos</div>
             <h2 className="lp-section-title">
               Creado para talleres y locales de celulares
             </h2>
@@ -641,7 +623,7 @@ function ForTechnicians() {
                 padding: '1.375rem',
                 borderRadius: '1rem',
               }}>
-                <div style={{ fontSize: '1.75rem', marginBottom: '0.625rem' }}>{card.icon}</div>
+                <div style={{ marginBottom: '0.625rem' }}><AppleEmoji emoji={card.icon} size={28} /></div>
                 <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: '0.9375rem', marginBottom: '0.375rem' }}>{card.title}</div>
                 <div style={{ color: '#475569', fontSize: '0.8125rem', lineHeight: 1.6 }}>{card.desc}</div>
               </div>
@@ -689,7 +671,7 @@ function Features() {
     <section id="features" style={{ padding: '6rem 2rem' }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
-          <div className="lp-section-label" style={{ display: 'inline-flex', margin: '0 auto 1rem' }}>🚀 Funcionalidades</div>
+          <div className="lp-section-label" style={{ display: 'inline-flex', margin: '0 auto 1rem', alignItems: 'center', gap: '0.35rem' }}><AppleEmoji emoji="🚀" size={14} /> Funcionalidades</div>
           <h2 className="lp-section-title" style={{ textAlign: 'center' }}>
             Todo lo que necesitás, en un solo sistema
           </h2>
@@ -714,8 +696,7 @@ function Features() {
                 background: block.colorBg,
                 border: `1px solid ${block.color}28`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '1.25rem',
-              }}>{block.icon}</div>
+              }}><AppleEmoji emoji={block.icon} size={22} /></div>
 
               {/* Label */}
               <div>
@@ -753,21 +734,58 @@ function Features() {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Integration logo SVGs
+// ─────────────────────────────────────────────────────────────────────
+
+// ARCA logo: dark blue bg + actual ARCA letterform paths from official SVG
+const ARCALogo = ({ size = 30 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <rect width="100" height="100" rx="18" fill="#003087"/>
+    {/* ARCA letters: original coords x=2.5→172, y=10→51.5 → scale 0.529, centered */}
+    <g transform="translate(3.7, 33.7) scale(0.529)">
+      <path fill="white" d="M2.5,50.274l17.578-39.438h9.014l17.634,39.438h-9.577L22.725,15.455h3.605L11.852,50.274H2.5z M11.289,41.822l2.422-6.929h20.283l2.479,6.929H11.289z"/>
+      <path fill="white" d="M50.838,50.273V10.836h17.071c3.53,0,6.573,0.572,9.127,1.717c2.554,1.146,4.526,2.791,5.917,4.933c1.389,2.139,2.083,4.695,2.083,7.661c0,2.931-0.694,5.458-2.083,7.575c-1.39,2.124-3.362,3.749-5.917,4.876c-2.554,1.127-5.597,1.69-9.127,1.69h-12l4.057-4v14.985H50.838z M59.966,36.301l-4.057-4.282h11.493c2.817,0,4.921-0.609,6.311-1.83c1.389-1.22,2.083-2.901,2.083-5.042c0-2.178-0.695-3.868-2.083-5.07c-1.39-1.202-3.494-1.803-6.311-1.803H55.909l4.057-4.34V36.301z M75.909,50.273l-9.859-14.31h9.747l9.973,14.31H75.909z"/>
+      <path fill="white" d="M111.121,50.948c-3.042,0-5.869-0.497-8.479-1.491c-2.612-0.997-4.874-2.413-6.789-4.254c-1.916-1.841-3.409-4.001-4.479-6.48c-1.07-2.478-1.605-5.201-1.605-8.168c0-2.966,0.535-5.689,1.605-8.17c1.071-2.479,2.572-4.638,4.507-6.479c1.935-1.839,4.198-3.258,6.789-4.254c2.592-0.994,5.428-1.491,8.507-1.491c3.418,0,6.508,0.591,9.269,1.774c2.76,1.182,5.079,2.921,6.957,5.21l-5.858,5.409c-1.353-1.539-2.854-2.695-4.508-3.466c-1.652-0.769-3.455-1.155-5.408-1.155c-1.841,0-3.531,0.302-5.071,0.902c-1.542,0.602-2.874,1.465-4,2.591c-1.128,1.128-2.001,2.461-2.621,4.002c-0.619,1.539-0.93,3.248-0.93,5.126c0,1.88,0.311,3.588,0.93,5.127c0.619,1.54,1.492,2.873,2.621,4c1.126,1.126,2.458,1.991,4,2.591c1.54,0.603,3.229,0.901,5.071,0.901c1.953,0,3.756-0.384,5.408-1.154c1.654-0.769,3.155-1.942,4.508-3.521l5.858,5.409c-1.878,2.291-4.197,4.037-6.957,5.239C117.685,50.348,114.577,50.948,111.121,50.948"/>
+      <path fill="white" d="M127.571,50.274l17.579-39.438h9.015l17.634,39.438h-9.578l-14.424-34.819h3.605l-14.479,34.819H127.571z M136.36,41.822l2.423-6.929h20.283l2.478,6.929H136.36z"/>
+    </g>
+  </svg>
+)
+
+// Mercado Pago logo: official path from Simple Icons (simpleicons.org)
+const MercadoPagoLogo = ({ size = 30 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+    <rect width="24" height="24" rx="5" fill="#009ee3"/>
+    <path fill="white" d="M11.115 16.479a.93.927 0 0 1-.939-.886c-.002-.042-.006-.155-.103-.155-.04 0-.074.023-.113.059-.112.103-.254.206-.46.206a.816.814 0 0 1-.305-.066c-.535-.214-.542-.578-.521-.725.006-.038.007-.08-.02-.11l-.032-.03h-.034c-.027 0-.055.012-.093.039a.788.786 0 0 1-.454.16.7.699 0 0 1-.253-.05c-.708-.27-.65-.928-.617-1.126.005-.041-.005-.072-.03-.092l-.05-.04-.047.043a.728.726 0 0 1-.505.203.73.728 0 0 1-.732-.725c0-.4.328-.722.732-.722.364 0 .675.27.721.63l.026.195.11-.165c.01-.018.307-.46.852-.46.102 0 .21.016.316.05.434.13.508.52.519.68.008.094.075.1.09.1.037 0 .064-.024.083-.045a.746.744 0 0 1 .54-.225c.128 0 .263.03.402.09.69.293.379 1.158.374 1.167-.058.144-.061.207-.005.244l.027.013h.02c.03 0 .07-.014.134-.035.093-.032.235-.08.367-.08a.944.942 0 0 1 .94.93.936.934 0 0 1-.94.928zm7.302-4.171c-1.138-.98-3.768-3.24-4.481-3.77-.406-.302-.685-.462-.928-.533a1.559 1.554 0 0 0-.456-.07c-.182 0-.376.032-.58.095-.46.145-.918.505-1.362.854l-.023.018c-.414.324-.84.66-1.164.73a1.986 1.98 0 0 1-.43.049c-.362 0-.687-.104-.81-.258-.02-.025-.007-.066.04-.125l.008-.008 1-1.067c.783-.774 1.525-1.506 3.23-1.545h.085c1.062 0 2.12.469 2.24.524a7.03 7.03 0 0 0 3.056.724c1.076 0 2.188-.263 3.354-.795a9.135 9.11 0 0 0-.405-.317c-1.025.44-2.003.66-2.946.66-.962 0-1.925-.229-2.858-.68-.05-.022-1.22-.567-2.44-.57-.032 0-.065 0-.096.002-1.434.033-2.24.536-2.782.976-.528.013-.982.138-1.388.25-.361.1-.673.186-.979.185-.125 0-.35-.01-.37-.012-.35-.01-2.115-.437-3.518-.962-.143.1-.28.203-.415.31 1.466.593 3.25 1.053 3.812 1.089.157.01.323.027.491.027.372 0 .744-.103 1.104-.203.213-.059.446-.123.692-.17l-.196.194-1.017 1.087c-.08.08-.254.294-.14.557a.705.703 0 0 0 .268.292c.243.162.677.27 1.08.271.152 0 .297-.015.43-.044.427-.095.874-.448 1.349-.82.377-.296.913-.672 1.323-.782a1.494 1.49 0 0 1 .37-.05.611.61 0 0 1 .095.005c.27.034.533.125 1.003.472.835.62 4.531 3.815 4.566 3.846.002.002.238.203.22.537-.007.186-.11.352-.294.466a.902.9 0 0 1-.484.15.804.802 0 0 1-.428-.124c-.014-.01-1.28-1.157-1.746-1.543-.074-.06-.146-.115-.22-.115a.122.122 0 0 0-.096.045c-.073.09.01.212.105.294l1.48 1.47c.002 0 .184.17.204.395.012.244-.106.447-.35.606a.957.955 0 0 1-.526.171.766.764 0 0 1-.42-.127l-.214-.206a21.035 20.978 0 0 0-1.08-1.009c-.072-.058-.148-.112-.221-.112a.127.127 0 0 0-.094.038c-.033.037-.056.103.028.212a.698.696 0 0 0 .075.083l1.078 1.198c.01.01.222.26.024.511l-.038.048a1.18 1.178 0 0 1-.1.096c-.184.15-.43.164-.527.164a.8.798 0 0 1-.147-.012c-.106-.018-.178-.048-.212-.089l-.013-.013c-.06-.06-.602-.609-1.054-.98-.059-.05-.133-.11-.21-.11a.128.128 0 0 0-.096.042c-.09.096.044.24.1.293l.92 1.003a.204.204 0 0 1-.033.062c-.033.044-.144.155-.479.196a.91.907 0 0 1-.122.007c-.345 0-.712-.164-.902-.264a1.343 1.34 0 0 0 .13-.576 1.368 1.365 0 0 0-1.42-1.357c.024-.342-.025-.99-.697-1.274a1.455 1.452 0 0 0-.575-.125c-.146 0-.287.025-.42.075a1.153 1.15 0 0 0-.671-.564 1.52 1.515 0 0 0-.494-.085c-.28 0-.537.08-.767.242a1.168 1.165 0 0 0-.903-.43 1.173 1.17 0 0 0-.82.335c-.287-.217-1.425-.93-4.467-1.613a17.39 17.344 0 0 1-.692-.189 4.822 4.82 0 0 0-.077.494l.67.157c3.108.682 4.136 1.391 4.309 1.525a1.145 1.142 0 0 0-.09.442 1.16 1.158 0 0 0 1.378 1.132c.096.467.406.821.879 1.003a1.165 1.162 0 0 0 .415.08c.09 0 .179-.012.266-.034.086.22.282.493.722.668a1.233 1.23 0 0 0 .457.094c.122 0 .241-.022.355-.063a1.373 1.37 0 0 0 1.269.841c.37.002.726-.147.985-.41.221.121.688.341 1.163.341.06 0 .118-.002.175-.01.47-.059.689-.24.789-.382a.571.57 0 0 0 .048-.078c.11.032.234.058.373.058.255 0 .501-.086.75-.265.244-.174.418-.424.444-.637v-.01c.083.017.167.026.251.026.265 0 .527-.082.773-.242.48-.31.562-.715.554-.98a1.28 1.279 0 0 0 .978-.194 1.04 1.04 0 0 0 .502-.808 1.088 1.085 0 0 0-.16-.653c.804-.342 2.636-1.003 4.795-1.483a4.734 4.721 0 0 0-.067-.492 27.742 27.667 0 0 0-5.049 1.62zm5.123-.763c0 4.027-5.166 7.293-11.537 7.293-6.372 0-11.538-3.266-11.538-7.293 0-4.028 5.165-7.293 11.539-7.293 6.371 0 11.537 3.265 11.537 7.293zm.46.004c0-4.272-5.374-7.755-12-7.755S.002 7.277.002 11.55L0 12.004c0 4.533 4.695 8.203 11.999 8.203 7.347 0 12-3.67 12-8.204z"/>
+  </svg>
+)
+
+// Microsoft Excel logo: official icon paths (office365-icons)
+const ExcelLogo = ({ size = 30 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="-0.5 -0.5 889 864" xmlns="http://www.w3.org/2000/svg">
+    <path fill="#21a366" d="M551.5 53H263.97C244.11 53 228 69.11 228 88.99v152.85l323.5 188.88L713.25 499 875 430.72V241.84L551.5 53"/>
+    <path fill="#107c41" d="M228 430h323V242H228v188"/>
+    <path fill="#33c481" d="M839.11 53H552v188h323V88.81C875 69.03 858.93 53 839.11 53"/>
+    <path fill="#185c37" d="M551.5 431H228v341.11c0 9.52 3.79 18.65 10.54 25.38 6.74 6.73 15.89 10.51 25.43 10.51h575.06c9.54 0 18.69-3.78 25.43-10.51 6.75-6.73 10.54-15.86 10.54-25.38V619.5L551.5 431"/>
+    <path fill="#107c41" d="M552 619h323V431H552v188"/>
+    <path fillOpacity=".1" d="M461.14 188H228v512h233.14c19.78-.06 35.8-16.12 35.86-35.94V223.94c-.06-19.82-16.08-35.88-35.86-35.94"/>
+    <path fillOpacity=".2" d="M434.14 215H228v512h206.14c19.78-.05 35.8-16.11 35.86-35.94V250.94c-.06-19.83-16.08-35.89-35.86-35.94"/>
+    <path fillOpacity=".2" d="M434.14 215H228v458h206.14c19.77-.05 35.78-16.09 35.86-35.91V250.91c-.08-19.82-16.09-35.86-35.86-35.91"/>
+    <path fillOpacity=".2" d="M407.16 215H228v458h179.16c19.76-.06 35.76-16.1 35.84-35.91V250.91c-.08-19.81-16.08-35.85-35.84-35.91"/>
+    <path fill="#107c41" d="M48.9 215h359.2c9.52 0 18.65 3.78 25.38 10.52 6.74 6.73 10.52 15.86 10.52 25.38v359.2c0 9.52-3.78 18.65-10.52 25.38-6.73 6.74-15.86 10.52-25.38 10.52H48.9c-9.52 0-18.65-3.78-25.38-10.52C16.78 628.75 13 619.62 13 610.1V250.9c0-9.52 3.78-18.65 10.52-25.38C30.25 218.78 39.38 215 48.9 215"/>
+    <path fill="#fff" d="M108 565l87.29-134.88L115.33 296h64.34l43.65 85.73q6.02 12.19 8.29 18.18h.55q4.34-9.73 9.04-18.93L287.86 296h59.07l-82.01 133.37L349 565h-62.83l-50.42-94.18c-2.38-3.99-4.4-8.2-6.02-12.56h-.75c-1.48 4.27-3.43 8.36-5.83 12.19L171.21 565H108"/>
+  </svg>
+)
+
+// ─────────────────────────────────────────────────────────────────────
 // Integrations
 // ─────────────────────────────────────────────────────────────────────
 
 function Integrations() {
   const active = [
-    { icon: null, name: 'WhatsApp', desc: 'Mensajes automáticos al cliente al cambiar el estado de la orden', color: '#25d366', isWhatsApp: true },
-    { icon: '🧾', name: 'Facturación AFIP', desc: 'Emisión de comprobantes electrónicos (A, B, C) con CAE real', color: '#4299e1' },
-    { icon: '💳', name: 'Mercado Pago', desc: 'Registro de pagos y link de pago directo al cliente', color: '#009ee3' },
-    { icon: '📊', name: 'Exportar a Excel', desc: 'Exportación de órdenes, clientes, stock e informes', color: '#217346' },
-  ]
-
-  const coming = [
-    { icon: '🛒', name: 'Mercado Libre', desc: 'Gestión de ventas y stock desde el marketplace' },
-    { icon: '🏪', name: 'Tienda Nube', desc: 'Sincronización automática con tu tienda online' },
-    { icon: '🛍️', name: 'Shopify', desc: 'Conectá tu ecommerce con el inventario del taller' },
+    { name: 'WhatsApp', desc: 'Mensajes automáticos al cliente al cambiar el estado de la orden', color: '#25d366', logo: <WhatsAppSVG size={26} color="#25d366" />, bg: 'rgba(37,211,102,0.1)', border: 'rgba(37,211,102,0.2)' },
+    { name: 'Facturación ARCA', desc: 'Emisión de comprobantes electrónicos (A, B, C) con CAE real', color: '#4299e1', logo: <ARCALogo size={38} />, bg: 'transparent', border: 'transparent' },
+    { name: 'Mercado Pago', desc: 'Registro de pagos y link de pago directo al cliente', color: '#009ee3', logo: <MercadoPagoLogo size={38} />, bg: 'transparent', border: 'transparent' },
+    { name: 'Exportar a Excel', desc: 'Exportación de órdenes, clientes, stock e informes', color: '#21a150', logo: <ExcelLogo size={38} />, bg: 'transparent', border: 'transparent' },
   ]
 
   return (
@@ -779,7 +797,7 @@ function Integrations() {
     }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-          <div className="lp-section-label" style={{ display: 'inline-flex', margin: '0 auto 1rem' }}>🔗 Integraciones</div>
+          <div className="lp-section-label" style={{ display: 'inline-flex', margin: '0 auto 1rem', alignItems: 'center', gap: '0.35rem' }}><AppleEmoji emoji="🔗" size={14} /> Integraciones</div>
           <h2 className="lp-section-title" style={{ textAlign: 'center' }}>
             Integraciones que potencian tu negocio
           </h2>
@@ -788,66 +806,36 @@ function Integrations() {
           </p>
         </div>
 
-        {/* Active */}
-        <div style={{ marginBottom: '2.5rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 6px #22c55e' }} />
-            <span style={{ color: '#22c55e', fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Disponibles ahora</span>
-          </div>
-          <div className="lp-integrations-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
-            {active.map((int, i) => (
-              <div key={i} className="lp-integration-card">
-                <div style={{
-                  width: '44px', height: '44px', borderRadius: '0.75rem',
-                  background: `${int.color}18`,
-                  border: `1px solid ${int.color}30`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '1.375rem', flexShrink: 0,
-                }}>
-                  {(int as any).isWhatsApp
-                    ? <WhatsAppSVG size={26} color="#25d366" />
-                    : int.icon}
-                </div>
-                <div>
-                  <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: '0.9375rem', marginBottom: '0.2rem' }}>{int.name}</div>
-                  <div style={{ color: '#475569', fontSize: '0.8rem', lineHeight: 1.5 }}>{int.desc}</div>
-                </div>
-                <div style={{
-                  marginLeft: 'auto', flexShrink: 0,
-                  padding: '0.2rem 0.6rem',
-                  background: 'rgba(34,197,94,0.1)',
-                  border: '1px solid rgba(34,197,94,0.25)',
-                  borderRadius: '999px',
-                  color: '#22c55e', fontSize: '0.72rem', fontWeight: 700,
-                }}>Activo</div>
-              </div>
-            ))}
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
+          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#22c55e', boxShadow: '0 0 6px #22c55e' }} />
+          <span style={{ color: '#22c55e', fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Disponibles ahora</span>
         </div>
-
-        {/* Coming soon */}
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b' }} />
-            <span style={{ color: '#f59e0b', fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Próximamente</span>
-          </div>
-          <div className="lp-integrations-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', opacity: 0.55 }}>
-            {coming.map((int, i) => (
-              <div key={i} className="lp-integration-card" style={{ cursor: 'default' }}>
-                <div style={{
-                  width: '40px', height: '40px', borderRadius: '0.75rem',
-                  background: 'rgba(255,255,255,0.04)',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '1.25rem', flexShrink: 0,
-                }}>{int.icon}</div>
-                <div>
-                  <div style={{ color: '#94a3b8', fontWeight: 700, fontSize: '0.875rem', marginBottom: '0.2rem' }}>{int.name}</div>
-                  <div style={{ color: '#334155', fontSize: '0.78rem', lineHeight: 1.5 }}>{int.desc}</div>
-                </div>
+        <div className="lp-integrations-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+          {active.map((int, i) => (
+            <div key={i} className="lp-integration-card">
+              <div style={{
+                width: '48px', height: '48px', borderRadius: '0.875rem',
+                background: int.bg,
+                border: int.border !== 'transparent' ? `1px solid ${int.border}` : 'none',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+              }}>
+                {int.logo}
               </div>
-            ))}
-          </div>
+              <div>
+                <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: '0.9375rem', marginBottom: '0.2rem' }}>{int.name}</div>
+                <div style={{ color: '#475569', fontSize: '0.8rem', lineHeight: 1.5 }}>{int.desc}</div>
+              </div>
+              <div style={{
+                marginLeft: 'auto', flexShrink: 0,
+                padding: '0.2rem 0.6rem',
+                background: 'rgba(34,197,94,0.1)',
+                border: '1px solid rgba(34,197,94,0.25)',
+                borderRadius: '999px',
+                color: '#22c55e', fontSize: '0.72rem', fontWeight: 700,
+              }}>Activo</div>
+            </div>
+          ))}
         </div>
       </div>
     </section>
@@ -872,7 +860,7 @@ function Benefits() {
     <section style={{ padding: '6rem 2rem' }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
-          <div className="lp-section-label" style={{ display: 'inline-flex', margin: '0 auto 1rem' }}>✨ Por qué elegirnos</div>
+          <div className="lp-section-label" style={{ display: 'inline-flex', margin: '0 auto 1rem', alignItems: 'center', gap: '0.35rem' }}><AppleEmoji emoji="✨" size={14} /> Por qué elegirnos</div>
           <h2 className="lp-section-title" style={{ textAlign: 'center' }}>
             Más control, menos caos
           </h2>
@@ -881,7 +869,7 @@ function Benefits() {
         <div className="lp-benefits-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
           {benefits.map((b, i) => (
             <div key={i} className="lp-benefit-card">
-              <div style={{ fontSize: '1.875rem', marginBottom: '0.875rem' }}>{b.icon}</div>
+              <div style={{ marginBottom: '0.875rem' }}><AppleEmoji emoji={b.icon} size={30} /></div>
               <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: '0.9375rem', marginBottom: '0.375rem' }}>{b.title}</div>
               <div style={{ color: '#475569', fontSize: '0.8125rem', lineHeight: 1.65 }}>{b.desc}</div>
             </div>
@@ -910,7 +898,7 @@ function Pricing({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-          <div className="lp-section-label" style={{ display: 'inline-flex', margin: '0 auto 1rem' }}>💎 Planes</div>
+          <div className="lp-section-label" style={{ display: 'inline-flex', margin: '0 auto 1rem', alignItems: 'center', gap: '0.35rem' }}><AppleEmoji emoji="💎" size={14} /> Planes</div>
           <h2 className="lp-section-title" style={{ textAlign: 'center' }}>
             Elegí el plan ideal para tu negocio
           </h2>
@@ -1039,7 +1027,7 @@ function FAQ() {
     <section id="faq" style={{ padding: '6rem 2rem' }}>
       <div style={{ maxWidth: '700px', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-          <div className="lp-section-label" style={{ display: 'inline-flex', margin: '0 auto 1rem' }}>❓ Preguntas frecuentes</div>
+          <div className="lp-section-label" style={{ display: 'inline-flex', margin: '0 auto 1rem', alignItems: 'center', gap: '0.35rem' }}><AppleEmoji emoji="❓" size={14} /> Preguntas frecuentes</div>
           <h2 className="lp-section-title" style={{ textAlign: 'center' }}>
             Dudas frecuentes
           </h2>
@@ -1221,7 +1209,6 @@ function Footer() {
                   background: 'rgba(255,255,255,0.04)',
                   border: '1px solid rgba(255,255,255,0.07)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: '15px',
                   transition: 'background 0.2s ease, border-color 0.2s ease',
                 }}
                 onMouseEnter={e => {
@@ -1235,7 +1222,7 @@ function Footer() {
                   el.style.borderColor = 'rgba(255,255,255,0.07)'
                 }}
                 title={s.label}
-              >{s.icon}</a>
+              ><AppleEmoji emoji={s.icon} size={16} /></a>
             ))}
           </div>
         </div>
