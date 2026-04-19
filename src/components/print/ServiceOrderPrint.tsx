@@ -8,6 +8,14 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export interface PrintOrderItem {
+  tipo: 'repuesto' | 'servicio'
+  descripcion: string
+  cantidad: number
+  precio_unitario: number
+  cliente_paga_repuesto: boolean
+}
+
 export interface ServiceOrderData {
   id: string
   created_at: string
@@ -38,6 +46,7 @@ export interface ServiceOrderData {
   observations?: string
   estimated_total?: number
   final_total?: number
+  orderItems?: PrintOrderItem[]
 }
 
 interface ServiceOrderPrintProps {
@@ -150,10 +159,20 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
 
     const s: OrderPrintSettings = externalSettings ?? loadedSettings ?? DEFAULT_PRINT_SETTINGS
 
+    // Total: from order_items (sin costos) or fallback
+    const itemsTotal = order.orderItems
+      ? order.orderItems.reduce((sum, item) => {
+          if (item.tipo === 'servicio' || item.cliente_paga_repuesto) {
+            return sum + item.precio_unitario * item.cantidad
+          }
+          return sum
+        }, 0)
+      : null
+
     const orderNumber = order.id.slice(0, 8).toUpperCase()
     const orderDate = new Date(order.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
     const orderTime = new Date(order.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
-    const total = order.final_total || order.estimated_total || 0
+    const total = itemsTotal !== null ? itemsTotal : (order.final_total || order.estimated_total || 0)
     const businessName = s.nombre_comercial || s.razon_social || 'Mi Negocio'
 
     // Footer contact items
@@ -225,15 +244,51 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
         <SectionBox title="Detalle del Servicio" accentColor="#6366f1">
           <Block label="Falla reportada" value={order.reported_issue} />
           {order.diagnosis && <Block label="Diagnóstico inicial" value={order.diagnosis} />}
+
+          {/* Tabla de ítems (sin costos internos) */}
+          {order.orderItems && order.orderItems.length > 0 && (
+            <div style={{ marginTop: '4px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '7.5px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f1f5f9' }}>
+                    <th style={{ textAlign: 'left', padding: '2px 4px', color: '#475569', fontWeight: 700 }}>Descripción</th>
+                    <th style={{ textAlign: 'center', padding: '2px 4px', color: '#475569', fontWeight: 700, width: '30px' }}>Cant.</th>
+                    <th style={{ textAlign: 'right', padding: '2px 4px', color: '#475569', fontWeight: 700, width: '60px' }}>Precio</th>
+                    <th style={{ textAlign: 'right', padding: '2px 4px', color: '#475569', fontWeight: 700, width: '60px' }}>Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {order.orderItems
+                    .filter(item => item.tipo === 'servicio' || item.cliente_paga_repuesto)
+                    .map((item, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                        <td style={{ padding: '2px 4px', color: '#1e293b' }}>
+                          {item.descripcion}
+                          <span style={{ fontSize: '6.5px', color: '#94a3b8', marginLeft: '3px' }}>
+                            {item.tipo === 'servicio' ? '(servicio)' : '(repuesto)'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '2px 4px', textAlign: 'center', color: '#475569' }}>{item.cantidad}</td>
+                        <td style={{ padding: '2px 4px', textAlign: 'right', color: '#475569' }}>{fmtCurrency(item.precio_unitario)}</td>
+                        <td style={{ padding: '2px 4px', textAlign: 'right', color: '#1e293b', fontWeight: 600 }}>{fmtCurrency(item.precio_unitario * item.cantidad)}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           {total > 0 && (
             <div style={{ marginTop: '3px', padding: '4px 7px', backgroundColor: '#f0fdf4', borderRadius: '4px', border: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', gap: '10px' }}>
               <div>
-                <div style={{ fontSize: '7.5px', color: '#64748b' }}>Presupuesto estimado</div>
+                <div style={{ fontSize: '7.5px', color: '#64748b' }}>{order.orderItems && order.orderItems.length > 0 ? 'Total del servicio' : 'Presupuesto estimado'}</div>
                 <div style={{ fontSize: '12px', fontWeight: 700, color: '#059669' }}>{fmtCurrency(total)}</div>
               </div>
-              <div style={{ fontSize: '7px', color: '#64748b', fontStyle: 'italic', flex: 1 }}>
-                * El presupuesto es orientativo y puede variar según el diagnóstico final.
-              </div>
+              {!(order.orderItems && order.orderItems.length > 0) && (
+                <div style={{ fontSize: '7px', color: '#64748b', fontStyle: 'italic', flex: 1 }}>
+                  * El presupuesto es orientativo y puede variar según el diagnóstico final.
+                </div>
+              )}
             </div>
           )}
         </SectionBox>
@@ -326,11 +381,51 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
               <Block label="Trabajo a realizar" value={order.labor} />
-              <Block label="Repuestos" value={order.parts_used} />
+              {!order.orderItems && <Block label="Repuestos" value={order.parts_used} />}
               {order.observations && <Block label="Observaciones" value={order.observations} />}
-              {total > 0 && <Row label="Presupuesto" value={fmtCurrency(total)} />}
             </div>
           </div>
+          {/* Tabla de ítems (sin costos internos) */}
+          {order.orderItems && order.orderItems.length > 0 && (
+            <div style={{ marginTop: '4px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '7.5px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f1f5f9' }}>
+                    <th style={{ textAlign: 'left', padding: '2px 4px', color: '#475569', fontWeight: 700 }}>Descripción</th>
+                    <th style={{ textAlign: 'center', padding: '2px 4px', color: '#475569', fontWeight: 700, width: '30px' }}>Cant.</th>
+                    <th style={{ textAlign: 'right', padding: '2px 4px', color: '#475569', fontWeight: 700, width: '65px' }}>Precio unit.</th>
+                    <th style={{ textAlign: 'right', padding: '2px 4px', color: '#475569', fontWeight: 700, width: '65px' }}>Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {order.orderItems.map((item, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      <td style={{ padding: '2px 4px', color: '#1e293b' }}>
+                        {item.descripcion}
+                        {item.tipo === 'repuesto' && !item.cliente_paga_repuesto && (
+                          <span style={{ fontSize: '6.5px', color: '#f59e0b', marginLeft: '3px' }}>(no cobrado)</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '2px 4px', textAlign: 'center', color: '#475569' }}>{item.cantidad}</td>
+                      <td style={{ padding: '2px 4px', textAlign: 'right', color: '#475569' }}>{fmtCurrency(item.precio_unitario)}</td>
+                      <td style={{ padding: '2px 4px', textAlign: 'right', color: '#1e293b', fontWeight: 600 }}>
+                        {(item.tipo === 'servicio' || item.cliente_paga_repuesto) ? fmtCurrency(item.precio_unitario * item.cantidad) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={3} style={{ padding: '3px 4px', textAlign: 'right', fontSize: '8px', fontWeight: 700, color: '#1e293b', borderTop: '1.5px solid #cbd5e1' }}>TOTAL AL CLIENTE</td>
+                    <td style={{ padding: '3px 4px', textAlign: 'right', fontSize: '9px', fontWeight: 700, color: '#059669', borderTop: '1.5px solid #cbd5e1' }}>{fmtCurrency(total)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+          {!order.orderItems && total > 0 && (
+            <Row label="Presupuesto" value={fmtCurrency(total)} />
+          )}
         </SectionBox>
 
         {/* Condiciones del servicio */}

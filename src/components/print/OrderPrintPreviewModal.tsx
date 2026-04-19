@@ -1,8 +1,9 @@
-import React, { useRef } from 'react'
+import React, { useRef, useState, useEffect } from 'react'
 import { useReactToPrint } from 'react-to-print'
 import { X, Printer } from 'lucide-react'
-import { ServiceOrderPrint, ServiceOrderData } from './ServiceOrderPrint'
+import { ServiceOrderPrint, ServiceOrderData, PrintOrderItem } from './ServiceOrderPrint'
 import { OrderDetailSimple } from '../../hooks/useOrderSimple'
+import { supabase } from '../../lib/supabase'
 
 interface OrderPrintPreviewModalProps {
   isOpen: boolean
@@ -10,7 +11,7 @@ interface OrderPrintPreviewModalProps {
   order: OrderDetailSimple | null
 }
 
-function mapOrderToServiceData(order: OrderDetailSimple): ServiceOrderData {
+function mapOrderToServiceData(order: OrderDetailSimple, orderItems?: PrintOrderItem[]): ServiceOrderData {
   return {
     id: order.id,
     created_at: order.created_at,
@@ -41,6 +42,7 @@ function mapOrderToServiceData(order: OrderDetailSimple): ServiceOrderData {
     observations: order.notes || (order as any)?.observations,
     estimated_total: order.estimated_total,
     final_total: order.total_cost,
+    orderItems: orderItems && orderItems.length > 0 ? orderItems : undefined,
   }
 }
 
@@ -55,6 +57,20 @@ export const OrderPrintPreviewModal: React.FC<OrderPrintPreviewModalProps> = ({
   order,
 }) => {
   const printRef = useRef<HTMLDivElement>(null)
+  const [orderItems, setOrderItems] = useState<PrintOrderItem[]>([])
+
+  // Fetch order_items when modal opens
+  useEffect(() => {
+    if (!isOpen || !order?.id) return
+    supabase
+      .from('order_items')
+      .select('tipo, descripcion, cantidad, precio_unitario, cliente_paga_repuesto')
+      .eq('order_id', order.id)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => {
+        if (data) setOrderItems(data as PrintOrderItem[])
+      })
+  }, [isOpen, order?.id])
 
   const handlePrint = useReactToPrint({
     contentRef: printRef,
@@ -69,7 +85,7 @@ export const OrderPrintPreviewModal: React.FC<OrderPrintPreviewModalProps> = ({
 
   if (!isOpen || !order) return null
 
-  const serviceData = mapOrderToServiceData(order)
+  const serviceData = mapOrderToServiceData(order, orderItems)
 
   return (
     <div style={{

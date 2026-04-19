@@ -32,7 +32,10 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
   const [isSearching, setIsSearching] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<InventoryProduct | null>(null)
-  const [clientePagaRepuesto, setClientePagaRepuesto] = useState(true)
+  const PREF_KEY = 'techrepair_pref_cliente_paga_repuesto'
+  const [clientePagaRepuesto, setClientePagaRepuesto] = useState(() => {
+    try { return localStorage.getItem(PREF_KEY) === 'true' } catch { return false }
+  })
   const [showInventorySearch, setShowInventorySearch] = useState(false)
 
   // Shared fields
@@ -65,8 +68,14 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
     setSearchResults([])
     setShowDropdown(false)
     setError('')
-    setClientePagaRepuesto(true)
+    // restore saved preference (default OFF)
+    try { setClientePagaRepuesto(localStorage.getItem(PREF_KEY) === 'true') } catch { setClientePagaRepuesto(false) }
     setShowInventorySearch(false)
+  }
+
+  function toggleClientePaga(val: boolean) {
+    setClientePagaRepuesto(val)
+    try { localStorage.setItem(PREF_KEY, val ? 'true' : 'false') } catch {}
   }
 
   // Close dropdown when clicking outside
@@ -167,11 +176,34 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
 
     setIsSubmitting(true)
     try {
+      // Si no hay producto del inventario seleccionado → crear en inventario
+      let inventoryProductId: string | null = selectedProduct?.id || null
+      if (!selectedProduct && descripcion.trim() && businessId) {
+        const isService = tipo === 'servicio'
+        const { data: newInvItem, error: invError } = await supabase
+          .from('inventory')
+          .insert({
+            business_id: businessId,
+            name: descripcion.trim(),
+            sale_price: precio,
+            cost_price: costo || null,
+            stock_quantity: isService ? 0 : qty,
+            min_stock: 0,
+            tipo: isService ? 'service' : 'product',
+            is_active: true,
+          })
+          .select('id')
+          .single()
+        if (!invError && newInvItem) {
+          inventoryProductId = newInvItem.id
+        }
+      }
+
       const { error: insertError } = await supabase
         .from('order_items')
         .insert({
           order_id: orderId,
-          product_id: tipo === 'repuesto' && selectedProduct ? selectedProduct.id : null,
+          product_id: inventoryProductId,
           business_id: businessId,
           tipo,
           descripcion: descripcion.trim(),
@@ -514,7 +546,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
           {tipo === 'repuesto' && (
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', cursor: 'pointer' }}>
               <div
-                onClick={() => setClientePagaRepuesto(!clientePagaRepuesto)}
+                onClick={() => toggleClientePaga(!clientePagaRepuesto)}
                 style={{
                   width: '40px', height: '22px', borderRadius: '11px',
                   backgroundColor: clientePagaRepuesto ? '#6366f1' : '#334155',
