@@ -402,7 +402,7 @@ function Header({ onNav }: { onNav: (id: string) => void }) {
 
 function Hero({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
   return (
-    <section id="hero" style={{
+    <section id="hero" className="lp-hero-section" style={{
       padding: '8rem 2rem 5rem',
       position: 'relative',
       overflow: 'hidden',
@@ -450,7 +450,7 @@ function Hero({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
 
             {/* Title */}
             <div className="lp-fade-up lp-d-1">
-              <h1 style={{
+              <h1 className="lp-hero-title" style={{
                 fontSize: 'clamp(2.25rem, 4.5vw, 3.5rem)',
                 fontWeight: 900,
                 lineHeight: 1.1,

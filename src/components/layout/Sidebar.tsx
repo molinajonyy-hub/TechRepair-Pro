@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Menu, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSidebar } from '../../hooks/useSidebar';
 
@@ -204,7 +204,6 @@ export function Sidebar() {
     isCollapsed,
     isMobileOpen,
     toggleSidebar,
-    toggleMobileSidebar,
     closeMobileSidebar,
   } = useSidebar();
 
@@ -570,32 +569,7 @@ export function Sidebar() {
         {renderSignOut('mobile')}
       </aside>
 
-      <button
-        className="sidebar-mobile-toggle"
-        onClick={toggleMobileSidebar}
-        aria-label="Abrir menu"
-        style={{
-          position: 'fixed',
-          top: '1rem',
-          left: '1rem',
-          width: '44px',
-          height: '44px',
-          backgroundColor: 'rgba(11, 18, 32, 0.98)',
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: '0.75rem',
-          color: '#f8fafc',
-          cursor: 'pointer',
-          display: 'none',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 998,
-          transition: 'all 0.2s ease',
-          boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-        }}
-      >
-        <Menu size={20} />
-      </button>
+      {/* Floating button hidden — hamburger is in the Layout top header */}
 
       <style>{`
         .sidebar nav::-webkit-scrollbar { width: 4px; }
@@ -614,16 +588,13 @@ export function Sidebar() {
           color: #4ade80 !important;
         }
 
-        @media (max-width: 768px) {
+        @media (max-width: 1023px) {
           .sidebar {
             display: none !important;
           }
-          .sidebar-mobile-toggle {
-            display: flex !important;
-          }
         }
 
-        @media (min-width: 769px) {
+        @media (min-width: 1024px) {
           .sidebar-mobile,
           .sidebar-mobile-toggle {
             display: none !important;

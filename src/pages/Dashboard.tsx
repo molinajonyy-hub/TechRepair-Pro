@@ -202,12 +202,12 @@ export function Dashboard() {
 
   return (
     <div>
-      <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="dash-header-row" style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
+          <h1 className="page-title-h1" style={{ fontSize: '1.875rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
             Inicio
           </h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.9375rem' }}>
+          <p className="page-subtitle" style={{ color: 'var(--text-muted)', fontSize: '0.9375rem' }}>
             Resumen general del sistema y actividad reciente
           </p>
         </div>

@@ -545,24 +545,61 @@
   background: rgba(99,102,241,0.55);
 }
 
-/* ── Mobile responsive ──────────────────────────────────────────────── */
+/* ── WhatsApp banner ────────────────────────────────────────────────── */
 
-@media (max-width: 900px) {
-  .lp-hero-grid     { grid-template-columns: 1fr !important; }
-  .lp-mock-hide     { display: none !important; }
-  .lp-nav           { display: none !important; }
-  .lp-header-cta .lp-btn-outline { display: none; }
-  .lp-plans-grid    { grid-template-columns: 1fr !important; max-width: 420px; margin: 0 auto; }
-  .lp-section       { padding: 4rem 1.25rem; }
+.lp-wa-banner {
+  background: rgba(37,211,102,0.06);
+  border-top: 1px solid rgba(37,211,102,0.15);
+  border-bottom: 1px solid rgba(37,211,102,0.15);
+  padding: 1rem 2rem;
 }
 
 @media (max-width: 640px) {
-  .lp-features-grid   { grid-template-columns: 1fr !important; }
-  .lp-benefits-grid   { grid-template-columns: 1fr !important; }
-  .lp-for-tech-grid   { grid-template-columns: 1fr 1fr !important; }
-  .lp-footer-grid     { grid-template-columns: 1fr 1fr !important; }
+  .lp-wa-banner {
+    padding: 0.875rem 1rem;
+    flex-direction: column !important;
+    gap: 0.75rem !important;
+    text-align: center;
+  }
+  .lp-wa-banner > div { justify-content: center !important; }
+}
+
+/* ── Mobile responsive ──────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .lp-hero-grid       { grid-template-columns: 1fr !important; }
+  .lp-mock-hide       { display: none !important; }
+  .lp-nav             { display: none !important; }
+  .lp-header-cta .lp-btn-outline { display: none !important; }
+  .lp-mobile-menu-btn { display: flex !important; }
+  .lp-plans-grid      { grid-template-columns: 1fr !important; max-width: 440px; margin: 0 auto; }
+  .lp-section         { padding: 4rem 1.25rem !important; }
+  .lp-hero-section    { padding: 6.5rem 1.5rem 3.5rem !important; }
+  .lp-features-grid   { grid-template-columns: 1fr 1fr !important; }
+  .lp-footer-inner    { gap: 2rem !important; }
+  .lp-hero-title      { font-size: clamp(1.75rem, 7vw, 3rem) !important; }
+  .lp-section-title   { font-size: clamp(1.5rem, 5vw, 2.25rem) !important; }
+}
+
+@media (max-width: 640px) {
+  .lp-features-grid     { grid-template-columns: 1fr !important; }
+  .lp-benefits-grid     { grid-template-columns: 1fr !important; }
+  .lp-for-tech-grid     { grid-template-columns: 1fr 1fr !important; }
+  .lp-footer-grid       { grid-template-columns: 1fr !important; }
   .lp-integrations-grid { grid-template-columns: 1fr !important; }
-  .lp-hero-btns       { flex-direction: column; align-items: flex-start !important; }
-  .lp-cta-btns        { flex-direction: column; align-items: center !important; }
-  .lp-section-title   { font-size: 1.625rem !important; }
+  .lp-hero-btns         { flex-direction: column !important; align-items: stretch !important; }
+  .lp-hero-btns .lp-btn-primary,
+  .lp-hero-btns .lp-btn-outline { width: 100%; justify-content: center; }
+  .lp-cta-btns          { flex-direction: column !important; align-items: stretch !important; }
+  .lp-cta-btns .lp-btn-primary,
+  .lp-cta-btns .lp-btn-outline { width: 100%; justify-content: center; }
+  .lp-section-title     { font-size: 1.5rem !important; }
+  .lp-section           { padding: 3rem 1rem !important; }
+  .lp-header-inner      { padding: 0 1rem !important; }
+  .lp-plans-grid        { max-width: 100% !important; }
+}
+
+@media (max-width: 400px) {
+  .lp-for-tech-grid     { grid-template-columns: 1fr !important; }
+  .lp-hero-title        { font-size: 1.625rem !important; }
 }

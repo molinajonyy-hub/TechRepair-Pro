@@ -21,7 +21,9 @@ export function TopHeader() {
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        gap: '1rem'
+        gap: '0.75rem',
+        width: '100%',
+        justifyContent: 'flex-end',
       }}>
         <GlobalSearch />
         <NotificationsDropdown />
