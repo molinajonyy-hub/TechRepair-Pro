@@ -16,6 +16,7 @@ export interface UseComprobantesReturn {
     tipo: TipoComprobante;
     punto_venta?: string;
     condicion_fiscal?: string;
+    cuit?: string;
     items: {
       descripcion: string;
       cantidad: number;
@@ -89,6 +90,7 @@ export function useComprobantes(_comprobanteId?: string): UseComprobantesReturn 
     tipo: TipoComprobante;
     punto_venta?: string;
     condicion_fiscal?: string;
+    cuit?: string;
     items: {
       descripcion: string;
       cantidad: number;

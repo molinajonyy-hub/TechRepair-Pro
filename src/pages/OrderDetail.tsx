@@ -507,6 +507,7 @@ export function OrderDetail() {
               tipo: data.tipo,
               punto_venta: data.puntoVenta,
               condicion_fiscal: data.condicionFiscal,
+              cuit: data.cuit,
               items
             });
             
