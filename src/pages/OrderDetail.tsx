@@ -13,6 +13,8 @@ import {
   FileCheck,
   Printer,
   MessageCircle,
+  Save,
+  Loader2,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { ModalEnviarWhatsApp } from '../components/whatsapp/ModalEnviarWhatsApp'
@@ -20,9 +22,6 @@ import { WhatsAppHistorial } from '../components/whatsapp/WhatsAppHistorial'
 import { DocumentUploader } from '../components/order/DocumentUploader'
 import { NotificationCard } from '../components/order/NotificationCard'
 import { StatusChange } from '../components/order/StatusChange'
-import { ChecklistCard } from '../components/order/ChecklistCard'
-import { DeviceInspectionCard } from '../components/order/DeviceInspectionCard'
-import { OrderCostManagement } from '../components/order/OrderCostManagement'
 import { OrderItemsCard } from '../components/order/OrderItemsCard'
 import { supabase } from '../lib/supabase'
 import { useOrderSimple } from '../hooks/useOrderSimple'
@@ -49,6 +48,9 @@ export function OrderDetail() {
   const [showModalComprobante, setShowModalComprobante] = useState(false)
   const [showPrintModal, setShowPrintModal] = useState(false)
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false)
+  const [notesText, setNotesText] = useState('')
+  const [savingNotes, setSavingNotes] = useState(false)
+  const [notesSaved, setNotesSaved] = useState(false)
   
   // Cargar datos reales desde Supabase
   const { order, loading, error, refresh } = useOrderSimple(id)
@@ -68,6 +70,30 @@ export function OrderDetail() {
       cargarComprobantesByOrder(id)
     }
   }, [id, cargarComprobantesByOrder])
+
+  // Sincronizar notas cuando carga la orden
+  useEffect(() => {
+    if (order) setNotesText(order.notes || '')
+  }, [order?.id])
+
+  async function handleSaveNotes() {
+    if (!id) return
+    setSavingNotes(true)
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ notes: notesText })
+        .eq('id', id)
+      if (error) throw error
+      setNotesSaved(true)
+      setTimeout(() => setNotesSaved(false), 2000)
+      await refresh()
+    } catch (err: any) {
+      console.error('Error saving notes:', err)
+    } finally {
+      setSavingNotes(false)
+    }
+  }
 
   async function loadDocuments() {
     try {
@@ -295,25 +321,6 @@ export function OrderDetail() {
               </div>
             </div>
 
-            {/* Order Cost Management - Repuestos, Pagos y Rentabilidad */}
-            <div style={{ gridColumn: 'span 2' }}>
-              <OrderCostManagement 
-                orderId={order.id}
-                laborCost={order.labor_cost || 0}
-                totalQuoted={order.total_cost || order.estimated_total || 0}
-                onDataChange={refresh}
-              />
-            </div>
-
-            {/* Checklist */}
-            <div style={{ gridColumn: 'span 2' }}>
-              <ChecklistCard 
-                orderId={order.id}
-                checklist={order.checklist}
-                onChecklistChange={refresh}
-              />
-            </div>
-
             {/* Comprobante Section */}
             {comprobantes.length > 0 && (
               <div style={{ gridColumn: 'span 2' }} className="card">
@@ -364,25 +371,6 @@ export function OrderDetail() {
               </div>
             )}
 
-            {/* Checklist de Recepción */}
-            <div style={{ gridColumn: 'span 2' }}>
-              <DeviceInspectionCard 
-                orderId={order.id}
-                checklist={order.inspections?.reception}
-                type="reception"
-                onChecklistChange={refresh}
-              />
-            </div>
-
-            {/* Checklist Final */}
-            <div style={{ gridColumn: 'span 2' }}>
-              <DeviceInspectionCard 
-                orderId={order.id}
-                checklist={order.inspections?.final}
-                type="final"
-                onChecklistChange={refresh}
-              />
-            </div>
           </>
         )}
 
@@ -394,17 +382,62 @@ export function OrderDetail() {
 
         {activeTab === 'notes' && (
           <div className="card" style={{ gridColumn: 'span 2' }}>
-            <div className="card-header">
-              <h3 className="card-title">Notas</h3>
+            <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+                <FileText size={17} color="#6366f1" />
+                Notas internas
+              </h3>
+              <button
+                onClick={handleSaveNotes}
+                disabled={savingNotes}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.375rem',
+                  padding: '0.375rem 0.875rem',
+                  background: notesSaved
+                    ? 'rgba(16,185,129,0.15)'
+                    : 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+                  border: notesSaved ? '1px solid rgba(16,185,129,0.4)' : 'none',
+                  borderRadius: '0.5rem',
+                  color: notesSaved ? '#10b981' : '#fff',
+                  fontWeight: 600, fontSize: '0.8125rem',
+                  cursor: savingNotes ? 'not-allowed' : 'pointer',
+                  opacity: savingNotes ? 0.7 : 1,
+                  transition: 'all 0.2s'
+                }}
+              >
+                {savingNotes
+                  ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</>
+                  : notesSaved
+                    ? '✓ Guardado'
+                    : <><Save size={14} /> Guardar</>
+                }
+              </button>
             </div>
             <div className="card-body">
-              {order.notes ? (
-                <p style={{ color: '#a0aec0' }}>{order.notes}</p>
-              ) : (
-                <p style={{ color: '#64748b', textAlign: 'center', padding: '2rem' }}>
-                  No hay notas registradas.
-                </p>
-              )}
+              <textarea
+                value={notesText}
+                onChange={(e) => setNotesText(e.target.value)}
+                placeholder="Escribí notas internas sobre esta orden: diagnóstico, acuerdos con el cliente, observaciones..."
+                rows={7}
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  padding: '0.75rem',
+                  backgroundColor: '#0f172a',
+                  border: '1px solid #1e293b',
+                  borderRadius: '0.5rem',
+                  color: '#e2e8f0',
+                  fontSize: '0.9375rem',
+                  lineHeight: 1.6,
+                  resize: 'vertical',
+                  outline: 'none',
+                  fontFamily: 'inherit'
+                }}
+                onFocus={e => e.target.style.borderColor = '#6366f1'}
+                onBlur={e => e.target.style.borderColor = '#1e293b'}
+              />
+              <p style={{ fontSize: '0.75rem', color: '#475569', marginTop: '0.5rem' }}>
+                Las notas son solo visibles internamente, no las ve el cliente.
+              </p>
             </div>
           </div>
         )}

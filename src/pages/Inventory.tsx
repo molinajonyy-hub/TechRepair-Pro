@@ -35,6 +35,7 @@ const CATEGORIES = [
   'Flex',
   'Herramientas',
   'Accesorios',
+  'Servicios',
   'Otros'
 ]
 
@@ -160,7 +161,8 @@ export function Inventory() {
     base_currency: 'ARS',
     base_price: 0,
     exchange_rate_used: 0,
-    auto_update_price: true
+    auto_update_price: true,
+    tipo: 'product' as 'product' | 'service'
   })
 
   // Lista combinada: categorías predefinidas + las que el usuario ya creó
@@ -350,7 +352,7 @@ export function Inventory() {
     setFormError('')
   }
 
-  const openAddModal = (parentItem?: any) => {
+  const openAddModal = (parentItem?: any, tipo: 'product' | 'service' = 'product') => {
     setEditingItem(null)
     setVariantParentItem(parentItem || null)
     setUserManuallyEditedSalePrice(false)
@@ -366,12 +368,12 @@ export function Inventory() {
       name: parentItem?.name || '',
       variant_name: '',
       description: '',
-      category: parentItem?.category || '',
+      category: parentItem?.category || (tipo === 'service' ? 'Servicios' : ''),
       newCategory: '',
       has_variants: false,
       variants: [],
       stock_quantity: 0,
-      min_stock: 1,
+      min_stock: tipo === 'service' ? 0 : 1,
       cost_price: parentItem?.cost_price || 0,
       cost_price_usd: parentItem?.cost_price_usd || 0,
       sale_price: parentItem?.sale_price || 0,
@@ -379,7 +381,8 @@ export function Inventory() {
       base_currency: parentItem?.base_currency || 'ARS',
       base_price: parentItem?.base_price || 0,
       exchange_rate_used: parentItem?.exchange_rate_used || exchangeRates['USD-ARS'] || 1,
-      auto_update_price: true
+      auto_update_price: true,
+      tipo
     })
     setFormError('')
     setShowModal(true)
@@ -423,7 +426,8 @@ export function Inventory() {
       base_currency: item.base_currency || 'ARS',
       base_price: item.base_price || 0,
       exchange_rate_used: item.exchange_rate_used || exchangeRates['USD-ARS'] || 1,
-      auto_update_price: item.auto_update_price !== undefined ? item.auto_update_price : true
+      auto_update_price: item.auto_update_price !== undefined ? item.auto_update_price : true,
+      tipo: (item.tipo as 'product' | 'service') || 'product'
     })
     setFormError('')
     setShowModal(true)
@@ -567,20 +571,22 @@ export function Inventory() {
         return
       }
 
+      const isService = formData.tipo === 'service'
       const basePayload = {
         code: cleanedCode,
         description: cleanedDescription,
         category: categoryValue,
-        stock_quantity: formData.stock_quantity,
-        min_stock: formData.min_stock,
+        stock_quantity: isService ? 0 : formData.stock_quantity,
+        min_stock: isService ? 0 : formData.min_stock,
         cost_price: formData.cost_price,
         cost_price_usd: formData.cost_price_usd,
         sale_price: formData.sale_price,
-        location: cleanedLocation,
+        location: isService ? '' : cleanedLocation,
         base_currency: formData.base_currency,
         base_price: formData.base_price,
         exchange_rate_used: formData.exchange_rate_used,
-        auto_update_price: formData.auto_update_price
+        auto_update_price: formData.auto_update_price,
+        tipo: formData.tipo
       }
 
       if (isVariantMode && variantParentItem) {
@@ -1103,11 +1109,12 @@ export function Inventory() {
     const parentItem = options?.parentItem
     const variantCount = isVariant ? 0 : (variantsByParent[item.id] || []).length
     const hasVariants = !isVariant && variantCount > 0
+    const isService = item.tipo === 'service'
     const effective = getEffectiveStock(item)
     const displayStock = effective.stock_quantity
     const displayMinStock = effective.min_stock
-    const effectiveOutOfStock = displayStock === 0
-    const effectiveLowStock = displayStock > 0 && displayStock <= displayMinStock
+    const effectiveOutOfStock = !isService && displayStock === 0
+    const effectiveLowStock = !isService && displayStock > 0 && displayStock <= displayMinStock
     const isExpanded = hasVariants && expandedRows.has(item.id)
     const costPrice = item.cost_price || 0
     const salePrice = item.sale_price || 0
@@ -1158,10 +1165,14 @@ export function Inventory() {
                   borderRadius: '9999px',
                   fontSize: '0.6875rem',
                   fontWeight: 600,
-                  backgroundColor: isVariant ? 'rgba(56, 189, 248, 0.12)' : 'rgba(79, 70, 229, 0.12)',
-                  color: isVariant ? '#38bdf8' : '#a5b4fc'
+                  backgroundColor: isVariant
+                    ? 'rgba(56, 189, 248, 0.12)'
+                    : isService
+                      ? 'rgba(99, 102, 241, 0.15)'
+                      : 'rgba(79, 70, 229, 0.12)',
+                  color: isVariant ? '#38bdf8' : isService ? '#818cf8' : '#a5b4fc'
                 }}>
-                  {isVariant ? 'Variante' : 'Base'}
+                  {isVariant ? 'Variante' : isService ? '🔧 Servicio' : 'Base'}
                 </span>
                 {!isVariant && variantCount > 0 && (
                   <span style={{
@@ -1192,19 +1203,25 @@ export function Inventory() {
         </td>
         <td style={{ padding: '1rem', color: '#94a3b8' }}>{parentItem?.category || item.category}</td>
         <td style={{ padding: '1rem', textAlign: 'center' }}>
-          <span style={{
-            fontWeight: 600,
-            color: effectiveOutOfStock ? '#ef4444' : effectiveLowStock ? '#fbbf24' : '#34d399'
-          }}>
-            {displayStock}
-          </span>
-          <span style={{ color: '#64748b', fontSize: '0.75rem' }}>
-            /{displayMinStock}
-          </span>
-          {hasVariants && (
-            <div style={{ color: '#64748b', fontSize: '0.6875rem', marginTop: '0.125rem' }}>
-              Total variantes
-            </div>
+          {isService ? (
+            <span style={{ fontSize: '1rem', color: '#818cf8', fontWeight: 600 }} title="Sin control de stock">∞</span>
+          ) : (
+            <>
+              <span style={{
+                fontWeight: 600,
+                color: effectiveOutOfStock ? '#ef4444' : effectiveLowStock ? '#fbbf24' : '#34d399'
+              }}>
+                {displayStock}
+              </span>
+              <span style={{ color: '#64748b', fontSize: '0.75rem' }}>
+                /{displayMinStock}
+              </span>
+              {hasVariants && (
+                <div style={{ color: '#64748b', fontSize: '0.6875rem', marginTop: '0.125rem' }}>
+                  Total variantes
+                </div>
+              )}
+            </>
           )}
         </td>
         <td style={{ padding: '1rem', textAlign: 'right', color: '#94a3b8' }}>
@@ -1237,7 +1254,18 @@ export function Inventory() {
           </span>
         </td>
         <td style={{ padding: '1rem', textAlign: 'center' }}>
-          {effectiveOutOfStock ? (
+          {isService ? (
+            <span style={{
+              padding: '0.25rem 0.75rem',
+              backgroundColor: 'rgba(99,102,241,0.1)',
+              color: '#818cf8',
+              borderRadius: '9999px',
+              fontSize: '0.75rem',
+              fontWeight: 500
+            }}>
+              Disponible
+            </span>
+          ) : effectiveOutOfStock ? (
             <span style={{
               padding: '0.25rem 0.75rem',
               backgroundColor: 'rgba(239, 68, 68, 0.1)',
@@ -1279,7 +1307,7 @@ export function Inventory() {
         </td>
         <td style={{ padding: '1rem', textAlign: 'center' }}>
           <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
-            {!isVariant && (
+            {!isVariant && !isService && (
               <button
                 onClick={() => openAddModal(item)}
                 style={{
@@ -1348,10 +1376,13 @@ export function Inventory() {
   }
 
   const isVariantModal = Boolean(variantParentItem)
+  const isServiceModal = formData.tipo === 'service'
   const modalTitle = editingItem
-    ? isVariantModal ? 'Editar Variante' : 'Editar Producto'
-    : isVariantModal ? 'Nueva Variante' : 'Nuevo Producto'
-  const modalSubmitLabel = editingItem ? 'Guardar Cambios' : isVariantModal ? 'Crear Variante' : 'Crear Producto'
+    ? isVariantModal ? 'Editar Variante' : isServiceModal ? 'Editar Servicio' : 'Editar Producto'
+    : isVariantModal ? 'Nueva Variante' : isServiceModal ? 'Nuevo Servicio' : 'Nuevo Producto'
+  const modalSubmitLabel = editingItem
+    ? 'Guardar Cambios'
+    : isVariantModal ? 'Crear Variante' : isServiceModal ? 'Crear Servicio' : 'Crear Producto'
 
   if (error) {
     return (
@@ -1480,7 +1511,7 @@ export function Inventory() {
                   minWidth: '200px'
                 }}>
                   <button
-                    onClick={() => { setShowProductMenu(false); openAddModal(); }}
+                    onClick={() => { setShowProductMenu(false); openAddModal(undefined, 'product'); }}
                     style={{
                       width: '100%',
                       padding: '0.875rem 1rem',
@@ -1494,10 +1525,10 @@ export function Inventory() {
                       borderBottom: '1px solid rgba(0,0,0,0.1)'
                     }}
                   >
-                    Producto simple
+                    📦 Producto simple
                   </button>
                   <button
-                    onClick={() => { setShowProductMenu(false); openAddModal(); setTimeout(() => setFormData(prev => ({ ...prev, has_variants: true })), 100); }}
+                    onClick={() => { setShowProductMenu(false); openAddModal(); setTimeout(() => setFormData(prev => ({ ...prev, has_variants: true, tipo: 'product' })), 100); }}
                     style={{
                       width: '100%',
                       padding: '0.875rem 1rem',
@@ -1507,10 +1538,27 @@ export function Inventory() {
                       textAlign: 'left',
                       cursor: 'pointer',
                       fontSize: '0.875rem',
-                      fontWeight: 500
+                      fontWeight: 500,
+                      borderBottom: '1px solid rgba(0,0,0,0.1)'
                     }}
                   >
-                    Producto con variantes
+                    🔀 Producto con variantes
+                  </button>
+                  <button
+                    onClick={() => { setShowProductMenu(false); openAddModal(undefined, 'service'); }}
+                    style={{
+                      width: '100%',
+                      padding: '0.875rem 1rem',
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      color: '#6366f1',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      fontSize: '0.875rem',
+                      fontWeight: 600
+                    }}
+                  >
+                    🔧 Nuevo Servicio
                   </button>
                 </div>
               )}
@@ -1964,7 +2012,26 @@ export function Inventory() {
                 </div>
               )}
 
-              {!isVariantModal && (
+              {/* Badge de servicio */}
+              {isServiceModal && !isVariantModal && (
+                <div style={{
+                  marginBottom: '1rem', padding: '0.75rem 1rem',
+                  backgroundColor: 'rgba(99,102,241,0.08)',
+                  border: '1px solid rgba(99,102,241,0.25)',
+                  borderRadius: '0.5rem',
+                  display: 'flex', alignItems: 'center', gap: '0.625rem'
+                }}>
+                  <span style={{ fontSize: '1.125rem' }}>🔧</span>
+                  <div>
+                    <p style={{ color: '#a5b4fc', fontWeight: 600, margin: 0, fontSize: '0.875rem' }}>Servicio</p>
+                    <p style={{ color: '#64748b', fontSize: '0.75rem', margin: 0 }}>
+                      Los servicios no manejan stock. Se pueden agregar a cualquier orden.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {!isVariantModal && !isServiceModal && (
                 <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.1)', borderRadius: '0.5rem' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
                     <input
@@ -2059,7 +2126,7 @@ export function Inventory() {
                 />
               </div>
 
-              {!isVariantModal && !formData.has_variants && (
+              {!isVariantModal && !formData.has_variants && !isServiceModal && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Stock Inicial</label>

@@ -91,14 +91,23 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
       if (!businessId || searchQuery.trim().length < 2) return
       setIsSearching(true)
       try {
-        const { data, error } = await supabase
+        let query = supabase
           .from('inventory')
-          .select('id, name, code, category, stock_quantity, sale_price, cost_price')
+          .select('id, name, code, category, stock_quantity, sale_price, cost_price, tipo')
           .eq('business_id', businessId)
           .eq('is_active', true)
           .or(`name.ilike.%${searchQuery}%,code.ilike.%${searchQuery}%`)
           .order('name')
           .limit(8)
+
+        // Filter by tipo: repuesto → products, servicio → services
+        if (tipo === 'repuesto') {
+          query = query.eq('tipo', 'product')
+        } else {
+          query = query.eq('tipo', 'service')
+        }
+
+        const { data, error } = await query
 
         if (!error && data) {
           setSearchResults(data)
@@ -110,7 +119,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
         setIsSearching(false)
       }
     }, 300)
-  }, [searchQuery, businessId, selectedProduct])
+  }, [searchQuery, businessId, selectedProduct, tipo])
 
   function selectProduct(product: InventoryProduct) {
     setSelectedProduct(product)
@@ -146,8 +155,8 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
       return
     }
 
-    // Stock check
-    if (tipo === 'repuesto' && selectedProduct) {
+    // Stock check (only for products, not services)
+    if (tipo === 'repuesto' && selectedProduct && (selectedProduct as any).tipo !== 'service') {
       if (selectedProduct.stock_quantity < qty) {
         setError(`Stock insuficiente. Disponible: ${selectedProduct.stock_quantity} unidades.`)
         return
@@ -262,11 +271,11 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
         {/* Form */}
         <form onSubmit={handleSubmit} style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-          {/* Repuesto: inventory search */}
-          {tipo === 'repuesto' && (
+          {/* Inventory search (repuestos AND servicios) */}
+          {(tipo === 'repuesto' || tipo === 'servicio') && (
             <div ref={searchRef} style={{ position: 'relative' }}>
               <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: '0.375rem' }}>
-                Buscar en inventario
+                Buscar en inventario {tipo === 'servicio' ? '(servicios)' : '(repuestos)'}
               </label>
               <div style={{ position: 'relative' }}>
                 <Search size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', pointerEvents: 'none' }} />
@@ -277,7 +286,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
                     if (selectedProduct) clearProduct()
                     setSearchQuery(e.target.value)
                   }}
-                  placeholder="Nombre o código del repuesto..."
+                  placeholder={tipo === 'servicio' ? 'Buscar servicio del inventario...' : 'Nombre o código del repuesto...'}
                   style={{
                     width: '100%', boxSizing: 'border-box',
                     padding: '0.625rem 2.25rem 0.625rem 2.25rem',
@@ -345,9 +354,14 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
                         </p>
                         <p style={{
                           margin: 0, fontSize: '0.75rem',
-                          color: product.stock_quantity > 0 ? '#10b981' : '#dc2626'
+                          color: (product as any).tipo === 'service' ? '#818cf8' : product.stock_quantity > 0 ? '#10b981' : '#dc2626'
                         }}>
-                          {product.stock_quantity > 0 ? `${product.stock_quantity} en stock` : 'Sin stock'}
+                          {(product as any).tipo === 'service'
+                            ? 'Servicio'
+                            : product.stock_quantity > 0
+                              ? `${product.stock_quantity} en stock`
+                              : 'Sin stock'
+                          }
                         </p>
                       </div>
                     </button>
@@ -364,9 +378,15 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
                   borderRadius: '0.375rem',
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between'
                 }}>
-                  <span style={{ fontSize: '0.8125rem', color: '#a5b4fc' }}>
-                    📦 Stock actual: <strong>{selectedProduct.stock_quantity}</strong> unidades
-                  </span>
+                  {(selectedProduct as any).tipo === 'service' ? (
+                    <span style={{ fontSize: '0.8125rem', color: '#a5b4fc' }}>
+                      🔧 Servicio del inventario seleccionado
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: '0.8125rem', color: '#a5b4fc' }}>
+                      📦 Stock actual: <strong>{selectedProduct.stock_quantity}</strong> unidades
+                    </span>
+                  )}
                   <span style={{ fontSize: '0.8125rem', color: '#a5b4fc' }}>
                     Costo: <strong>${selectedProduct.cost_price?.toLocaleString() || '—'}</strong>
                   </span>
