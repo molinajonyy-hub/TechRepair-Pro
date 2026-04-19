@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, Plus, Search, UserPlus, Smartphone } from 'lucide-react'
+import { ArrowLeft, Plus, Search, UserPlus, Smartphone, Loader2 } from 'lucide-react'
 import { ordersService, customersService, devicesService, brandsService, deviceModelsService } from '../services/api'
 import { Autocomplete } from '../components/ui/Autocomplete'
 
@@ -35,7 +35,9 @@ export function NewOrder() {
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
+  const [allCustomers, setAllCustomers] = useState<any[]>([])
   const [error, setError] = useState('')
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [brands, setBrands] = useState<string[]>([])
   const [models, setModels] = useState<string[]>([])
   const [isLoadingBrands, setIsLoadingBrands] = useState(false)
@@ -55,26 +57,68 @@ export function NewOrder() {
     estimated_total: ''
   })
 
-  // Check if we have a pre-selected customer from NewCustomer
+  // Load all customers on mount
+  useEffect(() => {
+    const loadAllCustomers = async () => {
+      setIsSearching(true)
+      try {
+        const data = await customersService.getAll()
+        setAllCustomers(data || [])
+        setCustomers(data || [])
+      } catch (err: any) {
+        console.error('Error loading customers:', err)
+      } finally {
+        setIsSearching(false)
+      }
+    }
+    loadAllCustomers()
+  }, [])
+
+  // Check if we have a pre-selected customer from NewCustomer page
   useEffect(() => {
     const state = location.state as { selectedCustomer?: any; step?: string } | null
     if (state?.selectedCustomer) {
       const createdCustomer = state.selectedCustomer
 
-      setSelectedCustomer(state.selectedCustomer)
+      setSelectedCustomer(createdCustomer)
+      setAllCustomers(prev => {
+        const rest = prev.filter(c => c.id !== createdCustomer.id)
+        return [createdCustomer, ...rest]
+      })
       setCustomers(prev => {
-        const remainingCustomers = prev.filter(customer => customer.id !== createdCustomer.id)
-        return [createdCustomer, ...remainingCustomers]
+        const rest = prev.filter(c => c.id !== createdCustomer.id)
+        return [createdCustomer, ...rest]
       })
       setSearchQuery(createdCustomer.name || '')
       setFormData(prev => ({ ...prev, customer_id: createdCustomer.id }))
       if (state.step) {
         setStep(state.step as any)
       }
-      // Clear the state to avoid re-processing
       navigate(location.pathname, { replace: true, state: {} })
     }
   }, [])
+
+  // Debounced filter as user types
+  useEffect(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+
+    if (!searchQuery.trim()) {
+      setCustomers(allCustomers)
+      return
+    }
+
+    searchTimer.current = setTimeout(() => {
+      const q = searchQuery.toLowerCase()
+      const filtered = allCustomers.filter(c =>
+        c.name?.toLowerCase().includes(q) ||
+        c.phone?.toLowerCase().includes(q) ||
+        c.email?.toLowerCase().includes(q)
+      )
+      setCustomers(filtered)
+    }, 200)
+
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current) }
+  }, [searchQuery, allCustomers])
 
   // Load brands on component mount
   useEffect(() => {
@@ -153,29 +197,6 @@ export function NewOrder() {
     } catch (err) {
       console.error('Error creating model:', err)
       throw err
-    }
-  }
-
-  const handleSearchCustomers = async () => {
-    if (!searchQuery.trim()) {
-      setError('Ingresá un término de búsqueda')
-      return
-    }
-    
-    setIsSearching(true)
-    setError('')
-    
-    try {
-      const data = await customersService.search(searchQuery)
-      setCustomers(data)
-      if (data.length === 0) {
-        setError(`No se encontraron clientes con "${searchQuery}"`)
-      }
-    } catch (err: any) {
-      console.error('Error searching customers:', err)
-      setError('Error al buscar clientes: ' + (err.message || 'Intentá de nuevo'))
-    } finally {
-      setIsSearching(false)
     }
   }
 
@@ -306,65 +327,33 @@ export function NewOrder() {
                 <Search size={18} style={{ position: 'absolute', left: '0.875rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
                 <input
                   type="text"
-                  placeholder="Buscar por nombre, teléfono o email..."
+                  placeholder="Filtrar por nombre, teléfono o email..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="form-control"
-                  style={{ paddingLeft: '2.5rem' }}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSearchCustomers()}
+                  style={{ paddingLeft: '2.5rem', paddingRight: isSearching ? '2.5rem' : undefined }}
+                  autoFocus
                 />
-              </div>
-              <button 
-                onClick={handleSearchCustomers}
-                className="btn btn-primary"
-                disabled={isSearching}
-              >
-                {isSearching ? (
-                  <>
-                    <span className="spinner-border spinner-border-sm" style={{ marginRight: '0.5rem' }}></span>
-                    Buscando...
-                  </>
-                ) : (
-                  <>
-                    <Search size={18} />
-                    Buscar
-                  </>
+                {isSearching && (
+                  <Loader2 size={16} style={{ position: 'absolute', right: '0.875rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', animation: 'spin 1s linear infinite' }} />
                 )}
-              </button>
-              <button 
+              </div>
+              <button
                 onClick={handleCreateNewCustomer}
                 className="btn btn-outline"
               >
                 <UserPlus size={18} />
                 Nuevo Cliente
               </button>
-              <button 
-                onClick={async () => {
-                  setIsSearching(true)
-                  setError('')
-                  try {
-                    const data = await customersService.getAll()
-                    setCustomers(data || [])
-                    if (!data || data.length === 0) {
-                      setError('No hay clientes registrados. Creá uno nuevo.')
-                    }
-                  } catch (err: any) {
-                    setError('Error al cargar clientes: ' + err.message)
-                  } finally {
-                    setIsSearching(false)
-                  }
-                }}
-                className="btn btn-outline"
-                disabled={isSearching}
-              >
-                Ver Todos
-              </button>
             </div>
 
             {customers.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 <p style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: '0.5rem' }}>
-                  {customers.length} cliente{customers.length !== 1 ? 's' : ''} encontrado{customers.length !== 1 ? 's' : ''}. Hacé clic en uno para seleccionarlo:
+                  {searchQuery
+                    ? `${customers.length} resultado${customers.length !== 1 ? 's' : ''} — hacé clic en uno para seleccionarlo`
+                    : `${customers.length} cliente${customers.length !== 1 ? 's' : ''} — hacé clic en uno para seleccionarlo`
+                  }
                 </p>
                 {customers.map((customer) => (
                   <div 
@@ -417,38 +406,33 @@ export function NewOrder() {
               </div>
             )}
 
-            {customers.length === 0 && searchQuery && (
-              <div style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>
-                <p>No se encontraron clientes con "{searchQuery}"</p>
-                <button 
+            {customers.length === 0 && !isSearching && (
+              <div style={{ textAlign: 'center', padding: '2.5rem 2rem', color: '#64748b', backgroundColor: 'rgba(15,23,42,0.8)', borderRadius: '0.5rem' }}>
+                <UserPlus size={40} style={{ marginBottom: '1rem', opacity: 0.4 }} />
+                {searchQuery ? (
+                  <>
+                    <p style={{ fontSize: '1rem', marginBottom: '0.5rem', color: '#a0aec0' }}>
+                      Sin resultados para "{searchQuery}"
+                    </p>
+                    <p style={{ fontSize: '0.875rem', margin: '0 auto 1.25rem' }}>
+                      Probá con otro término o creá el cliente nuevo
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p style={{ fontSize: '1rem', marginBottom: '0.5rem', color: '#a0aec0' }}>
+                      No hay clientes registrados aún
+                    </p>
+                    <p style={{ fontSize: '0.875rem', margin: '0 auto 1.25rem' }}>
+                      Creá el primer cliente para continuar
+                    </p>
+                  </>
+                )}
+                <button
                   onClick={handleCreateNewCustomer}
                   className="btn btn-primary"
-                  style={{ marginTop: '1rem' }}
                 >
-                  <UserPlus size={18} />
-                  Crear Nuevo Cliente
-                </button>
-              </div>
-            )}
-
-            {customers.length === 0 && !searchQuery && (
-              <div style={{ textAlign: 'center', padding: '3rem 2rem', color: '#64748b', backgroundColor: 'rgba(15,23,42,0.8)', borderRadius: '0.5rem' }}>
-                <UserPlus size={48} style={{ marginBottom: '1rem', opacity: 0.5 }} />
-                <p style={{ fontSize: '1.125rem', marginBottom: '0.5rem', color: '#a0aec0' }}>
-                  Busca un cliente existente
-                </p>
-                <p style={{ fontSize: '0.875rem', maxWidth: '400px', margin: '0 auto 1.5rem' }}>
-                  Escribe el nombre, teléfono o email del cliente en el campo de búsqueda arriba
-                </p>
-                <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-                  <span style={{ fontSize: '0.75rem', color: '#475569' }}>o</span>
-                </div>
-                <button 
-                  onClick={handleCreateNewCustomer}
-                  className="btn btn-outline"
-                  style={{ marginTop: '1rem' }}
-                >
-                  <UserPlus size={18} />
+                  <UserPlus size={17} />
                   Crear Nuevo Cliente
                 </button>
               </div>
