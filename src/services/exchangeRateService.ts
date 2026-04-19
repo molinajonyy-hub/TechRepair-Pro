@@ -13,8 +13,13 @@ function stripHtml(html: string): string {
     .trim()
 }
 
+/**
+ * Convierte precio en formato argentino a número.
+ * Soporta: "1.425,00" → 1425 | "1425" → 1425 | "1.394" → 1394
+ */
 function parseArgPrice(s: string): number | null {
-  const clean = s.replace(/[$\s.]/g, '').replace(',', '.')
+  // Quitar $ y espacios, luego tratar el punto como sep de miles y la coma como decimal
+  const clean = s.replace(/[$\s]/g, '').replace(/\./g, '').replace(',', '.')
   const n = parseFloat(clean)
   return isFinite(n) && n >= 500 && n <= 9999 ? n : null
 }
@@ -26,18 +31,22 @@ function extractBlueVenta(html: string): number | null {
   const idx = text.search(/\bblue\b/i)
   if (idx !== -1) {
     const seg = text.slice(idx, idx + 700)
-    const matches = [...seg.matchAll(/\b(\d{3,5}(?:[.,]\d{0,3})?)\b/g)]
+
+    // Regex que reconoce formato argentino: 1.425,00 | 1.394 | 1425
+    const matches = [
+      ...seg.matchAll(/\b(\d{1,2}[.]\d{3}(?:[,]\d{1,2})?|\d{3,4}(?:[,]\d{1,2})?)\b/g),
+    ]
     const prices: number[] = []
     for (const m of matches) {
       const p = parseArgPrice(m[1])
       if (p) prices.push(p)
     }
-    if (prices.length >= 2) return Math.max(...prices) // venta es el más alto
+    if (prices.length >= 2) return Math.max(...prices) // venta siempre es el más alto
     if (prices.length === 1) return prices[0]
   }
 
-  // Fallback: "venta" cerca de "blue" en el HTML crudo
-  const raw = html.match(/blue[^]*?venta[^$]*?(\$?\s*[\d.,]+)/i)
+  // Fallback: buscar "venta" explícito cerca de "blue" en el HTML crudo
+  const raw = html.match(/blue[^]*?venta[^<]{0,200}?(\$?\s*[\d.]+,\d{2})/i)
   if (raw) {
     const p = parseArgPrice(raw[1])
     if (p) return p
