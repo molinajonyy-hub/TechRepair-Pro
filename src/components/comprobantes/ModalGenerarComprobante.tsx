@@ -3,6 +3,16 @@ import { X, ArrowRight, Loader2, ChevronLeft } from 'lucide-react';
 import { AppleEmoji } from '../ui/AppleEmoji';
 import { TipoComprobante } from '../../hooks/useComprobantes';
 
+const ComprobantesIcon = ({ size = 20, color = '#ffffff' }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+    <polyline points="14 2 14 8 20 8"/>
+    <line x1="16" y1="13" x2="8" y2="13"/>
+    <line x1="16" y1="17" x2="8" y2="17"/>
+    <polyline points="10 9 9 9 8 9"/>
+  </svg>
+);
+
 interface ModalGenerarComprobanteProps {
   isOpen: boolean;
   onClose: () => void;
@@ -257,7 +267,7 @@ export function ModalGenerarComprobante({
               boxShadow: '0 0 20px rgba(79,70,229,0.4), inset 0 1px 0 rgba(255,255,255,0.15)',
               flexShrink: 0,
             }}>
-              <AppleEmoji emoji="✨" size={22} />
+              <ComprobantesIcon size={20} color="#ffffff" />
             </div>
 
             <div>
