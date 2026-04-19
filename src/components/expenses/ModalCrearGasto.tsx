@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
-  X, DollarSign, Calendar, Tag, Building2, Loader2, Plus, Trash2,
+  DollarSign, Calendar, Tag, Building2, Loader2, Plus, Trash2,
   Search, Package, ChevronDown, AlertCircle, CheckCircle2, ShoppingCart,
   Boxes, TrendingDown
 } from 'lucide-react'
+import { CloseButton } from '../ui/CloseButton'
 import { supabase } from '../../lib/supabase'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -815,12 +816,7 @@ export function ModalCrearGasto({
                   : `Configurando gasto operativo`}
             </p>
           </div>
-          <button
-            onClick={handleClose}
-            style={{ padding: '0.375rem', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', borderRadius: '0.5rem', display: 'flex' }}
-          >
-            <X size={20} />
-          </button>
+          <CloseButton onClick={handleClose} />
         </div>
 
         {/* ── Step 1: Category ── */}

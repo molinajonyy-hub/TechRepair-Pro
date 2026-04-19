@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, RefreshCw, FileText, TrendingUp, Receipt, X, Loader2, AlertTriangle } from 'lucide-react';
+import { Plus, RefreshCw, FileText, TrendingUp, Receipt, Loader2, AlertTriangle } from 'lucide-react';
+import { CloseButton } from '../components/ui/CloseButton';
 import { useComprobantes, TipoComprobante } from '../hooks/useComprobantes';
 import { Comprobante } from '../hooks/useComprobantes';
 import { ComprobantesTable } from '../components/comprobantes/ComprobantesTable';
@@ -480,7 +481,7 @@ export default function ComprobantesPage() {
                 <AlertTriangle size={18} style={{ color: '#f59e0b' }} />
                 <h3 style={{ margin: 0, color: '#f8fafc', fontWeight: 700 }}>Anular Comprobante</h3>
               </div>
-              <button onClick={() => setAnulando(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
+              <CloseButton onClick={() => setAnulando(null)} />
             </div>
             <p style={{ color: '#94a3b8', marginBottom: '0.5rem' }}>
               Vas a anular el comprobante <strong style={{ color: '#f8fafc' }}>{anulando.numero || `#${anulando.id.slice(0, 8)}`}</strong> por <strong style={{ color: '#f8fafc' }}>${anulando.total.toLocaleString('es-AR')}</strong>.
@@ -515,7 +516,7 @@ export default function ComprobantesPage() {
           <div style={{ backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.75rem', padding: '1.5rem', width: '100%', maxWidth: '420px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ margin: 0, color: '#f8fafc', fontWeight: 700 }}>Eliminar Borrador</h3>
-              <button onClick={() => setEliminando(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={20} /></button>
+              <CloseButton onClick={() => setEliminando(null)} />
             </div>
             <p style={{ color: '#94a3b8', marginBottom: '0.5rem' }}>
               ¿Eliminás el borrador <strong style={{ color: '#f8fafc' }}>{eliminando.numero || `#${eliminando.id.slice(0, 8)}`}</strong>? Esta acción no se puede deshacer.

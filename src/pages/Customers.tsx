@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Search, Eye, Phone, Mail, Users, Download, Upload, Pencil, Trash2, X, Loader2 } from 'lucide-react'
+import { Plus, Search, Eye, Phone, Mail, Users, Download, Upload, Pencil, Trash2, Loader2 } from 'lucide-react'
+import { CloseButton } from '../components/ui/CloseButton'
 import { customersService, ordersService } from '../services/api'
 import { useLoading } from '../contexts/LoadingContext'
 import { ModalImportExcel } from '../components/ModalImportExcel'
@@ -575,9 +576,7 @@ export function Customers() {
           }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
               <h2 style={{ margin: 0, color: '#f8fafc', fontSize: '1.125rem', fontWeight: 700 }}>Editar Cliente</h2>
-              <button onClick={() => setEditingCustomer(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: '0.25rem' }}>
-                <X size={20} />
-              </button>
+              <CloseButton onClick={() => setEditingCustomer(null)} />
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>

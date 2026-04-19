@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Plus, Search, Filter, Eye, Edit, Trash2, ClipboardList, Printer, X, Loader2 } from 'lucide-react'
+import { Plus, Search, Filter, Eye, Edit, Trash2, ClipboardList, Printer, Loader2 } from 'lucide-react'
+import { CloseButton } from '../components/ui/CloseButton'
 import { useOrders, OrderListItem } from '../hooks/useOrders'
 import { STATUS_CONFIG } from '../types/orderStatus'
 import { ServiceOrderPrint } from '../components/print/ServiceOrderPrint'
@@ -402,9 +403,7 @@ export function Orders() {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ margin: 0, color: '#f8fafc', fontWeight: 700 }}>Eliminar Orden</h3>
-              <button onClick={() => setDeletingOrder(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}>
-                <X size={20} />
-              </button>
+              <CloseButton onClick={() => setDeletingOrder(null)} />
             </div>
             <p style={{ color: '#94a3b8', marginBottom: '0.5rem' }}>
               ¿Estás seguro que querés eliminar la orden <strong style={{ color: '#f8fafc' }}>#{deletingOrder.id.slice(0, 8)}</strong>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Plus, Mail, UserCheck, UserX, RefreshCw, Copy, X, Clock, Shield, Check } from 'lucide-react';
+import { Plus, X, Mail, UserCheck, UserX, RefreshCw, Copy, Clock, Shield, Check } from 'lucide-react';
+import { CloseButton } from '../components/ui/CloseButton';
 import { useAuth } from '../contexts/AuthContext';
 import { usersService, BusinessUser, PendingInvitation } from '../services/usersService';
 import {
@@ -171,9 +172,7 @@ function EditPermissionsModal({ user, onClose, onSaved }: EditPermissionsModalPr
               Rol base: {user.role} · Personalizá los accesos
             </p>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '0.25rem' }}>
-            <X size={20} />
-          </button>
+          <CloseButton onClick={onClose} />
         </div>
 
         {/* Scrollable matrix */}
@@ -596,9 +595,7 @@ export function UsersManagement() {
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
               <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#ffffff' }}>Invitar Usuario</h2>
-              <button onClick={() => setShowInviteModal(false)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '0.25rem' }}>
-                <X size={20} />
-              </button>
+              <CloseButton onClick={() => setShowInviteModal(false)} />
             </div>
 
             {/* Scrollable body */}

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { X, ArrowRight, Loader2, ChevronLeft } from 'lucide-react';
+import { ArrowRight, Loader2, ChevronLeft } from 'lucide-react';
+import { CloseButton } from '../ui/CloseButton';
 import { AppleEmoji } from '../ui/AppleEmoji';
 import { TipoComprobante } from '../../hooks/useComprobantes';
 
@@ -301,24 +302,7 @@ export function ModalGenerarComprobante({
                 }} />
               ))}
             </div>
-            <button
-              onClick={onClose}
-              disabled={loading}
-              style={{
-                width: '2.25rem', height: '2.25rem',
-                borderRadius: '0.625rem',
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                color: '#64748b',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                transition: 'all 0.2s',
-              }}
-              onMouseEnter={e => { if (!loading) { e.currentTarget.style.background = 'rgba(239,68,68,0.15)'; e.currentTarget.style.borderColor = 'rgba(239,68,68,0.3)'; e.currentTarget.style.color = '#f87171'; e.currentTarget.style.transform = 'rotate(90deg)'; } }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.transform = 'rotate(0deg)'; }}
-            >
-              <X size={17} />
-            </button>
+            <CloseButton onClick={onClose} disabled={loading} />
           </div>
         </div>
 

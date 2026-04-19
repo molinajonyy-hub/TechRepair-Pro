@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import {
-  X, MessageCircle, Copy, ExternalLink, Phone, CheckCircle,
+  MessageCircle, Copy, ExternalLink, Phone, CheckCircle,
   AlertTriangle, Send, Edit3
 } from 'lucide-react'
+import { CloseButton } from '../ui/CloseButton'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   whatsappService,
@@ -156,15 +157,7 @@ export function ModalEnviarWhatsApp({ isOpen, onClose, order }: ModalEnviarWhats
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              padding: '0.4rem', background: 'transparent', border: 'none',
-              color: '#64748b', cursor: 'pointer', borderRadius: '0.5rem'
-            }}
-          >
-            <X size={20} />
-          </button>
+          <CloseButton onClick={onClose} />
         </div>
 
         <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>

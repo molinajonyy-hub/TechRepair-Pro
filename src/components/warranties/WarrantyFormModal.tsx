@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { X, Save, Printer, Check } from 'lucide-react'
+import { Save, Printer, Check } from 'lucide-react'
+import { CloseButton } from '../ui/CloseButton'
 import {
   CHECKLIST_ITEMS,
   DEFAULT_OBSERVATIONS,
@@ -332,25 +333,7 @@ export function WarrantyFormModal({
               editarse.
             </p>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Cerrar"
-            style={{
-              width: '36px',
-              height: '36px',
-              backgroundColor: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '0.5rem',
-              color: '#94a3b8',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
-            <X size={18} />
-          </button>
+          <CloseButton onClick={onClose} />
         </div>
 
         {/* Body */}

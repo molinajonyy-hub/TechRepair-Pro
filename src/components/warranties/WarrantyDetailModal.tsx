@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { useReactToPrint } from 'react-to-print'
-import { X, Printer, Pencil, Copy as CopyIcon, Trash2 } from 'lucide-react'
+import { CloseButton } from '../ui/CloseButton'
+import { Printer, Pencil, Copy as CopyIcon, Trash2 } from 'lucide-react'
 import { Warranty, computeWarrantyStatus, CHECKLIST_ITEMS } from '../../hooks/useWarranties'
 import { OrderPrintSettings } from '../../hooks/useOrderPrintSettings'
 import { WarrantyPrintLayout } from './WarrantyPrintLayout'
@@ -132,25 +133,7 @@ export function WarrantyDetailModal({
               {daysRemaining >= 0 ? `${daysRemaining} día${daysRemaining === 1 ? '' : 's'} restantes` : `${Math.abs(daysRemaining)} día(s) vencida`})
             </p>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Cerrar"
-            style={{
-              width: '36px',
-              height: '36px',
-              backgroundColor: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '0.5rem',
-              color: '#94a3b8',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
-            <X size={18} />
-          </button>
+          <CloseButton onClick={onClose} />
         </div>
 
         {/* Body */}

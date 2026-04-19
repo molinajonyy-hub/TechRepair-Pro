@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  TrendingUp, TrendingDown, DollarSign, BarChart3, Plus, X,
+  TrendingUp, TrendingDown, DollarSign, BarChart3, Plus,
   Loader2, AlertCircle, CheckCircle, Pencil, Trash2, RefreshCw,
   ArrowUpRight, ArrowDownRight, Minus, Filter,
   Wallet, Building2, User, Users, Layers, Activity, Award, Target,
   Package,
 } from 'lucide-react'
+import { CloseButton } from '../components/ui/CloseButton'
 import { useAuth } from '../contexts/AuthContext'
 import { currencyService } from '../services/currencyService'
 import { supabase } from '../lib/supabase'
@@ -526,9 +527,7 @@ function EntryModal({ entry, exchangeRate, businessId, userId, onClose, onSaved 
               {isEdit ? 'Editar movimiento' : 'Nuevo movimiento'}
             </h3>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', padding: '0.25rem' }}>
-            <X size={20} />
-          </button>
+          <CloseButton onClick={onClose} />
         </div>
 
         <form onSubmit={handleSubmit} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>

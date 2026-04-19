@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { X, Send, CheckCircle, AlertCircle, Loader2, Phone } from 'lucide-react'
+import { Send, CheckCircle, AlertCircle, Loader2, Phone } from 'lucide-react'
+import { CloseButton } from '../ui/CloseButton'
 import { sendTestMessage } from '../../services/whatsappCloudService'
 
 // ──────────────────────────────────────────────────────────────
@@ -170,28 +171,7 @@ export function WhatsAppTestMessageModal({
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            style={{
-              display:         'flex',
-              alignItems:      'center',
-              justifyContent:  'center',
-              width:           32,
-              height:          32,
-              borderRadius:    8,
-              border:          'none',
-              backgroundColor: 'rgba(255,255,255,0.06)',
-              color:           'var(--text-muted)',
-              cursor:          'pointer',
-              transition:      'background-color 0.2s',
-              flexShrink:      0,
-            }}
-            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.1)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.06)' }}
-            aria-label="Cerrar"
-          >
-            <X size={16} />
-          </button>
+          <CloseButton onClick={onClose} />
         </div>
 
         {/* Campo de teléfono */}

@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react'
 import { useReactToPrint } from 'react-to-print'
-import { X, Printer } from 'lucide-react'
+import { Printer } from 'lucide-react'
+import { CloseButton } from '../ui/CloseButton'
 import { ServiceOrderPrint, ServiceOrderData, PrintOrderItem } from './ServiceOrderPrint'
 import { OrderDetailSimple } from '../../hooks/useOrderSimple'
 import { supabase } from '../../lib/supabase'
@@ -127,12 +128,7 @@ export const OrderPrintPreviewModal: React.FC<OrderPrintPreviewModalProps> = ({
               #{order.id.slice(0, 8).toUpperCase()}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            style={{ padding: '0.4rem', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', borderRadius: '6px' }}
-          >
-            <X size={20} />
-          </button>
+          <CloseButton onClick={onClose} />
         </div>
 
         {/* Preview scrollable */}

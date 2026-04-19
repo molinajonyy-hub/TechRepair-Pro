@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { X, FileText, Receipt, RotateCcw, CreditCard, ChevronRight, Loader2, Plus, Zap, Package, Search, DollarSign, RefreshCw } from 'lucide-react';
+import { CloseButton } from '../ui/CloseButton';
 import { currencyService } from '../../services/currencyService';
 import { TipoComprobante } from '../../hooks/useComprobantes';
 import { supabase } from '../../lib/supabase';
@@ -443,31 +444,7 @@ export function ModalCrearComprobante({
               }
             </p>
           </div>
-          <button
-            onClick={onClose}
-            disabled={loading}
-            style={{
-              padding: '0.5rem',
-              backgroundColor: 'transparent',
-              border: 'none',
-              color: '#64748b',
-              borderRadius: '0.75rem',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              transition: 'all 0.3s ease'
-            }}
-            onMouseEnter={(e) => {
-              if (!loading) {
-                e.currentTarget.style.color = '#f1f5f9';
-                e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = '#64748b';
-              e.currentTarget.style.backgroundColor = 'transparent';
-            }}
-          >
-            <X style={{ width: '1.25rem', height: '1.25rem' }} />
-          </button>
+          <CloseButton onClick={onClose} disabled={loading} />
         </div>
 
         {/* Step 1: Selección de Tipo */}

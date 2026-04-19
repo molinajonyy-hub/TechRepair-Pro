@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, Search, Package, Wrench, AlertCircle, Loader2, ChevronDown, ChevronUp, DollarSign } from 'lucide-react'
+import { CloseButton } from '../ui/CloseButton'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { currencyService } from '../../services/currencyService'
@@ -294,12 +295,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
           <h2 style={{ fontSize: '1.125rem', fontWeight: 700, color: '#f8fafc', margin: 0 }}>
             Agregar ítem
           </h2>
-          <button
-            onClick={onClose}
-            style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '0.25rem' }}
-          >
-            <X size={20} />
-          </button>
+          <CloseButton onClick={onClose} />
         </div>
 
         {/* Tipo toggle */}

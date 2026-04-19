@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
-  Wallet, TrendingUp, TrendingDown, Plus, X, Loader2,
+  Wallet, TrendingUp, TrendingDown, Plus, Loader2,
   AlertCircle, CheckCircle, DollarSign, Lock, Unlock, RefreshCw
 } from 'lucide-react'
+import { CloseButton } from '../components/ui/CloseButton'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { currencyService } from '../services/currencyService'
@@ -541,9 +542,7 @@ export function CajaPage() {
               <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: '#f8fafc', margin: 0 }}>
                 Registrar Movimiento
               </h3>
-              <button onClick={() => setShowModal(false)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}>
-                <X size={20} />
-              </button>
+              <CloseButton onClick={() => setShowModal(false)} />
             </div>
 
             {modalError && (
