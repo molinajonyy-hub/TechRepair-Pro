@@ -41,6 +41,12 @@ interface ModalCrearComprobanteProps {
     esElectronica?: boolean;
   }) => void;
   loading?: boolean;
+  /** Tipo pre-seleccionado al abrir el modal (p. ej. viene del selector de tipo) */
+  tipoInicial?: TipoComprobante;
+  /** Punto de venta pre-cargado */
+  puntoVentaInicial?: string;
+  /** Condición fiscal pre-cargada */
+  condicionFiscalInicial?: string;
 }
 
 const tiposConfig: Record<TipoComprobante, { 
@@ -102,13 +108,32 @@ export function ModalCrearComprobante({
   isOpen,
   onClose,
   onCrear,
-  loading = false
+  loading = false,
+  tipoInicial,
+  puntoVentaInicial,
+  condicionFiscalInicial,
 }: ModalCrearComprobanteProps) {
   const { businessId } = useAuth();
-  const [step, setStep] = useState(1);
-  const [tipo, setTipo] = useState<TipoComprobante>('factura_c');
-  const [puntoVenta, setPuntoVenta] = useState('0001');
-  const [condicionFiscal, setCondicionFiscal] = useState('Consumidor Final');
+  // Si se abre con un tipo ya seleccionado, saltar al paso 2 directamente
+  const [step, setStep] = useState(tipoInicial ? 2 : 1);
+  const [tipo, setTipo] = useState<TipoComprobante>(tipoInicial ?? 'factura_c');
+  const [puntoVenta, setPuntoVenta] = useState(puntoVentaInicial ?? '0001');
+  const [condicionFiscal, setCondicionFiscal] = useState(condicionFiscalInicial ?? 'Consumidor Final');
+
+  // Sincronizar cuando el modal se abre con valores pre-configurados
+  useEffect(() => {
+    if (isOpen) {
+      if (tipoInicial) {
+        setTipo(tipoInicial);
+        setStep(2);
+      } else {
+        setStep(1);
+        setTipo('factura_c');
+      }
+      if (puntoVentaInicial) setPuntoVenta(puntoVentaInicial);
+      if (condicionFiscalInicial) setCondicionFiscal(condicionFiscalInicial);
+    }
+  }, [isOpen, tipoInicial, puntoVentaInicial, condicionFiscalInicial]);
   const [clienteId, setClienteId] = useState('');
   const [clientes, setClientes] = useState<ClienteOption[]>([]);
   const [loadingClientes, setLoadingClientes] = useState(false);

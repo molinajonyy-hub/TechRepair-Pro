@@ -5,6 +5,7 @@ import { useComprobantes, TipoComprobante } from '../hooks/useComprobantes';
 import { Comprobante } from '../hooks/useComprobantes';
 import { ComprobantesTable } from '../components/comprobantes/ComprobantesTable';
 import { ModalCrearComprobante } from '../components/comprobantes/ModalCrearComprobante';
+import { ModalGenerarComprobante } from '../components/comprobantes/ModalGenerarComprobante';
 import { Loader } from '../components/ui/Loader';
 import { useAuth } from '../contexts/AuthContext';
 import ArcaService from '../services/arcaService';
@@ -23,6 +24,10 @@ export default function ComprobantesPage() {
   } = useComprobantes();
 
   const [showModal, setShowModal] = useState(false);
+  const [showTipoSelector, setShowTipoSelector] = useState(false);
+  const [tipoSeleccionado, setTipoSeleccionado] = useState<TipoComprobante | undefined>(undefined);
+  const [pvSeleccionado, setPvSeleccionado] = useState<string | undefined>(undefined);
+  const [condicionSeleccionada, setCondicionSeleccionada] = useState<string | undefined>(undefined);
   const [creando, setCreando] = useState(false);
 
   // ── Acción: Editar ────────────────────────────────────────────────
@@ -239,7 +244,7 @@ export default function ComprobantesPage() {
             <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
             Actualizar
           </button>
-          <button onClick={() => setShowModal(true)} disabled={creando} style={{
+          <button onClick={() => setShowTipoSelector(true)} disabled={creando} style={{
             display: 'flex', alignItems: 'center', gap: '0.5rem',
             padding: '0.625rem 1.25rem',
             background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
@@ -437,12 +442,33 @@ export default function ComprobantesPage() {
         </div>
       )}
 
-      {/* Modal Crear Comprobante */}
+      {/* Selector de tipo — paso previo al form completo */}
+      <ModalGenerarComprobante
+        isOpen={showTipoSelector}
+        onClose={() => setShowTipoSelector(false)}
+        onGenerar={({ tipo, puntoVenta, condicionFiscal }) => {
+          setTipoSeleccionado(tipo);
+          setPvSeleccionado(puntoVenta);
+          setCondicionSeleccionada(condicionFiscal);
+          setShowTipoSelector(false);
+          setShowModal(true);
+        }}
+      />
+
+      {/* Modal Crear Comprobante — se abre con tipo/pv/condicion pre-cargados */}
       <ModalCrearComprobante
         isOpen={showModal}
-        onClose={() => setShowModal(false)}
+        onClose={() => {
+          setShowModal(false);
+          setTipoSeleccionado(undefined);
+          setPvSeleccionado(undefined);
+          setCondicionSeleccionada(undefined);
+        }}
         onCrear={handleCrearComprobante}
         loading={creando}
+        tipoInicial={tipoSeleccionado}
+        puntoVentaInicial={pvSeleccionado}
+        condicionFiscalInicial={condicionSeleccionada}
       />
 
       {/* Modal Anular Comprobante */}

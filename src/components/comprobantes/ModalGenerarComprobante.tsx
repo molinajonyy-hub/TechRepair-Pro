@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, FileText, Receipt, RotateCcw, Truck, ArrowRight, Loader2, Sparkles } from 'lucide-react';
 import { TipoComprobante } from '../../hooks/useComprobantes';
 
@@ -104,25 +104,36 @@ export function ModalGenerarComprobante({
   loading = false
 }: ModalGenerarComprobanteProps) {
   const [step, setStep] = useState(1);
-  const [tipo, setTipo] = useState<TipoComprobante>('factura_c');
+  const [tipo, setTipo] = useState<TipoComprobante | null>(null);
   const [puntoVenta, setPuntoVenta] = useState('0001');
   const [condicionFiscal, setCondicionFiscal] = useState('Consumidor Final');
+
+  // Resetear estado al cerrar el modal
+  useEffect(() => {
+    if (!isOpen) {
+      setStep(1);
+      setTipo(null);
+      setPuntoVenta('0001');
+      setCondicionFiscal('Consumidor Final');
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   const handleTipoSelect = (selected: TipoComprobante) => {
     setTipo(selected);
-    
+
     if (selected === 'factura_a') {
       setCondicionFiscal('Responsable Inscripto');
     } else if (selected === 'factura_c') {
       setCondicionFiscal('Consumidor Final');
     }
-    
+
     setStep(2);
   };
 
   const handleGenerar = () => {
+    if (!tipo) return;
     onGenerar({
       tipo,
       puntoVenta,
@@ -130,7 +141,7 @@ export function ModalGenerarComprobante({
     });
   };
 
-  const tipoConfig = tiposConfig[tipo];
+  const tipoConfig = tipo ? tiposConfig[tipo] : null;
   const tieneCuit = orderData?.customerCuit && orderData.customerCuit.length > 0;
 
   return (
@@ -219,9 +230,9 @@ export function ModalGenerarComprobante({
                 fontWeight: 400,
                 letterSpacing: '0.01em'
               }}>
-                {step === 1 
+                {step === 1
                   ? 'Selecciona el tipo de comprobante a emitir'
-                  : `Punto de venta ${puntoVenta} • ${tipoConfig.label}`
+                  : `Punto de venta ${puntoVenta} • ${tipoConfig?.label ?? ''}`
                 }
               </p>
             </div>
@@ -319,23 +330,15 @@ export function ModalGenerarComprobante({
                         e.currentTarget.style.background = 'linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)';
                         e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)';
                         e.currentTarget.style.transform = 'translateY(-4px) scale(1.02)';
-                        e.currentTarget.style.boxShadow = `
-                          0 12px 40px rgba(0,0,0,0.5),
-                          0 0 0 1px rgba(255,255,255,0.1),
-                          inset 0 1px 0 rgba(255,255,255,0.1)
-                        `;
+                        e.currentTarget.style.boxShadow = '0 12px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.1), inset 0 1px 0 rgba(255,255,255,0.1)';
                       }
                     }}
                     onMouseLeave={(e) => {
-                      if (!isSelected) {
-                        e.currentTarget.style.background = 'linear-gradient(145deg, rgba(15, 23, 42, 0.8) 0%, rgba(30, 41, 59, 0.6) 100%)';
-                        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
-                        e.currentTarget.style.transform = 'translateY(0) scale(1)';
-                        e.currentTarget.style.boxShadow = `
-                          0 2px 8px rgba(0,0,0,0.3),
-                          inset 0 1px 0 rgba(255,255,255,0.05)
-                        `;
-                      }
+                      // Always restore to non-selected base style on leave
+                      e.currentTarget.style.background = 'linear-gradient(145deg, rgba(15, 23, 42, 0.8) 0%, rgba(30, 41, 59, 0.6) 100%)';
+                      e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
+                      e.currentTarget.style.transform = 'translateY(0) scale(1)';
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)';
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1.25rem' }}>
@@ -440,34 +443,36 @@ export function ModalGenerarComprobante({
         {/* Step 2: Configuración */}
         {step === 2 && (
           <div style={{ padding: '2.5rem', display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
-            {/* Info del cliente */}
-            <div style={{
-              padding: '1.5rem',
-              background: 'linear-gradient(145deg, rgba(15, 23, 42, 0.7) 0%, rgba(30, 41, 59, 0.5) 100%)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '1rem',
-              backdropFilter: 'blur(12px)',
-              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)'
-            }}>
-              <h4 style={{ 
-                fontSize: '0.8125rem', 
-                fontWeight: 500, 
-                color: '#94a3b8', 
-                margin: '0 0 0.875rem 0',
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em'
+            {/* Info del cliente — solo cuando viene de una orden */}
+            {orderData && (
+              <div style={{
+                padding: '1.5rem',
+                background: 'linear-gradient(145deg, rgba(15, 23, 42, 0.7) 0%, rgba(30, 41, 59, 0.5) 100%)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '1rem',
+                backdropFilter: 'blur(12px)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)'
               }}>
-                Cliente
-              </h4>
-              <p style={{ color: '#ffffff', fontWeight: 600, margin: 0, fontSize: '1.0625rem', letterSpacing: '-0.01em' }}>
-                {orderData?.customerName}
-              </p>
-              {orderData?.customerCuit && (
-                <p style={{ fontSize: '0.875rem', color: '#64748b', margin: '0.5rem 0 0 0' }}>
-                  CUIT: {orderData.customerCuit}
+                <h4 style={{
+                  fontSize: '0.8125rem',
+                  fontWeight: 500,
+                  color: '#94a3b8',
+                  margin: '0 0 0.875rem 0',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em'
+                }}>
+                  Cliente
+                </h4>
+                <p style={{ color: '#ffffff', fontWeight: 600, margin: 0, fontSize: '1.0625rem', letterSpacing: '-0.01em' }}>
+                  {orderData.customerName}
                 </p>
-              )}
-            </div>
+                {orderData.customerCuit && (
+                  <p style={{ fontSize: '0.875rem', color: '#64748b', margin: '0.5rem 0 0 0' }}>
+                    CUIT: {orderData.customerCuit}
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Punto de Venta */}
             <div>
@@ -566,98 +571,98 @@ export function ModalGenerarComprobante({
               </select>
             </div>
 
-            {/* Resumen de items */}
-            <div>
-              <label style={{ 
-                display: 'block', 
-                fontSize: '0.8125rem', 
-                fontWeight: 500, 
-                color: '#94a3b8', 
-                marginBottom: '0.75rem',
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em'
-              }}>
-                Items a incluir ({orderData?.items.length || 0})
-              </label>
-              <div style={{
-                maxHeight: '11rem',
-                overflowY: 'auto',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.625rem',
-                background: 'linear-gradient(145deg, rgba(15, 23, 42, 0.5) 0%, rgba(30, 41, 59, 0.3) 100%)',
-                border: '1px solid rgba(255,255,255,0.06)',
-                borderRadius: '0.75rem',
-                padding: '1rem',
-                backdropFilter: 'blur(8px)'
-              }}>
-                {orderData?.items.map((item, index) => (
-                  <div key={index} style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    padding: '0.75rem 1rem',
-                    background: 'linear-gradient(145deg, rgba(15, 23, 42, 0.7) 0%, rgba(30, 41, 59, 0.5) 100%)',
-                    borderRadius: '0.625rem',
-                    fontSize: '0.875rem',
-                    border: '1px solid rgba(255,255,255,0.05)',
-                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)'
-                  }}>
-                    <span style={{ color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {item.descripcion}
-                    </span>
-                    <span style={{ color: '#64748b', fontFamily: 'monospace', fontWeight: 500 }}>
-                      {item.cantidad} x ${item.precio.toFixed(2)}
-                    </span>
-                  </div>
-                ))}
+            {/* Resumen de items — solo cuando viene de una orden */}
+            {orderData && (
+              <div>
+                <label style={{
+                  display: 'block',
+                  fontSize: '0.8125rem',
+                  fontWeight: 500,
+                  color: '#94a3b8',
+                  marginBottom: '0.75rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em'
+                }}>
+                  Items a incluir ({orderData.items.length})
+                </label>
+                <div style={{
+                  maxHeight: '11rem',
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.625rem',
+                  background: 'linear-gradient(145deg, rgba(15, 23, 42, 0.5) 0%, rgba(30, 41, 59, 0.3) 100%)',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  borderRadius: '0.75rem',
+                  padding: '1rem',
+                  backdropFilter: 'blur(8px)'
+                }}>
+                  {orderData.items.map((item, index) => (
+                    <div key={index} style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      padding: '0.75rem 1rem',
+                      background: 'linear-gradient(145deg, rgba(15, 23, 42, 0.7) 0%, rgba(30, 41, 59, 0.5) 100%)',
+                      borderRadius: '0.625rem',
+                      fontSize: '0.875rem',
+                      border: '1px solid rgba(255,255,255,0.05)',
+                      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)'
+                    }}>
+                      <span style={{ color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {item.descripcion}
+                      </span>
+                      <span style={{ color: '#64748b', fontFamily: 'monospace', fontWeight: 500 }}>
+                        {item.cantidad} x ${item.precio.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Total estimado */}
-            <div style={{
-              padding: '1.5rem',
-              background: 'linear-gradient(135deg, rgba(79, 70, 229, 0.2) 0%, rgba(124, 58, 237, 0.15) 50%, rgba(139, 92, 246, 0.1) 100%)',
-              border: '1px solid rgba(79, 70, 229, 0.35)',
-              borderRadius: '1rem',
-              backdropFilter: 'blur(12px)',
-              boxShadow: `
-                0 0 30px rgba(79, 70, 229, 0.15),
-                inset 0 1px 0 rgba(255,255,255,0.1)
-              `,
-              position: 'relative',
-              overflow: 'hidden'
-            }}>
+            {/* Total estimado — solo cuando viene de una orden */}
+            {orderData && (
               <div style={{
-                position: 'absolute',
-                inset: 0,
-                background: 'radial-gradient(circle at 20% 50%, rgba(79, 70, 229, 0.1) 0%, transparent 50%)'
-              }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', zIndex: 1 }}>
-                <span style={{ color: '#94a3b8', fontSize: '1rem', fontWeight: 500 }}>Total estimado:</span>
-                <span style={{ 
-                  fontSize: '1.625rem', 
-                  fontWeight: 700, 
-                  color: '#ffffff', 
-                  fontFamily: 'monospace',
-                  letterSpacing: '-0.03em',
-                  textShadow: '0 0 30px rgba(79, 70, 229, 0.3)'
-                }}>
-                  ${orderData?.total.toFixed(2)}
-                </span>
+                padding: '1.5rem',
+                background: 'linear-gradient(135deg, rgba(79, 70, 229, 0.2) 0%, rgba(124, 58, 237, 0.15) 50%, rgba(139, 92, 246, 0.1) 100%)',
+                border: '1px solid rgba(79, 70, 229, 0.35)',
+                borderRadius: '1rem',
+                backdropFilter: 'blur(12px)',
+                boxShadow: '0 0 30px rgba(79, 70, 229, 0.15), inset 0 1px 0 rgba(255,255,255,0.1)',
+                position: 'relative',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'radial-gradient(circle at 20% 50%, rgba(79, 70, 229, 0.1) 0%, transparent 50%)'
+                }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', zIndex: 1 }}>
+                  <span style={{ color: '#94a3b8', fontSize: '1rem', fontWeight: 500 }}>Total estimado:</span>
+                  <span style={{
+                    fontSize: '1.625rem',
+                    fontWeight: 700,
+                    color: '#ffffff',
+                    fontFamily: 'monospace',
+                    letterSpacing: '-0.03em',
+                    textShadow: '0 0 30px rgba(79, 70, 229, 0.3)'
+                  }}>
+                    ${orderData.total?.toFixed(2) ?? '—'}
+                  </span>
+                </div>
+                {tipo === 'factura_a' && (
+                  <p style={{
+                    fontSize: '0.875rem',
+                    color: '#64748b',
+                    margin: '0.75rem 0 0 0',
+                    position: 'relative',
+                    zIndex: 1
+                  }}>
+                    IVA incluido: ${((orderData.total || 0) * 0.21).toFixed(2)}
+                  </p>
+                )}
               </div>
-              {tipo === 'factura_a' && (
-                <p style={{ 
-                  fontSize: '0.875rem', 
-                  color: '#64748b', 
-                  marginTop: '0.75rem',
-                  margin: '0.75rem 0 0 0',
-                  position: 'relative',
-                  zIndex: 1
-                }}>
-                  IVA incluido: ${((orderData?.total || 0) * 0.21).toFixed(2)}
-                </p>
-              )}
-            </div>
+            )}
 
             {/* Botones */}
             <div style={{ 
