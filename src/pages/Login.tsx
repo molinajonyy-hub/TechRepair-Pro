@@ -81,13 +81,12 @@ const S = {
   logoIcon: {
     width: '68px', height: '68px',
     borderRadius: '1.125rem',
-    background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     margin: '0 auto 1.25rem',
-    fontSize: '1.875rem',
     boxShadow: '0 12px 32px rgba(99,102,241,0.45)',
+    overflow: 'hidden',
   },
 
   // Input field wrapper
@@ -414,7 +413,22 @@ export function Login() {
 
           {/* Logo */}
           <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
-            <div style={S.logoIcon}>🔧</div>
+            <div style={S.logoIcon}>
+              <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" width="68" height="68">
+                <defs>
+                  <linearGradient id="loginCatBg" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style={{ stopColor: '#6366f1' }} />
+                    <stop offset="100%" style={{ stopColor: '#8b5cf6' }} />
+                  </linearGradient>
+                </defs>
+                <rect width="100" height="100" rx="22" fill="url(#loginCatBg)" />
+                <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93" />
+                <path d="M26 18 L20 43 L37 36 Z" fill="#6366f1" opacity="0.45" />
+                <path d="M74 18 L80 43 L63 36 Z" fill="#6366f1" opacity="0.45" />
+                <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85" />
+                <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85" />
+              </svg>
+            </div>
             <h1 style={{
               fontSize: '1.625rem', fontWeight: 900, letterSpacing: '-0.04em',
               color: '#f8fafc', margin: '0 0 0.3rem',
