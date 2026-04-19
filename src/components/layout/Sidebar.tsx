@@ -2,6 +2,8 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSidebar } from '../../hooks/useSidebar';
+import { usePermissions } from '../../hooks/usePermissions';
+import { PermissionKey } from '../../config/permissions';
 
 // ── Cat logo SVG (from design system) ──
 const CatIcon = ({ size = 26 }: { size?: number }) => (
@@ -147,6 +149,8 @@ type NavItem = {
   label: string;
   icon: React.ReactNode;
   isWhatsApp?: boolean;
+  /** If set, this item is hidden when user lacks this permission */
+  permission?: PermissionKey;
 };
 type NavSection = {
   sectionLabel: string;
@@ -158,36 +162,36 @@ const menuSections: NavSection[] = [
     sectionLabel: 'Principal',
     items: [
       { path: '/dashboard', label: 'Inicio', icon: <DashboardIcon /> },
-      { path: '/orders', label: 'Ordenes', icon: <OrdersIcon /> },
-      { path: '/comprobantes', label: 'Comprobantes', icon: <ComprobantesIcon /> },
-      { path: '/warranties', label: 'Garantías', icon: <WarrantyIcon /> },
+      { path: '/orders', label: 'Ordenes', icon: <OrdersIcon />, permission: 'orders' },
+      { path: '/comprobantes', label: 'Comprobantes', icon: <ComprobantesIcon />, permission: 'comprobantes' },
+      { path: '/warranties', label: 'Garantías', icon: <WarrantyIcon />, permission: 'orders' },
       { path: '/whatsapp', label: 'WhatsApp', icon: <WhatsAppIcon />, isWhatsApp: true },
     ],
   },
   {
     sectionLabel: 'Clientes & Stock',
     items: [
-      { path: '/customers', label: 'Clientes', icon: <ClientesIcon /> },
-      { path: '/inventory', label: 'Inventario', icon: <InventarioIcon /> },
-      { path: '/suppliers', label: 'Proveedores', icon: <ProveedoresIcon /> },
+      { path: '/customers', label: 'Clientes', icon: <ClientesIcon />, permission: 'customers' },
+      { path: '/inventory', label: 'Inventario', icon: <InventarioIcon />, permission: 'inventory' },
+      { path: '/suppliers', label: 'Proveedores', icon: <ProveedoresIcon />, permission: 'inventory' },
     ],
   },
   {
     sectionLabel: 'Finanzas',
     items: [
-      { path: '/expenses', label: 'Gastos', icon: <GastosIcon /> },
-      { path: '/caja', label: 'Caja', icon: <CajaIcon /> },
-      { path: '/finance', label: 'Finanzas', icon: <FinanzasIcon /> },
-      { path: '/reports', label: 'Reportes', icon: <ReportesIcon /> },
+      { path: '/expenses', label: 'Gastos', icon: <GastosIcon />, permission: 'finance' },
+      { path: '/caja', label: 'Caja', icon: <CajaIcon />, permission: 'finance' },
+      { path: '/finance', label: 'Finanzas', icon: <FinanzasIcon />, permission: 'finance' },
+      { path: '/reports', label: 'Reportes', icon: <ReportesIcon />, permission: 'reports' },
     ],
   },
   {
     sectionLabel: 'Administración',
     items: [
-      { path: '/users', label: 'Usuarios', icon: <UsuariosIcon /> },
-      { path: '/settings', label: 'Configuración', icon: <ConfigIcon /> },
-      { path: '/currency-settings', label: 'Moneda', icon: <MonedaIcon /> },
-      { path: '/subscription', label: 'Suscripción', icon: <SuscripcionIcon /> },
+      { path: '/users', label: 'Usuarios', icon: <UsuariosIcon />, permission: 'users' },
+      { path: '/settings', label: 'Configuración', icon: <ConfigIcon />, permission: 'settings' },
+      { path: '/currency-settings', label: 'Moneda', icon: <MonedaIcon />, permission: 'settings' },
+      { path: '/subscription', label: 'Suscripción', icon: <SuscripcionIcon />, permission: 'subscription' },
       { path: '/tutorials', label: 'Tutoriales', icon: <TutorialesIcon /> },
     ],
   },
@@ -200,12 +204,21 @@ const mobileWidth = 280;
 export function Sidebar() {
   const { signOut } = useAuth();
   const navigate = useNavigate();
+  const { can } = usePermissions();
   const {
     isCollapsed,
     isMobileOpen,
     toggleSidebar,
     closeMobileSidebar,
   } = useSidebar();
+
+  // Filter sections and items based on permissions
+  const visibleSections = menuSections
+    .map(section => ({
+      ...section,
+      items: section.items.filter(item => !item.permission || can(item.permission)),
+    }))
+    .filter(section => section.items.length > 0);
 
   const sidebarWidth = isCollapsed ? collapsedWidth : expandedWidth;
 
@@ -293,7 +306,7 @@ export function Sidebar() {
           overflowX: 'hidden',
         }}
       >
-        {menuSections.map((section) => (
+        {visibleSections.map((section) => (
           <div key={section.sectionLabel}>
             {/* Section label — hidden when collapsed */}
             {!collapsed && (

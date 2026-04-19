@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { AppPermissions } from '../config/permissions';
 
 export interface BusinessUser {
   id: string;
@@ -8,6 +9,7 @@ export interface BusinessUser {
   is_active: boolean;
   full_name?: string;
   email?: string;
+  permissions?: Partial<AppPermissions> | null;
   created_at: string;
 }
 
@@ -114,5 +116,39 @@ export const usersService = {
     if (error) {
       throw new Error(getErrorMessage('Error al revocar invitacion', error));
     }
+  },
+
+  async updateUserPermissions(
+    profileId: string,
+    permissions: Partial<AppPermissions> | null
+  ): Promise<void> {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ permissions })
+      .eq('id', profileId);
+
+    if (error) {
+      throw new Error(getErrorMessage('Error al actualizar permisos de usuario', error));
+    }
+  },
+
+  async createInvitationWithPermissions(
+    email: string,
+    role: string,
+    businessId: string,
+    customPermissions?: Partial<AppPermissions> | null
+  ): Promise<string> {
+    // First create the invitation token
+    const token = await usersService.createInvitation(email, role, businessId);
+
+    // If custom permissions provided, store them in the invitation for later use
+    if (customPermissions && Object.keys(customPermissions).length > 0) {
+      await supabase
+        .from('business_invitations')
+        .update({ metadata: { permissions: customPermissions } } as any)
+        .eq('token', token);
+    }
+
+    return token;
   },
 };

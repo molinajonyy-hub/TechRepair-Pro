@@ -22,13 +22,17 @@ const corsHeaders = {
 
 function toAfipDate(date: Date): string {
   // AFIP requiere offset -03:00 (Argentina Standard Time)
+  // Restar 3 horas al UTC para obtener hora argentina, luego etiquetar como -03:00.
+  // Sin este ajuste, se envía hora UTC con etiqueta -03:00, lo que hace que AFIP
+  // lo interprete como 3 horas en el futuro y rechace el TRA.
+  const arg = new Date(date.getTime() - 3 * 60 * 60 * 1000)
   const pad = (n: number) => String(n).padStart(2, '0')
-  const yyyy = date.getUTCFullYear()
-  const MM   = pad(date.getUTCMonth() + 1)
-  const dd   = pad(date.getUTCDate())
-  const hh   = pad(date.getUTCHours())
-  const mm   = pad(date.getUTCMinutes())
-  const ss   = pad(date.getUTCSeconds())
+  const yyyy = arg.getUTCFullYear()
+  const MM   = pad(arg.getUTCMonth() + 1)
+  const dd   = pad(arg.getUTCDate())
+  const hh   = pad(arg.getUTCHours())
+  const mm   = pad(arg.getUTCMinutes())
+  const ss   = pad(arg.getUTCSeconds())
   return `${yyyy}-${MM}-${dd}T${hh}:${mm}:${ss}-03:00`
 }
 
