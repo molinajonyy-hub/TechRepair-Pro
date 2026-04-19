@@ -23,6 +23,7 @@ import { StatusChange } from '../components/order/StatusChange'
 import { ChecklistCard } from '../components/order/ChecklistCard'
 import { DeviceInspectionCard } from '../components/order/DeviceInspectionCard'
 import { OrderCostManagement } from '../components/order/OrderCostManagement'
+import { OrderItemsCard } from '../components/order/OrderItemsCard'
 import { supabase } from '../lib/supabase'
 import { useOrderSimple } from '../hooks/useOrderSimple'
 import { useComprobantes } from '../hooks/useComprobantes'
@@ -386,15 +387,8 @@ export function OrderDetail() {
         )}
 
         {activeTab === 'parts' && (
-          <div className="card" style={{ gridColumn: 'span 2' }}>
-            <div className="card-header">
-              <h3 className="card-title">Repuestos</h3>
-            </div>
-            <div className="card-body">
-              <p style={{ color: '#64748b', textAlign: 'center', padding: '2rem' }}>
-                No hay repuestos registrados.
-              </p>
-            </div>
+          <div style={{ gridColumn: 'span 2' }}>
+            <OrderItemsCard orderId={order.id} onTotalsChange={refresh} />
           </div>
         )}
 

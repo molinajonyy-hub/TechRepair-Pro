@@ -1,0 +1,570 @@
+import { useState, useEffect, useRef } from 'react'
+import { X, Search, Package, Wrench, AlertCircle, Loader2 } from 'lucide-react'
+import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../contexts/AuthContext'
+
+interface InventoryProduct {
+  id: string
+  name: string
+  code?: string
+  category?: string
+  stock_quantity: number
+  sale_price: number
+  cost_price?: number
+}
+
+interface ModalAgregarItemProps {
+  isOpen: boolean
+  orderId: string
+  onClose: () => void
+  onItemAdded: () => void
+}
+
+export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: ModalAgregarItemProps) {
+  const { businessId } = useAuth()
+  const [tipo, setTipo] = useState<'repuesto' | 'servicio'>('repuesto')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  // Repuesto fields
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<InventoryProduct[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [showDropdown, setShowDropdown] = useState(false)
+  const [selectedProduct, setSelectedProduct] = useState<InventoryProduct | null>(null)
+  const [clientePagaRepuesto, setClientePagaRepuesto] = useState(true)
+
+  // Shared fields
+  const [descripcion, setDescripcion] = useState('')
+  const [cantidad, setCantidad] = useState('1')
+  const [precioUnitario, setPrecioUnitario] = useState('')
+  const [costoUnitario, setCostoUnitario] = useState('')
+
+  const searchRef = useRef<HTMLDivElement>(null)
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Reset form when modal opens or tipo changes
+  useEffect(() => {
+    if (isOpen) {
+      resetForm()
+    }
+  }, [isOpen])
+
+  useEffect(() => {
+    resetForm()
+  }, [tipo])
+
+  function resetForm() {
+    setDescripcion('')
+    setCantidad('1')
+    setPrecioUnitario('')
+    setCostoUnitario('')
+    setSelectedProduct(null)
+    setSearchQuery('')
+    setSearchResults([])
+    setShowDropdown(false)
+    setError('')
+    setClientePagaRepuesto(true)
+  }
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setShowDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Debounced inventory search
+  useEffect(() => {
+    if (!searchQuery.trim() || selectedProduct) {
+      setSearchResults([])
+      setShowDropdown(false)
+      return
+    }
+
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(async () => {
+      if (!businessId || searchQuery.trim().length < 2) return
+      setIsSearching(true)
+      try {
+        const { data, error } = await supabase
+          .from('inventory')
+          .select('id, name, code, category, stock_quantity, sale_price, cost_price')
+          .eq('business_id', businessId)
+          .eq('is_active', true)
+          .or(`name.ilike.%${searchQuery}%,code.ilike.%${searchQuery}%`)
+          .order('name')
+          .limit(8)
+
+        if (!error && data) {
+          setSearchResults(data)
+          setShowDropdown(data.length > 0)
+        }
+      } catch {
+        // silent
+      } finally {
+        setIsSearching(false)
+      }
+    }, 300)
+  }, [searchQuery, businessId, selectedProduct])
+
+  function selectProduct(product: InventoryProduct) {
+    setSelectedProduct(product)
+    setSearchQuery(product.name)
+    setShowDropdown(false)
+    setDescripcion(product.name)
+    setPrecioUnitario(product.sale_price?.toString() || '')
+    setCostoUnitario(product.cost_price?.toString() || '')
+  }
+
+  function clearProduct() {
+    setSelectedProduct(null)
+    setSearchQuery('')
+    setDescripcion('')
+    setPrecioUnitario('')
+    setCostoUnitario('')
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+
+    if (!descripcion.trim()) {
+      setError('La descripción es obligatoria.')
+      return
+    }
+    const precio = parseFloat(precioUnitario) || 0
+    const costo = parseFloat(costoUnitario) || 0
+    const qty = parseInt(cantidad) || 1
+
+    if (tipo === 'repuesto' && clientePagaRepuesto && precio <= 0) {
+      setError('Ingresá el precio de venta del repuesto.')
+      return
+    }
+
+    // Stock check
+    if (tipo === 'repuesto' && selectedProduct) {
+      if (selectedProduct.stock_quantity < qty) {
+        setError(`Stock insuficiente. Disponible: ${selectedProduct.stock_quantity} unidades.`)
+        return
+      }
+    }
+
+    setIsSubmitting(true)
+    try {
+      const { error: insertError } = await supabase
+        .from('order_items')
+        .insert({
+          order_id: orderId,
+          product_id: tipo === 'repuesto' && selectedProduct ? selectedProduct.id : null,
+          business_id: businessId,
+          tipo,
+          descripcion: descripcion.trim(),
+          cantidad: qty,
+          precio_unitario: precio,
+          costo_unitario: costo,
+          cliente_paga_repuesto: tipo === 'repuesto' ? clientePagaRepuesto : false,
+        })
+
+      if (insertError) throw insertError
+
+      onItemAdded()
+      onClose()
+    } catch (err: any) {
+      setError(err.message || 'Error al guardar el ítem.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  if (!isOpen) return null
+
+  const subtotal = (parseFloat(precioUnitario) || 0) * (parseInt(cantidad) || 1)
+  const margen = subtotal - ((parseFloat(costoUnitario) || 0) * (parseInt(cantidad) || 1))
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        backgroundColor: 'rgba(0,0,0,0.7)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '1rem'
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div style={{
+        backgroundColor: '#0f172a',
+        border: '1px solid #1e293b',
+        borderRadius: '1rem',
+        width: '100%',
+        maxWidth: '520px',
+        maxHeight: '90vh',
+        overflowY: 'auto',
+        boxShadow: '0 25px 50px rgba(0,0,0,0.5)'
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: '1.25rem 1.5rem',
+          borderBottom: '1px solid #1e293b',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+        }}>
+          <h2 style={{ fontSize: '1.125rem', fontWeight: 700, color: '#f8fafc', margin: 0 }}>
+            Agregar ítem
+          </h2>
+          <button
+            onClick={onClose}
+            style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '0.25rem' }}
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Tipo toggle */}
+        <div style={{ padding: '1.25rem 1.5rem 0' }}>
+          <div style={{
+            display: 'grid', gridTemplateColumns: '1fr 1fr',
+            gap: '0.5rem',
+            backgroundColor: '#1e293b',
+            borderRadius: '0.625rem',
+            padding: '0.25rem'
+          }}>
+            {([
+              { value: 'repuesto', label: 'Repuesto', icon: Package },
+              { value: 'servicio', label: 'Servicio', icon: Wrench },
+            ] as const).map(({ value, label, icon: Icon }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setTipo(value)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                  padding: '0.625rem',
+                  borderRadius: '0.375rem',
+                  border: 'none',
+                  backgroundColor: tipo === value ? '#6366f1' : 'transparent',
+                  color: tipo === value ? '#fff' : '#64748b',
+                  fontWeight: 600, fontSize: '0.875rem',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s'
+                }}
+              >
+                <Icon size={16} />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+          {/* Repuesto: inventory search */}
+          {tipo === 'repuesto' && (
+            <div ref={searchRef} style={{ position: 'relative' }}>
+              <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: '0.375rem' }}>
+                Buscar en inventario
+              </label>
+              <div style={{ position: 'relative' }}>
+                <Search size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', pointerEvents: 'none' }} />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    if (selectedProduct) clearProduct()
+                    setSearchQuery(e.target.value)
+                  }}
+                  placeholder="Nombre o código del repuesto..."
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    padding: '0.625rem 2.25rem 0.625rem 2.25rem',
+                    backgroundColor: '#1e293b',
+                    border: `1px solid ${selectedProduct ? '#6366f1' : '#334155'}`,
+                    borderRadius: '0.5rem',
+                    color: '#f8fafc', fontSize: '0.875rem',
+                    outline: 'none'
+                  }}
+                />
+                {isSearching && (
+                  <Loader2 size={15} style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', animation: 'spin 1s linear infinite' }} />
+                )}
+                {selectedProduct && (
+                  <button
+                    type="button"
+                    onClick={clearProduct}
+                    style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: 0 }}
+                  >
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
+
+              {/* Dropdown results */}
+              {showDropdown && searchResults.length > 0 && (
+                <div style={{
+                  position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #334155',
+                  borderRadius: '0.5rem',
+                  marginTop: '0.25rem',
+                  boxShadow: '0 10px 25px rgba(0,0,0,0.4)',
+                  overflow: 'hidden'
+                }}>
+                  {searchResults.map((product) => (
+                    <button
+                      key={product.id}
+                      type="button"
+                      onClick={() => selectProduct(product)}
+                      style={{
+                        width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '0.75rem 1rem',
+                        backgroundColor: 'transparent',
+                        border: 'none',
+                        borderBottom: '1px solid #0f172a',
+                        color: '#f8fafc',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'background 0.1s'
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#0f172a')}
+                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    >
+                      <div>
+                        <p style={{ margin: 0, fontWeight: 600, fontSize: '0.875rem' }}>{product.name}</p>
+                        <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>
+                          {product.code && `${product.code} · `}
+                          {product.category}
+                        </p>
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <p style={{ margin: 0, fontWeight: 700, color: '#6366f1', fontSize: '0.875rem' }}>
+                          ${product.sale_price?.toLocaleString()}
+                        </p>
+                        <p style={{
+                          margin: 0, fontSize: '0.75rem',
+                          color: product.stock_quantity > 0 ? '#10b981' : '#dc2626'
+                        }}>
+                          {product.stock_quantity > 0 ? `${product.stock_quantity} en stock` : 'Sin stock'}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Selected product info badge */}
+              {selectedProduct && (
+                <div style={{
+                  marginTop: '0.5rem', padding: '0.5rem 0.75rem',
+                  backgroundColor: 'rgba(99,102,241,0.1)',
+                  border: '1px solid rgba(99,102,241,0.3)',
+                  borderRadius: '0.375rem',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                }}>
+                  <span style={{ fontSize: '0.8125rem', color: '#a5b4fc' }}>
+                    📦 Stock actual: <strong>{selectedProduct.stock_quantity}</strong> unidades
+                  </span>
+                  <span style={{ fontSize: '0.8125rem', color: '#a5b4fc' }}>
+                    Costo: <strong>${selectedProduct.cost_price?.toLocaleString() || '—'}</strong>
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Descripción */}
+          <div>
+            <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: '0.375rem' }}>
+              {tipo === 'repuesto' ? 'Descripción (o ingresá manual)' : 'Descripción del servicio'} *
+            </label>
+            <input
+              type="text"
+              value={descripcion}
+              onChange={(e) => setDescripcion(e.target.value)}
+              placeholder={tipo === 'repuesto' ? 'Ej: Pantalla iPhone 14 Pro' : 'Ej: Cambio de pantalla, diagnóstico...'}
+              required
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                padding: '0.625rem 0.875rem',
+                backgroundColor: '#1e293b',
+                border: '1px solid #334155',
+                borderRadius: '0.5rem',
+                color: '#f8fafc', fontSize: '0.875rem', outline: 'none'
+              }}
+            />
+          </div>
+
+          {/* Cantidad + Precio */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+            <div>
+              <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: '0.375rem' }}>
+                Cantidad
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={cantidad}
+                onChange={(e) => setCantidad(e.target.value)}
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  padding: '0.625rem 0.875rem',
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #334155',
+                  borderRadius: '0.5rem',
+                  color: '#f8fafc', fontSize: '0.875rem', outline: 'none'
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: '0.375rem' }}>
+                Precio unitario al cliente
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={precioUnitario}
+                onChange={(e) => setPrecioUnitario(e.target.value)}
+                placeholder="0.00"
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  padding: '0.625rem 0.875rem',
+                  backgroundColor: '#1e293b',
+                  border: '1px solid #334155',
+                  borderRadius: '0.5rem',
+                  color: '#f8fafc', fontSize: '0.875rem', outline: 'none'
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Costo interno */}
+          <div>
+            <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: '0.375rem' }}>
+              Costo interno (no visible al cliente)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={costoUnitario}
+              onChange={(e) => setCostoUnitario(e.target.value)}
+              placeholder="0.00"
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                padding: '0.625rem 0.875rem',
+                backgroundColor: '#1e293b',
+                border: '1px solid #334155',
+                borderRadius: '0.5rem',
+                color: '#f8fafc', fontSize: '0.875rem', outline: 'none'
+              }}
+            />
+          </div>
+
+          {/* Cliente paga repuesto (solo para repuestos) */}
+          {tipo === 'repuesto' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', cursor: 'pointer' }}>
+              <div
+                onClick={() => setClientePagaRepuesto(!clientePagaRepuesto)}
+                style={{
+                  width: '40px', height: '22px', borderRadius: '11px',
+                  backgroundColor: clientePagaRepuesto ? '#6366f1' : '#334155',
+                  position: 'relative', transition: 'background 0.2s', cursor: 'pointer', flexShrink: 0
+                }}
+              >
+                <div style={{
+                  position: 'absolute', top: '3px',
+                  left: clientePagaRepuesto ? '21px' : '3px',
+                  width: '16px', height: '16px', borderRadius: '50%',
+                  backgroundColor: '#fff', transition: 'left 0.2s'
+                }} />
+              </div>
+              <span style={{ fontSize: '0.875rem', color: '#a0aec0' }}>
+                El cliente paga este repuesto (se incluye en el total)
+              </span>
+            </label>
+          )}
+
+          {/* Subtotal preview */}
+          {(parseFloat(precioUnitario) > 0 || parseFloat(costoUnitario) > 0) && (
+            <div style={{
+              padding: '0.875rem',
+              backgroundColor: '#1e293b',
+              borderRadius: '0.5rem',
+              display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem'
+            }}>
+              <div style={{ textAlign: 'center' }}>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Subtotal cliente</p>
+                <p style={{ margin: 0, fontWeight: 700, color: '#f8fafc' }}>${subtotal.toLocaleString()}</p>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Costo total</p>
+                <p style={{ margin: 0, fontWeight: 700, color: '#f59e0b' }}>
+                  ${((parseFloat(costoUnitario) || 0) * (parseInt(cantidad) || 1)).toLocaleString()}
+                </p>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Margen</p>
+                <p style={{ margin: 0, fontWeight: 700, color: margen >= 0 ? '#10b981' : '#dc2626' }}>
+                  ${margen.toLocaleString()}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Error */}
+          {error && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+              padding: '0.75rem', backgroundColor: 'rgba(220,38,38,0.1)',
+              borderRadius: '0.5rem', color: '#dc2626', fontSize: '0.875rem'
+            }}>
+              <AlertCircle size={16} />
+              {error}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.25rem' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                flex: 1, padding: '0.75rem',
+                backgroundColor: 'transparent',
+                border: '1px solid #334155',
+                borderRadius: '0.5rem',
+                color: '#94a3b8', fontWeight: 600, fontSize: '0.875rem',
+                cursor: 'pointer'
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              style={{
+                flex: 2, padding: '0.75rem',
+                background: isSubmitting ? '#374151' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                border: 'none',
+                borderRadius: '0.5rem',
+                color: '#fff', fontWeight: 700, fontSize: '0.875rem',
+                cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem'
+              }}
+            >
+              {isSubmitting ? (
+                <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</>
+              ) : (
+                `Agregar ${tipo === 'repuesto' ? 'repuesto' : 'servicio'}`
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
