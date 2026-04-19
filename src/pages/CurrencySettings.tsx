@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { DollarSign, RefreshCw, Save, History, Cloud } from 'lucide-react';
+import { DollarSign, RefreshCw, Save, History, Cloud, MapPin, Globe } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { currencyService, BusinessSettings, ExchangeRate } from '../services/currencyService';
-import { exchangeRateService } from '../services/exchangeRateService';
+import { exchangeRateService, DolarSource } from '../services/exchangeRateService';
 
 export function CurrencySettings() {
   const { businessId, isOwner, isAdmin } = useAuth();
@@ -110,17 +110,21 @@ export function CurrencySettings() {
     }
   };
 
+  const dolarSource: DolarSource = (settings?.dolar_source as DolarSource) ?? 'nacional'
+
   const handleUpdateFromAPI = async () => {
     if (!businessId) return;
 
     setSaving(true);
     try {
-      const apiRate = await exchangeRateService.getDolarRate();
-      
+      const apiRate = await exchangeRateService.getDolarRate(dolarSource);
+
       if (!apiRate) {
-        alert('No se pudo obtener el tipo de cambio de la API');
+        alert('No se pudo obtener el tipo de cambio. Verificá tu conexión o intentá más tarde.');
         return;
       }
+
+      const sourceLabel = dolarSource === 'cordoba' ? 'Blue Córdoba (infodolar.com)' : 'Blue Nacional (Bluelytics)'
 
       await currencyService.upsertExchangeRate({
         business_id: businessId,
@@ -128,15 +132,15 @@ export function CurrencySettings() {
         target_currency: 'ARS',
         rate: apiRate,
         is_manual: false,
-        source: 'api'
+        source: dolarSource === 'cordoba' ? 'infodolar-cordoba' : 'bluelytics'
       });
-      
+
       setExchangeRate(apiRate);
-      alert(`Tipo de cambio actualizado desde API: $${apiRate.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+      alert(`✅ Cotización actualizada desde ${sourceLabel}:\n$${apiRate.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
       loadRateHistory();
     } catch (error) {
       console.error('Error updating rate from API:', error);
-      alert('Error al actualizar tipo de cambio desde API');
+      alert('Error al actualizar tipo de cambio desde la fuente seleccionada');
     } finally {
       setSaving(false);
     }
@@ -226,6 +230,92 @@ export function CurrencySettings() {
               />
               Actualizar tipo de cambio automáticamente desde API
             </label>
+          </div>
+
+          {/* Selector de fuente del dólar */}
+          <div style={{ marginBottom: '1.5rem' }}>
+            <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.75rem', fontWeight: 500 }}>
+              Fuente del Dólar Blue
+            </label>
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              {/* Opción Nacional */}
+              <button
+                onClick={() => canManageSettings && setSettings({ ...settings!, dolar_source: 'nacional' })}
+                disabled={!canManageSettings}
+                style={{
+                  flex: 1,
+                  padding: '0.75rem 1rem',
+                  borderRadius: '0.625rem',
+                  border: dolarSource === 'nacional'
+                    ? '2px solid #6366f1'
+                    : '1px solid rgba(255,255,255,0.1)',
+                  backgroundColor: dolarSource === 'nacional'
+                    ? 'rgba(99,102,241,0.12)'
+                    : '#1e293b',
+                  color: dolarSource === 'nacional' ? '#a5b4fc' : '#94a3b8',
+                  cursor: canManageSettings ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '0.375rem',
+                  transition: 'all 0.18s',
+                  opacity: canManageSettings ? 1 : 0.6,
+                }}
+              >
+                <Globe size={20} style={{ color: dolarSource === 'nacional' ? '#818cf8' : '#64748b' }} />
+                <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Blue Nacional</span>
+                <span style={{ fontSize: '0.6875rem', color: '#64748b', textAlign: 'center', lineHeight: 1.3 }}>
+                  Bluelytics API
+                </span>
+              </button>
+              {/* Opción Córdoba */}
+              <button
+                onClick={() => canManageSettings && setSettings({ ...settings!, dolar_source: 'cordoba' })}
+                disabled={!canManageSettings}
+                style={{
+                  flex: 1,
+                  padding: '0.75rem 1rem',
+                  borderRadius: '0.625rem',
+                  border: dolarSource === 'cordoba'
+                    ? '2px solid #10b981'
+                    : '1px solid rgba(255,255,255,0.1)',
+                  backgroundColor: dolarSource === 'cordoba'
+                    ? 'rgba(16,185,129,0.1)'
+                    : '#1e293b',
+                  color: dolarSource === 'cordoba' ? '#6ee7b7' : '#94a3b8',
+                  cursor: canManageSettings ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '0.375rem',
+                  transition: 'all 0.18s',
+                  opacity: canManageSettings ? 1 : 0.6,
+                }}
+              >
+                <MapPin size={20} style={{ color: dolarSource === 'cordoba' ? '#34d399' : '#64748b' }} />
+                <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Blue Córdoba</span>
+                <span style={{ fontSize: '0.6875rem', color: '#64748b', textAlign: 'center', lineHeight: 1.3 }}>
+                  infodolar.com
+                </span>
+              </button>
+            </div>
+            {dolarSource === 'cordoba' && (
+              <div style={{
+                marginTop: '0.625rem',
+                padding: '0.5rem 0.75rem',
+                backgroundColor: 'rgba(16,185,129,0.07)',
+                border: '1px solid rgba(16,185,129,0.2)',
+                borderRadius: '0.5rem',
+                fontSize: '0.75rem',
+                color: '#6ee7b7',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+              }}>
+                <MapPin size={13} />
+                Valor de venta · Dólar Blue Córdoba · infodolar.com
+              </div>
+            )}
           </div>
 
           {canManageSettings && (
@@ -325,17 +415,25 @@ export function CurrencySettings() {
                   alignItems: 'center',
                   gap: '0.5rem',
                   padding: '0.625rem 1.25rem',
-                  backgroundColor: '#059669',
+                  backgroundColor: dolarSource === 'cordoba' ? '#059669' : '#0284c7',
                   border: 'none',
                   color: '#ffffff',
                   borderRadius: '0.5rem',
                   cursor: saving ? 'not-allowed' : 'pointer',
                   fontWeight: 500,
-                  opacity: saving ? 0.5 : 1
+                  opacity: saving ? 0.5 : 1,
+                  whiteSpace: 'nowrap',
                 }}
+                title={dolarSource === 'cordoba'
+                  ? 'Obtener valor de venta Blue Córdoba desde infodolar.com'
+                  : 'Obtener Blue Nacional desde Bluelytics API'}
               >
-                <Cloud size={18} />
-                {saving ? 'Actualizando...' : 'Actualizar desde API'}
+                {dolarSource === 'cordoba' ? <MapPin size={18} /> : <Cloud size={18} />}
+                {saving
+                  ? 'Actualizando...'
+                  : dolarSource === 'cordoba'
+                    ? 'Actualizar · Blue Córdoba'
+                    : 'Actualizar · Blue Nacional'}
               </button>
             )}
 

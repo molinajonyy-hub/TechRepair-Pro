@@ -20,6 +20,7 @@ export interface BusinessSettings {
   auto_update_rate: boolean;
   rate_api_url?: string;
   rate_update_frequency_hours: number;
+  dolar_source?: 'nacional' | 'cordoba';
   updated_at: string;
   created_at: string;
 }
@@ -71,6 +72,7 @@ export const currencyService = {
         auto_update_rate: settings.auto_update_rate ?? false,
         rate_api_url: settings.rate_api_url ?? null,
         rate_update_frequency_hours: settings.rate_update_frequency_hours ?? 24,
+        dolar_source: settings.dolar_source ?? 'nacional',
       }, { onConflict: 'business_id' })
       .select();
 
