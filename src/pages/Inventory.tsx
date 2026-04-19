@@ -437,13 +437,13 @@ export function Inventory() {
     setFormData(prev => ({
       ...prev,
       variants: [
-        ...prev.variants,
         {
           name: '',
           stock_quantity: 0,
           cost_price: prev.cost_price,
           sale_price: prev.sale_price
-        }
+        },
+        ...prev.variants,
       ]
     }))
   }
