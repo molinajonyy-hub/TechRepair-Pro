@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Search, Package, Wrench, AlertCircle, Loader2 } from 'lucide-react'
+import { X, Search, Package, Wrench, AlertCircle, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 
@@ -33,6 +33,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
   const [showDropdown, setShowDropdown] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<InventoryProduct | null>(null)
   const [clientePagaRepuesto, setClientePagaRepuesto] = useState(true)
+  const [showInventorySearch, setShowInventorySearch] = useState(false)
 
   // Shared fields
   const [descripcion, setDescripcion] = useState('')
@@ -65,6 +66,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
     setShowDropdown(false)
     setError('')
     setClientePagaRepuesto(true)
+    setShowInventorySearch(false)
   }
 
   // Close dropdown when clicking outside
@@ -271,129 +273,153 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
         {/* Form */}
         <form onSubmit={handleSubmit} style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-          {/* Inventory search (repuestos AND servicios) */}
-          {(tipo === 'repuesto' || tipo === 'servicio') && (
-            <div ref={searchRef} style={{ position: 'relative' }}>
-              <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: '0.375rem' }}>
-                Buscar en inventario {tipo === 'servicio' ? '(servicios)' : '(repuestos)'}
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Search size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', pointerEvents: 'none' }} />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => {
-                    if (selectedProduct) clearProduct()
-                    setSearchQuery(e.target.value)
-                  }}
-                  placeholder={tipo === 'servicio' ? 'Buscar servicio del inventario...' : 'Nombre o código del repuesto...'}
-                  style={{
-                    width: '100%', boxSizing: 'border-box',
-                    padding: '0.625rem 2.25rem 0.625rem 2.25rem',
+          {/* Inventory search toggle */}
+          <div ref={searchRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowInventorySearch(!showInventorySearch)
+                if (showInventorySearch) clearProduct()
+              }}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '0.5rem 0.75rem',
+                backgroundColor: showInventorySearch ? 'rgba(99,102,241,0.08)' : '#1e293b',
+                border: `1px solid ${showInventorySearch ? 'rgba(99,102,241,0.4)' : '#334155'}`,
+                borderRadius: '0.5rem',
+                color: showInventorySearch ? '#a5b4fc' : '#64748b',
+                fontSize: '0.8125rem', fontWeight: 600,
+                cursor: 'pointer', transition: 'all 0.15s'
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Search size={14} />
+                Buscar en inventario <span style={{ fontWeight: 400, color: '#475569' }}>(opcional)</span>
+              </span>
+              {showInventorySearch ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            </button>
+
+            {showInventorySearch && (
+              <div style={{ marginTop: '0.625rem', position: 'relative' }}>
+                <div style={{ position: 'relative' }}>
+                  <Search size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', pointerEvents: 'none' }} />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => {
+                      if (selectedProduct) clearProduct()
+                      setSearchQuery(e.target.value)
+                    }}
+                    placeholder={tipo === 'servicio' ? 'Buscar servicio del inventario...' : 'Nombre o código del repuesto...'}
+                    autoFocus
+                    style={{
+                      width: '100%', boxSizing: 'border-box',
+                      padding: '0.625rem 2.25rem 0.625rem 2.25rem',
+                      backgroundColor: '#1e293b',
+                      border: `1px solid ${selectedProduct ? '#6366f1' : '#334155'}`,
+                      borderRadius: '0.5rem',
+                      color: '#f8fafc', fontSize: '0.875rem',
+                      outline: 'none'
+                    }}
+                  />
+                  {isSearching && (
+                    <Loader2 size={15} style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', animation: 'spin 1s linear infinite' }} />
+                  )}
+                  {selectedProduct && (
+                    <button
+                      type="button"
+                      onClick={clearProduct}
+                      style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: 0 }}
+                    >
+                      <X size={15} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Dropdown results */}
+                {showDropdown && searchResults.length > 0 && (
+                  <div style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
                     backgroundColor: '#1e293b',
-                    border: `1px solid ${selectedProduct ? '#6366f1' : '#334155'}`,
+                    border: '1px solid #334155',
                     borderRadius: '0.5rem',
-                    color: '#f8fafc', fontSize: '0.875rem',
-                    outline: 'none'
-                  }}
-                />
-                {isSearching && (
-                  <Loader2 size={15} style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', animation: 'spin 1s linear infinite' }} />
+                    marginTop: '0.25rem',
+                    boxShadow: '0 10px 25px rgba(0,0,0,0.4)',
+                    overflow: 'hidden'
+                  }}>
+                    {searchResults.map((product) => (
+                      <button
+                        key={product.id}
+                        type="button"
+                        onClick={() => selectProduct(product)}
+                        style={{
+                          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                          padding: '0.75rem 1rem',
+                          backgroundColor: 'transparent',
+                          border: 'none',
+                          borderBottom: '1px solid #0f172a',
+                          color: '#f8fafc',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          transition: 'background 0.1s'
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#0f172a')}
+                        onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <div>
+                          <p style={{ margin: 0, fontWeight: 600, fontSize: '0.875rem' }}>{product.name}</p>
+                          <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>
+                            {product.code && `${product.code} · `}
+                            {product.category}
+                          </p>
+                        </div>
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          <p style={{ margin: 0, fontWeight: 700, color: '#6366f1', fontSize: '0.875rem' }}>
+                            ${product.sale_price?.toLocaleString()}
+                          </p>
+                          <p style={{
+                            margin: 0, fontSize: '0.75rem',
+                            color: (product as any).tipo === 'service' ? '#818cf8' : product.stock_quantity > 0 ? '#10b981' : '#dc2626'
+                          }}>
+                            {(product as any).tipo === 'service'
+                              ? 'Servicio'
+                              : product.stock_quantity > 0
+                                ? `${product.stock_quantity} en stock`
+                                : 'Sin stock'
+                            }
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
                 )}
+
+                {/* Selected product info badge */}
                 {selectedProduct && (
-                  <button
-                    type="button"
-                    onClick={clearProduct}
-                    style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: 0 }}
-                  >
-                    <X size={15} />
-                  </button>
+                  <div style={{
+                    marginTop: '0.5rem', padding: '0.5rem 0.75rem',
+                    backgroundColor: 'rgba(99,102,241,0.1)',
+                    border: '1px solid rgba(99,102,241,0.3)',
+                    borderRadius: '0.375rem',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                  }}>
+                    {(selectedProduct as any).tipo === 'service' ? (
+                      <span style={{ fontSize: '0.8125rem', color: '#a5b4fc' }}>
+                        🔧 Servicio del inventario seleccionado
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '0.8125rem', color: '#a5b4fc' }}>
+                        📦 Stock actual: <strong>{selectedProduct.stock_quantity}</strong> unidades
+                      </span>
+                    )}
+                    <span style={{ fontSize: '0.8125rem', color: '#a5b4fc' }}>
+                      Costo: <strong>${selectedProduct.cost_price?.toLocaleString() || '—'}</strong>
+                    </span>
+                  </div>
                 )}
               </div>
-
-              {/* Dropdown results */}
-              {showDropdown && searchResults.length > 0 && (
-                <div style={{
-                  position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
-                  backgroundColor: '#1e293b',
-                  border: '1px solid #334155',
-                  borderRadius: '0.5rem',
-                  marginTop: '0.25rem',
-                  boxShadow: '0 10px 25px rgba(0,0,0,0.4)',
-                  overflow: 'hidden'
-                }}>
-                  {searchResults.map((product) => (
-                    <button
-                      key={product.id}
-                      type="button"
-                      onClick={() => selectProduct(product)}
-                      style={{
-                        width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        padding: '0.75rem 1rem',
-                        backgroundColor: 'transparent',
-                        border: 'none',
-                        borderBottom: '1px solid #0f172a',
-                        color: '#f8fafc',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        transition: 'background 0.1s'
-                      }}
-                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#0f172a')}
-                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-                    >
-                      <div>
-                        <p style={{ margin: 0, fontWeight: 600, fontSize: '0.875rem' }}>{product.name}</p>
-                        <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>
-                          {product.code && `${product.code} · `}
-                          {product.category}
-                        </p>
-                      </div>
-                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <p style={{ margin: 0, fontWeight: 700, color: '#6366f1', fontSize: '0.875rem' }}>
-                          ${product.sale_price?.toLocaleString()}
-                        </p>
-                        <p style={{
-                          margin: 0, fontSize: '0.75rem',
-                          color: (product as any).tipo === 'service' ? '#818cf8' : product.stock_quantity > 0 ? '#10b981' : '#dc2626'
-                        }}>
-                          {(product as any).tipo === 'service'
-                            ? 'Servicio'
-                            : product.stock_quantity > 0
-                              ? `${product.stock_quantity} en stock`
-                              : 'Sin stock'
-                          }
-                        </p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Selected product info badge */}
-              {selectedProduct && (
-                <div style={{
-                  marginTop: '0.5rem', padding: '0.5rem 0.75rem',
-                  backgroundColor: 'rgba(99,102,241,0.1)',
-                  border: '1px solid rgba(99,102,241,0.3)',
-                  borderRadius: '0.375rem',
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-                }}>
-                  {(selectedProduct as any).tipo === 'service' ? (
-                    <span style={{ fontSize: '0.8125rem', color: '#a5b4fc' }}>
-                      🔧 Servicio del inventario seleccionado
-                    </span>
-                  ) : (
-                    <span style={{ fontSize: '0.8125rem', color: '#a5b4fc' }}>
-                      📦 Stock actual: <strong>{selectedProduct.stock_quantity}</strong> unidades
-                    </span>
-                  )}
-                  <span style={{ fontSize: '0.8125rem', color: '#a5b4fc' }}>
-                    Costo: <strong>${selectedProduct.cost_price?.toLocaleString() || '—'}</strong>
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Descripción */}
           <div>

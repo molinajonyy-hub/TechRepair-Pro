@@ -2,11 +2,9 @@ import { useParams, Link } from 'react-router-dom'
 import {
   ArrowLeft,
   Smartphone,
-  Package,
   FileText,
   History,
   Image,
-  Bell,
   AlertCircle,
   ArrowRight,
   Receipt,
@@ -238,12 +236,10 @@ export function OrderDetail() {
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '1px solid #374151' }}>
         {[
           { id: 'overview', label: 'General', icon: Smartphone },
-          { id: 'parts', label: 'Repuestos', icon: Package },
           { id: 'notes', label: 'Notas', icon: FileText },
           { id: 'documents', label: 'Documentos', icon: Image },
-          { id: 'notifications', label: 'Notificar', icon: Bell },
+          { id: 'comunicacion', label: 'Comunicación', icon: MessageCircle },
           { id: 'history', label: 'Historial', icon: History },
-          { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -329,9 +325,9 @@ export function OrderDetail() {
                     <FileCheck size={18} color="#6366f1" />
                     <h3 className="card-title">Comprobante</h3>
                   </div>
-                  <span 
-                    className="badge" 
-                    style={{ 
+                  <span
+                    className="badge"
+                    style={{
                       backgroundColor: comprobantes[0].estado === 'emitido' ? '#10b98120' : '#f59e0b20',
                       color: comprobantes[0].estado === 'emitido' ? '#10b981' : '#f59e0b'
                     }}
@@ -344,7 +340,7 @@ export function OrderDetail() {
                     <div>
                       <p style={{ fontSize: '0.875rem', color: '#64748b' }}>
                         Tipo: <span style={{ color: '#f8fafc', fontWeight: 500 }}>
-                          {comprobantes[0].tipo === 'factura_a' ? 'Factura A' : 
+                          {comprobantes[0].tipo === 'factura_a' ? 'Factura A' :
                            comprobantes[0].tipo === 'factura_c' ? 'Factura C' :
                            comprobantes[0].tipo === 'remito' ? 'Remito' : 'Nota de Crédito'}
                         </span>
@@ -358,7 +354,7 @@ export function OrderDetail() {
                         Total: <span style={{ color: '#f8fafc', fontWeight: 500 }}>${comprobantes[0].total.toFixed(2)}</span>
                       </p>
                     </div>
-                    <Link 
+                    <Link
                       to={`/comprobantes/${comprobantes[0].id}`}
                       className="btn btn-primary btn-sm"
                       style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
@@ -371,13 +367,12 @@ export function OrderDetail() {
               </div>
             )}
 
-          </>
-        )}
+            {/* Order Items */}
+            <div style={{ gridColumn: 'span 2' }}>
+              <OrderItemsCard orderId={order.id} onTotalsChange={refresh} />
+            </div>
 
-        {activeTab === 'parts' && (
-          <div style={{ gridColumn: 'span 2' }}>
-            <OrderItemsCard orderId={order.id} onTotalsChange={refresh} />
-          </div>
+          </>
         )}
 
         {activeTab === 'notes' && (
@@ -452,14 +447,15 @@ export function OrderDetail() {
           </div>
         )}
 
-        {activeTab === 'notifications' && (
-          <div style={{ gridColumn: 'span 2' }}>
-            <NotificationCard 
+        {activeTab === 'comunicacion' && (
+          <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <NotificationCard
               orderId={order.id}
               customerEmail={order.customer?.email || ''}
               customerName={order.customer?.name || ''}
               currentStatus={order.status}
             />
+            {id && <WhatsAppHistorial orderId={id} />}
           </div>
         )}
 
@@ -529,12 +525,6 @@ export function OrderDetail() {
           } : null}
           loading={loadingComprobantes}
         />
-
-        {activeTab === 'whatsapp' && id && (
-          <div style={{ gridColumn: 'span 2' }}>
-            <WhatsAppHistorial orderId={id} />
-          </div>
-        )}
 
         {activeTab === 'history' && (
           <div className="card" style={{ gridColumn: 'span 2' }}>
