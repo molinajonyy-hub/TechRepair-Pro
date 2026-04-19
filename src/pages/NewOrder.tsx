@@ -50,7 +50,7 @@ export function NewOrder() {
     serial: '',
     imei: '',
     issue: '',
-    priority: 'media',
+    priority: 'medium',
     technician_id: '',
     estimated_total: ''
   })
@@ -568,10 +568,10 @@ export function NewOrder() {
                     onChange={(e) => handleChange('priority', e.target.value)}
                     className="form-select"
                   >
-                    <option value="urgente">Urgente</option>
-                    <option value="alta">Alta</option>
-                    <option value="media">Media</option>
-                    <option value="baja">Baja</option>
+                    <option value="urgent">Urgente</option>
+                    <option value="high">Alta</option>
+                    <option value="medium">Media</option>
+                    <option value="low">Baja</option>
                   </select>
                 </div>
 
