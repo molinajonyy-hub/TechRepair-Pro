@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Search, Package, Wrench, AlertCircle, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
+import { X, Search, Package, Wrench, AlertCircle, Loader2, ChevronDown, ChevronUp, DollarSign } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { currencyService } from '../../services/currencyService'
 
 interface InventoryProduct {
   id: string
@@ -44,6 +45,12 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
   const [precioUnitario, setPrecioUnitario] = useState('')
   const [costoUnitario, setCostoUnitario] = useState('')
 
+  // Currency
+  const [baseCurrency, setBaseCurrency] = useState<'ARS' | 'USD'>('ARS')
+  const [exchangeRate, setExchangeRate] = useState(0)
+  const [exchangeRateInput, setExchangeRateInput] = useState('')
+  const [loadingRate, setLoadingRate] = useState(false)
+
   const searchRef = useRef<HTMLDivElement>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -58,6 +65,19 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
     resetForm()
   }, [tipo])
 
+  // Load exchange rate on first open
+  useEffect(() => {
+    if (isOpen && exchangeRate === 0) {
+      setLoadingRate(true)
+      currencyService.getCurrentExchangeRate('USD', 'ARS')
+        .then(rate => {
+          setExchangeRate(rate)
+          setExchangeRateInput(rate.toFixed(2))
+        })
+        .finally(() => setLoadingRate(false))
+    }
+  }, [isOpen])
+
   function resetForm() {
     setDescripcion('')
     setCantidad('1')
@@ -71,6 +91,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
     // restore saved preference (default OFF)
     try { setClientePagaRepuesto(localStorage.getItem(PREF_KEY) === 'true') } catch { setClientePagaRepuesto(false) }
     setShowInventorySearch(false)
+    setBaseCurrency('ARS')
   }
 
   function toggleClientePaga(val: boolean) {
@@ -139,6 +160,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
     setDescripcion(product.name)
     setPrecioUnitario(product.sale_price?.toString() || '')
     setCostoUnitario(product.cost_price?.toString() || '')
+    setBaseCurrency('ARS') // inventory prices are always in ARS
   }
 
   function clearProduct() {
@@ -157,9 +179,14 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
       setError('La descripción es obligatoria.')
       return
     }
-    const precio = parseFloat(precioUnitario) || 0
-    const costo = parseFloat(costoUnitario) || 0
+    const rawPrecio = parseFloat(precioUnitario) || 0
+    const rawCosto = parseFloat(costoUnitario) || 0
     const qty = parseInt(cantidad) || 1
+    const rate = parseFloat(exchangeRateInput) || exchangeRate || 1
+
+    // Convert to ARS if USD
+    const precio = baseCurrency === 'USD' ? Math.round(rawPrecio * rate * 100) / 100 : rawPrecio
+    const costo = baseCurrency === 'USD' ? Math.round(rawCosto * rate * 100) / 100 : rawCosto
 
     if (tipo === 'repuesto' && clientePagaRepuesto && precio <= 0) {
       setError('Ingresá el precio de venta del repuesto.')
@@ -185,8 +212,12 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
           .insert({
             business_id: businessId,
             name: descripcion.trim(),
-            sale_price: precio,
-            cost_price: costo || null,
+            sale_price: precio,              // siempre en ARS
+            cost_price: costo || null,       // siempre en ARS
+            base_currency: baseCurrency,
+            base_price: baseCurrency === 'USD' ? rawPrecio : precio,
+            exchange_rate_used: baseCurrency === 'USD' ? rate : null,
+            cost_price_usd: baseCurrency === 'USD' ? rawCosto : null,
             stock_quantity: isService ? 0 : qty,
             min_stock: 0,
             tipo: isService ? 'service' : 'product',
@@ -208,8 +239,8 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
           tipo,
           descripcion: descripcion.trim(),
           cantidad: qty,
-          precio_unitario: precio,
-          costo_unitario: costo,
+          precio_unitario: precio,   // ARS
+          costo_unitario: costo,     // ARS
           cliente_paga_repuesto: tipo === 'repuesto' ? clientePagaRepuesto : false,
         })
 
@@ -226,8 +257,13 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
 
   if (!isOpen) return null
 
-  const subtotal = (parseFloat(precioUnitario) || 0) * (parseInt(cantidad) || 1)
-  const margen = subtotal - ((parseFloat(costoUnitario) || 0) * (parseInt(cantidad) || 1))
+  const rate = parseFloat(exchangeRateInput) || exchangeRate || 1
+  const rawPrecio = parseFloat(precioUnitario) || 0
+  const rawCosto = parseFloat(costoUnitario) || 0
+  const precioARS = baseCurrency === 'USD' ? rawPrecio * rate : rawPrecio
+  const costoARS = baseCurrency === 'USD' ? rawCosto * rate : rawCosto
+  const subtotal = precioARS * (parseInt(cantidad) || 1)
+  const margen = subtotal - costoARS * (parseInt(cantidad) || 1)
 
   return (
     <div
@@ -475,6 +511,75 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
             />
           </div>
 
+          {/* Currency selector — only visible when no inventory product selected */}
+          {!selectedProduct && (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: baseCurrency === 'USD' ? '0.625rem' : 0 }}>
+                <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                  <DollarSign size={13} />
+                  Moneda de los precios
+                </label>
+                <div style={{
+                  display: 'flex', backgroundColor: '#1e293b',
+                  borderRadius: '0.375rem', padding: '0.125rem', gap: '0.125rem'
+                }}>
+                  {(['ARS', 'USD'] as const).map(cur => (
+                    <button
+                      key={cur}
+                      type="button"
+                      onClick={() => setBaseCurrency(cur)}
+                      style={{
+                        padding: '0.25rem 0.75rem',
+                        borderRadius: '0.25rem', border: 'none',
+                        backgroundColor: baseCurrency === cur ? (cur === 'USD' ? '#10b981' : '#6366f1') : 'transparent',
+                        color: baseCurrency === cur ? '#fff' : '#64748b',
+                        fontSize: '0.8125rem', fontWeight: 700,
+                        cursor: 'pointer', transition: 'all 0.15s'
+                      }}
+                    >
+                      {cur === 'ARS' ? '$ ARS' : 'USD $'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Exchange rate row when USD */}
+              {baseCurrency === 'USD' && (
+                <div style={{
+                  padding: '0.625rem 0.875rem',
+                  backgroundColor: 'rgba(16,185,129,0.07)',
+                  border: '1px solid rgba(16,185,129,0.2)',
+                  borderRadius: '0.5rem',
+                  display: 'flex', alignItems: 'center', gap: '0.75rem'
+                }}>
+                  <DollarSign size={14} color="#10b981" style={{ flexShrink: 0 }} />
+                  <span style={{ fontSize: '0.8125rem', color: '#10b981', fontWeight: 600, flexShrink: 0 }}>
+                    Cotización USD/ARS
+                  </span>
+                  {loadingRate ? (
+                    <Loader2 size={14} color="#10b981" style={{ animation: 'spin 1s linear infinite' }} />
+                  ) : (
+                    <input
+                      type="number"
+                      value={exchangeRateInput}
+                      onChange={e => setExchangeRateInput(e.target.value)}
+                      step="0.01"
+                      style={{
+                        flex: 1, minWidth: 0,
+                        padding: '0.25rem 0.5rem',
+                        backgroundColor: 'rgba(16,185,129,0.1)',
+                        border: '1px solid rgba(16,185,129,0.3)',
+                        borderRadius: '0.375rem',
+                        color: '#f8fafc', fontSize: '0.875rem', outline: 'none',
+                        textAlign: 'right'
+                      }}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Cantidad + Precio */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
             <div>
@@ -498,7 +603,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
             </div>
             <div>
               <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: '0.375rem' }}>
-                Precio unitario al cliente
+                Precio unitario {baseCurrency === 'USD' ? '(USD)' : '(ARS)'}
               </label>
               <input
                 type="number"
@@ -511,18 +616,23 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
                   width: '100%', boxSizing: 'border-box',
                   padding: '0.625rem 0.875rem',
                   backgroundColor: '#1e293b',
-                  border: '1px solid #334155',
+                  border: `1px solid ${baseCurrency === 'USD' ? 'rgba(16,185,129,0.4)' : '#334155'}`,
                   borderRadius: '0.5rem',
                   color: '#f8fafc', fontSize: '0.875rem', outline: 'none'
                 }}
               />
+              {baseCurrency === 'USD' && rawPrecio > 0 && rate > 0 && (
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.7rem', color: '#10b981' }}>
+                  = ${precioARS.toLocaleString('es-AR', { maximumFractionDigits: 0 })} ARS
+                </p>
+              )}
             </div>
           </div>
 
           {/* Costo interno */}
           <div>
             <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#94a3b8', display: 'block', marginBottom: '0.375rem' }}>
-              Costo interno (no visible al cliente)
+              Costo interno {baseCurrency === 'USD' ? '(USD)' : '(no visible al cliente)'}
             </label>
             <input
               type="number"
@@ -535,11 +645,16 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
                 width: '100%', boxSizing: 'border-box',
                 padding: '0.625rem 0.875rem',
                 backgroundColor: '#1e293b',
-                border: '1px solid #334155',
+                border: `1px solid ${baseCurrency === 'USD' ? 'rgba(16,185,129,0.4)' : '#334155'}`,
                 borderRadius: '0.5rem',
                 color: '#f8fafc', fontSize: '0.875rem', outline: 'none'
               }}
             />
+            {baseCurrency === 'USD' && rawCosto > 0 && rate > 0 && (
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.7rem', color: '#10b981' }}>
+                = ${costoARS.toLocaleString('es-AR', { maximumFractionDigits: 0 })} ARS
+              </p>
+            )}
           </div>
 
           {/* Cliente paga repuesto (solo para repuestos) */}
@@ -566,8 +681,8 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
             </label>
           )}
 
-          {/* Subtotal preview */}
-          {(parseFloat(precioUnitario) > 0 || parseFloat(costoUnitario) > 0) && (
+          {/* Subtotal preview (always in ARS) */}
+          {(precioARS > 0 || costoARS > 0) && (
             <div style={{
               padding: '0.875rem',
               backgroundColor: '#1e293b',
@@ -575,19 +690,19 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
               display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem'
             }}>
               <div style={{ textAlign: 'center' }}>
-                <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Subtotal cliente</p>
-                <p style={{ margin: 0, fontWeight: 700, color: '#f8fafc' }}>${subtotal.toLocaleString()}</p>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Subtotal (ARS)</p>
+                <p style={{ margin: 0, fontWeight: 700, color: '#f8fafc' }}>${subtotal.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</p>
               </div>
               <div style={{ textAlign: 'center' }}>
-                <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Costo total</p>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Costo (ARS)</p>
                 <p style={{ margin: 0, fontWeight: 700, color: '#f59e0b' }}>
-                  ${((parseFloat(costoUnitario) || 0) * (parseInt(cantidad) || 1)).toLocaleString()}
+                  ${(costoARS * (parseInt(cantidad) || 1)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                 </p>
               </div>
               <div style={{ textAlign: 'center' }}>
                 <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Margen</p>
                 <p style={{ margin: 0, fontWeight: 700, color: margen >= 0 ? '#10b981' : '#dc2626' }}>
-                  ${margen.toLocaleString()}
+                  ${margen.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                 </p>
               </div>
             </div>
