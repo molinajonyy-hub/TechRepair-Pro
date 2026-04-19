@@ -184,7 +184,7 @@ export function getPeriodDates(period: PeriodType, customFrom?: string, customTo
     case 'year':
       return { from: `${today.getFullYear()}-01-01`, to: fmt(today) }
     case 'custom':
-      return { from: customFrom ?? fmt(today), to: customTo ?? fmt(today) }
+      return { from: customFrom || fmt(today), to: customTo || fmt(today) }
   }
 }
 
