@@ -1,10 +1,28 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import '../css/landing.css'
 
 // ─────────────────────────────────────────────────────────────────────
 // Icons (inline SVG to avoid extra deps)
 // ─────────────────────────────────────────────────────────────────────
+
+// ── Cat logo SVG (design system) ──
+const CatLogoSVG = ({ size = 22 }: { size?: number }) => (
+  <svg viewBox="0 0 100 100" width={size} height={size} fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
+    <path d="M26 18 L20 43 L37 36 Z" fill="#6366f1" opacity="0.45"/>
+    <path d="M74 18 L80 43 L63 36 Z" fill="#6366f1" opacity="0.45"/>
+    <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.8"/>
+    <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.8"/>
+  </svg>
+)
+
+// ── WhatsApp SVG icon ──
+const WhatsAppSVG = ({ size = 26, color = '#25d366' }: { size?: number; color?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+  </svg>
+)
 
 const Icon = {
   Wrench:      () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>,
@@ -111,6 +129,7 @@ function MockDashboard() {
 
   return (
     <div className="lp-float" style={{
+
       width: '100%',
       maxWidth: '560px',
       background: '#0d0d12',
@@ -152,15 +171,24 @@ function MockDashboard() {
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          paddingTop: '0.75rem',
+          paddingTop: '0.625rem',
           gap: '0.25rem',
         }}>
+          {/* Cat logo at top */}
+          <div style={{
+            width: '28px', height: '28px', borderRadius: '7px',
+            background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            marginBottom: '0.25rem', flexShrink: 0,
+          }}>
+            <CatLogoSVG size={18} />
+          </div>
           {sideIcons.map((icon, i) => (
             <div key={i} style={{
-              width: '30px', height: '30px',
-              borderRadius: '0.5rem',
+              width: '28px', height: '28px',
+              borderRadius: '0.4rem',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '14px',
+              fontSize: '12px',
               background: i === 0 ? 'rgba(99,102,241,0.2)' : 'transparent',
               cursor: 'default',
             }}>{icon}</div>
@@ -292,7 +320,7 @@ function Header({ onNav }: { onNav: (id: string) => void }) {
       <div className="lp-header-inner">
         {/* Logo */}
         <a href="#hero" className="lp-logo" onClick={e => { e.preventDefault(); onNav('hero') }}>
-          <div className="lp-logo-icon">🔧</div>
+          <div className="lp-logo-icon"><CatLogoSVG size={22} /></div>
           <span className="lp-logo-text">TechRepair<span>Pro</span></span>
         </a>
 
@@ -509,6 +537,63 @@ function Hero({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// WhatsApp Feature Banner (shown right after Hero)
+// ─────────────────────────────────────────────────────────────────────
+
+function WhatsAppBanner() {
+  return (
+    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 2rem 5rem' }}>
+      <div style={{
+        background: 'rgba(37,211,102,0.06)',
+        border: '1px solid rgba(37,211,102,0.16)',
+        borderRadius: '1.25rem',
+        padding: '1.5rem 2rem',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '1.5rem',
+      }}>
+        {/* WhatsApp icon box */}
+        <div style={{
+          width: '52px', height: '52px',
+          borderRadius: '0.875rem',
+          background: 'rgba(37,211,102,0.12)',
+          border: '1px solid rgba(37,211,102,0.25)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0,
+        }}>
+          <WhatsAppSVG size={26} color="#25d366" />
+        </div>
+
+        {/* Text */}
+        <div style={{ flex: 1 }}>
+          <div style={{ color: '#4ade80', fontWeight: 700, fontSize: '0.9375rem', marginBottom: '0.2rem' }}>
+            WhatsApp — Integración activa
+          </div>
+          <div style={{ color: '#475569', fontSize: '0.8125rem', lineHeight: 1.55 }}>
+            Mensajes automáticos al cliente al cambiar el estado de la orden. El ícono ahora muestra el logo real de WhatsApp en todo el sistema.
+          </div>
+        </div>
+
+        {/* Badge */}
+        <div style={{
+          padding: '0.25rem 0.75rem',
+          background: 'rgba(34,197,94,0.1)',
+          border: '1px solid rgba(34,197,94,0.25)',
+          borderRadius: '999px',
+          color: '#22c55e',
+          fontSize: '0.72rem',
+          fontWeight: 700,
+          flexShrink: 0,
+          whiteSpace: 'nowrap',
+        }}>
+          Activo
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // For Technicians
 // ─────────────────────────────────────────────────────────────────────
 
@@ -673,7 +758,7 @@ function Features() {
 
 function Integrations() {
   const active = [
-    { icon: '💬', name: 'WhatsApp', desc: 'Mensajes automáticos al cliente al cambiar el estado de la orden', color: '#25d366' },
+    { icon: null, name: 'WhatsApp', desc: 'Mensajes automáticos al cliente al cambiar el estado de la orden', color: '#25d366', isWhatsApp: true },
     { icon: '🧾', name: 'Facturación AFIP', desc: 'Emisión de comprobantes electrónicos (A, B, C) con CAE real', color: '#4299e1' },
     { icon: '💳', name: 'Mercado Pago', desc: 'Registro de pagos y link de pago directo al cliente', color: '#009ee3' },
     { icon: '📊', name: 'Exportar a Excel', desc: 'Exportación de órdenes, clientes, stock e informes', color: '#217346' },
@@ -718,7 +803,11 @@ function Integrations() {
                   border: `1px solid ${int.color}30`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: '1.375rem', flexShrink: 0,
-                }}>{int.icon}</div>
+                }}>
+                  {(int as any).isWhatsApp
+                    ? <WhatsAppSVG size={26} color="#25d366" />
+                    : int.icon}
+                </div>
                 <div>
                   <div style={{ color: '#e2e8f0', fontWeight: 700, fontSize: '0.9375rem', marginBottom: '0.2rem' }}>{int.name}</div>
                   <div style={{ color: '#475569', fontSize: '0.8rem', lineHeight: 1.5 }}>{int.desc}</div>
@@ -1070,7 +1159,7 @@ function Footer() {
           {/* Brand */}
           <div>
             <div className="lp-logo" style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-              <div className="lp-logo-icon">🔧</div>
+              <div className="lp-logo-icon"><CatLogoSVG size={22} /></div>
               <span className="lp-logo-text">TechRepair<span className="lp-gradient-text">Pro</span></span>
             </div>
             <p style={{ color: '#334155', fontSize: '0.8125rem', lineHeight: 1.7, marginBottom: '1.25rem', maxWidth: '280px' }}>
@@ -1178,6 +1267,7 @@ export function LandingPage() {
       <Header onNav={scrollTo} />
       <main>
         <Hero navigate={navigate} />
+        <WhatsAppBanner />
         <hr className="lp-divider" />
         <ForTechnicians />
         <hr className="lp-divider" />
