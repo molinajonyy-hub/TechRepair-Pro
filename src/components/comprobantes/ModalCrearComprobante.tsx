@@ -199,20 +199,19 @@ export function ModalCrearComprobante({
   };
 
   const selectInventoryItem = (itemIndex: number, inv: InventoryResult) => {
+    // Siempre usar el precio de venta en ARS como precio por defecto en comprobantes
     const salePrice = Number(inv.sale_price) || 0;
-    // base_price es el precio en USD cuando base_currency='USD'
+    // Guardar también el precio en USD por si el usuario quiere toglear
     const priceUsd = inv.base_currency === 'USD' && inv.base_price != null && Number(inv.base_price) > 0
       ? Number(inv.base_price)
       : null;
-    // Moneda por defecto: USD si el producto es en USD y tiene base_price, ARS si no
-    const defaultCurrency: 'ARS' | 'USD' = priceUsd != null ? 'USD' : 'ARS';
-    const defaultPrice = defaultCurrency === 'USD' ? priceUsd! : salePrice;
+
     const newItems = [...items];
     newItems[itemIndex] = {
       ...newItems[itemIndex],
       descripcion: `${inv.name} (${inv.code})`,
-      precio_unitario: defaultPrice,
-      currency: defaultCurrency,
+      precio_unitario: salePrice,  // siempre ARS
+      currency: 'ARS',             // siempre ARS por defecto
       inventory_id: inv.id,
       inv_sale_price: salePrice,
       inv_price_usd: priceUsd,
@@ -393,7 +392,7 @@ export function ModalCrearComprobante({
         borderRadius: '1rem',
         border: '1px solid rgba(255,255,255,0.08)',
         width: '100%',
-        maxWidth: '672px',
+        maxWidth: '860px',
         maxHeight: '90vh',
         overflowY: 'auto',
         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
@@ -810,12 +809,14 @@ export function ModalCrearComprobante({
                           position: 'absolute',
                           top: 'calc(100% + 4px)',
                           left: 0,
-                          right: 0,
+                          minWidth: '100%',
+                          width: 'max-content',
+                          maxWidth: '600px',
                           backgroundColor: '#0b1120',
                           border: '1px solid rgba(99, 102, 241, 0.3)',
                           borderRadius: '0.75rem',
                           zIndex: 100,
-                          maxHeight: '240px',
+                          maxHeight: '280px',
                           overflowY: 'auto',
                           boxShadow: '0 20px 40px rgba(0,0,0,0.5)'
                         }}>
@@ -865,8 +866,6 @@ export function ModalCrearComprobante({
                                     fontWeight: 500,
                                     color: '#e2e8f0',
                                     whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis'
                                   }}>
                                     {inv.name}
                                   </div>
