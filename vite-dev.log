@@ -1,0 +1,53 @@
+
+> techrepair-pro@3.0.0 dev
+> vite --host 127.0.0.1 --port 4173
+
+Port 4173 is in use, trying another one...
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m380[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m4174[22m/[39m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+[2m06:56:37[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/contexts/AuthContext.tsx[22m
+[2m06:56:37[22m [36m[1m[vite][22m[39m [33mhmr invalidate [39m[2m/src/contexts/AuthContext.tsx[22m Could not Fast Refresh ("useAuth" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+[2m06:56:37[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/contexts/AuthContext.tsx[22m
+[2m06:56:54[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/contexts/AuthContext.tsx[22m
+[2m06:56:54[22m [36m[1m[vite][22m[39m [33mhmr invalidate [39m[2m/src/contexts/AuthContext.tsx[22m Could not Fast Refresh ("useAuth" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+[2m06:56:54[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/contexts/AuthContext.tsx[22m
+[2m06:57:10[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/NoBusiness.tsx[22m
+[2m06:57:51[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/NoBusiness.tsx[22m
+[2m07:17:10[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/contexts/AuthContext.tsx[22m
+[2m07:17:42[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/auth/ProtectedRoute.tsx[22m
+[2m07:17:42[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/contexts/AuthContext.tsx[22m
+[2m07:17:42[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/NoBusiness.tsx[22m
+[2m07:19:34[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/contexts/AuthContext.tsx[22m
+[2m07:19:34[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Login.tsx[22m
+[2m07:19:34[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/contexts/AuthContext.tsx, /src/pages/NoBusiness.tsx, /src/pages/NewOrder.tsx, /src/pages/OrderDetail.tsx, /src/pages/Dashboard.tsx, /src/pages/Orders.tsx, /src/components/order/DocumentUploader.tsx, /src/pages/NewCustomer.tsx, /src/pages/Suppliers.tsx, /src/pages/AcceptInvite.tsx, /src/pages/UsersManagement.tsx, /src/pages/Inventory.tsx, /src/components/order/DeviceInspectionCard.tsx, /src/components/order/ChecklistCard.tsx, /src/components/order/StatusChange.tsx, /src/components/order/OrderCostManagement.tsx, /src/components/layout/NotificationsDropdown.tsx, /src/pages/Comprobante.tsx[22m
+[2m07:47:09[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/NoBusiness.tsx[22m
+[2m07:48:05[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Login.tsx[22m
+[2m07:48:05[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/layouts/MainLayout.tsx[22m
+[2m07:56:32[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/AcceptInvite.tsx, /src/pages/UsersManagement.tsx[22m
+[2m07:58:58[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/UsersManagement.tsx[22m
+[2m07:59:47[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/UsersManagement.tsx[22m
+[2m08:16:17[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Suppliers.tsx[22m
+[2m08:16:34[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Suppliers.tsx[22m
+[2m08:16:45[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Suppliers.tsx[22m
+[2m08:17:35[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Suppliers.tsx[22m
+[2m08:19:36[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Suppliers.tsx[22m
+[2m08:19:53[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Suppliers.tsx[22m
+[2m08:22:13[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Suppliers.tsx[22m
+[2m08:22:52[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Suppliers.tsx[22m
+[2m08:23:15[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Suppliers.tsx[22m
+[2m08:23:38[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Suppliers.tsx[22m
+[2m08:34:24[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m08:34:32[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m08:35:11[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Inventory.tsx[22m
+[2m08:35:33[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Inventory.tsx[22m
+[2m08:35:54[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Inventory.tsx[22m
+[2m08:36:07[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Inventory.tsx[22m
+[2m08:36:50[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/layout/Sidebar.tsx[22m
+[2m08:42:11[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Inventory.tsx[22m
+[2m08:49:34[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Dashboard.tsx[22m
+[2m08:49:56[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Dashboard.tsx[22m
+[2m08:50:30[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Dashboard.tsx[22m
+[2m08:51:24[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Dashboard.tsx[22m

@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "mcp__8d3d4cea-7030-4d3f-aebc-5a104f087145__list_projects",
+      "mcp__8d3d4cea-7030-4d3f-aebc-5a104f087145__list_tables",
+      "mcp__8d3d4cea-7030-4d3f-aebc-5a104f087145__execute_sql",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npx tsc:*)",
+      "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); tables=[t for t in data[0]['text'] if True]; text=data[0]['text']; idx=text.find\\('comprobantes'\\); print\\(text[idx:idx+3000]\\)\")",
+      "Bash(cd /tmp)",
+      "Bash(python3)",
+      "Bash(python3 -c \"import pandas as pd; df = pd.read_excel\\('C:\\\\\\\\Users\\\\\\\\molin\\\\\\\\Downloads\\\\\\\\clientes_GENERADO_2026-04-15_09-44-34.xlsx'\\); print\\('Rows:', len\\(df\\)\\); print\\('Columns:', list\\(df.columns\\)\\); print\\('\\\\\\\\nData types:'\\); print\\(df.dtypes\\); print\\('\\\\\\\\nFirst 3 rows:'\\); print\\(df.head\\(3\\)\\)\")",
+      "Bash(python -c ':*)",
+      "Bash(grep -rn \"document\\\\|city\\\\|active\" \"C:\\\\Users\\\\molin\\\\CascadeProjects\\\\techrepair-vite\\\\supabase\\\\\" --include=\"*.sql\" 2>/dev/null | head -30)",
+      "mcp__8d3d4cea-7030-4d3f-aebc-5a104f087145__apply_migration",
+      "Bash(findstr /v \"^$\")",
+      "Bash(powershell.exe -Command \"Set-Location 'C:\\\\Users\\\\molin\\\\CascadeProjects\\\\techrepair-vite'; npm run dev\")"
+    ]
+  }
+}

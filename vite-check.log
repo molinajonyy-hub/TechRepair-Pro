@@ -1,0 +1,26 @@
+
+> techrepair-pro@3.0.0 dev
+> vite --host 127.0.0.1 --port 4175
+
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m323[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m4175[22m/[39m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+[2m08:01:54[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/index.css[22m
+[2m08:10:04[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/contexts/AuthContext.tsx, /src/pages/Expenses.tsx, /src/pages/Customers.tsx, /src/pages/Finance.tsx, /src/pages/NoBusiness.tsx, /src/pages/OrderDetail.tsx, /src/pages/Reports.tsx, /src/pages/Settings.tsx, /src/pages/Inventory.tsx, /src/pages/Suppliers.tsx, /src/pages/Dashboard.tsx, /src/pages/Orders.tsx, /src/pages/Comprobantes.tsx, /src/pages/AcceptInvite.tsx, /src/pages/UsersManagement.tsx, /src/components/order/DocumentUploader.tsx, /src/pages/CurrencySettings.tsx, /src/components/order/ChecklistCard.tsx, /src/components/order/StatusChange.tsx, /src/pages/CustomerDetail.tsx, /src/pages/NewOrder.tsx, /src/pages/NewCustomer.tsx, /src/components/order/DeviceInspectionCard.tsx, /src/components/order/OrderCostManagement.tsx, /src/pages/Comprobante.tsx, /src/components/layout/NotificationsDropdown.tsx[22m
+[2m08:10:04[22m [36m[1m[vite][22m[39m [33mhmr invalidate [39m[2m/src/contexts/AuthContext.tsx[22m Could not Fast Refresh ("useAuth" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+[2m08:10:04[22m [36m[1m[vite][22m[39m [32mpage reload [39m[2msrc/contexts/AuthContext.tsx[22m
+[2m08:10:38[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/CustomerDetail.tsx, /src/pages/Customers.tsx, /src/pages/NewOrder.tsx, /src/pages/NewCustomer.tsx[22m
+[2m08:12:15[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/CustomerDetail.tsx, /src/pages/Customers.tsx, /src/pages/NewOrder.tsx, /src/pages/NewCustomer.tsx[22m
+[2m08:12:31[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/CustomerDetail.tsx, /src/pages/Customers.tsx, /src/pages/NewOrder.tsx, /src/pages/NewCustomer.tsx[22m
+[2m08:12:44[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/CustomerDetail.tsx, /src/pages/Customers.tsx, /src/pages/NewOrder.tsx, /src/pages/NewCustomer.tsx[22m
+[2m08:27:36[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Settings.tsx[22m
+[2m08:28:20[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Settings.tsx[22m
+[2m08:29:24[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Settings.tsx[22m
+[2m08:30:02[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Orders.tsx[22m
+[2m08:30:20[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Orders.tsx[22m
+[2m08:30:58[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Orders.tsx[22m
+[2m08:31:07[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Orders.tsx[22m
+[2m08:39:29[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Settings.tsx[22m
+[2m08:39:53[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/Settings.tsx[22m
