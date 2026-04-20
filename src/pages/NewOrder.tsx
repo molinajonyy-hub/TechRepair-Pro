@@ -178,9 +178,9 @@ export function NewOrder() {
     }
   }
 
-  const handleCreateBrand = async (name: string) => {
+  const handleCreateBrand = async (name: string): Promise<string> => {
     const trimmed = name.trim()
-    if (!trimmed) return
+    if (!trimmed) return trimmed
 
     try {
       // Buscar en DB (case-insensitive) antes de crear
@@ -190,31 +190,31 @@ export function NewOrder() {
       )
 
       if (existing) {
-        // Ya existe — solo seleccionarla, no crear duplicado
+        // Ya existe — seleccionarla y devolver el nombre correcto
         setBrands(prev =>
           prev.some(b => b.toLowerCase() === existing.name.toLowerCase())
             ? prev
             : [...prev, existing.name]
         )
         setSelectedBrandId(existing.id)
-        handleChange('brand', existing.name)
-        return
+        return existing.name  // nombre con capitalización original
       }
 
       // No existe — crear nueva
       const brand = await brandsService.create(trimmed)
       setBrands(prev => [...prev, trimmed])
       setSelectedBrandId(brand.id)
+      return trimmed
     } catch (err) {
       console.error('Error creating brand:', err)
       throw err
     }
   }
 
-  const handleCreateModel = async (name: string) => {
+  const handleCreateModel = async (name: string): Promise<string> => {
     if (!selectedBrandId) throw new Error('Seleccioná una marca primero')
     const trimmed = name.trim()
-    if (!trimmed) return
+    if (!trimmed) return trimmed
 
     try {
       // Buscar en DB (case-insensitive) antes de crear
@@ -224,19 +224,19 @@ export function NewOrder() {
       )
 
       if (existing) {
-        // Ya existe — solo agregarlo al estado local si falta
+        // Ya existe — agregarlo al estado local si falta y devolver nombre correcto
         setModels(prev =>
           prev.some(m => m.toLowerCase() === existing.name.toLowerCase())
             ? prev
             : [...prev, existing.name]
         )
-        handleChange('model', existing.name)
-        return
+        return existing.name
       }
 
       // No existe — crear nuevo
       await deviceModelsService.create(trimmed, selectedBrandId)
       setModels(prev => [...prev, trimmed])
+      return trimmed
     } catch (err) {
       console.error('Error creating model:', err)
       throw err

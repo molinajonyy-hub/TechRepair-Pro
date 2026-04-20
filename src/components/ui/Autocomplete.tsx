@@ -9,7 +9,8 @@ interface AutocompleteProps {
   label?: string
   required?: boolean
   allowCreate?: boolean
-  onCreate?: (value: string) => Promise<void>
+  /** Si retorna un string, ese string se usa como valor final (útil para corregir capitalización) */
+  onCreate?: (value: string) => Promise<string | void>
   isLoading?: boolean
   disabled?: boolean
 }
@@ -62,13 +63,13 @@ export function Autocomplete({
 
   const handleCreate = async () => {
     if (!searchTerm.trim()) return
-    
+
     setIsCreating(true)
     try {
-      if (onCreate) {
-        await onCreate(searchTerm.trim())
-      }
-      onChange(searchTerm.trim())
+      // onCreate puede devolver el nombre corregido (ej. capitalización correcta)
+      const result = onCreate ? await onCreate(searchTerm.trim()) : undefined
+      const finalValue = typeof result === 'string' ? result : searchTerm.trim()
+      onChange(finalValue)
       setSearchTerm('')
       setIsOpen(false)
     } catch (error) {
