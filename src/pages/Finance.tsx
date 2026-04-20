@@ -923,6 +923,34 @@ function InventoryMetrics({ data, loading }: { data: InvAnalytics | null; loadin
         </div>
       </div>
 
+      {/* ── Alerta: productos sin costo ── */}
+      {(() => {
+        const sinCosto = data.products.filter(p => p.stock > 0 && p.costPrice === 0)
+        if (sinCosto.length === 0) return null
+        return (
+          <div style={{
+            display: 'flex', gap: '0.875rem', alignItems: 'flex-start',
+            padding: '0.875rem 1.1rem', marginBottom: '1.25rem',
+            backgroundColor: 'rgba(245,158,11,0.07)',
+            border: '1px solid rgba(245,158,11,0.3)',
+            borderRadius: '0.625rem',
+          }}>
+            <AlertCircle size={16} style={{ color: '#f59e0b', flexShrink: 0, marginTop: '0.1rem' }} />
+            <div>
+              <p style={{ margin: 0, fontWeight: 700, color: '#f59e0b', fontSize: '0.85rem' }}>
+                {sinCosto.length} producto{sinCosto.length > 1 ? 's' : ''} con stock sin precio de costo
+              </p>
+              <p style={{ margin: '0.2rem 0 0', color: '#94a3b8', fontSize: '0.8rem', lineHeight: 1.5 }}>
+                El capital invertido puede estar subestimado. Editá cada producto en Inventario y completá el precio de costo.
+              </p>
+              <p style={{ margin: '0.35rem 0 0', color: '#64748b', fontSize: '0.75rem' }}>
+                {sinCosto.slice(0, 5).map(p => p.name).join(', ')}{sinCosto.length > 5 ? ` y ${sinCosto.length - 5} más` : ''}
+              </p>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* ── Hero KPI Cards ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(248px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
 

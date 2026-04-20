@@ -2390,7 +2390,9 @@ export function Inventory() {
                           {/* Fila 1b: Costos independientes */}
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
                             <div>
-                              <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>Costo (ARS)</label>
+                              <label style={{ display: 'block', fontSize: '0.75rem', color: variant.cost_price === 0 ? '#f59e0b' : '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>
+                                Costo (ARS) {variant.cost_price === 0 && '⚠'}
+                              </label>
                               <input
                                 type="number"
                                 step="0.01"
@@ -2400,8 +2402,8 @@ export function Inventory() {
                                 style={{
                                   width: '100%',
                                   padding: '0.5rem',
-                                  backgroundColor: 'rgba(15,23,42,0.8)',
-                                  border: '1px solid rgba(51,65,85,0.6)',
+                                  backgroundColor: variant.cost_price === 0 ? 'rgba(245,158,11,0.08)' : 'rgba(15,23,42,0.8)',
+                                  border: `1px solid ${variant.cost_price === 0 ? 'rgba(245,158,11,0.6)' : 'rgba(51,65,85,0.6)'}`,
                                   borderRadius: '0.375rem',
                                   color: '#f1f5f9',
                                   outline: 'none',
@@ -2410,6 +2412,11 @@ export function Inventory() {
                                 }}
                                 placeholder="0.00"
                               />
+                              {variant.cost_price === 0 && (
+                                <p style={{ margin: '0.25rem 0 0', fontSize: '0.7rem', color: '#f59e0b' }}>
+                                  Sin costo — no aportará al capital invertido
+                                </p>
+                              )}
                             </div>
                             <div>
                               <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>Costo (USD)</label>
