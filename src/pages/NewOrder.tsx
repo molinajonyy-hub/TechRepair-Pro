@@ -180,14 +180,31 @@ export function NewOrder() {
 
   const handleCreateBrand = async (name: string) => {
     const trimmed = name.trim()
+    if (!trimmed) return
+
     try {
-      // getOrCreate evita duplicados a nivel DB (usa RPC get_or_create_brand)
-      const brandId = await brandsService.getOrCreate(trimmed)
-      // Agregar al estado local solo si no existe (case-insensitive)
-      setBrands(prev =>
-        prev.some(b => b.toLowerCase() === trimmed.toLowerCase()) ? prev : [...prev, trimmed]
+      // Buscar en DB (case-insensitive) antes de crear
+      const allBrands = await brandsService.getAll()
+      const existing = allBrands.find(
+        (b: any) => b.name.toLowerCase() === trimmed.toLowerCase()
       )
-      setSelectedBrandId(typeof brandId === 'string' ? brandId : (brandId as any)?.id ?? createLocalBrandId(trimmed))
+
+      if (existing) {
+        // Ya existe — solo seleccionarla, no crear duplicado
+        setBrands(prev =>
+          prev.some(b => b.toLowerCase() === existing.name.toLowerCase())
+            ? prev
+            : [...prev, existing.name]
+        )
+        setSelectedBrandId(existing.id)
+        handleChange('brand', existing.name)
+        return
+      }
+
+      // No existe — crear nueva
+      const brand = await brandsService.create(trimmed)
+      setBrands(prev => [...prev, trimmed])
+      setSelectedBrandId(brand.id)
     } catch (err) {
       console.error('Error creating brand:', err)
       throw err
@@ -195,17 +212,31 @@ export function NewOrder() {
   }
 
   const handleCreateModel = async (name: string) => {
-    if (!selectedBrandId) {
-      throw new Error('Seleccioná una marca primero')
-    }
+    if (!selectedBrandId) throw new Error('Seleccioná una marca primero')
     const trimmed = name.trim()
+    if (!trimmed) return
+
     try {
-      // getOrCreate evita duplicados a nivel DB (usa RPC get_or_create_model)
-      await deviceModelsService.getOrCreate(trimmed, selectedBrandId)
-      // Agregar al estado local solo si no existe (case-insensitive)
-      setModels(prev =>
-        prev.some(m => m.toLowerCase() === trimmed.toLowerCase()) ? prev : [...prev, trimmed]
+      // Buscar en DB (case-insensitive) antes de crear
+      const allModels = await deviceModelsService.getAll(selectedBrandId)
+      const existing = (allModels as any[]).find(
+        (m: any) => m.name.toLowerCase() === trimmed.toLowerCase()
       )
+
+      if (existing) {
+        // Ya existe — solo agregarlo al estado local si falta
+        setModels(prev =>
+          prev.some(m => m.toLowerCase() === existing.name.toLowerCase())
+            ? prev
+            : [...prev, existing.name]
+        )
+        handleChange('model', existing.name)
+        return
+      }
+
+      // No existe — crear nuevo
+      await deviceModelsService.create(trimmed, selectedBrandId)
+      setModels(prev => [...prev, trimmed])
     } catch (err) {
       console.error('Error creating model:', err)
       throw err
