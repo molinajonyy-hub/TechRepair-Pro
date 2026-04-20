@@ -48,6 +48,16 @@ interface ModalCrearComprobanteProps {
   puntoVentaInicial?: string;
   /** Condición fiscal pre-cargada */
   condicionFiscalInicial?: string;
+  /** Items iniciales pre-cargados (p. ej. desde una orden) */
+  initialItems?: {
+    descripcion: string;
+    cantidad: number;
+    precio_unitario: number;
+    currency?: 'ARS' | 'USD';
+    inventory_id?: string;
+  }[];
+  /** Cliente pre-seleccionado */
+  initialClienteId?: string;
 }
 
 const tiposConfig: Record<TipoComprobante, { 
@@ -113,6 +123,8 @@ export function ModalCrearComprobante({
   tipoInicial,
   puntoVentaInicial,
   condicionFiscalInicial,
+  initialItems,
+  initialClienteId,
 }: ModalCrearComprobanteProps) {
   const { businessId } = useAuth();
   // Si se abre con un tipo ya seleccionado, saltar al paso 2 directamente
@@ -133,8 +145,20 @@ export function ModalCrearComprobante({
       }
       if (puntoVentaInicial) setPuntoVenta(puntoVentaInicial);
       if (condicionFiscalInicial) setCondicionFiscal(condicionFiscalInicial);
+      if (initialItems && initialItems.length > 0) {
+        setItems(initialItems.map(i => ({
+          descripcion: i.descripcion,
+          cantidad: i.cantidad,
+          precio_unitario: i.precio_unitario,
+          currency: (i.currency ?? 'ARS') as 'ARS' | 'USD',
+          inventory_id: i.inventory_id,
+        })));
+      } else {
+        setItems([{ descripcion: '', cantidad: 1, precio_unitario: 0, currency: 'ARS' }]);
+      }
+      if (initialClienteId) setClienteId(initialClienteId);
     }
-  }, [isOpen, tipoInicial, puntoVentaInicial, condicionFiscalInicial]);
+  }, [isOpen, tipoInicial, puntoVentaInicial, condicionFiscalInicial, initialItems, initialClienteId]);
   const [clienteId, setClienteId] = useState('');
   const [clientes, setClientes] = useState<ClienteOption[]>([]);
   const [loadingClientes, setLoadingClientes] = useState(false);

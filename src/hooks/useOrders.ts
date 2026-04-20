@@ -6,6 +6,7 @@ export interface OrderListItem {
   status: string
   priority: string
   estimated_total: number
+  labor_cost: number
   created_at: string
   customer: {
     id: string
@@ -18,6 +19,12 @@ export interface OrderListItem {
     model: string
     type: string
   } | null
+  order_items?: {
+    tipo: string
+    precio_unitario: number
+    cantidad: number
+    cliente_paga_repuesto: boolean
+  }[]
 }
 
 export function useOrders() {
@@ -33,9 +40,10 @@ export function useOrders() {
       const { data, error: ordersError } = await supabase
         .from('orders')
         .select(`
-          id, status, priority, estimated_total, created_at,
+          id, status, priority, estimated_total, labor_cost, created_at,
           customer:customers(id, name, phone),
-          device:devices(id, brand, model, type)
+          device:devices(id, brand, model, type),
+          order_items(tipo, precio_unitario, cantidad, cliente_paga_repuesto)
         `)
         .order('created_at', { ascending: false })
         .limit(50)

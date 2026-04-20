@@ -26,6 +26,7 @@ import { useOrderSimple } from '../hooks/useOrderSimple'
 import { useComprobantes } from '../hooks/useComprobantes'
 import { Loader } from '../components/ui/Loader'
 import { ModalGenerarComprobante } from '../components/comprobantes/ModalGenerarComprobante'
+import { ModalCrearComprobante } from '../components/comprobantes/ModalCrearComprobante'
 import { OrderPrintPreviewModal } from '../components/print/OrderPrintPreviewModal'
 import { STATUS_CONFIG } from '../types/orderStatus'
 import { DeviceLockCard } from '../components/order/DeviceLockCard'
@@ -45,6 +46,7 @@ export function OrderDetail() {
   const [activeTab, setActiveTab] = useState('overview')
   const [documents, setDocuments] = useState<Document[]>([])
   const [showModalComprobante, setShowModalComprobante] = useState(false)
+  const [showModalCrearComprobante, setShowModalCrearComprobante] = useState(false)
   const [showPrintModal, setShowPrintModal] = useState(false)
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false)
   const [notesText, setNotesText] = useState('')
@@ -175,7 +177,7 @@ export function OrderDetail() {
             {/* Botón Generar Comprobante */}
             {comprobantes.length === 0 && (
               <button
-                onClick={() => setShowModalComprobante(true)}
+                onClick={() => setShowModalCrearComprobante(true)}
                 className="btn btn-primary btn-sm"
               >
                 <Receipt size={15} />
@@ -540,6 +542,42 @@ export function OrderDetail() {
           } : null}
           loading={loadingComprobantes}
         />
+
+        {/* Modal Crear Comprobante (editor completo, pre-cargado con el servicio) */}
+        {order && (
+          <ModalCrearComprobante
+            isOpen={showModalCrearComprobante}
+            onClose={() => setShowModalCrearComprobante(false)}
+            loading={loadingComprobantes}
+            initialClienteId={order.customer_id || order.customer?.id || ''}
+            initialItems={[{
+              descripcion: `Servicio - ${order.device?.brand ?? ''} ${order.device?.model ?? ''}`.trim(),
+              cantidad: 1,
+              precio_unitario: order.labor_cost || order.estimated_total || 0,
+              currency: 'ARS',
+            }]}
+            onCrear={async (data) => {
+              if (!id) return;
+              const success = await crearComprobante({
+                order_id: id,
+                customer_id: data.clienteId || order.customer_id || order.customer?.id || '',
+                tipo: data.tipo,
+                punto_venta: data.puntoVenta,
+                condicion_fiscal: data.condicionFiscal,
+                items: data.items.map(item => ({
+                  descripcion: item.descripcion,
+                  cantidad: item.cantidad,
+                  precio_unitario: item.precio_unitario,
+                  inventory_id: item.inventory_id,
+                })),
+              });
+              if (success) {
+                setShowModalCrearComprobante(false);
+                await refresh();
+              }
+            }}
+          />
+        )}
 
         {activeTab === 'history' && (
           <div className="card" style={{ gridColumn: 'span 2' }}>

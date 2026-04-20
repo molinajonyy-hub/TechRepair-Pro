@@ -56,6 +56,9 @@ const getVariantParentId = (item: any) => {
 
 const isVariantItem = (item: any) => Boolean(getVariantParentId(item))
 
+// Round ARS price upward to nearest 500
+const roundUpTo500 = (value: number): number => Math.ceil(value / 500) * 500
+
 export function Inventory() {
   const {
     items,
@@ -470,12 +473,12 @@ export function Inventory() {
       if (isUsd) {
         if (field === 'base_price') {
           const rate = variant.exchange_rate_used || exchangeRates['USD-ARS'] || 1
-          updates.sale_price = Math.round(Number(value) * rate)
+          updates.sale_price = roundUpTo500(Number(value) * rate)
         }
         if (field === 'exchange_rate_used') {
           const basePx = variant.base_price || 0
           if (basePx > 0) {
-            updates.sale_price = Math.round(basePx * Number(value))
+            updates.sale_price = roundUpTo500(basePx * Number(value))
           }
         }
         if (field === 'base_currency') {
@@ -880,7 +883,7 @@ export function Inventory() {
           currentRate > 1
         ) {
           recalcPrices = {
-            sale_price: Math.round(Number(rest.base_price) * currentRate),
+            sale_price: roundUpTo500(Number(rest.base_price) * currentRate),
             exchange_rate_used: currentRate,
           }
         }

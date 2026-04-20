@@ -326,7 +326,20 @@ export function Orders() {
                         {PRIORITY_LABELS[order.priority] || 'Baja'}
                       </span>
                     </td>
-                    <td style={{ padding: '1rem', textAlign: 'right', fontWeight: 600, color: '#ffffff' }}>${order.estimated_total || 0}</td>
+                    <td style={{ padding: '1rem', textAlign: 'right', fontWeight: 600, color: '#ffffff' }}>
+                      {(() => {
+                        // Show service-only total from order_items if available
+                        if (order.order_items && order.order_items.length > 0) {
+                          const serviceTotal = order.order_items
+                            .filter(i => i.tipo === 'servicio')
+                            .reduce((s, i) => s + i.precio_unitario * i.cantidad, 0)
+                          if (serviceTotal > 0) return `$${serviceTotal.toLocaleString('es-AR')}`
+                        }
+                        // Fallback to labor_cost then estimated_total
+                        const total = order.labor_cost || order.estimated_total || 0
+                        return `$${total.toLocaleString('es-AR')}`
+                      })()}
+                    </td>
                     <td style={{ padding: '1rem', color: '#64748b' }}>{new Date(order.created_at).toLocaleDateString('es-ES')}</td>
                     <td style={{ padding: '1rem', textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
