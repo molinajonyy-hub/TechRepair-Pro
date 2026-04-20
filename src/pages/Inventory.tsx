@@ -502,11 +502,23 @@ export function Inventory() {
           if (basePx > 0) {
             updates.sale_price = roundUpTo500(basePx * Number(value))
           }
+          // Also recalculate cost_price ARS if we have a USD cost
+          const costUsd = variant.cost_price_usd || 0
+          if (costUsd > 0) {
+            updates.cost_price = Math.round(costUsd * Number(value))
+          }
         }
         if (field === 'base_currency') {
           // switching to USD: ensure exchange_rate_used is populated
           updates.exchange_rate_used = variant.exchange_rate_used || exchangeRates['USD-ARS'] || 1
         }
+      }
+
+      // Auto-calculate ARS cost_price when cost_price_usd changes
+      if (field === 'cost_price_usd') {
+        const rate = variant.exchange_rate_used || exchangeRates['USD-ARS'] || 1
+        const usdVal = parseFloat(value) || 0
+        updates.cost_price = usdVal > 0 ? Math.round(usdVal * rate) : 0
       }
 
       return {
@@ -2388,59 +2400,77 @@ export function Inventory() {
                           </div>
 
                           {/* Fila 1b: Costos independientes */}
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
-                            <div>
-                              <label style={{ display: 'block', fontSize: '0.75rem', color: variant.cost_price === 0 ? '#f59e0b' : '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>
-                                Costo (ARS) {variant.cost_price === 0 && '⚠'}
-                              </label>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={variant.cost_price || 0}
-                                onChange={(e) => updateVariant(index, 'cost_price', parseFloat(e.target.value) || 0)}
-                                style={{
-                                  width: '100%',
-                                  padding: '0.5rem',
-                                  backgroundColor: variant.cost_price === 0 ? 'rgba(245,158,11,0.08)' : 'rgba(15,23,42,0.8)',
-                                  border: `1px solid ${variant.cost_price === 0 ? 'rgba(245,158,11,0.6)' : 'rgba(51,65,85,0.6)'}`,
-                                  borderRadius: '0.375rem',
-                                  color: '#f1f5f9',
-                                  outline: 'none',
-                                  fontSize: '0.875rem',
-                                  boxSizing: 'border-box'
-                                }}
-                                placeholder="0.00"
-                              />
-                              {variant.cost_price === 0 && (
-                                <p style={{ margin: '0.25rem 0 0', fontSize: '0.7rem', color: '#f59e0b' }}>
-                                  Sin costo — no aportará al capital invertido
-                                </p>
-                              )}
-                            </div>
-                            <div>
-                              <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>Costo (USD)</label>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={variant.cost_price_usd || 0}
-                                onChange={(e) => updateVariant(index, 'cost_price_usd', parseFloat(e.target.value) || 0)}
-                                style={{
-                                  width: '100%',
-                                  padding: '0.5rem',
-                                  backgroundColor: 'rgba(15,23,42,0.8)',
-                                  border: '1px solid rgba(79,70,229,0.3)',
-                                  borderRadius: '0.375rem',
-                                  color: '#a5b4fc',
-                                  outline: 'none',
-                                  fontSize: '0.875rem',
-                                  boxSizing: 'border-box'
-                                }}
-                                placeholder="0.00"
-                              />
-                            </div>
-                          </div>
+                          {(() => {
+                            const rate = variant.exchange_rate_used || exchangeRates['USD-ARS'] || 1
+                            const hasUsdCost = (variant.cost_price_usd || 0) > 0
+                            const warnCost = variant.cost_price === 0 && !hasUsdCost
+                            return (
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                                {/* Costo USD — se ingresa primero */}
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>
+                                    Costo (USD)
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={variant.cost_price_usd || 0}
+                                    onChange={(e) => updateVariant(index, 'cost_price_usd', parseFloat(e.target.value) || 0)}
+                                    style={{
+                                      width: '100%',
+                                      padding: '0.5rem',
+                                      backgroundColor: 'rgba(15,23,42,0.8)',
+                                      border: '1px solid rgba(79,70,229,0.3)',
+                                      borderRadius: '0.375rem',
+                                      color: '#a5b4fc',
+                                      outline: 'none',
+                                      fontSize: '0.875rem',
+                                      boxSizing: 'border-box'
+                                    }}
+                                    placeholder="0.00"
+                                  />
+                                </div>
+                                {/* Costo ARS — calculado automáticamente desde USD */}
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '0.75rem', color: warnCost ? '#f59e0b' : hasUsdCost ? '#34d399' : '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>
+                                    Costo (ARS){hasUsdCost ? ` · TC $${Math.round(rate).toLocaleString('es-AR')}` : ''}{warnCost ? ' ⚠' : ''}
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min="0"
+                                    value={variant.cost_price || 0}
+                                    onChange={(e) => updateVariant(index, 'cost_price', parseFloat(e.target.value) || 0)}
+                                    readOnly={hasUsdCost}
+                                    style={{
+                                      width: '100%',
+                                      padding: '0.5rem',
+                                      backgroundColor: hasUsdCost ? 'rgba(52,211,153,0.07)' : warnCost ? 'rgba(245,158,11,0.08)' : 'rgba(15,23,42,0.8)',
+                                      border: `1px solid ${hasUsdCost ? 'rgba(52,211,153,0.35)' : warnCost ? 'rgba(245,158,11,0.6)' : 'rgba(51,65,85,0.6)'}`,
+                                      borderRadius: '0.375rem',
+                                      color: hasUsdCost ? '#34d399' : '#f1f5f9',
+                                      outline: 'none',
+                                      fontSize: '0.875rem',
+                                      boxSizing: 'border-box',
+                                      cursor: hasUsdCost ? 'default' : 'auto',
+                                    }}
+                                    placeholder="0"
+                                  />
+                                  {warnCost && (
+                                    <p style={{ margin: '0.25rem 0 0', fontSize: '0.7rem', color: '#f59e0b' }}>
+                                      Sin costo — no aportará al capital invertido
+                                    </p>
+                                  )}
+                                  {hasUsdCost && (
+                                    <p style={{ margin: '0.25rem 0 0', fontSize: '0.7rem', color: '#34d399' }}>
+                                      Calculado automáticamente desde USD
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })()}
 
                           {/* Fila 2: Moneda + Precio */}
                           <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.75rem', flexWrap: 'wrap' }}>
