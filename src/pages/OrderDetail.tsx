@@ -28,6 +28,7 @@ import { Loader } from '../components/ui/Loader'
 import { ModalGenerarComprobante } from '../components/comprobantes/ModalGenerarComprobante'
 import { OrderPrintPreviewModal } from '../components/print/OrderPrintPreviewModal'
 import { STATUS_CONFIG } from '../types/orderStatus'
+import { DeviceLockCard } from '../components/order/DeviceLockCard'
 
 interface Document {
   id: string
@@ -316,6 +317,19 @@ export function OrderDetail() {
                 )}
               </div>
             </div>
+
+            {/* Device Lock / Password */}
+            <DeviceLockCard
+              orderId={order.id}
+              initialValue={(order as any).device_password ?? null}
+              onSave={async (encoded) => {
+                await supabase
+                  .from('orders')
+                  .update({ device_password: encoded, updated_at: new Date().toISOString() })
+                  .eq('id', order.id)
+                await refresh()
+              }}
+            />
 
             {/* Comprobante Section */}
             {comprobantes.length > 0 && (
