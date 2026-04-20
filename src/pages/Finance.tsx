@@ -1330,11 +1330,11 @@ export function Finance() {
           .eq('is_active', true)
 
         // Detectar variantes y productos-padre con variantes.
-        // Convención: las variantes tienen supplier_code = 'variant_parent:<id_del_padre>'.
-        // Los productos base con variantes no deben contarse como "stock" en el panel
-        // financiero (ese stock ya vive en las variantes), solo los productos simples
+        // Convención: las variantes tienen supplier_code = 'VPREF-<id_del_padre>'.
+        // Los productos base con variantes no deben contarse en el capital
+        // (su stock y precio vive en las variantes), solo los productos simples
         // y las variantes cuentan.
-        const VARIANT_PARENT_PREFIX = 'variant_parent:'
+        const VARIANT_PARENT_PREFIX = 'VPREF-'
         const rawInvArr = rawInv || []
         const parentIdsWithVariants = new Set<string>()
         rawInvArr.forEach((it: any) => {

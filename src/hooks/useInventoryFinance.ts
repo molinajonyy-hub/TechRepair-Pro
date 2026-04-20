@@ -83,16 +83,29 @@ export function useInventoryFinance(businessId?: string | null) {
       setLoading(true)
       setError(null)
 
-      // 1. Cargar items del inventario
+      // 1. Cargar items del inventario (incluyendo supplier_code para distinguir padres de variantes)
       const { data: inventoryData, error: invError } = await supabase
         .from('inventory')
-        .select('id, code, name, category, subcategory, stock_quantity, cost_price, sale_price')
+        .select('id, code, name, category, subcategory, stock_quantity, cost_price, sale_price, supplier_code')
         .eq('business_id', businessId)
         .eq('is_active', true)
 
       if (invError) throw invError
 
-      const inventory = inventoryData || []
+      const rawInventory = inventoryData || []
+
+      // Excluir productos-padre que tienen variantes (su stock/precio vive en las variantes)
+      // Las variantes tienen supplier_code = 'VPREF-{parent_id}'
+      const VARIANT_PARENT_PREFIX = 'VPREF-'
+      const parentIdsWithVariants = new Set<string>()
+      rawInventory.forEach((it: any) => {
+        const sc = typeof it.supplier_code === 'string' ? it.supplier_code : ''
+        if (sc.startsWith(VARIANT_PARENT_PREFIX)) {
+          const pid = sc.slice(VARIANT_PARENT_PREFIX.length)
+          if (pid) parentIdsWithVariants.add(pid)
+        }
+      })
+      const inventory = rawInventory.filter((it: any) => !parentIdsWithVariants.has(it.id))
 
       // 2. Cargar movimientos de los últimos 30 días para rotación
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
