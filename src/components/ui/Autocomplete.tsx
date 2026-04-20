@@ -83,7 +83,10 @@ export function Autocomplete({
     setSearchTerm('')
   }
 
-  const showCreateOption = allowCreate && searchTerm && !filteredOptions.includes(searchTerm)
+  const showCreateOption =
+    allowCreate &&
+    searchTerm.trim() !== '' &&
+    !filteredOptions.some(o => o.toLowerCase() === searchTerm.trim().toLowerCase())
 
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>

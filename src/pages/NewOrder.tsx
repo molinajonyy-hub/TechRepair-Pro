@@ -163,23 +163,31 @@ export function NewOrder() {
   const handleBrandChange = async (value: string) => {
     handleChange('brand', value)
     handleChange('model', '') // Reset model when brand changes
-    
-    // Find brand ID by name
+
     if (value) {
-      const brandData = await brandsService.getAll()
-      const brand = brandData.find((b: any) => b.name === value)
-      setSelectedBrandId(brand?.id || createLocalBrandId(value))
+      try {
+        const brandData = await brandsService.getAll()
+        // Búsqueda case-insensitive
+        const brand = brandData.find((b: any) => b.name.toLowerCase() === value.toLowerCase())
+        setSelectedBrandId(brand?.id || createLocalBrandId(value))
+      } catch {
+        setSelectedBrandId(null)
+      }
     } else {
       setSelectedBrandId(null)
     }
   }
 
   const handleCreateBrand = async (name: string) => {
+    const trimmed = name.trim()
     try {
-      const brand = await brandsService.create(name)
-      setBrands(prev => [...prev, name])
-      setSelectedBrandId(brand.id)
-      return brand
+      // getOrCreate evita duplicados a nivel DB (usa RPC get_or_create_brand)
+      const brandId = await brandsService.getOrCreate(trimmed)
+      // Agregar al estado local solo si no existe (case-insensitive)
+      setBrands(prev =>
+        prev.some(b => b.toLowerCase() === trimmed.toLowerCase()) ? prev : [...prev, trimmed]
+      )
+      setSelectedBrandId(typeof brandId === 'string' ? brandId : (brandId as any)?.id ?? createLocalBrandId(trimmed))
     } catch (err) {
       console.error('Error creating brand:', err)
       throw err
@@ -190,10 +198,14 @@ export function NewOrder() {
     if (!selectedBrandId) {
       throw new Error('Seleccioná una marca primero')
     }
+    const trimmed = name.trim()
     try {
-      const model = await deviceModelsService.create(name, selectedBrandId)
-      setModels(prev => [...prev, name])
-      return model
+      // getOrCreate evita duplicados a nivel DB (usa RPC get_or_create_model)
+      await deviceModelsService.getOrCreate(trimmed, selectedBrandId)
+      // Agregar al estado local solo si no existe (case-insensitive)
+      setModels(prev =>
+        prev.some(m => m.toLowerCase() === trimmed.toLowerCase()) ? prev : [...prev, trimmed]
+      )
     } catch (err) {
       console.error('Error creating model:', err)
       throw err
