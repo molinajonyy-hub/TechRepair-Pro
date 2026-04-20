@@ -478,9 +478,9 @@ export function NewOrder() {
                     onChange={(e) => handleChange('device_type', e.target.value)}
                     className="form-select"
                   >
-                    <option value="smartphone">Smartphone</option>
+                    <option value="smartphone">Celular</option>
                     <option value="tablet">Tablet</option>
-                    <option value="laptop">Laptop</option>
+                    <option value="laptop">Notebook</option>
                     <option value="smartwatch">Smartwatch</option>
                     <option value="other">Otro</option>
                   </select>

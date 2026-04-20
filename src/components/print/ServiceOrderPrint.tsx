@@ -73,10 +73,12 @@ const getStatusLabel = (status: string) => {
 
 const getDeviceTypeLabel = (type?: string) => {
   const map: Record<string, string> = {
+    smartphone: 'Celular',
     celular: 'Celular',
     tablet: 'Tablet',
-    laptop: 'Laptop',
+    laptop: 'Notebook',
     smartwatch: 'Smartwatch',
+    other: 'Otro',
     otro: 'Otro',
   }
   return map[type || ''] || type || '-'

@@ -523,19 +523,33 @@ export function Reports() {
             return accumulator
           }, {})
 
+          const deviceTypeLabels: Record<string, string> = {
+            smartphone: 'Celular', celular: 'Celular',
+            tablet: 'Tablet',
+            laptop: 'Notebook',
+            smartwatch: 'Smartwatch',
+            other: 'Otro', otro: 'Otro',
+          }
           deviceTypesData = Object.entries(deviceTypeCount)
             .sort(([, left], [, right]) => right - left)
             .slice(0, 5)
             .map(([type, value], index) => ({
-              label: type,
+              label: deviceTypeLabels[type] || type,
               value,
               color: REPORT_COLORS[index % REPORT_COLORS.length],
             }))
         }
 
         if (deviceTypesData.length === 0 && stats?.popularDeviceTypes?.length) {
+          const deviceTypeLabels: Record<string, string> = {
+            smartphone: 'Celular', celular: 'Celular',
+            tablet: 'Tablet',
+            laptop: 'Notebook',
+            smartwatch: 'Smartwatch',
+            other: 'Otro', otro: 'Otro',
+          }
           deviceTypesData = stats.popularDeviceTypes.map((device, index) => ({
-            label: device.type,
+            label: deviceTypeLabels[device.type] || device.type,
             value: device.count,
             color: REPORT_COLORS[index % REPORT_COLORS.length],
           }))
