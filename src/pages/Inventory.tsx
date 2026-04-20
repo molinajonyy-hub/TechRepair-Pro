@@ -440,8 +440,13 @@ export function Inventory() {
         {
           name: '',
           stock_quantity: 0,
-          cost_price: prev.cost_price,
-          sale_price: prev.sale_price
+          cost_price: 0,
+          cost_price_usd: 0,
+          sale_price: 0,
+          base_currency: 'ARS',
+          base_price: 0,
+          exchange_rate_used: exchangeRates['USD-ARS'] || 1,
+          auto_update_price: true,
         },
         ...prev.variants,
       ]
@@ -456,12 +461,36 @@ export function Inventory() {
   }
 
   const updateVariant = (index: number, field: string, value: any) => {
-    setFormData(prev => ({
-      ...prev,
-      variants: prev.variants.map((v, i) => 
-        i === index ? { ...v, [field]: value } : v
-      )
-    }))
+    setFormData(prev => {
+      const variant = prev.variants[index]
+      let updates: any = { [field]: value }
+
+      // Auto-calculate ARS sale_price when USD fields change
+      const isUsd = field === 'base_currency' ? value === 'USD' : variant.base_currency === 'USD'
+      if (isUsd) {
+        if (field === 'base_price') {
+          const rate = variant.exchange_rate_used || exchangeRates['USD-ARS'] || 1
+          updates.sale_price = Math.round(Number(value) * rate)
+        }
+        if (field === 'exchange_rate_used') {
+          const basePx = variant.base_price || 0
+          if (basePx > 0) {
+            updates.sale_price = Math.round(basePx * Number(value))
+          }
+        }
+        if (field === 'base_currency') {
+          // switching to USD: ensure exchange_rate_used is populated
+          updates.exchange_rate_used = variant.exchange_rate_used || exchangeRates['USD-ARS'] || 1
+        }
+      }
+
+      return {
+        ...prev,
+        variants: prev.variants.map((v, i) =>
+          i === index ? { ...v, ...updates } : v
+        )
+      }
+    })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -732,7 +761,7 @@ export function Inventory() {
             base_currency: variant.base_currency || formData.base_currency,
             base_price: variant.base_price ?? formData.base_price,
             exchange_rate_used: variant.exchange_rate_used ?? formData.exchange_rate_used,
-            auto_update_price: formData.auto_update_price,
+            auto_update_price: variant.auto_update_price ?? formData.auto_update_price,
             supplier_code: buildVariantParentReference(parentProductId)
           })
 
@@ -839,7 +868,24 @@ export function Inventory() {
           business_id: _bi,
           ...rest
         } = source
-        return { ...rest, ...overrides }
+
+        // Si el producto está vinculado al dólar, recalcular sale_price
+        // con el tipo de cambio ACTUAL para que la copia no quede desactualizada
+        const currentRate = exchangeRates['USD-ARS'] || rest.exchange_rate_used || 1
+        let recalcPrices: Record<string, any> = {}
+        if (
+          rest.base_currency === 'USD' &&
+          rest.base_price != null &&
+          Number(rest.base_price) > 0 &&
+          currentRate > 1
+        ) {
+          recalcPrices = {
+            sale_price: Math.round(Number(rest.base_price) * currentRate),
+            exchange_rate_used: currentRate,
+          }
+        }
+
+        return { ...rest, ...recalcPrices, ...overrides }
       }
 
       // Genera un código único que no colisiona con ningún producto existente
@@ -2262,7 +2308,8 @@ export function Inventory() {
                               Eliminar
                             </button>
                           </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                          {/* Fila 1: Nombre + Stock + Costo */}
+                          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
                             <div>
                               <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>Nombre *</label>
                               <input
@@ -2277,7 +2324,8 @@ export function Inventory() {
                                   borderRadius: '0.375rem',
                                   color: '#f1f5f9',
                                   outline: 'none',
-                                  fontSize: '0.875rem'
+                                  fontSize: '0.875rem',
+                                  boxSizing: 'border-box'
                                 }}
                                 placeholder="Ej: Negro, 128GB"
                               />
@@ -2297,18 +2345,19 @@ export function Inventory() {
                                   borderRadius: '0.375rem',
                                   color: '#f1f5f9',
                                   outline: 'none',
-                                  fontSize: '0.875rem'
+                                  fontSize: '0.875rem',
+                                  boxSizing: 'border-box'
                                 }}
                               />
                             </div>
                             <div>
-                              <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>Precio Venta</label>
+                              <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>Costo (ARS)</label>
                               <input
                                 type="number"
                                 step="0.01"
                                 min="0"
-                                value={variant.sale_price}
-                                onChange={(e) => updateVariant(index, 'sale_price', parseFloat(e.target.value) || 0)}
+                                value={variant.cost_price || 0}
+                                onChange={(e) => updateVariant(index, 'cost_price', parseFloat(e.target.value) || 0)}
                                 style={{
                                   width: '100%',
                                   padding: '0.5rem',
@@ -2317,10 +2366,151 @@ export function Inventory() {
                                   borderRadius: '0.375rem',
                                   color: '#f1f5f9',
                                   outline: 'none',
-                                  fontSize: '0.875rem'
+                                  fontSize: '0.875rem',
+                                  boxSizing: 'border-box'
                                 }}
                               />
                             </div>
+                          </div>
+
+                          {/* Fila 2: Moneda + Precio */}
+                          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.75rem', flexWrap: 'wrap' }}>
+                            {/* Toggle ARS/USD */}
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>Moneda</label>
+                              <div style={{ display: 'flex', borderRadius: '0.375rem', overflow: 'hidden', border: '1px solid rgba(51,65,85,0.6)' }}>
+                                {(['ARS', 'USD'] as const).map(cur => (
+                                  <button
+                                    key={cur}
+                                    type="button"
+                                    onClick={() => updateVariant(index, 'base_currency', cur)}
+                                    style={{
+                                      padding: '0.5rem 0.875rem',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 600,
+                                      border: 'none',
+                                      cursor: 'pointer',
+                                      backgroundColor: (variant.base_currency || 'ARS') === cur
+                                        ? (cur === 'USD' ? '#4f46e5' : '#0f766e')
+                                        : 'rgba(15,23,42,0.8)',
+                                      color: (variant.base_currency || 'ARS') === cur ? '#fff' : '#94a3b8',
+                                      transition: 'all 0.15s'
+                                    }}
+                                  >
+                                    {cur}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            {(variant.base_currency || 'ARS') === 'USD' ? (
+                              <>
+                                {/* Precio en USD */}
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>Precio USD</label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={variant.base_price || 0}
+                                    onChange={(e) => updateVariant(index, 'base_price', parseFloat(e.target.value) || 0)}
+                                    style={{
+                                      width: '110px',
+                                      padding: '0.5rem',
+                                      backgroundColor: 'rgba(15,23,42,0.8)',
+                                      border: '1px solid rgba(79,70,229,0.5)',
+                                      borderRadius: '0.375rem',
+                                      color: '#a5b4fc',
+                                      outline: 'none',
+                                      fontSize: '0.875rem',
+                                      boxSizing: 'border-box'
+                                    }}
+                                    placeholder="0.00"
+                                  />
+                                </div>
+
+                                {/* TC */}
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>T.C. (ARS)</label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    min="1"
+                                    value={variant.exchange_rate_used || exchangeRates['USD-ARS'] || 1}
+                                    onChange={(e) => updateVariant(index, 'exchange_rate_used', parseFloat(e.target.value) || 1)}
+                                    style={{
+                                      width: '110px',
+                                      padding: '0.5rem',
+                                      backgroundColor: 'rgba(15,23,42,0.8)',
+                                      border: '1px solid rgba(51,65,85,0.6)',
+                                      borderRadius: '0.375rem',
+                                      color: '#f1f5f9',
+                                      outline: 'none',
+                                      fontSize: '0.875rem',
+                                      boxSizing: 'border-box'
+                                    }}
+                                  />
+                                </div>
+
+                                {/* Precio calculado en ARS (readonly) */}
+                                <div>
+                                  <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>Precio ARS</label>
+                                  <div style={{
+                                    padding: '0.5rem 0.75rem',
+                                    backgroundColor: 'rgba(15,23,42,0.4)',
+                                    border: '1px solid rgba(16,185,129,0.3)',
+                                    borderRadius: '0.375rem',
+                                    color: '#6ee7b7',
+                                    fontSize: '0.875rem',
+                                    fontWeight: 600,
+                                    minWidth: '110px',
+                                    whiteSpace: 'nowrap'
+                                  }}>
+                                    {formatARS(variant.sale_price || 0)}
+                                  </div>
+                                </div>
+
+                                {/* Auto-actualizar */}
+                                <div style={{ paddingBottom: '0.125rem' }}>
+                                  <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>Auto-actualizar</label>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={variant.auto_update_price ?? true}
+                                      onChange={(e) => updateVariant(index, 'auto_update_price', e.target.checked)}
+                                      style={{ width: '16px', height: '16px', accentColor: '#6366f1', cursor: 'pointer' }}
+                                    />
+                                    <span style={{ fontSize: '0.75rem', color: (variant.auto_update_price ?? true) ? '#a5b4fc' : '#64748b' }}>
+                                      {(variant.auto_update_price ?? true) ? 'Activo' : 'Manual'}
+                                    </span>
+                                  </label>
+                                </div>
+                              </>
+                            ) : (
+                              /* Precio directo en ARS */
+                              <div>
+                                <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>Precio Venta (ARS)</label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  value={variant.sale_price || 0}
+                                  onChange={(e) => updateVariant(index, 'sale_price', parseFloat(e.target.value) || 0)}
+                                  style={{
+                                    width: '150px',
+                                    padding: '0.5rem',
+                                    backgroundColor: 'rgba(15,23,42,0.8)',
+                                    border: '1px solid rgba(51,65,85,0.6)',
+                                    borderRadius: '0.375rem',
+                                    color: '#f1f5f9',
+                                    outline: 'none',
+                                    fontSize: '0.875rem',
+                                    boxSizing: 'border-box'
+                                  }}
+                                  placeholder="0.00"
+                                />
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))}
