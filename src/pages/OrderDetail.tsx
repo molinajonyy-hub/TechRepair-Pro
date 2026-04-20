@@ -52,10 +52,12 @@ export function OrderDetail() {
   const [notesText, setNotesText] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
   const [notesSaved, setNotesSaved] = useState(false)
-  
+  // Service-only total calculated from order_items (tipo='servicio')
+  const [serviceTotal, setServiceTotal] = useState<number | null>(null)
+
   // Cargar datos reales desde Supabase
   const { order, loading, error, refresh } = useOrderSimple(id)
-  
+
   // Comprobantes
   const {
     comprobantes,
@@ -63,7 +65,7 @@ export function OrderDetail() {
     crearComprobante,
     cargarComprobantesByOrder
   } = useComprobantes()
-  
+
   // Cargar documentos y comprobantes
   useEffect(() => {
     if (id) {
@@ -71,6 +73,22 @@ export function OrderDetail() {
       cargarComprobantesByOrder(id)
     }
   }, [id, cargarComprobantesByOrder])
+
+  // Cargar total de servicios desde order_items (sin incluir repuestos)
+  useEffect(() => {
+    if (!id) return
+    supabase
+      .from('order_items')
+      .select('tipo, precio_unitario, cantidad')
+      .eq('order_id', id)
+      .then(({ data }) => {
+        if (!data || data.length === 0) return
+        const total = (data as any[])
+          .filter((i: any) => i.tipo === 'servicio')
+          .reduce((s: number, i: any) => s + i.precio_unitario * i.cantidad, 0)
+        if (total > 0) setServiceTotal(total)
+      })
+  }, [id])
 
   // Sincronizar notas cuando carga la orden
   useEffect(() => {
@@ -553,7 +571,8 @@ export function OrderDetail() {
             initialItems={[{
               descripcion: `Servicio - ${order.device?.brand ?? ''} ${order.device?.model ?? ''}`.trim(),
               cantidad: 1,
-              precio_unitario: order.labor_cost || order.estimated_total || 0,
+              // Use service-only total from order_items; fall back to labor_cost then estimated_total
+              precio_unitario: serviceTotal ?? order.labor_cost ?? order.estimated_total ?? 0,
               currency: 'ARS',
             }]}
             onCrear={async (data) => {
