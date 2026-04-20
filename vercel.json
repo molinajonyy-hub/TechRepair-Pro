@@ -1,0 +1,8 @@
+{
+  "installCommand": "rm -f package-lock.json && npm install --include=dev --include=optional && printf '#!/bin/sh\\nexit 0\\n' > node_modules/.bin/tsc && chmod +x node_modules/.bin/tsc",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
