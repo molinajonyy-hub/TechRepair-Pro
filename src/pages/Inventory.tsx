@@ -297,6 +297,28 @@ export function Inventory() {
     return { stock_quantity, min_stock }
   }
 
+  // Calcula precios efectivos desde variantes para un producto base con variantes
+  const getEffectivePrices = (item: any): { costPrice: number; salePrice: number; isRange: boolean; minCost: number; maxCost: number; minSale: number; maxSale: number } => {
+    const variants = isVariantItem(item) ? [] : (variantsByParent[item.id] || [])
+    if (variants.length === 0) {
+      const c = item.cost_price || 0
+      const s = item.sale_price || 0
+      return { costPrice: c, salePrice: s, isRange: false, minCost: c, maxCost: c, minSale: s, maxSale: s }
+    }
+    const costs = variants.map(v => v.cost_price || 0)
+    const sales = variants.map(v => v.sale_price || 0)
+    const minCost = Math.min(...costs)
+    const maxCost = Math.max(...costs)
+    const minSale = Math.min(...sales)
+    const maxSale = Math.max(...sales)
+    return {
+      costPrice: minCost,
+      salePrice: minSale,
+      isRange: minCost !== maxCost || minSale !== maxSale,
+      minCost, maxCost, minSale, maxSale
+    }
+  }
+
   const displayedItems = rootItems.filter(item => {
     const directMatch = matchesInventoryFilters(item)
     const variantMatch = (variantsByParent[item.id] || []).some(matchesInventoryFilters)
@@ -589,7 +611,15 @@ export function Inventory() {
       const baseName = formData.name.trim()
       const cleanedDescription = formData.description.trim()
       const cleanedLocation = formData.location.trim()
-      const cleanedCode = formData.code.trim()
+      // Auto-generate code from name (hidden from user)
+      const autoCode = (editingItem?.code?.trim()) ||
+        baseName
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')  // strip accents
+          .replace(/[^a-zA-Z0-9\s]/g, '')
+          .trim()
+          .split(/\s+/).slice(0, 3).map(w => w.slice(0, 4).toUpperCase()).join('-')
+        || 'PROD'
+      const cleanedCode = formData.code.trim() || autoCode
 
       if (!isVariantMode && !categoryValue) {
         setFormError('La categoría es requerida')
@@ -1165,12 +1195,14 @@ export function Inventory() {
     const effectiveOutOfStock = !isService && displayStock === 0
     const effectiveLowStock = !isService && displayStock > 0 && displayStock <= displayMinStock
     const isExpanded = hasVariants && expandedRows.has(item.id)
-    const costPrice = item.cost_price || 0
-    const salePrice = item.sale_price || 0
+    const effectivePrices = getEffectivePrices(item)
+    const costPrice = effectivePrices.costPrice
+    const salePrice = effectivePrices.salePrice
+    const isPriceRange = effectivePrices.isRange
     const margin = salePrice - costPrice
-    const marginPercent = item.cost_price > 0 ? ((margin / item.cost_price) * 100).toFixed(1) : '0'
-    const costPriceUSD = item.base_currency === 'USD' ? formatUSD(item.cost_price_usd) : null
-    const salePriceUSD = item.base_currency === 'USD' ? formatUSD(item.base_price) : null
+    const marginPercent = costPrice > 0 ? ((margin / costPrice) * 100).toFixed(1) : '0'
+    const costPriceUSD = !hasVariants && item.base_currency === 'USD' ? formatUSD(item.cost_price_usd) : null
+    const salePriceUSD = !hasVariants && item.base_currency === 'USD' ? formatUSD(item.base_price) : null
     const productName = isVariant ? getVariantName(item, parentItem) : item.name
 
     return (
@@ -1274,33 +1306,53 @@ export function Inventory() {
           )}
         </td>
         <td style={{ padding: '1rem', textAlign: 'right', color: '#94a3b8' }}>
-          <div>
-            <div>{formatARS(costPrice)}</div>
-            {currencySettings?.show_usd_price && costPriceUSD && (
-              <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.125rem' }}>
-                {costPriceUSD}
-              </div>
-            )}
-          </div>
+          {hasVariants && isPriceRange ? (
+            <div>
+              <div style={{ fontSize: '0.8125rem' }}>{formatARS(effectivePrices.minCost)}</div>
+              <div style={{ fontSize: '0.75rem', color: '#64748b' }}>— {formatARS(effectivePrices.maxCost)}</div>
+            </div>
+          ) : (
+            <div>
+              <div>{formatARS(costPrice)}</div>
+              {currencySettings?.show_usd_price && costPriceUSD && (
+                <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.125rem' }}>
+                  {costPriceUSD}
+                </div>
+              )}
+            </div>
+          )}
         </td>
         <td style={{ padding: '1rem', textAlign: 'right', color: '#ffffff', fontWeight: 500 }}>
-          <div>
-            <div>{formatARS(salePrice)}</div>
-            {currencySettings?.show_usd_price && salePriceUSD && (
-              <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.125rem' }}>
-                {salePriceUSD}
-              </div>
-            )}
-          </div>
+          {hasVariants && isPriceRange ? (
+            <div>
+              <div style={{ fontSize: '0.8125rem' }}>{formatARS(effectivePrices.minSale)}</div>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 400 }}>— {formatARS(effectivePrices.maxSale)}</div>
+            </div>
+          ) : (
+            <div>
+              <div>{formatARS(salePrice)}</div>
+              {currencySettings?.show_usd_price && salePriceUSD && (
+                <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.125rem' }}>
+                  {salePriceUSD}
+                </div>
+              )}
+            </div>
+          )}
         </td>
         <td style={{ padding: '1rem', textAlign: 'right' }}>
-          <span style={{ color: '#34d399', fontSize: '0.875rem' }}>
-            +{formatARS(margin)}
-          </span>
-          <br />
-          <span style={{ color: '#64748b', fontSize: '0.75rem' }}>
-            {marginPercent}%
-          </span>
+          {hasVariants ? (
+            <span style={{ color: '#64748b', fontSize: '0.75rem' }}>ver variantes</span>
+          ) : (
+            <>
+              <span style={{ color: '#34d399', fontSize: '0.875rem' }}>
+                +{formatARS(margin)}
+              </span>
+              <br />
+              <span style={{ color: '#64748b', fontSize: '0.75rem' }}>
+                {marginPercent}%
+              </span>
+            </>
+          )}
         </td>
         <td style={{ padding: '1rem', textAlign: 'center' }}>
           {isService ? (
@@ -1994,50 +2046,30 @@ export function Inventory() {
                 </div>
               )}
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Código</label>
-                  <input
-                    type="text"
-                    value={formData.code}
-                    onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                    style={{
-                      width: '100%',
-                      padding: '0.625rem 0.75rem',
-                      backgroundColor: 'rgba(15,23,42,0.8)',
-                      border: '1px solid rgba(51,65,85,0.6)',
-                      borderRadius: '0.5rem',
-                      color: '#f1f5f9',
-                      outline: 'none'
-                    }}
-                    placeholder="Ej: SCR-IPH13P"
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Categoría *</label>
-                  <select
-                    value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    disabled={isVariantModal}
-                    style={{
-                      width: '100%',
-                      padding: '0.625rem 0.75rem',
-                      backgroundColor: 'rgba(15,23,42,0.8)',
-                      border: '1px solid rgba(51,65,85,0.6)',
-                      borderRadius: '0.5rem',
-                      color: '#f1f5f9',
-                      outline: 'none',
-                      opacity: isVariantModal ? 0.7 : 1
-                    }}
-                    required={!isVariantModal}
-                  >
-                    <option value="">Seleccionar...</option>
-                    <option value="NUEVA_CATEGORIA">+ Nueva categoría</option>
-                    {allCategories.map(cat => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
-                  </select>
-                </div>
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Categoría *</label>
+                <select
+                  value={formData.category}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  disabled={isVariantModal}
+                  style={{
+                    width: '100%',
+                    padding: '0.625rem 0.75rem',
+                    backgroundColor: 'rgba(15,23,42,0.8)',
+                    border: '1px solid rgba(51,65,85,0.6)',
+                    borderRadius: '0.5rem',
+                    color: '#f1f5f9',
+                    outline: 'none',
+                    opacity: isVariantModal ? 0.7 : 1
+                  }}
+                  required={!isVariantModal}
+                >
+                  <option value="">Seleccionar...</option>
+                  <option value="NUEVA_CATEGORIA">+ Nueva categoría</option>
+                  {allCategories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
               </div>
 
               {!isVariantModal && formData.category === 'NUEVA_CATEGORIA' && (
