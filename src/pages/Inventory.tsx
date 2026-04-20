@@ -485,6 +485,16 @@ export function Inventory() {
     }))
   }
 
+  const duplicateVariant = (index: number) => {
+    setFormData(prev => {
+      const source = prev.variants[index]
+      const copy = { ...source, name: `${source.name} (copia)` }
+      const newVariants = [...prev.variants]
+      newVariants.splice(index + 1, 0, copy)
+      return { ...prev, variants: newVariants }
+    })
+  }
+
   const updateVariant = (index: number, field: string, value: any) => {
     setFormData(prev => {
       const variant = prev.variants[index]
@@ -2337,23 +2347,41 @@ export function Inventory() {
                           borderRadius: '0.5rem',
                           border: '1px solid rgba(51,65,85,0.6)'
                         }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                             <span style={{ color: '#e2e8f0', fontWeight: 500 }}>Variante {index + 1}</span>
-                            <button
-                              type="button"
-                              onClick={() => removeVariant(index)}
-                              style={{
-                                padding: '0.25rem 0.5rem',
-                                backgroundColor: 'rgba(239, 68, 68, 0.2)',
-                                border: '1px solid rgba(239, 68, 68, 0.3)',
-                                color: '#f87171',
-                                borderRadius: '0.375rem',
-                                cursor: 'pointer',
-                                fontSize: '0.75rem'
-                              }}
-                            >
-                              Eliminar
-                            </button>
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                              <button
+                                type="button"
+                                onClick={() => duplicateVariant(index)}
+                                style={{
+                                  padding: '0.25rem 0.625rem',
+                                  backgroundColor: 'rgba(99,102,241,0.15)',
+                                  border: '1px solid rgba(99,102,241,0.35)',
+                                  color: '#818cf8',
+                                  borderRadius: '0.375rem',
+                                  cursor: 'pointer',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 500,
+                                }}
+                              >
+                                Duplicar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeVariant(index)}
+                                style={{
+                                  padding: '0.25rem 0.5rem',
+                                  backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                                  color: '#f87171',
+                                  borderRadius: '0.375rem',
+                                  cursor: 'pointer',
+                                  fontSize: '0.75rem'
+                                }}
+                              >
+                                Eliminar
+                              </button>
+                            </div>
                           </div>
                           {/* Fila 1: Nombre + Stock */}
                           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
