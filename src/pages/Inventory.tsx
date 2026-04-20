@@ -2308,8 +2308,8 @@ export function Inventory() {
                               Eliminar
                             </button>
                           </div>
-                          {/* Fila 1: Nombre + Stock + Costo */}
-                          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                          {/* Fila 1: Nombre + Stock */}
+                          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
                             <div>
                               <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>Nombre *</label>
                               <input
@@ -2350,6 +2350,10 @@ export function Inventory() {
                                 }}
                               />
                             </div>
+                          </div>
+
+                          {/* Fila 1b: Costos independientes */}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
                             <div>
                               <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>Costo (ARS)</label>
                               <input
@@ -2369,6 +2373,29 @@ export function Inventory() {
                                   fontSize: '0.875rem',
                                   boxSizing: 'border-box'
                                 }}
+                                placeholder="0.00"
+                              />
+                            </div>
+                            <div>
+                              <label style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.375rem', fontWeight: 500 }}>Costo (USD)</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={variant.cost_price_usd || 0}
+                                onChange={(e) => updateVariant(index, 'cost_price_usd', parseFloat(e.target.value) || 0)}
+                                style={{
+                                  width: '100%',
+                                  padding: '0.5rem',
+                                  backgroundColor: 'rgba(15,23,42,0.8)',
+                                  border: '1px solid rgba(79,70,229,0.3)',
+                                  borderRadius: '0.375rem',
+                                  color: '#a5b4fc',
+                                  outline: 'none',
+                                  fontSize: '0.875rem',
+                                  boxSizing: 'border-box'
+                                }}
+                                placeholder="0.00"
                               />
                             </div>
                           </div>
