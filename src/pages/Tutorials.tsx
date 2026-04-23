@@ -5,7 +5,8 @@ import { useState } from 'react'
 import {
   ChevronDown, ChevronRight, ExternalLink,
   CheckCircle, AlertTriangle, Info, FileText, Shield,
-  Settings, Upload, Key, Globe, Terminal
+  Settings, Upload, Key, Globe, Terminal,
+  Wallet, Smartphone, CreditCard, Zap, Lock, ArrowRight,
 } from 'lucide-react'
 
 // ── Componentes de ayuda ──────────────────────────────────────────
@@ -635,6 +636,398 @@ function TutorialARCA() {
   )
 }
 
+// ── Tutorial Mercado Pago ─────────────────────────────────────────
+
+function TutorialMercadoPago() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
+
+      {/* Hero */}
+      <div style={{
+        background: 'linear-gradient(135deg, rgba(0,158,227,0.12), rgba(0,188,255,0.05))',
+        border: '1px solid rgba(0,158,227,0.25)', borderRadius: '1rem', padding: '1.5rem',
+      }}>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+          <div style={{
+            width: 52, height: 52, borderRadius: '0.875rem', flexShrink: 0,
+            background: 'linear-gradient(135deg, #009ee3, #00bcff)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '1.5rem',
+          }}>💳</div>
+          <div>
+            <h3 style={{ margin: '0 0 0.5rem', color: 'var(--text-primary)', fontSize: '1.1rem' }}>
+              Cobrá con Mercado Pago desde el comprobante
+            </h3>
+            <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7 }}>
+              Conectá tu cuenta de Mercado Pago y cobrá con <strong>QR, link de pago o terminal Point</strong>
+              directamente desde cada comprobante. TechRepair calcula la comisión automáticamente
+              y registra bruto, fee y neto en finanzas.
+            </p>
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginTop: '1.25rem' }}>
+          {['QR Integrado','Link de pago','Terminal Point','Sin datos técnicos','Comisiones automáticas','Registro en finanzas'].map(t => (
+            <span key={t} style={{
+              background: 'rgba(0,158,227,0.12)', border: '1px solid rgba(0,158,227,0.25)',
+              borderRadius: '2rem', padding: '0.25rem 0.75rem',
+              fontSize: '0.775rem', color: '#38bdf8', fontWeight: 500,
+            }}>{t}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* Aclaración importante */}
+      <Callout type="success">
+        <strong>No necesitás saber programación.</strong> La conexión se hace en 3 clicks:
+        entrás a Configuración → Cobros y Pagos, hacés click en "Conectar Mercado Pago",
+        autorizás con tu cuenta de MP y listo. TechRepair se encarga del resto.
+      </Callout>
+
+      {/* PASO 1 */}
+      <section>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <StepBadge n={1} />
+          <div>
+            <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 700 }}>
+              Andá a Configuración → Cobros y Pagos
+            </h2>
+            <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              Desde el menú lateral → Configuración → pestaña "Cobros y Pagos"
+            </p>
+          </div>
+        </div>
+        <div style={{ marginLeft: '3rem' }}>
+          <Screenshot label="Configuración → pestaña Cobros y Pagos">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxWidth: 460 }}>
+              {/* Tabs mockup */}
+              <div style={{ display: 'flex', gap: '0.25rem', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.5rem', flexWrap: 'wrap' }}>
+                {['Datos del Negocio','ARCA','Preferencias','Cobros y Pagos'].map(tab => (
+                  <div key={tab} style={{
+                    padding: '0.35rem 0.75rem', borderRadius: '0.375rem 0.375rem 0 0',
+                    fontSize: '0.78rem', fontWeight: tab === 'Cobros y Pagos' ? 700 : 400,
+                    color: tab === 'Cobros y Pagos' ? '#009ee3' : 'var(--text-muted)',
+                    borderBottom: tab === 'Cobros y Pagos' ? '2px solid #009ee3' : '2px solid transparent',
+                  }}>{tab}</div>
+                ))}
+              </div>
+              {/* Content */}
+              <div style={{ padding: '0.75rem', background: 'rgba(0,158,227,0.06)', border: '1px solid rgba(0,158,227,0.2)', borderRadius: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <Zap size={14} color="#fbbf24" />
+                  <span style={{ fontWeight: 700, fontSize: '0.875rem', color: 'var(--text-primary)' }}>Mercado Pago</span>
+                  <span style={{ fontSize: '0.72rem', color: '#94a3b8', background: 'rgba(255,255,255,0.06)', padding: '0.1rem 0.5rem', borderRadius: '9999px' }}>No conectado</span>
+                </div>
+                <div style={{
+                  background: '#009ee3', borderRadius: '0.375rem', padding: '0.5rem 1rem',
+                  textAlign: 'center', color: '#fff', fontSize: '0.8rem', fontWeight: 600,
+                  display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
+                }}>
+                  <ExternalLink size={13} /> Conectar Mercado Pago
+                </div>
+              </div>
+            </div>
+          </Screenshot>
+        </div>
+      </section>
+
+      {/* PASO 2 */}
+      <section>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <StepBadge n={2} />
+          <div>
+            <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 700 }}>
+              Hacé click en "Conectar Mercado Pago"
+            </h2>
+            <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              Se abre la pantalla oficial de autorización de MP en una nueva pestaña
+            </p>
+          </div>
+        </div>
+        <div style={{ marginLeft: '3rem' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7 }}>
+            Vas a ver una pantalla oficial de Mercado Pago con el nombre de la aplicación TechRepair.
+            Esta pantalla muestra <strong>exactamente qué permisos le estás dando</strong>:
+          </p>
+
+          <Screenshot label="Pantalla de autorización de Mercado Pago">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: 360 }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>
+                  Autoriza la integración de la aplicación
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Revisá los permisos que vas a otorgar
+                </div>
+              </div>
+              {[
+                { ok: true, text: 'Ver datos privados de tu cuenta (perfil, movimientos)' },
+                { ok: true, text: 'Operar con tu cuenta (crear cobros y links de pago)' },
+              ].map(p => (
+                <div key={p.text} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                  <CheckCircle size={15} color="#34d399" style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{p.text}</span>
+                </div>
+              ))}
+              <div style={{
+                background: '#009ee3', borderRadius: '0.5rem', padding: '0.625rem',
+                textAlign: 'center', color: '#fff', fontSize: '0.875rem', fontWeight: 700,
+              }}>Autorizar</div>
+              <div style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Por ahora no</div>
+            </div>
+          </Screenshot>
+
+          <Callout type="info">
+            <strong>¿Por qué pide esos permisos?</strong> TechRepair necesita crear órdenes de cobro
+            (QR / links) y verificar el estado de los pagos. Nunca accede a contraseñas ni transfiere fondos.
+          </Callout>
+        </div>
+      </section>
+
+      {/* PASO 3 */}
+      <section>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <StepBadge n={3} />
+          <div>
+            <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 700 }}>
+              Hacé click en "Autorizar" y volvés automáticamente
+            </h2>
+            <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              TechRepair guarda la conexión de forma segura — los tokens se cifran antes de guardarse
+            </p>
+          </div>
+        </div>
+        <div style={{ marginLeft: '3rem' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7 }}>
+            Después de autorizar, MP te redirige de vuelta a TechRepair automáticamente.
+            Vas a ver una pantalla de confirmación y en segundos estás en
+            <strong> Configuración → Cobros y Pagos</strong> con el estado <strong style={{ color: '#34d399' }}>● Conectado</strong>.
+          </p>
+
+          <Screenshot label="Conexión exitosa">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxWidth: 400 }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '0.75rem',
+                padding: '1rem', background: 'rgba(52,211,153,0.08)',
+                border: '1px solid rgba(52,211,153,0.3)', borderRadius: '0.75rem',
+              }}>
+                <CheckCircle size={24} color="#34d399" style={{ flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontWeight: 700, color: '#34d399', fontSize: '0.9rem' }}>¡Mercado Pago conectado!</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                    A partir de ahora podés cobrar con QR y link desde cada comprobante.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Screenshot>
+        </div>
+      </section>
+
+      {/* PASO 4 */}
+      <section>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <StepBadge n={4} />
+          <div>
+            <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 700 }}>
+              Configurá tus botones de cobro
+            </h2>
+            <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              TechRepair crea 6 botones automáticamente — podés editarlos o crear los tuyos
+            </p>
+          </div>
+        </div>
+        <div style={{ marginLeft: '3rem' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7 }}>
+            En la sección <strong>Botones de cobro</strong> vas a encontrar los métodos predeterminados.
+            Cada botón tiene configurada la <strong>comisión estimada</strong> del proveedor.
+            Podés ajustar los porcentajes, agregar nuevos o desactivar los que no usás.
+          </p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.625rem', margin: '1.25rem 0', maxWidth: 460 }}>
+            {[
+              { name: 'Efectivo',      fee: '0%',     color: '#34d399' },
+              { name: 'Transferencia', fee: '0%',     color: '#60a5fa' },
+              { name: 'Débito (MP)',   fee: '0.89%',  color: '#818cf8' },
+              { name: 'Crédito (MP)',  fee: '3.99%',  color: '#f59e0b' },
+              { name: 'QR (MP)',       fee: '0.99%',  color: '#a78bfa' },
+              { name: 'Link de pago',  fee: '3.99%',  color: '#6366f1' },
+            ].map(b => (
+              <div key={b.name} style={{
+                padding: '0.75rem',
+                border: `2px solid ${b.color}33`,
+                backgroundColor: `${b.color}11`,
+                borderRadius: '0.625rem',
+              }}>
+                <div style={{ width: '0.5rem', height: '0.5rem', borderRadius: '50%', backgroundColor: b.color, marginBottom: '0.4rem' }} />
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.2rem' }}>{b.name}</div>
+                <div style={{ fontSize: '0.65rem', color: b.color }}>{b.fee}</div>
+              </div>
+            ))}
+          </div>
+
+          <Callout type="info">
+            Las comisiones son estimadas. Los valores reales se concilian después con los reportes de liquidación de MP.
+          </Callout>
+        </div>
+      </section>
+
+      {/* PASO 5 */}
+      <section>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <StepBadge n={5} />
+          <div>
+            <h2 style={{ margin: 0, color: 'var(--text-primary)', fontSize: '1.1rem', fontWeight: 700 }}>
+              Cobrá desde el comprobante
+            </h2>
+            <p style={{ margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+              Abrí cualquier comprobante y usá el panel de cobros del sidebar derecho
+            </p>
+          </div>
+        </div>
+        <div style={{ marginLeft: '3rem' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7 }}>
+            Desde la vista de detalle de cualquier comprobante, en el sidebar derecho vas a ver el
+            <strong> Panel de Cobros</strong>. Mostrá el saldo pendiente y los botones activos de tu negocio.
+          </p>
+
+          <Screenshot label="Panel de cobros en el detalle del comprobante">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', maxWidth: 380 }}>
+              {/* Saldo */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Saldo a cobrar</span>
+                <span style={{ fontSize: '1rem', fontWeight: 700, color: '#f59e0b', fontFamily: 'monospace' }}>$15.000,00</span>
+              </div>
+              {/* Botones */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                {[
+                  { name: 'Efectivo', color: '#34d399', fee: 'Sin comisión' },
+                  { name: 'QR (MP)', color: '#a78bfa', fee: '0.99%', zap: true },
+                ].map(b => (
+                  <div key={b.name} style={{
+                    padding: '0.75rem', border: `2px solid ${b.color}44`,
+                    backgroundColor: `${b.color}15`, borderRadius: '0.625rem',
+                  }}>
+                    <div style={{ display: 'flex', gap: '0.3rem', marginBottom: '0.25rem', alignItems: 'center' }}>
+                      <Wallet size={13} color={b.color} />
+                      {b.zap && <Zap size={10} color="#fbbf24" />}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)' }}>{b.name}</div>
+                    <div style={{ fontSize: '0.65rem', color: b.color, marginTop: '0.1rem' }}>{b.fee}</div>
+                  </div>
+                ))}
+              </div>
+              {/* Calculadora */}
+              <div style={{ padding: '0.75rem', background: 'rgba(0,158,227,0.08)', border: '1px solid rgba(0,158,227,0.2)', borderRadius: '0.5rem' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#38bdf8', marginBottom: '0.5rem' }}>QR (MP) — Calculadora</div>
+                {[
+                  { label: 'Cobrar al cliente', val: '$15.150,75', highlight: true },
+                  { label: 'Comisión MP (0.99%)', val: '−$150,75', color: '#f59e0b' },
+                  { label: 'Neto a recibir', val: '$15.000,00', color: '#34d399', big: true },
+                ].map(r => (
+                  <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: r.big ? '0.85rem' : '0.78rem', marginBottom: '0.2rem' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>{r.label}</span>
+                    <span style={{ fontFamily: 'monospace', fontWeight: r.big ? 700 : 500, color: r.color ?? 'var(--text-primary)' }}>{r.val}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ background: '#a78bfa', borderRadius: '0.5rem', padding: '0.5rem', textAlign: 'center', color: '#fff', fontSize: '0.8rem', fontWeight: 600 }}>
+                Crear orden QR $15.150,75
+              </div>
+            </div>
+          </Screenshot>
+        </div>
+      </section>
+
+      {/* Calculadora — explicación */}
+      <section style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '1rem', padding: '1.5rem' }}>
+        <h3 style={{ margin: '0 0 1rem', color: 'var(--text-primary)', fontSize: '1rem', fontWeight: 700 }}>
+          🧮 Calculadora de cobro: Precio de lista vs Neto deseado
+        </h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          {[
+            {
+              title: 'Precio de lista',
+              desc: 'Cobrás exactamente el total del comprobante. TechRepair te muestra cuánto va a descontar el proveedor y cuánto vas a recibir.',
+              example: 'Comprobante: $10.000\nComisión MP QR (0.99%): −$99\nNeto a recibir: $9.901',
+              color: '#818cf8',
+            },
+            {
+              title: 'Neto deseado',
+              desc: 'Vos ingresás cuánto querés recibir limpio. TechRepair calcula automáticamente cuánto cobrarle al cliente para que vos recibas ese exacto.',
+              example: 'Quiero recibir: $10.000\nTechRepair cobra al cliente: $10.101\nComisión: $101',
+              color: '#34d399',
+            },
+          ].map(m => (
+            <div key={m.title} style={{ padding: '1rem', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: '0.75rem' }}>
+              <div style={{ fontWeight: 700, color: m.color, fontSize: '0.9rem', marginBottom: '0.5rem' }}>{m.title}</div>
+              <p style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', lineHeight: 1.6, margin: '0 0 0.75rem' }}>{m.desc}</p>
+              <pre style={{
+                fontSize: '0.75rem', fontFamily: 'monospace', color: 'var(--text-muted)',
+                background: 'rgba(255,255,255,0.03)', padding: '0.625rem', borderRadius: '0.375rem',
+                margin: 0, whiteSpace: 'pre-wrap',
+              }}>{m.example}</pre>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section>
+        <h3 style={{ margin: '0 0 1rem', color: 'var(--text-primary)', fontSize: '1rem', fontWeight: 700 }}>
+          ❓ Preguntas frecuentes
+        </h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          {[
+            {
+              q: '¿Necesito tener una cuenta de Mercado Pago?',
+              a: 'Sí, necesitás una cuenta de MP activa (puede ser personal o de empresa). Si no tenés, podés crearla en mercadopago.com.ar.',
+            },
+            {
+              q: '¿Es seguro darle acceso a TechRepair a mi cuenta de MP?',
+              a: 'Sí. TechRepair solo puede crear cobros y ver el estado de los pagos. No puede transferir dinero ni acceder a tu contraseña. Podés revocar el acceso desde tu cuenta de MP en cualquier momento.',
+            },
+            {
+              q: '¿Las comisiones que muestra TechRepair son exactas?',
+              a: 'Son estimadas. Las comisiones reales las cobra MP directamente y varían según tu plan. TechRepair las registra y cuando MP liquida, podés actualizar los valores reales.',
+            },
+            {
+              q: '¿Puedo agregar mi posnet u otro proveedor además de MP?',
+              a: 'Sí. En Configuración → Cobros y Pagos podés crear botones de cobro personalizados para cualquier proveedor (Posnet, Getnet, transferencia bancaria, etc.), con sus propias comisiones.',
+            },
+            {
+              q: '¿Cómo desconecto Mercado Pago?',
+              a: 'En Configuración → Cobros y Pagos → botón "Desconectar". Esto deshabilita los botones integrados pero conserva tu historial de cobros.',
+            },
+          ].map(faq => (
+            <details key={faq.q} style={{ border: '1px solid var(--border-color)', borderRadius: '0.75rem', overflow: 'hidden' }}>
+              <summary style={{
+                padding: '0.875rem 1rem', cursor: 'pointer', fontWeight: 600,
+                fontSize: '0.875rem', color: 'var(--text-primary)',
+                listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              }}>
+                {faq.q}
+                <ChevronDown size={15} color="var(--text-muted)" />
+              </summary>
+              <div style={{ padding: '0 1rem 0.875rem', fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.6, borderTop: '1px solid var(--border-color)' }}>
+                {faq.a}
+              </div>
+            </details>
+          ))}
+        </div>
+      </section>
+
+      <Callout type="success">
+        <strong>¿Querés empezar ahora?</strong> Andá a{' '}
+        <a href="/configuracion?tab=pagos" style={{ color: '#34d399', fontWeight: 700 }}>
+          Configuración → Cobros y Pagos
+        </a>{' '}
+        y conectá tu cuenta de Mercado Pago en menos de 2 minutos.
+      </Callout>
+
+    </div>
+  )
+}
+
 // ── Listado de tutoriales ─────────────────────────────────────────
 
 const TUTORIALS = [
@@ -647,6 +1040,16 @@ const TUTORIALS = [
     duration: '20 min',
     level: 'Intermedio',
     component: TutorialARCA,
+  },
+  {
+    id: 'mercadopago',
+    title: 'Cobros con Mercado Pago',
+    description: 'Conectá tu cuenta de MP en 3 clicks y cobrá con QR, link de pago o terminal Point desde cada comprobante.',
+    icon: Wallet,
+    color: '#009ee3',
+    duration: '5 min',
+    level: 'Fácil',
+    component: TutorialMercadoPago,
   },
 ]
 

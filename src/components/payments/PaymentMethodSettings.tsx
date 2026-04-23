@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Plus, Pencil, Trash2, Loader2, CheckCircle2, AlertCircle,
   Zap, Power, GripVertical, ExternalLink, Wallet,
+  ArrowRight, ShieldCheck, BookOpen,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { paymentButtonService, PaymentButton, NewPaymentButton } from '../../services/paymentButtonService';
@@ -305,6 +306,75 @@ export function PaymentMethodSettings() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
+      {/* ── Banner de onboarding (solo si no está conectado) ─────────── */}
+      {!mpStatus?.connected && (
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(0,158,227,0.1), rgba(0,188,255,0.05))',
+          border: '1px solid rgba(0,158,227,0.25)',
+          borderRadius: '0.875rem',
+          padding: '1.25rem',
+          display: 'flex', flexDirection: 'column', gap: '1rem',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
+            <div style={{
+              width: '2.5rem', height: '2.5rem', borderRadius: '0.625rem', flexShrink: 0,
+              background: 'linear-gradient(135deg, #009ee3, #00bcff)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '1.125rem',
+            }}>💳</div>
+            <div>
+              <h3 style={{ margin: '0 0 0.375rem', fontSize: '1rem', fontWeight: 700, color: '#f1f5f9' }}>
+                Cobrá con Mercado Pago en 3 clicks
+              </h3>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: '#94a3b8', lineHeight: 1.6 }}>
+                Conectá tu cuenta de MP y habilitá cobros con <strong style={{ color: '#38bdf8' }}>QR, link de pago y terminal Point</strong> directamente desde cada comprobante.
+                No necesitás saber programación ni ingresar credenciales técnicas.
+              </p>
+            </div>
+          </div>
+
+          {/* Pasos rápidos */}
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {[
+              { n: '1', text: 'Click en "Conectar"' },
+              { n: '2', text: 'Autorizás en MP' },
+              { n: '3', text: '¡Listo para cobrar!' },
+            ].map((step, i) => (
+              <div key={step.n} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                <div style={{
+                  width: '1.5rem', height: '1.5rem', borderRadius: '50%',
+                  background: 'rgba(0,158,227,0.25)', border: '1px solid rgba(0,158,227,0.4)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '0.7rem', fontWeight: 700, color: '#38bdf8', flexShrink: 0,
+                }}>{step.n}</div>
+                <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{step.text}</span>
+                {i < 2 && <ArrowRight size={12} style={{ color: '#334155' }} />}
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '0.375rem',
+              fontSize: '0.75rem', color: '#475569',
+            }}>
+              <ShieldCheck size={13} style={{ color: '#34d399' }} />
+              Tokens cifrados — MP nunca comparte tu contraseña
+            </div>
+            <a
+              href="/tutoriales"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.375rem',
+                fontSize: '0.75rem', color: '#38bdf8', textDecoration: 'none',
+              }}
+            >
+              <BookOpen size={13} />
+              Ver guía completa
+            </a>
+          </div>
+        </div>
+      )}
+
       {/* ── Sección MP OAuth ─────────────────────────────────────────── */}
       <div style={sectionS}>
         <div style={headerS}>
@@ -313,13 +383,22 @@ export function PaymentMethodSettings() {
             <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f1f5f9' }}>
               Mercado Pago
             </span>
+            {mpStatus?.connected && (
+              <span style={{
+                fontSize: '0.7rem', fontWeight: 700, color: '#34d399',
+                background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.3)',
+                padding: '0.15rem 0.5rem', borderRadius: '9999px',
+              }}>● Conectado</span>
+            )}
           </div>
           {mpStatus?.connected ? (
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.75rem', color: '#34d399', fontWeight: 600 }}>● Conectado</span>
+              <span style={{ fontSize: '0.75rem', color: '#475569' }}>
+                Usuario: <strong style={{ color: '#94a3b8' }}>{mpStatus.mp_user_id}</strong>
+              </span>
               <button
                 onClick={handleDisconnectMP}
-                style={{ padding: '0.375rem 0.75rem', backgroundColor: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '0.375rem', color: '#f87171', cursor: 'pointer', fontSize: '0.75rem' }}
+                style={{ padding: '0.375rem 0.75rem', backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '0.375rem', color: '#f87171', cursor: 'pointer', fontSize: '0.75rem' }}
               >
                 Desconectar
               </button>
@@ -330,30 +409,36 @@ export function PaymentMethodSettings() {
               disabled={mpLoading}
               style={{
                 display: 'flex', alignItems: 'center', gap: '0.375rem',
-                padding: '0.5rem 1rem',
-                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                padding: '0.5rem 1.25rem',
+                background: 'linear-gradient(135deg, #009ee3, #00bcff)',
                 border: 'none', color: '#fff', borderRadius: '0.5rem',
                 cursor: mpLoading ? 'not-allowed' : 'pointer',
-                fontWeight: 600, fontSize: '0.8rem',
+                fontWeight: 700, fontSize: '0.875rem',
                 opacity: mpLoading ? 0.7 : 1,
+                boxShadow: '0 4px 12px rgba(0,158,227,0.35)',
               }}
             >
-              {mpLoading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <ExternalLink size={14} />}
-              Conectar Mercado Pago
+              {mpLoading
+                ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Conectando...</>
+                : <><ExternalLink size={14} /> Conectar Mercado Pago</>
+              }
             </button>
           )}
         </div>
 
-        <div style={{ padding: '1rem 1.25rem', fontSize: '0.8rem', color: '#64748b' }}>
-          {mpStatus?.connected ? (
-            <>
-              Usuario MP: <strong style={{ color: '#94a3b8' }}>{mpStatus.mp_user_id}</strong>
-              {' · '}Los botones integrados (QR, Point) quedarán habilitados.
-            </>
-          ) : (
-            'Conectá tu cuenta de Mercado Pago para habilitar cobros QR y con terminal Point directamente desde el comprobante.'
-          )}
-        </div>
+        {mpStatus?.connected && (
+          <div style={{ padding: '0.875rem 1.25rem', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+            {[
+              { icon: '✅', text: 'QR habilitado' },
+              { icon: '✅', text: 'Link de pago habilitado' },
+              { icon: '✅', text: 'Terminal Point habilitado' },
+            ].map(item => (
+              <span key={item.text} style={{ fontSize: '0.8rem', color: '#475569' }}>
+                {item.icon} {item.text}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ── Botones de cobro ─────────────────────────────────────────── */}
