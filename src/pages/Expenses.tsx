@@ -31,18 +31,16 @@ export function Expenses() {
   }, [businessId])
 
   const loadExpenses = async () => {
+    if (!businessId) return
     try {
       setLoading(true)
-      let query = supabase.from('expenses').select('*').order('date', { ascending: false })
-      if (businessId) query = query.eq('business_id', businessId)
-      const { data, error } = await query
-      if (error && (error.code === '42703' || error.message?.includes('business_id'))) {
-        // fallback: load without business_id filter
-        const { data: fallback } = await supabase.from('expenses').select('*').order('date', { ascending: false })
-        setExpenses(fallback || [])
-      } else {
-        setExpenses(data || [])
-      }
+      const { data, error } = await supabase
+        .from('expenses')
+        .select('*')
+        .eq('business_id', businessId)
+        .order('date', { ascending: false })
+      if (error) throw error
+      setExpenses(data || [])
     } catch (error) {
       console.error('Error loading expenses:', error)
     } finally {

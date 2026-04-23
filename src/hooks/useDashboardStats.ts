@@ -62,7 +62,7 @@ interface CacheEntry {
 }
 
 let statsCache: CacheEntry | null = null
-const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutos
+const CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutos — reducido para reflejar cambios más rápido
 
 function isCacheValid(businessId: string | null): boolean {
   return (
@@ -219,10 +219,10 @@ export function useDashboardStats() {
           .eq('status', 'completed')
           .gte('updated_at', today),
 
-        // 5. 5 órdenes recientes — campos mínimos, sin join
+        // 5. 5 órdenes recientes — incluye nombre del cliente y modelo del dispositivo
         supabase
           .from('orders')
-          .select('id, status, created_at, customer_id, device_id')
+          .select('id, status, created_at, customer:customers(name), device:devices(brand, model)')
           .eq('business_id', businessId)
           .order('created_at', { ascending: false })
           .limit(5),
@@ -283,13 +283,13 @@ export function useDashboardStats() {
         ordersByStatus[o.status] = (ordersByStatus[o.status] || 0) + 1
       })
 
-      // 5 órdenes recientes — sin join, campos planos
-      const recentOrders: RecentOrder[] = (recentOrdersResult.data || []).map(o => ({
+      // 5 órdenes recientes — con nombre de cliente y modelo de dispositivo
+      const recentOrders: RecentOrder[] = (recentOrdersResult.data || []).map((o: any) => ({
         id:            o.id,
         status:        o.status,
         created_at:    o.created_at,
-        customer_name: null,
-        device_label:  null,
+        customer_name: o.customer?.name ?? null,
+        device_label:  o.device ? `${o.device.brand} ${o.device.model}`.trim() : null,
       }))
 
       // ── Ingresos desde business_finance_entries (fuente unificada) ──

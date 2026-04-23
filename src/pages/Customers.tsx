@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, Search, Eye, Phone, Mail, Users, Download, Upload, Pencil, Trash2, Loader2 } from 'lucide-react'
 import { CloseButton } from '../components/ui/CloseButton'
@@ -30,7 +30,9 @@ const formatCurrency = (value: number) =>
 
 export function Customers() {
   const { businessId } = useAuth()
-  const [searchTerm, setSearchTerm] = useState('')
+  const [searchTerm, setSearchTerm]     = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>()
   const [customers, setCustomers] = useState<CustomerSummary[]>([])
   const [orders, setOrders] = useState<any[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -83,11 +85,16 @@ export function Customers() {
   const [deleteError, setDeleteError] = useState('')
 
   const handleDeleteConfirm = async () => {
-    if (!deletingCustomer) return
+    if (!deletingCustomer || !businessId) return
     setDeleteLoading(true)
     setDeleteError('')
     try {
-      const { error } = await supabase.from('customers').delete().eq('id', deletingCustomer.id)
+      // Siempre filtrar por business_id para evitar eliminación cruzada entre negocios
+      const { error } = await supabase
+        .from('customers')
+        .delete()
+        .eq('id', deletingCustomer.id)
+        .eq('business_id', businessId)
       if (error) throw error
       setDeletingCustomer(null)
       await loadCustomers()
@@ -102,13 +109,26 @@ export function Customers() {
     void loadCustomers()
   }, [])
 
+  // Debounce 300ms para el buscador — evita re-render en cada keystroke
+  useEffect(() => {
+    clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(() => setDebouncedSearch(searchTerm), 300)
+    return () => clearTimeout(searchTimer.current)
+  }, [searchTerm])
+
   const loadCustomers = async () => {
     try {
       setError(null)
 
-      const [customersResult, ordersResult] = await Promise.allSettled([
+      // Cargar clientes con un conteo de órdenes embebido — evita traer todas las órdenes
+      const [customersResult, ordersCountResult] = await Promise.allSettled([
         customersService.getAll(),
-        ordersService.getAll(),
+        // Solo traer order_id y customer_id: query liviana para estadísticas
+        supabase
+          .from('orders')
+          .select('id, customer_id, total_cost, amount_paid')
+          .eq('business_id', businessId)
+          .limit(2000),
       ])
 
       if (customersResult.status === 'rejected') {
@@ -117,10 +137,10 @@ export function Customers() {
 
       setCustomers((customersResult.value || []) as CustomerSummary[])
 
-      if (ordersResult.status === 'fulfilled') {
-        setOrders(ordersResult.value || [])
+      if (ordersCountResult.status === 'fulfilled') {
+        setOrders(ordersCountResult.value.data || [])
       } else {
-        console.error('Error loading customer stats:', ordersResult.reason)
+        console.error('Error loading customer stats:', ordersCountResult.reason)
         setOrders([])
       }
     } catch (err: any) {
@@ -241,7 +261,7 @@ export function Customers() {
 
 
   const filteredCustomers = useMemo(() => {
-    const normalizedQuery = searchTerm.trim().toLowerCase()
+    const normalizedQuery = debouncedSearch.trim().toLowerCase()
 
     if (!normalizedQuery) {
       return customers
