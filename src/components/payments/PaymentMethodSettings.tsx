@@ -4,6 +4,7 @@ import {
   Zap, Power, GripVertical, ExternalLink, Wallet,
   ArrowRight, ShieldCheck, BookOpen,
 } from 'lucide-react';
+import { MpPlatformSetup } from './MpPlatformSetup';
 import { useAuth } from '../../contexts/AuthContext';
 import { paymentButtonService, PaymentButton, NewPaymentButton } from '../../services/paymentButtonService';
 import { formatFeeLabel, PAYMENT_TYPE_LABELS, PROVIDER_LABELS, INTEGRATION_LABELS } from '../../services/paymentCalculator';
@@ -233,20 +234,24 @@ export function PaymentMethodSettings() {
   const [showForm, setShowForm]   = useState(false);
   const [editing, setEditing]     = useState<PaymentButton | null>(null);
   const [deleting, setDeleting]   = useState<string | null>(null);
-  const [mpStatus, setMpStatus]   = useState<{ connected: boolean; is_active?: boolean; mp_user_id?: string } | null>(null);
-  const [mpLoading, setMpLoading] = useState(false);
+  const [mpStatus, setMpStatus]       = useState<{ connected: boolean; is_active?: boolean; mp_user_id?: string; platform_configured?: boolean } | null>(null);
+  const [mpLoading, setMpLoading]     = useState(false);
+  const [platformReady, setPlatformReady] = useState<boolean | null>(null);
 
   const reload = async () => {
     if (!businessId) return;
     setLoading(true);
     try {
-      const [btns, mp] = await Promise.all([
+      const [btns, mpRes] = await Promise.all([
         paymentButtonService.getAll(businessId),
         supabase.functions.invoke('mp-oauth', { body: { action: 'status', business_id: businessId } })
-          .then(r => r.data).catch(() => null),
+          .then(r => r).catch(() => ({ data: null, error: null })),
       ]);
       setButtons(btns);
-      setMpStatus(mp);
+      setMpStatus(mpRes.data);
+      // Si la función retorna error de client_id vacío, la plataforma no está configurada
+      const notConfigured = !mpRes.data || mpRes.error?.message?.includes('client_id');
+      setPlatformReady(!notConfigured);
     } finally {
       setLoading(false);
     }
@@ -306,8 +311,16 @@ export function PaymentMethodSettings() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
-      {/* ── Banner de onboarding (solo si no está conectado) ─────────── */}
-      {!mpStatus?.connected && (
+      {/* ── Wizard de setup de plataforma (solo si los secrets no están configurados) ── */}
+      {platformReady === false && (
+        <MpPlatformSetup
+          supabaseProjectRef="vrdxxmjzxhfgqlnxmbwx"
+          appUrl={window.location.origin}
+        />
+      )}
+
+      {/* ── Banner de onboarding (solo si la plataforma está lista y MP no está conectado) ── */}
+      {platformReady !== false && !mpStatus?.connected && (
         <div style={{
           background: 'linear-gradient(135deg, rgba(0,158,227,0.1), rgba(0,188,255,0.05))',
           border: '1px solid rgba(0,158,227,0.25)',
