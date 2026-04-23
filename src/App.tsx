@@ -36,6 +36,7 @@ import { SubscriptionSuspended } from './pages/SubscriptionSuspended'
 import { AdminSubscriptions } from './pages/AdminSubscriptions'
 import { Tutorials } from './pages/Tutorials'
 import WhatsAppPage from './pages/WhatsApp'
+import { MpCallback } from './pages/MpCallback'
 
 function AppContent() {
   const { loadingState } = useLoading()
@@ -57,6 +58,7 @@ function AppContent() {
         <Route path="/accept-invite" element={<AcceptInvite />} />
         <Route path="/no-business" element={<NoBusiness />} />
         <Route path="/customer-portal" element={<CustomerPortal />} />
+        <Route path="/mp/callback" element={<MpCallback />} />
 
         <Route element={<ProtectedRoute />}>
           <Route element={<MainLayout />}>

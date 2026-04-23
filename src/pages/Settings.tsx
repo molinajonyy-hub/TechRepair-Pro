@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Building2,
   MapPin,
@@ -89,7 +90,10 @@ interface ArcaConfig {
 
 export default function Settings() {
   const { businessId } = useAuth()
-  const [activeTab, setActiveTab] = useState<TabType>('datos')
+  const [searchParams]  = useSearchParams()
+  const [activeTab, setActiveTab] = useState<TabType>(
+    (searchParams.get('tab') as TabType) ?? 'datos'
+  )
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
