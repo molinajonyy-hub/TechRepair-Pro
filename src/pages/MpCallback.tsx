@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,7 +13,6 @@ import logoSvg from '../assets/logo.svg';
  */
 export function MpCallback() {
   const [searchParams] = useSearchParams();
-  const navigate       = useNavigate();
   const { businessId } = useAuth();
 
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
@@ -27,14 +26,14 @@ export function MpCallback() {
     if (error) {
       setStatus('error');
       setMessage('Autorización cancelada o rechazada por Mercado Pago.');
-      setTimeout(() => navigate('/configuracion'), 3000);
+      setTimeout(() => { window.location.href = '/settings'; }, 3000);
       return;
     }
 
     if (!code || !state) {
       setStatus('error');
       setMessage('Parámetros inválidos en la URL de callback.');
-      setTimeout(() => navigate('/configuracion'), 3000);
+      setTimeout(() => { window.location.href = '/settings'; }, 3000);
       return;
     }
 
@@ -53,17 +52,17 @@ export function MpCallback() {
         if (fnError || data?.error) {
           setStatus('error');
           setMessage(fnError?.message ?? data?.error ?? 'Error al conectar con Mercado Pago.');
-          setTimeout(() => navigate('/settings?tab=pagos'), 4000);
+          setTimeout(() => { window.location.href = '/settings?tab=pagos'; }, 4000);
         } else {
           setStatus('success');
           setMessage('¡Mercado Pago conectado correctamente!');
-          setTimeout(() => navigate('/settings?tab=pagos'), 2000);
+          setTimeout(() => { window.location.href = '/settings?tab=pagos'; }, 2000);
         }
       })
       .catch(err => {
         setStatus('error');
         setMessage(err?.message ?? 'Error inesperado.');
-        setTimeout(() => navigate('/settings?tab=pagos'), 4000);
+        setTimeout(() => { window.location.href = '/settings?tab=pagos'; }, 4000);
       });
   }, []);
 
