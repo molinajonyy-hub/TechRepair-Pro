@@ -21,14 +21,14 @@ import {
 
 } from 'lucide-react'
 import { OrderPrintSettings } from '../components/settings/OrderPrintSettings'
-
 import { ComprobantePrintSettings } from '../components/settings/ComprobantePrintSettings'
+import { PaymentMethodSettings } from '../components/payments/PaymentMethodSettings'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import ArcaService from '../services/arcaService'
 import { uploadBusinessLogo } from '../lib/storageSetup'
 
-type TabType = 'datos' | 'puntos' | 'arca' | 'preferencias' | 'seguridad' | 'orden' | 'comprobante'
+type TabType = 'datos' | 'puntos' | 'arca' | 'preferencias' | 'seguridad' | 'orden' | 'comprobante' | 'pagos'
 
 interface BusinessSettings {
   id?: string
@@ -566,6 +566,7 @@ export default function Settings() {
     { id: 'seguridad' as TabType, label: 'Seguridad', icon: Shield },
     { id: 'orden' as TabType, label: 'Orden Impresa', icon: Printer },
     { id: 'comprobante' as TabType, label: 'Comprobantes', icon: FileText },
+    { id: 'pagos' as TabType, label: 'Cobros y Pagos', icon: Shield },
   ]
 
   if (loading) {
@@ -1672,6 +1673,20 @@ export default function Settings() {
         {activeTab === 'comprobante' && (
           <div className="card" style={{ padding: '2rem' }}>
             <ComprobantePrintSettings />
+          </div>
+        )}
+
+        {activeTab === 'pagos' && (
+          <div style={{ maxWidth: '860px' }}>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f1f5f9', margin: 0 }}>
+                Cobros y Pagos
+              </h2>
+              <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.375rem' }}>
+                Conectá Mercado Pago y configurá los botones de cobro que aparecen en cada comprobante.
+              </p>
+            </div>
+            <PaymentMethodSettings />
           </div>
         )}
 

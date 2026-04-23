@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, AlertCircle, CheckCircle, Loader2, ExternalLink, TrendingUp } from 'lucide-react';
+import { ArrowLeft, AlertCircle, CheckCircle, Loader2, ExternalLink, TrendingUp, Wallet } from 'lucide-react';
+import { PaymentButtonsPanel } from '../components/payments/PaymentButtonsPanel';
 import { supabase } from '../lib/supabase';
 import { useComprobantes } from '../hooks/useComprobantes';
 import { useOrderPrintSettings } from '../hooks/useOrderPrintSettings';
@@ -409,6 +410,29 @@ export default function ComprobantePage() {
                   </div>
                   <ExternalLink size={14} style={{ color: 'var(--text-muted)' }} />
                 </Link>
+              </div>
+            )}
+
+            {/* Panel de cobros */}
+            {comprobanteActual && !['anulado','cancelled'].includes(comprobanteActual.estado || '') && (
+              <div style={{
+                marginTop: '1rem', padding: '1rem',
+                backgroundColor: '#0a1628',
+                border: '1px solid rgba(99,102,241,0.2)',
+                borderRadius: '0.75rem',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginBottom: '0.875rem' }}>
+                  <Wallet size={14} style={{ color: '#818cf8' }} />
+                  <p style={{ margin: 0, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#475569' }}>
+                    Cobrar
+                  </p>
+                </div>
+                <PaymentButtonsPanel
+                  comprobanteId={comprobanteActual.id}
+                  totalBruto={(comprobanteActual as any).total_bruto || comprobanteActual.total || 0}
+                  saldoPendiente={(comprobanteActual as any).saldo_pendiente ?? (comprobanteActual as any).total_bruto ?? comprobanteActual.total ?? 0}
+                  onPaymentRegistered={() => id && cargarComprobante(id)}
+                />
               </div>
             )}
 
