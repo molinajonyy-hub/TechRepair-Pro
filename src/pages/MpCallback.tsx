@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
+import logoSvg from '../assets/logo.svg';
 
 /**
  * Página de callback OAuth de Mercado Pago.
@@ -82,15 +83,26 @@ export function MpCallback() {
         width: '100%',
         margin: '1rem',
       }}>
-        {/* Logo MP */}
+        {/* Logos: TechRepair + MP */}
         <div style={{
-          width: '4rem', height: '4rem', borderRadius: '1rem',
-          background: 'linear-gradient(135deg, #009ee3, #00bcff)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          margin: '0 auto 1.5rem',
-          fontSize: '1.75rem',
+          gap: '0.75rem', margin: '0 auto 1.5rem',
         }}>
-          💳
+          <img
+            src={logoSvg}
+            alt="TechRepair Pro"
+            style={{ width: '3.5rem', height: '3.5rem', borderRadius: '0.875rem' }}
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            <div style={{ width: '1.5rem', height: '2px', background: 'rgba(255,255,255,0.15)', borderRadius: '2px' }} />
+            <div style={{ width: '1.5rem', height: '2px', background: 'rgba(255,255,255,0.15)', borderRadius: '2px' }} />
+          </div>
+          <div style={{
+            width: '3.5rem', height: '3.5rem', borderRadius: '0.875rem',
+            background: 'linear-gradient(135deg, #009ee3, #00bcff)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '1.5rem',
+          }}>💳</div>
         </div>
 
         {status === 'loading' && (

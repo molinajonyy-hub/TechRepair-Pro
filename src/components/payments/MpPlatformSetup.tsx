@@ -8,6 +8,7 @@ import {
   CheckCircle2, Copy, ExternalLink, ChevronRight,
   AlertCircle, Terminal, Globe, Key, Zap,
 } from 'lucide-react';
+import logoSvg from '../../assets/logo.svg';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 

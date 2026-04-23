@@ -8,6 +8,7 @@ import {
   Settings, Upload, Key, Globe, Terminal,
   Wallet, Smartphone, CreditCard, Zap, Lock, ArrowRight,
 } from 'lucide-react'
+import logoSvg from '../assets/logo.svg'
 
 // ── Componentes de ayuda ──────────────────────────────────────────
 
@@ -749,7 +750,7 @@ function TutorialMercadoPago() {
             Esta pantalla muestra <strong>exactamente qué permisos le estás dando</strong>:
           </p>
 
-          <Screenshot label="Pantalla de autorización de Mercado Pago">
+          <Screenshot label="Así va a verse la pantalla de autorización con tu logo">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: 360 }}>
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>
@@ -758,6 +759,18 @@ function TutorialMercadoPago() {
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                   Revisá los permisos que vas a otorgar
                 </div>
+              </div>
+              {/* Logos con el tuyo en vez del Joker */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.875rem', padding: '0.875rem', border: '1px solid var(--border-color)', borderRadius: '0.625rem', background: 'var(--bg-main)' }}>
+                <img src={logoSvg} alt="TechRepair Pro" style={{ width: '3.25rem', height: '3.25rem', borderRadius: '0.75rem' }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ width: '1.25rem', height: '2px', background: 'rgba(255,255,255,0.15)', borderRadius: '2px' }} />
+                  <div style={{ width: '1.25rem', height: '2px', background: 'rgba(255,255,255,0.15)', borderRadius: '2px' }} />
+                </div>
+                <div style={{ width: '3.25rem', height: '3.25rem', borderRadius: '0.75rem', background: 'linear-gradient(135deg,#009ee3,#00bcff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem' }}>💳</div>
+              </div>
+              <div style={{ padding: '0.375rem 0.75rem', background: 'var(--bg-main)', border: '1px solid var(--border-color)', borderRadius: '0.375rem', textAlign: 'center' }}>
+                <div style={{ fontWeight: 700, fontSize: '0.8rem', color: 'var(--text-primary)' }}>TechRepair Pro</div>
               </div>
               {[
                 { ok: true, text: 'Ver datos privados de tu cuenta (perfil, movimientos)' },
@@ -768,10 +781,7 @@ function TutorialMercadoPago() {
                   <span style={{ fontSize: '0.825rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{p.text}</span>
                 </div>
               ))}
-              <div style={{
-                background: '#009ee3', borderRadius: '0.5rem', padding: '0.625rem',
-                textAlign: 'center', color: '#fff', fontSize: '0.875rem', fontWeight: 700,
-              }}>Autorizar</div>
+              <div style={{ background: '#009ee3', borderRadius: '0.5rem', padding: '0.625rem', textAlign: 'center', color: '#fff', fontSize: '0.875rem', fontWeight: 700 }}>Autorizar</div>
               <div style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Por ahora no</div>
             </div>
           </Screenshot>
