@@ -1,221 +1,104 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw, FileText, TrendingUp, Receipt, Loader2, AlertTriangle } from 'lucide-react';
 import { CloseButton } from '../components/ui/CloseButton';
-import { useComprobantes, TipoComprobante } from '../hooks/useComprobantes';
-import { Comprobante } from '../hooks/useComprobantes';
 import { ComprobantesTable } from '../components/comprobantes/ComprobantesTable';
 import { ModalCrearComprobante } from '../components/comprobantes/ModalCrearComprobante';
 import { ModalGenerarComprobante } from '../components/comprobantes/ModalGenerarComprobante';
 import { Loader } from '../components/ui/Loader';
 import { useAuth } from '../contexts/AuthContext';
-import ArcaService from '../services/arcaService';
-import { supabase } from '../lib/supabase';
+import comprobanteService, { TipoComprobante, Comprobante } from '../services/comprobanteService';
 
 export default function ComprobantesPage() {
-  const { businessId } = useAuth();
+  const { businessId, user } = useAuth();
   const navigate = useNavigate();
-  const {
-    comprobantes,
-    loading,
-    error,
-    listarComprobantes,
-    limpiarError,
-    crearComprobanteIndependiente
-  } = useComprobantes();
 
-  const [showModal, setShowModal] = useState(false);
+  const [comprobantes, setComprobantes] = useState<Comprobante[]>([]);
+  const [loading, setLoading]           = useState(false);
+  const [error, setError]               = useState<string | null>(null);
+
+  const [showModal, setShowModal]               = useState(false);
   const [showTipoSelector, setShowTipoSelector] = useState(false);
   const [tipoSeleccionado, setTipoSeleccionado] = useState<TipoComprobante | undefined>(undefined);
-  const [pvSeleccionado, setPvSeleccionado] = useState<string | undefined>(undefined);
+  const [pvSeleccionado, setPvSeleccionado]     = useState<string | undefined>(undefined);
   const [condicionSeleccionada, setCondicionSeleccionada] = useState<string | undefined>(undefined);
-  const [creando, setCreando] = useState(false);
 
-  // ── Acción: Editar ────────────────────────────────────────────────
-  const handleEdit = (comp: Comprobante) => {
-    navigate(`/comprobantes/${comp.id}`)
-  }
+  // ── Cargar comprobantes ──────────────────────────────────────────────────────
+  const cargarComprobantes = useCallback(async () => {
+    if (!businessId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await comprobanteService.getAll(businessId);
+      setComprobantes(data);
+    } catch (e: any) {
+      setError(e.message || 'Error al cargar comprobantes');
+    } finally {
+      setLoading(false);
+    }
+  }, [businessId]);
 
-  // ── Acción: Anular (emitido → anulado + stock + finanzas) ────────
-  const [anulando, setAnulando] = useState<Comprobante | null>(null)
-  const [anulandoMotivo, setAnulandoMotivo] = useState('')
-  const [actionLoading, setActionLoading] = useState<string | null>(null)
-  const [actionError, setActionError] = useState<string | null>(null)
+  const limpiarError = () => setError(null);
+
+  const handleEdit = (comp: Comprobante) => navigate(`/comprobantes/${comp.id}`);
+
+  // ── Anular ───────────────────────────────────────────────────────────────────
+  const [anulando, setAnulando]         = useState<Comprobante | null>(null);
+  const [anulandoMotivo, setAnulandoMotivo] = useState('');
+  const [actionLoading, setActionLoading]  = useState<string | null>(null);
+  const [actionError, setActionError]      = useState<string | null>(null);
 
   const confirmarAnular = async () => {
-    if (!anulando) return
-    setActionLoading(anulando.id)
-    setActionError(null)
+    if (!anulando || !businessId) return;
+    setActionLoading(anulando.id);
+    setActionError(null);
     try {
-      // 1. Obtener items con inventory_id
-      const { data: items } = await supabase
-        .from('comprobante_items')
-        .select('inventory_id, cantidad')
-        .eq('comprobante_id', anulando.id)
-        .not('inventory_id', 'is', null)
-
-      // 2. Devolver stock
-      if (items && items.length > 0) {
-        for (const item of items) {
-          if (!item.inventory_id) continue
-          const { data: inv } = await supabase
-            .from('inventory')
-            .select('stock_quantity')
-            .eq('id', item.inventory_id)
-            .single()
-          if (inv) {
-            await supabase
-              .from('inventory')
-              .update({ stock_quantity: (inv.stock_quantity || 0) + item.cantidad })
-              .eq('id', item.inventory_id)
-            // Movimiento de inventario
-            await supabase.from('inventory_movements').insert({
-              inventory_id: item.inventory_id,
-              business_id: businessId,
-              type: 'return',
-              quantity: item.cantidad,
-              notes: `Anulación comprobante ${anulando.numero || anulando.id.slice(0, 8)}`,
-            })
-          }
-        }
-      }
-
-      // 3. Revertir entrada de finanzas si existe
-      const { data: finEntry } = await supabase
-        .from('business_finance_entries')
-        .select('id, amount')
-        .eq('reference_id', anulando.id)
-        .maybeSingle()
-      if (finEntry) {
-        await supabase.from('business_finance_entries').insert({
-          business_id: businessId,
-          type: 'expense',
-          category: 'anulacion_comprobante',
-          amount: finEntry.amount,
-          description: `Reversión por anulación comprobante ${anulando.numero || anulando.id.slice(0, 8)}`,
-          reference_id: anulando.id,
-          date: new Date().toISOString(),
-        })
-      }
-
-      // 4. Marcar como anulado
-      const { error: updErr } = await supabase
-        .from('comprobantes')
-        .update({
-          estado: 'anulado',
-          afip_response: { anulacion: { motivo: anulandoMotivo || null, fecha: new Date().toISOString() } },
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', anulando.id)
-      if (updErr) throw updErr
-
-      setAnulando(null)
-      setAnulandoMotivo('')
-      await listarComprobantes()
+      const result = await comprobanteService.anular(
+        anulando.id, businessId, user?.id || '', anulandoMotivo || undefined
+      );
+      if (!result.success) throw new Error(result.error);
+      setAnulando(null);
+      setAnulandoMotivo('');
+      await cargarComprobantes();
     } catch (e: any) {
-      setActionError(e.message || 'Error al anular el comprobante')
+      setActionError(e.message || 'Error al anular el comprobante');
     } finally {
-      setActionLoading(null)
+      setActionLoading(null);
     }
-  }
+  };
 
-  // ── Acción: Eliminar borrador ─────────────────────────────────────
-  const [eliminando, setEliminando] = useState<Comprobante | null>(null)
-  const [deleteLoading, setDeleteLoading] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
+  // ── Eliminar borrador ────────────────────────────────────────────────────────
+  const [eliminando, setEliminando]   = useState<Comprobante | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError]     = useState<string | null>(null);
 
   const confirmarEliminar = async () => {
-    if (!eliminando) return
-    setDeleteLoading(true)
-    setDeleteError(null)
+    if (!eliminando || !businessId) return;
+    setDeleteLoading(true);
+    setDeleteError(null);
     try {
-      // Eliminar items primero
-      await supabase.from('comprobante_items').delete().eq('comprobante_id', eliminando.id)
-      const { error: delErr } = await supabase.from('comprobantes').delete().eq('id', eliminando.id)
-      if (delErr) throw delErr
-      setEliminando(null)
-      await listarComprobantes()
-    } catch (e: any) {
-      setDeleteError(e.message || 'Error al eliminar el comprobante')
-    } finally {
-      setDeleteLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    cargarComprobantes();
-  }, [listarComprobantes]);
-
-  const cargarComprobantes = async () => {
-    await listarComprobantes();
-  };
-
-  const handleCrearComprobante = async (data: {
-    tipo: TipoComprobante;
-    puntoVenta: string;
-    condicionFiscal: string;
-    clienteId: string | null;
-    exchangeRate?: number;
-    items: {
-      descripcion: string;
-      cantidad: number;
-      precio_unitario: number;
-      currency?: 'ARS' | 'USD';
-      exchange_rate?: number;
-      inventory_id?: string;
-    }[];
-    esElectronica?: boolean;
-  }) => {
-    setCreando(true);
-    try {
-      // Primero crear el comprobante internamente
-      await crearComprobanteIndependiente({
-        tipo: data.tipo,
-        punto_venta: data.puntoVenta,
-        condicion_fiscal: data.condicionFiscal,
-        customer_id: data.clienteId,
-        exchange_rate: data.exchangeRate,
-        items: data.items
-      });
-
-      // Si es electrónica, emitir vía ARCA
-      if (data.esElectronica && businessId) {
-        const resultadoArca = await ArcaService.emitirFactura(businessId, {
-          tipo: data.tipo,
-          punto_venta: parseInt(data.puntoVenta),
-          condicion_fiscal: data.condicionFiscal,
-          cliente_id: data.clienteId ?? undefined,
-          items: data.items
-        });
-
-        if (!resultadoArca.success) {
-          alert('Comprobante creado pero error al emitir electrónicamente: ' + resultadoArca.error);
-        } else {
-          alert('Comprobante creado y emitido electrónicamente\nCAE: ' + resultadoArca.cae + '\nVencimiento: ' + resultadoArca.caeVencimiento);
-        }
-      }
-
-      setShowModal(false);
+      const result = await comprobanteService.eliminar(eliminando.id, businessId);
+      if (!result.success) throw new Error(result.error);
+      setEliminando(null);
       await cargarComprobantes();
-    } catch (err: any) {
-      console.error('Error creando comprobante:', err);
-      alert('Error: ' + (err.message || 'Error desconocido al crear comprobante'));
+    } catch (e: any) {
+      setDeleteError(e.message || 'Error al eliminar el comprobante');
     } finally {
-      setCreando(false);
+      setDeleteLoading(false);
     }
   };
 
-  // Calcular estadísticas separadas por moneda
-  const totalEmitido = comprobantes.filter(c => c.estado === 'emitido').length;
-  const totalBorrador = comprobantes.filter(c => c.estado === 'borrador').length;
-  const emitidos = comprobantes.filter(c => c.estado === 'emitido');
-  const montoTotalARS = emitidos
-    .filter(c => (c.currency || 'ARS') === 'ARS')
-    .reduce((sum, c) => sum + (c.total_ars || c.total || 0), 0);
-  const montoTotalUSD = emitidos
-    .filter(c => c.currency === 'USD')
-    .reduce((sum, c) => sum + (c.total_usd || c.total || 0), 0);
-  const hayUSD = montoTotalUSD > 0;
+  useEffect(() => { cargarComprobantes(); }, [cargarComprobantes]);
+
+  // ── Estadísticas ─────────────────────────────────────────────────────────────
+  const isEmitido     = (c: Comprobante) => ['emitido','issued'].includes((c.estado || c.status) ?? '');
+  const isBorrador    = (c: Comprobante) => ['borrador','draft'].includes((c.estado || c.status) ?? '');
+  const totalEmitido  = comprobantes.filter(isEmitido).length;
+  const totalBorrador = comprobantes.filter(isBorrador).length;
+  const emitidos      = comprobantes.filter(isEmitido);
+  const montoTotalARS = emitidos.reduce((s, c) => s + (c.total_ars || c.total || 0), 0);
+  const montoTotalUSD = emitidos.filter(c => c.currency === 'USD').reduce((s, c) => s + (c.total_usd || 0), 0);
+  const hayUSD        = montoTotalUSD > 0;
 
   return (
     <div>
@@ -245,12 +128,12 @@ export default function ComprobantesPage() {
             <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
             Actualizar
           </button>
-          <button onClick={() => setShowTipoSelector(true)} disabled={creando} style={{
+          <button onClick={() => setShowTipoSelector(true)} disabled={loading} style={{
             display: 'flex', alignItems: 'center', gap: '0.5rem',
             padding: '0.625rem 1.25rem',
             background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
             border: 'none', color: '#ffffff', borderRadius: '0.625rem',
-            cursor: creando ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: '0.875rem',
+            cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: '0.875rem',
             boxShadow: '0 4px 12px rgba(99,102,241,0.35)'
           }}>
             <Plus size={18} />
@@ -456,7 +339,7 @@ export default function ComprobantesPage() {
         }}
       />
 
-      {/* Modal Crear Comprobante — se abre con tipo/pv/condicion pre-cargados */}
+      {/* Modal Crear Comprobante — usa el nuevo servicio directamente */}
       <ModalCrearComprobante
         isOpen={showModal}
         onClose={() => {
@@ -465,8 +348,13 @@ export default function ComprobantesPage() {
           setPvSeleccionado(undefined);
           setCondicionSeleccionada(undefined);
         }}
-        onCrear={handleCrearComprobante}
-        loading={creando}
+        onCreado={() => {
+          setShowModal(false);
+          setTipoSeleccionado(undefined);
+          setPvSeleccionado(undefined);
+          setCondicionSeleccionada(undefined);
+          cargarComprobantes();
+        }}
         tipoInicial={tipoSeleccionado}
         puntoVentaInicial={pvSeleccionado}
         condicionFiscalInicial={condicionSeleccionada}

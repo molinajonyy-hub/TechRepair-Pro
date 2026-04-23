@@ -408,4 +408,6 @@ export function useComprobantes(_comprobanteId?: string): UseComprobantesReturn 
 
 // Exportar también el servicio para uso directo
 export { facturacionService, afipService };
-export type { TipoComprobante, Comprobante, ComprobanteItem };
+// Re-exportar tipos del nuevo servicio para compatibilidad hacia adelante
+export type { TipoComprobante, ComprobanteItem };
+export type { Comprobante } from '../services/comprobanteService';

@@ -183,13 +183,13 @@ export function useDashboardStats() {
         statusResult,
         newOrdersTodayResult,
         completedOrdersTodayResult,
-        recentOrdersResult,   // ← 5 órdenes recientes (sin join pesado)
-        paymentsResult,
+        recentOrdersResult,
         pendingResult,
         completedOrdersResult,
         partsResult,
         totalCustomers,
         newCustomersThisMonth,
+        financeResult,
       ] = await Promise.all([
 
         // 1. Total órdenes (COUNT, sin datos)
@@ -227,21 +227,14 @@ export function useDashboardStats() {
           .order('created_at', { ascending: false })
           .limit(5),
 
-        // 6. Pagos últimos 90 días (con filtro de fecha para reducir volumen)
-        supabase
-          .from('order_payments')
-          .select('amount, payment_date, orders!inner(business_id)')
-          .eq('orders.business_id', businessId)
-          .gte('payment_date', ninetyDaysAgo),
-
-        // 7. Pagos pendientes — solo órdenes completadas
+        // 6. Pagos pendientes — órdenes activas con saldo
         supabase
           .from('orders')
           .select('total_cost, amount_paid')
           .eq('business_id', businessId)
-          .eq('status', 'completed'),
+          .in('status', ['completed', 'ready_delivery', 'waiting_payment']),
 
-        // 8. Órdenes completadas para métricas de tiempo (LIMIT 100)
+        // 7. Órdenes completadas para métricas de tiempo (LIMIT 100)
         supabase
           .from('orders')
           .select('created_at, updated_at')
@@ -249,19 +242,27 @@ export function useDashboardStats() {
           .eq('status', 'completed')
           .limit(100),
 
-        // 9. Parts últimos 90 días (con filtro de fecha)
+        // 8. Parts últimos 90 días para margen por item
         supabase
           .from('order_parts')
-          .select('internal_cost, sale_price, quantity, name, added_at, orders!inner(business_id)')
-          .eq('orders.business_id', businessId)
+          .select('internal_cost, sale_price, quantity, name, added_at')
+          .eq('business_id', businessId)
           .in('status', ['used', 'sold'])
           .gte('added_at', ninetyDaysAgo),
 
-        // 10. Total clientes
+        // 9. Total clientes
         loadCustomerCount(),
 
-        // 11. Nuevos clientes este mes
+        // 10. Nuevos clientes este mes
         loadCustomerCount(monthAgo),
+
+        // 11. Resumen financiero desde business_finance_entries (fuente unificada)
+        supabase
+          .from('business_finance_entries')
+          .select('type, amount_ars, date')
+          .eq('business_id', businessId)
+          .gte('date', ninetyDaysAgo.split('T')[0])
+          .lte('date', today),
       ])
 
       // ── Procesar resultados ─────────────────────────────────────────
@@ -284,33 +285,37 @@ export function useDashboardStats() {
 
       // 5 órdenes recientes — sin join, campos planos
       const recentOrders: RecentOrder[] = (recentOrdersResult.data || []).map(o => ({
-        id:           o.id,
-        status:       o.status,
-        created_at:   o.created_at,
-        customer_name: null,  // no hacemos join pesado — mostramos ID corto
+        id:            o.id,
+        status:        o.status,
+        created_at:    o.created_at,
+        customer_name: null,
         device_label:  null,
       }))
 
-      // Ingresos últimos 90 días (opcional)
+      // ── Ingresos desde business_finance_entries (fuente unificada) ──
       let totalRevenue     = 0
       let revenueToday     = 0
       let revenueThisWeek  = 0
       let revenueThisMonth = 0
+      const todayDate    = today                          // 'YYYY-MM-DD'
+      const weekAgoDate  = weekAgo.split('T')[0]
+      const monthAgoDate = monthAgo.split('T')[0]
 
-      if (!paymentsResult.error && paymentsResult.data) {
-        totalRevenue     = paymentsResult.data.reduce((s, p) => s + (p.amount || 0), 0)
-        revenueToday     = paymentsResult.data.filter(p => p.payment_date >= today).reduce((s, p) => s + (p.amount || 0), 0)
-        revenueThisWeek  = paymentsResult.data.filter(p => p.payment_date >= weekAgo).reduce((s, p) => s + (p.amount || 0), 0)
-        revenueThisMonth = paymentsResult.data.filter(p => p.payment_date >= monthAgo).reduce((s, p) => s + (p.amount || 0), 0)
+      if (!financeResult.error && financeResult.data) {
+        const incomeEntries = financeResult.data.filter(e => e.type === 'income')
+        totalRevenue     = incomeEntries.reduce((s, e) => s + (e.amount_ars || 0), 0)
+        revenueToday     = incomeEntries.filter(e => e.date >= todayDate).reduce((s, e) => s + (e.amount_ars || 0), 0)
+        revenueThisWeek  = incomeEntries.filter(e => e.date >= weekAgoDate).reduce((s, e) => s + (e.amount_ars || 0), 0)
+        revenueThisMonth = incomeEntries.filter(e => e.date >= monthAgoDate).reduce((s, e) => s + (e.amount_ars || 0), 0)
       }
 
-      // Pagos pendientes (opcional)
+      // Pagos pendientes (órdenes activas con saldo)
       let pendingPayments = 0
       if (!pendingResult.error && pendingResult.data) {
         pendingPayments = pendingResult.data.reduce((sum, o) => {
           const total = o.total_cost || 0
           const paid  = o.amount_paid || 0
-          return paid < total || !paid ? sum + (total - paid) : sum
+          return paid < total ? sum + (total - paid) : sum
         }, 0)
       }
 
@@ -351,9 +356,10 @@ export function useDashboardStats() {
         const calcRevenue = (list: typeof parts) =>
           list.reduce((s, p) => s + p.sale_price * p.quantity, 0)
 
-        realProfitToday    = calcProfit(parts.filter(p => p.added_at >= today + 'T00:00:00'))
-        realProfitThisWeek = calcProfit(parts.filter(p => p.added_at >= weekAgo))
-        realProfitThisMonth = calcProfit(parts.filter(p => p.added_at >= monthAgo))
+        // Comparar solo la parte de fecha (primeros 10 chars de ISO)
+        realProfitToday     = calcProfit(parts.filter(p => p.added_at?.slice(0, 10) >= todayDate))
+        realProfitThisWeek  = calcProfit(parts.filter(p => p.added_at?.slice(0, 10) >= weekAgoDate))
+        realProfitThisMonth = calcProfit(parts.filter(p => p.added_at?.slice(0, 10) >= monthAgoDate))
 
         const totalRev    = calcRevenue(parts)
         const totalProfit = calcProfit(parts)

@@ -58,21 +58,95 @@ export function Expenses() {
     monto: number;
     fecha: string;
     proveedor: string;
+    metodoPago?: string;
   }) => {
     setCreando(true)
     try {
-      const { error } = await supabase
+      const metodoPago = data.metodoPago || 'efectivo'
+      const monto      = data.monto || 0
+
+      // Mapear categoría de gasto simple a tipo/categoría de finanzas
+      const financeTypeMap: Record<string, string> = {
+        inventario:   'variable_cost',
+        operativos:   'fixed_cost_local',
+        equipamiento: 'fixed_cost_local',
+        marketing:    'fixed_cost_local',
+        otros:        'fixed_cost_local',
+      }
+      const financeCategoryMap: Record<string, string> = {
+        inventario:   'mercaderia',
+        operativos:   'otros_fijos_local',
+        equipamiento: 'mantenimiento',
+        marketing:    'publicidad',
+        otros:        'otros_fijos_local',
+      }
+      const catKey       = data.categoria.toLowerCase()
+      const financeType  = financeTypeMap[catKey]  || 'fixed_cost_local'
+      const financeCategory = financeCategoryMap[catKey] || 'otros_fijos_local'
+
+      // 1. Registrar en business_finance_entries primero
+      const { data: bfeRow, error: bfeError } = await supabase
+        .from('business_finance_entries')
+        .insert({
+          business_id:   businessId,
+          date:          data.fecha,
+          type:          financeType,
+          category:      financeCategory,
+          description:   data.descripcion + (data.proveedor ? ` — ${data.proveedor}` : ''),
+          amount:        monto,
+          currency:      'ARS',
+          amount_ars:    monto,
+          exchange_rate: 1,
+          payment_method: metodoPago,
+          source:        'expense',
+          created_by:    user?.id,
+        })
+        .select('id')
+        .single()
+
+      if (bfeError) throw bfeError
+
+      // 2. Guardar en expenses con referencia al bfe
+      const { error: expError } = await supabase
         .from('expenses')
         .insert({
-          description: data.descripcion,
-          category: data.categoria,
-          amount: data.monto,
-          date: data.fecha,
-          business_id: businessId
+          description:      data.descripcion,
+          category:         data.categoria,
+          amount:           monto,
+          amount_ars:       monto,
+          date:             data.fecha,
+          business_id:      businessId,
+          payment_method:   metodoPago,
+          currency:         'ARS',
+          exchange_rate:    1,
+          finance_entry_id: bfeRow?.id || null,
+          created_by:       user?.id,
         })
-      
-      if (error) throw error
-      
+
+      if (expError) throw expError
+
+      // 3. Si es efectivo, registrar movimiento de caja
+      if (metodoPago === 'efectivo') {
+        await supabase
+          .from('financial_movements')
+          .insert({
+            business_id:   businessId,
+            date:          data.fecha,
+            type:          'expense',
+            currency:      'ARS',
+            amount:        monto,
+            exchange_rate: 1,
+            amount_ars:    monto,
+            description:   data.descripcion,
+            source:        'expense',
+            reference_id:  bfeRow?.id || null,
+            created_by:    user?.id,
+          })
+          .then(({ error: fmErr }) => {
+            if (fmErr) console.warn('No se pudo registrar en caja:', fmErr.message)
+          })
+      }
+
       setShowModal(false)
       loadExpenses()
     } catch (error) {

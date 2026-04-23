@@ -61,6 +61,7 @@ interface ModalCrearGastoProps {
     monto: number
     fecha: string
     proveedor: string
+    metodoPago?: string
   }) => void
   onSuccess?: () => void
   loading?: boolean
@@ -471,6 +472,7 @@ export function ModalCrearGasto({
   const [monto, setMonto] = useState('')
   const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0])
   const [proveedor, setProveedor] = useState('')
+  const [metodoPago, setMetodoPago] = useState('efectivo')
 
   // Inventory purchase state
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
@@ -534,6 +536,7 @@ export function ModalCrearGasto({
     setMonto('')
     setFecha(new Date().toISOString().split('T')[0])
     setProveedor('')
+    setMetodoPago('efectivo')
     setSupplierQuery('')
     setSelectedSupplierId(null)
     setInvoiceNumber('')
@@ -561,7 +564,7 @@ export function ModalCrearGasto({
   const handleSimpleSubmit = () => {
     if (!descripcion.trim()) { alert('Ingresá una descripción'); return }
     if (!monto || parseFloat(monto) <= 0) { alert('Ingresá un monto válido'); return }
-    onCrear({ descripcion, categoria, monto: parseFloat(monto), fecha, proveedor })
+    onCrear({ descripcion, categoria, monto: parseFloat(monto), fecha, proveedor, metodoPago })
   }
 
   // ─── Inventory purchase submit ──────────────────────────────────────────────
@@ -1220,6 +1223,23 @@ export function ModalCrearGasto({
                   style={inputStyle}
                 />
               </div>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Método de pago</label>
+              <select
+                value={metodoPago}
+                onChange={e => setMetodoPago(e.target.value)}
+                style={inputStyle}
+              >
+                <option value="efectivo">Efectivo</option>
+                <option value="transferencia">Transferencia</option>
+                <option value="tarjeta_debito">Tarjeta de débito</option>
+                <option value="tarjeta_credito">Tarjeta de crédito</option>
+                <option value="mercadopago">MercadoPago</option>
+                <option value="cheque">Cheque</option>
+                <option value="otro">Otro</option>
+              </select>
             </div>
 
             {/* Mini summary */}
