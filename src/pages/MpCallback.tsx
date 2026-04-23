@@ -53,17 +53,17 @@ export function MpCallback() {
         if (fnError || data?.error) {
           setStatus('error');
           setMessage(fnError?.message ?? data?.error ?? 'Error al conectar con Mercado Pago.');
-          setTimeout(() => navigate('/configuracion?tab=pagos'), 4000);
+          setTimeout(() => navigate('/settings?tab=pagos'), 4000);
         } else {
           setStatus('success');
           setMessage('¡Mercado Pago conectado correctamente!');
-          setTimeout(() => navigate('/configuracion?tab=pagos'), 2000);
+          setTimeout(() => navigate('/settings?tab=pagos'), 2000);
         }
       })
       .catch(err => {
         setStatus('error');
         setMessage(err?.message ?? 'Error inesperado.');
-        setTimeout(() => navigate('/configuracion?tab=pagos'), 4000);
+        setTimeout(() => navigate('/settings?tab=pagos'), 4000);
       });
   }, []);
 

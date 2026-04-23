@@ -1028,7 +1028,7 @@ function TutorialMercadoPago() {
 
       <Callout type="success">
         <strong>¿Querés empezar ahora?</strong> Andá a{' '}
-        <a href="/configuracion?tab=pagos" style={{ color: '#34d399', fontWeight: 700 }}>
+        <a href="/settings?tab=pagos" style={{ color: '#34d399', fontWeight: 700 }}>
           Configuración → Cobros y Pagos
         </a>{' '}
         y conectá tu cuenta de Mercado Pago en menos de 2 minutos.
