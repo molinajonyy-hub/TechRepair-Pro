@@ -16,6 +16,7 @@ import {
   TipoComprobante, TipoLinea, MedioPago,
   ComprobantePago, CrearComprobanteInput,
 } from '../../services/comprobanteService';
+import { MpPaymentModal } from '../payments/MpPaymentModal';
 
 // ─── Sub-types ────────────────────────────────────────────────────────────────
 
@@ -167,6 +168,9 @@ export function ModalCrearComprobante({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [arcaWarning, setArcaWarning] = useState<string | null>(null);
+  // Modal de cobro MP (se abre cuando el comprobante ya fue creado)
+  const [showMpModal, setShowMpModal]         = useState(false);
+  const [createdComprobanteId, setCreatedComprobanteId] = useState<string | null>(null);
 
   const clienteWrapperRef = useRef<HTMLDivElement>(null);
 
@@ -405,11 +409,19 @@ export function ModalCrearComprobante({
       setArcaWarning(result.arcaError);
     }
 
+    // Guardar el ID del comprobante creado para el modal MP
+    if (result.comprobante?.id) {
+      setCreatedComprobanteId(result.comprobante.id);
+    }
+
     setSubmitSuccess(true);
-    setTimeout(() => {
-      onCreado?.();
-      onClose();
-    }, 1800);
+    // Si no tiene pagos registrados, no cerrar — dejar que el usuario cobre con MP
+    if (pagos.filter(p => parseFloat(p.amount) > 0).length > 0) {
+      setTimeout(() => {
+        onCreado?.();
+        onClose();
+      }, 1800);
+    }
 
     setSubmitting(false);
   };
@@ -865,8 +877,40 @@ export function ModalCrearComprobante({
               </div>
             </div>
 
+            {/* Botón Cobrar con Mercado Pago */}
+            {createdComprobanteId ? (
+              <button
+                onClick={() => setShowMpModal(true)}
+                style={{
+                  width: '100%', padding: '0.75rem',
+                  background: 'linear-gradient(135deg, #009ee3, #00bcff)',
+                  border: 'none', borderRadius: '0.625rem',
+                  color: '#fff', fontWeight: 700, fontSize: '0.875rem',
+                  cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                  boxShadow: '0 4px 16px rgba(0,158,227,0.35)',
+                }}
+              >
+                <Zap size={15} />
+                Cobrar con Mercado Pago
+              </button>
+            ) : (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '0.625rem',
+                padding: '0.625rem 0.875rem',
+                background: 'rgba(0,158,227,0.05)',
+                border: '1px solid rgba(0,158,227,0.15)',
+                borderRadius: '0.5rem',
+              }}>
+                <Smartphone size={13} style={{ color: '#38bdf8', flexShrink: 0 }} />
+                <span style={{ fontSize: '0.78rem', color: '#475569' }}>
+                  El botón <strong style={{ color: '#38bdf8' }}>Cobrar con Mercado Pago</strong> estará disponible al crear el comprobante.
+                </span>
+              </div>
+            )}
+
             {pagos.length === 0 && (
-              <p style={{ fontSize: '0.8rem', color: '#475569', textAlign: 'center', padding: '0.5rem' }}>
+              <p style={{ fontSize: '0.8rem', color: '#475569', textAlign: 'center', padding: '0.25rem 0' }}>
                 Sin cobro registrado — el comprobante quedará como pendiente de cobro.
               </p>
             )}
@@ -1140,6 +1184,22 @@ export function ModalCrearComprobante({
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
+
+      {/* Modal de cobro con Mercado Pago — disponible tras crear el comprobante */}
+      {createdComprobanteId && (
+        <MpPaymentModal
+          isOpen={showMpModal}
+          onClose={() => setShowMpModal(false)}
+          comprobanteId={createdComprobanteId}
+          totalBruto={totales.total}
+          saldoPendiente={totales.total - totales.totalPagado}
+          onPagoRegistrado={() => {
+            setShowMpModal(false);
+            onCreado?.();
+            onClose();
+          }}
+        />
+      )}
     </div>
   );
 }
