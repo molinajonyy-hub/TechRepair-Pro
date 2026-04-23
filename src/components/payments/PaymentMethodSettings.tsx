@@ -242,16 +242,38 @@ export function PaymentMethodSettings() {
     if (!businessId) return;
     setLoading(true);
     try {
-      const [btns, mpRes] = await Promise.all([
-        paymentButtonService.getAll(businessId),
-        supabase.functions.invoke('mp-oauth', { body: { action: 'status', business_id: businessId } })
-          .then(r => r).catch(() => ({ data: null, error: null })),
+      // Consultar mp_accounts y payment_method_buttons directamente — más confiable que el Edge Function
+      const [btnsRes, mpRes] = await Promise.all([
+        supabase
+          .from('payment_method_buttons')
+          .select('*')
+          .eq('business_id', businessId)
+          .eq('is_active', true)
+          .order('sort_order', { ascending: true }),
+        supabase
+          .from('mp_accounts')
+          .select('mp_user_id, is_active, token_expires_at, scope')
+          .eq('business_id', businessId)
+          .eq('is_active', true)
+          .maybeSingle(),
       ]);
-      setButtons(btns);
-      setMpStatus(mpRes.data);
-      // Si la función retorna error de client_id vacío, la plataforma no está configurada
-      const notConfigured = !mpRes.data || mpRes.error?.message?.includes('client_id');
-      setPlatformReady(!notConfigured);
+
+      setButtons((btnsRes.data || []) as PaymentButton[]);
+
+      if (mpRes.data) {
+        setMpStatus({
+          connected:  true,
+          is_active:  mpRes.data.is_active,
+          mp_user_id: mpRes.data.mp_user_id,
+        });
+        setPlatformReady(true);
+      } else {
+        setMpStatus({ connected: false });
+        // Verificar si la plataforma tiene secrets configurados llamando al Edge Function
+        supabase.functions.invoke('mp-oauth', { body: { action: 'status', business_id: businessId } })
+          .then(({ data }) => setPlatformReady(data !== null))
+          .catch(() => setPlatformReady(true)); // Si falla, asumir configurado
+      }
     } finally {
       setLoading(false);
     }
