@@ -158,7 +158,6 @@ export function Dashboard() {
     { label: 'Órdenes Activas', value: activeOrders.toString(), change: `+${stats.newOrdersToday}`, trend: 'up' as const, icon: ClipboardList, color: '#6366f1', subtitle: 'nuevas hoy' },
     { label: 'Clientes Totales', value: stats.totalCustomers.toString(), change: `+${stats.newCustomersThisMonth}`, trend: 'up' as const, icon: Users, color: '#06b6d4', subtitle: 'nuevos este mes' },
     { label: 'Ganancia Real Hoy', value: `$${stats.realProfitToday.toLocaleString()}`, change: `${stats.averageMarginPct.toFixed(1)}% margen`, trend: 'up' as const, icon: TrendingUp, color: '#10b981', subtitle: `$${stats.realProfitThisWeek.toLocaleString()} esta semana` },
-    { label: 'Saldo Pendiente', value: `$${stats.pendingPayments.toLocaleString()}`, change: `${stats.completedOrdersToday} completadas`, trend: 'down' as const, icon: TrendingUp, color: '#f59e0b', subtitle: 'hoy' },
   ] : []
 
   const hasNoData = stats && stats.totalOrders === 0 && stats.totalCustomers === 0
