@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { ModalCobro } from '../components/cobro/ModalCobro'
 import {
   ClipboardList,
   Users,
@@ -35,6 +36,7 @@ const getStatusBadgeStyle = (status: string) => {
 
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState('orders')
+  const [cobroOpen, setCobroOpen] = useState(false)
   const { stats, loading: statsLoading, error: statsError, refresh: refreshStats } = useDashboardStats()
   const { comprobantes, listarComprobantes } = useComprobantes()
   const { businessId } = useAuth()
@@ -199,6 +201,7 @@ export function Dashboard() {
 
   return (
     <div>
+      <ModalCobro isOpen={cobroOpen} onClose={() => setCobroOpen(false)} />
       <div className="dash-header-row" style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h1 className="page-title-h1" style={{ fontSize: '1.875rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
@@ -209,6 +212,22 @@ export function Dashboard() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <button onClick={() => setCobroOpen(true)} style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.625rem 1.125rem',
+            background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+            border: 'none',
+            color: '#ffffff',
+            borderRadius: '0.5rem',
+            cursor: 'pointer',
+            fontWeight: 700,
+            fontSize: '0.9rem',
+            boxShadow: '0 4px 14px rgba(34,197,94,0.35)',
+          }}>
+            💰 + Cobrar
+          </button>
           <Link to="/orders/new" style={{
             display: 'flex',
             alignItems: 'center',
