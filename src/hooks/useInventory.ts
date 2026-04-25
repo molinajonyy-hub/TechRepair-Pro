@@ -77,6 +77,7 @@ export function useInventory() {
         .select('*')
         .eq('is_active', true)
         .order('name', { ascending: true })
+        .limit(5000)
 
       if (businessId) {
         query = query.eq('business_id', businessId)

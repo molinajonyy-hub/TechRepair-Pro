@@ -693,10 +693,33 @@ export function Inventory() {
         if (editingItem) {
           await updateItem(editingItem.id, variantPayload, { skipReload: true })
         } else {
-          await addItem(variantPayload as any, { skipReload: true })
+          // Retry logic: si el código sugerido ya está tomado en DB (23505),
+          // incrementamos el sufijo hasta encontrar uno libre (máx 200 intentos)
+          const isDupe = (e: any) => {
+            const msg = e?.message || e?.toString?.() || ''
+            return e?.code === '23505' || /duplicate key|unique|409/i.test(msg)
+          }
+          const parentCode = variantParentItem.code || cleanedCode
+          let suffix = (variantsByParent[variantParentItem.id]?.length || 0) + 1
+          let lastErr: any = null
+          let saved = false
+          for (let attempt = 0; attempt < 200 && !saved; attempt++) {
+            const codeToTry = attempt === 0
+              ? cleanedCode
+              : `${parentCode}-VAR-${String(suffix + attempt).padStart(2, '0')}`
+            try {
+              await addItem({ ...variantPayload, code: codeToTry } as any, { skipReload: true })
+              saved = true
+            } catch (e: any) {
+              lastErr = e
+              if (!isDupe(e)) throw e
+            }
+          }
+          if (!saved) throw lastErr || new Error('No se pudo generar un código único para la variante')
         }
 
         await refresh({ background: true })
+        setExpandedRows(prev => new Set([...prev, variantParentItem.id]))
         closeModal()
         return
       }
