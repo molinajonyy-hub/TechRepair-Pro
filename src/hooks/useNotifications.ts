@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -27,14 +27,21 @@ export function useNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loading, setLoading] = useState(true)
+  // Ref para evitar doble-subscribe en React StrictMode
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
 
   useEffect(() => {
     if (!businessId) return
     loadNotifications()
 
-    // Suscribirse a nuevas notificaciones en tiempo real
-    const subscription = supabase
-      .channel(`notifications:${businessId}`)
+    // Limpiar canal previo si existe (React StrictMode monta dos veces)
+    if (channelRef.current) {
+      supabase.removeChannel(channelRef.current)
+      channelRef.current = null
+    }
+
+    const channel = supabase
+      .channel(`notifications:${businessId}:${Date.now()}`)
       .on('postgres_changes',
         {
           event: 'INSERT',
@@ -49,10 +56,13 @@ export function useNotifications() {
       )
       .subscribe()
 
+    channelRef.current = channel
+
     return () => {
-      subscription.unsubscribe()
+      supabase.removeChannel(channel)
+      channelRef.current = null
     }
-  }, [])
+  }, [businessId])
 
   async function loadNotifications() {
     if (!businessId) return

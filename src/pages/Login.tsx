@@ -727,11 +727,13 @@ export function Login() {
                   onClick={() => handleModeChange('forgot')}
                   style={{
                     background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                    color: '#475569', fontSize: '0.8125rem', fontWeight: 500,
+                    color: '#818cf8', fontSize: '0.8125rem', fontWeight: 600,
                     transition: 'color 0.15s ease',
+                    textDecoration: 'underline',
+                    textDecorationColor: 'rgba(129,140,248,0.4)',
                   }}
-                  onMouseEnter={e => (e.currentTarget.style.color = '#818cf8')}
-                  onMouseLeave={e => (e.currentTarget.style.color = '#475569')}
+                  onMouseEnter={e => (e.currentTarget.style.color = '#a78bfa')}
+                  onMouseLeave={e => (e.currentTarget.style.color = '#818cf8')}
                 >
                   ¿Olvidaste tu contraseña?
                 </button>

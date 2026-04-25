@@ -38,6 +38,11 @@ export function StatusChange({ orderId, currentStatus, order, onStatusChange }: 
       return
     }
 
+    // Confirmar al reabrir una orden completada
+    if (currentStatus === 'completed' && selectedStatus !== 'cancelled') {
+      if (!window.confirm(`¿Reabrir esta orden y cambiarla a "${STATUS_CONFIG[selectedStatus].label}"? La orden estaba completada.`)) return
+    }
+
     setIsUpdating(true)
     setError('')
     setSuccess(false)

@@ -3,6 +3,8 @@ import { ArrowRight, Loader2, ChevronLeft } from 'lucide-react';
 import { CloseButton } from '../ui/CloseButton';
 import { AppleEmoji } from '../ui/AppleEmoji';
 import { TipoComprobante } from '../../hooks/useComprobantes';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
 
 const ComprobantesIcon = ({ size = 20, color = '#ffffff' }: { size?: number; color?: string }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -131,11 +133,30 @@ export function ModalGenerarComprobante({
   orderData,
   loading = false
 }: ModalGenerarComprobanteProps) {
+  const { businessId } = useAuth();
   const [step, setStep] = useState(1);
   const [tipo, setTipo] = useState<TipoComprobante | null>(null);
   const [puntoVenta, setPuntoVenta] = useState('0001');
   const [condicionFiscal, setCondicionFiscal] = useState('Consumidor Final');
   const [cuit, setCuit] = useState('');
+
+  // Cargar punto de venta configurado en Settings > ARCA
+  useEffect(() => {
+    if (!isOpen || !businessId) return;
+    supabase
+      .from('sales_points')
+      .select('punto_venta')
+      .eq('business_id', businessId)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.punto_venta) {
+          setPuntoVenta(String(data.punto_venta).padStart(4, '0'));
+        }
+      });
+  }, [isOpen, businessId]);
 
   // Resetear al cerrar
   useEffect(() => {

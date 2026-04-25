@@ -380,12 +380,25 @@ export function Dashboard() {
             <ClipboardList size={40} style={{ color: '#64748b' }} />
           </div>
           <h2 style={{ fontSize: '1.5rem', fontWeight: 600, color: '#ffffff', marginBottom: '0.5rem' }}>
-            ¡Bienvenido a tu sistema!
+            ¡Bienvenido a TechRepair Pro!
           </h2>
-          <p style={{ color: '#94a3b8', fontSize: '1rem', marginBottom: '2rem', maxWidth: '400px', margin: '0 auto 2rem' }}>
-            Aún no tenés datos registrados. Comenzá creando tu primera orden o agregando clientes.
+          <p style={{ color: '#94a3b8', fontSize: '1rem', marginBottom: '2rem', maxWidth: '420px', margin: '0 auto 2rem' }}>
+            Todo listo para arrancar. Podés crear una orden, registrar un cobro rápido o cargar tu inventario.
           </p>
           <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => setCobroOpen(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.5rem',
+                padding: '0.75rem 1.5rem',
+                background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                border: 'none', borderRadius: '0.5rem',
+                color: 'white', fontWeight: 700, fontSize: '0.9rem',
+                cursor: 'pointer', boxShadow: '0 4px 14px rgba(34,197,94,0.35)',
+              }}
+            >
+              💰 Cobrar ahora
+            </button>
             <Link to="/orders/new" style={{
               display: 'flex',
               alignItems: 'center',
@@ -404,7 +417,7 @@ export function Dashboard() {
               <Plus size={16} />
               Crear Primera Orden
             </Link>
-            <Link to="/customers/new" style={{
+            <Link to="/inventory" style={{
               display: 'flex',
               alignItems: 'center',
               gap: '0.5rem',
@@ -418,8 +431,7 @@ export function Dashboard() {
               textDecoration: 'none',
               fontSize: '0.875rem'
             }}>
-              <Users size={16} />
-              Agregar Cliente
+              Cargar Inventario
             </Link>
           </div>
         </div>
