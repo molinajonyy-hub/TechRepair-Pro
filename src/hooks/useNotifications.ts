@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
 
 export interface Notification {
   id: string
@@ -22,24 +23,26 @@ export interface Notification {
 }
 
 export function useNotifications() {
+  const { businessId } = useAuth()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!businessId) return
     loadNotifications()
-    
+
     // Suscribirse a nuevas notificaciones en tiempo real
     const subscription = supabase
-      .channel('notifications')
-      .on('postgres_changes', 
-        { 
-          event: 'INSERT', 
-          schema: 'public', 
-          table: 'notifications' 
+      .channel(`notifications:${businessId}`)
+      .on('postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `business_id=eq.${businessId}`,
         },
         (payload) => {
-          // Agregar nueva notificación a la lista
           setNotifications(prev => [payload.new as Notification, ...prev])
           setUnreadCount(prev => prev + 1)
         }
@@ -52,12 +55,14 @@ export function useNotifications() {
   }, [])
 
   async function loadNotifications() {
+    if (!businessId) return
     try {
       setLoading(true)
-      
+
       const { data, error } = await supabase
         .from('notifications')
         .select('*')
+        .eq('business_id', businessId)
         .order('created_at', { ascending: false })
         .limit(50)
 
@@ -96,10 +101,12 @@ export function useNotifications() {
   }
 
   async function markAllAsRead() {
+    if (!businessId) return
     try {
       const { error } = await supabase
         .from('notifications')
         .update({ is_read: true, read_at: new Date().toISOString() })
+        .eq('business_id', businessId)
         .eq('is_read', false)
 
       if (error) throw error

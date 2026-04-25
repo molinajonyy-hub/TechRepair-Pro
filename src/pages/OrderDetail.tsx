@@ -194,20 +194,22 @@ export function OrderDetail() {
           </div>
           
           <div style={{ display: 'flex', gap: '0.625rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            {/* Botón COBRAR ORDEN */}
-            <button
-              onClick={() => setShowCobro(true)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '0.375rem',
-                padding: '0.45rem 1rem',
-                background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-                border: 'none', borderRadius: '0.5rem',
-                color: 'white', fontWeight: 700, fontSize: '0.875rem',
-                cursor: 'pointer', boxShadow: '0 2px 10px rgba(34,197,94,0.3)',
-              }}
-            >
-              💰 Cobrar
-            </button>
+            {/* Botón COBRAR ORDEN — solo en estados no finales */}
+            {order?.status !== 'cancelled' && (
+              <button
+                onClick={() => setShowCobro(true)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.375rem',
+                  padding: '0.45rem 1rem',
+                  background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                  border: 'none', borderRadius: '0.5rem',
+                  color: 'white', fontWeight: 700, fontSize: '0.875rem',
+                  cursor: 'pointer', boxShadow: '0 2px 10px rgba(34,197,94,0.3)',
+                }}
+              >
+                💰 Cobrar
+              </button>
+            )}
 
             {/* Botón Generar Comprobante */}
             {comprobantes.length === 0 && (
