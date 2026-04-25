@@ -230,109 +230,50 @@ export function Dashboard() {
             Resumen general del sistema y actividad reciente
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-          <button onClick={() => setCobroOpen(true)} style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            padding: '0.625rem 1.125rem',
-            background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-            border: 'none',
-            color: '#ffffff',
-            borderRadius: '0.5rem',
-            cursor: 'pointer',
-            fontWeight: 700,
-            fontSize: '0.9rem',
-            boxShadow: '0 4px 14px rgba(34,197,94,0.35)',
-          }}>
-            💰 + Cobrar
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button onClick={() => setCobroOpen(true)} className="btn btn-primary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+            💰 Cobrar
           </button>
-          <Link to="/orders/new" style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            padding: '0.625rem 1rem',
-            backgroundColor: 'var(--accent-primary)',
-            border: 'none',
-            color: '#ffffff',
-            borderRadius: '0.5rem',
-            cursor: 'pointer',
-            fontWeight: 500,
-            textDecoration: 'none',
-            fontSize: '0.875rem'
-          }}>
-            <Plus size={16} />
+          <Link to="/orders/new" className="btn btn-primary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', textDecoration: 'none' }}>
+            <Plus size={15} />
             Nueva Orden
           </Link>
-          <Link to="/comprobantes" style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            padding: '0.625rem 1rem',
-            backgroundColor: '#10b981',
-            border: 'none',
-            color: '#ffffff',
-            borderRadius: '0.5rem',
-            cursor: 'pointer',
-            fontWeight: 500,
-            textDecoration: 'none',
-            fontSize: '0.875rem'
-          }}>
-            <Receipt size={16} />
-            Nuevo Comprobante
-          </Link>
           <Link to="/expenses" style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            padding: '0.625rem 1rem',
-            backgroundColor: '#f59e0b',
-            border: 'none',
-            color: '#ffffff',
-            borderRadius: '0.5rem',
-            cursor: 'pointer',
-            fontWeight: 500,
-            textDecoration: 'none',
-            fontSize: '0.875rem'
+            display: 'flex', alignItems: 'center', gap: '0.375rem',
+            padding: '0.5rem 0.875rem',
+            background: 'rgba(255,255,255,0.05)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            color: '#94a3b8', borderRadius: '0.5rem',
+            textDecoration: 'none', fontSize: '0.8125rem', fontWeight: 500,
           }}>
-            <DollarSign size={16} />
+            <DollarSign size={14} />
             Gasto
           </Link>
           <button
             onClick={handleCajaButton}
             disabled={cajaLoading}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              padding: '0.625rem 1rem',
-              backgroundColor: cajaStatus === 'open' ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)',
-              border: `1px solid ${cajaStatus === 'open' ? 'rgba(239,68,68,0.4)' : 'rgba(16,185,129,0.4)'}`,
+              display: 'flex', alignItems: 'center', gap: '0.375rem',
+              padding: '0.5rem 0.875rem',
+              backgroundColor: cajaStatus === 'open' ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)',
+              border: `1px solid ${cajaStatus === 'open' ? 'rgba(239,68,68,0.35)' : 'rgba(16,185,129,0.35)'}`,
               color: cajaStatus === 'open' ? '#f87171' : '#34d399',
-              borderRadius: '0.5rem',
-              cursor: cajaLoading ? 'not-allowed' : 'pointer',
-              fontWeight: 600,
-              fontSize: '0.875rem',
-              opacity: cajaLoading ? 0.6 : 1,
-              transition: 'all 0.2s ease'
+              borderRadius: '0.5rem', cursor: cajaLoading ? 'not-allowed' : 'pointer',
+              fontWeight: 600, fontSize: '0.8125rem', opacity: cajaLoading ? 0.6 : 1,
             }}
           >
             {cajaStatus === 'open'
-              ? <><Lock size={15} /> Cerrar Caja</>
-              : <><Wallet size={15} /> Abrir Caja</>}
+              ? <><Lock size={14} /> Cerrar Caja</>
+              : <><Wallet size={14} /> Abrir Caja</>}
           </button>
           <button onClick={refreshStats} style={{
-            padding: '0.5rem 1rem',
-            backgroundColor: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            color: '#94a3b8',
-            borderRadius: '0.5rem',
-            cursor: 'pointer',
-            fontSize: '0.875rem',
-            fontWeight: 500
+            display: 'flex', alignItems: 'center', gap: '0.25rem',
+            padding: '0.5rem 0.75rem',
+            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+            color: '#64748b', borderRadius: '0.5rem', cursor: 'pointer',
+            fontSize: '0.8125rem', fontWeight: 500,
           }}>
-            <RefreshCw size={16} style={{ marginRight: '0.5rem' }} />
-            Actualizar
+            <RefreshCw size={13} />
           </button>
         </div>
       </div>

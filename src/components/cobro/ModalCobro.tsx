@@ -223,31 +223,69 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
     }, 250)
   }, [businessId])
 
-  // ── Buscar órdenes ──
+  // ── Buscar órdenes con saldo pendiente (no canceladas, no cobradas completo) ──
   const buscarOrdenes = useCallback((q: string) => {
     clearTimeout(ordenTimer.current)
-    if (!q.trim() || !businessId) { setOrdenes([]); return }
+    if (!businessId) { setOrdenes([]); return }
     ordenTimer.current = setTimeout(async () => {
       setBuscandoOrden(true)
+      // Trae todas las órdenes no canceladas; filtramos en cliente las que tienen saldo
       const { data } = await supabase
         .from('orders')
-        .select('id, total_cost, amount_paid, customers(name)')
+        .select('id, total_cost, amount_paid, status, customers(name, id)')
         .eq('business_id', businessId)
-        .not('status', 'in', '("completed","cancelled")')
-        .limit(5)
+        .neq('status', 'cancelled')
+        .order('created_at', { ascending: false })
+        .limit(50)
+      const filtered = (data || []).filter(o => {
+        const saldo = (o.total_cost || 0) - (o.amount_paid || 0)
+        const matchesQ = !q.trim() ||
+          o.id.slice(0, 6).toUpperCase().includes(q.toUpperCase()) ||
+          ((o.customers as any)?.name || '').toLowerCase().includes(q.toLowerCase())
+        return saldo > 0.5 && matchesQ
+      })
       setOrdenes(
-        (data || []).map(o => ({
+        filtered.slice(0, 8).map(o => ({
           id: o.id,
           titulo: `Orden #${o.id.slice(0, 6).toUpperCase()}`,
           total_cost: o.total_cost,
           amount_paid: o.amount_paid,
           customer_name: (o.customers as any)?.name ?? null,
-          customer_id: null,
+          customer_id: (o.customers as any)?.id ?? null,
         }))
       )
       setBuscandoOrden(false)
     }, 250)
   }, [businessId])
+
+  // ── Buscar productos en inventario ──
+  const [prodQ, setProdQ] = useState<Record<string, string>>({})
+  const [prodResults, setProdResults] = useState<Record<string, any[]>>({})
+  const prodTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+
+  const buscarProducto = useCallback((itemId: string, q: string) => {
+    setProdQ(prev => ({ ...prev, [itemId]: q }))
+    clearTimeout(prodTimers.current[itemId])
+    if (!q.trim() || !businessId) { setProdResults(prev => ({ ...prev, [itemId]: [] })); return }
+    prodTimers.current[itemId] = setTimeout(async () => {
+      const { data } = await supabase
+        .from('inventory')
+        .select('id, name, sale_price, stock_quantity')
+        .eq('business_id', businessId)
+        .eq('is_active', true)
+        .ilike('name', `%${q}%`)
+        .gt('stock_quantity', 0)
+        .limit(6)
+      setProdResults(prev => ({ ...prev, [itemId]: data || [] }))
+    }, 200)
+  }, [businessId])
+
+  const seleccionarProducto = (itemId: string, prod: any) => {
+    updateItem(itemId, 'nombre', prod.name)
+    updateItem(itemId, 'precio', prod.sale_price || 0)
+    setProdQ(prev => ({ ...prev, [itemId]: '' }))
+    setProdResults(prev => ({ ...prev, [itemId]: [] }))
+  }
 
   // ── Totales ──
   const subtotal = items.reduce((s, i) => s + i.cantidad * i.precio, 0)
@@ -420,7 +458,12 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
               ] as { id: Origen; label: string }[]).map(o => (
                 <button
                   key={o.id}
-                  onClick={() => { setOrigen(o.id); setItems([newItem()]) }}
+                  onClick={() => {
+                    setOrigen(o.id)
+                    setItems([newItem()])
+                    // Al elegir "orden", cargar automáticamente las órdenes con saldo
+                    if (o.id === 'orden') buscarOrdenes('')
+                  }}
                   style={{
                     flex: 1, padding: '0.5rem 0.375rem', borderRadius: '0.625rem',
                     border: `1px solid ${origen === o.id ? '#22c55e' : 'rgba(255,255,255,0.1)'}`,
@@ -577,16 +620,53 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {items.map((item, idx) => (
-                  <div key={item.id} style={{
-                    display: 'grid', gridTemplateColumns: '1fr 60px 90px 32px',
-                    gap: '0.5rem', alignItems: 'center',
-                  }}>
-                    <input
-                      value={item.nombre}
-                      onChange={e => updateItem(item.id, 'nombre', e.target.value)}
-                      placeholder={origen === 'personalizado' ? 'Concepto...' : 'Nombre del item'}
-                      style={inputS}
-                    />
+                  <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <div style={{
+                      display: 'grid', gridTemplateColumns: '1fr 60px 90px 32px',
+                      gap: '0.5rem', alignItems: 'center', position: 'relative',
+                    }}>
+                    {/* Campo nombre con búsqueda de inventario */}
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        value={prodQ[item.id] !== undefined ? prodQ[item.id] : item.nombre}
+                        onChange={e => {
+                          updateItem(item.id, 'nombre', e.target.value)
+                          buscarProducto(item.id, e.target.value)
+                        }}
+                        placeholder="Buscar producto o escribir concepto..."
+                        style={inputS}
+                      />
+                      {/* Dropdown de resultados */}
+                      {(prodResults[item.id]?.length ?? 0) > 0 && (
+                        <div style={{
+                          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+                          background: '#0d1a30', border: '1px solid rgba(255,255,255,0.12)',
+                          borderRadius: '0.5rem', overflow: 'hidden',
+                          boxShadow: '0 8px 24px rgba(0,0,0,0.4)', marginTop: '0.2rem',
+                        }}>
+                          {prodResults[item.id].map((p: any) => (
+                            <button key={p.id}
+                              type="button"
+                              onClick={() => seleccionarProducto(item.id, p)}
+                              style={{
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                width: '100%', padding: '0.5rem 0.75rem',
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                borderBottom: '1px solid rgba(255,255,255,0.05)',
+                                textAlign: 'left',
+                              }}
+                              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                            >
+                              <span style={{ color: '#e2e8f0', fontSize: '0.83rem' }}>{p.name}</span>
+                              <span style={{ color: '#22c55e', fontSize: '0.78rem', fontWeight: 600, marginLeft: '0.5rem', flexShrink: 0 }}>
+                                ${(p.sale_price || 0).toLocaleString('es-AR')} · stock: {p.stock_quantity}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <input
                       type="number" min={1} value={item.cantidad}
                       onChange={e => updateItem(item.id, 'cantidad', +e.target.value || 1)}
@@ -606,6 +686,7 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
                       }}>
                       <Trash2 size={14} />
                     </button>
+                  </div>
                   </div>
                 ))}
               </div>
