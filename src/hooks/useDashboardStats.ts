@@ -64,6 +64,11 @@ interface CacheEntry {
 let statsCache: CacheEntry | null = null
 const CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutos — reducido para reflejar cambios más rápido
 
+/** Llamar desde cualquier módulo que registre cobros/pagos para forzar recarga */
+export function invalidateStatsCache() {
+  statsCache = null
+}
+
 function isCacheValid(businessId: string | null): boolean {
   return (
     statsCache !== null &&

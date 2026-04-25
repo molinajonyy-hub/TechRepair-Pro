@@ -6,6 +6,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { X, Plus, Trash2, ChevronRight, ChevronLeft, Check, Search, Zap } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { invalidateStatsCache } from '../../hooks/useDashboardStats'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -174,10 +175,21 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
       })
     }
 
-    // Armar items desde order_parts usados
+    // Armar items: siempre mostrar el SALDO PENDIENTE, no el total bruto.
+    // Si hay pagos parciales, el técnico solo debe cobrar lo que falta.
     const parts = ((data.order_parts as any[]) || []).filter(p => p.status === 'used' || p.status === 'sold')
-    if (parts.length > 0) {
-      setItems(parts.map(p => ({
+    const totalParts = parts.reduce((s: number, p: any) => s + (p.sale_price || 0) * (p.quantity || 1), 0)
+    const amountPaid = data.amount_paid || 0
+
+    if (saldo <= 0) {
+      // Orden ya cobrada completamente — mostrar resumen informativo
+      setItems([{ id: crypto.randomUUID(), nombre: 'Orden ya cobrada completa', cantidad: 1, precio: 0 }])
+    } else if (parts.length > 0 && amountPaid > 0) {
+      // Pago parcial: mostrar el saldo pendiente como único ítem
+      setItems([{ id: crypto.randomUUID(), nombre: `Saldo pendiente Orden #${id.slice(0, 6).toUpperCase()}`, cantidad: 1, precio: saldo }])
+    } else if (parts.length > 0) {
+      // Sin pago previo: mostrar los repuestos
+      setItems(parts.map((p: any) => ({
         id: crypto.randomUUID(),
         nombre: p.name || 'Repuesto',
         cantidad: p.quantity || 1,
@@ -329,6 +341,7 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
         }
       }
 
+      invalidateStatsCache() // fuerza recarga del dashboard al volver
       setStep('exito')
     } catch (e: any) {
       setError(e?.message ?? 'Error al registrar el cobro')

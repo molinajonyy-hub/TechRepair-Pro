@@ -356,9 +356,21 @@ export function MpPaymentModal({
                     </div>
                   </div>
                 ) : (
-                  <div style={{ fontSize: '0.85rem', color: '#f59e0b' }}>
-                    ⚠️ Sin local activo configurado.{' '}
-                    <a href="/settings" style={{ color: '#fbbf24' }}>Configurar en Puntos de Venta</a>
+                  <div style={{
+                    padding: '0.875rem', borderRadius: '0.625rem',
+                    background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.25)',
+                    display: 'flex', flexDirection: 'column', gap: '0.5rem',
+                  }}>
+                    <span style={{ fontSize: '0.875rem', color: '#fbbf24', fontWeight: 600 }}>⚠️ Sin punto de venta activo</span>
+                    <span style={{ fontSize: '0.8rem', color: '#fde68a', lineHeight: 1.5 }}>
+                      Para usar Mercado Pago desde este modal necesitás tener un Punto de Venta configurado y activo en tu perfil.
+                    </span>
+                    <a
+                      href="/settings?tab=pagos"
+                      style={{ fontSize: '0.8rem', color: '#fbbf24', fontWeight: 600 }}
+                    >
+                      → Ir a Configuración &gt; Cobros y Pagos
+                    </a>
                   </div>
                 )}
               </div>
