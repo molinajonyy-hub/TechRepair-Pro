@@ -308,6 +308,7 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
         setCobroId(ordenSelec.id)
       } else {
         // ── Cobro rápido / personalizado → business_finance_entries ──────────
+        // El trigger sync_bfe_to_financial_movements crea el movimiento en la caja automáticamente
         for (const pago of pagos) {
           const monto = pago.montoARS + (pago.usaUSD && dolar > 0 ? pago.montoUSD * dolar : 0)
           if (monto <= 0) continue
@@ -317,27 +318,15 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
             type:         'income',
             category:     origen === 'venta_rapida' ? 'venta' : 'servicio',
             description:  description,
+            amount:       monto,
+            currency:     'ARS',
             amount_ars:   monto,
-            payment_method: pago.metodo,
+            exchange_rate: 1,
+            source:       'cobro_rapido',
             customer_id:  clienteSelec?.id ?? null,
           }).select('id').single()
           if (data?.id) setCobroId(data.id)
         }
-
-        // Guardar en financial_movements también (caja)
-        const totalARS = pagos.reduce((s, p) => {
-          return s + p.montoARS + (p.usaUSD && dolar > 0 ? p.montoUSD * dolar : 0)
-        }, 0)
-        await supabase.from('financial_movements').insert({
-          business_id:   businessId,
-          date:          new Date().toISOString().split('T')[0],
-          type:          'income',
-          category:      'cobro',
-          description:   description,
-          amount:        totalARS,
-          payment_method: metodoPrincipal,
-          customer_id:   clienteSelec?.id ?? null,
-        }).then(() => {}) // fire and forget, trigger handles rest
       }
 
       setStep('exito')

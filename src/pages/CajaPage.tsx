@@ -122,9 +122,23 @@ export function CajaPage() {
     }
   }, [businessId, today])
 
+  const loadHistorial = useCallback(async () => {
+    if (!businessId) return
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    const { data } = await supabase
+      .from('cash_registers')
+      .select('*')
+      .eq('business_id', businessId)
+      .gte('date', thirtyDaysAgo)
+      .neq('date', today)
+      .order('date', { ascending: false })
+      .limit(30)
+    setHistorial((data || []) as CashRegister[])
+  }, [businessId, today])
+
   useEffect(() => {
-    loadExchangeRate().then(() => loadCaja())
-  }, [loadExchangeRate, loadCaja])
+    loadExchangeRate().then(() => { loadCaja(); loadHistorial() })
+  }, [loadExchangeRate, loadCaja, loadHistorial])
 
   const handleAddMovement = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -160,18 +174,26 @@ export function CajaPage() {
   }
 
   const handleCloseCaja = async () => {
-    if (!caja || !confirm('¿Cerrar la caja del día? Esta acción no se puede deshacer.')) return
+    if (!caja) return
+    const arsIn  = movements.filter(m => m.currency === 'ARS' && m.type === 'income').reduce((s: number, m: any) => s + m.amount, 0)
+    const arsOut = movements.filter(m => m.currency === 'ARS' && m.type === 'expense').reduce((s: number, m: any) => s + m.amount, 0)
+    const arsNet = arsIn - arsOut
+    const msg = `RESUMEN DEL DÍA\n\nIngresos ARS: ${fmtARS(arsIn)}\nEgresos ARS: ${fmtARS(arsOut)}\nNeto ARS: ${fmtARS(arsNet)}\n\nBalance final: ${fmtARS(caja.ars_balance)}\n\n¿Cerrar la caja?`
+    if (!confirm(msg)) return
     await supabase.from('cash_registers').update({
       status: 'closed',
       closed_at: new Date().toISOString(),
       ars_balance: caja.ars_balance,
-      usd_balance: caja.usd_balance
+      usd_balance: caja.usd_balance,
     }).eq('id', caja.id)
     await loadCaja()
+    await loadHistorial()
   }
 
   const [openForm, setOpenForm] = useState({ arsOpening: '', usdOpening: '' })
   const [openingCaja, setOpeningCaja] = useState(false)
+  const [historial, setHistorial] = useState<CashRegister[]>([])
+  const [showHistorial, setShowHistorial] = useState(false)
 
   const handleOpenCaja = async () => {
     if (!businessId) return
@@ -521,6 +543,90 @@ export function CajaPage() {
             )}
           </div>
         </>
+      )}
+
+      {/* ── Historial de cajas (últimos 30 días) ── */}
+      {historial.length > 0 && (
+        <div style={{
+          marginTop: '2rem',
+          backgroundColor: '#111827',
+          border: '1px solid rgba(255,255,255,0.05)',
+          borderRadius: '0.75rem',
+          overflow: 'hidden',
+        }}>
+          <button
+            onClick={() => setShowHistorial(v => !v)}
+            style={{
+              width: '100%', padding: '1rem 1.25rem',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: 'none', border: 'none', cursor: 'pointer',
+              borderBottom: showHistorial ? '1px solid rgba(255,255,255,0.05)' : 'none',
+            }}
+          >
+            <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#e2e8f0', margin: 0 }}>
+              📅 Historial de Cajas
+            </h3>
+            <span style={{ fontSize: '0.75rem', color: '#475569' }}>
+              {showHistorial ? '▲ ocultar' : `▼ ver ${historial.length} registros`}
+            </span>
+          </button>
+
+          {showHistorial && (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                <thead>
+                  <tr style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}>
+                    {['Fecha', 'Estado', 'Apertura ARS', 'Balance ARS', 'Apertura USD', 'Balance USD', 'Resultado'].map(h => (
+                      <th key={h} style={{
+                        padding: '0.625rem 1rem', textAlign: 'left',
+                        color: '#475569', fontWeight: 500, fontSize: '0.72rem',
+                        textTransform: 'uppercase', letterSpacing: '0.05em',
+                        borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {historial.map(cr => {
+                    const resultadoARS = (cr.ars_balance || 0) - (cr.ars_opening || 0)
+                    return (
+                      <tr key={cr.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                        <td style={{ padding: '0.75rem 1rem', color: '#cbd5e1', fontWeight: 600 }}>
+                          {new Date(cr.date + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: 'short' })}
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem' }}>
+                          <span style={{
+                            padding: '0.15rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.72rem', fontWeight: 700,
+                            backgroundColor: cr.status === 'closed' ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)',
+                            color: cr.status === 'closed' ? '#f87171' : '#34d399',
+                          }}>
+                            {cr.status === 'closed' ? '🔒 Cerrada' : '🔓 Abierta'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace', color: '#94a3b8' }}>
+                          {fmtARS(cr.ars_opening || 0)}
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace', color: '#34d399', fontWeight: 600 }}>
+                          {fmtARS(cr.ars_balance || 0)}
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace', color: '#94a3b8' }}>
+                          {fmtUSD(cr.usd_opening || 0)}
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace', color: '#60a5fa', fontWeight: 600 }}>
+                          {fmtUSD(cr.usd_balance || 0)}
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace', fontWeight: 700,
+                          color: resultadoARS >= 0 ? '#34d399' : '#f87171' }}>
+                          {resultadoARS >= 0 ? '+' : ''}{fmtARS(resultadoARS)}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Modal movimiento manual */}
