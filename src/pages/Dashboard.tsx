@@ -37,6 +37,8 @@ const getStatusBadgeStyle = (status: string) => {
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState('orders')
   const [cobroOpen, setCobroOpen] = useState(false)
+  const [disponibleVisible, setDisponibleVisible] = useState(true)
+  const [disponible, setDisponible] = useState<{ ingresos: number; egresos: number } | null>(null)
   const { stats, loading: statsLoading, error: statsError, refresh: refreshStats } = useDashboardStats()
   const { comprobantes, listarComprobantes } = useComprobantes()
   const { businessId } = useAuth()
@@ -60,6 +62,23 @@ export function Dashboard() {
     const interval = setInterval(safeFetch, 5 * 60 * 1000)
     return () => { isMounted = false; clearInterval(interval) }
   }, [])
+
+  // Cargar "Disponible Real" de hoy
+  useEffect(() => {
+    if (!businessId) return
+    const today = new Date().toISOString().split('T')[0]
+    supabase
+      .from('business_finance_entries')
+      .select('type, amount_ars')
+      .eq('business_id', businessId)
+      .eq('date', today)
+      .then(({ data }) => {
+        if (!data) return
+        const ingresos = data.filter(e => e.type === 'income').reduce((s, e) => s + (e.amount_ars || 0), 0)
+        const egresos  = data.filter(e => e.type === 'expense').reduce((s, e) => s + (e.amount_ars || 0), 0)
+        setDisponible({ ingresos, egresos })
+      })
+  }, [businessId, cobroOpen])
 
   const loadDolarRate = async () => {
     setDolarLoading(true)
@@ -476,6 +495,55 @@ export function Dashboard() {
           </div>
         </div>
       </div>
+      )}
+
+      {/* ── Widget: Disponible Real (hoy) ── */}
+      {disponible !== null && (
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(34,197,94,0.07) 0%, rgba(16,185,129,0.04) 100%)',
+          border: '1px solid rgba(34,197,94,0.2)',
+          borderRadius: '0.875rem', padding: '1.125rem 1.5rem',
+          marginBottom: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+            <span style={{ fontSize: '1.25rem' }}>💵</span>
+            <div>
+              <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Disponible hoy
+              </div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#22c55e', letterSpacing: '-0.02em' }}>
+                {disponibleVisible
+                  ? `$${Math.round(disponible.ingresos - disponible.egresos).toLocaleString('es-AR')}`
+                  : '••••••••'
+                }
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '0.2rem' }}>Ingresos</div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#34d399' }}>
+                {disponibleVisible ? `+$${Math.round(disponible.ingresos).toLocaleString('es-AR')}` : '••••'}
+              </div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '0.2rem' }}>Egresos</div>
+              <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f87171' }}>
+                {disponibleVisible ? `-$${Math.round(disponible.egresos).toLocaleString('es-AR')}` : '••••'}
+              </div>
+            </div>
+            <button
+              onClick={() => setDisponibleVisible(v => !v)}
+              style={{
+                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '0.5rem', padding: '0.375rem 0.75rem',
+                color: '#64748b', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 600,
+              }}
+            >
+              {disponibleVisible ? '👁 Ocultar' : '👁 Mostrar'}
+            </button>
+          </div>
+        </div>
       )}
 
       {/* ── Sección Rentabilidad ── */}

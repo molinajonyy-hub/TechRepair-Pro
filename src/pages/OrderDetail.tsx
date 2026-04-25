@@ -15,6 +15,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
+import { ModalCobro } from '../components/cobro/ModalCobro'
 import { ModalEnviarWhatsApp } from '../components/whatsapp/ModalEnviarWhatsApp'
 import { WhatsAppHistorial } from '../components/whatsapp/WhatsAppHistorial'
 import { DocumentUploader } from '../components/order/DocumentUploader'
@@ -49,6 +50,7 @@ export function OrderDetail() {
   const [showModalCrearComprobante, setShowModalCrearComprobante] = useState(false)
   const [showPrintModal, setShowPrintModal] = useState(false)
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false)
+  const [showCobro, setShowCobro] = useState(false)
   const [notesText, setNotesText] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
   const [notesSaved, setNotesSaved] = useState(false)
@@ -192,6 +194,21 @@ export function OrderDetail() {
           </div>
           
           <div style={{ display: 'flex', gap: '0.625rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* Botón COBRAR ORDEN */}
+            <button
+              onClick={() => setShowCobro(true)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.375rem',
+                padding: '0.45rem 1rem',
+                background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                border: 'none', borderRadius: '0.5rem',
+                color: 'white', fontWeight: 700, fontSize: '0.875rem',
+                cursor: 'pointer', boxShadow: '0 2px 10px rgba(34,197,94,0.3)',
+              }}
+            >
+              💰 Cobrar
+            </button>
+
             {/* Botón Generar Comprobante */}
             {comprobantes.length === 0 && (
               <button
@@ -661,6 +678,14 @@ export function OrderDetail() {
         isOpen={showWhatsAppModal}
         onClose={() => setShowWhatsAppModal(false)}
         order={order}
+      />
+
+      {/* Modal Cobro */}
+      <ModalCobro
+        isOpen={showCobro}
+        onClose={() => setShowCobro(false)}
+        orderId={id}
+        clienteId={order?.customer_id}
       />
 
     </div>
