@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Lock, Mail, Eye, EyeOff, Loader2, User } from 'lucide-react'
+import { Lock, Mail, Eye, EyeOff, Loader2, User, ArrowLeft } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../lib/supabase'
 
 // ── Inline styles (misma estética que la landing page) ──────────────
 
@@ -259,7 +260,7 @@ export function Login() {
   const { signIn, signUp, signInWithGoogle, isAuthenticated, isLoading: authLoading } = useAuth()
   const emailInputRef = useRef<HTMLInputElement>(null)
 
-  const [mode, setMode]                         = useState<'login' | 'register'>('login')
+  const [mode, setMode]                         = useState<'login' | 'register' | 'forgot'>('login')
   const [email, setEmail]                       = useState('')
   const [password, setPassword]                 = useState('')
   const [confirmPassword, setConfirmPassword]   = useState('')
@@ -316,9 +317,28 @@ export function Login() {
     setEmailError(''); setPasswordError(''); setConfirmError('')
   }
 
-  const handleModeChange = (m: 'login' | 'register') => {
+  const handleModeChange = (m: 'login' | 'register' | 'forgot') => {
     setMode(m); clearErrors()
     setEmail(''); setPassword(''); setConfirmPassword(''); setFullName('')
+  }
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    clearErrors()
+    if (!email.trim())         { setEmailError('Ingresá tu email'); return }
+    if (!validateEmail(email)) { setEmailError('Email inválido'); return }
+    setIsLoading(true)
+    try {
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: `${window.location.origin}/reset-password`,
+      })
+      if (resetError) throw resetError
+      setSuccess(`Enviamos un enlace a ${email}. Revisá tu bandeja de entrada (y spam).`)
+    } catch (err: any) {
+      setError(err.message || 'Error al enviar el email.')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -442,19 +462,21 @@ export function Login() {
               }}>Pro</span>
             </h1>
             <p style={{ color: '#334155', fontSize: '0.875rem', margin: 0 }}>
-              {mode === 'login' ? 'Ingresá a tu panel de gestión' : 'Creá tu cuenta gratuita'}
+              {mode === 'login' ? 'Ingresá a tu panel de gestión' : mode === 'register' ? 'Creá tu cuenta gratuita' : 'Te enviamos un enlace por email'}
             </p>
           </div>
 
-          {/* Tabs */}
-          <div style={S.tabTrack}>
-            <button type="button" style={S.tab(mode === 'login', disabled)} onClick={() => handleModeChange('login')} disabled={disabled}>
-              Iniciar sesión
-            </button>
-            <button type="button" style={S.tab(mode === 'register', disabled)} onClick={() => handleModeChange('register')} disabled={disabled}>
-              Crear cuenta
-            </button>
-          </div>
+          {/* Tabs (solo en login/register, no en forgot) */}
+          {mode !== 'forgot' && (
+            <div style={S.tabTrack}>
+              <button type="button" style={S.tab(mode === 'login', disabled)} onClick={() => handleModeChange('login')} disabled={disabled}>
+                Iniciar sesión
+              </button>
+              <button type="button" style={S.tab(mode === 'register', disabled)} onClick={() => handleModeChange('register')} disabled={disabled}>
+                Crear cuenta
+              </button>
+            </div>
+          )}
 
           {/* Alerta de error */}
           {error && (
@@ -486,7 +508,52 @@ export function Login() {
             </div>
           )}
 
-          {/* Formulario */}
+          {/* Formulario de recuperación de contraseña */}
+          {mode === 'forgot' && (
+            <form onSubmit={handleForgotPassword} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '1.125rem' }}>
+              <div>
+                <label htmlFor="forgot-email" style={S.label}>Email de tu cuenta</label>
+                <div style={{ position: 'relative' }}>
+                  <Mail size={17} style={{ ...S.iconLeft, color: emailError ? '#f87171' : '#334155' }} />
+                  <input
+                    id="forgot-email" type="email" value={email}
+                    placeholder="tu@email.com" autoComplete="email" disabled={isLoading}
+                    style={S.input(!!emailError, isLoading)}
+                    onChange={e => { setEmail(e.target.value); setEmailError(''); setError('') }}
+                    onFocus={e => focusOn(e, !!emailError)}
+                    onBlur={e => blurOn(e, !!emailError)}
+                    autoFocus
+                  />
+                </div>
+                {emailError && <p style={S.errorText}>{emailError}</p>}
+              </div>
+
+              <button type="submit" disabled={isLoading} style={S.btnPrimary(isLoading)}>
+                {isLoading
+                  ? <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> Enviando...</>
+                  : 'Enviar enlace de recuperación'
+                }
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleModeChange('login')}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem',
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: '#475569', fontSize: '0.8125rem', fontWeight: 500,
+                  padding: '0.25rem', transition: 'color 0.15s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.color = '#818cf8')}
+                onMouseLeave={e => (e.currentTarget.style.color = '#475569')}
+              >
+                <ArrowLeft size={14} /> Volver al login
+              </button>
+            </form>
+          )}
+
+          {/* Formulario normal login/registro */}
+          {mode !== 'forgot' && (
           <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '1.125rem' }}>
 
             {/* Nombre (sólo registro) */}
@@ -607,6 +674,8 @@ export function Login() {
             </button>
           </form>
 
+          )} {/* fin mode !== 'forgot' */}
+
           {/* Google + olvidé contraseña (sólo login) */}
           {mode === 'login' && (
             <>
@@ -655,13 +724,14 @@ export function Login() {
               <div style={{ textAlign: 'center', marginTop: '1.25rem' }}>
                 <button
                   type="button"
+                  onClick={() => handleModeChange('forgot')}
                   style={{
                     background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                    color: '#334155', fontSize: '0.8125rem', fontWeight: 500,
+                    color: '#475569', fontSize: '0.8125rem', fontWeight: 500,
                     transition: 'color 0.15s ease',
                   }}
                   onMouseEnter={e => (e.currentTarget.style.color = '#818cf8')}
-                  onMouseLeave={e => (e.currentTarget.style.color = '#334155')}
+                  onMouseLeave={e => (e.currentTarget.style.color = '#475569')}
                 >
                   ¿Olvidaste tu contraseña?
                 </button>
