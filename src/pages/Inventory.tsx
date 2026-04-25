@@ -896,6 +896,16 @@ export function Inventory() {
       }
 
       await refresh({ background: true })
+
+      // Auto-expandir el padre después de guardar para que el usuario
+      // vea las variantes inmediatamente sin tener que hacer click
+      if (formData.has_variants && parentProductId) {
+        setExpandedRows(prev => new Set([...prev, parentProductId]))
+      }
+      if (isVariantMode && variantParentItem?.id) {
+        setExpandedRows(prev => new Set([...prev, variantParentItem.id]))
+      }
+
       closeModal()
     } catch (err: any) {
       const rawMsg = err?.message || ''
