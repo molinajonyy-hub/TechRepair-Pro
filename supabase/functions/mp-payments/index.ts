@@ -21,6 +21,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-signature, x-request-id',
 };
 
@@ -606,13 +607,6 @@ async function markWebhookProcessed(
     .eq('action', action);
 }
 
-// ─── Cálculo de fee interno (duplicado en EF para no importar desde fuera) ────
-
-function calcFee(amount: number, feePercent: number, feeFixed: number, vatPercent: number): number {
-  const base = amount * feePercent + feeFixed;
-  return Math.round((base * (1 + vatPercent)) * 100) / 100;
-}
-
 function jsonOk(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
@@ -625,17 +619,4 @@ function jsonError(status: number, message: string): Response {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
-}
-
-async function decryptToken(ciphertext: string, key: string): Promise<string> {
-  const enc    = new TextEncoder();
-  const data   = Uint8Array.from(atob(ciphertext), c => c.charCodeAt(0));
-  const iv     = data.slice(0, 12);
-  const cipher = data.slice(12);
-  const keyBuf = await crypto.subtle.importKey(
-    'raw', enc.encode(key.padEnd(32, '0').slice(0, 32)),
-    { name: 'AES-GCM' }, false, ['decrypt']
-  );
-  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, keyBuf, cipher);
-  return new TextDecoder().decode(plain);
 }

@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@rollup/rollup-linux-x64-gnu": "^4.60.2",
     "@supabase/supabase-js": "^2.102.1",
     "bootstrap": "^5.3.3",
     "jspdf": "^2.5.1",

@@ -6,8 +6,6 @@ import { useSidebar } from '../hooks/useSidebar'
 import { useNavigate } from 'react-router-dom'
 import { SubscriptionGuard } from '../components/subscription/SubscriptionGuard'
 import { SubscriptionBanner } from '../components/subscription/SubscriptionBanner'
-import { DEMO_BIZ_ID } from '../demo/DemoConstants'
-import { DemoBanner } from '../demo/DemoBanner'
 
 // Mobile top bar (hamburger + brand)
 function MobileTopBar() {
@@ -72,18 +70,14 @@ export function MainLayout() {
   const { businessId, profileError, user } = useAuth()
   const { isCollapsed } = useSidebar()
   const sidebarOffset = isCollapsed ? '80px' : '260px'
-  const isDemo = businessId === DEMO_BIZ_ID
-
   return (
     <div
       style={{
         minHeight: '100vh',
         background: 'var(--app-shell-bg)',
         display: 'flex',
-        paddingTop: isDemo ? '34px' : 0,
       }}
     >
-      {isDemo && <DemoBanner />}
       <Sidebar />
       <div
         className="main-layout-content"

@@ -17,7 +17,6 @@ import { Inventory } from './pages/Inventory'
 import { AuthCallback } from './pages/AuthCallback'
 import { Login } from './pages/Login'
 import { ResetPassword } from './pages/ResetPassword'
-import { DemoEntry } from './demo/DemoEntry'
 import { NewCustomer } from './pages/NewCustomer'
 import { NewOrder } from './pages/NewOrder'
 import { NoBusiness } from './pages/NoBusiness'
@@ -58,7 +57,6 @@ function AppContent() {
         <Route path="/login" element={<Login />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/demo-auditoria" element={<DemoEntry />} />
         <Route path="/accept-invite" element={<AcceptInvite />} />
         <Route path="/no-business" element={<NoBusiness />} />
         <Route path="/customer-portal" element={<CustomerPortal />} />
