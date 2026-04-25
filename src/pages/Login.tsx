@@ -330,7 +330,7 @@ export function Login() {
     setIsLoading(true)
     try {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${window.location.origin}/reset-password`,
+        redirectTo: `${window.location.origin}/auth/callback`,
       })
       if (resetError) throw resetError
       setSuccess(`Enviamos un enlace a ${email}. Revisá tu bandeja de entrada (y spam).`)

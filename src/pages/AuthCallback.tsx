@@ -30,15 +30,19 @@ export function AuthCallback() {
       return
     }
 
-    // Escuchar el evento SIGNED_IN que Supabase dispara
-    // cuando intercambia el code de la URL por una sesión
+    // Escuchar eventos de autenticación que Supabase dispara
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Recuperación de contraseña → marcar y redirigir al formulario
+      if (event === 'PASSWORD_RECOVERY') {
+        sessionStorage.setItem('is_password_recovery', '1')
+        navigate('/reset-password', { replace: true })
+        return
+      }
       if (event === 'SIGNED_IN' && session) {
         const redirect = sessionStorage.getItem('post_login_redirect') || '/dashboard'
         sessionStorage.removeItem('post_login_redirect')
         navigate(redirect, { replace: true })
       } else if (event === 'SIGNED_OUT' || (event === 'INITIAL_SESSION' && !session)) {
-        // No se pudo establecer sesión
         setTimeout(() => navigate('/login', { replace: true }), 1500)
       }
     })

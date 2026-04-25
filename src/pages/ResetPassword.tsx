@@ -14,19 +14,33 @@ export function ResetPassword() {
   const [done, setDone]             = useState(false)
   const [ready, setReady]           = useState(false)
 
-  // Supabase intercambia el token de la URL automáticamente
-  // y dispara PASSWORD_RECOVERY cuando está listo
   useEffect(() => {
+    // Activar formulario cuando Supabase dispara PASSWORD_RECOVERY
+    // (ocurre cuando el usuario llega desde el link del email)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') {
         setReady(true)
       }
     })
 
-    // Si ya hay sesión activa con recovery (PKCE), también habilitar
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setReady(true)
-    })
+    // En algunos flujos PKCE el evento ya ocurrió antes de montar el componente.
+    // Verificar si hay sesión Y si la URL contiene indicadores de recovery.
+    const hash   = window.location.hash
+    const search = window.location.search
+    const isRecovery =
+      hash.includes('type=recovery') ||
+      hash.includes('access_token') ||
+      search.includes('code=')       ||
+      sessionStorage.getItem('is_password_recovery') === '1'
+
+    if (isRecovery) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+          sessionStorage.removeItem('is_password_recovery')
+          setReady(true)
+        }
+      })
+    }
 
     return () => subscription.unsubscribe()
   }, [])
