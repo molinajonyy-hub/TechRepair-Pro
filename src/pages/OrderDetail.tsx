@@ -26,7 +26,6 @@ import { supabase } from '../lib/supabase'
 import { useOrderSimple } from '../hooks/useOrderSimple'
 import { useComprobantes } from '../hooks/useComprobantes'
 import { Loader } from '../components/ui/Loader'
-import { ModalGenerarComprobante } from '../components/comprobantes/ModalGenerarComprobante'
 import { ModalCrearComprobante } from '../components/comprobantes/ModalCrearComprobante'
 import { OrderPrintPreviewModal } from '../components/print/OrderPrintPreviewModal'
 import { STATUS_CONFIG } from '../types/orderStatus'
@@ -46,7 +45,6 @@ export function OrderDetail() {
   const { id } = useParams<{ id: string }>()
   const [activeTab, setActiveTab] = useState('overview')
   const [documents, setDocuments] = useState<Document[]>([])
-  const [showModalComprobante, setShowModalComprobante] = useState(false)
   const [showModalCrearComprobante, setShowModalCrearComprobante] = useState(false)
   const [showPrintModal, setShowPrintModal] = useState(false)
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false)
@@ -63,8 +61,6 @@ export function OrderDetail() {
   // Comprobantes
   const {
     comprobantes,
-    loading: loadingComprobantes,
-    crearComprobante,
     cargarComprobantesByOrder
   } = useComprobantes()
 
@@ -512,107 +508,21 @@ export function OrderDetail() {
           </div>
         )}
 
-        {/* Modal Generar Comprobante */}
-        <ModalGenerarComprobante
-          isOpen={showModalComprobante}
-          onClose={() => setShowModalComprobante(false)}
-          onGenerar={async (data) => {
-            if (!order || !id) return;
-            
-            // Preparar items desde la orden
-            const items = [];
-            
-            // Agregar servicio técnico
-            if (order.labor_cost && order.labor_cost > 0) {
-              items.push({
-                descripcion: `Servicio técnico - ${order.device?.brand} ${order.device?.model}`,
-                cantidad: 1,
-                precio_unitario: order.labor_cost,
-                inventory_id: undefined
-              });
-            }
-            
-            // Agregar repuestos si existen
-            if (order.parts && order.parts.length > 0) {
-              order.parts.forEach((part: any) => {
-                items.push({
-                  descripcion: part.name || 'Repuesto',
-                  cantidad: part.quantity || 1,
-                  precio_unitario: part.price || 0,
-                  inventory_id: part.inventory_id
-                });
-              });
-            }
-            
-            // Si no hay items, agregar uno genérico
-            if (items.length === 0) {
-              items.push({
-                descripcion: `Reparación - ${order.device?.brand} ${order.device?.model}`,
-                cantidad: 1,
-                precio_unitario: order.total_cost || order.estimated_total || 0,
-                inventory_id: undefined
-              });
-            }
-            
-            const success = await crearComprobante({
-              order_id: id,
-              customer_id: order.customer_id || order.customer?.id || '',
-              tipo: data.tipo,
-              punto_venta: data.puntoVenta,
-              condicion_fiscal: data.condicionFiscal,
-              cuit: data.cuit,
-              items
-            });
-            
-            if (success) {
-              setShowModalComprobante(false);
-              await refresh();
-            }
-          }}
-          orderData={order ? {
-            orderId: order.id,
-            customerId: order.customer_id || order.customer?.id || '',
-            customerName: order.customer?.name || 'Sin cliente',
-            customerCuit: (order.customer as any)?.cuit || undefined,
-            total: order.total_cost || order.estimated_total || 0,
-            items: []
-          } : null}
-          loading={loadingComprobantes}
-        />
-
-        {/* Modal Crear Comprobante (editor completo, pre-cargado con el servicio) */}
+        {/* Modal Crear Comprobante */}
         {order && (
           <ModalCrearComprobante
             isOpen={showModalCrearComprobante}
             onClose={() => setShowModalCrearComprobante(false)}
-            loading={loadingComprobantes}
             initialClienteId={order.customer_id || order.customer?.id || ''}
             initialItems={[{
               descripcion: `Servicio - ${order.device?.brand ?? ''} ${order.device?.model ?? ''}`.trim(),
               cantidad: 1,
-              // Use service-only total from order_items; fall back to labor_cost then estimated_total
               precio_unitario: serviceTotal ?? order.labor_cost ?? order.estimated_total ?? 0,
               currency: 'ARS',
             }]}
-            onCrear={async (data) => {
-              if (!id) return;
-              const success = await crearComprobante({
-                order_id: id,
-                customer_id: data.clienteId || order.customer_id || order.customer?.id || '',
-                tipo: data.tipo,
-                punto_venta: data.puntoVenta,
-                condicion_fiscal: data.condicionFiscal,
-                items: data.items.map(item => ({
-                  descripcion: item.descripcion,
-                  cantidad: item.cantidad,
-                  precio_unitario: item.precio_unitario,
-                  inventory_id: item.inventory_id,
-                })),
-              });
-              if (success) {
-                setShowModalCrearComprobante(false);
-                await refresh();
-              }
+            onCreado={() => {
+              setShowModalCrearComprobante(false)
+              refresh()
             }}
           />
         )}

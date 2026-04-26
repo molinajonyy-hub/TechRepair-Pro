@@ -208,6 +208,22 @@ export function ModalCrearComprobante({
     }
   }, [isOpen]);
 
+  // ── Auto-cargar punto de venta si no se pasó uno explícito ──────────────────
+  useEffect(() => {
+    if (!isOpen || !businessId || puntoVentaInicial) return
+    supabase
+      .from('sales_points')
+      .select('punto_venta')
+      .eq('business_id', businessId)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.punto_venta) setPuntoVenta(String(data.punto_venta).padStart(4, '0'))
+      })
+  }, [isOpen, businessId, puntoVentaInicial])
+
   // ── Cargar clientes ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen || !businessId) return;

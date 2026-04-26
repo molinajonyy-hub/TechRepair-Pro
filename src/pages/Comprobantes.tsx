@@ -4,10 +4,9 @@ import { Plus, RefreshCw, FileText, TrendingUp, Receipt, Loader2, AlertTriangle 
 import { CloseButton } from '../components/ui/CloseButton';
 import { ComprobantesTable } from '../components/comprobantes/ComprobantesTable';
 import { ModalCrearComprobante } from '../components/comprobantes/ModalCrearComprobante';
-import { ModalGenerarComprobante } from '../components/comprobantes/ModalGenerarComprobante';
 import { Loader } from '../components/ui/Loader';
 import { useAuth } from '../contexts/AuthContext';
-import comprobanteService, { TipoComprobante, Comprobante } from '../services/comprobanteService';
+import comprobanteService, { Comprobante } from '../services/comprobanteService';
 
 export default function ComprobantesPage() {
   const { businessId, user } = useAuth();
@@ -17,11 +16,7 @@ export default function ComprobantesPage() {
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState<string | null>(null);
 
-  const [showModal, setShowModal]               = useState(false);
-  const [showTipoSelector, setShowTipoSelector] = useState(false);
-  const [tipoSeleccionado, setTipoSeleccionado] = useState<TipoComprobante | undefined>(undefined);
-  const [pvSeleccionado, setPvSeleccionado]     = useState<string | undefined>(undefined);
-  const [condicionSeleccionada, setCondicionSeleccionada] = useState<string | undefined>(undefined);
+  const [showModal, setShowModal] = useState(false);
 
   // ── Cargar comprobantes ──────────────────────────────────────────────────────
   const cargarComprobantes = useCallback(async () => {
@@ -128,7 +123,7 @@ export default function ComprobantesPage() {
             <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
             Actualizar
           </button>
-          <button onClick={() => setShowTipoSelector(true)} disabled={loading} style={{
+          <button onClick={() => setShowModal(true)} disabled={loading} style={{
             display: 'flex', alignItems: 'center', gap: '0.5rem',
             padding: '0.625rem 1.25rem',
             background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
@@ -326,38 +321,11 @@ export default function ComprobantesPage() {
         </div>
       )}
 
-      {/* Selector de tipo — paso previo al form completo */}
-      <ModalGenerarComprobante
-        isOpen={showTipoSelector}
-        onClose={() => setShowTipoSelector(false)}
-        onGenerar={({ tipo, puntoVenta, condicionFiscal }) => {
-          setTipoSeleccionado(tipo);
-          setPvSeleccionado(puntoVenta);
-          setCondicionSeleccionada(condicionFiscal);
-          setShowTipoSelector(false);
-          setShowModal(true);
-        }}
-      />
-
-      {/* Modal Crear Comprobante — usa el nuevo servicio directamente */}
+      {/* Modal Crear Comprobante */}
       <ModalCrearComprobante
         isOpen={showModal}
-        onClose={() => {
-          setShowModal(false);
-          setTipoSeleccionado(undefined);
-          setPvSeleccionado(undefined);
-          setCondicionSeleccionada(undefined);
-        }}
-        onCreado={() => {
-          setShowModal(false);
-          setTipoSeleccionado(undefined);
-          setPvSeleccionado(undefined);
-          setCondicionSeleccionada(undefined);
-          cargarComprobantes();
-        }}
-        tipoInicial={tipoSeleccionado}
-        puntoVentaInicial={pvSeleccionado}
-        condicionFiscalInicial={condicionSeleccionada}
+        onClose={() => setShowModal(false)}
+        onCreado={() => { setShowModal(false); cargarComprobantes(); }}
       />
 
       {/* Modal Anular Comprobante */}

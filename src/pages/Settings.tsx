@@ -24,12 +24,13 @@ import {
 import { OrderPrintSettings } from '../components/settings/OrderPrintSettings'
 import { ComprobantePrintSettings } from '../components/settings/ComprobantePrintSettings'
 import { PaymentMethodSettings } from '../components/payments/PaymentMethodSettings'
+import { CommissionSettings } from '../components/settings/CommissionSettings'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import ArcaService from '../services/arcaService'
 import { uploadBusinessLogo } from '../lib/storageSetup'
 
-type TabType = 'datos' | 'puntos' | 'arca' | 'preferencias' | 'seguridad' | 'orden' | 'comprobante' | 'pagos'
+type TabType = 'datos' | 'puntos' | 'arca' | 'preferencias' | 'seguridad' | 'orden' | 'comprobante' | 'pagos' | 'comisiones'
 
 interface BusinessSettings {
   id?: string
@@ -571,6 +572,7 @@ export default function Settings() {
     { id: 'orden' as TabType, label: 'Orden Impresa', icon: Printer },
     { id: 'comprobante' as TabType, label: 'Comprobantes', icon: FileText },
     { id: 'pagos' as TabType, label: 'Cobros y Pagos', icon: Shield },
+    { id: 'comisiones' as TabType, label: 'Recargos y Comisiones', icon: Bell },
   ]
 
   if (loading) {
@@ -1691,6 +1693,12 @@ export default function Settings() {
               </p>
             </div>
             <PaymentMethodSettings />
+          </div>
+        )}
+
+        {activeTab === 'comisiones' && (
+          <div style={{ maxWidth: '680px' }}>
+            <CommissionSettings />
           </div>
         )}
 
