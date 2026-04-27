@@ -572,7 +572,7 @@ export default function Settings() {
     { id: 'orden' as TabType, label: 'Orden Impresa', icon: Printer },
     { id: 'comprobante' as TabType, label: 'Comprobantes', icon: FileText },
     { id: 'pagos' as TabType, label: 'Cobros y Pagos', icon: Shield },
-    { id: 'comisiones' as TabType, label: 'Recargos y Comisiones', icon: Bell },
+    { id: 'comisiones' as TabType, label: 'Comisiones', icon: Bell },
   ]
 
   if (loading) {
@@ -604,12 +604,11 @@ export default function Settings() {
         {/* Tabs de navegación */}
         <div style={{
           display: 'flex',
+          flexWrap: 'wrap',
           gap: '0.25rem',
           marginBottom: '2rem',
           borderBottom: '1px solid rgba(255,255,255,0.06)',
           paddingBottom: '0',
-          overflowX: 'auto',
-          scrollbarWidth: 'none',
         }}>
           {tabs.map(tab => {
             const Icon = tab.icon
