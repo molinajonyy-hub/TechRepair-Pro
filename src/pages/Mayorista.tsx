@@ -228,54 +228,103 @@ function BulkPriceModal({ products, onClose, onApplied, businessId }: BulkModalP
 
 interface InlineEditorProps {
   product: WholesaleProduct
+  exchangeRate: number
   onSave: (id: string, price: number | null) => Promise<void>
 }
 
-function InlineEditor({ product, onSave }: InlineEditorProps) {
+function InlineEditor({ product, exchangeRate, onSave }: InlineEditorProps) {
   const [editing, setEditing] = useState(false)
-  const [val, setVal] = useState(String(product.precio_mayorista ?? ''))
+  const [currency, setCurrency] = useState<'ARS' | 'USD'>('ARS')
+  const [val, setVal] = useState('')
   const [saving, setSaving] = useState(false)
+
+  const openEditor = () => {
+    // Mostrar precio en ARS por defecto al abrir
+    setCurrency('ARS')
+    setVal(product.precio_mayorista != null ? String(Math.round(product.precio_mayorista)) : '')
+    setEditing(true)
+  }
+
+  const numVal = parseFloat(val) || 0
+  const arsPreview = currency === 'USD' ? Math.round(numVal * exchangeRate) : numVal
+  const usdRef = product.precio_mayorista && exchangeRate > 1
+    ? (product.precio_mayorista / exchangeRate).toFixed(2)
+    : null
 
   const handleSave = async () => {
     setSaving(true)
     const num = parseFloat(val)
-    await onSave(product.id, isNaN(num) || val === '' ? null : num)
+    const arsValue = isNaN(num) || val === '' ? null : (currency === 'USD' ? Math.round(num * exchangeRate) : num)
+    await onSave(product.id, arsValue)
     setSaving(false)
     setEditing(false)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') handleSave()
-    if (e.key === 'Escape') { setEditing(false); setVal(String(product.precio_mayorista ?? '')) }
+    if (e.key === 'Escape') setEditing(false)
   }
 
   if (editing) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-        <input
-          type="number" value={val} onChange={e => setVal(e.target.value)} onKeyDown={handleKeyDown}
-          autoFocus min="0" step="0.01"
-          style={{ width: 100, padding: '0.25rem 0.5rem', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: '0.375rem', color: '#c7d2fe', fontSize: '0.8rem', outline: 'none', fontFamily: 'monospace' }}
-        />
-        <button onClick={handleSave} disabled={saving}
-          style={{ width: 24, height: 24, borderRadius: '0.375rem', background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', color: '#22c55e', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {saving ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={11} />}
-        </button>
-        <button onClick={() => { setEditing(false); setVal(String(product.precio_mayorista ?? '')) }}
-          style={{ width: 24, height: 24, borderRadius: '0.375rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <X size={11} />
-        </button>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+          {/* Toggle ARS/USD */}
+          <div style={{ display: 'flex', borderRadius: '0.375rem', overflow: 'hidden', border: '1px solid rgba(99,102,241,0.3)', flexShrink: 0 }}>
+            {(['ARS', 'USD'] as const).map(c => (
+              <button key={c} type="button" onClick={() => {
+                if (c === currency) return
+                // Convertir el valor al cambiar moneda
+                const n = parseFloat(val) || 0
+                if (c === 'USD' && currency === 'ARS' && exchangeRate > 1) setVal((n / exchangeRate).toFixed(2))
+                if (c === 'ARS' && currency === 'USD') setVal(String(Math.round(n * exchangeRate)))
+                setCurrency(c)
+              }} style={{ padding: '0.2rem 0.4rem', background: currency === c ? 'rgba(99,102,241,0.3)' : 'transparent', border: 'none', color: currency === c ? '#c7d2fe' : '#475569', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}>
+                {c}
+              </button>
+            ))}
+          </div>
+          <input
+            type="number" value={val} onChange={e => setVal(e.target.value)} onKeyDown={handleKeyDown}
+            autoFocus min="0" step={currency === 'USD' ? '0.01' : '1'}
+            style={{ width: 90, padding: '0.25rem 0.5rem', background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: '0.375rem', color: '#c7d2fe', fontSize: '0.8rem', outline: 'none', fontFamily: 'monospace' }}
+          />
+          <button onClick={handleSave} disabled={saving}
+            style={{ width: 24, height: 24, borderRadius: '0.375rem', background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', color: '#22c55e', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            {saving ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={11} />}
+          </button>
+          <button onClick={() => setEditing(false)}
+            style={{ width: 24, height: 24, borderRadius: '0.375rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <X size={11} />
+          </button>
+        </div>
+        {/* Preview conversión */}
+        {currency === 'USD' && numVal > 0 && exchangeRate > 1 && (
+          <span style={{ fontSize: '0.65rem', color: '#60a5fa', fontFamily: 'monospace', paddingLeft: '0.25rem' }}>
+            = {fmt(arsPreview)} ARS
+          </span>
+        )}
+        {currency === 'ARS' && numVal > 0 && exchangeRate > 1 && (
+          <span style={{ fontSize: '0.65rem', color: '#60a5fa', fontFamily: 'monospace', paddingLeft: '0.25rem' }}>
+            ≈ USD {(numVal / exchangeRate).toFixed(2)}
+          </span>
+        )}
       </div>
     )
   }
 
   return (
-    <button onClick={() => setEditing(true)}
-      style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem 0', color: product.precio_mayorista ? '#c7d2fe' : '#475569' }}>
-      <span style={{ fontFamily: 'monospace', fontSize: '0.875rem', fontWeight: product.precio_mayorista ? 600 : 400 }}>
-        {product.precio_mayorista ? fmt(product.precio_mayorista) : '—'}
+    <button onClick={openEditor}
+      style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem 0', gap: '0.1rem' }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', color: product.precio_mayorista ? '#c7d2fe' : '#475569' }}>
+        <span style={{ fontFamily: 'monospace', fontSize: '0.875rem', fontWeight: product.precio_mayorista ? 600 : 400 }}>
+          {product.precio_mayorista ? fmt(product.precio_mayorista) : '—'}
+        </span>
+        <Pencil size={11} style={{ color: '#475569', opacity: 0.7 }} />
       </span>
-      <Pencil size={11} style={{ color: '#475569', opacity: 0.7 }} />
+      {usdRef && (
+        <span style={{ fontSize: '0.65rem', color: '#60a5fa', fontFamily: 'monospace' }}>≈ USD {usdRef}</span>
+      )}
     </button>
   )
 }
@@ -287,6 +336,7 @@ export function Mayorista() {
   const [products, setProducts] = useState<WholesaleProduct[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [exchangeRate, setExchangeRate] = useState(1)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<'all' | 'with' | 'without' | 'low_stock'>('all')
   const [filterCat, setFilterCat] = useState('')
@@ -315,6 +365,20 @@ export function Mayorista() {
   }, [businessId])
 
   useEffect(() => { load() }, [load])
+
+  // Cargar tipo de cambio USD/ARS
+  useEffect(() => {
+    if (!businessId) return
+    supabase
+      .from('exchange_rates')
+      .select('rate_ars_per_usd')
+      .eq('business_id', businessId)
+      .eq('currency', 'USD')
+      .order('effective_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => { if (data?.rate_ars_per_usd) setExchangeRate(data.rate_ars_per_usd) })
+  }, [businessId])
 
   const savePrecioMayorista = async (id: string, price: number | null) => {
     await supabase
@@ -544,7 +608,7 @@ export function Mayorista() {
                     </td>
                     {/* Mayorista (editable) */}
                     <td style={{ padding: '0.5rem 1rem' }}>
-                      <InlineEditor product={p} onSave={savePrecioMayorista} />
+                      <InlineEditor product={p} exchangeRate={exchangeRate} onSave={savePrecioMayorista} />
                       {isRetailLoss && p.precio_mayorista != null && (
                         <div style={{ fontSize: '0.65rem', color: '#f59e0b', marginTop: '0.1rem' }}>≥ minorista</div>
                       )}
