@@ -2,6 +2,7 @@ import { ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { ThemeToggle } from '../ui/ThemeToggle';
 import { useSidebar } from '../../hooks/useSidebar';
+import { useAutoExchangeRate } from '../../hooks/useAutoExchangeRate';
 import { useNavigate } from 'react-router-dom';
 
 interface LayoutProps {
@@ -13,6 +14,7 @@ interface LayoutProps {
 export function Layout({ children, title, description }: LayoutProps) {
   const { isCollapsed, toggleMobileSidebar } = useSidebar();
   const navigate = useNavigate();
+  useAutoExchangeRate();
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#0a0a0f] text-slate-900 dark:text-white overflow-hidden transition-colors duration-300">

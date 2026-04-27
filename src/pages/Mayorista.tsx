@@ -373,13 +373,14 @@ export function Mayorista() {
     if (!businessId) return
     supabase
       .from('exchange_rates')
-      .select('rate_ars_per_usd')
+      .select('rate')
       .eq('business_id', businessId)
-      .eq('currency', 'USD')
-      .order('effective_date', { ascending: false })
+      .eq('base_currency', 'USD')
+      .eq('target_currency', 'ARS')
+      .order('updated_at', { ascending: false })
       .limit(1)
       .maybeSingle()
-      .then(({ data }) => { if (data?.rate_ars_per_usd) setExchangeRate(data.rate_ars_per_usd) })
+      .then(({ data }) => { if (data?.rate) setExchangeRate(data.rate) })
   }, [businessId])
 
   const savePrecioMayorista = async (id: string, price: number | null) => {

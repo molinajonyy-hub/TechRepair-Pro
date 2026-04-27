@@ -188,10 +188,10 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
   const loadDolar = async () => {
     if (!businessId) return
     const { data } = await supabase
-      .from('exchange_rates').select('rate_ars_per_usd')
-      .eq('business_id', businessId).eq('currency', 'USD')
-      .order('effective_date', { ascending: false }).limit(1).maybeSingle()
-    if (data?.rate_ars_per_usd) setDolar(data.rate_ars_per_usd)
+      .from('exchange_rates').select('rate')
+      .eq('business_id', businessId).eq('base_currency', 'USD').eq('target_currency', 'ARS')
+      .order('updated_at', { ascending: false }).limit(1).maybeSingle()
+    if (data?.rate) setDolar(data.rate)
   }
 
   const prefillOrden = async (id: string) => {
