@@ -39,6 +39,7 @@ interface ClienteResult {
   name: string
   phone: string | null
   email: string | null
+  customer_type?: 'minorista' | 'mayorista'
 }
 
 interface OrdenResult {
@@ -216,16 +217,18 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
   }
 
   const prefillCliente = async (id: string) => {
-    const { data } = await supabase.from('customers').select('id, name, phone, email').eq('id', id).single()
+    const { data } = await supabase.from('customers').select('id, name, phone, email, customer_type').eq('id', id).single()
     if (data) setClienteSelec(data)
   }
+
+  const isClienteMayorista = clienteSelec?.customer_type === 'mayorista'
 
   const buscarClientes = useCallback((q: string) => {
     clearTimeout(clienteTimer.current)
     if (!q.trim() || !businessId) { setClientes([]); return }
     clienteTimer.current = setTimeout(async () => {
 
-      const { data } = await supabase.from('customers').select('id, name, phone, email').eq('business_id', businessId).or(`name.ilike.%${q}%,phone.ilike.%${q}%`).limit(5)
+      const { data } = await supabase.from('customers').select('id, name, phone, email, customer_type').eq('business_id', businessId).or(`name.ilike.%${q}%,phone.ilike.%${q}%`).limit(5)
       setClientes(data || [])
 
     }, 250)
@@ -257,14 +260,15 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
     clearTimeout(prodTimers.current[itemId])
     if (!q.trim() || !businessId) { setProdResults(prev => ({ ...prev, [itemId]: [] })); return }
     prodTimers.current[itemId] = setTimeout(async () => {
-      const { data } = await supabase.from('inventory').select('id, name, sale_price, stock_quantity').eq('business_id', businessId).eq('is_active', true).ilike('name', `%${q}%`).gt('stock_quantity', 0).limit(6)
+      const { data } = await supabase.from('inventory').select('id, name, sale_price, precio_mayorista, stock_quantity').eq('business_id', businessId).eq('is_active', true).ilike('name', `%${q}%`).gt('stock_quantity', 0).limit(6)
       setProdResults(prev => ({ ...prev, [itemId]: data || [] }))
     }, 200)
   }, [businessId])
 
   const seleccionarProducto = (itemId: string, prod: any) => {
+    const useMayorista = isClienteMayorista && prod.precio_mayorista != null
     updateItem(itemId, 'nombre', prod.name)
-    updateItem(itemId, 'precio', prod.sale_price || 0)
+    updateItem(itemId, 'precio', useMayorista ? prod.precio_mayorista : (prod.sale_price || 0))
     setProdQ(prev => ({ ...prev, [itemId]: '' }))
     setProdResults(prev => ({ ...prev, [itemId]: [] }))
   }
@@ -323,10 +327,10 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
           for (const pago of pagos) {
             const monto = pago.montoARS + (pago.usaUSD && dolar > 0 ? pago.montoUSD * dolar : 0)
             if (monto <= 0) continue
-            await supabase.from('business_finance_entries').insert({ business_id: businessId, date: new Date().toISOString().split('T')[0], type: 'income', category: origen === 'venta_rapida' ? 'venta' : 'servicio', description, amount: monto, currency: 'ARS', amount_ars: monto, exchange_rate: 1, source: 'cobro_rapido', customer_id: clienteSelec?.id ?? null })
+            await supabase.from('business_finance_entries').insert({ business_id: businessId, date: new Date().toISOString().split('T')[0], type: 'income', category: origen === 'venta_rapida' ? 'venta' : 'servicio', description, amount: monto, currency: 'ARS', amount_ars: monto, exchange_rate: 1, source: 'cobro_rapido', customer_id: clienteSelec?.id ?? null, sale_type: isClienteMayorista ? 'mayorista' : 'minorista' })
           }
         } else {
-          await supabase.from('business_finance_entries').insert({ business_id: businessId, date: new Date().toISOString().split('T')[0], type: 'income', category: origen === 'venta_rapida' ? 'venta' : 'servicio', description, amount: totalCobrado, currency: 'ARS', amount_ars: totalCobrado, exchange_rate: 1, source: 'cobro_rapido', customer_id: clienteSelec?.id ?? null })
+          await supabase.from('business_finance_entries').insert({ business_id: businessId, date: new Date().toISOString().split('T')[0], type: 'income', category: origen === 'venta_rapida' ? 'venta' : 'servicio', description, amount: totalCobrado, currency: 'ARS', amount_ars: totalCobrado, exchange_rate: 1, source: 'cobro_rapido', customer_id: clienteSelec?.id ?? null, sale_type: isClienteMayorista ? 'mayorista' : 'minorista' })
         }
       }
       invalidateStatsCache()
@@ -401,9 +405,14 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
                 </label>
                 {clienteSelec ? (
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.625rem 0.875rem', borderRadius: '0.625rem', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)' }}>
-                    <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                       <span style={{ color: '#c7d2fe', fontWeight: 600, fontSize: '0.875rem' }}>{clienteSelec.name}</span>
-                      {clienteSelec.phone && <span style={{ color: '#64748b', fontSize: '0.75rem', marginLeft: '0.5rem' }}>{clienteSelec.phone}</span>}
+                      {isClienteMayorista && (
+                        <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '9999px', background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)', color: '#a5b4fc' }}>
+                          MAYORISTA
+                        </span>
+                      )}
+                      {clienteSelec.phone && <span style={{ color: '#64748b', fontSize: '0.75rem' }}>{clienteSelec.phone}</span>}
                     </div>
                     <button onClick={() => { setClienteSelec(null); setClienteQ('') }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={14} /></button>
                   </div>
@@ -478,7 +487,21 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
                               {prodResults[item.id].map((p: any) => (
                                 <button key={p.id} type="button" onClick={() => seleccionarProducto(item.id, p)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)', textAlign: 'left' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
                                   <span style={{ color: '#e2e8f0', fontSize: '0.83rem' }}>{p.name}</span>
-                                  <span style={{ color: '#22c55e', fontSize: '0.78rem', fontWeight: 600, marginLeft: '0.5rem', flexShrink: 0 }}>${(p.sale_price || 0).toLocaleString('es-AR')} · {p.stock_quantity}</span>
+                                  <span style={{ flexShrink: 0, textAlign: 'right', marginLeft: '0.5rem' }}>
+                                    {isClienteMayorista && p.precio_mayorista != null ? (
+                                      <span style={{ color: '#a5b4fc', fontSize: '0.78rem', fontWeight: 700 }}>
+                                        ${(p.precio_mayorista).toLocaleString('es-AR')} <span style={{ color: '#475569', fontWeight: 400, fontSize: '0.68rem' }}>may.</span>
+                                      </span>
+                                    ) : (
+                                      <span style={{ color: '#22c55e', fontSize: '0.78rem', fontWeight: 600 }}>
+                                        ${(p.sale_price || 0).toLocaleString('es-AR')}
+                                      </span>
+                                    )}
+                                    <span style={{ color: '#334155', fontSize: '0.68rem', marginLeft: '0.25rem' }}> · {p.stock_quantity}</span>
+                                    {isClienteMayorista && p.precio_mayorista == null && (
+                                      <span style={{ color: '#f59e0b', fontSize: '0.65rem', display: 'block' }}>sin precio may.</span>
+                                    )}
+                                  </span>
                                 </button>
                               ))}
                             </div>

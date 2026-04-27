@@ -2400,6 +2400,40 @@ CREATE POLICY "bfe_delete" ON business_finance_entries FOR DELETE
             />
           </div>
 
+          {/* ── Desglose Mayorista / Minorista ── */}
+          {(() => {
+            const incomeEntries = entries.filter(e => e.type === 'income')
+            const mayorista = incomeEntries.filter(e => (e as any).sale_type === 'mayorista')
+            const minorista = incomeEntries.filter(e => (e as any).sale_type !== 'mayorista')
+            const totalMay = mayorista.reduce((s, e) => s + (e.amount_ars || 0), 0)
+            const totalMin = minorista.reduce((s, e) => s + (e.amount_ars || 0), 0)
+            const totalIncome = summary.totalIncome
+            if (mayorista.length === 0) return null
+            return (
+              <div style={{ background: '#0f1829', border: '1px solid rgba(99,102,241,0.15)', borderRadius: '0.875rem', padding: '1rem 1.25rem', marginBottom: '1.25rem', display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ fontSize: '0.72rem', color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Desglose de ingresos</div>
+                <div style={{ display: 'flex', gap: '1.5rem', flex: 1, flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b', marginBottom: '0.2rem' }}>👤 Minorista</div>
+                    <div style={{ fontWeight: 700, color: '#34d399', fontFamily: 'monospace', fontSize: '0.95rem' }}>{fmt(totalMin)}</div>
+                    <div style={{ fontSize: '0.7rem', color: '#334155' }}>{totalIncome > 0 ? `${((totalMin / totalIncome) * 100).toFixed(0)}%` : '—'} · {minorista.length} ventas</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.72rem', color: '#64748b', marginBottom: '0.2rem' }}>🏬 Mayorista</div>
+                    <div style={{ fontWeight: 700, color: '#a5b4fc', fontFamily: 'monospace', fontSize: '0.95rem' }}>{fmt(totalMay)}</div>
+                    <div style={{ fontSize: '0.7rem', color: '#334155' }}>{totalIncome > 0 ? `${((totalMay / totalIncome) * 100).toFixed(0)}%` : '—'} · {mayorista.length} ventas</div>
+                  </div>
+                </div>
+                {/* Barra visual */}
+                {totalIncome > 0 && (
+                  <div style={{ flex: '0 0 160px', height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${(totalMin / totalIncome) * 100}%`, background: '#34d399', borderRadius: 4, transition: 'width 0.3s' }} />
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
           {/* ── Charts + Break-Even ── */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
             {/* Charts panel */}

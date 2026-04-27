@@ -29,11 +29,12 @@ interface InventoryResult {
   stock_quantity: number;
   cost_price: number;
   sale_price: number;
+  precio_mayorista?: number | null;
   base_price?: number | null;
   base_currency?: string | null;
 }
 
-interface ClienteOption { id: string; name: string; cuit?: string }
+interface ClienteOption { id: string; name: string; cuit?: string; customer_type?: string }
 
 interface LineaItem {
   _key: string;
@@ -201,7 +202,7 @@ export function ModalCrearComprobante({
   // ── Cargar clientes ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isOpen || !businessId) return;
-    supabase.from('customers').select('id, name')
+    supabase.from('customers').select('id, name, customer_type')
       .eq('business_id', businessId).order('name')
       .then(({ data }) => setClientes((data || []) as ClienteOption[]));
   }, [isOpen, businessId]);
@@ -238,7 +239,7 @@ export function ModalCrearComprobante({
     try {
       const { data } = await supabase
         .from('inventory')
-        .select('id, code, name, category, stock_quantity, cost_price, sale_price, base_price, base_currency')
+        .select('id, code, name, category, stock_quantity, cost_price, sale_price, precio_mayorista, base_price, base_currency')
         .eq('business_id', businessId)
         .eq('is_active', true)
         .or(`name.ilike.%${q}%,code.ilike.%${q}%,category.ilike.%${q}%`)
@@ -281,6 +282,10 @@ export function ModalCrearComprobante({
 
   if (!isOpen) return null;
 
+  // Cliente mayorista: se usa para auto-aplicar precios mayoristas en items
+  const clienteMayorista = clientes.find(c => c.id === clienteId)
+  const isClienteMayorista = clienteMayorista?.customer_type === 'mayorista'
+
   // ── Línea helpers ─────────────────────────────────────────────────────────────
   const updateLinea = (key: string, updates: Partial<LineaItem>) => {
     setLineas(prev => prev.map(l => l._key === key ? { ...l, ...updates } : l));
@@ -290,9 +295,11 @@ export function ModalCrearComprobante({
     const l    = lineas[idx];
     const cost = Number(inv.cost_price) || 0;
     const priceUSD = inv.base_currency === 'USD' && inv.base_price ? Number(inv.base_price) : null;
+    const useMayorista = isClienteMayorista && inv.precio_mayorista != null
+    const precioFinal = useMayorista ? Number(inv.precio_mayorista) : (Number(inv.sale_price) || 0)
     updateLinea(l._key, {
       descripcion:     inv.name + (inv.code ? ` [${inv.code}]` : ''),
-      precio_unitario: Number(inv.sale_price) || 0,
+      precio_unitario: precioFinal,
       costo_unitario:  cost,
       currency:        'ARS',
       inventory_id:    inv.id,
@@ -546,12 +553,24 @@ export function ModalCrearComprobante({
                               onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.04)')}
                               onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
                             >
-                              {c.name}
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                                {c.name}
+                                {c.customer_type === 'mayorista' && (
+                                  <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '0.1rem 0.35rem', borderRadius: '9999px', background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.35)', color: '#a5b4fc' }}>
+                                    MAYORISTA
+                                  </span>
+                                )}
+                              </span>
                             </button>
                           ))}
                         </div>
                       )}
                     </div>
+                    {isClienteMayorista && (
+                      <p style={{ margin: '0.375rem 0 0', fontSize: '0.72rem', color: '#a5b4fc', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                        🏬 Cliente mayorista — se aplicarán precios mayoristas automáticamente
+                      </p>
+                    )}
                   </div>
 
                   {/* Punto de venta */}
@@ -744,10 +763,26 @@ export function ModalCrearComprobante({
                                   </div>
                                 </div>
                                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#34d399', fontFamily: 'monospace' }}>
-                                    {fmtARS(Number(inv.sale_price))}
-                                  </div>
-                                  {inv.base_currency === 'USD' && inv.base_price && (
+                                  {isClienteMayorista && inv.precio_mayorista != null ? (
+                                    <>
+                                      <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#a5b4fc', fontFamily: 'monospace' }}>
+                                        {fmtARS(Number(inv.precio_mayorista))}
+                                      </div>
+                                      <div style={{ fontSize: '0.65rem', color: '#475569', fontFamily: 'monospace', textDecoration: 'line-through' }}>
+                                        {fmtARS(Number(inv.sale_price))}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#34d399', fontFamily: 'monospace' }}>
+                                        {fmtARS(Number(inv.sale_price))}
+                                      </div>
+                                      {isClienteMayorista && !inv.precio_mayorista && (
+                                        <div style={{ fontSize: '0.65rem', color: '#f59e0b' }}>sin precio may.</div>
+                                      )}
+                                    </>
+                                  )}
+                                  {inv.base_currency === 'USD' && inv.base_price && !isClienteMayorista && (
                                     <div style={{ fontSize: '0.7rem', color: '#60a5fa', fontFamily: 'monospace' }}>
                                       USD {Number(inv.base_price).toFixed(2)}
                                     </div>
