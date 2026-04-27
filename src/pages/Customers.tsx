@@ -41,7 +41,7 @@ export function Customers() {
 
   // ── Editar cliente ───────────────────────────────────────────
   const [editingCustomer, setEditingCustomer] = useState<any | null>(null)
-  const [editForm, setEditForm] = useState({ name: '', phone: '', email: '', address: '', notes: '' })
+  const [editForm, setEditForm] = useState({ name: '', phone: '', email: '', address: '', notes: '', customer_type: 'minorista' as 'minorista' | 'mayorista' })
   const [editLoading, setEditLoading] = useState(false)
   const [editError, setEditError] = useState('')
 
@@ -53,6 +53,7 @@ export function Customers() {
       email: customer.email || '',
       address: (customer as any).address || '',
       notes: (customer as any).notes || '',
+      customer_type: (customer as any).customer_type || 'minorista',
     })
     setEditError('')
   }
@@ -69,7 +70,8 @@ export function Customers() {
         email: editForm.email.trim(),
         address: editForm.address.trim(),
         notes: editForm.notes.trim(),
-      })
+        customer_type: editForm.customer_type,
+      } as any)
       setEditingCustomer(null)
       await loadCustomers()
     } catch (err: any) {
@@ -493,9 +495,16 @@ export function Customers() {
                   return (
                     <tr key={customer.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                       <td style={{ padding: '1rem' }}>
-                        <Link to={`/customers/${customer.id}`} style={{ color: '#818cf8', fontWeight: 500, textDecoration: 'none' }}>
-                          {customer.name}
-                        </Link>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          <Link to={`/customers/${customer.id}`} style={{ color: '#818cf8', fontWeight: 500, textDecoration: 'none' }}>
+                            {customer.name}
+                          </Link>
+                          {(customer as any).customer_type === 'mayorista' && (
+                            <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.45rem', borderRadius: '9999px', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.35)', color: '#a5b4fc', whiteSpace: 'nowrap' }}>
+                              MAYORISTA
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td style={{ padding: '1rem' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -622,6 +631,24 @@ export function Customers() {
                   />
                 </div>
               ))}
+            </div>
+
+            {/* Tipo de cliente */}
+            <div style={{ marginTop: '0.5rem' }}>
+              <label style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '0.375rem' }}>Tipo de cliente</label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {(['minorista', 'mayorista'] as const).map(tipo => (
+                  <button key={tipo} type="button" onClick={() => setEditForm(prev => ({ ...prev, customer_type: tipo }))}
+                    style={{ flex: 1, padding: '0.625rem', borderRadius: '0.5rem', border: `2px solid ${editForm.customer_type === tipo ? tipo === 'mayorista' ? 'rgba(99,102,241,0.5)' : 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.08)'}`, background: editForm.customer_type === tipo ? tipo === 'mayorista' ? 'rgba(99,102,241,0.15)' : 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)', color: editForm.customer_type === tipo ? tipo === 'mayorista' ? '#c7d2fe' : '#4ade80' : '#64748b', fontWeight: editForm.customer_type === tipo ? 700 : 400, fontSize: '0.85rem', cursor: 'pointer', textTransform: 'capitalize' }}>
+                    {tipo === 'mayorista' ? '🏬 Mayorista' : '👤 Minorista'}
+                  </button>
+                ))}
+              </div>
+              {editForm.customer_type === 'mayorista' && (
+                <p style={{ margin: '0.35rem 0 0', fontSize: '0.72rem', color: '#818cf8' }}>
+                  Se usarán precios mayoristas automáticamente al cobrarle
+                </p>
+              )}
             </div>
 
             {editError && (

@@ -160,6 +160,7 @@ export function Inventory() {
     cost_price: 0,
     cost_price_usd: 0,
     sale_price: 0,
+    precio_mayorista: null as number | null,
     location: '',
     base_currency: 'ARS',
     base_price: 0,
@@ -447,6 +448,7 @@ export function Inventory() {
       cost_price: item.cost_price,
       cost_price_usd: item.cost_price_usd || 0,
       sale_price: item.sale_price,
+      precio_mayorista: (item as any).precio_mayorista ?? null,
       location: item.location || '',
       base_currency: item.base_currency || 'ARS',
       base_price: item.base_price || 0,
@@ -667,6 +669,7 @@ export function Inventory() {
         cost_price: formData.cost_price,
         cost_price_usd: formData.cost_price_usd,
         sale_price: formData.sale_price,
+        precio_mayorista: formData.precio_mayorista,
         location: isService ? '' : cleanedLocation,
         base_currency: formData.base_currency,
         base_price: formData.base_price,
@@ -2965,6 +2968,32 @@ export function Inventory() {
                     </p>
                   )}
                 </div>
+              </div>
+
+              {/* Precio Mayorista */}
+              <div style={{ marginBottom: '1.5rem' }}>
+                <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>
+                  Precio Mayorista (ARS)
+                  <span style={{ fontSize: '0.75rem', color: '#475569', fontWeight: 400, marginLeft: '0.5rem' }}>opcional</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.precio_mayorista ?? ''}
+                  onChange={e => setFormData(prev => ({ ...prev, precio_mayorista: e.target.value === '' ? null : parseFloat(e.target.value) || 0 }))}
+                  placeholder="Sin precio mayorista"
+                  style={{ width: '100%', padding: '0.625rem 0.75rem', backgroundColor: 'rgba(15,23,42,0.8)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '0.5rem', color: '#f1f5f9', outline: 'none' }}
+                />
+                {formData.precio_mayorista != null && formData.cost_price > 0 && (() => {
+                  const margin = ((formData.precio_mayorista - formData.cost_price) / formData.cost_price) * 100
+                  const isNegative = formData.precio_mayorista <= formData.cost_price
+                  return (
+                    <p style={{ fontSize: '0.75rem', marginTop: '0.25rem', color: isNegative ? '#f87171' : margin < 10 ? '#f59e0b' : '#34d399' }}>
+                      {isNegative ? '⚠ Precio sin ganancia o por debajo del costo' : `Margen mayorista: ${margin.toFixed(1)}% (+$${(formData.precio_mayorista - formData.cost_price).toLocaleString('es-AR', { maximumFractionDigits: 0 })})`}
+                    </p>
+                  )
+                })()}
               </div>
 
               {formData.cost_price > 0 && formData.sale_price > 0 && (

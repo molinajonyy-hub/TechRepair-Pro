@@ -27,6 +27,7 @@ import { Suppliers } from './pages/Suppliers'
 import { Warranties } from './pages/Warranties'
 import { UsersManagement } from './pages/UsersManagement'
 import { CajaPage } from './pages/CajaPage'
+import { Mayorista } from './pages/Mayorista'
 import Settings from './pages/Settings'
 import { LandingPage } from './pages/LandingPage'
 // ── Subscription ─────────────────────────────────────────────
@@ -76,6 +77,7 @@ function AppContent() {
             <Route path="/customers/new" element={<NewCustomer />} />
             <Route path="/customers/:id" element={<CustomerDetail />} />
             <Route path="/inventory" element={<Inventory />} />
+            <Route path="/mayorista" element={<Mayorista />} />
             <Route path="/suppliers" element={<Suppliers />} />
             <Route path="/expenses" element={<Expenses />} />
             <Route path="/finance" element={<Finance />} />
