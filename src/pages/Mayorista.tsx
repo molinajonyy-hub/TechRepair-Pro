@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Store, Search, Filter, RefreshCw, Loader2, AlertTriangle,
+  Store, Search, RefreshCw, Loader2, AlertTriangle,
   CheckCircle, Pencil, Check, X, Zap, TrendingUp, Package,
-  ChevronDown, ChevronUp, Users,
+  ChevronDown, ChevronUp, Users, FileText,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { ModalCrearComprobante } from '../components/comprobantes/ModalCrearComprobante'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -341,6 +342,7 @@ export function Mayorista() {
   const [filterStatus, setFilterStatus] = useState<'all' | 'with' | 'without' | 'low_stock'>('all')
   const [filterCat, setFilterCat] = useState('')
   const [showBulk, setShowBulk] = useState(false)
+  const [showComprobante, setShowComprobante] = useState(false)
   const [sortField, setSortField] = useState<'name' | 'margin' | 'stock' | 'profit'>('name')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
@@ -471,6 +473,9 @@ export function Mayorista() {
         <div style={{ display: 'flex', gap: '0.625rem' }}>
           <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.625rem', color: '#94a3b8', fontSize: '0.8rem', cursor: 'pointer' }}>
             <RefreshCw size={13} /> Actualizar
+          </button>
+          <button onClick={() => setShowComprobante(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', background: 'linear-gradient(135deg, #22c55e, #16a34a)', border: 'none', borderRadius: '0.625rem', color: 'white', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(34,197,94,0.3)' }}>
+            <FileText size={13} /> Nuevo Comprobante
           </button>
           <button onClick={() => setShowBulk(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none', borderRadius: '0.625rem', color: 'white', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}>
             <Zap size={13} /> Generar precios masivos
@@ -661,6 +666,13 @@ export function Mayorista() {
           onApplied={load}
         />
       )}
+
+      <ModalCrearComprobante
+        isOpen={showComprobante}
+        onClose={() => setShowComprobante(false)}
+        onCreado={() => setShowComprobante(false)}
+        usarPrecioMayorista={true}
+      />
     </div>
   )
 }

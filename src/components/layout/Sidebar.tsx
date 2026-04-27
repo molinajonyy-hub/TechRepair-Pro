@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -6,6 +6,7 @@ import { useSidebar } from '../../hooks/useSidebar';
 import { usePermissions } from '../../hooks/usePermissions';
 import { PermissionKey } from '../../config/permissions';
 import { ModalCobro } from '../cobro/ModalCobro';
+import { supabase } from '../../lib/supabase';
 
 // ── Cat logo SVG (from design system) ──
 const CatIcon = ({ size = 26 }: { size?: number }) => (
@@ -212,9 +213,16 @@ const collapsedWidth = 80;
 const mobileWidth = 280;
 
 export function Sidebar() {
-  const { signOut } = useAuth();
+  const { signOut, businessId } = useAuth();
   const navigate = useNavigate();
   const { can } = usePermissions();
+  const [mayoristaEnabled, setMayoristaEnabled] = useState(true);
+
+  useEffect(() => {
+    if (!businessId) return;
+    supabase.from('business_settings').select('mayorista_enabled').eq('business_id', businessId).maybeSingle()
+      .then(({ data }) => setMayoristaEnabled(data?.mayorista_enabled !== false));
+  }, [businessId]);
   const {
     isCollapsed,
     isMobileOpen,
@@ -223,11 +231,15 @@ export function Sidebar() {
   } = useSidebar();
   const [cobroOpen, setCobroOpen] = useState(false);
 
-  // Filter sections and items based on permissions
+  // Filter sections and items based on permissions + feature flags
   const visibleSections = menuSections
     .map(section => ({
       ...section,
-      items: section.items.filter(item => !item.permission || can(item.permission)),
+      items: section.items.filter(item => {
+        if (!item.permission || !can(item.permission)) return !item.permission;
+        if (item.path === '/mayorista' && !mayoristaEnabled) return false;
+        return true;
+      }),
     }))
     .filter(section => section.items.length > 0);
 

@@ -103,6 +103,8 @@ interface Props {
   condicionFiscalInicial?: string;
   initialItems?: { descripcion: string; cantidad: number; precio_unitario: number; currency?: 'ARS'|'USD'; inventory_id?: string }[];
   initialClienteId?: string;
+  /** Si true, al seleccionar productos del inventario usa precio_mayorista (sin mostrar etiquetas) */
+  usarPrecioMayorista?: boolean;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -111,6 +113,7 @@ export function ModalCrearComprobante({
   isOpen, onClose, onCreado,
   tipoInicial, puntoVentaInicial, condicionFiscalInicial,
   initialItems, initialClienteId,
+  usarPrecioMayorista = false,
 }: Props) {
   const { businessId, user } = useAuth();
   const [step, setStep] = useState<'config' | 'items' | 'emitir'>('config');
@@ -283,10 +286,6 @@ export function ModalCrearComprobante({
 
   if (!isOpen) return null;
 
-  // Cliente mayorista: se usa para auto-aplicar precios mayoristas en items
-  const clienteMayorista = clientes.find(c => c.id === clienteId)
-  const isClienteMayorista = clienteMayorista?.customer_type === 'mayorista'
-
   // ── Línea helpers ─────────────────────────────────────────────────────────────
   const updateLinea = (key: string, updates: Partial<LineaItem>) => {
     setLineas(prev => prev.map(l => l._key === key ? { ...l, ...updates } : l));
@@ -296,7 +295,7 @@ export function ModalCrearComprobante({
     const l    = lineas[idx];
     const cost = Number(inv.cost_price) || 0;
     const priceUSD = inv.base_currency === 'USD' && inv.base_price ? Number(inv.base_price) : null;
-    const useMayorista = isClienteMayorista && inv.precio_mayorista != null
+    const useMayorista = usarPrecioMayorista && inv.precio_mayorista != null
     const precioFinal = useMayorista ? Number(inv.precio_mayorista) : (Number(inv.sale_price) || 0)
     updateLinea(l._key, {
       descripcion:          inv.name + (inv.code ? ` [${inv.code}]` : ''),
@@ -555,24 +554,12 @@ export function ModalCrearComprobante({
                               onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.04)')}
                               onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
                             >
-                              <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                                {c.name}
-                                {c.customer_type === 'mayorista' && (
-                                  <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '0.1rem 0.35rem', borderRadius: '9999px', background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.35)', color: '#a5b4fc' }}>
-                                    MAYORISTA
-                                  </span>
-                                )}
-                              </span>
+                              {c.name}
                             </button>
                           ))}
                         </div>
                       )}
                     </div>
-                    {isClienteMayorista && (
-                      <p style={{ margin: '0.375rem 0 0', fontSize: '0.72rem', color: '#a5b4fc', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                        🏬 Cliente mayorista — se aplicarán precios mayoristas automáticamente
-                      </p>
-                    )}
                   </div>
 
                   {/* Punto de venta */}
@@ -737,18 +724,12 @@ export function ModalCrearComprobante({
                                     </div>
                                   </div>
                                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                    {isClienteMayorista && inv.precio_mayorista != null ? (
-                                      <>
-                                        <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#a5b4fc', fontFamily: 'monospace' }}>{fmtARS(Number(inv.precio_mayorista))}</div>
-                                        <div style={{ fontSize: '0.65rem', color: '#475569', fontFamily: 'monospace', textDecoration: 'line-through' }}>{fmtARS(Number(inv.sale_price))}</div>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#34d399', fontFamily: 'monospace' }}>{fmtARS(Number(inv.sale_price))}</div>
-                                        {isClienteMayorista && !inv.precio_mayorista && <div style={{ fontSize: '0.65rem', color: '#f59e0b' }}>sin precio may.</div>}
-                                      </>
-                                    )}
-                                    {inv.base_currency === 'USD' && inv.base_price && !isClienteMayorista && (
+                                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#34d399', fontFamily: 'monospace' }}>
+                                      {usarPrecioMayorista && inv.precio_mayorista != null
+                                        ? fmtARS(Number(inv.precio_mayorista))
+                                        : fmtARS(Number(inv.sale_price))}
+                                    </div>
+                                    {inv.base_currency === 'USD' && inv.base_price && (
                                       <div style={{ fontSize: '0.7rem', color: '#60a5fa', fontFamily: 'monospace' }}>USD {Number(inv.base_price).toFixed(2)}</div>
                                     )}
                                   </div>
@@ -764,23 +745,6 @@ export function ModalCrearComprobante({
                           <X size={14} />
                         </button>
                       </div>
-
-                      {/* Toggle precio minorista / mayorista (cuando el producto tiene ambos) */}
-                      {l.inv_sale_price != null && l.inv_mayorista_price != null && (
-                        <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '0.375rem', flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: '0.65rem', color: '#475569', alignSelf: 'center' }}>Precio:</span>
-                          <button type="button"
-                            onClick={() => updateLinea(l._key, { precio_unitario: l.inv_sale_price!, currency: 'ARS' })}
-                            style={{ padding: '0.15rem 0.5rem', borderRadius: '0.375rem', border: `1px solid ${Math.abs(l.precio_unitario - l.inv_sale_price) < 0.01 && l.currency === 'ARS' ? 'rgba(52,211,153,0.5)' : 'rgba(255,255,255,0.1)'}`, background: Math.abs(l.precio_unitario - l.inv_sale_price) < 0.01 && l.currency === 'ARS' ? 'rgba(52,211,153,0.12)' : 'rgba(255,255,255,0.03)', color: Math.abs(l.precio_unitario - l.inv_sale_price) < 0.01 && l.currency === 'ARS' ? '#34d399' : '#64748b', fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer' }}>
-                            👤 {fmtARS(l.inv_sale_price)}
-                          </button>
-                          <button type="button"
-                            onClick={() => updateLinea(l._key, { precio_unitario: l.inv_mayorista_price!, currency: 'ARS' })}
-                            style={{ padding: '0.15rem 0.5rem', borderRadius: '0.375rem', border: `1px solid ${Math.abs(l.precio_unitario - l.inv_mayorista_price) < 0.01 && l.currency === 'ARS' ? 'rgba(165,180,252,0.5)' : 'rgba(255,255,255,0.1)'}`, background: Math.abs(l.precio_unitario - l.inv_mayorista_price) < 0.01 && l.currency === 'ARS' ? 'rgba(99,102,241,0.12)' : 'rgba(255,255,255,0.03)', color: Math.abs(l.precio_unitario - l.inv_mayorista_price) < 0.01 && l.currency === 'ARS' ? '#a5b4fc' : '#64748b', fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer' }}>
-                            🏬 {fmtARS(l.inv_mayorista_price)}
-                          </button>
-                        </div>
-                      )}
 
                       {/* Fila 2: cant + precio + ARS/USD + desc% + subtotal */}
                       <div style={{ display: 'grid', gridTemplateColumns: '64px 110px auto 80px 1fr', gap: '0.375rem', alignItems: 'center' }}>
