@@ -114,24 +114,12 @@ export default function ComprobantesPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button onClick={cargarComprobantes} disabled={loading} style={{
-            display: 'flex', alignItems: 'center', gap: '0.5rem',
-            padding: '0.5rem 0.875rem',
-            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-            color: '#94a3b8', borderRadius: '0.5rem', cursor: loading ? 'not-allowed' : 'pointer', fontSize: '0.8rem'
-          }}>
-            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+          <button onClick={cargarComprobantes} disabled={loading} className="btn btn-ghost btn-sm">
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             Actualizar
           </button>
-          <button onClick={() => setShowModal(true)} disabled={loading} style={{
-            display: 'flex', alignItems: 'center', gap: '0.5rem',
-            padding: '0.625rem 1.25rem',
-            background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-            border: 'none', color: '#ffffff', borderRadius: '0.625rem',
-            cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: '0.875rem',
-            boxShadow: '0 4px 12px rgba(99,102,241,0.35)'
-          }}>
-            <Plus size={18} />
+          <button onClick={() => setShowModal(true)} disabled={loading} className="btn btn-primary btn-sm">
+            <Plus size={16} />
             Nuevo Comprobante
           </button>
         </div>
@@ -299,23 +287,8 @@ export default function ComprobantesPage() {
           <p style={{ fontSize: '0.875rem', color: '#94a3b8', marginBottom: '1.5rem' }}>
             Comienza creando tu primer comprobante
           </p>
-          <button
-            onClick={() => setShowModal(true)}
-            style={{
-              padding: '0.625rem 1.25rem',
-              background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-              border: 'none',
-              color: '#ffffff',
-              borderRadius: '0.625rem',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              fontWeight: 600,
-              boxShadow: '0 4px 12px rgba(99,102,241,0.35)'
-            }}
-          >
-            <Plus size={18} />
+          <button onClick={() => setShowModal(true)} className="btn btn-primary">
+            <Plus size={16} />
             Crear Comprobante
           </button>
         </div>

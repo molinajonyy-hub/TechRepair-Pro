@@ -231,48 +231,27 @@ export function Dashboard() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button onClick={() => setCobroOpen(true)} className="btn btn-primary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+          <button onClick={() => setCobroOpen(true)} className="btn btn-green btn-sm">
             💰 Cobrar
           </button>
-          <Link to="/orders/new" className="btn btn-primary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', textDecoration: 'none' }}>
+          <Link to="/orders/new" className="btn btn-amber btn-sm" style={{ textDecoration: 'none' }}>
             <Plus size={15} />
             Nueva Orden
           </Link>
-          <Link to="/expenses" style={{
-            display: 'flex', alignItems: 'center', gap: '0.375rem',
-            padding: '0.5rem 0.875rem',
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.1)',
-            color: '#94a3b8', borderRadius: '0.5rem',
-            textDecoration: 'none', fontSize: '0.8125rem', fontWeight: 500,
-          }}>
+          <Link to="/expenses" className="btn btn-red btn-sm" style={{ textDecoration: 'none' }}>
             <DollarSign size={14} />
             Gasto
           </Link>
           <button
             onClick={handleCajaButton}
             disabled={cajaLoading}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '0.375rem',
-              padding: '0.5rem 0.875rem',
-              backgroundColor: cajaStatus === 'open' ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)',
-              border: `1px solid ${cajaStatus === 'open' ? 'rgba(239,68,68,0.35)' : 'rgba(16,185,129,0.35)'}`,
-              color: cajaStatus === 'open' ? '#f87171' : '#34d399',
-              borderRadius: '0.5rem', cursor: cajaLoading ? 'not-allowed' : 'pointer',
-              fontWeight: 600, fontSize: '0.8125rem', opacity: cajaLoading ? 0.6 : 1,
-            }}
+            className={`btn btn-sm ${cajaStatus === 'open' ? 'btn-red' : 'btn-teal'}`}
           >
             {cajaStatus === 'open'
               ? <><Lock size={14} /> Cerrar Caja</>
               : <><Wallet size={14} /> Abrir Caja</>}
           </button>
-          <button onClick={refreshStats} style={{
-            display: 'flex', alignItems: 'center', gap: '0.25rem',
-            padding: '0.5rem 0.75rem',
-            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-            color: '#64748b', borderRadius: '0.5rem', cursor: 'pointer',
-            fontSize: '0.8125rem', fontWeight: 500,
-          }}>
+          <button onClick={refreshStats} className="btn btn-ghost btn-sm">
             <RefreshCw size={13} />
           </button>
         </div>
@@ -327,51 +306,14 @@ export function Dashboard() {
             Todo listo para arrancar. Podés crear una orden, registrar un cobro rápido o cargar tu inventario.
           </p>
           <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button
-              onClick={() => setCobroOpen(true)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '0.5rem',
-                padding: '0.75rem 1.5rem',
-                background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-                border: 'none', borderRadius: '0.5rem',
-                color: 'white', fontWeight: 700, fontSize: '0.9rem',
-                cursor: 'pointer', boxShadow: '0 4px 14px rgba(34,197,94,0.35)',
-              }}
-            >
+            <button onClick={() => setCobroOpen(true)} className="btn btn-green btn-lg">
               💰 Cobrar ahora
             </button>
-            <Link to="/orders/new" style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              padding: '0.75rem 1.5rem',
-              background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-              border: 'none',
-              color: '#ffffff',
-              borderRadius: '0.625rem',
-              cursor: 'pointer',
-              fontWeight: 600,
-              textDecoration: 'none',
-              fontSize: '0.875rem',
-              boxShadow: '0 4px 12px rgba(99,102,241,0.35)'
-            }}>
+            <Link to="/orders/new" className="btn btn-primary btn-lg" style={{ textDecoration: 'none' }}>
               <Plus size={16} />
               Crear Primera Orden
             </Link>
-            <Link to="/inventory" style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              padding: '0.75rem 1.5rem',
-              backgroundColor: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              color: '#94a3b8',
-              borderRadius: '0.625rem',
-              cursor: 'pointer',
-              fontWeight: 600,
-              textDecoration: 'none',
-              fontSize: '0.875rem'
-            }}>
+            <Link to="/inventory" className="btn btn-secondary btn-lg" style={{ textDecoration: 'none' }}>
               Cargar Inventario
             </Link>
           </div>

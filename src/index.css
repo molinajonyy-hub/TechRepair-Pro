@@ -615,6 +615,76 @@ nav, header, footer, aside, section, article, main, table, td, th {
   border-color: var(--success);
 }
 
+/* ── Solid fill: verde (cobrar, confirmar) */
+.btn-green {
+  color: #fff;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(34,197,94,0.35);
+}
+.btn-green:hover:not(:disabled) {
+  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+  box-shadow: 0 6px 20px rgba(34,197,94,0.45);
+  transform: translateY(-1px);
+}
+.btn-green:active:not(:disabled) { transform: translateY(0); }
+
+/* ── Solid fill: ámbar/naranja (nueva orden, acciones secundarias) */
+.btn-amber {
+  color: #fff;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(245,158,11,0.30);
+}
+.btn-amber:hover:not(:disabled) {
+  background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+  box-shadow: 0 6px 20px rgba(245,158,11,0.42);
+  transform: translateY(-1px);
+}
+.btn-amber:active:not(:disabled) { transform: translateY(0); }
+
+/* ── Solid fill: rojo (gasto, eliminar) */
+.btn-red {
+  color: #fff;
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(239,68,68,0.30);
+}
+.btn-red:hover:not(:disabled) {
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  box-shadow: 0 6px 20px rgba(239,68,68,0.42);
+  transform: translateY(-1px);
+}
+.btn-red:active:not(:disabled) { transform: translateY(0); }
+
+/* ── Solid fill: teal/esmeralda (caja, confirmar pago) */
+.btn-teal {
+  color: #fff;
+  background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(20,184,166,0.30);
+}
+.btn-teal:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+  box-shadow: 0 6px 20px rgba(20,184,166,0.42);
+  transform: translateY(-1px);
+}
+.btn-teal:active:not(:disabled) { transform: translateY(0); }
+
+/* ── Solid fill: índigo sólido (nuevo comprobante, crear) — alias de btn-indigo */
+.btn-fill-indigo {
+  color: #fff;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(99,102,241,0.35);
+}
+.btn-fill-indigo:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+  box-shadow: 0 6px 20px rgba(99,102,241,0.48);
+  transform: translateY(-1px);
+}
+.btn-fill-indigo:active:not(:disabled) { transform: translateY(0); }
+
 /* Tamaños */
 .btn-xs  { padding: 0.2rem 0.5rem;  font-size: 0.75rem; border-radius: var(--radius-sm); }
 .btn-sm  { padding: 0.35rem 0.75rem; font-size: 0.8125rem; border-radius: var(--radius-sm); }
