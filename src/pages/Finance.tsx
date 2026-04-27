@@ -440,14 +440,14 @@ function EntryModal({ entry, exchangeRate, businessId, userId, onClose, onSaved 
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  // Recurring toggle (solo para gastos fijos, solo al crear)
+  // Recurring toggle — disponible para gastos fijos y sueldos al crear
   const [isRecurring, setIsRecurring] = useState(false)
   const [recurringName, setRecurringName] = useState('')
   const [recurringDay, setRecurringDay] = useState('1')
 
   const typeDef = getTypeDef(form.type)
   const isEdit = !!entry
-  const isFixedCost = form.type === 'fixed_cost_local' || form.type === 'fixed_cost_personal'
+  const isRecurringEligible = form.type === 'fixed_cost_local' || form.type === 'fixed_cost_personal' || form.type === 'salary'
 
   const set = (k: keyof typeof EMPTY_FORM, v: string) =>
     setForm(f => ({ ...f, [k]: v }))
@@ -487,7 +487,7 @@ function EntryModal({ entry, exchangeRate, businessId, userId, onClose, onSaved 
       } else {
         // Crear la entrada
         let recurringId: string | undefined
-        if (isRecurring && isFixedCost) {
+        if (isRecurring && isRecurringEligible) {
           const name = (recurringName.trim() || form.description.trim() || getCategoryLabel(form.type as EntryType, form.category))
           const { data: rec } = await supabase
             .from('recurring_expenses')
@@ -718,8 +718,8 @@ function EntryModal({ entry, exchangeRate, businessId, userId, onClose, onSaved 
             </button>
           </div>
 
-          {/* Toggle recurrente — solo para gastos fijos al crear */}
-          {!isEdit && isFixedCost && (
+          {/* Toggle recurrente — para gastos fijos y sueldos al crear */}
+          {!isEdit && isRecurringEligible && (
             <div style={{ marginTop: '0.5rem', border: `1px solid ${isRecurring ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.07)'}`, borderRadius: '0.75rem', overflow: 'hidden', transition: 'border-color 0.2s' }}>
               <button type="button" onClick={() => setIsRecurring(r => !r)}
                 style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: isRecurring ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.02)', border: 'none', cursor: 'pointer', transition: 'background 0.15s' }}>
@@ -727,7 +727,9 @@ function EntryModal({ entry, exchangeRate, businessId, userId, onClose, onSaved 
                   <RepeatIcon size={15} style={{ color: isRecurring ? '#818cf8' : '#475569' }} />
                   <div style={{ textAlign: 'left' }}>
                     <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isRecurring ? '#c7d2fe' : '#94a3b8' }}>Repetir mensualmente</div>
-                    <div style={{ fontSize: '0.72rem', color: '#475569' }}>Agrega este gasto a la lista de recurrentes</div>
+                    <div style={{ fontSize: '0.72rem', color: '#475569' }}>
+                      {form.type === 'salary' ? 'Agrega este sueldo a los recurrentes mensuales' : 'Agrega este gasto a la lista de recurrentes'}
+                    </div>
                   </div>
                 </div>
                 <div style={{ width: 36, height: 20, borderRadius: 10, background: isRecurring ? '#6366f1' : 'rgba(255,255,255,0.12)', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
@@ -1668,7 +1670,7 @@ function RecurringExpensesPanel({ businessId, userId, exchangeRate, onEntryCreat
           <RepeatIcon size={40} style={{ color: '#1e3a5f', marginBottom: '0.75rem' }} />
           <p style={{ margin: '0 0 0.375rem', color: '#334155', fontWeight: 500 }}>Sin gastos recurrentes</p>
           <p style={{ margin: 0, color: '#1e293b', fontSize: '0.8rem' }}>
-            Al agregar un gasto fijo, activá "Repetir mensualmente" para que aparezca aquí
+            Al agregar un gasto fijo o sueldo, activá "Repetir mensualmente" para que aparezca aquí
           </p>
         </div>
       ) : (
