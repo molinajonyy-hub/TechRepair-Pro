@@ -4,8 +4,9 @@ import {
   Loader2, AlertCircle, CheckCircle, Pencil, Trash2, RefreshCw,
   ArrowUpRight, ArrowDownRight, Minus, Filter,
   Wallet, Building2, User, Users, Layers, Activity, Award, Target,
-  Package,
+  Package, RepeatIcon, History, CheckCircle2, X, ChevronDown, ChevronUp,
 } from 'lucide-react'
+import { useRecurringExpenses, RecurringExpenseWithStatus } from '../hooks/useRecurringExpenses'
 import { CloseButton } from '../components/ui/CloseButton'
 import { useAuth } from '../contexts/AuthContext'
 import { currencyService } from '../services/currencyService'
@@ -439,9 +440,14 @@ function EntryModal({ entry, exchangeRate, businessId, userId, onClose, onSaved 
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // Recurring toggle (solo para gastos fijos, solo al crear)
+  const [isRecurring, setIsRecurring] = useState(false)
+  const [recurringName, setRecurringName] = useState('')
+  const [recurringDay, setRecurringDay] = useState('1')
 
   const typeDef = getTypeDef(form.type)
   const isEdit = !!entry
+  const isFixedCost = form.type === 'fixed_cost_local' || form.type === 'fixed_cost_personal'
 
   const set = (k: keyof typeof EMPTY_FORM, v: string) =>
     setForm(f => ({ ...f, [k]: v }))
@@ -476,8 +482,32 @@ function EntryModal({ entry, exchangeRate, businessId, userId, onClose, onSaved 
         reference_employee: form.reference_employee || undefined,
         created_by: userId,
       }
-      if (isEdit) await financeService.updateEntry(entry!.id, payload)
-      else await financeService.createEntry(payload)
+      if (isEdit) {
+        await financeService.updateEntry(entry!.id, payload)
+      } else {
+        // Crear la entrada
+        let recurringId: string | undefined
+        if (isRecurring && isFixedCost) {
+          const name = (recurringName.trim() || form.description.trim() || getCategoryLabel(form.type as EntryType, form.category))
+          const { data: rec } = await supabase
+            .from('recurring_expenses')
+            .insert({
+              business_id: businessId,
+              name,
+              type: form.type,
+              category: form.category,
+              subcategory: form.subcategory || undefined,
+              amount,
+              currency: form.currency,
+              day_of_month: parseInt(recurringDay) || 1,
+              notes: form.notes || undefined,
+            })
+            .select('id')
+            .single()
+          recurringId = rec?.id
+        }
+        await financeService.createEntry({ ...payload, recurring_expense_id: recurringId } as any)
+      }
       onSaved()
     } catch (err: any) {
       setError(err.message ?? 'Error al guardar')
@@ -687,6 +717,44 @@ function EntryModal({ entry, exchangeRate, businessId, userId, onClose, onSaved 
                 : <><CheckCircle size={15} /> {isEdit ? 'Actualizar' : 'Guardar movimiento'}</>}
             </button>
           </div>
+
+          {/* Toggle recurrente — solo para gastos fijos al crear */}
+          {!isEdit && isFixedCost && (
+            <div style={{ marginTop: '0.5rem', border: `1px solid ${isRecurring ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.07)'}`, borderRadius: '0.75rem', overflow: 'hidden', transition: 'border-color 0.2s' }}>
+              <button type="button" onClick={() => setIsRecurring(r => !r)}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: isRecurring ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.02)', border: 'none', cursor: 'pointer', transition: 'background 0.15s' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                  <RepeatIcon size={15} style={{ color: isRecurring ? '#818cf8' : '#475569' }} />
+                  <div style={{ textAlign: 'left' }}>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: isRecurring ? '#c7d2fe' : '#94a3b8' }}>Repetir mensualmente</div>
+                    <div style={{ fontSize: '0.72rem', color: '#475569' }}>Agrega este gasto a la lista de recurrentes</div>
+                  </div>
+                </div>
+                <div style={{ width: 36, height: 20, borderRadius: 10, background: isRecurring ? '#6366f1' : 'rgba(255,255,255,0.12)', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
+                  <div style={{ position: 'absolute', top: 2, left: isRecurring ? 18 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left 0.2s' }} />
+                </div>
+              </button>
+              {isRecurring && (
+                <div style={{ padding: '0 1rem 0.875rem', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.68rem', color: '#64748b', fontWeight: 600, marginBottom: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      Nombre del gasto recurrente
+                    </label>
+                    <input type="text" value={recurringName} onChange={e => setRecurringName(e.target.value)}
+                      placeholder={form.description || getCategoryLabel(form.type as EntryType, form.category) || 'Ej: Alquiler del local'}
+                      style={{ ...inp }} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.68rem', color: '#64748b', fontWeight: 600, marginBottom: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      Día del mes en que vence
+                    </label>
+                    <input type="number" value={recurringDay} onChange={e => setRecurringDay(e.target.value)} min="1" max="28"
+                      style={{ ...inp, maxWidth: 100 }} />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </form>
       </div>
     </div>
@@ -1255,6 +1323,464 @@ function InventoryMetrics({ data, loading }: { data: InvAnalytics | null; loadin
   )
 }
 
+// ─── Recurring Expenses Panel ─────────────────────────────────────────────────
+
+const fmtARS = (v: number) =>
+  new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(v || 0)
+
+interface RegisterPaymentModalProps {
+  expense: RecurringExpenseWithStatus
+  exchangeRate: number
+  businessId: string
+  userId: string
+  onClose: () => void
+  onSaved: () => void
+}
+
+function RegisterPaymentModal({ expense, exchangeRate, businessId, userId, onClose, onSaved }: RegisterPaymentModalProps) {
+  const today = new Date().toISOString().split('T')[0]
+  const [amount, setAmount] = useState(String(expense.amount))
+  const [currency, setCurrency] = useState<'ARS' | 'USD'>(expense.currency as 'ARS' | 'USD')
+  const [date, setDate] = useState(today)
+  const [paymentMethod, setPaymentMethod] = useState('')
+  const [notes, setNotes] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  const amountNum = parseFloat(amount) || 0
+  const amountArs = currency === 'USD' ? amountNum * exchangeRate : amountNum
+
+  const handleSave = async () => {
+    if (amountNum <= 0) { setErr('Ingresá un monto válido'); return }
+    setSaving(true)
+    setErr('')
+    try {
+      const { error } = await supabase
+        .from('business_finance_entries')
+        .insert({
+          business_id: businessId,
+          date,
+          type: expense.type,
+          category: expense.category,
+          subcategory: expense.subcategory || undefined,
+          description: expense.name,
+          amount: amountNum,
+          currency,
+          amount_ars: amountArs,
+          exchange_rate: currency === 'USD' ? exchangeRate : 1,
+          payment_method: paymentMethod || undefined,
+          notes: notes || undefined,
+          recurring_expense_id: expense.id,
+          created_by: userId,
+        })
+      if (error) throw error
+      onSaved()
+      onClose()
+    } catch (e: any) {
+      setErr(e.message || 'Error al registrar pago')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const inputS: React.CSSProperties = {
+    width: '100%', padding: '0.5rem 0.75rem',
+    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '0.5rem', color: '#f0f4ff', fontSize: '0.875rem',
+    outline: 'none', boxSizing: 'border-box',
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div style={{ background: '#0d1a30', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '1.25rem', width: '100%', maxWidth: '460px', padding: '1.5rem', boxShadow: '0 32px 64px rgba(0,0,0,0.6)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#f0f4ff' }}>Registrar pago</h3>
+            <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>{expense.name}</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '0.5rem', width: 30, height: 30, cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={15} /></button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Monto</label>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <input type="number" value={amount} onChange={e => setAmount(e.target.value)} min="0" step="0.01" style={{ ...inputS, flex: 1 }} />
+              <div style={{ display: 'flex', gap: '0.25rem' }}>
+                {(['ARS', 'USD'] as const).map(c => (
+                  <button key={c} onClick={() => setCurrency(c)} style={{ padding: '0.375rem 0.625rem', borderRadius: '0.5rem', border: `1px solid ${currency === c ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.1)'}`, background: currency === c ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.04)', color: currency === c ? '#818cf8' : '#64748b', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>{c}</button>
+                ))}
+              </div>
+            </div>
+            {currency === 'USD' && exchangeRate > 1 && (
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.72rem', color: '#475569' }}>= {fmtARS(amountArs)}</p>
+            )}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Fecha</label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputS} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Método de pago</label>
+              <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} style={inputS}>
+                <option value="">— Sin especificar</option>
+                <option value="efectivo">Efectivo</option>
+                <option value="transferencia">Transferencia</option>
+                <option value="tarjeta_debito">Débito</option>
+                <option value="tarjeta_credito">Crédito</option>
+                <option value="mercadopago">MercadoPago</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Notas <span style={{ color: '#334155', textTransform: 'none', fontWeight: 400 }}>(opcional)</span></label>
+            <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ej: con aumento" style={inputS} />
+          </div>
+
+          {err && <p style={{ margin: 0, fontSize: '0.8rem', color: '#f87171' }}>{err}</p>}
+
+          <button onClick={handleSave} disabled={saving} style={{ width: '100%', padding: '0.75rem', borderRadius: '0.75rem', background: 'linear-gradient(135deg, #22c55e, #16a34a)', border: 'none', color: 'white', fontWeight: 700, fontSize: '0.9375rem', cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', opacity: saving ? 0.7 : 1 }}>
+            {saving ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</> : <>✓ Registrar pago</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface EditRecurringModalProps {
+  expense: RecurringExpenseWithStatus
+  onClose: () => void
+  onSaved: () => void
+}
+
+function EditRecurringModal({ expense, onClose, onSaved }: EditRecurringModalProps) {
+  const { update } = useRecurringExpenses()
+  const [name, setName] = useState(expense.name)
+  const [amount, setAmount] = useState(String(expense.amount))
+  const [dayOfMonth, setDayOfMonth] = useState(String(expense.day_of_month))
+  const [notes, setNotes] = useState(expense.notes || '')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  const inputS: React.CSSProperties = {
+    width: '100%', padding: '0.5rem 0.75rem',
+    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '0.5rem', color: '#f0f4ff', fontSize: '0.875rem',
+    outline: 'none', boxSizing: 'border-box',
+  }
+
+  const handleSave = async () => {
+    const amountNum = parseFloat(amount)
+    if (!name.trim()) { setErr('El nombre es requerido'); return }
+    if (!amountNum || amountNum <= 0) { setErr('El monto debe ser mayor a 0'); return }
+    setSaving(true)
+    setErr('')
+    try {
+      await update(expense.id, {
+        name: name.trim(),
+        amount: amountNum,
+        day_of_month: parseInt(dayOfMonth) || 1,
+        notes: notes.trim() || undefined,
+      })
+      onSaved()
+      onClose()
+    } catch (e: any) {
+      setErr(e.message || 'Error al guardar')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div style={{ background: '#0d1a30', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '1.25rem', width: '100%', maxWidth: '420px', padding: '1.5rem', boxShadow: '0 32px 64px rgba(0,0,0,0.6)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#f0f4ff' }}>Editar gasto recurrente</h3>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '0.5rem', width: 30, height: 30, cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={15} /></button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Nombre</label>
+            <input type="text" value={name} onChange={e => setName(e.target.value)} style={inputS} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Monto esperado</label>
+              <input type="number" value={amount} onChange={e => setAmount(e.target.value)} min="0" style={inputS} />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Día del mes</label>
+              <input type="number" value={dayOfMonth} onChange={e => setDayOfMonth(e.target.value)} min="1" max="28" style={inputS} />
+            </div>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Notas</label>
+            <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Proveedor, referencia, etc." style={inputS} />
+          </div>
+          {err && <p style={{ margin: 0, fontSize: '0.8rem', color: '#f87171' }}>{err}</p>}
+          <button onClick={handleSave} disabled={saving} style={{ width: '100%', padding: '0.75rem', borderRadius: '0.75rem', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none', color: 'white', fontWeight: 700, fontSize: '0.9375rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+            {saving ? 'Guardando...' : 'Guardar cambios'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface HistoryModalProps {
+  expense: RecurringExpenseWithStatus
+  loadHistory: (id: string) => Promise<any[]>
+  onClose: () => void
+}
+
+function HistoryModal({ expense, loadHistory, onClose }: HistoryModalProps) {
+  const [history, setHistory] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadHistory(expense.id).then(h => { setHistory(h); setLoading(false) })
+  }, [expense.id])
+
+  const monthLabel = (dateStr: string) => {
+    const d = new Date(dateStr + 'T00:00:00')
+    return d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div style={{ background: '#0d1a30', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '1.25rem', width: '100%', maxWidth: '500px', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 32px 64px rgba(0,0,0,0.6)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.25rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#f0f4ff' }}>Historial de pagos</h3>
+            <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>{expense.name} · últimos 24 meses</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '0.5rem', width: 30, height: 30, cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={15} /></button>
+        </div>
+        <div style={{ overflowY: 'auto', padding: '1rem 1.5rem', flex: 1 }}>
+          {loading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite', color: '#64748b' }} /></div>
+          ) : history.length === 0 ? (
+            <p style={{ textAlign: 'center', color: '#475569', fontSize: '0.875rem', padding: '2rem 0' }}>Sin pagos registrados aún</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {history.map((h, i) => {
+                const changed = i < history.length - 1 && h.amount_ars !== history[i + 1].amount_ars
+                return (
+                  <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.875rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.625rem' }}>
+                    <div>
+                      <div style={{ fontSize: '0.875rem', color: '#e2e8f0', fontWeight: 500, textTransform: 'capitalize' }}>{monthLabel(h.date)}</div>
+                      {h.notes && <div style={{ fontSize: '0.72rem', color: '#475569', marginTop: '0.125rem' }}>{h.notes}</div>}
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#f87171', fontFamily: 'monospace' }}>
+                        {fmtARS(h.amount_ars)}
+                      </div>
+                      {changed && (
+                        <div style={{ fontSize: '0.65rem', color: '#f59e0b', marginTop: '0.1rem' }}>monto cambió</div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+        <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{history.length} registro{history.length !== 1 ? 's' : ''}</span>
+          {history.length > 0 && (
+            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+              Promedio: {fmtARS(history.reduce((s, h) => s + h.amount_ars, 0) / history.length)}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface RecurringExpensesPanelProps {
+  businessId: string
+  userId: string
+  exchangeRate: number
+  onEntryCreated: () => void
+}
+
+function RecurringExpensesPanel({ businessId, userId, exchangeRate, onEntryCreated }: RecurringExpensesPanelProps) {
+  const { expenses, loading, error, load, deactivate, loadHistory } = useRecurringExpenses()
+  const [paying, setPaying] = useState<RecurringExpenseWithStatus | null>(null)
+  const [editing, setEditing] = useState<RecurringExpenseWithStatus | null>(null)
+  const [viewHistory, setViewHistory] = useState<RecurringExpenseWithStatus | null>(null)
+  const [confirmDeactivate, setConfirmDeactivate] = useState<string | null>(null)
+
+  const now = new Date()
+  const monthName = now.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })
+
+  const pendingCount = expenses.filter(e => !e.paid_this_month).length
+  const totalExpected = expenses.reduce((s, e) => s + e.amount, 0)
+  const totalPaid = expenses.filter(e => e.paid_this_month).reduce((s, e) => s + (e.paid_amount || 0), 0)
+
+  const handleDeactivate = async (id: string) => {
+    try { await deactivate(id) } catch {}
+    setConfirmDeactivate(null)
+  }
+
+  if (loading) return (
+    <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+      <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: '#64748b' }} />
+    </div>
+  )
+
+  if (error) return (
+    <div style={{ padding: '1rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '0.75rem', color: '#f87171', fontSize: '0.875rem' }}>
+      {error}
+    </div>
+  )
+
+  return (
+    <>
+      {/* Resumen del mes */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+        {[
+          { label: `Total esperado — ${monthName}`, value: fmtARS(totalExpected), color: '#94a3b8' },
+          { label: 'Pagado este mes', value: fmtARS(totalPaid), color: '#22c55e' },
+          { label: 'Pendientes', value: String(pendingCount), color: pendingCount > 0 ? '#f59e0b' : '#22c55e', suffix: ` gasto${pendingCount !== 1 ? 's' : ''}` },
+        ].map(card => (
+          <div key={card.label} style={{ background: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem', padding: '1rem' }}>
+            <div style={{ fontSize: '0.72rem', color: '#475569', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>{card.label}</div>
+            <div style={{ fontSize: '1.375rem', fontWeight: 800, color: card.color, fontFamily: 'monospace' }}>
+              {card.value}{card.suffix || ''}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Lista de gastos recurrentes */}
+      {expenses.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '4rem 2rem', background: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem' }}>
+          <RepeatIcon size={40} style={{ color: '#1e3a5f', marginBottom: '0.75rem' }} />
+          <p style={{ margin: '0 0 0.375rem', color: '#334155', fontWeight: 500 }}>Sin gastos recurrentes</p>
+          <p style={{ margin: 0, color: '#1e293b', fontSize: '0.8rem' }}>
+            Al agregar un gasto fijo, activá "Repetir mensualmente" para que aparezca aquí
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          {expenses.map(expense => (
+            <div key={expense.id} style={{
+              background: '#0f1829',
+              border: `1px solid ${expense.paid_this_month ? 'rgba(34,197,94,0.2)' : 'rgba(245,158,11,0.2)'}`,
+              borderRadius: '0.875rem',
+              padding: '1rem 1.25rem',
+              display: 'flex', alignItems: 'center', gap: '1rem',
+            }}>
+              {/* Status indicator */}
+              <div style={{ width: 40, height: 40, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: expense.paid_this_month ? 'rgba(34,197,94,0.12)' : 'rgba(245,158,11,0.12)', border: `1px solid ${expense.paid_this_month ? 'rgba(34,197,94,0.3)' : 'rgba(245,158,11,0.3)'}` }}>
+                {expense.paid_this_month
+                  ? <CheckCircle2 size={18} style={{ color: '#22c55e' }} />
+                  : <RepeatIcon size={16} style={{ color: '#f59e0b' }} />}
+              </div>
+
+              {/* Info */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                  <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#f1f5f9' }}>{expense.name}</span>
+                  <span style={{ fontSize: '0.68rem', color: '#475569', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.25rem', padding: '0.1rem 0.4rem' }}>
+                    día {expense.day_of_month}
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.78rem', color: '#475569' }}>
+                  {expense.paid_this_month ? (
+                    <span style={{ color: '#22c55e' }}>
+                      ✓ Pagado {fmtARS(expense.paid_amount || 0)}
+                      {expense.paid_amount !== expense.amount && expense.amount > 0 && (
+                        <span style={{ color: '#f59e0b', marginLeft: '0.375rem' }}>
+                          (esperado {fmtARS(expense.amount)})
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span style={{ color: '#f59e0b' }}>Pendiente · esperado {fmtARS(expense.amount)}</span>
+                  )}
+                  {expense.notes && <span style={{ color: '#334155', marginLeft: '0.5rem' }}>· {expense.notes}</span>}
+                </div>
+              </div>
+
+              {/* Acciones */}
+              <div style={{ display: 'flex', gap: '0.375rem', flexShrink: 0 }}>
+                {!expense.paid_this_month && (
+                  <button onClick={() => setPaying(expense)}
+                    style={{ padding: '0.4rem 0.75rem', borderRadius: '0.5rem', background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)', color: '#22c55e', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    Registrar pago
+                  </button>
+                )}
+                <button onClick={() => setViewHistory(expense)} title="Ver historial"
+                  style={{ width: 32, height: 32, borderRadius: '0.5rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <History size={14} />
+                </button>
+                <button onClick={() => setEditing(expense)} title="Editar"
+                  style={{ width: 32, height: 32, borderRadius: '0.5rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Pencil size={13} />
+                </button>
+                {confirmDeactivate === expense.id ? (
+                  <div style={{ display: 'flex', gap: '0.25rem' }}>
+                    <button onClick={() => handleDeactivate(expense.id)}
+                      style={{ padding: '0.25rem 0.5rem', borderRadius: '0.375rem', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171', fontSize: '0.72rem', cursor: 'pointer' }}>
+                      Confirmar
+                    </button>
+                    <button onClick={() => setConfirmDeactivate(null)}
+                      style={{ padding: '0.25rem 0.5rem', borderRadius: '0.375rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: '#64748b', fontSize: '0.72rem', cursor: 'pointer' }}>
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => setConfirmDeactivate(expense.id)} title="Desactivar"
+                    style={{ width: 32, height: 32, borderRadius: '0.5rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Modales */}
+      {paying && (
+        <RegisterPaymentModal
+          expense={paying}
+          exchangeRate={exchangeRate}
+          businessId={businessId}
+          userId={userId}
+          onClose={() => setPaying(null)}
+          onSaved={() => { load(); onEntryCreated() }}
+        />
+      )}
+      {editing && (
+        <EditRecurringModal
+          expense={editing}
+          onClose={() => setEditing(null)}
+          onSaved={load}
+        />
+      )}
+      {viewHistory && (
+        <HistoryModal
+          expense={viewHistory}
+          loadHistory={loadHistory}
+          onClose={() => setViewHistory(null)}
+        />
+      )}
+    </>
+  )
+}
+
 // ─── Main Finance Component ───────────────────────────────────────────────────
 
 export function Finance() {
@@ -1272,7 +1798,7 @@ export function Finance() {
   const [showModal, setShowModal] = useState(false)
   const [editingEntry, setEditingEntry] = useState<FinanceEntry | null>(null)
   const [activeChartTab, setActiveChartTab] = useState<'bars' | 'donut' | 'line'>('bars')
-  const [activeMainTab, setActiveMainTab] = useState<'movimientos' | 'inventario'>('movimientos')
+  const [activeMainTab, setActiveMainTab] = useState<'movimientos' | 'inventario' | 'recurrentes'>('movimientos')
   const [invData, setInvData] = useState<InvAnalytics | null>(null)
 
   // Ganancia real de operaciones (order_parts)
@@ -1541,6 +2067,7 @@ export function Finance() {
       <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '0' }}>
         {([
           { key: 'movimientos', label: 'Movimientos y Finanzas', icon: BarChart3 },
+          { key: 'recurrentes', label: 'Gastos Recurrentes', icon: RepeatIcon },
           { key: 'inventario', label: 'Inventario', icon: Package },
         ] as const).map(tab => {
           const Icon = tab.icon
@@ -1562,6 +2089,16 @@ export function Finance() {
           )
         })}
       </div>
+
+      {/* ── Recurrentes Tab Content ── */}
+      {activeMainTab === 'recurrentes' && (
+        <RecurringExpensesPanel
+          businessId={businessId!}
+          userId={user!.id}
+          exchangeRate={exchangeRate}
+          onEntryCreated={load}
+        />
+      )}
 
       {/* ── Inventario Tab Content ── */}
       {activeMainTab === 'inventario' && (
