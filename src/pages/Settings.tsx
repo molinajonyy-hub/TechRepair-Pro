@@ -602,12 +602,14 @@ export default function Settings() {
         </div>
 
         {/* Tabs de navegación */}
-        <div style={{ 
-          display: 'flex', 
-          gap: '0.5rem', 
+        <div style={{
+          display: 'flex',
+          gap: '0.25rem',
           marginBottom: '2rem',
           borderBottom: '1px solid rgba(255,255,255,0.06)',
-          paddingBottom: '0'
+          paddingBottom: '0',
+          overflowX: 'auto',
+          scrollbarWidth: 'none',
         }}>
           {tabs.map(tab => {
             const Icon = tab.icon
@@ -618,19 +620,21 @@ export default function Settings() {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.75rem 1.25rem',
+                  gap: '0.375rem',
+                  padding: '0.625rem 0.875rem',
                   backgroundColor: activeTab === tab.id ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
                   border: 'none',
                   borderBottom: activeTab === tab.id ? '2px solid #6366f1' : '2px solid transparent',
                   color: activeTab === tab.id ? '#6366f1' : '#64748b',
                   cursor: 'pointer',
-                  fontSize: '0.875rem',
+                  fontSize: '0.8rem',
                   fontWeight: 500,
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
                   transition: 'all 0.2s'
                 }}
               >
-                <Icon size={18} />
+                <Icon size={15} />
                 {tab.label}
               </button>
             )
