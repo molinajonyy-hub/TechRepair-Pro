@@ -49,6 +49,7 @@ interface LineaItem {
   inv_sale_price?: number;
   inv_cost_price?: number;
   inv_price_usd?: number | null;
+  inv_mayorista_price?: number | null;
 }
 
 interface PagoLinea {
@@ -298,14 +299,15 @@ export function ModalCrearComprobante({
     const useMayorista = isClienteMayorista && inv.precio_mayorista != null
     const precioFinal = useMayorista ? Number(inv.precio_mayorista) : (Number(inv.sale_price) || 0)
     updateLinea(l._key, {
-      descripcion:     inv.name + (inv.code ? ` [${inv.code}]` : ''),
-      precio_unitario: precioFinal,
-      costo_unitario:  cost,
-      currency:        'ARS',
-      inventory_id:    inv.id,
-      inv_sale_price:  Number(inv.sale_price),
-      inv_cost_price:  cost,
-      inv_price_usd:   priceUSD,
+      descripcion:          inv.name + (inv.code ? ` [${inv.code}]` : ''),
+      precio_unitario:      precioFinal,
+      costo_unitario:       cost,
+      currency:             'ARS',
+      inventory_id:         inv.id,
+      inv_sale_price:       Number(inv.sale_price),
+      inv_cost_price:       cost,
+      inv_price_usd:        priceUSD,
+      inv_mayorista_price:  inv.precio_mayorista != null ? Number(inv.precio_mayorista) : null,
     });
     setActiveSearchIdx(null);
     setSearchResults([]);
@@ -763,6 +765,23 @@ export function ModalCrearComprobante({
                         </button>
                       </div>
 
+                      {/* Toggle precio minorista / mayorista (cuando el producto tiene ambos) */}
+                      {l.inv_sale_price != null && l.inv_mayorista_price != null && (
+                        <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '0.375rem', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '0.65rem', color: '#475569', alignSelf: 'center' }}>Precio:</span>
+                          <button type="button"
+                            onClick={() => updateLinea(l._key, { precio_unitario: l.inv_sale_price!, currency: 'ARS' })}
+                            style={{ padding: '0.15rem 0.5rem', borderRadius: '0.375rem', border: `1px solid ${Math.abs(l.precio_unitario - l.inv_sale_price) < 0.01 && l.currency === 'ARS' ? 'rgba(52,211,153,0.5)' : 'rgba(255,255,255,0.1)'}`, background: Math.abs(l.precio_unitario - l.inv_sale_price) < 0.01 && l.currency === 'ARS' ? 'rgba(52,211,153,0.12)' : 'rgba(255,255,255,0.03)', color: Math.abs(l.precio_unitario - l.inv_sale_price) < 0.01 && l.currency === 'ARS' ? '#34d399' : '#64748b', fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer' }}>
+                            👤 {fmtARS(l.inv_sale_price)}
+                          </button>
+                          <button type="button"
+                            onClick={() => updateLinea(l._key, { precio_unitario: l.inv_mayorista_price!, currency: 'ARS' })}
+                            style={{ padding: '0.15rem 0.5rem', borderRadius: '0.375rem', border: `1px solid ${Math.abs(l.precio_unitario - l.inv_mayorista_price) < 0.01 && l.currency === 'ARS' ? 'rgba(165,180,252,0.5)' : 'rgba(255,255,255,0.1)'}`, background: Math.abs(l.precio_unitario - l.inv_mayorista_price) < 0.01 && l.currency === 'ARS' ? 'rgba(99,102,241,0.12)' : 'rgba(255,255,255,0.03)', color: Math.abs(l.precio_unitario - l.inv_mayorista_price) < 0.01 && l.currency === 'ARS' ? '#a5b4fc' : '#64748b', fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer' }}>
+                            🏬 {fmtARS(l.inv_mayorista_price)}
+                          </button>
+                        </div>
+                      )}
+
                       {/* Fila 2: cant + precio + ARS/USD + desc% + subtotal */}
                       <div style={{ display: 'grid', gridTemplateColumns: '64px 110px auto 80px 1fr', gap: '0.375rem', alignItems: 'center' }}>
                         <div>
@@ -774,10 +793,14 @@ export function ModalCrearComprobante({
 
                         {/* Precio */}
                         <div>
-                          <div style={{ fontSize: '0.6rem', color: '#475569', marginBottom: '0.15rem' }}>Precio unit.</div>
-                          <input type="number" value={l.precio_unitario} min="0" step="0.01"
+                          <div style={{ fontSize: '0.6rem', color: '#475569', marginBottom: '0.15rem' }}>
+                            Precio unit. {l.currency === 'USD' && exchangeRate > 1 && (
+                              <span style={{ color: '#60a5fa' }}> = {fmtARS(Math.round(l.precio_unitario * exchangeRate))}</span>
+                            )}
+                          </div>
+                          <input type="number" value={l.precio_unitario} min="0" step={l.currency === 'USD' ? '0.01' : '1'}
                             onChange={e => updateLinea(l._key, { precio_unitario: Number(e.target.value) || 0 })}
-                            style={{ ...inputS, padding: '0.375rem', textAlign: 'right', fontFamily: 'monospace', fontSize: '0.82rem' }} />
+                            style={{ ...inputS, padding: '0.375rem', textAlign: 'right', fontFamily: 'monospace', fontSize: '0.82rem', borderColor: l.currency === 'USD' ? 'rgba(96,165,250,0.4)' : undefined }} />
                         </div>
 
                         {/* Toggle ARS/USD */}
@@ -785,7 +808,18 @@ export function ModalCrearComprobante({
                           {(['ARS','USD'] as const).map(c => (
                             <button key={c} onClick={() => {
                               if (c === l.currency) return;
-                              const newPrice = c === 'USD' && l.inv_price_usd != null ? l.inv_price_usd : c === 'ARS' && l.inv_sale_price != null ? l.inv_sale_price : l.precio_unitario;
+                              let newPrice: number;
+                              if (c === 'USD') {
+                                // ARS → USD
+                                newPrice = l.inv_price_usd != null ? l.inv_price_usd
+                                  : exchangeRate > 1 ? parseFloat((l.precio_unitario / exchangeRate).toFixed(2))
+                                  : l.precio_unitario;
+                              } else {
+                                // USD → ARS
+                                newPrice = l.inv_sale_price != null ? l.inv_sale_price
+                                  : exchangeRate > 1 ? Math.round(l.precio_unitario * exchangeRate)
+                                  : l.precio_unitario;
+                              }
                               updateLinea(l._key, { currency: c, precio_unitario: newPrice });
                             }} style={{ padding: '0.1rem 0.3rem', backgroundColor: l.currency === c ? (c === 'USD' ? 'rgba(96,165,250,0.2)' : 'rgba(52,211,153,0.15)') : 'transparent', border: `1px solid ${l.currency === c ? (c === 'USD' ? 'rgba(96,165,250,0.4)' : 'rgba(52,211,153,0.35)') : 'rgba(255,255,255,0.06)'}`, borderRadius: '0.2rem', color: l.currency === c ? (c === 'USD' ? '#60a5fa' : '#34d399') : '#475569', fontSize: '0.6rem', fontWeight: 700, cursor: 'pointer' }}>
                               {c}
