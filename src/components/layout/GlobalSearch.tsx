@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Search, X, User, Package, FileText, Wrench, Loader2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { normalizeText, tokenize } from '../../utils/searchUtils'
 
 interface SearchResult {
   id: string
@@ -69,7 +70,12 @@ export function GlobalSearch() {
         return
       }
 
-      const term = q.trim()
+      // Normalizar la query: minúsculas + sin acentos + token principal
+      const tokens = tokenize(q)
+      if (!tokens.length) { setResults([]); setLoading(false); return }
+      // Supabase no normaliza acentos — usamos el token normalizado más largo
+      const term = tokens.sort((a, b) => b.length - a.length)[0]
+      const termPat = `%${term}%`
       const grouped: SearchResult[] = []
 
       try {
@@ -79,37 +85,47 @@ export function GlobalSearch() {
           devicesRes,
           inventoryRes,
           comprobantesRes,
+          ordersDirectRes,
         ] = await Promise.all([
-          // 1. Customers by name, phone, email
+          // 1. Customers: nombre, teléfono, email, documento, dirección
           supabase
             .from('customers')
-            .select('id, name, phone, email')
+            .select('id, name, phone, email, document, customer_type')
             .eq('business_id', bid)
-            .or(`name.ilike.%${term}%,phone.ilike.%${term}%,email.ilike.%${term}%`)
+            .or(`name.ilike.${termPat},phone.ilike.${termPat},email.ilike.${termPat},document.ilike.${termPat}`)
             .limit(5),
 
-          // 2. Devices by IMEI, brand, model → get order_id
+          // 2. Devices: IMEI, marca, modelo
           supabase
             .from('devices')
             .select('id, brand, model, imei, order_id')
-            .or(`imei.ilike.%${term}%,brand.ilike.%${term}%,model.ilike.%${term}%`)
+            .or(`imei.ilike.${termPat},brand.ilike.${termPat},model.ilike.${termPat}`)
             .limit(8),
 
-          // 3. Inventory by name, code
+          // 3. Inventory: nombre, código, categoría
           supabase
             .from('inventory')
-            .select('id, name, code, category')
+            .select('id, name, code, category, stock_quantity')
             .eq('business_id', bid)
-            .or(`name.ilike.%${term}%,code.ilike.%${term}%,description.ilike.%${term}%`)
+            .eq('is_active', true)
+            .or(`name.ilike.${termPat},code.ilike.${termPat},description.ilike.${termPat},category.ilike.${termPat}`)
             .limit(5),
 
-          // 4. Comprobantes by numero
+          // 4. Comprobantes: número, tipo
           supabase
             .from('comprobantes')
             .select('id, numero, tipo, total, estado')
             .eq('business_id', bid)
-            .ilike('numero', `%${term}%`)
-            .limit(5),
+            .ilike('numero', termPat)
+            .limit(4),
+
+          // 5. Órdenes directas por ID (número de orden)
+          supabase
+            .from('orders')
+            .select('id, status, customer_id, customer:customers(name, phone)')
+            .eq('business_id', bid)
+            .ilike('id', `${termPat}`)
+            .limit(3),
         ])
 
         // Build customer results
@@ -231,8 +247,24 @@ export function GlobalSearch() {
           }
         }
 
+        // Direct order results (by order ID fragment)
+        if (ordersDirectRes.data) {
+          for (const o of ordersDirectRes.data) {
+            if (!grouped.find(r => r.id === o.id && r.type === 'order')) {
+              grouped.push({
+                id: o.id,
+                type: 'order',
+                title: `Orden #${o.id.slice(-6).toUpperCase()}`,
+                subtitle: (o.customer as any)?.name || '',
+                badge: 'Orden',
+                path: `/orders/${o.id}`,
+              })
+            }
+          }
+        }
+
         setResults(grouped)
-        setOpen(grouped.length > 0)
+        setOpen(grouped.length > 0 || q.length >= 2)
       } catch (err) {
         console.error('Search error:', err)
       } finally {
@@ -324,7 +356,7 @@ export function GlobalSearch() {
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onFocus={() => { if (results.length > 0) setOpen(true) }}
-          placeholder="Buscar clientes, órdenes, IMEI... (⌘K)"
+          placeholder="Buscar clientes, órdenes, IMEI, productos... (⌘K)"
           style={{
             backgroundColor: 'var(--input-bg)',
             border: '1px solid var(--input-border)',
@@ -455,8 +487,7 @@ export function GlobalSearch() {
         <div
           ref={dropdownRef}
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 0.5rem)',
+            position: 'absolute', top: 'calc(100% + 0.5rem)',
             left: 0,
             width: '320px',
             background: 'var(--bg-card, #111827)',
@@ -470,7 +501,13 @@ export function GlobalSearch() {
             fontSize: '0.875rem',
           }}
         >
-          No se encontraron resultados para "{query}"
+          <div style={{ marginBottom: '0.375rem', color: '#94a3b8', fontSize: '0.875rem' }}>
+            Sin resultados para "{query}"
+          </div>
+          <div style={{ fontSize: '0.72rem', color: '#475569', lineHeight: 1.7 }}>
+            Probá: nombre · teléfono · IMEI · marca/modelo<br />
+            número de orden · SKU del producto
+          </div>
         </div>
       )}
 

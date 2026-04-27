@@ -1,4 +1,5 @@
-import { Fragment, useState, useEffect, useRef } from 'react'
+import { Fragment, useState, useEffect, useRef, useMemo } from 'react'
+import { smartSearch } from '../utils/searchUtils'
 import {
   Package,
   Search,
@@ -242,19 +243,25 @@ export function Inventory() {
     return eff.stock_quantity === 0
   }
 
+  // Items pre-filtrados por búsqueda inteligente (memoizado)
+  const searchedItems = useMemo(() =>
+    smartSearch(items, searchTerm, [
+      { getValue: (item: any) => item.name,           weight: 3 },
+      { getValue: (item: any) => item.code,           weight: 3 },
+      { getValue: (item: any) => item.category,       weight: 2 },
+      { getValue: (item: any) => item.subcategory,    weight: 2 },
+      { getValue: (item: any) => item.description,    weight: 1 },
+      { getValue: (item: any) => item.location,       weight: 1 },
+      { getValue: (item: any) => item.supplier_code,  weight: 1 },
+    ]), [items, searchTerm])
+
   const matchesInventoryFilters = (item: any) => {
-    const normalizedSearch = searchTerm.toLowerCase()
-    const matchesSearch = 
-      item.name.toLowerCase().includes(normalizedSearch) ||
-      item.code.toLowerCase().includes(normalizedSearch) ||
-      (item.description || '').toLowerCase().includes(normalizedSearch) ||
-      (item.subcategory || '').toLowerCase().includes(normalizedSearch)
+    const matchesSearch = !searchTerm.trim() || searchedItems.some(s => (s as any).id === item.id)
     const matchesCategory = !selectedCategory || item.category === selectedCategory
     const matchesStockStatus =
       stockStatusFilter === 'all' ||
       (stockStatusFilter === 'low' && isLowStock(item)) ||
       (stockStatusFilter === 'out' && isOutOfStock(item))
-
     return matchesSearch && matchesCategory && matchesStockStatus
   }
 
@@ -1822,22 +1829,30 @@ export function Inventory() {
         flexWrap: 'wrap'
       }}>
         <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
-          <Search size={18} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+          <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', pointerEvents: 'none' }} />
           <input
             type="text"
-            placeholder="Buscar por nombre o código..."
+            placeholder="Buscar por nombre, SKU, categoría, descripción..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             style={{
               width: '100%',
-              padding: '0.625rem 0.75rem 0.625rem 2.5rem',
+              padding: '0.625rem 2.25rem 0.625rem 2.5rem',
               backgroundColor: 'rgba(15,23,42,0.8)',
-              border: '1px solid rgba(51,65,85,0.6)',
+              border: `1px solid ${searchTerm ? 'rgba(99,102,241,0.4)' : 'rgba(51,65,85,0.6)'}`,
               borderRadius: '0.5rem',
               color: '#f1f5f9',
-              outline: 'none'
+              outline: 'none',
+              boxSizing: 'border-box',
+              transition: 'border-color 0.15s',
             }}
           />
+          {searchTerm && (
+            <button onClick={() => setSearchTerm('')}
+              style={{ position: 'absolute', right: '0.625rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', padding: '0.125rem' }}>
+              <X size={14} />
+            </button>
+          )}
         </div>
         <select
           style={{

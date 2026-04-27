@@ -1,6 +1,7 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Plus, Search, Filter, Eye, Edit, Trash2, ClipboardList, Printer, Loader2 } from 'lucide-react'
+import { Plus, Search, Filter, Eye, Edit, Trash2, ClipboardList, Printer, Loader2, X } from 'lucide-react'
+import { smartSearch } from '../utils/searchUtils'
 import { CloseButton } from '../components/ui/CloseButton'
 import { useOrders, OrderListItem } from '../hooks/useOrders'
 import { STATUS_CONFIG } from '../types/orderStatus'
@@ -56,10 +57,42 @@ const getPriorityStyle = (priority: string) => {
 
 export function Orders() {
   const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [priorityFilter, setPriorityFilter] = useState('')
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>()
+
   const { orders, error, refresh: refetch } = useOrders()
   const navigate = useNavigate()
   const [printingOrder, setPrintingOrder] = useState<any>(null)
   const printRef = useRef<HTMLDivElement>(null)
+
+  // Debounce 300ms
+  useEffect(() => {
+    clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(() => setDebouncedSearch(searchTerm), 300)
+    return () => clearTimeout(searchTimer.current)
+  }, [searchTerm])
+
+  // Filtrado inteligente
+  const filteredOrders = useMemo(() => {
+    let result = smartSearch(orders, debouncedSearch, [
+      { getValue: o => o.id.slice(0, 8),              weight: 4 },
+      { getValue: o => o.customer?.name,              weight: 3 },
+      { getValue: o => (o.customer as any)?.phone,    weight: 3 },
+      { getValue: o => o.device?.brand,               weight: 2 },
+      { getValue: o => o.device?.model,               weight: 2 },
+      { getValue: o => o.device ? `${o.device.brand} ${o.device.model}` : null, weight: 3 },
+      { getValue: o => (o as any).imei,               weight: 4 },
+      { getValue: o => (o as any).serial_number,      weight: 3 },
+      { getValue: o => (o as any).reported_issue,     weight: 1 },
+      { getValue: o => (o as any).diagnosis,          weight: 1 },
+      { getValue: o => STATUS_CONFIG[o.status as keyof typeof STATUS_CONFIG]?.label, weight: 1 },
+    ])
+    if (statusFilter) result = result.filter(o => o.status === statusFilter)
+    if (priorityFilter) result = result.filter(o => o.priority === priorityFilter)
+    return result
+  }, [orders, debouncedSearch, statusFilter, priorityFilter])
 
   // Delete state
   const [deletingOrder, setDeletingOrder] = useState<OrderListItem | null>(null)
@@ -164,15 +197,8 @@ export function Orders() {
             <p style={{ margin: 0, fontSize: '0.8rem', color: '#475569' }}>Gestiona todas las órdenes de reparación del taller</p>
           </div>
         </div>
-        <Link to="/orders/new" style={{
-          display: 'flex', alignItems: 'center', gap: '0.5rem',
-          padding: '0.625rem 1.25rem',
-          background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-          border: 'none', color: '#ffffff', borderRadius: '0.625rem',
-          cursor: 'pointer', fontWeight: 600, textDecoration: 'none',
-          boxShadow: '0 4px 12px rgba(99,102,241,0.35)', fontSize: '0.875rem'
-        }}>
-          <Plus size={18} />
+        <Link to="/orders/new" className="btn btn-primary btn-sm" style={{ textDecoration: 'none' }}>
+          <Plus size={16} />
           Nueva Orden
         </Link>
       </div>
@@ -188,55 +214,75 @@ export function Orders() {
         flexWrap: 'wrap'
       }}>
         <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
-          <Search size={18} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+          <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', pointerEvents: 'none' }} />
           <input
             type="text"
-            placeholder="Buscar por cliente, dispositivo o número de orden..."
+            placeholder="Buscar por cliente, teléfono, dispositivo, IMEI, número de orden..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             style={{
               width: '100%',
-              padding: '0.625rem 0.75rem 0.625rem 2.5rem',
+              padding: '0.625rem 2.25rem 0.625rem 2.5rem',
               backgroundColor: 'rgba(15,23,42,0.8)',
-              border: '1px solid rgba(51,65,85,0.6)',
+              border: `1px solid ${searchTerm ? 'rgba(99,102,241,0.4)' : 'rgba(51,65,85,0.6)'}`,
               borderRadius: '0.5rem',
               color: '#f1f5f9',
-              outline: 'none'
+              outline: 'none',
+              boxSizing: 'border-box',
+              transition: 'border-color 0.15s',
             }}
           />
+          {searchTerm && (
+            <button onClick={() => setSearchTerm('')}
+              style={{ position: 'absolute', right: '0.625rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', padding: '0.125rem' }}>
+              <X size={14} />
+            </button>
+          )}
         </div>
-        <select style={{
-          width: 'auto',
-          minWidth: '160px',
-          padding: '0.625rem 0.75rem',
-          backgroundColor: 'rgba(15,23,42,0.8)',
-          border: '1px solid rgba(51,65,85,0.6)',
-          borderRadius: '0.5rem',
-          color: '#f1f5f9',
-          outline: 'none'
-        }}>
+        <select
+          value={statusFilter}
+          onChange={e => setStatusFilter(e.target.value)}
+          style={{
+            width: 'auto', minWidth: '160px', padding: '0.625rem 0.75rem',
+            backgroundColor: 'rgba(15,23,42,0.8)',
+            border: `1px solid ${statusFilter ? 'rgba(99,102,241,0.4)' : 'rgba(51,65,85,0.6)'}`,
+            borderRadius: '0.5rem', color: statusFilter ? '#c7d2fe' : '#f1f5f9', outline: 'none',
+          }}>
           <option value="">Todos los estados</option>
           <option value="new">Nueva</option>
           <option value="diagnosis">Diagnóstico</option>
           <option value="repair">En Reparación</option>
           <option value="ready">Listo</option>
           <option value="completed">Completada</option>
+          <option value="cancelled">Cancelada</option>
         </select>
-        <button style={{
-          padding: '0.625rem 1rem',
-          backgroundColor: 'rgba(255,255,255,0.05)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          color: '#94a3b8',
-          borderRadius: '0.5rem',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          fontWeight: 500
-        }}>
-          <Filter size={18} />
-          Filtros
-        </button>
+        <select
+          value={priorityFilter}
+          onChange={e => setPriorityFilter(e.target.value)}
+          style={{
+            width: 'auto', minWidth: '130px', padding: '0.625rem 0.75rem',
+            backgroundColor: 'rgba(15,23,42,0.8)',
+            border: `1px solid ${priorityFilter ? 'rgba(99,102,241,0.4)' : 'rgba(51,65,85,0.6)'}`,
+            borderRadius: '0.5rem', color: priorityFilter ? '#c7d2fe' : '#f1f5f9', outline: 'none',
+          }}>
+          <option value="">Todas las prioridades</option>
+          <option value="urgent">Urgente</option>
+          <option value="high">Alta</option>
+          <option value="medium">Media</option>
+          <option value="low">Baja</option>
+        </select>
+        {(searchTerm || statusFilter || priorityFilter) && (
+          <button
+            onClick={() => { setSearchTerm(''); setStatusFilter(''); setPriorityFilter('') }}
+            style={{ padding: '0.625rem 0.875rem', backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8', borderRadius: '0.5rem', cursor: 'pointer', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+            Limpiar filtros
+          </button>
+        )}
+        {debouncedSearch && (
+          <span style={{ fontSize: '0.75rem', color: '#475569', whiteSpace: 'nowrap', alignSelf: 'center' }}>
+            {filteredOrders.length} resultado{filteredOrders.length !== 1 ? 's' : ''}
+          </span>
+        )}
       </div>
 
       <div style={{
@@ -260,28 +306,41 @@ export function Orders() {
               </tr>
             </thead>
             <tbody>
-              {orders.length === 0 ? (
+              {filteredOrders.length === 0 ? (
                 <tr>
                   <td colSpan={8}>
                     <div style={{ padding: '4rem 2rem', textAlign: 'center' }}>
                       <div style={{
-                        width: '64px',
-                        height: '64px',
-                        borderRadius: '50%',
+                        width: '64px', height: '64px', borderRadius: '50%',
                         backgroundColor: 'rgba(15,23,42,0.8)',
                         margin: '0 auto 1.5rem',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
                       }}>
                         <ClipboardList size={32} style={{ color: '#64748b' }} />
                       </div>
-                      <h3 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#ffffff', marginBottom: '0.5rem' }}>
-                        Todavía no tenés órdenes
-                      </h3>
-                      <p style={{ color: '#94a3b8', fontSize: '0.9375rem', marginBottom: '1.5rem', maxWidth: '400px', margin: '0 auto 1.5rem' }}>
-                        Comenzá creando tu primera orden de reparación para empezar a gestionar el trabajo del taller.
-                      </p>
+                      {debouncedSearch || statusFilter || priorityFilter ? (
+                        <>
+                          <h3 style={{ fontSize: '1.125rem', fontWeight: 600, color: '#ffffff', marginBottom: '0.5rem' }}>
+                            No encontramos nada con esa búsqueda
+                          </h3>
+                          <p style={{ color: '#94a3b8', fontSize: '0.875rem', marginBottom: '1rem' }}>
+                            Probá buscar por cliente, teléfono, IMEI, marca o número de orden
+                          </p>
+                          <button onClick={() => { setSearchTerm(''); setStatusFilter(''); setPriorityFilter('') }}
+                            className="btn btn-ghost btn-sm">
+                            Limpiar filtros
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <h3 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#ffffff', marginBottom: '0.5rem' }}>
+                            Todavía no tenés órdenes
+                          </h3>
+                          <p style={{ color: '#94a3b8', fontSize: '0.9375rem', marginBottom: '1.5rem', maxWidth: '400px', margin: '0 auto 1.5rem' }}>
+                            Comenzá creando tu primera orden de reparación.
+                          </p>
+                        </>
+                      )}
                       <Link
                         to="/orders/new"
                         style={{
@@ -307,7 +366,7 @@ export function Orders() {
                   </td>
                 </tr>
               ) : (
-                orders.map((order) => (
+                filteredOrders.map((order) => (
                   <tr key={order.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                     <td style={{ padding: '1rem' }}>
                       <Link to={`/orders/${order.id}`} style={{ color: '#818cf8', fontWeight: 500, textDecoration: 'none' }}>

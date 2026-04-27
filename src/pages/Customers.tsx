@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Search, Eye, Phone, Mail, Users, Download, Upload, Pencil, Trash2, Loader2 } from 'lucide-react'
+import { Plus, Search, Eye, Phone, Mail, Users, Download, Upload, Pencil, Trash2, Loader2, X } from 'lucide-react'
+import { smartSearch } from '../utils/searchUtils'
 import { CloseButton } from '../components/ui/CloseButton'
 import { customersService, ordersService } from '../services/api'
 import { useLoading } from '../contexts/LoadingContext'
@@ -263,18 +264,17 @@ export function Customers() {
 
 
   const filteredCustomers = useMemo(() => {
-    const normalizedQuery = debouncedSearch.trim().toLowerCase()
-
-    if (!normalizedQuery) {
-      return customers
-    }
-
-    return customers.filter((customer) =>
-      [customer.name, customer.phone, customer.email]
-        .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(normalizedQuery))
-    )
-  }, [customers, searchTerm])
+    return smartSearch(customers, debouncedSearch, [
+      { getValue: c => c.name,                    weight: 3 },
+      { getValue: c => (c as any).phone,           weight: 3 },
+      { getValue: c => c.email,                   weight: 2 },
+      { getValue: c => (c as any).document,        weight: 3 },
+      { getValue: c => (c as any).address,         weight: 1 },
+      { getValue: c => (c as any).city,            weight: 1 },
+      { getValue: c => (c as any).notes,           weight: 0.5 },
+      { getValue: c => (c as any).customer_type,   weight: 1 },
+    ])
+  }, [customers, debouncedSearch])
 
   const customerStats = useMemo(() => {
     return orders.reduce<Record<string, CustomerStats>>((stats, order) => {
@@ -387,23 +387,36 @@ export function Customers() {
         }}
       >
         <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
-          <Search size={18} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+          <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', pointerEvents: 'none' }} />
           <input
             type="text"
-            placeholder="Buscar cliente..."
+            placeholder="Buscar por nombre, teléfono, DNI, email, dirección..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             style={{
               width: '100%',
-              padding: '0.625rem 0.75rem 0.625rem 2.5rem',
+              padding: '0.625rem 2.25rem 0.625rem 2.5rem',
               backgroundColor: 'rgba(15,23,42,0.8)',
-              border: '1px solid rgba(51,65,85,0.6)',
+              border: `1px solid ${searchTerm ? 'rgba(99,102,241,0.4)' : 'rgba(51,65,85,0.6)'}`,
               borderRadius: '0.5rem',
               color: '#f1f5f9',
               outline: 'none',
+              boxSizing: 'border-box',
+              transition: 'border-color 0.15s',
             }}
           />
+          {searchTerm && (
+            <button onClick={() => setSearchTerm('')}
+              style={{ position: 'absolute', right: '0.625rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', padding: '0.125rem' }}>
+              <X size={14} />
+            </button>
+          )}
         </div>
+        {debouncedSearch && (
+          <span style={{ fontSize: '0.75rem', color: '#475569', whiteSpace: 'nowrap' }}>
+            {filteredCustomers.length} resultado{filteredCustomers.length !== 1 ? 's' : ''}
+          </span>
+        )}
       </div>
 
       <div
