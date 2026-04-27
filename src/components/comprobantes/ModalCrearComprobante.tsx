@@ -684,194 +684,132 @@ export function ModalCrearComprobante({
                   </button>
                 </div>
 
-                {/* Header de columnas */}
-                <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr 70px 80px 60px 90px 80px 32px', gap: '0.375rem', paddingBottom: '0.375rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                  {['Tipo', 'Descripción / Producto', 'Cant.', 'Precio', 'Desc%', 'Costo unit.', 'Subtotal', ''].map(h => (
-                    <span key={h} style={{ fontSize: '0.65rem', color: '#475569', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</span>
-                  ))}
-                </div>
-
                 {lineas.map((l, idx) => {
                   const disc    = (l.descuento_linea || 0) / 100;
                   const raw     = l.cantidad * l.precio_unitario;
                   const lineARS = l.currency === 'USD' ? raw * (1 - disc) * exchangeRate : raw * (1 - disc);
                   return (
-                    <div
-                      key={l._key}
-                      style={{ display: 'grid', gridTemplateColumns: '90px 1fr 70px 80px 60px 90px 80px 32px', gap: '0.375rem', alignItems: 'center' }}
-                    >
-                      {/* Tipo línea */}
-                      <div style={{ position: 'relative' }}>
+                    <div key={l._key} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.625rem', padding: '0.625rem' }}>
+
+                      {/* Fila 1: tipo + descripción + eliminar */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '82px 1fr 30px', gap: '0.375rem', alignItems: 'center', marginBottom: '0.5rem' }}>
                         <select
                           value={l.tipo_linea}
                           onChange={e => updateLinea(l._key, { tipo_linea: e.target.value as TipoLinea })}
-                          style={{ ...inputS, padding: '0.4rem 0.5rem', fontSize: '0.75rem', paddingRight: '1.25rem' }}
+                          style={{ ...inputS, padding: '0.375rem 0.375rem', fontSize: '0.72rem' }}
                         >
                           {(Object.keys(TIPO_LINEA_CONFIG) as TipoLinea[]).map(t => (
                             <option key={t} value={t}>{TIPO_LINEA_CONFIG[t].label}</option>
                           ))}
                         </select>
-                      </div>
 
-                      {/* Descripción con búsqueda */}
-                      <div ref={el => { dropdownRefs.current[idx] = el; }} style={{ position: 'relative' }}>
-                        <div style={{ position: 'relative' }}>
-                          <Search size={12} style={{ position: 'absolute', left: '0.5rem', top: '50%', transform: 'translateY(-50%)', color: l.inventory_id ? '#10b981' : '#475569', pointerEvents: 'none' }} />
+                        {/* Descripción con búsqueda */}
+                        <div ref={el => { dropdownRefs.current[idx] = el; }} style={{ position: 'relative' }}>
+                          <Search size={13} style={{ position: 'absolute', left: '0.625rem', top: '50%', transform: 'translateY(-50%)', color: l.inventory_id ? '#10b981' : '#475569', pointerEvents: 'none' }} />
                           <input
                             type="text"
                             value={l.descripcion}
                             onChange={e => handleDescChange(idx, e.target.value)}
                             onFocus={() => { setActiveSearchIdx(idx); if (l.descripcion.length >= 1) searchInventory(l.descripcion); }}
-                            placeholder="Buscar producto o escribir..."
-                            style={{ ...inputS, paddingLeft: '1.625rem', fontSize: '0.8rem', padding: '0.4rem 0.5rem 0.4rem 1.625rem', border: `1px solid ${l.inventory_id ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.1)'}` }}
+                            placeholder="Buscar producto o escribir concepto..."
+                            style={{ ...inputS, paddingLeft: '2rem', fontSize: '0.875rem', border: `1px solid ${l.inventory_id ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.1)'}` }}
                           />
+                          {/* Dropdown de búsqueda */}
+                          {activeSearchIdx === idx && (searchResults.length > 0 || searchLoading) && (
+                            <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, backgroundColor: '#0d1a30', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '0.75rem', zIndex: 200, maxHeight: '260px', overflowY: 'auto', boxShadow: '0 20px 40px rgba(0,0,0,0.6)' }}>
+                              {searchLoading ? (
+                                <div style={{ padding: '1rem', color: '#64748b', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                  <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Buscando...
+                                </div>
+                              ) : searchResults.map(inv => (
+                                <button key={inv.id} onClick={() => selectInventoryItem(idx, inv)}
+                                  style={{ width: '100%', textAlign: 'left', padding: '0.625rem 0.875rem', background: 'none', border: 'none', borderBottom: '1px solid rgba(51,65,85,0.2)', color: '#f1f5f9', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}
+                                  onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(99,102,241,0.08)')}
+                                  onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inv.name}</div>
+                                    <div style={{ fontSize: '0.7rem', color: '#64748b', display: 'flex', gap: '0.5rem', marginTop: '0.1rem', flexWrap: 'wrap' }}>
+                                      {inv.code && <span>#{inv.code}</span>}
+                                      <span>{inv.category}</span>
+                                      <span style={{ color: inv.stock_quantity <= 3 ? '#f59e0b' : '#10b981' }}>Stock: {inv.stock_quantity}</span>
+                                    </div>
+                                  </div>
+                                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                    {isClienteMayorista && inv.precio_mayorista != null ? (
+                                      <>
+                                        <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#a5b4fc', fontFamily: 'monospace' }}>{fmtARS(Number(inv.precio_mayorista))}</div>
+                                        <div style={{ fontSize: '0.65rem', color: '#475569', fontFamily: 'monospace', textDecoration: 'line-through' }}>{fmtARS(Number(inv.sale_price))}</div>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#34d399', fontFamily: 'monospace' }}>{fmtARS(Number(inv.sale_price))}</div>
+                                        {isClienteMayorista && !inv.precio_mayorista && <div style={{ fontSize: '0.65rem', color: '#f59e0b' }}>sin precio may.</div>}
+                                      </>
+                                    )}
+                                    {inv.base_currency === 'USD' && inv.base_price && !isClienteMayorista && (
+                                      <div style={{ fontSize: '0.7rem', color: '#60a5fa', fontFamily: 'monospace' }}>USD {Number(inv.base_price).toFixed(2)}</div>
+                                    )}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
 
-                        {/* Dropdown de búsqueda */}
-                        {activeSearchIdx === idx && (searchResults.length > 0 || searchLoading) && (
-                          <div style={{
-                            position: 'absolute', top: 'calc(100% + 4px)', left: 0,
-                            minWidth: '360px', maxWidth: '520px',
-                            backgroundColor: '#0b1120',
-                            border: '1px solid rgba(99,102,241,0.3)',
-                            borderRadius: '0.75rem', zIndex: 200,
-                            maxHeight: '300px', overflowY: 'auto',
-                            boxShadow: '0 20px 40px rgba(0,0,0,0.6)',
-                          }}>
-                            {searchLoading ? (
-                              <div style={{ padding: '1rem', color: '#64748b', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Buscando...
-                              </div>
-                            ) : searchResults.map(inv => (
-                              <button
-                                key={inv.id}
-                                onClick={() => selectInventoryItem(idx, inv)}
-                                style={{ width: '100%', textAlign: 'left', padding: '0.625rem 0.875rem', background: 'none', border: 'none', borderBottom: '1px solid rgba(51,65,85,0.2)', color: '#f1f5f9', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}
-                                onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(99,102,241,0.08)')}
-                                onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-                              >
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {inv.name}
-                                  </div>
-                                  <div style={{ fontSize: '0.7rem', color: '#64748b', display: 'flex', gap: '0.5rem', marginTop: '0.1rem' }}>
-                                    {inv.code && <span>#{inv.code}</span>}
-                                    <span>{inv.category}</span>
-                                    <span style={{ color: inv.stock_quantity <= 3 ? '#f59e0b' : '#10b981' }}>
-                                      Stock: {inv.stock_quantity}
-                                    </span>
-                                  </div>
-                                </div>
-                                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                  {isClienteMayorista && inv.precio_mayorista != null ? (
-                                    <>
-                                      <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#a5b4fc', fontFamily: 'monospace' }}>
-                                        {fmtARS(Number(inv.precio_mayorista))}
-                                      </div>
-                                      <div style={{ fontSize: '0.65rem', color: '#475569', fontFamily: 'monospace', textDecoration: 'line-through' }}>
-                                        {fmtARS(Number(inv.sale_price))}
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#34d399', fontFamily: 'monospace' }}>
-                                        {fmtARS(Number(inv.sale_price))}
-                                      </div>
-                                      {isClienteMayorista && !inv.precio_mayorista && (
-                                        <div style={{ fontSize: '0.65rem', color: '#f59e0b' }}>sin precio may.</div>
-                                      )}
-                                    </>
-                                  )}
-                                  {inv.base_currency === 'USD' && inv.base_price && !isClienteMayorista && (
-                                    <div style={{ fontSize: '0.7rem', color: '#60a5fa', fontFamily: 'monospace' }}>
-                                      USD {Number(inv.base_price).toFixed(2)}
-                                    </div>
-                                  )}
-                                </div>
-                              </button>
-                            ))}
-                          </div>
-                        )}
+                        <button onClick={() => lineas.length > 1 && setLineas(prev => prev.filter(x => x._key !== l._key))}
+                          disabled={lineas.length === 1}
+                          style={{ background: 'none', border: 'none', cursor: lineas.length > 1 ? 'pointer' : 'default', color: lineas.length > 1 ? '#ef4444' : '#334155', padding: '0.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <X size={14} />
+                        </button>
                       </div>
 
-                      {/* Cantidad */}
-                      <input
-                        type="number" value={l.cantidad} min="0.01" step="0.01"
-                        onChange={e => updateLinea(l._key, { cantidad: Number(e.target.value) || 0 })}
-                        style={{ ...inputS, padding: '0.4rem 0.5rem', textAlign: 'center', fontFamily: 'monospace', fontSize: '0.8rem' }}
-                      />
+                      {/* Fila 2: cant + precio + ARS/USD + desc% + subtotal */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '64px 110px auto 80px 1fr', gap: '0.375rem', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontSize: '0.6rem', color: '#475569', marginBottom: '0.15rem' }}>Cant.</div>
+                          <input type="number" value={l.cantidad} min="0.01" step="0.01"
+                            onChange={e => updateLinea(l._key, { cantidad: Number(e.target.value) || 0 })}
+                            style={{ ...inputS, padding: '0.375rem', textAlign: 'center', fontFamily: 'monospace', fontSize: '0.82rem' }} />
+                        </div>
 
-                      {/* Precio */}
-                      <div style={{ position: 'relative' }}>
-                        <input
-                          type="number" value={l.precio_unitario} min="0" step="0.01"
-                          onChange={e => updateLinea(l._key, { precio_unitario: Number(e.target.value) || 0 })}
-                          style={{ ...inputS, padding: '0.4rem 0.5rem', textAlign: 'right', fontFamily: 'monospace', fontSize: '0.8rem' }}
-                        />
+                        {/* Precio */}
+                        <div>
+                          <div style={{ fontSize: '0.6rem', color: '#475569', marginBottom: '0.15rem' }}>Precio unit.</div>
+                          <input type="number" value={l.precio_unitario} min="0" step="0.01"
+                            onChange={e => updateLinea(l._key, { precio_unitario: Number(e.target.value) || 0 })}
+                            style={{ ...inputS, padding: '0.375rem', textAlign: 'right', fontFamily: 'monospace', fontSize: '0.82rem' }} />
+                        </div>
+
                         {/* Toggle ARS/USD */}
-                        <div style={{
-                          position: 'absolute', bottom: '-1.25rem', left: 0, right: 0,
-                          display: 'flex', justifyContent: 'center', gap: '0.25rem',
-                        }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', alignSelf: 'flex-end', paddingBottom: '0.1rem' }}>
                           {(['ARS','USD'] as const).map(c => (
-                            <button
-                              key={c}
-                              onClick={() => {
-                                if (c === l.currency) return;
-                                const newPrice = c === 'USD' && l.inv_price_usd != null
-                                  ? l.inv_price_usd
-                                  : c === 'ARS' && l.inv_sale_price != null
-                                    ? l.inv_sale_price
-                                    : l.precio_unitario;
-                                updateLinea(l._key, { currency: c, precio_unitario: newPrice });
-                              }}
-                              style={{
-                                padding: '0.1rem 0.3rem',
-                                backgroundColor: l.currency === c ? (c === 'USD' ? 'rgba(96,165,250,0.2)' : 'rgba(52,211,153,0.15)') : 'transparent',
-                                border: `1px solid ${l.currency === c ? (c === 'USD' ? 'rgba(96,165,250,0.4)' : 'rgba(52,211,153,0.35)') : 'rgba(255,255,255,0.06)'}`,
-                                borderRadius: '0.2rem',
-                                color: l.currency === c ? (c === 'USD' ? '#60a5fa' : '#34d399') : '#475569',
-                                fontSize: '0.6rem', fontWeight: 700, cursor: 'pointer',
-                              }}
-                            >{c}</button>
+                            <button key={c} onClick={() => {
+                              if (c === l.currency) return;
+                              const newPrice = c === 'USD' && l.inv_price_usd != null ? l.inv_price_usd : c === 'ARS' && l.inv_sale_price != null ? l.inv_sale_price : l.precio_unitario;
+                              updateLinea(l._key, { currency: c, precio_unitario: newPrice });
+                            }} style={{ padding: '0.1rem 0.3rem', backgroundColor: l.currency === c ? (c === 'USD' ? 'rgba(96,165,250,0.2)' : 'rgba(52,211,153,0.15)') : 'transparent', border: `1px solid ${l.currency === c ? (c === 'USD' ? 'rgba(96,165,250,0.4)' : 'rgba(52,211,153,0.35)') : 'rgba(255,255,255,0.06)'}`, borderRadius: '0.2rem', color: l.currency === c ? (c === 'USD' ? '#60a5fa' : '#34d399') : '#475569', fontSize: '0.6rem', fontWeight: 700, cursor: 'pointer' }}>
+                              {c}
+                            </button>
                           ))}
                         </div>
+
+                        {/* Desc% */}
+                        <div>
+                          <div style={{ fontSize: '0.6rem', color: '#475569', marginBottom: '0.15rem' }}>Desc%</div>
+                          <div style={{ position: 'relative' }}>
+                            <Percent size={9} style={{ position: 'absolute', left: '0.35rem', top: '50%', transform: 'translateY(-50%)', color: '#475569', pointerEvents: 'none' }} />
+                            <input type="number" value={l.descuento_linea || ''} min="0" max="100" step="0.1" placeholder="0"
+                              onChange={e => updateLinea(l._key, { descuento_linea: Math.min(100, Number(e.target.value) || 0) })}
+                              style={{ ...inputS, padding: '0.375rem 0.25rem 0.375rem 1.1rem', textAlign: 'right', fontFamily: 'monospace', fontSize: '0.78rem' }} />
+                          </div>
+                        </div>
+
+                        {/* Subtotal */}
+                        <div style={{ textAlign: 'right', alignSelf: 'flex-end', paddingBottom: '0.1rem' }}>
+                          <div style={{ fontSize: '0.6rem', color: '#475569', marginBottom: '0.15rem' }}>Subtotal</div>
+                          <div style={{ fontFamily: 'monospace', fontSize: '0.875rem', fontWeight: 700, color: '#34d399' }}>{fmtARS(lineARS)}</div>
+                        </div>
                       </div>
-
-                      {/* Descuento % */}
-                      <div style={{ position: 'relative' }}>
-                        <Percent size={10} style={{ position: 'absolute', left: '0.4rem', top: '50%', transform: 'translateY(-50%)', color: '#475569', pointerEvents: 'none' }} />
-                        <input
-                          type="number" value={l.descuento_linea || ''} min="0" max="100" step="0.1"
-                          placeholder="0"
-                          onChange={e => updateLinea(l._key, { descuento_linea: Math.min(100, Number(e.target.value) || 0) })}
-                          style={{ ...inputS, padding: '0.4rem 0.5rem 0.4rem 1.2rem', textAlign: 'right', fontFamily: 'monospace', fontSize: '0.8rem' }}
-                        />
-                      </div>
-
-                      {/* Costo */}
-                      <input
-                        type="number" value={l.costo_unitario || ''} min="0" step="0.01"
-                        placeholder="0"
-                        onChange={e => updateLinea(l._key, { costo_unitario: Number(e.target.value) || 0 })}
-                        style={{ ...inputS, padding: '0.4rem 0.5rem', textAlign: 'right', fontFamily: 'monospace', fontSize: '0.8rem', color: '#94a3b8' }}
-                      />
-
-                      {/* Subtotal */}
-                      <div style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 600, color: '#34d399', paddingRight: '0.25rem' }}>
-                        {fmtARS(lineARS)}
-                      </div>
-
-                      {/* Eliminar */}
-                      <button
-                        onClick={() => setLineas(prev => prev.length > 1 ? prev.filter(x => x._key !== l._key) : prev)}
-                        disabled={lineas.length === 1}
-                        style={{ background: 'none', border: 'none', color: '#475569', cursor: lineas.length > 1 ? 'pointer' : 'not-allowed', opacity: lineas.length > 1 ? 1 : 0.3, padding: '0.25rem', borderRadius: '0.25rem', display: 'flex' }}
-                        onMouseEnter={e => { if (lineas.length > 1) e.currentTarget.style.color = '#f87171'; }}
-                        onMouseLeave={e => { e.currentTarget.style.color = '#475569'; }}
-                      >
-                        <X size={14} />
-                      </button>
                     </div>
                   );
                 })}
