@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { smartSearch } from '../utils/searchUtils'
-import { useReactToPrint } from 'react-to-print'
 import {
   Plus,
   Search,
@@ -168,23 +167,27 @@ export function Warranties() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailWarranty, setDetailWarranty] = useState<Warranty | null>(null)
 
-  // ── Impresión directa (desde la tabla y post-create)
+  // ── Impresión directa — window.open() en lugar de react-to-print (más rápido, PDF más liviano)
   const [printingWarranty, setPrintingWarranty] = useState<Warranty | null>(null)
   const printRef = useRef<HTMLDivElement>(null)
 
-  const triggerPrint = useReactToPrint({
-    contentRef: printRef,
-    documentTitle: printingWarranty ? `Garantia-${printingWarranty.number}` : 'Garantia',
-    onAfterPrint: () => setPrintingWarranty(null),
-  })
-
   useEffect(() => {
-    if (printingWarranty) {
-      // esperar un tick para que se monte el layout oculto
-      const t = setTimeout(() => triggerPrint(), 50)
-      return () => clearTimeout(t)
-    }
-  }, [printingWarranty, triggerPrint])
+    if (!printingWarranty || !printRef.current) return
+    const html = printRef.current.innerHTML
+    const win = window.open('', '_blank')
+    if (!win) { setPrintingWarranty(null); return }
+    win.document.write(
+      `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">` +
+      `<title>Garantia-${printingWarranty.number}</title></head>` +
+      `<body style="margin:0;padding:0">${html}</body></html>`
+    )
+    win.document.close()
+    // Esperar imágenes antes de imprimir
+    win.addEventListener('load', () => { win.print(); win.close() }, { once: true })
+    // Fallback si ya cargó
+    setTimeout(() => { if (!win.closed) { win.print(); win.close() } }, 800)
+    setPrintingWarranty(null)
+  }, [printingWarranty])
 
   // ── Acciones
   const openCreate = () => {

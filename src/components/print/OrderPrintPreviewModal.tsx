@@ -1,5 +1,4 @@
 import React, { useRef, useState, useEffect } from 'react'
-import { useReactToPrint } from 'react-to-print'
 import { Printer } from 'lucide-react'
 import { CloseButton } from '../ui/CloseButton'
 import { ServiceOrderPrint, ServiceOrderData, PrintOrderItem } from './ServiceOrderPrint'
@@ -78,16 +77,21 @@ export const OrderPrintPreviewModal: React.FC<OrderPrintPreviewModalProps> = ({
       })
   }, [isOpen, order?.id])
 
-  const handlePrint = useReactToPrint({
-    contentRef: printRef,
-    documentTitle: order ? `Orden #${order.id.slice(0, 8)}` : 'Orden de Servicio',
-    pageStyle: `
-      @page { size: A4 portrait; margin: 0; }
-      html, body { margin: 0 !important; padding: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-      .sop-page { width: 210mm !important; min-height: 297mm !important; max-height: 297mm !important; overflow: hidden !important; box-shadow: none !important; }
-    `,
-  })
+  const handlePrint = () => {
+    if (!printRef.current || !order) return
+    const html = printRef.current.innerHTML
+    const win = window.open('', '_blank')
+    if (!win) return
+    win.document.write(
+      `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">` +
+      `<title>Orden-${order.id.slice(0, 8)}</title>` +
+      `<style>@page{size:A4 portrait;margin:0}body{margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style>` +
+      `</head><body style="margin:0;padding:0">${html}</body></html>`
+    )
+    win.document.close()
+    win.addEventListener('load', () => { win.print(); win.close() }, { once: true })
+    setTimeout(() => { if (!win.closed) { win.print(); win.close() } }, 800)
+  }
 
   if (!isOpen || !order) return null
 

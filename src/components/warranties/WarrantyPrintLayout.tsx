@@ -54,24 +54,11 @@ const stylesheet = `
 }
 
 .wp-cut {
-  border: 0;
-  border-top: 1px dashed #94a3b8;
-  margin: 6mm 0;
-  position: relative;
-  text-align: center;
-}
-
-.wp-cut::after {
-  content: '✂  corte aquí';
-  position: absolute;
-  top: -8pt;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #ffffff;
-  color: #64748b;
-  font-size: 8pt;
-  padding: 0 6pt;
-  letter-spacing: 0.02em;
+  /* En impresión: fuerza inicio en página nueva */
+  page-break-after: always;
+  break-after: page;
+  border: none;
+  margin: 0;
 }
 
 .wp-header {
@@ -309,10 +296,27 @@ const stylesheet = `
   margin-top: 3mm;
 }
 
+/* Vista previa en pantalla — SIN box-shadow ni efectos extras para no penalizar el render */
 @media screen {
-  .wp-root {
-    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-    padding: 8mm;
+  .wp-root { background: #fff; }
+  .wp-cut {
+    page-break-after: auto;
+    break-after: auto;
+    border-top: 1px dashed #94a3b8;
+    margin: 6mm 0;
+    position: relative;
+    text-align: center;
+  }
+  .wp-cut::after {
+    content: '✂  corte aquí';
+    position: absolute;
+    top: -8pt;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #fff;
+    color: #94a3b8;
+    font-size: 8pt;
+    padding: 0 6pt;
   }
 }
 `
@@ -345,20 +349,6 @@ function Copy(props: {
     settings.orden_condiciones_activo &&
     (settings.orden_condiciones_en === 'ambas' ||
       settings.orden_condiciones_en === copyLabel)
-
-  const contactParts: string[] = []
-  if (settings.orden_mostrar_whatsapp && settings.orden_whatsapp)
-    contactParts.push(`WhatsApp: ${settings.orden_whatsapp}`)
-  if (settings.orden_mostrar_instagram && settings.orden_instagram)
-    contactParts.push(`IG: ${settings.orden_instagram}`)
-  if (settings.orden_mostrar_email && settings.orden_email_visible)
-    contactParts.push(settings.orden_email_visible)
-  if (settings.orden_mostrar_sitio_web && settings.orden_sitio_web)
-    contactParts.push(settings.orden_sitio_web)
-
-  const addressLine = [settings.domicilio_fiscal, settings.localidad, settings.provincia]
-    .filter(Boolean)
-    .join(' · ')
 
   return (
     <div className="wp-copy">
