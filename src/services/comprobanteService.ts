@@ -366,13 +366,17 @@ export const comprobanteService = {
         descuento_total:  descuentoTotal,
         recargo_total:    0,
         total_bruto:      totalBruto,
-        total_cobrado:    0,
-        saldo_pendiente:  totalBruto,
+        total_cobrado:    pagos.length > 0 ? pagosConComision.reduce((s, p) => s + p.amtARS, 0) : 0,
+        saldo_pendiente:  pagos.length > 0 ? Math.max(0, totalBruto - pagosConComision.reduce((s, p) => s + p.amtARS, 0)) : totalBruto,
         total_comisiones: totalComisiones,
         total_neto:       totalNeto,
         estado:           estadoDefinitivo === 'issued' ? 'emitido' : 'borrador',
         status:           estadoDefinitivo,
-        estado_comercial: pagos.length > 0 ? 'pendiente' : 'pendiente',
+        estado_comercial: (() => {
+          if (pagos.length === 0) return 'pendiente';
+          const cobrado = pagosConComision.reduce((s, p) => s + p.amtARS, 0);
+          return cobrado >= totalBruto - 1 ? 'pagado' : 'parcial';
+        })(),
         estado_fiscal:    estadoFiscal,
         es_fiscal:        esFiscal,
         emitir_en_arca,

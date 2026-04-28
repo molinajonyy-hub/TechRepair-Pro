@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, AlertCircle, CheckCircle, Loader2, ExternalLink, TrendingUp, Wallet } from 'lucide-react';
-import { PaymentButtonsPanel } from '../components/payments/PaymentButtonsPanel';
 import { supabase } from '../lib/supabase';
 import { useComprobantes } from '../hooks/useComprobantes';
 import { useOrderPrintSettings } from '../hooks/useOrderPrintSettings';
@@ -413,26 +412,27 @@ export default function ComprobantePage() {
               </div>
             )}
 
-            {/* Panel de cobros */}
+            {/* Estado de cobro */}
             {comprobanteActual && !['anulado','cancelled'].includes(comprobanteActual.estado || '') && (
               <div style={{
-                marginTop: '1rem', padding: '1rem',
-                backgroundColor: '#0a1628',
-                border: '1px solid rgba(99,102,241,0.2)',
+                marginTop: '1rem', padding: '0.875rem 1rem',
+                backgroundColor: (comprobanteActual as any).estado_comercial === 'pagado' ? 'rgba(52,211,153,0.07)' : 'rgba(245,158,11,0.07)',
+                border: `1px solid ${(comprobanteActual as any).estado_comercial === 'pagado' ? 'rgba(52,211,153,0.25)' : 'rgba(245,158,11,0.25)'}`,
                 borderRadius: '0.75rem',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginBottom: '0.875rem' }}>
-                  <Wallet size={14} style={{ color: '#818cf8' }} />
-                  <p style={{ margin: 0, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#475569' }}>
-                    Cobrar
-                  </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Wallet size={15} style={{ color: (comprobanteActual as any).estado_comercial === 'pagado' ? '#34d399' : '#f59e0b' }} />
+                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: (comprobanteActual as any).estado_comercial === 'pagado' ? '#34d399' : '#f59e0b' }}>
+                    {(comprobanteActual as any).estado_comercial === 'pagado' ? 'Cobrado' : 'Pendiente de cobro'}
+                  </span>
                 </div>
-                <PaymentButtonsPanel
-                  comprobanteId={comprobanteActual.id}
-                  totalBruto={(comprobanteActual as any).total_bruto || comprobanteActual.total || 0}
-                  saldoPendiente={(comprobanteActual as any).saldo_pendiente ?? (comprobanteActual as any).total_bruto ?? comprobanteActual.total ?? 0}
-                  onPaymentRegistered={() => id && cargarComprobante(id)}
-                />
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.875rem', color: (comprobanteActual as any).estado_comercial === 'pagado' ? '#34d399' : '#f59e0b' }}>
+                  {(comprobanteActual as any).estado_comercial === 'pagado'
+                    ? `$${((comprobanteActual as any).total_cobrado || comprobanteActual.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                    : `Saldo: $${((comprobanteActual as any).saldo_pendiente || comprobanteActual.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  }
+                </span>
               </div>
             )}
 

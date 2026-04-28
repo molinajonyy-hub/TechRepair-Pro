@@ -81,12 +81,12 @@ const CONDICIONES_FISCALES = [
   'Exento', 'Responsable No Inscripto',
 ];
 
-const METODOS_COBRO: { id: MedioPago; label: string; commRate: number; color: string }[] = [
-  { id: 'efectivo',        label: 'Efectivo',       commRate: 0,      color: '#34d399' },
-  { id: 'transferencia',   label: 'Transferencia',  commRate: 0,      color: '#60a5fa' },
-  { id: 'tarjeta_debito',  label: 'Débito',         commRate: 0.01,   color: '#a78bfa' },
-  { id: 'tarjeta_credito', label: 'Crédito',        commRate: 0.035,  color: '#f59e0b' },
-  { id: 'qr',              label: 'QR / MP',        commRate: 0.0099, color: '#fb7185' },
+const METODOS_COBRO: { id: MedioPago; label: string; sub: string; commRate: number; color: string }[] = [
+  { id: 'efectivo',        label: 'Efectivo',       sub: 'Sin comisión',  commRate: 0,      color: '#34d399' },
+  { id: 'transferencia',   label: 'Transferencia',  sub: 'Sin comisión',  commRate: 0,      color: '#60a5fa' },
+  { id: 'tarjeta_debito',  label: 'Débito (MP)',    sub: '0.89%',         commRate: 0.0089, color: '#a78bfa' },
+  { id: 'tarjeta_credito', label: 'Crédito 1C (MP)',sub: '3.99%',         commRate: 0.0399, color: '#f59e0b' },
+  { id: 'qr',              label: 'QR (MP)',        sub: '0.99%',         commRate: 0.0099, color: '#fb7185' },
 ];
 
 const emptyLinea = (): LineaItem => ({
@@ -958,18 +958,20 @@ export function ModalCrearComprobante({
 
               {/* BLOQUE COBRO */}
               <div style={blockS}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Wallet size={14} style={{ color: '#34d399' }} />
-                  <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                    Cobro
-                  </span>
-                  <span style={{ fontSize: '0.7rem', color: '#475569', marginLeft: 'auto' }}>
-                    Seleccioná el método de cobro
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Wallet size={14} style={{ color: '#34d399' }} />
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                      Cobro
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '0.72rem', color: '#475569' }}>
+                    {pagos.length === 0 ? 'Seleccioná el método' : fmtARS(totales.total) + ' a cobrar'}
                   </span>
                 </div>
 
-                {/* Botones de métodos */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
+                {/* Tarjetas de método — estilo ModalCobro */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
                   {METODOS_COBRO.map(m => {
                     const activo = pagos.some(p => p.payment_method === m.id);
                     return (
@@ -977,28 +979,25 @@ export function ModalCrearComprobante({
                         key={m.id}
                         onClick={() => toggleMetodoCobro(m)}
                         style={{
-                          padding: '0.35rem 0.75rem',
-                          borderRadius: '0.5rem',
-                          border: `1px solid ${activo ? m.color : 'rgba(255,255,255,0.1)'}`,
-                          backgroundColor: activo ? `${m.color}22` : 'transparent',
+                          padding: '0.75rem 0.5rem',
+                          borderRadius: '0.625rem',
+                          border: `2px solid ${activo ? m.color : 'rgba(255,255,255,0.07)'}`,
+                          backgroundColor: activo ? `${m.color}18` : 'rgba(255,255,255,0.03)',
                           color: activo ? m.color : '#64748b',
-                          fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer',
+                          cursor: 'pointer',
                           transition: 'all 0.15s',
-                          display: 'flex', alignItems: 'center', gap: '0.3rem',
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem',
+                          textAlign: 'center',
                         }}
                       >
-                        {m.label}
-                        {m.commRate > 0 && (
-                          <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>
-                            +{(m.commRate * 100).toFixed(1)}%
-                          </span>
-                        )}
+                        <span style={{ fontSize: '0.8rem', fontWeight: 700, lineHeight: 1.2 }}>{m.label}</span>
+                        <span style={{ fontSize: '0.65rem', color: activo ? m.color : '#475569', opacity: 0.85 }}>{m.sub}</span>
                       </button>
                     );
                   })}
                 </div>
 
-                {/* Detalle de pagos seleccionados */}
+                {/* Monto + resumen cuando hay método seleccionado */}
                 {pagos.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
                     {pagos.map(p => {
@@ -1006,48 +1005,55 @@ export function ModalCrearComprobante({
                       const amt = parseFloat(p.amount) || 0;
                       const comm = amt * (p.commission_rate || 0);
                       return (
-                        <div key={p._key} style={{ display: 'grid', gridTemplateColumns: '1fr 120px 30px', gap: '0.375rem', alignItems: 'center' }}>
-                          <div style={{ fontSize: '0.8rem', color: metInfo?.color ?? '#94a3b8', fontWeight: 600 }}>
+                        <div key={p._key} style={{
+                          display: 'flex', alignItems: 'center', gap: '0.5rem',
+                          padding: '0.5rem 0.625rem',
+                          background: `${metInfo?.color ?? '#94a3b8'}12`,
+                          border: `1px solid ${metInfo?.color ?? '#94a3b8'}30`,
+                          borderRadius: '0.5rem',
+                        }}>
+                          <span style={{ fontSize: '0.8rem', color: metInfo?.color, fontWeight: 700, flex: 1 }}>
                             {metInfo?.label}
-                            {comm > 0 && (
-                              <span style={{ fontSize: '0.7rem', color: '#f59e0b', marginLeft: '0.4rem' }}>
-                                comisión: {fmtARS(comm)}
-                              </span>
-                            )}
-                          </div>
+                          </span>
                           <input
                             type="number" min="0" step="1"
                             value={p.amount}
                             onChange={e => updatePagoAmount(p._key, e.target.value)}
-                            style={{ ...inputS, padding: '0.375rem', textAlign: 'right', fontFamily: 'monospace', fontSize: '0.82rem' }}
+                            style={{ ...inputS, width: '110px', padding: '0.3rem 0.5rem', textAlign: 'right', fontFamily: 'monospace', fontSize: '0.85rem', fontWeight: 700 }}
                           />
                           <button
                             onClick={() => setPagos(prev => prev.filter(x => x._key !== p._key))}
-                            style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0.2rem' }}
+                            style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0.1rem', flexShrink: 0 }}
                           >
-                            <X size={14} />
+                            <X size={13} />
                           </button>
+                          {comm > 0 && (
+                            <span style={{ fontSize: '0.68rem', color: '#f59e0b', whiteSpace: 'nowrap' }}>
+                              −{fmtARS(comm)} comisión
+                            </span>
+                          )}
                         </div>
                       );
                     })}
 
-                    {/* Totales de cobro */}
-                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                      {totales.totalComision > 0 && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                          <span style={{ color: '#f59e0b' }}>Comisión total</span>
-                          <span style={{ fontFamily: 'monospace', color: '#f59e0b' }}>−{fmtARS(totales.totalComision)}</span>
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                        {totales.totalComision > 0 && (
+                          <span style={{ fontSize: '0.75rem', color: '#f59e0b' }}>
+                            Comisión: −{fmtARS(totales.totalComision)}
+                          </span>
+                        )}
+                        {totales.saldo > 1 && (
+                          <span style={{ fontSize: '0.75rem', color: '#f87171' }}>
+                            Saldo pendiente: {fmtARS(totales.saldo)}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Neto a recibir</div>
+                        <div style={{ fontFamily: 'monospace', fontSize: '1.1rem', fontWeight: 800, color: '#34d399' }}>
+                          {fmtARS(totales.totalNeto)}
                         </div>
-                      )}
-                      {totales.saldo > 1 && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-                          <span style={{ color: '#f87171' }}>Saldo pendiente</span>
-                          <span style={{ fontFamily: 'monospace', color: '#f87171' }}>{fmtARS(totales.saldo)}</span>
-                        </div>
-                      )}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem' }}>
-                        <span style={{ color: '#94a3b8', fontWeight: 600 }}>Neto a recibir</span>
-                        <span style={{ fontFamily: 'monospace', color: '#34d399', fontWeight: 700 }}>{fmtARS(totales.totalNeto)}</span>
                       </div>
                     </div>
                   </div>
