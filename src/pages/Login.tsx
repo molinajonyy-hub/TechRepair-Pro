@@ -370,10 +370,22 @@ export function Login() {
         navigate('/no-business', { replace: true })
       }
     } catch (err: any) {
-      const fallback = mode === 'login'
-        ? 'Credenciales inválidas. Verificá tus datos.'
-        : 'Error al crear la cuenta. Intentá nuevamente.'
-      setError(err instanceof Error ? err.message : fallback)
+      const raw: string = (err?.message || '').toLowerCase()
+      let msg: string
+      if (mode === 'login') {
+        msg = raw.includes('invalid login') || raw.includes('invalid credentials') || raw.includes('email not confirmed')
+          ? 'Email o contraseña incorrectos. Verificá tus datos.'
+          : err?.message || 'Error al iniciar sesión. Intentá nuevamente.'
+      } else {
+        if (raw.includes('already registered') || raw.includes('already been registered')) {
+          msg = 'Este email ya tiene una cuenta. Iniciá sesión o recuperá tu contraseña.'
+        } else if (raw.includes('email') && (raw.includes('send') || raw.includes('500') || raw.includes('smtp') || raw.includes('resend'))) {
+          msg = 'No pudimos enviar el email de confirmación. Si el problema persiste, contactá al administrador.'
+        } else {
+          msg = err?.message || 'Error al crear la cuenta. Intentá nuevamente.'
+        }
+      }
+      setError(msg)
       setIsLoading(false)
     }
   }
