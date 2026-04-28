@@ -42,7 +42,11 @@ export type Customer = {
   phone: string
   email?: string
   address?: string
+  document?: string
   notes?: string
+  city?: string
+  active?: boolean
+  customer_type?: string
   business_id?: string
   created_by?: string
   created_at: string

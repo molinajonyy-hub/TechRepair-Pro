@@ -13,7 +13,9 @@ export function NewCustomer() {
     name: '',
     phone: '',
     email: '',
-    address: ''
+    address: '',
+    document: '',
+    documentType: 'dni' as 'dni' | 'cuit',
   })
 
   const returnTo = location.state?.returnTo || '/customers'
@@ -32,7 +34,10 @@ export function NewCustomer() {
         name: formData.name,
         phone: formData.phone,
         email: formData.email || undefined,
-        address: formData.address || undefined
+        address: formData.address || undefined,
+        document: formData.document
+          ? `${formData.documentType.toUpperCase()}: ${formData.document}`
+          : undefined,
       })
 
       if (returnTo === '/orders/new') {
@@ -124,6 +129,45 @@ export function NewCustomer() {
                 className="form-control"
                 placeholder="Ej: juan@email.com"
               />
+            </div>
+
+            {/* DNI / CUIT */}
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label className="form-label">DNI / CUIT <span style={{ color: 'var(--text-subtle)', fontWeight: 400, textTransform: 'none' }}>(opcional)</span></label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {/* Selector de tipo */}
+                <div style={{ display: 'flex', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: '0.5rem', overflow: 'hidden', flexShrink: 0 }}>
+                  {(['dni', 'cuit'] as const).map(t => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => handleChange('documentType', t)}
+                      style={{
+                        padding: '0.5rem 0.875rem',
+                        border: 'none',
+                        background: formData.documentType === t ? 'rgba(99,102,241,0.25)' : 'transparent',
+                        color: formData.documentType === t ? '#a5b4fc' : 'var(--text-subtle)',
+                        fontWeight: 700,
+                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                        letterSpacing: '0.04em',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      {t.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+                {/* Input del número */}
+                <input
+                  type="text"
+                  value={formData.document}
+                  onChange={e => handleChange('document', e.target.value)}
+                  className="form-control"
+                  placeholder={formData.documentType === 'dni' ? 'Ej: 30.123.456' : 'Ej: 20-30123456-7'}
+                  style={{ flex: 1 }}
+                />
+              </div>
             </div>
 
             <div style={{ marginBottom: '1.5rem' }}>
