@@ -325,6 +325,30 @@ button:disabled, input:disabled, select:disabled, textarea:disabled {
   opacity: 0.5;
 }
 
+/* Asegurar color de texto en todos los inputs (cubre inline styles y clases) */
+input, select, textarea {
+  color: var(--text-primary);
+  caret-color: var(--text-primary);
+}
+
+/* Override autofill del browser — Chrome cambia el fondo a blanco y el texto se vuelve ilegible */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+select:-webkit-autofill,
+select:-webkit-autofill:hover,
+select:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text-primary) !important;
+  -webkit-box-shadow: 0 0 0px 1000px var(--input-bg) inset !important;
+  box-shadow: 0 0 0px 1000px var(--input-bg) inset !important;
+  transition: background-color 5000s ease-in-out 0s;
+  caret-color: var(--text-primary);
+}
+
 :focus-visible {
   outline: 2px solid var(--accent-primary);
   outline-offset: 3px;
