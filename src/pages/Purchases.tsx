@@ -1,339 +1,205 @@
-import { useState, useEffect } from 'react';
-import { Plus, RefreshCw, Package, DollarSign, Calendar, Building2, CheckCircle, XCircle, Eye } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Plus, RefreshCw, Package, DollarSign, Calendar, Building2, CheckCircle, XCircle, Eye, Search } from 'lucide-react';
 import { purchasesService, Purchase } from '../services/purchasesService';
 import { useAuth } from '../contexts/AuthContext';
+import { smartSearch } from '../utils/searchUtils';
+
+const STATUS_CLASS: Record<string, string> = {
+  pending:   'badge badge-warning',
+  confirmed: 'badge badge-success',
+  cancelled: 'badge badge-error',
+};
+const STATUS_LABEL: Record<string, string> = {
+  pending: 'Pendiente', confirmed: 'Confirmada', cancelled: 'Cancelada',
+};
 
 export function Purchases() {
   const { businessId, user } = useAuth();
   const [purchases, setPurchases] = useState<Purchase[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]     = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    if (businessId) {
-      loadData();
-      return;
-    }
-
-    setPurchases([]);
-    setLoading(false);
+    if (businessId) loadData();
+    else { setPurchases([]); setLoading(false); }
   }, [businessId]);
 
   const loadData = async () => {
-    if (!businessId) {
-      setPurchases([]);
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const purchasesData = await purchasesService.getAllPurchases(businessId);
-      setPurchases(purchasesData);
-    } catch (error) {
-      console.error('Error loading data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleConfirmPurchase = async (purchaseId: string) => {
     if (!businessId) return;
-
     try {
-      await purchasesService.confirmPurchase(purchaseId, businessId, user?.id || '');
-      await loadData();
-    } catch (error) {
-      console.error('Error confirming purchase:', error);
-      alert('Error al confirmar compra');
-    }
+      setPurchases(await purchasesService.getAllPurchases(businessId));
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   };
 
-  const handleCancelPurchase = async (purchaseId: string) => {
-    if (!confirm('¿Estás seguro de cancelar esta compra?')) return;
-    
-    try {
-      await purchasesService.cancelPurchase(purchaseId, businessId || '', user?.id || '');
-      await loadData();
-    } catch (error) {
-      console.error('Error cancelling purchase:', error);
-      alert('Error al cancelar compra');
-    }
+  const filtered = useMemo(() =>
+    smartSearch(purchases, searchTerm, [
+      { getValue: p => p.invoice_number,               weight: 2 },
+      { getValue: p => (p as any).supplier?.name,      weight: 2 },
+      { getValue: p => (p as any).notes },
+      { getValue: p => String(p.total) },
+    ]),
+    [purchases, searchTerm]
+  );
+
+  const handleConfirm = async (id: string) => {
+    if (!businessId) return;
+    try { await purchasesService.confirmPurchase(id, businessId, user?.id || ''); await loadData(); }
+    catch { alert('Error al confirmar compra'); }
   };
 
-  const getStatusBadge = (status: string) => {
-    const styles = {
-      pending: { backgroundColor: '#fef3c7', color: '#92400e' },
-      confirmed: { backgroundColor: '#d1fae5', color: '#065f46' },
-      cancelled: { backgroundColor: '#fee2e2', color: '#991b1b' }
-    };
-    
-    const style = styles[status as keyof typeof styles] || styles.pending;
-    
-    return (
-      <span style={{
-        padding: '0.25rem 0.625rem',
-        borderRadius: '9999px',
-        fontSize: '0.75rem',
-        fontWeight: 500,
-        ...style
-      }}>
-        {status.charAt(0).toUpperCase() + status.slice(1)}
-      </span>
-    );
+  const handleCancel = async (id: string) => {
+    if (!confirm('¿Cancelás esta compra?')) return;
+    try { await purchasesService.cancelPurchase(id, businessId || '', user?.id || ''); await loadData(); }
+    catch { alert('Error al cancelar compra'); }
   };
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
+      <div className="page-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
         <RefreshCw className="animate-spin" size={32} style={{ color: '#6366f1' }} />
       </div>
     );
   }
 
+  const pending   = purchases.filter(p => p.status === 'pending').length;
+  const confirmed = purchases.filter(p => p.status === 'confirmed').length;
+  const totalMonto = purchases.filter(p => p.status !== 'cancelled').reduce((s, p) => s + (p.total || 0), 0);
+
   return (
-    <div>
-      {/* Header */}
-      <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+    <div className="page-shell">
+      {/* ── Encabezado ── */}
+      <div className="page-top">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-          <div style={{
-            width: '44px', height: '44px', borderRadius: '0.75rem',
-            background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2))',
-            border: '1px solid rgba(99,102,241,0.3)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
-          }}>
-            <Building2 size={22} style={{ color: '#818cf8' }} />
+          <div className="stat-icon" style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)' }}>
+            <Building2 size={20} style={{ color: '#818cf8' }} />
           </div>
           <div>
-            <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#f8fafc' }}>Compras a Proveedores</h1>
-            <p style={{ margin: 0, fontSize: '0.8rem', color: '#475569' }}>Gestiona las compras de mercadería a proveedores</p>
+            <h1 className="page-title">Compras a Proveedores</h1>
+            <p className="page-subtitle">Gestioná tus órdenes de compra</p>
           </div>
         </div>
-        <button style={{
-          display: 'flex', alignItems: 'center', gap: '0.5rem',
-          padding: '0.625rem 1.25rem',
-          background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-          border: 'none', color: '#ffffff', borderRadius: '0.625rem',
-          cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem',
-          boxShadow: '0 4px 12px rgba(99,102,241,0.35)'
-        }}>
-          <Plus size={18} />
-          Nueva Compra
+        <button className="btn btn-primary">
+          <Plus size={16} /> Nueva Compra
         </button>
       </div>
 
-      {/* Summary Cards */}
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-        gap: '1rem', 
-        marginBottom: '2rem' 
-      }}>
-        <div style={{
-          padding: '1.5rem',
-          backgroundColor: '#0f1829',
-          border: '1px solid rgba(255,255,255,0.06)',
-          borderRadius: '0.75rem'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-            <div style={{
-              padding: '0.5rem',
-              background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-              borderRadius: '0.5rem'
-            }}>
-              <Package size={20} color="#ffffff" />
+      {/* ── Stat Cards ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+        <div className="stat-card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+            <div className="stat-icon" style={{ background: 'rgba(99,102,241,0.15)' }}>
+              <Package size={16} style={{ color: '#818cf8' }} />
             </div>
-            <span style={{ fontSize: '0.875rem', color: '#94a3b8', fontWeight: 500 }}>
-              Total Compras
-            </span>
+            <span className="stat-card-label">Total</span>
           </div>
-          <div style={{ fontSize: '2rem', fontWeight: 700, color: '#ffffff' }}>
-            {purchases.length}
-          </div>
+          <div className="stat-card-value">{purchases.length}</div>
         </div>
 
-        <div style={{
-          padding: '1.5rem',
-          backgroundColor: '#0f1829',
-          border: '1px solid rgba(255,255,255,0.06)',
-          borderRadius: '0.75rem'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-            <div style={{
-              padding: '0.5rem',
-              background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-              borderRadius: '0.5rem'
-            }}>
-              <DollarSign size={20} color="#ffffff" />
+        <div className="stat-card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+            <div className="stat-icon" style={{ background: 'rgba(245,158,11,0.15)' }}>
+              <Calendar size={16} style={{ color: '#f59e0b' }} />
             </div>
-            <span style={{ fontSize: '0.875rem', color: '#94a3b8', fontWeight: 500 }}>
-              Pendientes
-            </span>
+            <span className="stat-card-label">Pendientes</span>
           </div>
-          <div style={{ fontSize: '2rem', fontWeight: 700, color: '#ffffff' }}>
-            {purchases.filter(p => p.status === 'pending').length}
-          </div>
+          <div className="stat-card-value" style={{ color: '#f59e0b' }}>{pending}</div>
         </div>
 
-        <div style={{
-          padding: '1.5rem',
-          backgroundColor: '#0f1829',
-          border: '1px solid rgba(255,255,255,0.06)',
-          borderRadius: '0.75rem'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-            <div style={{
-              padding: '0.5rem',
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              borderRadius: '0.5rem'
-            }}>
-              <CheckCircle size={20} color="#ffffff" />
+        <div className="stat-card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+            <div className="stat-icon" style={{ background: 'rgba(16,185,129,0.15)' }}>
+              <CheckCircle size={16} style={{ color: '#34d399' }} />
             </div>
-            <span style={{ fontSize: '0.875rem', color: '#94a3b8', fontWeight: 500 }}>
-              Confirmadas
-            </span>
+            <span className="stat-card-label">Confirmadas</span>
           </div>
-          <div style={{ fontSize: '2rem', fontWeight: 700, color: '#ffffff' }}>
-            {purchases.filter(p => p.status === 'confirmed').length}
+          <div className="stat-card-value" style={{ color: '#34d399' }}>{confirmed}</div>
+        </div>
+
+        <div className="stat-card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+            <div className="stat-icon" style={{ background: 'rgba(52,211,153,0.12)' }}>
+              <DollarSign size={16} style={{ color: '#34d399' }} />
+            </div>
+            <span className="stat-card-label">Monto total</span>
+          </div>
+          <div className="stat-card-value" style={{ fontSize: '1.25rem', color: '#34d399' }}>
+            ${totalMonto.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
           </div>
         </div>
       </div>
 
-      {/* Table */}
-      <div style={{
-        backgroundColor: '#0f1829',
-        border: '1px solid rgba(255,255,255,0.06)',
-        borderRadius: '0.75rem',
-        overflow: 'hidden'
-      }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      {/* ── Buscador ── */}
+      <div className="filter-bar">
+        <div style={{ position: 'relative', flex: 1 }}>
+          <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)', pointerEvents: 'none' }} />
+          <input
+            type="text"
+            className="form-control"
+            placeholder="Buscar por proveedor, factura, notas..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            style={{ paddingLeft: '2.5rem' }}
+          />
+        </div>
+      </div>
+
+      {/* ── Tabla ── */}
+      <div className="card">
+        <table className="table">
           <thead>
-            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-              <th style={{ 
-                padding: '1rem', 
-                textAlign: 'left', 
-                fontSize: '0.875rem', 
-                fontWeight: 500, 
-                color: '#94a3b8' 
-              }}>
-                Fecha
-              </th>
-              <th style={{ 
-                padding: '1rem', 
-                textAlign: 'left', 
-                fontSize: '0.875rem', 
-                fontWeight: 500, 
-                color: '#94a3b8' 
-              }}>
-                Proveedor
-              </th>
-              <th style={{ 
-                padding: '1rem', 
-                textAlign: 'left', 
-                fontSize: '0.875rem', 
-                fontWeight: 500, 
-                color: '#94a3b8' 
-              }}>
-                Factura
-              </th>
-              <th style={{ 
-                padding: '1rem', 
-                textAlign: 'left', 
-                fontSize: '0.875rem', 
-                fontWeight: 500, 
-                color: '#94a3b8' 
-              }}>
-                Total
-              </th>
-              <th style={{ 
-                padding: '1rem', 
-                textAlign: 'left', 
-                fontSize: '0.875rem', 
-                fontWeight: 500, 
-                color: '#94a3b8' 
-              }}>
-                Estado
-              </th>
-              <th style={{ 
-                padding: '1rem', 
-                textAlign: 'right', 
-                fontSize: '0.875rem', 
-                fontWeight: 500, 
-                color: '#94a3b8' 
-              }}>
-                Acciones
-              </th>
+            <tr>
+              <th>Fecha</th>
+              <th>Proveedor</th>
+              <th>Factura</th>
+              <th>Total</th>
+              <th>Estado</th>
+              <th style={{ textAlign: 'right' }}>Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {purchases.map((purchase) => (
-              <tr key={purchase.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                <td style={{ padding: '1rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#ffffff' }}>
-                    <Calendar size={16} style={{ color: '#64748b' }} />
-                    {new Date(purchase.purchase_date).toLocaleDateString('es-ES')}
-                  </div>
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={6} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-subtle)' }}>
+                  {searchTerm ? `Sin resultados para "${searchTerm}"` : 'No hay compras registradas'}
                 </td>
-                <td style={{ padding: '1rem', color: '#94a3b8' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Building2 size={16} style={{ color: '#64748b' }} />
-                    {purchase.supplier_id ? 'Proveedor' : '-'}
-                  </div>
+              </tr>
+            )}
+            {filtered.map(p => (
+              <tr key={p.id}>
+                <td>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.875rem' }}>
+                    <Calendar size={13} style={{ color: 'var(--text-subtle)' }} />
+                    {new Date(p.purchase_date).toLocaleDateString('es-AR')}
+                  </span>
                 </td>
-                <td style={{ padding: '1rem', color: '#ffffff' }}>
-                  {purchase.invoice_number || '-'}
+                <td style={{ color: 'var(--text-secondary)' }}>
+                  {(p as any).supplier?.name || '—'}
                 </td>
-                <td style={{ padding: '1rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                    <DollarSign size={16} style={{ color: '#10b981' }} />
-                    <span style={{ fontWeight: 600, color: '#10b981' }}>
-                      {purchase.total.toFixed(2)}
-                    </span>
-                  </div>
+                <td style={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                  {p.invoice_number || '—'}
                 </td>
-                <td style={{ padding: '1rem' }}>
-                  {getStatusBadge(purchase.status)}
+                <td>
+                  <span style={{ fontWeight: 700, color: '#34d399', fontFamily: 'monospace' }}>
+                    ${p.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  </span>
                 </td>
-                <td style={{ padding: '1rem', textAlign: 'right' }}>
-                  <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                    <button 
-                      style={{
-                        padding: '0.375rem 0.5rem',
-                        backgroundColor: 'rgba(99, 102, 241, 0.1)',
-                        border: '1px solid rgba(99, 102, 241, 0.3)',
-                        color: '#818cf8',
-                        borderRadius: '0.375rem',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <Eye size={16} />
-                    </button>
-                    {purchase.status === 'pending' && (
-                      <button 
-                        onClick={() => handleConfirmPurchase(purchase.id)}
-                        style={{
-                          padding: '0.375rem 0.5rem',
-                          backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                          border: '1px solid rgba(16, 185, 129, 0.3)',
-                          color: '#10b981',
-                          borderRadius: '0.375rem',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        <CheckCircle size={16} />
+                <td>
+                  <span className={STATUS_CLASS[p.status] || 'badge'}>
+                    {STATUS_LABEL[p.status] || p.status}
+                  </span>
+                </td>
+                <td style={{ textAlign: 'right' }}>
+                  <div style={{ display: 'flex', gap: '0.375rem', justifyContent: 'flex-end' }}>
+                    <button className="btn btn-ghost btn-sm"><Eye size={14} /></button>
+                    {p.status === 'pending' && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleConfirm(p.id)}>
+                        <CheckCircle size={14} style={{ color: '#34d399' }} />
                       </button>
                     )}
-                    {purchase.status !== 'cancelled' && (
-                      <button 
-                        onClick={() => handleCancelPurchase(purchase.id)}
-                        style={{
-                          padding: '0.375rem 0.5rem',
-                          backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                          border: '1px solid rgba(239, 68, 68, 0.3)',
-                          color: '#f87171',
-                          borderRadius: '0.375rem',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        <XCircle size={16} />
+                    {p.status !== 'cancelled' && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => handleCancel(p.id)}>
+                        <XCircle size={14} style={{ color: 'var(--color-error)' }} />
                       </button>
                     )}
                   </div>

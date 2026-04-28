@@ -515,6 +515,32 @@ nav, header, footer, aside, section, article, main, table, td, th {
   color: var(--text-subtle);
 }
 
+/* Colored icon badge inside stat cards */
+.stat-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+}
+
+/* Filter / search bar above tables */
+.filter-bar {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  background: var(--bg-card-solid);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  margin-bottom: 1.25rem;
+}
+
+.filter-bar .form-control { flex: 1; min-width: 200px; }
+
 /* ══════════════════════════════════════════════════════════════════════════
    BOTONES
    ══════════════════════════════════════════════════════════════════════════ */

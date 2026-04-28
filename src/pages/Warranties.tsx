@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { smartSearch } from '../utils/searchUtils'
 import { useReactToPrint } from 'react-to-print'
 import {
   Plus,
@@ -115,23 +116,21 @@ export function Warranties() {
   }, [items])
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return items.filter((w) => {
-      if (q) {
-        const hay = [
-          w.number,
-          w.customer_name,
-          w.phone_model,
-          w.imei,
-          w.serial_number,
-          w.customer_dni,
-          w.customer_phone,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
-        if (!hay.includes(q)) return false
-      }
+    // Primero aplicamos smartSearch con fuzzy matching sobre texto
+    const textFiltered = search.trim()
+      ? smartSearch(items, search, [
+          { getValue: w => w.number,          weight: 2 },
+          { getValue: w => w.customer_name,   weight: 2 },
+          { getValue: w => w.phone_model,     weight: 1.5 },
+          { getValue: w => w.imei },
+          { getValue: w => w.serial_number },
+          { getValue: w => w.customer_dni },
+          { getValue: w => w.customer_phone },
+        ])
+      : items
+
+    // Luego aplicamos el resto de los filtros (proveedor, técnico, fechas, estado)
+    return textFiltered.filter((w) => {
       if (filterSupplier && w.supplier_id !== filterSupplier) return false
       if (filterUser && w.attended_by_name !== filterUser) return false
       if (filterDateFrom && w.issue_date < filterDateFrom) return false

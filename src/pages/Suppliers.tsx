@@ -1,122 +1,69 @@
-import { useState, useEffect } from 'react'
-import { Plus, Search, Truck, Phone, Mail, Edit, Trash2, RefreshCw } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Plus, Search, Truck, Phone, Mail, Trash2, RefreshCw } from 'lucide-react'
 import { suppliersService, Supplier } from '../services/suppliersService'
 import { useAuth } from '../contexts/AuthContext'
+import { smartSearch } from '../utils/searchUtils'
 
 export function Suppliers() {
   const { businessId, user } = useAuth()
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
-  const [filteredSuppliers, setFilteredSuppliers] = useState<Supplier[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [loading, setLoading] = useState(true)
-  const [showCreateModal, setShowCreateModal] = useState(false)
-  const [formData, setFormData] = useState({
-    name: '',
-    address: '',
-    phone: '',
-    email: ''
-  })
+  const [showModal, setShowModal] = useState(false)
+  const [formData, setFormData] = useState({ name: '', address: '', phone: '', email: '' })
   const [creating, setCreating] = useState(false)
 
   useEffect(() => {
-    if (businessId) {
-      loadSuppliers()
-      return
-    }
-
-    setSuppliers([])
-    setFilteredSuppliers([])
-    setLoading(false)
+    if (businessId) loadSuppliers()
+    else { setSuppliers([]); setLoading(false) }
   }, [businessId])
 
-  useEffect(() => {
-    if (searchTerm) {
-      const filtered = suppliers.filter(s => 
-        s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        s.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        s.phone?.includes(searchTerm)
-      )
-      setFilteredSuppliers(filtered)
-    } else {
-      setFilteredSuppliers(suppliers)
-    }
-  }, [searchTerm, suppliers])
+  const filtered = useMemo(() =>
+    smartSearch(suppliers, searchTerm, [
+      { getValue: s => s.name,    weight: 2 },
+      { getValue: s => s.email },
+      { getValue: s => s.phone },
+      { getValue: s => s.address },
+    ]),
+    [suppliers, searchTerm]
+  )
 
   const loadSuppliers = async () => {
-    if (!businessId) {
-      setSuppliers([])
-      setFilteredSuppliers([])
-      setLoading(false)
-      return
-    }
-
+    if (!businessId) return
     try {
       const data = await suppliersService.getAllSuppliers(businessId)
       setSuppliers(data)
-      setFilteredSuppliers(data)
-    } catch (error) {
-      console.error('Error loading suppliers:', error)
+    } catch (e) {
+      console.error(e)
     } finally {
       setLoading(false)
     }
   }
 
-  const handleDelete = async (supplierId: string) => {
-    if (!confirm('¿Estás seguro de eliminar este proveedor?')) return
-
+  const handleDelete = async (id: string) => {
+    if (!confirm('¿Eliminás este proveedor?')) return
     try {
-      await suppliersService.deactivateSupplier(supplierId, businessId || '')
+      await suppliersService.deactivateSupplier(id, businessId || '')
       await loadSuppliers()
-    } catch (error) {
-      console.error('Error deleting supplier:', error)
-      alert('Error al eliminar proveedor')
-    }
+    } catch { alert('Error al eliminar proveedor') }
   }
 
   const handleCreate = async () => {
-    if (!formData.name.trim()) {
-      alert('El nombre del proveedor es requerido')
-      return
-    }
-
-    if (!businessId || !user?.id) {
-      alert('Error: No hay businessId o userId')
-      return
-    }
-
+    if (!formData.name.trim()) { alert('El nombre es requerido'); return }
+    if (!businessId || !user?.id) return
     setCreating(true)
     try {
-      console.log('Creating supplier with:', {
-        name: formData.name.trim(),
-        address: formData.address.trim(),
-        phone: formData.phone.trim(),
-        email: formData.email.trim(),
-        business_id: businessId,
-        active: true
-      })
-      console.log('businessId:', businessId)
-      console.log('userId:', user.id)
-
       await suppliersService.createSupplier({
-        name: formData.name.trim(),
-        address: formData.address.trim(),
-        phone: formData.phone.trim(),
-        email: formData.email.trim(),
-        business_id: businessId,
-        active: true
+        name: formData.name.trim(), address: formData.address.trim(),
+        phone: formData.phone.trim(), email: formData.email.trim(),
+        business_id: businessId, active: true,
       }, businessId, user.id)
-      setShowCreateModal(false)
-      setFormData({
-        name: '',
-        address: '',
-        phone: '',
-        email: ''
-      })
+      setShowModal(false)
+      setFormData({ name: '', address: '', phone: '', email: '' })
       await loadSuppliers()
-    } catch (error) {
-      console.error('Error creating supplier:', error)
-      const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
-      alert(`Error al crear proveedor: ${errorMessage}`)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Error desconocido'
+      alert(`Error al crear proveedor: ${msg}`)
     } finally {
       setCreating(false)
     }
@@ -124,330 +71,122 @@ export function Suppliers() {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
+      <div className="page-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
         <RefreshCw className="animate-spin" size={32} style={{ color: '#6366f1' }} />
       </div>
     )
   }
 
   return (
-    <div>
-      <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+    <div className="page-shell">
+      {/* ── Encabezado ── */}
+      <div className="page-top">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-          <div style={{
-            width: '44px', height: '44px', borderRadius: '0.75rem',
-            background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2))',
-            border: '1px solid rgba(99,102,241,0.3)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
-          }}>
-            <Truck size={22} style={{ color: '#818cf8' }} />
+          <div className="stat-icon" style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)' }}>
+            <Truck size={20} style={{ color: '#818cf8' }} />
           </div>
           <div>
-            <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#f8fafc' }}>Proveedores</h1>
-            <p style={{ margin: 0, fontSize: '0.8rem', color: '#475569' }}>Gestiona proveedores y sus productos</p>
+            <h1 className="page-title">Proveedores</h1>
+            <p className="page-subtitle">Gestioná proveedores y sus contactos</p>
           </div>
         </div>
-        <button onClick={() => setShowCreateModal(true)} style={{
-          display: 'flex', alignItems: 'center', gap: '0.5rem',
-          padding: '0.625rem 1.25rem',
-          background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-          border: 'none', color: '#ffffff', borderRadius: '0.625rem',
-          cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem',
-          boxShadow: '0 4px 12px rgba(99,102,241,0.35)'
-        }}>
-          <Plus size={18} />
-          Nuevo Proveedor
+        <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+          <Plus size={16} /> Nuevo Proveedor
         </button>
       </div>
 
-      <div style={{
-        marginBottom: '1.5rem',
-        padding: '1rem',
-        backgroundColor: '#0f1829',
-        border: '1px solid rgba(255,255,255,0.06)',
-        borderRadius: '0.75rem',
-        display: 'flex',
-        gap: '1rem',
-        flexWrap: 'wrap'
-      }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
-          <Search size={18} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
+      {/* ── Buscador ── */}
+      <div className="filter-bar">
+        <div style={{ position: 'relative', flex: 1 }}>
+          <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)', pointerEvents: 'none' }} />
           <input
             type="text"
-            placeholder="Buscar proveedor..."
+            className="form-control"
+            placeholder="Buscar por nombre, email, teléfono o dirección..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '0.625rem 0.75rem 0.625rem 2.5rem',
-              backgroundColor: 'rgba(15,23,42,0.8)',
-              border: '1px solid rgba(51,65,85,0.6)',
-              borderRadius: '0.5rem',
-              color: '#f1f5f9',
-              outline: 'none'
-            }}
+            onChange={e => setSearchTerm(e.target.value)}
+            style={{ paddingLeft: '2.5rem' }}
           />
         </div>
       </div>
 
-      <div style={{
-        backgroundColor: '#0f1829',
-        border: '1px solid rgba(255,255,255,0.06)',
-        borderRadius: '0.75rem',
-        overflow: 'hidden'
-      }}>
-        <div style={{ padding: 0 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                <th style={{ 
-                  padding: '1rem', 
-                  textAlign: 'left', 
-                  fontSize: '0.875rem', 
-                  fontWeight: 500, 
-                  color: '#94a3b8' 
-                }}>
-                  Proveedor
-                </th>
-                <th style={{ 
-                  padding: '1rem', 
-                  textAlign: 'left', 
-                  fontSize: '0.875rem', 
-                  fontWeight: 500, 
-                  color: '#94a3b8' 
-                }}>
-                  Dirección
-                </th>
-                <th style={{ 
-                  padding: '1rem', 
-                  textAlign: 'left', 
-                  fontSize: '0.875rem', 
-                  fontWeight: 500, 
-                  color: '#94a3b8' 
-                }}>
-                  Contacto
-                </th>
-                <th style={{ 
-                  padding: '1rem', 
-                  textAlign: 'right', 
-                  fontSize: '0.875rem', 
-                  fontWeight: 500, 
-                  color: '#94a3b8' 
-                }}>
-                  Acciones
-                </th>
+      {/* ── Tabla ── */}
+      <div className="card">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Proveedor</th>
+              <th>Dirección</th>
+              <th>Contacto</th>
+              <th style={{ textAlign: 'right' }}>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={4} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-subtle)' }}>
+                  {searchTerm ? `Sin resultados para "${searchTerm}"` : 'No hay proveedores registrados'}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {filteredSuppliers.map((supplier) => (
-                <tr key={supplier.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                  <td style={{ padding: '1rem' }}>
-                    <div style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <Truck size={16} style={{ color: '#4f46e5' }} />
-                      <span style={{ color: '#ffffff' }}>{supplier.name}</span>
-                      {!supplier.active && (
-                        <span style={{ 
-                          padding: '0.125rem 0.5rem', 
-                          backgroundColor: 'rgba(239, 68, 68, 0.2)', 
-                          color: '#f87171', 
-                          borderRadius: '9999px', 
-                          fontSize: '0.75rem' 
-                        }}>
-                          Inactivo
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td style={{ padding: '1rem', color: '#94a3b8' }}>
-                    {supplier.address || '-'}
-                  </td>
-                  <td style={{ padding: '1rem' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      <span style={{ fontSize: '0.875rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <Phone size={14} /> {supplier.phone || '-'}
-                      </span>
-                      <span style={{ fontSize: '0.875rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <Mail size={14} /> {supplier.email || '-'}
-                      </span>
-                    </div>
-                  </td>
-                  <td style={{ padding: '1rem', textAlign: 'right' }}>
-                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                      <button style={{
-                        padding: '0.5rem',
-                        backgroundColor: 'rgba(255,255,255,0.05)',
-                        border: '1px solid rgba(255,255,255,0.08)',
-                        borderRadius: '0.375rem',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem'
-                      }}>
-                        <Edit size={16} style={{ color: '#94a3b8' }} />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(supplier.id)}
-                        style={{
-                          padding: '0.5rem',
-                          backgroundColor: 'rgba(255,255,255,0.05)',
-                          border: '1px solid rgba(255,255,255,0.08)',
-                          borderRadius: '0.375rem',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.5rem'
-                        }}
-                      >
-                        <Trash2 size={16} style={{ color: '#ef4444' }} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            )}
+            {filtered.map(s => (
+              <tr key={s.id}>
+                <td>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                    <Truck size={15} style={{ color: '#818cf8', flexShrink: 0 }} />
+                    <span style={{ fontWeight: 600 }}>{s.name}</span>
+                    {!s.active && <span className="badge badge-error">Inactivo</span>}
+                  </div>
+                </td>
+                <td style={{ color: 'var(--text-secondary)' }}>{s.address || '—'}</td>
+                <td>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                      <Phone size={12} /> {s.phone || '—'}
+                    </span>
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                      <Mail size={12} /> {s.email || '—'}
+                    </span>
+                  </div>
+                </td>
+                <td style={{ textAlign: 'right' }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => handleDelete(s.id)}>
+                    <Trash2 size={14} style={{ color: 'var(--color-error)' }} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      {/* Create Supplier Modal */}
-      {showCreateModal && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          backdropFilter: 'blur(8px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 50,
-          padding: '1rem'
-        }}>
-          <div style={{
-            backgroundColor: '#0b1120',
-            borderRadius: '1rem',
-            border: '1px solid rgba(255,255,255,0.08)',
-            width: '100%',
-            maxWidth: '500px',
-            padding: '1.5rem'
-          }}>
-            <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#ffffff', marginBottom: '1.5rem' }}>
-              Nuevo Proveedor
-            </h2>
-
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem' }}>
-                Nombre *
-              </label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Nombre del proveedor"
-                style={{
-                  width: '100%',
-                  padding: '0.625rem 0.875rem',
-                  backgroundColor: 'rgba(15,23,42,0.8)',
-                  border: '1px solid rgba(51,65,85,0.6)',
-                  borderRadius: '0.5rem',
-                  color: '#f1f5f9',
-                  outline: 'none'
-                }}
-              />
+      {/* ── Modal Nuevo Proveedor ── */}
+      {showModal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setShowModal(false) }}>
+          <div className="modal-content" style={{ maxWidth: '480px' }}>
+            <div className="modal-header">
+              <h2 className="modal-title">Nuevo Proveedor</h2>
             </div>
-
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem' }}>
-                Dirección
-              </label>
-              <input
-                type="text"
-                value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                placeholder="Dirección"
-                style={{
-                  width: '100%',
-                  padding: '0.625rem 0.875rem',
-                  backgroundColor: 'rgba(15,23,42,0.8)',
-                  border: '1px solid rgba(51,65,85,0.6)',
-                  borderRadius: '0.5rem',
-                  color: '#f1f5f9',
-                  outline: 'none'
-                }}
-              />
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {(['name','address','phone','email'] as const).map(field => (
+                <div key={field}>
+                  <label className="form-label">
+                    {field === 'name' ? 'Nombre *' : field === 'address' ? 'Dirección' : field === 'phone' ? 'Teléfono' : 'Email'}
+                  </label>
+                  <input
+                    type={field === 'email' ? 'email' : 'text'}
+                    className="form-control"
+                    value={formData[field]}
+                    onChange={e => setFormData({ ...formData, [field]: e.target.value })}
+                    placeholder={field === 'name' ? 'Nombre del proveedor' : undefined}
+                    onKeyDown={field === 'email' ? e => { if (e.key === 'Enter') handleCreate() } : undefined}
+                  />
+                </div>
+              ))}
             </div>
-
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem' }}>
-                Teléfono
-              </label>
-              <input
-                type="text"
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                placeholder="Teléfono"
-                style={{
-                  width: '100%',
-                  padding: '0.625rem 0.875rem',
-                  backgroundColor: 'rgba(15,23,42,0.8)',
-                  border: '1px solid rgba(51,65,85,0.6)',
-                  borderRadius: '0.5rem',
-                  color: '#f1f5f9',
-                  outline: 'none'
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem' }}>
-                Email
-              </label>
-              <input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                placeholder="Email"
-                style={{
-                  width: '100%',
-                  padding: '0.625rem 0.875rem',
-                  backgroundColor: 'rgba(15,23,42,0.8)',
-                  border: '1px solid rgba(51,65,85,0.6)',
-                  borderRadius: '0.5rem',
-                  color: '#f1f5f9',
-                  outline: 'none'
-                }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setShowCreateModal(false)}
-                style={{
-                  padding: '0.625rem 1.25rem',
-                  backgroundColor: 'rgba(255,255,255,0.05)',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  color: '#94a3b8',
-                  borderRadius: '0.625rem',
-                  cursor: 'pointer',
-                  fontWeight: 500
-                }}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleCreate}
-                disabled={creating}
-                style={{
-                  padding: '0.625rem 1.25rem',
-                  background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-                  border: 'none',
-                  color: '#ffffff',
-                  borderRadius: '0.625rem',
-                  cursor: creating ? 'not-allowed' : 'pointer',
-                  fontWeight: 600,
-                  boxShadow: '0 4px 12px rgba(99,102,241,0.35)',
-                  opacity: creating ? 0.5 : 1
-                }}
-              >
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
+              <button className="btn btn-primary" onClick={handleCreate} disabled={creating}>
                 {creating ? 'Creando...' : 'Crear Proveedor'}
               </button>
             </div>
