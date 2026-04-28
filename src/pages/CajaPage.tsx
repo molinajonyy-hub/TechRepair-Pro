@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Wallet, TrendingUp, TrendingDown, Plus, Loader2,
-  AlertCircle, CheckCircle, DollarSign, Lock, Unlock, RefreshCw
+  AlertCircle, CheckCircle, DollarSign, Lock, Unlock, RefreshCw, Trash2
 } from 'lucide-react'
 import { CloseButton } from '../components/ui/CloseButton'
 import { supabase } from '../lib/supabase'
@@ -226,6 +226,16 @@ export function CajaPage() {
 
   const equivalenteARS = (caja?.ars_balance || 0) + (caja?.usd_balance || 0) * exchangeRate
 
+  const handleDeleteMovement = async (movId: string) => {
+    if (!confirm('¿Eliminás este movimiento? El balance se recalculará automáticamente.')) return
+    try {
+      await supabase.from('financial_movements').delete().eq('id', movId)
+      await loadCaja()
+    } catch (err: any) {
+      alert(err.message || 'Error al eliminar movimiento')
+    }
+  }
+
   return (
     <div style={{ padding: '1.5rem', maxWidth: '1100px', margin: '0 auto' }}>
       {/* Header */}
@@ -405,48 +415,57 @@ export function CajaPage() {
             </div>
 
             {/* USD */}
-            <div style={{
-              padding: '1.25rem',
-              backgroundColor: '#111827',
-              border: '1px solid rgba(96,165,250,0.2)',
-              borderRadius: '0.75rem',
-              borderLeft: '4px solid #60a5fa'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                <div style={{ width: '2rem', height: '2rem', borderRadius: '0.5rem', backgroundColor: 'rgba(96,165,250,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <DollarSign size={14} style={{ color: '#60a5fa' }} />
+            {(() => {
+              const usdNeg = caja.usd_balance < 0
+              return (
+                <div style={{
+                  padding: '1.25rem', backgroundColor: '#111827',
+                  border: `1px solid ${usdNeg ? 'rgba(248,113,113,0.35)' : 'rgba(96,165,250,0.2)'}`,
+                  borderRadius: '0.75rem',
+                  borderLeft: `4px solid ${usdNeg ? '#f87171' : '#60a5fa'}`
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                    <div style={{ width: '2rem', height: '2rem', borderRadius: '0.5rem', backgroundColor: usdNeg ? 'rgba(248,113,113,0.15)' : 'rgba(96,165,250,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <DollarSign size={14} style={{ color: usdNeg ? '#f87171' : '#60a5fa' }} />
+                    </div>
+                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Saldo en Dólares</span>
+                    {usdNeg && <AlertCircle size={13} style={{ color: '#f87171', marginLeft: 'auto' }} />}
+                  </div>
+                  <p style={{ fontSize: '1.75rem', fontWeight: 700, color: usdNeg ? '#f87171' : '#60a5fa', fontFamily: 'monospace', margin: 0, letterSpacing: '-0.02em' }}>
+                    {fmtUSD(caja.usd_balance)}
+                  </p>
+                  <p style={{ fontSize: '0.75rem', color: usdNeg ? 'rgba(248,113,113,0.6)' : '#475569', margin: '0.25rem 0 0 0' }}>
+                    {usdNeg ? '⚠ Saldo negativo — revisá los movimientos' : `Apertura: ${fmtUSD(caja.usd_opening)}`}
+                  </p>
                 </div>
-                <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Saldo en Dólares</span>
-              </div>
-              <p style={{ fontSize: '1.75rem', fontWeight: 700, color: '#60a5fa', fontFamily: 'monospace', margin: 0, letterSpacing: '-0.02em' }}>
-                {fmtUSD(caja.usd_balance)}
-              </p>
-              <p style={{ fontSize: '0.75rem', color: '#475569', margin: '0.25rem 0 0 0' }}>
-                Apertura: {fmtUSD(caja.usd_opening)}
-              </p>
-            </div>
+              )
+            })()}
 
             {/* Equivalente */}
-            <div style={{
-              padding: '1.25rem',
-              backgroundColor: '#111827',
-              border: '1px solid rgba(99,102,241,0.2)',
-              borderRadius: '0.75rem',
-              borderLeft: '4px solid #6366f1'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                <div style={{ width: '2rem', height: '2rem', borderRadius: '0.5rem', backgroundColor: 'rgba(99,102,241,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Wallet size={14} style={{ color: '#818cf8' }} />
+            {(() => {
+              const eqNeg = equivalenteARS < 0
+              return (
+                <div style={{
+                  padding: '1.25rem', backgroundColor: '#111827',
+                  border: `1px solid ${eqNeg ? 'rgba(248,113,113,0.35)' : 'rgba(99,102,241,0.2)'}`,
+                  borderRadius: '0.75rem',
+                  borderLeft: `4px solid ${eqNeg ? '#f87171' : '#6366f1'}`
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                    <div style={{ width: '2rem', height: '2rem', borderRadius: '0.5rem', backgroundColor: eqNeg ? 'rgba(248,113,113,0.1)' : 'rgba(99,102,241,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Wallet size={14} style={{ color: eqNeg ? '#f87171' : '#818cf8' }} />
+                    </div>
+                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Total Equivalente</span>
+                  </div>
+                  <p style={{ fontSize: '1.75rem', fontWeight: 700, color: eqNeg ? '#f87171' : '#818cf8', fontFamily: 'monospace', margin: 0, letterSpacing: '-0.02em' }}>
+                    {fmtARS(equivalenteARS)}
+                  </p>
+                  <p style={{ fontSize: '0.75rem', color: '#475569', margin: '0.25rem 0 0 0' }}>
+                    TC: ${exchangeRate.toLocaleString('es-AR')}
+                  </p>
                 </div>
-                <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Total Equivalente</span>
-              </div>
-              <p style={{ fontSize: '1.75rem', fontWeight: 700, color: '#818cf8', fontFamily: 'monospace', margin: 0, letterSpacing: '-0.02em' }}>
-                {fmtARS(equivalenteARS)}
-              </p>
-              <p style={{ fontSize: '0.75rem', color: '#475569', margin: '0.25rem 0 0 0' }}>
-                TC: ${exchangeRate.toLocaleString('es-AR')}
-              </p>
-            </div>
+              )
+            })()}
           </div>
 
           {/* Movements table */}
@@ -479,7 +498,7 @@ export function CajaPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
                   <thead>
                     <tr style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}>
-                      {['Tipo', 'Descripción', 'Moneda', 'Monto', 'Fuente', 'Hora'].map(h => (
+                      {['Tipo', 'Descripción', 'Moneda', 'Monto', 'Fuente', 'Hora', ''].map(h => (
                         <th key={h} style={{
                           padding: '0.75rem 1rem',
                           textAlign: 'left',
@@ -530,10 +549,21 @@ export function CajaPage() {
                           {mov.currency === 'USD' ? fmtUSD(mov.amount) : fmtARS(mov.amount)}
                         </td>
                         <td style={{ padding: '0.75rem 1rem', color: '#475569', fontSize: '0.75rem' }}>
-                          {({'manual':'Manual','payment':'Pago','expense':'Gasto'} as Record<string,string>)[mov.source] || mov.source}
+                          {({'manual':'Manual','payment':'Pago','expense':'Gasto','cobro_rapido':'Cobro','comprobante':'Comprobante','bfe':'Finanzas'} as Record<string,string>)[mov.source] || mov.source || '—'}
                         </td>
                         <td style={{ padding: '0.75rem 1rem', color: '#475569', fontSize: '0.75rem' }}>
                           {fmtDate(mov.created_at)}
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem' }}>
+                          <button
+                            onClick={() => handleDeleteMovement(mov.id)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem', color: '#475569', display: 'flex', alignItems: 'center' }}
+                            title="Eliminar movimiento"
+                            onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
+                            onMouseLeave={e => (e.currentTarget.style.color = '#475569')}
+                          >
+                            <Trash2 size={14} />
+                          </button>
                         </td>
                       </tr>
                     ))}
