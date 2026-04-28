@@ -749,7 +749,7 @@ export function ModalCrearComprobante({
                           />
                           {/* Dropdown de búsqueda */}
                           {activeSearchIdx === idx && (searchResults.length > 0 || searchLoading) && (
-                            <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, backgroundColor: '#0d1a30', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '0.75rem', zIndex: 200, maxHeight: '260px', overflowY: 'auto', boxShadow: '0 20px 40px rgba(0,0,0,0.6)' }}>
+                            <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: '-92px', right: '-34px', minWidth: '340px', backgroundColor: '#0d1a30', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '0.75rem', zIndex: 200, maxHeight: '320px', overflowY: 'auto', boxShadow: '0 20px 40px rgba(0,0,0,0.6)' }}>
                               {searchLoading ? (
                                 <div style={{ padding: '1rem', color: '#64748b', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                   <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Buscando...
@@ -760,43 +760,38 @@ export function ModalCrearComprobante({
                                 const variantParts = inv.variant_name ? highlightParts(inv.variant_name, currentQuery) : null;
                                 return (
                                 <button key={inv.id} onClick={() => selectInventoryItem(idx, inv)}
-                                  style={{ width: '100%', textAlign: 'left', padding: '0.625rem 0.875rem', background: 'none', border: 'none', borderBottom: '1px solid rgba(51,65,85,0.2)', color: '#f1f5f9', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem' }}
+                                  style={{ width: '100%', textAlign: 'left', padding: '0.625rem 0.875rem', background: 'none', border: 'none', borderBottom: '1px solid rgba(51,65,85,0.2)', color: '#f1f5f9', cursor: 'pointer', display: 'block' }}
                                   onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(99,102,241,0.08)')}
                                   onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}>
-                                  <div style={{ flex: 1, minWidth: 0 }}>
-                                    {/* Nombre completo — sin truncar */}
-                                    <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#e2e8f0', lineHeight: 1.35, wordBreak: 'break-word' }}>
-                                      {nameParts.map((p, i) => (
-                                        <span key={i} style={p.highlight ? { color: '#818cf8', fontWeight: 800 } : undefined}>{p.text}</span>
-                                      ))}
-                                    </div>
-                                    {/* Variante como tag destacado */}
+                                  {/* Nombre completo en ancho total — sin truncar */}
+                                  <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#e2e8f0', lineHeight: 1.4, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                                    {nameParts.map((p, i) => (
+                                      <span key={i} style={p.highlight ? { color: '#818cf8', fontWeight: 800 } : undefined}>{p.text}</span>
+                                    ))}
+                                    {/* Variante inline junto al nombre */}
                                     {variantParts && (
-                                      <div style={{ marginTop: '0.2rem' }}>
-                                        <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: '0.72rem', fontWeight: 600, background: 'rgba(99,102,241,0.18)', border: '1px solid rgba(99,102,241,0.35)', color: '#a5b4fc', borderRadius: '0.3rem', padding: '0.05rem 0.4rem', gap: '0.2rem' }}>
-                                          {variantParts.map((p, i) => (
-                                            <span key={i} style={p.highlight ? { color: '#c7d2fe', fontWeight: 800 } : undefined}>{p.text}</span>
-                                          ))}
-                                        </span>
-                                      </div>
+                                      <span style={{ marginLeft: '0.375rem', fontSize: '0.78rem', fontWeight: 600, background: 'rgba(99,102,241,0.18)', border: '1px solid rgba(99,102,241,0.35)', color: '#a5b4fc', borderRadius: '0.3rem', padding: '0.05rem 0.35rem' }}>
+                                        {variantParts.map((p, i) => (
+                                          <span key={i} style={p.highlight ? { color: '#c7d2fe', fontWeight: 800 } : undefined}>{p.text}</span>
+                                        ))}
+                                      </span>
                                     )}
-                                    <div style={{ fontSize: '0.7rem', color: '#64748b', display: 'flex', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+                                  </div>
+                                  {/* Meta + precio en la misma fila */}
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.2rem', flexWrap: 'wrap', gap: '0.25rem' }}>
+                                    <div style={{ fontSize: '0.7rem', color: '#64748b', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                                       {inv.code && <span style={{ fontFamily: 'monospace' }}>#{inv.code}</span>}
                                       <span>{inv.category}</span>
-                                      <span style={{ color: inv.stock_quantity <= 3 ? '#f59e0b' : '#10b981' }}>
-                                        Stock: {inv.stock_quantity}
-                                      </span>
+                                      <span style={{ color: inv.stock_quantity <= 3 ? '#f59e0b' : '#10b981' }}>Stock: {inv.stock_quantity}</span>
                                     </div>
-                                  </div>
-                                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#34d399', fontFamily: 'monospace' }}>
+                                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#34d399', fontFamily: 'monospace', flexShrink: 0 }}>
                                       {usarPrecioMayorista && inv.precio_mayorista != null
                                         ? fmtARS(Number(inv.precio_mayorista))
                                         : fmtARS(Number(inv.sale_price))}
+                                      {inv.base_currency === 'USD' && inv.base_price && (
+                                        <span style={{ fontSize: '0.7rem', color: '#60a5fa', marginLeft: '0.375rem' }}>USD {Number(inv.base_price).toFixed(2)}</span>
+                                      )}
                                     </div>
-                                    {inv.base_currency === 'USD' && inv.base_price && (
-                                      <div style={{ fontSize: '0.7rem', color: '#60a5fa', fontFamily: 'monospace' }}>USD {Number(inv.base_price).toFixed(2)}</div>
-                                    )}
                                   </div>
                                 </button>
                                 );
