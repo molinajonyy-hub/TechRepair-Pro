@@ -11,535 +11,294 @@ import type { OrderPrintSettings } from '../../hooks/useOrderPrintSettings'
 interface WarrantyPrintLayoutProps {
   warranty: Warranty
   settings: OrderPrintSettings
-  /** Mostrar la línea de corte (y duplicar el contenido para cliente/local). Default: true */
   duplicate?: boolean
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtDate(iso: string): string {
-  if (!iso) return ''
+  if (!iso) return '-'
   try {
     const d = new Date(iso.length === 10 ? iso + 'T00:00:00' : iso)
     return d.toLocaleDateString('es-AR')
-  } catch {
-    return iso
+  } catch { return iso }
+}
+
+// ─── Sub-components (mismo estilo que ServiceOrderPrint) ──────────────────────
+
+const Row = ({ label, value }: { label: string; value?: string | null }) =>
+  value ? (
+    <div style={{ display: 'flex', gap: '4px', fontSize: '11px', lineHeight: 1.4 }}>
+      <span style={{ color: '#475569', fontWeight: 600, minWidth: '90px', flexShrink: 0 }}>{label}:</span>
+      <span style={{ color: '#0f172a', fontWeight: 400, wordBreak: 'break-word', flex: 1 }}>{value}</span>
+    </div>
+  ) : null
+
+const Section = ({ title, accent = '#6366f1', children }: {
+  title: string; accent?: string; children: React.ReactNode
+}) => (
+  <div style={{ border: '1px solid #e2e8f0', borderRadius: '5px', padding: '6px 9px' }}>
+    <h3 style={{
+      fontSize: '10px', fontWeight: 700, color: '#1e293b', margin: '0 0 5px 0',
+      paddingBottom: '4px', borderBottom: `2px solid ${accent}`,
+      textTransform: 'uppercase', letterSpacing: '0.6px',
+    }}>{title}</h3>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>{children}</div>
+  </div>
+)
+
+// ─── CSS mínimo (solo reset de fuente y page) ─────────────────────────────────
+
+const PRINT_STYLES = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  @page { size: A4 portrait; margin: 0; }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    color: #0f172a;
   }
-}
-
-// ─── Estilos compartidos (inline para impresión confiable) ────────────────────
-
-const stylesheet = `
-@page {
-  size: A4 portrait;
-  /* margin: 0 suprime los headers/footers del browser (URL, fecha, numeración) */
-  margin: 0;
-}
-
-/* Compensa el margin: 0 de @page con padding en el root */
-.wp-root {
-  width: 190mm;
-  margin: 0 auto;
-  padding: 10mm;
-  box-sizing: border-box;
-  background: #ffffff;
-  color: #111827;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  font-size: 10pt;
-  line-height: 1.35;
-}
-
-.wp-copy {
-  padding: 2mm 0;
-}
-
-.wp-cut {
-  /* En impresión: fuerza inicio en página nueva */
-  page-break-after: always;
-  break-after: page;
-  border: none;
-  margin: 0;
-}
-
-.wp-header {
-  display: flex;
-  align-items: center;
-  gap: 6mm;
-  padding-bottom: 3mm;
-  border-bottom: 2px solid #111827;
-  margin-bottom: 3mm;
-}
-
-.wp-logo {
-  width: 18mm;
-  height: 18mm;
-  object-fit: contain;
-  flex-shrink: 0;
-}
-
-.wp-biz h1 {
-  margin: 0;
-  font-size: 14pt;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-}
-
-.wp-biz .wp-sub {
-  margin: 0;
-  font-size: 8.5pt;
-  color: #475569;
-}
-
-.wp-biz .wp-contact {
-  margin-top: 1mm;
-  font-size: 8.5pt;
-  color: #334155;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3mm;
-}
-
-.wp-title-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  margin-bottom: 3mm;
-}
-
-.wp-title {
-  margin: 0;
-  font-size: 13pt;
-  font-weight: 800;
-  letter-spacing: 0.02em;
-}
-
-.wp-number {
-  font-size: 10pt;
-  font-weight: 700;
-  color: #1e293b;
-  border: 1px solid #94a3b8;
-  padding: 1mm 3mm;
-  border-radius: 2mm;
-  background: #f8fafc;
-}
-
-.wp-copy-label {
-  display: inline-block;
-  margin-left: 2mm;
-  padding: 0.5mm 2mm;
-  font-size: 8pt;
-  font-weight: 600;
-  border-radius: 1mm;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #ffffff;
-  background: #6366f1;
-}
-
-.wp-copy-label.local {
-  background: #0f172a;
-}
-
-.wp-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2mm 6mm;
-  border: 1px solid #cbd5e1;
-  border-radius: 2mm;
-  padding: 2.5mm 3mm;
-  background: #f8fafc;
-  margin-bottom: 3mm;
-}
-
-.wp-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5mm;
-  min-width: 0;
-}
-
-.wp-field .wp-label {
-  font-size: 7.5pt;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #64748b;
-  font-weight: 600;
-}
-
-.wp-field .wp-value {
-  font-size: 9.5pt;
-  color: #0f172a;
-  font-weight: 600;
-  word-break: break-word;
-}
-
-.wp-section-title {
-  font-size: 9.5pt;
-  font-weight: 700;
-  color: #0f172a;
-  margin: 3mm 0 1.5mm 0;
-  padding-bottom: 0.5mm;
-  border-bottom: 1px solid #cbd5e1;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.wp-checklist {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.8mm 5mm;
-}
-
-.wp-chk-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 1.5mm;
-  font-size: 8.5pt;
-  color: #1f2937;
-}
-
-.wp-chk-box {
-  flex: 0 0 auto;
-  width: 3mm;
-  height: 3mm;
-  border: 1px solid #475569;
-  border-radius: 0.5mm;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 7pt;
-  font-weight: 800;
-  color: #111827;
-  line-height: 1;
-  margin-top: 0.6mm;
-}
-
-.wp-chk-box.checked {
-  background: #111827;
-  color: #ffffff;
-}
-
-.wp-text {
-  font-size: 9pt;
-  color: #1f2937;
-  white-space: pre-wrap;
-  margin: 1mm 0 0 0;
-}
-
-.wp-conditions {
-  font-size: 8pt;
-  color: #334155;
-  white-space: pre-wrap;
-  border: 1px dashed #94a3b8;
-  border-radius: 2mm;
-  padding: 2mm 3mm;
-  background: #f8fafc;
-  margin-top: 2mm;
-}
-
-.wp-status {
-  display: inline-block;
-  padding: 0.5mm 2.5mm;
-  border-radius: 2mm;
-  font-size: 8.5pt;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.wp-status.active {
-  background: #dcfce7;
-  color: #166534;
-  border: 1px solid #86efac;
-}
-.wp-status.expiring {
-  background: #fef9c3;
-  color: #854d0e;
-  border: 1px solid #fde68a;
-}
-.wp-status.expired {
-  background: #fee2e2;
-  color: #991b1b;
-  border: 1px solid #fca5a5;
-}
-
-.wp-footer {
-  display: flex;
-  justify-content: space-between;
-  gap: 8mm;
-  margin-top: 6mm;
-}
-
-.wp-signature {
-  flex: 1;
-  text-align: center;
-  font-size: 8.5pt;
-  color: #334155;
-}
-
-.wp-sig-line {
-  height: 12mm;
-  border-bottom: 1px solid #0f172a;
-  margin-bottom: 1.5mm;
-}
-
-.wp-attended {
-  font-size: 8pt;
-  color: #64748b;
-  margin-top: 1mm;
-}
-
-.wp-thanks {
-  text-align: center;
-  font-size: 9pt;
-  color: #334155;
-  font-style: italic;
-  margin-top: 3mm;
-}
-
-/* Vista previa en pantalla — SIN box-shadow ni efectos extras para no penalizar el render */
-@media screen {
-  .wp-root { background: #fff; }
-  .wp-cut {
-    page-break-after: auto;
-    break-after: auto;
-    border-top: 1px dashed #94a3b8;
-    margin: 6mm 0;
-    position: relative;
-    text-align: center;
+  a { color: inherit; text-decoration: none; }
+  .wp-page-break { page-break-after: always; break-after: page; }
+  @media screen {
+    .wp-page-break { display: none; }
+    .wp-cut-screen {
+      border-top: 1px dashed #94a3b8; margin: 8px 0; position: relative; text-align: center;
+    }
+    .wp-cut-screen::after {
+      content: '✂  corte aquí'; position: absolute; top: -8px; left: 50%;
+      transform: translateX(-50%); background: #fff; color: #94a3b8;
+      font-size: 9px; padding: 0 6px;
+    }
   }
-  .wp-cut::after {
-    content: '✂  corte aquí';
-    position: absolute;
-    top: -8pt;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #fff;
-    color: #94a3b8;
-    font-size: 8pt;
-    padding: 0 6pt;
-  }
-}
 `
 
-// ─── Sub-bloque reutilizable para cada copia ──────────────────────────────────
+// ─── Una copia del certificado ────────────────────────────────────────────────
 
-function Copy(props: {
+function Copy({
+  warranty, settings, copyLabel,
+}: {
   warranty: Warranty
   settings: OrderPrintSettings
   copyLabel: 'cliente' | 'local'
 }) {
-  const { warranty, settings, copyLabel } = props
-
   const { status, expiryDate, daysRemaining } = computeWarrantyStatus(
-    warranty.issue_date,
-    warranty.warranty_days
+    warranty.issue_date, warranty.warranty_days
   )
 
-  const statusInfo =
-    status === 'active'
-      ? { cls: 'active', label: 'VIGENTE' }
-      : status === 'expiring_soon'
-      ? { cls: 'expiring', label: 'POR VENCER' }
-      : { cls: 'expired', label: 'VENCIDA' }
+  const statusColor =
+    status === 'active' ? { bg: '#dcfce7', color: '#166534', border: '#86efac', label: 'VIGENTE' }
+    : status === 'expiring_soon' ? { bg: '#fef9c3', color: '#854d0e', border: '#fde68a', label: 'POR VENCER' }
+    : { bg: '#fee2e2', color: '#991b1b', border: '#fca5a5', label: 'VENCIDA' }
 
   const checklist = warranty.checklist || {}
+  const businessName = settings.nombre_comercial || settings.razon_social || 'Mi Negocio'
 
-  const mostrarCondiciones =
-    settings.orden_mostrar_condiciones &&
-    settings.orden_condiciones_activo &&
-    (settings.orden_condiciones_en === 'ambas' ||
-      settings.orden_condiciones_en === copyLabel)
+  const contactParts: string[] = []
+  if (settings.orden_mostrar_direccion) {
+    const addr = [settings.domicilio_fiscal, settings.localidad, settings.provincia].filter(Boolean).join(' · ')
+    if (addr) contactParts.push(addr)
+  }
+  if (settings.orden_mostrar_whatsapp && settings.orden_whatsapp) contactParts.push(`WhatsApp: ${settings.orden_whatsapp}`)
+  if (settings.orden_mostrar_instagram && settings.orden_instagram) contactParts.push(`IG: ${settings.orden_instagram}`)
+
+  const showConditions = settings.orden_condiciones_activo && settings.orden_mostrar_condiciones &&
+    (settings.orden_condiciones_en === 'ambas' || settings.orden_condiciones_en === copyLabel)
 
   return (
-    <div className="wp-copy">
-      {/* Title */}
-      <div className="wp-title-row">
-        <div>
-          <span className="wp-title">CERTIFICADO DE GARANTÍA</span>
-          <span className={`wp-copy-label ${copyLabel}`}>
-            {copyLabel === 'cliente' ? 'Cliente' : 'Local'}
-          </span>
-        </div>
-        <div className="wp-number">N° {warranty.number}</div>
-      </div>
+    <div style={{
+      padding: '11mm 11mm 8mm',
+      fontFamily: "'Inter','Segoe UI',Arial,sans-serif",
+      color: '#0f172a',
+      display: 'flex', flexDirection: 'column', gap: '6px',
+      position: 'relative',
+    }}>
+      {/* Marca de agua del logo */}
+      {settings.orden_mostrar_logo && settings.logo_url && (
+        <img src={settings.logo_url} alt="" aria-hidden style={{
+          position: 'absolute', top: '50%', left: '50%',
+          transform: 'translate(-50%,-50%)',
+          width: '180px', height: '180px', objectFit: 'contain',
+          opacity: 0.04, pointerEvents: 'none', zIndex: 0,
+        }} />
+      )}
 
-      {/* Info grid */}
-      <div className="wp-grid">
-        <div className="wp-field">
-          <span className="wp-label">Fecha de emisión</span>
-          <span className="wp-value">{fmtDate(warranty.issue_date)}</span>
-        </div>
-        <div className="wp-field">
-          <span className="wp-label">Estado</span>
-          <span className="wp-value">
-            <span className={`wp-status ${statusInfo.cls}`}>{statusInfo.label}</span>
-            {status !== 'expired' && (
-              <span style={{ marginLeft: '2mm', color: '#475569', fontWeight: 500 }}>
-                {daysRemaining} día{daysRemaining === 1 ? '' : 's'} restantes
-              </span>
-            )}
-          </span>
-        </div>
+      <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
 
-        <div className="wp-field">
-          <span className="wp-label">Cliente</span>
-          <span className="wp-value">{warranty.customer_name || '-'}</span>
-        </div>
-        <div className="wp-field">
-          <span className="wp-label">DNI</span>
-          <span className="wp-value">{warranty.customer_dni || '-'}</span>
-        </div>
+        {/* ── HEADER ── */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '2px' }}>
+          {settings.orden_mostrar_logo && settings.logo_url ? (
+            <img src={settings.logo_url} alt="Logo" style={{ width: '70px', height: '50px', objectFit: 'contain', flexShrink: 0 }} />
+          ) : <div style={{ width: '70px', height: '50px', flexShrink: 0 }} />}
 
-        <div className="wp-field">
-          <span className="wp-label">Teléfono</span>
-          <span className="wp-value">{warranty.customer_phone || '-'}</span>
-        </div>
-        <div className="wp-field">
-          <span className="wp-label">Condición del equipo</span>
-          <span className="wp-value">
-            {warranty.equipment_status === 'new' ? 'Nuevo' : 'Usado'}
-            {warranty.equipment_status === 'used' && warranty.purchase_date && (
-              <span style={{ color: '#475569', fontWeight: 500 }}>
-                {' '}· compra {fmtDate(warranty.purchase_date)}
-              </span>
-            )}
-          </span>
-        </div>
-
-        <div className="wp-field">
-          <span className="wp-label">Modelo</span>
-          <span className="wp-value">{warranty.phone_model || '-'}</span>
-        </div>
-        <div className="wp-field">
-          <span className="wp-label">IMEI / Serial</span>
-          <span className="wp-value">
-            {warranty.imei || warranty.serial_number || '-'}
-          </span>
-        </div>
-
-        <div className="wp-field">
-          <span className="wp-label">Días de garantía</span>
-          <span className="wp-value">{warranty.warranty_days} días</span>
-        </div>
-        <div className="wp-field">
-          <span className="wp-label">Fecha de vencimiento</span>
-          <span className="wp-value">{fmtDate(expiryDate)}</span>
-        </div>
-      </div>
-
-      {/* Checklist */}
-      <div className="wp-section-title">Checklist de verificación</div>
-      <div className="wp-checklist">
-        {CHECKLIST_ITEMS.map((it) => {
-          const checked = !!checklist[it.key]
-          return (
-            <div key={it.key} className="wp-chk-item">
-              <span className={`wp-chk-box ${checked ? 'checked' : ''}`}>
-                {checked ? '✓' : ''}
-              </span>
-              <span>{it.label}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '17px', fontWeight: 700, color: '#0f172a', lineHeight: 1.1, marginBottom: '2px' }}>{businessName}</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 12px' }}>
+              {contactParts.map((c, i) => (
+                <span key={i} style={{ fontSize: '10px', color: '#475569' }}>{c}</span>
+              ))}
             </div>
-          )
-        })}
-      </div>
-
-      {/* Observations */}
-      {warranty.observations && (
-        <>
-          <div className="wp-section-title">Observaciones</div>
-          <p className="wp-text">{warranty.observations}</p>
-        </>
-      )}
-
-      {/* Conditions */}
-      {mostrarCondiciones && warranty.conditions && (
-        <>
-          <div className="wp-section-title">Condiciones de la garantía</div>
-          <div className="wp-conditions">{warranty.conditions}</div>
-        </>
-      )}
-
-      {/* Signature + attended by */}
-      <div className="wp-footer">
-        <div className="wp-signature">
-          <div className="wp-sig-line" />
-          <div>Firma del cliente</div>
-          <div style={{ marginTop: '1mm', color: '#64748b' }}>
-            DNI: {warranty.customer_dni || '________________'}
           </div>
-          <div style={{ color: '#64748b' }}>
-            Aclaración: {warranty.customer_name || '________________'}
+
+          <div style={{ flexShrink: 0, textAlign: 'right' }}>
+            <div style={{ fontSize: '9px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Certificado de Garantía</div>
+            <div style={{ fontSize: '19px', fontWeight: 700, color: '#0f172a', letterSpacing: '-0.5px', lineHeight: 1.1 }}>N° {warranty.number}</div>
+            <div style={{ fontSize: '9px', color: '#64748b', marginTop: '2px' }}>{fmtDate(warranty.issue_date)}</div>
           </div>
         </div>
-        <div className="wp-signature">
-          <div className="wp-sig-line" />
-          <div>Firma y sello del local</div>
-          {warranty.attended_by_name && (
-            <div className="wp-attended">Atendido por: {warranty.attended_by_name}</div>
-          )}
-        </div>
-      </div>
 
-      {/* Mensaje de agradecimiento solo en la copia del cliente */}
-      {copyLabel === 'cliente' &&
-        settings.orden_mostrar_agradecimiento &&
-        settings.orden_mensaje_agradecimiento && (
-          <div className="wp-thanks">{settings.orden_mensaje_agradecimiento}</div>
+        {/* ── BARRA DE ESTADO ── */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '8px',
+          backgroundColor: '#0f172a', borderRadius: '5px', padding: '5px 10px',
+        }}>
+          <span style={{ fontSize: '11px', fontWeight: 700, color: '#ffffff', flex: 1, textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+            CERTIFICADO DE GARANTÍA
+          </span>
+          <span style={{
+            fontSize: '9px', fontWeight: 700, padding: '2px 8px', borderRadius: '3px',
+            backgroundColor: copyLabel === 'cliente' ? '#6366f1' : '#334155',
+            color: '#ffffff', textTransform: 'uppercase', letterSpacing: '0.5px',
+          }}>
+            {copyLabel === 'cliente' ? 'CLIENTE' : 'LOCAL'}
+          </span>
+          <span style={{
+            fontSize: '9.5px', fontWeight: 700, padding: '2px 8px', borderRadius: '3px',
+            backgroundColor: statusColor.bg, color: statusColor.color,
+            border: `1px solid ${statusColor.border}`,
+          }}>
+            {statusColor.label}
+            {status !== 'expired' && ` · ${daysRemaining} día${daysRemaining === 1 ? '' : 's'}`}
+          </span>
+          <span style={{ fontSize: '9px', color: '#94a3b8', whiteSpace: 'nowrap' }}>
+            Vence: {fmtDate(expiryDate)}
+          </span>
+        </div>
+
+        {/* ── DATOS DEL CLIENTE Y EQUIPO ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+          <Section title="Datos del cliente" accent="#6366f1">
+            <Row label="Cliente" value={warranty.customer_name} />
+            <Row label="DNI" value={warranty.customer_dni} />
+            <Row label="Teléfono" value={warranty.customer_phone} />
+          </Section>
+
+          <Section title="Equipo" accent="#0ea5e9">
+            <Row label="Modelo" value={warranty.phone_model} />
+            <Row label="IMEI / Serial" value={warranty.imei || warranty.serial_number} />
+            <Row label="Condición" value={warranty.equipment_status === 'new' ? 'Nuevo' : 'Usado'} />
+            <Row label="Días de garantía" value={`${warranty.warranty_days} días`} />
+          </Section>
+        </div>
+
+        {/* ── CHECKLIST ── */}
+        <Section title="Checklist de verificación" accent="#10b981">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 12px' }}>
+            {CHECKLIST_ITEMS.map(it => {
+              const checked = !!checklist[it.key]
+              return (
+                <div key={it.key} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10px', color: '#1e293b' }}>
+                  <span style={{
+                    flexShrink: 0, width: '11px', height: '11px',
+                    border: `1px solid ${checked ? '#0f172a' : '#94a3b8'}`,
+                    borderRadius: '2px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '8px', fontWeight: 800,
+                    backgroundColor: checked ? '#0f172a' : '#ffffff',
+                    color: '#ffffff',
+                  }}>
+                    {checked ? '✓' : ''}
+                  </span>
+                  {it.label}
+                </div>
+              )
+            })}
+          </div>
+        </Section>
+
+        {/* ── OBSERVACIONES (si las hay) ── */}
+        {warranty.observations && (
+          <Section title="Observaciones" accent="#f59e0b">
+            <p style={{ fontSize: '10.5px', color: '#0f172a', margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>
+              {warranty.observations}
+            </p>
+          </Section>
         )}
+
+        {/* ── CONDICIONES ── */}
+        {showConditions && warranty.conditions && (
+          <Section title="Condiciones de la garantía" accent="#ef4444">
+            <p style={{ fontSize: '9.5px', color: '#334155', margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.4 }}>
+              {warranty.conditions}
+            </p>
+          </Section>
+        )}
+
+        {/* ── FIRMAS ── */}
+        <div style={{ display: 'flex', gap: '20px', marginTop: '4px' }}>
+          {/* Firma cliente */}
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '9px', color: '#64748b', marginBottom: '5px' }}>
+              El cliente declara haber recibido el equipo en las condiciones indicadas.
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <div style={{ flex: 2 }}>
+                <div style={{ fontSize: '9px', color: '#64748b', marginBottom: '2px' }}>Firma del cliente</div>
+                <div style={{ borderBottom: '1px solid #94a3b8', height: '20px' }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '9px', color: '#64748b', marginBottom: '2px' }}>DNI</div>
+                <div style={{ borderBottom: '1px solid #94a3b8', height: '20px' }} />
+              </div>
+            </div>
+            <div style={{ marginTop: '3px' }}>
+              <div style={{ fontSize: '9px', color: '#64748b', marginBottom: '2px' }}>Aclaración</div>
+              <div style={{ borderBottom: '1px solid #94a3b8', height: '18px' }} />
+            </div>
+          </div>
+
+          {/* Firma local */}
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '9px', color: '#64748b', marginBottom: '5px' }}>
+              {warranty.attended_by_name ? `Atendido por: ${warranty.attended_by_name}` : 'Firma y sello del local'}
+            </div>
+            <div>
+              <div style={{ fontSize: '9px', color: '#64748b', marginBottom: '2px' }}>Firma y sello del local</div>
+              <div style={{ borderBottom: '1px solid #94a3b8', height: '20px' }} />
+            </div>
+          </div>
+        </div>
+
+        {/* ── AGRADECIMIENTO (solo copia cliente) ── */}
+        {copyLabel === 'cliente' && settings.orden_mostrar_agradecimiento && settings.orden_mensaje_agradecimiento && (
+          <div style={{ textAlign: 'center', fontSize: '9.5px', color: '#64748b', fontStyle: 'italic', marginTop: '4px' }}>
+            {settings.orden_mensaje_agradecimiento}
+          </div>
+        )}
+
+      </div>
     </div>
   )
 }
 
-// ─── Componente principal (con forwardRef para react-to-print) ────────────────
+// ─── Componente principal ─────────────────────────────────────────────────────
 
 export const WarrantyPrintLayout = React.forwardRef<HTMLDivElement, WarrantyPrintLayoutProps>(
-  ({ warranty, settings, duplicate = true }, ref) => {
-    const contactParts: string[] = []
-    if (settings.orden_mostrar_whatsapp && settings.orden_whatsapp)
-      contactParts.push(`WhatsApp: ${settings.orden_whatsapp}`)
-    if (settings.orden_mostrar_instagram && settings.orden_instagram)
-      contactParts.push(`IG: ${settings.orden_instagram}`)
-    if (settings.orden_mostrar_email && settings.orden_email_visible)
-      contactParts.push(settings.orden_email_visible)
-    if (settings.orden_mostrar_sitio_web && settings.orden_sitio_web)
-      contactParts.push(settings.orden_sitio_web)
-
-    const addressLine = [settings.domicilio_fiscal, settings.localidad, settings.provincia]
-      .filter(Boolean)
-      .join(' · ')
-
-    return (
-      <div ref={ref} className="wp-root">
-        <style>{stylesheet}</style>
-
-        {/* Header del negocio — una sola vez al inicio */}
-        <div className="wp-header">
-          {settings.orden_mostrar_logo && settings.logo_url ? (
-            <img src={settings.logo_url} alt="logo" className="wp-logo" />
-          ) : null}
-          <div className="wp-biz" style={{ flex: 1 }}>
-            <h1>{settings.nombre_comercial || 'Mi Negocio'}</h1>
-            {settings.orden_mostrar_direccion && addressLine && (
-              <p className="wp-sub">{addressLine}</p>
-            )}
-            {contactParts.length > 0 && (
-              <div className="wp-contact">
-                {contactParts.map((c, i) => <span key={i}>{c}</span>)}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <Copy warranty={warranty} settings={settings} copyLabel="cliente" />
-        {duplicate && (
-          <>
-            <hr className="wp-cut" />
-            <Copy warranty={warranty} settings={settings} copyLabel="local" />
-          </>
-        )}
-      </div>
-    )
-  }
+  ({ warranty, settings, duplicate = true }, ref) => (
+    <div ref={ref}>
+      <style>{PRINT_STYLES}</style>
+      <Copy warranty={warranty} settings={settings} copyLabel="cliente" />
+      {duplicate && (
+        <>
+          {/* Pantalla: línea de corte visual */}
+          <div className="wp-cut-screen" />
+          {/* Impresión: salto de página forzado */}
+          <div className="wp-page-break" />
+          <Copy warranty={warranty} settings={settings} copyLabel="local" />
+        </>
+      )}
+    </div>
+  )
 )
 
 WarrantyPrintLayout.displayName = 'WarrantyPrintLayout'
