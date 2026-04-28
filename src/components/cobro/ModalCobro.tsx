@@ -3,12 +3,13 @@
  * Flujo: Items → Pago (con comisión) → Éxito → Comprobante (opcional)
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { X, Plus, Trash2, ChevronRight, ChevronLeft, Check, Search } from 'lucide-react'
+import { X, Plus, Trash2, ChevronRight, ChevronLeft, Check, Search, ExternalLink } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { invalidateStatsCache } from '../../hooks/useDashboardStats'
 import { useCommissionRates, COMMISSION_KEYS } from '../../hooks/useCommissionRates'
-import { ModalCrearComprobante } from '../comprobantes/ModalCrearComprobante'
+import comprobanteService from '../../services/comprobanteService'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -110,9 +111,27 @@ const fmt = (n: number) => '$' + Math.round(n).toLocaleString('es-AR')
 
 // ─── Componente ──────────────────────────────────────────────────────────────
 
+// Mapea MetodoPago de ModalCobro al MedioPago de comprobanteService
+const METODO_TO_MEDIO: Record<MetodoPago, string> = {
+  efectivo:      'efectivo',
+  transferencia: 'transferencia',
+  mp_debito:     'tarjeta_debito',
+  mp_credito:    'tarjeta_credito',
+  mp_qr:         'qr',
+  visa_mc_1:     'tarjeta_credito',
+  visa_mc_3:     'tarjeta_credito',
+  visa_mc_6:     'tarjeta_credito',
+  visa_mc_12:    'tarjeta_credito',
+  naranja_1:     'tarjeta_credito',
+  naranja_3:     'tarjeta_credito',
+  naranja_6:     'tarjeta_credito',
+  naranja_12:    'tarjeta_credito',
+}
+
 export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroProps) {
-  const { businessId } = useAuth()
+  const { businessId, user } = useAuth()
   const { rates } = useCommissionRates()
+  const navigate = useNavigate()
 
   // ── State principal ──
   const [step, setStep]       = useState<Step>('items')
@@ -140,9 +159,9 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
   // ── Tipo de cambio ──
   const [dolar, setDolar] = useState<number>(0)
 
-  // ── Comprobante interno ──
-  const [comprobanteOpen, setComprobanteOpen]   = useState(false)
-  const [comprobanteItems, setComprobanteItems] = useState<{ descripcion: string; cantidad: number; precio_unitario: number }[]>([])
+  // ── Comprobante auto-creado ──
+  const [autoComprobanteId, setAutoComprobanteId]     = useState<string | null>(null)
+  const [autoComprobanteNumero, setAutoComprobanteNumero] = useState<string | null>(null)
 
   // ── Reset al abrir ──
   useEffect(() => {
@@ -160,6 +179,8 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
     loadDolar()
     if (orderId) prefillOrden(orderId)
     if (clienteId) prefillCliente(clienteId)
+    setAutoComprobanteId(null)
+    setAutoComprobanteNumero(null)
   }, [isOpen]) // eslint-disable-line
 
   // ── Comisión ──────────────────────────────────────────────────────────────
@@ -353,25 +374,51 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
         }
       }
       invalidateStatsCache()
+
+      // ── Auto-crear comprobante ──────────────────────────────────────────────
+      try {
+        const pagoMedio = mixto ? 'mixto' : (METODO_TO_MEDIO[activeMetodo] || 'otro')
+        const pagosComp = mixto
+          ? pagos
+              .filter(p => p.montoARS + (p.usaUSD && dolar > 0 ? p.montoUSD * dolar : 0) > 0)
+              .map(p => ({
+                payment_method: (METODO_TO_MEDIO[p.metodo] || 'otro') as any,
+                amount:         p.montoARS + (p.usaUSD && dolar > 0 ? p.montoUSD * dolar : 0),
+                currency:       'ARS' as const,
+                commission_rate: COMMISSION_KEYS[p.metodo] ? (rates[COMMISSION_KEYS[p.metodo]!] ?? 0) : 0,
+              }))
+          : [{ payment_method: pagoMedio as any, amount: totalCobrado, currency: 'ARS' as const, commission_rate: commissionRate }]
+
+        const compResult = await comprobanteService.crear({
+          tipo:               'factura_c',
+          customer_id:        clienteSelec?.id || null,
+          order_id:           origen === 'orden' && ordenSelec?.id ? ordenSelec.id : null,
+          items:              items.map(i => ({
+            descripcion:     i.nombre,
+            cantidad:        i.cantidad,
+            precio_unitario: i.precio,
+            tipo_linea:      origen === 'orden' ? 'servicio' : 'producto',
+          })),
+          pagos:              pagosComp,
+          business_id:        businessId!,
+          created_by:         user?.id,
+          skip_finance_entry: true,
+        })
+
+        if (compResult.success && compResult.comprobante) {
+          setAutoComprobanteId(compResult.comprobante.id)
+          setAutoComprobanteNumero((compResult.comprobante as any).numero || null)
+        }
+      } catch (e) {
+        console.warn('[ModalCobro] auto-comprobante:', e)
+      }
+
       setStep('exito')
     } catch (e: any) {
       setError(e?.message ?? 'Error al registrar el cobro')
     } finally {
       setLoading(false)
     }
-  }
-
-  // ── Abrir comprobante desde éxito ──
-  const abrirComprobante = () => {
-    const scaled = items.map(i => ({
-      descripcion: i.nombre,
-      cantidad: i.cantidad,
-      precio_unitario: commissionRate > 0
-        ? Math.round(i.precio * (1 + commissionRate) * 100) / 100
-        : i.precio,
-    }))
-    setComprobanteItems(scaled)
-    setComprobanteOpen(true)
   }
 
   if (!isOpen) return null
@@ -702,17 +749,27 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
               )}
               {!hasCommission && <div style={{ marginBottom: '1.75rem' }} />}
 
-              <div style={{ marginBottom: '1.5rem' }}>
-                <p style={{ color: '#94a3b8', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.75rem', textTransform: 'uppercase' }}>¿Querés emitir comprobante?</p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <button onClick={abrirComprobante} style={postCobroBtn('#6366f1')}>
-                    🧾 Sí, emitir comprobante
-                  </button>
-                  <button onClick={onClose} style={postCobroBtn('#334155')}>
-                    — No emitir comprobante
+              {/* Comprobante auto-creado */}
+              {autoComprobanteId ? (
+                <div style={{ marginBottom: '1.5rem', padding: '0.875rem', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.75rem' }}>
+                  <p style={{ color: '#a5b4fc', fontSize: '0.78rem', fontWeight: 700, margin: '0 0 0.5rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    🧾 Comprobante generado
+                  </p>
+                  <p style={{ color: '#e2e8f0', fontSize: '0.85rem', margin: '0 0 0.75rem' }}>
+                    {autoComprobanteNumero ? `FC ${autoComprobanteNumero}` : `ID: ${autoComprobanteId.slice(0, 8)}`}
+                  </p>
+                  <button
+                    onClick={() => { onClose(); navigate(`/comprobantes/${autoComprobanteId}`) }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem', width: '100%', padding: '0.5rem', background: 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: '0.5rem', color: '#818cf8', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' }}
+                  >
+                    <ExternalLink size={13} /> Ver comprobante
                   </button>
                 </div>
-              </div>
+              ) : (
+                <div style={{ marginBottom: '1.5rem', padding: '0.625rem', background: 'rgba(100,116,139,0.08)', border: '1px solid rgba(100,116,139,0.2)', borderRadius: '0.625rem' }}>
+                  <p style={{ color: '#64748b', fontSize: '0.78rem', margin: 0 }}>El comprobante no se pudo generar automáticamente.</p>
+                </div>
+              )}
 
               <button onClick={onClose} style={{ width: '100%', padding: '0.75rem', borderRadius: '0.75rem', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>
                 Cerrar
@@ -722,15 +779,6 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
         </div>
       </div>
 
-      {/* ── Modal Comprobante (interno) ── */}
-      <ModalCrearComprobante
-        isOpen={comprobanteOpen}
-        onClose={() => setComprobanteOpen(false)}
-        onCreado={() => { setComprobanteOpen(false); onClose() }}
-        initialItems={comprobanteItems}
-        initialClienteId={clienteSelec?.id}
-        skipFinanceEntry={true}
-      />
     </>
   )
 }
@@ -749,14 +797,3 @@ const inputS: React.CSSProperties = {
   boxSizing: 'border-box',
 }
 
-const postCobroBtn = (color: string): React.CSSProperties => ({
-  padding: '0.75rem 1rem',
-  borderRadius: '0.75rem',
-  background: color === '#334155' ? 'rgba(255,255,255,0.04)' : `${color}18`,
-  border: `1px solid ${color === '#334155' ? 'rgba(255,255,255,0.08)' : `${color}40`}`,
-  color: color === '#334155' ? '#475569' : '#c7d2fe',
-  fontWeight: 600,
-  fontSize: '0.875rem',
-  cursor: 'pointer',
-  width: '100%',
-})
