@@ -115,6 +115,11 @@ interface Props {
   initialClienteId?: string;
   /** Si true, al seleccionar productos del inventario usa precio_mayorista (sin mostrar etiquetas) */
   usarPrecioMayorista?: boolean;
+  /**
+   * Si true, comprobanteService NO crea entradas en finanzas ni en financial_movements.
+   * Usar cuando el comprobante se genera DESDE un cobro (ModalCobro) que ya registró el movimiento.
+   */
+  skipFinanceEntry?: boolean;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -124,6 +129,7 @@ export function ModalCrearComprobante({
   tipoInicial, puntoVentaInicial, condicionFiscalInicial,
   initialItems, initialClienteId,
   usarPrecioMayorista = false,
+  skipFinanceEntry = false,
 }: Props) {
   const { businessId, user } = useAuth();
   const [step, setStep] = useState<'config' | 'items' | 'emitir'>('config');
@@ -406,8 +412,9 @@ export function ModalCrearComprobante({
           currency:         'ARS',
           commission_rate:  p.commission_rate,
         }) as ComprobantePago),
-      business_id: businessId,
-      created_by:  user?.id,
+      business_id:         businessId,
+      created_by:          user?.id,
+      skip_finance_entry:  skipFinanceEntry,
     };
 
     const result = await comprobanteService.crear(input);

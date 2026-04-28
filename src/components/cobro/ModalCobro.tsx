@@ -729,6 +729,7 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
         onCreado={() => { setComprobanteOpen(false); onClose() }}
         initialItems={comprobanteItems}
         initialClienteId={clienteSelec?.id}
+        skipFinanceEntry={true}
       />
     </>
   )

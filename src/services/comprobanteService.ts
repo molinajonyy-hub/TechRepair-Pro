@@ -110,6 +110,9 @@ export interface CrearComprobanteInput {
   pagos?: ComprobantePago[];
   business_id: string;
   created_by?: string;
+  /** Cuando es true, omite crear entradas en business_finance_entries y financial_movements.
+   *  Usar cuando el comprobante se genera desde ModalCobro, que ya registró el movimiento. */
+  skip_finance_entry?: boolean;
 }
 
 // Tasas de comisión por proveedor (estimadas)
@@ -237,6 +240,7 @@ export const comprobanteService = {
       customer_id, order_id, observaciones, exchange_rate: globalRate = 1,
       es_fiscal = false, emitir_en_arca = false,
       items, pagos = [], business_id, created_by,
+      skip_finance_entry = false,
     } = input;
 
     const esFiscal = es_fiscal || emitir_en_arca;
@@ -457,7 +461,7 @@ export const comprobanteService = {
       }
 
       // ── 8. Registrar costo de productos en finanzas ──────────────────────
-      if (estadoDefinitivo === 'issued' && costoTotalARS > 0) {
+      if (estadoDefinitivo === 'issued' && costoTotalARS > 0 && !skip_finance_entry) {
         await supabase.from('business_finance_entries').insert({
           business_id,
           date:        new Date().toISOString().split('T')[0],
@@ -473,7 +477,7 @@ export const comprobanteService = {
       }
 
       // ── 9. Registrar ingreso en finanzas y movimiento de caja ────────────────
-      if (estadoDefinitivo === 'issued') {
+      if (estadoDefinitivo === 'issued' && !skip_finance_entry) {
         const today = new Date().toISOString().split('T')[0];
         const desc  = `Comprobante #${numero}`;
 
