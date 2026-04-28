@@ -194,15 +194,23 @@ export class ArcaService {
     try {
       const config = await this.getArcaConfig(businessId)
 
-      const { data, error } = await supabase.functions.invoke('afip-cae', {
-        body: {
-          business_id:      businessId,
-          cuit:             config.cuit?.replace(/\D/g, '') || '',
-          punto_venta:      config.punto_venta || 1,
-          ambiente:         config.ambiente || 'homologacion',
-          ...datosFactura,
-        },
-      })
+      // Timeout de 20 s: si ARCA no responde, el comprobante se guarda como borrador
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('ARCA no respondió en 20 segundos. El comprobante se guardó como borrador.')), 20_000)
+      )
+
+      const { data, error } = await Promise.race([
+        supabase.functions.invoke('afip-cae', {
+          body: {
+            business_id:  businessId,
+            cuit:         config.cuit?.replace(/\D/g, '') || '',
+            punto_venta:  config.punto_venta || 1,
+            ambiente:     config.ambiente || 'homologacion',
+            ...datosFactura,
+          },
+        }),
+        timeout,
+      ])
 
       if (error) throw new Error(error.message || 'Error al conectar con afip-cae')
       if (!data?.success) throw new Error(data?.error || 'Error al solicitar CAE')

@@ -1117,7 +1117,7 @@ export function ModalCrearComprobante({
                         </span>
                       </div>
                       <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.2rem 0 0 0' }}>
-                        El comprobante se enviará a AFIP para obtener CAE. Si ARCA falla, el comprobante se guardará como borrador.
+                        Solo si tenés ARCA configurado. Si ARCA no responde (máx. 20 seg.), el comprobante se guarda igual como borrador — podés emitirlo después.
                       </p>
                     </div>
                   </label>
