@@ -323,14 +323,33 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
           await supabase.from('order_payments').insert({ order_id: ordenSelec.id, business_id: businessId, amount: totalCobrado, payment_method: activeMetodo, notes: description, payment_date: new Date().toISOString().split('T')[0] })
         }
       } else {
+        const today = new Date().toISOString().split('T')[0]
         if (mixto) {
           for (const pago of pagos) {
             const monto = pago.montoARS + (pago.usaUSD && dolar > 0 ? pago.montoUSD * dolar : 0)
             if (monto <= 0) continue
-            await supabase.from('business_finance_entries').insert({ business_id: businessId, date: new Date().toISOString().split('T')[0], type: 'income', category: origen === 'venta_rapida' ? 'venta' : 'servicio', description, amount: monto, currency: 'ARS', amount_ars: monto, exchange_rate: 1, source: 'cobro_rapido', customer_id: clienteSelec?.id ?? null, sale_type: isClienteMayorista ? 'mayorista' : 'minorista' })
+            await supabase.from('business_finance_entries').insert({
+              business_id: businessId, date: today, type: 'income',
+              category: origen === 'venta_rapida' ? 'ventas_productos' : 'servicios_tecnicos',
+              description, amount: monto, currency: 'ARS', amount_ars: monto, exchange_rate: 1,
+            })
+            await supabase.from('financial_movements').insert({
+              business_id: businessId, date: today, type: 'income',
+              currency: 'ARS', amount: monto, amount_ars: monto, exchange_rate: 1,
+              source: 'cobro_rapido', description,
+            })
           }
         } else {
-          await supabase.from('business_finance_entries').insert({ business_id: businessId, date: new Date().toISOString().split('T')[0], type: 'income', category: origen === 'venta_rapida' ? 'venta' : 'servicio', description, amount: totalCobrado, currency: 'ARS', amount_ars: totalCobrado, exchange_rate: 1, source: 'cobro_rapido', customer_id: clienteSelec?.id ?? null, sale_type: isClienteMayorista ? 'mayorista' : 'minorista' })
+          await supabase.from('business_finance_entries').insert({
+            business_id: businessId, date: today, type: 'income',
+            category: origen === 'venta_rapida' ? 'ventas_productos' : 'servicios_tecnicos',
+            description, amount: totalCobrado, currency: 'ARS', amount_ars: totalCobrado, exchange_rate: 1,
+          })
+          await supabase.from('financial_movements').insert({
+            business_id: businessId, date: today, type: 'income',
+            currency: 'ARS', amount: totalCobrado, amount_ars: totalCobrado, exchange_rate: 1,
+            source: 'cobro_rapido', description,
+          })
         }
       }
       invalidateStatsCache()

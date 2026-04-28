@@ -456,39 +456,48 @@ export const comprobanteService = {
       if (estadoDefinitivo === 'issued' && costoTotalARS > 0) {
         await supabase.from('business_finance_entries').insert({
           business_id,
-          date:                     new Date().toISOString().split('T')[0],
-          type:                     'variable_cost',
-          category:                 'mercaderia',
-          description:              `Costo de productos - Comprobante #${numero}`,
-          amount:                   costoTotalARS,
-          currency:                 'ARS',
-          amount_ars:               costoTotalARS,
-          exchange_rate:            1,
-          reference_comprobante_id: comp.id,
-          source:                   'comprobante',
-          created_by:               created_by || null,
+          date:        new Date().toISOString().split('T')[0],
+          type:        'variable_cost',
+          category:    'mercaderia',
+          description: `Costo de productos · Comprobante #${numero}`,
+          amount:      costoTotalARS,
+          currency:    'ARS',
+          amount_ars:  costoTotalARS,
+          exchange_rate: 1,
+          created_by:  created_by || null,
         });
       }
 
-      // ── 9. Si ARCA emitió OK y no se registraron pagos, el comprobante
-      //       queda como "pendiente de cobro" (solo emitido fiscalmente) ────
-      if (estadoDefinitivo === 'issued' && pagos.length === 0) {
-        // Entrada de finanzas por ingreso emitido (el trigger del status lo hace,
-        // pero si no funciona, lo registramos aquí como backup)
-        await supabase.from('business_finance_entries').upsert({
+      // ── 9. Registrar ingreso en finanzas y movimiento de caja ────────────────
+      if (estadoDefinitivo === 'issued') {
+        const today = new Date().toISOString().split('T')[0];
+        const desc  = `Comprobante #${numero}`;
+
+        await supabase.from('business_finance_entries').insert({
           business_id,
-          date:                     new Date().toISOString().split('T')[0],
-          type:                     'income',
-          category:                 'ventas_productos',
-          description:              `Comprobante emitido #${numero}`,
-          amount:                   total,
-          currency:                 'ARS',
-          amount_ars:               total,
-          exchange_rate:            globalRate,
-          reference_comprobante_id: comp.id,
-          source:                   'comprobante',
-          created_by:               created_by || null,
-        }, { onConflict: 'reference_comprobante_id,type', ignoreDuplicates: true });
+          date:        today,
+          type:        'income',
+          category:    'ventas_productos',
+          description: desc,
+          amount:      total,
+          currency:    'ARS',
+          amount_ars:  total,
+          exchange_rate: globalRate,
+          created_by:  created_by || null,
+        });
+
+        await supabase.from('financial_movements').insert({
+          business_id,
+          date:        today,
+          type:        'income',
+          currency:    'ARS',
+          amount:      total,
+          amount_ars:  total,
+          exchange_rate: globalRate,
+          source:      'comprobante',
+          description: desc,
+          created_by:  created_by || null,
+        });
       }
 
       const fullComp = await this.getById(comp.id, business_id);

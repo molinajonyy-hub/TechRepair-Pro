@@ -6,7 +6,7 @@ import {
   Loader2, Plus, Zap, Package, Search, DollarSign,
   Wrench, Tag, Percent,
   AlertCircle, CheckCircle2,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, Wallet,
 } from 'lucide-react';
 import { CloseButton } from '../ui/CloseButton';
 import { currencyService } from '../../services/currencyService';
@@ -79,6 +79,14 @@ const TIPO_LINEA_CONFIG: Record<TipoLinea, { label: string; icon: React.ElementT
 const CONDICIONES_FISCALES = [
   'Consumidor Final', 'Responsable Inscripto', 'Monotributo',
   'Exento', 'Responsable No Inscripto',
+];
+
+const METODOS_COBRO: { id: MedioPago; label: string; commRate: number; color: string }[] = [
+  { id: 'efectivo',        label: 'Efectivo',       commRate: 0,      color: '#34d399' },
+  { id: 'transferencia',   label: 'Transferencia',  commRate: 0,      color: '#60a5fa' },
+  { id: 'tarjeta_debito',  label: 'Débito',         commRate: 0.01,   color: '#a78bfa' },
+  { id: 'tarjeta_credito', label: 'Crédito',        commRate: 0.035,  color: '#f59e0b' },
+  { id: 'qr',              label: 'QR / MP',        commRate: 0.0099, color: '#fb7185' },
 ];
 
 const emptyLinea = (): LineaItem => ({
@@ -285,6 +293,26 @@ export function ModalCrearComprobante({
   }, [lineas, tipo, exchangeRate, pagos]);
 
   if (!isOpen) return null;
+
+  // ── Pago helpers ──────────────────────────────────────────────────────────────
+  const toggleMetodoCobro = (metodo: typeof METODOS_COBRO[0]) => {
+    const exists = pagos.find(p => p.payment_method === metodo.id);
+    if (exists) {
+      setPagos(prev => prev.filter(p => p.payment_method !== metodo.id));
+    } else {
+      const saldo = totales.total - pagos.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+      setPagos(prev => [...prev, {
+        _key:             Math.random().toString(36).slice(2),
+        payment_method:   metodo.id,
+        payment_provider: '',
+        amount:           String(Math.round(Math.max(0, saldo))),
+        commission_rate:  metodo.commRate,
+      }]);
+    }
+  };
+
+  const updatePagoAmount = (key: string, val: string) =>
+    setPagos(prev => prev.map(p => p._key === key ? { ...p, amount: val } : p));
 
   // ── Línea helpers ─────────────────────────────────────────────────────────────
   const updateLinea = (key: string, updates: Partial<LineaItem>) => {
@@ -926,6 +954,104 @@ export function ModalCrearComprobante({
                     <span style={{ fontSize: '1.625rem', fontWeight: 800, color: '#34d399', fontFamily: 'monospace' }}>{fmtARS(totales.total)}</span>
                   </div>
                 </div>
+              </div>
+
+              {/* BLOQUE COBRO */}
+              <div style={blockS}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Wallet size={14} style={{ color: '#34d399' }} />
+                  <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                    Cobro
+                  </span>
+                  <span style={{ fontSize: '0.7rem', color: '#475569', marginLeft: 'auto' }}>
+                    Seleccioná el método de cobro
+                  </span>
+                </div>
+
+                {/* Botones de métodos */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
+                  {METODOS_COBRO.map(m => {
+                    const activo = pagos.some(p => p.payment_method === m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => toggleMetodoCobro(m)}
+                        style={{
+                          padding: '0.35rem 0.75rem',
+                          borderRadius: '0.5rem',
+                          border: `1px solid ${activo ? m.color : 'rgba(255,255,255,0.1)'}`,
+                          backgroundColor: activo ? `${m.color}22` : 'transparent',
+                          color: activo ? m.color : '#64748b',
+                          fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer',
+                          transition: 'all 0.15s',
+                          display: 'flex', alignItems: 'center', gap: '0.3rem',
+                        }}
+                      >
+                        {m.label}
+                        {m.commRate > 0 && (
+                          <span style={{ fontSize: '0.65rem', opacity: 0.8 }}>
+                            +{(m.commRate * 100).toFixed(1)}%
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Detalle de pagos seleccionados */}
+                {pagos.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+                    {pagos.map(p => {
+                      const metInfo = METODOS_COBRO.find(m => m.id === p.payment_method);
+                      const amt = parseFloat(p.amount) || 0;
+                      const comm = amt * (p.commission_rate || 0);
+                      return (
+                        <div key={p._key} style={{ display: 'grid', gridTemplateColumns: '1fr 120px 30px', gap: '0.375rem', alignItems: 'center' }}>
+                          <div style={{ fontSize: '0.8rem', color: metInfo?.color ?? '#94a3b8', fontWeight: 600 }}>
+                            {metInfo?.label}
+                            {comm > 0 && (
+                              <span style={{ fontSize: '0.7rem', color: '#f59e0b', marginLeft: '0.4rem' }}>
+                                comisión: {fmtARS(comm)}
+                              </span>
+                            )}
+                          </div>
+                          <input
+                            type="number" min="0" step="1"
+                            value={p.amount}
+                            onChange={e => updatePagoAmount(p._key, e.target.value)}
+                            style={{ ...inputS, padding: '0.375rem', textAlign: 'right', fontFamily: 'monospace', fontSize: '0.82rem' }}
+                          />
+                          <button
+                            onClick={() => setPagos(prev => prev.filter(x => x._key !== p._key))}
+                            style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0.2rem' }}
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      );
+                    })}
+
+                    {/* Totales de cobro */}
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      {totales.totalComision > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                          <span style={{ color: '#f59e0b' }}>Comisión total</span>
+                          <span style={{ fontFamily: 'monospace', color: '#f59e0b' }}>−{fmtARS(totales.totalComision)}</span>
+                        </div>
+                      )}
+                      {totales.saldo > 1 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                          <span style={{ color: '#f87171' }}>Saldo pendiente</span>
+                          <span style={{ fontFamily: 'monospace', color: '#f87171' }}>{fmtARS(totales.saldo)}</span>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem' }}>
+                        <span style={{ color: '#94a3b8', fontWeight: 600 }}>Neto a recibir</span>
+                        <span style={{ fontFamily: 'monospace', color: '#34d399', fontWeight: 700 }}>{fmtARS(totales.totalNeto)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* BLOQUE 4 · FISCAL (si aplica) */}
