@@ -32,12 +32,16 @@ function fmtDate(iso: string): string {
 const stylesheet = `
 @page {
   size: A4 portrait;
-  margin: 10mm;
+  /* margin: 0 suprime los headers/footers del browser (URL, fecha, numeración) */
+  margin: 0;
 }
 
+/* Compensa el margin: 0 de @page con padding en el root */
 .wp-root {
   width: 190mm;
   margin: 0 auto;
+  padding: 10mm;
+  box-sizing: border-box;
   background: #ffffff;
   color: #111827;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -358,26 +362,6 @@ function Copy(props: {
 
   return (
     <div className="wp-copy">
-      {/* Header del negocio */}
-      <div className="wp-header">
-        {settings.orden_mostrar_logo && settings.logo_url ? (
-          <img src={settings.logo_url} alt="logo" className="wp-logo" />
-        ) : null}
-        <div className="wp-biz" style={{ flex: 1 }}>
-          <h1>{settings.nombre_comercial || 'Mi Negocio'}</h1>
-          {settings.orden_mostrar_direccion && addressLine && (
-            <p className="wp-sub">{addressLine}</p>
-          )}
-          {contactParts.length > 0 && (
-            <div className="wp-contact">
-              {contactParts.map((c, i) => (
-                <span key={i}>{c}</span>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* Title */}
       <div className="wp-title-row">
         <div>
@@ -506,7 +490,9 @@ function Copy(props: {
         </div>
       </div>
 
-      {settings.orden_mostrar_agradecimiento &&
+      {/* Mensaje de agradecimiento solo en la copia del cliente */}
+      {copyLabel === 'cliente' &&
+        settings.orden_mostrar_agradecimiento &&
         settings.orden_mensaje_agradecimiento && (
           <div className="wp-thanks">{settings.orden_mensaje_agradecimiento}</div>
         )}
@@ -518,9 +504,42 @@ function Copy(props: {
 
 export const WarrantyPrintLayout = React.forwardRef<HTMLDivElement, WarrantyPrintLayoutProps>(
   ({ warranty, settings, duplicate = true }, ref) => {
+    const contactParts: string[] = []
+    if (settings.orden_mostrar_whatsapp && settings.orden_whatsapp)
+      contactParts.push(`WhatsApp: ${settings.orden_whatsapp}`)
+    if (settings.orden_mostrar_instagram && settings.orden_instagram)
+      contactParts.push(`IG: ${settings.orden_instagram}`)
+    if (settings.orden_mostrar_email && settings.orden_email_visible)
+      contactParts.push(settings.orden_email_visible)
+    if (settings.orden_mostrar_sitio_web && settings.orden_sitio_web)
+      contactParts.push(settings.orden_sitio_web)
+
+    const addressLine = [settings.domicilio_fiscal, settings.localidad, settings.provincia]
+      .filter(Boolean)
+      .join(' · ')
+
     return (
       <div ref={ref} className="wp-root">
         <style>{stylesheet}</style>
+
+        {/* Header del negocio — una sola vez al inicio */}
+        <div className="wp-header">
+          {settings.orden_mostrar_logo && settings.logo_url ? (
+            <img src={settings.logo_url} alt="logo" className="wp-logo" />
+          ) : null}
+          <div className="wp-biz" style={{ flex: 1 }}>
+            <h1>{settings.nombre_comercial || 'Mi Negocio'}</h1>
+            {settings.orden_mostrar_direccion && addressLine && (
+              <p className="wp-sub">{addressLine}</p>
+            )}
+            {contactParts.length > 0 && (
+              <div className="wp-contact">
+                {contactParts.map((c, i) => <span key={i}>{c}</span>)}
+              </div>
+            )}
+          </div>
+        </div>
+
         <Copy warranty={warranty} settings={settings} copyLabel="cliente" />
         {duplicate && (
           <>
