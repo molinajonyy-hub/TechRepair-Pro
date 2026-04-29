@@ -41,30 +41,39 @@ export function AppBadge({ children, variant = 'neutral', noDot = false, classNa
 
 // Estados de órdenes
 const ORDER_STATUS: Record<string, { label: string; variant: BadgeVariant }> = {
-  received:          { label: 'Recibido',           variant: 'neutral' },
+  received:          { label: 'Recibida',           variant: 'info' },
   diagnosis:         { label: 'En diagnóstico',     variant: 'diagnosis' },
   repair:            { label: 'En reparación',      variant: 'in-progress' },
   waiting_parts:     { label: 'Esp. repuesto',      variant: 'warning' },
-  ready:             { label: 'Listo para retirar', variant: 'ready' },
-  delivered:         { label: 'Entregado',          variant: 'success' },
-  cancelled:         { label: 'Cancelado',          variant: 'cancelled' },
+  ready:             { label: 'Lista para retirar', variant: 'ready' },
+  delivered:         { label: 'Entregada',          variant: 'success' },
+  cancelled:         { label: 'Cancelada',          variant: 'cancelled' },
   // aliases en inglés/español usados en la DB
+  new:               { label: 'Nueva',              variant: 'info' },
   pending:           { label: 'Pendiente',          variant: 'warning' },
   in_progress:       { label: 'En progreso',        variant: 'in-progress' },
-  completed:         { label: 'Completado',         variant: 'success' },
+  completed:         { label: 'Completada',         variant: 'success' },
   in_repair:         { label: 'En reparación',      variant: 'in-progress' },
   waiting_for_parts: { label: 'Esp. repuesto',      variant: 'warning' },
+  listo:             { label: 'Lista',              variant: 'ready' },
+  entregado:         { label: 'Entregada',          variant: 'success' },
 }
 
 // Estados de comprobantes
 const COMPROBANTE_STATUS: Record<string, { label: string; variant: BadgeVariant }> = {
-  draft:     { label: 'Borrador', variant: 'neutral' },
-  borrador:  { label: 'Borrador', variant: 'neutral' },
-  issued:    { label: 'Emitido',  variant: 'success' },
-  emitido:   { label: 'Emitido',  variant: 'success' },
-  cancelled: { label: 'Anulado',  variant: 'error' },
-  anulado:   { label: 'Anulado',  variant: 'error' },
-  pending:   { label: 'Pendiente',variant: 'warning' },
+  draft:     { label: 'Borrador',  variant: 'neutral' },
+  borrador:  { label: 'Borrador',  variant: 'neutral' },
+  issued:    { label: 'Emitido',   variant: 'success' },
+  emitido:   { label: 'Emitido',   variant: 'success' },
+  cancelled: { label: 'Anulado',   variant: 'error' },
+  anulado:   { label: 'Anulado',   variant: 'error' },
+  pending:   { label: 'Pendiente', variant: 'warning' },
+  // estado_comercial
+  pagado:    { label: 'Pagado',    variant: 'success' },
+  paid:      { label: 'Pagado',    variant: 'success' },
+  parcial:   { label: 'Parcial',   variant: 'cyan' },
+  partial:   { label: 'Parcial',   variant: 'cyan' },
+  pendiente: { label: 'Pendiente', variant: 'warning' },
 }
 
 // Estados de pagos

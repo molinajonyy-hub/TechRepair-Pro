@@ -11,6 +11,7 @@ import {
   AppPageHeader, AppSectionHeader,
   AppTabs, AppStatusBadge,
   AppEmptyState, AppLoadingState, AppErrorState,
+  TableActions,
 } from '../ui'
 import {
   NewOrderIcon, FinanceIcon, InvoiceIcon,
@@ -18,7 +19,19 @@ import {
   RefreshIcon, NewClientIcon, WarrantyIcon,
   ExpenseReceiptIcon, AvailableIcon, ViewIcon, HideIcon,
   CloseLockIcon as LockIcon, DashboardIcon, CurrencyIcon,
+  PrintIcon,
 } from '../ui/icons'
+
+// ─── Labels de tipos de comprobante ──────────────────────────────────────────
+const TIPO_LABELS: Record<string, string> = {
+  factura_a:    'Factura A',
+  factura_b:    'Factura B',
+  factura_c:    'Factura C',
+  remito:       'Remito',
+  nota_credito: 'Nota de Crédito',
+  presupuesto:  'Presupuesto',
+  ticket:       'Ticket',
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -443,31 +456,39 @@ export function Dashboard() {
           {/* Tab: Órdenes */}
           {activeTab === 'orders' && (
             recentOrders.length === 0
-              ? <AppEmptyState icon={<OrderIcon size={24} />} title="No hay órdenes registradas" compact />
+              ? <AppEmptyState icon={<OrderIcon size={24} />} title="No hay órdenes registradas" compact
+                  action={{ label: 'Nueva orden', icon: <NewOrderIcon size={14} />, onClick: () => navigate('/orders/new') }} />
               : (
-                <table className="table">
+                <table className="table table-clickable">
                   <thead>
                     <tr>
-                      {['Orden', 'Cliente', 'Dispositivo', 'Estado', 'Fecha'].map(h => (
-                        <th key={h}>{h}</th>
-                      ))}
+                      <th>Orden</th>
+                      <th>Cliente</th>
+                      <th className="hide-mobile">Dispositivo</th>
+                      <th>Estado</th>
+                      <th className="hide-mobile">Fecha</th>
+                      <th style={{ textAlign: 'right' }}></th>
                     </tr>
                   </thead>
                   <tbody>
                     {recentOrders.map(order => (
-                      <tr key={order.id}>
+                      <tr key={order.id} onClick={() => navigate(`/orders/${order.id}`)}>
                         <td>
-                          <Link to={`/orders/${order.id}`} style={{ color: 'var(--accent-primary)', fontWeight: 600, textDecoration: 'none' }}>
+                          <span style={{ color: 'var(--accent-primary)', fontWeight: 700, fontSize: '0.875rem' }}>
                             #{order.id.slice(0, 8).toUpperCase()}
-                          </Link>
+                          </span>
                         </td>
-                        <td>{order.customer_name || '—'}</td>
-                        <td>{order.device_label || '—'}</td>
-                        <td>
-                          <AppStatusBadge status={order.status} type="order" />
-                        </td>
-                        <td style={{ color: 'var(--text-subtle)', fontSize: '0.8rem' }}>
+                        <td style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{order.customer_name || '—'}</td>
+                        <td className="hide-mobile" style={{ color: 'var(--text-secondary)' }}>{order.device_label || '—'}</td>
+                        <td><AppStatusBadge status={order.status} type="order" /></td>
+                        <td className="hide-mobile" style={{ color: 'var(--text-subtle)', fontSize: '0.8rem' }}>
                           {fmtDate(order.created_at)}
+                        </td>
+                        <td onClick={e => e.stopPropagation()}>
+                          <TableActions>
+                            <AppIconButton icon={<ViewIcon size={13} />} label="Ver orden" size="xs"
+                              onClick={() => navigate(`/orders/${order.id}`)} />
+                          </TableActions>
                         </td>
                       </tr>
                     ))}
@@ -479,26 +500,45 @@ export function Dashboard() {
           {/* Tab: Comprobantes */}
           {activeTab === 'comprobantes' && (
             comprobantes.length === 0
-              ? <AppEmptyState icon={<ExpenseReceiptIcon size={24} />} title="No hay comprobantes registrados" compact />
+              ? <AppEmptyState icon={<ExpenseReceiptIcon size={24} />} title="No hay comprobantes registrados" compact
+                  action={{ label: 'Nuevo comprobante', icon: <InvoiceIcon size={14} />, onClick: () => navigate('/comprobantes', { state: { openNew: true } }) }} />
               : (
-                <table className="table">
+                <table className="table table-clickable">
                   <thead>
                     <tr>
-                      {['Tipo', 'Total', 'Estado', 'Fecha'].map(h => <th key={h}>{h}</th>)}
+                      <th>Tipo</th>
+                      <th className="hide-mobile">Cliente</th>
+                      <th style={{ textAlign: 'right' }}>Total</th>
+                      <th>Estado</th>
+                      <th className="hide-mobile">Fecha</th>
+                      <th style={{ textAlign: 'right' }}></th>
                     </tr>
                   </thead>
                   <tbody>
                     {comprobantes.slice(0, 8).map(comp => (
-                      <tr key={comp.id}>
-                        <td style={{ fontWeight: 600, textTransform: 'uppercase', fontSize: '0.78rem', color: 'var(--text-primary)' }}>
-                          {comp.tipo?.replace('_', ' ') || '—'}
+                      <tr key={comp.id} onClick={() => navigate(`/comprobantes/${comp.id}`)}>
+                        <td>
+                          <span className="tipo-chip">
+                            {TIPO_LABELS[comp.tipo || ''] || (comp.tipo?.replace(/_/g, ' ') || '—')}
+                          </span>
                         </td>
-                        <td style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
-                          ${comp.total?.toLocaleString('es-AR') || '0'}
+                        <td className="hide-mobile" style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                          {(comp as any).customer?.name || 'Consumidor Final'}
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.9375rem' }}>
+                          {fmtARS(comp.total || 0)}
                         </td>
                         <td><AppStatusBadge status={comp.estado || ''} type="comprobante" /></td>
-                        <td style={{ color: 'var(--text-subtle)', fontSize: '0.8rem' }}>
+                        <td className="hide-mobile" style={{ color: 'var(--text-subtle)', fontSize: '0.8rem' }}>
                           {fmtDate(comp.created_at)}
+                        </td>
+                        <td onClick={e => e.stopPropagation()}>
+                          <TableActions>
+                            <AppIconButton icon={<ViewIcon size={13} />} label="Ver comprobante" size="xs"
+                              onClick={() => navigate(`/comprobantes/${comp.id}`)} />
+                            <AppIconButton icon={<PrintIcon size={13} />} label="Imprimir" size="xs"
+                              onClick={() => window.open(`/comprobantes/${comp.id}?print=1`, '_blank')} />
+                          </TableActions>
                         </td>
                       </tr>
                     ))}
@@ -522,26 +562,32 @@ export function Dashboard() {
                   <table className="table">
                     <thead>
                       <tr>
-                        {['Tipo', 'Descripción', 'Monto', 'Hora'].map(h => <th key={h}>{h}</th>)}
+                        <th>Tipo</th>
+                        <th>Descripción</th>
+                        <th style={{ textAlign: 'right' }}>Monto</th>
+                        <th className="hide-mobile">Hora</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {movimientosCaja.map(mov => (
-                        <tr key={mov.id}>
-                          <td>
-                            <span className={`badge badge-no-dot ${mov.type === 'income' ? 'badge-success' : 'badge-error'}`}>
-                              {mov.type === 'income' ? 'Ingreso' : 'Egreso'}
-                            </span>
-                          </td>
-                          <td style={{ color: 'var(--text-secondary)' }}>{mov.description || '—'}</td>
-                          <td style={{ fontWeight: 700, color: mov.type === 'income' ? 'var(--success)' : 'var(--error)' }}>
-                            {mov.type === 'income' ? '+' : '-'}{fmtARS(Math.abs(mov.amount_ars || mov.amount || 0))}
-                          </td>
-                          <td style={{ color: 'var(--text-subtle)', fontSize: '0.8rem' }}>
-                            {new Date(mov.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-                          </td>
-                        </tr>
-                      ))}
+                      {movimientosCaja.map(mov => {
+                        const isIn = mov.type === 'income' || mov.type === 'in'
+                        return (
+                          <tr key={mov.id}>
+                            <td>
+                              <span className={`badge badge-no-dot ${isIn ? 'badge-success' : 'badge-error'}`}>
+                                {isIn ? 'Ingreso' : 'Egreso'}
+                              </span>
+                            </td>
+                            <td style={{ color: 'var(--text-secondary)' }}>{mov.description || '—'}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 700, color: isIn ? 'var(--success)' : 'var(--error)', fontSize: '0.9375rem' }}>
+                              {isIn ? '+' : '-'}{fmtARS(Math.abs(mov.amount_ars || mov.amount || 0))}
+                            </td>
+                            <td className="hide-mobile" style={{ color: 'var(--text-subtle)', fontSize: '0.8rem' }}>
+                              {new Date(mov.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 )

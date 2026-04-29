@@ -930,7 +930,9 @@ table { width: 100%; border-collapse: collapse; }
 }
 
 .badge-neutral, .badge-new, .badge-low {
-  color: var(--text-tertiary); background: rgba(255,255,255,0.05); border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  background: rgba(148, 163, 184, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.28);
 }
 
 .badge-cyan {
@@ -1495,6 +1497,23 @@ table { width: 100%; border-collapse: collapse; }
 
 /* border-error helper */
 .border-error { border-color: var(--error) !important; }
+
+/* Tabla interactiva — filas con cursor pointer y hover */
+.table-clickable tbody tr { cursor: pointer; }
+.table-clickable tbody tr:hover td { background: var(--bg-hover); color: var(--text-primary); }
+
+/* Tipo-chip — etiqueta compacta para tipos de comprobante */
+.tipo-chip {
+  display: inline-flex; align-items: center;
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.68rem; font-weight: 700;
+  letter-spacing: 0.05em; text-transform: uppercase;
+  background: var(--accent-primary-subtle);
+  color: var(--accent-primary);
+  border: 1px solid var(--accent-primary-light);
+  white-space: nowrap;
+}
 
 /* Responsive page-shell */
 @media (max-width: 767px) {
