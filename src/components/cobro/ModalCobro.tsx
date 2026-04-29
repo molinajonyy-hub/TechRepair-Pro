@@ -279,9 +279,9 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
   const buscarProducto = useCallback((itemId: string, q: string) => {
     setProdQ(prev => ({ ...prev, [itemId]: q }))
     clearTimeout(prodTimers.current[itemId])
-    if (!q.trim() || !businessId) { setProdResults(prev => ({ ...prev, [itemId]: [] })); return }
+    if (q.trim().length < 2 || !businessId) { setProdResults(prev => ({ ...prev, [itemId]: [] })); return }
     prodTimers.current[itemId] = setTimeout(async () => {
-      const { data } = await supabase.from('inventory').select('id, name, sale_price, precio_mayorista, stock_quantity').eq('business_id', businessId).eq('is_active', true).ilike('name', `%${q}%`).gt('stock_quantity', 0).limit(6)
+      const { data } = await supabase.from('inventory').select('id, name, sale_price, precio_mayorista, stock_quantity').eq('business_id', businessId).eq('is_active', true).or('has_variants.eq.false,has_variants.is.null').ilike('name', `%${q}%`).gt('stock_quantity', 0).limit(6)
       setProdResults(prev => ({ ...prev, [itemId]: data || [] }))
     }, 200)
   }, [businessId])

@@ -34,6 +34,7 @@ interface InventoryResult {
   precio_mayorista?: number | null;
   base_price?: number | null;
   base_currency?: string | null;
+  has_variants?: boolean | null;
 }
 
 interface ClienteOption { id: string; name: string; cuit?: string; customer_type?: string }
@@ -254,16 +255,19 @@ export function ModalCrearComprobante({
 
   // ── Búsqueda de inventario ─────────────────────────────────────────────────────
   const searchInventory = useCallback(async (q: string) => {
-    if (q.length < 1) { setSearchResults([]); return; }
+    // Mínimo 2 chars para evitar queries demasiado amplias (bug 13)
+    if (q.length < 2) { setSearchResults([]); return; }
     setSearchLoading(true);
     try {
       // Usa el token más largo para la query DB (más selectivo), luego smartSearch client-side
       const dbQ = buildSupabaseQuery(q);
       const { data } = await supabase
         .from('inventory')
-        .select('id, code, name, variant_name, category, stock_quantity, cost_price, sale_price, precio_mayorista, base_price, base_currency')
+        .select('id, code, name, variant_name, category, stock_quantity, cost_price, sale_price, precio_mayorista, base_price, base_currency, has_variants')
         .eq('business_id', businessId)
         .eq('is_active', true)
+        // Bug 11: excluir productos padre (has_variants=true) — solo mostrar productos simples y variantes concretas
+        .or('has_variants.eq.false,has_variants.is.null')
         .or(`name.ilike.${dbQ},variant_name.ilike.${dbQ},code.ilike.${dbQ},category.ilike.${dbQ}`)
         .limit(40);
 
