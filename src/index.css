@@ -1461,6 +1461,50 @@ table { width: 100%; border-collapse: collapse; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   UI COMPONENT SYSTEM — helpers para src/ui/
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* animate-spin — usado por AppButton loading */
+.animate-spin { animation: spin 0.9s linear infinite; }
+
+/* Modal con flex-column (header + body scrolleable + footer fijo) */
+.modal-content-responsive {
+  display: flex;
+  flex-direction: column;
+}
+.modal-content-responsive .modal-body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.modal-content-responsive .modal-footer {
+  flex-shrink: 0;
+}
+
+/* Toolbar row — barra de búsqueda/filtros */
+.toolbar-row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+/* Form section divider */
+.form-section + .form-section { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-subtle); }
+
+/* border-error helper */
+.border-error { border-color: var(--error) !important; }
+
+/* Responsive page-shell */
+@media (max-width: 767px) {
+  .page-shell { padding: 1rem; }
+}
+@media (max-width: 479px) {
+  .page-shell { padding: 0.75rem 0.625rem; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    PRINT
    ══════════════════════════════════════════════════════════════════════════ */
 
