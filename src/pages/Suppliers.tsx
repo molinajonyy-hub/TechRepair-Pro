@@ -2,16 +2,15 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   Truck, Plus, Search, Edit2, Trash2, Eye, ChevronLeft,
   Phone, Mail, MapPin, AlertCircle,
-  CheckCircle, Clock, X, Package, CreditCard, MessageCircle,
+  CheckCircle, Clock, X, CreditCard, MessageCircle,
   FileText, TrendingUp, ShoppingCart, Banknote, RefreshCw,
-  ExternalLink, ChevronDown,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { smartSearch, buildSupabaseQuery } from '../utils/searchUtils'
 import suppliersService, {
-  type Supplier, type SupplierWithStats,
-  type SupplierPurchase, type SupplierPurchaseItem,
+  type SupplierWithStats,
+  type SupplierPurchase,
   type SupplierPayment, type AccountMovement,
 } from '../services/suppliersService'
 
@@ -87,9 +86,27 @@ function ModalOverlay({ onClose, children, maxWidth = '640px' }: { onClose: () =
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{ background: '#0d1a30', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '1.25rem', width: '100%', maxWidth, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 32px 64px rgba(0,0,0,0.6)' }}>
+      <div style={{ background: '#0d1a30', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '1.25rem', width: '100%', maxWidth, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 32px 64px rgba(0,0,0,0.6)' }}>
         {children}
       </div>
+    </div>
+  )
+}
+
+/** Área de contenido scrolleable — se usa dentro de ModalOverlay para que el header/footer queden fijos */
+function ModalBody({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {children}
+    </div>
+  )
+}
+
+/** Footer fijo al fondo del modal */
+function ModalFooter({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.07)', background: '#0d1a30', borderRadius: '0 0 1.25rem 1.25rem' }}>
+      {children}
     </div>
   )
 }
@@ -175,7 +192,7 @@ function ModalSupplierForm({ onClose, onSaved, editing, businessId, userId }: Mo
       <ModalHeader title={editing ? 'Editar proveedor' : 'Nuevo proveedor'} subtitle="Datos del proveedor" icon={<Truck size={18} style={{ color: '#818cf8' }} />} onClose={onClose} />
 
       {/* Tabs internos */}
-      <div style={{ display: 'flex', gap: '0.25rem', padding: '1rem 1.5rem 0', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+      <div style={{ display: 'flex', gap: '0.25rem', padding: '1rem 1.5rem 0', borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
         {(['principal', 'comercial'] as const).map(s => (
           <button key={s} onClick={() => setSection(s)} style={{ padding: '0.5rem 1rem', borderRadius: '0.5rem 0.5rem 0 0', border: 'none', background: section === s ? 'rgba(99,102,241,0.15)' : 'transparent', color: section === s ? '#818cf8' : '#64748b', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}>
             {s === 'principal' ? 'Datos principales' : 'Datos comerciales'}
@@ -183,7 +200,7 @@ function ModalSupplierForm({ onClose, onSaved, editing, businessId, userId }: Mo
         ))}
       </div>
 
-      <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <ModalBody>
         {section === 'principal' ? (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -240,17 +257,16 @@ function ModalSupplierForm({ onClose, onSaved, editing, businessId, userId }: Mo
             </div>
           </>
         )}
-      </div>
+        {error && <p style={{ margin: 0, color: '#ef4444', fontSize: '0.8rem' }}>{error}</p>}
+      </ModalBody>
 
-      {error && <p style={{ margin: '0 1.5rem', color: '#ef4444', fontSize: '0.8rem' }}>{error}</p>}
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+      <ModalFooter>
         <button style={btnSecondary} onClick={onClose}>Cancelar</button>
         <button style={btnPrimary} onClick={handleSave} disabled={saving}>
           {saving ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
           {saving ? 'Guardando...' : editing ? 'Guardar cambios' : 'Crear proveedor'}
         </button>
-      </div>
+      </ModalFooter>
     </ModalOverlay>
   )
 }
@@ -342,7 +358,7 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
     <ModalOverlay onClose={onClose} maxWidth="780px">
       <ModalHeader title="Nueva compra" subtitle={`Registrar compra a ${supplier.name}`} icon={<ShoppingCart size={18} style={{ color: '#818cf8' }} />} onClose={onClose} />
 
-      <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      <ModalBody>
 
         {/* Encabezado de compra */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
@@ -447,17 +463,16 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
           <label style={labelS}>Notas</label>
           <textarea style={{ ...inputS, minHeight: 64, resize: 'vertical' as const }} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observaciones de la compra..." />
         </div>
-      </div>
+        {error && <p style={{ margin: 0, color: '#ef4444', fontSize: '0.8rem' }}>{error}</p>}
+      </ModalBody>
 
-      {error && <p style={{ margin: '0 1.5rem', color: '#ef4444', fontSize: '0.8rem' }}>{error}</p>}
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+      <ModalFooter>
         <button style={btnSecondary} onClick={onClose}>Cancelar</button>
         <button style={btnPrimary} onClick={handleSave} disabled={saving}>
           {saving ? <RefreshCw size={14} className="animate-spin" /> : <ShoppingCart size={14} />}
           {saving ? 'Guardando...' : 'Registrar compra'}
         </button>
-      </div>
+      </ModalFooter>
     </ModalOverlay>
   )
 }
@@ -505,7 +520,7 @@ function ModalRegistrarPago({ onClose, onSaved, supplier, purchases, businessId,
     <ModalOverlay onClose={onClose} maxWidth="520px">
       <ModalHeader title="Registrar pago" subtitle={`Pago a ${supplier.name}`} icon={<Banknote size={18} style={{ color: '#22c55e' }} />} onClose={onClose} />
 
-      <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <ModalBody>
         <div style={{ ...cardS, background: 'rgba(239,68,68,0.06)', borderColor: 'rgba(239,68,68,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Saldo pendiente con proveedor</span>
           <span style={{ fontSize: '1.25rem', fontWeight: 800, color: '#ef4444' }}>{fmtARS(supplier.pending_amount)}</span>
@@ -548,17 +563,16 @@ function ModalRegistrarPago({ onClose, onSaved, supplier, purchases, businessId,
           <label style={labelS}>Notas</label>
           <textarea style={{ ...inputS, minHeight: 64, resize: 'vertical' as const }} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observaciones del pago..." />
         </div>
-      </div>
+        {error && <p style={{ margin: 0, color: '#ef4444', fontSize: '0.8rem' }}>{error}</p>}
+      </ModalBody>
 
-      {error && <p style={{ margin: '0 1.5rem', color: '#ef4444', fontSize: '0.8rem' }}>{error}</p>}
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+      <ModalFooter>
         <button style={btnSecondary} onClick={onClose}>Cancelar</button>
         <button style={{ ...btnPrimary, background: 'linear-gradient(135deg,#22c55e,#16a34a)' }} onClick={handleSave} disabled={saving}>
           {saving ? <RefreshCw size={14} className="animate-spin" /> : <Banknote size={14} />}
           {saving ? 'Guardando...' : 'Registrar pago'}
         </button>
-      </div>
+      </ModalFooter>
     </ModalOverlay>
   )
 }
@@ -570,7 +584,7 @@ function ModalVerCompra({ purchase, onClose }: { purchase: SupplierPurchase; onC
     <ModalOverlay onClose={onClose} maxWidth="620px">
       <ModalHeader title={`Compra${purchase.invoice_number ? ' #' + purchase.invoice_number : ''}`} subtitle={fmtDate(purchase.purchase_date)} icon={<FileText size={18} style={{ color: '#818cf8' }} />} onClose={onClose} />
 
-      <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      <ModalBody>
         {/* Items */}
         <div>
           <label style={labelS}>Productos</label>
@@ -628,11 +642,11 @@ function ModalVerCompra({ purchase, onClose }: { purchase: SupplierPurchase; onC
             <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.875rem' }}>{purchase.notes}</p>
           </div>
         )}
-      </div>
+      </ModalBody>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+      <ModalFooter>
         <button style={btnSecondary} onClick={onClose}>Cerrar</button>
-      </div>
+      </ModalFooter>
     </ModalOverlay>
   )
 }

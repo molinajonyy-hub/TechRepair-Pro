@@ -258,14 +258,14 @@ export const suppliersService = {
     // 1. Crear compra
     const { data: purchase, error: purchaseErr } = await supabase
       .from('supplier_purchases')
-      .insert({ business_id, supplier_id, purchase_date, invoice_number: invoice_number || null, total_amount, paid_amount, pending_amount, payment_status, payment_method: payment_method || null, notes: notes || null, created_by: userId })
+      .insert({ business_id: businessId, supplier_id, purchase_date, invoice_number: invoice_number || null, total_amount, paid_amount, pending_amount, payment_status, payment_method: payment_method || null, notes: notes || null, created_by: userId })
       .select().single();
     if (purchaseErr || !purchase) throw new Error(purchaseErr?.message || 'Error al crear compra');
 
     // 2. Insertar ítems y actualizar stock
     if (items.length > 0) {
       const itemsRows = items.map(item => ({
-        business_id, purchase_id: purchase.id, supplier_id,
+        business_id: businessId, purchase_id: purchase.id, supplier_id,
         inventory_id: item.inventory_id || null,
         product_name: item.product_name,
         quantity: item.quantity,
@@ -308,7 +308,7 @@ export const suppliersService = {
     return data as SupplierPurchase;
   },
 
-  async cancelPurchase(purchaseId: string, businessId: string, userId: string): Promise<void> {
+  async cancelPurchase(purchaseId: string, businessId: string, _userId: string): Promise<void> {
     const purchase = await this.getPurchaseWithItems(purchaseId, businessId);
     if (!purchase) throw new Error('Compra no encontrada');
 
@@ -347,7 +347,7 @@ export const suppliersService = {
     // 1. Insertar pago
     const { data: payment, error } = await supabase
       .from('supplier_payments')
-      .insert({ business_id, supplier_id, purchase_id: purchase_id || null, payment_date, amount, payment_method, notes: notes || null, created_by: userId })
+      .insert({ business_id: businessId, supplier_id, purchase_id: purchase_id || null, payment_date, amount, payment_method, notes: notes || null, created_by: userId })
       .select().single();
     if (error || !payment) throw new Error(error?.message || 'Error al registrar pago');
 
