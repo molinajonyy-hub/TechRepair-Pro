@@ -476,8 +476,8 @@ export const comprobanteService = {
         });
       }
 
-      // ── 9. Registrar ingreso en finanzas y movimiento de caja ────────────────
-      if (estadoDefinitivo === 'issued' && !skip_finance_entry) {
+      // ── 9. Registrar ingreso en finanzas (solo si no hay pagos; con pagos lo maneja el trigger)
+      if (estadoDefinitivo === 'issued' && !skip_finance_entry && pagos.length === 0) {
         const today = new Date().toISOString().split('T')[0];
         const desc  = `Comprobante #${numero}`;
 

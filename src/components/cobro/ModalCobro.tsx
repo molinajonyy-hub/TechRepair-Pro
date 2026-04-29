@@ -10,6 +10,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { invalidateStatsCache } from '../../hooks/useDashboardStats'
 import { useCommissionRates, COMMISSION_KEYS } from '../../hooks/useCommissionRates'
 import comprobanteService from '../../services/comprobanteService'
+import { buildSupabaseQuery, smartSearch } from '../../utils/searchUtils'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,8 @@ interface CobroItem {
   nombre: string
   cantidad: number
   precio: number
+  inventory_id?: string
+  costo_unitario?: number
 }
 
 interface PagoEntry {
@@ -248,10 +251,19 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
     clearTimeout(clienteTimer.current)
     if (!q.trim() || !businessId) { setClientes([]); return }
     clienteTimer.current = setTimeout(async () => {
-
-      const { data } = await supabase.from('customers').select('id, name, phone, email, customer_type').eq('business_id', businessId).or(`name.ilike.%${q}%,phone.ilike.%${q}%`).limit(5)
-      setClientes(data || [])
-
+      const dbQ = `%${q.trim()}%`
+      const { data } = await supabase
+        .from('customers')
+        .select('id, name, phone, email, customer_type')
+        .eq('business_id', businessId)
+        .or(`name.ilike.${dbQ},phone.ilike.${dbQ},email.ilike.${dbQ}`)
+        .limit(20)
+      const sorted = smartSearch(data || [], q, [
+        { getValue: (c: any) => c.name, weight: 3 },
+        { getValue: (c: any) => c.phone, weight: 2 },
+        { getValue: (c: any) => c.email, weight: 1 },
+      ]).slice(0, 6)
+      setClientes(sorted)
     }, 250)
   }, [businessId])
 
@@ -281,16 +293,34 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
     clearTimeout(prodTimers.current[itemId])
     if (q.trim().length < 2 || !businessId) { setProdResults(prev => ({ ...prev, [itemId]: [] })); return }
     prodTimers.current[itemId] = setTimeout(async () => {
-      const { data } = await supabase.from('inventory').select('id, name, sale_price, precio_mayorista, stock_quantity').eq('business_id', businessId).eq('is_active', true).or('has_variants.eq.false,has_variants.is.null').ilike('name', `%${q}%`).gt('stock_quantity', 0).limit(6)
-      setProdResults(prev => ({ ...prev, [itemId]: data || [] }))
+      const dbQ = buildSupabaseQuery(q)
+      const { data } = await supabase
+        .from('inventory')
+        .select('id, name, variant_name, code, sale_price, precio_mayorista, cost_price, stock_quantity')
+        .eq('business_id', businessId)
+        .eq('is_active', true)
+        .not('has_variants', 'is', true)
+        .or(`name.ilike.${dbQ},variant_name.ilike.${dbQ},code.ilike.${dbQ}`)
+        .gt('stock_quantity', 0)
+        .limit(25)
+      const sorted = smartSearch(data || [], q, [
+        { getValue: (p: any) => p.name, weight: 3 },
+        { getValue: (p: any) => p.variant_name, weight: 2 },
+        { getValue: (p: any) => p.code, weight: 1 },
+      ]).slice(0, 8)
+      setProdResults(prev => ({ ...prev, [itemId]: sorted }))
     }, 200)
   }, [businessId])
 
   const seleccionarProducto = (itemId: string, prod: any) => {
     const useMayorista = isClienteMayorista && prod.precio_mayorista != null
-    updateItem(itemId, 'nombre', prod.name)
-    updateItem(itemId, 'precio', useMayorista ? prod.precio_mayorista : (prod.sale_price || 0))
-    setProdQ(prev => ({ ...prev, [itemId]: '' }))
+    const nombre = prod.variant_name ? `${prod.name} — ${prod.variant_name}` : prod.name
+    const precio = useMayorista ? prod.precio_mayorista : (prod.sale_price || 0)
+    setItems(prev => prev.map(i => i.id === itemId
+      ? { ...i, nombre, precio, inventory_id: prod.id, costo_unitario: prod.cost_price || 0 }
+      : i
+    ))
+    setProdQ(prev => { const n = { ...prev }; delete n[itemId]; return n })
     setProdResults(prev => ({ ...prev, [itemId]: [] }))
   }
 
@@ -333,6 +363,8 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
     setError(null)
     try {
       const description = items.map(i => `${i.cantidad}x ${i.nombre}`).join(', ')
+
+      // Orden: registrar pago en order_payments (trigger maneja finanzas)
       if (origen === 'orden' && ordenSelec?.id) {
         if (mixto) {
           for (const pago of pagos) {
@@ -343,39 +375,13 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
         } else {
           await supabase.from('order_payments').insert({ order_id: ordenSelec.id, business_id: businessId, amount: totalCobrado, payment_method: activeMetodo, notes: description, payment_date: new Date().toISOString().split('T')[0] })
         }
-      } else {
-        const today = new Date().toISOString().split('T')[0]
-        if (mixto) {
-          for (const pago of pagos) {
-            const monto = pago.montoARS + (pago.usaUSD && dolar > 0 ? pago.montoUSD * dolar : 0)
-            if (monto <= 0) continue
-            await supabase.from('business_finance_entries').insert({
-              business_id: businessId, date: today, type: 'income',
-              category: origen === 'venta_rapida' ? 'ventas_productos' : 'servicios_tecnicos',
-              description, amount: monto, currency: 'ARS', amount_ars: monto, exchange_rate: 1,
-            })
-            await supabase.from('financial_movements').insert({
-              business_id: businessId, date: today, type: 'income',
-              currency: 'ARS', amount: monto, amount_ars: monto, exchange_rate: 1,
-              source: 'cobro_rapido', description,
-            })
-          }
-        } else {
-          await supabase.from('business_finance_entries').insert({
-            business_id: businessId, date: today, type: 'income',
-            category: origen === 'venta_rapida' ? 'ventas_productos' : 'servicios_tecnicos',
-            description, amount: totalCobrado, currency: 'ARS', amount_ars: totalCobrado, exchange_rate: 1,
-          })
-          await supabase.from('financial_movements').insert({
-            business_id: businessId, date: today, type: 'income',
-            currency: 'ARS', amount: totalCobrado, amount_ars: totalCobrado, exchange_rate: 1,
-            source: 'cobro_rapido', description,
-          })
-        }
       }
+      // Para venta_rapida y personalizado: las finanzas las registra el trigger
+      // trig_comprobante_payment_finance al insertar los pagos del comprobante.
+
       invalidateStatsCache()
 
-      // ── Auto-crear comprobante ──────────────────────────────────────────────
+      // ── Crear comprobante (genera finanzas vía trigger para no-orden) ────────
       try {
         if (!businessId) throw new Error('Sin businessId')
         const pagoMedio = mixto ? 'mixto' : (METODO_TO_MEDIO[activeMetodo] || 'otro')
@@ -395,10 +401,12 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
           customer_id:        clienteSelec?.id || null,
           order_id:           origen === 'orden' && ordenSelec?.id ? ordenSelec.id : null,
           items:              items.map(i => ({
-            descripcion:     i.nombre,
-            cantidad:        i.cantidad,
-            precio_unitario: i.precio,
-            tipo_linea:      origen === 'orden' ? 'servicio' : 'producto',
+            descripcion:      i.nombre,
+            cantidad:         i.cantidad,
+            precio_unitario:  i.precio,
+            tipo_linea:       origen === 'orden' ? 'servicio' : 'producto',
+            inventory_id:     i.inventory_id || null,
+            costo_unitario:   i.costo_unitario || 0,
           })),
           pagos:              pagosComp,
           business_id:        businessId!,
@@ -544,7 +552,7 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 60px 90px 32px', gap: '0.5rem', alignItems: 'center', position: 'relative' }}>
                         <div style={{ position: 'relative' }}>
                           <input
-                            value={prodQ[item.id] !== undefined ? prodQ[item.id] : item.nombre}
+                            value={item.id in prodQ ? prodQ[item.id] : item.nombre}
                             onChange={e => { updateItem(item.id, 'nombre', e.target.value); buscarProducto(item.id, e.target.value) }}
                             placeholder="Buscar producto o escribir concepto..."
                             style={inputS}
@@ -552,9 +560,14 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
                           {(prodResults[item.id]?.length ?? 0) > 0 && (
                             <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#0d1a30', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '0.5rem', overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.4)', marginTop: '0.2rem' }}>
                               {prodResults[item.id].map((p: any) => (
-                                <button key={p.id} type="button" onClick={() => seleccionarProducto(item.id, p)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)', textAlign: 'left' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                                  <span style={{ color: '#e2e8f0', fontSize: '0.83rem' }}>{p.name}</span>
-                                  <span style={{ flexShrink: 0, textAlign: 'right', marginLeft: '0.5rem' }}>
+                                <button key={p.id} type="button" onClick={() => seleccionarProducto(item.id, p)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)', textAlign: 'left', gap: '0.5rem' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'} onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                                  <span style={{ flex: 1, minWidth: 0 }}>
+                                    <span style={{ display: 'block', color: '#e2e8f0', fontSize: '0.83rem', whiteSpace: 'normal', lineHeight: 1.3 }}>
+                                      {p.name}{p.variant_name ? ` — ${p.variant_name}` : ''}
+                                    </span>
+                                    {p.code && <span style={{ color: '#475569', fontSize: '0.68rem' }}>{p.code}</span>}
+                                  </span>
+                                  <span style={{ flexShrink: 0, textAlign: 'right' }}>
                                     {isClienteMayorista && p.precio_mayorista != null ? (
                                       <span style={{ color: '#a5b4fc', fontSize: '0.78rem', fontWeight: 700 }}>
                                         ${(p.precio_mayorista).toLocaleString('es-AR')} <span style={{ color: '#475569', fontWeight: 400, fontSize: '0.68rem' }}>may.</span>
