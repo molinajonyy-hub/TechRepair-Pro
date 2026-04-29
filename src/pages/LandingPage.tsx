@@ -57,21 +57,21 @@ const PLANS = {
       name: 'Starter', badge: null,
       price: 9990, desc: 'Ideal para empezar a ordenar tu taller',
       color: '#64748b',
-      features: ['1 usuario', 'Órdenes de servicio', 'Clientes ilimitados', 'Stock básico', 'Impresión de tickets', 'Soporte por email'],
+      features: ['1 usuario', 'Órdenes de servicio digitales', 'Clientes con DNI/CUIT', 'Stock con variantes', 'Cobros con comisiones (MP/Visa)', 'Comprobante automático al cobrar', 'Garantías con impresión A4', 'Soporte por email'],
       cta: 'Empezar gratis',
     },
     {
       name: 'Pro', badge: 'Más elegido',
       price: 19990, desc: 'Para talleres en crecimiento con más control',
       color: '#6366f1',
-      features: ['Hasta 5 usuarios', 'Todo lo de Starter', 'Finanzas completas', 'Cuentas corrientes', 'WhatsApp automático', 'Reportes avanzados', 'Multimoneda ARS/USD', 'Soporte prioritario'],
+      features: ['Hasta 5 usuarios', 'Todo lo de Starter', 'Finanzas multimoneda ARS/USD', 'Caja diaria con dólar blue auto', 'Gastos recurrentes automáticos', 'Módulo Mayorista con precios USD', 'WhatsApp automático', 'Reportes avanzados', 'Soporte prioritario'],
       cta: 'Suscribirme',
     },
     {
       name: 'Elite', badge: null,
       price: 34990, desc: 'Gestión total con facturación oficial',
       color: '#a855f7',
-      features: ['Usuarios ilimitados', 'Todo lo de Pro', 'Facturación AFIP (ARCA)', 'Integraciones (MP, Excel)', 'API access', 'Soporte dedicado', 'Capacitación incluida', 'SLA garantizado'],
+      features: ['Usuarios ilimitados', 'Todo lo de Pro', 'Facturación electrónica ARCA/AFIP', 'CAE en tiempo real', 'Integraciones (MP, Excel)', 'API access', 'Soporte dedicado', 'Capacitación incluida', 'SLA garantizado'],
       cta: 'Suscribirme',
     },
   ],
@@ -80,21 +80,21 @@ const PLANS = {
       name: 'Starter', badge: null,
       price: 7990, desc: 'Ideal para empezar a ordenar tu taller',
       color: '#64748b',
-      features: ['1 usuario', 'Órdenes de servicio', 'Clientes ilimitados', 'Stock básico', 'Impresión de tickets', 'Soporte por email'],
+      features: ['1 usuario', 'Órdenes de servicio digitales', 'Clientes con DNI/CUIT', 'Stock con variantes', 'Cobros con comisiones (MP/Visa)', 'Comprobante automático al cobrar', 'Garantías con impresión A4', 'Soporte por email'],
       cta: 'Empezar gratis',
     },
     {
       name: 'Pro', badge: 'Más elegido',
       price: 15990, desc: 'Para talleres en crecimiento con más control',
       color: '#6366f1',
-      features: ['Hasta 5 usuarios', 'Todo lo de Starter', 'Finanzas completas', 'Cuentas corrientes', 'WhatsApp automático', 'Reportes avanzados', 'Multimoneda ARS/USD', 'Soporte prioritario'],
+      features: ['Hasta 5 usuarios', 'Todo lo de Starter', 'Finanzas multimoneda ARS/USD', 'Caja diaria con dólar blue auto', 'Gastos recurrentes automáticos', 'Módulo Mayorista con precios USD', 'WhatsApp automático', 'Reportes avanzados', 'Soporte prioritario'],
       cta: 'Suscribirme',
     },
     {
       name: 'Elite', badge: null,
       price: 27990, desc: 'Gestión total con facturación oficial',
       color: '#a855f7',
-      features: ['Usuarios ilimitados', 'Todo lo de Pro', 'Facturación AFIP (ARCA)', 'Integraciones (MP, Excel)', 'API access', 'Soporte dedicado', 'Capacitación incluida', 'SLA garantizado'],
+      features: ['Usuarios ilimitados', 'Todo lo de Pro', 'Facturación electrónica ARCA/AFIP', 'CAE en tiempo real', 'Integraciones (MP, Excel)', 'API access', 'Soporte dedicado', 'Capacitación incluida', 'SLA garantizado'],
       cta: 'Suscribirme',
     },
   ],
@@ -103,6 +103,8 @@ const PLANS = {
 const FAQS = [
   { q: '¿Tiene prueba gratis?', a: 'Sí, ofrecemos 14 días de prueba gratuita con acceso completo al plan Pro, sin necesidad de tarjeta de crédito.' },
   { q: '¿Necesito tarjeta de crédito para registrarme?', a: 'No. Podés probar TechRepair Pro 14 días sin ingresar datos de pago. Solo te pedimos email y nombre del negocio.' },
+  { q: '¿Cómo funcionan las comisiones de Mercado Pago, Visa y Naranja?', a: 'El sistema aplica automáticamente las tasas reales: MP débito 0.89%, MP crédito 3.99%, QR 0.99%, Visa/MC 1 cuota 10%, Naranja según cuotas. Podés configurarlas desde Ajustes → Comisiones.' },
+  { q: '¿Qué es el Módulo Mayorista?', a: 'Te permite definir un precio mayorista (en ARS o USD) para cada producto, marcar clientes como mayoristas, y generar precios en masa con margen sobre el costo. Al cobrar a un mayorista, aplica automáticamente esos precios.' },
   { q: '¿Puedo cancelar cuando quiera?', a: 'Claro. No hay contratos ni penalidades. Cancelás en cualquier momento desde tu panel de configuración, sin vueltas.' },
   { q: '¿Funciona desde el celular o tablet?', a: 'Sí, es 100% responsive. Podés gestionar órdenes, ver el stock y consultar finanzas desde cualquier dispositivo con internet.' },
   { q: '¿Incluye soporte técnico?', a: 'Todos los planes incluyen soporte. El plan Starter tiene soporte por email, el Pro es prioritario y el Elite incluye soporte dedicado con SLA.' },
@@ -473,8 +475,8 @@ function Hero({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
                 margin: 0,
                 maxWidth: '500px',
               }}>
-                Órdenes, clientes, stock, finanzas, caja, comprobantes y WhatsApp en un solo sistema.
-                Todo bajo control, desde cualquier lugar.
+                Órdenes, cobros con comisiones, comprobantes fiscales, stock mayorista,
+                finanzas multimoneda y WhatsApp — todo conectado desde cualquier dispositivo.
               </p>
             </div>
 
@@ -523,54 +525,43 @@ function Hero({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
 // WhatsApp Feature Banner (shown right after Hero)
 // ─────────────────────────────────────────────────────────────────────
 
-function WhatsAppBanner() {
+function NewFeaturesBanner() {
+  const news = [
+    { emoji: '🧾', color: '#818cf8', colorBg: 'rgba(99,102,241,0.1)', colorBorder: 'rgba(99,102,241,0.2)',
+      title: 'Comprobante automático', desc: 'Cada cobro genera su factura C al instante, con método de pago y comisión incluidos.' },
+    { emoji: '🏪', color: '#34d399', colorBg: 'rgba(52,211,153,0.1)', colorBorder: 'rgba(52,211,153,0.2)',
+      title: 'Módulo Mayorista', desc: 'Precios mayoristas en ARS y USD, cliente mayorista/minorista y generación masiva de precios.' },
+    { emoji: '🔍', color: '#60a5fa', colorBg: 'rgba(96,165,250,0.1)', colorBorder: 'rgba(96,165,250,0.2)',
+      title: 'Búsqueda inteligente', desc: 'Fuzzy matching con tolerancia a errores en órdenes, inventario, clientes, garantías y más.' },
+    { emoji: '💵', color: '#f59e0b', colorBg: 'rgba(245,158,11,0.1)', colorBorder: 'rgba(245,158,11,0.2)',
+      title: 'Dólar blue automático', desc: 'Tipo de cambio actualizado solo: Blue Nacional (Bluelytics) o Blue Córdoba (infodolar.com).' },
+  ]
+
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 2rem 5rem' }}>
       <div style={{
-        background: 'rgba(37,211,102,0.06)',
-        border: '1px solid rgba(37,211,102,0.16)',
-        borderRadius: '1.25rem',
-        padding: '1.5rem 2rem',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '1.5rem',
+        display: 'flex', alignItems: 'center', gap: '0.5rem',
+        marginBottom: '1rem',
       }}>
-        {/* WhatsApp icon box */}
-        <div style={{
-          width: '52px', height: '52px',
-          borderRadius: '0.875rem',
-          background: 'rgba(37,211,102,0.12)',
-          border: '1px solid rgba(37,211,102,0.25)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          flexShrink: 0,
-        }}>
-          <WhatsAppSVG size={26} color="#25d366" />
-        </div>
-
-        {/* Text */}
-        <div style={{ flex: 1 }}>
-          <div style={{ color: '#4ade80', fontWeight: 700, fontSize: '0.9375rem', marginBottom: '0.2rem' }}>
-            WhatsApp — Integración activa
+        <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#6366f1', boxShadow: '0 0 6px #6366f1' }} />
+        <span style={{ color: '#818cf8', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+          Nuevas funciones
+        </span>
+      </div>
+      <div className="lp-features-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.875rem' }}>
+        {news.map((n, i) => (
+          <div key={i} style={{
+            background: n.colorBg,
+            border: `1px solid ${n.colorBorder}`,
+            borderRadius: '1rem',
+            padding: '1.125rem 1.25rem',
+            display: 'flex', flexDirection: 'column', gap: '0.5rem',
+          }}>
+            <div style={{ fontSize: '1.5rem' }}><AppleEmoji emoji={n.emoji} size={24} /></div>
+            <div style={{ color: n.color, fontWeight: 700, fontSize: '0.875rem' }}>{n.title}</div>
+            <div style={{ color: '#475569', fontSize: '0.78rem', lineHeight: 1.55 }}>{n.desc}</div>
           </div>
-          <div style={{ color: '#475569', fontSize: '0.8125rem', lineHeight: 1.55 }}>
-            Mensajes automáticos al cliente al cambiar el estado de la orden. El ícono ahora muestra el logo real de WhatsApp en todo el sistema.
-          </div>
-        </div>
-
-        {/* Badge */}
-        <div style={{
-          padding: '0.25rem 0.75rem',
-          background: 'rgba(34,197,94,0.1)',
-          border: '1px solid rgba(34,197,94,0.25)',
-          borderRadius: '999px',
-          color: '#22c55e',
-          fontSize: '0.72rem',
-          fontWeight: 700,
-          flexShrink: 0,
-          whiteSpace: 'nowrap',
-        }}>
-          Activo
-        </div>
+        ))}
       </div>
     </div>
   )
@@ -582,10 +573,10 @@ function WhatsAppBanner() {
 
 function ForTechnicians() {
   const cards = [
-    { icon: '🔧', title: 'Servicio técnico', desc: 'Órdenes, diagnóstico, seguimiento y entrega. Todo en un flujo claro.' },
-    { icon: '📱', title: 'Venta de accesorios', desc: 'Stock automático, punto de venta, precios y proveedores integrados.' },
-    { icon: '⚡', title: 'Microelectrónica', desc: 'Historial técnico, checklistpor equipo y notas internas por orden.' },
-    { icon: '🏢', title: 'Gestión completa', desc: 'Finanzas, caja, usuarios, roles y reportes para tomar decisiones reales.' },
+    { icon: '🔧', title: 'Servicio técnico', desc: 'Órdenes digitales, diagnóstico, checklist de verificación, firma del cliente y garantía impresa.' },
+    { icon: '📱', title: 'Venta de accesorios', desc: 'Stock automático con variantes, precios mayoristas/minoristas, punto de venta y comprobante al instante.' },
+    { icon: '⚡', title: 'Cobros inteligentes', desc: 'Comisiones reales de MP, Visa y Naranja. Comprobante generado automáticamente al cobrar.' },
+    { icon: '🏢', title: 'Finanzas multimoneda', desc: 'Caja ARS y USD, dólar blue auto-actualizado, gastos recurrentes y desglose por tipo de venta.' },
   ]
 
   return (
@@ -645,26 +636,26 @@ function Features() {
     {
       icon: '📋', label: 'Operación',
       color: '#6366f1', colorBg: 'rgba(99,102,241,0.08)',
-      title: 'Servicio técnico sin papel',
-      items: ['Órdenes de servicio digitales', 'Seguimiento por estados', 'Firma del cliente', 'Impresión A4 y ticket', 'Historial completo de reparaciones', 'Notas internas y fotos'],
+      title: 'Cobros y comprobantes integrados',
+      items: ['Órdenes de servicio digitales', 'Cobro rápido con comisiones (MP, Visa, Naranja)', 'Comprobante automático al cobrar', 'Facturación electrónica ARCA/AFIP', 'Impresión A4 profesional y ticket', 'Certificados de garantía'],
     },
     {
       icon: '📦', label: 'Inventario',
       color: '#10b981', colorBg: 'rgba(16,185,129,0.08)',
-      title: 'Stock siempre actualizado',
-      items: ['Control de stock automático', 'Productos con variantes', 'Múltiples listas de precios', 'Gestión de proveedores', 'Compras y movimientos', 'Alerta de stock mínimo'],
+      title: 'Stock inteligente con variantes',
+      items: ['Control de stock automático', 'Productos con variantes (modelos, colores)', 'Precios mayoristas ARS y USD', 'Buscador fuzzy con tolerancia a errores', 'Gestión de proveedores y compras', 'Alerta de stock mínimo'],
     },
     {
       icon: '💰', label: 'Finanzas',
       color: '#f59e0b', colorBg: 'rgba(245,158,11,0.08)',
-      title: 'Finanzas reales del negocio',
-      items: ['Caja diaria con corte', 'Gastos fijos y variables', 'Sueldos y retiros', 'Ganancia real automática', 'Tesorería ARS y USD', 'Cuentas corrientes'],
+      title: 'Finanzas multimoneda en tiempo real',
+      items: ['Caja diaria ARS y USD separados', 'Dólar blue auto-actualizado (Blue Nacional o Córdoba)', 'Gastos recurrentes con repetición mensual', 'Desglose minorista / mayorista', 'Sueldos, retiros y gastos personales', 'Evolución mensual de ingresos y egresos'],
     },
     {
       icon: '⚙️', label: 'Administración',
       color: '#a855f7', colorBg: 'rgba(168,85,247,0.08)',
       title: 'Control total del negocio',
-      items: ['Gestión de clientes', 'Historial por cliente', 'Usuarios y roles', 'Reportes completos', 'Comprobantes AFIP', 'Exportar a Excel'],
+      items: ['Módulo Mayorista dedicado con precios USD', 'Clientes con DNI/CUIT opcional', 'Búsqueda inteligente en todos los módulos', 'Garantías con impresión A4 profesional', 'Usuarios, roles y permisos', 'Reportes y exportación Excel'],
     },
   ]
 
@@ -1264,7 +1255,7 @@ export function LandingPage() {
       <Header onNav={scrollTo} />
       <main>
         <Hero navigate={navigate} />
-        <WhatsAppBanner />
+        <NewFeaturesBanner />
         <hr className="lp-divider" />
         <ForTechnicians />
         <hr className="lp-divider" />
