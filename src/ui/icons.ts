@@ -6,11 +6,14 @@
 export {
   // ── Acciones CRUD ────────────────────────────────────────────────────────────
   Plus          as AddIcon,
+  PlusCircle    as AddCircleIcon,
+  ClipboardPlus as NewOrderIcon,
   Pencil        as EditIcon,
   Trash2        as DeleteIcon,
   Save          as SaveIcon,
   X             as CancelIcon,
   Eye           as ViewIcon,
+  EyeOff        as HideIcon,
   Copy          as DuplicateIcon,
   Archive       as ArchiveIcon,
   RotateCcw     as RestoreIcon,
@@ -40,18 +43,22 @@ export {
 
   // ── Entidades del negocio ─────────────────────────────────────────────────────
   User          as ClientIcon,
+  UserPlus      as NewClientIcon,
   Users         as ClientsIcon,
   Package       as ProductIcon,
+  PackagePlus   as NewProductIcon,
   Boxes         as InventoryIcon,
   Wrench        as RepairIcon,
   ClipboardList as OrderIcon,
   Truck         as SupplierIcon,
   Tag           as OfferIcon,
   Receipt       as ReceiptIcon,
+  ReceiptText   as ExpenseReceiptIcon,
   ShieldCheck   as WarrantyIcon,
 
   // ── Finanzas ──────────────────────────────────────────────────────────────────
   Wallet        as FinanceIcon,
+  WalletCards   as AvailableIcon,
   CreditCard    as PaymentIcon,
   Banknote      as CashIcon,
   TrendingUp    as RevenueIcon,
@@ -59,6 +66,9 @@ export {
   DollarSign    as CurrencyIcon,
   PiggyBank     as CajaIcon,
   BarChart3     as ReportsIcon,
+  LayoutDashboard as DashboardIcon,
+  Cloud         as ExchangeRateIcon,
+  Lock          as CloseLockIcon,
 
   // ── Estado y feedback ─────────────────────────────────────────────────────────
   CheckCircle   as SuccessIcon,

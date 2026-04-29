@@ -1,169 +1,142 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ModalCobro } from '../components/cobro/ModalCobro'
-import {
-  ClipboardList,
-  Users,
-  DollarSign,
-  TrendingUp,
-  AlertCircle,
-  RefreshCw,
-  Plus,
-  Receipt,
-  Cloud,
-  Wallet,
-  Lock
-} from 'lucide-react'
 import { useDashboardStats } from '../hooks/useDashboardStats'
 import { useComprobantes } from '../hooks/useComprobantes'
-import { STATUS_CONFIG } from '../types/orderStatus'
 import { currencyService } from '../services/currencyService'
 import { TasksModule } from '../components/tasks/TasksModule'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import {
+  AppButton, AppIconButton,
+  AppPageHeader, AppSectionHeader,
+  AppTabs, AppStatusBadge,
+  AppEmptyState, AppLoadingState, AppErrorState,
+} from '../ui'
+import {
+  NewOrderIcon, PaymentIcon, FinanceIcon,
+  OrderIcon, ClientsIcon, RevenueIcon, ExchangeRateIcon,
+  RefreshIcon, NewClientIcon, WarrantyIcon,
+  ExpenseReceiptIcon, AvailableIcon, ViewIcon, HideIcon,
+  CloseLockIcon as LockIcon, DashboardIcon, CurrencyIcon,
+} from '../ui/icons'
 
-const getStatusBadgeStyle = (status: string) => {
-  const config = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]
-  return {
-    backgroundColor: config ? `${config.color}20` : 'rgba(100, 116, 139, 0.2)',
-    color: config?.color || '#94a3b8',
-    padding: '0.25rem 0.75rem',
-    borderRadius: '9999px',
-    fontSize: '0.75rem',
-    fontWeight: 500
-  }
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const fmtARS = (n: number) =>
+  '$' + Math.round(n).toLocaleString('es-AR')
+
+const fmtDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })
+
+// ─── Componente principal ─────────────────────────────────────────────────────
 
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState('orders')
-  const [cobroOpen, setCobroOpen] = useState(false)
+  const [cobroOpen, setCobroOpen]           = useState(false)
   const [disponibleVisible, setDisponibleVisible] = useState(true)
-  const [disponible, setDisponible] = useState<{ ingresos: number; egresos: number } | null>(null)
+  const [disponible, setDisponible]         = useState<{ ingresos: number; egresos: number } | null>(null)
+  const [dolarRate, setDolarRate]           = useState<number | null>(null)
+  const [dolarLoading, setDolarLoading]     = useState(false)
+  const [lastUpdate, setLastUpdate]         = useState<Date | null>(null)
+  const [cajaStatus, setCajaStatus]         = useState<'open' | 'closed' | null>(null)
+  const [cajaId, setCajaId]                 = useState<string | null>(null)
+  const [cajaLoading, setCajaLoading]       = useState(false)
+  const [movimientosCaja, setMovimientosCaja] = useState<any[]>([])
+  const [movimientosLoading, setMovimientosLoading] = useState(false)
+  const [comprobantesLoaded, setComprobantesLoaded] = useState(false)
+
   const { stats, loading: statsLoading, error: statsError, refresh: refreshStats } = useDashboardStats()
   const { comprobantes, listarComprobantes } = useComprobantes()
   const { businessId } = useAuth()
   const navigate = useNavigate()
-  const [comprobantesLoaded, setComprobantesLoaded] = useState(false)
-  const [dolarRate, setDolarRate] = useState<number | null>(null)
-  const [dolarLoading, setDolarLoading] = useState(false)
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
-  const [cajaStatus, setCajaStatus] = useState<'open' | 'closed' | null>(null)
-  const [cajaId, setCajaId] = useState<string | null>(null)
-  const [cajaLoading, setCajaLoading] = useState(false)
-  const [movimientosCaja, setMovimientosCaja] = useState<any[]>([])
-  const [movimientosLoading, setMovimientosLoading] = useState(false)
 
-  const error = statsError
-
+  // ── Cargar tipo de cambio ──
   useEffect(() => {
-    let isMounted = true
-    const safeFetch = async () => { if (isMounted) await loadDolarRate() }
-    safeFetch()
-    const interval = setInterval(safeFetch, 5 * 60 * 1000)
-    return () => { isMounted = false; clearInterval(interval) }
+    let active = true
+    const load = async () => {
+      if (!active) return
+      setDolarLoading(true)
+      try {
+        const rate = await currencyService.getCurrentExchangeRate('USD', 'ARS')
+        if (!active) return
+        setDolarRate(rate)
+        setLastUpdate(new Date())
+        if (businessId && rate)
+          await currencyService.updateProductPricesByExchangeRate(businessId, rate)
+      } catch { /* silencioso */ }
+      finally { if (active) setDolarLoading(false) }
+    }
+    load()
+    const t = setInterval(load, 5 * 60_000)
+    return () => { active = false; clearInterval(t) }
   }, [])
 
-  // Cargar "Disponible Real" de hoy
+  // ── Disponible hoy ──
   useEffect(() => {
     if (!businessId) return
     const today = new Date().toISOString().split('T')[0]
     supabase
       .from('business_finance_entries')
       .select('type, amount_ars')
-      .eq('business_id', businessId)
-      .eq('date', today)
+      .eq('business_id', businessId).eq('date', today)
       .then(({ data }) => {
         if (!data) return
         const ingresos = data.filter(e => e.type === 'income').reduce((s, e) => s + (e.amount_ars || 0), 0)
-        const egresos  = data.filter(e => e.type === 'expense').reduce((s, e) => s + (e.amount_ars || 0), 0)
+        const egresos  = data.filter(e => e.type !== 'income').reduce((s, e) => s + (e.amount_ars || 0), 0)
         setDisponible({ ingresos, egresos })
       })
   }, [businessId, cobroOpen])
 
-  const loadDolarRate = async () => {
-    setDolarLoading(true)
-    try {
-      const rate = await currencyService.getCurrentExchangeRate('USD', 'ARS')
-      setDolarRate(rate)
-      setLastUpdate(new Date())
-
-      // Actualizar precios de productos vinculados al dólar
-      if (businessId && rate) {
-        await currencyService.updateProductPricesByExchangeRate(businessId, rate)
-      }
-    } catch {
-      // Fallo silencioso — el valor anterior se mantiene visible
-    } finally {
-      setDolarLoading(false)
-    }
-  }
-
-  const handleRefreshDolar = async () => {
-    await loadDolarRate()
-  }
-
+  // ── Estado de caja ──
   const loadCajaStatus = useCallback(async () => {
     if (!businessId) return
     const today = new Date().toISOString().split('T')[0]
-    const { data } = await supabase
-      .from('cash_registers')
-      .select('id, status')
-      .eq('business_id', businessId)
-      .eq('date', today)
-      .maybeSingle()
-    if (data) {
-      setCajaStatus(data.status as 'open' | 'closed')
-      setCajaId(data.id)
-    } else {
-      setCajaStatus('closed')
-      setCajaId(null)
-    }
+    const { data } = await supabase.from('cash_registers').select('id, status')
+      .eq('business_id', businessId).eq('date', today).maybeSingle()
+    setCajaStatus(data ? (data.status as 'open' | 'closed') : 'closed')
+    setCajaId(data?.id || null)
   }, [businessId])
 
-  useEffect(() => {
-    loadCajaStatus()
-  }, [loadCajaStatus])
+  useEffect(() => { loadCajaStatus() }, [loadCajaStatus])
 
-  // Comprobantes: lazy — solo carga cuando el usuario abre esa pestaña
+  // ── Movimientos de caja ──
+  useEffect(() => {
+    if (!businessId || !cajaId) return
+    setMovimientosLoading(true)
+    void Promise.resolve(
+      supabase.from('financial_movements').select('*')
+        .eq('business_id', businessId)
+        .order('created_at', { ascending: false }).limit(10)
+    ).then(({ data }) => setMovimientosCaja(data || []))
+     .finally(() => setMovimientosLoading(false))
+  }, [businessId, cajaId])
+
+  // ── Comprobantes lazy ──
   useEffect(() => {
     if (activeTab === 'comprobantes' && businessId && !comprobantesLoaded) {
-      listarComprobantes()
-      setComprobantesLoaded(true)
+      listarComprobantes(); setComprobantesLoaded(true)
     }
   }, [activeTab, businessId, comprobantesLoaded, listarComprobantes])
 
-  useEffect(() => {
-    if (businessId && cajaId) {
-      loadMovimientosCaja()
-    }
-  }, [businessId, cajaId])
-
-  const loadMovimientosCaja = async () => {
-    if (!businessId || !cajaId) return
-    setMovimientosLoading(true)
+  // ── Actualizar dólar (para click en card) ──
+  const handleRefreshDolar = async () => {
+    setDolarLoading(true)
     try {
-      const { data } = await supabase
-        .from('financial_movements')
-        .select('*')
-        .eq('business_id', businessId)
-        .order('created_at', { ascending: false })
-        .limit(10)
-      setMovimientosCaja(data || [])
-    } catch {
-      // error silencioso — tabla puede no existir en todos los planes
-    } finally {
-      setMovimientosLoading(false)
-    }
+      const rate = await currencyService.getCurrentExchangeRate('USD', 'ARS')
+      setDolarRate(rate); setLastUpdate(new Date())
+      if (businessId && rate)
+        await currencyService.updateProductPricesByExchangeRate(businessId, rate)
+    } catch { /* silencioso */ }
+    finally { setDolarLoading(false) }
   }
 
-  const handleCajaButton = async () => {
+  // ── Handlers ──
+  const handleCaja = async () => {
     if (cajaStatus === 'open' && cajaId) {
       if (!confirm('¿Cerrar la caja del día?')) return
       setCajaLoading(true)
-      await supabase.from('cash_registers').update({
-        status: 'closed',
-        closed_at: new Date().toISOString()
-      }).eq('id', cajaId)
+      await supabase.from('cash_registers').update({ status: 'closed', closed_at: new Date().toISOString() }).eq('id', cajaId)
       await loadCajaStatus()
       setCajaLoading(false)
     } else {
@@ -171,358 +144,231 @@ export function Dashboard() {
     }
   }
 
-  const activeOrders = stats?.totalOrders 
+  // ── Datos derivados ──
+  const activeOrders = stats
     ? stats.totalOrders - (stats.ordersByStatus.completed || 0) - (stats.ordersByStatus.cancelled || 0)
     : 0
 
-  const statsCards = stats ? [
-    { label: 'Órdenes Activas', value: activeOrders.toString(), change: `+${stats.newOrdersToday}`, trend: 'up' as const, icon: ClipboardList, color: '#6366f1', subtitle: 'nuevas hoy' },
-    { label: 'Clientes Totales', value: stats.totalCustomers.toString(), change: `+${stats.newCustomersThisMonth}`, trend: 'up' as const, icon: Users, color: '#06b6d4', subtitle: 'nuevos este mes' },
-    { label: 'Ganancia Real Hoy', value: `$${stats.realProfitToday.toLocaleString()}`, change: `${stats.averageMarginPct.toFixed(1)}% margen`, trend: 'up' as const, icon: TrendingUp, color: '#10b981', subtitle: `$${stats.realProfitThisWeek.toLocaleString()} esta semana` },
-  ] : []
+  const recentOrders = stats?.recentOrders ?? []
+
+  // ── Error state ──
+  if (statsError) return (
+    <div className="page-shell">
+      <AppErrorState message={statsError} onRetry={refreshStats} />
+    </div>
+  )
 
   const hasNoData = stats && stats.totalOrders === 0 && stats.totalCustomers === 0
 
-  const dolarCard = {
-    label: 'Dólar Blue',
-    value: dolarRate ? `$${dolarRate.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Cargando...',
-    change: lastUpdate ? `Actualizado: ${lastUpdate.toLocaleTimeString('es-AR')}` : '',
-    trend: 'up' as const,
-    icon: Cloud,
-    color: '#059669',
-    subtitle: 'USD/ARS'
-  }
-
-  const recentOrders = stats?.recentOrders ?? []
-
-  if (error) {
-    return (
-      <div style={{ padding: '2rem', textAlign: 'center' }}>
-        <AlertCircle size={48} style={{ color: 'var(--error)' }} />
-        <h3 style={{ color: 'var(--text-primary)', marginTop: '1rem' }}>Error al cargar inicio</h3>
-        <p style={{ color: 'var(--text-muted)' }}>{error}</p>
-        <button onClick={refreshStats} style={{
-          marginTop: '1rem',
-          padding: '0.625rem 1.25rem',
-          backgroundColor: 'var(--accent-primary)',
-          border: 'none',
-          color: '#ffffff',
-          borderRadius: '0.5rem',
-          cursor: 'pointer',
-          fontWeight: 500
-        }}>
-          <RefreshCw size={16} style={{ marginRight: '0.5rem' }} />
-          Reintentar
-        </button>
-      </div>
-    )
-  }
-
+  // ─── RENDER ────────────────────────────────────────────────────────────────
   return (
-    <div>
+    <div className="page-shell">
       <ModalCobro isOpen={cobroOpen} onClose={() => setCobroOpen(false)} />
-      <div className="dash-header-row" style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <h1 className="page-title-h1" style={{ fontSize: '1.875rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
-            Inicio
-          </h1>
-          <p className="page-subtitle" style={{ color: 'var(--text-muted)', fontSize: '0.9375rem' }}>
-            Resumen general del sistema y actividad reciente
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <button onClick={() => setCobroOpen(true)} className="btn btn-green btn-sm">
-            💰 Cobrar
-          </button>
-          <Link to="/orders/new" className="btn btn-amber btn-sm" style={{ textDecoration: 'none' }}>
-            <Plus size={15} />
-            Nueva Orden
-          </Link>
-          <Link to="/expenses" className="btn btn-red btn-sm" style={{ textDecoration: 'none' }}>
-            <DollarSign size={14} />
-            Gasto
-          </Link>
-          <button
-            onClick={handleCajaButton}
-            disabled={cajaLoading}
-            className={`btn btn-sm ${cajaStatus === 'open' ? 'btn-red' : 'btn-teal'}`}
-          >
-            {cajaStatus === 'open'
-              ? <><Lock size={14} /> Cerrar Caja</>
-              : <><Wallet size={14} /> Abrir Caja</>}
-          </button>
-          <button onClick={refreshStats} className="btn btn-ghost btn-sm">
-            <RefreshCw size={13} />
-          </button>
-        </div>
-      </div>
 
-      {/* Módulo de Tareas */}
+      {/* ── 1. Page Header ─────────────────────────────────────────────────── */}
+      <AppPageHeader
+        icon={<DashboardIcon size={20} />}
+        title="Inicio"
+        description="Resumen general del sistema y actividad reciente"
+        actions={
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <AppButton variant="primary" size="sm" leftIcon={<NewOrderIcon size={15} />}
+              onClick={() => navigate('/orders/new')}>
+              Nueva Orden
+            </AppButton>
+            <AppButton variant="green" size="sm" leftIcon={<PaymentIcon size={15} />}
+              onClick={() => setCobroOpen(true)}>
+              Cobrar
+            </AppButton>
+            <AppButton
+              variant={cajaStatus === 'open' ? 'danger' : 'secondary'}
+              size="sm"
+              leftIcon={cajaStatus === 'open' ? <LockIcon size={15} /> : <FinanceIcon size={15} />}
+              onClick={handleCaja}
+              loading={cajaLoading}
+            >
+              {cajaStatus === 'open' ? 'Cerrar Caja' : 'Abrir Caja'}
+            </AppButton>
+            <AppButton variant="ghost" size="sm" leftIcon={<ExpenseReceiptIcon size={15} />}
+              onClick={() => navigate('/expenses')}>
+              Gasto
+            </AppButton>
+            <AppIconButton icon={<RefreshIcon size={14} />} label="Actualizar datos"
+              onClick={refreshStats} size="sm" />
+          </div>
+        }
+      />
+
+      {/* ── 2. Módulo Tareas ───────────────────────────────────────────────── */}
       <TasksModule />
 
-      {statsLoading && !stats ? (
-        /* Skeleton cards mientras carga la primera vez */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
-          {[0, 1, 2, 3, 4].map(i => (
-            <div key={i} style={{
-              padding: '1.5rem',
-              backgroundColor: '#0f1829',
-              border: '1px solid rgba(255,255,255,0.06)',
-              borderTop: '3px solid rgba(255,255,255,0.08)',
-              borderRadius: '0.75rem',
-              animation: 'pulse 1.5s ease-in-out infinite',
-            }}>
-              <div style={{ height: '0.875rem', width: '60%', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: '0.25rem', marginBottom: '0.75rem' }} />
-              <div style={{ height: '1.875rem', width: '40%', backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: '0.25rem', marginBottom: '0.75rem' }} />
-              <div style={{ height: '0.75rem', width: '70%', backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: '0.25rem' }} />
-            </div>
-          ))}
-        </div>
-      ) : hasNoData ? (
-        <div style={{
-          backgroundColor: '#0f1829',
-          border: '1px solid rgba(255,255,255,0.06)',
-          borderRadius: '0.75rem',
-          padding: '3rem',
-          textAlign: 'center',
-          marginBottom: '2rem'
-        }}>
-          <div style={{
-            width: '80px',
-            height: '80px',
-            borderRadius: '50%',
-            backgroundColor: 'rgba(15,23,42,0.8)',
-            margin: '0 auto 1.5rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}>
-            <ClipboardList size={40} style={{ color: '#64748b' }} />
-          </div>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 600, color: '#ffffff', marginBottom: '0.5rem' }}>
-            ¡Bienvenido a TechRepair Pro!
-          </h2>
-          <p style={{ color: '#94a3b8', fontSize: '1rem', marginBottom: '2rem', maxWidth: '420px', margin: '0 auto 2rem' }}>
-            Todo listo para arrancar. Podés crear una orden, registrar un cobro rápido o cargar tu inventario.
-          </p>
-          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button onClick={() => setCobroOpen(true)} className="btn btn-green btn-lg">
-              💰 Cobrar ahora
-            </button>
-            <Link to="/orders/new" className="btn btn-primary btn-lg" style={{ textDecoration: 'none' }}>
-              <Plus size={16} />
-              Crear Primera Orden
-            </Link>
-            <Link to="/inventory" className="btn btn-secondary btn-lg" style={{ textDecoration: 'none' }}>
-              Cargar Inventario
-            </Link>
-          </div>
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
-        {statsCards.map((stat, index) => (
-          <div key={index} style={{
-            padding: '1.5rem',
-            backgroundColor: '#0f1829',
-            border: '1px solid rgba(255,255,255,0.06)',
-            borderTop: `3px solid ${stat.color}`,
-            borderRadius: '0.75rem'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+      {/* ── 3. Disponible hoy ─────────────────────────────────────────────── */}
+      {disponible !== null && (
+        <div className="card" style={{ marginBottom: '1.5rem', padding: '1.25rem 1.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+            {/* Valor principal */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+              <div style={{
+                width: 42, height: 42, borderRadius: 'var(--radius-lg)',
+                background: 'var(--success-subtle)', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', color: 'var(--success)', flexShrink: 0,
+              }}>
+                <AvailableIcon size={20} />
+              </div>
               <div>
-                <p style={{ fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem' }}>{stat.label}</p>
-                <h3 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#ffffff', margin: 0 }}>{stat.value}</h3>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.5rem', color: stat.trend === 'up' ? '#34d399' : '#fbbf24', fontSize: '0.875rem' }}>
-                  <span>{stat.change}</span>
-                  <span style={{ color: '#64748b' }}>({stat.subtitle})</span>
+                <div className="stat-card-label">Disponible hoy</div>
+                <div style={{
+                  fontSize: '1.875rem', fontWeight: 800, letterSpacing: '-0.03em',
+                  color: 'var(--success)', lineHeight: 1.1,
+                }}>
+                  {disponibleVisible
+                    ? fmtARS(disponible.ingresos - disponible.egresos)
+                    : '••••••••'}
                 </div>
               </div>
-              <div style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '0.75rem',
-                backgroundColor: `${stat.color}20`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: stat.color
-              }}>
-                <stat.icon size={24} />
-              </div>
             </div>
-          </div>
-        ))}
-        
-        {/* Dólar Rate Card */}
-        <div style={{
-          padding: '1.5rem',
-          backgroundColor: '#0f1829',
-          border: '1px solid rgba(255,255,255,0.06)',
-          borderTop: `3px solid ${dolarCard.color}`,
-          borderRadius: '0.75rem'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-            <div>
-              <p style={{ fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem' }}>{dolarCard.label}</p>
-              <h3 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#ffffff', margin: 0 }}>{dolarCard.value}</h3>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '0.5rem', color: '#059669', fontSize: '0.875rem' }}>
-                <span>{dolarCard.change}</span>
-                <span style={{ color: '#64748b' }}>({dolarCard.subtitle})</span>
+            {/* Sub-métricas + toggle */}
+            <div style={{ display: 'flex', gap: '2rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div>
+                <div className="stat-card-label">Ingresos</div>
+                <div style={{ fontWeight: 700, color: 'var(--success)', fontSize: '0.9375rem' }}>
+                  {disponibleVisible ? `+${fmtARS(disponible.ingresos)}` : '••••'}
+                </div>
               </div>
-            </div>
-            <div style={{
-              width: '48px',
-              height: '48px',
-              borderRadius: '0.75rem',
-              backgroundColor: `${dolarCard.color}20`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: dolarCard.color,
-              cursor: 'pointer'
-            }} onClick={handleRefreshDolar} title="Actualizar tipo de cambio">
-              {dolarLoading ? (
-                <RefreshCw size={24} className="animate-spin" />
-              ) : (
-                <dolarCard.icon size={24} />
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-      )}
-
-      {/* ── Widget: Disponible Real (hoy) ── */}
-      {disponible !== null && (
-        <div style={{
-          background: 'linear-gradient(135deg, rgba(34,197,94,0.07) 0%, rgba(16,185,129,0.04) 100%)',
-          border: '1px solid rgba(34,197,94,0.2)',
-          borderRadius: '0.875rem', padding: '1.125rem 1.5rem',
-          marginBottom: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-            <span style={{ fontSize: '1.25rem' }}>💵</span>
-            <div>
-              <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Disponible hoy
+              <div>
+                <div className="stat-card-label">Egresos</div>
+                <div style={{ fontWeight: 700, color: 'var(--error)', fontSize: '0.9375rem' }}>
+                  {disponibleVisible ? `-${fmtARS(disponible.egresos)}` : '••••'}
+                </div>
               </div>
-              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#22c55e', letterSpacing: '-0.02em' }}>
-                {disponibleVisible
-                  ? `$${Math.round(disponible.ingresos - disponible.egresos).toLocaleString('es-AR')}`
-                  : '••••••••'
-                }
-              </div>
+              <AppButton
+                variant="secondary" size="sm"
+                leftIcon={disponibleVisible ? <HideIcon size={13} /> : <ViewIcon size={13} />}
+                onClick={() => setDisponibleVisible(v => !v)}
+              >
+                {disponibleVisible ? 'Ocultar' : 'Mostrar'}
+              </AppButton>
             </div>
-          </div>
-          <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '0.2rem' }}>Ingresos</div>
-              <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#34d399' }}>
-                {disponibleVisible ? `+$${Math.round(disponible.ingresos).toLocaleString('es-AR')}` : '••••'}
-              </div>
-            </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: '0.2rem' }}>Egresos</div>
-              <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f87171' }}>
-                {disponibleVisible ? `-$${Math.round(disponible.egresos).toLocaleString('es-AR')}` : '••••'}
-              </div>
-            </div>
-            <button
-              onClick={() => setDisponibleVisible(v => !v)}
-              style={{
-                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '0.5rem', padding: '0.375rem 0.75rem',
-                color: '#64748b', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 600,
-              }}
-            >
-              {disponibleVisible ? '👁 Ocultar' : '👁 Mostrar'}
-            </button>
           </div>
         </div>
       )}
 
-      {/* ── Sección Rentabilidad ── */}
+      {/* ── 4. Métricas ───────────────────────────────────────────────────── */}
+      {statsLoading && !stats ? (
+        <AppLoadingState rows={4} type="cards" />
+      ) : hasNoData ? (
+        /* Bienvenida primer uso */
+        <div className="card" style={{ marginBottom: '1.5rem' }}>
+          <AppEmptyState
+            icon={<OrderIcon size={28} />}
+            title="¡Bienvenido a TechRepair Pro!"
+            description="Todo listo para arrancar. Creá una orden, registrá un cobro o cargá tu inventario."
+            action={{ label: 'Crear primera orden', icon: <NewOrderIcon size={15} />, onClick: () => navigate('/orders/new'), variant: 'primary' }}
+          />
+        </div>
+      ) : (
+        <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
+
+          {/* Órdenes activas */}
+          <div className="stat-card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div className="stat-card-label">Órdenes Activas</div>
+              <div style={{ width: 36, height: 36, borderRadius: 'var(--radius-md)', background: 'var(--accent-primary-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-primary)' }}>
+                <OrderIcon size={18} />
+              </div>
+            </div>
+            <div className="stat-card-value" style={{ color: 'var(--accent-primary)' }}>{activeOrders}</div>
+            {stats && <div style={{ fontSize: '0.78rem', color: 'var(--success)' }}>+{stats.newOrdersToday} nuevas hoy</div>}
+          </div>
+
+          {/* Clientes */}
+          <div className="stat-card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div className="stat-card-label">Clientes Totales</div>
+              <div style={{ width: 36, height: 36, borderRadius: 'var(--radius-md)', background: 'var(--accent-secondary-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-secondary)' }}>
+                <ClientsIcon size={18} />
+              </div>
+            </div>
+            <div className="stat-card-value" style={{ color: 'var(--accent-secondary)' }}>{stats?.totalCustomers ?? '—'}</div>
+            {stats && <div style={{ fontSize: '0.78rem', color: 'var(--text-subtle)' }}>+{stats.newCustomersThisMonth} este mes</div>}
+          </div>
+
+          {/* Ganancia hoy */}
+          <div className="stat-card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div className="stat-card-label">Ganancia Real Hoy</div>
+              <div style={{ width: 36, height: 36, borderRadius: 'var(--radius-md)', background: 'var(--success-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--success)' }}>
+                <RevenueIcon size={18} />
+              </div>
+            </div>
+            <div className="stat-card-value" style={{ color: 'var(--success)' }}>
+              {stats ? fmtARS(stats.realProfitToday) : '—'}
+            </div>
+            {stats && <div style={{ fontSize: '0.78rem', color: 'var(--text-subtle)' }}>{stats.averageMarginPct.toFixed(1)}% margen</div>}
+          </div>
+
+          {/* Dólar Blue */}
+          <div
+            className="stat-card"
+            style={{ cursor: 'pointer' }}
+            onClick={() => !dolarLoading && handleRefreshDolar()}
+            title="Click para actualizar"
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div className="stat-card-label">Dólar Blue</div>
+              <div style={{ width: 36, height: 36, borderRadius: 'var(--radius-md)', background: 'var(--info-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--info)' }}>
+                {dolarLoading
+                  ? <RefreshIcon size={18} className="animate-spin" />
+                  : <ExchangeRateIcon size={18} />}
+              </div>
+            </div>
+            <div className="stat-card-value" style={{ color: 'var(--info)' }}>
+              {dolarRate
+                ? `$${dolarRate.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+                : '—'}
+            </div>
+            <div style={{ fontSize: '0.78rem', color: 'var(--text-subtle)' }}>
+              {lastUpdate ? `Actualizado ${lastUpdate.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}` : 'USD / ARS'}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 5. Rentabilidad del mes ─────────────────────────────────────────── */}
       {stats && stats.topProfitableItems.length > 0 && (
-        <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 2fr', gap: '1rem',
-          marginBottom: '2rem',
-        }}>
-          {/* Ganancia del mes */}
-          <div style={{
-            padding: '1.25rem 1.5rem',
-            backgroundColor: '#0f1829',
-            border: '1px solid rgba(52,211,153,0.2)',
-            borderTop: '3px solid #34d399',
-            borderRadius: '0.75rem',
-          }}>
-            <p style={{ margin: '0 0 0.375rem', fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Ganancia real del mes
-            </p>
-            <p style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#34d399', fontFamily: 'monospace' }}>
-              ${stats.realProfitThisMonth.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
-            </p>
-          </div>
-          {/* Margen promedio */}
-          <div style={{
-            padding: '1.25rem 1.5rem',
-            backgroundColor: '#0f1829',
-            border: '1px solid rgba(129,140,248,0.2)',
-            borderTop: '3px solid #818cf8',
-            borderRadius: '0.75rem',
-          }}>
-            <p style={{ margin: '0 0 0.375rem', fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Margen promedio
-            </p>
-            <p style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#818cf8', fontFamily: 'monospace' }}>
-              {stats.averageMarginPct.toFixed(1)}%
-            </p>
-          </div>
-          {/* Ganancia por operación */}
-          <div style={{
-            padding: '1.25rem 1.5rem',
-            backgroundColor: '#0f1829',
-            border: '1px solid rgba(251,191,36,0.2)',
-            borderTop: '3px solid #fbbf24',
-            borderRadius: '0.75rem',
-          }}>
-            <p style={{ margin: '0 0 0.375rem', fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Ganancia por orden
-            </p>
-            <p style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#fbbf24', fontFamily: 'monospace' }}>
-              ${stats.profitPerOperation.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
-            </p>
-          </div>
-          {/* Ranking de items más rentables */}
-          <div style={{
-            padding: '1.25rem',
-            backgroundColor: '#0f1829',
-            border: '1px solid rgba(255,255,255,0.06)',
-            borderRadius: '0.75rem',
-          }}>
-            <p style={{ margin: '0 0 0.75rem', fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Top trabajos más rentables
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+          {[
+            { label: 'Ganancia real del mes', value: fmtARS(stats.realProfitThisMonth), color: 'var(--success)' },
+            { label: 'Margen promedio', value: `${stats.averageMarginPct.toFixed(1)}%`, color: 'var(--accent-primary)' },
+            { label: 'Ganancia por orden', value: fmtARS(stats.profitPerOperation), color: 'var(--warning)' },
+          ].map(m => (
+            <div key={m.label} className="stat-card">
+              <div className="stat-card-label">{m.label}</div>
+              <div className="stat-card-value" style={{ color: m.color }}>{m.value}</div>
+            </div>
+          ))}
+
+          {/* Top rentables */}
+          <div className="card" style={{ padding: '1.125rem 1.25rem' }}>
+            <div className="stat-card-label" style={{ marginBottom: '0.75rem' }}>Top trabajos rentables</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
               {stats.topProfitableItems.map((item, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
                   <span style={{
-                    width: '18px', height: '18px', borderRadius: '50%', fontSize: '0.65rem',
-                    fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: i === 0 ? 'rgba(251,191,36,0.15)' : 'rgba(255,255,255,0.05)',
-                    color: i === 0 ? '#fbbf24' : '#475569', flexShrink: 0,
+                    width: 20, height: 20, borderRadius: 'var(--radius-full)', fontSize: '0.65rem', fontWeight: 700,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    background: i === 0 ? 'var(--warning-subtle)' : 'var(--bg-surface)',
+                    color: i === 0 ? 'var(--warning)' : 'var(--text-subtle)',
                   }}>
                     {i + 1}
                   </span>
-                  <span style={{ flex: 1, fontSize: '0.8rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span style={{ flex: 1, fontSize: '0.8rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {item.name}
                   </span>
-                  <span style={{ fontSize: '0.75rem', color: '#34d399', fontFamily: 'monospace', fontWeight: 600, flexShrink: 0 }}>
-                    +${item.profit.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                  <span style={{ fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600 }}>
+                    +{fmtARS(item.profit)}
                   </span>
-                  <span style={{
-                    fontSize: '0.65rem', padding: '0.1rem 0.35rem', borderRadius: '0.25rem',
-                    backgroundColor: 'rgba(129,140,248,0.12)', color: '#818cf8', flexShrink: 0,
-                  }}>
+                  <span className="badge badge-primary badge-no-dot" style={{ fontSize: '0.6rem' }}>
                     {item.margin.toFixed(0)}%
                   </span>
                 </div>
@@ -532,182 +378,180 @@ export function Dashboard() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>
-        <div>
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
-            {['orders', 'comprobantes', 'movimientos'].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                style={{
-                  padding: '0.625rem 1rem',
-                  borderRadius: '0.625rem',
-                  border: activeTab === tab ? 'none' : '1px solid rgba(255,255,255,0.08)',
-                  background: activeTab === tab ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)' : 'rgba(255,255,255,0.05)',
-                  boxShadow: activeTab === tab ? '0 4px 12px rgba(99,102,241,0.35)' : 'none',
-                  color: activeTab === tab ? '#ffffff' : '#94a3b8',
-                  fontSize: '0.875rem',
-                  fontWeight: activeTab === tab ? 600 : 500,
-                  cursor: 'pointer'
-                }}
-              >
-                {tab === 'orders' && 'Órdenes'}
-                {tab === 'comprobantes' && 'Comprobantes'}
-                {tab === 'movimientos' && 'Movimientos de Caja'}
-              </button>
-            ))}
-          </div>
-
-          <div style={{ backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem' }}>
-            <div style={{ padding: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#ffffff', margin: 0 }}>
-                {activeTab === 'orders' && 'Órdenes Recientes'}
-                {activeTab === 'comprobantes' && 'Comprobantes Recientes'}
-                {activeTab === 'movimientos' && 'Movimientos de Caja'}
-              </h3>
-              <Link to={activeTab === 'orders' ? '/orders' : activeTab === 'comprobantes' ? '/comprobantes' : '/caja'} style={{
-                padding: '0.5rem 1rem',
-                backgroundColor: 'rgba(255,255,255,0.05)',
-                border: '1px solid rgba(255,255,255,0.08)',
-                color: '#94a3b8',
-                borderRadius: '0.5rem',
-                textDecoration: 'none',
-                fontSize: '0.875rem',
-                fontWeight: 500
+      {/* ── 6. Accesos rápidos ─────────────────────────────────────────────── */}
+      <section style={{ marginBottom: '1.5rem' }}>
+        <AppSectionHeader title="Accesos rápidos" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.875rem' }}>
+          {([
+            { label: 'Nueva Orden',    icon: <NewOrderIcon size={22} />,     color: 'var(--accent-primary)', bg: 'var(--accent-primary-subtle)', onClick: () => navigate('/orders/new') },
+            { label: 'Cobrar',         icon: <PaymentIcon size={22} />,      color: 'var(--success)',        bg: 'var(--success-subtle)',         onClick: () => setCobroOpen(true) },
+            { label: 'Nuevo Cliente',  icon: <NewClientIcon size={22} />,    color: 'var(--accent-secondary)',bg: 'var(--accent-secondary-subtle)',onClick: () => navigate('/customers/new') },
+            { label: 'Nuevo Producto', icon: <CurrencyIcon size={22} />,     color: 'var(--info)',           bg: 'var(--info-subtle)',            onClick: () => navigate('/inventory') },
+            { label: 'Nueva Garantía', icon: <WarrantyIcon size={22} />,     color: 'var(--accent-primary)', bg: 'var(--accent-primary-subtle)', onClick: () => navigate('/warranties') },
+            { label: 'Registrar Gasto',icon: <ExpenseReceiptIcon size={22} />,color: 'var(--error)',         bg: 'var(--error-subtle)',           onClick: () => navigate('/expenses') },
+          ]).map(action => (
+            <button
+              key={action.label}
+              className="card card-interactive"
+              onClick={action.onClick}
+              style={{ padding: '1.25rem 0.75rem', textAlign: 'center', width: '100%', border: 'none', cursor: 'pointer', background: 'var(--bg-card-solid)' }}
+            >
+              <div style={{
+                width: 44, height: 44, borderRadius: 'var(--radius-lg)',
+                background: action.bg, display: 'flex', alignItems: 'center',
+                justifyContent: 'center', margin: '0 auto 0.75rem',
+                color: action.color,
               }}>
-                Ver Todas
-              </Link>
-            </div>
-            <div style={{ padding: 0 }}>
-              {activeTab === 'orders' && (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                      <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>Orden</th>
-                      <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>Cliente</th>
-                      <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>Dispositivo</th>
-                      <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>Estado</th>
-                      <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>Fecha</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recentOrders.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>No hay órdenes registradas</td>
-                      </tr>
-                    ) : (
-                      recentOrders.map((order) => (
-                        <tr key={order.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                          <td style={{ padding: '1rem' }}>
-                            <Link to={`/orders/${order.id}`} style={{ color: '#818cf8', fontWeight: 500, textDecoration: 'none' }}>
-                              #{order.id.slice(0, 8)}
-                            </Link>
-                          </td>
-                          <td style={{ padding: '1rem', color: '#94a3b8' }}>{order.customer_name || '—'}</td>
-                          <td style={{ padding: '1rem', color: '#94a3b8' }}>{order.device_label || '—'}</td>
-                          <td style={{ padding: '1rem' }}>
-                            <span style={getStatusBadgeStyle(order.status)}>
-                              {STATUS_CONFIG[order.status as keyof typeof STATUS_CONFIG]?.label || order.status}
-                            </span>
-                          </td>
-                          <td style={{ padding: '1rem', color: '#64748b', fontSize: '0.875rem' }}>
-                            {new Date(order.created_at).toLocaleDateString('es-ES')}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              )}
-
-              {activeTab === 'comprobantes' && (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                      <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>Tipo</th>
-                      <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>Cliente</th>
-                      <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>Total</th>
-                      <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>Estado</th>
-                      <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>Fecha</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comprobantes.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>No hay comprobantes registrados</td>
-                      </tr>
-                    ) : (
-                      comprobantes.slice(0, 5).map((comp) => (
-                        <tr key={comp.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                          <td style={{ padding: '1rem', color: '#94a3b8' }}>{comp.tipo}</td>
-                          <td style={{ padding: '1rem', color: '#94a3b8' }}>{comp.customer_id ? 'Cliente #' + comp.customer_id.slice(0, 6) : 'Sin cliente'}</td>
-                          <td style={{ padding: '1rem', color: '#94a3b8' }}>${comp.total?.toLocaleString() || '0'}</td>
-                          <td style={{ padding: '1rem' }}>
-                            <span style={{
-                              backgroundColor: comp.estado === 'emitido' ? 'rgba(16, 185, 129, 0.2)' : comp.estado === 'anulado' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(245, 158, 11, 0.2)',
-                              color: comp.estado === 'emitido' ? '#34d399' : comp.estado === 'anulado' ? '#f87171' : '#fbbf24',
-                              padding: '0.25rem 0.75rem',
-                              borderRadius: '9999px',
-                              fontSize: '0.75rem',
-                              fontWeight: 500
-                            }}>
-                              {comp.estado}
-                            </span>
-                          </td>
-                          <td style={{ padding: '1rem', color: '#64748b', fontSize: '0.875rem' }}>
-                            {new Date(comp.created_at).toLocaleDateString('es-ES')}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              )}
-
-              {activeTab === 'movimientos' && (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                      <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>Tipo</th>
-                      <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>Descripción</th>
-                      <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>Monto</th>
-                      <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>Fecha</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {movimientosLoading ? (
-                      <tr>
-                        <td colSpan={4} style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>
-                          Cargando movimientos...
-                        </td>
-                      </tr>
-                    ) : movimientosCaja.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>
-                          {cajaStatus === 'open' ? 'No hay movimientos registrados' : 'La caja está cerrada'}
-                        </td>
-                      </tr>
-                    ) : (
-                      movimientosCaja.map((mov) => (
-                        <tr key={mov.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                          <td style={{ padding: '1rem', color: '#94a3b8' }}>{mov.type}</td>
-                          <td style={{ padding: '1rem', color: '#94a3b8' }}>{mov.description || '-'}</td>
-                          <td style={{ padding: '1rem', color: mov.type === 'in' ? '#34d399' : '#f87171' }}>
-                            {mov.type === 'in' ? '+' : '-'}${mov.amount?.toLocaleString() || '0'}
-                          </td>
-                          <td style={{ padding: '1rem', color: '#64748b', fontSize: '0.875rem' }}>
-                            {new Date(mov.created_at).toLocaleString('es-ES')}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
+                {action.icon}
+              </div>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.3 }}>
+                {action.label}
+              </div>
+            </button>
+          ))}
         </div>
-      </div>
+      </section>
+
+      {/* ── 7. Actividad reciente ───────────────────────────────────────────── */}
+      <section>
+        <div style={{ marginBottom: '1rem' }}>
+          <AppTabs
+            activeTab={activeTab}
+            onChange={setActiveTab}
+            tabs={[
+              { key: 'orders',        label: 'Órdenes',           icon: <OrderIcon size={14} /> },
+              { key: 'comprobantes',  label: 'Comprobantes',      icon: <ExpenseReceiptIcon size={14} /> },
+              { key: 'movimientos',   label: 'Movimientos Caja',  icon: <FinanceIcon size={14} /> },
+            ]}
+          />
+        </div>
+
+        <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
+
+          {/* Header de sección */}
+          <div className="card-header">
+            <h3 className="card-title">
+              {activeTab === 'orders' && 'Órdenes Recientes'}
+              {activeTab === 'comprobantes' && 'Comprobantes Recientes'}
+              {activeTab === 'movimientos' && 'Movimientos de Caja'}
+            </h3>
+            <Link
+              to={activeTab === 'orders' ? '/orders' : activeTab === 'comprobantes' ? '/comprobantes' : '/caja'}
+              className="btn btn-secondary btn-sm"
+              style={{ textDecoration: 'none' }}
+            >
+              Ver todos
+            </Link>
+          </div>
+
+          {/* Tab: Órdenes */}
+          {activeTab === 'orders' && (
+            recentOrders.length === 0
+              ? <AppEmptyState icon={<OrderIcon size={24} />} title="No hay órdenes registradas" compact />
+              : (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      {['Orden', 'Cliente', 'Dispositivo', 'Estado', 'Fecha'].map(h => (
+                        <th key={h}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentOrders.map(order => (
+                      <tr key={order.id}>
+                        <td>
+                          <Link to={`/orders/${order.id}`} style={{ color: 'var(--accent-primary)', fontWeight: 600, textDecoration: 'none' }}>
+                            #{order.id.slice(0, 8).toUpperCase()}
+                          </Link>
+                        </td>
+                        <td>{order.customer_name || '—'}</td>
+                        <td>{order.device_label || '—'}</td>
+                        <td>
+                          <AppStatusBadge status={order.status} type="order" />
+                        </td>
+                        <td style={{ color: 'var(--text-subtle)', fontSize: '0.8rem' }}>
+                          {fmtDate(order.created_at)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
+          )}
+
+          {/* Tab: Comprobantes */}
+          {activeTab === 'comprobantes' && (
+            comprobantes.length === 0
+              ? <AppEmptyState icon={<ExpenseReceiptIcon size={24} />} title="No hay comprobantes registrados" compact />
+              : (
+                <table className="table">
+                  <thead>
+                    <tr>
+                      {['Tipo', 'Total', 'Estado', 'Fecha'].map(h => <th key={h}>{h}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comprobantes.slice(0, 8).map(comp => (
+                      <tr key={comp.id}>
+                        <td style={{ fontWeight: 600, textTransform: 'uppercase', fontSize: '0.78rem', color: 'var(--text-primary)' }}>
+                          {comp.tipo?.replace('_', ' ') || '—'}
+                        </td>
+                        <td style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+                          ${comp.total?.toLocaleString('es-AR') || '0'}
+                        </td>
+                        <td><AppStatusBadge status={comp.estado || ''} type="comprobante" /></td>
+                        <td style={{ color: 'var(--text-subtle)', fontSize: '0.8rem' }}>
+                          {fmtDate(comp.created_at)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )
+          )}
+
+          {/* Tab: Movimientos de caja */}
+          {activeTab === 'movimientos' && (
+            movimientosLoading
+              ? <AppLoadingState rows={4} />
+              : movimientosCaja.length === 0
+                ? <AppEmptyState
+                    icon={<FinanceIcon size={24} />}
+                    title={cajaStatus === 'open' ? 'Sin movimientos registrados' : 'La caja está cerrada'}
+                    description={cajaStatus !== 'open' ? 'Abrí la caja para registrar movimientos del día.' : undefined}
+                    compact
+                  />
+                : (
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        {['Tipo', 'Descripción', 'Monto', 'Hora'].map(h => <th key={h}>{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {movimientosCaja.map(mov => (
+                        <tr key={mov.id}>
+                          <td>
+                            <span className={`badge badge-no-dot ${mov.type === 'income' ? 'badge-success' : 'badge-error'}`}>
+                              {mov.type === 'income' ? 'Ingreso' : 'Egreso'}
+                            </span>
+                          </td>
+                          <td style={{ color: 'var(--text-secondary)' }}>{mov.description || '—'}</td>
+                          <td style={{ fontWeight: 700, color: mov.type === 'income' ? 'var(--success)' : 'var(--error)' }}>
+                            {mov.type === 'income' ? '+' : '-'}{fmtARS(Math.abs(mov.amount_ars || mov.amount || 0))}
+                          </td>
+                          <td style={{ color: 'var(--text-subtle)', fontSize: '0.8rem' }}>
+                            {new Date(mov.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+          )}
+        </div>
+      </section>
     </div>
   )
 }
