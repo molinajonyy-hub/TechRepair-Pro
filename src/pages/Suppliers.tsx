@@ -126,6 +126,36 @@ function ModalHeader({ title, subtitle, icon, onClose }: { title: string; subtit
   )
 }
 
+// ─── Form field helpers (definidos fuera para evitar remount en cada keystroke) ─
+
+function SField({ form, set, label, name, type = 'text', placeholder = '', required = false }: {
+  form: Record<string, any>; set: (k: string, v: any) => void
+  label: string; name: string; type?: string; placeholder?: string; required?: boolean
+}) {
+  return (
+    <div>
+      <label style={labelS}>{label}{required && ' *'}</label>
+      <input style={inputS} type={type} value={form[name] || ''} placeholder={placeholder}
+        onChange={e => set(name, e.target.value)} />
+    </div>
+  )
+}
+
+function SSelect({ form, set, label, name, options }: {
+  form: Record<string, any>; set: (k: string, v: any) => void
+  label: string; name: string; options: string[]
+}) {
+  return (
+    <div>
+      <label style={labelS}>{label}</label>
+      <select style={{ ...inputS }} value={form[name] || ''} onChange={e => set(name, e.target.value)}>
+        <option value="">— Seleccionar —</option>
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </div>
+  )
+}
+
 // ─── Modal: Crear / Editar proveedor ─────────────────────────────────────────
 
 interface ModalSupplierFormProps {
@@ -150,7 +180,7 @@ function ModalSupplierForm({ onClose, onSaved, editing, businessId, userId }: Mo
   const [error, setError] = useState('')
   const [section, setSection] = useState<'principal' | 'comercial'>('principal')
 
-  const set = (k: string, v: any) => setForm(p => ({ ...p, [k]: v }))
+  const set = useCallback((k: string, v: any) => setForm(p => ({ ...p, [k]: v })), [])
 
   const handleSave = async () => {
     if (!form.name.trim()) { setError('El nombre es obligatorio'); return }
@@ -169,23 +199,7 @@ function ModalSupplierForm({ onClose, onSaved, editing, businessId, userId }: Mo
     }
   }
 
-  const Field = ({ label, name, type = 'text', placeholder = '', required = false }: { label: string; name: string; type?: string; placeholder?: string; required?: boolean }) => (
-    <div>
-      <label style={labelS}>{label}{required && ' *'}</label>
-      <input style={inputS} type={type} value={(form as any)[name] || ''} placeholder={placeholder}
-        onChange={e => set(name, e.target.value)} />
-    </div>
-  )
-
-  const SelectField = ({ label, name, options }: { label: string; name: string; options: string[] }) => (
-    <div>
-      <label style={labelS}>{label}</label>
-      <select style={{ ...inputS }} value={(form as any)[name] || ''} onChange={e => set(name, e.target.value)}>
-        <option value="">— Seleccionar —</option>
-        {options.map(o => <option key={o} value={o}>{o}</option>)}
-      </select>
-    </div>
-  )
+  // SField y SSelect están definidos fuera del componente para evitar remount en cada keystroke
 
   return (
     <ModalOverlay onClose={onClose} maxWidth="700px">
@@ -204,23 +218,23 @@ function ModalSupplierForm({ onClose, onSaved, editing, businessId, userId }: Mo
         {section === 'principal' ? (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <Field label="Nombre comercial" name="name" required placeholder="Ej: Distribuidora Norte" />
-              <Field label="Razón social" name="business_name" placeholder="Ej: Norte SA" />
+              <SField form={form} set={set} label="Nombre comercial" name="name" required placeholder="Ej: Distribuidora Norte" />
+              <SField form={form} set={set} label="Razón social" name="business_name" placeholder="Ej: Norte SA" />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <Field label="CUIT / DNI" name="tax_id" placeholder="20-12345678-9" />
-              <SelectField label="Condición fiscal" name="fiscal_condition" options={FISCAL_CONDITIONS} />
+              <SField form={form} set={set} label="CUIT / DNI" name="tax_id" placeholder="20-12345678-9" />
+              <SSelect form={form} set={set} label="Condición fiscal" name="fiscal_condition" options={FISCAL_CONDITIONS} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <Field label="Teléfono" name="phone" placeholder="+54 9 351 123 4567" />
-              <Field label="WhatsApp" name="whatsapp" placeholder="+54 9 351 123 4567" />
+              <SField form={form} set={set} label="Teléfono" name="phone" placeholder="+54 9 351 123 4567" />
+              <SField form={form} set={set} label="WhatsApp" name="whatsapp" placeholder="+54 9 351 123 4567" />
             </div>
-            <Field label="Email" name="email" type="email" placeholder="proveedor@email.com" />
-            <Field label="Dirección" name="address" placeholder="Av. Ejemplo 1234" />
+            <SField form={form} set={set} label="Email" name="email" type="email" placeholder="proveedor@email.com" />
+            <SField form={form} set={set} label="Dirección" name="address" placeholder="Av. Ejemplo 1234" />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
-              <Field label="Ciudad" name="city" />
-              <Field label="Provincia" name="province" />
-              <Field label="País" name="country" />
+              <SField form={form} set={set} label="Ciudad" name="city" />
+              <SField form={form} set={set} label="Provincia" name="province" />
+              <SField form={form} set={set} label="País" name="country" />
             </div>
             <div>
               <label style={labelS}>Estado</label>
@@ -237,18 +251,18 @@ function ModalSupplierForm({ onClose, onSaved, editing, businessId, userId }: Mo
         ) : (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <SelectField label="Rubro / Categoría" name="category" options={CATEGORIES} />
-              <Field label="Nombre del contacto" name="contact_name" />
+              <SSelect form={form} set={set} label="Rubro / Categoría" name="category" options={CATEGORIES} />
+              <SField form={form} set={set} label="Nombre del contacto" name="contact_name" />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <Field label="Días habituales de entrega" name="delivery_days" placeholder="Ej: Lunes y jueves" />
-              <SelectField label="Método de pago preferido" name="payment_method_preferred" options={PAYMENT_METHODS.map(m => PAYMENT_METHOD_LABELS[m] || m)} />
+              <SField form={form} set={set} label="Días habituales de entrega" name="delivery_days" placeholder="Ej: Lunes y jueves" />
+              <SSelect form={form} set={set} label="Método de pago preferido" name="payment_method_preferred" options={PAYMENT_METHODS.map(m => PAYMENT_METHOD_LABELS[m] || m)} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <Field label="Alias bancario" name="bank_alias" placeholder="proveedor.alias" />
-              <Field label="CBU" name="bank_cbu" placeholder="0000000000000000000000" />
+              <SField form={form} set={set} label="Alias bancario" name="bank_alias" placeholder="proveedor.alias" />
+              <SField form={form} set={set} label="CBU" name="bank_cbu" placeholder="0000000000000000000000" />
             </div>
-            <Field label="Web / Instagram / Catálogo" name="website" placeholder="https://..." />
+            <SField form={form} set={set} label="Web / Instagram / Catálogo" name="website" placeholder="https://..." />
             <div>
               <label style={labelS}>Notas internas</label>
               <textarea style={{ ...inputS, minHeight: 80, resize: 'vertical' as const }}
