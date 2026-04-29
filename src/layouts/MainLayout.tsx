@@ -1,11 +1,13 @@
-import { Outlet } from 'react-router-dom'
+import { Outlet, useNavigate } from 'react-router-dom'
 import { Sidebar } from '../components/layout/Sidebar'
 import { TopHeader } from '../components/layout/TopHeader'
 import { useAuth } from '../contexts/AuthContext'
 import { useSidebar } from '../hooks/useSidebar'
-import { useNavigate } from 'react-router-dom'
 import { SubscriptionGuard } from '../components/subscription/SubscriptionGuard'
 import { SubscriptionBanner } from '../components/subscription/SubscriptionBanner'
+import { SystemStatusProvider } from '../contexts/SystemStatusContext'
+import { useEffect } from 'react'
+import { backgroundPrefetch } from '../services/refreshCriticalData'
 
 // Mobile top bar (hamburger + brand)
 function MobileTopBar() {
@@ -70,7 +72,14 @@ export function MainLayout() {
   const { businessId, profileError, user } = useAuth()
   const { isCollapsed } = useSidebar()
   const sidebarOffset = isCollapsed ? '80px' : '260px'
+
+  // Precarga en segundo plano al montar el layout
+  useEffect(() => {
+    if (businessId) backgroundPrefetch(businessId)
+  }, [businessId])
+
   return (
+    <SystemStatusProvider>
     <div
       style={{
         minHeight: '100vh',
@@ -161,5 +170,6 @@ export function MainLayout() {
         }
       `}</style>
     </div>
+    </SystemStatusProvider>
   )
 }

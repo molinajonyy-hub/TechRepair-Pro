@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   Tag, Plus, Search, Edit2, Trash2, RefreshCw, X, CheckCircle,
-  AlertCircle, Clock, Calendar, Percent, ChevronDown, Power,
+  AlertCircle, Clock, Calendar, Percent,
   RotateCcw, Package,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
@@ -102,7 +102,6 @@ interface ModalOfferFormProps {
 
 function ModalOfferForm({ onClose, onSaved, editing, businessId, userId }: ModalOfferFormProps) {
   const [productId, setProductId] = useState(editing?.product_id || '')
-  const [productName, setProductName] = useState(editing?.product?.name || '')
   const [normalPrice, setNormalPrice] = useState(editing?.normal_price || 0)
   const [offerPrice, setOfferPrice] = useState(editing?.offer_price || 0)
   const [startDate, setStartDate] = useState(editing?.start_date || today())
@@ -139,7 +138,6 @@ function ModalOfferForm({ onClose, onSaved, editing, businessId, userId }: Modal
 
   const selectProduct = (p: any) => {
     setProductId(p.id)
-    setProductName(p.variant_name ? `${p.name} — ${p.variant_name}` : p.name)
     setNormalPrice(p.sale_price || 0)
     setSearchQ(p.variant_name ? `${p.name} — ${p.variant_name}` : p.name)
     setSearchResults([])
