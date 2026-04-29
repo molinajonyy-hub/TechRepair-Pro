@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ModalCobro } from '../components/cobro/ModalCobro'
 import { useDashboardStats } from '../hooks/useDashboardStats'
 import { useComprobantes } from '../hooks/useComprobantes'
 import { currencyService } from '../services/currencyService'
@@ -14,7 +13,7 @@ import {
   AppEmptyState, AppLoadingState, AppErrorState,
 } from '../ui'
 import {
-  NewOrderIcon, PaymentIcon, FinanceIcon,
+  NewOrderIcon, FinanceIcon, InvoiceIcon,
   OrderIcon, ClientsIcon, RevenueIcon, ExchangeRateIcon,
   RefreshIcon, NewClientIcon, WarrantyIcon,
   ExpenseReceiptIcon, AvailableIcon, ViewIcon, HideIcon,
@@ -33,7 +32,6 @@ const fmtDate = (iso: string) =>
 
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState('orders')
-  const [cobroOpen, setCobroOpen]           = useState(false)
   const [disponibleVisible, setDisponibleVisible] = useState(true)
   const [disponible, setDisponible]         = useState<{ ingresos: number; egresos: number } | null>(null)
   const [dolarRate, setDolarRate]           = useState<number | null>(null)
@@ -86,7 +84,7 @@ export function Dashboard() {
         const egresos  = data.filter(e => e.type !== 'income').reduce((s, e) => s + (e.amount_ars || 0), 0)
         setDisponible({ ingresos, egresos })
       })
-  }, [businessId, cobroOpen])
+  }, [businessId])
 
   // ── Estado de caja ──
   const loadCajaStatus = useCallback(async () => {
@@ -163,8 +161,6 @@ export function Dashboard() {
   // ─── RENDER ────────────────────────────────────────────────────────────────
   return (
     <div className="page-shell">
-      <ModalCobro isOpen={cobroOpen} onClose={() => setCobroOpen(false)} />
-
       {/* ── 1. Page Header ─────────────────────────────────────────────────── */}
       <AppPageHeader
         icon={<DashboardIcon size={20} />}
@@ -176,9 +172,9 @@ export function Dashboard() {
               onClick={() => navigate('/orders/new')}>
               Nueva Orden
             </AppButton>
-            <AppButton variant="green" size="sm" leftIcon={<PaymentIcon size={15} />}
-              onClick={() => setCobroOpen(true)}>
-              Cobrar
+            <AppButton variant="indigo" size="sm" leftIcon={<InvoiceIcon size={15} />}
+              onClick={() => navigate('/comprobantes', { state: { openNew: true } })}>
+              Nuevo Comprobante
             </AppButton>
             <AppButton
               variant={cajaStatus === 'open' ? 'danger' : 'secondary'}
@@ -384,7 +380,7 @@ export function Dashboard() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.875rem' }}>
           {([
             { label: 'Nueva Orden',    icon: <NewOrderIcon size={22} />,     color: 'var(--accent-primary)', bg: 'var(--accent-primary-subtle)', onClick: () => navigate('/orders/new') },
-            { label: 'Cobrar',         icon: <PaymentIcon size={22} />,      color: 'var(--success)',        bg: 'var(--success-subtle)',         onClick: () => setCobroOpen(true) },
+            { label: 'Nuevo Comprobante', icon: <InvoiceIcon size={22} />, color: 'var(--accent-primary)', bg: 'var(--accent-primary-subtle)', onClick: () => navigate('/comprobantes', { state: { openNew: true } }) },
             { label: 'Nuevo Cliente',  icon: <NewClientIcon size={22} />,    color: 'var(--accent-secondary)',bg: 'var(--accent-secondary-subtle)',onClick: () => navigate('/customers/new') },
             { label: 'Nuevo Producto', icon: <CurrencyIcon size={22} />,     color: 'var(--info)',           bg: 'var(--info-subtle)',            onClick: () => navigate('/inventory') },
             { label: 'Nueva Garantía', icon: <WarrantyIcon size={22} />,     color: 'var(--accent-primary)', bg: 'var(--accent-primary-subtle)', onClick: () => navigate('/warranties') },

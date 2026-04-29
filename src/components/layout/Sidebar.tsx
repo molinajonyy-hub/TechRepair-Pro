@@ -5,7 +5,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useSidebar } from '../../hooks/useSidebar';
 import { usePermissions } from '../../hooks/usePermissions';
 import { PermissionKey } from '../../config/permissions';
-import { ModalCobro } from '../cobro/ModalCobro';
 import { supabase } from '../../lib/supabase';
 
 // ── Cat logo SVG (from design system) ──
@@ -236,7 +235,6 @@ export function Sidebar() {
     toggleSidebar,
     closeMobileSidebar,
   } = useSidebar();
-  const [cobroOpen, setCobroOpen] = useState(false);
 
   // Filter sections and items based on permissions + feature flags
   const visibleSections = menuSections
@@ -336,36 +334,6 @@ export function Sidebar() {
           overflowX: 'hidden',
         }}
       >
-        {/* ── Botón COBRAR ── */}
-        <button
-          onClick={() => setCobroOpen(true)}
-          title={collapsed ? 'Cobrar' : undefined}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: collapsed ? 'center' : 'flex-start',
-            gap: collapsed ? 0 : '0.625rem',
-            width: '100%',
-            padding: collapsed ? '0.625rem' : '0.625rem 0.875rem',
-            marginBottom: '0.75rem',
-            borderRadius: '0.625rem',
-            background: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
-            border: 'none',
-            color: 'white',
-            fontWeight: 700,
-            fontSize: collapsed ? '1rem' : '0.875rem',
-            cursor: 'pointer',
-            boxShadow: '0 4px 14px rgba(34,197,94,0.35)',
-            transition: 'all 0.15s',
-            boxSizing: 'border-box',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(34,197,94,0.45)' }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(34,197,94,0.35)' }}
-        >
-          <span style={{ fontSize: collapsed ? '1.1rem' : '1rem', flexShrink: 0 }}>💰</span>
-          {!collapsed && <span>+ Cobrar</span>}
-        </button>
-
         {visibleSections.map((section) => (
           <div key={section.sectionLabel}>
             {/* Section label — hidden when collapsed */}
@@ -675,7 +643,6 @@ export function Sidebar() {
         }
       `}</style>
 
-      <ModalCobro isOpen={cobroOpen} onClose={() => setCobroOpen(false)} />
     </>
   );
 }

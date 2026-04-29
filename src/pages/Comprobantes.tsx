@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Plus, RefreshCw, FileText, TrendingUp, Receipt, Loader2, AlertTriangle, Search } from 'lucide-react';
 import { CloseButton } from '../components/ui/CloseButton';
 import { ComprobantesTable } from '../components/comprobantes/ComprobantesTable';
@@ -12,6 +12,7 @@ import { smartSearch } from '../utils/searchUtils';
 export default function ComprobantesPage() {
   const { businessId, user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [comprobantes, setComprobantes] = useState<Comprobante[]>([]);
   const [loading, setLoading]           = useState(false);
@@ -67,6 +68,15 @@ export default function ComprobantesPage() {
   };
 
   useEffect(() => { cargarComprobantes(); }, [cargarComprobantes]);
+
+  // Abrir modal automáticamente cuando se navega desde Inicio con { state: { openNew: true } }
+  useEffect(() => {
+    if ((location.state as any)?.openNew) {
+      setShowModal(true);
+      // Limpiar el state para que no re-abra al refrescar
+      window.history.replaceState({}, '', location.pathname);
+    }
+  }, [location.state, location.pathname]);
 
   // ── Estadísticas ─────────────────────────────────────────────────────────────
   const isEmitido  = (c: Comprobante) => ['emitido','issued'].includes((c.estado || c.status) ?? '');
