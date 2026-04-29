@@ -24,6 +24,7 @@ import { OrderDetail } from './pages/OrderDetail'
 import { Orders } from './pages/Orders'
 import { Reports } from './pages/Reports'
 import { Suppliers } from './pages/Suppliers'
+import { Offers } from './pages/Offers'
 import { Warranties } from './pages/Warranties'
 import { UsersManagement } from './pages/UsersManagement'
 import { CajaPage } from './pages/CajaPage'
@@ -79,6 +80,7 @@ function AppContent() {
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/mayorista" element={<Mayorista />} />
             <Route path="/suppliers" element={<Suppliers />} />
+            <Route path="/offers" element={<Offers />} />
             <Route path="/expenses" element={<Expenses />} />
             <Route path="/finance" element={<Finance />} />
             <Route path="/reports" element={<Reports />} />

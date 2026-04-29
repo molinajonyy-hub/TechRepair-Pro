@@ -11,6 +11,7 @@ import { invalidateStatsCache } from '../../hooks/useDashboardStats'
 import { useCommissionRates, COMMISSION_KEYS } from '../../hooks/useCommissionRates'
 import comprobanteService from '../../services/comprobanteService'
 import { buildSupabaseQuery, smartSearch } from '../../utils/searchUtils'
+import { getActiveOfferForProduct } from '../../pages/Offers'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -308,14 +309,32 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
         { getValue: (p: any) => p.variant_name, weight: 2 },
         { getValue: (p: any) => p.code, weight: 1 },
       ]).slice(0, 8)
-      setProdResults(prev => ({ ...prev, [itemId]: sorted }))
+
+      // Enriquecer con ofertas activas en batch
+      const t = new Date().toISOString().split('T')[0]
+      const ids = sorted.map((p: any) => p.id)
+      const { data: offerData } = ids.length > 0 ? await supabase
+        .from('product_offers').select('product_id, offer_price, discount_percent')
+        .eq('business_id', businessId).eq('is_active', true)
+        .in('product_id', ids).lte('start_date', t).gte('end_date', t) : { data: [] }
+      const offerMap: Record<string, any> = {}
+      ;(offerData || []).forEach((o: any) => { offerMap[o.product_id] = o })
+      const enriched = sorted.map((p: any) => ({ ...p, _offer: offerMap[p.id] || null }))
+      setProdResults(prev => ({ ...prev, [itemId]: enriched }))
     }, 200)
   }, [businessId])
 
-  const seleccionarProducto = (itemId: string, prod: any) => {
+  const seleccionarProducto = async (itemId: string, prod: any) => {
     const useMayorista = isClienteMayorista && prod.precio_mayorista != null
     const nombre = prod.variant_name ? `${prod.name} — ${prod.variant_name}` : prod.name
-    const precio = useMayorista ? prod.precio_mayorista : (prod.sale_price || 0)
+    let precio = useMayorista ? prod.precio_mayorista : (prod.sale_price || 0)
+
+    // Verificar oferta activa (solo si no es mayorista)
+    if (!useMayorista && businessId) {
+      const offer = await getActiveOfferForProduct(prod.id, businessId)
+      if (offer) precio = offer.offer_price
+    }
+
     setItems(prev => prev.map(i => i.id === itemId
       ? { ...i, nombre, precio, inventory_id: prod.id, costo_unitario: prod.cost_price || 0 }
       : i
@@ -566,11 +585,17 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
                                       {p.name}{p.variant_name ? ` — ${p.variant_name}` : ''}
                                     </span>
                                     {p.code && <span style={{ color: '#475569', fontSize: '0.68rem' }}>{p.code}</span>}
+                                    {p._offer && <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '0.1rem 0.35rem', borderRadius: '9999px', background: 'rgba(34,197,94,0.15)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.3)', marginLeft: '0.375rem' }}>🏷 {p._offer.discount_percent}% OFF</span>}
                                   </span>
                                   <span style={{ flexShrink: 0, textAlign: 'right' }}>
                                     {isClienteMayorista && p.precio_mayorista != null ? (
                                       <span style={{ color: '#a5b4fc', fontSize: '0.78rem', fontWeight: 700 }}>
                                         ${(p.precio_mayorista).toLocaleString('es-AR')} <span style={{ color: '#475569', fontWeight: 400, fontSize: '0.68rem' }}>may.</span>
+                                      </span>
+                                    ) : p._offer ? (
+                                      <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                        <span style={{ color: '#64748b', fontSize: '0.68rem', textDecoration: 'line-through' }}>${(p.sale_price || 0).toLocaleString('es-AR')}</span>
+                                        <span style={{ color: '#22c55e', fontSize: '0.83rem', fontWeight: 800 }}>${(p._offer.offer_price).toLocaleString('es-AR')}</span>
                                       </span>
                                     ) : (
                                       <span style={{ color: '#22c55e', fontSize: '0.78rem', fontWeight: 600 }}>

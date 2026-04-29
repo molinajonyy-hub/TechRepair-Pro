@@ -74,6 +74,12 @@ const MayoristaIcon = () => (
     <path d="M16 10a4 4 0 01-8 0"/>
   </svg>
 );
+const OfertasIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/>
+    <line x1="7" y1="7" x2="7.01" y2="7"/>
+  </svg>
+);
 const ProveedoresIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <rect x="1" y="3" width="15" height="13"/>
@@ -185,6 +191,7 @@ const menuSections: NavSection[] = [
       { path: '/inventory', label: 'Inventario', icon: <InventarioIcon />, permission: 'inventory' },
       { path: '/mayorista', label: 'Mayorista', icon: <MayoristaIcon />, permission: 'inventory' },
       { path: '/suppliers', label: 'Proveedores', icon: <ProveedoresIcon />, permission: 'inventory' },
+      { path: '/offers', label: 'Ofertas', icon: <OfertasIcon />, permission: 'inventory' },
     ],
   },
   {
