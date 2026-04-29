@@ -371,7 +371,7 @@ textarea:-webkit-autofill:focus {
 
 /* Transitions globales */
 body, div, span, p, h1, h2, h3, h4, h5, h6, a, button, input, select, textarea,
-nav, header, footer, aside, section, article, main, table, td, th {
+nav, header, footer, aside, section, article, main {
   transition:
     background-color 0.22s ease,
     background 0.22s ease,
@@ -379,6 +379,10 @@ nav, header, footer, aside, section, article, main, table, td, th {
     border-color 0.22s ease,
     box-shadow 0.22s ease;
 }
+
+/* Tabla: solo transición de color para hover — NO de background-color
+   (evita flash blanco al cargar por transición desde undefined → transparent) */
+table, td, th { transition: color 0.15s ease; }
 
 /* ══════════════════════════════════════════════════════════════════════════
    LAYOUT
@@ -421,12 +425,15 @@ nav, header, footer, aside, section, article, main, table, td, th {
    ══════════════════════════════════════════════════════════════════════════ */
 
 .card {
+  background-color: var(--bg-card-solid);
   background: var(--bg-card-solid);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-card);
   overflow: hidden;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  /* Asegura que los td/tr transparentes hereden este fondo y no browser default */
+  color-scheme: inherit;
 }
 
 .card:hover {
@@ -844,6 +851,17 @@ table { width: 100%; border-collapse: collapse; }
   width: 100%;
   color: var(--text-primary);
   border-collapse: collapse;
+  /* Previene que el browser aplique fondo blanco por defecto */
+  background-color: transparent;
+}
+
+/* Reset completo de fondos en todos los elementos de tabla */
+.table thead,
+.table tbody,
+.table tfoot,
+.table tr,
+.table td {
+  background-color: transparent;
 }
 
 .table thead {
@@ -860,28 +878,39 @@ table { width: 100%; border-collapse: collapse; }
   text-align: left;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  background: rgba(99, 102, 241, 0.04);
+  background-color: rgba(99, 102, 241, 0.06);
   border-bottom: 1px solid var(--border-color);
   white-space: nowrap;
 }
 
 .table td {
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid rgba(255,255,255,0.05);
   font-size: 0.875rem;
   color: var(--text-secondary);
   vertical-align: middle;
+  background-color: transparent;
 }
 
 .table tr:last-child td { border-bottom: none; }
 
-.table tbody tr {
-  transition: background 0.12s ease;
-}
+.table tbody tr { transition: background-color 0.12s ease; }
 
 .table tbody tr:hover td {
-  background: var(--bg-hover);
+  background-color: var(--bg-hover) !important;
   color: var(--text-primary);
+}
+
+/* Soporte para light mode */
+[data-theme="light"] .table th {
+  background-color: rgba(79, 70, 229, 0.04);
+  border-bottom-color: var(--border-color);
+}
+[data-theme="light"] .table td {
+  border-bottom-color: var(--border-subtle);
+}
+[data-theme="light"] .table tbody tr:hover td {
+  background-color: var(--bg-hover) !important;
 }
 
 /* Tabla compacta */
