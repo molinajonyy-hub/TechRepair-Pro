@@ -377,13 +377,14 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
 
       // ── Auto-crear comprobante ──────────────────────────────────────────────
       try {
+        if (!businessId) throw new Error('Sin businessId')
         const pagoMedio = mixto ? 'mixto' : (METODO_TO_MEDIO[activeMetodo] || 'otro')
         const pagosComp = mixto
           ? pagos
               .filter(p => p.montoARS + (p.usaUSD && dolar > 0 ? p.montoUSD * dolar : 0) > 0)
               .map(p => ({
                 payment_method: (METODO_TO_MEDIO[p.metodo] || 'otro') as any,
-                amount:         p.montoARS + (p.usaUSD && dolar > 0 ? p.montoUSD * dolar : 0),
+                amount:         Math.round(p.montoARS + (p.usaUSD && dolar > 0 ? p.montoUSD * dolar : 0)),
                 currency:       'ARS' as const,
                 commission_rate: COMMISSION_KEYS[p.metodo] ? (rates[COMMISSION_KEYS[p.metodo]!] ?? 0) : 0,
               }))

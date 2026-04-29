@@ -239,6 +239,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshProfile = async () => {
     if (user) {
+      // Limpiar caché para forzar recarga desde DB (evita perfil/rol desactualizado)
+      window.localStorage.removeItem(getProfileCacheKey(user.id));
       await loadProfile(user);
     }
   };
@@ -390,6 +392,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (user?.id) {
         window.localStorage.removeItem(getProfileCacheKey(user.id));
       }
+      // Limpiar redirect de sesión para evitar que otro usuario herede la URL
+      window.sessionStorage.removeItem('post_login_redirect');
     } finally {
       setLoading(false);
     }

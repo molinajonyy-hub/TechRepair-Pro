@@ -378,6 +378,12 @@ export function ModalCrearComprobante({
       return;
     }
     if (!businessId) { setSubmitError('Error: negocio no identificado'); return; }
+    // Si se seleccionó un método de cobro pero el monto es 0, advertir
+    const pagosConMonto = pagos.filter(p => parseFloat(p.amount) > 0);
+    if (pagos.length > 0 && pagosConMonto.length === 0) {
+      setSubmitError('Ingresá el monto del cobro o quitá el método seleccionado');
+      return;
+    }
 
     setSubmitting(true);
     setSubmitError(null);

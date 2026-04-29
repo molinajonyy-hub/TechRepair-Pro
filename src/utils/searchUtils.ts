@@ -153,7 +153,7 @@ export function highlightParts(
   text: string | null | undefined,
   query: string
 ): { text: string; highlight: boolean }[] {
-  if (!text) return []
+  if (!text) return [{ text: '—', highlight: false }]
   if (!query.trim()) return [{ text, highlight: false }]
 
   const tokens = tokenize(query)
@@ -194,7 +194,8 @@ export function highlightParts(
 export function buildSupabaseQuery(query: string): string {
   const tokens = tokenize(query)
   if (!tokens.length) return ''
-  // Usa el token más largo como query principal para Supabase
+  // Usa el token más largo; escapa los wildcards de PostgreSQL ILIKE
   const main = tokens.sort((a, b) => b.length - a.length)[0]
-  return `%${main}%`
+  const escaped = main.replace(/%/g, '\\%').replace(/_/g, '\\_')
+  return `%${escaped}%`
 }

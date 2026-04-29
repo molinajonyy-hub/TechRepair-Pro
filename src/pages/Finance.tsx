@@ -461,6 +461,7 @@ function EntryModal({ entry, exchangeRate, businessId, userId, onClose, onSaved 
     const amount = parseFloat(form.amount)
     if (!amount || amount <= 0) { setError('El monto debe ser mayor a 0'); return }
     if (!form.category) { setError('Seleccioná una categoría'); return }
+    if (form.currency === 'USD' && exchangeRate <= 0) { setError('El tipo de cambio no está disponible. Actualizalo en Configuración de Moneda.'); return }
     setError('')
     setSaving(true)
     try {
