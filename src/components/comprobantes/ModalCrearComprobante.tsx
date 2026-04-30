@@ -300,18 +300,21 @@ export function ModalCrearComprobante({
     iva = tipo === 'factura_a' ? subtotal * 0.21 : 0;
     const total = subtotal + iva;
 
-    // Comisiones de pagos registrados
-    let totalComision = 0;
-    const totalPagado = pagos.reduce((s, p) => {
-      const amt = parseFloat(p.amount) || 0;
-      totalComision += amt * (p.commission_rate || 0);
-      return s + amt;
+    // Recargo al cliente: diferencia entre el monto cobrado y el monto base
+    // _original_amount = monto sin recargo; amount = monto con recargo incluido
+    const totalPagado = pagos.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+    const totalOriginal = pagos.reduce((s, p) => {
+      const orig = parseFloat((p as any)._original_amount ?? p.amount) || 0;
+      return s + orig;
     }, 0);
+    const totalRecargo = Math.max(0, totalPagado - totalOriginal);
+    const saldo = Math.max(0, total - totalOriginal);
 
-    const totalNeto = total - totalComision;
-    const saldo     = Math.max(0, total - totalPagado);
+    // Aliases para compatibilidad con el resto del código
+    const totalComision = totalRecargo;  // recargo trasladado al cliente
+    const totalNeto     = totalPagado;   // total que paga el cliente (= subtotal + recargo)
 
-    return { subtotal, iva, total, descuento, costo, totalNeto, totalComision, totalPagado, saldo };
+    return { subtotal, iva, total, descuento, costo, totalNeto, totalComision, totalPagado, saldo, totalRecargo };
   }, [lineas, tipo, exchangeRate, pagos]);
 
   if (!isOpen) return null;
@@ -335,6 +338,7 @@ export function ModalCrearComprobante({
       const baseAmount = metodo.charge_mode === 'customer' && metodo.percentage > 0
         ? Math.round(Math.max(0, saldo) * (1 + metodo.percentage / 100))
         : Math.round(Math.max(0, saldo));
+      const originalSaldo = Math.round(Math.max(0, saldo));
       setPagos(prev => [...prev, {
         _key:             Math.random().toString(36).slice(2),
         payment_method:   pmKey,
@@ -345,8 +349,9 @@ export function ModalCrearComprobante({
         // Campos extra (cast a any para no cambiar el tipo PagoLinea existente)
         _option_id:       optionId,
         _option_label:    metodo.label,
-        _charge_mode:     metodo.charge_mode,
+        _charge_mode:     'customer',       // siempre al cliente
         _color:           metodo.color,
+        _original_amount: String(originalSaldo),  // monto sin recargo (para cálculo correcto)
       } as any]);
     }
   };
@@ -1074,8 +1079,6 @@ export function ModalCrearComprobante({
                       const metColor = pa._color || '#94a3b8';
                       const metLabel = pa._option_label || p.payment_method;
                       const amt = parseFloat(p.amount) || 0;
-                      const comm = amt * (p.commission_rate || 0);
-                      const chargeMode: string = pa._charge_mode || 'none';
                       return (
                         <div key={p._key} style={{
                           display: 'flex', alignItems: 'center', gap: '0.5rem',
@@ -1099,38 +1102,43 @@ export function ModalCrearComprobante({
                           >
                             <X size={13} />
                           </button>
-                          {comm > 0 && chargeMode === 'customer' && (
-                            <span style={{ fontSize: '0.68rem', color: '#f59e0b', whiteSpace: 'nowrap' }}>
-                              +{fmtARS(comm)} recargo
-                            </span>
-                          )}
-                          {comm > 0 && chargeMode === 'business' && (
-                            <span style={{ fontSize: '0.68rem', color: '#818cf8', whiteSpace: 'nowrap' }}>
-                              −{fmtARS(comm)} absorbe negocio
-                            </span>
-                          )}
+                          {(() => {
+                            const originalAmt = parseFloat((p as any)._original_amount ?? p.amount) || 0;
+                            const surcharge = amt - originalAmt;
+                            return surcharge > 0 ? (
+                              <span style={{ fontSize: '0.68rem', color: '#f59e0b', whiteSpace: 'nowrap' }}>
+                                +{fmtARS(surcharge)} recargo
+                              </span>
+                            ) : null;
+                          })()}
                         </div>
                       );
                     })}
 
-                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                        {totales.totalComision > 0 && (
-                          <span style={{ fontSize: '0.75rem', color: '#f59e0b' }}>
-                            Comisión: −{fmtARS(totales.totalComision)}
-                          </span>
-                        )}
-                        {totales.saldo > 1 && (
-                          <span style={{ fontSize: '0.75rem', color: '#f87171' }}>
-                            Saldo pendiente: {fmtARS(totales.saldo)}
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Neto a recibir</div>
-                        <div style={{ fontFamily: 'monospace', fontSize: '1.1rem', fontWeight: 800, color: '#34d399' }}>
-                          {fmtARS(totales.totalNeto)}
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.625rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                      {totales.totalRecargo > 0 && (
+                        <>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#94a3b8' }}>
+                            <span>Subtotal</span>
+                            <span>{fmtARS(totales.total)}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#f59e0b' }}>
+                            <span>Recargo al cliente</span>
+                            <span>+{fmtARS(totales.totalRecargo)}</span>
+                          </div>
+                        </>
+                      )}
+                      {totales.saldo > 1 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#f87171' }}>
+                          <span>Saldo pendiente</span>
+                          <span>{fmtARS(totales.saldo)}</span>
                         </div>
+                      )}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.25rem' }}>
+                        <span style={{ fontSize: '0.78rem', color: '#64748b' }}>Total a cobrar</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: '1.15rem', fontWeight: 800, color: '#34d399' }}>
+                          {fmtARS(totales.totalNeto)}
+                        </span>
                       </div>
                     </div>
                   </div>

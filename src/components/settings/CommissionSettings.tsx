@@ -2,14 +2,6 @@ import { useState } from 'react'
 import { Plus, Trash2, ChevronDown, ChevronUp, Check, X, Percent, Loader2, RefreshCw, Power } from 'lucide-react'
 import { usePaymentCommissions, type CommissionGroup, type CommissionOption } from '../../hooks/usePaymentCommissions'
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const CHARGE_MODE_LABELS = {
-  none:     { label: 'Sin recargo',           color: '#34d399' },
-  customer: { label: 'Recargo al cliente',    color: '#f59e0b' },
-  business: { label: 'Lo absorbe el negocio', color: '#818cf8' },
-} as const
-
 const inputS: React.CSSProperties = {
   padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.05)',
   border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem',
@@ -31,16 +23,13 @@ function OptionRow({ option, onUpdate, onDelete }: {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(option.name)
   const [pct, setPct] = useState(String(option.percentage))
-  const [mode, setMode] = useState<CommissionOption['charge_mode']>(option.charge_mode)
 
   const save = () => {
     const pctNum = parseFloat(pct.replace(',', '.'))
     if (isNaN(pctNum)) return
-    onUpdate(option.id, { name, percentage: pctNum, charge_mode: mode })
+    onUpdate(option.id, { name, percentage: pctNum, charge_mode: 'customer' })
     setEditing(false)
   }
-
-  const modeInfo = CHARGE_MODE_LABELS[option.charge_mode]
 
   return (
     <div style={{
@@ -54,15 +43,15 @@ function OptionRow({ option, onUpdate, onDelete }: {
     }}>
       {editing ? (
         <>
-          <input style={{ ...inputS, width: 120, fontSize: '0.8rem', flex: '0 0 120px' }} value={name} onChange={e => setName(e.target.value)} placeholder="Nombre" />
-          <div style={{ position: 'relative', flex: '0 0 80px' }}>
+          <input style={{ ...inputS, width: 120, fontSize: '0.8rem', flex: '0 0 120px' }} value={name}
+            onChange={e => setName(e.target.value)} placeholder="Nombre"
+            onKeyDown={e => e.key === 'Enter' && save()} />
+          <div style={{ position: 'relative', flex: '0 0 90px' }}>
             <input style={{ ...inputS, paddingRight: '1.5rem', fontSize: '0.8rem', textAlign: 'right' }}
-              value={pct} onChange={e => setPct(e.target.value)} placeholder="0" />
+              value={pct} onChange={e => setPct(e.target.value)} placeholder="0"
+              onKeyDown={e => e.key === 'Enter' && save()} />
             <Percent size={10} style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)', pointerEvents: 'none' }} />
           </div>
-          <select style={{ ...inputS, flex: '1 1 160px', fontSize: '0.75rem' }} value={mode} onChange={e => setMode(e.target.value as any)}>
-            {Object.entries(CHARGE_MODE_LABELS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-          </select>
           <button onClick={save} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#22c55e', padding: '0.25rem' }}><Check size={14} /></button>
           <button onClick={() => setEditing(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: '0.25rem' }}><X size={14} /></button>
         </>
@@ -70,14 +59,7 @@ function OptionRow({ option, onUpdate, onDelete }: {
         <>
           <span style={{ flex: 1, fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', minWidth: 80 }}>{option.name}</span>
           <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#f59e0b', fontFamily: 'monospace', minWidth: 44, textAlign: 'right' }}>
-            {option.percentage > 0 ? `${option.percentage}%` : '—'}
-          </span>
-          <span style={{
-            fontSize: '0.65rem', fontWeight: 700, padding: '0.15rem 0.4rem', borderRadius: '9999px',
-            background: `${modeInfo.color}15`, color: modeInfo.color, border: `1px solid ${modeInfo.color}30`,
-            whiteSpace: 'nowrap' as const,
-          }}>
-            {modeInfo.label}
+            {option.percentage > 0 ? `+${option.percentage}%` : 'Sin recargo'}
           </span>
           <button onClick={() => onUpdate(option.id, { is_active: !option.is_active })}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: option.is_active ? '#22c55e' : '#475569', padding: '0.2rem' }}
@@ -104,27 +86,23 @@ function AddOptionForm({ onAdd, onCancel }: {
 }) {
   const [name, setName] = useState('')
   const [pct, setPct] = useState('')
-  const [mode, setMode] = useState<CommissionOption['charge_mode']>('customer')
 
   const submit = () => {
     if (!name.trim()) return
-    onAdd(name.trim(), parseFloat(pct.replace(',', '.')) || 0, mode)
+    onAdd(name.trim(), parseFloat(pct.replace(',', '.')) || 0, 'customer')
     setName(''); setPct('')
   }
 
   return (
     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', padding: '0.5rem', background: 'rgba(99,102,241,0.06)', borderRadius: '0.5rem', border: '1px solid rgba(99,102,241,0.2)', marginTop: '0.375rem', flexWrap: 'wrap' as const }}>
-      <input style={{ ...inputS, flex: '1 1 120px', fontSize: '0.8rem' }} value={name}
+      <input style={{ ...inputS, flex: '1 1 140px', fontSize: '0.8rem' }} value={name}
         onChange={e => setName(e.target.value)} placeholder="Nombre (ej: 3 cuotas)" autoFocus
         onKeyDown={e => e.key === 'Enter' && submit()} />
-      <div style={{ position: 'relative', flex: '0 0 80px' }}>
+      <div style={{ position: 'relative', flex: '0 0 90px' }}>
         <input style={{ ...inputS, paddingRight: '1.5rem', fontSize: '0.8rem', textAlign: 'right' }}
-          value={pct} onChange={e => setPct(e.target.value)} placeholder="%" />
+          value={pct} onChange={e => setPct(e.target.value)} placeholder="%" onKeyDown={e => e.key === 'Enter' && submit()} />
         <Percent size={10} style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)', pointerEvents: 'none' }} />
       </div>
-      <select style={{ ...inputS, flex: '1 1 160px', fontSize: '0.75rem' }} value={mode} onChange={e => setMode(e.target.value as any)}>
-        {Object.entries(CHARGE_MODE_LABELS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-      </select>
       <button onClick={submit} className="btn btn-xs btn-fill-indigo"><Check size={12} /> Agregar</button>
       <button onClick={onCancel} className="btn btn-xs btn-ghost"><X size={12} /></button>
     </div>
@@ -251,7 +229,7 @@ export function CommissionSettings() {
             Medios de cobro y comisiones
           </h3>
           <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-subtle)', lineHeight: 1.5 }}>
-            Configurá todos tus medios de cobro con sus porcentajes. Los activos aparecen en Nuevo Comprobante.
+            Configurá los porcentajes de recargo por método de cobro. Se suman automáticamente al total y se trasladan al cliente.
           </p>
         </div>
         <button onClick={reload} className="btn btn-sm btn-ghost" title="Recargar"><RefreshCw size={13} /></button>
