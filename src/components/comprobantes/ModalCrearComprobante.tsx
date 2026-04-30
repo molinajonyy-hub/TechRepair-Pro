@@ -19,6 +19,7 @@ import {
   ComprobantePago, CrearComprobanteInput,
 } from '../../services/comprobanteService';
 import { MpPaymentModal } from '../payments/MpPaymentModal';
+import { usePaymentCommissions, type FlatPaymentMethod } from '../../hooks/usePaymentCommissions';
 
 // ─── Sub-types ────────────────────────────────────────────────────────────────
 
@@ -84,13 +85,7 @@ const CONDICIONES_FISCALES = [
   'Exento', 'Responsable No Inscripto',
 ];
 
-const METODOS_COBRO: { id: MedioPago; label: string; sub: string; commRate: number; color: string }[] = [
-  { id: 'efectivo',        label: 'Efectivo',       sub: 'Sin comisión',  commRate: 0,      color: '#34d399' },
-  { id: 'transferencia',   label: 'Transferencia',  sub: 'Sin comisión',  commRate: 0,      color: '#60a5fa' },
-  { id: 'tarjeta_debito',  label: 'Débito (MP)',    sub: '0.89%',         commRate: 0.0089, color: '#a78bfa' },
-  { id: 'tarjeta_credito', label: 'Crédito 1C (MP)',sub: '3.99%',         commRate: 0.0399, color: '#f59e0b' },
-  { id: 'qr',              label: 'QR (MP)',        sub: '0.99%',         commRate: 0.0099, color: '#fb7185' },
-];
+// METODOS_COBRO eliminado — ahora se usan métodos dinámicos desde usePaymentCommissions
 
 const emptyLinea = (): LineaItem => ({
   _key: Math.random().toString(36).slice(2),
@@ -153,6 +148,9 @@ export function ModalCrearComprobante({
   const [searchLoading, setSearchLoading]   = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout>>();
   const dropdownRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // ── Comisiones dinámicas ──────────────────────────────────────────────────────
+  const { flatMethods } = usePaymentCommissions();
 
   // ── Pago ─────────────────────────────────────────────────────────────────────
   const [pagos, setPagos]           = useState<PagoLinea[]>([]);
@@ -319,19 +317,37 @@ export function ModalCrearComprobante({
   if (!isOpen) return null;
 
   // ── Pago helpers ──────────────────────────────────────────────────────────────
-  const toggleMetodoCobro = (metodo: typeof METODOS_COBRO[0]) => {
-    const exists = pagos.find(p => p.payment_method === metodo.id);
+  const toggleMetodoCobro = (metodo: FlatPaymentMethod) => {
+    // Para métodos fijos usamos el id como payment_method; para dinámicos usamos 'otro'
+    const pmKey = (metodo.id === 'efectivo' || metodo.id === 'transferencia')
+      ? metodo.id as MedioPago
+      : 'otro' as MedioPago;
+    // Identificar por combinación de payment_method + option_id para soportar múltiples tarjetas
+    const optionId = metodo.group_id ? metodo.id : null;
+    const exists = pagos.find(p =>
+      p.payment_method === pmKey && (p as any)._option_id === optionId
+    );
     if (exists) {
-      setPagos(prev => prev.filter(p => p.payment_method !== metodo.id));
+      setPagos(prev => prev.filter(p => !((p as any)._option_id === optionId && p.payment_method === pmKey)));
     } else {
       const saldo = totales.total - pagos.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+      // Si es recargo al cliente: el monto base sube por el porcentaje
+      const baseAmount = metodo.charge_mode === 'customer' && metodo.percentage > 0
+        ? Math.round(Math.max(0, saldo) * (1 + metodo.percentage / 100))
+        : Math.round(Math.max(0, saldo));
       setPagos(prev => [...prev, {
         _key:             Math.random().toString(36).slice(2),
-        payment_method:   metodo.id,
-        payment_provider: '',
-        amount:           String(Math.round(Math.max(0, saldo))),
-        commission_rate:  metodo.commRate,
-      }]);
+        payment_method:   pmKey,
+        payment_provider: metodo.group_name !== 'Efectivo' && metodo.group_name !== 'Transferencia'
+          ? metodo.group_name : '',
+        amount:           String(baseAmount),
+        commission_rate:  metodo.percentage / 100,
+        // Campos extra (cast a any para no cambiar el tipo PagoLinea existente)
+        _option_id:       optionId,
+        _option_label:    metodo.label,
+        _charge_mode:     metodo.charge_mode,
+        _color:           metodo.color,
+      } as any]);
     }
   };
 
@@ -1019,28 +1035,32 @@ export function ModalCrearComprobante({
                   </span>
                 </div>
 
-                {/* Tarjetas de método — estilo ModalCobro */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
-                  {METODOS_COBRO.map(m => {
-                    const activo = pagos.some(p => p.payment_method === m.id);
+                {/* Métodos dinámicos desde Configuración > Comisiones */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '0.5rem' }}>
+                  {flatMethods.map(m => {
+                    const optionId = m.group_id ? m.id : null;
+                    const pmKey = (m.id === 'efectivo' || m.id === 'transferencia') ? m.id : 'otro';
+                    const activo = pagos.some(p =>
+                      p.payment_method === pmKey && (p as any)._option_id === optionId
+                    );
+                    const subText = m.percentage > 0
+                      ? (m.charge_mode === 'customer' ? `+${m.percentage}% cliente` : `${m.percentage}% negocio`)
+                      : 'Sin recargo';
                     return (
-                      <button
-                        key={m.id}
-                        onClick={() => toggleMetodoCobro(m)}
+                      <button key={m.id} onClick={() => toggleMetodoCobro(m)}
                         style={{
-                          padding: '0.75rem 0.5rem',
+                          padding: '0.625rem 0.375rem',
                           borderRadius: '0.625rem',
                           border: `2px solid ${activo ? m.color : 'rgba(255,255,255,0.07)'}`,
                           backgroundColor: activo ? `${m.color}18` : 'rgba(255,255,255,0.03)',
                           color: activo ? m.color : '#64748b',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s',
-                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem',
-                          textAlign: 'center',
+                          cursor: 'pointer', transition: 'all 0.15s',
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem', textAlign: 'center',
                         }}
                       >
-                        <span style={{ fontSize: '0.8rem', fontWeight: 700, lineHeight: 1.2 }}>{m.label}</span>
-                        <span style={{ fontSize: '0.65rem', color: activo ? m.color : '#475569', opacity: 0.85 }}>{m.sub}</span>
+                        <span style={{ fontSize: '0.78rem', fontWeight: 700, lineHeight: 1.25 }}>{m.group_name}</span>
+                        {m.group_id && <span style={{ fontSize: '0.68rem', fontWeight: 600, opacity: 0.9, lineHeight: 1.2 }}>{m.short_label}</span>}
+                        <span style={{ fontSize: '0.6rem', color: activo ? m.color : '#475569', opacity: 0.85 }}>{subText}</span>
                       </button>
                     );
                   })}
@@ -1050,19 +1070,22 @@ export function ModalCrearComprobante({
                 {pagos.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
                     {pagos.map(p => {
-                      const metInfo = METODOS_COBRO.find(m => m.id === p.payment_method);
+                      const pa = p as any;
+                      const metColor = pa._color || '#94a3b8';
+                      const metLabel = pa._option_label || p.payment_method;
                       const amt = parseFloat(p.amount) || 0;
                       const comm = amt * (p.commission_rate || 0);
+                      const chargeMode: string = pa._charge_mode || 'none';
                       return (
                         <div key={p._key} style={{
                           display: 'flex', alignItems: 'center', gap: '0.5rem',
                           padding: '0.5rem 0.625rem',
-                          background: `${metInfo?.color ?? '#94a3b8'}12`,
-                          border: `1px solid ${metInfo?.color ?? '#94a3b8'}30`,
+                          background: `${metColor}12`,
+                          border: `1px solid ${metColor}30`,
                           borderRadius: '0.5rem',
                         }}>
-                          <span style={{ fontSize: '0.8rem', color: metInfo?.color, fontWeight: 700, flex: 1 }}>
-                            {metInfo?.label}
+                          <span style={{ fontSize: '0.8rem', color: metColor, fontWeight: 700, flex: 1 }}>
+                            {metLabel}
                           </span>
                           <input
                             type="number" min="0" step="1"
@@ -1076,9 +1099,14 @@ export function ModalCrearComprobante({
                           >
                             <X size={13} />
                           </button>
-                          {comm > 0 && (
+                          {comm > 0 && chargeMode === 'customer' && (
                             <span style={{ fontSize: '0.68rem', color: '#f59e0b', whiteSpace: 'nowrap' }}>
-                              −{fmtARS(comm)} comisión
+                              +{fmtARS(comm)} recargo
+                            </span>
+                          )}
+                          {comm > 0 && chargeMode === 'business' && (
+                            <span style={{ fontSize: '0.68rem', color: '#818cf8', whiteSpace: 'nowrap' }}>
+                              −{fmtARS(comm)} absorbe negocio
                             </span>
                           )}
                         </div>
