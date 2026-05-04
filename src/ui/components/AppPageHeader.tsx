@@ -104,11 +104,12 @@ export function AppSectionHeader({ title, description, actions, icon }: AppSecti
 interface AppToolbarProps {
   children: React.ReactNode
   className?: string
+  style?: React.CSSProperties
 }
 
-export function AppToolbar({ children, className = '' }: AppToolbarProps) {
+export function AppToolbar({ children, className = '', style }: AppToolbarProps) {
   return (
-    <div className={`filter-bar ${className}`}>
+    <div className={`filter-bar ${className}`} style={style}>
       {children}
     </div>
   )
