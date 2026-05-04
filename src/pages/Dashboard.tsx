@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useDashboardStats } from '../hooks/useDashboardStats'
 import { useComprobantes } from '../hooks/useComprobantes'
-import { currencyService } from '../services/currencyService'
+import { refreshDollarRate, refreshInventoryDollarPrices, type DollarRateResult } from '../services/dollarRateService'
+import { DollarRateBadge } from '../components/ui/DollarRateBadge'
 import { TasksModule } from '../components/tasks/TasksModule'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -15,7 +16,7 @@ import {
 } from '../ui'
 import {
   NewOrderIcon, FinanceIcon, InvoiceIcon,
-  OrderIcon, ClientsIcon, RevenueIcon, ExchangeRateIcon,
+  OrderIcon, ClientsIcon, RevenueIcon,
   RefreshIcon, NewClientIcon, WarrantyIcon,
   ExpenseReceiptIcon, AvailableIcon, ViewIcon, HideIcon,
   CloseLockIcon as LockIcon, DashboardIcon, CurrencyIcon,
@@ -47,9 +48,8 @@ export function Dashboard() {
   const [activeTab, setActiveTab] = useState('orders')
   const [disponibleVisible, setDisponibleVisible] = useState(true)
   const [disponible, setDisponible]         = useState<{ ingresos: number; egresos: number } | null>(null)
-  const [dolarRate, setDolarRate]           = useState<number | null>(null)
-  const [dolarLoading, setDolarLoading]     = useState(false)
-  const [lastUpdate, setLastUpdate]         = useState<Date | null>(null)
+  const [, setDolarResult]   = useState<DollarRateResult | null>(null)
+  const [, setDolarLoading]  = useState(false)
   const [cajaStatus, setCajaStatus]         = useState<'open' | 'closed' | null>(null)
   const [cajaId, setCajaId]                 = useState<string | null>(null)
   const [cajaLoading, setCajaLoading]       = useState(false)
@@ -64,24 +64,24 @@ export function Dashboard() {
 
   // ── Cargar tipo de cambio ──
   useEffect(() => {
+    if (!businessId) return
     let active = true
     const load = async () => {
       if (!active) return
       setDolarLoading(true)
       try {
-        const rate = await currencyService.getCurrentExchangeRate('USD', 'ARS')
+        const result = await refreshDollarRate(businessId, false)
         if (!active) return
-        setDolarRate(rate)
-        setLastUpdate(new Date())
-        if (businessId && rate)
-          await currencyService.updateProductPricesByExchangeRate(businessId, rate)
+        setDolarResult(result)
+        if (result?.sellPrice)
+          await refreshInventoryDollarPrices(businessId)
       } catch { /* silencioso */ }
       finally { if (active) setDolarLoading(false) }
     }
     load()
-    const t = setInterval(load, 5 * 60_000)
+    const t = setInterval(load, 15 * 60_000)
     return () => { active = false; clearInterval(t) }
-  }, [])
+  }, [businessId])
 
   // ── Disponible hoy ──
   useEffect(() => {
@@ -130,17 +130,6 @@ export function Dashboard() {
     }
   }, [activeTab, businessId, comprobantesLoaded, listarComprobantes])
 
-  // ── Actualizar dólar (para click en card) ──
-  const handleRefreshDolar = async () => {
-    setDolarLoading(true)
-    try {
-      const rate = await currencyService.getCurrentExchangeRate('USD', 'ARS')
-      setDolarRate(rate); setLastUpdate(new Date())
-      if (businessId && rate)
-        await currencyService.updateProductPricesByExchangeRate(businessId, rate)
-    } catch { /* silencioso */ }
-    finally { setDolarLoading(false) }
-  }
 
   // ── Handlers ──
   const handleCaja = async () => {
@@ -317,29 +306,7 @@ export function Dashboard() {
           </div>
 
           {/* Dólar Blue */}
-          <div
-            className="stat-card"
-            style={{ cursor: 'pointer' }}
-            onClick={() => !dolarLoading && handleRefreshDolar()}
-            title="Click para actualizar"
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div className="stat-card-label">Dólar Blue</div>
-              <div style={{ width: 36, height: 36, borderRadius: 'var(--radius-md)', background: 'var(--info-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--info)' }}>
-                {dolarLoading
-                  ? <RefreshIcon size={18} className="animate-spin" />
-                  : <ExchangeRateIcon size={18} />}
-              </div>
-            </div>
-            <div className="stat-card-value" style={{ color: 'var(--info)' }}>
-              {dolarRate
-                ? `$${dolarRate.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-                : '—'}
-            </div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-subtle)' }}>
-              {lastUpdate ? `Actualizado ${lastUpdate.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}` : 'USD / ARS'}
-            </div>
-          </div>
+          <DollarRateBadge variant="full" autoRefresh={false} />
         </div>
       )}
 
