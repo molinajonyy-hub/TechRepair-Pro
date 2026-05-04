@@ -122,10 +122,14 @@
   --border-accent: rgba(99, 102, 241, 0.25);
 
   /* ── Inputs ── */
-  --input-bg:           #081122;
-  --input-border:       rgba(255, 255, 255, 0.09);
+  --input-bg:           #111827;
+  --input-border:       rgba(255, 255, 255, 0.08);
   --input-focus-border: #6366f1;
-  --input-focus-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+  --input-focus-shadow: 0 0 0 2px rgba(99, 102, 241, 0.20);
+  --input-hover-border: rgba(255, 255, 255, 0.16);
+  --input-disabled-bg:  rgba(255, 255, 255, 0.04);
+  --input-disabled-color: rgba(255, 255, 255, 0.40);
+  --input-placeholder:  #64748b;
 
   /* ── Sombras ── */
   --shadow-xs:   0 1px 2px rgba(0, 0, 0, 0.40);
@@ -261,10 +265,14 @@
   --border-focus:  rgba(79, 70, 229, 0.55);
   --border-accent: rgba(79, 70, 229, 0.22);
 
-  --input-bg:           #ffffff;
-  --input-border:       rgba(15, 23, 42, 0.12);
-  --input-focus-border: #4f46e5;
-  --input-focus-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14);
+  --input-bg:            #ffffff;
+  --input-border:        rgba(15, 23, 42, 0.12);
+  --input-focus-border:  #4f46e5;
+  --input-focus-shadow:  0 0 0 2px rgba(79, 70, 229, 0.18);
+  --input-hover-border:  rgba(15, 23, 42, 0.22);
+  --input-disabled-bg:   rgba(15, 23, 42, 0.04);
+  --input-disabled-color: rgba(15, 23, 42, 0.35);
+  --input-placeholder:   #94a3b8;
 
   --shadow-xs:   0 1px 2px rgba(15, 23, 42, 0.06);
   --shadow-sm:   0 2px 6px rgba(15, 23, 42, 0.07);
@@ -753,22 +761,64 @@ table, td, th { transition: color 0.15s ease; }
 .btn svg { width: 1em; height: 1em; flex-shrink: 0; }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   FORMULARIOS
+   FORMULARIOS — Estilos globales de inputs
    ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Reset global: todo input/select/textarea hereda el tema ─────────────── */
+/* Aplica incluso a elementos sin clase form-control, evitando defaults del browser */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+select,
+textarea {
+  color: var(--text-primary);
+  background-color: var(--input-bg);
+  border-color: var(--input-border);
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--input-placeholder);
+  opacity: 1;
+}
+
+/* Focus global sin clase */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--input-focus-border);
+  box-shadow: var(--input-focus-shadow);
+}
+
+/* Option: fondo correcto en dark mode (evita blanco del browser) */
+select option {
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+}
+select option:disabled {
+  color: var(--text-subtle);
+}
+
+/* ── Clases de diseño (form-control / form-select) ───────────────────────── */
 
 .form-control,
 .form-select {
+  display: block;
   width: 100%;
-  padding: 0.5625rem 0.875rem;
+  height: 44px;
+  padding: 0 14px;
   color: var(--text-primary);
   background: var(--input-bg);
   border: 1px solid var(--input-border);
-  border-radius: var(--radius-md);
-  font-size: 0.875rem;
-  line-height: 1.5;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
   -webkit-appearance: none;
   appearance: none;
+  box-sizing: border-box;
 }
 
 .form-control:focus,
@@ -779,21 +829,32 @@ table, td, th { transition: color 0.15s ease; }
   background: var(--input-bg);
 }
 
-.form-control::placeholder { color: var(--text-subtle); }
-
-.form-control:hover:not(:focus),
-.form-select:hover:not(:focus) {
-  border-color: var(--border-strong);
+.form-control:hover:not(:focus):not(:disabled),
+.form-select:hover:not(:focus):not(:disabled) {
+  border-color: var(--input-hover-border);
 }
 
+.form-control:disabled,
+.form-select:disabled {
+  background: var(--input-disabled-bg);
+  color: var(--input-disabled-color);
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.form-control::placeholder {
+  color: var(--input-placeholder);
+  opacity: 1;
+  font-weight: 400;
+}
+
+/* Labels */
 .form-label {
   display: block;
-  margin-bottom: 0.35rem;
-  color: var(--text-tertiary);
-  font-size: 0.76rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  margin-bottom: 0.4rem;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .form-hint {
@@ -830,9 +891,13 @@ table, td, th { transition: color 0.15s ease; }
 }
 
 /* Textarea */
-textarea.form-control {
+textarea.form-control,
+textarea {
+  height: auto;
+  min-height: 100px;
+  padding: 12px 14px;
   resize: vertical;
-  min-height: 80px;
+  line-height: 1.5;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

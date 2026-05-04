@@ -92,15 +92,9 @@ export function Autocomplete({
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
       {label && (
-        <label style={{
-          display: 'block',
-          fontSize: '0.875rem',
-          fontWeight: 500,
-          color: 'var(--text-primary)',
-          marginBottom: '0.5rem'
-        }}>
+        <label className="form-label" style={{ marginBottom: '0.5rem' }}>
           {label}
-          {required && <span style={{ color: '#ef4444', marginLeft: '0.25rem' }}>*</span>}
+          {required && <span style={{ color: 'var(--error)', marginLeft: '0.25rem' }}>*</span>}
         </label>
       )}
       
@@ -119,6 +113,7 @@ export function Autocomplete({
           
           <input
             type="text"
+            className="form-control"
             value={isOpen ? searchTerm : value}
             onChange={(e) => setSearchTerm(e.target.value)}
             onFocus={() => {
@@ -129,16 +124,10 @@ export function Autocomplete({
             disabled={disabled || isLoading || isCreating}
             required={required}
             style={{
-              width: '100%',
-              padding: '0.625rem 2.5rem 0.625rem 2.5rem',
-              backgroundColor: 'var(--bg-secondary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '0.5rem',
-              color: 'var(--text-primary)',
-              outline: 'none',
-              fontSize: '0.875rem',
+              paddingLeft: '2.5rem',
+              paddingRight: '2.5rem',
               cursor: disabled ? 'not-allowed' : 'text',
-              opacity: disabled || isLoading || isCreating ? 0.6 : 1
+              opacity: disabled || isLoading || isCreating ? 0.6 : 1,
             }}
           />
           
