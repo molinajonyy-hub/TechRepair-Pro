@@ -496,12 +496,28 @@ export function OrderDetail() {
             isOpen={showModalCrearComprobante}
             onClose={() => setShowModalCrearComprobante(false)}
             initialClienteId={order.customer_id || order.customer?.id || ''}
-            initialItems={[{
-              descripcion: `Servicio - ${order.device?.brand ?? ''} ${order.device?.model ?? ''}`.trim(),
-              cantidad: 1,
-              precio_unitario: serviceTotal ?? order.labor_cost ?? order.estimated_total ?? 0,
-              currency: 'ARS',
-            }]}
+            initialItems={[
+              // Ítem de servicio / mano de obra
+              {
+                descripcion:     `Servicio - ${order.device?.brand ?? ''} ${order.device?.model ?? ''}`.trim(),
+                cantidad:        1,
+                precio_unitario: serviceTotal ?? order.labor_cost ?? order.estimated_total ?? 0,
+                currency:        'ARS',
+                tipo_linea:      'servicio',
+                costo_unitario:  0,  // costo de mano de obra (sin tracking actual → 0)
+              },
+              // Repuestos utilizados en la orden
+              ...(order.parts ?? [])
+                .filter((p: any) => p.sale_price > 0)
+                .map((p: any) => ({
+                  descripcion:     p.name,
+                  cantidad:        p.quantity,
+                  precio_unitario: p.sale_price,
+                  currency:        'ARS' as const,
+                  tipo_linea:      'repuesto' as const,
+                  costo_unitario:  p.internal_cost ?? 0,
+                })),
+            ]}
             onCreado={() => {
               setShowModalCrearComprobante(false)
               refresh()

@@ -107,7 +107,17 @@ interface Props {
   tipoInicial?: TipoComprobante;
   puntoVentaInicial?: string;
   condicionFiscalInicial?: string;
-  initialItems?: { descripcion: string; cantidad: number; precio_unitario: number; currency?: 'ARS'|'USD'; inventory_id?: string }[];
+  initialItems?: {
+    descripcion: string;
+    cantidad: number;
+    precio_unitario: number;
+    currency?: 'ARS' | 'USD';
+    inventory_id?: string;
+    /** Costo unitario del ítem — tomado de inventario al momento de la venta */
+    costo_unitario?: number;
+    /** Tipo de línea: 'servicio' para mano de obra, 'repuesto' para partes usadas */
+    tipo_linea?: TipoLinea;
+  }[];
   initialClienteId?: string;
   /** Si true, al seleccionar productos del inventario usa precio_mayorista (sin mostrar etiquetas) */
   usarPrecioMayorista?: boolean;
@@ -188,14 +198,14 @@ export function ModalCrearComprobante({
     if (initialItems && initialItems.length > 0) {
       setLineas(initialItems.map(i => ({
         _key: Math.random().toString(36).slice(2),
-        tipo_linea: 'producto' as TipoLinea,
-        descripcion: i.descripcion,
-        cantidad: i.cantidad,
+        tipo_linea:      (i.tipo_linea ?? 'producto') as TipoLinea,
+        descripcion:     i.descripcion,
+        cantidad:        i.cantidad,
         precio_unitario: i.precio_unitario,
         descuento_linea: 0,
-        costo_unitario: 0,
-        currency: (i.currency ?? 'ARS') as 'ARS'|'USD',
-        inventory_id: i.inventory_id,
+        costo_unitario:  i.costo_unitario ?? 0,
+        currency:        (i.currency ?? 'ARS') as 'ARS'|'USD',
+        inventory_id:    i.inventory_id,
       })));
     } else {
       setLineas([emptyLinea()]);
@@ -288,6 +298,7 @@ export function ModalCrearComprobante({
   // ── Totales calculados ────────────────────────────────────────────────────────
   const totales = useMemo(() => {
     let subtotal = 0, iva = 0, costo = 0, descuento = 0;
+    let costoServicios = 0, costoRepuestos = 0;
     for (const l of lineas) {
       const disc = (l.descuento_linea || 0) / 100;
       const raw  = l.cantidad * l.precio_unitario;
@@ -295,8 +306,17 @@ export function ModalCrearComprobante({
       const inARS = l.currency === 'USD' ? net * exchangeRate : net;
       subtotal    += inARS;
       descuento   += l.currency === 'USD' ? raw * disc * exchangeRate : raw * disc;
-      costo       += (l.costo_unitario || 0) * l.cantidad * (l.currency === 'USD' ? exchangeRate : 1);
+      const costLine = (l.costo_unitario || 0) * l.cantidad * (l.currency === 'USD' ? exchangeRate : 1);
+      costo       += costLine;
+      if (l.tipo_linea === 'servicio')               costoServicios += costLine;
+      else if (l.tipo_linea === 'repuesto' || l.tipo_linea === 'producto') costoRepuestos += costLine;
     }
+    // Items con tipo repuesto/producto pero sin costo definido
+    const itemsSinCosto = lineas.filter(l =>
+      (l.tipo_linea === 'repuesto' || l.tipo_linea === 'producto') &&
+      (l.costo_unitario || 0) === 0 &&
+      l.precio_unitario > 0
+    );
     iva = tipo === 'factura_a' ? subtotal * 0.21 : 0;
     const total = subtotal + iva;
 
@@ -314,7 +334,7 @@ export function ModalCrearComprobante({
     const totalComision = totalRecargo;  // recargo trasladado al cliente
     const totalNeto     = totalPagado;   // total que paga el cliente (= subtotal + recargo)
 
-    return { subtotal, iva, total, descuento, costo, totalNeto, totalComision, totalPagado, saldo, totalRecargo };
+    return { subtotal, iva, total, descuento, costo, costoServicios, costoRepuestos, itemsSinCosto, totalNeto, totalComision, totalPagado, saldo, totalRecargo };
   }, [lineas, tipo, exchangeRate, pagos]);
 
   if (!isOpen) return null;
@@ -1025,6 +1045,61 @@ export function ModalCrearComprobante({
                   </div>
                 </div>
               </div>
+
+              {/* BLOQUE RENTABILIDAD */}
+              {totales.costo > 0 && (
+                <div style={{ ...blockS, borderColor: 'rgba(52,211,153,0.15)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                      Rentabilidad estimada
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                    {totales.costoServicios > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#94a3b8' }}>
+                        <span>Costo de servicios</span>
+                        <span style={{ fontFamily: 'monospace' }}>{fmtARS(totales.costoServicios)}</span>
+                      </div>
+                    )}
+                    {totales.costoRepuestos > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#94a3b8' }}>
+                        <span>Costo de repuestos/productos</span>
+                        <span style={{ fontFamily: 'monospace' }}>{fmtARS(totales.costoRepuestos)}</span>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#f87171', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.35rem' }}>
+                      <span style={{ fontWeight: 700 }}>Costo total</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{fmtARS(totales.costo)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', color: totales.total - totales.costo >= 0 ? '#34d399' : '#f87171', fontWeight: 800, marginTop: '0.25rem' }}>
+                      <span>Ganancia estimada</span>
+                      <span style={{ fontFamily: 'monospace' }}>
+                        {totales.total - totales.costo >= 0 ? '+' : ''}{fmtARS(totales.total - totales.costo)}
+                        {totales.total > 0 && (
+                          <span style={{ fontSize: '0.72rem', fontWeight: 600, marginLeft: '0.375rem', opacity: 0.75 }}>
+                            ({((totales.total - totales.costo) / totales.total * 100).toFixed(1)}%)
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Alerta: repuestos sin costo definido */}
+              {totales.itemsSinCosto.length > 0 && (
+                <div style={{ display: 'flex', gap: '0.625rem', padding: '0.75rem 1rem', background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '0.625rem', alignItems: 'flex-start' }}>
+                  <span style={{ color: '#f59e0b', flexShrink: 0, marginTop: '0.1rem' }}>⚠</span>
+                  <div>
+                    <p style={{ margin: 0, fontSize: '0.78rem', fontWeight: 700, color: '#f59e0b' }}>
+                      {totales.itemsSinCosto.length} ítem{totales.itemsSinCosto.length > 1 ? 's' : ''} sin costo registrado
+                    </p>
+                    <p style={{ margin: '0.2rem 0 0', fontSize: '0.72rem', color: '#94a3b8' }}>
+                      {totales.itemsSinCosto.map(i => i.descripcion).join(', ')} — la ganancia real puede ser menor.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* BLOQUE COBRO */}
               <div style={blockS}>
