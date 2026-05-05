@@ -24,6 +24,7 @@ import { OrderDetail } from './pages/OrderDetail'
 import { Orders } from './pages/Orders'
 import { Reports } from './pages/Reports'
 import { Suppliers } from './pages/Suppliers'
+import { CuentasCorrientes } from './pages/CuentasCorrientes'
 import { Offers } from './pages/Offers'
 import { Tasks } from './pages/Tasks'
 import { Warranties } from './pages/Warranties'
@@ -81,6 +82,7 @@ function AppContent() {
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/mayorista" element={<Mayorista />} />
             <Route path="/suppliers" element={<Suppliers />} />
+            <Route path="/cuentas" element={<CuentasCorrientes />} />
             <Route path="/offers" element={<Offers />} />
             <Route path="/expenses" element={<Expenses />} />
             <Route path="/finance" element={<Finance />} />
