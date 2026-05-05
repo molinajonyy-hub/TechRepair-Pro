@@ -1,10 +1,10 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Wallet, TrendingUp, TrendingDown, Plus, Loader2,
-  AlertCircle, DollarSign, Lock, Unlock, RefreshCw, Trash2,
-  Calendar, ChevronRight, ExternalLink, ArrowUpRight, ArrowDownRight,
-  Receipt, FileText, Truck, X,
+  Wallet, TrendingUp, TrendingDown, Plus, Loader2, AlertCircle,
+  Lock, Unlock, RefreshCw, Trash2, Calendar, ChevronRight, ChevronDown,
+  ArrowUpRight, ArrowDownRight, DollarSign, CreditCard, Building2,
+  Banknote, X, CheckCircle, AlertTriangle, FileText, Receipt, Truck,
 } from 'lucide-react'
 import { CloseButton } from '../components/ui/CloseButton'
 import { supabase } from '../lib/supabase'
@@ -13,285 +13,290 @@ import { currencyService } from '../services/currencyService'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Currency = 'ARS' | 'USD'
-type MovementType = 'income' | 'expense'
+export type CajaMethod = 'efectivo' | 'transferencia' | 'tarjeta' | 'usd'
 
-interface CashRegister {
+interface Caja {
   id: string
-  date: string
-  ars_opening: number
-  ars_balance: number
-  usd_opening: number
-  usd_balance: number
-  exchange_rate: number
-  status: 'open' | 'closed'
-  notes?: string
+  business_id: string
+  opened_at: string
+  closed_at: string | null
+  opened_by: string | null
+  closed_by: string | null
+  efectivo_inicial: number
+  transferencia_inicial: number
+  tarjeta_inicial: number
+  usd_inicial: number
+  usd_cotizacion_apertura: number
+  efectivo_cierre: number | null
+  transferencia_cierre: number | null
+  tarjeta_cierre: number | null
+  usd_cierre: number | null
+  notas: string | null
+  status: 'abierta' | 'cerrada'
 }
 
-interface Movement {
+interface CajaMovement {
   id: string
-  type: MovementType
-  currency: Currency
+  caja_id: string | null
+  type: 'income' | 'expense'
+  currency: 'ARS' | 'USD'
   amount: number
   amount_ars: number
-  description?: string
   source: string
-  source_id?: string | null
-  comprobante_id?: string | null
+  source_id: string | null
+  comprobante_id: string | null
+  description: string | null
+  date: string
   created_at: string
+  metodo_pago: CajaMethod | null
 }
 
-interface DayDetail {
-  caja: CashRegister | null
-  movements: Movement[]
+interface MethodTotals {
+  inicial: number
+  in: number
+  out: number
+  balance: number
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const METHODS: CajaMethod[] = ['efectivo', 'transferencia', 'tarjeta', 'usd']
+
+const METHOD_META: Record<CajaMethod, { label: string; color: string; icon: React.ElementType; accent: string }> = {
+  efectivo:      { label: 'Efectivo',      color: '#34d399', icon: Banknote,   accent: 'rgba(52,211,153,0.1)'  },
+  transferencia: { label: 'Transferencia', color: '#60a5fa', icon: Building2,  accent: 'rgba(96,165,250,0.1)'  },
+  tarjeta:       { label: 'Tarjeta',       color: '#a78bfa', icon: CreditCard, accent: 'rgba(167,139,250,0.1)' },
+  usd:           { label: 'Dólares',       color: '#fbbf24', icon: DollarSign, accent: 'rgba(251,191,36,0.1)'  },
+}
+
+const SOURCE_META: Record<string, { label: string; color: string; icon: React.ElementType }> = {
+  comprobante:    { label: 'Comprobante', color: '#818cf8', icon: FileText  },
+  cobro_rapido:   { label: 'Cobro',       color: '#34d399', icon: FileText  },
+  expense:        { label: 'Gasto',       color: '#f87171', icon: Receipt   },
+  pago_proveedor: { label: 'Proveedor',   color: '#fb923c', icon: Truck     },
+  manual:         { label: 'Manual',      color: '#94a3b8', icon: Wallet    },
+  payment:        { label: 'Pago',        color: '#60a5fa', icon: DollarSign },
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmtARS = (v: number) =>
-  `$${(v || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-const fmtUSD = (v: number) =>
-  `USD ${(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-const fmtTime = (iso: string) =>
-  new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
-const fmtDateLong = (iso: string) =>
-  new Date(iso + 'T12:00:00').toLocaleDateString('es-AR', {
-    weekday: 'long', day: '2-digit', month: 'long', year: 'numeric',
-  })
-const fmtDateShort = (iso: string) =>
-  new Date(iso + 'T12:00:00').toLocaleDateString('es-AR', {
-    weekday: 'short', day: '2-digit', month: 'short',
-  })
+const fmtARS  = (v: number) => `$${Math.round(v).toLocaleString('es-AR')}`
+const fmtUSD  = (v: number) => `U$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+const fmtDateLong  = (iso: string) => new Date(iso).toLocaleString('es-AR', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+const fmtDateShort = (iso: string) => new Date(iso).toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: 'short', year: '2-digit' })
 
-const SOURCE_INFO: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-  comprobante:    { label: 'Comprobante', color: '#818cf8', icon: FileText },
-  cobro_rapido:   { label: 'Cobro',       color: '#34d399', icon: FileText },
-  expense:        { label: 'Gasto',       color: '#f87171', icon: Receipt  },
-  pago_proveedor: { label: 'Proveedor',   color: '#fb923c', icon: Truck    },
-  manual:         { label: 'Manual',      color: '#94a3b8', icon: Wallet   },
-  payment:        { label: 'Pago',        color: '#60a5fa', icon: DollarSign },
-}
-
-function getSourceInfo(source: string) {
-  return SOURCE_INFO[source] ?? { label: source || '—', color: '#475569', icon: Wallet }
-}
-
-// ─── DayDetailPanel ───────────────────────────────────────────────────────────
-// Defined at module level to prevent remount on parent re-renders
-
-interface DayDetailPanelProps {
-  date: string
-  detail: DayDetail
-  loading: boolean
-  onClose: () => void
-  onNavigate: (mov: Movement) => void
-}
-
-function DayDetailPanel({ date, detail, loading, onClose, onNavigate }: DayDetailPanelProps) {
-  const { caja, movements } = detail
-
-  const arsIn  = movements.filter(m => m.currency === 'ARS' && m.type === 'income').reduce((s, m) => s + (m.amount || 0), 0)
-  const arsOut = movements.filter(m => m.currency === 'ARS' && m.type === 'expense').reduce((s, m) => s + (m.amount || 0), 0)
-  const saldoInicial = caja?.ars_opening ?? 0
-  const saldoFinal   = caja ? caja.ars_balance : saldoInicial + arsIn - arsOut
-
-  // Running balance: calculado secuencialmente por created_at asc
-  let running = saldoInicial
-  const withBalance = movements.map(m => {
-    const delta = m.currency === 'ARS' ? (m.amount_ars || m.amount || 0) : 0
-    if (m.type === 'income')  running += delta
-    else                       running -= delta
-    return { ...m, runningBalance: running }
-  })
-
-  const row: React.CSSProperties = {
-    display: 'grid',
-    gridTemplateColumns: '44px 1fr auto auto',
-    alignItems: 'center',
-    gap: '0.75rem',
-    padding: '0.75rem 1.25rem',
-    borderBottom: '1px solid rgba(255,255,255,0.04)',
-    cursor: 'pointer',
-    transition: 'background 0.12s',
+function computeTotals(caja: Caja, movements: CajaMovement[]): Record<CajaMethod, MethodTotals> {
+  const result: Record<CajaMethod, MethodTotals> = {
+    efectivo:      { inicial: caja.efectivo_inicial,      in: 0, out: 0, balance: caja.efectivo_inicial      },
+    transferencia: { inicial: caja.transferencia_inicial, in: 0, out: 0, balance: caja.transferencia_inicial },
+    tarjeta:       { inicial: caja.tarjeta_inicial,       in: 0, out: 0, balance: caja.tarjeta_inicial       },
+    usd:           { inicial: caja.usd_inicial,           in: 0, out: 0, balance: caja.usd_inicial           },
   }
+  for (const m of movements) {
+    const method = (m.metodo_pago || 'efectivo') as CajaMethod
+    if (!result[method]) continue
+    const amount = method === 'usd' ? (m.amount) : (m.amount_ars || m.amount)
+    if (m.type === 'income') result[method].in  += amount
+    else                     result[method].out += amount
+  }
+  for (const k of METHODS) {
+    result[k].balance = result[k].inicial + result[k].in - result[k].out
+  }
+  return result
+}
+
+function getSourceMeta(source: string) {
+  return SOURCE_META[source] ?? { label: source || '—', color: '#475569', icon: Wallet }
+}
+
+// ─── MethodCard ───────────────────────────────────────────────────────────────
+
+interface MethodCardProps {
+  method: CajaMethod
+  totals: MethodTotals
+  cotizacion?: number
+  isSelected: boolean
+  onClick: () => void
+}
+
+function MethodCard({ method, totals, cotizacion = 1, isSelected, onClick }: MethodCardProps) {
+  const meta = METHOD_META[method]
+  const Icon = meta.icon
+  const isUsd = method === 'usd'
+  const fmt = (v: number) => isUsd ? fmtUSD(v) : fmtARS(v)
+  const negBalance = totals.balance < 0
 
   return (
-    <div style={{
-      backgroundColor: '#0d1a30',
-      border: '1px solid rgba(99,102,241,0.2)',
-      borderRadius: '0.875rem',
-      overflow: 'hidden',
-      marginTop: '1.25rem',
+    <div onClick={onClick} style={{
+      padding: '1rem 1.125rem', borderRadius: '0.75rem', cursor: 'pointer',
+      background: isSelected ? meta.accent : 'rgba(255,255,255,0.02)',
+      border: `1px solid ${isSelected ? meta.color + '44' : 'rgba(255,255,255,0.06)'}`,
+      borderLeft: `3px solid ${meta.color}`,
+      transition: 'all 0.15s',
     }}>
-      {/* Header */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '1rem 1.25rem',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
-        background: 'rgba(99,102,241,0.06)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <Calendar size={16} style={{ color: '#818cf8' }} />
-          <span style={{ fontWeight: 700, color: '#e2e8f0', fontSize: '0.95rem' }}>
-            {fmtDateLong(date)}
-          </span>
-          {caja && (
-            <span style={{
-              padding: '0.15rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.7rem', fontWeight: 700,
-              backgroundColor: caja.status === 'closed' ? 'rgba(248,113,113,0.12)' : 'rgba(52,211,153,0.12)',
-              color: caja.status === 'closed' ? '#f87171' : '#34d399',
-            }}>
-              {caja.status === 'closed' ? 'Cerrada' : 'Abierta'}
-            </span>
-          )}
-        </div>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.25rem', display: 'flex', alignItems: 'center' }}>
-          <X size={16} />
-        </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.625rem' }}>
+        <Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
+        <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          {meta.label}
+        </span>
       </div>
-
-      {/* Summary strip */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
-        borderBottom: '1px solid rgba(255,255,255,0.05)',
-      }}>
-        {[
-          { label: 'Saldo inicial', value: fmtARS(saldoInicial), color: '#94a3b8' },
-          { label: 'Ingresos',      value: fmtARS(arsIn),        color: '#34d399' },
-          { label: 'Egresos',       value: fmtARS(arsOut),       color: '#f87171' },
-          { label: 'Saldo final',   value: fmtARS(saldoFinal),   color: '#818cf8' },
-        ].map((s, i) => (
-          <div key={i} style={{
-            padding: '0.875rem 1.25rem',
-            borderRight: i < 3 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-            background: i === 3 ? 'rgba(99,102,241,0.05)' : 'transparent',
-          }}>
-            <div style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.3rem' }}>
-              {s.label}
-            </div>
-            <div style={{ fontSize: '1.05rem', fontWeight: 800, color: s.color, fontFamily: 'monospace', letterSpacing: '-0.02em' }}>
-              {s.value}
-            </div>
-          </div>
-        ))}
+      <div style={{ fontSize: '1.375rem', fontWeight: 800, fontFamily: 'monospace', color: negBalance ? '#f87171' : meta.color, letterSpacing: '-0.02em', lineHeight: 1 }}>
+        {fmt(totals.balance)}
       </div>
+      {isUsd && totals.balance > 0 && (
+        <div style={{ fontSize: '0.7rem', color: '#475569', marginTop: '0.2rem', fontFamily: 'monospace' }}>
+          ≈ {fmtARS(totals.balance * cotizacion)}
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem', fontSize: '0.7rem' }}>
+        <span style={{ color: '#34d399' }}>▲ {fmt(totals.in)}</span>
+        <span style={{ color: '#f87171' }}>▼ {fmt(totals.out)}</span>
+        <span style={{ color: '#334155', marginLeft: 'auto' }}>ini: {fmt(totals.inicial)}</span>
+      </div>
+    </div>
+  )
+}
 
-      {/* Movement list */}
-      {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '2.5rem' }}>
-          <Loader2 size={24} style={{ color: '#6366f1', animation: 'spin 1s linear infinite' }} />
-        </div>
-      ) : withBalance.length === 0 ? (
-        <div style={{ padding: '2.5rem', textAlign: 'center', color: '#475569' }}>
-          <Wallet size={28} style={{ margin: '0 auto 0.5rem', opacity: 0.4 }} />
-          <p style={{ margin: 0, fontSize: '0.875rem' }}>Sin movimientos en este día</p>
-        </div>
-      ) : (
-        <>
-          {/* Column headers */}
-          <div style={{ display: 'grid', gridTemplateColumns: '44px 1fr auto auto', gap: '0.75rem', padding: '0.5rem 1.25rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-            {['', 'Descripción / Fuente', 'Monto', 'Saldo'].map((h, i) => (
-              <div key={i} style={{ fontSize: '0.68rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: i >= 2 ? 'right' : 'left' }}>
-                {h}
+// ─── HistoryCajaPanel ─────────────────────────────────────────────────────────
+
+interface HistoryCajaPanelProps {
+  caja: Caja
+  onNavigate: (m: CajaMovement) => void
+  businessId: string
+}
+
+function HistoryCajaPanel({ caja, onNavigate, businessId }: HistoryCajaPanelProps) {
+  const [movs, setMovs]     = useState<CajaMovement[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    supabase.from('financial_movements').select('*')
+      .eq('caja_id', caja.id)
+      .order('created_at', { ascending: true })
+      .then(({ data }) => { setMovs((data || []) as CajaMovement[]); setLoading(false) })
+  }, [caja.id])
+
+  const totals = useMemo(() => computeTotals(caja, movs), [caja, movs])
+  const arsTotal = METHODS.filter(m => m !== 'usd').reduce((s, m) => s + totals[m].balance, 0)
+
+  return (
+    <div style={{ marginTop: '0.75rem', background: 'rgba(0,0,0,0.2)', borderRadius: '0.625rem', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.05)' }}>
+      {/* Summary */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+        {METHODS.map((m, i) => {
+          const meta = METHOD_META[m]
+          const t = totals[m]
+          return (
+            <div key={m} style={{ padding: '0.625rem 0.875rem', borderRight: i < 3 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+              <div style={{ fontSize: '0.66rem', color: '#334155', fontWeight: 700, textTransform: 'uppercase', marginBottom: '0.25rem' }}>{meta.label}</div>
+              <div style={{ fontSize: '0.9rem', fontWeight: 700, fontFamily: 'monospace', color: t.balance < 0 ? '#f87171' : meta.color }}>
+                {m === 'usd' ? fmtUSD(t.balance) : fmtARS(t.balance)}
               </div>
-            ))}
-          </div>
+              <div style={{ fontSize: '0.65rem', color: '#334155' }}>
+                <span style={{ color: '#34d399' }}>+{m === 'usd' ? fmtUSD(t.in) : fmtARS(t.in)}</span>
+                {' / '}
+                <span style={{ color: '#f87171' }}>-{m === 'usd' ? fmtUSD(t.out) : fmtARS(t.out)}</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
 
-          {withBalance.map((mov) => {
-            const src = getSourceInfo(mov.source)
+      {/* Cierre info */}
+      {caja.status === 'cerrada' && (caja.efectivo_cierre !== null || caja.transferencia_cierre !== null) && (
+        <div style={{ padding: '0.5rem 0.875rem', borderBottom: '1px solid rgba(255,255,255,0.04)', background: 'rgba(255,255,255,0.01)' }}>
+          <span style={{ fontSize: '0.7rem', color: '#475569' }}>Contado al cierre: </span>
+          {METHODS.filter(m => m !== 'usd').map(m => {
+            const cierre = caja[`${m}_cierre` as keyof Caja] as number | null
+            if (cierre === null) return null
+            const esperado = totals[m].balance
+            const diff = cierre - esperado
+            return (
+              <span key={m} style={{ fontSize: '0.7rem', marginRight: '0.75rem' }}>
+                <span style={{ color: METHOD_META[m].color }}>{METHOD_META[m].label}:</span>{' '}
+                <span style={{ fontFamily: 'monospace', color: diff === 0 ? '#34d399' : diff > 0 ? '#fbbf24' : '#f87171' }}>
+                  {fmtARS(cierre)} {diff !== 0 && `(${diff > 0 ? '+' : ''}${fmtARS(diff)})`}
+                </span>
+              </span>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Movements */}
+      {loading ? (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '1.25rem' }}>
+          <Loader2 size={20} style={{ color: '#6366f1', animation: 'spin 1s linear infinite' }} />
+        </div>
+      ) : movs.length === 0 ? (
+        <div style={{ padding: '1.25rem', textAlign: 'center', color: '#334155', fontSize: '0.8rem' }}>Sin movimientos registrados</div>
+      ) : (
+        <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+          {movs.map(mov => {
+            const src = getSourceMeta(mov.source)
             const SrcIcon = src.icon
-            const isNavigable = ['comprobante','cobro_rapido','expense','pago_proveedor'].includes(mov.source)
+            const methodMeta = METHOD_META[(mov.metodo_pago || 'efectivo') as CajaMethod] || METHOD_META.efectivo
+            const isNav = ['comprobante','cobro_rapido','expense','pago_proveedor'].includes(mov.source)
             const amountARS = mov.currency === 'ARS' ? mov.amount : mov.amount_ars
             return (
-              <div
-                key={mov.id}
-                style={row}
-                onClick={() => isNavigable && onNavigate(mov)}
-                onMouseEnter={e => { if (isNavigable) e.currentTarget.style.background = 'rgba(255,255,255,0.025)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
-              >
-                {/* Source icon */}
-                <div style={{
-                  width: 36, height: 36, borderRadius: '0.5rem', flexShrink: 0,
-                  backgroundColor: mov.type === 'income' ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)',
-                  border: `1px solid ${mov.type === 'income' ? 'rgba(52,211,153,0.2)' : 'rgba(248,113,113,0.2)'}`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: mov.type === 'income' ? '#34d399' : '#f87171',
-                }}>
-                  {mov.type === 'income' ? <ArrowUpRight size={15} /> : <ArrowDownRight size={15} />}
-                </div>
-
-                {/* Description + meta */}
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, color: '#e2e8f0', fontSize: '0.875rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {mov.description || '—'}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.15rem' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.7rem', color: src.color }}>
-                      <SrcIcon size={10} />
-                      {src.label}
-                    </span>
-                    <span style={{ fontSize: '0.68rem', color: '#334155' }}>{fmtTime(mov.created_at)}</span>
-                    {mov.currency === 'USD' && (
-                      <span style={{ fontSize: '0.68rem', padding: '0.1rem 0.35rem', borderRadius: '0.2rem', backgroundColor: 'rgba(96,165,250,0.12)', color: '#60a5fa', fontWeight: 700 }}>
-                        USD
-                      </span>
-                    )}
-                    {isNavigable && (
-                      <ExternalLink size={11} style={{ color: '#334155', marginLeft: 'auto' }} />
-                    )}
-                  </div>
-                </div>
-
-                {/* Amount */}
-                <div style={{ textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, fontSize: '0.9rem', color: mov.type === 'income' ? '#34d399' : '#f87171', flexShrink: 0 }}>
+              <div key={mov.id} onClick={() => isNav && onNavigate(mov)}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.5rem 0.875rem', borderBottom: '1px solid rgba(255,255,255,0.03)', cursor: isNav ? 'pointer' : 'default' }}
+                onMouseEnter={e => { if (isNav) e.currentTarget.style.background = 'rgba(255,255,255,0.025)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                <span style={{ fontSize: '0.68rem', color: '#334155', width: 36, flexShrink: 0 }}>{fmtTime(mov.created_at)}</span>
+                <SrcIcon size={11} style={{ color: src.color, flexShrink: 0 }} />
+                <span style={{ flex: 1, fontSize: '0.8rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mov.description || '—'}</span>
+                <span style={{ fontSize: '0.66rem', padding: '0.1rem 0.35rem', borderRadius: '0.25rem', background: methodMeta.accent, color: methodMeta.color, fontWeight: 700, flexShrink: 0 }}>
+                  {methodMeta.label.substring(0,4)}
+                </span>
+                <span style={{ fontFamily: 'monospace', fontSize: '0.82rem', fontWeight: 700, color: mov.type === 'income' ? '#34d399' : '#f87171', flexShrink: 0 }}>
                   {mov.type === 'income' ? '+' : '−'}{fmtARS(amountARS || 0)}
-                </div>
-
-                {/* Running balance */}
-                <div style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: '0.8rem', color: mov.runningBalance >= 0 ? '#94a3b8' : '#f87171', flexShrink: 0, minWidth: 90 }}>
-                  {fmtARS(mov.runningBalance)}
-                </div>
+                </span>
               </div>
             )
           })}
-        </>
+        </div>
       )}
     </div>
   )
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+// ─── CajaPage ─────────────────────────────────────────────────────────────────
 
 export function CajaPage() {
   const { businessId, user } = useAuth()
   const navigate = useNavigate()
 
-  const [caja, setCaja]           = useState<CashRegister | null>(null)
-  const [movements, setMovements] = useState<Movement[]>([])
-  const [loading, setLoading]     = useState(true)
-  const [error, setError]         = useState<string | null>(null)
+  const [activeCaja, setActiveCaja]   = useState<Caja | null | undefined>(undefined) // undefined = loading
+  const [movements, setMovements]     = useState<CajaMovement[]>([])
+  const [historial, setHistorial]     = useState<Caja[]>([])
+  const [loading, setLoading]         = useState(true)
   const [exchangeRate, setExchangeRate] = useState(1)
-  const [historial, setHistorial] = useState<CashRegister[]>([])
+  const [error, setError]             = useState<string | null>(null)
+  const [activeMethod, setActiveMethod] = useState<CajaMethod | 'all'>('all')
+  const [expandedHistory, setExpandedHistory] = useState<string | null>(null)
   const [showHistorial, setShowHistorial] = useState(false)
 
-  // Modal movimiento manual
-  const [showModal, setShowModal] = useState(false)
-  const [modalForm, setModalForm] = useState({ type: 'income' as MovementType, currency: 'ARS' as Currency, amount: '', description: '' })
-  const [submitting, setSubmitting] = useState(false)
-  const [modalError, setModalError] = useState('')
+  // Opening form
+  const [openForm, setOpenForm] = useState<Record<CajaMethod, string>>({
+    efectivo: '', transferencia: '', tarjeta: '', usd: '',
+  })
+  const [opening, setOpening] = useState(false)
 
-  // Abrir caja form
-  const [openForm, setOpenForm]     = useState({ arsOpening: '', usdOpening: '' })
-  const [openingCaja, setOpeningCaja] = useState(false)
+  // Add movement modal
+  const [showAddMov, setShowAddMov]   = useState(false)
+  const [movForm, setMovForm]         = useState({ type: 'income' as 'income' | 'expense', method: 'efectivo' as CajaMethod, amount: '', description: '' })
+  const [savingMov, setSavingMov]     = useState(false)
+  const [movError, setMovError]       = useState('')
 
-  // Detalle por día
-  const [selectedDay, setSelectedDay]   = useState<string | null>(null)
-  const [dayDetail, setDayDetail]       = useState<DayDetail | null>(null)
-  const [loadingDay, setLoadingDay]     = useState(false)
-  const [datePicker, setDatePicker]     = useState('')
-
-  const today = new Date().toISOString().split('T')[0]
+  // Close caja modal
+  const [showClose, setShowClose]     = useState(false)
+  const [closeForm, setCloseForm]     = useState<Record<CajaMethod, string>>({
+    efectivo: '', transferencia: '', tarjeta: '', usd: '',
+  })
+  const [closingNotes, setClosingNotes] = useState('')
+  const [closing, setClosing]         = useState(false)
 
   // ── Loaders ──────────────────────────────────────────────────────────────────
 
@@ -304,307 +309,354 @@ export function CajaPage() {
     if (!businessId) return
     setLoading(true); setError(null)
     try {
-      const { data: existing } = await supabase
-        .from('cash_registers').select('*')
-        .eq('business_id', businessId).eq('date', today).maybeSingle()
+      const { data: caja } = await supabase
+        .from('cajas').select('*')
+        .eq('business_id', businessId).eq('status', 'abierta')
+        .order('opened_at', { ascending: false }).limit(1).maybeSingle()
+      setActiveCaja((caja as Caja | null) ?? null)
 
-      if (!existing) { setCaja(null); setMovements([]); return }
-      setCaja(existing as CashRegister)
-
-      const { data: movs } = await supabase
-        .from('financial_movements').select('*')
-        .eq('business_id', businessId).eq('date', today)
-        .order('created_at', { ascending: false })
-      setMovements((movs || []) as Movement[])
-
-      const arsIn  = (movs || []).filter((m: any) => m.currency === 'ARS' && m.type === 'income').reduce((s: number, m: any) => s + m.amount, 0)
-      const arsOut = (movs || []).filter((m: any) => m.currency === 'ARS' && m.type === 'expense').reduce((s: number, m: any) => s + m.amount, 0)
-      const usdIn  = (movs || []).filter((m: any) => m.currency === 'USD' && m.type === 'income').reduce((s: number, m: any) => s + m.amount, 0)
-      const usdOut = (movs || []).filter((m: any) => m.currency === 'USD' && m.type === 'expense').reduce((s: number, m: any) => s + m.amount, 0)
-      const newARS = (existing as CashRegister).ars_opening + arsIn - arsOut
-      const newUSD = (existing as CashRegister).usd_opening + usdIn - usdOut
-
-      await supabase.from('cash_registers').update({ ars_balance: newARS, usd_balance: newUSD, updated_at: new Date().toISOString() }).eq('id', existing.id)
-      setCaja(prev => prev ? { ...prev, ars_balance: newARS, usd_balance: newUSD } : prev)
-    } catch (err: any) { setError(err.message || 'Error al cargar caja') }
+      if (caja) {
+        const { data: movs } = await supabase
+          .from('financial_movements').select('*')
+          .eq('caja_id', caja.id)
+          .order('created_at', { ascending: false })
+        setMovements((movs || []) as CajaMovement[])
+      } else {
+        setMovements([])
+      }
+    } catch (e: any) { setError(e.message || 'Error al cargar caja') }
     finally { setLoading(false) }
-  }, [businessId, today])
+  }, [businessId])
 
   const loadHistorial = useCallback(async () => {
     if (!businessId) return
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
     const { data } = await supabase
-      .from('cash_registers').select('*')
-      .eq('business_id', businessId).gte('date', thirtyDaysAgo)
-      .neq('date', today).order('date', { ascending: false }).limit(30)
-    setHistorial((data || []) as CashRegister[])
-  }, [businessId, today])
+      .from('cajas').select('*')
+      .eq('business_id', businessId).eq('status', 'cerrada')
+      .order('opened_at', { ascending: false }).limit(20)
+    setHistorial((data || []) as Caja[])
+  }, [businessId])
 
-  const loadDayDetail = useCallback(async (date: string) => {
-    if (!businessId) return
-    if (selectedDay === date) { setSelectedDay(null); setDayDetail(null); return }
-    setSelectedDay(date); setLoadingDay(true); setDayDetail(null)
-    try {
-      const [{ data: movs }, { data: cr }] = await Promise.all([
-        supabase.from('financial_movements').select('*')
-          .eq('business_id', businessId).eq('date', date)
-          .order('created_at', { ascending: true }),
-        supabase.from('cash_registers').select('*')
-          .eq('business_id', businessId).eq('date', date).maybeSingle(),
-      ])
-      setDayDetail({ movements: (movs || []) as Movement[], caja: (cr ?? null) as CashRegister | null })
-    } finally { setLoadingDay(false) }
-  }, [businessId, selectedDay])
+  useEffect(() => {
+    loadExchangeRate()
+    loadCaja()
+    loadHistorial()
+  }, [loadExchangeRate, loadCaja, loadHistorial])
 
-  useEffect(() => { loadExchangeRate().then(() => { loadCaja(); loadHistorial() }) }, [loadExchangeRate, loadCaja, loadHistorial])
+  // ── Computed ─────────────────────────────────────────────────────────────────
+
+  const totals = useMemo(() =>
+    activeCaja ? computeTotals(activeCaja, movements) : null
+  , [activeCaja, movements])
+
+  const filteredMovs = useMemo(() =>
+    activeMethod === 'all' ? movements : movements.filter(m => (m.metodo_pago || 'efectivo') === activeMethod)
+  , [movements, activeMethod])
+
+  const totalARS = totals
+    ? fmtARS(METHODS.filter(m => m !== 'usd').reduce((s, m) => s + totals[m].balance, 0))
+    : '$0'
+
+  // Expected balances for close modal
+  const expectedClose = useMemo(() => {
+    if (!totals) return {} as Record<CajaMethod, number>
+    return { efectivo: totals.efectivo.balance, transferencia: totals.transferencia.balance, tarjeta: totals.tarjeta.balance, usd: totals.usd.balance }
+  }, [totals])
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
-  const handleNavigateToSource = (mov: Movement) => {
-    if (['comprobante', 'cobro_rapido'].includes(mov.source) && mov.comprobante_id) {
-      navigate(`/comprobantes`)
-    } else if (mov.source === 'expense') {
-      navigate('/expenses')
-    } else if (mov.source === 'pago_proveedor') {
-      navigate('/suppliers')
-    }
+  const handleOpenCaja = async () => {
+    if (!businessId || !user) return
+    setOpening(true); setError(null)
+    try {
+      const { data, error: err } = await supabase.from('cajas').insert({
+        business_id: businessId,
+        efectivo_inicial:        parseFloat(openForm.efectivo)      || 0,
+        transferencia_inicial:   parseFloat(openForm.transferencia) || 0,
+        tarjeta_inicial:         parseFloat(openForm.tarjeta)       || 0,
+        usd_inicial:             parseFloat(openForm.usd)           || 0,
+        usd_cotizacion_apertura: exchangeRate,
+        opened_by: user.id,
+        status: 'abierta',
+      }).select().single()
+      if (err) throw err
+      setActiveCaja(data as Caja)
+      setMovements([])
+      setOpenForm({ efectivo: '', transferencia: '', tarjeta: '', usd: '' })
+    } catch (e: any) { setError(e.message || 'Error al abrir caja') }
+    finally { setOpening(false) }
   }
 
   const handleAddMovement = async (e: React.FormEvent) => {
     e.preventDefault()
-    const amount = parseFloat(modalForm.amount)
-    if (!amount || amount <= 0) { setModalError('El monto debe ser mayor a 0'); return }
-    setSubmitting(true); setModalError('')
+    const amount = parseFloat(movForm.amount)
+    if (!amount || amount <= 0) { setMovError('El monto debe ser mayor a 0'); return }
+    if (!activeCaja) return
+    setSavingMov(true); setMovError('')
     try {
-      const amountARS = modalForm.currency === 'USD' ? amount * exchangeRate : amount
+      const isUsd    = movForm.method === 'usd'
+      const currency = isUsd ? 'USD' : 'ARS'
+      const amountARS = isUsd ? amount * exchangeRate : amount
       await supabase.from('financial_movements').insert({
-        business_id: businessId, type: modalForm.type, currency: modalForm.currency,
-        amount, exchange_rate: exchangeRate, amount_ars: amountARS,
-        source: 'manual', description: modalForm.description || null, date: today, created_by: user?.id,
+        business_id: businessId,
+        caja_id: activeCaja.id,
+        type: movForm.type, currency,
+        amount, exchange_rate: isUsd ? exchangeRate : 1,
+        amount_ars: amountARS,
+        source: 'manual',
+        description: movForm.description || null,
+        date: new Date().toISOString().split('T')[0],
+        created_by: user?.id,
+        metodo_pago: movForm.method,
       })
-      setShowModal(false)
-      setModalForm({ type: 'income', currency: 'ARS', amount: '', description: '' })
+      setShowAddMov(false)
+      setMovForm({ type: 'income', method: 'efectivo', amount: '', description: '' })
       await loadCaja()
-    } catch (err: any) { setModalError(err.message || 'Error al registrar movimiento') }
-    finally { setSubmitting(false) }
+    } catch (e: any) { setMovError(e.message || 'Error al registrar movimiento') }
+    finally { setSavingMov(false) }
   }
 
   const handleCloseCaja = async () => {
-    if (!caja) return
-    const arsIn  = movements.filter(m => m.currency === 'ARS' && m.type === 'income').reduce((s, m) => s + m.amount, 0)
-    const arsOut = movements.filter(m => m.currency === 'ARS' && m.type === 'expense').reduce((s, m) => s + m.amount, 0)
-    const msg = `RESUMEN DEL DÍA\n\nIngresos ARS: ${fmtARS(arsIn)}\nEgresos ARS: ${fmtARS(arsOut)}\nNeto ARS: ${fmtARS(arsIn - arsOut)}\n\nBalance final: ${fmtARS(caja.ars_balance)}\n\n¿Cerrar la caja?`
-    if (!confirm(msg)) return
-    await supabase.from('cash_registers').update({ status: 'closed', closed_at: new Date().toISOString(), ars_balance: caja.ars_balance, usd_balance: caja.usd_balance }).eq('id', caja.id)
-    await loadCaja(); await loadHistorial()
-  }
-
-  const handleOpenCaja = async () => {
-    if (!businessId) return
-    setOpeningCaja(true); setError(null)
+    if (!activeCaja || !user) return
+    setClosing(true)
     try {
-      const { data: created, error: createError } = await supabase.from('cash_registers').insert({
-        business_id: businessId, date: today,
-        ars_opening: parseFloat(openForm.arsOpening) || 0, ars_balance: parseFloat(openForm.arsOpening) || 0,
-        usd_opening: parseFloat(openForm.usdOpening) || 0, usd_balance: parseFloat(openForm.usdOpening) || 0,
-        exchange_rate: exchangeRate, status: 'open', created_by: user?.id,
-      }).select().single()
-      if (createError) throw createError
-      setCaja(created as CashRegister)
-    } catch (err: any) { setError(err.message || 'Error al abrir la caja') }
-    finally { setOpeningCaja(false) }
+      await supabase.from('cajas').update({
+        status: 'cerrada',
+        closed_at: new Date().toISOString(),
+        closed_by: user.id,
+        efectivo_cierre:      parseFloat(closeForm.efectivo)      || null,
+        transferencia_cierre: parseFloat(closeForm.transferencia) || null,
+        tarjeta_cierre:       parseFloat(closeForm.tarjeta)       || null,
+        usd_cierre:           parseFloat(closeForm.usd)           || null,
+        notas: closingNotes || null,
+      }).eq('id', activeCaja.id)
+      setShowClose(false)
+      setCloseForm({ efectivo: '', transferencia: '', tarjeta: '', usd: '' })
+      setClosingNotes('')
+      await loadCaja()
+      await loadHistorial()
+    } catch (e: any) { setError(e.message || 'Error al cerrar caja') }
+    finally { setClosing(false) }
   }
 
   const handleDeleteMovement = async (movId: string) => {
-    if (!confirm('¿Eliminás este movimiento? El balance se recalculará automáticamente.')) return
-    try { await supabase.from('financial_movements').delete().eq('id', movId); await loadCaja() }
-    catch (err: any) { alert(err.message || 'Error al eliminar movimiento') }
+    if (!confirm('¿Eliminás este movimiento?')) return
+    await supabase.from('financial_movements').delete().eq('id', movId)
+    await loadCaja()
   }
 
-  const equivalenteARS = (caja?.ars_balance || 0) + (caja?.usd_balance || 0) * exchangeRate
+  const handleNavigate = (mov: CajaMovement) => {
+    if (['comprobante','cobro_rapido'].includes(mov.source)) navigate('/comprobantes')
+    else if (mov.source === 'expense') navigate('/expenses')
+    else if (mov.source === 'pago_proveedor') navigate('/suppliers')
+  }
 
   // ─── Render ──────────────────────────────────────────────────────────────────
 
-  const cardS: React.CSSProperties = { padding: '1.25rem', backgroundColor: '#111827', borderRadius: '0.75rem' }
-  const monoVal: React.CSSProperties = { fontSize: '1.75rem', fontWeight: 700, fontFamily: 'monospace', margin: 0, letterSpacing: '-0.02em' }
+  const isLoading = loading || activeCaja === undefined
 
   return (
     <div style={{ padding: '1.5rem', maxWidth: '1100px', margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+
+      {/* ── Header ── */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <Wallet size={28} style={{ color: '#10b981' }} />
+          <div style={{ width: 44, height: 44, borderRadius: '0.75rem', background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Wallet size={22} style={{ color: '#34d399' }} />
+          </div>
           <div>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#f8fafc', margin: 0 }}>Caja Diaria</h1>
-            <p style={{ fontSize: '0.875rem', color: '#64748b', margin: 0 }}>
-              {new Date().toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
+            <h1 style={{ fontSize: '1.375rem', fontWeight: 800, color: '#f8fafc', margin: 0, lineHeight: 1 }}>Caja</h1>
+            <p style={{ fontSize: '0.8rem', color: '#475569', margin: '0.2rem 0 0' }}>
+              {activeCaja
+                ? `Abierta ${fmtDateLong(activeCaja.opened_at)}`
+                : activeCaja === null ? 'Sin caja abierta' : 'Cargando...'}
             </p>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button onClick={() => loadCaja()} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', backgroundColor: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', color: '#94a3b8', cursor: 'pointer', fontSize: '0.875rem' }}>
-            <RefreshCw size={15} /> Actualizar
-          </button>
-          {caja?.status === 'open' && (
-            <>
-              <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', backgroundColor: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '0.5rem', color: '#818cf8', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500 }}>
-                <Plus size={16} /> Movimiento
-              </button>
-              <button onClick={handleCloseCaja} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', backgroundColor: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '0.5rem', color: '#f87171', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500 }}>
-                <Lock size={15} /> Cerrar Caja
-              </button>
-            </>
-          )}
-          {caja?.status === 'closed' && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', backgroundColor: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.875rem', fontWeight: 600 }}>
-              <Lock size={15} /> Caja Cerrada
-            </span>
-          )}
-        </div>
+
+        {activeCaja && (
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button onClick={loadCaja} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#64748b', cursor: 'pointer', fontSize: '0.8rem' }}>
+              <RefreshCw size={14} /> Actualizar
+            </button>
+            <button onClick={() => setShowAddMov(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '0.5rem', color: '#818cf8', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+              <Plus size={15} /> Movimiento
+            </button>
+            <button onClick={() => setShowClose(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+              <Lock size={14} /> Cerrar Caja
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
-        <div style={{ padding: '0.75rem 1rem', marginBottom: '1rem', backgroundColor: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.3)', borderRadius: '0.5rem', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1rem', marginBottom: '1rem', background: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.3)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.875rem' }}>
           <AlertCircle size={16} /> {error}
         </div>
       )}
 
-      {loading ? (
+      {/* ── Loading ── */}
+      {isLoading && (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
           <Loader2 size={32} style={{ color: '#6366f1', animation: 'spin 1s linear infinite' }} />
         </div>
-      ) : !caja ? (
-        /* ── Sin caja abierta ── */
-        <div style={{ maxWidth: '480px', margin: '4rem auto', textAlign: 'center' }}>
-          <div style={{ width: '64px', height: '64px', borderRadius: '1rem', backgroundColor: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
-            <Unlock size={28} style={{ color: '#10b981' }} />
-          </div>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#f8fafc', marginBottom: '0.5rem' }}>No hay caja abierta hoy</h2>
-          <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '2rem' }}>
-            Ingresá el saldo inicial y abrí la caja para registrar movimientos del día.
-          </p>
-          <div style={{ backgroundColor: '#111827', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', padding: '1.5rem', textAlign: 'left' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.25rem' }}>
-              {[
-                { label: 'Saldo inicial ARS (opcional)', key: 'arsOpening', color: '#34d399', placeholder: '0.00' },
-                { label: 'Saldo inicial USD (opcional)', key: 'usdOpening', color: '#60a5fa', placeholder: '0.00' },
-              ].map(f => (
-                <div key={f.key}>
-                  <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.375rem' }}>{f.label}</label>
-                  <input type="number" min="0" step="0.01" placeholder={f.placeholder}
-                    value={openForm[f.key as 'arsOpening' | 'usdOpening']}
-                    onChange={e => setOpenForm(p => ({ ...p, [f.key]: e.target.value }))}
-                    style={{ width: '100%', padding: '0.625rem 0.875rem', backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', color: f.color, fontSize: '1rem', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box' }} />
-                </div>
-              ))}
+      )}
+
+      {/* ── Sin caja abierta: abrir ── */}
+      {!isLoading && activeCaja === null && (
+        <div style={{ maxWidth: 520, margin: '3rem auto' }}>
+          <div style={{ background: '#111827', border: '1px solid rgba(52,211,153,0.15)', borderRadius: '1rem', overflow: 'hidden' }}>
+            <div style={{ padding: '1.75rem 1.75rem 1.25rem', textAlign: 'center', background: 'rgba(52,211,153,0.04)', borderBottom: '1px solid rgba(52,211,153,0.1)' }}>
+              <div style={{ width: 56, height: 56, borderRadius: '1rem', background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
+                <Unlock size={26} style={{ color: '#34d399' }} />
+              </div>
+              <h2 style={{ fontWeight: 800, fontSize: '1.2rem', color: '#f8fafc', margin: '0 0 0.375rem' }}>Abrir Caja</h2>
+              <p style={{ color: '#475569', fontSize: '0.8rem', margin: 0 }}>Ingresá el saldo inicial por método de pago</p>
             </div>
-            <button onClick={handleOpenCaja} disabled={openingCaja} style={{ width: '100%', padding: '0.75rem', backgroundColor: openingCaja ? 'rgba(16,185,129,0.1)' : 'rgba(16,185,129,0.2)', border: '1px solid rgba(16,185,129,0.4)', borderRadius: '0.5rem', color: '#34d399', fontWeight: 700, fontSize: '1rem', cursor: openingCaja ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-              {openingCaja ? <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Unlock size={18} />}
-              {openingCaja ? 'Abriendo...' : 'Abrir Caja'}
-            </button>
+
+            <div style={{ padding: '1.25rem 1.75rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem', marginBottom: '1.25rem' }}>
+                {METHODS.map(m => {
+                  const meta = METHOD_META[m]
+                  const Icon = meta.icon
+                  return (
+                    <div key={m}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.75rem', color: meta.color, fontWeight: 600, marginBottom: '0.375rem' }}>
+                        <Icon size={12} /> {meta.label} {m === 'usd' && <span style={{ color: '#334155', fontWeight: 400 }}>(TC: ${exchangeRate.toLocaleString('es-AR')})</span>}
+                      </label>
+                      <input type="number" min="0" step="0.01" placeholder="0"
+                        value={openForm[m]}
+                        onChange={e => setOpenForm(p => ({ ...p, [m]: e.target.value }))}
+                        style={{ width: '100%', padding: '0.6rem 0.75rem', background: 'rgba(255,255,255,0.04)', border: `1px solid rgba(255,255,255,0.08)`, borderRadius: '0.5rem', color: meta.color, fontSize: '0.95rem', fontFamily: 'monospace', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }}
+                        onFocus={e => (e.currentTarget.style.borderColor = meta.color + '66')}
+                        onBlur={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)')}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+
+              <button onClick={handleOpenCaja} disabled={opening}
+                style={{ width: '100%', padding: '0.875rem', background: opening ? 'rgba(52,211,153,0.08)' : 'rgba(52,211,153,0.18)', border: '1px solid rgba(52,211,153,0.35)', borderRadius: '0.625rem', color: '#34d399', fontWeight: 800, fontSize: '1rem', cursor: opening ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                {opening ? <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Unlock size={18} />}
+                {opening ? 'Abriendo...' : 'Abrir Caja'}
+              </button>
+            </div>
           </div>
         </div>
-      ) : (
+      )}
+
+      {/* ── Caja abierta ── */}
+      {!isLoading && activeCaja && totals && (
         <>
-          {/* Balance cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
-            <div style={{ ...cardS, border: '1px solid rgba(52,211,153,0.2)', borderLeft: '4px solid #34d399' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                <div style={{ width: '2rem', height: '2rem', borderRadius: '0.5rem', backgroundColor: 'rgba(52,211,153,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#34d399' }}>ARS</span>
-                </div>
-                <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Saldo en Pesos</span>
-              </div>
-              <p style={{ ...monoVal, color: '#34d399' }}>{fmtARS(caja.ars_balance)}</p>
-              <p style={{ fontSize: '0.75rem', color: '#475569', margin: '0.25rem 0 0 0' }}>Apertura: {fmtARS(caja.ars_opening)}</p>
-            </div>
-
-            {(() => {
-              const neg = caja.usd_balance < 0
-              return (
-                <div style={{ ...cardS, border: `1px solid ${neg ? 'rgba(248,113,113,0.35)' : 'rgba(96,165,250,0.2)'}`, borderLeft: `4px solid ${neg ? '#f87171' : '#60a5fa'}` }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                    <div style={{ width: '2rem', height: '2rem', borderRadius: '0.5rem', backgroundColor: neg ? 'rgba(248,113,113,0.15)' : 'rgba(96,165,250,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <DollarSign size={14} style={{ color: neg ? '#f87171' : '#60a5fa' }} />
-                    </div>
-                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Saldo en Dólares</span>
-                    {neg && <AlertCircle size={13} style={{ color: '#f87171', marginLeft: 'auto' }} />}
-                  </div>
-                  <p style={{ ...monoVal, color: neg ? '#f87171' : '#60a5fa' }}>{fmtUSD(caja.usd_balance)}</p>
-                  <p style={{ fontSize: '0.75rem', color: neg ? 'rgba(248,113,113,0.6)' : '#475569', margin: '0.25rem 0 0 0' }}>
-                    {neg ? '⚠ Saldo negativo' : `Apertura: ${fmtUSD(caja.usd_opening)}`}
-                  </p>
-                </div>
-              )
-            })()}
-
-            {(() => {
-              const neg = equivalenteARS < 0
-              return (
-                <div style={{ ...cardS, border: `1px solid ${neg ? 'rgba(248,113,113,0.35)' : 'rgba(99,102,241,0.2)'}`, borderLeft: `4px solid ${neg ? '#f87171' : '#6366f1'}` }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                    <div style={{ width: '2rem', height: '2rem', borderRadius: '0.5rem', backgroundColor: neg ? 'rgba(248,113,113,0.1)' : 'rgba(99,102,241,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Wallet size={14} style={{ color: neg ? '#f87171' : '#818cf8' }} />
-                    </div>
-                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Total Equivalente</span>
-                  </div>
-                  <p style={{ ...monoVal, color: neg ? '#f87171' : '#818cf8' }}>{fmtARS(equivalenteARS)}</p>
-                  <p style={{ fontSize: '0.75rem', color: '#475569', margin: '0.25rem 0 0 0' }}>TC: ${exchangeRate.toLocaleString('es-AR')}</p>
-                </div>
-              )
-            })()}
+          {/* Method cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginBottom: '1.25rem' }}>
+            {METHODS.map(m => (
+              <MethodCard key={m} method={m} totals={totals[m]} cotizacion={exchangeRate}
+                isSelected={activeMethod === m}
+                onClick={() => setActiveMethod(prev => prev === m ? 'all' : m)}
+              />
+            ))}
           </div>
 
-          {/* Today's movements */}
-          <div style={{ backgroundColor: '#111827', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '0.75rem', overflow: 'hidden' }}>
-            <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#e2e8f0', margin: 0 }}>Movimientos de Hoy</h3>
-              <span style={{ fontSize: '0.75rem', color: '#475569' }}>{movements.length} registros</span>
+          {/* Total strip */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1.25rem', marginBottom: '1.25rem', background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: '0.625rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+              <span style={{ fontSize: '0.72rem', color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total ARS</span>
+              <span style={{ fontSize: '1.25rem', fontWeight: 800, fontFamily: 'monospace', color: '#818cf8', letterSpacing: '-0.02em' }}>{totalARS}</span>
             </div>
+            <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.75rem' }}>
+              <span style={{ color: '#334155' }}>
+                USD: <span style={{ color: '#fbbf24', fontFamily: 'monospace' }}>{fmtUSD(totals.usd.balance)}</span>
+                <span style={{ color: '#334155' }}> ≈ {fmtARS(totals.usd.balance * exchangeRate)}</span>
+              </span>
+              <span style={{ color: '#334155' }}>
+                {movements.length} movimientos
+              </span>
+              {activeMethod !== 'all' && (
+                <button onClick={() => setActiveMethod('all')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#818cf8', fontSize: '0.75rem', fontWeight: 600, padding: 0 }}>
+                  Ver todos
+                </button>
+              )}
+            </div>
+          </div>
 
-            {movements.length === 0 ? (
-              <div style={{ padding: '3rem', textAlign: 'center', color: '#475569' }}>
-                <Wallet size={32} style={{ margin: '0 auto 0.75rem', opacity: 0.4 }} />
-                <p style={{ margin: 0 }}>Sin movimientos hoy</p>
+          {/* Movement filter tabs */}
+          <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '0.75rem' }}>
+            {(['all', ...METHODS] as const).map(m => {
+              const isAll  = m === 'all'
+              const meta   = isAll ? null : METHOD_META[m]
+              const active = activeMethod === m
+              const count  = isAll ? movements.length : movements.filter(mv => (mv.metodo_pago || 'efectivo') === m).length
+              return (
+                <button key={m} onClick={() => setActiveMethod(m)}
+                  style={{ padding: '0.375rem 0.75rem', borderRadius: '0.375rem', border: `1px solid ${active ? (meta?.color ?? '#818cf8') + '44' : 'rgba(255,255,255,0.06)'}`, background: active ? (meta?.accent ?? 'rgba(99,102,241,0.1)') : 'transparent', color: active ? (meta?.color ?? '#818cf8') : '#475569', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
+                  {isAll ? `Todos (${count})` : `${meta!.label} (${count})`}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Movements table */}
+          <div style={{ background: '#111827', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '0.75rem', overflow: 'hidden' }}>
+            {filteredMovs.length === 0 ? (
+              <div style={{ padding: '3rem', textAlign: 'center', color: '#334155' }}>
+                <Wallet size={28} style={{ margin: '0 auto 0.75rem', opacity: 0.3 }} />
+                <p style={{ margin: 0, fontSize: '0.875rem' }}>Sin movimientos{activeMethod !== 'all' ? ` en ${METHOD_META[activeMethod].label}` : ''}</p>
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                   <thead>
-                    <tr style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}>
-                      {['Tipo', 'Descripción', 'Moneda', 'Monto', 'Fuente', 'Hora', ''].map(h => (
-                        <th key={h} style={{ padding: '0.75rem 1rem', textAlign: 'left', color: '#475569', fontWeight: 500, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                          {h}
-                        </th>
+                    <tr style={{ background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                      {['Hora', 'Descripción', 'Fuente', 'Método', 'Monto', ''].map(h => (
+                        <th key={h} style={{ padding: '0.625rem 1rem', textAlign: 'left', color: '#334155', fontWeight: 700, fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {movements.map(mov => {
-                      const src = getSourceInfo(mov.source)
+                    {filteredMovs.map(mov => {
+                      const src    = getSourceMeta(mov.source)
+                      const SrcIcon = src.icon
+                      const method  = (mov.metodo_pago || 'efectivo') as CajaMethod
+                      const mMeta   = METHOD_META[method] || METHOD_META.efectivo
+                      const isNav   = ['comprobante','cobro_rapido','expense','pago_proveedor'].includes(mov.source)
+                      const amtARS  = mov.currency === 'ARS' ? mov.amount : (mov.amount_ars || 0)
+                      const amtUSD  = mov.currency === 'USD' ? mov.amount : null
                       return (
                         <tr key={mov.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                          <td style={{ padding: '0.75rem 1rem' }}>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.2rem 0.5rem', borderRadius: '0.25rem', backgroundColor: mov.type === 'income' ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)', color: mov.type === 'income' ? '#34d399' : '#f87171', fontSize: '0.75rem', fontWeight: 600 }}>
-                              {mov.type === 'income' ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                              {mov.type === 'income' ? 'Ingreso' : 'Egreso'}
+                          <td style={{ padding: '0.625rem 1rem', color: '#334155', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{fmtTime(mov.created_at)}</td>
+                          <td style={{ padding: '0.625rem 1rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                              <span style={{ color: '#cbd5e1', fontWeight: mov.description ? 500 : 400 }}>{mov.description || '—'}</span>
+                              {isNav && (
+                                <button onClick={() => handleNavigate(mov)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#334155', padding: 0, display: 'flex', alignItems: 'center' }}
+                                  onMouseEnter={e => (e.currentTarget.style.color = src.color)}
+                                  onMouseLeave={e => (e.currentTarget.style.color = '#334155')}>
+                                  <ChevronRight size={12} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ padding: '0.625rem 1rem' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.72rem', color: src.color }}>
+                              <SrcIcon size={11} /> {src.label}
                             </span>
                           </td>
-                          <td style={{ padding: '0.75rem 1rem', color: '#cbd5e1' }}>{mov.description || '—'}</td>
-                          <td style={{ padding: '0.75rem 1rem' }}>
-                            <span style={{ padding: '0.15rem 0.4rem', borderRadius: '0.25rem', backgroundColor: mov.currency === 'USD' ? 'rgba(96,165,250,0.15)' : 'rgba(52,211,153,0.1)', color: mov.currency === 'USD' ? '#60a5fa' : '#34d399', fontSize: '0.7rem', fontWeight: 700 }}>{mov.currency}</span>
+                          <td style={{ padding: '0.625rem 1rem' }}>
+                            <span style={{ fontSize: '0.72rem', padding: '0.15rem 0.45rem', borderRadius: '0.25rem', background: mMeta.accent, color: mMeta.color, fontWeight: 700 }}>
+                              {mMeta.label}
+                            </span>
                           </td>
-                          <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace', color: mov.type === 'income' ? '#34d399' : '#f87171', fontWeight: 600 }}>
-                            {mov.type === 'income' ? '+' : '-'}{mov.currency === 'USD' ? fmtUSD(mov.amount) : fmtARS(mov.amount)}
+                          <td style={{ padding: '0.625rem 1rem', fontFamily: 'monospace', fontWeight: 700, fontSize: '0.9rem', color: mov.type === 'income' ? '#34d399' : '#f87171', whiteSpace: 'nowrap' }}>
+                            {mov.type === 'income' ? '+' : '−'}
+                            {amtUSD !== null ? `${fmtUSD(amtUSD)} (${fmtARS(amtARS)})` : fmtARS(amtARS)}
                           </td>
-                          <td style={{ padding: '0.75rem 1rem', color: src.color, fontSize: '0.75rem', fontWeight: 500 }}>{src.label}</td>
-                          <td style={{ padding: '0.75rem 1rem', color: '#475569', fontSize: '0.75rem' }}>{fmtTime(mov.created_at)}</td>
-                          <td style={{ padding: '0.75rem 1rem' }}>
-                            <button onClick={() => handleDeleteMovement(mov.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem', color: '#475569', display: 'flex', alignItems: 'center' }}
-                              title="Eliminar movimiento"
+                          <td style={{ padding: '0.625rem 0.75rem' }}>
+                            <button onClick={() => handleDeleteMovement(mov.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1e3a5f', padding: '0.2rem', display: 'flex', alignItems: 'center' }}
                               onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
-                              onMouseLeave={e => (e.currentTarget.style.color = '#475569')}>
-                              <Trash2 size={14} />
+                              onMouseLeave={e => (e.currentTarget.style.color = '#1e3a5f')}>
+                              <Trash2 size={13} />
                             </button>
                           </td>
                         </tr>
@@ -618,189 +670,225 @@ export function CajaPage() {
         </>
       )}
 
-      {/* ── Ver detalle de cualquier día ── */}
-      <div style={{ marginTop: '2rem', backgroundColor: '#111827', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '0.75rem', padding: '1.25rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: selectedDay ? '0' : undefined }}>
-          <Calendar size={16} style={{ color: '#818cf8' }} />
-          <span style={{ fontWeight: 600, color: '#e2e8f0', fontSize: '0.875rem' }}>Ver detalle de otro día</span>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <input type="date" value={datePicker} max={today}
-              onChange={e => setDatePicker(e.target.value)}
-              style={{ padding: '0.4rem 0.625rem', backgroundColor: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.375rem', color: '#e2e8f0', fontSize: '0.8rem', outline: 'none' }} />
-            <button
-              onClick={() => datePicker && loadDayDetail(datePicker)}
-              disabled={!datePicker}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.4rem 0.875rem', backgroundColor: datePicker ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.05)', border: `1px solid ${datePicker ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.08)'}`, borderRadius: '0.375rem', color: datePicker ? '#818cf8' : '#334155', fontSize: '0.8rem', fontWeight: 600, cursor: datePicker ? 'pointer' : 'not-allowed' }}>
-              Ver <ChevronRight size={13} />
-            </button>
-          </div>
-        </div>
-
-        {selectedDay && dayDetail && (
-          <DayDetailPanel
-            date={selectedDay}
-            detail={dayDetail}
-            loading={loadingDay}
-            onClose={() => { setSelectedDay(null); setDayDetail(null) }}
-            onNavigate={handleNavigateToSource}
-          />
-        )}
-        {loadingDay && !dayDetail && (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '1.5rem' }}>
-            <Loader2 size={22} style={{ color: '#6366f1', animation: 'spin 1s linear infinite' }} />
-          </div>
-        )}
-      </div>
-
-      {/* ── Historial (30 días) ── */}
+      {/* ── Historial ── */}
       {historial.length > 0 && (
-        <div style={{ marginTop: '1.25rem', backgroundColor: '#111827', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '0.75rem', overflow: 'hidden' }}>
+        <div style={{ marginTop: '1.5rem', background: '#111827', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '0.75rem', overflow: 'hidden' }}>
           <button onClick={() => setShowHistorial(v => !v)} style={{ width: '100%', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', cursor: 'pointer', borderBottom: showHistorial ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#e2e8f0', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Calendar size={16} style={{ color: '#64748b' }} />
-              Historial de Cajas
-            </h3>
-            <span style={{ fontSize: '0.75rem', color: '#475569' }}>
-              {showHistorial ? '▲ ocultar' : `▼ ver ${historial.length} registros`}
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700, color: '#e2e8f0', fontSize: '0.9rem' }}>
+              <Calendar size={15} style={{ color: '#475569' }} /> Historial de Cajas
             </span>
+            <span style={{ fontSize: '0.75rem', color: '#334155' }}>{showHistorial ? '▲' : `▼ ${historial.length} sesiones`}</span>
           </button>
 
-          {showHistorial && (
-            <>
-              <p style={{ margin: 0, padding: '0.5rem 1.25rem', fontSize: '0.75rem', color: '#334155', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                Hacé clic en un día para ver el detalle de movimientos
-              </p>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-                  <thead>
-                    <tr style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}>
-                      {['Fecha', 'Estado', 'Apertura ARS', 'Balance ARS', 'Apertura USD', 'Balance USD', 'Resultado', ''].map(h => (
-                        <th key={h} style={{ padding: '0.625rem 1rem', textAlign: 'left', color: '#475569', fontWeight: 500, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {historial.map(cr => {
-                      const resultado = (cr.ars_balance || 0) - (cr.ars_opening || 0)
-                      const isSelected = selectedDay === cr.date
+          {showHistorial && historial.map(cr => {
+            const duracion = cr.closed_at
+              ? Math.round((new Date(cr.closed_at).getTime() - new Date(cr.opened_at).getTime()) / 60000)
+              : null
+            const isExpanded = expandedHistory === cr.id
+            return (
+              <div key={cr.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                <div onClick={() => setExpandedHistory(p => p === cr.id ? null : cr.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem 1.25rem', cursor: 'pointer', background: isExpanded ? 'rgba(255,255,255,0.025)' : 'transparent' }}
+                  onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = 'rgba(255,255,255,0.015)' }}
+                  onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = 'transparent' }}>
+                  <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#cbd5e1', minWidth: 100 }}>{fmtDateShort(cr.opened_at)}</span>
+                  <span style={{ fontSize: '0.72rem', color: '#334155', minWidth: 70 }}>{duracion !== null ? `${duracion} min` : 'Aún abierta'}</span>
+                  <div style={{ flex: 1, display: 'flex', gap: '0.875rem', flexWrap: 'wrap' }}>
+                    {METHODS.map(m => {
+                      const meta = METHOD_META[m]
+                      const ini  = cr[`${m}_inicial` as keyof Caja] as number || 0
                       return (
-                        <tr key={cr.id}
-                          onClick={() => loadDayDetail(cr.date)}
-                          style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', cursor: 'pointer', backgroundColor: isSelected ? 'rgba(99,102,241,0.08)' : 'transparent', transition: 'background 0.12s' }}
-                          onMouseEnter={e => { if (!isSelected) e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.025)' }}
-                          onMouseLeave={e => { if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent' }}
-                        >
-                          <td style={{ padding: '0.75rem 1rem', color: isSelected ? '#818cf8' : '#cbd5e1', fontWeight: 600 }}>
-                            {fmtDateShort(cr.date)}
-                          </td>
-                          <td style={{ padding: '0.75rem 1rem' }}>
-                            <span style={{ padding: '0.15rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.72rem', fontWeight: 700, backgroundColor: cr.status === 'closed' ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)', color: cr.status === 'closed' ? '#f87171' : '#34d399' }}>
-                              {cr.status === 'closed' ? 'Cerrada' : 'Abierta'}
-                            </span>
-                          </td>
-                          <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace', color: '#94a3b8' }}>{fmtARS(cr.ars_opening || 0)}</td>
-                          <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace', color: '#34d399', fontWeight: 600 }}>{fmtARS(cr.ars_balance || 0)}</td>
-                          <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace', color: '#94a3b8' }}>{fmtUSD(cr.usd_opening || 0)}</td>
-                          <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace', color: '#60a5fa', fontWeight: 600 }}>{fmtUSD(cr.usd_balance || 0)}</td>
-                          <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace', fontWeight: 700, color: resultado >= 0 ? '#34d399' : '#f87171' }}>
-                            {resultado >= 0 ? '+' : ''}{fmtARS(resultado)}
-                          </td>
-                          <td style={{ padding: '0.75rem 1rem', color: isSelected ? '#818cf8' : '#334155' }}>
-                            <ChevronRight size={14} style={{ transform: isSelected ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
-                          </td>
-                        </tr>
+                        <span key={m} style={{ fontSize: '0.7rem', color: '#334155' }}>
+                          <span style={{ color: meta.color }}>{meta.label.substring(0,4)}</span>: {m === 'usd' ? fmtUSD(ini) : fmtARS(ini)}
+                        </span>
                       )
                     })}
-                  </tbody>
-                </table>
+                  </div>
+                  <ChevronDown size={14} style={{ color: '#334155', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
+                </div>
+                {isExpanded && (
+                  <div style={{ padding: '0 1rem 1rem' }}>
+                    <HistoryCajaPanel caja={cr} onNavigate={handleNavigate} businessId={businessId || ''} />
+                  </div>
+                )}
               </div>
-
-              {/* Inline day detail dentro del historial */}
-              {selectedDay && historial.some(cr => cr.date === selectedDay) && dayDetail && (
-                <div style={{ padding: '0 1.25rem 1.25rem' }}>
-                  <DayDetailPanel
-                    date={selectedDay}
-                    detail={dayDetail}
-                    loading={loadingDay}
-                    onClose={() => { setSelectedDay(null); setDayDetail(null) }}
-                    onNavigate={handleNavigateToSource}
-                  />
-                </div>
-              )}
-              {loadingDay && historial.some(cr => cr.date === selectedDay) && !dayDetail && (
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '1.5rem' }}>
-                  <Loader2 size={22} style={{ color: '#6366f1', animation: 'spin 1s linear infinite' }} />
-                </div>
-              )}
-            </>
-          )}
+            )
+          })}
         </div>
       )}
 
-      {/* ── Modal movimiento manual ── */}
-      {showModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '1rem' }}>
-          <div style={{ backgroundColor: '#0f172a', border: '1px solid rgba(51,65,85,0.5)', borderRadius: '0.75rem', width: '100%', maxWidth: '440px', padding: '1.5rem' }}>
+      {/* ── Modal: Agregar movimiento ── */}
+      {showAddMov && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowAddMov(false) }}>
+          <div style={{ background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '0.875rem', width: '100%', maxWidth: 420, padding: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: '#f8fafc', margin: 0 }}>Registrar Movimiento</h3>
-              <CloseButton onClick={() => setShowModal(false)} />
+              <h3 style={{ fontWeight: 700, color: '#f8fafc', margin: 0 }}>Registrar movimiento</h3>
+              <CloseButton onClick={() => setShowAddMov(false)} />
             </div>
-
-            {modalError && (
-              <div style={{ padding: '0.625rem 0.875rem', marginBottom: '1rem', backgroundColor: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.3)', borderRadius: '0.375rem', color: '#f87171', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <AlertCircle size={14} /> {modalError}
-              </div>
-            )}
-
+            {movError && <div style={{ padding: '0.5rem 0.75rem', marginBottom: '1rem', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.375rem', color: '#f87171', fontSize: '0.8rem' }}>{movError}</div>}
             <form onSubmit={handleAddMovement} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {/* Tipo */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.375rem' }}>Tipo</label>
+                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', marginBottom: '0.375rem', fontWeight: 600 }}>Tipo</label>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  {([['income', 'Ingreso', '#34d399'], ['expense', 'Egreso', '#f87171']] as const).map(([val, label, color]) => (
-                    <button key={val} type="button" onClick={() => setModalForm(f => ({ ...f, type: val }))}
-                      style={{ flex: 1, padding: '0.5rem', borderRadius: '0.375rem', border: `2px solid ${modalForm.type === val ? color : 'rgba(255,255,255,0.08)'}`, backgroundColor: modalForm.type === val ? `${color}22` : 'transparent', color: modalForm.type === val ? color : '#64748b', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>
-                      {label}
+                  {([['income','Ingreso','#34d399'],['expense','Egreso','#f87171']] as const).map(([v,l,c]) => (
+                    <button key={v} type="button" onClick={() => setMovForm(f => ({ ...f, type: v }))}
+                      style={{ flex: 1, padding: '0.5rem', borderRadius: '0.375rem', border: `2px solid ${movForm.type === v ? c : 'rgba(255,255,255,0.08)'}`, background: movForm.type === v ? `${c}22` : 'transparent', color: movForm.type === v ? c : '#475569', fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer' }}>
+                      {l}
                     </button>
                   ))}
                 </div>
               </div>
-
-              {/* Moneda */}
+              {/* Método */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.375rem' }}>Moneda</label>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  {(['ARS', 'USD'] as Currency[]).map(c => (
-                    <button key={c} type="button" onClick={() => setModalForm(f => ({ ...f, currency: c }))}
-                      style={{ flex: 1, padding: '0.5rem', borderRadius: '0.375rem', border: `2px solid ${modalForm.currency === c ? (c === 'USD' ? '#60a5fa' : '#34d399') : 'rgba(255,255,255,0.08)'}`, backgroundColor: modalForm.currency === c ? (c === 'USD' ? 'rgba(96,165,250,0.15)' : 'rgba(52,211,153,0.1)') : 'transparent', color: modalForm.currency === c ? (c === 'USD' ? '#60a5fa' : '#34d399') : '#64748b', fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer' }}>
-                      {c}
-                    </button>
-                  ))}
+                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', marginBottom: '0.375rem', fontWeight: 600 }}>Método</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.375rem' }}>
+                  {METHODS.map(m => {
+                    const meta = METHOD_META[m]
+                    const sel  = movForm.method === m
+                    return (
+                      <button key={m} type="button" onClick={() => setMovForm(f => ({ ...f, method: m }))}
+                        style={{ padding: '0.4rem 0.25rem', borderRadius: '0.375rem', border: `1px solid ${sel ? meta.color + '55' : 'rgba(255,255,255,0.08)'}`, background: sel ? meta.accent : 'transparent', color: sel ? meta.color : '#475569', fontWeight: 600, fontSize: '0.72rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
+                        <meta.icon size={14} />
+                        {meta.label.split(' ')[0]}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
-
               {/* Monto */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.375rem' }}>Monto ({modalForm.currency})</label>
-                <input type="number" min="0.01" step="0.01" required value={modalForm.amount}
-                  onChange={e => setModalForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00"
-                  style={{ width: '100%', padding: '0.625rem 0.875rem', backgroundColor: 'rgba(15,23,42,0.6)', border: '1px solid rgba(51,65,85,0.5)', borderRadius: '0.375rem', color: '#f8fafc', fontSize: '1rem', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box' }} />
+                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', marginBottom: '0.375rem', fontWeight: 600 }}>
+                  Monto {movForm.method === 'usd' ? '(USD)' : '(ARS)'}
+                </label>
+                <input type="number" min="0.01" step="0.01" required value={movForm.amount}
+                  onChange={e => setMovForm(f => ({ ...f, amount: e.target.value }))} placeholder="0"
+                  style={{ width: '100%', padding: '0.625rem 0.875rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', color: '#f8fafc', fontSize: '1.1rem', fontFamily: 'monospace', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
               </div>
-
               {/* Descripción */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '0.375rem' }}>Descripción (opcional)</label>
-                <input type="text" value={modalForm.description}
-                  onChange={e => setModalForm(f => ({ ...f, description: e.target.value }))}
-                  placeholder="Ej: Pago de alquiler, cobro cliente..."
-                  style={{ width: '100%', padding: '0.625rem 0.875rem', backgroundColor: 'rgba(15,23,42,0.6)', border: '1px solid rgba(51,65,85,0.5)', borderRadius: '0.375rem', color: '#f8fafc', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' }} />
+                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', marginBottom: '0.375rem', fontWeight: 600 }}>Descripción (opcional)</label>
+                <input type="text" value={movForm.description}
+                  onChange={e => setMovForm(f => ({ ...f, description: e.target.value }))}
+                  placeholder="Ej: Alquiler, cobro cliente..."
+                  style={{ width: '100%', padding: '0.625rem 0.875rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', color: '#f8fafc', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' }} />
               </div>
-
-              <button type="submit" disabled={submitting} style={{ padding: '0.75rem', backgroundColor: submitting ? 'rgba(99,102,241,0.1)' : 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: '0.5rem', color: '#818cf8', fontWeight: 700, fontSize: '1rem', cursor: submitting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                {submitting ? <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={18} />}
-                {submitting ? 'Guardando...' : 'Registrar'}
+              <button type="submit" disabled={savingMov}
+                style={{ padding: '0.75rem', background: savingMov ? 'rgba(99,102,241,0.1)' : 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: '0.5rem', color: '#818cf8', fontWeight: 800, fontSize: '1rem', cursor: savingMov ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                {savingMov ? <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={18} />}
+                {savingMov ? 'Guardando...' : 'Registrar'}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Cerrar caja ── */}
+      {showClose && activeCaja && totals && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowClose(false) }}>
+          <div style={{ background: '#0d1a30', border: '1px solid rgba(248,113,113,0.2)', borderRadius: '1rem', width: '100%', maxWidth: 560, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            {/* Header */}
+            <div style={{ padding: '1.25rem 1.5rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ width: 36, height: 36, borderRadius: '0.5rem', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Lock size={17} style={{ color: '#f87171' }} />
+                </div>
+                <div>
+                  <h3 style={{ fontWeight: 800, color: '#f8fafc', margin: 0, fontSize: '1rem' }}>Cerrar Caja</h3>
+                  <p style={{ margin: 0, fontSize: '0.72rem', color: '#475569' }}>Ingresá el saldo contado por método</p>
+                </div>
+              </div>
+              <button onClick={() => setShowClose(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.25rem', display: 'flex' }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem' }}>
+              {/* Comparison table */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0', marginBottom: '1.25rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '0.625rem', overflow: 'hidden' }}>
+                {/* Header */}
+                {['Método', 'Esperado', 'Contado', 'Diferencia'].map(h => (
+                  <div key={h} style={{ padding: '0.5rem 0.875rem', fontSize: '0.66rem', color: '#334155', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.02)' }}>{h}</div>
+                ))}
+                {/* Rows */}
+                {METHODS.filter(m => m !== 'usd').map(m => {
+                  const meta     = METHOD_META[m]
+                  const expected = expectedClose[m]
+                  const counted  = parseFloat(closeForm[m]) || 0
+                  const diff     = counted - expected
+                  const hasCounted = closeForm[m] !== ''
+                  return (
+                    <>
+                      <div key={m + '_label'} style={{ padding: '0.625rem 0.875rem', display: 'flex', alignItems: 'center', gap: '0.375rem', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                        <meta.icon size={12} style={{ color: meta.color }} />
+                        <span style={{ fontSize: '0.78rem', color: meta.color, fontWeight: 600 }}>{meta.label}</span>
+                      </div>
+                      <div key={m + '_exp'} style={{ padding: '0.625rem 0.875rem', fontFamily: 'monospace', fontSize: '0.82rem', color: '#94a3b8', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.04)' }}>{fmtARS(expected)}</div>
+                      <div key={m + '_inp'} style={{ padding: '0.375rem 0.5rem', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                        <input type="number" min="0" step="1" value={closeForm[m]}
+                          onChange={e => setCloseForm(p => ({ ...p, [m]: e.target.value }))}
+                          placeholder={fmtARS(expected).replace('$', '')}
+                          style={{ width: '100%', padding: '0.375rem 0.5rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.375rem', color: '#f8fafc', fontSize: '0.82rem', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div key={m + '_diff'} style={{ padding: '0.625rem 0.875rem', fontFamily: 'monospace', fontSize: '0.82rem', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.04)', color: !hasCounted ? '#334155' : diff === 0 ? '#34d399' : diff > 0 ? '#fbbf24' : '#f87171', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        {hasCounted && diff !== 0 && (diff > 0 ? <AlertTriangle size={11} /> : <AlertCircle size={11} />)}
+                        {hasCounted ? `${diff >= 0 ? '+' : ''}${fmtARS(diff)}` : '—'}
+                      </div>
+                    </>
+                  )
+                })}
+                {/* USD row */}
+                {(() => {
+                  const expected = expectedClose.usd
+                  const counted  = parseFloat(closeForm.usd) || 0
+                  const diff     = counted - expected
+                  const hasCounted = closeForm.usd !== ''
+                  return (
+                    <>
+                      <div style={{ padding: '0.625rem 0.875rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                        <DollarSign size={12} style={{ color: '#fbbf24' }} />
+                        <span style={{ fontSize: '0.78rem', color: '#fbbf24', fontWeight: 600 }}>Dólares</span>
+                      </div>
+                      <div style={{ padding: '0.625rem 0.875rem', fontFamily: 'monospace', fontSize: '0.82rem', color: '#94a3b8', fontWeight: 600 }}>{fmtUSD(expected)}</div>
+                      <div style={{ padding: '0.375rem 0.5rem' }}>
+                        <input type="number" min="0" step="0.01" value={closeForm.usd}
+                          onChange={e => setCloseForm(p => ({ ...p, usd: e.target.value }))}
+                          placeholder="0.00"
+                          style={{ width: '100%', padding: '0.375rem 0.5rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.375rem', color: '#fbbf24', fontSize: '0.82rem', fontFamily: 'monospace', outline: 'none', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div style={{ padding: '0.625rem 0.875rem', fontFamily: 'monospace', fontSize: '0.82rem', fontWeight: 700, color: !hasCounted ? '#334155' : diff === 0 ? '#34d399' : diff > 0 ? '#fbbf24' : '#f87171' }}>
+                        {hasCounted ? `${diff >= 0 ? '+' : ''}${fmtUSD(diff)}` : '—'}
+                      </div>
+                    </>
+                  )
+                })()}
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', marginBottom: '0.375rem', fontWeight: 600 }}>Notas de cierre (opcional)</label>
+                <textarea value={closingNotes} onChange={e => setClosingNotes(e.target.value)} rows={2}
+                  placeholder="Observaciones del turno..."
+                  style={{ width: '100%', padding: '0.625rem 0.875rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#f8fafc', fontSize: '0.875rem', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexShrink: 0, background: '#0d1a30' }}>
+              <button onClick={() => setShowClose(false)} style={{ padding: '0.625rem 1.25rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#64748b', fontWeight: 600, cursor: 'pointer', fontSize: '0.875rem' }}>
+                Cancelar
+              </button>
+              <button onClick={handleCloseCaja} disabled={closing}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.5rem', background: closing ? 'rgba(248,113,113,0.1)' : 'rgba(248,113,113,0.18)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: '0.5rem', color: '#f87171', fontWeight: 800, cursor: closing ? 'not-allowed' : 'pointer', fontSize: '0.875rem' }}>
+                {closing ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Lock size={16} />}
+                {closing ? 'Cerrando...' : 'Confirmar cierre'}
+              </button>
+            </div>
           </div>
         </div>
       )}
