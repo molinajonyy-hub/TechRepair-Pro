@@ -126,9 +126,44 @@ export function DashboardTasks() {
   // ── Render helpers ──────────────────────────────────────────────────────────
 
   const totalActive = (summary?.pending || 0) + (summary?.in_progress || 0)
+  const isEmpty     = !loading && !error && tasks.length === 0
 
+  // ── Modo compacto: sin tareas ─────────────────────────────────────────────
+  if (isEmpty) {
+    return (
+      <div className="card animate-fade-in" style={{
+        padding: '0.875rem 1.25rem',
+        display: 'flex', alignItems: 'center',
+        justifyContent: 'space-between', gap: '1rem',
+        flexWrap: 'wrap' as const,
+        marginBottom: 0,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ width: 32, height: 32, borderRadius: '0.5rem', background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <CheckCircle2 size={16} style={{ color: '#34d399' }} />
+          </div>
+          <div>
+            <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Mis Tareas</span>
+            <span style={{ marginLeft: '0.625rem', fontSize: '0.8rem', color: '#334155' }}>— Sin tareas asignadas</span>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '0.375rem', flexShrink: 0 }}>
+          <button onClick={() => navigate('/tasks', { state: { openCreate: true } })}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.4rem 0.875rem', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.5rem', color: '#818cf8', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}>
+            <Plus size={13} /> Nueva tarea
+          </button>
+          <button onClick={() => navigate('/tasks')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', padding: '0.4rem 0.75rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#334155', fontSize: '0.8rem', cursor: 'pointer' }}>
+            Ver módulo <ChevronRight size={11} />
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Modo completo: hay tareas ──────────────────────────────────────────────
   return (
-    <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+    <div className="card animate-fade-in" style={{ padding: 0, overflow: 'hidden' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.25rem 0.875rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
@@ -192,20 +227,6 @@ export function DashboardTasks() {
         ) : error ? (
           <div style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>
             <AlertTriangle size={14} /> {error}
-          </div>
-        ) : tasks.length === 0 ? (
-          <div style={{ padding: '1.75rem 1.25rem', textAlign: 'center' }}>
-            <CheckCircle2 size={28} style={{ color: '#34d399', margin: '0 auto 0.625rem', opacity: 0.5 }} />
-            <p style={{ margin: '0 0 0.5rem', fontWeight: 700, color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-              No tenés tareas asignadas
-            </p>
-            <p style={{ margin: '0 0 1rem', fontSize: '0.75rem', color: '#334155' }}>
-              Todo al día, o podés crear una nueva tarea.
-            </p>
-            <button onClick={() => navigate('/tasks', { state: { openCreate: true } })}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '0.5rem', color: '#818cf8', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}>
-              <Plus size={13} /> Crear tarea
-            </button>
           </div>
         ) : (
           tasks.map(task => {
