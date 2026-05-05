@@ -18,7 +18,7 @@ import {
   NewOrderIcon, FinanceIcon, InvoiceIcon,
   OrderIcon, ClientsIcon, RevenueIcon,
   RefreshIcon, NewClientIcon, WarrantyIcon,
-  ExpenseReceiptIcon, AvailableIcon, ViewIcon, HideIcon,
+  ExpenseReceiptIcon, ViewIcon,
   CloseLockIcon as LockIcon, DashboardIcon, CurrencyIcon,
   PrintIcon,
 } from '../ui/icons'
@@ -46,8 +46,6 @@ const fmtDate = (iso: string) =>
 
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState('orders')
-  const [disponibleVisible, setDisponibleVisible] = useState(true)
-  const [disponible, setDisponible]         = useState<{ ingresos: number; egresos: number } | null>(null)
   const [, setDolarResult]   = useState<DollarRateResult | null>(null)
   const [, setDolarLoading]  = useState(false)
   const [cajaStatus, setCajaStatus]         = useState<'open' | 'closed' | null>(null)
@@ -83,21 +81,6 @@ export function Dashboard() {
     return () => { active = false; clearInterval(t) }
   }, [businessId])
 
-  // ── Disponible hoy ──
-  useEffect(() => {
-    if (!businessId) return
-    const today = new Date().toISOString().split('T')[0]
-    supabase
-      .from('business_finance_entries')
-      .select('type, amount_ars')
-      .eq('business_id', businessId).eq('date', today)
-      .then(({ data }) => {
-        if (!data) return
-        const ingresos = data.filter(e => e.type === 'income').reduce((s, e) => s + (e.amount_ars || 0), 0)
-        const egresos  = data.filter(e => e.type !== 'income').reduce((s, e) => s + (e.amount_ars || 0), 0)
-        setDisponible({ ingresos, egresos })
-      })
-  }, [businessId])
 
   // ── Estado de caja ──
   const loadCajaStatus = useCallback(async () => {
@@ -200,56 +183,6 @@ export function Dashboard() {
       {/* ── 2. Mis Tareas ─────────────────────────────────────────────────── */}
       <DashboardTasks />
 
-      {/* ── 3. Disponible hoy ─────────────────────────────────────────────── */}
-      {disponible !== null && (
-        <div className="card" style={{ marginBottom: '1.5rem', padding: '1.25rem 1.5rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-            {/* Valor principal */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-              <div style={{
-                width: 42, height: 42, borderRadius: 'var(--radius-lg)',
-                background: 'var(--success-subtle)', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', color: 'var(--success)', flexShrink: 0,
-              }}>
-                <AvailableIcon size={20} />
-              </div>
-              <div>
-                <div className="stat-card-label">Disponible hoy</div>
-                <div style={{
-                  fontSize: '1.875rem', fontWeight: 800, letterSpacing: '-0.03em',
-                  color: 'var(--success)', lineHeight: 1.1,
-                }}>
-                  {disponibleVisible
-                    ? fmtARS(disponible.ingresos - disponible.egresos)
-                    : '••••••••'}
-                </div>
-              </div>
-            </div>
-            {/* Sub-métricas + toggle */}
-            <div style={{ display: 'flex', gap: '2rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <div>
-                <div className="stat-card-label">Ingresos</div>
-                <div style={{ fontWeight: 700, color: 'var(--success)', fontSize: '0.9375rem' }}>
-                  {disponibleVisible ? `+${fmtARS(disponible.ingresos)}` : '••••'}
-                </div>
-              </div>
-              <div>
-                <div className="stat-card-label">Egresos</div>
-                <div style={{ fontWeight: 700, color: 'var(--error)', fontSize: '0.9375rem' }}>
-                  {disponibleVisible ? `-${fmtARS(disponible.egresos)}` : '••••'}
-                </div>
-              </div>
-              <AppButton
-                variant="secondary" size="sm"
-                leftIcon={disponibleVisible ? <HideIcon size={13} /> : <ViewIcon size={13} />}
-                onClick={() => setDisponibleVisible(v => !v)}
-              >
-                {disponibleVisible ? 'Ocultar' : 'Mostrar'}
-              </AppButton>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── 4. Métricas ───────────────────────────────────────────────────── */}
       {statsLoading && !stats ? (
