@@ -26,6 +26,12 @@ const WhatsAppIcon = ({ size = 16 }: { size?: number }) => (
 );
 
 // ── Inline SVG icons (more specific, from design) ──
+const TareasIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M9 11l3 3L22 4"/><rect x="2" y="3" width="20" height="18" rx="2"/>
+    <path d="M2 9h20"/>
+  </svg>
+);
 const DashboardIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
@@ -180,6 +186,7 @@ const menuSections: NavSection[] = [
       { path: '/orders', label: 'Ordenes', icon: <OrdersIcon />, permission: 'orders' },
       { path: '/comprobantes', label: 'Comprobantes', icon: <ComprobantesIcon />, permission: 'comprobantes' },
       { path: '/warranties', label: 'Garantías', icon: <WarrantyIcon />, permission: 'orders' },
+      { path: '/tasks', label: 'Tareas', icon: <TareasIcon /> },
       { path: '/whatsapp', label: 'WhatsApp', icon: <WhatsAppIcon />, isWhatsApp: true },
     ],
   },

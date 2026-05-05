@@ -25,6 +25,7 @@ import { Orders } from './pages/Orders'
 import { Reports } from './pages/Reports'
 import { Suppliers } from './pages/Suppliers'
 import { Offers } from './pages/Offers'
+import { Tasks } from './pages/Tasks'
 import { Warranties } from './pages/Warranties'
 import { UsersManagement } from './pages/UsersManagement'
 import { CajaPage } from './pages/CajaPage'
@@ -96,6 +97,7 @@ function AppContent() {
             <Route path="/admin/subscriptions" element={<AdminSubscriptions />} />
             <Route path="/tutorials" element={<Tutorials />} />
             <Route path="/whatsapp" element={<WhatsAppPage />} />
+            <Route path="/tasks" element={<Tasks />} />
           </Route>
         </Route>
       </Routes>
