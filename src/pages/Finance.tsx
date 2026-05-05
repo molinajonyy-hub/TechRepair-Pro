@@ -1137,7 +1137,7 @@ function InventoryMetrics({ data, loading }: { data: InvAnalytics | null; loadin
               <>
                 <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e3a5f', marginTop: '0.25rem' }}>—</div>
                 <div style={{ marginTop: '0.5rem', fontSize: '0.73rem', color: '#334155', lineHeight: 1.5 }}>
-                  Registrá compras en el período seleccionado para comparar la evolución del capital.
+                  Registrá compras a proveedores o facturas en Gastos para comparar la evolución del capital.
                 </div>
               </>
             )}
@@ -1944,15 +1944,16 @@ export function Finance() {
         const periodMs = Math.max(86400000, new Date(to).getTime() - new Date(from).getTime())
         const prevFrom = new Date(new Date(from).getTime() - periodMs).toISOString().split('T')[0]
 
+        // Lee supplier_purchases (módulo Proveedores + Gastos tipo Factura)
         const [currPurch, prevPurch] = await Promise.all([
-          supabase.from('purchases').select('total').eq('business_id', businessId)
+          supabase.from('supplier_purchases').select('total_amount').eq('business_id', businessId)
             .gte('purchase_date', from).lte('purchase_date', to),
-          supabase.from('purchases').select('total').eq('business_id', businessId)
+          supabase.from('supplier_purchases').select('total_amount').eq('business_id', businessId)
             .gte('purchase_date', prevFrom).lt('purchase_date', from),
         ])
 
-        const comprasCurrent = (currPurch.data || []).reduce((s: number, p: any) => s + (p.total || 0), 0)
-        const comprasPrev = (prevPurch.data || []).reduce((s: number, p: any) => s + (p.total || 0), 0)
+        const comprasCurrent = (currPurch.data || []).reduce((s: number, p: any) => s + (p.total_amount || 0), 0)
+        const comprasPrev = (prevPurch.data || []).reduce((s: number, p: any) => s + (p.total_amount || 0), 0)
         const growthPct = comprasPrev > 0 ? ((comprasCurrent - comprasPrev) / comprasPrev) * 100 : null
         const growthNominal = comprasCurrent - comprasPrev
 
