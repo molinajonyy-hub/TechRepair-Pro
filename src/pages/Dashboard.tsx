@@ -181,7 +181,9 @@ export function Dashboard() {
       />
 
       {/* ── 2. Mis Tareas ─────────────────────────────────────────────────── */}
-      <DashboardTasks />
+      <div style={{ marginBottom: '1.5rem' }}>
+        <DashboardTasks />
+      </div>
 
 
       {/* ── 4. Métricas ───────────────────────────────────────────────────── */}
