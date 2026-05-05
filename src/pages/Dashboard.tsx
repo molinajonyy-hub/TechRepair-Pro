@@ -4,7 +4,7 @@ import { useDashboardStats } from '../hooks/useDashboardStats'
 import { useComprobantes } from '../hooks/useComprobantes'
 import { refreshDollarRate, refreshInventoryDollarPrices, type DollarRateResult } from '../services/dollarRateService'
 import { DollarRateBadge } from '../components/ui/DollarRateBadge'
-import { TasksModule } from '../components/tasks/TasksModule'
+import { DashboardTasks } from '../components/tasks/DashboardTasks'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import {
@@ -197,8 +197,8 @@ export function Dashboard() {
         }
       />
 
-      {/* ── 2. Módulo Tareas ───────────────────────────────────────────────── */}
-      <TasksModule />
+      {/* ── 2. Mis Tareas ─────────────────────────────────────────────────── */}
+      <DashboardTasks />
 
       {/* ── 3. Disponible hoy ─────────────────────────────────────────────── */}
       {disponible !== null && (
