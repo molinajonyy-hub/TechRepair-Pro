@@ -2,22 +2,24 @@
  * financialMetricsService — Fuente única de verdad financiera
  *
  * FÓRMULA OFICIAL:
- *   Ingresos del período                     (solo comprobantes EMITIDOS + manuales)
- *   - Costos variables                        (mercadería, repuestos, comisiones)
+ *   Ingresos del período  (TODOS los ingresos BFE del período — caja base)
+ *   - Costos variables
  *   = Margen bruto
  *
  *   Margen bruto
  *   - Costos fijos del local
  *   - Sueldos y retiros
  *   - Costos fijos personales
- *   = Resultado financiero real (netResult)
+ *   = Resultado financiero real (resultadoNeto)
  *
- * FUENTE DE DATOS:
- *   business_finance_entries filtrando income de comprobantes DRAFT
- *   → evita inflar ingresos con borradores no cobrados
+ * DECISIÓN DE DISEÑO:
+ *   Los ingresos = TODOS los BFE de tipo 'income' en el período.
+ *   Un pago recibido contra un comprobante draft es IGUAL de real que
+ *   uno contra un comprobante emitido. El status del comprobante no
+ *   determina si el dinero entró — la BFE entry sí lo confirma.
  *
- * USO: cualquier tarjeta de "ganancia" debe llamar a getFinancialSummary()
- * con los mismos parámetros para mostrar el mismo número.
+ *   También se calcula opProfit (margen de operaciones desde
+ *   comprobante_items). Es una métrica complementaria, no un sustituto.
  */
 
 import { supabase } from '../lib/supabase'
@@ -26,114 +28,89 @@ import { todayAR } from '../utils/dateUtils'
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface FinancialSummary {
-  // Ingresos
+  // P&L desde business_finance_entries (caja base)
   ingresosPeriodo:       number
-
-  // Costos
   costosVariables:       number
   margenBruto:           number
   margenBrutoPct:        number
-
-  // Estructura de costos
   costosFijosLocal:      number
   sueldosRetiros:        number
   costosFijosPersonales: number
-
-  // Resultado final
   resultadoNeto:         number
-  resultadoNetoPct:      number  // % sobre ingresos
+  resultadoNetoPct:      number
 
-  // Métricas de operaciones (comprobante_items, más granular)
-  opRevenue:             number
-  opCogs:                number
-  opCommissions:         number
-  opProfit:              number   // revenue - cogs - commissions
-  opMarginPct:           number
-  opItemsCount:          number
+  // Margen de operaciones desde comprobante_items (métrica complementaria)
+  opRevenue:    number
+  opCogs:       number
+  opCommissions:number
+  opProfit:     number
+  opMarginPct:  number
+  opItemsCount: number
 
-  // Debug
+  // Debug — visible en consola [Finance] Resumen unificado:
   _debug: {
-    fromDate: string
-    toDate:   string
-    bfeIncome:         number
-    bfeIncomeDraft:    number  // cuánto venía de drafts (debería ser 0)
-    bfeIncomeIssued:   number
-    bfeVariableCost:   number
-    bfeFixedLocal:     number
-    bfeSalary:         number
-    bfePersonal:       number
-    comprobantesIssued: number
-    compItemsCount:    number
+    fromDate:       string
+    toDate:         string
+    bfeIncomeTotal: number
+    bfeVariableCost:number
+    bfeFixedLocal:  number
+    bfeSalary:      number
+    bfePersonal:    number
+    bfeEntries:     number
+    compIssuedInPeriod: number
+    compItemsCount: number
   }
 }
 
-// ─── Query helper ─────────────────────────────────────────────────────────────
+// ─── Servicio principal ───────────────────────────────────────────────────────
 
 export async function getFinancialSummary(
   businessId: string,
-  from?: string,   // 'YYYY-MM-DD', default = primer día del mes actual
-  to?:   string,   // 'YYYY-MM-DD', default = hoy
+  from?: string,
+  to?:   string,
 ): Promise<FinancialSummary> {
-  const today = todayAR()
+  const today        = todayAR()
   const firstOfMonth = today.slice(0, 7) + '-01'
-  const dateFrom = from ?? firstOfMonth
-  const dateTo   = to   ?? today
-  const tzSuffix = '-03:00'
+  const dateFrom     = from ?? firstOfMonth
+  const dateTo       = to   ?? today
+  const tzSuffix     = '-03:00'
 
-  // ── 1. Comprobantes emitidos del negocio (SIN filtro de fecha) ────────────
-  // No filtramos por fecha aquí porque la BFE entry puede tener fecha distinta
-  // al comprobante (el pago puede registrarse en un día diferente a la emisión).
-  // El período ya lo controla el filtro de fecha sobre las entradas BFE.
-  const { data: issuedComps } = await supabase
-    .from('comprobantes')
-    .select('id')
-    .eq('business_id', businessId)
-    .eq('status', 'issued')
-
-  const issuedIds = new Set((issuedComps || []).map((c: any) => c.id))
-
-  // ── 2. Todas las entradas BFE del período ─────────────────────────────────
-  const { data: allBfe } = await supabase
+  // ── 1. INGRESOS Y COSTOS desde business_finance_entries ──────────────────
+  // Usamos TODOS los BFE income del período sin filtrar por status del comprobante.
+  // Un BFE income entry = dinero confirmado en caja, independientemente del
+  // estado del comprobante relacionado.
+  const { data: bfeData, error: bfeErr } = await supabase
     .from('business_finance_entries')
-    .select('type, amount_ars, reference_comprobante_id')
+    .select('type, amount_ars')
     .eq('business_id', businessId)
     .gte('date', dateFrom)
     .lte('date', dateTo)
 
-  const bfe = allBfe || []
+  if (bfeErr) {
+    console.error('[financialMetricsService] BFE query error:', bfeErr)
+  }
 
-  // Separar income según si el comprobante está emitido o en borrador
-  let bfeIncomeIssued   = 0
-  let bfeIncomeDraft    = 0
-  let bfeIncomeManual   = 0  // income sin referencia a comprobante
-  let bfeVariableCost   = 0
-  let bfeFixedLocal     = 0
-  let bfeSalary         = 0
-  let bfePersonal       = 0
+  const bfe = bfeData || []
+
+  let bfeIncomeTotal  = 0
+  let bfeVariableCost = 0
+  let bfeFixedLocal   = 0
+  let bfeSalary       = 0
+  let bfePersonal     = 0
 
   for (const e of bfe) {
-    const amt = e.amount_ars || 0
+    const amt = Number(e.amount_ars) || 0
     switch (e.type) {
-      case 'income':
-        if (!e.reference_comprobante_id) {
-          bfeIncomeManual += amt
-        } else if (issuedIds.has(e.reference_comprobante_id)) {
-          bfeIncomeIssued += amt
-        } else {
-          bfeIncomeDraft += amt   // draft: no cuenta como ingreso real
-        }
-        break
-      case 'variable_cost':     bfeVariableCost += amt; break
-      case 'fixed_cost_local':  bfeFixedLocal   += amt; break
-      case 'salary':            bfeSalary       += amt; break
-      case 'fixed_cost_personal': bfePersonal   += amt; break
+      case 'income':              bfeIncomeTotal  += amt; break
+      case 'variable_cost':       bfeVariableCost += amt; break
+      case 'fixed_cost_local':    bfeFixedLocal   += amt; break
+      case 'salary':              bfeSalary       += amt; break
+      case 'fixed_cost_personal': bfePersonal     += amt; break
     }
   }
 
-  // Ingresos reales = emitidos + manuales (excluye drafts)
-  const ingresosPeriodo = bfeIncomeIssued + bfeIncomeManual
-
-  // ── 3. Cálculo completo (fórmula oficial) ─────────────────────────────────
+  // ── 2. P&L COMPLETO (fórmula oficial) ────────────────────────────────────
+  const ingresosPeriodo       = bfeIncomeTotal
   const costosVariables       = bfeVariableCost
   const margenBruto           = ingresosPeriodo - costosVariables
   const margenBrutoPct        = ingresosPeriodo > 0 ? (margenBruto / ingresosPeriodo) * 100 : 0
@@ -143,9 +120,19 @@ export async function getFinancialSummary(
   const resultadoNeto         = margenBruto - costosFijosLocal - sueldosRetiros - costosFijosPersonales
   const resultadoNetoPct      = ingresosPeriodo > 0 ? (resultadoNeto / ingresosPeriodo) * 100 : 0
 
-  // ── 4. Métricas de operaciones desde comprobante_items ────────────────────
-  // Filtramos comprobante_items por el período usando la fecha del comprobante
-  // (created_at del comprobante, que es cuando se emitió la venta)
+  // ── 3. MARGEN DE OPERACIONES desde comprobante_items ─────────────────────
+  // Métrica complementaria: ganancia bruta a nivel de ítem vendido.
+  // Solo incluye comprobantes emitidos (status = 'issued') en el período.
+  const { data: issuedCompsData } = await supabase
+    .from('comprobantes')
+    .select('id')
+    .eq('business_id', businessId)
+    .eq('status', 'issued')
+    .gte('created_at', dateFrom + 'T00:00:00' + tzSuffix)
+    .lte('created_at', dateTo   + 'T23:59:59' + tzSuffix)
+
+  const issuedIdsInPeriod = new Set((issuedCompsData || []).map((c: any) => c.id))
+
   const [itemsRes, commissionsRes] = await Promise.all([
     supabase
       .from('comprobante_items')
@@ -155,40 +142,28 @@ export async function getFinancialSummary(
 
     supabase
       .from('comprobante_payments')
-      .select('comprobante_id, commission_amount, date')
+      .select('comprobante_id, commission_amount')
       .eq('business_id', businessId)
       .gt('commission_amount', 0)
       .gte('date', dateFrom)
       .lte('date', dateTo),
   ])
 
-  // Filtrar items: solo los de comprobantes emitidos Y dentro del período
-  // (usamos created_at del comprobante, buscando en el Set de IDs dentro del rango)
-  const { data: issuedCompsInPeriod } = await supabase
-    .from('comprobantes')
-    .select('id')
-    .eq('business_id', businessId)
-    .eq('status', 'issued')
-    .gte('created_at', dateFrom + 'T00:00:00' + tzSuffix)
-    .lte('created_at', dateTo   + 'T23:59:59' + tzSuffix)
-
-  const issuedIdsInPeriod = new Set((issuedCompsInPeriod || []).map((c: any) => c.id))
-
   const items = (itemsRes.data || []).filter((ci: any) => issuedIdsInPeriod.has(ci.comprobante_id))
   const opCommissions = (commissionsRes.data || [])
-    .filter((p: any) => issuedIds.has(p.comprobante_id))
-    .reduce((s: number, p: any) => s + (p.commission_amount || 0), 0)
+    .filter((p: any) => issuedIdsInPeriod.has(p.comprobante_id))
+    .reduce((s: number, p: any) => s + (Number(p.commission_amount) || 0), 0)
 
   let opRevenue = 0, opCogs = 0
   for (const ci of items) {
     const disc = Math.min(ci.descuento_linea || 0, 100) / 100
-    opRevenue += (ci.precio_unitario || 0) * (ci.cantidad || 0) * (1 - disc)
-    opCogs    += (ci.costo_unitario  || 0) * (ci.cantidad || 0)
+    opRevenue += (Number(ci.precio_unitario) || 0) * (Number(ci.cantidad) || 0) * (1 - disc)
+    opCogs    += (Number(ci.costo_unitario)  || 0) * (Number(ci.cantidad) || 0)
   }
   const opProfit    = opRevenue - opCogs - opCommissions
   const opMarginPct = opRevenue > 0 ? (opProfit / opRevenue) * 100 : 0
 
-  return {
+  const result: FinancialSummary = {
     ingresosPeriodo,
     costosVariables,
     margenBruto,
@@ -205,18 +180,32 @@ export async function getFinancialSummary(
     opMarginPct,
     opItemsCount: items.length,
     _debug: {
-      fromDate:          dateFrom,
-      toDate:            dateTo,
-      bfeIncome:         bfeIncomeIssued + bfeIncomeDraft + bfeIncomeManual,
-      bfeIncomeDraft,
-      bfeIncomeIssued,
+      fromDate:           dateFrom,
+      toDate:             dateTo,
+      bfeIncomeTotal,
       bfeVariableCost,
       bfeFixedLocal,
       bfeSalary,
       bfePersonal,
-      comprobantesIssuedTotal:    issuedIds.size,
-      comprobantesIssuedPeriodo:  issuedIdsInPeriod.size,
-      compItemsCount:             items.length,
+      bfeEntries:         bfe.length,
+      compIssuedInPeriod: issuedIdsInPeriod.size,
+      compItemsCount:     items.length,
     },
   }
+
+  console.log('[financialMetricsService] Resumen:', {
+    periodo:     `${dateFrom} → ${dateTo}`,
+    ingresos:    ingresosPeriodo,
+    costsVar:    costosVariables,
+    margenBruto,
+    costosFijos: costosFijosLocal,
+    sueldos:     sueldosRetiros,
+    personal:    costosFijosPersonales,
+    resultNeto:  resultadoNeto,
+    opProfit,
+    bfeEntries:  bfe.length,
+    compIssued:  issuedIdsInPeriod.size,
+  })
+
+  return result
 }
