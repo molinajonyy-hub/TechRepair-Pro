@@ -1,136 +1,176 @@
-import { inventoryService } from './inventoryService';
+import { supabase } from '../lib/supabase';
 
 export interface OrderPart {
   id: string;
   order_id: string;
-  inventory_item_id?: string;
-  description: string;
+  business_id: string;
+  name: string;
+  description?: string;
+  part_number?: string;
+  internal_cost: number;
+  sale_price: number;
   quantity: number;
-  unit_price?: number;
-  subtotal?: number;
-  created_at: string;
+  margin_amount: number;
+  margin_percentage: number;
+  status: 'pending' | 'used' | 'sold' | 'returned';
+  deduct_from_inventory: boolean;
+  notes?: string;
+  added_at: string;
+  created_by?: string;
+  inventory_item_id?: string;  // referencia al producto del inventario (si aplica)
 }
 
-/**
- * Servicio para manejar partes/repuestos en órdenes de servicio
- */
+// ─── Servicio atómico para agregar repuestos a órdenes ────────────────────────
+// Flujo garantizado:
+//   1. Validar stock disponible
+//   2. Insertar en order_parts (tracking financiero)
+//   3. Insertar en order_items (tracking de trabajo — trigger deduce stock)
+//   Si falla cualquier paso: rollback del paso anterior
+
 export const orderPartsService = {
-  /**
-   * Agregar repuesto a orden y descontar stock
-   */
-  async addPartToOrder(
-    orderId: string,
-    inventoryItemId: string,
-    quantity: number,
-    _description: string,
-    _unitPrice?: number,
-    businessId?: string,
-    userId?: string
-  ): Promise<void> {
-    if (quantity <= 0) {
-      throw new Error('La cantidad debe ser mayor a 0');
+
+  async addPartToOrder(params: {
+    orderId:           string;
+    businessId:        string;
+    userId:            string;
+    name:              string;
+    inventoryItemId?:  string;   // null = repuesto sin vinculo inventario
+    quantity:          number;
+    unitCost:          number;
+    salePrice:         number;
+    description?:      string;
+    partNumber?:       string;
+    notes?:            string;
+  }): Promise<OrderPart> {
+    const {
+      orderId, businessId, userId, name,
+      inventoryItemId, quantity, unitCost, salePrice,
+      description, partNumber, notes,
+    } = params;
+
+    if (quantity <= 0) throw new Error('La cantidad debe ser mayor a 0');
+    if (salePrice < 0) throw new Error('El precio de venta no puede ser negativo');
+
+    // ── 1. Validar stock disponible (si tiene vínculo inventario) ──
+    if (inventoryItemId) {
+      const { data: inv } = await supabase
+        .from('inventory')
+        .select('stock_quantity, name')
+        .eq('id', inventoryItemId)
+        .single();
+
+      if (!inv) throw new Error('Producto no encontrado en inventario');
+      if ((inv.stock_quantity || 0) < quantity) {
+        throw new Error(
+          `Stock insuficiente para "${inv.name}". Disponible: ${inv.stock_quantity}, solicitado: ${quantity}`
+        );
+      }
     }
 
-    // Verificar disponibilidad
-    const available = await inventoryService.checkAvailability(inventoryItemId, quantity, businessId || '');
-    if (!available) {
-      throw new Error('Stock insuficiente para este repuesto');
+    const margenAmt = (salePrice - unitCost) * quantity;
+    const margenPct = unitCost > 0 ? ((salePrice - unitCost) / unitCost) * 100 : 0;
+
+    // ── 2. Insertar en order_parts (registro financiero) ──
+    const { data: part, error: partErr } = await supabase
+      .from('order_parts')
+      .insert({
+        order_id:              orderId,
+        business_id:           businessId,
+        name,
+        description:           description || null,
+        part_number:           partNumber  || null,
+        internal_cost:         unitCost,
+        sale_price:            salePrice,
+        quantity,
+        margin_amount:         margenAmt,
+        margin_percentage:     margenPct,
+        status:                'used',
+        deduct_from_inventory: !!inventoryItemId,
+        notes:                 notes || null,
+        created_by:            userId,
+      })
+      .select()
+      .single();
+
+    if (partErr || !part) {
+      throw new Error('Error al registrar repuesto en la orden: ' + (partErr?.message ?? 'sin datos'));
     }
 
-    // Descontar stock
-    await inventoryService.decreaseStockFromOrder(
-      inventoryItemId,
-      quantity,
-      orderId,
-      businessId || '',
-      userId || ''
-    );
+    // ── 3. Insertar en order_items y deducir stock via trigger ──
+    // El trigger trg_adjust_stock_on_order_item se encarga de:
+    //   a) Actualizar inventory.stock_quantity
+    //   b) Insertar en inventory_movements
+    if (inventoryItemId) {
+      const { error: itemErr } = await supabase
+        .from('order_items')
+        .insert({
+          order_id:              orderId,
+          product_id:            inventoryItemId,
+          business_id:           businessId,
+          tipo:                  'repuesto',
+          descripcion:           name,
+          cantidad:              quantity,
+          precio_unitario:       salePrice,
+          costo_unitario:        unitCost,
+          cliente_paga_repuesto: true,
+          created_by:            userId,
+        });
 
-    // Aquí se agregaría la lógica para guardar el repuesto en la tabla order_parts
-    // (depende de la estructura actual de la base de datos)
+      if (itemErr) {
+        // Rollback: eliminar el order_parts recién creado
+        await supabase.from('order_parts').delete().eq('id', part.id);
+        throw new Error('Error al registrar ítem en la orden: ' + itemErr.message);
+      }
+    }
+
+    return part as OrderPart;
   },
 
-  /**
-   * Eliminar repuesto de orden y restaurar stock
-   */
-  async removePartFromOrder(
-    orderId: string,
-    inventoryItemId: string,
-    quantity: number,
-    businessId?: string,
-    userId?: string
-  ): Promise<void> {
-    if (quantity <= 0) {
-      throw new Error('La cantidad debe ser mayor a 0');
-    }
+  async removePartFromOrder(params: {
+    partId:    string;
+    orderId:   string;
+    businessId: string;
+  }): Promise<void> {
+    const { partId, orderId, businessId } = params;
 
-    // Restaurar stock
-    await inventoryService.restoreStockFromOrderRemoval(
-      inventoryItemId,
-      quantity,
-      orderId,
-      businessId || '',
-      userId || ''
-    );
+    // Obtener datos del part antes de eliminar
+    const { data: part } = await supabase
+      .from('order_parts')
+      .select('*')
+      .eq('id', partId)
+      .eq('order_id', orderId)
+      .single();
 
-    // Aquí se agregaría la lógica para eliminar el repuesto de la tabla order_parts
-  },
+    if (!part) throw new Error('Repuesto no encontrado');
 
-  /**
-   * Actualizar cantidad de repuesto en orden
-   */
-  async updatePartQuantity(
-    orderId: string,
-    inventoryItemId: string,
-    oldQuantity: number,
-    newQuantity: number,
-    businessId?: string,
-    userId?: string
-  ): Promise<void> {
-    const difference = newQuantity - oldQuantity;
+    // Eliminar de order_parts
+    const { error } = await supabase
+      .from('order_parts')
+      .delete()
+      .eq('id', partId);
+    if (error) throw new Error('Error al eliminar repuesto: ' + error.message);
 
-    if (difference === 0) {
-      return; // No hay cambio
-    }
-
-    if (difference > 0) {
-      // Aumentar cantidad descontando stock adicional
-      await inventoryService.decreaseStockFromOrder(
-        inventoryItemId,
-        difference,
-        orderId,
-        businessId || '',
-        userId || ''
-      );
-    } else {
-      // Disminuir cantidad restaurando stock
-      await inventoryService.restoreStockFromOrderRemoval(
-        inventoryItemId,
-        Math.abs(difference),
-        orderId,
-        businessId || '',
-        userId || ''
-      );
+    // Si había un order_item asociado, eliminarlo también
+    // (el trigger de order_items restaura el stock automáticamente)
+    if (part.deduct_from_inventory) {
+      await supabase
+        .from('order_items')
+        .delete()
+        .eq('order_id', orderId)
+        .eq('business_id', businessId)
+        .eq('tipo', 'repuesto')
+        .eq('descripcion', part.name);
     }
   },
 
-  /**
-   * Verificar disponibilidad de repuestos para orden
-   */
-  async checkPartsAvailability(
-    parts: Array<{ inventory_item_id: string; quantity: number }>,
-    businessId: string
-  ): Promise<Record<string, boolean>> {
-    const availability: Record<string, boolean> = {};
+  async getPartsByOrder(orderId: string): Promise<OrderPart[]> {
+    const { data, error } = await supabase
+      .from('order_parts')
+      .select('*')
+      .eq('order_id', orderId)
+      .order('added_at', { ascending: true });
 
-    for (const part of parts) {
-      availability[part.inventory_item_id] = await inventoryService.checkAvailability(
-        part.inventory_item_id,
-        part.quantity,
-        businessId
-      );
-    }
-
-    return availability;
+    if (error) throw new Error('Error al cargar repuestos: ' + error.message);
+    return (data || []) as OrderPart[];
   },
 };

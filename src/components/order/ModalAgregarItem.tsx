@@ -247,6 +247,25 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
 
       if (insertError) throw insertError
 
+      // Sincronizar repuestos a order_parts para que aparezcan en el comprobante
+      // y en las métricas de ganancia. deduct_from_inventory = false porque el
+      // trigger de order_items ya descontó el stock.
+      if (tipo === 'repuesto') {
+        const margenAmt = (precio - costo) * qty
+        await supabase.from('order_parts').insert({
+          order_id:              orderId,
+          business_id:           businessId,
+          name:                  descripcion.trim(),
+          internal_cost:         costo,
+          sale_price:            precio,
+          quantity:              qty,
+          margin_amount:         margenAmt,
+          margin_percentage:     costo > 0 ? ((precio - costo) / costo) * 100 : 0,
+          status:                'used',
+          deduct_from_inventory: false,
+        })
+      }
+
       onItemAdded()
       onClose()
     } catch (err: any) {

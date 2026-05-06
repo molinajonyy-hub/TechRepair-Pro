@@ -53,12 +53,26 @@ export function OrderItemsCard({ orderId, onTotalsChange }: OrderItemsCardProps)
     if (!confirm('¿Eliminar este ítem? El stock se restaurará automáticamente.')) return
     setDeletingId(itemId)
     try {
+      // Obtener el ítem antes de borrar para saber si era repuesto
+      const itemToDelete = items.find(i => i.id === itemId)
+
       const { error } = await supabase
         .from('order_items')
         .delete()
         .eq('id', itemId)
 
       if (error) throw error
+
+      // Si era un repuesto, eliminar la entrada correspondiente en order_parts
+      if (itemToDelete?.tipo === 'repuesto' && itemToDelete.descripcion) {
+        await supabase
+          .from('order_parts')
+          .delete()
+          .eq('order_id', orderId)
+          .eq('name', itemToDelete.descripcion)
+          .eq('status', 'used')
+      }
+
       await loadItems()
       onTotalsChange?.()
     } catch (err: any) {
