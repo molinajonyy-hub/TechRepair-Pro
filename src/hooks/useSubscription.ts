@@ -111,7 +111,9 @@ export function useSubscription(): UseSubscriptionReturn {
     }
 
     return () => {
-      try { channel?.unsubscribe() } catch { /* ignore */ }
+      try {
+        if (channel) supabase.removeChannel(channel)
+      } catch { /* ignore */ }
     }
   }, [businessId, load])
 

@@ -256,14 +256,6 @@ export function useDashboardStats() {
           .in('status', ['used', 'sold'])
           .gte('added_at', ninetyDaysAgo),
 
-        // 11b. comprobante_items emitidos últimos 90 días (ventas directas sin orden)
-        supabase
-          .from('comprobante_items')
-          .select('precio_unitario, costo_unitario, cantidad, descripcion, created_at, tipo_linea, comprobante:comprobantes!inner(status, order_id)')
-          .eq('business_id', businessId)
-          .in('tipo_linea', ['producto', 'repuesto', 'servicio'])
-          .gte('created_at', ninetyDaysAgo),
-
         // 9. Total clientes
         loadCustomerCount(),
 
@@ -277,6 +269,14 @@ export function useDashboardStats() {
           .eq('business_id', businessId)
           .gte('date', ninetyDaysAgo.split('T')[0])
           .lte('date', today),
+
+        // 12. comprobante_items emitidos últimos 90 días (ventas directas sin orden)
+        supabase
+          .from('comprobante_items')
+          .select('precio_unitario, costo_unitario, cantidad, descripcion, created_at, tipo_linea, comprobante:comprobantes!inner(status, order_id)')
+          .eq('business_id', businessId)
+          .in('tipo_linea', ['producto', 'repuesto', 'servicio'])
+          .gte('created_at', ninetyDaysAgo),
       ])
 
       // ── Procesar resultados ─────────────────────────────────────────
