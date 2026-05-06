@@ -29,6 +29,7 @@ import {
   type MonthPoint,
   type DistributionSlice,
 } from '../services/financeService'
+import { getFinancialSummary, type FinancialSummary as UnifiedSummary } from '../services/financialMetricsService'
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -1803,7 +1804,10 @@ export function Finance() {
   const [activeMainTab, setActiveMainTab] = useState<'movimientos' | 'inventario' | 'recurrentes'>('movimientos')
   const [invData, setInvData] = useState<InvAnalytics | null>(null)
 
-  // Ganancia real de operaciones (order_parts)
+  // Resumen financiero unificado
+  const [unifiedSummary, setUnifiedSummary] = useState<UnifiedSummary | null>(null)
+
+  // Ganancia real de operaciones (comprobante_items) — se llena desde unifiedSummary
   const [opProfit, setOpProfit] = useState<{
     totalRevenue: number
     totalCost: number
@@ -1822,10 +1826,9 @@ export function Finance() {
     setLoading(true)
     setError(null)
     try {
-      const [rate, fetched, monthly] = await Promise.all([
+      const [rate, fetched, monthly, unified] = await Promise.all([
         currencyService.getCurrentExchangeRate('USD', 'ARS').catch(() => 1),
         financeService.getEntries(businessId, from, to).catch((err: any) => {
-          // Tabla no creada todavía
           if (err?.message?.includes('schema cache') || err?.code === 'PGRST200' || err?.message?.includes('business_finance_entries')) {
             setTableReady(false)
             return []
@@ -1833,122 +1836,27 @@ export function Finance() {
           throw err
         }),
         financeService.getLastMonths(businessId, 6).catch(() => []),
+        getFinancialSummary(businessId, from, to).catch(() => null),
       ])
       setTableReady(true)
       setExchangeRate(rate || 1)
       setEntries(fetched)
       setMonthlyData(buildMonthlyEvolution(monthly))
+      setUnifiedSummary(unified)
+      if (unified) {
+        console.log('[Finance] Resumen unificado:', unified._debug)
+      }
 
-      // Ganancia real de operaciones
-      // Fuente primaria: comprobante_items de comprobantes emitidos
-      // Fuente secundaria: order_parts de órdenes sin comprobante
-      try {
-        const tzSuffix = '-03:00'
-        const dateFrom = from + 'T00:00:00' + tzSuffix
-        const dateTo   = to   + 'T23:59:59' + tzSuffix
-
-        // 1. Comprobantes emitidos en el período
-        const { data: issuedComps } = await supabase
-          .from('comprobantes')
-          .select('id, order_id')
-          .eq('business_id', businessId)
-          .eq('status', 'issued')
-          .gte('created_at', dateFrom)
-          .lte('created_at', dateTo)
-
-        const issuedIds   = new Set((issuedComps || []).map((c: any) => c.id))
-        const ordersWithComp = new Set(
-          (issuedComps || []).filter((c: any) => c.order_id).map((c: any) => c.order_id)
-        )
-
-        console.log('[Finance] Comprobantes emitidos en rango:', issuedIds.size, 'order_ids con comp:', ordersWithComp.size)
-
-        // 2. Items de esos comprobantes (fuente primaria)
-        const [itemsRes, commissionsRes, partsRes] = await Promise.all([
-          supabase
-            .from('comprobante_items')
-            .select('comprobante_id, precio_unitario, costo_unitario, cantidad, descuento_linea, descripcion, tipo_linea')
-            .eq('business_id', businessId)
-            .in('tipo_linea', ['producto', 'repuesto', 'servicio', 'otro']),
-
-          supabase
-            .from('comprobante_payments')
-            .select('comprobante_id, commission_amount')
-            .eq('business_id', businessId)
-            .gt('commission_amount', 0),
-
-          supabase
-            .from('order_parts')
-            .select('order_id, internal_cost, sale_price, quantity, name')
-            .eq('business_id', businessId)
-            .in('status', ['used', 'sold'])
-            .gte('added_at', dateFrom)
-            .lte('added_at', dateTo),
-        ])
-
-        // Filtrar a comprobantes del período
-        const items = (itemsRes.data || []).filter((ci: any) => issuedIds.has(ci.comprobante_id))
-        const totalCommissions = (commissionsRes.data || [])
-          .filter((p: any) => issuedIds.has(p.comprobante_id))
-          .reduce((s: number, p: any) => s + (p.commission_amount || 0), 0)
-
-        // order_parts solo de órdenes SIN comprobante (evitar doble conteo)
-        const uncompParts = (partsRes.data || []).filter((p: any) => !ordersWithComp.has(p.order_id))
-
-        console.log('[Finance] Items comprobante:', items.length, '| order_parts sin comp:', uncompParts.length, '| comisiones:', totalCommissions)
-
-        let totalRevenue = 0, totalCost = 0
-        const itemMap: Record<string, { profit: number; rev: number; count: number }> = {}
-
-        // Procesar comprobante_items
-        items.forEach((ci: any) => {
-          const disc = Math.min(ci.descuento_linea || 0, 100) / 100
-          const rev  = (ci.precio_unitario || 0) * (ci.cantidad || 0) * (1 - disc)
-          const cost = (ci.costo_unitario  || 0) * (ci.cantidad || 0)
-          totalRevenue += rev
-          totalCost    += cost
-          const key    = (ci.descripcion || 'Sin nombre').slice(0, 40)
-          const profit = Math.max(0, rev - cost)
-          if (!itemMap[key]) itemMap[key] = { profit: 0, rev: 0, count: 0 }
-          itemMap[key].profit += profit
-          itemMap[key].rev    += rev
-          itemMap[key].count  += 1
+      // opProfit se llena desde el servicio unificado (ya calculado arriba)
+      if (unified) {
+        setOpProfit({
+          totalRevenue: unified.opRevenue,
+          totalCost:    unified.opCogs,
+          totalProfit:  unified.opProfit,
+          margin:       unified.opMarginPct,
+          count:        unified.opItemsCount,
+          topItems:     [],  // TODO: si se necesita top items, extender el servicio
         })
-
-        // Procesar order_parts sin comprobante
-        uncompParts.forEach((p: any) => {
-          const rev  = (p.sale_price    || 0) * (p.quantity || 0)
-          const cost = (p.internal_cost || 0) * (p.quantity || 0)
-          totalRevenue += rev
-          totalCost    += cost
-          const key    = (p.name || 'Sin nombre').slice(0, 40)
-          const profit = Math.max(0, rev - cost)
-          if (!itemMap[key]) itemMap[key] = { profit: 0, rev: 0, count: 0 }
-          itemMap[key].profit += profit
-          itemMap[key].rev    += rev
-          itemMap[key].count  += 1
-        })
-
-        const totalProfit = totalRevenue - totalCost - totalCommissions
-        const margin      = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0
-        const count       = items.length + uncompParts.length
-
-        console.log('[Finance] Resultado opProfit:', { totalRevenue, totalCost, totalCommissions, totalProfit, margin, count })
-
-        const topItems = Object.entries(itemMap)
-          .map(([name, v]) => ({
-            name,
-            profit: v.profit,
-            count:  v.count,
-            margin: v.rev > 0 ? (v.profit / v.rev) * 100 : 0,
-          }))
-          .sort((a, b) => b.profit - a.profit)
-          .slice(0, 8)
-
-        setOpProfit({ totalRevenue, totalCost, totalProfit, margin, count, topItems })
-      } catch (e) {
-        console.error('[Finance] opProfit error:', e)
-        setOpProfit(null)
       }
 
       // ── Inventory Analytics ──
@@ -2076,9 +1984,28 @@ export function Finance() {
     load()
   }
 
-  const summary = calculateSummary(entries)
+  // Calcular summary desde BFE (para distribución, lista de entradas, etc.)
+  const rawSummary  = calculateSummary(entries)
   const distribution = buildExpenseDistribution(entries)
   const visibleEntries = filterByView(entries, view)
+
+  // Sobrescribir con datos corregidos del servicio unificado cuando estén disponibles.
+  // El servicio unificado filtra income de comprobantes DRAFT, evitando inflación.
+  const summary: FinanceSummary = unifiedSummary ? {
+    totalIncome:          unifiedSummary.ingresosPeriodo,
+    variableCosts:        unifiedSummary.costosVariables,
+    grossMargin:          unifiedSummary.margenBruto,
+    grossMarginPct:       unifiedSummary.margenBrutoPct,
+    fixedLocalCosts:      unifiedSummary.costosFijosLocal,
+    operatingResult:      unifiedSummary.margenBruto - unifiedSummary.costosFijosLocal,
+    salaries:             unifiedSummary.sueldosRetiros,
+    resultAfterSalaries:  unifiedSummary.margenBruto - unifiedSummary.costosFijosLocal - unifiedSummary.sueldosRetiros,
+    personalCosts:        unifiedSummary.costosFijosPersonales,
+    netResult:            unifiedSummary.resultadoNeto,
+    breakEvenPoint:       rawSummary.breakEvenPoint,
+    status: unifiedSummary.resultadoNeto > 500 ? 'positive'
+          : unifiedSummary.resultadoNeto < -500 ? 'negative' : 'break_even',
+  } : rawSummary
 
   const PERIOD_OPTS: { value: PeriodType; label: string }[] = [
     { value: 'today', label: 'Hoy' },

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { getFinancialSummary } from '../services/financialMetricsService'
 
 export interface RecentOrder {
   id: string
@@ -352,27 +353,34 @@ export function useDashboardStats() {
         onTimeDeliveryRate = (onTimeCount / completedOrders.length) * 100
       }
 
-      // Ganancia real: order_parts + comprobante_items de ventas directas (sin orden)
+      // Ganancia real: usa el servicio unificado (misma fuente que Finance.tsx)
+      // → evita discrepancia entre Dashboard y Finanzas
+      const popularDeviceTypes: { type: string; count: number }[] = []
       let realProfitToday    = 0
       let realProfitThisWeek = 0
       let realProfitThisMonth = 0
       let averageMarginPct   = 0
       let profitPerOperation = 0
       let topProfitableItems: { name: string; profit: number; margin: number; count: number }[] = []
-      const popularDeviceTypes: { type: string; count: number }[] = []
 
+      try {
+        const firstOfMonth = todayDate.slice(0, 7) + '-01'
+        const [monthSummary] = await Promise.all([
+          getFinancialSummary(businessId!, firstOfMonth, todayDate),
+        ])
+        realProfitThisMonth = monthSummary.opProfit
+        averageMarginPct    = monthSummary.opMarginPct
+        profitPerOperation  = totalOrders > 0 ? realProfitThisMonth / totalOrders : 0
+      } catch { /* leave at 0 */ }
+
+      // Today + Week: cálculo rápido desde order_parts (menor latencia que llamar al servicio)
       const itemMap: Record<string, { profit: number; rev: number; count: number }> = {}
-
-      // — Fuente 1: order_parts (repuestos usados en órdenes) —
       if (!partsResult.error && partsResult.data) {
         const parts = partsResult.data
-        const accumProfit = (list: typeof parts, dateField: string) =>
-          list.reduce((s, p) => s + Math.max(0, (p.sale_price - p.internal_cost)) * p.quantity, 0)
-
-        realProfitToday    += accumProfit(parts.filter(p => p.added_at?.slice(0, 10) >= todayDate), 'added_at')
-        realProfitThisWeek  += accumProfit(parts.filter(p => p.added_at?.slice(0, 10) >= weekAgoDate), 'added_at')
-        realProfitThisMonth += accumProfit(parts.filter(p => p.added_at?.slice(0, 10) >= monthAgoDate), 'added_at')
-
+        realProfitToday    = parts.filter(p => p.added_at?.slice(0, 10) >= todayDate)
+          .reduce((s, p) => s + Math.max(0, (p.sale_price - p.internal_cost)) * p.quantity, 0)
+        realProfitThisWeek = parts.filter(p => p.added_at?.slice(0, 10) >= weekAgoDate)
+          .reduce((s, p) => s + Math.max(0, (p.sale_price - p.internal_cost)) * p.quantity, 0)
         parts.forEach(p => {
           const key    = (p.name || 'Sin nombre').slice(0, 40)
           const profit = Math.max(0, (p.sale_price - p.internal_cost)) * p.quantity
@@ -381,36 +389,6 @@ export function useDashboardStats() {
           itemMap[key].profit += profit; itemMap[key].rev += rev; itemMap[key].count += 1
         })
       }
-
-      // — Fuente 2: comprobante_items emitidos SIN orden (ventas directas) —
-      if (!compItemsResult?.error && compItemsResult?.data) {
-        const compItems = (compItemsResult.data as any[]).filter(ci =>
-          // Solo comprobantes emitidos y sin orden asociada (los de orden ya están en order_parts)
-          ci.comprobante?.status === 'issued' && !ci.comprobante?.order_id
-        )
-        const calcDate = (ci: any) => (ci.created_at || '').slice(0, 10)
-
-        realProfitToday    += compItems.filter(ci => calcDate(ci) >= todayDate)
-          .reduce((s, ci) => s + Math.max(0, (ci.precio_unitario - ci.costo_unitario)) * ci.cantidad, 0)
-        realProfitThisWeek  += compItems.filter(ci => calcDate(ci) >= weekAgoDate)
-          .reduce((s, ci) => s + Math.max(0, (ci.precio_unitario - ci.costo_unitario)) * ci.cantidad, 0)
-        realProfitThisMonth += compItems.filter(ci => calcDate(ci) >= monthAgoDate)
-          .reduce((s, ci) => s + Math.max(0, (ci.precio_unitario - ci.costo_unitario)) * ci.cantidad, 0)
-
-        compItems.forEach(ci => {
-          const key    = (ci.descripcion || 'Sin nombre').slice(0, 40)
-          const profit = Math.max(0, (ci.precio_unitario - ci.costo_unitario)) * ci.cantidad
-          const rev    = ci.precio_unitario * ci.cantidad
-          if (!itemMap[key]) itemMap[key] = { profit: 0, rev: 0, count: 0 }
-          itemMap[key].profit += profit; itemMap[key].rev += rev; itemMap[key].count += 1
-        })
-      }
-
-      // — Consolidar métricas —
-      const totalProfit = Object.values(itemMap).reduce((s, v) => s + v.profit, 0)
-      const totalRev    = Object.values(itemMap).reduce((s, v) => s + v.rev, 0)
-      averageMarginPct   = totalRev > 0 ? (totalProfit / totalRev) * 100 : 0
-      profitPerOperation = totalOrders > 0 ? totalProfit / totalOrders : 0
 
       topProfitableItems = Object.entries(itemMap)
         .map(([name, { profit, rev, count }]) => ({
