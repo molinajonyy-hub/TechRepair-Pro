@@ -202,6 +202,7 @@ const menuSections: NavSection[] = [
       { path: '/customers', label: 'Clientes', icon: <ClientesIcon />, permission: 'customers' },
       { path: '/cuentas', label: 'Cuentas Ctes.', icon: <CuentasIcon />, permission: 'customers' },
       { path: '/inventory', label: 'Inventario', icon: <InventarioIcon />, permission: 'inventory' },
+      { path: '/inventory/movements', label: 'Mov. Inventario', icon: <InventarioIcon />, permission: 'inventory' },
       { path: '/mayorista', label: 'Mayorista', icon: <MayoristaIcon />, permission: 'inventory' },
       { path: '/suppliers', label: 'Proveedores', icon: <ProveedoresIcon />, permission: 'inventory' },
       { path: '/offers', label: 'Ofertas', icon: <OfertasIcon />, permission: 'inventory' },

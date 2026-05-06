@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { inventoryService } from '../services/inventoryService'
 
 // Normaliza cualquier error (Supabase PostgrestError, Error nativo, string, objeto)
 // a una instancia de Error que además conserva los metadatos relevantes
@@ -163,19 +164,19 @@ export function useInventory() {
     }
   }
 
-  async function adjustStock(id: string, newQuantity: number, _reason?: string) {
+  async function adjustStock(id: string, newQuantity: number, reason?: string) {
     try {
-      let adjustQuery = supabase
-        .from('inventory')
-        .update({ stock_quantity: newQuantity })
-        .eq('id', id)
-
-      if (businessId) {
-        adjustQuery = adjustQuery.eq('business_id', businessId)
-      }
-
-      const { error: updateError } = await adjustQuery
-      if (updateError) throw updateError
+      const { data: current } = await supabase
+        .from('inventory').select('stock_quantity').eq('id', id).maybeSingle()
+      const currentStock = current?.stock_quantity ?? 0
+      const delta = newQuantity - currentStock
+      if (delta === 0) { await loadInventory(); return }
+      await inventoryService.manualAdjustment(
+        id, delta,
+        reason || 'Ajuste manual desde inventario',
+        businessId || '',
+        user?.id || ''
+      )
       await loadInventory()
     } catch (err: unknown) {
       throw toError(err)

@@ -14,7 +14,8 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
-  Loader2
+  Loader2,
+  History,
 } from 'lucide-react'
 import { useInventory } from '../hooks/useInventory'
 import { useAuth } from '../contexts/AuthContext'
@@ -24,6 +25,7 @@ import { useLoading } from '../contexts/LoadingContext'
 import { ModalImportExcel } from '../components/ModalImportExcel'
 import { ExcelService, ExcelRow } from '../services/excelService'
 import { supabase } from '../lib/supabase'
+import { ProductMovementsModal } from '../components/inventory/ProductMovementsModal'
 
 const CATEGORIES = [
   'Pantallas',
@@ -86,6 +88,7 @@ export function Inventory() {
   const [currencySettings, setCurrencySettings] = useState<any>(null)
   const [exchangeRates, setExchangeRates] = useState<Record<string, number>>({})
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const [movementsItem, setMovementsItem] = useState<any>(null)
   const tableRef = useRef<HTMLDivElement | null>(null)
 
   const toggleExpanded = (id: string) => {
@@ -1527,6 +1530,21 @@ export function Inventory() {
               title="Duplicar"
             >
               <Copy size={16} style={{ color: '#a78bfa' }} />
+            </button>
+            <button
+              onClick={() => setMovementsItem(item)}
+              style={{
+                padding: '0.5rem',
+                backgroundColor: 'rgba(99,102,241,0.07)',
+                border: '1px solid rgba(99,102,241,0.2)',
+                borderRadius: '0.375rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center'
+              }}
+              title="Ver historial de movimientos"
+            >
+              <History size={16} style={{ color: '#818cf8' }} />
             </button>
             <button
               onClick={() => handleInventoryDelete(item)}
@@ -3124,6 +3142,15 @@ export function Inventory() {
         requiredColumns={['Código/SKU', 'Nombre del producto']}
         downloadTemplate={handleDownloadTemplate}
       />
+
+      {/* Modal: Historial de movimientos del producto */}
+      {movementsItem && businessId && (
+        <ProductMovementsModal
+          item={movementsItem}
+          businessId={businessId}
+          onClose={() => setMovementsItem(null)}
+        />
+      )}
     </div>
   )
 }

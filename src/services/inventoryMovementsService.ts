@@ -86,14 +86,14 @@ export const inventoryMovementsService = {
     const { data: movement, error: movementError } = await supabase
       .from('inventory_movements')
       .insert({
-        inventory_id: inventoryItemId,
-        type: movementType,
+        inventory_item_id: inventoryItemId,
+        movement_type: movementType,
         quantity,
         previous_stock: previousStock,
         new_stock: newStock,
         reference_type: referenceType,
         reference_id: referenceId,
-        notes: note,
+        note: note,
         business_id: businessId || item.business_id || null,
         created_by: userId,
       })

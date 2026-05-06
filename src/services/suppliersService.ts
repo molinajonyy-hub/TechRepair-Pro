@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { inventoryService } from './inventoryService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -276,14 +277,13 @@ export const suppliersService = {
 
       for (const item of items) {
         if (!item.inventory_id) continue;
-        const { data: inv } = await supabase.from('inventory').select('stock_quantity').eq('id', item.inventory_id).single();
-        if (inv) {
-          await supabase.from('inventory').update({
-            stock_quantity: (inv.stock_quantity || 0) + item.quantity,
-            cost_price: item.unit_cost,
-            updated_at: new Date().toISOString(),
-          }).eq('id', item.inventory_id);
-        }
+        await inventoryService.increaseStockFromPurchase(
+          item.inventory_id, item.quantity, purchase.id, businessId, userId
+        );
+        await supabase.from('inventory').update({
+          cost_price: item.unit_cost,
+          updated_at: new Date().toISOString(),
+        }).eq('id', item.inventory_id);
       }
     }
 
@@ -312,15 +312,29 @@ export const suppliersService = {
     const purchase = await this.getPurchaseWithItems(purchaseId, businessId);
     if (!purchase) throw new Error('Compra no encontrada');
 
-    // Revertir stock
+    // Revertir stock con registro de movimiento
     for (const item of purchase.items || []) {
       if (!item.inventory_id) continue;
       const { data: inv } = await supabase.from('inventory').select('stock_quantity').eq('id', item.inventory_id).single();
       if (inv) {
+        const prevStock = inv.stock_quantity || 0;
+        const newStock  = Math.max(0, prevStock - item.quantity);
         await supabase.from('inventory').update({
-          stock_quantity: Math.max(0, (inv.stock_quantity || 0) - item.quantity),
+          stock_quantity: newStock,
           updated_at: new Date().toISOString(),
         }).eq('id', item.inventory_id);
+        await supabase.from('inventory_movements').insert({
+          inventory_item_id: item.inventory_id,
+          movement_type:     'cancellation',
+          quantity:          -(prevStock - newStock),
+          previous_stock:    prevStock,
+          new_stock:         newStock,
+          reference_type:    'purchase',
+          reference_id:      purchaseId,
+          note:              'Reversión por cancelación de compra',
+          business_id:       businessId,
+          created_by:        _userId || null,
+        });
       }
     }
 
