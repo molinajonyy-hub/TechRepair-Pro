@@ -753,17 +753,16 @@ export const comprobanteService = {
         .eq('id', item.inventory_id);
 
       await supabase.from('inventory_movements').insert({
-        business_id:      businessId,
-        inventory_id:     item.inventory_id,
+        business_id:       businessId,
         inventory_item_id: item.inventory_id,
-        movement_type:    'sale',
-        quantity:         -item.cantidad,
-        previous_stock:   prevStock,
-        new_stock:        newStock,
-        reference_type:   'comprobante',
-        reference_id:     comprobanteId,
-        note:             'Salida por venta en comprobante',
-        created_by:       userId || null,
+        movement_type:     'sale',
+        quantity:          -item.cantidad,
+        previous_stock:    prevStock,
+        new_stock:         newStock,
+        reference_type:    'comprobante',
+        reference_id:      comprobanteId,
+        note:              'Salida por venta en comprobante',
+        created_by:        userId || null,
       });
     }
   },
@@ -794,7 +793,6 @@ export const comprobanteService = {
 
       await supabase.from('inventory_movements').insert({
         business_id:       businessId,
-        inventory_id:      item.inventory_id,
         inventory_item_id: item.inventory_id,
         movement_type:     'return',
         quantity:          item.cantidad,
