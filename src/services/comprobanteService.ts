@@ -110,6 +110,7 @@ export interface CrearComprobanteInput {
   pagos?: ComprobantePago[];
   business_id: string;
   created_by?: string;
+  caja_id?: string | null;
   /** Cuando es true, omite crear entradas en business_finance_entries y financial_movements.
    *  Usar cuando el comprobante se genera desde ModalCobro, que ya registró el movimiento. */
   skip_finance_entry?: boolean;
@@ -240,6 +241,7 @@ export const comprobanteService = {
       customer_id, order_id, observaciones, exchange_rate: globalRate = 1,
       es_fiscal = false, emitir_en_arca = false,
       items, pagos = [], business_id, created_by,
+      caja_id = null,
       skip_finance_entry = false,
     } = input;
 
@@ -505,6 +507,7 @@ export const comprobanteService = {
           source:      'comprobante',
           description: desc,
           created_by:  created_by || null,
+          caja_id:     caja_id || null,
         });
       }
 

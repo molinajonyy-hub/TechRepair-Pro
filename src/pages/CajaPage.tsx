@@ -33,6 +33,7 @@ interface Caja {
   usd_cierre: number | null
   notas: string | null
   status: 'abierta' | 'cerrada'
+  difference: number | null
 }
 
 interface CajaMovement {
@@ -417,9 +418,15 @@ export function CajaPage() {
   }
 
   const handleCloseCaja = async () => {
-    if (!activeCaja || !user) return
+    if (!activeCaja || !user || !totals) return
     setClosing(true)
     try {
+      const efDiff = closeForm.efectivo      !== '' ? (parseFloat(closeForm.efectivo)      || 0) - totals.efectivo.balance      : 0
+      const trDiff = closeForm.transferencia !== '' ? (parseFloat(closeForm.transferencia) || 0) - totals.transferencia.balance : 0
+      const taDiff = closeForm.tarjeta       !== '' ? (parseFloat(closeForm.tarjeta)       || 0) - totals.tarjeta.balance       : 0
+      const usDiff = closeForm.usd           !== '' ? ((parseFloat(closeForm.usd)          || 0) - totals.usd.balance) * exchangeRate : 0
+      const difference = efDiff + trDiff + taDiff + usDiff
+
       await supabase.from('cajas').update({
         status: 'cerrada',
         closed_at: new Date().toISOString(),
@@ -429,6 +436,7 @@ export function CajaPage() {
         tarjeta_cierre:       parseFloat(closeForm.tarjeta)       || null,
         usd_cierre:           parseFloat(closeForm.usd)           || null,
         notas: closingNotes || null,
+        difference,
       }).eq('id', activeCaja.id)
       setShowClose(false)
       setCloseForm({ efectivo: '', transferencia: '', tarjeta: '', usd: '' })
@@ -704,6 +712,11 @@ export function CajaPage() {
                       )
                     })}
                   </div>
+                  {cr.difference !== null && cr.difference !== undefined && (
+                    <span style={{ fontSize: '0.75rem', fontFamily: 'monospace', fontWeight: 700, flexShrink: 0, color: cr.difference === 0 ? '#34d399' : cr.difference > 0 ? '#fbbf24' : '#f87171' }}>
+                      {cr.difference > 0 ? '+' : ''}{fmtARS(cr.difference)}
+                    </span>
+                  )}
                   <ChevronDown size={14} style={{ color: '#334155', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
                 </div>
                 {isExpanded && (

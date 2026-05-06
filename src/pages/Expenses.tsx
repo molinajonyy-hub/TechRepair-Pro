@@ -4,6 +4,7 @@ import {
   Check, X, ChevronDown, ShoppingBag,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { useCaja } from '../contexts/CajaContext'
 import { supabase } from '../lib/supabase'
 import { smartSearch } from '../utils/searchUtils'
 import {
@@ -313,6 +314,7 @@ interface NewExpenseModalProps {
 }
 
 function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: NewExpenseModalProps) {
+  const { isOpen: cajaIsOpen, cajaId } = useCaja()
   const [tipo, setTipo] = useState<'general' | 'factura'>('general')
 
   // ── General state ──
@@ -359,6 +361,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
     const montoNum = parseFloat(monto.replace(',', '.'))
     if (!montoNum || montoNum <= 0) { setError('El monto es obligatorio'); return }
     if (!descripcion.trim()) { setError('La descripción es obligatoria'); return }
+    if (!cajaIsOpen) { setError('No hay caja abierta. Abrí caja antes de registrar gastos.'); return }
     setSaving(true); setError('')
     try {
       const catKey = categoria.toLowerCase().split(' ')[0]
@@ -376,13 +379,12 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
         exchange_rate: 1, is_recurring: recurrente, frequency: recurrente ? frecuencia : null,
         notes: notas || null, finance_entry_id: bfe?.id || null, created_by: userId, tipo: 'general',
       })
-      if (metodo === 'efectivo') {
-        await supabase.from('financial_movements').insert({
-          business_id: businessId, date: fecha, type: 'expense', currency: 'ARS',
-          amount: montoNum, amount_ars: montoNum, exchange_rate: 1,
-          description: descripcion, source: 'expense', reference_id: bfe?.id || null, created_by: userId,
-        })
-      }
+      await supabase.from('financial_movements').insert({
+        business_id: businessId, date: fecha, type: 'expense', currency: 'ARS',
+        amount: montoNum, amount_ars: montoNum, exchange_rate: 1,
+        description: descripcion, source: 'expense', reference_id: bfe?.id || null,
+        created_by: userId, caja_id: cajaId || null, metodo_pago: metodo,
+      })
       onSaved()
     } catch (e: any) { setError(e.message || 'Error al guardar') } finally { setSaving(false) }
   }
@@ -393,6 +395,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
     const validItems = items.filter(it => it.product_name.trim() && (parseFloat(it.cantidad) || 0) > 0 && (parseFloat(it.costo_unitario) || 0) > 0)
     if (validItems.length === 0) { setError('Completá al menos un producto con nombre, cantidad y costo'); return }
     if (totalFactura <= 0) { setError('El total de la factura debe ser mayor a $0'); return }
+    if (!cajaIsOpen) { setError('No hay caja abierta. Abrí caja antes de registrar facturas.'); return }
     setSaving(true); setError('')
     try {
       const supplierName = suppliers.find(s => s.id === supplierId)?.name || 'Proveedor'
@@ -452,6 +455,16 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
 
         {/* Body */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+          {/* Alerta: caja cerrada */}
+          {!cajaIsOpen && (
+            <div style={{ display: 'flex', gap: '0.625rem', padding: '0.75rem 1rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 'var(--radius-md)', alignItems: 'center' }}>
+              <AlertTriangle size={15} style={{ color: '#f87171', flexShrink: 0 }} />
+              <p style={{ margin: 0, fontSize: '0.8rem', color: '#f87171', fontWeight: 600 }}>
+                No hay caja abierta — Abrí caja antes de registrar gastos
+              </p>
+            </div>
+          )}
 
           {/* Tipo selector */}
           <div style={{ display: 'flex', gap: '0.375rem', padding: '0.25rem', background: 'var(--bg-surface)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)', width: 'fit-content' }}>

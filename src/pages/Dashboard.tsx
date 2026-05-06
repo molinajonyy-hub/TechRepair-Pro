@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useDashboardStats } from '../hooks/useDashboardStats'
 import { useComprobantes } from '../hooks/useComprobantes'
 import { refreshDollarRate, refreshInventoryDollarPrices, type DollarRateResult } from '../services/dollarRateService'
+import { useCaja } from '../contexts/CajaContext'
 import { DollarRateBadge } from '../components/ui/DollarRateBadge'
 import { DashboardTasks } from '../components/tasks/DashboardTasks'
 import { useAuth } from '../contexts/AuthContext'
@@ -48,12 +49,12 @@ export function Dashboard() {
   const [activeTab, setActiveTab] = useState('orders')
   const [, setDolarResult]   = useState<DollarRateResult | null>(null)
   const [, setDolarLoading]  = useState(false)
-  const [cajaStatus, setCajaStatus]         = useState<'open' | 'closed' | null>(null)
-  const [cajaId, setCajaId]                 = useState<string | null>(null)
-  const [cajaLoading, setCajaLoading]       = useState(false)
   const [movimientosCaja, setMovimientosCaja] = useState<any[]>([])
   const [movimientosLoading, setMovimientosLoading] = useState(false)
   const [comprobantesLoaded, setComprobantesLoaded] = useState(false)
+
+  const { isOpen: cajaIsOpen, cajaId, loading: cajaLoading, activeCaja: cajaActiva } = useCaja()
+  const cajaStatus = cajaIsOpen ? 'open' : 'closed'
 
   const { stats, loading: statsLoading, error: statsError, refresh: refreshStats } = useDashboardStats()
   const { comprobantes, listarComprobantes } = useComprobantes()
@@ -82,28 +83,17 @@ export function Dashboard() {
   }, [businessId])
 
 
-  // ── Estado de caja ──
-  const loadCajaStatus = useCallback(async () => {
-    if (!businessId) return
-    const today = new Date().toISOString().split('T')[0]
-    const { data } = await supabase.from('cash_registers').select('id, status')
-      .eq('business_id', businessId).eq('date', today).maybeSingle()
-    setCajaStatus(data ? (data.status as 'open' | 'closed') : 'closed')
-    setCajaId(data?.id || null)
-  }, [businessId])
-
-  useEffect(() => { loadCajaStatus() }, [loadCajaStatus])
-
-  // ── Movimientos de caja ──
+  // ── Movimientos de caja activa ──
   useEffect(() => {
-    if (!businessId || !cajaId) return
+    if (!businessId || !cajaId) { setMovimientosCaja([]); return }
     setMovimientosLoading(true)
-    void Promise.resolve(
-      supabase.from('financial_movements').select('*')
-        .eq('business_id', businessId)
-        .order('created_at', { ascending: false }).limit(10)
-    ).then(({ data }) => setMovimientosCaja(data || []))
-     .finally(() => setMovimientosLoading(false))
+    void supabase.from('financial_movements').select('*')
+      .eq('business_id', businessId)
+      .eq('caja_id', cajaId)
+      .order('created_at', { ascending: false })
+      .limit(10)
+      .then(({ data }) => setMovimientosCaja(data || []))
+      .finally(() => setMovimientosLoading(false))
   }, [businessId, cajaId])
 
   // ── Comprobantes lazy ──
@@ -115,17 +105,7 @@ export function Dashboard() {
 
 
   // ── Handlers ──
-  const handleCaja = async () => {
-    if (cajaStatus === 'open' && cajaId) {
-      if (!confirm('¿Cerrar la caja del día?')) return
-      setCajaLoading(true)
-      await supabase.from('cash_registers').update({ status: 'closed', closed_at: new Date().toISOString() }).eq('id', cajaId)
-      await loadCajaStatus()
-      setCajaLoading(false)
-    } else {
-      navigate('/caja')
-    }
-  }
+  const handleCaja = () => { navigate('/caja') }
 
   // ── Datos derivados ──
   const activeOrders = stats
@@ -162,13 +142,13 @@ export function Dashboard() {
               Nuevo Comprobante
             </AppButton>
             <AppButton
-              variant={cajaStatus === 'open' ? 'danger' : 'secondary'}
+              variant={cajaIsOpen ? 'secondary' : 'primary'}
               size="sm"
-              leftIcon={cajaStatus === 'open' ? <LockIcon size={15} /> : <FinanceIcon size={15} />}
+              leftIcon={cajaIsOpen ? <LockIcon size={15} /> : <FinanceIcon size={15} />}
               onClick={handleCaja}
               loading={cajaLoading}
             >
-              {cajaStatus === 'open' ? 'Cerrar Caja' : 'Abrir Caja'}
+              {cajaIsOpen ? 'Gestionar Caja' : 'Abrir Caja'}
             </AppButton>
             <AppButton variant="ghost" size="sm" leftIcon={<ExpenseReceiptIcon size={15} />}
               onClick={() => navigate('/expenses')}>
@@ -185,6 +165,42 @@ export function Dashboard() {
         <DashboardTasks />
       </div>
 
+
+      {/* ── 3. Estado de Caja ─────────────────────────────────────────────── */}
+      <div
+        onClick={handleCaja}
+        style={{
+          display: 'flex', alignItems: 'center', gap: '1rem',
+          padding: '0.875rem 1.25rem', marginBottom: '1.25rem', cursor: 'pointer',
+          background: cajaIsOpen ? 'rgba(52,211,153,0.06)' : 'rgba(248,113,113,0.06)',
+          border: `1px solid ${cajaIsOpen ? 'rgba(52,211,153,0.2)' : 'rgba(248,113,113,0.2)'}`,
+          borderRadius: 'var(--radius-lg)',
+        }}
+      >
+        <div style={{
+          width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
+          background: cajaIsOpen ? '#34d399' : '#f87171',
+          boxShadow: cajaIsOpen ? '0 0 6px #34d399' : '0 0 6px #f87171',
+        }} />
+        <div style={{ flex: 1 }}>
+          <span style={{ fontWeight: 700, fontSize: '0.875rem', color: cajaIsOpen ? '#34d399' : '#f87171' }}>
+            Caja {cajaIsOpen ? 'abierta' : 'cerrada'}
+          </span>
+          {cajaIsOpen && cajaActiva && (
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-subtle)', marginLeft: '0.75rem' }}>
+              Desde las {new Date(cajaActiva.opened_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+          {!cajaIsOpen && (
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-subtle)', marginLeft: '0.75rem' }}>
+              Abrí caja para registrar ventas y gastos
+            </span>
+          )}
+        </div>
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>
+          {cajaIsOpen ? 'Gestionar →' : 'Abrir →'}
+        </span>
+      </div>
 
       {/* ── 4. Métricas ───────────────────────────────────────────────────── */}
       {statsLoading && !stats ? (

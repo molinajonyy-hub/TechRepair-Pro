@@ -13,6 +13,7 @@ import { currencyService } from '../../services/currencyService';
 import { smartSearch, buildSupabaseQuery, highlightParts } from '../../utils/searchUtils';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import { useCaja } from '../../contexts/CajaContext';
 import {
   comprobanteService,
   TipoComprobante, TipoLinea, MedioPago,
@@ -138,6 +139,7 @@ export function ModalCrearComprobante({
   skipFinanceEntry = false,
 }: Props) {
   const { businessId, user } = useAuth();
+  const { isOpen: cajaIsOpen, cajaId } = useCaja();
   const [step, setStep] = useState<'config' | 'items' | 'emitir'>('config');
 
   // ── Encabezado ───────────────────────────────────────────────────────────────
@@ -422,6 +424,10 @@ export function ModalCrearComprobante({
       return;
     }
     if (!businessId) { setSubmitError('Error: negocio no identificado'); return; }
+    if (!cajaIsOpen && !skipFinanceEntry) {
+      setSubmitError('No hay caja abierta. Abrí caja desde el menú "Caja" antes de emitir comprobantes.');
+      return;
+    }
     // Si se seleccionó un método de cobro pero el monto es 0, advertir
     const pagosConMonto = pagos.filter(p => parseFloat(p.amount) > 0);
     if (pagos.length > 0 && pagosConMonto.length === 0) {
@@ -464,6 +470,7 @@ export function ModalCrearComprobante({
         }) as ComprobantePago),
       business_id:         businessId,
       created_by:          user?.id,
+      caja_id:             cajaId || null,
       skip_finance_entry:  skipFinanceEntry,
     };
 
@@ -1000,6 +1007,19 @@ export function ModalCrearComprobante({
               ══════════════════════════════════════ */}
           {step === 'emitir' && (
             <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+              {/* Alerta: caja cerrada */}
+              {!cajaIsOpen && !skipFinanceEntry && (
+                <div style={{ display: 'flex', gap: '0.625rem', padding: '0.875rem 1rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: '0.625rem', alignItems: 'flex-start' }}>
+                  <AlertCircle size={16} style={{ color: '#f87171', flexShrink: 0, marginTop: '0.1rem' }} />
+                  <div>
+                    <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 700, color: '#f87171' }}>No hay caja abierta</p>
+                    <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
+                      El comprobante no podrá emitirse. Abrí caja desde el menú "Caja" primero.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Resumen de ítems */}
               <div style={{ ...blockS, borderColor: 'rgba(99,102,241,0.2)' }}>
