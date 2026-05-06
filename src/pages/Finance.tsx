@@ -1839,41 +1839,115 @@ export function Finance() {
       setEntries(fetched)
       setMonthlyData(buildMonthlyEvolution(monthly))
 
-      // Ganancia real de operaciones desde order_parts
+      // Ganancia real de operaciones
+      // Fuente primaria: comprobante_items de comprobantes emitidos
+      // Fuente secundaria: order_parts de órdenes sin comprobante
       try {
-        const { data: parts } = await supabase
-          .from('order_parts')
-          .select('internal_cost, sale_price, quantity, name, added_at, orders!inner(business_id)')
-          .eq('orders.business_id', businessId)
-          .in('status', ['used', 'sold'])
-          .gte('added_at', from + 'T00:00:00')
-          .lte('added_at', to + 'T23:59:59')
+        const tzSuffix = '-03:00'
+        const dateFrom = from + 'T00:00:00' + tzSuffix
+        const dateTo   = to   + 'T23:59:59' + tzSuffix
 
-        const arr = parts || []
-        const totalRevenue = arr.reduce((s, p) => s + p.sale_price * p.quantity, 0)
-        const totalCost = arr.reduce((s, p) => s + p.internal_cost * p.quantity, 0)
-        const totalProfit = totalRevenue - totalCost
-        const margin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0
+        // 1. Comprobantes emitidos en el período
+        const { data: issuedComps } = await supabase
+          .from('comprobantes')
+          .select('id, order_id')
+          .eq('business_id', businessId)
+          .eq('status', 'issued')
+          .gte('created_at', dateFrom)
+          .lte('created_at', dateTo)
 
+        const issuedIds   = new Set((issuedComps || []).map((c: any) => c.id))
+        const ordersWithComp = new Set(
+          (issuedComps || []).filter((c: any) => c.order_id).map((c: any) => c.order_id)
+        )
+
+        console.log('[Finance] Comprobantes emitidos en rango:', issuedIds.size, 'order_ids con comp:', ordersWithComp.size)
+
+        // 2. Items de esos comprobantes (fuente primaria)
+        const [itemsRes, commissionsRes, partsRes] = await Promise.all([
+          supabase
+            .from('comprobante_items')
+            .select('comprobante_id, precio_unitario, costo_unitario, cantidad, descuento_linea, descripcion, tipo_linea')
+            .eq('business_id', businessId)
+            .in('tipo_linea', ['producto', 'repuesto', 'servicio', 'otro']),
+
+          supabase
+            .from('comprobante_payments')
+            .select('comprobante_id, commission_amount')
+            .eq('business_id', businessId)
+            .gt('commission_amount', 0),
+
+          supabase
+            .from('order_parts')
+            .select('order_id, internal_cost, sale_price, quantity, name')
+            .eq('business_id', businessId)
+            .in('status', ['used', 'sold'])
+            .gte('added_at', dateFrom)
+            .lte('added_at', dateTo),
+        ])
+
+        // Filtrar a comprobantes del período
+        const items = (itemsRes.data || []).filter((ci: any) => issuedIds.has(ci.comprobante_id))
+        const totalCommissions = (commissionsRes.data || [])
+          .filter((p: any) => issuedIds.has(p.comprobante_id))
+          .reduce((s: number, p: any) => s + (p.commission_amount || 0), 0)
+
+        // order_parts solo de órdenes SIN comprobante (evitar doble conteo)
+        const uncompParts = (partsRes.data || []).filter((p: any) => !ordersWithComp.has(p.order_id))
+
+        console.log('[Finance] Items comprobante:', items.length, '| order_parts sin comp:', uncompParts.length, '| comisiones:', totalCommissions)
+
+        let totalRevenue = 0, totalCost = 0
         const itemMap: Record<string, { profit: number; rev: number; count: number }> = {}
-        arr.forEach((p: any) => {
-          const key = (p.name || 'Sin nombre').slice(0, 40)
-          const profit = Math.max(0, (p.sale_price - p.internal_cost)) * p.quantity
-          const rev = p.sale_price * p.quantity
+
+        // Procesar comprobante_items
+        items.forEach((ci: any) => {
+          const disc = Math.min(ci.descuento_linea || 0, 100) / 100
+          const rev  = (ci.precio_unitario || 0) * (ci.cantidad || 0) * (1 - disc)
+          const cost = (ci.costo_unitario  || 0) * (ci.cantidad || 0)
+          totalRevenue += rev
+          totalCost    += cost
+          const key    = (ci.descripcion || 'Sin nombre').slice(0, 40)
+          const profit = Math.max(0, rev - cost)
           if (!itemMap[key]) itemMap[key] = { profit: 0, rev: 0, count: 0 }
           itemMap[key].profit += profit
-          itemMap[key].rev += rev
-          itemMap[key].count += 1
+          itemMap[key].rev    += rev
+          itemMap[key].count  += 1
         })
+
+        // Procesar order_parts sin comprobante
+        uncompParts.forEach((p: any) => {
+          const rev  = (p.sale_price    || 0) * (p.quantity || 0)
+          const cost = (p.internal_cost || 0) * (p.quantity || 0)
+          totalRevenue += rev
+          totalCost    += cost
+          const key    = (p.name || 'Sin nombre').slice(0, 40)
+          const profit = Math.max(0, rev - cost)
+          if (!itemMap[key]) itemMap[key] = { profit: 0, rev: 0, count: 0 }
+          itemMap[key].profit += profit
+          itemMap[key].rev    += rev
+          itemMap[key].count  += 1
+        })
+
+        const totalProfit = totalRevenue - totalCost - totalCommissions
+        const margin      = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0
+        const count       = items.length + uncompParts.length
+
+        console.log('[Finance] Resultado opProfit:', { totalRevenue, totalCost, totalCommissions, totalProfit, margin, count })
+
         const topItems = Object.entries(itemMap)
-          .map(([name, { profit, rev, count }]) => ({
-            name, profit, count, margin: rev > 0 ? (profit / rev) * 100 : 0,
+          .map(([name, v]) => ({
+            name,
+            profit: v.profit,
+            count:  v.count,
+            margin: v.rev > 0 ? (v.profit / v.rev) * 100 : 0,
           }))
           .sort((a, b) => b.profit - a.profit)
           .slice(0, 8)
 
-        setOpProfit({ totalRevenue, totalCost, totalProfit, margin, count: arr.length, topItems })
-      } catch {
+        setOpProfit({ totalRevenue, totalCost, totalProfit, margin, count, topItems })
+      } catch (e) {
+        console.error('[Finance] opProfit error:', e)
         setOpProfit(null)
       }
 
