@@ -27,7 +27,7 @@ interface EntityOption { id: string; name: string; phone?: string | null }
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const fmtARS  = (n: number) => '$' + Math.abs(Math.round(n)).toLocaleString('es-AR')
-const fmtDate = (d: string) => new Date(d + (d.includes('T') ? '' : 'T12:00:00')).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: '2-digit' })
+import { fmtDate } from '../utils/dateUtils'
 const today   = () => new Date().toISOString().split('T')[0]
 
 const STATUS_META = {

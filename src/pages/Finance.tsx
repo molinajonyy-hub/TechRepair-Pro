@@ -43,8 +43,7 @@ const fmtCompact = (v: number): string => {
   return `${sign}$${abs.toFixed(0)}`
 }
 
-const fmtDate = (iso: string) =>
-  new Date(iso + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
+import { fmtDateFull as fmtDate } from '../utils/dateUtils'
 
 // ─── View Types ───────────────────────────────────────────────────────────────
 

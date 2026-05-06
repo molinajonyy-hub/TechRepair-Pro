@@ -57,10 +57,8 @@ const btnGhost: React.CSSProperties = {
 }
 
 const fmtARS = (n: number) => '$' + Math.round(n).toLocaleString('es-AR')
-const fmtDate = (d: string | null) => {
-  if (!d) return '—'
-  return new Date(d + 'T12:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
-}
+import { fmtDateFull as _fmtDateFull } from '../utils/dateUtils'
+const fmtDate = (d: string | null) => d ? _fmtDateFull(d) : '—'
 const daysSince = (d: string | null) => {
   if (!d) return null
   return Math.floor((Date.now() - new Date(d).getTime()) / 86400000)

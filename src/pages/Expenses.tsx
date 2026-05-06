@@ -59,7 +59,7 @@ interface LineItem {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const fmtARS  = (n: number) => '$' + Math.round(n).toLocaleString('es-AR')
-const fmtDate = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
+import { fmtDateFull as fmtDate } from '../utils/dateUtils'
 const today = () => new Date().toISOString().split('T')[0]
 const firstDayOfMonth = () => { const d = new Date(); d.setDate(1); return d.toISOString().split('T')[0] }
 const mkItem = (): LineItem => ({ _id: crypto.randomUUID(), inventory_id: null, product_name: '', cantidad: '1', costo_unitario: '' })

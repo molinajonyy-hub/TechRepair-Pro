@@ -379,7 +379,7 @@ export function CurrencySettings() {
           </div>
 
           <div style={{ marginBottom: '1rem', fontSize: '0.875rem', color: '#64748b' }}>
-            Última actualización: {settings?.updated_at ? new Date(settings.updated_at).toLocaleString() : 'N/A'}
+            Última actualización: {settings?.updated_at ? new Date(settings.updated_at).toLocaleString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
           </div>
 
           <div style={{ display: 'flex', gap: '0.75rem' }}>
@@ -480,7 +480,7 @@ export function CurrencySettings() {
                       }}
                     >
                       <span>${rate.rate.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                      <span>{new Date(rate.updated_at).toLocaleString()}</span>
+                      <span>{new Date(rate.updated_at).toLocaleString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
                   ))}
                 </div>

@@ -29,14 +29,10 @@ import { WarrantyPrintLayout } from '../components/warranties/WarrantyPrintLayou
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+import { fmtDate as _fmtDateUtil } from '../utils/dateUtils'
 function fmtDate(iso?: string | null): string {
   if (!iso) return '-'
-  try {
-    const d = new Date(iso.length === 10 ? iso + 'T00:00:00' : iso)
-    return d.toLocaleDateString('es-AR')
-  } catch {
-    return iso
-  }
+  try { return _fmtDateUtil(iso) } catch { return iso }
 }
 
 type FilterStatus = 'all' | WarrantyStatus

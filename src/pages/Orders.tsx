@@ -399,7 +399,7 @@ export function Orders() {
                         return `$${total.toLocaleString('es-AR')}`
                       })()}
                     </td>
-                    <td style={{ padding: '1rem', color: '#64748b' }}>{new Date(order.created_at).toLocaleDateString('es-ES')}</td>
+                    <td style={{ padding: '1rem', color: '#64748b' }}>{new Date(order.created_at).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', year: 'numeric' })}</td>
                     <td style={{ padding: '1rem', textAlign: 'right' }}>
                       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                         <button 

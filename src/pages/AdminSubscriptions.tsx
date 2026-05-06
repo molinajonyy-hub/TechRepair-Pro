@@ -293,7 +293,7 @@ export function AdminSubscriptions() {
                               <tbody>
                                 {(events[b.business_id] || []).map((ev: any) => (
                                   <tr key={ev.id}>
-                                    <td style={{ padding: '0.3rem 0.5rem', color: 'var(--text-muted)' }}>{new Date(ev.created_at).toLocaleString('es-AR')}</td>
+                                    <td style={{ padding: '0.3rem 0.5rem', color: 'var(--text-muted)' }}>{new Date(ev.created_at).toLocaleString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
                                     <td style={{ padding: '0.3rem 0.5rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{ev.event_type}</td>
                                     <td style={{ padding: '0.3rem 0.5rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{ev.external_id || '—'}</td>
                                     <td style={{ padding: '0.3rem 0.5rem' }}>

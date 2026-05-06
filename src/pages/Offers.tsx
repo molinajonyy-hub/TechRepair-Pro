@@ -44,7 +44,7 @@ export function computeOfferStatus(o: ProductOffer): OfferStatus {
 }
 
 const fmtARS = (n: number) => '$' + Math.round(n).toLocaleString('es-AR')
-const fmtDate = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
+import { fmtDateFull as fmtDate } from '../utils/dateUtils'
 
 const STATUS_CONFIG: Record<OfferStatus, { label: string; color: string; bg: string; border: string }> = {
   scheduled: { label: 'Programada', color: '#38bdf8', bg: 'rgba(56,189,248,0.12)', border: 'rgba(56,189,248,0.3)' },

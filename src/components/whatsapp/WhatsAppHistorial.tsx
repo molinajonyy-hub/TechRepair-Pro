@@ -148,7 +148,7 @@ export function WhatsAppHistorial({ orderId }: WhatsAppHistorialProps) {
                     <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#475569', fontSize: '0.72rem' }}>
                       <Clock size={11} />
                       {log.created_at
-                        ? new Date(log.created_at).toLocaleString('es-AR', {
+                        ? new Date(log.created_at).toLocaleString('es-AR', { timeZone: 'America/Argentina/Cordoba',
                             day: '2-digit', month: '2-digit', year: '2-digit',
                             hour: '2-digit', minute: '2-digit'
                           })

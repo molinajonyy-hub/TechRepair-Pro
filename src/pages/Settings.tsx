@@ -308,7 +308,7 @@ export default function Settings() {
         alert('✅ Conexión exitosa con ARCA\n\n' + 
               `Ambiente: ${result.details?.ambiente}\n` +
               `Puntos de venta: ${result.details?.puntosVenta?.join(', ') || 'N/A'}\n` +
-              `Última sincronización: ${new Date(result.details?.ultimaSincronizacion || '').toLocaleString()}`)
+              `Última sincronización: ${new Date(result.details?.ultimaSincronizacion || '').toLocaleString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`)
         
         // Recargar configuración actualizada
         await loadSettings()
@@ -1265,7 +1265,7 @@ export default function Settings() {
                   <div style={{ marginBottom: '1rem' }}>
                     <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Vencimiento:</span>
                     <span style={{ color: '#ffffff', fontWeight: 500, fontSize: '0.875rem', marginLeft: '0.5rem' }}>
-                      {new Date(arcaConfig.expires_at).toLocaleDateString()}
+                      {new Date(arcaConfig.expires_at).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', year: 'numeric' })}
                     </span>
                   </div>
                 )}

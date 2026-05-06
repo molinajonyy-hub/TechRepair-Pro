@@ -34,7 +34,7 @@ export const OrderPrintTicket = React.forwardRef<HTMLDivElement, OrderPrintTicke
   ({ order }, ref) => {
     const settings = getBusinessSettings();
     const orderNumber = order.id.slice(0, 8);
-    const orderDate = new Date(order.created_at).toLocaleDateString('es-ES');
+    const orderDate = new Date(order.created_at).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: '2-digit', year: 'numeric' });
     const ticketWidth = settings.ticket_width || 58;
 
     return (

@@ -59,7 +59,7 @@ export function OrderHeaderCard({ order }: OrderHeaderCardProps) {
                 {getPriorityLabel(order.priority)}
               </span>
               <span style={{ color: '#64748b', fontSize: '0.875rem' }}>
-                Creada: {new Date(order.created_at).toLocaleDateString('es-ES')}
+                Creada: {new Date(order.created_at).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', year: 'numeric' })}
               </span>
             </div>
           </div>

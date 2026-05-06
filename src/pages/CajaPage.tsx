@@ -81,11 +81,10 @@ const SOURCE_META: Record<string, { label: string; color: string; icon: React.El
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmtARS  = (v: number) => `$${Math.round(v).toLocaleString('es-AR')}`
-const fmtUSD  = (v: number) => `U$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
-const fmtDateLong  = (iso: string) => new Date(iso).toLocaleString('es-AR', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-const fmtDateShort = (iso: string) => new Date(iso).toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: 'short', year: '2-digit' })
+import { fmtTime, fmtDateLong, fmtDateShort } from '../utils/dateUtils'
+
+const fmtARS = (v: number) => `$${Math.round(v).toLocaleString('es-AR')}`
+const fmtUSD = (v: number) => `U$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 function computeTotals(caja: Caja, movements: CajaMovement[]): Record<CajaMethod, MethodTotals> {
   const result: Record<CajaMethod, MethodTotals> = {

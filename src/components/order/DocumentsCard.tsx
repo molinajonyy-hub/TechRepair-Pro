@@ -165,7 +165,7 @@ export function DocumentsCard({
                     <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.75rem', color: '#64748b' }}>
                       <span>{getFileExtension(doc.file_name)}</span>
                       <span>{formatFileSize(doc.file_size)}</span>
-                      <span>{new Date(doc.created_at).toLocaleDateString('es-ES')}</span>
+                      <span>{new Date(doc.created_at).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', year: 'numeric' })}</span>
                     </div>
                   </div>
                   

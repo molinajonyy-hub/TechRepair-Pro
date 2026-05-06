@@ -25,15 +25,16 @@ const STATUS_META = {
   cancelled:   { label: 'Cancelada',  color: '#f87171', next: null                   },
 }
 
+import { todayAR, fmtDateCompact } from '../../utils/dateUtils'
 const fmtDate = (d: string) => {
-  const date = new Date(d + 'T12:00:00')
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const diff  = Math.round((date.getTime() - today.getTime()) / 86400000)
-  if (diff === 0) return 'Hoy'
-  if (diff === 1) return 'Mañana'
+  const dateMs  = new Date(d + 'T00:00:00-03:00').getTime()
+  const todayMs = new Date(todayAR() + 'T00:00:00-03:00').getTime()
+  const diff    = Math.round((dateMs - todayMs) / 86400000)
+  if (diff === 0)  return 'Hoy'
+  if (diff === 1)  return 'Mañana'
   if (diff === -1) return 'Ayer'
-  if (diff < 0) return `Hace ${Math.abs(diff)}d`
-  return date.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })
+  if (diff < 0)    return `Hace ${Math.abs(diff)}d`
+  return fmtDateCompact(d)
 }
 
 const isOverdue = (t: TaskLite) =>

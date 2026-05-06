@@ -196,8 +196,8 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
       : null
 
     const orderNumber = order.id.slice(0, 8).toUpperCase()
-    const orderDate = new Date(order.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-    const orderTime = new Date(order.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+    const orderDate = new Date(order.created_at).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: '2-digit', year: 'numeric' })
+    const orderTime = new Date(order.created_at).toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Cordoba', hour: '2-digit', minute: '2-digit' })
     const total = itemsTotal !== null ? itemsTotal : (order.final_total || order.estimated_total || 0)
     const businessName = s.nombre_comercial || s.razon_social || 'Mi Negocio'
     const statusInfo = getStatus(order.status)

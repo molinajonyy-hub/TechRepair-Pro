@@ -43,7 +43,7 @@ export const OrderPrintA4 = React.forwardRef<HTMLDivElement, OrderPrintA4Props>(
   ({ order }, ref) => {
     const settings = getBusinessSettings();
     const orderNumber = order.id.slice(0, 8);
-    const orderDate = new Date(order.created_at).toLocaleDateString('es-ES');
+    const orderDate = new Date(order.created_at).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: '2-digit', year: 'numeric' });
 
     const totals = {
       subtotal: order.estimated_total || order.final_total,

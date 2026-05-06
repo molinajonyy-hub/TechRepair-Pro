@@ -52,8 +52,7 @@ const REF_LABELS: Record<string, string> = {
   credit_note:     'Nota de crédito',
 }
 
-const fmtDate   = (iso: string) => new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: '2-digit' })
-const fmtTime   = (iso: string) => new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+import { fmtDate, fmtTime, isToday } from '../utils/dateUtils'
 
 // ─── InventoryMovements ───────────────────────────────────────────────────────
 
@@ -142,8 +141,7 @@ export function InventoryMovements() {
   // ── Summary stats ─────────────────────────────────────────────────────────
 
   const stats = useMemo(() => {
-    const today = new Date().toDateString()
-    const todayRows = rows.filter(m => new Date(m.created_at).toDateString() === today)
+    const todayRows = rows.filter(m => isToday(m.created_at))
     const inQty  = todayRows.filter(m => (m.quantity || 0) > 0).reduce((s, m) => s + m.quantity, 0)
     const outQty = todayRows.filter(m => (m.quantity || 0) < 0).reduce((s, m) => s + Math.abs(m.quantity), 0)
     const adjCount = todayRows.filter(m => (TYPE_META[m.movement_type]?.dir) === 'adj').length

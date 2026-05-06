@@ -479,7 +479,7 @@ export function UsersManagement() {
                       <td style={{ padding: '0.75rem 1rem', color: '#94a3b8', fontSize: '0.875rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                           <Clock size={14} />
-                          {new Date(inv.expires_at).toLocaleDateString()}
+                          {new Date(inv.expires_at).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', year: 'numeric' })}
                         </div>
                       </td>
                       <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>

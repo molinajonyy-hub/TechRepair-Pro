@@ -560,7 +560,7 @@ export function OrderDetail() {
                           </p>
                         )}
                         <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.25rem' }}>
-                          {entry.created_at && new Date(entry.created_at).toLocaleString('es-ES')}
+                          {entry.created_at && new Date(entry.created_at).toLocaleString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                         </p>
                       </div>
                     </div>

@@ -40,8 +40,7 @@ const TIPO_LABELS: Record<string, string> = {
 const fmtARS = (n: number) =>
   '$' + Math.round(n).toLocaleString('es-AR')
 
-const fmtDate = (iso: string) =>
-  new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })
+import { fmtDateCompact as fmtDate } from '../utils/dateUtils'
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 

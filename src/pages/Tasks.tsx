@@ -97,8 +97,7 @@ const KANBAN_COLUMNS: TaskStatus[] = ['pending', 'in_progress', 'completed']
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmtDate  = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })
-const fmtFull  = (d: string) => new Date(d).toLocaleString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+import { fmtDateCompact as fmtDate, fmtFull } from '../utils/dateUtils'
 const isOverdue = (task: Task) => !!task.due_date && task.status !== 'completed' && task.status !== 'cancelled' && new Date(task.due_date + 'T23:59:59') < new Date()
 const isDueSoon = (task: Task) => {
   if (!task.due_date || isOverdue(task) || task.status === 'completed') return false

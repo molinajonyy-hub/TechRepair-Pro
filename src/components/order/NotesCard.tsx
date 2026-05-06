@@ -173,11 +173,8 @@ function NoteItem({
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-            {new Date(note.created_at).toLocaleString('es-ES', { 
-              day: '2-digit',
-              month: 'short',
-              hour: '2-digit',
-              minute: '2-digit'
+            {new Date(note.created_at).toLocaleString('es-AR', { timeZone: 'America/Argentina/Cordoba',
+              day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
             })}
           </span>
           {onDelete && (

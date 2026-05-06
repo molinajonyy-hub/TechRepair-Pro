@@ -243,7 +243,7 @@ export function Dashboard() {
                           </span>
                         </td>
                         <td style={{ color: '#64748b', fontSize: '0.875rem' }}>
-                          {new Date(order.created_at).toLocaleDateString('es-ES')}
+                          {new Date(order.created_at).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', year: 'numeric' })}
                         </td>
                       </tr>
                     ))

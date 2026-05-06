@@ -48,8 +48,7 @@ const REF_LABELS: Record<string, string> = {
   manual: 'Manual', adjustment: 'Ajuste', supplier_return: 'Dev. proveedor', credit_note: 'Nota crédito',
 }
 
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: '2-digit' })
-const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+import { fmtDate, fmtTime } from '../../utils/dateUtils'
 
 // ─── ProductMovementsModal ────────────────────────────────────────────────────
 
