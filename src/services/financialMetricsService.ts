@@ -80,14 +80,15 @@ export async function getFinancialSummary(
   const dateTo   = to   ?? today
   const tzSuffix = '-03:00'
 
-  // ── 1. Comprobantes emitidos en el período ─────────────────────────────────
+  // ── 1. Comprobantes emitidos del negocio (SIN filtro de fecha) ────────────
+  // No filtramos por fecha aquí porque la BFE entry puede tener fecha distinta
+  // al comprobante (el pago puede registrarse en un día diferente a la emisión).
+  // El período ya lo controla el filtro de fecha sobre las entradas BFE.
   const { data: issuedComps } = await supabase
     .from('comprobantes')
     .select('id')
     .eq('business_id', businessId)
     .eq('status', 'issued')
-    .gte('created_at', dateFrom + 'T00:00:00' + tzSuffix)
-    .lte('created_at', dateTo   + 'T23:59:59' + tzSuffix)
 
   const issuedIds = new Set((issuedComps || []).map((c: any) => c.id))
 
@@ -143,6 +144,8 @@ export async function getFinancialSummary(
   const resultadoNetoPct      = ingresosPeriodo > 0 ? (resultadoNeto / ingresosPeriodo) * 100 : 0
 
   // ── 4. Métricas de operaciones desde comprobante_items ────────────────────
+  // Filtramos comprobante_items por el período usando la fecha del comprobante
+  // (created_at del comprobante, que es cuando se emitió la venta)
   const [itemsRes, commissionsRes] = await Promise.all([
     supabase
       .from('comprobante_items')
@@ -152,12 +155,26 @@ export async function getFinancialSummary(
 
     supabase
       .from('comprobante_payments')
-      .select('comprobante_id, commission_amount')
+      .select('comprobante_id, commission_amount, date')
       .eq('business_id', businessId)
-      .gt('commission_amount', 0),
+      .gt('commission_amount', 0)
+      .gte('date', dateFrom)
+      .lte('date', dateTo),
   ])
 
-  const items = (itemsRes.data || []).filter((ci: any) => issuedIds.has(ci.comprobante_id))
+  // Filtrar items: solo los de comprobantes emitidos Y dentro del período
+  // (usamos created_at del comprobante, buscando en el Set de IDs dentro del rango)
+  const { data: issuedCompsInPeriod } = await supabase
+    .from('comprobantes')
+    .select('id')
+    .eq('business_id', businessId)
+    .eq('status', 'issued')
+    .gte('created_at', dateFrom + 'T00:00:00' + tzSuffix)
+    .lte('created_at', dateTo   + 'T23:59:59' + tzSuffix)
+
+  const issuedIdsInPeriod = new Set((issuedCompsInPeriod || []).map((c: any) => c.id))
+
+  const items = (itemsRes.data || []).filter((ci: any) => issuedIdsInPeriod.has(ci.comprobante_id))
   const opCommissions = (commissionsRes.data || [])
     .filter((p: any) => issuedIds.has(p.comprobante_id))
     .reduce((s: number, p: any) => s + (p.commission_amount || 0), 0)
@@ -197,8 +214,9 @@ export async function getFinancialSummary(
       bfeFixedLocal,
       bfeSalary,
       bfePersonal,
-      comprobantesIssued: issuedIds.size,
-      compItemsCount:     items.length,
+      comprobantesIssuedTotal:    issuedIds.size,
+      comprobantesIssuedPeriodo:  issuedIdsInPeriod.size,
+      compItemsCount:             items.length,
     },
   }
 }
