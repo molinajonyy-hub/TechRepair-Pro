@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { facturacionService, afipService, TipoComprobante, Comprobante, ComprobanteItem } from '../services/facturacionService';
+import { toErrorMessage } from '../utils/formatMessage';
 
 export interface UseComprobantesReturn {
   comprobantes: Comprobante[];
@@ -113,7 +114,7 @@ export function useComprobantes(_comprobanteId?: string): UseComprobantesReturn 
         setComprobantes(prev => [result.comprobante!, ...prev]);
         return true;
       } else {
-        setError(result.error || 'Error creando comprobante');
+        setError(toErrorMessage(result.error, 'Error creando comprobante'));
         return false;
       }
     } catch (err: unknown) {
@@ -196,7 +197,7 @@ export function useComprobantes(_comprobanteId?: string): UseComprobantesReturn 
         await cargarComprobante(comprobanteActual.id);
         return true;
       } else {
-        setError(result.error || 'Error agregando item');
+        setError(toErrorMessage(result.error, 'Error agregando item'));
         return false;
       }
     } catch (err: unknown) {
@@ -222,7 +223,7 @@ export function useComprobantes(_comprobanteId?: string): UseComprobantesReturn 
         }
         return true;
       } else {
-        setError(result.error || 'Error actualizando item');
+        setError(toErrorMessage(result.error, 'Error actualizando item'));
         return false;
       }
     } catch (err: unknown) {
@@ -245,7 +246,7 @@ export function useComprobantes(_comprobanteId?: string): UseComprobantesReturn 
         }
         return true;
       } else {
-        setError(result.error || 'Error eliminando item');
+        setError(toErrorMessage(result.error, 'Error eliminando item'));
         return false;
       }
     } catch (err: unknown) {
@@ -277,7 +278,7 @@ export function useComprobantes(_comprobanteId?: string): UseComprobantesReturn 
         ));
         return true;
       } else {
-        setError(result.error || 'Error emitiendo comprobante');
+        setError(toErrorMessage(result.error, 'Error emitiendo comprobante'));
         return false;
       }
     } catch (err: unknown) {
@@ -307,7 +308,7 @@ export function useComprobantes(_comprobanteId?: string): UseComprobantesReturn 
         }
         return true;
       } else {
-        setError(result.error || 'Error anulando comprobante');
+        setError(toErrorMessage(result.error, 'Error anulando comprobante'));
         return false;
       }
     } catch (err: unknown) {

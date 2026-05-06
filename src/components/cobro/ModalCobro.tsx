@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { invalidateStatsCache } from '../../hooks/useDashboardStats'
+import { formatDisplayMessage } from '../../utils/formatMessage'
 import { useCommissionRates, COMMISSION_KEYS } from '../../hooks/useCommissionRates'
 import comprobanteService from '../../services/comprobanteService'
 import { buildSupabaseQuery, smartSearch } from '../../utils/searchUtils'
@@ -635,7 +636,7 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
                 <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#22c55e' }}>{fmt(subtotal)}</span>
               </div>
 
-              {error && <p style={{ color: '#ef4444', fontSize: '0.8rem', margin: '0 0 0.75rem' }}>{error}</p>}
+              {error && <p style={{ color: '#ef4444', fontSize: '0.8rem', margin: '0 0 0.75rem' }}>{formatDisplayMessage(error)}</p>}
               <button onClick={irAPago} disabled={!itemsValidos} style={{ width: '100%', padding: '0.875rem', borderRadius: '0.75rem', background: itemsValidos ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'rgba(255,255,255,0.06)', border: 'none', color: itemsValidos ? 'white' : '#334155', fontWeight: 700, fontSize: '0.9375rem', cursor: itemsValidos ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
                 Continuar al pago <ChevronRight size={18} />
               </button>
@@ -758,7 +759,7 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
                 </div>
               )}
 
-              {error && <p style={{ color: '#ef4444', fontSize: '0.8rem', margin: '0 0 0.75rem' }}>{error}</p>}
+              {error && <p style={{ color: '#ef4444', fontSize: '0.8rem', margin: '0 0 0.75rem' }}>{formatDisplayMessage(error)}</p>}
 
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 <button onClick={() => setStep('items')} style={{ padding: '0.75rem 1rem', borderRadius: '0.75rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.85rem' }}>

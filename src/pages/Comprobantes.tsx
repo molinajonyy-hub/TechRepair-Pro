@@ -8,6 +8,7 @@ import { Loader } from '../components/ui/Loader';
 import { useAuth } from '../contexts/AuthContext';
 import comprobanteService, { Comprobante } from '../services/comprobanteService';
 import { smartSearch } from '../utils/searchUtils';
+import { formatDisplayMessage } from '../utils/formatMessage';
 
 export default function ComprobantesPage() {
   const { businessId, user } = useAuth();
@@ -168,7 +169,7 @@ export default function ComprobantesPage() {
       {/* ── Error ── */}
       {error && (
         <div className="alert alert-error" style={{ marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>{error}</span>
+          <span>{formatDisplayMessage(error)}</span>
           <button className="btn btn-ghost btn-sm" onClick={limpiarError}>Cerrar</button>
         </div>
       )}

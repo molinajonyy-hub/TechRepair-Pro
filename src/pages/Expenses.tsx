@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { formatDisplayMessage } from '../utils/formatMessage'
 import {
   Plus, Receipt, AlertTriangle, Calendar,
   Check, X, ChevronDown, ShoppingBag,
@@ -632,7 +633,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
             </>
           )}
 
-          {error && <p style={{ margin: 0, color: 'var(--error)', fontSize: '0.8rem', fontWeight: 600 }}>{error}</p>}
+          {error && <p style={{ margin: 0, color: 'var(--error)', fontSize: '0.8rem', fontWeight: 600 }}>{formatDisplayMessage(error)}</p>}
         </div>
 
         {/* Footer */}

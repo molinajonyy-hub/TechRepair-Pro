@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { formatDisplayMessage } from '../utils/formatMessage'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -252,7 +253,7 @@ export function InventoryMovements() {
 
       {error && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1rem', marginBottom: '1rem', background: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.3)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.875rem' }}>
-          <AlertTriangle size={16} /> {error}
+          <AlertTriangle size={16} /> {formatDisplayMessage(error)}
         </div>
       )}
 

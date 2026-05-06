@@ -14,6 +14,7 @@ import { smartSearch, buildSupabaseQuery, highlightParts } from '../../utils/sea
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCaja } from '../../contexts/CajaContext';
+import { formatDisplayMessage } from '../../utils/formatMessage';
 import {
   comprobanteService,
   TipoComprobante, TipoLinea, MedioPago,
@@ -996,7 +997,7 @@ export function ModalCrearComprobante({
               {submitError && (
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', padding: '0.875rem 1rem', backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '0.5rem' }}>
                   <AlertCircle size={16} style={{ color: '#f87171', flexShrink: 0, marginTop: '0.1rem' }} />
-                  <span style={{ color: '#fca5a5', fontSize: '0.875rem' }}>{submitError}</span>
+                  <span style={{ color: '#fca5a5', fontSize: '0.875rem' }}>{formatDisplayMessage(submitError)}</span>
                 </div>
               )}
             </div>
@@ -1275,7 +1276,7 @@ export function ModalCrearComprobante({
               {submitError && (
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', padding: '0.875rem 1rem', backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '0.5rem' }}>
                   <AlertCircle size={16} style={{ color: '#f87171', flexShrink: 0, marginTop: '0.1rem' }} />
-                  <span style={{ color: '#fca5a5', fontSize: '0.875rem' }}>{submitError}</span>
+                  <span style={{ color: '#fca5a5', fontSize: '0.875rem' }}>{formatDisplayMessage(submitError)}</span>
                 </div>
               )}
 

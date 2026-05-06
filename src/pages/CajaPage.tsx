@@ -10,6 +10,7 @@ import { CloseButton } from '../components/ui/CloseButton'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { currencyService } from '../services/currencyService'
+import { formatDisplayMessage } from '../utils/formatMessage'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -498,7 +499,7 @@ export function CajaPage() {
 
       {error && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1rem', marginBottom: '1rem', background: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.3)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.875rem' }}>
-          <AlertCircle size={16} /> {error}
+          <AlertCircle size={16} /> {formatDisplayMessage(error)}
         </div>
       )}
 

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { formatDisplayMessage } from '../utils/formatMessage'
 import {
   AppButton, AppIconButton, AppPageHeader, AppSearchInput,
   AppEmptyState, AppLoadingState,
@@ -130,7 +131,7 @@ function MovementModal({ mode, account, businessId, userId, onSaved, onClose }: 
             <input style={inputS} type="date" value={date} onChange={e => setDate(e.target.value)} />
           </div>
 
-          {err && <p style={{ margin: 0, color: 'var(--error)', fontSize: '0.8rem', fontWeight: 600 }}>{err}</p>}
+          {err && <p style={{ margin: 0, color: 'var(--error)', fontSize: '0.8rem', fontWeight: 600 }}>{formatDisplayMessage(err)}</p>}
         </div>
 
         <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', background: 'var(--bg-modal)', borderRadius: '0 0 var(--radius-2xl) var(--radius-2xl)' }}>
@@ -210,7 +211,7 @@ function NewAccountModal({ activeTab, businessId, onCreated, onClose }: NewAccou
               </div>
             </>
           )}
-          {err && <p style={{ margin: 0, color: 'var(--error)', fontSize: '0.8rem' }}>{err}</p>}
+          {err && <p style={{ margin: 0, color: 'var(--error)', fontSize: '0.8rem' }}>{formatDisplayMessage(err)}</p>}
         </div>
         <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', borderRadius: '0 0 var(--radius-2xl) var(--radius-2xl)' }}>
           <AppButton variant="secondary" onClick={onClose}>Cancelar</AppButton>

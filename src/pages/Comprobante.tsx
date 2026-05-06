@@ -6,6 +6,7 @@ import { useComprobantes } from '../hooks/useComprobantes';
 import { useOrderPrintSettings } from '../hooks/useOrderPrintSettings';
 import { useAuth } from '../contexts/AuthContext';
 import { ComprobanteDocumento } from '../components/comprobantes/ComprobanteDocumento';
+import { formatDisplayMessage } from '../utils/formatMessage';
 import { ComprobanteActions } from '../components/comprobantes/ComprobanteActions';
 import { ComprobantePrintLayout } from '../components/comprobantes/ComprobantePrintLayout';
 import { jsPDF } from 'jspdf';
@@ -261,7 +262,7 @@ export default function ComprobantePage() {
           marginBottom: '1rem',
         }}>
           <AlertCircle size={16} style={{ color: 'var(--error)', flexShrink: 0 }} />
-          <span style={{ color: 'var(--error)', fontSize: '0.875rem', flex: 1 }}>{error}</span>
+          <span style={{ color: 'var(--error)', fontSize: '0.875rem', flex: 1 }}>{formatDisplayMessage(error)}</span>
           <button onClick={limpiarError} style={{ background: 'none', border: 'none', color: 'var(--error)', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline' }}>
             Cerrar
           </button>
