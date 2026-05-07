@@ -106,6 +106,7 @@ export interface CrearComprobanteInput {
     currency?: 'ARS' | 'USD';
     exchange_rate?: number;
     inventory_id?: string | null;
+    applied_price_type?: 'minorista' | 'mayorista' | 'manual' | null;
   }[];
   pagos?: ComprobantePago[];
   business_id: string;
@@ -420,9 +421,10 @@ export const comprobanteService = {
           costo_unitario:  costUnit,
           costo_total:     costUnit * qty,
           currency:        item.currency || 'ARS',
-          exchange_rate:   item.exchange_rate || globalRate,
-          inventory_id:    item.inventory_id || null,
-          orden:           idx,
+          exchange_rate:       item.exchange_rate || globalRate,
+          inventory_id:        item.inventory_id || null,
+          applied_price_type:  item.applied_price_type || null,
+          orden:               idx,
         };
       });
 

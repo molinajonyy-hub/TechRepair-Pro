@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, UserPlus, Save } from 'lucide-react'
+import { ArrowLeft, UserPlus, Save, User, Building2 } from 'lucide-react'
 import { customersService } from '../services/api'
 
 export function NewCustomer() {
@@ -16,6 +16,7 @@ export function NewCustomer() {
     address: '',
     document: '',
     documentType: 'dni' as 'dni' | 'cuit',
+    customer_type: 'minorista' as 'minorista' | 'mayorista',
   })
 
   const returnTo = location.state?.returnTo || '/customers'
@@ -38,6 +39,7 @@ export function NewCustomer() {
         document: formData.document
           ? `${formData.documentType.toUpperCase()}: ${formData.document}`
           : undefined,
+        customer_type: formData.customer_type,
       })
 
       if (returnTo === '/orders/new') {
@@ -179,6 +181,55 @@ export function NewCustomer() {
                 rows={3}
                 placeholder="Ej: Av. Corrientes 1234, CABA"
               />
+            </div>
+
+            {/* Tipo de cliente */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label className="form-label">Tipo de cliente</label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {([
+                  { value: 'minorista', label: 'Minorista', icon: User,      desc: 'Precios de venta normal' },
+                  { value: 'mayorista', label: 'Mayorista', icon: Building2, desc: 'Precios mayoristas automáticos' },
+                ] as const).map(opt => {
+                  const Icon = opt.icon
+                  const active = formData.customer_type === opt.value
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => handleChange('customer_type', opt.value)}
+                      style={{
+                        flex: 1,
+                        display: 'flex', alignItems: 'center', gap: '0.625rem',
+                        padding: '0.75rem 1rem',
+                        background: active
+                          ? opt.value === 'mayorista' ? 'rgba(99,102,241,0.15)' : 'rgba(52,211,153,0.1)'
+                          : 'rgba(255,255,255,0.03)',
+                        border: `2px solid ${active
+                          ? opt.value === 'mayorista' ? 'rgba(99,102,241,0.5)' : 'rgba(52,211,153,0.4)'
+                          : 'rgba(255,255,255,0.08)'}`,
+                        borderRadius: '0.625rem',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <Icon size={16} style={{ color: active ? (opt.value === 'mayorista' ? '#818cf8' : '#34d399') : '#475569', flexShrink: 0 }} />
+                      <div>
+                        <div style={{ fontSize: '0.875rem', fontWeight: 700, color: active ? (opt.value === 'mayorista' ? '#818cf8' : '#34d399') : '#94a3b8' }}>
+                          {opt.label}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: '#475569', marginTop: '0.1rem' }}>{opt.desc}</div>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+              {formData.customer_type === 'mayorista' && (
+                <p style={{ margin: '0.5rem 0 0', fontSize: '0.75rem', color: '#818cf8', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <Building2 size={11} /> Al cobrarle se usarán precios mayoristas del inventario automáticamente.
+                </p>
+              )}
             </div>
 
             <div style={{ display: 'flex', gap: '1rem' }}>

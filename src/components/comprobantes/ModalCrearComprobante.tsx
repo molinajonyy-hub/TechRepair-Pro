@@ -1,6 +1,7 @@
 import {
   useState, useEffect, useRef, useCallback, useMemo,
 } from 'react';
+import { isWholesaleCustomer, getProductPriceForCustomer } from '../../utils/pricing';
 import {
   X, FileText, Receipt, ChevronDown,
   Loader2, Plus, Zap, Package, Search, DollarSign,
@@ -56,6 +57,8 @@ interface LineaItem {
   inv_cost_price?: number;
   inv_price_usd?: number | null;
   inv_mayorista_price?: number | null;
+  applied_price_type?: 'minorista' | 'mayorista' | 'manual';
+  no_mayorista_warning?: boolean;  // mayorista sin precio mayorista → usó precio normal
 }
 
 interface PagoLinea {
@@ -161,6 +164,45 @@ export function ModalCrearComprobante({
   const [searchLoading, setSearchLoading]   = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout>>();
   const dropdownRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // ── Mayorista: detección automática desde el cliente seleccionado ────────────
+  const selectedCliente = useMemo(
+    () => clientes.find(c => c.id === clienteId) ?? null,
+    [clientes, clienteId]
+  );
+  const esClienteMayorista = useMemo(
+    () => usarPrecioMayorista || isWholesaleCustomer(selectedCliente),
+    [usarPrecioMayorista, selectedCliente]
+  );
+
+  // Prompt de recálculo cuando cambia el tipo de cliente
+  const [showRecalcPrompt, setShowRecalcPrompt] = useState(false);
+  const prevClienteIdRef = useRef<string>('');
+
+  useEffect(() => {
+    const prev = prevClienteIdRef.current;
+    if (!prev || prev === clienteId) { prevClienteIdRef.current = clienteId; return; }
+    prevClienteIdRef.current = clienteId;
+    const hasInvItems = lineas.some(l => l.inventory_id);
+    if (!hasInvItems) return;
+    const wasWholesale = isWholesaleCustomer(clientes.find(c => c.id === prev) ?? null);
+    const nowWholesale = isWholesaleCustomer(clientes.find(c => c.id === clienteId) ?? null);
+    if (wasWholesale !== nowWholesale) setShowRecalcPrompt(true);
+  }, [clienteId, clientes, lineas]);
+
+  const handleRecalcPrices = (useWholesale: boolean) => {
+    setLineas(prev => prev.map(l => {
+      if (!l.inventory_id) return l;
+      const result = getProductPriceForCustomer(l, useWholesale ? { customer_type: 'mayorista' } : { customer_type: 'minorista' });
+      return {
+        ...l,
+        precio_unitario:    result.price,
+        applied_price_type: result.priceType as 'minorista' | 'mayorista',
+        no_mayorista_warning: result.fallback,
+      };
+    }));
+    setShowRecalcPrompt(false);
+  };
 
   // ── Comisiones dinámicas ──────────────────────────────────────────────────────
   const { flatMethods } = usePaymentCommissions();
@@ -388,15 +430,20 @@ export function ModalCrearComprobante({
   };
 
   const selectInventoryItem = (idx: number, inv: InventoryResult) => {
-    const l    = lineas[idx];
-    const cost = Number(inv.cost_price) || 0;
+    const l        = lineas[idx];
+    const cost     = Number(inv.cost_price) || 0;
     const priceUSD = inv.base_currency === 'USD' && inv.base_price ? Number(inv.base_price) : null;
-    const useMayorista = usarPrecioMayorista && inv.precio_mayorista != null
-    const precioFinal = useMayorista ? Number(inv.precio_mayorista) : (Number(inv.sale_price) || 0)
-    const desc = [inv.name, inv.variant_name].filter(Boolean).join(' — ') + (inv.code ? ` [${inv.code}]` : '')
+    const desc     = [inv.name, inv.variant_name].filter(Boolean).join(' — ') + (inv.code ? ` [${inv.code}]` : '');
+
+    const customer = esClienteMayorista ? { customer_type: 'mayorista' } : { customer_type: 'minorista' };
+    const priceResult = getProductPriceForCustomer(
+      { sale_price: inv.sale_price, precio_mayorista: inv.precio_mayorista },
+      customer
+    );
+
     updateLinea(l._key, {
       descripcion:          desc,
-      precio_unitario:      precioFinal,
+      precio_unitario:      priceResult.price,
       costo_unitario:       cost,
       currency:             'ARS',
       inventory_id:         inv.id,
@@ -404,6 +451,8 @@ export function ModalCrearComprobante({
       inv_cost_price:       cost,
       inv_price_usd:        priceUSD,
       inv_mayorista_price:  inv.precio_mayorista != null ? Number(inv.precio_mayorista) : null,
+      applied_price_type:   priceResult.priceType as 'minorista' | 'mayorista',
+      no_mayorista_warning: priceResult.fallback,
     });
     setActiveSearchIdx(null);
     setSearchResults([]);
@@ -450,15 +499,16 @@ export function ModalCrearComprobante({
       es_fiscal:        TIPO_CONFIG[tipo].fiscal,
       emitir_en_arca:   emitirEnArca,
       items: validLines.map(l => ({
-        descripcion:     l.descripcion,
-        tipo_linea:      l.tipo_linea,
-        cantidad:        l.cantidad,
-        precio_unitario: l.precio_unitario,
-        descuento_linea: l.descuento_linea || 0,
-        costo_unitario:  l.costo_unitario || 0,
-        currency:        l.currency,
-        exchange_rate:   l.currency === 'USD' ? exchangeRate : 1,
-        inventory_id:    l.inventory_id || null,
+        descripcion:        l.descripcion,
+        tipo_linea:         l.tipo_linea,
+        cantidad:           l.cantidad,
+        precio_unitario:    l.precio_unitario,
+        descuento_linea:    l.descuento_linea || 0,
+        costo_unitario:     l.costo_unitario || 0,
+        currency:           l.currency,
+        exchange_rate:      l.currency === 'USD' ? exchangeRate : 1,
+        inventory_id:       l.inventory_id || null,
+        applied_price_type: l.applied_price_type || null,
       })),
       pagos: pagos
         .filter(p => parseFloat(p.amount) > 0)
@@ -659,11 +709,16 @@ export function ModalCrearComprobante({
                             <button
                               key={c.id}
                               onClick={() => { setClienteId(c.id); setClienteQuery(c.name); setClienteOpen(false); }}
-                              style={{ width: '100%', textAlign: 'left', padding: '0.625rem 1rem', background: 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.03)', color: '#f1f5f9', fontSize: '0.8rem', cursor: 'pointer' }}
+                              style={{ width: '100%', textAlign: 'left', padding: '0.5rem 1rem', background: 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.03)', color: '#f1f5f9', fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}
                               onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.04)')}
                               onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
                             >
-                              {c.name}
+                              <span>{c.name}</span>
+                              {c.customer_type === 'mayorista' && (
+                                <span style={{ fontSize: '0.62rem', fontWeight: 700, color: '#818cf8', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '0.25rem', padding: '0.1rem 0.35rem', flexShrink: 0 }}>
+                                  MAY
+                                </span>
+                              )}
                             </button>
                           ))}
                         </div>
@@ -696,6 +751,44 @@ export function ModalCrearComprobante({
                     </div>
                   </div>
                 </div>
+
+                {/* Badge mayorista */}
+                {esClienteMayorista && clienteId && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.875rem', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.5rem' }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#818cf8', flexShrink: 0 }} />
+                    <span style={{ fontSize: '0.78rem', color: '#818cf8', fontWeight: 600 }}>
+                      Cliente Mayorista — Precios mayoristas activos
+                    </span>
+                  </div>
+                )}
+
+                {/* Prompt de recálculo cuando cambia tipo de cliente con ítems cargados */}
+                {showRecalcPrompt && (
+                  <div style={{ padding: '0.875rem 1rem', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '0.625rem', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                      <AlertCircle size={15} style={{ color: '#f59e0b', flexShrink: 0, marginTop: '0.1rem' }} />
+                      <span style={{ fontSize: '0.8rem', color: '#fbbf24', fontWeight: 600 }}>
+                        {esClienteMayorista
+                          ? 'El cliente es Mayorista. ¿Querés actualizar los precios a mayorista?'
+                          : 'El cliente es Minorista. ¿Querés volver a precios de lista?'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button
+                        onClick={() => handleRecalcPrices(esClienteMayorista)}
+                        style={{ flex: 1, padding: '0.4rem 0.75rem', background: 'rgba(245,158,11,0.2)', border: '1px solid rgba(245,158,11,0.4)', borderRadius: '0.4rem', color: '#fbbf24', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}
+                      >
+                        Sí, actualizar precios
+                      </button>
+                      <button
+                        onClick={() => setShowRecalcPrompt(false)}
+                        style={{ padding: '0.4rem 0.75rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.4rem', color: '#64748b', fontSize: '0.78rem', cursor: 'pointer' }}
+                      >
+                        Mantener actuales
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Condición fiscal + Observaciones */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.875rem' }}>
@@ -871,6 +964,26 @@ export function ModalCrearComprobante({
                           <X size={14} />
                         </button>
                       </div>
+
+                      {/* Badge de tipo de precio (mayorista/minorista) si el ítem viene de inventario */}
+                      {l.inventory_id && l.applied_price_type && (
+                        <div style={{ marginBottom: '0.375rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                          <span style={{
+                            fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.04em',
+                            padding: '0.1rem 0.4rem', borderRadius: '0.25rem',
+                            background: l.applied_price_type === 'mayorista' ? 'rgba(99,102,241,0.15)' : 'rgba(100,116,139,0.12)',
+                            border: `1px solid ${l.applied_price_type === 'mayorista' ? 'rgba(99,102,241,0.35)' : 'rgba(100,116,139,0.25)'}`,
+                            color: l.applied_price_type === 'mayorista' ? '#818cf8' : '#64748b',
+                          }}>
+                            {l.applied_price_type === 'mayorista' ? 'MAYORISTA' : l.applied_price_type === 'manual' ? 'MANUAL' : 'MINORISTA'}
+                          </span>
+                          {l.no_mayorista_warning && (
+                            <span style={{ fontSize: '0.62rem', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                              <AlertCircle size={10} /> Sin precio mayorista — usando precio normal
+                            </span>
+                          )}
+                        </div>
+                      )}
 
                       {/* Fila 2: cant + precio + ARS/USD + desc% + subtotal */}
                       <div style={{ display: 'grid', gridTemplateColumns: '64px 110px auto 80px 1fr', gap: '0.375rem', alignItems: 'center' }}>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, User, Phone, Mail, MapPin, ClipboardList, Smartphone } from 'lucide-react'
+import { ArrowLeft, User, Phone, Mail, MapPin, ClipboardList, Smartphone, Building2 } from 'lucide-react'
 import { Loader } from '../components/ui/Loader'
 import { customersService } from '../services/api'
 import { STATUS_CONFIG } from '../types/orderStatus'
@@ -23,6 +23,7 @@ interface CustomerDetailData {
   phone?: string
   email?: string
   address?: string
+  customer_type?: string
   devices?: Array<{
     id: string
     brand?: string
@@ -109,9 +110,30 @@ export function CustomerDetail() {
         Volver a Clientes
       </Link>
 
-      <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#f8fafc', marginBottom: '2rem' }}>
-        {customer.name}
-      </h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
+        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#f8fafc', margin: 0 }}>
+          {customer.name}
+        </h1>
+        {customer.customer_type === 'mayorista' ? (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
+            padding: '0.25rem 0.75rem', borderRadius: '999px',
+            background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.35)',
+            fontSize: '0.78rem', fontWeight: 700, color: '#818cf8', letterSpacing: '0.04em',
+          }}>
+            <Building2 size={12} /> Mayorista
+          </span>
+        ) : (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
+            padding: '0.25rem 0.75rem', borderRadius: '999px',
+            background: 'rgba(100,116,139,0.12)', border: '1px solid rgba(100,116,139,0.25)',
+            fontSize: '0.78rem', fontWeight: 600, color: '#64748b',
+          }}>
+            <User size={12} /> Minorista
+          </span>
+        )}
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.5rem' }}>
         <div className="card">
