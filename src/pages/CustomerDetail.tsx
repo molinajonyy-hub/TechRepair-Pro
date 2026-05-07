@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, User, Phone, Mail, MapPin, ClipboardList, Smartphone, Building2 } from 'lucide-react'
+import { ArrowLeft, User, Phone, Mail, MapPin, ClipboardList, Smartphone, Building2, CreditCard } from 'lucide-react'
 import { Loader } from '../components/ui/Loader'
 import { customersService } from '../services/api'
 import { STATUS_CONFIG } from '../types/orderStatus'
+import { cuentasService, getAccountStatus, type Account } from '../services/cuentasService'
+import { ModalPagarCC } from '../components/comprobantes/ModalPagarCC'
+import { useAuth } from '../contexts/AuthContext'
 
 interface CustomerOrderSummary {
   id: string
@@ -52,11 +55,20 @@ const getStatusStyle = (status: string) => {
   }
 }
 
+const CC_STATUS = {
+  al_dia:  { label: 'Al día',   color: '#34d399', bg: 'rgba(52,211,153,0.1)',  border: 'rgba(52,211,153,0.25)'  },
+  deuda:   { label: 'En deuda', color: '#f87171', bg: 'rgba(248,113,113,0.1)', border: 'rgba(248,113,113,0.25)' },
+  a_favor: { label: 'A favor',  color: '#60a5fa', bg: 'rgba(96,165,250,0.1)',  border: 'rgba(96,165,250,0.25)'  },
+}
+
 export function CustomerDetail() {
   const { id } = useParams<{ id: string }>()
+  const { businessId, user } = useAuth()
   const [customer, setCustomer] = useState<CustomerDetailData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [ccAccount, setCcAccount] = useState<Account | null>(null)
+  const [showPagarCC, setShowPagarCC] = useState(false)
 
   useEffect(() => {
     if (!id) {
@@ -80,6 +92,15 @@ export function CustomerDetail() {
 
     void loadCustomer()
   }, [id])
+
+  const loadCcAccount = useCallback(async () => {
+    if (!businessId || !id) return
+    const accounts = await cuentasService.getAccounts(businessId, 'cliente')
+    const found = accounts.find(a => a.entity_id === id) || null
+    setCcAccount(found)
+  }, [businessId, id])
+
+  useEffect(() => { void loadCcAccount() }, [loadCcAccount])
 
   if (loading) {
     return (
@@ -134,6 +155,38 @@ export function CustomerDetail() {
           </span>
         )}
       </div>
+
+      {/* Cuenta Corriente widget (solo si existe deuda o saldo) */}
+      {ccAccount && Math.abs(ccAccount.balance) > 0.01 && (() => {
+        const status = getAccountStatus(ccAccount.balance)
+        const sm = CC_STATUS[status]
+        return (
+          <div className="card" style={{ marginBottom: '1.5rem', borderColor: sm.border, background: sm.bg }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <CreditCard size={20} style={{ color: sm.color }} />
+                <div>
+                  <div style={{ fontSize: '0.7rem', fontWeight: 700, color: sm.color, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cuenta Corriente</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800, fontFamily: 'monospace', color: sm.color }}>
+                    {ccAccount.balance > 0 ? '' : '+'}{formatCurrency(Math.abs(ccAccount.balance))}
+                  </div>
+                </div>
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '0.2rem 0.625rem', borderRadius: '9999px', background: sm.bg, color: sm.color, border: `1px solid ${sm.border}` }}>
+                  {sm.label}
+                </span>
+              </div>
+              {ccAccount.balance > 0 && (
+                <button
+                  onClick={() => setShowPagarCC(true)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.125rem', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', border: 'none', borderRadius: '0.625rem', color: '#fff', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', boxShadow: '0 4px 12px rgba(99,102,241,0.3)' }}
+                >
+                  <CreditCard size={14} /> Registrar pago
+                </button>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1.5rem' }}>
         <div className="card">
@@ -223,6 +276,18 @@ export function CustomerDetail() {
           </div>
         </div>
       </div>
+
+      {/* Modal para registrar pago de cuenta corriente */}
+      {ccAccount && (
+        <ModalPagarCC
+          isOpen={showPagarCC}
+          onClose={() => setShowPagarCC(false)}
+          onPagado={() => { setShowPagarCC(false); void loadCcAccount() }}
+          account={ccAccount}
+          businessId={businessId || ''}
+          userId={user?.id || ''}
+        />
+      )}
     </div>
   )
 }

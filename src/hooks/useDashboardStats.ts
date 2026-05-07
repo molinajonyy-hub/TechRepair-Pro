@@ -37,6 +37,7 @@ export interface DashboardStats {
   // Clientes
   totalCustomers: number
   newCustomersThisMonth: number
+  cuentasCorrientesDeuda: number   // total deuda activa de clientes en CC
 
   // Dispositivos
   popularDeviceTypes: { type: string; count: number }[]
@@ -197,6 +198,7 @@ export function useDashboardStats() {
         newCustomersThisMonth,
         financeResult,
         compItemsResult,
+        ccAccountsResult,
       ] = await Promise.all([
 
         // 1. Total órdenes (COUNT, sin datos)
@@ -278,6 +280,14 @@ export function useDashboardStats() {
           .eq('business_id', businessId)
           .in('tipo_linea', ['producto', 'repuesto', 'servicio'])
           .gte('created_at', ninetyDaysAgo),
+
+        // 13. Deuda total activa en cuentas corrientes de clientes
+        supabase
+          .from('accounts')
+          .select('balance')
+          .eq('business_id', businessId)
+          .eq('type', 'cliente')
+          .gt('balance', 0),
       ])
 
       // ── Procesar resultados ─────────────────────────────────────────
@@ -417,6 +427,7 @@ export function useDashboardStats() {
         topProfitableItems,
         totalCustomers,
         newCustomersThisMonth,
+        cuentasCorrientesDeuda: (ccAccountsResult.data || []).reduce((s: number, a: any) => s + (Number(a.balance) || 0), 0),
         popularDeviceTypes,
         averageRepairTime,
         onTimeDeliveryRate,

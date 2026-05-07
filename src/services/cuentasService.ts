@@ -236,4 +236,38 @@ export const cuentasService = {
       created_by:     userId || null,
     })
   },
+
+  /**
+   * Registra el cobro de una deuda de cuenta corriente.
+   * Acredita el ledger (reduce la deuda) Y crea un BFE income (impacto real en caja).
+   */
+  async registrarPagoCC(
+    businessId: string,
+    accountId: string,
+    amount: number,
+    description: string,
+    userId: string,
+    cajaId?: string | null,
+  ): Promise<AccountMovement> {
+    const today = new Date().toISOString().split('T')[0]
+    const movement = await this.addMovement(businessId, accountId, {
+      type: 'pago', description,
+      debit: 0, credit: amount,
+      created_by: userId,
+    })
+    await supabase.from('business_finance_entries').insert({
+      business_id:  businessId,
+      date:         today,
+      type:         'income',
+      category:     'cobro_cuenta_corriente',
+      description,
+      amount:       amount,
+      currency:     'ARS',
+      amount_ars:   amount,
+      exchange_rate: 1,
+      created_by:   userId || null,
+      caja_id:      cajaId || null,
+    })
+    return movement
+  },
 }

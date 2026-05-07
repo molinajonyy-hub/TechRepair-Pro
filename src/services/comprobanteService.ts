@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import ArcaService from './arcaService';
+import { cuentasService } from './cuentasService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -7,7 +8,7 @@ export type TipoComprobante = 'remito' | 'factura_a' | 'factura_c' | 'nota_credi
 export type TipoLinea       = 'producto' | 'servicio' | 'repuesto' | 'otro';
 export type EstadoComercial = 'pendiente' | 'parcial' | 'pagado' | 'anulado';
 export type EstadoFiscal    = 'no_fiscal' | 'pendiente_emision' | 'emitido' | 'error_emision' | 'anulado_fiscal';
-export type MedioPago       = 'efectivo' | 'transferencia' | 'tarjeta_debito' | 'tarjeta_credito' | 'qr' | 'mixto' | 'otro';
+export type MedioPago       = 'efectivo' | 'transferencia' | 'tarjeta_debito' | 'tarjeta_credito' | 'qr' | 'mixto' | 'otro' | 'cuenta_corriente';
 
 export interface ComprobanteItem {
   id?: string;
@@ -281,9 +282,18 @@ export const comprobanteService = {
       const total    = subtotalARS + tax;
       const totalUSD = subtotalUSD + (tipo === 'factura_a' ? subtotalUSD * 0.21 : 0);
 
-      // Comisiones de pagos
+      // Separar pagos reales (caja) de cuenta corriente (deuda en ledger, no caja)
+      const pagosCash = pagos.filter(p => p.payment_method !== 'cuenta_corriente');
+      const ccTotal   = pagos
+        .filter(p => p.payment_method === 'cuenta_corriente')
+        .reduce((s, p) => {
+          const rate = p.exchange_rate || globalRate;
+          return s + (p.currency === 'USD' ? p.amount * rate : p.amount);
+        }, 0);
+
+      // Comisiones de pagos (solo pagos reales de caja)
       let totalComisiones = 0;
-      const pagosConComision = pagos.map(p => {
+      const pagosConComision = pagosCash.map(p => {
         const rate    = p.exchange_rate || globalRate;
         const amtARS  = p.currency === 'USD' ? p.amount * rate : p.amount;
         const commRate = p.commission_rate ?? 0;
@@ -373,16 +383,17 @@ export const comprobanteService = {
         descuento_total:  descuentoTotal,
         recargo_total:    0,
         total_bruto:      totalBruto,
-        total_cobrado:    pagos.length > 0 ? pagosConComision.reduce((s, p) => s + p.amtARS, 0) : 0,
-        saldo_pendiente:  pagos.length > 0 ? Math.max(0, totalBruto - pagosConComision.reduce((s, p) => s + p.amtARS, 0)) : totalBruto,
+        total_cobrado:    pagosCash.length > 0 ? pagosConComision.reduce((s, p) => s + p.amtARS, 0) : 0,
+        saldo_pendiente:  Math.max(0, totalBruto - (pagosCash.length > 0 ? pagosConComision.reduce((s, p) => s + p.amtARS, 0) : 0)),
         total_comisiones: totalComisiones,
         total_neto:       totalNeto,
         estado:           estadoDefinitivo === 'issued' ? 'emitido' : 'borrador',
         status:           estadoDefinitivo,
         estado_comercial: (() => {
-          if (pagos.length === 0) return 'pendiente';
-          const cobrado = pagosConComision.reduce((s, p) => s + p.amtARS, 0);
-          return cobrado >= totalBruto - 1 ? 'pagado' : 'parcial';
+          const cashCobrado = pagosConComision.reduce((s, p) => s + p.amtARS, 0);
+          if (cashCobrado >= totalBruto - 1) return 'pagado';
+          if (cashCobrado > 0 || ccTotal > 0) return 'parcial';
+          return 'pendiente';
         })(),
         estado_fiscal:    estadoFiscal,
         es_fiscal:        esFiscal,
@@ -439,8 +450,8 @@ export const comprobanteService = {
         await this._descontarStock(itemsToInsert, comp.id, business_id, created_by);
       }
 
-      // ── 7. Registrar pagos ───────────────────────────────────────────────
-      if (pagos.length > 0) {
+      // ── 7. Registrar pagos de caja (NO cuenta corriente) ────────────────
+      if (pagosCash.length > 0) {
         const pagosToInsert = pagosConComision.map(p => ({
           comprobante_id:    comp.id,
           business_id,
@@ -480,8 +491,8 @@ export const comprobanteService = {
         });
       }
 
-      // ── 9. Registrar ingreso en finanzas (solo si no hay pagos; con pagos lo maneja el trigger)
-      if (estadoDefinitivo === 'issued' && !skip_finance_entry && pagos.length === 0) {
+      // ── 9. Registrar ingreso en finanzas (solo si no hay pagos de caja ni CC; con pagos de caja lo maneja el trigger)
+      if (estadoDefinitivo === 'issued' && !skip_finance_entry && pagosCash.length === 0 && ccTotal === 0) {
         const today = new Date().toISOString().split('T')[0];
         const desc  = `Comprobante #${numero}`;
 
@@ -511,6 +522,29 @@ export const comprobanteService = {
           created_by:  created_by || null,
           caja_id:     caja_id || null,
         });
+      }
+
+      // ── 10. Cuenta corriente: registrar deuda si hay saldo sin efectivo ───
+      if (estadoDefinitivo === 'issued' && ccTotal > 0 && customer_id) {
+        try {
+          const { data: custData } = await supabase
+            .from('customers').select('name, phone').eq('id', customer_id).maybeSingle();
+          const account = await cuentasService.getOrCreate(
+            business_id, 'cliente', customer_id,
+            (custData as any)?.name || 'Cliente',
+            (custData as any)?.phone || null,
+          );
+          await cuentasService.registerSale(
+            business_id, account.id,
+            totalBruto,
+            totalBruto - ccTotal,
+            `Comprobante #${numero}`,
+            comp.id,
+            created_by,
+          );
+        } catch (e: any) {
+          console.warn('[comprobanteService] CC account movement failed:', e.message);
+        }
       }
 
       const fullComp = await this.getById(comp.id, business_id);

@@ -7,7 +7,7 @@ import {
   Loader2, Plus, Zap, Package, Search, DollarSign,
   Wrench, Tag, Percent,
   AlertCircle, CheckCircle2,
-  ChevronLeft, ChevronRight, Wallet,
+  ChevronLeft, ChevronRight, Wallet, CreditCard,
 } from 'lucide-react';
 import { CloseButton } from '../ui/CloseButton';
 import { currencyService } from '../../services/currencyService';
@@ -423,6 +423,25 @@ export function ModalCrearComprobante({
 
   const updatePagoAmount = (key: string, val: string) =>
     setPagos(prev => prev.map(p => p._key === key ? { ...p, amount: val } : p));
+
+  // Enviar saldo restante a cuenta corriente del cliente
+  const handleAddCC = () => {
+    const saldoCC = totales.saldo;
+    if (saldoCC <= 0) return;
+    setPagos(prev => [
+      ...prev.filter(p => p.payment_method !== 'cuenta_corriente'),
+      {
+        _key:             Math.random().toString(36).slice(2),
+        payment_method:   'cuenta_corriente' as MedioPago,
+        payment_provider: '',
+        amount:           String(Math.round(saldoCC)),
+        commission_rate:  0,
+        _option_label:    'Cuenta Corriente',
+        _color:           '#818cf8',
+        _original_amount: String(Math.round(saldoCC)),
+      } as any,
+    ]);
+  };
 
   // ── Línea helpers ─────────────────────────────────────────────────────────────
   const updateLinea = (key: string, updates: Partial<LineaItem>) => {
@@ -1280,6 +1299,34 @@ export function ModalCrearComprobante({
                   })}
                 </div>
 
+                {/* Cuenta Corriente: solo si hay cliente y saldo sin cubrir */}
+                {clienteId && totales.saldo > 1 && !pagos.some(p => p.payment_method === 'cuenta_corriente') && (
+                  <button
+                    onClick={handleAddCC}
+                    style={{
+                      width: '100%', padding: '0.625rem 1rem',
+                      background: 'rgba(99,102,241,0.07)',
+                      border: '1px dashed rgba(99,102,241,0.35)',
+                      borderRadius: '0.625rem', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      color: '#818cf8',
+                    }}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', fontWeight: 600 }}>
+                      <CreditCard size={14} />
+                      Enviar saldo a Cuenta Corriente del cliente
+                    </span>
+                    <span style={{ fontFamily: 'monospace', fontSize: '0.875rem', fontWeight: 700 }}>
+                      {fmtARS(totales.saldo)}
+                    </span>
+                  </button>
+                )}
+                {!clienteId && totales.saldo > 1 && (
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: '#475569', fontStyle: 'italic' }}>
+                    Seleccioná un cliente en el paso anterior para poder enviar saldo a cuenta corriente.
+                  </p>
+                )}
+
                 {/* Monto + resumen cuando hay método seleccionado */}
                 {pagos.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
@@ -1311,7 +1358,11 @@ export function ModalCrearComprobante({
                           >
                             <X size={13} />
                           </button>
-                          {(() => {
+                          {p.payment_method === 'cuenta_corriente' ? (
+                            <span style={{ fontSize: '0.68rem', color: '#818cf8', whiteSpace: 'nowrap', fontWeight: 700 }}>
+                              deuda en CC
+                            </span>
+                          ) : (() => {
                             const originalAmt = parseFloat((p as any)._original_amount ?? p.amount) || 0;
                             const surcharge = amt - originalAmt;
                             return surcharge > 0 ? (
