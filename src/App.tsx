@@ -30,7 +30,6 @@ import { Tasks } from './pages/Tasks'
 import { Warranties } from './pages/Warranties'
 import { UsersManagement } from './pages/UsersManagement'
 import { CajaPage } from './pages/CajaPage'
-import { InventoryMovements } from './pages/InventoryMovements'
 import { Mayorista } from './pages/Mayorista'
 import Settings from './pages/Settings'
 import { LandingPage } from './pages/LandingPage'
@@ -81,7 +80,6 @@ function AppContent() {
             <Route path="/customers/new" element={<NewCustomer />} />
             <Route path="/customers/:id" element={<CustomerDetail />} />
             <Route path="/inventory" element={<Inventory />} />
-            <Route path="/inventory/movements" element={<InventoryMovements />} />
             <Route path="/mayorista" element={<Mayorista />} />
             <Route path="/suppliers" element={<Suppliers />} />
             <Route path="/cuentas" element={<CuentasCorrientes />} />
