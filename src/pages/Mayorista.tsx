@@ -2,11 +2,18 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Store, Search, RefreshCw, Loader2, AlertTriangle,
   CheckCircle, Pencil, Check, X, Zap, TrendingUp, Package,
-  ChevronDown, ChevronUp, Users, FileText,
+  ChevronDown, ChevronUp, Users, FileText, ShoppingBag,
+  Globe, UserCheck, UserX, ExternalLink,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { ModalCrearComprobante } from '../components/comprobantes/ModalCrearComprobante'
+import {
+  getWholesaleCustomers, updateCustomerStatus,
+  getWholesaleOrders, updateOrderStatus,
+} from '../portal/services/portalService'
+import type { WholesaleCustomer, WholesaleOrder } from '../portal/types'
+import { ORDER_STATUS_LABEL, ORDER_STATUS_COLOR } from '../portal/types'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -345,6 +352,28 @@ export function Mayorista() {
   const [showComprobante, setShowComprobante] = useState(false)
   const [sortField, setSortField] = useState<'name' | 'margin' | 'stock' | 'profit'>('name')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [activeTab, setActiveTab] = useState<'precios' | 'clientes' | 'pedidos'>('precios')
+
+  // Portal admin data
+  const [portalCustomers, setPortalCustomers] = useState<WholesaleCustomer[]>([])
+  const [portalOrders, setPortalOrders] = useState<WholesaleOrder[]>([])
+  const [portalLoading, setPortalLoading] = useState(false)
+
+  const loadPortalData = useCallback(async () => {
+    if (!businessId) return
+    setPortalLoading(true)
+    const [customers, orders] = await Promise.all([
+      getWholesaleCustomers(businessId),
+      getWholesaleOrders(businessId),
+    ])
+    setPortalCustomers(customers)
+    setPortalOrders(orders)
+    setPortalLoading(false)
+  }, [businessId])
+
+  useEffect(() => {
+    if (activeTab === 'clientes' || activeTab === 'pedidos') loadPortalData()
+  }, [activeTab, loadPortalData])
 
   const load = useCallback(async () => {
     if (!businessId) return
@@ -483,6 +512,33 @@ export function Mayorista() {
           </button>
         </div>
       </div>
+
+      {/* ── Tabs ── */}
+      <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1.5rem', padding: '0.25rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', width: 'fit-content' }}>
+        {([
+          { id: 'precios',  label: 'Precios',          icon: TrendingUp  },
+          { id: 'clientes', label: 'Clientes Portal',  icon: Users       },
+          { id: 'pedidos',  label: 'Pedidos Web',      icon: ShoppingBag },
+        ] as const).map(({ id, label, icon: Icon }) => (
+          <button key={id} onClick={() => setActiveTab(id)} style={{
+            display: 'flex', alignItems: 'center', gap: '0.375rem',
+            padding: '0.5rem 1rem', borderRadius: '0.5rem', border: 'none',
+            background: activeTab === id ? 'rgba(99,102,241,0.18)' : 'transparent',
+            color: activeTab === id ? '#818cf8' : '#64748b',
+            fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', transition: 'all 0.15s',
+          }}>
+            <Icon size={14} /> {label}
+            {id === 'clientes' && portalCustomers.filter(c => !c.approved && !c.suspended).length > 0 && (
+              <span style={{ background: '#ef4444', color: '#fff', fontSize: '0.65rem', fontWeight: 800, padding: '0.1rem 0.375rem', borderRadius: '99px', marginLeft: '0.2rem' }}>
+                {portalCustomers.filter(c => !c.approved && !c.suspended).length}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* ══════ TAB: PRECIOS ══════ */}
+      {activeTab === 'precios' && (<>
 
       {error && (
         <div style={{ padding: '0.875rem 1rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '0.75rem', color: '#f87171', fontSize: '0.875rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -666,6 +722,213 @@ export function Mayorista() {
           onClose={() => setShowBulk(false)}
           onApplied={load}
         />
+      )}
+
+      </> /* end tab precios */ )}
+
+      {/* ══════ TAB: CLIENTES PORTAL ══════ */}
+      {activeTab === 'clientes' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+            <span style={{ fontSize: '0.82rem', color: '#64748b' }}>
+              {portalCustomers.length} cliente{portalCustomers.length !== 1 ? 's' : ''} registrados
+            </span>
+            <button onClick={loadPortalData} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.4rem 0.75rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#64748b', fontSize: '0.75rem', cursor: 'pointer' }}>
+              <RefreshCw size={12} /> Actualizar
+            </button>
+          </div>
+          {portalLoading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+              <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: '#6366f1' }} />
+            </div>
+          ) : portalCustomers.length === 0 ? (
+            <div style={{ padding: '3rem', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.06)', color: '#475569' }}>
+              <Globe size={28} style={{ marginBottom: '0.75rem', display: 'block', margin: '0 auto 0.75rem' }} />
+              <p style={{ margin: 0 }}>Aún no hay clientes registrados en el portal.</p>
+              <p style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
+                Compartí el link: <strong style={{ color: '#818cf8' }}>{window.location.origin}/mayorista/clic</strong>
+              </p>
+            </div>
+          ) : (
+            <div style={{ background: '#111827', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.875rem', overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
+                    {['Cliente', 'Negocio', 'WhatsApp', 'Ciudad', 'Estado', 'Registrado', 'Acciones'].map(h => (
+                      <th key={h} style={{ padding: '0.625rem 0.875rem', textAlign: 'left', color: '#334155', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {portalCustomers.map(c => (
+                    <tr key={c.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <td style={{ padding: '0.75rem 0.875rem' }}>
+                        <div style={{ fontWeight: 600, color: '#f1f5f9' }}>{c.name}</div>
+                        <div style={{ fontSize: '0.72rem', color: '#475569' }}>{c.email}</div>
+                      </td>
+                      <td style={{ padding: '0.75rem 0.875rem', color: '#94a3b8' }}>{c.business_name || '—'}</td>
+                      <td style={{ padding: '0.75rem 0.875rem', color: '#94a3b8', fontFamily: 'monospace', fontSize: '0.8rem' }}>{c.whatsapp || '—'}</td>
+                      <td style={{ padding: '0.75rem 0.875rem', color: '#64748b', fontSize: '0.8rem' }}>{c.city || '—'}</td>
+                      <td style={{ padding: '0.75rem 0.875rem' }}>
+                        {c.suspended ? (
+                          <span style={{ padding: '0.2rem 0.5rem', borderRadius: '99px', background: 'rgba(239,68,68,0.1)', color: '#f87171', fontSize: '0.72rem', fontWeight: 700 }}>Suspendido</span>
+                        ) : c.approved ? (
+                          <span style={{ padding: '0.2rem 0.5rem', borderRadius: '99px', background: 'rgba(34,197,94,0.1)', color: '#22c55e', fontSize: '0.72rem', fontWeight: 700 }}>Aprobado</span>
+                        ) : (
+                          <span style={{ padding: '0.2rem 0.5rem', borderRadius: '99px', background: 'rgba(245,158,11,0.1)', color: '#f59e0b', fontSize: '0.72rem', fontWeight: 700 }}>Pendiente</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '0.75rem 0.875rem', color: '#475569', fontSize: '0.78rem' }}>
+                        {new Date(c.created_at).toLocaleDateString('es-AR')}
+                      </td>
+                      <td style={{ padding: '0.75rem 0.875rem' }}>
+                        <div style={{ display: 'flex', gap: '0.375rem' }}>
+                          {!c.approved && !c.suspended && (
+                            <button
+                              onClick={async () => {
+                                await updateCustomerStatus(c.id, { approved: true })
+                                setPortalCustomers(prev => prev.map(x => x.id === c.id ? { ...x, approved: true } : x))
+                              }}
+                              style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.3rem 0.625rem', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '0.375rem', color: '#22c55e', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              <UserCheck size={12} /> Aprobar
+                            </button>
+                          )}
+                          {c.approved && !c.suspended && (
+                            <button
+                              onClick={async () => {
+                                await updateCustomerStatus(c.id, { suspended: true })
+                                setPortalCustomers(prev => prev.map(x => x.id === c.id ? { ...x, suspended: true } : x))
+                              }}
+                              style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.3rem 0.625rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '0.375rem', color: '#f87171', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              <UserX size={12} /> Suspender
+                            </button>
+                          )}
+                          {c.suspended && (
+                            <button
+                              onClick={async () => {
+                                await updateCustomerStatus(c.id, { suspended: false })
+                                setPortalCustomers(prev => prev.map(x => x.id === c.id ? { ...x, suspended: false } : x))
+                              }}
+                              style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.3rem 0.625rem', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.375rem', color: '#818cf8', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              <UserCheck size={12} /> Reactivar
+                            </button>
+                          )}
+                          {c.whatsapp && (
+                            <a
+                              href={`https://wa.me/${c.whatsapp.replace(/\D/g, '')}`}
+                              target="_blank" rel="noopener noreferrer"
+                              style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', padding: '0.3rem 0.5rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.375rem', color: '#475569', fontSize: '0.72rem', cursor: 'pointer', textDecoration: 'none' }}
+                            >
+                              <ExternalLink size={11} />
+                            </a>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════ TAB: PEDIDOS WEB ══════ */}
+      {activeTab === 'pedidos' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+            <span style={{ fontSize: '0.82rem', color: '#64748b' }}>
+              {portalOrders.length} pedido{portalOrders.length !== 1 ? 's' : ''}
+            </span>
+            <button onClick={loadPortalData} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.4rem 0.75rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#64748b', fontSize: '0.75rem', cursor: 'pointer' }}>
+              <RefreshCw size={12} /> Actualizar
+            </button>
+          </div>
+          {portalLoading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+              <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: '#6366f1' }} />
+            </div>
+          ) : portalOrders.length === 0 ? (
+            <div style={{ padding: '3rem', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.06)', color: '#475569' }}>
+              <ShoppingBag size={28} style={{ display: 'block', margin: '0 auto 0.75rem' }} />
+              <p style={{ margin: 0 }}>Aún no hay pedidos del portal.</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {portalOrders.map(order => {
+                const customer = order.customer as any
+                return (
+                  <div key={order.id} style={{ background: '#111827', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', overflow: 'hidden' }}>
+                    {/* Header */}
+                    <div style={{ padding: '0.875rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+                        <div>
+                          <div style={{ fontWeight: 700, color: '#f1f5f9', fontSize: '0.9rem' }}>
+                            #{order.order_number}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                            {customer?.name} {customer?.business_name && `· ${customer.business_name}`}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <span style={{ padding: '0.25rem 0.625rem', borderRadius: '99px', background: `${ORDER_STATUS_COLOR[order.status]}18`, color: ORDER_STATUS_COLOR[order.status], fontSize: '0.72rem', fontWeight: 700, border: `1px solid ${ORDER_STATUS_COLOR[order.status]}40` }}>
+                          {ORDER_STATUS_LABEL[order.status]}
+                        </span>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#f1f5f9' }}>
+                          ${Math.round(order.total).toLocaleString('es-AR')}
+                        </span>
+                        <span style={{ fontSize: '0.75rem', color: '#475569' }}>
+                          {new Date(order.created_at).toLocaleDateString('es-AR')}
+                        </span>
+                      </div>
+                    </div>
+                    {/* Items */}
+                    {order.items && order.items.length > 0 && (
+                      <div style={{ padding: '0.625rem 1rem' }}>
+                        {(order.items as any[]).map((item: any) => (
+                          <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', padding: '0.2rem 0', color: '#94a3b8' }}>
+                            <span>{item.quantity}× {item.product_name}</span>
+                            <span style={{ fontFamily: 'monospace', color: '#cbd5e1' }}>${Math.round(item.subtotal).toLocaleString('es-AR')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Actions */}
+                    <div style={{ padding: '0.625rem 1rem', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      {(['pending_review','approved','invoiced','delivered','rejected','cancelled'] as const)
+                        .filter(s => s !== order.status)
+                        .slice(0, 3)
+                        .map(s => (
+                          <button key={s}
+                            onClick={async () => {
+                              await updateOrderStatus(order.id, s)
+                              setPortalOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: s } : o))
+                            }}
+                            style={{ padding: '0.3rem 0.75rem', background: `${ORDER_STATUS_COLOR[s]}12`, border: `1px solid ${ORDER_STATUS_COLOR[s]}35`, borderRadius: '0.375rem', color: ORDER_STATUS_COLOR[s], fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                          >
+                            → {ORDER_STATUS_LABEL[s]}
+                          </button>
+                        ))}
+                      {customer?.whatsapp && (
+                        <a
+                          href={`https://wa.me/${customer.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola ${customer.name}! Tu pedido #${order.order_number} fue ${ORDER_STATUS_LABEL[order.status].toLowerCase()}.`)}`}
+                          target="_blank" rel="noopener noreferrer"
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.3rem 0.625rem', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '0.375rem', color: '#22c55e', fontSize: '0.72rem', fontWeight: 600, textDecoration: 'none' }}
+                        >
+                          <ExternalLink size={11} /> Notificar WA
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
       )}
 
       <ModalCrearComprobante

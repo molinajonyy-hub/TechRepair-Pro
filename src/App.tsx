@@ -42,6 +42,7 @@ import { AdminSubscriptions } from './pages/AdminSubscriptions'
 import { Tutorials } from './pages/Tutorials'
 import WhatsAppPage from './pages/WhatsApp'
 import { MpCallback } from './pages/MpCallback'
+import { PortalRouter } from './portal/PortalRouter'
 
 function AppContent() {
   const { loadingState } = useLoading()
@@ -102,6 +103,11 @@ function AppContent() {
             <Route path="/tasks" element={<Tasks />} />
           </Route>
         </Route>
+
+        {/* Portal Mayorista Privado (/mayorista/clic, /mayorista/clic/catalogo, etc.)
+            Declarado DESPUÉS del admin /mayorista (exacto) para que React Router v6
+            prefiera la ruta exacta cuando el usuario navega a /mayorista sin slug. */}
+        <Route path="/mayorista/:slug/*" element={<PortalRouter />} />
       </Routes>
     </>
   )
