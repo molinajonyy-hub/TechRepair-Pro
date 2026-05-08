@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ShoppingCart, User, ArrowLeft } from 'lucide-react'
+import { ShoppingCart, User, ArrowLeft, ClipboardList } from 'lucide-react'
 import { usePortal } from '../contexts/PortalContext'
 import { usePortalCart } from '../hooks/usePortalCart'
 
@@ -82,12 +82,21 @@ export function PortalLayout({ children, title, showBack = false, showCart = tru
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           {customer && (
-            <button
-              onClick={() => navigate(`/mayorista/${slug}/perfil`)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: PT.textSub, padding: '0.25rem' }}
-            >
-              <User size={22} />
-            </button>
+            <>
+              <button
+                onClick={() => navigate(`/mayorista/${slug}/pedidos`)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: PT.textSub, padding: '0.25rem' }}
+                title="Mis pedidos"
+              >
+                <ClipboardList size={20} />
+              </button>
+              <button
+                onClick={() => navigate(`/mayorista/${slug}/perfil`)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: PT.textSub, padding: '0.25rem' }}
+              >
+                <User size={22} />
+              </button>
+            </>
           )}
           {showCart && customer?.approved && (
             <button

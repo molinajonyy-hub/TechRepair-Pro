@@ -3,7 +3,8 @@ import {
   Store, Search, RefreshCw, Loader2, AlertTriangle,
   CheckCircle, Pencil, Check, X, Zap, TrendingUp, Package,
   ChevronDown, ChevronUp, Users, FileText, ShoppingBag,
-  Globe, UserCheck, UserX, ExternalLink,
+  Globe, UserCheck, UserX, ExternalLink, Eye, EyeOff,
+  Settings, MessageSquare, Filter,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -28,8 +29,15 @@ interface WholesaleProduct {
   cost_price: number
   sale_price: number
   precio_mayorista: number | null
+  visible_in_wholesale: boolean
   supplier_code?: string
   is_active: boolean
+}
+
+interface PortalConfig {
+  wholesale_portal_enabled: boolean
+  wholesale_portal_slug:    string
+  wholesale_whatsapp:       string
 }
 
 // ─── Formatters ──────────────────────────────────────────────────────────────
@@ -352,12 +360,63 @@ export function Mayorista() {
   const [showComprobante, setShowComprobante] = useState(false)
   const [sortField, setSortField] = useState<'name' | 'margin' | 'stock' | 'profit'>('name')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
-  const [activeTab, setActiveTab] = useState<'precios' | 'clientes' | 'pedidos'>('precios')
+  const [activeTab, setActiveTab] = useState<'precios' | 'portal' | 'clientes' | 'pedidos' | 'config'>('precios')
 
   // Portal admin data
   const [portalCustomers, setPortalCustomers] = useState<WholesaleCustomer[]>([])
   const [portalOrders, setPortalOrders] = useState<WholesaleOrder[]>([])
   const [portalLoading, setPortalLoading] = useState(false)
+
+  // Portal tab — product visibility
+  const [portalSearch, setPortalSearch] = useState('')
+  const [portalFilter, setPortalFilter] = useState<'all' | 'visible' | 'hidden'>('all')
+
+  // Pedidos tab filters
+  const [orderSearch, setOrderSearch]           = useState('')
+  const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | WholesaleOrder['status']>('all')
+
+  // Portal config
+  const [portalConfig, setPortalConfig]   = useState<PortalConfig>({ wholesale_portal_enabled: false, wholesale_portal_slug: '', wholesale_whatsapp: '' })
+  const [configSaving, setConfigSaving]   = useState(false)
+  const [configSaved,  setConfigSaved]    = useState(false)
+  const [configError,  setConfigError]    = useState('')
+
+  const loadPortalConfig = useCallback(async () => {
+    if (!businessId) return
+    const { data } = await supabase
+      .from('businesses')
+      .select('wholesale_portal_enabled, wholesale_portal_slug, wholesale_whatsapp')
+      .eq('id', businessId)
+      .maybeSingle()
+    if (data) setPortalConfig({
+      wholesale_portal_enabled: data.wholesale_portal_enabled ?? false,
+      wholesale_portal_slug:    data.wholesale_portal_slug    ?? '',
+      wholesale_whatsapp:       data.wholesale_whatsapp       ?? '',
+    })
+  }, [businessId])
+
+  const savePortalConfig = async () => {
+    if (!businessId) return
+    const wa = portalConfig.wholesale_whatsapp.replace(/\D/g, '')
+    if (wa && !/^\d{10,15}$/.test(wa)) {
+      setConfigError('El número debe tener entre 10 y 15 dígitos (sin símbolos). Ejemplo Argentina: 5493512345678')
+      return
+    }
+    setConfigSaving(true); setConfigError(''); setConfigSaved(false)
+    const { error: err } = await supabase
+      .from('businesses')
+      .update({
+        wholesale_portal_enabled: portalConfig.wholesale_portal_enabled,
+        wholesale_portal_slug:    portalConfig.wholesale_portal_slug.toLowerCase().replace(/[^a-z0-9-]/g, '') || null,
+        wholesale_whatsapp:       wa || null,
+      })
+      .eq('id', businessId)
+    setConfigSaving(false)
+    if (err) { setConfigError(err.message); return }
+    setPortalConfig(p => ({ ...p, wholesale_whatsapp: wa, wholesale_portal_slug: portalConfig.wholesale_portal_slug.toLowerCase().replace(/[^a-z0-9-]/g, '') }))
+    setConfigSaved(true)
+    setTimeout(() => setConfigSaved(false), 2500)
+  }
 
   const loadPortalData = useCallback(async () => {
     if (!businessId) return
@@ -373,7 +432,8 @@ export function Mayorista() {
 
   useEffect(() => {
     if (activeTab === 'clientes' || activeTab === 'pedidos') loadPortalData()
-  }, [activeTab, loadPortalData])
+    if (activeTab === 'config') loadPortalConfig()
+  }, [activeTab, loadPortalData, loadPortalConfig])
 
   const load = useCallback(async () => {
     if (!businessId) return
@@ -382,7 +442,7 @@ export function Mayorista() {
     try {
       const { data, error: e } = await supabase
         .from('inventory')
-        .select('id, code, name, category, subcategory, stock_quantity, min_stock, cost_price, sale_price, precio_mayorista, supplier_code, is_active')
+        .select('id, code, name, category, subcategory, stock_quantity, min_stock, cost_price, sale_price, precio_mayorista, visible_in_wholesale, supplier_code, is_active')
         .eq('business_id', businessId)
         .eq('is_active', true)
         .order('name')
@@ -517,8 +577,10 @@ export function Mayorista() {
       <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1.5rem', padding: '0.25rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', width: 'fit-content' }}>
         {([
           { id: 'precios',  label: 'Precios',          icon: TrendingUp  },
-          { id: 'clientes', label: 'Clientes Portal',  icon: Users       },
-          { id: 'pedidos',  label: 'Pedidos Web',      icon: ShoppingBag },
+          { id: 'portal',   label: 'Portal',            icon: Globe       },
+          { id: 'clientes', label: 'Clientes',          icon: Users       },
+          { id: 'pedidos',  label: 'Pedidos Web',       icon: ShoppingBag },
+          { id: 'config',   label: 'Configuración',     icon: Settings    },
         ] as const).map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => setActiveTab(id)} style={{
             display: 'flex', alignItems: 'center', gap: '0.375rem',
@@ -726,6 +788,87 @@ export function Mayorista() {
 
       </> /* end tab precios */ )}
 
+      {/* ══════ TAB: PORTAL — visibilidad de productos ══════ */}
+      {activeTab === 'portal' && (() => {
+        const portalVisible = products.filter(p => {
+          const q = portalSearch.toLowerCase()
+          const matchSearch = !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || (p.code || '').toLowerCase().includes(q)
+          const matchFilter = portalFilter === 'all' || (portalFilter === 'visible' && p.visible_in_wholesale) || (portalFilter === 'hidden' && !p.visible_in_wholesale)
+          return matchSearch && matchFilter
+        })
+        const toggleVisibility = async (id: string, val: boolean) => {
+          await supabase.from('inventory').update({ visible_in_wholesale: val }).eq('id', id).eq('business_id', businessId)
+          setProducts(prev => prev.map(p => p.id === id ? { ...p, visible_in_wholesale: val } : p))
+        }
+        const visibleCount = products.filter(p => p.visible_in_wholesale).length
+        return (
+          <div>
+            {/* Stats + controls */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', gap: '1.25rem' }}>
+                <span style={{ fontSize: '0.82rem', color: '#64748b' }}>
+                  <strong style={{ color: '#818cf8' }}>{visibleCount}</strong> visibles en portal · {products.length - visibleCount} ocultos
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                {/* Filter */}
+                <div style={{ display: 'flex', gap: '0.25rem', background: 'rgba(255,255,255,0.03)', padding: '0.2rem', borderRadius: '0.5rem', border: '1px solid rgba(255,255,255,0.07)' }}>
+                  {([['all','Todos'],['visible','Visibles'],['hidden','Ocultos']] as const).map(([v,l]) => (
+                    <button key={v} onClick={() => setPortalFilter(v)} style={{ padding: '0.3rem 0.625rem', borderRadius: '0.375rem', border: 'none', background: portalFilter === v ? 'rgba(99,102,241,0.2)' : 'transparent', color: portalFilter === v ? '#818cf8' : '#64748b', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>{l}</button>
+                  ))}
+                </div>
+                {/* Search */}
+                <div style={{ position: 'relative' }}>
+                  <Search size={13} style={{ position: 'absolute', left: '0.625rem', top: '50%', transform: 'translateY(-50%)', color: '#475569', pointerEvents: 'none' }} />
+                  <input value={portalSearch} onChange={e => setPortalSearch(e.target.value)} placeholder="Buscar..." style={{ padding: '0.375rem 0.75rem 0.375rem 2rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#f1f5f9', fontSize: '0.8rem', outline: 'none', width: 180 }} />
+                </div>
+              </div>
+            </div>
+            {/* Table */}
+            <div style={{ background: '#111827', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.875rem', overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
+                    {['Producto', 'Categoría', 'Stock', 'Precio normal', 'Precio mayorista', 'Visible en portal'].map(h => (
+                      <th key={h} style={{ padding: '0.625rem 0.875rem', textAlign: 'left', color: '#334155', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {portalVisible.length === 0 ? (
+                    <tr><td colSpan={6} style={{ padding: '2.5rem', textAlign: 'center', color: '#334155' }}>Sin productos para mostrar.</td></tr>
+                  ) : portalVisible.map((p, i) => (
+                    <tr key={p.id} style={{ borderBottom: i < portalVisible.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                      <td style={{ padding: '0.75rem 0.875rem' }}>
+                        <div style={{ fontWeight: 600, color: '#f1f5f9' }}>{p.name}</div>
+                        {p.code && <div style={{ fontSize: '0.7rem', color: '#334155', fontFamily: 'monospace' }}>{p.code}</div>}
+                      </td>
+                      <td style={{ padding: '0.75rem 0.875rem', color: '#64748b', fontSize: '0.8rem' }}>{p.category}</td>
+                      <td style={{ padding: '0.75rem 0.875rem', fontFamily: 'monospace', color: p.stock_quantity <= p.min_stock ? '#f59e0b' : '#94a3b8', fontSize: '0.85rem' }}>{p.stock_quantity}</td>
+                      <td style={{ padding: '0.75rem 0.875rem', fontFamily: 'monospace', color: '#64748b', fontSize: '0.82rem' }}>{fmt(p.sale_price)}</td>
+                      <td style={{ padding: '0.75rem 0.875rem', fontFamily: 'monospace', fontSize: '0.82rem', color: p.precio_mayorista ? '#818cf8' : '#334155' }}>
+                        {p.precio_mayorista ? fmt(p.precio_mayorista) : <span style={{ color: '#334155', fontSize: '0.75rem' }}>Sin precio</span>}
+                      </td>
+                      <td style={{ padding: '0.75rem 0.875rem' }}>
+                        <button
+                          onClick={() => toggleVisibility(p.id, !p.visible_in_wholesale)}
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.35rem 0.75rem', borderRadius: '0.375rem', border: `1px solid ${p.visible_in_wholesale ? 'rgba(34,197,94,0.35)' : 'rgba(255,255,255,0.1)'}`, background: p.visible_in_wholesale ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)', color: p.visible_in_wholesale ? '#22c55e' : '#475569', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s' }}
+                        >
+                          {p.visible_in_wholesale ? <><Eye size={12} /> Visible</> : <><EyeOff size={12} /> Oculto</>}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p style={{ margin: '0.75rem 0 0', fontSize: '0.75rem', color: '#334155' }}>
+              Solo los productos visibles aparecen en el catálogo del portal. Editá el precio mayorista desde la pestaña Precios.
+            </p>
+          </div>
+        )
+      })()}
+
       {/* ══════ TAB: CLIENTES PORTAL ══════ */}
       {activeTab === 'clientes' && (
         <div>
@@ -837,72 +980,112 @@ export function Mayorista() {
       )}
 
       {/* ══════ TAB: PEDIDOS WEB ══════ */}
-      {activeTab === 'pedidos' && (
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-            <span style={{ fontSize: '0.82rem', color: '#64748b' }}>
-              {portalOrders.length} pedido{portalOrders.length !== 1 ? 's' : ''}
-            </span>
-            <button onClick={loadPortalData} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.4rem 0.75rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#64748b', fontSize: '0.75rem', cursor: 'pointer' }}>
-              <RefreshCw size={12} /> Actualizar
-            </button>
-          </div>
-          {portalLoading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
-              <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: '#6366f1' }} />
+      {activeTab === 'pedidos' && (() => {
+        const WA_MESSAGES: Record<WholesaleOrder['status'], (n: string, num: string) => string> = {
+          pending_whatsapp: (n: string, num: string) => `Hola ${n}! Recibimos tu pedido #${num} y lo estamos revisando.`,
+          pending_review:   (n: string, num: string) => `Hola ${n}! Tu pedido #${num} está en revisión. Pronto te confirmamos.`,
+          approved:         (n: string, num: string) => `Hola ${n}! Tu pedido #${num} fue aprobado. ¡Lo estamos preparando!`,
+          rejected:         (n: string, num: string) => `Hola ${n}! Lamentablemente tu pedido #${num} no pudo ser procesado. Contactanos para más info.`,
+          invoiced:         (n: string, num: string) => `Hola ${n}! Tu pedido #${num} fue facturado y está listo para coordinar entrega.`,
+          delivered:        (n: string, num: string) => `Hola ${n}! Tu pedido #${num} fue entregado. ¡Gracias por tu compra!`,
+          cancelled:        (n: string, num: string) => `Hola ${n}! Tu pedido #${num} fue cancelado. Contactanos si tenés dudas.`,
+        } as any
+
+        const nextStatuses: Record<WholesaleOrder['status'], WholesaleOrder['status'][]> = {
+          pending_whatsapp: ['pending_review', 'approved', 'cancelled'],
+          pending_review:   ['approved', 'rejected'],
+          approved:         ['invoiced', 'cancelled'],
+          rejected:         ['pending_review'],
+          invoiced:         ['delivered', 'cancelled'],
+          delivered:        [],
+          cancelled:        ['pending_review'],
+        }
+
+        const filteredOrders = portalOrders.filter(o => {
+          const c = o.customer as any
+          const q = orderSearch.toLowerCase()
+          const matchQ = !q || (c?.name || '').toLowerCase().includes(q) || (c?.business_name || '').toLowerCase().includes(q) || (c?.whatsapp || '').includes(q) || o.order_number.toLowerCase().includes(q)
+          const matchStatus = orderStatusFilter === 'all' || o.status === orderStatusFilter
+          return matchQ && matchStatus
+        })
+
+        return (
+          <div>
+            {/* Controls */}
+            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+                <Search size={13} style={{ position: 'absolute', left: '0.625rem', top: '50%', transform: 'translateY(-50%)', color: '#475569', pointerEvents: 'none' }} />
+                <input value={orderSearch} onChange={e => setOrderSearch(e.target.value)} placeholder="Buscar cliente, negocio, WhatsApp, N°..." style={{ width: '100%', boxSizing: 'border-box', padding: '0.4rem 0.75rem 0.4rem 2rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#f1f5f9', fontSize: '0.8rem', outline: 'none' }} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                <Filter size={13} style={{ color: '#475569' }} />
+                <select value={orderStatusFilter} onChange={e => setOrderStatusFilter(e.target.value as any)} style={{ padding: '0.4rem 0.75rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#94a3b8', fontSize: '0.8rem', outline: 'none' }}>
+                  <option value="all">Todos los estados</option>
+                  {(Object.keys(ORDER_STATUS_LABEL) as WholesaleOrder['status'][]).map(s => (
+                    <option key={s} value={s}>{ORDER_STATUS_LABEL[s]}</option>
+                  ))}
+                </select>
+              </div>
+              <span style={{ fontSize: '0.78rem', color: '#475569', whiteSpace: 'nowrap' }}>
+                {filteredOrders.length} pedido{filteredOrders.length !== 1 ? 's' : ''}
+              </span>
+              <button onClick={loadPortalData} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.4rem 0.75rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#64748b', fontSize: '0.75rem', cursor: 'pointer' }}>
+                <RefreshCw size={12} /> Actualizar
+              </button>
             </div>
-          ) : portalOrders.length === 0 ? (
-            <div style={{ padding: '3rem', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.06)', color: '#475569' }}>
-              <ShoppingBag size={28} style={{ display: 'block', margin: '0 auto 0.75rem' }} />
-              <p style={{ margin: 0 }}>Aún no hay pedidos del portal.</p>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {portalOrders.map(order => {
-                const customer = order.customer as any
-                return (
-                  <div key={order.id} style={{ background: '#111827', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', overflow: 'hidden' }}>
-                    {/* Header */}
-                    <div style={{ padding: '0.875rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+
+            {portalLoading ? (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+                <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: '#6366f1' }} />
+              </div>
+            ) : filteredOrders.length === 0 ? (
+              <div style={{ padding: '3rem', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.06)', color: '#475569' }}>
+                <ShoppingBag size={28} style={{ display: 'block', margin: '0 auto 0.75rem' }} />
+                <p style={{ margin: 0 }}>{portalOrders.length === 0 ? 'Aún no hay pedidos del portal.' : 'Sin pedidos para esos filtros.'}</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {filteredOrders.map(order => {
+                  const cust = order.customer as any
+                  const itemCount = (order.items as any[])?.length ?? 0
+                  return (
+                    <div key={order.id} style={{ background: '#111827', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', overflow: 'hidden' }}>
+                      {/* Header */}
+                      <div style={{ padding: '0.875rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.625rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                         <div>
-                          <div style={{ fontWeight: 700, color: '#f1f5f9', fontSize: '0.9rem' }}>
-                            #{order.order_number}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                            <span style={{ fontWeight: 700, color: '#f1f5f9', fontSize: '0.9rem' }}>#{order.order_number}</span>
+                            <span style={{ padding: '0.2rem 0.5rem', borderRadius: '99px', background: `${ORDER_STATUS_COLOR[order.status]}18`, color: ORDER_STATUS_COLOR[order.status], fontSize: '0.7rem', fontWeight: 700, border: `1px solid ${ORDER_STATUS_COLOR[order.status]}40` }}>
+                              {ORDER_STATUS_LABEL[order.status]}
+                            </span>
                           </div>
-                          <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                            {customer?.name} {customer?.business_name && `· ${customer.business_name}`}
+                          <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.2rem' }}>
+                            {cust?.name}{cust?.business_name && ` · ${cust.business_name}`}{cust?.whatsapp && <span style={{ color: '#334155', marginLeft: '0.5rem' }}>{cust.whatsapp}</span>}
                           </div>
                         </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', fontSize: '0.8rem', color: '#64748b' }}>
+                          <span>{itemCount} {itemCount === 1 ? 'producto' : 'productos'}</span>
+                          <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#f1f5f9', fontSize: '0.9rem' }}>${Math.round(order.total).toLocaleString('es-AR')}</span>
+                          <span>{new Date(order.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <span style={{ padding: '0.25rem 0.625rem', borderRadius: '99px', background: `${ORDER_STATUS_COLOR[order.status]}18`, color: ORDER_STATUS_COLOR[order.status], fontSize: '0.72rem', fontWeight: 700, border: `1px solid ${ORDER_STATUS_COLOR[order.status]}40` }}>
-                          {ORDER_STATUS_LABEL[order.status]}
-                        </span>
-                        <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#f1f5f9' }}>
-                          ${Math.round(order.total).toLocaleString('es-AR')}
-                        </span>
-                        <span style={{ fontSize: '0.75rem', color: '#475569' }}>
-                          {new Date(order.created_at).toLocaleDateString('es-AR')}
-                        </span>
-                      </div>
-                    </div>
-                    {/* Items */}
-                    {order.items && order.items.length > 0 && (
-                      <div style={{ padding: '0.625rem 1rem' }}>
-                        {(order.items as any[]).map((item: any) => (
-                          <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', padding: '0.2rem 0', color: '#94a3b8' }}>
-                            <span>{item.quantity}× {item.product_name}</span>
-                            <span style={{ fontFamily: 'monospace', color: '#cbd5e1' }}>${Math.round(item.subtotal).toLocaleString('es-AR')}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {/* Actions */}
-                    <div style={{ padding: '0.625rem 1rem', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      {(['pending_review','approved','invoiced','delivered','rejected','cancelled'] as const)
-                        .filter(s => s !== order.status)
-                        .slice(0, 3)
-                        .map(s => (
+
+                      {/* Items */}
+                      {(order.items as any[])?.length > 0 && (
+                        <div style={{ padding: '0.5rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                          {(order.items as any[]).map((item: any) => (
+                            <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', color: '#94a3b8' }}>
+                              <span>{item.quantity}× {item.product_name}</span>
+                              <span style={{ fontFamily: 'monospace', color: '#64748b' }}>${Math.round(item.subtotal).toLocaleString('es-AR')}</span>
+                            </div>
+                          ))}
+                          {order.notes && <p style={{ margin: '0.375rem 0 0', fontSize: '0.75rem', color: '#475569', fontStyle: 'italic' }}>Obs: {order.notes}</p>}
+                        </div>
+                      )}
+
+                      {/* Actions */}
+                      <div style={{ padding: '0.625rem 1rem', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                        {nextStatuses[order.status].map(s => (
                           <button key={s}
                             onClick={async () => {
                               await updateOrderStatus(order.id, s)
@@ -910,24 +1093,93 @@ export function Mayorista() {
                             }}
                             style={{ padding: '0.3rem 0.75rem', background: `${ORDER_STATUS_COLOR[s]}12`, border: `1px solid ${ORDER_STATUS_COLOR[s]}35`, borderRadius: '0.375rem', color: ORDER_STATUS_COLOR[s], fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
                           >
-                            → {ORDER_STATUS_LABEL[s]}
+                            {ORDER_STATUS_LABEL[s]}
                           </button>
                         ))}
-                      {customer?.whatsapp && (
-                        <a
-                          href={`https://wa.me/${customer.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola ${customer.name}! Tu pedido #${order.order_number} fue ${ORDER_STATUS_LABEL[order.status].toLowerCase()}.`)}`}
-                          target="_blank" rel="noopener noreferrer"
-                          style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.3rem 0.625rem', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '0.375rem', color: '#22c55e', fontSize: '0.72rem', fontWeight: 600, textDecoration: 'none' }}
-                        >
-                          <ExternalLink size={11} /> Notificar WA
-                        </a>
-                      )}
+                        {cust?.whatsapp && (
+                          <a
+                            href={`https://wa.me/${cust.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(WA_MESSAGES[order.status](cust.name, order.order_number))}`}
+                            target="_blank" rel="noopener noreferrer"
+                            style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.3rem 0.625rem', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '0.375rem', color: '#22c55e', fontSize: '0.72rem', fontWeight: 600, textDecoration: 'none', marginLeft: 'auto' }}
+                          >
+                            <MessageSquare size={11} /> Notificar por WhatsApp
+                          </a>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
+      {/* ══════ TAB: CONFIGURACIÓN PORTAL ══════ */}
+      {activeTab === 'config' && (
+        <div style={{ maxWidth: 540 }}>
+          <div style={{ background: '#111827', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.875rem', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            {/* Enable/disable */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1rem', background: portalConfig.wholesale_portal_enabled ? 'rgba(34,197,94,0.06)' : 'rgba(255,255,255,0.02)', border: `1px solid ${portalConfig.wholesale_portal_enabled ? 'rgba(34,197,94,0.25)' : 'rgba(255,255,255,0.07)'}`, borderRadius: '0.625rem' }}>
+              <div>
+                <div style={{ fontWeight: 700, color: '#f1f5f9', fontSize: '0.9rem' }}>Portal activo</div>
+                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '0.125rem' }}>Los clientes pueden acceder al catálogo y armar pedidos</div>
+              </div>
+              <button
+                onClick={() => setPortalConfig(p => ({ ...p, wholesale_portal_enabled: !p.wholesale_portal_enabled }))}
+                style={{ padding: '0.4rem 1rem', borderRadius: '0.5rem', border: 'none', background: portalConfig.wholesale_portal_enabled ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.07)', color: portalConfig.wholesale_portal_enabled ? '#22c55e' : '#64748b', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', minWidth: 80 }}
+              >
+                {portalConfig.wholesale_portal_enabled ? 'Activo' : 'Inactivo'}
+              </button>
             </div>
-          )}
+
+            {/* Slug */}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.375rem' }}>Slug del portal</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.82rem', color: '#334155', whiteSpace: 'nowrap' }}>{window.location.origin}/mayorista/</span>
+                <input
+                  value={portalConfig.wholesale_portal_slug}
+                  onChange={e => setPortalConfig(p => ({ ...p, wholesale_portal_slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+                  placeholder="clic"
+                  style={{ flex: 1, padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', color: '#f1f5f9', fontSize: '0.9rem', fontFamily: 'monospace', outline: 'none' }}
+                />
+              </div>
+              {portalConfig.wholesale_portal_slug && (
+                <p style={{ margin: '0.375rem 0 0', fontSize: '0.72rem', color: '#475569' }}>
+                  URL: {window.location.origin}/mayorista/{portalConfig.wholesale_portal_slug}
+                </p>
+              )}
+            </div>
+
+            {/* WhatsApp */}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.375rem' }}>WhatsApp del negocio</label>
+              <input
+                value={portalConfig.wholesale_whatsapp}
+                onChange={e => setPortalConfig(p => ({ ...p, wholesale_whatsapp: e.target.value }))}
+                placeholder="5493512345678"
+                style={{ width: '100%', boxSizing: 'border-box', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', color: '#f1f5f9', fontSize: '0.9rem', fontFamily: 'monospace', outline: 'none' }}
+              />
+              <p style={{ margin: '0.375rem 0 0', fontSize: '0.72rem', color: '#334155' }}>
+                Formato internacional sin + ni espacios. Argentina: 549 + código de área + número. Ej: <span style={{ fontFamily: 'monospace', color: '#475569' }}>5493512345678</span>
+              </p>
+            </div>
+
+            {configError && (
+              <div style={{ padding: '0.625rem 0.875rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.82rem' }}>
+                {configError}
+              </div>
+            )}
+
+            <button
+              onClick={savePortalConfig}
+              disabled={configSaving}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', background: configSaved ? 'rgba(34,197,94,0.15)' : 'linear-gradient(135deg,#6366f1,#8b5cf6)', border: configSaved ? '1px solid rgba(34,197,94,0.35)' : 'none', borderRadius: '0.625rem', color: configSaved ? '#22c55e' : '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: configSaving ? 'not-allowed' : 'pointer', opacity: configSaving ? 0.7 : 1, transition: 'all 0.15s' }}
+            >
+              {configSaving ? <><Loader2 size={15} style={{ animation: 'spin 0.8s linear infinite' }} /> Guardando...</> : configSaved ? <><CheckCircle size={15} /> Guardado</> : 'Guardar configuración'}
+            </button>
+          </div>
         </div>
       )}
 
