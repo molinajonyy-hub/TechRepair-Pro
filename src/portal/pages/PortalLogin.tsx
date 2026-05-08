@@ -1,8 +1,13 @@
 import { useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
+import { Zap } from 'lucide-react'
 import { usePortal } from '../contexts/PortalContext'
 import { loginCustomer } from '../services/portalService'
 import { PortalLayout, PortalCard, PortalButton, PortalInput, PT } from '../components/PortalLayout'
+
+const IS_DEV = import.meta.env.DEV
+const DEMO_EMAIL    = 'demo@clicmayorista.com'
+const DEMO_PASSWORD = 'Demo1234'
 
 export function PortalLogin() {
   const { slug } = useParams<{ slug: string }>()
@@ -12,22 +17,35 @@ export function PortalLogin() {
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
   const [loading,  setLoading]  = useState(false)
+  const [demoLoading, setDemoLoading] = useState(false)
   const [error,    setError]    = useState('')
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const doLogin = async (em: string, pw: string) => {
     if (!business) return
-    setLoading(true); setError('')
-    const { customer, error: err } = await loginCustomer(email, password, business.id)
-    setLoading(false)
+    const { customer, error: err } = await loginCustomer(em, pw, business.id)
     if (err) { setError(err); return }
     if (!customer) return
     setCustomer(customer)
-    if (!customer.approved) {
+    if (customer.suspended) {
+      navigate(`/mayorista/${slug}/suspendido`)
+    } else if (!customer.approved) {
       navigate(`/mayorista/${slug}/pendiente`)
     } else {
       navigate(`/mayorista/${slug}/catalogo`)
     }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true); setError('')
+    await doLogin(email, password)
+    setLoading(false)
+  }
+
+  const handleDemo = async () => {
+    setDemoLoading(true); setError('')
+    await doLogin(DEMO_EMAIL, DEMO_PASSWORD)
+    setDemoLoading(false)
   }
 
   return (
@@ -41,8 +59,52 @@ export function PortalLogin() {
         </p>
       </div>
 
-      <div style={{ padding: '0 1rem' }}>
-        <PortalCard style={{ padding: '1.5rem', marginBottom: '1rem' }}>
+      <div style={{ padding: '0 1rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+
+        {/* ── Botón demo — solo en entorno local ──────────────────────────────── */}
+        {IS_DEV && (
+          <div style={{
+            padding: '1rem 1.125rem',
+            background: 'rgba(99,102,241,0.08)',
+            border: '1px dashed rgba(99,102,241,0.35)',
+            borderRadius: PT.radiusLg,
+            display: 'flex', flexDirection: 'column', gap: '0.625rem',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Zap size={14} style={{ color: '#818cf8' }} />
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Modo Dev
+              </span>
+            </div>
+            <p style={{ margin: 0, fontSize: '0.8rem', color: PT.textSub, lineHeight: 1.4 }}>
+              Usuario demo aprobado con 7 productos visibles y carrito listo para probar.
+            </p>
+            <button
+              onClick={handleDemo}
+              disabled={demoLoading}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                padding: '0.625rem 1rem',
+                background: 'rgba(99,102,241,0.15)',
+                border: '1px solid rgba(99,102,241,0.4)',
+                borderRadius: PT.radius,
+                color: '#818cf8',
+                fontFamily: PT.font, fontSize: '0.9rem', fontWeight: 700,
+                cursor: demoLoading ? 'not-allowed' : 'pointer',
+                opacity: demoLoading ? 0.6 : 1,
+              }}
+            >
+              <Zap size={16} />
+              {demoLoading ? 'Ingresando...' : 'Ingresar como demo'}
+            </button>
+            <p style={{ margin: 0, fontSize: '0.68rem', color: '#334155', textAlign: 'center' }}>
+              {DEMO_EMAIL} · {DEMO_PASSWORD}
+            </p>
+          </div>
+        )}
+
+        {/* ── Formulario normal ────────────────────────────────────────────────── */}
+        <PortalCard style={{ padding: '1.5rem' }}>
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <PortalInput
               label="Email"
