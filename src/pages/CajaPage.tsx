@@ -278,6 +278,7 @@ export function CajaPage() {
   const [activeMethod, setActiveMethod] = useState<CajaMethod | 'all'>('all')
   const [expandedHistory, setExpandedHistory] = useState<string | null>(null)
   const [showHistorial, setShowHistorial] = useState(false)
+  const [historialFilter, setHistorialFilter] = useState<'hoy' | 'semana' | 'mes' | 'todo'>('mes')
 
   // Opening form
   const [openForm, setOpenForm] = useState<Record<CajaMethod, string>>({
@@ -331,18 +332,33 @@ export function CajaPage() {
 
   const loadHistorial = useCallback(async () => {
     if (!businessId) return
-    const { data } = await supabase
+    const now    = new Date()
+    const today  = now.toISOString().split('T')[0]
+    const weekAgo  = new Date(now.getTime() - 7  * 24 * 60 * 60 * 1000).toISOString()
+    const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
+    let q = supabase
       .from('cajas').select('*')
       .eq('business_id', businessId).eq('status', 'cerrada')
-      .order('opened_at', { ascending: false }).limit(20)
+      .order('opened_at', { ascending: false })
+
+    if (historialFilter === 'hoy')   q = q.gte('opened_at', today)
+    if (historialFilter === 'semana') q = q.gte('opened_at', weekAgo)
+    if (historialFilter === 'mes')   q = q.gte('opened_at', monthAgo)
+    // 'todo' → sin filtro de fecha, trae todas (sin LIMIT)
+
+    const { data } = await q
     setHistorial((data || []) as Caja[])
-  }, [businessId])
+  }, [businessId, historialFilter])
 
   useEffect(() => {
     loadExchangeRate()
     loadCaja()
+  }, [loadExchangeRate, loadCaja])
+
+  useEffect(() => {
     loadHistorial()
-  }, [loadExchangeRate, loadCaja, loadHistorial])
+  }, [loadHistorial])
 
   // ── Computed ─────────────────────────────────────────────────────────────────
 
@@ -679,16 +695,31 @@ export function CajaPage() {
       )}
 
       {/* ── Historial ── */}
-      {historial.length > 0 && (
-        <div style={{ marginTop: '1.5rem', background: '#111827', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '0.75rem', overflow: 'hidden' }}>
-          <button onClick={() => setShowHistorial(v => !v)} style={{ width: '100%', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', cursor: 'pointer', borderBottom: showHistorial ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700, color: '#e2e8f0', fontSize: '0.9rem' }}>
-              <Calendar size={15} style={{ color: '#475569' }} /> Historial de Cajas
+      <div style={{ marginTop: '1.5rem', background: '#111827', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '0.75rem', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.25rem', borderBottom: showHistorial ? '1px solid rgba(255,255,255,0.05)' : 'none', flexWrap: 'wrap', gap: '0.625rem' }}>
+          <button onClick={() => setShowHistorial(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 700, color: '#e2e8f0', fontSize: '0.9rem', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+            <Calendar size={15} style={{ color: '#475569' }} /> Historial de Cajas
+            <span style={{ fontSize: '0.75rem', color: '#334155', marginLeft: '0.25rem' }}>
+              {showHistorial ? '▲' : `▼ ${historial.length > 0 ? `${historial.length} sesiones` : 'ver'}`}
             </span>
-            <span style={{ fontSize: '0.75rem', color: '#334155' }}>{showHistorial ? '▲' : `▼ ${historial.length} sesiones`}</span>
           </button>
+          <div style={{ display: 'flex', gap: '0.25rem' }}>
+            {([['hoy','Hoy'],['semana','7 días'],['mes','30 días'],['todo','Todo']] as const).map(([v,l]) => (
+              <button key={v} onClick={() => { setHistorialFilter(v); setShowHistorial(true) }}
+                style={{ padding: '0.3rem 0.625rem', borderRadius: '0.375rem', border: `1px solid ${historialFilter === v ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.07)'}`, background: historialFilter === v ? 'rgba(99,102,241,0.12)' : 'transparent', color: historialFilter === v ? '#818cf8' : '#475569', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
 
-          {showHistorial && historial.map(cr => {
+        {historial.length === 0 && showHistorial && (
+          <div style={{ padding: '2rem', textAlign: 'center', color: '#334155', fontSize: '0.8rem' }}>
+            No hay cajas cerradas en este período.
+          </div>
+        )}
+
+        {showHistorial && historial.map(cr => {
             const duracion = cr.closed_at
               ? Math.round((new Date(cr.closed_at).getTime() - new Date(cr.opened_at).getTime()) / 60000)
               : null
@@ -699,26 +730,44 @@ export function CajaPage() {
                   style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem 1.25rem', cursor: 'pointer', background: isExpanded ? 'rgba(255,255,255,0.025)' : 'transparent' }}
                   onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = 'rgba(255,255,255,0.015)' }}
                   onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = 'transparent' }}>
-                  <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#cbd5e1', minWidth: 100 }}>{fmtDateShort(cr.opened_at)}</span>
-                  <span style={{ fontSize: '0.72rem', color: '#334155', minWidth: 70 }}>{duracion !== null ? `${duracion} min` : 'Aún abierta'}</span>
+
+                  {/* Fecha apertura + duración */}
+                  <div style={{ minWidth: 110, flexShrink: 0 }}>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#cbd5e1' }}>{fmtDateShort(cr.opened_at)}</div>
+                    <div style={{ fontSize: '0.68rem', color: '#334155', marginTop: '0.1rem' }}>
+                      {duracion !== null ? `${duracion} min` : 'Aún abierta'}
+                    </div>
+                  </div>
+
+                  {/* Montos contados al cierre (si los hay) o iniciales */}
                   <div style={{ flex: 1, display: 'flex', gap: '0.875rem', flexWrap: 'wrap' }}>
                     {METHODS.map(m => {
-                      const meta = METHOD_META[m]
-                      const ini  = cr[`${m}_inicial` as keyof Caja] as number || 0
+                      const meta   = METHOD_META[m]
+                      const cierre = cr[`${m}_cierre` as keyof Caja] as number | null
+                      const ini    = cr[`${m}_inicial` as keyof Caja] as number || 0
+                      const val    = cierre !== null ? cierre : ini
                       return (
-                        <span key={m} style={{ fontSize: '0.7rem', color: '#334155' }}>
-                          <span style={{ color: meta.color }}>{meta.label.substring(0,4)}</span>: {m === 'usd' ? fmtUSD(ini) : fmtARS(ini)}
+                        <span key={m} style={{ fontSize: '0.72rem' }}>
+                          <span style={{ color: meta.color }}>{meta.label.substring(0,4)}</span>
+                          <span style={{ color: cierre !== null ? '#f8fafc' : '#334155', fontFamily: 'monospace', marginLeft: '0.25rem' }}>
+                            {m === 'usd' ? fmtUSD(val) : fmtARS(val)}
+                          </span>
+                          {cierre === null && <span style={{ color: '#1e3a5f', fontSize: '0.6rem', marginLeft: '0.2rem' }}>ini</span>}
                         </span>
                       )
                     })}
                   </div>
+
+                  {/* Diferencia */}
                   {cr.difference !== null && cr.difference !== undefined && (
                     <span style={{ fontSize: '0.75rem', fontFamily: 'monospace', fontWeight: 700, flexShrink: 0, color: cr.difference === 0 ? '#34d399' : cr.difference > 0 ? '#fbbf24' : '#f87171' }}>
                       {cr.difference > 0 ? '+' : ''}{fmtARS(cr.difference)}
                     </span>
                   )}
+
                   <ChevronDown size={14} style={{ color: '#334155', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
                 </div>
+
                 {isExpanded && (
                   <div style={{ padding: '0 1rem 1rem' }}>
                     <HistoryCajaPanel caja={cr} onNavigate={handleNavigate} businessId={businessId || ''} />
@@ -726,9 +775,8 @@ export function CajaPage() {
                 )}
               </div>
             )
-          })}
-        </div>
-      )}
+        })}
+      </div>
 
       {/* ── Modal: Agregar movimiento ── */}
       {showAddMov && (
