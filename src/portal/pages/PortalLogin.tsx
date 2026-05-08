@@ -11,48 +11,93 @@ const DEMO_PASSWORD = 'Demo1234'
 
 export function PortalLogin() {
   const { slug } = useParams<{ slug: string }>()
-  const { business, setCustomer } = usePortal()
+  const { business, bizLoading, setCustomer } = usePortal()
   const navigate = useNavigate()
 
-  const [email,    setEmail]    = useState('')
-  const [password, setPassword] = useState('')
-  const [loading,  setLoading]  = useState(false)
+  const [email,       setEmail]       = useState('')
+  const [password,    setPassword]    = useState('')
+  const [loading,     setLoading]     = useState(false)
   const [demoLoading, setDemoLoading] = useState(false)
-  const [error,    setError]    = useState('')
+  const [error,       setError]       = useState('')
 
   const doLogin = async (em: string, pw: string) => {
-    if (!business) return
-    const { customer, error: err } = await loginCustomer(em, pw, business.id)
-    if (err) { setError(err); return }
-    if (!customer) return
-    setCustomer(customer)
-    if (customer.suspended) {
-      navigate(`/mayorista/${slug}/suspendido`)
-    } else if (!customer.approved) {
-      navigate(`/mayorista/${slug}/pendiente`)
+    setError('')
+
+    if (bizLoading) {
+      setError('El portal todavía está cargando. Intentá en un momento.')
+      return
+    }
+    if (!business) {
+      setError('No se pudo cargar el portal. Recargá la página.')
+      return
+    }
+
+    console.log('[PortalLogin] iniciando login', { email: em, businessId: business.id, slug })
+
+    let result: Awaited<ReturnType<typeof loginCustomer>>
+    try {
+      result = await loginCustomer(em, pw, business.id)
+    } catch (e: any) {
+      console.error('[PortalLogin] excepción en loginCustomer', e)
+      setError('Error de conexión. Revisá tu internet e intentá de nuevo.')
+      return
+    }
+
+    console.log('[PortalLogin] resultado', {
+      hasCustomer: !!result.customer,
+      error: result.error,
+    })
+
+    if (result.error) {
+      setError(result.error)
+      return
+    }
+
+    if (!result.customer) {
+      setError('No existe un cliente mayorista vinculado a este email en este portal.')
+      return
+    }
+
+    const c = result.customer
+    console.log('[PortalLogin] customer ok', { approved: c.approved, suspended: c.suspended })
+
+    setCustomer(c)
+
+    if (c.suspended) {
+      navigate(`/mayorista/${slug}/suspendido`, { replace: true })
+    } else if (!c.approved) {
+      navigate(`/mayorista/${slug}/pendiente`, { replace: true })
     } else {
-      navigate(`/mayorista/${slug}/catalogo`)
+      navigate(`/mayorista/${slug}/catalogo`, { replace: true })
     }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setLoading(true); setError('')
-    await doLogin(email, password)
-    setLoading(false)
+    console.log('[PortalLogin] form submit', { email })
+    setLoading(true)
+    try {
+      await doLogin(email, password)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleDemo = async () => {
-    setDemoLoading(true); setError('')
-    await doLogin(DEMO_EMAIL, DEMO_PASSWORD)
-    setDemoLoading(false)
+    console.log('[PortalLogin] demo click')
+    setDemoLoading(true)
+    try {
+      await doLogin(DEMO_EMAIL, DEMO_PASSWORD)
+    } finally {
+      setDemoLoading(false)
+    }
   }
 
   return (
     <PortalLayout showBack={false} showCart={false}>
       <div style={{ padding: '2rem 1rem 1rem', textAlign: 'center' }}>
         <h1 style={{ fontSize: '1.75rem', fontWeight: 800, margin: '0 0 0.25rem', letterSpacing: '-0.03em' }}>
-          {business?.name || 'Portal Mayorista'}
+          {bizLoading ? 'Cargando...' : business?.name || 'Portal Mayorista'}
         </h1>
         <p style={{ color: PT.textSub, margin: 0, fontSize: '0.95rem' }}>
           Acceso exclusivo para clientes mayoristas
@@ -61,7 +106,7 @@ export function PortalLogin() {
 
       <div style={{ padding: '0 1rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
 
-        {/* ── Botón demo — solo en entorno local ──────────────────────────────── */}
+        {/* ── Botón demo (solo entorno local) ─────────────────────────────────── */}
         {IS_DEV && (
           <div style={{
             padding: '1rem 1.125rem',
@@ -77,11 +122,11 @@ export function PortalLogin() {
               </span>
             </div>
             <p style={{ margin: 0, fontSize: '0.8rem', color: PT.textSub, lineHeight: 1.4 }}>
-              Usuario demo aprobado con 7 productos visibles y carrito listo para probar.
+              Usuario demo aprobado con productos visibles y carrito listo para probar.
             </p>
             <button
               onClick={handleDemo}
-              disabled={demoLoading}
+              disabled={demoLoading || bizLoading}
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
                 padding: '0.625rem 1rem',
@@ -90,12 +135,12 @@ export function PortalLogin() {
                 borderRadius: PT.radius,
                 color: '#818cf8',
                 fontFamily: PT.font, fontSize: '0.9rem', fontWeight: 700,
-                cursor: demoLoading ? 'not-allowed' : 'pointer',
-                opacity: demoLoading ? 0.6 : 1,
+                cursor: (demoLoading || bizLoading) ? 'not-allowed' : 'pointer',
+                opacity: (demoLoading || bizLoading) ? 0.6 : 1,
               }}
             >
               <Zap size={16} />
-              {demoLoading ? 'Ingresando...' : 'Ingresar como demo'}
+              {demoLoading ? 'Ingresando...' : bizLoading ? 'Cargando portal...' : 'Ingresar como demo'}
             </button>
             <p style={{ margin: 0, fontSize: '0.68rem', color: '#334155', textAlign: 'center' }}>
               {DEMO_EMAIL} · {DEMO_PASSWORD}
@@ -103,7 +148,7 @@ export function PortalLogin() {
           </div>
         )}
 
-        {/* ── Formulario normal ────────────────────────────────────────────────── */}
+        {/* ── Formulario ───────────────────────────────────────────────────────── */}
         <PortalCard style={{ padding: '1.5rem' }}>
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <PortalInput
@@ -125,16 +170,25 @@ export function PortalLogin() {
 
             {error && (
               <div style={{
-                padding: '0.75rem 1rem', background: `${PT.danger}15`,
-                border: `1px solid ${PT.danger}40`, borderRadius: PT.radius,
-                color: PT.danger, fontSize: '0.875rem', fontWeight: 500,
+                padding: '0.75rem 1rem',
+                background: `${PT.danger}15`,
+                border: `1px solid ${PT.danger}40`,
+                borderRadius: PT.radius,
+                color: PT.danger,
+                fontSize: '0.875rem',
+                fontWeight: 500,
+                lineHeight: 1.4,
               }}>
                 {error}
               </div>
             )}
 
-            <PortalButton type="submit" loading={loading}>
-              Ingresar
+            <PortalButton
+              type="submit"
+              loading={loading}
+              disabled={bizLoading}
+            >
+              {bizLoading ? 'Cargando portal...' : 'Ingresar'}
             </PortalButton>
           </form>
         </PortalCard>

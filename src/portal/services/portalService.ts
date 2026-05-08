@@ -19,14 +19,22 @@ export async function getPortalBusiness(slug: string): Promise<PortalBusiness | 
 // ─── Auth / Customer ──────────────────────────────────────────────────────────
 
 export async function getCustomerByAuthId(businessId: string): Promise<WholesaleCustomer | null> {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const { data } = await supabase
+  const { data: authData, error: authErr } = await supabase.auth.getUser()
+  if (authErr || !authData.user) {
+    console.log('[portalService] getCustomerByAuthId: no auth session', authErr?.message)
+    return null
+  }
+  const { data, error } = await supabase
     .from('wholesale_customers')
     .select('*')
-    .eq('auth_user_id', user.id)
+    .eq('auth_user_id', authData.user.id)
     .eq('business_id', businessId)
     .maybeSingle()
+  if (error) {
+    console.error('[portalService] getCustomerByAuthId error:', error.message)
+    return null
+  }
+  console.log('[portalService] getCustomerByAuthId:', data ? `found ${data.email}` : 'not found')
   return (data as WholesaleCustomer | null)
 }
 
@@ -74,18 +82,24 @@ export async function registerCustomer(input: {
 export async function loginCustomer(
   email: string, password: string, businessId: string
 ): Promise<{ customer: WholesaleCustomer | null; error: string | null }> {
+  console.log('[loginCustomer] signInWithPassword', { email, businessId })
   const { error: authErr } = await supabase.auth.signInWithPassword({ email, password })
-  if (authErr) return { customer: null, error: 'Email o contraseña incorrectos' }
+  if (authErr) {
+    console.error('[loginCustomer] signInWithPassword error:', authErr.message)
+    return { customer: null, error: 'Email o contraseña incorrectos' }
+  }
+  console.log('[loginCustomer] signInWithPassword OK — buscando wholesale_customer')
 
   const customer = await getCustomerByAuthId(businessId)
   if (!customer) {
     await supabase.auth.signOut()
-    return { customer: null, error: 'Esta cuenta no pertenece a este portal' }
+    return { customer: null, error: 'Esta cuenta no pertenece a este portal. Verificá que estés en el portal correcto.' }
   }
   if (customer.suspended) {
     await supabase.auth.signOut()
     return { customer: null, error: 'Tu cuenta fue suspendida. Contactá al negocio para más información.' }
   }
+  console.log('[loginCustomer] customer encontrado:', { approved: customer.approved, suspended: customer.suspended })
 
   await supabase
     .from('wholesale_customers')
