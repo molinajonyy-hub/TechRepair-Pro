@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { MessageCircle, ChevronDown, ChevronUp, Package } from 'lucide-react'
 import { usePortal } from '../contexts/PortalContext'
 import { getCustomerOrders } from '../services/portalService'
+import { usePortalGuard } from '../hooks/usePortalGuard'
 import { PortalLayout, PortalCard, PortalButton, PT } from '../components/PortalLayout'
 import { ORDER_STATUS_LABEL, ORDER_STATUS_COLOR } from '../types'
 import type { WholesaleOrder } from '../types'
@@ -90,6 +91,7 @@ function OrderRow({ order, businessWa }: { order: WholesaleOrder; businessWa: st
 }
 
 export function PortalOrders() {
+  usePortalGuard()
   const { slug } = useParams<{ slug: string }>()
   const { business, customer } = usePortal()
   const navigate = useNavigate()

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Trash2, Minus, Plus, MessageCircle, CheckCircle } from 'lucide-react'
 import { usePortal } from '../contexts/PortalContext'
 import { usePortalCart } from '../hooks/usePortalCart'
+import { usePortalGuard } from '../hooks/usePortalGuard'
 import { createOrder, trackEvent } from '../services/portalService'
 import { PortalLayout, PortalCard, PortalButton, PT } from '../components/PortalLayout'
 
@@ -40,6 +41,7 @@ Total estimado: ${fmtARS(params.total)}${params.notes ? `\n\nObservaciones:\n${p
 }
 
 export function PortalCart() {
+  usePortalGuard()
   const { slug } = useParams<{ slug: string }>()
   const { business, customer } = usePortal()
   const { items, total, updateQty, removeItem, clearCart } = usePortalCart(business?.id || '')

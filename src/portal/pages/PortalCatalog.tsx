@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Search, ShoppingCart, Plus, LogOut } from 'lucide-react'
 import { usePortal } from '../contexts/PortalContext'
 import { usePortalCart } from '../hooks/usePortalCart'
+import { usePortalGuard } from '../hooks/usePortalGuard'
 import { getCatalog } from '../services/portalService'
 import { logoutCustomer } from '../services/portalService'
 import { PortalLayout, PortalCard, PT } from '../components/PortalLayout'
@@ -90,6 +91,7 @@ function ProductCardItem({
 }
 
 export function PortalCatalog() {
+  usePortalGuard()
   const { slug } = useParams<{ slug: string }>()
   const { business, customer, setCustomer } = usePortal()
   const navigate = useNavigate()

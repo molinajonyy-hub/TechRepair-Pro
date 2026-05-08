@@ -394,7 +394,11 @@ export function Mayorista() {
       'mayorista',
     )
     setConverting(false)
-    if (error || !customerId) { setConvertError(error || 'No se pudo obtener el cliente'); return }
+    if (error || !customerId) {
+      setConvertError(error || 'No se pudo obtener el cliente')
+      setTimeout(() => setConvertError(''), 4000)
+      return
+    }
     setConvertClientId(customerId)
     setConvertOrder(order)
     setShowComprobante(true)

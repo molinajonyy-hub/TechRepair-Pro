@@ -1,14 +1,18 @@
 import { ShieldOff, LogOut } from 'lucide-react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { usePortal } from '../contexts/PortalContext'
 import { logoutCustomer } from '../services/portalService'
 import { PortalLayout, PortalButton, PT } from '../components/PortalLayout'
 
 export function PortalSuspendido() {
+  const { slug } = useParams<{ slug: string }>()
   const { business, setCustomer } = usePortal()
+  const navigate = useNavigate()
 
   const handleLogout = async () => {
     await logoutCustomer()
     setCustomer(null)
+    navigate(`/mayorista/${slug}/login`, { replace: true })
   }
 
   const whatsapp = business?.wholesale_whatsapp
