@@ -97,9 +97,11 @@ export function PortalOrders() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!customer) return
-    getCustomerOrders(customer.id).then(list => { setOrders(list); setLoading(false) })
-  }, [customer])
+    if (!customer || !business) return
+    getCustomerOrders(customer.id, business.id)
+      .then(list => { setOrders(list); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [customer, business])
 
   return (
     <PortalLayout title="Mis pedidos" showBack showCart backTo={`/mayorista/${slug}/catalogo`}>

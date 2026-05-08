@@ -6,7 +6,8 @@ import { PortalRegister } from './pages/PortalRegister'
 import { PortalPending }  from './pages/PortalPending'
 import { PortalCatalog }  from './pages/PortalCatalog'
 import { PortalCart }     from './pages/PortalCart'
-import { PortalOrders }   from './pages/PortalOrders'
+import { PortalOrders }     from './pages/PortalOrders'
+import { PortalSuspendido } from './pages/PortalSuspendido'
 
 // El padre ya capturó :slug con <Route path="/mayorista/:slug/*" />
 export function PortalRouter() {
@@ -21,7 +22,8 @@ export function PortalRouter() {
         <Route path="pendiente" element={<PortalPending />} />
         <Route path="catalogo" element={<PortalCatalog />}  />
         <Route path="carrito"  element={<PortalCart />}     />
-        <Route path="pedidos"  element={<PortalOrders />}   />
+        <Route path="pedidos"     element={<PortalOrders />}     />
+        <Route path="suspendido"  element={<PortalSuspendido />} />
       </Routes>
     </PortalProvider>
   )

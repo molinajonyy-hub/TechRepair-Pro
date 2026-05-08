@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ShoppingCart, User, ArrowLeft, ClipboardList } from 'lucide-react'
+import { ShoppingCart, LogOut, ArrowLeft, ClipboardList } from 'lucide-react'
 import { usePortal } from '../contexts/PortalContext'
 import { usePortalCart } from '../hooks/usePortalCart'
+import { logoutCustomer } from '../services/portalService'
 
 // ─── iOS-style design tokens ──────────────────────────────────────────────────
 export const PT = {
@@ -32,9 +33,15 @@ interface Props {
 
 export function PortalLayout({ children, title, showBack = false, showCart = true, backTo }: Props) {
   const { slug } = useParams<{ slug: string }>()
-  const { business, customer } = usePortal()
+  const { business, customer, setCustomer } = usePortal()
   const navigate = useNavigate()
   const { itemCount } = usePortalCart(business?.id || '')
+
+  const handleLogout = async () => {
+    await logoutCustomer()
+    setCustomer(null)
+    navigate(`/mayorista/${slug}/login`)
+  }
 
   const goBack = () => {
     if (backTo) navigate(backTo)
@@ -91,10 +98,11 @@ export function PortalLayout({ children, title, showBack = false, showCart = tru
                 <ClipboardList size={20} />
               </button>
               <button
-                onClick={() => navigate(`/mayorista/${slug}/perfil`)}
+                onClick={handleLogout}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: PT.textSub, padding: '0.25rem' }}
+                title="Cerrar sesión"
               >
-                <User size={22} />
+                <LogOut size={20} />
               </button>
             </>
           )}

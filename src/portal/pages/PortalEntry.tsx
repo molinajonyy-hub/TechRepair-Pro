@@ -14,6 +14,8 @@ export function PortalEntry() {
 
     if (!customer) {
       navigate(`/mayorista/${slug}/login`, { replace: true })
+    } else if (customer.suspended) {
+      navigate(`/mayorista/${slug}/suspendido`, { replace: true })
     } else if (!customer.approved) {
       navigate(`/mayorista/${slug}/pendiente`, { replace: true })
     } else {

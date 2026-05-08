@@ -12,6 +12,7 @@ import { ModalCrearComprobante } from '../components/comprobantes/ModalCrearComp
 import {
   getWholesaleCustomers, updateCustomerStatus,
   getWholesaleOrders, updateOrderStatus,
+  getOrCreateCustomerFromPortal,
 } from '../portal/services/portalService'
 import type { WholesaleCustomer, WholesaleOrder } from '../portal/types'
 import { ORDER_STATUS_LABEL, ORDER_STATUS_COLOR } from '../portal/types'
@@ -374,6 +375,30 @@ export function Mayorista() {
   // Pedidos tab filters
   const [orderSearch, setOrderSearch]           = useState('')
   const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | WholesaleOrder['status']>('all')
+
+  // Convertir en comprobante desde pedido portal
+  const [convertOrder, setConvertOrder]   = useState<WholesaleOrder | null>(null)
+  const [convertClientId, setConvertClientId] = useState<string | null>(null)
+  const [converting, setConverting]       = useState(false)
+  const [convertError, setConvertError]   = useState('')
+
+  const handleConvertirComprobante = async (order: WholesaleOrder) => {
+    if (!businessId) return
+    setConverting(true); setConvertError('')
+    const cust = order.customer as any
+    const { customerId, error } = await getOrCreateCustomerFromPortal(
+      businessId,
+      cust?.email || '',
+      cust?.name || 'Cliente mayorista',
+      cust?.whatsapp || null,
+      'mayorista',
+    )
+    setConverting(false)
+    if (error || !customerId) { setConvertError(error || 'No se pudo obtener el cliente'); return }
+    setConvertClientId(customerId)
+    setConvertOrder(order)
+    setShowComprobante(true)
+  }
 
   // Portal config
   const [portalConfig, setPortalConfig]   = useState<PortalConfig>({ wholesale_portal_enabled: false, wholesale_portal_slug: '', wholesale_whatsapp: '' })
@@ -889,7 +914,7 @@ export function Mayorista() {
               <Globe size={28} style={{ marginBottom: '0.75rem', display: 'block', margin: '0 auto 0.75rem' }} />
               <p style={{ margin: 0 }}>Aún no hay clientes registrados en el portal.</p>
               <p style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
-                Compartí el link: <strong style={{ color: '#818cf8' }}>{window.location.origin}/mayorista/clic</strong>
+                Compartí el link: <strong style={{ color: '#818cf8' }}>{window.location.origin}/mayorista/{portalConfig.wholesale_portal_slug || 'clic'}</strong>
               </p>
             </div>
           ) : (
@@ -897,7 +922,7 @@ export function Mayorista() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                 <thead>
                   <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
-                    {['Cliente', 'Negocio', 'WhatsApp', 'Ciudad', 'Estado', 'Registrado', 'Acciones'].map(h => (
+                    {['Cliente', 'Negocio', 'WhatsApp', 'Ubicación', 'Estado', 'Registrado', 'Acciones'].map(h => (
                       <th key={h} style={{ padding: '0.625rem 0.875rem', textAlign: 'left', color: '#334155', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>{h}</th>
                     ))}
                   </tr>
@@ -911,7 +936,10 @@ export function Mayorista() {
                       </td>
                       <td style={{ padding: '0.75rem 0.875rem', color: '#94a3b8' }}>{c.business_name || '—'}</td>
                       <td style={{ padding: '0.75rem 0.875rem', color: '#94a3b8', fontFamily: 'monospace', fontSize: '0.8rem' }}>{c.whatsapp || '—'}</td>
-                      <td style={{ padding: '0.75rem 0.875rem', color: '#64748b', fontSize: '0.8rem' }}>{c.city || '—'}</td>
+                      <td style={{ padding: '0.75rem 0.875rem', fontSize: '0.8rem' }}>
+                        <div style={{ color: '#94a3b8' }}>{c.city || '—'}{c.province && c.city ? `, ${c.province}` : c.province || ''}</div>
+                        {c.instagram && <div style={{ color: '#334155', fontSize: '0.72rem' }}>@{c.instagram}</div>}
+                      </td>
                       <td style={{ padding: '0.75rem 0.875rem' }}>
                         {c.suspended ? (
                           <span style={{ padding: '0.2rem 0.5rem', borderRadius: '99px', background: 'rgba(239,68,68,0.1)', color: '#f87171', fontSize: '0.72rem', fontWeight: 700 }}>Suspendido</span>
@@ -1105,6 +1133,15 @@ export function Mayorista() {
                             <MessageSquare size={11} /> Notificar por WhatsApp
                           </a>
                         )}
+                        {order.status !== 'invoiced' && order.status !== 'cancelled' && order.status !== 'rejected' && (
+                          <button
+                            onClick={() => handleConvertirComprobante(order)}
+                            disabled={converting}
+                            style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.3rem 0.75rem', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '0.375rem', color: '#818cf8', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', marginLeft: cust?.whatsapp ? '0' : 'auto' }}
+                          >
+                            <FileText size={11} /> {converting ? 'Procesando...' : 'Convertir en comprobante'}
+                          </button>
+                        )}
                       </div>
                     </div>
                   )
@@ -1183,12 +1220,46 @@ export function Mayorista() {
         </div>
       )}
 
-      <ModalCrearComprobante
-        isOpen={showComprobante}
-        onClose={() => setShowComprobante(false)}
-        onCreado={() => setShowComprobante(false)}
-        usarPrecioMayorista={true}
-      />
+      {/* Modal comprobante directo (botón "Nuevo Comprobante" en header) */}
+      {showComprobante && !convertOrder && (
+        <ModalCrearComprobante
+          isOpen
+          onClose={() => setShowComprobante(false)}
+          onCreado={() => setShowComprobante(false)}
+          usarPrecioMayorista={true}
+        />
+      )}
+
+      {/* Modal comprobante desde pedido web */}
+      {showComprobante && convertOrder && convertClientId && (
+        <ModalCrearComprobante
+          isOpen
+          onClose={() => { setShowComprobante(false); setConvertOrder(null); setConvertClientId(null) }}
+          onCreado={async () => {
+            setShowComprobante(false)
+            // Marcar pedido como facturado
+            await updateOrderStatus(convertOrder.id, 'invoiced', undefined, businessId || undefined)
+            setPortalOrders(prev => prev.map(o => o.id === convertOrder.id ? { ...o, status: 'invoiced' as const } : o))
+            setConvertOrder(null); setConvertClientId(null)
+          }}
+          initialClienteId={convertClientId}
+          usarPrecioMayorista={true}
+          initialItems={(convertOrder.items || []).map(item => ({
+            descripcion:     item.product_name,
+            cantidad:        item.quantity,
+            precio_unitario: item.unit_price,
+            costo_unitario:  0,
+            inventory_id:    item.inventory_item_id || undefined,
+            tipo_linea:      'producto' as const,
+          }))}
+        />
+      )}
+
+      {convertError && (
+        <div style={{ position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)', background: '#ef4444', color: '#fff', padding: '0.625rem 1.25rem', borderRadius: '99px', fontSize: '0.85rem', fontWeight: 600, zIndex: 999 }}>
+          {convertError}
+        </div>
+      )}
     </div>
   )
 }

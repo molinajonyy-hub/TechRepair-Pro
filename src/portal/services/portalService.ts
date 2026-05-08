@@ -45,7 +45,11 @@ export async function registerCustomer(input: {
     email: input.email,
     password: input.password,
   })
-  if (authErr || !authData.user) return { customer: null, error: authErr?.message || 'Error al crear cuenta' }
+  if (authErr || !authData.user) {
+    const msg = authErr?.message || 'Error al crear cuenta'
+    const friendly = msg.toLowerCase().includes('already') ? 'Este email ya está registrado. Intentá iniciar sesión.' : msg
+    return { customer: null, error: friendly }
+  }
 
   const { data, error } = await supabase
     .from('wholesale_customers')
@@ -55,10 +59,10 @@ export async function registerCustomer(input: {
       name:          input.name,
       business_name: input.businessName || null,
       email:         input.email,
-      whatsapp:      input.whatsapp || null,
+      whatsapp:      input.whatsapp.replace(/\D/g, '') || null,
       province:      input.province || null,
       city:          input.city || null,
-      instagram:     input.instagram || null,
+      instagram:     input.instagram?.replace(/^@/, '') || null,
     })
     .select()
     .single()
@@ -78,8 +82,11 @@ export async function loginCustomer(
     await supabase.auth.signOut()
     return { customer: null, error: 'Esta cuenta no pertenece a este portal' }
   }
+  if (customer.suspended) {
+    await supabase.auth.signOut()
+    return { customer: null, error: 'Tu cuenta fue suspendida. Contactá al negocio para más información.' }
+  }
 
-  // Update last_login
   await supabase
     .from('wholesale_customers')
     .update({ last_login: new Date().toISOString() })
@@ -95,7 +102,7 @@ export async function logoutCustomer(): Promise<void> {
 // ─── Catalog ──────────────────────────────────────────────────────────────────
 
 export async function getCatalog(businessId: string): Promise<PortalProduct[]> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('inventory')
     .select('id, code, name, category, subcategory, stock_quantity, sale_price, precio_mayorista, visible_in_wholesale, cost_price, description')
     .eq('business_id', businessId)
@@ -104,6 +111,7 @@ export async function getCatalog(businessId: string): Promise<PortalProduct[]> {
     .gt('stock_quantity', 0)
     .order('category')
     .order('name')
+  if (error) throw error
   return (data || []) as PortalProduct[]
 }
 
@@ -138,7 +146,7 @@ export async function createOrder(input: {
     business_id:       input.businessId,
     inventory_item_id: i.inventoryItemId,
     product_name:      i.productName,
-    product_code:      i.productCode,
+    product_code:      i.productCode || null,
     quantity:          i.quantity,
     unit_price:        i.unitPrice,
     subtotal:          i.unitPrice * i.quantity,
@@ -146,14 +154,31 @@ export async function createOrder(input: {
 
   await supabase.from('wholesale_order_items').insert(itemsToInsert)
 
+  // Update customer analytics — fire and forget
+  supabase
+    .from('wholesale_customers')
+    .update({ last_order_at: new Date().toISOString() })
+    .eq('id', input.customerId)
+    .then(() => {})
+
+  // Increment total_orders + total_spent via raw SQL increment
+  supabase.rpc('increment_wholesale_customer_stats' as any, {
+    p_customer_id: input.customerId,
+    p_amount:      total,
+  }).then(() => {}) // no-op if RPC not deployed yet
+
   return { order: order as WholesaleOrder, error: null }
 }
 
-export async function getCustomerOrders(customerId: string): Promise<WholesaleOrder[]> {
+export async function getCustomerOrders(
+  customerId: string,
+  businessId: string,
+): Promise<WholesaleOrder[]> {
   const { data } = await supabase
     .from('wholesale_orders')
     .select('*, items:wholesale_order_items(*)')
     .eq('customer_id', customerId)
+    .eq('business_id', businessId)   // ← security: only orders of this business
     .order('created_at', { ascending: false })
     .limit(30)
   return (data || []) as WholesaleOrder[]
@@ -187,7 +212,7 @@ export async function getWholesaleOrders(
 ): Promise<WholesaleOrder[]> {
   const { data } = await supabase
     .from('wholesale_orders')
-    .select('*, customer:wholesale_customers(id,name,business_name,whatsapp), items:wholesale_order_items(*)')
+    .select('*, customer:wholesale_customers(id,name,business_name,whatsapp,email,province,city), items:wholesale_order_items(*)')
     .eq('business_id', businessId)
     .order('created_at', { ascending: false })
     .limit(100)
@@ -197,12 +222,63 @@ export async function getWholesaleOrders(
 export async function updateOrderStatus(
   orderId: string,
   status: WholesaleOrder['status'],
-  adminNotes?: string
+  adminNotes?: string,
+  businessId?: string,
 ): Promise<void> {
-  await supabase
+  let q = supabase
     .from('wholesale_orders')
     .update({ status, admin_notes: adminNotes || null, updated_at: new Date().toISOString() })
     .eq('id', orderId)
+  if (businessId) q = q.eq('business_id', businessId)  // ← security: scope to business
+  await q
+}
+
+/**
+ * Busca o crea un cliente en la tabla `customers` (TechRepair Pro) a partir
+ * de un cliente del portal. Necesario para "Convertir en comprobante".
+ */
+export async function getOrCreateCustomerFromPortal(
+  businessId: string,
+  email: string,
+  name: string,
+  phone?: string | null,
+  customerType: 'mayorista' | 'minorista' = 'mayorista',
+): Promise<{ customerId: string | null; error: string | null }> {
+  // 1. Buscar cliente existente por email
+  const { data: existing } = await supabase
+    .from('customers')
+    .select('id')
+    .eq('business_id', businessId)
+    .eq('email', email)
+    .maybeSingle()
+
+  if (existing?.id) return { customerId: existing.id, error: null }
+
+  // 2. Buscar por nombre exacto como fallback
+  const { data: byName } = await supabase
+    .from('customers')
+    .select('id')
+    .eq('business_id', businessId)
+    .ilike('name', name)
+    .maybeSingle()
+
+  if (byName?.id) return { customerId: byName.id, error: null }
+
+  // 3. Crear nuevo cliente
+  const { data: created, error } = await supabase
+    .from('customers')
+    .insert({
+      business_id:   businessId,
+      name,
+      email:         email || null,
+      phone:         phone  || null,
+      customer_type: customerType,
+    })
+    .select('id')
+    .single()
+
+  if (error) return { customerId: null, error: error.message }
+  return { customerId: created.id, error: null }
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────────

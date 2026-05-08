@@ -103,7 +103,9 @@ export function PortalCatalog() {
 
   useEffect(() => {
     if (!business) return
-    getCatalog(business.id).then(ps => { setProducts(ps); setLoading(false) })
+    getCatalog(business.id)
+      .then(ps => { setProducts(ps); setLoading(false) })
+      .catch(() => setLoading(false))
   }, [business])
 
   const categories = useMemo(() => {
@@ -118,7 +120,7 @@ export function PortalCatalog() {
       const q = search.toLowerCase()
       list = list.filter(p =>
         p.name.toLowerCase().includes(q) ||
-        p.code.toLowerCase().includes(q) ||
+        (p.code || '').toLowerCase().includes(q) ||
         p.category.toLowerCase().includes(q)
       )
     }
