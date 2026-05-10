@@ -96,9 +96,17 @@ export function PortalLogin() {
   return (
     <PortalLayout showBack={false} showCart={false}>
       <div style={{ padding: '2rem 1rem 1rem', textAlign: 'center' }}>
-        <h1 style={{ fontSize: '1.75rem', fontWeight: 800, margin: '0 0 0.25rem', letterSpacing: '-0.03em' }}>
-          {bizLoading ? 'Cargando...' : business?.name || 'Portal Mayorista'}
-        </h1>
+        {business?.logo_url ? (
+          <img
+            src={business.logo_url}
+            alt={business.name}
+            style={{ height: 64, maxWidth: 200, objectFit: 'contain', margin: '0 auto 0.75rem', display: 'block' }}
+          />
+        ) : (
+          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, margin: '0 0 0.25rem', letterSpacing: '-0.03em' }}>
+            {bizLoading ? 'Cargando...' : business?.name || 'Portal Mayorista'}
+          </h1>
+        )}
         <p style={{ color: PT.textSub, margin: 0, fontSize: '0.95rem' }}>
           Acceso exclusivo para clientes mayoristas
         </p>

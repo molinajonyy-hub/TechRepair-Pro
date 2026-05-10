@@ -80,6 +80,8 @@ export function PortalLayout({ children, title, showBack = false, showCart = tru
           )}
           {title ? (
             <span style={{ fontWeight: 600, fontSize: '1rem', color: PT.text }}>{title}</span>
+          ) : business?.logo_url ? (
+            <img src={business.logo_url} alt={business.name} style={{ height: 28, maxWidth: 120, objectFit: 'contain' }} />
           ) : (
             <span style={{ fontWeight: 700, fontSize: '1.1rem', color: PT.text, letterSpacing: '-0.02em' }}>
               {business?.name || 'Portal'}

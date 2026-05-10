@@ -9,7 +9,7 @@ import type {
 export async function getPortalBusiness(slug: string): Promise<PortalBusiness | null> {
   const { data } = await supabase
     .from('businesses')
-    .select('id, name, wholesale_portal_enabled, wholesale_portal_slug, wholesale_whatsapp, wholesale_portal_theme')
+    .select('id, name, logo_url, wholesale_portal_enabled, wholesale_portal_slug, wholesale_whatsapp, wholesale_portal_theme')
     .eq('wholesale_portal_slug', slug)
     .maybeSingle()
   if (!data || !data.wholesale_portal_enabled) return null

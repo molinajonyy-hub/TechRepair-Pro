@@ -3,6 +3,7 @@
 export interface PortalBusiness {
   id: string
   name: string
+  logo_url: string | null
   wholesale_portal_enabled: boolean
   wholesale_portal_slug: string
   wholesale_whatsapp: string | null

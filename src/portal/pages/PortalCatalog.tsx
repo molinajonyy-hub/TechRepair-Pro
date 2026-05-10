@@ -42,11 +42,7 @@ function ProductCardItem({
             <p style={{ margin: 0, fontWeight: 600, fontSize: '0.95rem', color: PT.text, lineHeight: 1.3 }}>
               {product.name}
             </p>
-            {product.code && (
-              <p style={{ margin: '0.2rem 0 0', fontSize: '0.72rem', color: PT.textSub, fontFamily: 'monospace' }}>
-                SKU {product.code}
-              </p>
-            )}
+
           </div>
           {product.stock_quantity <= 5 && (
             <span style={{ flexShrink: 0, padding: '0.15rem 0.5rem', borderRadius: '99px', background: `${PT.warning}20`, color: PT.warning, fontSize: '0.7rem', fontWeight: 700 }}>
@@ -122,7 +118,6 @@ export function PortalCatalog() {
       const q = search.toLowerCase()
       list = list.filter(p =>
         p.name.toLowerCase().includes(q) ||
-        (p.code || '').toLowerCase().includes(q) ||
         p.category.toLowerCase().includes(q)
       )
     }
@@ -170,7 +165,7 @@ export function PortalCatalog() {
           <Search size={16} style={{ position: 'absolute', left: '0.875rem', top: '50%', transform: 'translateY(-50%)', color: PT.textSub, pointerEvents: 'none' }} />
           <input
             value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Buscar producto, SKU..."
+            placeholder="Buscar producto..."
             style={{
               width: '100%', boxSizing: 'border-box',
               padding: '0.75rem 1rem 0.75rem 2.5rem',
