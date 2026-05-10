@@ -606,16 +606,14 @@ export function Mayorista() {
       {/* ── Tabs ── */}
       <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1.5rem', padding: '0.25rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', width: 'fit-content' }}>
         {([
-          { id: 'precios',  label: 'Precios',           icon: TrendingUp  },
+          { id: 'precios',  label: 'Precios', icon: TrendingUp },
           ...(portalConfig.wholesale_portal_enabled ? [
             { id: 'catalogo', label: 'Catálogo Portal', icon: LayoutGrid  },
             { id: 'portal',   label: 'Visibilidad',     icon: Globe       },
-          ] : [
-            { id: 'portal',   label: 'Portal',          icon: Globe       },
-          ]),
-          { id: 'clientes', label: 'Clientes',           icon: Users       },
-          { id: 'pedidos',  label: 'Pedidos Web',        icon: ShoppingBag },
-          { id: 'config',   label: 'Configuración',      icon: Settings    },
+            { id: 'clientes', label: 'Clientes',        icon: Users       },
+            { id: 'pedidos',  label: 'Pedidos Web',     icon: ShoppingBag },
+            { id: 'config',   label: 'Configuración',   icon: Settings    },
+          ] : []),
         ] as const).map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => setActiveTab(id as any)} style={{
             display: 'flex', alignItems: 'center', gap: '0.375rem',
