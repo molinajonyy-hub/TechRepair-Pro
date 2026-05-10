@@ -4,11 +4,12 @@ import {
   CheckCircle, Pencil, Check, X, Zap, TrendingUp, Package,
   ChevronDown, ChevronUp, Users, FileText, ShoppingBag,
   Globe, UserCheck, UserX, ExternalLink, Eye, EyeOff,
-  Settings, MessageSquare, Filter,
+  Settings, MessageSquare, Filter, LayoutGrid,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { ModalCrearComprobante } from '../components/comprobantes/ModalCrearComprobante'
+import { TabCatalogoPortal } from './mayorista/TabCatalogoPortal'
 import {
   getWholesaleCustomers, updateCustomerStatus,
   getWholesaleOrders, updateOrderStatus,
@@ -361,7 +362,7 @@ export function Mayorista() {
   const [showComprobante, setShowComprobante] = useState(false)
   const [sortField, setSortField] = useState<'name' | 'margin' | 'stock' | 'profit'>('name')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
-  const [activeTab, setActiveTab] = useState<'precios' | 'portal' | 'clientes' | 'pedidos' | 'config'>('precios')
+  const [activeTab, setActiveTab] = useState<'precios' | 'catalogo' | 'portal' | 'clientes' | 'pedidos' | 'config'>('precios')
 
   // Portal admin data
   const [portalCustomers, setPortalCustomers] = useState<WholesaleCustomer[]>([])
@@ -605,13 +606,18 @@ export function Mayorista() {
       {/* ── Tabs ── */}
       <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1.5rem', padding: '0.25rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', width: 'fit-content' }}>
         {([
-          { id: 'precios',  label: 'Precios',          icon: TrendingUp  },
-          { id: 'portal',   label: 'Portal',            icon: Globe       },
-          { id: 'clientes', label: 'Clientes',          icon: Users       },
-          { id: 'pedidos',  label: 'Pedidos Web',       icon: ShoppingBag },
-          { id: 'config',   label: 'Configuración',     icon: Settings    },
+          { id: 'precios',  label: 'Precios',           icon: TrendingUp  },
+          ...(portalConfig.wholesale_portal_enabled ? [
+            { id: 'catalogo', label: 'Catálogo Portal', icon: LayoutGrid  },
+            { id: 'portal',   label: 'Visibilidad',     icon: Globe       },
+          ] : [
+            { id: 'portal',   label: 'Portal',          icon: Globe       },
+          ]),
+          { id: 'clientes', label: 'Clientes',           icon: Users       },
+          { id: 'pedidos',  label: 'Pedidos Web',        icon: ShoppingBag },
+          { id: 'config',   label: 'Configuración',      icon: Settings    },
         ] as const).map(({ id, label, icon: Icon }) => (
-          <button key={id} onClick={() => setActiveTab(id)} style={{
+          <button key={id} onClick={() => setActiveTab(id as any)} style={{
             display: 'flex', alignItems: 'center', gap: '0.375rem',
             padding: '0.5rem 1rem', borderRadius: '0.5rem', border: 'none',
             background: activeTab === id ? 'rgba(99,102,241,0.18)' : 'transparent',
@@ -816,6 +822,14 @@ export function Mayorista() {
       )}
 
       </> /* end tab precios */ )}
+
+      {/* ══════ TAB: CATÁLOGO PORTAL ══════ */}
+      {activeTab === 'catalogo' && businessId && (
+        <TabCatalogoPortal
+          businessId={businessId}
+          portalSlug={portalConfig.wholesale_portal_slug || 'clic'}
+        />
+      )}
 
       {/* ══════ TAB: PORTAL — visibilidad de productos ══════ */}
       {activeTab === 'portal' && (() => {
