@@ -19,22 +19,23 @@ export async function getPortalBusiness(slug: string): Promise<PortalBusiness | 
 // ─── Auth / Customer ──────────────────────────────────────────────────────────
 
 export async function getCustomerByAuthId(businessId: string): Promise<WholesaleCustomer | null> {
-  const { data: authData, error: authErr } = await supabase.auth.getUser()
-  if (authErr || !authData.user) {
-    console.log('[portalService] getCustomerByAuthId: no auth session', authErr?.message)
-    return null
-  }
+  // Usar getSession() en lugar de getUser() — no hace roundtrip a la red
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.user) return null
+
   const { data, error } = await supabase
     .from('wholesale_customers')
     .select('*')
-    .eq('auth_user_id', authData.user.id)
+    .eq('auth_user_id', session.user.id)
     .eq('business_id', businessId)
     .maybeSingle()
+
   if (error) {
-    console.error('[portalService] getCustomerByAuthId error:', error.message)
+    // 403 = sin permiso (grant faltante) — silencioso para no romper el flujo
+    if (error.code === '42501' || error.message.includes('permission denied')) return null
+    console.warn('[portalService] getCustomerByAuthId error:', error.message)
     return null
   }
-  console.log('[portalService] getCustomerByAuthId:', data ? `found ${data.email}` : 'not found')
   return (data as WholesaleCustomer | null)
 }
 
