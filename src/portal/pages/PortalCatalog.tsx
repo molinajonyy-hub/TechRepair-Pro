@@ -88,8 +88,7 @@ function ProductCardItem({
 
 export function PortalCatalog() {
   usePortalGuard()
-  const { slug } = useParams<{ slug: string }>()
-  const { business, customer, setCustomer } = usePortal()
+  const { business, customer, setCustomer, slug, basePath } = usePortal()
   const navigate = useNavigate()
   const { addItem, itemCount } = usePortalCart(business?.id || '')
 
@@ -141,7 +140,7 @@ export function PortalCatalog() {
   const handleLogout = async () => {
     await logoutCustomer()
     setCustomer(null)
-    navigate(`/mayorista/${slug}/login`)
+    navigate(`${basePath}/login`)
   }
 
   return (
@@ -220,7 +219,7 @@ export function PortalCatalog() {
       {itemCount > 0 && (
         <div style={{ position: 'fixed', bottom: '1.5rem', left: '50%', transform: 'translateX(-50%)', zIndex: 200 }}>
           <button
-            onClick={() => navigate(`/mayorista/${slug}/carrito`)}
+            onClick={() => navigate(`${basePath}/carrito`)}
             style={{
               display: 'flex', alignItems: 'center', gap: '0.75rem',
               padding: '0.875rem 1.75rem',

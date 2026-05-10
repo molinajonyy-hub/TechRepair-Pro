@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { ShoppingCart, LogOut, ArrowLeft, ClipboardList } from 'lucide-react'
 import { usePortal } from '../contexts/PortalContext'
 import { usePortalCart } from '../hooks/usePortalCart'
@@ -32,15 +32,14 @@ interface Props {
 }
 
 export function PortalLayout({ children, title, showBack = false, showCart = true, backTo }: Props) {
-  const { slug } = useParams<{ slug: string }>()
-  const { business, customer, setCustomer } = usePortal()
+  const { business, customer, setCustomer, slug, basePath } = usePortal()
   const navigate = useNavigate()
   const { itemCount } = usePortalCart(business?.id || '')
 
   const handleLogout = async () => {
     await logoutCustomer()
     setCustomer(null)
-    navigate(`/mayorista/${slug}/login`)
+    navigate(`${basePath}/login`)
   }
 
   const goBack = () => {
@@ -107,7 +106,7 @@ export function PortalLayout({ children, title, showBack = false, showCart = tru
           {customer && (
             <>
               <button
-                onClick={() => navigate(`/mayorista/${slug}/pedidos`)}
+                onClick={() => navigate(`${basePath}/pedidos`)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: PT.textSub, padding: '0.4rem', display: 'flex' }}
                 title="Mis pedidos"
               >
@@ -124,7 +123,7 @@ export function PortalLayout({ children, title, showBack = false, showCart = tru
           )}
           {showCart && customer?.approved && (
             <button
-              onClick={() => navigate(`/mayorista/${slug}/carrito`)}
+              onClick={() => navigate(`${basePath}/carrito`)}
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
                 position: 'relative', color: PT.text, padding: '0.4rem', display: 'flex',

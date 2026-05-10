@@ -43,21 +43,36 @@ import { AdminSubscriptions } from './pages/AdminSubscriptions'
 import { Tutorials } from './pages/Tutorials'
 import WhatsAppPage from './pages/WhatsApp'
 import { MpCallback } from './pages/MpCallback'
-import { PortalRouter } from './portal/PortalRouter'
+import { PortalRouter, PORTAL_DOMAINS } from './portal/PortalRouter'
 
 function AppContent() {
   const { loadingState } = useLoading()
 
+  const loadingNode = loadingState.isLoading && (
+    <LoadingDino
+      fullScreen
+      message={loadingState.message}
+      progress={loadingState.progress}
+      showProgress={loadingState.showProgress}
+    />
+  )
+
+  // Si el hostname es un dominio exclusivo del portal, montar el portal en la raíz
+  const portalSlug = PORTAL_DOMAINS[window.location.hostname]
+  if (portalSlug) {
+    return (
+      <>
+        {loadingNode}
+        <Routes>
+          <Route path="/*" element={<PortalRouter forcedSlug={portalSlug} />} />
+        </Routes>
+      </>
+    )
+  }
+
   return (
     <>
-      {loadingState.isLoading && (
-        <LoadingDino 
-          fullScreen 
-          message={loadingState.message}
-          progress={loadingState.progress}
-          showProgress={loadingState.showProgress}
-        />
-      )}
+      {loadingNode}
       <Routes>
         <Route path="/landing" element={<LandingPage />} />
         <Route path="/login" element={<Login />} />

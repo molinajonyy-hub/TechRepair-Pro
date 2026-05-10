@@ -1,11 +1,10 @@
 import { useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { usePortal } from '../contexts/PortalContext'
 import { PT } from '../components/PortalLayout'
 
 export function PortalEntry() {
-  const { slug } = useParams<{ slug: string }>()
-  const { business, customer, authLoading, bizLoading, notFound } = usePortal()
+  const { business, customer, authLoading, bizLoading, notFound, basePath } = usePortal()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -13,15 +12,15 @@ export function PortalEntry() {
     if (notFound || !business) return
 
     if (!customer) {
-      navigate(`/mayorista/${slug}/login`, { replace: true })
+      navigate(`${basePath}/login`, { replace: true })
     } else if (customer.suspended) {
-      navigate(`/mayorista/${slug}/suspendido`, { replace: true })
+      navigate(`${basePath}/suspendido`, { replace: true })
     } else if (!customer.approved) {
-      navigate(`/mayorista/${slug}/pendiente`, { replace: true })
+      navigate(`${basePath}/pendiente`, { replace: true })
     } else {
-      navigate(`/mayorista/${slug}/catalogo`, { replace: true })
+      navigate(`${basePath}/catalogo`, { replace: true })
     }
-  }, [business, customer, authLoading, bizLoading, notFound, slug, navigate])
+  }, [business, customer, authLoading, bizLoading, notFound, basePath, navigate])
 
   if (notFound) {
     return (

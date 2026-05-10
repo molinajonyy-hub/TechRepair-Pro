@@ -9,6 +9,8 @@ interface PortalContextValue {
   authLoading: boolean
   bizLoading:  boolean
   notFound:    boolean
+  slug:        string
+  basePath:    string   // '' on portal domain, '/mayorista/:slug' on main domain
   refresh:     () => Promise<void>
   setCustomer: (c: WholesaleCustomer | null) => void
 }
@@ -23,10 +25,11 @@ export function usePortal() {
 
 interface Props {
   slug:     string
+  basePath: string
   children: ReactNode
 }
 
-export function PortalProvider({ slug, children }: Props) {
+export function PortalProvider({ slug, basePath, children }: Props) {
   const [business,    setBusiness]    = useState<PortalBusiness | null>(null)
   const [customer,    setCustomer]    = useState<WholesaleCustomer | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
@@ -67,7 +70,7 @@ export function PortalProvider({ slug, children }: Props) {
 
   return (
     <PortalContext.Provider value={{
-      business, customer, authLoading, bizLoading, notFound, refresh, setCustomer,
+      business, customer, authLoading, bizLoading, notFound, slug, basePath, refresh, setCustomer,
     }}>
       {children}
     </PortalContext.Provider>

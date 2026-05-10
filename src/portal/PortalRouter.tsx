@@ -9,12 +9,23 @@ import { PortalCart }     from './pages/PortalCart'
 import { PortalOrders }     from './pages/PortalOrders'
 import { PortalSuspendido } from './pages/PortalSuspendido'
 
-// El padre ya capturó :slug con <Route path="/mayorista/:slug/*" />
-export function PortalRouter() {
-  const { slug } = useParams<{ slug: string }>()
+// Dominios exclusivos del portal — sin prefijo /mayorista/:slug en la URL
+export const PORTAL_DOMAINS: Record<string, string> = {
+  'clicmayorista.com.ar':     'clic',
+  'www.clicmayorista.com.ar': 'clic',
+}
+
+interface Props {
+  forcedSlug?: string
+}
+
+export function PortalRouter({ forcedSlug }: Props) {
+  const { slug: slugFromUrl } = useParams<{ slug: string }>()
+  const slug     = forcedSlug || slugFromUrl || ''
+  const basePath = forcedSlug ? '' : `/mayorista/${slug}`
 
   return (
-    <PortalProvider slug={slug || ''}>
+    <PortalProvider slug={slug} basePath={basePath}>
       <Routes>
         <Route index           element={<PortalEntry />}    />
         <Route path="login"    element={<PortalLogin />}    />

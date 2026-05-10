@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Trash2, Minus, Plus, MessageCircle, CheckCircle } from 'lucide-react'
 import { usePortal } from '../contexts/PortalContext'
 import { usePortalCart } from '../hooks/usePortalCart'
@@ -42,8 +42,7 @@ Total estimado: ${fmtARS(params.total)}${params.notes ? `\n\nObservaciones:\n${p
 
 export function PortalCart() {
   usePortalGuard()
-  const { slug } = useParams<{ slug: string }>()
-  const { business, customer } = usePortal()
+  const { business, customer, basePath } = usePortal()
   const { items, total, updateQty, removeItem, clearCart } = usePortalCart(business?.id || '')
   const navigate = useNavigate()
 
@@ -96,7 +95,7 @@ export function PortalCart() {
 
   if (success) {
     return (
-      <PortalLayout title="Pedido enviado" showBack showCart={false} backTo={`/mayorista/${slug}/catalogo`}>
+      <PortalLayout title="Pedido enviado" showBack showCart={false} backTo={`${basePath}/catalogo`}>
         <div style={{ padding: '3rem 1rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.25rem' }}>
           <div style={{ width: 80, height: 80, borderRadius: '50%', background: `${PT.success}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <CheckCircle size={42} style={{ color: PT.success }} />
@@ -108,7 +107,7 @@ export function PortalCart() {
               Se abrió WhatsApp con el mensaje del pedido. Pronto te confirmamos.
             </p>
           </div>
-          <PortalButton variant="secondary" onClick={() => navigate(`/mayorista/${slug}/catalogo`)}>
+          <PortalButton variant="secondary" onClick={() => navigate(`${basePath}/catalogo`)}>
             Volver al catálogo
           </PortalButton>
         </div>
@@ -118,11 +117,11 @@ export function PortalCart() {
 
   if (items.length === 0) {
     return (
-      <PortalLayout title="Mi pedido" showBack showCart={false} backTo={`/mayorista/${slug}/catalogo`}>
+      <PortalLayout title="Mi pedido" showBack showCart={false} backTo={`${basePath}/catalogo`}>
         <div style={{ padding: '3rem 1rem', textAlign: 'center' }}>
           <p style={{ fontSize: '2rem', marginBottom: '1rem' }}>🛒</p>
           <p style={{ color: PT.textSub }}>Tu pedido está vacío.</p>
-          <PortalButton onClick={() => navigate(`/mayorista/${slug}/catalogo`)}>
+          <PortalButton onClick={() => navigate(`${basePath}/catalogo`)}>
             Ver catálogo
           </PortalButton>
         </div>
@@ -131,7 +130,7 @@ export function PortalCart() {
   }
 
   return (
-    <PortalLayout title="Mi pedido" showBack showCart={false} backTo={`/mayorista/${slug}/catalogo`}>
+    <PortalLayout title="Mi pedido" showBack showCart={false} backTo={`${basePath}/catalogo`}>
       <div style={{ padding: '0.875rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
 
         {/* Items */}

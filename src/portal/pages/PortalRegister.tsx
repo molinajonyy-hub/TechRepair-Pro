@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, useParams, Link } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { usePortal } from '../contexts/PortalContext'
 import { registerCustomer } from '../services/portalService'
 import { PortalLayout, PortalCard, PortalButton, PortalInput, PT } from '../components/PortalLayout'
@@ -13,8 +13,7 @@ const PROVINCES = [
 ]
 
 export function PortalRegister() {
-  const { slug } = useParams<{ slug: string }>()
-  const { business } = usePortal()
+  const { business, basePath } = usePortal()
   const navigate = useNavigate()
 
   const [form, setForm] = useState({
@@ -45,11 +44,11 @@ export function PortalRegister() {
     })
     setLoading(false)
     if (err) { setError(err); return }
-    navigate(`/mayorista/${slug}/pendiente`)
+    navigate(`${basePath}/pendiente`)
   }
 
   return (
-    <PortalLayout title="Solicitar acceso" showBack showCart={false} backTo={`/mayorista/${slug}/login`}>
+    <PortalLayout title="Solicitar acceso" showBack showCart={false} backTo={`${basePath}/login`}>
       <div style={{ padding: '1.25rem 1rem 0.75rem' }}>
         <p style={{ color: PT.textSub, margin: 0, fontSize: '0.9rem' }}>
           Completá el formulario. Tu cuenta será revisada y aprobada manualmente.
@@ -108,7 +107,7 @@ export function PortalRegister() {
 
           <p style={{ textAlign: 'center', color: PT.textSub, fontSize: '0.85rem', margin: 0 }}>
             ¿Ya tenés cuenta?{' '}
-            <Link to={`/mayorista/${slug}/login`} style={{ color: PT.primary, fontWeight: 600, textDecoration: 'none' }}>
+            <Link to={`${basePath}/login`} style={{ color: PT.primary, fontWeight: 600, textDecoration: 'none' }}>
               Ingresá acá
             </Link>
           </p>

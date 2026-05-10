@@ -92,8 +92,7 @@ function OrderRow({ order, businessWa }: { order: WholesaleOrder; businessWa: st
 
 export function PortalOrders() {
   usePortalGuard()
-  const { slug } = useParams<{ slug: string }>()
-  const { business, customer } = usePortal()
+  const { business, customer, basePath } = usePortal()
   const navigate = useNavigate()
   const [orders,  setOrders]  = useState<WholesaleOrder[]>([])
   const [loading, setLoading] = useState(true)
@@ -106,7 +105,7 @@ export function PortalOrders() {
   }, [customer, business])
 
   return (
-    <PortalLayout title="Mis pedidos" showBack showCart backTo={`/mayorista/${slug}/catalogo`}>
+    <PortalLayout title="Mis pedidos" showBack showCart backTo={`${basePath}/catalogo`}>
       <div style={{ padding: '0.875rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         {loading ? (
           <PortalCard style={{ padding: '3rem', textAlign: 'center' }}>
@@ -120,7 +119,7 @@ export function PortalOrders() {
               <p style={{ margin: 0, fontWeight: 600, color: PT.text }}>Sin pedidos aún</p>
               <p style={{ margin: '0.375rem 0 0', color: PT.textSub, fontSize: '0.875rem' }}>Cuando hagas tu primer pedido aparecerá acá.</p>
             </div>
-            <PortalButton onClick={() => navigate(`/mayorista/${slug}/catalogo`)} fullWidth={false}>
+            <PortalButton onClick={() => navigate(`${basePath}/catalogo`)} fullWidth={false}>
               Ver catálogo
             </PortalButton>
           </PortalCard>

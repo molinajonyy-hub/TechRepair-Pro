@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, useParams, Link } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { Eye, EyeOff, AlertCircle, Zap } from 'lucide-react'
 import { usePortal } from '../contexts/PortalContext'
 import { loginCustomer } from '../services/portalService'
@@ -102,8 +102,7 @@ const CSS = `
 `
 
 export function PortalLogin() {
-  const { slug } = useParams<{ slug: string }>()
-  const { business, bizLoading, setCustomer } = usePortal()
+  const { business, bizLoading, setCustomer, slug, basePath } = usePortal()
   const navigate = useNavigate()
 
   const [email,       setEmail]       = useState('')
@@ -131,9 +130,9 @@ export function PortalLogin() {
 
     const c = result.customer
     setCustomer(c)
-    if (c.suspended)     navigate(`/mayorista/${slug}/suspendido`, { replace: true })
-    else if (!c.approved)navigate(`/mayorista/${slug}/pendiente`,  { replace: true })
-    else                 navigate(`/mayorista/${slug}/catalogo`,   { replace: true })
+    if (c.suspended)     navigate(`${basePath}/suspendido`, { replace: true })
+    else if (!c.approved)navigate(`${basePath}/pendiente`,  { replace: true })
+    else                 navigate(`${basePath}/catalogo`,   { replace: true })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -378,7 +377,7 @@ export function PortalLogin() {
           color: '#8e8e93',
         }}>
           ¿Todavía no tenés acceso?{' '}
-          <Link to={`/mayorista/${slug}/registro`} className="pl-register-link">
+          <Link to={`${basePath}/registro`} className="pl-register-link">
             Solicitá acceso
           </Link>
         </p>
