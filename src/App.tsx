@@ -31,6 +31,7 @@ import { Warranties } from './pages/Warranties'
 import { UsersManagement } from './pages/UsersManagement'
 import { CajaPage } from './pages/CajaPage'
 import { Mayorista } from './pages/Mayorista'
+import { AdminPortalClic } from './pages/AdminPortalClic'
 import Settings from './pages/Settings'
 import { LandingPage } from './pages/LandingPage'
 // ── Subscription ─────────────────────────────────────────────
@@ -82,6 +83,7 @@ function AppContent() {
             <Route path="/customers/:id" element={<CustomerDetail />} />
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/mayorista" element={<Mayorista />} />
+            <Route path="/portal-clic" element={<AdminPortalClic />} />
             <Route path="/suppliers" element={<Suppliers />} />
             <Route path="/cuentas" element={<CuentasCorrientes />} />
             <Route path="/offers" element={<Offers />} />
