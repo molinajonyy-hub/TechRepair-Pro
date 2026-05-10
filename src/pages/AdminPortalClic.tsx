@@ -425,8 +425,7 @@ export function AdminPortalClic() {
 
   useEffect(() => { if (portalAllowed) load() }, [load, portalAllowed])
 
-  if (portalAllowed === null) return null
-
+  // Todos los hooks deben estar antes de cualquier early return (Rules of Hooks)
   const patchProduct = useCallback((inventoryId: string, patch: Partial<ProductSettings>) => {
     setProducts(prev => prev.map(p =>
       p.inventory_id === inventoryId
@@ -434,12 +433,6 @@ export function AdminPortalClic() {
         : p
     ))
   }, [])
-
-  const toggleField = async (p: AdminProduct, field: 'is_visible' | 'is_featured') => {
-    const newVal = !p.settings[field]
-    patchProduct(p.inventory_id, { [field]: newVal })
-    await upsertSettings(businessId!, p.inventory_id, { [field]: newVal })
-  }
 
   const cats = useMemo(() => [...new Set(products.map(p => p.category))].sort(), [products])
 
@@ -462,6 +455,15 @@ export function AdminPortalClic() {
     featured: products.filter(p => p.settings.is_featured).length,
     noImage:  products.filter(p => !p.settings.main_image_url).length,
   }), [products])
+
+  // Early return DESPUÉS de todos los hooks
+  if (portalAllowed === null) return null
+
+  const toggleField = async (p: AdminProduct, field: 'is_visible' | 'is_featured') => {
+    const newVal = !p.settings[field]
+    patchProduct(p.inventory_id, { [field]: newVal })
+    await upsertSettings(businessId!, p.inventory_id, { [field]: newVal })
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: S.bg, color: S.text, fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif" }}>
