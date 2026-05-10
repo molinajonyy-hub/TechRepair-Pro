@@ -95,19 +95,27 @@ export function PortalLogin() {
 
   return (
     <PortalLayout showBack={false} showCart={false}>
-      <div style={{ padding: '2rem 1rem 1rem', textAlign: 'center' }}>
+      <div style={{ padding: '2.5rem 1.5rem 1.25rem', textAlign: 'center' }}>
         {business?.logo_url ? (
           <img
             src={business.logo_url}
             alt={business.name}
-            style={{ height: 64, maxWidth: 200, objectFit: 'contain', margin: '0 auto 0.75rem', display: 'block' }}
+            style={{
+              height: 72,
+              maxWidth: 240,
+              objectFit: 'contain',
+              objectPosition: 'center',
+              margin: '0 auto 1rem',
+              display: 'block',
+              imageRendering: '-webkit-optimize-contrast' as React.CSSProperties['imageRendering'],
+            }}
           />
         ) : (
-          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, margin: '0 0 0.25rem', letterSpacing: '-0.03em' }}>
+          <h1 style={{ fontSize: '2rem', fontWeight: 800, margin: '0 0 0.5rem', letterSpacing: '-0.04em', color: PT.text }}>
             {bizLoading ? 'Cargando...' : business?.name || 'Portal Mayorista'}
           </h1>
         )}
-        <p style={{ color: PT.textSub, margin: 0, fontSize: '0.95rem' }}>
+        <p style={{ color: PT.textSub, margin: 0, fontSize: '0.9rem', letterSpacing: '0.01em' }}>
           Acceso exclusivo para clientes mayoristas
         </p>
       </div>

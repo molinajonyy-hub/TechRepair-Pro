@@ -59,52 +59,66 @@ export function PortalLayout({ children, title, showBack = false, showCart = tru
       {/* ── Top bar ── */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 100,
-        background: 'rgba(242,242,247,0.92)',
-        backdropFilter: 'saturate(180%) blur(20px)',
-        WebkitBackdropFilter: 'saturate(180%) blur(20px)',
+        background: 'rgba(242,242,247,0.94)',
+        backdropFilter: 'saturate(180%) blur(24px)',
+        WebkitBackdropFilter: 'saturate(180%) blur(24px)',
         borderBottom: `1px solid ${PT.border}`,
-        padding: '0 1rem',
+        padding: '0 1.25rem',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        height: 54,
+        height: 64,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
+        {/* ── Logo / título ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flex: 1, minWidth: 0 }}>
           {showBack && (
             <button onClick={goBack} style={{
               background: 'none', border: 'none', cursor: 'pointer',
-              color: PT.primary, display: 'flex', alignItems: 'center', gap: '0.25rem',
-              fontSize: '1rem', fontFamily: PT.font, padding: '0.25rem',
-              marginLeft: '-0.25rem',
+              color: PT.primary, display: 'flex', alignItems: 'center',
+              padding: '0.25rem', marginLeft: '-0.25rem', flexShrink: 0,
             }}>
-              <ArrowLeft size={20} />
+              <ArrowLeft size={22} />
             </button>
           )}
           {title ? (
             <span style={{ fontWeight: 600, fontSize: '1rem', color: PT.text }}>{title}</span>
           ) : business?.logo_url ? (
-            <img src={business.logo_url} alt={business.name} style={{ height: 28, maxWidth: 120, objectFit: 'contain' }} />
+            <img
+              src={business.logo_url}
+              alt={business.name}
+              style={{
+                /* Desktop: 44px — se reduce en pantallas pequeñas vía clamp */
+                height: 'clamp(32px, 6.5vw, 44px)',
+                maxWidth: 'clamp(110px, 36vw, 180px)',
+                objectFit: 'contain',
+                objectPosition: 'left center',
+                display: 'block',
+                /* Nitidez HiDPI */
+                imageRendering: '-webkit-optimize-contrast' as React.CSSProperties['imageRendering'],
+              }}
+            />
           ) : (
-            <span style={{ fontWeight: 700, fontSize: '1.1rem', color: PT.text, letterSpacing: '-0.02em' }}>
+            <span style={{ fontWeight: 800, fontSize: '1.2rem', color: PT.text, letterSpacing: '-0.03em' }}>
               {business?.name || 'Portal'}
             </span>
           )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        {/* ── Acciones ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexShrink: 0 }}>
           {customer && (
             <>
               <button
                 onClick={() => navigate(`/mayorista/${slug}/pedidos`)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: PT.textSub, padding: '0.25rem' }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: PT.textSub, padding: '0.4rem', display: 'flex' }}
                 title="Mis pedidos"
               >
-                <ClipboardList size={20} />
+                <ClipboardList size={22} />
               </button>
               <button
                 onClick={handleLogout}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: PT.textSub, padding: '0.25rem' }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: PT.textSub, padding: '0.4rem', display: 'flex' }}
                 title="Cerrar sesión"
               >
-                <LogOut size={20} />
+                <LogOut size={22} />
               </button>
             </>
           )}
@@ -113,16 +127,16 @@ export function PortalLayout({ children, title, showBack = false, showCart = tru
               onClick={() => navigate(`/mayorista/${slug}/carrito`)}
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
-                position: 'relative', color: PT.text, padding: '0.25rem',
+                position: 'relative', color: PT.text, padding: '0.4rem', display: 'flex',
               }}
             >
-              <ShoppingCart size={22} />
+              <ShoppingCart size={24} />
               {itemCount > 0 && (
                 <span style={{
-                  position: 'absolute', top: -2, right: -4,
+                  position: 'absolute', top: 0, right: 0,
                   background: PT.danger, color: '#fff',
-                  fontSize: '0.65rem', fontWeight: 700,
-                  width: 18, height: 18, borderRadius: '50%',
+                  fontSize: '0.6rem', fontWeight: 700,
+                  width: 17, height: 17, borderRadius: '50%',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   lineHeight: 1,
                 }}>
