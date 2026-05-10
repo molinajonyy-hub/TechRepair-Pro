@@ -47,6 +47,12 @@ export interface FinancialSummary {
   opMarginPct:  number
   opItemsCount: number
 
+  // Desglose minorista / mayorista
+  opRevenueRetail:    number
+  opRevenueMayorista: number
+  opProfitRetail:     number
+  opProfitMayorista:  number
+
   // Debug — visible en consola [Finance] Resumen unificado:
   _debug: {
     fromDate:       string
@@ -136,7 +142,7 @@ export async function getFinancialSummary(
   const [itemsRes, commissionsRes] = await Promise.all([
     supabase
       .from('comprobante_items')
-      .select('comprobante_id, precio_unitario, costo_unitario, cantidad, descuento_linea')
+      .select('comprobante_id, precio_unitario, costo_unitario, cantidad, descuento_linea, applied_price_type')
       .eq('business_id', businessId)
       .in('tipo_linea', ['producto', 'repuesto', 'servicio', 'otro']),
 
@@ -155,13 +161,25 @@ export async function getFinancialSummary(
     .reduce((s: number, p: any) => s + (Number(p.commission_amount) || 0), 0)
 
   let opRevenue = 0, opCogs = 0
+  let opRevenueRetail = 0, opRevenueMayorista = 0
+  let opCogsRetail    = 0, opCogsMayorista    = 0
+
   for (const ci of items) {
-    const disc = Math.min(ci.descuento_linea || 0, 100) / 100
-    opRevenue += (Number(ci.precio_unitario) || 0) * (Number(ci.cantidad) || 0) * (1 - disc)
-    opCogs    += (Number(ci.costo_unitario)  || 0) * (Number(ci.cantidad) || 0)
+    const disc    = Math.min(ci.descuento_linea || 0, 100) / 100
+    const rev     = (Number(ci.precio_unitario) || 0) * (Number(ci.cantidad) || 0) * (1 - disc)
+    const cogs    = (Number(ci.costo_unitario)  || 0) * (Number(ci.cantidad) || 0)
+    opRevenue    += rev
+    opCogs       += cogs
+    if (ci.applied_price_type === 'mayorista') {
+      opRevenueMayorista += rev; opCogsMayorista += cogs
+    } else {
+      opRevenueRetail    += rev; opCogsRetail    += cogs
+    }
   }
-  const opProfit    = opRevenue - opCogs - opCommissions
-  const opMarginPct = opRevenue > 0 ? (opProfit / opRevenue) * 100 : 0
+  const opProfit          = opRevenue - opCogs - opCommissions
+  const opMarginPct       = opRevenue > 0 ? (opProfit / opRevenue) * 100 : 0
+  const opProfitRetail    = opRevenueRetail    - opCogsRetail
+  const opProfitMayorista = opRevenueMayorista - opCogsMayorista
 
   const result: FinancialSummary = {
     ingresosPeriodo,
@@ -176,6 +194,10 @@ export async function getFinancialSummary(
     opRevenue,
     opCogs,
     opCommissions,
+    opRevenueRetail,
+    opRevenueMayorista,
+    opProfitRetail,
+    opProfitMayorista,
     opProfit,
     opMarginPct,
     opItemsCount: items.length,
