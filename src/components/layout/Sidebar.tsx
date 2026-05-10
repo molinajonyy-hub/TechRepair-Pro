@@ -7,16 +7,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { PermissionKey } from '../../config/permissions';
 import { supabase } from '../../lib/supabase';
 
-// ── Cat logo SVG (from design system) ──
-const CatIcon = ({ size = 26 }: { size?: number }) => (
-  <svg viewBox="0 0 100 100" width={size} height={size} fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
-    <path d="M26 18 L20 43 L37 36 Z" fill="#6366f1" opacity="0.45"/>
-    <path d="M74 18 L80 43 L63 36 Z" fill="#6366f1" opacity="0.45"/>
-    <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.8"/>
-    <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.8"/>
-  </svg>
-);
+// CatIcon removed — replaced by Clic logo PNG
 
 // ── WhatsApp official SVG icon ──
 const WhatsAppIcon = ({ size = 16 }: { size?: number }) => (
@@ -289,63 +280,79 @@ export function Sidebar() {
   const renderLogo = (collapsed = false, framed = true) => (
     <div
       style={{
-        padding: framed ? (collapsed ? '1.25rem 0.5rem' : '1.25rem 1rem') : 0,
-        borderBottom: framed ? '1px solid rgba(255,255,255,0.07)' : 'none',
+        padding: framed ? (collapsed ? '1.125rem 0.5rem' : '1rem 1.25rem') : 0,
+        borderBottom: framed ? '1px solid rgba(255,255,255,0.06)' : 'none',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: collapsed ? 'center' : 'flex-start',
-        gap: collapsed ? 0 : '0.75rem',
-        minHeight: framed ? '68px' : 'auto',
+        justifyContent: 'center',
+        minHeight: framed ? '64px' : 'auto',
         boxSizing: 'border-box',
-        minWidth: 0,
       }}
     >
-      {/* Cat logo box */}
+      {/* ── Clic logo ────────────────────────────────────────────────────
+           El PNG tiene fondo blanco y texto negro.
+           filter: invert(1) convierte: blanco→negro (fondo invisible en dark),
+                                        negro→blanco (texto visible).
+           mix-blend-mode: screen hace que el fondo negro desaparezca.
+           Resultado: solo el texto "Clic." blanco flota sobre el sidebar.
+           ──────────────────────────────────────────────────────────────── */}
+      <img
+        src="/logo-clic.png"
+        alt="Clic."
+        draggable={false}
+        style={{
+          // Tamaño: expandido = anchura cómoda, minimizado = isotipo pequeño
+          height:    collapsed ? '26px' : '28px',
+          width:     collapsed ? '26px' : 'auto',
+          maxWidth:  collapsed ? '26px' : '140px',
+          objectFit: 'contain',
+          objectPosition: collapsed ? 'left center' : 'left center',
+
+          // Técnica dark-mode para PNG negro sobre fondo blanco:
+          // invert(1)  → texto negro→blanco, fondo blanco→negro
+          // screen     → fondo negro desaparece sobre sidebar oscuro
+          filter:        'invert(1)',
+          mixBlendMode:  'screen' as React.CSSProperties['mixBlendMode'],
+
+          // Renderizado nítido en retina/HiDPI
+          imageRendering: 'auto' as React.CSSProperties['imageRendering'],
+          WebkitFontSmoothing: 'antialiased',
+
+          // Transición suave iOS al expandir/colapsar
+          transition: 'height 0.22s cubic-bezier(0.4,0,0.2,1), width 0.22s cubic-bezier(0.4,0,0.2,1), max-width 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.18s ease',
+          opacity: 1,
+
+          userSelect: 'none',
+          flexShrink: 0,
+        }}
+        onError={e => {
+          // Fallback elegante si el archivo no existe aún
+          const img = e.currentTarget;
+          img.style.display = 'none';
+          const fallback = img.nextElementSibling as HTMLElement | null;
+          if (fallback) fallback.style.display = 'flex';
+        }}
+      />
+      {/* Fallback — se muestra solo si el PNG no carga */}
       <div
         style={{
-          width: '40px',
-          height: '40px',
-          borderRadius: '10px',
-          background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-          display: 'flex',
+          display: 'none',
           alignItems: 'center',
           justifyContent: 'center',
+          width:  collapsed ? '36px' : '110px',
+          height: '36px',
+          borderRadius: '8px',
+          background: 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+          boxShadow: '0 4px 14px rgba(99,102,241,0.4)',
           flexShrink: 0,
-          boxShadow: '0 4px 14px rgba(99,102,241,0.45)',
         }}
       >
-        <CatIcon size={26} />
+        {collapsed ? (
+          <span style={{ fontSize: '1rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.02em', fontFamily: 'system-ui, sans-serif' }}>C.</span>
+        ) : (
+          <span style={{ fontSize: '0.95rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.03em', fontFamily: 'system-ui, sans-serif' }}>Clic.</span>
+        )}
       </div>
-
-      {!collapsed && (
-        <div style={{ minWidth: 0 }}>
-          <h2
-            style={{
-              fontSize: '1rem',
-              fontWeight: 800,
-              letterSpacing: '-0.025em',
-              color: '#f8fafc',
-              margin: 0,
-              lineHeight: 1.1,
-            }}
-          >
-            TechRepair<span style={{ color: '#818cf8' }}>Pro</span>
-          </h2>
-          <p
-            style={{
-              fontSize: '0.68rem',
-              color: '#475569',
-              margin: '0.1rem 0 0',
-              fontWeight: 400,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            Sistema de Gestión
-          </p>
-        </div>
-      )}
     </div>
   );
 
