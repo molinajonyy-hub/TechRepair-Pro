@@ -436,9 +436,9 @@ export function Mayorista() {
     const { error: err } = await supabase
       .from('businesses')
       .update({
-        wholesale_portal_enabled: portalConfig.wholesale_portal_enabled,
-        wholesale_portal_slug:    portalConfig.wholesale_portal_slug.toLowerCase().replace(/[^a-z0-9-]/g, '') || null,
-        wholesale_whatsapp:       wa || null,
+        // wholesale_portal_enabled solo se activa desde el panel de admin del sistema, no desde el frontend
+        wholesale_portal_slug: portalConfig.wholesale_portal_slug.toLowerCase().replace(/[^a-z0-9-]/g, '') || null,
+        wholesale_whatsapp:    wa || null,
       })
       .eq('id', businessId)
     setConfigSaving(false)

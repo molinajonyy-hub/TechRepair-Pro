@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Search, Star, Image as ImageIcon, X, Plus,
   Trash2, Upload, ExternalLink, CheckCircle2,
   Loader2, Tag, RefreshCw, AlertCircle,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../lib/supabase'
 import {
   getAdminProducts, upsertSettings, uploadProductImage, deleteProductImage,
   BADGE_LABELS,
@@ -384,6 +386,8 @@ function ProductCard({ product, onEdit, onToggleVisible, onToggleFeatured }: {
 
 export function AdminPortalClic() {
   const { businessId } = useAuth()
+  const navigate = useNavigate()
+  const [portalAllowed, setPortalAllowed] = useState<boolean | null>(null)
   const [products, setProducts] = useState<AdminProduct[]>([])
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState('')
@@ -391,6 +395,23 @@ export function AdminPortalClic() {
   const [search,   setSearch]   = useState('')
   const [filter,   setFilter]   = useState<'all' | 'visible' | 'hidden' | 'featured' | 'no_image'>('all')
   const [catFilter, setCatFilter] = useState('')
+
+  // Guard: solo accesible si el negocio tiene el portal habilitado
+  useEffect(() => {
+    if (!businessId) return
+    supabase
+      .from('businesses')
+      .select('wholesale_portal_enabled')
+      .eq('id', businessId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.wholesale_portal_enabled !== true) {
+          navigate('/dashboard', { replace: true })
+        } else {
+          setPortalAllowed(true)
+        }
+      })
+  }, [businessId, navigate])
 
   const load = useCallback(async () => {
     if (!businessId) return
@@ -402,7 +423,9 @@ export function AdminPortalClic() {
     finally { setLoading(false) }
   }, [businessId])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { if (portalAllowed) load() }, [load, portalAllowed])
+
+  if (portalAllowed === null) return null
 
   const patchProduct = useCallback((inventoryId: string, patch: Partial<ProductSettings>) => {
     setProducts(prev => prev.map(p =>
