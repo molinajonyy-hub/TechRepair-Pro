@@ -83,14 +83,31 @@ export async function loginCustomer(
   email: string, password: string, businessId: string
 ): Promise<{ customer: WholesaleCustomer | null; error: string | null }> {
   console.log('[loginCustomer] signInWithPassword', { email, businessId })
-  const { error: authErr } = await supabase.auth.signInWithPassword({ email, password })
-  if (authErr) {
-    console.error('[loginCustomer] signInWithPassword error:', authErr.message)
+  const { data: signInData, error: authErr } = await supabase.auth.signInWithPassword({ email, password })
+  if (authErr || !signInData.user) {
+    console.error('[loginCustomer] signInWithPassword error:', authErr?.message)
     return { customer: null, error: 'Email o contraseña incorrectos' }
   }
-  console.log('[loginCustomer] signInWithPassword OK — buscando wholesale_customer')
+  const authUserId = signInData.user.id
+  console.log('[loginCustomer] signInWithPassword OK — authUserId:', authUserId)
 
-  const customer = await getCustomerByAuthId(businessId)
+  // Buscar directamente por auth_user_id sin llamar getUser() de nuevo
+  const { data, error: queryErr } = await supabase
+    .from('wholesale_customers')
+    .select('*')
+    .eq('auth_user_id', authUserId)
+    .eq('business_id', businessId)
+    .maybeSingle()
+
+  if (queryErr) {
+    console.error('[loginCustomer] wholesale_customers query error:', queryErr.message)
+    await supabase.auth.signOut()
+    return { customer: null, error: 'Error al verificar la cuenta. Intentá de nuevo.' }
+  }
+
+  const customer = data as WholesaleCustomer | null
+  console.log('[loginCustomer] wholesale_customer:', customer ? `found (approved=${customer.approved})` : 'not found')
+
   if (!customer) {
     await supabase.auth.signOut()
     return { customer: null, error: 'Esta cuenta no pertenece a este portal. Verificá que estés en el portal correcto.' }
