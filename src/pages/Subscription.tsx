@@ -20,6 +20,8 @@ import {
   PAYMENT_STATUS_COLORS,
   type SubscriptionStatus,
 } from '../types/subscription'
+import { PLAN_FEATURES, PLAN_DISPLAY, type PlanFeature } from '../config/planFeatures'
+import { supabase } from '../lib/supabase'
 
 function StatusIcon({ status }: { status: SubscriptionStatus }) {
   switch (status) {
@@ -41,9 +43,18 @@ export function Subscription() {
   const [cancelConfirm, setCancelConfirm] = useState(false)
   const [updatingPayment, setUpdatingPayment] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [activeUserCount, setActiveUserCount] = useState<number | null>(null)
 
-  const status = (subscription?.subscription_status as SubscriptionStatus) || 'pending_activation'
-  const plan   = PLANS.find(p => p.id === subscription?.subscription_plan)
+  const status       = (subscription?.subscription_status as SubscriptionStatus) || 'pending_activation'
+  const plan         = PLANS.find(p => p.id === subscription?.subscription_plan)
+
+  // Cargar cantidad de usuarios activos
+  useState(() => {
+    if (!businessId) return
+    supabase.from('profiles').select('id', { count: 'exact', head: true })
+      .eq('business_id', businessId).eq('is_active', true)
+      .then(({ count }) => setActiveUserCount(count ?? 0))
+  })
 
   async function handleCancel() {
     if (!businessId) return
@@ -182,6 +193,85 @@ export function Subscription() {
           </div>
         </div>
       )}
+
+      {/* Plan features & limits */}
+      {(() => {
+        const planId = subscription?.subscription_plan as keyof typeof PLAN_FEATURES | undefined
+        const features = planId ? PLAN_FEATURES[planId] : (isTrial ? PLAN_FEATURES.pro : null)
+        if (!features) return null
+
+        const featureRows: { key: PlanFeature; label: string }[] = [
+          { key: 'arca',            label: 'Facturación electrónica ARCA' },
+          { key: 'currentAccounts', label: 'Cuentas corrientes' },
+          { key: 'reports',         label: 'Reportes avanzados' },
+          { key: 'advancedFinance', label: 'Finanzas Pro' },
+          { key: 'tasks',           label: 'Módulo de tareas' },
+          { key: 'mayorista',       label: 'Módulo mayorista' },
+          { key: 'advancedRoles',   label: 'Permisos granulares' },
+          { key: 'audit',           label: 'Auditoría del sistema' },
+          { key: 'multisucursal',   label: 'Multi-sucursal' },
+        ]
+
+        return (
+          <div className="card" style={{ marginBottom: '1.5rem' }}>
+            <div className="card-header">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                <h3 className="card-title" style={{ margin: 0 }}>Funciones del plan</h3>
+                {isTrial && (
+                  <span style={{ padding: '0.2rem 0.625rem', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 700, background: 'rgba(96,165,250,0.15)', color: '#60a5fa', border: '1px solid rgba(96,165,250,0.3)' }}>
+                    Trial — acceso Pro
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="card-body">
+              {/* Usuarios */}
+              <div style={{ marginBottom: '1.25rem', padding: '0.875rem 1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '0.625rem', border: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Usuarios incluidos</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  {activeUserCount !== null && (
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                      {activeUserCount} usados de
+                    </span>
+                  )}
+                  <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.9rem' }}>
+                    {features.maxUsers}
+                  </span>
+                </div>
+              </div>
+
+              {/* Feature grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.5rem' }}>
+                {featureRows.map(({ key, label }) => {
+                  const enabled = features[key]
+                  return (
+                    <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.5rem 0.75rem', borderRadius: '0.5rem', background: enabled ? 'rgba(52,211,153,0.05)' : 'rgba(255,255,255,0.02)' }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 700, color: enabled ? '#34d399' : '#334155' }}>
+                        {enabled ? '✓' : '—'}
+                      </span>
+                      <span style={{ fontSize: '0.82rem', color: enabled ? 'var(--text-secondary)' : '#475569' }}>
+                        {label}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Upgrade CTA */}
+              {planId && planId !== 'full' && (
+                <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                    Actualizá para desbloquear más funciones
+                  </span>
+                  <button onClick={() => navigate('/subscription/plans')} style={{ ...btnStyle('primary'), padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
+                    Ver planes
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Payment history */}
       <div className="card" style={{ marginBottom: '1.5rem' }}>

@@ -44,6 +44,7 @@ import { Tutorials } from './pages/Tutorials'
 import WhatsAppPage from './pages/WhatsApp'
 import { MpCallback } from './pages/MpCallback'
 import { PortalRouter, PORTAL_DOMAINS } from './portal/PortalRouter'
+import { ProtectedRouteByFeature } from './components/auth/ProtectedRouteByFeature'
 
 function AppContent() {
   const { loadingState } = useLoading()
@@ -97,27 +98,52 @@ function AppContent() {
             <Route path="/customers/new" element={<NewCustomer />} />
             <Route path="/customers/:id" element={<CustomerDetail />} />
             <Route path="/inventory" element={<Inventory />} />
-            <Route path="/mayorista" element={<Mayorista />} />
-            <Route path="/portal-clic" element={<AdminPortalClic />} />
             <Route path="/suppliers" element={<Suppliers />} />
-            <Route path="/cuentas" element={<CuentasCorrientes />} />
             <Route path="/offers" element={<Offers />} />
             <Route path="/expenses" element={<Expenses />} />
-            <Route path="/finance" element={<Finance />} />
-            <Route path="/reports" element={<Reports />} />
-            <Route path="/users" element={<UsersManagement />} />
             <Route path="/caja" element={<CajaPage />} />
             <Route path="/currency-settings" element={<CurrencySettings />} />
             <Route path="/settings" element={<Settings />} />
-            {/* Subscription */}
+            <Route path="/users" element={<UsersManagement />} />
+
+            {/* ── Rutas PRO — currentAccounts ── */}
+            <Route element={<ProtectedRouteByFeature feature="currentAccounts" />}>
+              <Route path="/cuentas" element={<CuentasCorrientes />} />
+            </Route>
+
+            {/* ── Rutas PRO — advancedFinance ── */}
+            <Route element={<ProtectedRouteByFeature feature="advancedFinance" />}>
+              <Route path="/finance" element={<Finance />} />
+            </Route>
+
+            {/* ── Rutas PRO — reports ── */}
+            <Route element={<ProtectedRouteByFeature feature="reports" />}>
+              <Route path="/reports" element={<Reports />} />
+            </Route>
+
+            {/* ── Rutas PRO — tasks ── */}
+            <Route element={<ProtectedRouteByFeature feature="tasks" />}>
+              <Route path="/tasks" element={<Tasks />} />
+            </Route>
+
+            {/* ── Rutas PRO — mayorista ── */}
+            <Route element={<ProtectedRouteByFeature feature="mayorista" />}>
+              <Route path="/mayorista" element={<Mayorista />} />
+              <Route path="/portal-clic" element={<AdminPortalClic />} />
+            </Route>
+
+            {/* ── Rutas FULL — audit ── */}
+            <Route element={<ProtectedRouteByFeature feature="audit" />}>
+              <Route path="/admin/subscriptions" element={<AdminSubscriptions />} />
+            </Route>
+
+            {/* Subscription (siempre accesible) */}
             <Route path="/subscription" element={<Subscription />} />
             <Route path="/subscription/plans" element={<Plans />} />
             <Route path="/subscription/pending" element={<PaymentPending />} />
             <Route path="/subscription/suspended" element={<SubscriptionSuspended />} />
-            <Route path="/admin/subscriptions" element={<AdminSubscriptions />} />
             <Route path="/tutorials" element={<Tutorials />} />
             <Route path="/whatsapp" element={<WhatsAppPage />} />
-            <Route path="/tasks" element={<Tasks />} />
           </Route>
         </Route>
 
