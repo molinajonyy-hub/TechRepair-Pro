@@ -14,6 +14,7 @@ export type FeatureErrorCode =
   | 'FEATURE_NOT_AVAILABLE'
   | 'SUBSCRIPTION_INACTIVE'
   | 'UPGRADE_REQUIRED'
+  | 'SUBSCRIPTION_VALIDATION_FAILED'
 
 export class FeatureError extends Error {
   readonly code:    FeatureErrorCode
@@ -50,9 +51,15 @@ export async function requireFeature(
     .rpc('get_business_subscription_features', { p_business_id: businessId })
 
   if (error || !data) {
-    // Error de red: permitir optimísticamente (no bloquear por fallo de red)
-    console.warn('[requireFeature] RPC error:', error?.message)
-    return
+    // Fail-closed: si no se puede validar el plan, bloquear la acción.
+    // Nunca ejecutar una acción premium sin confirmación del plan.
+    console.warn('[requireFeature] RPC error — blocking action:', error?.message)
+    void logBlockedAttempt(businessId, feature, action, 'unknown')
+    throw new FeatureError(
+      'SUBSCRIPTION_VALIDATION_FAILED',
+      'No pudimos validar tu suscripción. Revisá tu conexión e intentá nuevamente.',
+      feature,
+    )
   }
 
   const status = data.status as string
