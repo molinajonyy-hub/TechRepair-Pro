@@ -73,6 +73,17 @@ export async function requireFeature(
     )
   }
 
+  // Caso 5: feature desconocida (no está en el resultado del RPC)
+  if (!(feature in data)) {
+    void logBlockedAttempt(businessId, feature, action, data.plan_id)
+    throw new FeatureError(
+      'FEATURE_NOT_AVAILABLE',
+      'Esta función no está disponible en el sistema.',
+      feature,
+    )
+  }
+
+  // Caso 2 / Caso 1: feature conocida pero plan insuficiente
   if (!data[feature]) {
     void logBlockedAttempt(businessId, feature, action, data.plan_id)
 
