@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useSidebar } from '../hooks/useSidebar'
 import { SubscriptionGuard } from '../components/subscription/SubscriptionGuard'
 import { SubscriptionBanner } from '../components/subscription/SubscriptionBanner'
+import { TrialBanner } from '../components/subscription/TrialBanner'
 import { SystemStatusProvider } from '../contexts/SystemStatusContext'
 import { useEffect } from 'react'
 import { backgroundPrefetch } from '../services/refreshCriticalData'
@@ -133,6 +134,7 @@ export function MainLayout() {
           ) : (
             <SubscriptionGuard>
               <SubscriptionBanner />
+              <TrialBanner />
               <Outlet />
             </SubscriptionGuard>
           )}

@@ -45,6 +45,7 @@ import WhatsAppPage from './pages/WhatsApp'
 import { MpCallback } from './pages/MpCallback'
 import { PortalRouter, PORTAL_DOMAINS } from './portal/PortalRouter'
 import { ProtectedRouteByFeature } from './components/auth/ProtectedRouteByFeature'
+import { Onboarding } from './pages/Onboarding'
 
 function AppContent() {
   const { loadingState } = useLoading()
@@ -81,6 +82,7 @@ function AppContent() {
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/accept-invite" element={<AcceptInvite />} />
         <Route path="/no-business" element={<NoBusiness />} />
+        <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/customer-portal" element={<CustomerPortal />} />
         <Route path="/mp/callback" element={<MpCallback />} />
 

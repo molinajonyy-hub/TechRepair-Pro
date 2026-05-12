@@ -13,12 +13,15 @@ export function NoBusiness() {
   const [fullName, setFullName] = useState('');
   const [error, setError] = useState('');
 
-  // Visibility logic: redirect to dashboard if user already has a business
+  // Si el usuario ya tiene negocio → dashboard. Si no → wizard de onboarding.
   useEffect(() => {
-    if (businessId && !authLoading && !profileLoading) {
-      navigate('/dashboard', { replace: true });
+    if (authLoading || profileLoading) return
+    if (businessId) {
+      navigate('/dashboard', { replace: true })
+    } else if (user) {
+      navigate('/onboarding', { replace: true })
     }
-  }, [businessId, authLoading, profileLoading, navigate]);
+  }, [businessId, authLoading, profileLoading, user, navigate]);
 
   const handleRefresh = async () => {
     setLoading(true);
