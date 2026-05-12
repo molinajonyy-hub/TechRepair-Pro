@@ -51,64 +51,92 @@ const Icon = {
 // Data
 // ─────────────────────────────────────────────────────────────────────
 
-const PLANS = {
-  monthly: [
-    {
-      name: 'Starter', badge: null,
-      price: 9990, desc: 'Ideal para empezar a ordenar tu taller',
-      color: '#64748b',
-      features: ['1 usuario', 'Órdenes de servicio digitales', 'Clientes con DNI/CUIT', 'Stock con variantes', 'Cobros con comisiones (MP/Visa)', 'Comprobante automático al cobrar', 'Garantías con impresión A4', 'Soporte por email'],
-      cta: 'Empezar gratis',
-    },
-    {
-      name: 'Pro', badge: 'Más elegido',
-      price: 19990, desc: 'Para talleres en crecimiento con más control',
-      color: '#6366f1',
-      features: ['Hasta 5 usuarios', 'Todo lo de Starter', 'Finanzas multimoneda ARS/USD', 'Caja diaria con dólar blue auto', 'Gastos recurrentes automáticos', 'Módulo Mayorista con precios USD', 'WhatsApp automático', 'Reportes avanzados', 'Soporte prioritario'],
-      cta: 'Suscribirme',
-    },
-    {
-      name: 'Elite', badge: null,
-      price: 34990, desc: 'Gestión total con facturación oficial',
-      color: '#a855f7',
-      features: ['Usuarios ilimitados', 'Todo lo de Pro', 'Facturación electrónica ARCA/AFIP', 'CAE en tiempo real', 'Integraciones (MP, Excel)', 'API access', 'Soporte dedicado', 'Capacitación incluida', 'SLA garantizado'],
-      cta: 'Suscribirme',
-    },
-  ],
-  annual: [
-    {
-      name: 'Starter', badge: null,
-      price: 7990, desc: 'Ideal para empezar a ordenar tu taller',
-      color: '#64748b',
-      features: ['1 usuario', 'Órdenes de servicio digitales', 'Clientes con DNI/CUIT', 'Stock con variantes', 'Cobros con comisiones (MP/Visa)', 'Comprobante automático al cobrar', 'Garantías con impresión A4', 'Soporte por email'],
-      cta: 'Empezar gratis',
-    },
-    {
-      name: 'Pro', badge: 'Más elegido',
-      price: 15990, desc: 'Para talleres en crecimiento con más control',
-      color: '#6366f1',
-      features: ['Hasta 5 usuarios', 'Todo lo de Starter', 'Finanzas multimoneda ARS/USD', 'Caja diaria con dólar blue auto', 'Gastos recurrentes automáticos', 'Módulo Mayorista con precios USD', 'WhatsApp automático', 'Reportes avanzados', 'Soporte prioritario'],
-      cta: 'Suscribirme',
-    },
-    {
-      name: 'Elite', badge: null,
-      price: 27990, desc: 'Gestión total con facturación oficial',
-      color: '#a855f7',
-      features: ['Usuarios ilimitados', 'Todo lo de Pro', 'Facturación electrónica ARCA/AFIP', 'CAE en tiempo real', 'Integraciones (MP, Excel)', 'API access', 'Soporte dedicado', 'Capacitación incluida', 'SLA garantizado'],
-      cta: 'Suscribirme',
-    },
-  ],
-}
+const LANDING_PLANS = [
+  {
+    id: 'basico',
+    name: 'Básico',
+    badge: null as string | null,
+    monthlyPrice: 15_000,
+    annualPrice: 12_000,   // equivalente mensual al pagar anual
+    desc: 'Ideal para técnicos independientes y pequeños locales.',
+    features: [
+      'Órdenes de servicio ilimitadas',
+      'Historial de clientes',
+      'Inventario con alertas de stock',
+      'Caja diaria con cierre manual',
+      'Comprobantes internos (sin ARCA)',
+      'Garantías e impresión',
+      '1 usuario',
+      'Soporte por email',
+    ],
+    cta: 'Comenzar ahora',
+  },
+  {
+    id: 'pro',
+    name: 'Pro',
+    badge: 'Más elegido',
+    monthlyPrice: 25_000,
+    annualPrice: 20_000,
+    desc: 'Ideal para negocios en crecimiento y locales profesionales.',
+    features: [
+      'Todo lo del plan Básico',
+      'Facturación electrónica ARCA / CAE',
+      'Finanzas: costos, ganancias, métricas',
+      'Inventario avanzado con trazabilidad',
+      'Cuentas corrientes',
+      'Tareas y roles de empleados',
+      'Reportes avanzados',
+      'Hasta 3 usuarios',
+      'Soporte prioritario',
+    ],
+    cta: 'Elegir Pro',
+  },
+  {
+    id: 'full',
+    name: 'Full',
+    badge: null as string | null,
+    monthlyPrice: 45_000,
+    annualPrice: 36_000,
+    desc: 'Ideal para empresas y múltiples sucursales.',
+    features: [
+      'Todo lo del plan Pro',
+      'Multi-sucursal completo',
+      'Stock y caja por sucursal',
+      'Hasta 10 usuarios',
+      'Permisos granulares',
+      'Auditoría completa',
+      'Soporte prioritario dedicado',
+    ],
+    cta: 'Elegir Full',
+  },
+]
+
+const COMPARE_ROWS = [
+  { feature: 'Órdenes de servicio',          basico: true,   pro: true,      full: true },
+  { feature: 'Gestión de clientes',           basico: true,   pro: true,      full: true },
+  { feature: 'Inventario y stock',            basico: true,   pro: true,      full: true },
+  { feature: 'Caja diaria',                   basico: true,   pro: true,      full: true },
+  { feature: 'Comprobantes internos',         basico: true,   pro: true,      full: true },
+  { feature: 'Facturación ARCA / CAE',        basico: false,  pro: true,      full: true },
+  { feature: 'Finanzas y métricas',           basico: false,  pro: true,      full: true },
+  { feature: 'Cuentas corrientes',            basico: false,  pro: true,      full: true },
+  { feature: 'Reportes avanzados',            basico: false,  pro: true,      full: true },
+  { feature: 'Multi-sucursal',                basico: false,  pro: false,     full: true },
+  { feature: 'Permisos granulares',           basico: false,  pro: false,     full: true },
+  { feature: 'Auditoría de acciones',         basico: false,  pro: false,     full: true },
+  { feature: 'Usuarios incluidos',            basico: '1',    pro: '3',       full: '10' },
+  { feature: 'Soporte',                       basico: 'Email',pro: 'Prioritario', full: 'Dedicado' },
+]
 
 const FAQS = [
-  { q: '¿Tiene prueba gratis?', a: 'Sí, ofrecemos 14 días de prueba gratuita con acceso completo al plan Pro, sin necesidad de tarjeta de crédito.' },
-  { q: '¿Necesito tarjeta de crédito para registrarme?', a: 'No. Podés probar TechRepair Pro 14 días sin ingresar datos de pago. Solo te pedimos email y nombre del negocio.' },
-  { q: '¿Cómo funcionan las comisiones de Mercado Pago, Visa y Naranja?', a: 'El sistema aplica automáticamente las tasas reales: MP débito 0.89%, MP crédito 3.99%, QR 0.99%, Visa/MC 1 cuota 10%, Naranja según cuotas. Podés configurarlas desde Ajustes → Comisiones.' },
-  { q: '¿Qué es el Módulo Mayorista?', a: 'Te permite definir un precio mayorista (en ARS o USD) para cada producto, marcar clientes como mayoristas, y generar precios en masa con margen sobre el costo. Al cobrar a un mayorista, aplica automáticamente esos precios.' },
-  { q: '¿Puedo cancelar cuando quiera?', a: 'Claro. No hay contratos ni penalidades. Cancelás en cualquier momento desde tu panel de configuración, sin vueltas.' },
-  { q: '¿Funciona desde el celular o tablet?', a: 'Sí, es 100% responsive. Podés gestionar órdenes, ver el stock y consultar finanzas desde cualquier dispositivo con internet.' },
-  { q: '¿Incluye soporte técnico?', a: 'Todos los planes incluyen soporte. El plan Starter tiene soporte por email, el Pro es prioritario y el Elite incluye soporte dedicado con SLA.' },
-  { q: '¿Puedo migrar mis datos actuales al sistema?', a: 'Sí. Te ayudamos a importar clientes, órdenes e inventario desde Excel o desde otros sistemas. El equipo de soporte te acompaña en el proceso.' },
+  { q: '¿Tiene prueba gratis?', a: 'Sí, todos los planes incluyen 14 días de prueba gratuita con acceso completo, sin necesidad de tarjeta de crédito.' },
+  { q: '¿Necesito tarjeta de crédito para registrarme?', a: 'No. Podés probar TechRepair Pro 14 días sin ingresar datos de pago. Solo necesitás email y nombre del negocio.' },
+  { q: '¿Qué diferencia al plan Básico del Pro?', a: 'El plan Básico es ideal para empezar: órdenes, clientes, inventario y caja. El Pro agrega facturación electrónica ARCA/CAE, finanzas avanzadas, cuentas corrientes, reportes y más usuarios.' },
+  { q: '¿El plan Full incluye ecommerce o tienda online?', a: 'No. TechRepair Pro es un sistema de gestión 100% enfocado en talleres y comercios técnicos. El plan Full agrega multi-sucursal, más usuarios y administración avanzada.' },
+  { q: '¿Puedo cancelar cuando quiera?', a: 'Claro. Sin contratos ni penalidades. Cancelás en cualquier momento desde tu panel de suscripción, sin vueltas.' },
+  { q: '¿Funciona desde el celular o tablet?', a: 'Sí, es 100% responsive. Podés gestionar órdenes, stock y finanzas desde cualquier dispositivo con internet.' },
+  { q: '¿Cómo funcionan las comisiones de tarjeta?', a: 'El sistema calcula automáticamente el recargo según el método de pago: débito, crédito 1/3/6/12 cuotas, Naranja X. Podés configurar las tasas desde Ajustes → Comisiones.' },
+  { q: '¿Puedo migrar mis datos al sistema?', a: 'Sí. Podés importar clientes, productos e inventario desde Excel. El equipo de soporte te acompaña en el proceso de migración.' },
 ]
 
 // ─────────────────────────────────────────────────────────────────────
@@ -882,12 +910,19 @@ function Benefits() {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Pricing
+// Pricing — rediseño premium iOS
 // ─────────────────────────────────────────────────────────────────────
 
 function Pricing({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
   const [billing, setBilling] = useState<'monthly' | 'annual'>('monthly')
-  const plans = PLANS[billing]
+  const [showCompare, setShowCompare] = useState(false)
+  const isAnnual = billing === 'annual'
+
+  const PLAN_STYLES = {
+    basico: { accent: '#64748b', bg: 'rgba(100,116,139,0.06)', border: 'rgba(100,116,139,0.18)' },
+    pro:    { accent: '#6366f1', bg: 'rgba(99,102,241,0.08)',  border: 'rgba(99,102,241,0.35)' },
+    full:   { accent: '#475569', bg: 'rgba(30,41,59,0.7)',     border: 'rgba(148,163,184,0.18)' },
+  } as const
 
   return (
     <section id="pricing" style={{
@@ -896,122 +931,201 @@ function Pricing({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
       borderBottom: '1px solid rgba(255,255,255,0.05)',
       padding: '6rem 2rem',
     }}>
-      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+      <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
+
         {/* Header */}
-        <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-          <div className="lp-section-label" style={{ display: 'inline-flex', margin: '0 auto 1rem', alignItems: 'center', gap: '0.35rem' }}><AppleEmoji emoji="💎" size={14} /> Planes</div>
+        <div style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
+          <div className="lp-section-label" style={{ display: 'inline-flex', margin: '0 auto 1rem', alignItems: 'center', gap: '0.35rem' }}>
+            Planes
+          </div>
           <h2 className="lp-section-title" style={{ textAlign: 'center' }}>
-            Elegí el plan ideal para tu negocio
+            Elegí el plan para tu negocio
           </h2>
-          <p className="lp-section-subtitle" style={{ textAlign: 'center', margin: '0 auto 1.75rem' }}>
-            Empezá gratis 14 días y luego elegí el plan que más te convenga. Sin sorpresas.
+          <p className="lp-section-subtitle" style={{ textAlign: 'center', margin: '0 auto 2rem', maxWidth: 520 }}>
+            14 días de prueba gratis. Sin tarjeta de crédito. Cancelás cuando querés.
           </p>
 
-          {/* Toggle */}
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.875rem' }}>
-            <div className="lp-toggle-track">
-              <button className={`lp-toggle-opt${billing === 'monthly' ? ' active' : ''}`} onClick={() => setBilling('monthly')}>
-                Mensual
-              </button>
-              <button className={`lp-toggle-opt${billing === 'annual' ? ' active' : ''}`} onClick={() => setBilling('annual')}>
-                Anual
-              </button>
-            </div>
-            {billing === 'annual' && (
-              <span style={{
-                padding: '0.25rem 0.625rem',
-                background: 'rgba(16,185,129,0.1)',
-                border: '1px solid rgba(16,185,129,0.25)',
-                borderRadius: '999px',
-                color: '#10b981', fontSize: '0.75rem', fontWeight: 700,
-              }}>
-                Ahorrás 20%
+          {/* Toggle mensual / anual */}
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.75rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '999px', padding: '0.25rem' }}>
+            <button
+              onClick={() => setBilling('monthly')}
+              style={{ padding: '0.4rem 1.125rem', borderRadius: '999px', border: 'none', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', transition: 'all 0.2s', background: !isAnnual ? 'rgba(255,255,255,0.1)' : 'transparent', color: !isAnnual ? '#f8fafc' : '#64748b' }}
+            >
+              Mensual
+            </button>
+            <button
+              onClick={() => setBilling('annual')}
+              style={{ padding: '0.4rem 1.125rem', borderRadius: '999px', border: 'none', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', transition: 'all 0.2s', background: isAnnual ? 'rgba(255,255,255,0.1)' : 'transparent', color: isAnnual ? '#f8fafc' : '#64748b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+            >
+              Anual
+              <span style={{ fontSize: '0.7rem', fontWeight: 800, padding: '0.15rem 0.5rem', borderRadius: '999px', background: isAnnual ? 'rgba(16,185,129,0.2)' : 'rgba(16,185,129,0.1)', color: '#10b981', border: '1px solid rgba(16,185,129,0.25)' }}>
+                −20%
               </span>
-            )}
+            </button>
           </div>
         </div>
 
-        {/* Plans grid */}
-        <div className="lp-plans-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.25rem', alignItems: 'start' }}>
-          {plans.map((plan, i) => (
-            <div key={i} className={`lp-plan-card${plan.badge ? ' lp-plan-featured' : ''}`}>
-              {/* Featured badge */}
-              {plan.badge && (
-                <div style={{
-                  position: 'absolute', top: '-1px', left: '50%', transform: 'translateX(-50%)',
-                  background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                  color: '#fff', fontSize: '0.7rem', fontWeight: 800,
-                  padding: '0.25rem 1rem', borderRadius: '0 0 0.625rem 0.625rem',
-                  letterSpacing: '0.04em', textTransform: 'uppercase', whiteSpace: 'nowrap',
-                  boxShadow: '0 4px 12px rgba(99,102,241,0.4)',
-                }}>
-                  ⭐ {plan.badge}
-                </div>
-              )}
+        {/* Plan cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1rem', alignItems: 'start' }}>
+          {LANDING_PLANS.map((plan) => {
+            const s = PLAN_STYLES[plan.id as keyof typeof PLAN_STYLES]
+            const price = isAnnual ? plan.annualPrice : plan.monthlyPrice
+            const isPro = plan.id === 'pro'
 
-              {/* Plan name */}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.375rem' }}>
+            return (
+              <div key={plan.id} style={{
+                position: 'relative',
+                background: s.bg,
+                border: `1px solid ${s.border}`,
+                borderRadius: '1.125rem',
+                padding: isPro ? '2rem 1.625rem 1.75rem' : '1.75rem 1.5rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '1.375rem',
+                marginTop: isPro ? '-0.75rem' : 0,
+                boxShadow: isPro ? '0 0 0 1px rgba(99,102,241,0.4), 0 24px 48px rgba(99,102,241,0.12)' : 'none',
+                transition: 'transform 0.2s, box-shadow 0.2s',
+              }}>
+
+                {/* Badge */}
+                {plan.badge && (
                   <div style={{
-                    width: '10px', height: '10px', borderRadius: '50%',
-                    background: plan.color, boxShadow: `0 0 8px ${plan.color}60`,
-                  }} />
-                  <span style={{ color: plan.color, fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    position: 'absolute', top: '-1px', left: '50%', transform: 'translateX(-50%)',
+                    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+                    color: '#fff', fontSize: '0.68rem', fontWeight: 800,
+                    padding: '0.2rem 0.875rem', borderRadius: '0 0 0.625rem 0.625rem',
+                    letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap',
+                    boxShadow: '0 4px 16px rgba(99,102,241,0.35)',
+                  }}>
+                    {plan.badge}
+                  </div>
+                )}
+
+                {/* Plan header */}
+                <div>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: s.accent, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
                     {plan.name}
                   </span>
+                  <p style={{ color: '#475569', fontSize: '0.8rem', margin: '0.375rem 0 0', lineHeight: 1.55 }}>
+                    {plan.desc}
+                  </p>
                 </div>
-                <p style={{ color: '#475569', fontSize: '0.8125rem', margin: 0, lineHeight: 1.5 }}>{plan.desc}</p>
-              </div>
 
-              {/* Price */}
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.25rem' }}>
-                <span style={{ color: '#64748b', fontSize: '1.125rem', fontWeight: 600 }}>$</span>
-                <span style={{ color: '#f8fafc', fontSize: '2.375rem', fontWeight: 900, letterSpacing: '-0.03em' }}>
-                  {plan.price.toLocaleString('es-AR')}
-                </span>
-                <span style={{ color: '#475569', fontSize: '0.875rem' }}>/mes</span>
-              </div>
-
-              {/* Features */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
-                {plan.features.map((feat, j) => (
-                  <div key={j} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-                    <div style={{
-                      width: '16px', height: '16px', borderRadius: '50%',
-                      background: plan.badge ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.05)',
-                      border: `1px solid ${plan.badge ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.1)'}`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      color: plan.badge ? '#818cf8' : '#64748b',
-                      flexShrink: 0, marginTop: '2px',
-                    }}>
-                      <Icon.Check />
-                    </div>
-                    <span style={{ color: '#64748b', fontSize: '0.8125rem', lineHeight: 1.5 }}>{feat}</span>
+                {/* Precio */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.2rem' }}>
+                    <span style={{ color: '#64748b', fontSize: '1rem', fontWeight: 600 }}>$</span>
+                    <span style={{ color: '#f8fafc', fontSize: '2.5rem', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1 }}>
+                      {price.toLocaleString('es-AR')}
+                    </span>
+                    <span style={{ color: '#475569', fontSize: '0.8rem' }}>/mes</span>
                   </div>
-                ))}
+                  {isAnnual && (
+                    <p style={{ margin: '0.25rem 0 0', fontSize: '0.72rem', color: '#10b981', fontWeight: 600 }}>
+                      Ahorrás ${((plan.monthlyPrice - plan.annualPrice) * 12).toLocaleString('es-AR')} al año
+                    </p>
+                  )}
+                </div>
+
+                {/* Features */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
+                  {plan.features.map((feat, j) => (
+                    <div key={j} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                      <svg width="15" height="15" viewBox="0 0 15 15" fill="none" style={{ flexShrink: 0, marginTop: 2 }}>
+                        <circle cx="7.5" cy="7.5" r="7.5" fill={isPro ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.06)'} />
+                        <path d="M4.5 7.5L6.5 9.5L10.5 5.5" stroke={isPro ? '#818cf8' : '#64748b'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <span style={{ color: isPro ? '#94a3b8' : '#64748b', fontSize: '0.8125rem', lineHeight: 1.5 }}>{feat}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* CTA */}
+                <button
+                  onClick={() => navigate('/login')}
+                  style={{
+                    width: '100%',
+                    padding: '0.875rem',
+                    borderRadius: '0.75rem',
+                    border: isPro ? 'none' : `1px solid ${s.border}`,
+                    background: isPro ? 'linear-gradient(135deg, #6366f1, #4f46e5)' : 'rgba(255,255,255,0.05)',
+                    color: isPro ? '#fff' : '#94a3b8',
+                    fontWeight: 700,
+                    fontSize: '0.875rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    boxShadow: isPro ? '0 4px 20px rgba(99,102,241,0.3)' : 'none',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.opacity = '0.92' }}
+                  onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.opacity = '1' }}
+                >
+                  {plan.cta}
+                </button>
+
+                {plan.id === 'basico' && (
+                  <p style={{ textAlign: 'center', color: '#334155', fontSize: '0.72rem', margin: '-0.75rem 0 0' }}>
+                    14 días de prueba incluidos
+                  </p>
+                )}
               </div>
-
-              {/* CTA */}
-              <button
-                className={plan.badge ? 'lp-btn-primary' : 'lp-btn-outline'}
-                style={{ width: '100%', justifyContent: 'center', ...(plan.badge ? {} : { borderColor: 'rgba(255,255,255,0.1)' }) }}
-                onClick={() => navigate('/login')}
-              >
-                {plan.cta}
-              </button>
-
-              {plan.name === 'Starter' && (
-                <p style={{ textAlign: 'center', color: '#334155', fontSize: '0.75rem', margin: '-0.5rem 0 0' }}>
-                  14 días gratis incluidos
-                </p>
-              )}
-            </div>
-          ))}
+            )
+          })}
         </div>
 
-        <p style={{ textAlign: 'center', color: '#334155', fontSize: '0.8125rem', marginTop: '2rem' }}>
-          Todos los planes incluyen 14 días de prueba gratis · Sin tarjeta de crédito · Cancelás cuando querés
+        {/* Nota de garantía */}
+        <p style={{ textAlign: 'center', color: '#334155', fontSize: '0.8rem', marginTop: '2rem' }}>
+          Sin contratos · Sin tarjeta de crédito · Cancelás cuando querés
         </p>
+
+        {/* Tabla comparativa */}
+        <div style={{ marginTop: '3.5rem' }}>
+          <button
+            onClick={() => setShowCompare(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0 auto', background: 'none', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.625rem', padding: '0.5rem 1.125rem', color: '#64748b', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'}
+            onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'}
+          >
+            {showCompare ? '▲' : '▼'} {showCompare ? 'Ocultar comparativa' : 'Comparar planes en detalle'}
+          </button>
+
+          {showCompare && (
+            <div style={{ marginTop: '2rem', overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left', padding: '0.75rem 1rem', color: '#475569', fontWeight: 600, borderBottom: '1px solid rgba(255,255,255,0.08)', width: '40%' }}>
+                      Funcionalidad
+                    </th>
+                    {['Básico', 'Pro', 'Full'].map((n, i) => (
+                      <th key={n} style={{ textAlign: 'center', padding: '0.75rem 1rem', color: i === 1 ? '#818cf8' : '#94a3b8', fontWeight: 700, borderBottom: '1px solid rgba(255,255,255,0.08)', fontSize: '0.85rem' }}>
+                        {n}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {COMPARE_ROWS.map((row, i) => (
+                    <tr key={row.feature} style={{ background: i % 2 === 0 ? 'rgba(255,255,255,0.015)' : 'transparent' }}>
+                      <td style={{ padding: '0.625rem 1rem', color: '#64748b', fontWeight: 500 }}>{row.feature}</td>
+                      {([row.basico, row.pro, row.full] as (boolean | string)[]).map((val, j) => (
+                        <td key={j} style={{ textAlign: 'center', padding: '0.625rem 1rem' }}>
+                          {typeof val === 'boolean' ? (
+                            val
+                              ? <span style={{ color: j === 1 ? '#818cf8' : '#22c55e', fontWeight: 700 }}>✓</span>
+                              : <span style={{ color: '#334155' }}>—</span>
+                          ) : (
+                            <span style={{ color: j === 1 ? '#818cf8' : '#94a3b8', fontWeight: 600 }}>{val}</span>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
       </div>
     </section>
   )
