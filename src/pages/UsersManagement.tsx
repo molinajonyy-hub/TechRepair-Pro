@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Plus, X, Mail, UserCheck, UserX, RefreshCw, Copy, Clock, Shield, Check } from 'lucide-react';
 import { CloseButton } from '../components/ui/CloseButton';
 import { useAuth } from '../contexts/AuthContext';
+import { useSubscription } from '../hooks/useSubscription';
 import { usersService, BusinessUser, PendingInvitation } from '../services/usersService';
 import {
   AppPermissions, PermissionKey, PERMISSION_LABELS, PERMISSION_GROUPS,
@@ -210,6 +211,7 @@ function EditPermissionsModal({ user, onClose, onSaved }: EditPermissionsModalPr
 // ─── Main Component ───────────────────────────────────────────────────────────
 export function UsersManagement() {
   const { businessId, isOwner, isAdmin, profile } = useAuth();
+  const { maxUsers, currentPlan } = useSubscription();
   const [users, setUsers] = useState<BusinessUser[]>([]);
   const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -273,6 +275,13 @@ export function UsersManagement() {
 
   const handleInvite = async () => {
     if (!inviteEmail.trim() || !businessId) return;
+    // Verificar límite de usuarios del plan
+    const activeCount = users.filter(u => u.is_active).length;
+    if (activeCount >= maxUsers) {
+      const planLabel = currentPlan === 'basico' ? 'Básico (1 usuario)' : currentPlan === 'pro' ? 'Pro (3 usuarios)' : 'Full (10 usuarios)';
+      window.alert(`Límite de usuarios alcanzado para el plan ${planLabel}.\nActualizá tu plan desde Suscripción para agregar más usuarios.`);
+      return;
+    }
     setInviting(true);
     try {
       const diff = buildOverrideDiff(inviteRole, invitePerms);

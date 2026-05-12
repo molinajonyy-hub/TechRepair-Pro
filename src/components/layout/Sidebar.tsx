@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSidebar } from '../../hooks/useSidebar';
 import { usePermissions } from '../../hooks/usePermissions';
+import { useSubscription } from '../../hooks/useSubscription';
 import { PermissionKey } from '../../config/permissions';
 import { supabase } from '../../lib/supabase';
 
@@ -194,6 +195,8 @@ type NavItem = {
   permission?: PermissionKey;
   /** If true, this item is hidden unless wholesale_portal_enabled=true */
   portalAdmin?: boolean;
+  /** If set, this item is hidden unless the active plan has this feature */
+  planFeature?: import('../../config/planFeatures').PlanFeature;
 };
 type NavSection = {
   sectionLabel: string;
@@ -204,43 +207,43 @@ const menuSections: NavSection[] = [
   {
     sectionLabel: 'Principal',
     items: [
-      { path: '/dashboard', label: 'Inicio', icon: <DashboardIcon /> },
-      { path: '/orders', label: 'Ordenes', icon: <OrdersIcon />, permission: 'orders' },
-      { path: '/comprobantes', label: 'Comprobantes', icon: <ComprobantesIcon />, permission: 'comprobantes' },
-      { path: '/warranties', label: 'Garantías', icon: <WarrantyIcon />, permission: 'orders' },
-      { path: '/tasks', label: 'Tareas', icon: <TareasIcon /> },
-      { path: '/whatsapp', label: 'WhatsApp', icon: <WhatsAppIcon />, isWhatsApp: true },
+      { path: '/dashboard',   label: 'Inicio',        icon: <DashboardIcon /> },
+      { path: '/orders',      label: 'Ordenes',        icon: <OrdersIcon />,       permission: 'orders' },
+      { path: '/comprobantes',label: 'Comprobantes',   icon: <ComprobantesIcon />, permission: 'comprobantes' },
+      { path: '/warranties',  label: 'Garantías',      icon: <WarrantyIcon />,     permission: 'orders' },
+      { path: '/tasks',       label: 'Tareas',         icon: <TareasIcon />,       planFeature: 'tasks' },
+      { path: '/whatsapp',    label: 'WhatsApp',       icon: <WhatsAppIcon />,     isWhatsApp: true },
     ],
   },
   {
     sectionLabel: 'Clientes & Stock',
     items: [
-      { path: '/customers', label: 'Clientes', icon: <ClientesIcon />, permission: 'customers' },
-      { path: '/cuentas', label: 'Cuentas Ctes.', icon: <CuentasIcon />, permission: 'customers' },
-      { path: '/inventory', label: 'Inventario', icon: <InventarioIcon />, permission: 'inventory' },
-      { path: '/mayorista', label: 'Mayorista', icon: <MayoristaIcon />, permission: 'inventory' },
-      { path: '/portal-clic', label: 'Portal Clic', icon: <PortalAdminIcon />, permission: 'inventory', portalAdmin: true },
-      { path: '/suppliers', label: 'Proveedores', icon: <ProveedoresIcon />, permission: 'inventory' },
-      { path: '/offers', label: 'Ofertas', icon: <OfertasIcon />, permission: 'inventory' },
+      { path: '/customers',  label: 'Clientes',      icon: <ClientesIcon />,    permission: 'customers' },
+      { path: '/cuentas',    label: 'Cuentas Ctes.', icon: <CuentasIcon />,     permission: 'customers', planFeature: 'currentAccounts' },
+      { path: '/inventory',  label: 'Inventario',    icon: <InventarioIcon />,  permission: 'inventory' },
+      { path: '/mayorista',  label: 'Mayorista',     icon: <MayoristaIcon />,   permission: 'inventory', planFeature: 'mayorista' },
+      { path: '/portal-clic',label: 'Portal Clic',   icon: <PortalAdminIcon />, permission: 'inventory', portalAdmin: true },
+      { path: '/suppliers',  label: 'Proveedores',   icon: <ProveedoresIcon />, permission: 'inventory' },
+      { path: '/offers',     label: 'Ofertas',       icon: <OfertasIcon />,     permission: 'inventory' },
     ],
   },
   {
     sectionLabel: 'Finanzas',
     items: [
-      { path: '/expenses', label: 'Gastos', icon: <GastosIcon />, permission: 'finance' },
-      { path: '/caja', label: 'Caja', icon: <CajaIcon />, permission: 'finance' },
-      { path: '/finance', label: 'Finanzas', icon: <FinanzasIcon />, permission: 'finance' },
-      { path: '/reports', label: 'Reportes', icon: <ReportesIcon />, permission: 'reports' },
+      { path: '/expenses', label: 'Gastos',    icon: <GastosIcon />,   permission: 'finance' },
+      { path: '/caja',     label: 'Caja',      icon: <CajaIcon />,     permission: 'finance' },
+      { path: '/finance',  label: 'Finanzas',  icon: <FinanzasIcon />, permission: 'finance', planFeature: 'advancedFinance' },
+      { path: '/reports',  label: 'Reportes',  icon: <ReportesIcon />, permission: 'reports', planFeature: 'reports' },
     ],
   },
   {
     sectionLabel: 'Administración',
     items: [
-      { path: '/users', label: 'Usuarios', icon: <UsuariosIcon />, permission: 'users' },
-      { path: '/settings', label: 'Configuración', icon: <ConfigIcon />, permission: 'settings' },
-      { path: '/currency-settings', label: 'Moneda', icon: <MonedaIcon />, permission: 'settings' },
-      { path: '/subscription', label: 'Suscripción', icon: <SuscripcionIcon />, permission: 'subscription' },
-      { path: '/tutorials', label: 'Tutoriales', icon: <TutorialesIcon /> },
+      { path: '/users',             label: 'Usuarios',      icon: <UsuariosIcon />,  permission: 'users' },
+      { path: '/settings',          label: 'Configuración', icon: <ConfigIcon />,    permission: 'settings' },
+      { path: '/currency-settings', label: 'Moneda',        icon: <MonedaIcon />,    permission: 'settings' },
+      { path: '/subscription',      label: 'Suscripción',   icon: <SuscripcionIcon />, permission: 'subscription' },
+      { path: '/tutorials',         label: 'Tutoriales',    icon: <TutorialesIcon /> },
     ],
   },
 ];
@@ -253,6 +256,7 @@ export function Sidebar() {
   const { signOut, businessId } = useAuth();
   const navigate = useNavigate();
   const { can } = usePermissions();
+  const { hasFeature } = useSubscription();
   const [mayoristaEnabled, setMayoristaEnabled] = useState(true);
   const [portalEnabled,    setPortalEnabled]    = useState(false);
 
@@ -278,6 +282,7 @@ export function Sidebar() {
         if (!item.permission || !can(item.permission)) return !item.permission;
         if (item.path === '/mayorista'   && !mayoristaEnabled) return false;
         if (item.portalAdmin             && !portalEnabled)    return false;
+        if (item.planFeature             && !hasFeature(item.planFeature)) return false;
         return true;
       }),
     }))

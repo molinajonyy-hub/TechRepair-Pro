@@ -10,21 +10,37 @@ import {
   getAccessLevel,
   isAccessAllowed,
 } from '../types/subscription'
+import {
+  type PlanId,
+  type PlanFeature,
+  type PlanFeatureSet,
+  PLAN_FEATURES,
+  TRIAL_FEATURES,
+} from '../config/planFeatures'
 
 export interface UseSubscriptionReturn {
-  subscription: BusinessSubscription | null
-  payments: Payment[]
-  loading: boolean
-  error: string | null
-  accessLevel: AccessLevel
-  isAllowed: boolean
-  isTrial: boolean
-  isActive: boolean
-  isPastDue: boolean
-  isSuspended: boolean
-  isCanceled: boolean
-  daysUntilTrialEnd: number | null
-  daysUntilGraceEnd: number | null
+  subscription:  BusinessSubscription | null
+  payments:      Payment[]
+  loading:       boolean
+  error:         string | null
+  accessLevel:   AccessLevel
+  isAllowed:     boolean
+  isTrial:       boolean
+  isActive:      boolean
+  isPastDue:     boolean
+  isSuspended:   boolean
+  isCanceled:    boolean
+  // ── Plan-level feature control ──
+  currentPlan:   PlanId | null
+  planFeatures:  PlanFeatureSet
+  isBasic:       boolean
+  isPro:         boolean
+  isFull:        boolean
+  maxUsers:      number
+  hasFeature:    (feature: PlanFeature) => boolean
+  // ──────────────────────────────
+  daysUntilTrialEnd:  number | null
+  daysUntilGraceEnd:  number | null
   daysUntilPeriodEnd: number | null
   refresh: () => Promise<void>
 }
@@ -123,8 +139,23 @@ export function useSubscription(): UseSubscriptionReturn {
   // We only hard-block (suspended/canceled) when we have EXPLICIT confirmed data.
   const rawStatus = subscription?.subscription_status as SubscriptionStatus | undefined
   const status: SubscriptionStatus = rawStatus ?? 'trialing'
-
   const accessLevel = getAccessLevel(status)
+
+  // ── Plan & feature resolution ────────────────────────────────
+  const rawPlan = subscription?.subscription_plan as PlanId | undefined | null
+  const currentPlan: PlanId | null = rawPlan ?? null
+
+  // During trial → grant Pro features. No plan set → grant Pro as fallback.
+  const planFeatures: PlanFeatureSet = status === 'trialing'
+    ? TRIAL_FEATURES
+    : currentPlan
+      ? PLAN_FEATURES[currentPlan]
+      : TRIAL_FEATURES
+
+  const hasFeature = (feature: PlanFeature): boolean => {
+    if (!isAccessAllowed(status)) return false
+    return !!planFeatures[feature]
+  }
 
   return {
     subscription,
@@ -139,6 +170,15 @@ export function useSubscription(): UseSubscriptionReturn {
     // Only true when we have confirmed data AND status is suspended/canceled
     isSuspended:  subscription !== null && status === 'suspended',
     isCanceled:   subscription !== null && status === 'canceled',
+    // Plan-level
+    currentPlan,
+    planFeatures,
+    isBasic:  currentPlan === 'basico',
+    isPro:    currentPlan === 'pro',
+    isFull:   currentPlan === 'full',
+    maxUsers: planFeatures.maxUsers,
+    hasFeature,
+    // Dates
     daysUntilTrialEnd:  daysBetween(subscription?.trial_ends_at),
     daysUntilGraceEnd:  daysBetween(subscription?.grace_until),
     daysUntilPeriodEnd: daysBetween(subscription?.current_period_end),
