@@ -446,9 +446,10 @@ export const comprobanteService = {
       if (itemsErr) throw new Error('Error al crear ítems: ' + itemsErr.message);
 
       // ── 6. Descontar stock para ítems de producto/repuesto ──────────────
-      if (estadoDefinitivo === 'issued') {
-        await this._descontarStock(itemsToInsert, comp.id, business_id, created_by);
-      }
+      // El stock se descuenta siempre que se confirma una venta comercial,
+      // sin importar si está emitida fiscalmente en ARCA o no.
+      // La idempotencia (stock_processed) previene doble descuento.
+      await this._descontarStock(itemsToInsert, comp.id, business_id, created_by);
 
       // ── 7. Registrar pagos de caja (NO cuenta corriente) ────────────────
       if (pagosCash.length > 0) {

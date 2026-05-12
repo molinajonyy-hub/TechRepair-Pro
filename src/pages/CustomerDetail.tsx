@@ -124,6 +124,12 @@ function ComprobanteRow({ comp }: { comp: CustomerComprobante }) {
             {isWholesale && (
               <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '0.1rem 0.375rem', borderRadius: '0.25rem', background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)' }}>MAY</span>
             )}
+            {/* Badge fiscal: distingue visualmente si fue emitido en ARCA o no */}
+            {!['emitido','issued'].includes(comp.estado || '') && (
+              <span title="No emitido en ARCA. La venta es real y ya impactó en stock/caja." style={{ fontSize: '0.6rem', fontWeight: 700, padding: '0.1rem 0.35rem', borderRadius: '0.25rem', background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)', whiteSpace: 'nowrap' }}>
+                Borrador ARCA
+              </span>
+            )}
           </div>
           <div style={{ fontSize: '0.7rem', color: '#475569', marginLeft: '1.375rem' }}>{TIPO_LABEL[comp.tipo] || comp.tipo}</div>
         </td>
@@ -239,12 +245,16 @@ export function CustomerDetail() {
       .select(`
         id, numero, number, tipo, type, fecha, date, created_at,
         total, total_cobrado, saldo_pendiente,
-        estado, status, estado_comercial,
+        estado, status, estado_comercial, estado_fiscal,
         items:comprobante_items(id, descripcion, tipo_linea, cantidad, precio_unitario, costo_unitario, subtotal, applied_price_type)
       `)
       .eq('business_id', businessId)
       .eq('customer_id', id)
-      .in('estado', ['emitido', 'issued'])
+      // Mostrar todas las ventas comerciales confirmadas, no solo las emitidas en ARCA.
+      // Un comprobante borrador fiscal pero cobrado sigue siendo una venta real.
+      .not('estado', 'in', '("anulado")')
+      .not('status', 'in', '("cancelled")')
+      .not('estado_comercial', 'eq', 'anulado')
       .order('created_at', { ascending: false })
       .then(({ data }) => {
         setComprobantes((data || []).map((c: any) => ({
