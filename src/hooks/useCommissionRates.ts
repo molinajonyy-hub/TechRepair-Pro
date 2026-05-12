@@ -3,23 +3,19 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 
 export interface CommissionRates {
-  mercadopago_debito: number
-  mercadopago_credito: number
-  mercadopago_qr: number
-  visa_mc_1: number
-  visa_mc_3: number
-  visa_mc_6: number
-  visa_mc_12: number
-  naranja_1: number
-  naranja_3: number
-  naranja_6: number
-  naranja_12: number
+  debito:      number   // tarjeta débito genérica
+  visa_mc_1:   number
+  visa_mc_3:   number
+  visa_mc_6:   number
+  visa_mc_12:  number
+  naranja_1:   number
+  naranja_3:   number
+  naranja_6:   number
+  naranja_12:  number
 }
 
 export const COMMISSION_KEYS: Partial<Record<string, keyof CommissionRates>> = {
-  mp_debito:   'mercadopago_debito',
-  mp_credito:  'mercadopago_credito',
-  mp_qr:       'mercadopago_qr',
+  debito:      'debito',
   visa_mc_1:   'visa_mc_1',
   visa_mc_3:   'visa_mc_3',
   visa_mc_6:   'visa_mc_6',
@@ -31,16 +27,14 @@ export const COMMISSION_KEYS: Partial<Record<string, keyof CommissionRates>> = {
 }
 
 export const DEFAULT_RATES: CommissionRates = {
-  mercadopago_debito: 0.0089,
-  mercadopago_credito: 0.0399,
-  mercadopago_qr: 0.0099,
-  visa_mc_1: 0.10,
-  visa_mc_3: 0.221,
-  visa_mc_6: 0.418,
+  debito:     0.008,   // 0.8% genérico débito
+  visa_mc_1:  0.10,
+  visa_mc_3:  0.221,
+  visa_mc_6:  0.418,
   visa_mc_12: 0.953,
-  naranja_1: 0.10,
-  naranja_3: 0.228,
-  naranja_6: 0.51,
+  naranja_1:  0.10,
+  naranja_3:  0.228,
+  naranja_6:  0.51,
   naranja_12: 0.87,
 }
 

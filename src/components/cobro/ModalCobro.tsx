@@ -18,8 +18,7 @@ import { getActiveOfferForProduct } from '../../pages/Offers'
 
 type Origen = 'orden' | 'venta_rapida' | 'personalizado'
 export type MetodoPago =
-  | 'efectivo' | 'transferencia'
-  | 'mp_debito' | 'mp_credito' | 'mp_qr'
+  | 'efectivo' | 'transferencia' | 'debito' | 'cuenta_corriente'
   | 'visa_mc_1' | 'visa_mc_3' | 'visa_mc_6' | 'visa_mc_12'
   | 'naranja_1' | 'naranja_3' | 'naranja_6' | 'naranja_12'
 type Step = 'items' | 'pago' | 'exito'
@@ -71,17 +70,16 @@ const METODO_GROUPS = [
     label: 'Sin recargo',
     color: '#64748b',
     methods: [
-      { id: 'efectivo' as MetodoPago,     label: 'Efectivo',     emoji: '💵', color: '#22c55e' },
-      { id: 'transferencia' as MetodoPago, label: 'Transferencia', emoji: '🏦', color: '#3b82f6' },
+      { id: 'efectivo'         as MetodoPago, label: 'Efectivo',      emoji: '💵', color: '#22c55e' },
+      { id: 'transferencia'    as MetodoPago, label: 'Transferencia',  emoji: '🏦', color: '#3b82f6' },
+      { id: 'cuenta_corriente' as MetodoPago, label: 'Cta. corriente', emoji: '📋', color: '#8b5cf6' },
     ],
   },
   {
-    label: 'MercadoPago',
-    color: '#009ee3',
+    label: 'Tarjeta débito',
+    color: '#0ea5e9',
     methods: [
-      { id: 'mp_debito' as MetodoPago,  label: 'Débito',  emoji: '💳', color: '#009ee3' },
-      { id: 'mp_credito' as MetodoPago, label: 'Crédito', emoji: '💳', color: '#009ee3' },
-      { id: 'mp_qr' as MetodoPago,      label: 'QR',      emoji: '📱', color: '#009ee3' },
+      { id: 'debito' as MetodoPago, label: 'Débito', emoji: '💳', color: '#0ea5e9' },
     ],
   },
   {
@@ -118,19 +116,18 @@ const fmt = (n: number) => '$' + Math.round(n).toLocaleString('es-AR')
 
 // Mapea MetodoPago de ModalCobro al MedioPago de comprobanteService
 const METODO_TO_MEDIO: Record<MetodoPago, string> = {
-  efectivo:      'efectivo',
-  transferencia: 'transferencia',
-  mp_debito:     'tarjeta_debito',
-  mp_credito:    'tarjeta_credito',
-  mp_qr:         'qr',
-  visa_mc_1:     'tarjeta_credito',
-  visa_mc_3:     'tarjeta_credito',
-  visa_mc_6:     'tarjeta_credito',
-  visa_mc_12:    'tarjeta_credito',
-  naranja_1:     'tarjeta_credito',
-  naranja_3:     'tarjeta_credito',
-  naranja_6:     'tarjeta_credito',
-  naranja_12:    'tarjeta_credito',
+  efectivo:        'efectivo',
+  transferencia:   'transferencia',
+  debito:          'tarjeta_debito',
+  cuenta_corriente:'cuenta_corriente',
+  visa_mc_1:       'tarjeta_credito',
+  visa_mc_3:       'tarjeta_credito',
+  visa_mc_6:       'tarjeta_credito',
+  visa_mc_12:      'tarjeta_credito',
+  naranja_1:       'tarjeta_credito',
+  naranja_3:       'tarjeta_credito',
+  naranja_6:       'tarjeta_credito',
+  naranja_12:      'tarjeta_credito',
 }
 
 export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroProps) {
@@ -723,8 +720,15 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
                   {pagos.map((pago, idx) => (
                     <div key={idx} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 1fr 28px', gap: '0.5rem', alignItems: 'center', background: 'rgba(255,255,255,0.03)', padding: '0.625rem', borderRadius: '0.625rem', border: '1px solid rgba(255,255,255,0.08)' }}>
                       <select value={pago.metodo} onChange={e => updatePago(idx, 'metodo', e.target.value)} style={{ ...inputS, fontSize: '0.78rem' }}>
-                        <option value="efectivo">Efectivo</option>
-                        <option value="transferencia">Transferencia</option>
+                        <option value="efectivo">💵 Efectivo</option>
+                        <option value="transferencia">🏦 Transferencia</option>
+                        <option value="debito">💳 Débito</option>
+                        <option value="visa_mc_1">💳 Visa/MC 1c</option>
+                        <option value="visa_mc_3">💳 Visa/MC 3c</option>
+                        <option value="visa_mc_6">💳 Visa/MC 6c</option>
+                        <option value="naranja_1">🟠 Naranja 1c</option>
+                        <option value="naranja_3">🟠 Naranja 3c</option>
+                        <option value="cuenta_corriente">📋 Cta. corriente</option>
                       </select>
                       <input type="number" placeholder="$ ARS" value={pago.montoARS || ''} onChange={e => updatePago(idx, 'montoARS', +e.target.value || 0)} style={{ ...inputS, textAlign: 'right' }} />
                       <div style={{ position: 'relative' }}>
@@ -740,14 +744,24 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
                 </div>
               )}
 
-              {/* Toggle mixto (solo para sin-comisión) */}
-              {!hasCommission && (
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
-                  <button onClick={() => { setMixto(!mixto); if (!mixto) { setPagos([newPago(), newPago('transferencia')]) } else { setPagos([{ ...newPago(), montoARS: subtotal }]) } }} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', background: mixto ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${mixto ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '0.5rem', padding: '0.25rem 0.625rem', color: mixto ? '#818cf8' : '#64748b', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}>
-                    Pago mixto {mixto ? '✓' : ''}
-                  </button>
-                </div>
-              )}
+              {/* Toggle pago mixto — disponible siempre */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
+                <button
+                  onClick={() => {
+                    setMixto(!mixto)
+                    if (!mixto) {
+                      setPagos([newPago('efectivo'), newPago('transferencia')])
+                    } else {
+                      const key  = COMMISSION_KEYS[pagos[0]?.metodo ?? 'efectivo']
+                      const rate = key ? rates[key] : 0
+                      setPagos([{ ...newPago(pagos[0]?.metodo ?? 'efectivo'), montoARS: Math.round(subtotal * (1 + rate)) }])
+                    }
+                  }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', background: mixto ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${mixto ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '0.5rem', padding: '0.25rem 0.625rem', color: mixto ? '#818cf8' : '#64748b', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  ⊕ Pago mixto {mixto ? '✓' : ''}
+                </button>
+              </div>
 
               {/* Balance (solo para métodos sin comisión) */}
               {!hasCommission && (

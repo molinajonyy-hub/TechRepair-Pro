@@ -118,11 +118,9 @@ export interface CrearComprobanteInput {
   skip_finance_entry?: boolean;
 }
 
-// Tasas de comisión por proveedor (estimadas)
+// Tasas de comisión por proveedor (estimadas) — sin Mercado Pago en flujo POS
 export const COMMISSION_RATES: Record<string, number> = {
-  'mercado_pago_debito':  0.0089,
-  'mercado_pago_credito': 0.0399,
-  'mercado_pago_qr':      0.0099,
+  'debito':               0.0080,
   'posnet_debito':        0.0080,
   'posnet_credito':       0.0250,
   'getnet_debito':        0.0075,
@@ -133,7 +131,6 @@ export const COMMISSION_RATES: Record<string, number> = {
 };
 
 export const PROVIDER_LABELS: Record<string, string> = {
-  'mercado_pago': 'MercadoPago',
   'posnet':       'Posnet',
   'getnet':       'Getnet',
   'banco':        'Banco',
