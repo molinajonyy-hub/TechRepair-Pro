@@ -10,6 +10,7 @@
  * trig_account_movement_balance (server-side, atómico).
  */
 import { supabase } from '../lib/supabase'
+import { requireFeature } from '../utils/requireFeature'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -106,6 +107,7 @@ export const cuentasService = {
     entityName: string,
     entityPhone?: string | null,
   ): Promise<Account> {
+    await requireFeature(businessId, 'currentAccounts', 'get_or_create_account')
     const { data: existing } = await supabase
       .from('accounts').select('*')
       .eq('business_id', businessId)
@@ -143,6 +145,7 @@ export const cuentasService = {
    * balance_after se calcula server-side (trigger BEFORE INSERT con SELECT FOR UPDATE).
    */
   async addMovement(businessId: string, accountId: string, input: AddMovementInput): Promise<AccountMovement> {
+    await requireFeature(businessId, 'currentAccounts', 'add_account_movement')
     const { data, error } = await supabase
       .from('account_movements')
       .insert({

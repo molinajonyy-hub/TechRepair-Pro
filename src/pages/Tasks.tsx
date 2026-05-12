@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { requireFeature, getFeatureErrorMessage } from '../utils/requireFeature'
 import { AppPageHeader, AppButton, AppIconButton } from '../ui'
 import { AddIcon, DeleteIcon } from '../ui/icons'
 
@@ -239,6 +240,7 @@ function CreateEditModal({ editing, profiles, businessId, userId, onSaved, onClo
     if (!form.assigned_to) { setErr('Debés asignar un usuario'); return }
     setSaving(true); setErr('')
     try {
+      await requireFeature(businessId!, 'tasks', 'create_or_edit_task')
       const payload = {
         business_id: businessId,
         title: form.title.trim(),
@@ -261,7 +263,7 @@ function CreateEditModal({ editing, profiles, businessId, userId, onSaved, onClo
         result = data
       }
       if (result) onSaved(result as Task)
-    } catch (e: any) { setErr(e.message || 'Error al guardar') }
+    } catch (e: any) { setErr(getFeatureErrorMessage(e)) }
     finally { setSaving(false) }
   }
 

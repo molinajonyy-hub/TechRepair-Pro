@@ -1,4 +1,5 @@
 import { supabase } from '../../lib/supabase'
+import { requireFeature } from '../../utils/requireFeature'
 import type {
   PortalBusiness, WholesaleCustomer, PortalProduct,
   WholesaleOrder, WholesaleOrderItem, CartItem,
@@ -155,6 +156,11 @@ export async function createOrder(input: {
   items: CartItem[]
   notes?: string
 }): Promise<{ order: WholesaleOrder | null; error: string | null }> {
+  try {
+    await requireFeature(input.businessId, 'mayorista', 'create_wholesale_order')
+  } catch (e: any) {
+    return { order: null, error: e.message }
+  }
   const total = input.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0)
   const orderNumber = `PW-${Date.now().toString(36).toUpperCase()}`
 
