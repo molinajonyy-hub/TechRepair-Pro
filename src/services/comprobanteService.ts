@@ -764,7 +764,7 @@ export const comprobanteService = {
   // ── Internos ──────────────────────────────────────────────────────────────────
 
   async _descontarStock(
-    items: { inventory_id?: string | null; cantidad: number; tipo_linea?: string }[],
+    items: { id?: string; inventory_id?: string | null; cantidad: number; tipo_linea?: string }[],
     comprobanteId: string,
     businessId: string,
     userId?: string
@@ -773,38 +773,61 @@ export const comprobanteService = {
       if (!item.inventory_id) continue;
       if (!['producto', 'repuesto', undefined, null].includes(item.tipo_linea as any)) continue;
 
+      // ── Idempotencia: buscar el comprobante_item para verificar si ya fue procesado ──
+      const { data: ciRow } = await supabase
+        .from('comprobante_items')
+        .select('id, stock_processed')
+        .eq('comprobante_id', comprobanteId)
+        .eq('inventory_id', item.inventory_id)
+        .maybeSingle();
+
+      if (ciRow?.stock_processed === true) continue; // Ya descontado, saltar
+
       const { data: inv } = await supabase
         .from('inventory')
         .select('stock_quantity')
         .eq('id', item.inventory_id)
+        .eq('business_id', businessId)
         .single();
 
       if (!inv) continue;
 
-      const prevStock = inv.stock_quantity || 0;
-      const newStock  = Math.max(0, prevStock - item.cantidad);
+      const prevStock = inv.stock_quantity ?? 0;
+      const newStock  = prevStock - item.cantidad;
 
       await supabase.from('inventory')
-        .update({ stock_quantity: newStock, updated_at: new Date().toISOString() })
-        .eq('id', item.inventory_id);
+        .update({ stock_quantity: Math.max(0, newStock), updated_at: new Date().toISOString() })
+        .eq('id', item.inventory_id)
+        .eq('business_id', businessId);
 
-      await supabase.from('inventory_movements').insert({
+      const { data: mov } = await supabase.from('inventory_movements').insert({
         business_id:       businessId,
         inventory_item_id: item.inventory_id,
         movement_type:     'sale',
         quantity:          -item.cantidad,
         previous_stock:    prevStock,
-        new_stock:         newStock,
+        new_stock:         Math.max(0, newStock),
         reference_type:    'comprobante',
         reference_id:      comprobanteId,
         note:              'Salida por venta en comprobante',
         created_by:        userId || null,
-      });
+      }).select('id').maybeSingle();
+
+      // Marcar item como procesado para evitar doble descuento
+      if (ciRow?.id) {
+        await supabase.from('comprobante_items')
+          .update({
+            stock_processed:    true,
+            stock_processed_at: new Date().toISOString(),
+            stock_movement_id:  mov?.id ?? null,
+          })
+          .eq('id', ciRow.id);
+      }
     }
   },
 
   async _revertirStock(
-    items: { inventory_id?: string | null; cantidad: number }[],
+    items: { id?: string; inventory_id?: string | null; cantidad: number }[],
     comprobanteId: string,
     businessId: string,
     userId?: string
@@ -812,20 +835,32 @@ export const comprobanteService = {
     for (const item of items) {
       if (!item.inventory_id) continue;
 
+      // Idempotencia: solo revertir si el item tiene stock_processed = true
+      if (item.id) {
+        const { data: ciRow } = await supabase
+          .from('comprobante_items')
+          .select('stock_processed')
+          .eq('id', item.id)
+          .maybeSingle();
+        if (!ciRow?.stock_processed) continue; // Nunca fue descontado, nada que revertir
+      }
+
       const { data: inv } = await supabase
         .from('inventory')
         .select('stock_quantity')
         .eq('id', item.inventory_id)
+        .eq('business_id', businessId)
         .single();
 
       if (!inv) continue;
 
-      const prevStock = inv.stock_quantity || 0;
+      const prevStock = inv.stock_quantity ?? 0;
       const newStock  = prevStock + item.cantidad;
 
       await supabase.from('inventory')
         .update({ stock_quantity: newStock, updated_at: new Date().toISOString() })
-        .eq('id', item.inventory_id);
+        .eq('id', item.inventory_id)
+        .eq('business_id', businessId);
 
       await supabase.from('inventory_movements').insert({
         business_id:       businessId,
@@ -839,6 +874,13 @@ export const comprobanteService = {
         note:              'Devolución por anulación de comprobante',
         created_by:        userId || null,
       });
+
+      // Desmarcar item
+      if (item.id) {
+        await supabase.from('comprobante_items')
+          .update({ stock_processed: false, stock_processed_at: null, stock_movement_id: null })
+          .eq('id', item.id);
+      }
     }
   },
 };

@@ -261,8 +261,80 @@ export async function updateOrderStatus(
     .from('wholesale_orders')
     .update({ status, admin_notes: adminNotes || null, updated_at: new Date().toISOString() })
     .eq('id', orderId)
-  if (businessId) q = q.eq('business_id', businessId)  // ← security: scope to business
+  if (businessId) q = q.eq('business_id', businessId)
   await q
+
+  if (!businessId) return
+
+  const DEDUCT_ON  = ['approved'] as WholesaleOrder['status'][]
+  const REVERT_ON  = ['cancelled', 'rejected'] as WholesaleOrder['status'][]
+
+  if (DEDUCT_ON.includes(status)) {
+    await _processWholesaleStock(orderId, businessId, 'deduct')
+  } else if (REVERT_ON.includes(status)) {
+    await _processWholesaleStock(orderId, businessId, 'revert')
+  }
+}
+
+async function _processWholesaleStock(
+  orderId: string,
+  businessId: string,
+  mode: 'deduct' | 'revert',
+): Promise<void> {
+  const { data: items } = await supabase
+    .from('wholesale_order_items')
+    .select('id, inventory_item_id, quantity, stock_processed')
+    .eq('order_id', orderId)
+    .eq('business_id', businessId)
+
+  if (!items?.length) return
+
+  for (const item of items) {
+    if (!item.inventory_item_id || !item.quantity) continue
+
+    if (mode === 'deduct' && item.stock_processed) continue   // idempotencia
+    if (mode === 'revert' && !item.stock_processed) continue  // nada que revertir
+
+    const { data: inv } = await supabase
+      .from('inventory')
+      .select('stock_quantity')
+      .eq('id', item.inventory_item_id)
+      .eq('business_id', businessId)
+      .single()
+
+    if (!inv) continue
+
+    const prevStock = inv.stock_quantity ?? 0
+    const delta     = mode === 'deduct' ? -item.quantity : item.quantity
+    const newStock  = Math.max(0, prevStock + delta)
+
+    await supabase.from('inventory')
+      .update({ stock_quantity: newStock, updated_at: new Date().toISOString() })
+      .eq('id', item.inventory_item_id)
+      .eq('business_id', businessId)
+
+    const { data: mov } = await supabase.from('inventory_movements').insert({
+      business_id:       businessId,
+      inventory_item_id: item.inventory_item_id,
+      movement_type:     mode === 'deduct' ? 'sale' : 'return',
+      quantity:          delta,
+      previous_stock:    prevStock,
+      new_stock:         newStock,
+      reference_type:    'wholesale_order',
+      reference_id:      orderId,
+      note:              mode === 'deduct'
+        ? 'Salida por pedido mayorista aprobado'
+        : 'Devolución por pedido mayorista cancelado/rechazado',
+    }).select('id').maybeSingle()
+
+    await supabase.from('wholesale_order_items')
+      .update({
+        stock_processed:    mode === 'deduct',
+        stock_processed_at: mode === 'deduct' ? new Date().toISOString() : null,
+        stock_movement_id:  mode === 'deduct' ? (mov?.id ?? null) : null,
+      })
+      .eq('id', item.id)
+  }
 }
 
 /**

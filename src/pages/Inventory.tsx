@@ -23,6 +23,7 @@ import { currencyService } from '../services/currencyService'
 import { calcularPrecioLocal, convertirMoneda, calcularRentabilidad } from '../utils/priceCalculator'
 import { useLoading } from '../contexts/LoadingContext'
 import { ModalImportExcel } from '../components/ModalImportExcel'
+import { StockRepairTool } from '../components/inventory/StockRepairTool'
 import { ExcelService, ExcelRow } from '../services/excelService'
 import { supabase } from '../lib/supabase'
 import { ProductMovementsModal } from '../components/inventory/ProductMovementsModal'
@@ -3151,6 +3152,11 @@ export function Inventory() {
           onClose={() => setMovementsItem(null)}
         />
       )}
+
+      {/* Herramienta de reparación de stock — solo owner/admin */}
+      <div style={{ marginTop: '2.5rem' }}>
+        <StockRepairTool />
+      </div>
     </div>
   )
 }
