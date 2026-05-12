@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSubscription } from '../hooks/useSubscription'
-import { cancelSubscription, getUpdatePaymentLink, formatSubscriptionPrice } from '../services/subscriptionService'
+import { cancelSubscription, getUpdatePaymentLink, formatSubscriptionPrice, reconcilePayment, getSubscriptionPayments } from '../services/subscriptionService'
 import {
   PLANS,
   STATUS_LABELS,
@@ -43,6 +43,9 @@ export function Subscription() {
   const [cancelConfirm, setCancelConfirm] = useState(false)
   const [updatingPayment, setUpdatingPayment] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [reconciling, setReconciling] = useState(false)
+  const [reconcileMsg, setReconcileMsg] = useState('')
+  const [saasPayments, setSaasPayments] = useState<any[]>([])
   const [activeUserCount, setActiveUserCount] = useState<number | null>(null)
 
   const status       = (subscription?.subscription_status as SubscriptionStatus) || 'pending_activation'
@@ -68,6 +71,23 @@ export function Subscription() {
     } finally {
       setCanceling(false)
     }
+  }
+
+  async function handleReconcile() {
+    if (!businessId) return
+    setReconciling(true); setReconcileMsg('')
+    try {
+      const { activated, message } = await reconcilePayment(businessId)
+      setReconcileMsg(message)
+      if (activated) await refresh()
+    } catch { setReconcileMsg('Error al verificar. Intentá de nuevo.') }
+    finally { setReconciling(false) }
+  }
+
+  // Cargar pagos SaaS al abrir historial
+  const loadSaasPayments = async () => {
+    if (!businessId || saasPayments.length > 0) return
+    setSaasPayments(await getSubscriptionPayments(businessId))
   }
 
   async function handleUpdatePayment() {
@@ -297,7 +317,7 @@ export function Subscription() {
         <div
           className="card-header"
           style={{ cursor: 'pointer', userSelect: 'none' }}
-          onClick={() => setShowHistory(v => !v)}
+          onClick={() => { setShowHistory(v => !v); if (!showHistory) loadSaasPayments() }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
             <h3 className="card-title" style={{ margin: 0 }}>
@@ -348,10 +368,18 @@ export function Subscription() {
       </div>
 
       {/* Management actions */}
-      {(isActive || isPastDue) && (
+      {(isActive || isPastDue || isTrial) && (
         <div className="card" style={{ marginBottom: '1.5rem' }}>
           <div className="card-header"><h3 className="card-title">Administrar suscripción</h3></div>
           <div className="card-body" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+            {/* Verificar pago — útil cuando el webhook tardó */}
+            <button onClick={handleReconcile} disabled={reconciling} style={btnStyle('ghost')}>
+              {reconciling ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={16} />}
+              Verificar pago
+            </button>
+            {reconcileMsg && (
+              <span style={{ alignSelf: 'center', fontSize: '0.78rem', color: '#94a3b8' }}>{reconcileMsg}</span>
+            )}
             <button onClick={handleUpdatePayment} disabled={updatingPayment} style={btnStyle('ghost')}>
               {updatingPayment ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <CreditCard size={16} />}
               Actualizar método de pago

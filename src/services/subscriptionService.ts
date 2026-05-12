@@ -231,6 +231,55 @@ export async function adminSuspendBusiness(businessId: string): Promise<void> {
   if (error) throw error
 }
 
+// ── Consultar estado de checkout session (para polling en PaymentPending) ────
+export async function getLatestCheckoutSession(businessId: string): Promise<{
+  status: string | null; plan_id: string | null; id: string | null
+}> {
+  const { data } = await supabase
+    .from('subscription_checkout_sessions')
+    .select('id, status, plan_id')
+    .eq('business_id', businessId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return { status: data?.status ?? null, plan_id: data?.plan_id ?? null, id: data?.id ?? null }
+}
+
+// ── Reconciliación manual: sincronizar desde MP live (botón "Verificar pago") ─
+export async function reconcilePayment(businessId: string): Promise<{
+  activated: boolean; message: string
+}> {
+  try {
+    const result = await callEdge<{ activated?: boolean; status?: string; message?: string }>(
+      'reconcile', { business_id: businessId }
+    )
+    return {
+      activated: result.activated ?? false,
+      message:   result.message ?? 'Verificación completada',
+    }
+  } catch {
+    // Fallback: leer estado actual desde DB
+    const sub = await getSubscription(businessId)
+    return {
+      activated: sub?.subscription_status === 'active',
+      message:   sub?.subscription_status === 'active'
+        ? 'Tu suscripción ya está activa.'
+        : 'No se detectó pago aprobado todavía.',
+    }
+  }
+}
+
+// ── Historial de pagos SaaS (subscription_payments) ───────────────────────
+export async function getSubscriptionPayments(businessId: string) {
+  const { data } = await supabase
+    .from('subscription_payments')
+    .select('id, plan_id, billing_cycle, amount, currency, status, paid_at, created_at')
+    .eq('business_id', businessId)
+    .order('created_at', { ascending: false })
+    .limit(20)
+  return data ?? []
+}
+
 // ── Format currency ───────────────────────────────────────────
 export function formatSubscriptionPrice(amount: number, currency = 'ARS'): string {
   return new Intl.NumberFormat('es-AR', {
