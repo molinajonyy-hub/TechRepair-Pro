@@ -89,3 +89,17 @@ export const PLAN_DISPLAY: Record<PlanId, { label: string; color: string }> = {
   pro:    { label: 'Pro',     color: '#6366f1' },
   full:   { label: 'Full',    color: '#475569' },
 }
+
+// ─── Feature Registry tipado — usar en lugar de strings hardcodeados ──────────
+// Evita typos como 'arcaaa', 'report', 'finance_advanced', etc.
+export const FEATURES = {
+  ARCA:             'arca',
+  CURRENT_ACCOUNTS: 'currentAccounts',
+  REPORTS:          'reports',
+  ADVANCED_FINANCE: 'advancedFinance',
+  TASKS:            'tasks',
+  MAYORISTA:        'mayorista',
+  ADVANCED_ROLES:   'advancedRoles',
+  AUDIT:            'audit',
+  MULTISUCURSAL:    'multisucursal',
+} as const satisfies Record<string, PlanFeature>

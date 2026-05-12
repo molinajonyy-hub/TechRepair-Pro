@@ -1,7 +1,16 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { getSubscription, getPayments } from '../services/subscriptionService'
+
+// ─── Cache de suscripción (TTL 45s, stale-while-revalidate) ──────────────────
+interface CacheEntry {
+  subscription: import('../types/subscription').BusinessSubscription | null
+  payments:     import('../types/subscription').Payment[]
+  fetchedAt:    number
+}
+const CACHE_TTL_MS = 45_000
+const _cache = new Map<string, CacheEntry>()
 import {
   type BusinessSubscription,
   type Payment,
@@ -62,34 +71,53 @@ export function useSubscription(): UseSubscriptionReturn {
   // This prevents the app from showing blank while subscription loads.
   // We optimistically allow access (trialing) and only block when we have
   // CONFIRMED data from the server saying the account is suspended/canceled.
-  const [subscription, setSubscription] = useState<BusinessSubscription | null>(null)
-  const [payments, setPayments] = useState<Payment[]>([])
-  const [loading, setLoading] = useState(false) // ← starts FALSE (not true)
+  const cached = businessId ? _cache.get(businessId) : undefined
+  const [subscription, setSubscription] = useState<BusinessSubscription | null>(cached?.subscription ?? null)
+  const [payments, setPayments] = useState<Payment[]>(cached?.payments ?? [])
+  const [loading, setLoading] = useState(!cached) // false si hay cache
   const [error, setError] = useState<string | null>(null)
+  const revalidating = useRef(false)
 
-  const load = useCallback(async () => {
-    if (!businessId) {
+  const load = useCallback(async (background = false) => {
+    if (!businessId) { setLoading(false); return }
+
+    // Stale-while-revalidate: si hay cache válida, no bloquear UI
+    const entry = _cache.get(businessId)
+    const isFresh = entry && (Date.now() - entry.fetchedAt < CACHE_TTL_MS)
+    if (isFresh && background) return           // ya está fresco
+    if (isFresh && !background) {               // usar cache inmediatamente
+      setSubscription(entry.subscription)
+      setPayments(entry.payments)
       setLoading(false)
+      // revalidar en background igual
+      if (revalidating.current) return
+      revalidating.current = true
+      load(true).finally(() => { revalidating.current = false })
       return
     }
+
+    if (!background) setLoading(true)
     try {
-      setLoading(true)
       setError(null)
       const [sub, pays] = await Promise.all([
         getSubscription(businessId),
         getPayments(businessId),
       ])
+      _cache.set(businessId, { subscription: sub, payments: pays ?? [], fetchedAt: Date.now() })
       setSubscription(sub)
       setPayments(pays ?? [])
     } catch (err: any) {
-      // Don't block the app — subscription errors are non-critical
       console.error('[useSubscription] Load error:', err)
       setError(err?.message ?? 'Error cargando suscripción')
-      // Leave subscription as null → status resolves to 'trialing' (safe default)
     } finally {
-      setLoading(false)
+      if (!background) setLoading(false)
     }
   }, [businessId])
+
+  const refresh = useCallback(async () => {
+    if (businessId) _cache.delete(businessId) // invalidar cache antes del refresh manual
+    await load()
+  }, [businessId, load])
 
   useEffect(() => {
     load()
@@ -182,6 +210,6 @@ export function useSubscription(): UseSubscriptionReturn {
     daysUntilTrialEnd:  daysBetween(subscription?.trial_ends_at),
     daysUntilGraceEnd:  daysBetween(subscription?.grace_until),
     daysUntilPeriodEnd: daysBetween(subscription?.current_period_end),
-    refresh: load,
+    refresh,
   }
 }
