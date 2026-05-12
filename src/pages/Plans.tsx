@@ -1,203 +1,262 @@
 /**
- * Plans.tsx — Plan selection screen
+ * Plans.tsx — Pantalla de selección de plan con checkout Mercado Pago.
+ * Diseño iOS premium. Trial users ven Pro recomendado.
  */
 import { useState } from 'react'
-import { CheckCircle, Loader2, Zap, Star } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Loader2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { createSubscription, formatSubscriptionPrice } from '../services/subscriptionService'
-import {
-  PLANS,
-  BILLING_LABELS,
-  type SubscriptionPlan,
-  type BillingCycle,
-} from '../types/subscription'
+import { useSubscription } from '../hooks/useSubscription'
+import { createSubscription } from '../services/subscriptionService'
+import { PLANS, type SubscriptionPlan } from '../types/subscription'
+
+const F = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif"
+type Cycle = 'monthly' | 'annual'
+
+// Features visibles por plan en la card interna
+const PLAN_CARD_FEATURES: Record<SubscriptionPlan, string[]> = {
+  basico: [
+    'Órdenes de servicio ilimitadas',
+    'Clientes e historial',
+    'Inventario y stock',
+    'Caja diaria',
+    'Comprobantes internos',
+    '1 usuario',
+  ],
+  pro: [
+    'Todo lo del plan Básico',
+    'Facturación ARCA / CAE',
+    'Finanzas Pro y métricas',
+    'Cuentas corrientes',
+    'Tareas y empleados',
+    'Reportes avanzados',
+    'Hasta 3 usuarios',
+  ],
+  full: [
+    'Todo lo del plan Pro',
+    'Multi-sucursal completo',
+    'Stock y caja por local',
+    'Hasta 10 usuarios',
+    'Permisos granulares',
+    'Auditoría completa',
+  ],
+}
+
+const PLAN_STYLES = {
+  basico: { accent: '#64748b', border: 'rgba(100,116,139,0.2)', bg: 'rgba(100,116,139,0.04)', glow: '' },
+  pro:    { accent: '#6366f1', border: 'rgba(99,102,241,0.45)', bg: 'rgba(99,102,241,0.07)', glow: '0 0 0 1px rgba(99,102,241,0.4), 0 20px 48px rgba(99,102,241,0.15)' },
+  full:   { accent: '#475569', border: 'rgba(148,163,184,0.2)', bg: 'rgba(30,41,59,0.5)',    glow: '' },
+}
+
+function fmt(n: number) {
+  return '$' + Math.round(n).toLocaleString('es-AR')
+}
 
 export function Plans() {
   const { businessId, user } = useAuth()
-  const [cycle, setCycle] = useState<BillingCycle>('monthly')
+  const { isTrial, daysUntilTrialEnd, currentPlan } = useSubscription()
+  const navigate = useNavigate()
+  const [cycle, setCycle]     = useState<Cycle>('monthly')
   const [loading, setLoading] = useState<string | null>(null)
-  const [error, setError] = useState('')
+  const [error, setError]     = useState('')
 
-  function getPlanPrice(plan: typeof PLANS[0], c: BillingCycle) {
-    if (c === 'monthly')   return plan.price_monthly
-    if (c === 'quarterly') return plan.price_quarterly
-    return plan.price_annual
-  }
-
-  function getDiscount(plan: typeof PLANS[0], c: BillingCycle): string | null {
-    if (c === 'quarterly') {
-      const pct = Math.round((1 - plan.price_quarterly / (plan.price_monthly * 3)) * 100)
-      return pct > 0 ? `${pct}% descuento` : null
-    }
-    if (c === 'annual') {
-      const pct = Math.round((1 - plan.price_annual / (plan.price_monthly * 12)) * 100)
-      return pct > 0 ? `${pct}% descuento` : null
-    }
-    return null
-  }
+  const isAnnual = cycle === 'annual'
 
   async function handleSelect(planId: SubscriptionPlan) {
     if (!businessId || !user?.email) return
-    setError('')
-    setLoading(planId)
+    setError(''); setLoading(planId)
     try {
       const res = await createSubscription({
-        business_id: businessId,
-        plan: planId,
+        business_id:   businessId,
+        plan:          planId,
         billing_cycle: cycle,
-        payer_email: user.email,
+        payer_email:   user.email,
       })
-      // Redirect to MP checkout
       window.location.href = res.init_point
-    } catch (err: any) {
-      setError(err.message || 'Error al iniciar el pago')
+    } catch (e: any) {
+      setError(e.message || 'Error al iniciar el pago')
       setLoading(null)
     }
   }
 
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+    <div style={{ maxWidth: 1100, margin: '0 auto', fontFamily: F }}>
+
       {/* Header */}
       <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
-        <h1 style={{ color: 'var(--text-primary)', fontSize: '2rem', fontWeight: 700, margin: 0 }}>
+        <h1 style={{ margin: '0 0 0.625rem', fontSize: '2rem', fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.04em' }}>
           Elegí tu plan
         </h1>
-        <p style={{ color: 'var(--text-muted)', marginTop: '0.75rem', fontSize: '1rem' }}>
-          Sin contratos. Cancelá cuando quieras.
-        </p>
-      </div>
 
-      {/* Billing cycle toggle */}
-      <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', marginBottom: '2.5rem' }}>
-        {(['monthly', 'quarterly', 'annual'] as BillingCycle[]).map(c => (
-          <button
-            key={c}
-            onClick={() => setCycle(c)}
-            style={{
-              padding: '0.5rem 1.25rem', borderRadius: '2rem', border: '1px solid',
-              borderColor: cycle === c ? '#6366f1' : 'var(--border-color)',
-              background: cycle === c ? '#6366f1' : 'transparent',
-              color: cycle === c ? '#fff' : 'var(--text-muted)',
-              fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer',
-            }}
-          >
-            {BILLING_LABELS[c]}
-          </button>
-        ))}
+        {isTrial ? (
+          <div style={{
+            display: 'inline-block', padding: '0.4rem 1rem',
+            background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)',
+            borderRadius: '999px', marginBottom: '0.875rem',
+          }}>
+            <span style={{ fontSize: '0.82rem', color: '#818cf8', fontWeight: 600 }}>
+              {daysUntilTrialEnd !== null && daysUntilTrialEnd <= 3 && daysUntilTrialEnd > 0
+                ? `Tu prueba vence en ${daysUntilTrialEnd} día${daysUntilTrialEnd !== 1 ? 's' : ''}. Elegí un plan para mantener el acceso.`
+                : 'Tu prueba gratuita incluye funciones del Plan Pro'}
+            </span>
+          </div>
+        ) : currentPlan && (
+          <div style={{ display: 'inline-block', padding: '0.4rem 1rem', background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)', borderRadius: '999px', marginBottom: '0.875rem' }}>
+            <span style={{ fontSize: '0.82rem', color: '#34d399', fontWeight: 600 }}>
+              Plan actual: {currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)}
+            </span>
+          </div>
+        )}
+
+        <p style={{ margin: '0 0 1.75rem', color: '#64748b', fontSize: '0.9rem' }}>
+          Sin contratos. Cancelás cuando querés.
+        </p>
+
+        {/* Toggle mensual / anual */}
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '999px', padding: '0.25rem' }}>
+          {(['monthly', 'annual'] as Cycle[]).map(c => (
+            <button key={c} onClick={() => setCycle(c)} style={{
+              padding: '0.4rem 1.125rem', borderRadius: '999px', border: 'none',
+              background: cycle === c ? 'rgba(255,255,255,0.1)' : 'transparent',
+              color: cycle === c ? '#f1f5f9' : '#64748b',
+              fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+              fontFamily: F, transition: 'all 0.2s',
+            }}>
+              {c === 'monthly' ? 'Mensual' : (
+                <>Anual <span style={{ padding: '0.1rem 0.4rem', borderRadius: '999px', background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontSize: '0.7rem', fontWeight: 800 }}>−20%</span></>
+              )}
+            </button>
+          ))}
+        </div>
       </div>
 
       {error && (
-        <div style={{
-          padding: '0.875rem 1rem', background: 'rgba(248,113,113,0.08)',
-          border: '1px solid rgba(248,113,113,0.3)', borderRadius: '0.75rem',
-          color: '#f87171', fontSize: '0.875rem', marginBottom: '1.5rem', textAlign: 'center',
-        }}>
+        <div style={{ padding: '0.875rem 1rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '0.875rem', color: '#f87171', fontSize: '0.875rem', marginBottom: '1.75rem', textAlign: 'center' }}>
           {error}
         </div>
       )}
 
       {/* Plan cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem', alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1rem', alignItems: 'start' }}>
         {PLANS.map(plan => {
-          const price   = getPlanPrice(plan, cycle)
-          const discount = getDiscount(plan, cycle)
-          const isLoading = loading === plan.id
+          const s     = PLAN_STYLES[plan.id]
+          const price = isAnnual ? Math.round(plan.price_annual / 12) : plan.price_monthly
+          const isPro = plan.id === 'pro'
+          const isBusy = loading === plan.id
+          const features = PLAN_CARD_FEATURES[plan.id]
 
           return (
-            <div
-              key={plan.id}
-              style={{
-                background: 'var(--bg-card)',
-                border: `1px solid ${plan.highlighted ? '#6366f1' : 'var(--border-color)'}`,
-                borderRadius: '1.25rem',
-                padding: '1.75rem',
-                position: 'relative',
-                boxShadow: plan.highlighted ? '0 0 0 1px #6366f1, 0 20px 40px rgba(99,102,241,0.15)' : 'var(--shadow-sm)',
-                transform: plan.highlighted ? 'scale(1.025)' : 'none',
-              }}
-            >
-              {plan.highlighted && (
+            <div key={plan.id} style={{
+              position: 'relative',
+              background: s.bg,
+              border: `1px solid ${s.border}`,
+              borderRadius: '1.125rem',
+              padding: isPro ? '2rem 1.625rem 1.75rem' : '1.75rem 1.5rem',
+              display: 'flex', flexDirection: 'column', gap: '1.25rem',
+              marginTop: isPro ? '-0.75rem' : 0,
+              boxShadow: s.glow || 'none',
+            }}>
+
+              {/* Badge Pro */}
+              {isPro && (
                 <div style={{
-                  position: 'absolute', top: '-14px', left: '50%', transform: 'translateX(-50%)',
-                  background: '#6366f1', color: '#fff', padding: '0.25rem 1rem',
-                  borderRadius: '1rem', fontSize: '0.75rem', fontWeight: 700,
-                  display: 'flex', alignItems: 'center', gap: '0.35rem',
-                  whiteSpace: 'nowrap',
+                  position: 'absolute', top: '-1px', left: '50%', transform: 'translateX(-50%)',
+                  background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+                  color: '#fff', fontSize: '0.68rem', fontWeight: 800,
+                  padding: '0.2rem 0.875rem', borderRadius: '0 0 0.625rem 0.625rem',
+                  letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap',
+                  boxShadow: '0 4px 16px rgba(99,102,241,0.4)',
                 }}>
-                  <Star size={12} fill="#fff" />
-                  Más popular
+                  {isTrial ? 'Tu plan de prueba' : 'Más elegido'}
                 </div>
               )}
 
-              {/* Plan name */}
-              <h2 style={{ color: 'var(--text-primary)', margin: '0 0 0.5rem', fontSize: '1.35rem', fontWeight: 700 }}>
-                {plan.name}
-              </h2>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', margin: '0 0 1.5rem', minHeight: '2.5rem' }}>
-                {plan.description}
-              </p>
+              {/* Header */}
+              <div>
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: s.accent, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                  {plan.name}
+                </span>
+                <p style={{ margin: '0.35rem 0 0', color: '#64748b', fontSize: '0.8rem', lineHeight: 1.55 }}>
+                  {plan.description}
+                </p>
+              </div>
 
-              {/* Price */}
-              <div style={{ marginBottom: '1.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.5rem' }}>
-                  <span style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>
-                    {formatSubscriptionPrice(price)}
+              {/* Precio */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.2rem' }}>
+                  <span style={{ color: '#64748b', fontSize: '0.95rem', fontWeight: 600 }}>$</span>
+                  <span style={{ color: '#f1f5f9', fontSize: '2.375rem', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1 }}>
+                    {Math.round(price).toLocaleString('es-AR')}
                   </span>
-                  <span style={{ color: 'var(--text-muted)', fontSize: '0.875rem', paddingBottom: '0.25rem' }}>
-                    / {cycle === 'monthly' ? 'mes' : cycle === 'quarterly' ? '3 meses' : 'año'}
-                  </span>
+                  <span style={{ color: '#475569', fontSize: '0.8rem' }}>/mes</span>
                 </div>
-                {discount && (
-                  <span style={{
-                    display: 'inline-block', marginTop: '0.35rem',
-                    background: 'rgba(52,211,153,0.15)', color: '#34d399',
-                    padding: '0.2rem 0.6rem', borderRadius: '0.5rem', fontSize: '0.75rem', fontWeight: 600,
-                  }}>
-                    {discount}
-                  </span>
+                {isAnnual && (
+                  <p style={{ margin: '0.2rem 0 0', fontSize: '0.72rem', color: '#22c55e', fontWeight: 600 }}>
+                    {fmt(plan.price_annual)} al año · Ahorrás {fmt(plan.price_monthly * 12 - plan.price_annual)}
+                  </p>
                 )}
               </div>
 
               {/* Features */}
-              <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 1.75rem', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-                {plan.features.map(f => (
-                  <li key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                    <CheckCircle size={15} color="#34d399" style={{ flexShrink: 0, marginTop: '0.1rem' }} />
-                    {f}
-                  </li>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
+                {features.map((f, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" style={{ flexShrink: 0, marginTop: 2 }}>
+                      <circle cx="7.5" cy="7.5" r="7.5" fill={isPro ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.05)'} />
+                      <path d="M4.5 7.5L6.5 9.5L10.5 5.5" stroke={isPro ? '#818cf8' : '#64748b'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    <span style={{ color: isPro ? '#94a3b8' : '#64748b', fontSize: '0.8rem', lineHeight: 1.5 }}>{f}</span>
+                  </div>
                 ))}
-              </ul>
+              </div>
 
               {/* CTA */}
               <button
                 onClick={() => handleSelect(plan.id)}
                 disabled={!!loading}
                 style={{
-                  width: '100%', padding: '0.75rem', borderRadius: '0.75rem',
-                  border: 'none', cursor: loading ? 'not-allowed' : 'pointer',
-                  background: plan.highlighted ? '#6366f1' : 'rgba(255,255,255,0.08)',
-                  color: plan.highlighted ? '#fff' : 'var(--text-primary)',
-                  fontSize: '0.95rem', fontWeight: 600, opacity: loading && !isLoading ? 0.5 : 1,
+                  width: '100%', padding: '14px',
+                  background: isPro ? 'linear-gradient(135deg, #6366f1, #4f46e5)' : 'rgba(255,255,255,0.05)',
+                  border: isPro ? 'none' : `1px solid ${s.border}`,
+                  borderRadius: '0.875rem',
+                  color: isPro ? '#fff' : '#94a3b8',
+                  fontWeight: 700, fontSize: '0.9rem',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  opacity: loading && !isBusy ? 0.5 : 1,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                  boxShadow: isPro ? '0 4px 20px rgba(99,102,241,0.3)' : 'none',
+                  transition: 'opacity 0.15s, transform 0.15s',
+                  fontFamily: F,
                 }}
+                onMouseEnter={e => { if (!loading) e.currentTarget.style.opacity = '0.88' }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = loading && !isBusy ? '0.5' : '1' }}
               >
-                {isLoading ? (
-                  <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
-                ) : (
-                  <Zap size={16} />
-                )}
-                {isLoading ? 'Redirigiendo...' : 'Elegir este plan'}
+                {isBusy ? (
+                  <Loader2 size={17} style={{ animation: 'spin 0.7s linear infinite' }} />
+                ) : null}
+                {isBusy ? 'Redirigiendo...' : `Elegir ${plan.name}`}
               </button>
             </div>
           )
         })}
       </div>
 
-      <p style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '2rem' }}>
-        Los pagos son procesados de forma segura por Mercado Pago. Podés cancelar en cualquier momento.
+      <p style={{ textAlign: 'center', color: '#334155', fontSize: '0.78rem', marginTop: '2rem' }}>
+        Pagos procesados de forma segura por Mercado Pago · Sin contratos · Cancelás cuando querés
       </p>
 
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      {/* Botón volver */}
+      <div style={{ textAlign: 'center', marginTop: '1.25rem' }}>
+        <button
+          onClick={() => navigate(-1)}
+          style={{ background: 'none', border: 'none', color: '#475569', fontSize: '0.82rem', cursor: 'pointer', fontFamily: F }}
+        >
+          Volver
+        </button>
+      </div>
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }

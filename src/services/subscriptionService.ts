@@ -91,10 +91,31 @@ export async function getSubscriptionEvents(businessId: string): Promise<Subscri
 export async function createSubscription(
   req: Omit<CreateSubscriptionRequest, 'back_url'>
 ): Promise<CreateSubscriptionResponse> {
-  return callEdge<CreateSubscriptionResponse>('create', {
+  const res = await callEdge<CreateSubscriptionResponse>('create', {
     ...req,
     back_url: `${window.location.origin}/subscription/pending`,
   })
+
+  // Registrar la sesión de checkout para auditoría y seguimiento del webhook
+  const plan = (await import('../types/subscription')).PLANS.find(p => p.id === req.plan)
+  if (plan) {
+    const cycle = req.billing_cycle as BillingCycle
+    const amount = cycle === 'annual' ? plan.price_annual
+                 : cycle === 'quarterly' ? plan.price_quarterly
+                 : plan.price_monthly
+    const extRef = `${req.business_id}_${req.plan}_${Date.now()}`
+    await supabase.from('subscription_checkout_sessions').insert({
+      business_id:        req.business_id,
+      plan_id:            req.plan,
+      billing_cycle:      cycle,
+      amount,
+      mp_preference_id:   res.preapproval_id ?? null,
+      external_reference: extRef,
+      status:             'pending',
+    })
+  }
+
+  return res
 }
 
 // ── Sync from MP (live reconciliation) ───────────────────────

@@ -38,6 +38,8 @@ import { LandingPage } from './pages/LandingPage'
 import { Subscription } from './pages/Subscription'
 import { Plans } from './pages/Plans'
 import { PaymentPending } from './pages/PaymentPending'
+import { SubscriptionSuccess } from './pages/SubscriptionSuccess'
+import { SubscriptionFailure } from './pages/SubscriptionFailure'
 import { SubscriptionSuspended } from './pages/SubscriptionSuspended'
 import { AdminSubscriptions } from './pages/AdminSubscriptions'
 import { Tutorials } from './pages/Tutorials'
@@ -142,7 +144,9 @@ function AppContent() {
             {/* Subscription (siempre accesible) */}
             <Route path="/subscription" element={<Subscription />} />
             <Route path="/subscription/plans" element={<Plans />} />
-            <Route path="/subscription/pending" element={<PaymentPending />} />
+            <Route path="/subscription/pending"  element={<PaymentPending />} />
+            <Route path="/subscription/success"  element={<SubscriptionSuccess />} />
+            <Route path="/subscription/failure"  element={<SubscriptionFailure />} />
             <Route path="/subscription/suspended" element={<SubscriptionSuspended />} />
             <Route path="/tutorials" element={<Tutorials />} />
             <Route path="/whatsapp" element={<WhatsAppPage />} />

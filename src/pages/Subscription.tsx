@@ -137,11 +137,30 @@ export function Subscription() {
             </div>
 
             {/* Contextual info */}
-            {isTrial && daysUntilTrialEnd !== null && (
-              <p style={{ color: '#60a5fa', margin: '0.5rem 0 0', fontSize: '0.875rem' }}>
-                Período de prueba: {daysUntilTrialEnd <= 0 ? 'vencido' : `${daysUntilTrialEnd} días restantes`}
-              </p>
-            )}
+            {isTrial && daysUntilTrialEnd !== null && (() => {
+              const d = daysUntilTrialEnd
+              const isUrgent  = d <= 3 && d > 0
+              const isVencido = d <= 0
+              return (
+                <div style={{ marginTop: '0.625rem' }}>
+                  <p style={{ margin: 0, fontSize: '0.875rem', color: isVencido ? '#f87171' : isUrgent ? '#fbbf24' : '#60a5fa', fontWeight: isUrgent || isVencido ? 600 : 400 }}>
+                    {isVencido
+                      ? 'Tu período de prueba venció. Elegí un plan para mantener el acceso premium.'
+                      : isUrgent
+                        ? `Tu prueba vence en ${d} día${d !== 1 ? 's' : ''}. Actualizá ahora para no perder el acceso.`
+                        : `Período de prueba: ${d} días restantes con acceso completo al Plan Pro.`}
+                  </p>
+                  {(isUrgent || isVencido) && (
+                    <button
+                      onClick={() => navigate('/subscription/plans')}
+                      style={{ marginTop: '0.5rem', padding: '0.4rem 1rem', background: isVencido ? '#ef4444' : '#f59e0b', border: 'none', borderRadius: '0.5rem', color: '#fff', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}
+                    >
+                      {isVencido ? 'Activar plan ahora' : 'Elegir plan'}
+                    </button>
+                  )}
+                </div>
+              )
+            })()}
             {isPastDue && daysUntilGraceEnd !== null && daysUntilGraceEnd > 0 && (
               <p style={{ color: '#fbbf24', margin: '0.5rem 0 0', fontSize: '0.875rem' }}>
                 Período de gracia: {daysUntilGraceEnd} día{daysUntilGraceEnd !== 1 ? 's' : ''} restante{daysUntilGraceEnd !== 1 ? 's' : ''}
