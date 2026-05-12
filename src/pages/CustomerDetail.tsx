@@ -472,7 +472,7 @@ export function CustomerDetail() {
               ) : comprobantes.length === 0 ? (
                 <div style={{ padding: '2.5rem', textAlign: 'center', color: '#64748b' }}>
                   <ShoppingBag size={28} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
-                  Este cliente no tiene comprobantes emitidos.
+                  Este cliente no tiene comprobantes registrados.
                 </div>
               ) : (
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
