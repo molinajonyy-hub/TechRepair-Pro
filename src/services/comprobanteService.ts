@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import ArcaService from './arcaService';
 import { cuentasService } from './cuentasService';
+import { requireFeature } from '../utils/requireFeature';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -565,6 +566,15 @@ export const comprobanteService = {
     userId: string,
     emitirArcaAhora = false
   ): Promise<{ success: boolean; cae?: string; error?: string }> {
+    // Validar plan antes de emitir en ARCA
+    if (emitirArcaAhora) {
+      try {
+        await requireFeature(businessId, 'arca', 'emitir_comprobante_arca')
+      } catch (e: any) {
+        return { success: false, error: e.message }
+      }
+    }
+
     const comp = await this.getById(comprobanteId, businessId);
     if (!comp) return { success: false, error: 'Comprobante no encontrado' };
 

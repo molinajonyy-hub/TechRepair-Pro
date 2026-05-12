@@ -3,6 +3,7 @@ import { Plus, X, Mail, UserCheck, UserX, RefreshCw, Copy, Clock, Shield, Check 
 import { CloseButton } from '../components/ui/CloseButton';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubscription } from '../hooks/useSubscription';
+import { supabase } from '../lib/supabase';
 import { usersService, BusinessUser, PendingInvitation } from '../services/usersService';
 import {
   AppPermissions, PermissionKey, PERMISSION_LABELS, PERMISSION_GROUPS,
@@ -275,11 +276,19 @@ export function UsersManagement() {
 
   const handleInvite = async () => {
     if (!inviteEmail.trim() || !businessId) return;
-    // Verificar límite de usuarios del plan
-    const activeCount = users.filter(u => u.is_active).length;
-    if (activeCount >= maxUsers) {
-      const planLabel = currentPlan === 'basico' ? 'Básico (1 usuario)' : currentPlan === 'pro' ? 'Pro (3 usuarios)' : 'Full (10 usuarios)';
-      window.alert(`Límite de usuarios alcanzado para el plan ${planLabel}.\nActualizá tu plan desde Suscripción para agregar más usuarios.`);
+    // Verificar límite de usuarios via DB (fuente de verdad real)
+    const { data: limitCheck } = await supabase.rpc('check_user_limit_before_invite', {
+      p_business_id: businessId,
+    } as any);
+    if (typeof limitCheck === 'string' && limitCheck.startsWith('LIMIT_REACHED')) {
+      const [, actual, max, plan] = limitCheck.split(':');
+      const planLabels: Record<string, string> = { basico: 'Básico (1 usuario)', pro: 'Pro (3 usuarios)', full: 'Full (10 usuarios)' };
+      const upgradeMsg = plan === 'basico'
+        ? 'Actualizá a Pro para agregar hasta 3 usuarios.'
+        : plan === 'pro'
+          ? 'Actualizá a Full para agregar hasta 10 usuarios.'
+          : '';
+      window.alert(`Límite alcanzado: ${actual} de ${max} usuarios (Plan ${planLabels[plan] ?? plan}).\n${upgradeMsg}`);
       return;
     }
     setInviting(true);
