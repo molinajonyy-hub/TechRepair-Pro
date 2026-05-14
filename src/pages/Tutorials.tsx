@@ -637,9 +637,10 @@ function TutorialARCA() {
   )
 }
 
-// ── Tutorial Mercado Pago ─────────────────────────────────────────
-
-function TutorialMercadoPago() {
+// ── (Mercado Pago tutorial — legacy, no longer in registry) ─────
+// @ts-ignore — kept for reference, removed from TUTORIALS array
+// eslint-disable-next-line
+export function _TutorialMercadoPagoLegacy() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
 
@@ -1050,16 +1051,6 @@ const TUTORIALS = [
     duration: '20 min',
     level: 'Intermedio',
     component: TutorialARCA,
-  },
-  {
-    id: 'mercadopago',
-    title: 'Cobros con Mercado Pago',
-    description: 'Conectá tu cuenta de MP en 3 clicks y cobrá con QR, link de pago o terminal Point desde cada comprobante.',
-    icon: Wallet,
-    color: '#009ee3',
-    duration: '5 min',
-    level: 'Fácil',
-    component: TutorialMercadoPago,
   },
 ]
 

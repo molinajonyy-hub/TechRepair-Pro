@@ -45,7 +45,6 @@ import { AdminSubscriptions } from './pages/AdminSubscriptions'
 import { AdminLeads } from './pages/AdminLeads'
 import { Tutorials } from './pages/Tutorials'
 import WhatsAppPage from './pages/WhatsApp'
-import { MpCallback } from './pages/MpCallback'
 import { PortalRouter, PORTAL_DOMAINS } from './portal/PortalRouter'
 import { ProtectedRouteByFeature } from './components/auth/ProtectedRouteByFeature'
 import { Onboarding } from './pages/Onboarding'
@@ -87,7 +86,6 @@ function AppContent() {
         <Route path="/no-business" element={<NoBusiness />} />
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/customer-portal" element={<CustomerPortal />} />
-        <Route path="/mp/callback" element={<MpCallback />} />
 
         <Route element={<ProtectedRoute />}>
           <Route element={<MainLayout />}>

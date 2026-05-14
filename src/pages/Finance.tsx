@@ -1434,7 +1434,6 @@ function RegisterPaymentModal({ expense, exchangeRate, businessId, userId, onClo
                 <option value="transferencia">Transferencia</option>
                 <option value="tarjeta_debito">Débito</option>
                 <option value="tarjeta_credito">Crédito</option>
-                <option value="mercadopago">MercadoPago</option>
               </select>
             </div>
           </div>

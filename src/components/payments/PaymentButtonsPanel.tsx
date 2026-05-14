@@ -145,11 +145,6 @@ export function PaymentButtonsPanel({
         if (invErr) throw new Error(invErr.message);
         if (data?.error) throw new Error(data.error);
 
-        // Si es QR, mostrar link de pago
-        if (data?.init_point) {
-          window.open(data.init_point, '_blank');
-        }
-
         setSubmitOk(true);
       } else {
         // Cobro manual

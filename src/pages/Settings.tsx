@@ -1745,7 +1745,7 @@ export default function Settings() {
                 Cobros y Pagos
               </h2>
               <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.375rem' }}>
-                Conectá Mercado Pago y configurá los botones de cobro que aparecen en cada comprobante.
+                Configurá los métodos de cobro que aparecen en cada comprobante.
               </p>
             </div>
             <PaymentMethodSettings />
