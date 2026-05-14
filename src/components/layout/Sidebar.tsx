@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useSidebar } from '../../hooks/useSidebar';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useSubscription } from '../../hooks/useSubscription';
+import { useSystemOwner } from '../../hooks/useSystemOwner';
 import { PermissionKey } from '../../config/permissions';
 import { supabase } from '../../lib/supabase';
 import logoSvg from '../../assets/logo.svg';
@@ -191,6 +192,8 @@ type NavItem = {
   portalAdmin?: boolean;
   /** If set, this item is hidden unless the active plan has this feature */
   planFeature?: import('../../config/planFeatures').PlanFeature;
+  /** If true, this item is only visible to system owners (molina.jonyy@gmail.com) */
+  systemOwnerOnly?: boolean;
 };
 type NavSection = {
   sectionLabel: string;
@@ -243,8 +246,8 @@ const menuSections: NavSection[] = [
   {
     sectionLabel: 'SaaS Admin',
     items: [
-      { path: '/admin/subscriptions', label: 'Suscripciones', icon: <AdminSubsIcon />,   planFeature: 'audit' },
-      { path: '/admin/leads',         label: 'Leads',          icon: <AdminLeadsIcon />,  planFeature: 'audit' },
+      { path: '/admin/subscriptions', label: 'Suscripciones', icon: <AdminSubsIcon />,  systemOwnerOnly: true },
+      { path: '/admin/leads',         label: 'Leads',          icon: <AdminLeadsIcon />, systemOwnerOnly: true },
     ],
   },
 ];
@@ -258,6 +261,7 @@ export function Sidebar() {
   const navigate = useNavigate();
   const { can } = usePermissions();
   const { hasFeature } = useSubscription();
+  const { isSystemOwner } = useSystemOwner();
   const [mayoristaEnabled, setMayoristaEnabled] = useState(true);
   const [portalEnabled,    setPortalEnabled]    = useState(false);
 
@@ -284,6 +288,7 @@ export function Sidebar() {
         if (item.path === '/mayorista'   && !mayoristaEnabled) return false;
         if (item.portalAdmin             && !portalEnabled)    return false;
         if (item.planFeature             && !hasFeature(item.planFeature)) return false;
+        if (item.systemOwnerOnly         && !isSystemOwner) return false;
         return true;
       }),
     }))

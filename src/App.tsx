@@ -47,6 +47,7 @@ import { Tutorials } from './pages/Tutorials'
 import WhatsAppPage from './pages/WhatsApp'
 import { PortalRouter, PORTAL_DOMAINS } from './portal/PortalRouter'
 import { ProtectedRouteByFeature } from './components/auth/ProtectedRouteByFeature'
+import { ProtectedRouteBySystemOwner } from './components/auth/ProtectedRouteBySystemOwner'
 import { Onboarding } from './pages/Onboarding'
 
 function AppContent() {
@@ -135,8 +136,8 @@ function AppContent() {
               <Route path="/portal-clic" element={<AdminPortalClic />} />
             </Route>
 
-            {/* ── Rutas FULL — audit ── */}
-            <Route element={<ProtectedRouteByFeature feature="audit" />}>
+            {/* ── Rutas SaaS Admin — solo system owner ── */}
+            <Route element={<ProtectedRouteBySystemOwner />}>
               <Route path="/admin/subscriptions" element={<AdminSubscriptions />} />
               <Route path="/admin/leads" element={<AdminLeads />} />
             </Route>
