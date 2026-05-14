@@ -9,8 +9,10 @@ import {
 import { CloseButton } from '../components/ui/CloseButton'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { useCaja } from '../contexts/CajaContext'
 import { currencyService } from '../services/currencyService'
 import { formatDisplayMessage } from '../utils/formatMessage'
+import { showToast } from '../utils/toast'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -267,6 +269,7 @@ function HistoryCajaPanel({ caja, onNavigate, businessId }: HistoryCajaPanelProp
 
 export function CajaPage() {
   const { businessId, user } = useAuth()
+  const { refresh: refreshCajaContext } = useCaja()
   const navigate = useNavigate()
 
   const [activeCaja, setActiveCaja]   = useState<Caja | null | undefined>(undefined) // undefined = loading
@@ -400,6 +403,9 @@ export function CajaPage() {
       setActiveCaja(data as Caja)
       setMovements([])
       setOpenForm({ efectivo: '', transferencia: '', tarjeta: '', usd: '' })
+      void refreshCajaContext()
+      window.dispatchEvent(new Event('cash-session-updated'))
+      showToast('Caja abierta correctamente', 'success')
     } catch (e: any) { setError(e.message || 'Error al abrir caja') }
     finally { setOpening(false) }
   }
@@ -459,6 +465,9 @@ export function CajaPage() {
       setClosingNotes('')
       await loadCaja()
       await loadHistorial()
+      void refreshCajaContext()
+      window.dispatchEvent(new Event('cash-session-updated'))
+      showToast('Caja cerrada correctamente', 'info')
     } catch (e: any) { setError(e.message || 'Error al cerrar caja') }
     finally { setClosing(false) }
   }

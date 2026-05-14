@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useSubscription } from '../hooks/useSubscription'
 import { PLAN_DISPLAY } from '../config/planFeatures'
 
-const F = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif"
+const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 export function SubscriptionSuccess() {
   const navigate = useNavigate()

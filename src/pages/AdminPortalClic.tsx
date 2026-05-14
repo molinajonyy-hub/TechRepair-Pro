@@ -466,7 +466,7 @@ export function AdminPortalClic() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: S.bg, color: S.text, fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif" }}>
+    <div style={{ minHeight: '100vh', background: S.bg, color: S.text, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       {/* ── Header ── */}

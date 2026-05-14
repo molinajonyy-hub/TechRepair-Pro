@@ -10,7 +10,7 @@ import { useSubscription } from '../hooks/useSubscription'
 import { createSubscription } from '../services/subscriptionService'
 import { PLANS, type SubscriptionPlan } from '../types/subscription'
 
-const F = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif"
+const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 type Cycle = 'monthly' | 'annual'
 
 // Features visibles por plan en la card interna

@@ -67,7 +67,7 @@ export function OnboardingChecklist() {
       borderRadius: '1rem',
       padding: '1.25rem',
       marginBottom: '1.75rem',
-      fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif",
+      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.875rem' }}>

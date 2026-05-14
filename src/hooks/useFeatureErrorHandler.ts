@@ -64,7 +64,7 @@ function showToast(message: string, variant: ToastVariant, action?: () => void) 
     border-radius: 0.875rem; padding: 0.875rem 1.125rem;
     display: flex; align-items: center; gap: 0.75rem;
     box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     animation: slideUp 0.25s cubic-bezier(0.22,1,0.36,1);
   `
 

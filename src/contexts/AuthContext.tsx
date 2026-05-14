@@ -149,6 +149,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const profileRow = Array.isArray(data) ? data[0] : data;
 
           if (!profileRow) {
+            // Fallback para OAuth (Google): si get_my_profile no encontró por user_id,
+            // intentar vincular el profile existente por email al auth user actual.
+            try {
+              const { data: linked } = await supabase.rpc('link_profile_to_auth_user');
+              const linkedRow = Array.isArray(linked) ? linked[0] : linked;
+              if (linkedRow) {
+                const linkedProfile: Profile = {
+                  ...linkedRow,
+                  user_id: linkedRow.user_id ?? currentUser.id,
+                };
+                setProfile(linkedProfile);
+                cacheProfile(currentUser.id, linkedProfile);
+                setProfileError(linkedProfile.is_active ? null : 'Tu usuario existe, pero esta inactivo para este negocio.');
+                return linkedProfile;
+              }
+            } catch {
+              // link falló — continuar con perfil null
+            }
             setProfile(null);
             setProfileError('No existe un perfil de negocio para este usuario.');
             return null;
@@ -276,9 +294,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
 
       if (sessionFromEvent?.user) {
+        // Marcar profileLoading ANTES del setTimeout para que ProtectedRoute
+        // muestre loader en vez de redirigir a /no-business durante el tick de espera.
+        setProfileLoading(true);
         setTimeout(() => {
           void loadProfile(sessionFromEvent.user);
         }, 0);
+      } else {
+        setProfileLoading(false);
       }
     });
 

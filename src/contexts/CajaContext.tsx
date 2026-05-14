@@ -53,6 +53,17 @@ export function CajaProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { refresh() }, [refresh])
 
+  // Re-sync cuando el usuario vuelve al tab (caja abierta en otro tab o ventana)
+  useEffect(() => {
+    const onFocus = () => void refresh()
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('cash-session-updated', onFocus)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('cash-session-updated', onFocus)
+    }
+  }, [refresh])
+
   return (
     <CajaContext.Provider value={{
       activeCaja,

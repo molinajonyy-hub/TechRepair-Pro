@@ -14,7 +14,7 @@ import { useSubscription } from '../hooks/useSubscription'
 import { getLatestCheckoutSession, syncSubscriptionStatus } from '../services/subscriptionService'
 import { useAuth } from '../contexts/AuthContext'
 
-const F = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif"
+const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 const MAX_CHECKS = 24  // 2 minutos a intervalos de 5s
 
 export function PaymentPending() {

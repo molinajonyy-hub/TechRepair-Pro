@@ -1,6 +1,7 @@
 import {
   useState, useEffect, useRef, useCallback, useMemo,
 } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { isWholesaleCustomer, getProductPriceForCustomer } from '../../utils/pricing';
 import {
   X, FileText, Receipt, ChevronDown,
@@ -144,6 +145,7 @@ export function ModalCrearComprobante({
 }: Props) {
   const { businessId, user } = useAuth();
   const { isOpen: cajaIsOpen, cajaId } = useCaja();
+  const navigate = useNavigate();
   const [step, setStep] = useState<'config' | 'items' | 'emitir'>('config');
 
   // ── Encabezado ───────────────────────────────────────────────────────────────
@@ -1143,14 +1145,17 @@ export function ModalCrearComprobante({
 
               {/* Alerta: caja cerrada */}
               {!cajaIsOpen && !skipFinanceEntry && (
-                <div style={{ display: 'flex', gap: '0.625rem', padding: '0.875rem 1rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: '0.625rem', alignItems: 'flex-start' }}>
-                  <AlertCircle size={16} style={{ color: '#f87171', flexShrink: 0, marginTop: '0.1rem' }} />
-                  <div>
-                    <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 700, color: '#f87171' }}>No hay caja abierta</p>
-                    <p style={{ margin: '0.2rem 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
-                      El comprobante no podrá emitirse. Abrí caja desde el menú "Caja" primero.
-                    </p>
+                <div style={{ display: 'flex', gap: '0.625rem', padding: '0.875rem 1rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: '0.625rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <AlertCircle size={16} style={{ color: '#f87171', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ margin: 0, fontSize: '0.82rem', fontWeight: 700, color: '#f87171' }}>Necesitás abrir la caja para cobrar comprobantes.</p>
                   </div>
+                  <button
+                    onClick={() => { onClose(); navigate('/caja') }}
+                    style={{ flexShrink: 0, padding: '0.35rem 0.875rem', background: '#f87171', border: 'none', borderRadius: '0.5rem', color: '#fff', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    Abrir caja
+                  </button>
                 </div>
               )}
 

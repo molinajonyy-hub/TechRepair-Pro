@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 
-const F = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif"
+const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 export function SubscriptionFailure() {
   const navigate = useNavigate()

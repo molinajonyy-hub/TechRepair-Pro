@@ -9,6 +9,7 @@ import { TrialBanner } from '../components/subscription/TrialBanner'
 import { SystemStatusProvider } from '../contexts/SystemStatusContext'
 import { useEffect } from 'react'
 import { backgroundPrefetch } from '../services/refreshCriticalData'
+import logoSvg from '../assets/logo.svg'
 
 // Mobile top bar (hamburger + brand)
 function MobileTopBar() {
@@ -49,18 +50,15 @@ function MobileTopBar() {
         onClick={() => navigate('/dashboard')}
         style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}
       >
-        <div style={{
-          width: '30px', height: '30px', borderRadius: '8px',
-          background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 3px 10px rgba(99,102,241,0.4)',
-        }}>
-          <svg viewBox="0 0 100 100" width="18" height="18" fill="none">
-            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
-            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
-            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
-          </svg>
-        </div>
+        <img
+          src={logoSvg}
+          alt="TechRepair Pro"
+          style={{
+            width: '30px', height: '30px', borderRadius: '8px',
+            boxShadow: '0 3px 10px rgba(99,102,241,0.4)',
+            flexShrink: 0,
+          }}
+        />
         <span style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#f8fafc', letterSpacing: '-0.025em' }}>
           TechRepair<span style={{ color: '#818cf8' }}>Pro</span>
         </span>

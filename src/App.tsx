@@ -42,6 +42,7 @@ import { SubscriptionSuccess } from './pages/SubscriptionSuccess'
 import { SubscriptionFailure } from './pages/SubscriptionFailure'
 import { SubscriptionSuspended } from './pages/SubscriptionSuspended'
 import { AdminSubscriptions } from './pages/AdminSubscriptions'
+import { AdminLeads } from './pages/AdminLeads'
 import { Tutorials } from './pages/Tutorials'
 import WhatsAppPage from './pages/WhatsApp'
 import { MpCallback } from './pages/MpCallback'
@@ -139,6 +140,7 @@ function AppContent() {
             {/* ── Rutas FULL — audit ── */}
             <Route element={<ProtectedRouteByFeature feature="audit" />}>
               <Route path="/admin/subscriptions" element={<AdminSubscriptions />} />
+              <Route path="/admin/leads" element={<AdminLeads />} />
             </Route>
 
             {/* Subscription (siempre accesible) */}

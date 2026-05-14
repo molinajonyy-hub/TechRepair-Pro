@@ -2,13 +2,13 @@
  * Onboarding.tsx — Wizard de creación de negocio y configuración inicial.
  * 4 pasos: Negocio + rubro → Logo → Configuración → ¡Listo!
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { uploadBusinessLogo } from '../lib/storageSetup'
 
-const F = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif"
+const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 const RUBROS = [
   { id: 'celulares',        label: 'Celulares y smartphones' },
@@ -28,8 +28,32 @@ const CHECKLIST_INITIAL = [
 ]
 
 export function Onboarding() {
-  const { user, refreshProfile } = useAuth()
+  const { user, businessId: existingBusinessId, loading, profileLoading, refreshProfile } = useAuth()
   const navigate = useNavigate()
+
+  // ── Guard: si ya tiene negocio → dashboard; si no → wizard ──────────────────
+  // guardDone = true significa que el usuario PASÓ el check inicial (no tiene business).
+  // Una vez que está en el wizard, NO redirigimos aunque refreshProfile() luego sete businessId
+  // (eso sucede en Step 1 — el usuario necesita continuar con Step 2-4).
+  const [guardDone, setGuardDone] = useState(false)
+
+  useEffect(() => {
+    if (guardDone) return           // ya pasó el guard, no interferir con el wizard
+    if (loading || profileLoading) return
+    if (!user) { navigate('/login', { replace: true }); return }
+    if (existingBusinessId) { navigate('/dashboard', { replace: true }); return }
+    setGuardDone(true)              // no tiene business → mostrar wizard
+  }, [guardDone, loading, profileLoading, user, existingBusinessId, navigate])
+
+  if (!guardDone) {
+    return (
+      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0f1e' }}>
+        <div style={{ width: 36, height: 36, borderRadius: '50%', border: '3px solid rgba(99,102,241,0.2)', borderTop: '3px solid #6366f1', animation: 'spin 0.8s linear infinite' }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    )
+  }
+  // ────────────────────────────────────────────────────────────────────────────
 
   const [step, setStep]               = useState(1)
   const [businessName, setBusinessName] = useState('')
@@ -81,15 +105,30 @@ export function Onboarding() {
     setSaving(true); setError('')
     try {
       if (logoFile && businessId) {
-        const url = await uploadBusinessLogo(logoFile, businessId)
-        if (url) {
-          await supabase.from('businesses').update({ logo_url: url }).eq('id', businessId)
-          await supabase.from('business_settings').update({ logo_url: url }).eq('business_id', businessId)
+        const MAX_MB = 5
+        if (logoFile.size > MAX_MB * 1024 * 1024) {
+          setError(`El archivo es muy grande. Máximo ${MAX_MB} MB.`)
+          setSaving(false); return
+        }
+        const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp']
+        if (!allowed.includes(logoFile.type)) {
+          setError('Formato no soportado. Usá PNG, JPG o WebP.')
+          setSaving(false); return
+        }
+        try {
+          const url = await uploadBusinessLogo(logoFile, businessId)
+          if (url) {
+            await supabase.from('businesses').update({ logo_url: url }).eq('id', businessId)
+            await supabase.from('business_settings').update({ logo_url: url }).eq('business_id', businessId)
+          }
+        } catch (uploadErr: any) {
+          // El upload falló pero no bloqueamos el onboarding — pueden subir logo desde Settings
+          console.error('[Onboarding] logo upload failed:', uploadErr)
+          setError(`No se pudo subir el logo: ${uploadErr.message}. Podés subirlo más tarde desde Configuración.`)
+          // Continuamos al paso 3 de todas formas (logo es opcional)
         }
       }
       setStep(3)
-    } catch (e: any) {
-      setError(e.message || 'Error al subir el logo')
     } finally { setSaving(false) }
   }
 

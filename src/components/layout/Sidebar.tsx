@@ -7,25 +7,7 @@ import { usePermissions } from '../../hooks/usePermissions';
 import { useSubscription } from '../../hooks/useSubscription';
 import { PermissionKey } from '../../config/permissions';
 import { supabase } from '../../lib/supabase';
-
-// ── Cat logo SVG (from design system) ──
-const CatIcon = ({ size = 26 }: { size?: number }) => (
-  <svg viewBox="0 0 100 100" width={size} height={size} fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z"
-      fill="white" opacity="0.93"/>
-    <path d="M26 18 L20 43 L37 36 Z" fill="#6366f1" opacity="0.45"/>
-    <path d="M74 18 L80 43 L63 36 Z" fill="#6366f1" opacity="0.45"/>
-    <circle cx="38" cy="58" r="5" fill="#1e1b4b"/>
-    <circle cx="62" cy="58" r="5" fill="#1e1b4b"/>
-    <circle cx="39" cy="57" r="2" fill="white"/>
-    <circle cx="63" cy="57" r="2" fill="white"/>
-    <path d="M44 70 Q50 75 56 70" stroke="#1e1b4b" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
-    <line x1="30" y1="62" x2="15" y2="58" stroke="#1e1b4b" strokeWidth="1.5" strokeLinecap="round"/>
-    <line x1="30" y1="65" x2="14" y2="65" stroke="#1e1b4b" strokeWidth="1.5" strokeLinecap="round"/>
-    <line x1="70" y1="62" x2="85" y2="58" stroke="#1e1b4b" strokeWidth="1.5" strokeLinecap="round"/>
-    <line x1="70" y1="65" x2="86" y2="65" stroke="#1e1b4b" strokeWidth="1.5" strokeLinecap="round"/>
-  </svg>
-)
+import logoSvg from '../../assets/logo.svg';
 
 // ── WhatsApp official SVG icon ──
 const WhatsAppIcon = ({ size = 16 }: { size?: number }) => (
@@ -177,6 +159,18 @@ const TutorialesIcon = () => (
     <path d="M6 12v5c3 3 9 3 12 0v-5"/>
   </svg>
 );
+const AdminSubsIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
+    <path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>
+  </svg>
+);
+const AdminLeadsIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+    <polyline points="22,6 12,13 2,6"/>
+  </svg>
+);
 const LogoutIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
@@ -246,6 +240,13 @@ const menuSections: NavSection[] = [
       { path: '/tutorials',         label: 'Tutoriales',    icon: <TutorialesIcon /> },
     ],
   },
+  {
+    sectionLabel: 'SaaS Admin',
+    items: [
+      { path: '/admin/subscriptions', label: 'Suscripciones', icon: <AdminSubsIcon />,   planFeature: 'audit' },
+      { path: '/admin/leads',         label: 'Leads',          icon: <AdminLeadsIcon />,  planFeature: 'audit' },
+    ],
+  },
 ];
 
 const expandedWidth = 260;
@@ -313,22 +314,18 @@ export function Sidebar() {
         minWidth: 0,
       }}
     >
-      {/* Cat logo box */}
-      <div
+      {/* Logo original */}
+      <img
+        src={logoSvg}
+        alt="TechRepair Pro"
         style={{
           width: '40px',
           height: '40px',
           borderRadius: '10px',
-          background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
           flexShrink: 0,
           boxShadow: '0 4px 14px rgba(99,102,241,0.45)',
         }}
-      >
-        <CatIcon size={26} />
-      </div>
+      />
 
       {!collapsed && (
         <div style={{ minWidth: 0 }}>

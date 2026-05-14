@@ -3,6 +3,16 @@ import { useNavigate } from 'react-router-dom'
 import '../css/landing.css'
 import { AppleEmoji } from '../components/ui/AppleEmoji'
 import mpLogoSvg from '../assets/mp-logo.svg'
+// ── Datos de contacto — actualizá antes del lanzamiento ──────────────────────
+const CONTACT = {
+  whatsapp:  '5491112345678',              // formato internacional: 549XXXXXXXXXX
+  email:     'hola@techrepairpro.app',
+  phone:     '+54 9 11 1234-5678',
+  instagram: 'techrepairpro',             // sin @
+  city:      'Buenos Aires, Argentina',
+  whatsappMsg: 'Hola!%20Quiero%20saber%20m%C3%A1s%20sobre%20TechRepair%20Pro',
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────
 // Icons (inline SVG to avoid extra deps)
@@ -346,6 +356,7 @@ function Header({ onNav }: { onNav: (id: string) => void }) {
     { label: 'Integraciones', id: 'integrations' },
     { label: 'Precios', id: 'pricing' },
     { label: 'FAQ', id: 'faq' },
+    { label: 'Contacto', id: 'contact' },
   ]
 
   return (
@@ -1271,9 +1282,9 @@ function Footer() {
             {/* Contact */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               {[
-                { icon: <Icon.Phone />, text: '+54 11 1234-5678' },
-                { icon: <Icon.Mail />, text: 'hola@techrepairpro.com.ar' },
-                { icon: <Icon.MapPin />, text: 'Buenos Aires, Argentina' },
+                { icon: <Icon.Phone />, text: CONTACT.phone },
+                { icon: <Icon.Mail />, text: CONTACT.email },
+                { icon: <Icon.MapPin />, text: CONTACT.city },
               ].map((c, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#334155', fontSize: '0.8rem' }}>
                   <span style={{ color: '#475569' }}>{c.icon}</span>
@@ -1314,9 +1325,9 @@ function Footer() {
           {/* Social */}
           <div style={{ display: 'flex', gap: '0.75rem' }}>
             {[
-              { icon: '💬', label: 'WhatsApp', href: 'https://wa.me/541112345678' },
-              { icon: '📸', label: 'Instagram', href: '#' },
-              { icon: '✉️', label: 'Email', href: 'mailto:hola@techrepairpro.com.ar' },
+              { icon: '💬', label: 'WhatsApp', href: `https://wa.me/${CONTACT.whatsapp}` },
+              { icon: '📸', label: 'Instagram', href: `https://instagram.com/${CONTACT.instagram}` },
+              { icon: '✉️', label: 'Email', href: `mailto:${CONTACT.email}` },
             ].map(s => (
               <a key={s.label} href={s.href} target="_blank" rel="noopener noreferrer"
                 style={{
@@ -1343,6 +1354,234 @@ function Footer() {
         </div>
       </div>
     </footer>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Contact / Lead capture
+// ─────────────────────────────────────────────────────────────────────
+
+const SUBMIT_COOLDOWN_KEY = 'trp_lead_cooldown'
+const COOLDOWN_MS = 60_000
+
+function ContactSection() {
+  const [form, setForm] = useState({ name: '', email: '', business_name: '', message: '' })
+  const [honeypot, setHoneypot] = useState('')  // filled by bots, must stay empty
+  const [status, setStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle')
+  const [error, setError] = useState('')
+
+  const F = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif"
+
+  const isCoolingDown = () => {
+    const last = localStorage.getItem(SUBMIT_COOLDOWN_KEY)
+    return last ? Date.now() - Number(last) < COOLDOWN_MS : false
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (status === 'sending') return
+    if (isCoolingDown()) { setError('Por favor esperá un momento antes de enviar otro mensaje.'); return }
+
+    const name = form.name.trim()
+    const email = form.email.trim()
+    if (name.length < 2 || !email) return
+
+    setStatus('sending')
+    setError('')
+    try {
+      const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/submit-lead`
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+      const res = await fetch(fnUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': anonKey },
+        body: JSON.stringify({
+          name,
+          email,
+          business_name: form.business_name.trim() || null,
+          message:       form.message.trim() || null,
+          _gotcha:       honeypot,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok && data.error) throw new Error(data.error)
+      localStorage.setItem(SUBMIT_COOLDOWN_KEY, String(Date.now()))
+      setStatus('success')
+    } catch (err: any) {
+      setStatus('error')
+      setError(err?.message || 'No pudimos enviar tu mensaje. Intentá de nuevo o escribinos por WhatsApp.')
+    }
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', boxSizing: 'border-box',
+    padding: '0.75rem 1rem',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '0.75rem',
+    color: '#f1f5f9', fontSize: '0.9rem', fontFamily: F,
+    outline: 'none', transition: 'border-color 0.2s',
+  }
+
+  return (
+    <section id="contact" style={{ padding: '6rem 2rem' }}>
+      <div style={{ maxWidth: '640px', margin: '0 auto' }}>
+
+        {/* Header */}
+        <div style={{ textAlign: 'center', marginBottom: '2.75rem' }}>
+          <div className="lp-section-label" style={{ display: 'inline-flex', margin: '0 auto 1rem', alignItems: 'center', gap: '0.35rem' }}>
+            <AppleEmoji emoji="✉️" size={14} /> Contacto
+          </div>
+          <h2 className="lp-section-title" style={{ textAlign: 'center' }}>
+            ¿Tenés alguna pregunta?
+          </h2>
+          <p className="lp-section-subtitle" style={{ textAlign: 'center', margin: '0 auto', maxWidth: 480 }}>
+            Completá el formulario y te respondemos en menos de 24 horas. También podés escribirnos por WhatsApp.
+          </p>
+        </div>
+
+        {status === 'success' ? (
+          <div style={{
+            background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.25)',
+            borderRadius: '1.125rem', padding: '2.5rem 2rem', textAlign: 'center',
+          }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>🎉</div>
+            <h3 style={{ color: '#f1f5f9', fontWeight: 800, margin: '0 0 0.5rem', fontSize: '1.25rem', letterSpacing: '-0.03em' }}>
+              ¡Mensaje recibido!
+            </h3>
+            <p style={{ color: '#64748b', fontSize: '0.875rem', lineHeight: 1.65, margin: 0 }}>
+              Te vamos a responder a <strong style={{ color: '#94a3b8' }}>{form.email}</strong> en menos de 24 horas.
+            </p>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} style={{
+            background: 'rgba(255,255,255,0.025)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '1.25rem',
+            padding: '2.25rem 2rem',
+            display: 'flex', flexDirection: 'column', gap: '1rem',
+          }}>
+            {/* Honeypot — hidden from humans, bots fill it */}
+            <input
+              type="text" name="_gotcha" value={honeypot}
+              onChange={e => setHoneypot(e.target.value)}
+              tabIndex={-1} autoComplete="off"
+              style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }}
+              aria-hidden="true"
+            />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', color: '#64748b', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.375rem', fontFamily: F }}>
+                  Nombre *
+                </label>
+                <input
+                  type="text"
+                  placeholder="Tu nombre"
+                  value={form.name}
+                  required
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  style={inputStyle}
+                  onFocus={e => e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'}
+                  onBlur={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', color: '#64748b', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.375rem', fontFamily: F }}>
+                  Email *
+                </label>
+                <input
+                  type="email"
+                  placeholder="tu@email.com"
+                  value={form.email}
+                  required
+                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                  style={inputStyle}
+                  onFocus={e => e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'}
+                  onBlur={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', color: '#64748b', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.375rem', fontFamily: F }}>
+                Nombre del negocio
+              </label>
+              <input
+                type="text"
+                placeholder="Mi Taller de Celulares (opcional)"
+                value={form.business_name}
+                onChange={e => setForm(f => ({ ...f, business_name: e.target.value }))}
+                style={inputStyle}
+                onFocus={e => e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'}
+                onBlur={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', color: '#64748b', fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.375rem', fontFamily: F }}>
+                Mensaje
+              </label>
+              <textarea
+                placeholder="¿En qué podemos ayudarte?"
+                value={form.message}
+                rows={4}
+                onChange={e => setForm(f => ({ ...f, message: e.target.value }))}
+                style={{ ...inputStyle, resize: 'vertical', minHeight: '100px' }}
+                onFocus={e => e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'}
+                onBlur={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'}
+              />
+            </div>
+
+            {error && (
+              <p style={{ color: '#ef4444', fontSize: '0.8rem', margin: 0 }}>{error}</p>
+            )}
+
+            <button
+              type="submit"
+              disabled={status === 'sending'}
+              style={{
+                width: '100%', padding: '0.875rem',
+                background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                border: 'none', borderRadius: '0.875rem',
+                color: '#fff', fontWeight: 700, fontSize: '0.9rem',
+                cursor: status === 'sending' ? 'not-allowed' : 'pointer',
+                opacity: status === 'sending' ? 0.7 : 1,
+                transition: 'all 0.2s', fontFamily: F,
+                boxShadow: '0 4px 20px rgba(99,102,241,0.3)',
+              }}
+            >
+              {status === 'sending' ? 'Enviando...' : 'Enviar mensaje'}
+            </button>
+
+            {/* WhatsApp alternative */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', justifyContent: 'center', marginTop: '0.25rem' }}>
+              <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.06)' }} />
+              <span style={{ color: '#334155', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>o escribinos directo</span>
+              <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.06)' }} />
+            </div>
+            <a
+              href={`https://wa.me/${CONTACT.whatsapp}?text=${CONTACT.whatsappMsg}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.625rem',
+                padding: '0.75rem',
+                background: 'rgba(37,211,102,0.08)',
+                border: '1px solid rgba(37,211,102,0.25)',
+                borderRadius: '0.875rem',
+                color: '#25d366', fontWeight: 700, fontSize: '0.875rem',
+                textDecoration: 'none', fontFamily: F,
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(37,211,102,0.14)'; e.currentTarget.style.borderColor = 'rgba(37,211,102,0.4)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(37,211,102,0.08)'; e.currentTarget.style.borderColor = 'rgba(37,211,102,0.25)' }}
+            >
+              <WhatsAppSVG size={20} />
+              Escribinos por WhatsApp
+            </a>
+          </form>
+        )}
+      </div>
+    </section>
   )
 }
 
@@ -1382,6 +1621,8 @@ export function LandingPage() {
         <Pricing navigate={navigate} />
         <hr className="lp-divider" />
         <FAQ />
+        <hr className="lp-divider" />
+        <ContactSection />
         <hr className="lp-divider" />
         <CTAFinal navigate={navigate} />
       </main>

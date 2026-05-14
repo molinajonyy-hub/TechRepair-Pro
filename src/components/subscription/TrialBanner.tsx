@@ -27,7 +27,7 @@ export function TrialBanner() {
         : 'linear-gradient(90deg, rgba(99,102,241,0.1), rgba(139,92,246,0.08))',
       borderBottom: `1px solid ${isUrgent ? 'rgba(245,158,11,0.25)' : 'rgba(99,102,241,0.2)'}`,
       fontSize: '0.82rem',
-      fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif",
+      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', minWidth: 0 }}>
         <span style={{ fontSize: '0.9rem', flexShrink: 0 }}>{isUrgent ? '⚠️' : '⏱️'}</span>
