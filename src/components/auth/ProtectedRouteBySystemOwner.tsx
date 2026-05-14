@@ -1,9 +1,10 @@
-import { Navigate, Outlet } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { RefreshCw } from 'lucide-react'
 import { useSystemOwner } from '../../hooks/useSystemOwner'
 
 export function ProtectedRouteBySystemOwner() {
   const { isSystemOwner, loading } = useSystemOwner()
+  const location = useLocation()
 
   if (loading) {
     return (
@@ -14,6 +15,11 @@ export function ProtectedRouteBySystemOwner() {
   }
 
   if (!isSystemOwner) {
+    console.log('[ROUTE_BLOCKED]', {
+      path: location.pathname,
+      reason: 'not_system_owner',
+      isSystemOwner,
+    })
     return <Navigate to="/dashboard" replace />
   }
 
