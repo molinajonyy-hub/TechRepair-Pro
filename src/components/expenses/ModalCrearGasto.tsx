@@ -1236,7 +1236,6 @@ export function ModalCrearGasto({
                 <option value="transferencia">Transferencia</option>
                 <option value="tarjeta_debito">Tarjeta de débito</option>
                 <option value="tarjeta_credito">Tarjeta de crédito</option>
-                <option value="mercadopago">MercadoPago</option>
                 <option value="cheque">Cheque</option>
                 <option value="otro">Otro</option>
               </select>

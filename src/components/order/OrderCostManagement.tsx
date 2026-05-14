@@ -711,7 +711,6 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
                     <option value="credit_card">Tarjeta de Crédito</option>
                     <option value="debit_card">Tarjeta de Débito</option>
                     <option value="transfer">Transferencia</option>
-                    <option value="mercadopago">Mercado Pago</option>
                     <option value="check">Cheque</option>
                     <option value="other">Otro</option>
                   </select>

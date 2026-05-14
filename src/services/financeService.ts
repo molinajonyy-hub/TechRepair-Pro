@@ -143,7 +143,6 @@ export const PAYMENT_METHODS: CategoryDef[] = [
   { value: 'transferencia', label: 'Transferencia' },
   { value: 'tarjeta_debito', label: 'Tarjeta de débito' },
   { value: 'tarjeta_credito', label: 'Tarjeta de crédito' },
-  { value: 'mercadopago', label: 'MercadoPago' },
   { value: 'cheque', label: 'Cheque' },
   { value: 'otro', label: 'Otro' },
 ]

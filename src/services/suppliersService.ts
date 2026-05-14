@@ -433,7 +433,7 @@ export const suppliersService = {
       created_by: userId,
     });
 
-    if (['efectivo', 'transferencia', 'mercado_pago'].includes(method)) {
+    if (['efectivo', 'transferencia', 'tarjeta'].includes(method)) {
       await supabase.from('financial_movements').insert({
         business_id: businessId, date, type: 'expense',
         currency: 'ARS', amount, amount_ars: amount, exchange_rate: 1,

@@ -18,9 +18,9 @@ import suppliersService, {
 
 const CATEGORIES = ['Repuestos', 'Accesorios', 'Equipos usados', 'Herramientas', 'Insumos', 'Servicios', 'Mayorista', 'Electrónica', 'Otro']
 const FISCAL_CONDITIONS = ['Responsable Inscripto', 'Monotributista', 'Exento', 'Consumidor Final', 'No categorizado']
-const PAYMENT_METHODS = ['efectivo', 'transferencia', 'mercado_pago', 'tarjeta', 'dolares', 'cheque', 'otro']
+const PAYMENT_METHODS = ['efectivo', 'transferencia', 'tarjeta', 'dolares', 'cheque', 'otro']
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  efectivo: 'Efectivo', transferencia: 'Transferencia', mercado_pago: 'Mercado Pago',
+  efectivo: 'Efectivo', transferencia: 'Transferencia',
   tarjeta: 'Tarjeta', dolares: 'Dólares', cheque: 'Cheque', otro: 'Otro',
 }
 

@@ -9,7 +9,6 @@ const METODOS = [
   { id: 'transferencia', label: 'Transferencia',  color: '#60a5fa' },
   { id: 'debito',        label: 'Débito',         color: '#818cf8' },
   { id: 'credito',       label: 'Crédito',        color: '#f59e0b' },
-  { id: 'mercado_pago',  label: 'Mercado Pago',   color: '#009ee3' },
 ]
 
 interface Props {

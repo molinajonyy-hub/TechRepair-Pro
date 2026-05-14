@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import '../css/landing.css'
 import { AppleEmoji } from '../components/ui/AppleEmoji'
-import mpLogoSvg from '../assets/mp-logo.svg'
 // ── Datos de contacto — actualizá antes del lanzamiento ──────────────────────
 const CONTACT = {
   whatsapp:  '5491112345678',              // formato internacional: 549XXXXXXXXXX
@@ -782,22 +781,6 @@ const ARCALogo = ({ size = 30 }: { size?: number }) => (
   </svg>
 )
 
-// Mercado Pago logo: logo oficial 2025
-const MercadoPagoLogo = ({ size = 46 }: { size?: number }) => (
-  <div style={{
-    background: 'white',
-    borderRadius: '10px',
-    padding: '4px 6px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: size + 12,
-    height: size + 12,
-    flexShrink: 0,
-  }}>
-    <img src={mpLogoSvg} alt="Mercado Pago" style={{ width: size, height: size, objectFit: 'contain' }} />
-  </div>
-)
 
 // Microsoft Excel logo: official icon paths (office365-icons)
 const ExcelLogo = ({ size = 30 }: { size?: number }) => (
@@ -824,7 +807,6 @@ function Integrations() {
   const active = [
     { name: 'WhatsApp', desc: 'Mensajes automáticos al cliente al cambiar el estado de la orden', color: '#25d366', logo: <WhatsAppSVG size={26} color="#25d366" />, bg: 'rgba(37,211,102,0.1)', border: 'rgba(37,211,102,0.2)' },
     { name: 'Facturación ARCA', desc: 'Emisión de comprobantes electrónicos (A, B, C) con CAE real', color: '#4299e1', logo: <ARCALogo size={38} />, bg: 'transparent', border: 'transparent' },
-    { name: 'Mercado Pago', desc: 'Registro de pagos y link de pago directo al cliente', color: '#009ee3', logo: <MercadoPagoLogo size={36} />, bg: 'transparent', border: 'transparent' },
     { name: 'Exportar a Excel', desc: 'Exportación de órdenes, clientes, stock e informes', color: '#21a150', logo: <ExcelLogo size={38} />, bg: 'transparent', border: 'transparent' },
   ]
 

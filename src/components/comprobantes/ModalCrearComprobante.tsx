@@ -22,7 +22,6 @@ import {
   TipoComprobante, TipoLinea, MedioPago,
   ComprobantePago, CrearComprobanteInput,
 } from '../../services/comprobanteService';
-import { MpPaymentModal } from '../payments/MpPaymentModal';
 import { usePaymentCommissions, type FlatPaymentMethod } from '../../hooks/usePaymentCommissions';
 
 // ─── Sub-types ────────────────────────────────────────────────────────────────
@@ -220,9 +219,6 @@ export function ModalCrearComprobante({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [arcaWarning, setArcaWarning] = useState<string | null>(null);
-  // Modal de cobro MP (se abre cuando el comprobante ya fue creado)
-  const [showMpModal, setShowMpModal]         = useState(false);
-  const [createdComprobanteId, setCreatedComprobanteId] = useState<string | null>(null);
 
   const clienteWrapperRef = useRef<HTMLDivElement>(null);
 
@@ -558,10 +554,6 @@ export function ModalCrearComprobante({
       setArcaWarning(result.arcaError);
     }
 
-    // Guardar el ID del comprobante creado para el modal MP
-    if (result.comprobante?.id) {
-      setCreatedComprobanteId(result.comprobante.id);
-    }
 
     setSubmitSuccess(true);
     // Si no tiene pagos registrados, no cerrar — dejar que el usuario cobre con MP
@@ -1470,24 +1462,6 @@ export function ModalCrearComprobante({
                 </div>
               )}
 
-              {/* Botón Cobrar con Mercado Pago (post-creación) */}
-              {createdComprobanteId && (
-                <button
-                  onClick={() => setShowMpModal(true)}
-                  style={{
-                    width: '100%', padding: '0.75rem',
-                    background: 'linear-gradient(135deg, #009ee3, #00bcff)',
-                    border: 'none', borderRadius: '0.625rem',
-                    color: '#fff', fontWeight: 700, fontSize: '0.875rem',
-                    cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                    boxShadow: '0 4px 16px rgba(0,158,227,0.35)',
-                  }}
-                >
-                  <Zap size={15} />
-                  Cobrar con Mercado Pago
-                </button>
-              )}
 
               {/* Botones navegación y submit */}
               <div style={{ display: 'flex', gap: '0.75rem' }}>
@@ -1539,21 +1513,6 @@ export function ModalCrearComprobante({
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
 
-      {/* Modal de cobro con Mercado Pago — disponible tras crear el comprobante */}
-      {createdComprobanteId && (
-        <MpPaymentModal
-          isOpen={showMpModal}
-          onClose={() => setShowMpModal(false)}
-          comprobanteId={createdComprobanteId}
-          totalBruto={totales.total}
-          saldoPendiente={totales.total - totales.totalPagado}
-          onPagoRegistrado={() => {
-            setShowMpModal(false);
-            onCreado?.();
-            onClose();
-          }}
-        />
-      )}
     </>
   );
 }

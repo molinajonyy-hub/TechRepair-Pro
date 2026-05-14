@@ -28,7 +28,6 @@ const paymentMethods = [
   { value: 'credit_card', label: 'Tarjeta de Crédito' },
   { value: 'debit_card', label: 'Tarjeta de Débito' },
   { value: 'transfer', label: 'Transferencia' },
-  { value: 'mercadopago', label: 'Mercado Pago' },
   { value: 'other', label: 'Otro' }
 ]
 

@@ -4,7 +4,6 @@ import {
   Zap, Power, GripVertical, ExternalLink, Wallet,
   ArrowRight, ShieldCheck, BookOpen,
 } from 'lucide-react';
-import { MpPlatformSetup } from './MpPlatformSetup';
 import { useAuth } from '../../contexts/AuthContext';
 import { paymentButtonService, PaymentButton, NewPaymentButton } from '../../services/paymentButtonService';
 import { formatFeeLabel, PAYMENT_TYPE_LABELS, PROVIDER_LABELS, INTEGRATION_LABELS } from '../../services/paymentCalculator';
@@ -111,7 +110,7 @@ function ButtonForm({ initial, businessId, onSave, onCancel }: ButtonFormProps) 
       <div style={rowS}>
         <div>
           <label style={labelS}>Nombre *</label>
-          <input type="text" value={form.name} onChange={e => set('name', e.target.value)} placeholder="Ej: Débito MercadoPago" style={inputS} />
+          <input type="text" value={form.name} onChange={e => set('name', e.target.value)} placeholder="Ej: Débito bancario" style={inputS} />
         </div>
         <div>
           <label style={labelS}>Color</label>
@@ -133,7 +132,7 @@ function ButtonForm({ initial, businessId, onSave, onCancel }: ButtonFormProps) 
         <div>
           <label style={labelS}>Proveedor</label>
           <select value={form.provider} onChange={e => set('provider', e.target.value)} style={inputS}>
-            {Object.entries(PROVIDER_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            {Object.entries(PROVIDER_LABELS).filter(([k]) => k !== 'mercadopago').map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </div>
       </div>
@@ -333,13 +332,6 @@ export function PaymentMethodSettings() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
-      {/* ── Wizard de setup de plataforma (solo si los secrets no están configurados) ── */}
-      {platformReady === false && (
-        <MpPlatformSetup
-          supabaseProjectRef="vrdxxmjzxhfgqlnxmbwx"
-          appUrl={window.location.origin}
-        />
-      )}
 
       {/* ── Banner de onboarding (solo si la plataforma está lista y MP no está conectado) ── */}
       {platformReady !== false && !mpStatus?.connected && (
