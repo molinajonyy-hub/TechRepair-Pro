@@ -2,54 +2,58 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 
-let _cachedEmail: string | null = null
+let _cachedUserId: string | null = null
 let _cachedResult: boolean = false
 
 export function useSystemOwner() {
   const { user, loading: authLoading, profileLoading } = useAuth()
-  const email = user?.email?.toLowerCase() ?? null
+  const userId = user?.id ?? null
 
-  // Mientras auth esté cargando → loading = true para no redirigir prematuramente
   const authReady = !authLoading && !profileLoading
 
   const [isSystemOwner, setIsSystemOwner] = useState<boolean>(
-    authReady && email !== null && email === _cachedEmail ? _cachedResult : false
+    authReady && userId !== null && userId === _cachedUserId ? _cachedResult : false
   )
-  const [loading, setLoading] = useState(true)  // siempre empieza cargando
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // No actuar hasta que auth esté completamente cargado
     if (!authReady) return
 
-    if (!email) {
+    if (!userId) {
       setIsSystemOwner(false)
       setLoading(false)
       return
     }
 
     // Cache hit
-    if (email === _cachedEmail) {
+    if (userId === _cachedUserId) {
       setIsSystemOwner(_cachedResult)
       setLoading(false)
       return
     }
 
-    // DB query
+    // Query por user_id (RLS: user_id = auth.uid())
     setLoading(true)
     supabase
       .from('system_admins')
-      .select('email')
-      .eq('email', email)
+      .select('user_id')
+      .eq('user_id', userId)
       .maybeSingle()
       .then(({ data, error }) => {
-        if (error) console.warn('[useSystemOwner] query error:', error)
+        if (error) {
+          console.error('[SYSTEM_OWNER_ERROR]', error)
+          // Fail safe: no romper la app ni bloquear ventanas normales
+          setIsSystemOwner(false)
+          setLoading(false)
+          return
+        }
         const result = data !== null
-        _cachedEmail  = email
-        _cachedResult = result
+        _cachedUserId  = userId
+        _cachedResult  = result
         setIsSystemOwner(result)
         setLoading(false)
       })
-  }, [authReady, email])
+  }, [authReady, userId])
 
   return { isSystemOwner, loading }
 }
