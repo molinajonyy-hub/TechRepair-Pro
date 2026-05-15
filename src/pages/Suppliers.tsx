@@ -8,7 +8,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { smartSearch, buildSupabaseQuery } from '../utils/searchUtils'
-import { ProductFormModal } from '../components/products/ProductFormModal'
+import { ProductFormModalSafe as ProductFormModal } from '../components/products/ProductFormModal'
 import type { InventoryItem } from '../hooks/useInventory'
 import type { ProductVariant } from '../services/productService'
 import suppliersService, {

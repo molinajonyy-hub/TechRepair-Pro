@@ -27,7 +27,7 @@ import { StockRepairTool } from '../components/inventory/StockRepairTool'
 import { ExcelService, ExcelRow } from '../services/excelService'
 import { supabase } from '../lib/supabase'
 import { ProductMovementsModal } from '../components/inventory/ProductMovementsModal'
-import { ProductFormModal } from '../components/products/ProductFormModal'
+import { ProductFormModalSafe as ProductFormModal } from '../components/products/ProductFormModal'
 
 const CATEGORIES = [
   'Pantallas',

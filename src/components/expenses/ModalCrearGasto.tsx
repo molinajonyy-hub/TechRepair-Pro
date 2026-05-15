@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { ProductFormModal } from '../products/ProductFormModal'
+import { ProductFormModalSafe as ProductFormModal } from '../products/ProductFormModal'
 import type { InventoryItem as InventoryItemHook } from '../../hooks/useInventory'
 import { productService } from '../../services/productService'
 import { inventoryMovementsService } from '../../services/inventoryMovementsService'

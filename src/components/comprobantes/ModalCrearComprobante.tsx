@@ -2,7 +2,7 @@ import {
   useState, useEffect, useRef, useCallback, useMemo,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ProductFormModal } from '../products/ProductFormModal';
+import { ProductFormModalSafe as ProductFormModal } from '../products/ProductFormModal';
 import type { InventoryItem as InventoryItemFull } from '../../hooks/useInventory';
 import { isWholesaleCustomer, getProductPriceForCustomer } from '../../utils/pricing';
 import {

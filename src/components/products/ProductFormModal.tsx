@@ -15,7 +15,6 @@
  *   sourceType / sourceId — para trazar el movimiento
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { useBlocker } from 'react-router-dom'
 import { X, RefreshCw, DollarSign, Package, Check, AlertCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -165,13 +164,26 @@ function serializeForm(f: FormState): string {
     sale_price_ars: f.sale_price_ars, wholesale_price: f.wholesale_price,
     stock_quantity: f.stock_quantity, min_stock: f.min_stock, location: f.location,
     is_active: f.is_active,
-    variants: f.variants.map(v => ({
-      name: v.name, sku: v.sku, barcode: v.barcode, attributes: v.attributes,
-      cost_ars: v.cost_ars, cost_usd: v.cost_usd, sale_price: v.sale_price,
-      wholesale: v.wholesale, stock: v.stock, min_stock: v.min_stock,
-      location: v.location, is_active: v.is_active, is_default: v.is_default,
+    variants: (f.variants ?? []).map(v => ({
+      name: v.name ?? '', sku: v.sku ?? '', barcode: v.barcode ?? '',
+      attributes: v.attributes ?? {},
+      cost_ars: v.cost_ars ?? '', cost_usd: v.cost_usd ?? '',
+      sale_price: v.sale_price ?? '', wholesale: v.wholesale ?? '',
+      stock: v.stock ?? '0', min_stock: v.min_stock ?? '0',
+      location: v.location ?? '', is_active: v.is_active ?? true, is_default: v.is_default ?? false,
     })),
   })
+}
+
+// Fusiona draft con EMPTY para garantizar que todos los campos existan
+function hydrateDraft(draft: Partial<FormState>): FormState {
+  return {
+    ...EMPTY,
+    ...draft,
+    variants: Array.isArray(draft.variants) && draft.variants.length > 0
+      ? draft.variants.map(v => ({ ...emptyVariant(), ...v, _key: v._key ?? crypto.randomUUID() }))
+      : EMPTY.variants,
+  }
 }
 
 const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
@@ -205,14 +217,19 @@ export function ProductFormModal({
   ])
 
   // ── Draft / unsaved-changes protection ─────────────────────────────────────
-  const DRAFT_KEY = `draft_product_${businessId ?? 'x'}_${user?.id ?? 'x'}`
+  const DRAFT_KEY = useMemo(
+    () => `draft_product_${businessId ?? 'x'}_${user?.id ?? 'x'}`,
+    [businessId, user?.id]
+  )
   const cleanFormRef  = useRef<string>('')               // baseline serializado al abrir
   const [showCloseConfirm, setShowCloseConfirm] = useState(false)
   const [draftInfo, setDraftInfo] = useState<{ form: FormState; savedAt: string } | null>(null)
 
   const hasUnsavedChanges = useMemo(() => {
-    if (!cleanFormRef.current || !form.name.trim()) return false
-    return serializeForm(form) !== cleanFormRef.current
+    try {
+      if (!cleanFormRef.current || !form.name.trim()) return false
+      return serializeForm(form) !== cleanFormRef.current
+    } catch { return false }
   }, [form])
 
   // Auto-save con debounce de 2s
@@ -235,44 +252,39 @@ export function ProductFormModal({
   // Escape key guard
   useEffect(() => {
     if (!isOpen) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') tryClose() }
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (hasUnsavedChanges) setShowCloseConfirm(true)
+        else onClose()
+      }
+    }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, hasUnsavedChanges])
-
-  // React Router navigation guard
-  const blocker = useBlocker(() => hasUnsavedChanges && isOpen)
-  useEffect(() => {
-    if (blocker.state === 'blocked') setShowCloseConfirm(true)
-  }, [blocker.state])
+  }, [isOpen, hasUnsavedChanges, onClose])
 
   const tryClose = useCallback(() => {
     if (hasUnsavedChanges) { setShowCloseConfirm(true) } else { onClose() }
   }, [hasUnsavedChanges, onClose])
 
-  const keepEditing = () => {
+  const keepEditing = useCallback(() => {
     setShowCloseConfirm(false)
-    if (blocker.state === 'blocked') blocker.reset()
-  }
+  }, [])
 
-  const saveDraftAndClose = () => {
+  const saveDraftAndClose = useCallback(() => {
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, savedAt: new Date().toISOString() })) } catch { /* quota */ }
     setShowCloseConfirm(false)
-    if (blocker.state === 'blocked') { blocker.proceed(); return }
     onClose()
-  }
+  }, [DRAFT_KEY, form, onClose])
 
-  const discardAndClose = () => {
+  const discardAndClose = useCallback(() => {
     try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
     setShowCloseConfirm(false)
-    if (blocker.state === 'blocked') { blocker.proceed(); return }
     onClose()
-  }
+  }, [DRAFT_KEY, onClose])
 
-  const clearDraftOnSave = () => {
+  const clearDraftOnSave = useCallback(() => {
     try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
-  }
+  }, [DRAFT_KEY])
 
   // ── Pre-rellenar desde contexto al abrir ────────────────────────────────────
   useEffect(() => {
@@ -307,10 +319,15 @@ export function ProductFormModal({
       try {
         const raw = localStorage.getItem(DRAFT_KEY)
         if (raw) {
-          const parsed = JSON.parse(raw) as { form: FormState; savedAt: string }
-          if (parsed.form?.name?.trim()) setDraftInfo(parsed)
+          const parsed = JSON.parse(raw) as { form: Partial<FormState>; savedAt: string }
+          if (parsed?.form?.name?.trim()) {
+            setDraftInfo({ form: hydrateDraft(parsed.form), savedAt: parsed.savedAt ?? '' })
+          }
         }
-      } catch { /* ignore */ }
+      } catch (err) {
+        console.warn('[PFM_DRAFT_PARSE_ERROR]', err)
+        try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
@@ -1287,6 +1304,52 @@ function Row2({ children }: { children: React.ReactNode }) {
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
       {children}
     </div>
+  )
+}
+
+// ─── ErrorBoundary ────────────────────────────────────────────────────────────
+
+import { Component, type ErrorInfo } from 'react'
+
+class ProductFormModalErrorBoundary extends Component<
+  { children: React.ReactNode; onClose: () => void },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode; onClose: () => void }) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+  static getDerivedStateFromError(error: Error) { return { hasError: true, error } }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[ProductFormModal crash]', error, info.componentStack)
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', fontFamily: F }}>
+          <div style={{ background: '#0d1a30', border: '1px solid rgba(248,113,113,0.3)', borderRadius: '1.25rem', padding: '2rem', maxWidth: 400, width: '100%', textAlign: 'center' }}>
+            <AlertCircle size={32} color="#f87171" style={{ margin: '0 auto 1rem' }} />
+            <h3 style={{ color: '#f1f5f9', margin: '0 0 0.5rem', fontSize: '1rem', fontWeight: 700 }}>Error en el formulario</h3>
+            <p style={{ color: '#64748b', fontSize: '0.875rem', margin: '0 0 1.5rem', lineHeight: 1.5 }}>
+              Ocurrió un error inesperado. Tu borrador puede estar guardado en localStorage.
+            </p>
+            <button onClick={() => { this.setState({ hasError: false, error: null }); this.props.onClose() }}
+              style={{ padding: '0.625rem 1.5rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', border: 'none', borderRadius: '0.75rem', color: '#fff', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+export function ProductFormModalSafe(props: ProductFormModalProps) {
+  return (
+    <ProductFormModalErrorBoundary onClose={props.onClose}>
+      <ProductFormModal {...props} />
+    </ProductFormModalErrorBoundary>
   )
 }
 

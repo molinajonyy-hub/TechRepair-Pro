@@ -17,7 +17,7 @@ import {
   RefreshIcon, AlertIcon,
 } from '../ui/icons'
 import { suppliersService, type CreatePurchaseInput } from '../services/suppliersService'
-import { ProductFormModal } from '../components/products/ProductFormModal'
+import { ProductFormModalSafe as ProductFormModal } from '../components/products/ProductFormModal'
 import type { InventoryItem } from '../hooks/useInventory'
 
 // ─── Types ────────────────────────────────────────────────────────────────────

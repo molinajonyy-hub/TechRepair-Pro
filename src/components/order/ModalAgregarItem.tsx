@@ -4,7 +4,7 @@ import { CloseButton } from '../ui/CloseButton'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { currencyService } from '../../services/currencyService'
-import { ProductFormModal } from '../products/ProductFormModal'
+import { ProductFormModalSafe as ProductFormModal } from '../products/ProductFormModal'
 import { productService } from '../../services/productService'
 import type { InventoryItem } from '../../hooks/useInventory'
 
