@@ -41,7 +41,7 @@ export function useSystemOwner() {
       .maybeSingle()
       .then(({ data, error }) => {
         if (error) {
-          console.error('[SYSTEM_OWNER_ERROR]', error)
+          if (process.env.NODE_ENV !== 'production') console.warn('[SYSTEM_OWNER_ERROR]', error)
           // Fail safe: no romper la app ni bloquear ventanas normales
           setIsSystemOwner(false)
           setLoading(false)

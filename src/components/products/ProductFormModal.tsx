@@ -222,7 +222,7 @@ export function ProductFormModal({
       .from('suppliers')
       .select('id, name')
       .eq('business_id', businessId)
-      .eq('is_active', true)
+      .eq('active', true)
       .order('name')
       .limit(100)
     setSuppliers((data || []) as { id: string; name: string }[])
