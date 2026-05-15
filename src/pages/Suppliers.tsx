@@ -411,7 +411,7 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
           {/* ── IZQUIERDA: meta + productos + notas ── */}
-          <div style={{ flex: 1, overflow: 'auto', padding: '0.875rem 1.125rem', display: 'flex', flexDirection: 'column', gap: '0.875rem', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+          <div style={{ flex: 1, overflow: 'auto', padding: '0.875rem 1.125rem', display: 'flex', flexDirection: 'column', gap: '0.875rem', borderRight: '2px solid rgba(255,255,255,0.06)' }}>
 
             {/* Fecha + Nro. Factura */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.625rem' }}>
@@ -547,12 +547,15 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
               </div>
             </div>
 
-            {/* TOTAL grande */}
+            {/* TOTAL grande — siempre visible */}
             <div style={{ padding: '0.875rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
-              <div style={{ color: '#334155', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.2rem' }}>Total de compra</div>
-              <div style={{ color: '#f0f4ff', fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1 }}>
-                {totalAmount > 0 ? fmtARS(totalAmount) : <span style={{ color: '#1e3a5f' }}>$0</span>}
+              <div style={{ color: '#334155', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.2rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total de compra</div>
+              <div style={{ color: totalAmount > 0 ? '#f0f4ff' : '#1e3a5f', fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1, transition: 'color 0.2s' }}>
+                {totalAmount > 0 ? fmtARS(totalAmount) : '$0'}
               </div>
+              {totalAmount === 0 && (
+                <div style={{ color: '#1e3a5f', fontSize: '0.72rem', marginTop: '0.3rem' }}>Agregá productos para ver el total</div>
+              )}
             </div>
 
             {/* ESTADO + MÉTODOS + RESUMEN */}
@@ -613,40 +616,46 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
                 </div>
               )}
 
-              {/* Resumen financiero dinámico */}
-              {totalAmount > 0 && (
-                <div style={{ background: 'rgba(0,0,0,0.25)', borderRadius: '0.625rem', padding: '0.625rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.225rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.2rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    <span style={{ fontSize: '0.72rem', color: '#334155', fontWeight: 600 }}>Total factura</span>
-                    <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 700 }}>{fmtARS(totalAmount)}</span>
-                  </div>
-                  {paidAmount > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Pagado ({PROV_METHODS.find(m => m.id === paymentMethod)?.label ?? paymentMethod})</span>
-                      <span style={{ fontSize: '0.75rem', color: '#22c55e', fontWeight: 700 }}>{fmtARS(paidAmount)}</span>
-                    </div>
-                  )}
-                  {pendingAmount > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.15rem' }}>
-                      <span style={{ fontSize: '0.78rem', color: '#818cf8', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        <Wallet size={12} /> CC {supplier.name}
-                      </span>
-                      <span style={{ fontSize: '0.9rem', color: '#818cf8', fontWeight: 900 }}>{fmtARS(pendingAmount)}</span>
-                    </div>
-                  )}
-                  {pendingAmount <= 0 && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#22c55e', fontSize: '0.75rem', fontWeight: 700 }}>
-                      <CheckCircle size={12} /> Factura saldada completamente
-                    </div>
-                  )}
-                  {pendingAmount > 0 && supplier.pending_amount > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.2rem', borderTop: '1px solid rgba(245,158,11,0.15)', marginTop: '0.1rem' }}>
-                      <span style={{ fontSize: '0.72rem', color: '#334155' }}>Nueva deuda total con {supplier.name}</span>
-                      <span style={{ fontSize: '0.8rem', color: '#f59e0b', fontWeight: 900 }}>{fmtARS(supplier.pending_amount + pendingAmount)}</span>
-                    </div>
-                  )}
+              {/* Resumen financiero — siempre visible */}
+              <div style={{ background: 'rgba(0,0,0,0.25)', borderRadius: '0.625rem', padding: '0.625rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.225rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.2rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <span style={{ fontSize: '0.72rem', color: '#334155', fontWeight: 600 }}>Total factura</span>
+                  <span style={{ fontSize: '0.72rem', color: totalAmount > 0 ? '#94a3b8' : '#1e3a5f', fontWeight: 700 }}>{fmtARS(totalAmount)}</span>
                 </div>
-              )}
+                {totalAmount === 0 ? (
+                  <div style={{ color: '#1e3a5f', fontSize: '0.72rem', padding: '0.25rem 0', fontStyle: 'italic' }}>
+                    El resumen aparecerá al agregar productos
+                  </div>
+                ) : (
+                  <>
+                    {paidAmount > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Pagado ({PROV_METHODS.find(m => m.id === paymentMethod)?.label ?? paymentMethod})</span>
+                        <span style={{ fontSize: '0.75rem', color: '#22c55e', fontWeight: 700 }}>{fmtARS(paidAmount)}</span>
+                      </div>
+                    )}
+                    {pendingAmount > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.15rem' }}>
+                        <span style={{ fontSize: '0.78rem', color: '#818cf8', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <Wallet size={12} /> CC {supplier.name}
+                        </span>
+                        <span style={{ fontSize: '0.9rem', color: '#818cf8', fontWeight: 900 }}>{fmtARS(pendingAmount)}</span>
+                      </div>
+                    )}
+                    {pendingAmount <= 0 && totalAmount > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#22c55e', fontSize: '0.75rem', fontWeight: 700 }}>
+                        <CheckCircle size={12} /> Factura saldada completamente
+                      </div>
+                    )}
+                    {pendingAmount > 0 && supplier.pending_amount > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.2rem', borderTop: '1px solid rgba(245,158,11,0.15)', marginTop: '0.1rem' }}>
+                        <span style={{ fontSize: '0.72rem', color: '#334155' }}>Nueva deuda con {supplier.name}</span>
+                        <span style={{ fontSize: '0.8rem', color: '#f59e0b', fontWeight: 900 }}>{fmtARS(supplier.pending_amount + pendingAmount)}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
 
             {/* FOOTER: error + botón registrar */}
@@ -662,7 +671,7 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
                 {saving ? (
                   <><RefreshCw size={15} style={{ animation: 'spin 0.8s linear infinite' }} /> Registrando...</>
                 ) : (
-                  <><ShoppingCart size={15} /> Registrar compra {totalAmount > 0 && fmtARS(totalAmount)}</>
+                  <><ShoppingCart size={15} /> {totalAmount > 0 ? `Registrar ${fmtARS(totalAmount)}` : 'Registrar compra'}</>
                 )}
               </button>
               <button onClick={onClose} style={{ width: '100%', marginTop: '0.375rem', padding: '0.375rem', background: 'none', border: 'none', color: '#334155', fontSize: '0.78rem', cursor: 'pointer', fontFamily: F }}>
