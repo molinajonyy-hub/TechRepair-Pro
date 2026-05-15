@@ -14,7 +14,8 @@
  *   registerStock   — si true, suma stock al crear (con movimiento registrado)
  *   sourceType / sourceId — para trazar el movimiento
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useBlocker } from 'react-router-dom'
 import { X, RefreshCw, DollarSign, Package, Check, AlertCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -154,6 +155,25 @@ const EMPTY: FormState = {
   variants: [emptyVariant(1)],
 }
 
+// Serializa solo los campos de datos (excluye UI: exchange_rate, margin_pct, expanded)
+function serializeForm(f: FormState): string {
+  return JSON.stringify({
+    tipo: f.tipo, name: f.name, code: f.code, barcode: f.barcode,
+    brand: f.brand, model: f.model, description: f.description,
+    category: f.category, subcategory: f.subcategory, supplier_id: f.supplier_id,
+    base_currency: f.base_currency, cost_ars: f.cost_ars, cost_usd: f.cost_usd,
+    sale_price_ars: f.sale_price_ars, wholesale_price: f.wholesale_price,
+    stock_quantity: f.stock_quantity, min_stock: f.min_stock, location: f.location,
+    is_active: f.is_active,
+    variants: f.variants.map(v => ({
+      name: v.name, sku: v.sku, barcode: v.barcode, attributes: v.attributes,
+      cost_ars: v.cost_ars, cost_usd: v.cost_usd, sale_price: v.sale_price,
+      wholesale: v.wholesale, stock: v.stock, min_stock: v.min_stock,
+      location: v.location, is_active: v.is_active, is_default: v.is_default,
+    })),
+  })
+}
+
 const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 // ─── Componente ───────────────────────────────────────────────────────────────
@@ -184,6 +204,76 @@ export function ProductFormModal({
     { _key: crypto.randomUUID(), name: 'Color', values: [] },
   ])
 
+  // ── Draft / unsaved-changes protection ─────────────────────────────────────
+  const DRAFT_KEY = `draft_product_${businessId ?? 'x'}_${user?.id ?? 'x'}`
+  const cleanFormRef  = useRef<string>('')               // baseline serializado al abrir
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false)
+  const [draftInfo, setDraftInfo] = useState<{ form: FormState; savedAt: string } | null>(null)
+
+  const hasUnsavedChanges = useMemo(() => {
+    if (!cleanFormRef.current || !form.name.trim()) return false
+    return serializeForm(form) !== cleanFormRef.current
+  }, [form])
+
+  // Auto-save con debounce de 2s
+  useEffect(() => {
+    if (!isOpen || !hasUnsavedChanges) return
+    const t = setTimeout(() => {
+      try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, savedAt: new Date().toISOString() })) } catch { /* quota */ }
+    }, 2000)
+    return () => clearTimeout(t)
+  }, [form, hasUnsavedChanges, isOpen, DRAFT_KEY])
+
+  // beforeunload — warning del navegador al refrescar/cerrar tab
+  useEffect(() => {
+    if (!hasUnsavedChanges) return
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [hasUnsavedChanges])
+
+  // Escape key guard
+  useEffect(() => {
+    if (!isOpen) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') tryClose() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, hasUnsavedChanges])
+
+  // React Router navigation guard
+  const blocker = useBlocker(() => hasUnsavedChanges && isOpen)
+  useEffect(() => {
+    if (blocker.state === 'blocked') setShowCloseConfirm(true)
+  }, [blocker.state])
+
+  const tryClose = useCallback(() => {
+    if (hasUnsavedChanges) { setShowCloseConfirm(true) } else { onClose() }
+  }, [hasUnsavedChanges, onClose])
+
+  const keepEditing = () => {
+    setShowCloseConfirm(false)
+    if (blocker.state === 'blocked') blocker.reset()
+  }
+
+  const saveDraftAndClose = () => {
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, savedAt: new Date().toISOString() })) } catch { /* quota */ }
+    setShowCloseConfirm(false)
+    if (blocker.state === 'blocked') { blocker.proceed(); return }
+    onClose()
+  }
+
+  const discardAndClose = () => {
+    try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
+    setShowCloseConfirm(false)
+    if (blocker.state === 'blocked') { blocker.proceed(); return }
+    onClose()
+  }
+
+  const clearDraftOnSave = () => {
+    try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
+  }
+
   // ── Pre-rellenar desde contexto al abrir ────────────────────────────────────
   useEffect(() => {
     if (!isOpen) return
@@ -192,7 +282,7 @@ export function ProductFormModal({
     if (resolvedTipo === 'with_variants') {
       console.log('[PRODUCT_VARIANTS_PREMIUM_RENDERED]')
     }
-    setForm({
+    const initialForm: FormState = {
       ...EMPTY,
       tipo:          resolvedTipo,
       name:          initialName      ?? '',
@@ -204,12 +294,24 @@ export function ProductFormModal({
       stock_quantity: String(initialQuantity ?? 0),
       register_stock: registerStock,
       exchange_rate: rate,
-    })
-    setError(''); setDuplicate(null)
+    }
+    setForm(initialForm)
+    cleanFormRef.current = serializeForm(initialForm)
+    setError(''); setDuplicate(null); setShowCloseConfirm(false)
     // Cargar cotización
     if (!form.exchange_rate) fetchRate()
     // Cargar proveedores
     loadSuppliers()
+    // Verificar si existe borrador (solo si abre sin contexto pre-relleno)
+    if (!initialName) {
+      try {
+        const raw = localStorage.getItem(DRAFT_KEY)
+        if (raw) {
+          const parsed = JSON.parse(raw) as { form: FormState; savedAt: string }
+          if (parsed.form?.name?.trim()) setDraftInfo(parsed)
+        }
+      } catch { /* ignore */ }
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
 
@@ -453,7 +555,7 @@ export function ProductFormModal({
         if (onVariantSelected && createdVariants.length > 0) {
           setVariantPickerData({ product, variants: createdVariants })
         } else {
-          onCreated(product); onClose()
+          clearDraftOnSave(); onCreated(product); onClose()
         }
         return
       }
@@ -475,8 +577,7 @@ export function ProductFormModal({
         : {}
 
       const product = await productService.createProduct(input, ctx)
-      onCreated(product)
-      onClose()
+      clearDraftOnSave(); onCreated(product); onClose()
     } catch (err: any) {
       setError(err.message || 'Error al guardar el producto.')
     } finally {
@@ -505,7 +606,7 @@ export function ProductFormModal({
                     // Obtener el inventory item para la variante y llamar el callback
                     onVariantSelected({ id: variant.inventory_item_id, name: `${variantPickerData.product.name} — ${variant.name}`, sale_price: variant.sale_price_ars, cost_price: variant.cost_price_ars, stock_quantity: variant.stock } as any, variant)
                   }
-                  setVariantPickerData(null); onClose()
+                  clearDraftOnSave(); setVariantPickerData(null); onClose()
                 }}
                 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '0.75rem', cursor: 'pointer', textAlign: 'left' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.14)'}
@@ -523,7 +624,7 @@ export function ProductFormModal({
             ))}
           </div>
           <div style={{ padding: '0.875rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'flex-end' }}>
-            <button type="button" onClick={() => { onCreated(variantPickerData.product); setVariantPickerData(null); onClose() }}
+            <button type="button" onClick={() => { clearDraftOnSave(); onCreated(variantPickerData.product); setVariantPickerData(null); onClose() }}
               style={{ padding: '0.5rem 1rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.625rem', color: '#475569', fontSize: '0.8rem', cursor: 'pointer', fontFamily: F }}>
               Sin variante específica
             </button>
@@ -543,7 +644,7 @@ export function ProductFormModal({
 
   return (
     <div
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+      onClick={e => { if (e.target === e.currentTarget) tryClose() }}
       style={{
         position: 'fixed', inset: 0, zIndex: 9999,
         background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
@@ -571,7 +672,7 @@ export function ProductFormModal({
               </span>
             )}
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.25rem' }}>
+          <button onClick={tryClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.25rem' }}>
             <X size={20} />
           </button>
         </div>
@@ -612,7 +713,7 @@ export function ProductFormModal({
               </div>
               <button
                 type="button"
-                onClick={() => { onCreated(duplicate); onClose() }}
+                onClick={() => { clearDraftOnSave(); onCreated(duplicate); onClose() }}
                 style={{ marginLeft: 'auto', flexShrink: 0, padding: '0.3rem 0.75rem', background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.4)', borderRadius: '0.5rem', color: '#fbbf24', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}
               >
                 Usar existente
@@ -1073,7 +1174,7 @@ export function ProductFormModal({
 
         {/* Footer */}
         <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
-          <button type="button" onClick={onClose} style={{ padding: '0.625rem 1.25rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.75rem', color: '#64748b', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}>
+          <button type="button" onClick={tryClose} style={{ padding: '0.625rem 1.25rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.75rem', color: '#64748b', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}>
             Cancelar
           </button>
           <button
@@ -1086,6 +1187,84 @@ export function ProductFormModal({
         </div>
       </div>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
+      {/* ── Diálogo: cambios sin guardar ─────────────────────────────────── */}
+      {showCloseConfirm && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', fontFamily: F }}>
+          <div style={{ background: '#0d1a30', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '1.125rem', width: '100%', maxWidth: '400px', boxShadow: '0 32px 80px rgba(0,0,0,0.8)', overflow: 'hidden' }}>
+            <div style={{ padding: '1.5rem 1.5rem 1rem' }}>
+              <div style={{ width: 40, height: 40, borderRadius: '0.75rem', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
+                <AlertCircle size={20} color="#f59e0b" />
+              </div>
+              <h3 style={{ margin: '0 0 0.375rem', color: '#f1f5f9', fontSize: '1rem', fontWeight: 800 }}>Cambios sin guardar</h3>
+              <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem', lineHeight: 1.5 }}>
+                Tenés cambios en el formulario que se perderán si cerrás ahora.
+              </p>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.75rem 1.5rem 1.25rem' }}>
+              <button
+                onClick={keepEditing}
+                style={{ width: '100%', padding: '0.625rem 1rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', border: 'none', borderRadius: '0.75rem', color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}
+              >
+                Seguir editando
+              </button>
+              <button
+                onClick={saveDraftAndClose}
+                style={{ width: '100%', padding: '0.625rem 1rem', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '0.75rem', color: '#818cf8', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}
+              >
+                Guardar borrador y cerrar
+              </button>
+              <button
+                onClick={discardAndClose}
+                style={{ width: '100%', padding: '0.625rem 1rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.75rem', color: '#475569', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}
+              >
+                Descartar cambios
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Diálogo: restaurar borrador ───────────────────────────────────── */}
+      {draftInfo && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10001, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', fontFamily: F }}>
+          <div style={{ background: '#0d1a30', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '1.125rem', width: '100%', maxWidth: '400px', boxShadow: '0 32px 80px rgba(0,0,0,0.8)', overflow: 'hidden' }}>
+            <div style={{ padding: '1.5rem 1.5rem 1rem' }}>
+              <div style={{ width: 40, height: 40, borderRadius: '0.75rem', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
+                <Check size={20} color="#22c55e" />
+              </div>
+              <h3 style={{ margin: '0 0 0.375rem', color: '#f1f5f9', fontSize: '1rem', fontWeight: 800 }}>Borrador guardado encontrado</h3>
+              <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem', lineHeight: 1.5 }}>
+                Se encontró un borrador sin guardar: <strong style={{ color: '#94a3b8' }}>{draftInfo.form.name}</strong>
+              </p>
+              <p style={{ margin: '0.25rem 0 0', color: '#334155', fontSize: '0.75rem' }}>
+                Guardado {new Date(draftInfo.savedAt).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}
+              </p>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.75rem 1.5rem 1.25rem' }}>
+              <button
+                onClick={() => {
+                  setForm(draftInfo.form)
+                  cleanFormRef.current = serializeForm(draftInfo.form)
+                  setDraftInfo(null)
+                }}
+                style={{ width: '100%', padding: '0.625rem 1rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', border: 'none', borderRadius: '0.75rem', color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}
+              >
+                Restaurar borrador
+              </button>
+              <button
+                onClick={() => {
+                  try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
+                  setDraftInfo(null)
+                }}
+                style={{ width: '100%', padding: '0.625rem 1rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.75rem', color: '#475569', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}
+              >
+                Empezar de cero
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
