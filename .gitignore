@@ -36,3 +36,6 @@ Thumbs.db
 # Supabase
 supabase/.branches
 supabase/.temp
+
+# Build-time generated files (no commitear — se regeneran en cada build)
+public/version.json

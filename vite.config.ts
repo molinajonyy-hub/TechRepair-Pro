@@ -1,7 +1,5 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { writeFileSync, mkdirSync } from 'fs'
-import { resolve } from 'path'
 
 const BUILD_TIME = new Date().toISOString()
 
@@ -10,16 +8,14 @@ export default defineConfig({
     react(),
     {
       name: 'generate-version-file',
-      buildStart() {
-        // Escribe public/version.json para que el poller de actualización pueda comparar
-        try {
-          mkdirSync(resolve(__dirname, 'public'), { recursive: true })
-          writeFileSync(
-            resolve(__dirname, 'public/version.json'),
-            JSON.stringify({ buildTime: BUILD_TIME }),
-            'utf-8'
-          )
-        } catch { /* ignorar en entornos read-only */ }
+      // generateBundle corre solo en `vite build` y emite el archivo directo a dist/
+      // sin necesitar __dirname ni escribir en public/ (que está en git)
+      generateBundle() {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'version.json',
+          source: JSON.stringify({ buildTime: BUILD_TIME }),
+        })
       },
     },
   ],
