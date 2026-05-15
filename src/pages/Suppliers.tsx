@@ -3,7 +3,7 @@ import {
   Truck, Plus, Search, Edit2, Trash2, Eye, ChevronLeft,
   Phone, Mail, MapPin, AlertCircle,
   CheckCircle, Clock, X, CreditCard, MessageCircle,
-  FileText, TrendingUp, ShoppingCart, Banknote, RefreshCw, Wallet,
+  FileText, TrendingUp, ShoppingCart, Banknote, RefreshCw, Wallet, Minus,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -380,211 +380,301 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
     }
   }
 
+  const F = "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
+  const iS: React.CSSProperties = { width: '100%', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', color: '#f0f4ff', fontSize: '0.82rem', outline: 'none', fontFamily: F, boxSizing: 'border-box' as const }
+  const lS: React.CSSProperties = { display: 'block', fontSize: '0.62rem', fontWeight: 700, color: '#334155', marginBottom: '0.3rem', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }
+
   return (
     <>
-    <ModalOverlay onClose={onClose} maxWidth="780px">
-      <ModalHeader title="Nueva compra" subtitle={`Registrar compra a ${supplier.name}`} icon={<ShoppingCart size={18} style={{ color: '#818cf8' }} />} onClose={onClose} />
+    {/* ── MODAL DOS COLUMNAS — misma filosofía que ComprobanteProModal ── */}
+    <div onClick={e => { if (e.target === e.currentTarget) onClose() }}
+      style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0.5rem', fontFamily: F }}>
+      <div style={{ background: '#0a1628', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '1.25rem', width: '100%', maxWidth: '1080px', height: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 40px 100px rgba(0,0,0,0.9)', overflow: 'hidden' }}>
 
-      <ModalBody>
-
-        {/* Encabezado de compra */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
-          <div>
-            <label style={labelS}>Fecha de compra</label>
-            <input style={inputS} type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} />
+        {/* HEADER */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1.25rem', borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0, background: 'linear-gradient(180deg,#0f1f3d 0%,#0a1628 100%)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ width: 34, height: 34, borderRadius: '0.5rem', background: 'rgba(99,102,241,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <ShoppingCart size={16} color="#818cf8" />
+            </div>
+            <div>
+              <div style={{ color: '#f1f5f9', fontWeight: 800, fontSize: '0.9375rem', letterSpacing: '-0.02em' }}>Nueva compra</div>
+              <div style={{ color: '#334155', fontSize: '0.72rem', marginTop: '0.05rem' }}>Registrar factura a {supplier.name}</div>
+            </div>
           </div>
-          <div>
-            <label style={labelS}>Nro. de factura / remito</label>
-            <input style={inputS} type="text" value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} placeholder="Ej: A-0001-00123" />
-          </div>
-          <div>
-            <label style={labelS}>Método de pago</label>
-            <select style={inputS} value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
-              {PAYMENT_METHODS.map(m => <option key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</option>)}
-            </select>
-          </div>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', cursor: 'pointer', color: '#475569', padding: '0.375rem', borderRadius: '0.5rem', display: 'flex', alignItems: 'center', transition: 'all 0.1s' }}>
+            <X size={16} />
+          </button>
         </div>
 
-        {/* Items */}
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-            <label style={{ ...labelS, margin: 0 }}>Productos comprados</label>
-            <button style={{ ...btnSecondary, fontSize: '0.72rem', padding: '0.25rem 0.625rem' }} onClick={() => setRows(p => [...p, newRow()])}>
-              <Plus size={11} /> Agregar fila
-            </button>
-          </div>
+        {/* BODY: 2 COLUMNAS */}
+        <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {/* Header */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 110px 32px', gap: '0.5rem', padding: '0 0.25rem' }}>
-              {['Producto', 'Cant.', 'Costo unit.', ''].map(h => (
-                <span key={h} style={{ fontSize: '0.65rem', color: '#475569', fontWeight: 600, textTransform: 'uppercase' }}>{h}</span>
-              ))}
+          {/* ── IZQUIERDA: meta + productos + notas ── */}
+          <div style={{ flex: 1, overflow: 'auto', padding: '0.875rem 1.125rem', display: 'flex', flexDirection: 'column', gap: '0.875rem', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+
+            {/* Fecha + Nro. Factura */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.625rem' }}>
+              <div>
+                <label style={lS}>Fecha de compra</label>
+                <input style={iS} type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} />
+              </div>
+              <div>
+                <label style={lS}>N° Factura / remito</label>
+                <input style={iS} value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} placeholder="A-0001-00123" />
+              </div>
             </div>
 
-            {rows.map(row => (
-              <div key={row._key} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 110px 32px', gap: '0.5rem', alignItems: 'center' }}>
-                <div style={{ position: 'relative' }}>
-                  <input style={inputS} value={row.searchQ}
-                    onChange={e => searchProduct(row._key, e.target.value)}
-                    placeholder="Buscar o escribir producto..." />
-                  {(row.searchResults.length > 0 || row.searchQ.trim().length >= 2) && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#0d1a30', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '0.5rem', overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.4)', marginTop: '0.2rem' }}>
-                      {row.searchResults.length === 0 && row.searchQ.trim().length >= 2 && (
-                        <div style={{ padding: '0.5rem 0.75rem', color: '#475569', fontSize: '0.78rem' }}>
-                          Sin resultados para "{row.searchQ.trim()}"
-                        </div>
-                      )}
-                      {row.searchResults.map((p: any) => (
-                        <button key={p.id} type="button" onClick={() => selectProduct(row._key, p)}
-                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)', textAlign: 'left' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'none'}>
-                          <span style={{ color: '#e2e8f0', fontSize: '0.83rem' }}>{p.name}{p.variant_name ? ` — ${p.variant_name}` : ''}</span>
-                          <span style={{ color: '#475569', fontSize: '0.72rem', flexShrink: 0, marginLeft: '0.5rem' }}>stock: {p.stock_quantity}</span>
+            {/* PRODUCTOS — cards premium */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.62rem', fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                  Productos ({rows.filter(r => r.product_name.trim()).length})
+                </span>
+                <button onClick={() => setRows(p => [...p, newRow()])}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.25rem 0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.375rem', color: '#475569', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+                  <Plus size={11} /> Agregar fila
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                {rows.map(row => {
+                  const subtotal = row.quantity * row.unit_cost
+                  return (
+                    <div key={row._key}
+                      style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', padding: '0.625rem 0.875rem', display: 'flex', alignItems: 'center', gap: '0.625rem', transition: 'border-color 0.12s' }}
+                      onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(99,102,241,0.2)')}
+                      onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)')}>
+                      {/* Icono */}
+                      <div style={{ width: 32, height: 32, borderRadius: '0.5rem', background: 'rgba(99,102,241,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <ShoppingCart size={14} color="#475569" />
+                      </div>
+                      {/* Search */}
+                      <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+                        <input value={row.searchQ}
+                          onChange={e => searchProduct(row._key, e.target.value)}
+                          placeholder="Buscar o escribir producto..."
+                          style={{ width: '100%', background: 'none', border: 'none', outline: 'none', color: '#f0f4ff', fontSize: '0.875rem', fontWeight: 600, fontFamily: F, padding: 0 }} />
+                        {row.inventory_id && <div style={{ fontSize: '0.68rem', color: '#334155', marginTop: '0.1rem' }}>Vinculado al inventario</div>}
+                        {(row.searchResults.length > 0 || (row.searchQ.trim().length >= 2 && !row.inventory_id)) && (
+                          <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 200, background: '#0c1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.625rem', boxShadow: '0 12px 40px rgba(0,0,0,0.7)', overflow: 'hidden' }}>
+                            {row.searchResults.length === 0 && (
+                              <div style={{ padding: '0.625rem 0.875rem', color: '#334155', fontSize: '0.78rem' }}>Sin resultados para "{row.searchQ.trim()}"</div>
+                            )}
+                            {row.searchResults.map((p: any) => (
+                              <button key={p.id} onMouseDown={() => selectProduct(row._key, p)}
+                                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '0.5rem 0.875rem', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', textAlign: 'left', fontFamily: F }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.08)'}
+                                onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+                                <span style={{ color: '#f0f4ff', fontSize: '0.83rem' }}>{p.name}{p.variant_name ? ` — ${p.variant_name}` : ''}</span>
+                                <span style={{ color: '#334155', fontSize: '0.72rem', flexShrink: 0, marginLeft: '0.5rem' }}>stock: {p.stock_quantity}</span>
+                              </button>
+                            ))}
+                            <button onMouseDown={() => { setProductFormRowKey(row._key); setShowProductForm(true); updateRow(row._key, { searchResults: [] }) }}
+                              style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', width: '100%', padding: '0.45rem 0.875rem', background: 'rgba(99,102,241,0.07)', border: 'none', cursor: 'pointer', color: '#818cf8', fontSize: '0.75rem', fontWeight: 700, fontFamily: F, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                              <Plus size={11} /> Crear producto completo: "{row.searchQ.trim()}"
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      {/* Qty +/- */}
+                      <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', overflow: 'hidden', flexShrink: 0 }}>
+                        <button onClick={() => updateRow(row._key, { quantity: Math.max(1, row.quantity - 1) })}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.25rem 0.375rem', display: 'flex', alignItems: 'center', fontFamily: F }}>
+                          <Minus size={11} />
                         </button>
-                      ))}
-                      {/* Crear producto completo desde factura de proveedor */}
-                      {row.searchQ.trim().length >= 2 && (
-                        <button
-                          type="button"
-                          onClick={() => { setProductFormRowKey(row._key); setShowProductForm(true); updateRow(row._key, { searchResults: [] }) }}
-                          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.5rem 0.75rem', background: 'rgba(99,102,241,0.1)', border: 'none', cursor: 'pointer', color: '#818cf8', fontSize: '0.78rem', fontWeight: 700, borderTop: '1px solid rgba(255,255,255,0.06)' }}
-                        >
-                          <Plus size={12} /> Crear producto completo: "{row.searchQ.trim()}"
+                        <input type="number" min={1} value={row.quantity}
+                          onChange={e => updateRow(row._key, { quantity: +e.target.value || 1 })}
+                          style={{ width: '2.5rem', textAlign: 'center', background: 'none', border: 'none', outline: 'none', color: '#f0f4ff', fontSize: '0.82rem', fontWeight: 700, fontFamily: F, padding: '0.25rem 0' }} />
+                        <button onClick={() => updateRow(row._key, { quantity: row.quantity + 1 })}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.25rem 0.375rem', display: 'flex', alignItems: 'center', fontFamily: F }}>
+                          <Plus size={11} />
                         </button>
-                      )}
+                      </div>
+                      {/* Costo unit. */}
+                      <div style={{ position: 'relative', flexShrink: 0 }}>
+                        <span style={{ position: 'absolute', left: '0.4rem', top: '50%', transform: 'translateY(-50%)', color: '#334155', fontSize: '0.68rem' }}>$</span>
+                        <input type="number" min={0} value={row.unit_cost || ''}
+                          onChange={e => updateRow(row._key, { unit_cost: +e.target.value || 0 })}
+                          placeholder="0"
+                          style={{ width: '6rem', paddingLeft: '1rem', paddingRight: '0.4rem', paddingTop: '0.3rem', paddingBottom: '0.3rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#f0f4ff', fontSize: '0.82rem', fontWeight: 600, outline: 'none', textAlign: 'right', fontFamily: F }} />
+                      </div>
+                      {/* Subtotal */}
+                      <div style={{ textAlign: 'right', minWidth: '5rem', flexShrink: 0 }}>
+                        <div style={{ color: '#f0f4ff', fontSize: '0.875rem', fontWeight: 800 }}>{fmtARS(subtotal)}</div>
+                      </div>
+                      {/* Delete */}
+                      <button onClick={() => rows.length > 1 && setRows(p => p.filter(r => r._key !== row._key))} disabled={rows.length === 1}
+                        style={{ background: 'none', border: 'none', cursor: rows.length === 1 ? 'not-allowed' : 'pointer', color: '#ef4444', opacity: rows.length === 1 ? 0.2 : 0.5, padding: '0.2rem', display: 'flex', alignItems: 'center', flexShrink: 0, transition: 'opacity 0.1s' }}
+                        onMouseEnter={e => { if (rows.length > 1) e.currentTarget.style.opacity = '1' }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = rows.length === 1 ? '0.2' : '0.5' }}>
+                        <X size={13} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Notas */}
+            <div>
+              <label style={lS}>Notas</label>
+              <textarea style={{ ...iS, minHeight: 60, resize: 'vertical' as const }} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observaciones de la compra..." />
+            </div>
+          </div>
+
+          {/* ── DERECHA: panel financiero sticky ── */}
+          <div style={{ width: 380, display: 'flex', flexDirection: 'column', background: '#07101f', flexShrink: 0 }}>
+
+            {/* Supplier badge */}
+            <div style={{ padding: '0.875rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Truck size={16} color="#818cf8" />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: '#f1f5f9', fontWeight: 700, fontSize: '0.9rem' }}>{supplier.name}</div>
+                  {supplier.pending_amount > 0 ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.72rem', color: '#f59e0b', marginTop: '0.1rem' }}>
+                      <Wallet size={11} /> Deuda previa: {fmtARS(supplier.pending_amount)}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '0.72rem', color: '#22c55e', marginTop: '0.1rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                      <CheckCircle size={11} /> Sin deuda pendiente
                     </div>
                   )}
                 </div>
-                <input style={{ ...inputS, textAlign: 'center' }} type="number" min={1} value={row.quantity}
-                  onChange={e => updateRow(row._key, { quantity: +e.target.value || 1 })} />
-                <input style={{ ...inputS, textAlign: 'right' }} type="number" min={0} value={row.unit_cost || ''}
-                  onChange={e => updateRow(row._key, { unit_cost: +e.target.value || 0 })}
-                  placeholder="$ costo" />
-                <button style={{ ...btnGhost, color: '#ef4444' }} onClick={() => rows.length > 1 && setRows(p => p.filter(r => r._key !== row._key))} disabled={rows.length === 1}>
-                  <X size={14} />
-                </button>
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
 
-        {/* Total + Pago — diseño unificado con ComprobanteProModal */}
-        <div style={{ ...cardS, background: 'rgba(99,102,241,0.04)', borderColor: 'rgba(99,102,241,0.18)' }}>
-          {/* Header con total y deuda previa */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.875rem' }}>
-            <div>
-              <span style={{ color: '#94a3b8', fontSize: '0.78rem', fontWeight: 600 }}>Total a registrar</span>
-              {supplier.pending_amount > 0 && (
-                <div style={{ marginTop: '0.25rem', padding: '0.25rem 0.625rem', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '0.375rem', fontSize: '0.72rem', color: '#f59e0b', fontWeight: 700 }}>
-                  ⚠ Deuda previa: {fmtARS(supplier.pending_amount)}
+            {/* TOTAL grande */}
+            <div style={{ padding: '0.875rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+              <div style={{ color: '#334155', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.2rem' }}>Total de compra</div>
+              <div style={{ color: '#f0f4ff', fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1 }}>
+                {totalAmount > 0 ? fmtARS(totalAmount) : <span style={{ color: '#1e3a5f' }}>$0</span>}
+              </div>
+            </div>
+
+            {/* ESTADO + MÉTODOS + RESUMEN */}
+            <div style={{ padding: '0.875rem 1rem', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+
+              {/* 3 estados de pago */}
+              <div>
+                <div style={{ fontSize: '0.6rem', color: '#1e3a5f', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.375rem' }}>Estado de pago</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.3rem' }}>
+                  {[
+                    { label: 'A CC', sub: 'Todo a deber', icon: <Wallet size={12} />, value: 0 as number, color: '#818cf8', bg: 'rgba(99,102,241,0.12)', border: 'rgba(99,102,241,0.4)', active: paidAmount <= 0 },
+                    { label: 'Parcial', sub: 'Paga algo hoy', icon: <Banknote size={12} />, value: -1 as number, color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.35)', active: paidAmount > 0 && paidAmount < totalAmount },
+                    { label: 'Pagado', sub: 'Factura saldada', icon: <CheckCircle size={12} />, value: totalAmount, color: '#22c55e', bg: 'rgba(34,197,94,0.1)', border: 'rgba(34,197,94,0.35)', active: paidAmount >= totalAmount && totalAmount > 0 },
+                  ].map(opt => (
+                    <button key={opt.label}
+                      onClick={() => opt.value === -1 ? setPaidAmount(Math.round(totalAmount / 2)) : setPaidAmount(opt.value as number)}
+                      style={{ padding: '0.5rem 0.25rem', borderRadius: '0.5rem', border: `1px solid ${opt.active ? opt.border : 'rgba(255,255,255,0.07)'}`, background: opt.active ? opt.bg : 'rgba(255,255,255,0.02)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.15rem', transition: 'all 0.1s', fontFamily: F }}>
+                      <span style={{ color: opt.active ? opt.color : '#334155' }}>{opt.icon}</span>
+                      <span style={{ color: opt.active ? opt.color : '#475569', fontSize: '0.72rem', fontWeight: opt.active ? 800 : 500 }}>{opt.label}</span>
+                      <span style={{ color: opt.active ? opt.color : '#1e3a5f', fontSize: '0.6rem', opacity: 0.8 }}>{opt.sub}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Métodos de pago — grid premium */}
+              <div>
+                <div style={{ fontSize: '0.6rem', color: '#1e3a5f', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.3rem' }}>Método de pago</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.3rem' }}>
+                  {PROV_METHODS.map(m => {
+                    const active = paymentMethod === m.id
+                    return (
+                      <button key={m.id} onClick={() => setPaymentMethod(m.id)}
+                        style={{ padding: '0.4rem 0.25rem', borderRadius: '0.5rem', border: `1px solid ${active ? m.color + '80' : 'rgba(255,255,255,0.06)'}`, background: active ? m.color + '20' : 'rgba(255,255,255,0.02)', color: active ? m.color : '#334155', fontSize: '0.72rem', fontWeight: active ? 700 : 500, cursor: 'pointer', transition: 'all 0.1s', textAlign: 'center', fontFamily: F }}
+                        onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
+                        onMouseLeave={e => { e.currentTarget.style.background = active ? m.color + '20' : 'rgba(255,255,255,0.02)' }}>
+                        {m.short}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Input monto — solo en pago parcial */}
+              {paidAmount > 0 && paidAmount < totalAmount && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                  <div>
+                    <label style={{ ...lS, marginBottom: '0.25rem' }}>Pagado ahora</label>
+                    <input style={{ ...iS, fontSize: '0.95rem', fontWeight: 700 }} type="number" min={0} max={totalAmount}
+                      value={paidAmount || ''} onChange={e => setPaidAmount(Math.min(totalAmount, +e.target.value || 0))} placeholder="$" />
+                  </div>
+                  <div>
+                    <label style={{ ...lS, color: '#818cf8', marginBottom: '0.25rem' }}>Va a CC</label>
+                    <div style={{ ...iS, color: '#818cf8', fontWeight: 800, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '0.3rem', background: 'rgba(99,102,241,0.06)', borderColor: 'rgba(99,102,241,0.25)' }}>
+                      <Wallet size={13} color="#818cf8" /> {fmtARS(pendingAmount)}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Resumen financiero dinámico */}
+              {totalAmount > 0 && (
+                <div style={{ background: 'rgba(0,0,0,0.25)', borderRadius: '0.625rem', padding: '0.625rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.225rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.2rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                    <span style={{ fontSize: '0.72rem', color: '#334155', fontWeight: 600 }}>Total factura</span>
+                    <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 700 }}>{fmtARS(totalAmount)}</span>
+                  </div>
+                  {paidAmount > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Pagado ({PROV_METHODS.find(m => m.id === paymentMethod)?.label ?? paymentMethod})</span>
+                      <span style={{ fontSize: '0.75rem', color: '#22c55e', fontWeight: 700 }}>{fmtARS(paidAmount)}</span>
+                    </div>
+                  )}
+                  {pendingAmount > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.15rem' }}>
+                      <span style={{ fontSize: '0.78rem', color: '#818cf8', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <Wallet size={12} /> CC {supplier.name}
+                      </span>
+                      <span style={{ fontSize: '0.9rem', color: '#818cf8', fontWeight: 900 }}>{fmtARS(pendingAmount)}</span>
+                    </div>
+                  )}
+                  {pendingAmount <= 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#22c55e', fontSize: '0.75rem', fontWeight: 700 }}>
+                      <CheckCircle size={12} /> Factura saldada completamente
+                    </div>
+                  )}
+                  {pendingAmount > 0 && supplier.pending_amount > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.2rem', borderTop: '1px solid rgba(245,158,11,0.15)', marginTop: '0.1rem' }}>
+                      <span style={{ fontSize: '0.72rem', color: '#334155' }}>Nueva deuda total con {supplier.name}</span>
+                      <span style={{ fontSize: '0.8rem', color: '#f59e0b', fontWeight: 900 }}>{fmtARS(supplier.pending_amount + pendingAmount)}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-            <span style={{ fontSize: '1.625rem', fontWeight: 900, color: '#818cf8', letterSpacing: '-0.03em' }}>{fmtARS(totalAmount)}</span>
-          </div>
 
-          {/* ESTADO DE PAGO — 3 opciones claras */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.375rem', marginBottom: '0.875rem' }}>
-            {[
-              { label: 'A cuenta corriente', icon: <Wallet size={13} />, value: 0 as number, color: '#818cf8', bg: 'rgba(99,102,241,0.12)', border: 'rgba(99,102,241,0.4)', active: paidAmount <= 0 },
-              { label: 'Pago parcial',        icon: <Banknote size={13} />, value: -1 as number, color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.35)', active: paidAmount > 0 && paidAmount < totalAmount },
-              { label: 'Pagado completo',     icon: <CheckCircle size={13} />, value: totalAmount, color: '#22c55e', bg: 'rgba(34,197,94,0.1)', border: 'rgba(34,197,94,0.35)', active: paidAmount >= totalAmount && totalAmount > 0 },
-            ].map(opt => (
-              <button key={opt.label}
-                onClick={() => opt.value === -1 ? setPaidAmount(Math.round(totalAmount / 2)) : setPaidAmount(opt.value as number)}
-                style={{ padding: '0.5rem 0.3rem', borderRadius: '0.5rem', border: `1px solid ${opt.active ? opt.border : 'rgba(255,255,255,0.07)'}`, background: opt.active ? opt.bg : 'rgba(255,255,255,0.02)', cursor: 'pointer', textAlign: 'center', transition: 'all 0.1s', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
-                <span style={{ color: opt.active ? opt.color : '#334155' }}>{opt.icon}</span>
-                <span style={{ color: opt.active ? opt.color : '#475569', fontSize: '0.7rem', fontWeight: opt.active ? 800 : 500, lineHeight: 1.2 }}>{opt.label}</span>
+            {/* FOOTER: error + botón registrar */}
+            <div style={{ padding: '0.875rem 1rem', borderTop: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
+              {error && (
+                <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center', marginBottom: '0.5rem', padding: '0.5rem 0.625rem', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: '0.5rem' }}>
+                  <AlertCircle size={13} color="#f87171" style={{ flexShrink: 0 }} />
+                  <span style={{ color: '#f87171', fontSize: '0.72rem' }}>{error}</span>
+                </div>
+              )}
+              <button onClick={handleSave} disabled={saving}
+                style={{ width: '100%', padding: '0.875rem 1rem', borderRadius: '0.75rem', border: 'none', background: saving ? 'rgba(99,102,241,0.4)' : 'linear-gradient(135deg,#6366f1,#4f46e5)', color: '#fff', fontSize: '0.9375rem', fontWeight: 800, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontFamily: F, boxShadow: saving ? 'none' : '0 4px 20px rgba(99,102,241,0.4)', transition: 'all 0.15s' }}>
+                {saving ? (
+                  <><RefreshCw size={15} style={{ animation: 'spin 0.8s linear infinite' }} /> Registrando...</>
+                ) : (
+                  <><ShoppingCart size={15} /> Registrar compra {totalAmount > 0 && fmtARS(totalAmount)}</>
+                )}
               </button>
-            ))}
-          </div>
-
-          {/* Grid de métodos de cobro — mismo visual que ComprobanteProModal */}
-          <div style={{ marginBottom: '0.875rem' }}>
-            <div style={{ fontSize: '0.6rem', color: '#334155', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.375rem' }}>Método de pago</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.3rem' }}>
-              {PROV_METHODS.map(m => {
-                const active = paymentMethod === m.id
-                return (
-                  <button key={m.id} onClick={() => setPaymentMethod(m.id)}
-                    style={{ padding: '0.4rem 0.3rem', borderRadius: '0.5rem', border: `1px solid ${active ? m.color + '80' : 'rgba(255,255,255,0.06)'}`, background: active ? m.color + '22' : 'rgba(255,255,255,0.02)', color: active ? m.color : '#334155', fontSize: '0.72rem', fontWeight: active ? 700 : 500, cursor: 'pointer', transition: 'all 0.1s', textAlign: 'center' }}
-                    onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
-                    onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.02)' }}>
-                    {m.short}
-                  </button>
-                )
-              })}
+              <button onClick={onClose} style={{ width: '100%', marginTop: '0.375rem', padding: '0.375rem', background: 'none', border: 'none', color: '#334155', fontSize: '0.78rem', cursor: 'pointer', fontFamily: F }}>
+                Cancelar
+              </button>
             </div>
           </div>
-
-          {/* Input de monto — solo en pago parcial */}
-          {paidAmount > 0 && paidAmount < totalAmount && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.625rem', marginBottom: '0.875rem' }}>
-              <div>
-                <label style={labelS}>Pagado ahora</label>
-                <input style={{ ...inputS, fontSize: '1rem', fontWeight: 700 }} type="number" min={0} max={totalAmount}
-                  value={paidAmount || ''} onChange={e => setPaidAmount(Math.min(totalAmount, +e.target.value || 0))}
-                  placeholder="$ pagado" />
-              </div>
-              <div>
-                <label style={{ ...labelS, color: '#818cf8' }}>Va a CC proveedor</label>
-                <div style={{ ...inputS, color: '#818cf8', fontWeight: 800, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.375rem', background: 'rgba(99,102,241,0.06)', borderColor: 'rgba(99,102,241,0.25)' }}>
-                  <Wallet size={14} color="#818cf8" /> {fmtARS(pendingAmount)}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Resumen financiero resultante */}
-          {totalAmount > 0 && (
-            <div style={{ padding: '0.625rem 0.75rem', background: 'rgba(0,0,0,0.2)', borderRadius: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-              {paidAmount > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Pagado ({PROV_METHODS.find(m => m.id === paymentMethod)?.label ?? paymentMethod})</span>
-                  <span style={{ fontSize: '0.75rem', color: '#22c55e', fontWeight: 700 }}>{fmtARS(paidAmount)}</span>
-                </div>
-              )}
-              {pendingAmount > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.78rem', color: '#818cf8', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                    <Wallet size={12} /> CC {supplier.name}
-                  </span>
-                  <span style={{ fontSize: '0.9rem', color: '#818cf8', fontWeight: 900 }}>{fmtARS(pendingAmount)}</span>
-                </div>
-              )}
-              {pendingAmount <= 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', color: '#22c55e', fontSize: '0.78rem', fontWeight: 700 }}>
-                  <CheckCircle size={13} /> Factura saldada completamente
-                </div>
-              )}
-              {pendingAmount > 0 && supplier.pending_amount > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.2rem', borderTop: '1px solid rgba(255,255,255,0.05)', marginTop: '0.1rem' }}>
-                  <span style={{ fontSize: '0.72rem', color: '#334155' }}>CC total acumulado con {supplier.name}</span>
-                  <span style={{ fontSize: '0.78rem', color: '#f59e0b', fontWeight: 800 }}>{fmtARS(supplier.pending_amount + pendingAmount)}</span>
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
-        {/* Notas */}
-        <div>
-          <label style={labelS}>Notas</label>
-          <textarea style={{ ...inputS, minHeight: 64, resize: 'vertical' as const }} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observaciones de la compra..." />
-        </div>
-        {error && <p style={{ margin: 0, color: '#ef4444', fontSize: '0.8rem' }}>{error}</p>}
-      </ModalBody>
-
-      <ModalFooter>
-        <button style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button style={btnPrimary} onClick={handleSave} disabled={saving}>
-          {saving ? <RefreshCw size={14} className="animate-spin" /> : <ShoppingCart size={14} />}
-          {saving ? 'Guardando...' : 'Registrar compra'}
-        </button>
-      </ModalFooter>
-    </ModalOverlay>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    </div>
 
     {/* ProductFormModal — crear producto completo desde factura de proveedor
         registerStock=false: el stock se suma al registrar la compra en handleSave */}
