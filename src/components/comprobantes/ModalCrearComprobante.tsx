@@ -2,6 +2,8 @@ import {
   useState, useEffect, useRef, useCallback, useMemo,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ProductFormModal } from '../products/ProductFormModal';
+import type { InventoryItem as InventoryItemFull } from '../../hooks/useInventory';
 import { isWholesaleCustomer, getProductPriceForCustomer } from '../../utils/pricing';
 import {
   X, FileText, Receipt, ChevronDown,
@@ -163,6 +165,8 @@ export function ModalCrearComprobante({
   const [searchResults, setSearchResults]   = useState<InventoryResult[]>([]);
   const [activeSearchIdx, setActiveSearchIdx] = useState<number | null>(null);
   const [searchLoading, setSearchLoading]   = useState(false);
+  const [showProductFormModal, setShowProductFormModal] = useState(false);
+  const [productFormLineIdx, setProductFormLineIdx] = useState<number | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout>>();
   const dropdownRefs = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -919,13 +923,26 @@ export function ModalCrearComprobante({
                             style={{ ...inputS, paddingLeft: '2rem', fontSize: '0.875rem', border: `1px solid ${l.inventory_id ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.1)'}` }}
                           />
                           {/* Dropdown de búsqueda */}
-                          {activeSearchIdx === idx && (searchResults.length > 0 || searchLoading) && (
+                          {activeSearchIdx === idx && (searchResults.length > 0 || searchLoading || (l.descripcion.trim().length >= 2 && !l.inventory_id)) && (
                             <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: '-92px', right: '-34px', minWidth: '340px', backgroundColor: '#0d1a30', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '0.75rem', zIndex: 200, maxHeight: '320px', overflowY: 'auto', boxShadow: '0 20px 40px rgba(0,0,0,0.6)' }}>
                               {searchLoading ? (
                                 <div style={{ padding: '1rem', color: '#64748b', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                                   <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Buscando...
                                 </div>
-                              ) : searchResults.map(inv => {
+                              ) : searchResults.length === 0 && l.descripcion.trim().length >= 2 && !searchLoading ? (
+                                <>
+                                  <div style={{ padding: '0.75rem 1rem', color: '#64748b', fontSize: '0.8rem' }}>
+                                    Sin resultados para "{l.descripcion.trim()}"
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => { setProductFormLineIdx(idx); setShowProductFormModal(true); setActiveSearchIdx(null) }}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.625rem 1rem', background: 'rgba(99,102,241,0.1)', border: 'none', borderTop: '1px solid rgba(255,255,255,0.06)', color: '#818cf8', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}
+                                  >
+                                    <span style={{ fontSize: '0.9rem' }}>＋</span> Crear producto completo: "{l.descripcion.trim()}"
+                                  </button>
+                                </>
+                              ) : (<>{searchResults.map(inv => {
                                 const currentQuery = lineas[idx]?.descripcion ?? '';
                                 const nameParts = highlightParts(inv.name, currentQuery);
                                 const variantParts = inv.variant_name ? highlightParts(inv.variant_name, currentQuery) : null;
@@ -967,6 +984,15 @@ export function ModalCrearComprobante({
                                 </button>
                                 );
                               })}
+                              <button
+                                type="button"
+                                onClick={() => { setProductFormLineIdx(idx); setShowProductFormModal(true); setActiveSearchIdx(null) }}
+                                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.5rem 1rem', background: 'rgba(99,102,241,0.08)', border: 'none', borderTop: '1px solid rgba(255,255,255,0.06)', color: '#818cf8', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}
+                              >
+                                <span style={{ fontSize: '0.85rem' }}>＋</span> Crear producto completo: "{l.descripcion.trim()}"
+                              </button>
+                            </>)
+                            }
                             </div>
                           )}
                         </div>
@@ -1513,6 +1539,35 @@ export function ModalCrearComprobante({
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
 
+      {/* ProductFormModal — crear producto completo desde búsqueda de ítems
+          registerStock=false: el stock se descuenta al confirmar el comprobante */}
+      <ProductFormModal
+        isOpen={showProductFormModal}
+        onClose={() => { setShowProductFormModal(false); setProductFormLineIdx(null) }}
+        onCreated={(product: InventoryItemFull) => {
+          if (productFormLineIdx !== null) {
+            selectInventoryItem(productFormLineIdx, {
+              id:            product.id,
+              name:          product.name,
+              variant_name:  undefined,
+              code:          product.code,
+              category:      product.category,
+              stock_quantity: product.stock_quantity,
+              sale_price:    product.sale_price,
+              cost_price:    product.cost_price,
+              base_price:    product.base_price,
+              base_currency: product.base_currency,
+              has_variants:  false,
+              precio_mayorista: (product as any).wholesale_price_ars ?? undefined,
+            } as any)
+          }
+          setShowProductFormModal(false)
+          setProductFormLineIdx(null)
+        }}
+        initialName={productFormLineIdx !== null ? (lineas[productFormLineIdx]?.descripcion.trim() ?? '') : ''}
+        registerStock={false}
+        sourceType="manual"
+      />
     </>
   );
 }

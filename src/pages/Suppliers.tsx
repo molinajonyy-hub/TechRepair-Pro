@@ -8,6 +8,8 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { smartSearch, buildSupabaseQuery } from '../utils/searchUtils'
+import { ProductFormModal } from '../components/products/ProductFormModal'
+import type { InventoryItem } from '../hooks/useInventory'
 import suppliersService, {
   type SupplierWithStats,
   type SupplierPurchase,
@@ -313,6 +315,8 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
   const [error, setError] = useState('')
   const [rows, setRows] = useState<PurchaseItemRow[]>([newRow()])
   const searchTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  const [showProductForm, setShowProductForm] = useState(false)
+  const [productFormRowKey, setProductFormRowKey] = useState<string | null>(null)
 
   function newRow(): PurchaseItemRow {
     return { _key: crypto.randomUUID(), inventory_id: null, product_name: '', quantity: 1, unit_cost: 0, searchQ: '', searchResults: [] }
@@ -367,6 +371,7 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
   }
 
   return (
+    <>
     <ModalOverlay onClose={onClose} maxWidth="780px">
       <ModalHeader title="Nueva compra" subtitle={`Registrar compra a ${supplier.name}`} icon={<ShoppingCart size={18} style={{ color: '#818cf8' }} />} onClose={onClose} />
 
@@ -413,8 +418,13 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
                   <input style={inputS} value={row.searchQ}
                     onChange={e => searchProduct(row._key, e.target.value)}
                     placeholder="Buscar o escribir producto..." />
-                  {row.searchResults.length > 0 && (
+                  {(row.searchResults.length > 0 || row.searchQ.trim().length >= 2) && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#0d1a30', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '0.5rem', overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.4)', marginTop: '0.2rem' }}>
+                      {row.searchResults.length === 0 && row.searchQ.trim().length >= 2 && (
+                        <div style={{ padding: '0.5rem 0.75rem', color: '#475569', fontSize: '0.78rem' }}>
+                          Sin resultados para "{row.searchQ.trim()}"
+                        </div>
+                      )}
                       {row.searchResults.map((p: any) => (
                         <button key={p.id} type="button" onClick={() => selectProduct(row._key, p)}
                           style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.05)', textAlign: 'left' }}
@@ -424,6 +434,16 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
                           <span style={{ color: '#475569', fontSize: '0.72rem', flexShrink: 0, marginLeft: '0.5rem' }}>stock: {p.stock_quantity}</span>
                         </button>
                       ))}
+                      {/* Crear producto completo desde factura de proveedor */}
+                      {row.searchQ.trim().length >= 2 && (
+                        <button
+                          type="button"
+                          onClick={() => { setProductFormRowKey(row._key); setShowProductForm(true); updateRow(row._key, { searchResults: [] }) }}
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.5rem 0.75rem', background: 'rgba(99,102,241,0.1)', border: 'none', cursor: 'pointer', color: '#818cf8', fontSize: '0.78rem', fontWeight: 700, borderTop: '1px solid rgba(255,255,255,0.06)' }}
+                        >
+                          <Plus size={12} /> Crear producto completo: "{row.searchQ.trim()}"
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -486,6 +506,30 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
         </button>
       </ModalFooter>
     </ModalOverlay>
+
+    {/* ProductFormModal — crear producto completo desde factura de proveedor
+        registerStock=false: el stock se suma al registrar la compra en handleSave */}
+    <ProductFormModal
+      isOpen={showProductForm}
+      onClose={() => { setShowProductForm(false); setProductFormRowKey(null) }}
+      onCreated={(product: InventoryItem) => {
+        if (productFormRowKey) {
+          selectProduct(productFormRowKey, {
+            id: product.id, name: product.name, variant_name: undefined,
+            cost_price: product.cost_price, stock_quantity: product.stock_quantity,
+          })
+        }
+        setShowProductForm(false); setProductFormRowKey(null)
+      }}
+      initialName={productFormRowKey ? (rows.find(r => r._key === productFormRowKey)?.searchQ ?? '') : ''}
+      initialCost={productFormRowKey ? (rows.find(r => r._key === productFormRowKey)?.unit_cost || undefined) : undefined}
+      initialQuantity={productFormRowKey ? (rows.find(r => r._key === productFormRowKey)?.quantity ?? 1) : 1}
+      supplierId={supplier.id}
+      supplierName={supplier.name}
+      registerStock={false}
+      sourceType="supplier_invoice"
+    />
+    </>
   )
 }
 

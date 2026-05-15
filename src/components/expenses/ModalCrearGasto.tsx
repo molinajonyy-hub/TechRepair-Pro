@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { ProductFormModal } from '../products/ProductFormModal'
+import type { InventoryItem as InventoryItemHook } from '../../hooks/useInventory'
 import {
   DollarSign, Calendar, Tag, Building2, Loader2, Plus, Trash2,
   Search, Package, ChevronDown, AlertCircle, CheckCircle2, ShoppingCart,
@@ -125,12 +127,14 @@ function ProductSearchInput({
   item,
   onChange,
   onRemove,
+  onOpenProductForm,
   businessId,
   idx,
 }: {
   item: CompraItem
   onChange: (updates: Partial<CompraItem>) => void
   onRemove: () => void
+  onOpenProductForm?: (initialName: string, itemKey: string) => void
   businessId: string | null | undefined
   idx: number
 }) {
@@ -138,7 +142,7 @@ function ProductSearchInput({
   const [results, setResults] = useState<InventoryItem[]>([])
   const [open, setOpen] = useState(false)
   const [searching, setSearching] = useState(false)
-  const [showNewForm, setShowNewForm] = useState(item.esNuevo)
+  const [showNewForm, setShowNewForm] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout>>()
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -197,12 +201,7 @@ function ProductSearchInput({
 
   const handleCreateNew = () => {
     setOpen(false)
-    setShowNewForm(true)
-    onChange({
-      inventoryId: null,
-      nombre: query,
-      esNuevo: true,
-    })
+    onOpenProductForm?.(query.trim(), item._key)
   }
 
   const inputStyle: React.CSSProperties = {
@@ -347,7 +346,7 @@ function ProductSearchInput({
             )}
           </div>
         ) : (
-          /* Inline new product form */
+          /* Inline new product form — reemplazado por ProductFormModal */
           <div style={{
             border: '1px solid rgba(99,102,241,0.3)',
             borderRadius: '0.5rem',
@@ -355,7 +354,7 @@ function ProductSearchInput({
             backgroundColor: 'rgba(99,102,241,0.06)',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.625rem' }}>
-              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#818cf8' }}>✦ Nuevo producto</span>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#818cf8' }}>✦ Creando producto...</span>
               <button
                 onClick={() => { setShowNewForm(false); onChange({ esNuevo: false, inventoryId: null, nombre: '' }); setQuery('') }}
                 style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: '0.7rem' }}
@@ -449,6 +448,7 @@ function ProductSearchInput({
           </div>
         </div>
       </div>
+
     </div>
   )
 }
@@ -740,6 +740,33 @@ export function ModalCrearGasto({
     setItems(prev => prev.length > 1 ? prev.filter(it => it._key !== key) : prev)
   }
   const addItem = () => setItems(prev => [...prev, emptyItem()])
+
+  // ProductFormModal state — manejado aquí para evitar problemas de JSX en sub-componentes
+  const [showProductFormModal, setShowProductFormModal] = useState(false)
+  const [productFormItemKey, setProductFormItemKey] = useState<string | null>(null)
+  const [productFormInitialName, setProductFormInitialName] = useState('')
+
+  const handleOpenProductForm = (initialName: string, itemKey: string) => {
+    setProductFormInitialName(initialName)
+    setProductFormItemKey(itemKey)
+    setShowProductFormModal(true)
+  }
+
+  const handleProductCreated = (product: InventoryItemHook) => {
+    if (productFormItemKey) {
+      updateItem(productFormItemKey, {
+        inventoryId:         product.id,
+        nombre:              product.name,
+        codigo:              product.code || '',
+        categoriaInventario: product.category || 'Repuestos',
+        precioVenta:         product.sale_price || 0,
+        costoUnitario:       product.cost_price || 0,
+        esNuevo:             false,
+      })
+    }
+    setShowProductFormModal(false)
+    setProductFormItemKey(null)
+  }
 
   const totalItems = items.reduce((s, it) => s + it.cantidad * it.costoUnitario, 0)
   const rate = currency === 'USD' ? parseFloat(exchangeRate) || 1 : 1
@@ -1070,6 +1097,7 @@ export function ModalCrearGasto({
                   idx={idx}
                   onChange={updates => updateItem(item._key, updates)}
                   onRemove={() => removeItem(item._key)}
+                  onOpenProductForm={handleOpenProductForm}
                   businessId={businessId}
                 />
               ))}
@@ -1295,6 +1323,19 @@ export function ModalCrearGasto({
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .animate-spin { animation: spin 1s linear infinite; }
       `}</style>
+
+      {/* ProductFormModal — creación de producto desde ítem de compra
+          registerStock=false: el stock se suma en handleSaveCompra al registrar la factura */}
+      <ProductFormModal
+        isOpen={showProductFormModal}
+        onClose={() => { setShowProductFormModal(false); setProductFormItemKey(null) }}
+        onCreated={handleProductCreated}
+        initialName={productFormInitialName}
+        initialCost={productFormItemKey ? (items.find(it => it._key === productFormItemKey)?.costoUnitario || undefined) : undefined}
+        initialQuantity={productFormItemKey ? (items.find(it => it._key === productFormItemKey)?.cantidad ?? 1) : 1}
+        registerStock={false}
+        sourceType="expense"
+      />
     </div>
   )
 }

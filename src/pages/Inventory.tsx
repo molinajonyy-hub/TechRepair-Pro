@@ -27,6 +27,7 @@ import { StockRepairTool } from '../components/inventory/StockRepairTool'
 import { ExcelService, ExcelRow } from '../services/excelService'
 import { supabase } from '../lib/supabase'
 import { ProductMovementsModal } from '../components/inventory/ProductMovementsModal'
+import { ProductFormModal } from '../components/products/ProductFormModal'
 
 const CATEGORIES = [
   'Pantallas',
@@ -82,6 +83,8 @@ export function Inventory() {
   const [showModal, setShowModal] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showProductMenu, setShowProductMenu] = useState(false)
+  // ProductFormModal — para "Producto simple" y "Servicio" (sin variantes)
+  const [showProductFormModal, setShowProductFormModal] = useState(false)
   const [editingItem, setEditingItem] = useState<any>(null)
   const [variantParentItem, setVariantParentItem] = useState<any>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -1704,7 +1707,7 @@ export function Inventory() {
                   minWidth: '200px'
                 }}>
                   <button
-                    onClick={() => { setShowProductMenu(false); openAddModal(undefined, 'product'); }}
+                    onClick={() => { setShowProductMenu(false); setShowProductFormModal(true); }}
                     style={{
                       width: '100%',
                       padding: '0.875rem 1rem',
@@ -1738,7 +1741,7 @@ export function Inventory() {
                     🔀 Producto con variantes
                   </button>
                   <button
-                    onClick={() => { setShowProductMenu(false); openAddModal(undefined, 'service'); }}
+                    onClick={() => { setShowProductMenu(false); setShowProductFormModal(true); }}
                     style={{
                       width: '100%',
                       padding: '0.875rem 1rem',
@@ -2028,7 +2031,7 @@ export function Inventory() {
                         <p style={{ color: '#94a3b8', fontSize: '0.9375rem', marginBottom: '1.5rem', maxWidth: '400px', margin: '0 auto 1.5rem' }}>
                           Comenzá agregando productos al inventario para gestionar tu stock y precios.
                         </p>
-                        <button onClick={openAddModal} style={{
+                        <button onClick={() => { setShowProductFormModal(true) }} style={{
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '0.5rem',
@@ -3152,6 +3155,19 @@ export function Inventory() {
           onClose={() => setMovementsItem(null)}
         />
       )}
+
+      {/* ProductFormModal — alta de producto simple y servicio */}
+      <ProductFormModal
+        isOpen={showProductFormModal}
+        onClose={() => setShowProductFormModal(false)}
+        onCreated={_product => {
+          setShowProductFormModal(false)
+          void refresh()
+        }}
+        registerStock
+        sourceType="manual"
+        sourceNote="Stock inicial desde Inventario"
+      />
 
       {/* Herramienta de reparación de stock — solo owner/admin */}
       <div style={{ marginTop: '2.5rem' }}>
