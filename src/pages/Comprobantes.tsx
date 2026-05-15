@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Plus, RefreshCw, FileText, TrendingUp, Receipt, Loader2, AlertTriangle, Search } from 'lucide-react';
 import { CloseButton } from '../components/ui/CloseButton';
 import { ComprobantesTable } from '../components/comprobantes/ComprobantesTable';
-import { ModalCrearComprobante } from '../components/comprobantes/ModalCrearComprobante';
+import { ComprobanteProModal as ModalCrearComprobante } from '../components/comprobantes/ComprobanteProModal';
 import { Loader } from '../components/ui/Loader';
 import { useAuth } from '../contexts/AuthContext';
 import comprobanteService, { Comprobante } from '../services/comprobanteService';

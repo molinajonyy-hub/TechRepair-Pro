@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { ModalCrearComprobante } from '../components/comprobantes/ModalCrearComprobante'
+import { ComprobanteProModal as ModalCrearComprobante } from '../components/comprobantes/ComprobanteProModal'
 import { TabCatalogoPortal } from './mayorista/TabCatalogoPortal'
 import {
   getWholesaleCustomers, updateCustomerStatus,
