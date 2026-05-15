@@ -27,6 +27,8 @@ import {
   convertToUSD,
   type CreateProductInput,
   type ProductCreationContext,
+  type CreateVariantInput,
+  type ProductVariant,
 } from '../../services/productService'
 import type { InventoryItem } from '../../hooks/useInventory'
 
@@ -44,6 +46,8 @@ export interface ProductFormModalProps {
   isOpen:          boolean
   onClose:         () => void
   onCreated:       (product: InventoryItem) => void
+  // Callback opcional cuando se crea con variantes: permite seleccionar cuál usar en la operación
+  onVariantSelected?: (variantInventory: InventoryItem, variantMeta: ProductVariant) => void
 
   // Pre-relleno desde contexto (buscador, factura, gasto, etc.)
   initialName?:     string
@@ -62,8 +66,34 @@ export interface ProductFormModalProps {
 
 // ─── Estado del formulario ────────────────────────────────────────────────────
 
+// ─── Variante en el formulario ────────────────────────────────────────────────
+
+interface VariantRow {
+  _key:       string
+  name:       string
+  sku:        string
+  barcode:    string
+  cost_ars:   string
+  cost_usd:   string
+  sale_price: string
+  wholesale:  string
+  stock:      string
+  min_stock:  string
+  location:   string
+  is_active:  boolean
+  expanded:   boolean
+}
+
+function emptyVariant(n = 1): VariantRow {
+  return {
+    _key: crypto.randomUUID(), name: `Variante ${n}`, sku: '', barcode: '',
+    cost_ars: '', cost_usd: '', sale_price: '', wholesale: '',
+    stock: '0', min_stock: '0', location: '', is_active: true, expanded: true,
+  }
+}
+
 interface FormState {
-  tipo:         'product' | 'service'
+  tipo:         'product' | 'service' | 'with_variants'
   name:         string
   code:         string
   barcode:      string
@@ -88,6 +118,7 @@ interface FormState {
   location:         string
   is_active:        boolean
   register_stock:   boolean          // registrar movimiento de inventario
+  variants:         VariantRow[]     // solo para tipo 'with_variants'
 }
 
 const EMPTY: FormState = {
@@ -96,7 +127,7 @@ const EMPTY: FormState = {
   base_currency: 'ARS', exchange_rate: '', cost_ars: '', cost_usd: '',
   sale_price_ars: '', margin_pct: '',
   wholesale_price: '', stock_quantity: '0', min_stock: '0', location: '',
-  is_active: true, register_stock: false,
+  is_active: true, register_stock: false, variants: [emptyVariant(1)],
 }
 
 const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
@@ -104,7 +135,7 @@ const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 export function ProductFormModal({
-  isOpen, onClose, onCreated,
+  isOpen, onClose, onCreated, onVariantSelected,
   initialName, initialCost, initialQuantity, initialCurrency,
   supplierId, supplierName,
   registerStock = false, sourceType, sourceId, sourceNote,
@@ -118,6 +149,11 @@ export function ProductFormModal({
   const [loadingRate, setLoadingRate] = useState(false)
   const [showCatInput, setShowCatInput] = useState(false)
   const [suppliers, setSuppliers]     = useState<{ id: string; name: string }[]>([])
+  // Estado post-creación con variantes: permite seleccionar cuál usar en la operación
+  const [variantPickerData, setVariantPickerData] = useState<{
+    product: InventoryItem
+    variants: ProductVariant[]
+  } | null>(null)
 
   // ── Pre-rellenar desde contexto al abrir ────────────────────────────────────
   useEffect(() => {
@@ -228,6 +264,41 @@ export function ProductFormModal({
     setDuplicate(dup)
   }
 
+  // ── Helpers variantes ──────────────────────────────────────────────────────
+  const updateVariant = (key: string, updates: Partial<VariantRow>) =>
+    setForm(f => ({ ...f, variants: f.variants.map(v => v._key === key ? { ...v, ...updates } : v) }))
+
+  const addVariantRow = () =>
+    setForm(f => ({ ...f, variants: [...f.variants, emptyVariant(f.variants.length + 1)] }))
+
+  const removeVariant = (key: string) =>
+    setForm(f => ({ ...f, variants: f.variants.filter(v => v._key !== key) }))
+
+  const duplicateVariant = (key: string) =>
+    setForm(f => {
+      const src = f.variants.find(v => v._key === key)
+      if (!src) return f
+      const dup: VariantRow = { ...src, _key: crypto.randomUUID(), name: `${src.name} (copia)`, expanded: true }
+      const idx = f.variants.findIndex(v => v._key === key)
+      const next = [...f.variants]
+      next.splice(idx + 1, 0, dup)
+      return { ...f, variants: next }
+    })
+
+  const applyBaseToVariants = () =>
+    setForm(f => ({
+      ...f,
+      variants: f.variants.map(v => ({
+        ...v,
+        cost_ars:   f.cost_ars   || v.cost_ars,
+        cost_usd:   f.cost_usd   || v.cost_usd,
+        sale_price: f.sale_price_ars || v.sale_price,
+        wholesale:  f.wholesale_price || v.wholesale,
+        location:   f.location   || v.location,
+        min_stock:  f.min_stock  || v.min_stock,
+      }))
+    }))
+
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -243,7 +314,7 @@ export function ProductFormModal({
         ? form.newCategory.trim()
         : form.category || 'Otros'
 
-      const input: CreateProductInput = {
+      const baseInput: Omit<CreateProductInput, 'tipo' | 'stock_quantity'> = {
         business_id:    businessId,
         created_by:     user.id,
         name:           form.name.trim(),
@@ -255,7 +326,6 @@ export function ProductFormModal({
         category:       catName,
         subcategory:    form.subcategory.trim() || undefined,
         supplier_id:    form.supplier_id || undefined,
-        tipo:           form.tipo,
         base_currency:  form.base_currency,
         base_price:     form.base_currency === 'USD' ? (parseFloat(form.cost_usd) || 0) : costARS,
         cost_price:     costARS,
@@ -263,22 +333,61 @@ export function ProductFormModal({
         sale_price:     saleARS,
         wholesale_price_ars: parseFloat(form.wholesale_price) || undefined,
         exchange_rate_used:  form.base_currency === 'USD' ? rate : undefined,
-        stock_quantity: form.tipo === 'service' ? 0 : qty,
         min_stock:      parseInt(form.min_stock) || 0,
         location:       form.location.trim() || undefined,
         is_active:      form.is_active,
       }
 
+      // ── Producto con variantes ──────────────────────────────────────────────
+      if (form.tipo === 'with_variants') {
+        if (!form.variants.length) { setError('Agregá al menos una variante.'); return }
+        const variantInputs: CreateVariantInput[] = form.variants.map((v, i) => ({
+          business_id:  businessId,
+          created_by:   user.id,
+          product_name: form.name.trim(),
+          name:         v.name.trim() || `Variante ${i + 1}`,
+          sku:          v.sku.trim() || undefined,
+          barcode:      v.barcode.trim() || undefined,
+          category:     catName,
+          cost_price_ars:  parseFloat(v.cost_ars) || costARS || 0,
+          cost_price_usd:  form.base_currency === 'USD' ? (parseFloat(v.cost_usd) || costUSD) : undefined,
+          cost_currency:   form.base_currency,
+          sale_price_ars:  parseFloat(v.sale_price) || saleARS || 0,
+          wholesale_price_ars: parseFloat(v.wholesale) || undefined,
+          exchange_rate_used:  form.base_currency === 'USD' ? rate : undefined,
+          stock:      parseInt(v.stock) || 0,
+          min_stock:  parseInt(v.min_stock) || 0,
+          location:   v.location.trim() || undefined,
+          active:     v.is_active,
+          sort_order: i,
+        }))
+        const ctx: ProductCreationContext = registerStock
+          ? { registerMovement: true, movementType: 'in', sourceType, sourceId, sourceNote }
+          : {}
+        const { product, variants: createdVariants } = await productService.createProductWithVariants(
+          baseInput, variantInputs, ctx
+        )
+        if (onVariantSelected && createdVariants.length > 0) {
+          setVariantPickerData({ product, variants: createdVariants })
+        } else {
+          onCreated(product); onClose()
+        }
+        return
+      }
+
+      // ── Producto simple / servicio ──────────────────────────────────────────
+      const input: CreateProductInput = {
+        ...baseInput,
+        tipo:           form.tipo as 'product' | 'service',
+        stock_quantity: form.tipo === 'service' ? 0 : qty,
+      }
+
       const ctx: ProductCreationContext = form.register_stock && form.tipo !== 'service' && qty > 0
         ? {
-            registerMovement: true,
-            movementType:     'in',
-            sourceType,
-            sourceId,
-            sourceNote:       sourceNote ?? `Stock inicial desde ${sourceType ?? 'creación'}`,
-            unit_cost:        costARS,
-            currency:         form.base_currency,
-            exchange_rate:    form.base_currency === 'USD' ? rate : undefined,
+            registerMovement: true, movementType: 'in', sourceType, sourceId,
+            sourceNote: sourceNote ?? `Stock inicial desde ${sourceType ?? 'creación'}`,
+            unit_cost: costARS, currency: form.base_currency,
+            exchange_rate: form.base_currency === 'USD' ? rate : undefined,
           }
         : {}
 
@@ -293,6 +402,53 @@ export function ProductFormModal({
   }
 
   if (!isOpen) return null
+
+  // ── Variant picker (post-creación con variantes) ────────────────────────────
+  if (variantPickerData) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', fontFamily: F }}>
+        <div style={{ background: '#0d1a30', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '1.25rem', width: '100%', maxWidth: '480px', boxShadow: '0 32px 80px rgba(0,0,0,0.7)' }}>
+          <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+            <h3 style={{ margin: 0, color: '#f1f5f9', fontSize: '1rem', fontWeight: 800 }}>¿Qué variante usás en esta operación?</h3>
+            <p style={{ margin: '0.25rem 0 0', color: '#475569', fontSize: '0.8rem' }}>Producto creado: <strong style={{ color: '#94a3b8' }}>{variantPickerData.product.name}</strong></p>
+          </div>
+          <div style={{ padding: '1rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {variantPickerData.variants.map(variant => (
+              <button
+                key={variant.id}
+                type="button"
+                onClick={() => {
+                  if (variant.inventory_item_id && onVariantSelected) {
+                    // Obtener el inventory item para la variante y llamar el callback
+                    onVariantSelected({ id: variant.inventory_item_id, name: `${variantPickerData.product.name} — ${variant.name}`, sale_price: variant.sale_price_ars, cost_price: variant.cost_price_ars, stock_quantity: variant.stock } as any, variant)
+                  }
+                  setVariantPickerData(null); onClose()
+                }}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '0.75rem', cursor: 'pointer', textAlign: 'left' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.14)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'rgba(99,102,241,0.06)'}
+              >
+                <div>
+                  <div style={{ color: '#f1f5f9', fontSize: '0.875rem', fontWeight: 700 }}>{variant.name}</div>
+                  {variant.sku && <div style={{ color: '#475569', fontSize: '0.72rem' }}>SKU: {variant.sku}</div>}
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ color: '#818cf8', fontWeight: 700, fontSize: '0.875rem' }}>${variant.sale_price_ars.toLocaleString('es-AR')}</div>
+                  <div style={{ color: '#334155', fontSize: '0.72rem' }}>Stock: {variant.stock}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+          <div style={{ padding: '0.875rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'flex-end' }}>
+            <button type="button" onClick={() => { onCreated(variantPickerData.product); setVariantPickerData(null); onClose() }}
+              style={{ padding: '0.5rem 1rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.625rem', color: '#475569', fontSize: '0.8rem', cursor: 'pointer', fontFamily: F }}>
+              Sin variante específica
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // ── Valores derivados para mostrar ─────────────────────────────────────────
   const costARS_display = deriveCostARS(form)
@@ -340,21 +496,25 @@ export function ProductFormModal({
         {/* Body */}
         <form onSubmit={handleSubmit} style={{ overflowY: 'auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
-          {/* Tipo */}
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            {(['product', 'service'] as const).map(t => (
+          {/* Tipo — 3 opciones */}
+          <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
+            {([
+              { v: 'product',       label: 'Producto',        color: '#6366f1' },
+              { v: 'service',       label: 'Servicio',         color: '#06b6d4' },
+              { v: 'with_variants', label: 'Con variantes',    color: '#f59e0b' },
+            ] as const).map(({ v, label, color }) => (
               <button
-                key={t} type="button"
-                onClick={() => set('tipo', t)}
+                key={v} type="button"
+                onClick={() => set('tipo', v)}
                 style={{
                   padding: '0.4rem 1rem', borderRadius: '999px', cursor: 'pointer',
-                  border: `1px solid ${form.tipo === t ? '#6366f1' : 'rgba(255,255,255,0.1)'}`,
-                  background: form.tipo === t ? 'rgba(99,102,241,0.15)' : 'transparent',
-                  color: form.tipo === t ? '#818cf8' : '#475569',
+                  border: `1px solid ${form.tipo === v ? color : 'rgba(255,255,255,0.1)'}`,
+                  background: form.tipo === v ? `${color}22` : 'transparent',
+                  color: form.tipo === v ? color : '#475569',
                   fontSize: '0.8rem', fontWeight: 600, fontFamily: F,
                 }}
               >
-                {t === 'product' ? 'Producto' : 'Servicio'}
+                {label}
               </button>
             ))}
           </div>
@@ -572,6 +732,114 @@ export function ProductFormModal({
                   {sourceType && <span style={{ color: '#475569' }}> ({sourceType})</span>}
                 </span>
               </label>
+            </Section>
+          )}
+
+          {/* ── Sección variantes (solo con_variantes) ── */}
+          {form.tipo === 'with_variants' && (
+            <Section label="Variantes">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: '#475569', fontSize: '0.78rem' }}>
+                  {form.variants.length} variante{form.variants.length !== 1 ? 's' : ''} agregada{form.variants.length !== 1 ? 's' : ''}
+                </span>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button type="button" onClick={applyBaseToVariants}
+                    style={{ padding: '0.3rem 0.75rem', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.5rem', color: '#818cf8', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+                    ↓ Aplicar base a variantes
+                  </button>
+                  <button type="button" onClick={addVariantRow}
+                    style={{ padding: '0.3rem 0.75rem', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '0.5rem', color: '#22c55e', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+                    + Agregar variante
+                  </button>
+                </div>
+              </div>
+
+              {form.variants.map((v, idx) => (
+                <div key={v._key} style={{ border: `1px solid ${v.is_active ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.04)'}`, borderRadius: '0.75rem', overflow: 'hidden', opacity: v.is_active ? 1 : 0.5 }}>
+                  {/* Cabecera variante */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.625rem 0.875rem', background: 'rgba(255,255,255,0.02)', cursor: 'pointer' }}
+                    onClick={() => updateVariant(v._key, { expanded: !v.expanded })}>
+                    <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 700, flex: 1 }}>
+                      {v.name.trim() || `Variante ${idx + 1}`}
+                      {v.sku && <span style={{ color: '#334155', marginLeft: '0.5rem' }}>#{v.sku}</span>}
+                    </span>
+                    {v.sale_price && <span style={{ color: '#818cf8', fontSize: '0.75rem', fontWeight: 700 }}>${parseFloat(v.sale_price).toLocaleString('es-AR')}</span>}
+                    <span style={{ color: '#475569', fontSize: '0.75rem' }}>{parseInt(v.stock) || 0} u</span>
+                    <div style={{ display: 'flex', gap: '0.25rem' }} onClick={e => e.stopPropagation()}>
+                      <button type="button" onClick={() => duplicateVariant(v._key)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.2rem', fontSize: '0.7rem' }} title="Duplicar">⊕</button>
+                      {form.variants.length > 1 && (
+                        <button type="button" onClick={() => removeVariant(v._key)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '0.2rem', fontSize: '0.7rem' }} title="Eliminar">✕</button>
+                      )}
+                    </div>
+                    <span style={{ color: '#334155', fontSize: '0.7rem' }}>{v.expanded ? '▲' : '▼'}</span>
+                  </div>
+
+                  {/* Campos de la variante */}
+                  {v.expanded && (
+                    <div style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+                      <Row2>
+                        <Field label="Nombre *">
+                          <input value={v.name} onChange={e => updateVariant(v._key, { name: e.target.value })} placeholder="Rojo 128GB" style={inputS} />
+                        </Field>
+                        <Field label="SKU variante">
+                          <input value={v.sku} onChange={e => updateVariant(v._key, { sku: e.target.value })} placeholder="P001-R128" style={inputS} />
+                        </Field>
+                      </Row2>
+                      <Row2>
+                        <Field label={`Costo (${form.base_currency})`}>
+                          <div style={{ position: 'relative' }}>
+                            <span style={prefixS}>{form.base_currency === 'USD' ? 'U$' : '$'}</span>
+                            <input value={form.base_currency === 'USD' ? v.cost_usd : v.cost_ars}
+                              onChange={e => updateVariant(v._key, form.base_currency === 'USD' ? { cost_usd: e.target.value } : { cost_ars: e.target.value })}
+                              placeholder="0" style={{ ...inputS, paddingLeft: '1.75rem' }} />
+                          </div>
+                        </Field>
+                        <Field label="Precio venta (ARS)">
+                          <div style={{ position: 'relative' }}>
+                            <span style={prefixS}>$</span>
+                            <input value={v.sale_price} onChange={e => updateVariant(v._key, { sale_price: e.target.value })} placeholder="0" style={{ ...inputS, paddingLeft: '1.75rem' }} />
+                          </div>
+                        </Field>
+                      </Row2>
+                      <Row2>
+                        <Field label="Precio mayorista">
+                          <div style={{ position: 'relative' }}>
+                            <span style={prefixS}>$</span>
+                            <input value={v.wholesale} onChange={e => updateVariant(v._key, { wholesale: e.target.value })} placeholder="Opcional" style={{ ...inputS, paddingLeft: '1.75rem' }} />
+                          </div>
+                        </Field>
+                        <Field label="Código de barras">
+                          <input value={v.barcode} onChange={e => updateVariant(v._key, { barcode: e.target.value })} placeholder="Opcional" style={inputS} />
+                        </Field>
+                      </Row2>
+                      <Row2>
+                        <Field label="Stock inicial">
+                          <input value={v.stock} onChange={e => updateVariant(v._key, { stock: e.target.value })} type="number" min="0" style={inputS} />
+                        </Field>
+                        <Field label="Stock mínimo">
+                          <input value={v.min_stock} onChange={e => updateVariant(v._key, { min_stock: e.target.value })} type="number" min="0" style={inputS} />
+                        </Field>
+                      </Row2>
+                      <Row2>
+                        <Field label="Ubicación">
+                          <input value={v.location} onChange={e => updateVariant(v._key, { location: e.target.value })} placeholder="Estante A3" style={inputS} />
+                        </Field>
+                        <Field label="Estado">
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', paddingTop: '0.5rem' }}>
+                            <div onClick={() => updateVariant(v._key, { is_active: !v.is_active })}
+                              style={{ width: 18, height: 18, borderRadius: 4, flexShrink: 0, background: v.is_active ? '#22c55e' : 'transparent', border: `2px solid ${v.is_active ? '#22c55e' : 'rgba(255,255,255,0.2)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                              {v.is_active && <Check size={11} color="#fff" strokeWidth={3} />}
+                            </div>
+                            <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>Activa</span>
+                          </label>
+                        </Field>
+                      </Row2>
+                    </div>
+                  )}
+                </div>
+              ))}
             </Section>
           )}
 
