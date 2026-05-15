@@ -253,12 +253,13 @@ export function ComprobanteProModal({
   // ── Ítems ────────────────────────────────────────────────────────────────
   const [lineas, setLineas] = useState<LineaItem[]>([emptyLinea()])
 
-  // ── Spotlight search ─────────────────────────────────────────────────────
+  // ── Spotlight search (Raycast-style overlay) ─────────────────────────────
   const [spotQ, setSpotQ]           = useState('')
   const [spotResults, setSpotResults] = useState<InventoryResult[]>([])
   const [spotLoading, setSpotLoading] = useState(false)
-  const [spotOpen, setSpotOpen]     = useState(false)
-  const [spotKeyIdx, setSpotKeyIdx] = useState(-1)   // ↑↓ keyboard nav
+  const [spotKeyIdx, setSpotKeyIdx] = useState(-1)
+  const [spotlightMode, setSpotlightMode] = useState(false)  // overlay abierto
+  const [recentProducts, setRecentProducts] = useState<InventoryResult[]>([])
   const spotRef   = useRef<HTMLInputElement>(null)
   const spotTimer = useRef<ReturnType<typeof setTimeout>>()
 
@@ -377,7 +378,7 @@ export function ComprobanteProModal({
     setCondicion(condicionFiscalInicial ?? 'Consumidor Final'); setClienteId(initialClienteId ?? '')
     setClienteQuery(''); setObservaciones(''); setEmitirEnArca(false)
     setSubmitError(null); setShowSuccess(false); setArcaWarning(null)
-    setPagos([]); setSpotQ(''); setSpotResults([]); setSpotOpen(false); setSpotKeyIdx(-1)
+    setPagos([]); setSpotQ(''); setSpotResults([]); setSpotKeyIdx(-1); setSpotlightMode(false)
     setActiveSearchIdx(null); setLineResults([])
     setShowCloseConfirm(false); setShowRecalcPrompt(false)
 
@@ -416,6 +417,30 @@ export function ComprobanteProModal({
     supabase.from('customers').select('id, name, customer_type, phone')
       .eq('business_id', businessId).order('name')
       .then(({ data }) => setClientes((data || []) as ClienteOption[]))
+  }, [isOpen, businessId])
+
+  // Productos recientes (últimos vendidos desde comprobante_items)
+  useEffect(() => {
+    if (!isOpen || !businessId) return
+    supabase.from('comprobante_items')
+      .select('inventory_id, inventory:inventory_id(id,name,variant_name,sale_price,stock_quantity,cost_price,precio_mayorista,code,category,has_variants,is_active)')
+      .eq('business_id', businessId)
+      .not('inventory_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(60)
+      .then(({ data }) => {
+        if (!data) return
+        const seen = new Set<string>()
+        const recent: InventoryResult[] = []
+        for (const item of data) {
+          const inv = (item as any).inventory
+          if (inv && !seen.has(inv.id) && inv.is_active && !inv.has_variants) {
+            seen.add(inv.id); recent.push(inv as InventoryResult)
+            if (recent.length >= 10) break
+          }
+        }
+        setRecentProducts(recent)
+      })
   }, [isOpen, businessId])
 
   useEffect(() => {
@@ -473,7 +498,7 @@ export function ComprobanteProModal({
       }
       if ((e.key === 'F4' || (e.shiftKey && e.key === 'Enter')) && !showSuccess) { e.preventDefault(); void handleSubmit(); return }
       if (e.key === 'F2' && !showSuccess) { e.preventDefault(); clienteInputRef.current?.focus(); return }
-      if ((e.ctrlKey && (e.key === 'b' || e.key === 'B')) && !showSuccess) { e.preventDefault(); spotRef.current?.focus(); return }
+      if ((e.ctrlKey && (e.key === 'b' || e.key === 'B')) && !showSuccess) { e.preventDefault(); setSpotlightMode(true); return }
     }
     document.addEventListener('keydown', h)
     return () => document.removeEventListener('keydown', h)
@@ -502,11 +527,15 @@ export function ComprobanteProModal({
   const handleSpotChange = useCallback((q: string) => {
     setSpotQ(q); setSpotKeyIdx(-1)
     clearTimeout(spotTimer.current)
-    if (q.length < 2) { setSpotResults([]); setSpotOpen(false); return }
+    if (q.length < 2) { setSpotResults([]); return }
     spotTimer.current = setTimeout(() => {
-      void runSearch(q, (r) => { setSpotResults(r); setSpotOpen(true) }, setSpotLoading)
-    }, 150) // 150ms debounce
+      void runSearch(q, setSpotResults, setSpotLoading)
+    }, 150)
   }, [runSearch])
+
+  const closeSpotlight = useCallback(() => {
+    setSpotlightMode(false); setSpotQ(''); setSpotResults([]); setSpotKeyIdx(-1)
+  }, [])
 
   const selectFromSpotlight = useCallback((inv: InventoryResult) => {
     const customer = esClienteMayorista ? { customer_type: 'mayorista' } : { customer_type: 'minorista' }
@@ -523,7 +552,7 @@ export function ComprobanteProModal({
       if (ei >= 0) return prev.map((l, i) => i === ei ? { ...l, ...populated } : l)
       return [...prev, { ...emptyLinea(), ...populated }]
     })
-    setSpotQ(''); setSpotResults([]); setSpotOpen(false); setSpotKeyIdx(-1)
+    setSpotQ(''); setSpotResults([]); setSpotKeyIdx(-1); setSpotlightMode(false)
     setTimeout(() => spotRef.current?.focus(), 30)
   }, [esClienteMayorista])
 
@@ -740,90 +769,42 @@ export function ComprobanteProModal({
               )}
             </div>
 
-            {/* SPOTLIGHT SEARCH */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <Search size={13} color="#334155" />
-                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Agregar producto</span>
-                <span style={{ fontSize: '0.62rem', color: '#1e3a5f', background: 'rgba(255,255,255,0.04)', padding: '0.1rem 0.35rem', borderRadius: '0.25rem' }}>Ctrl+B · Enter agrega · ↑↓ navega</span>
+            {/* SPOTLIGHT TRIGGER — abre el overlay Raycast */}
+            <button
+              onClick={() => setSpotlightMode(true)}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', width: '100%', padding: '0.625rem 0.875rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', cursor: 'pointer', textAlign: 'left', transition: 'all 0.12s', fontFamily: F }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.06)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.25)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)' }}
+            >
+              <Search size={15} color="#334155" />
+              <span style={{ flex: 1, color: '#1e3a5f', fontSize: '0.875rem' }}>Buscar producto, SKU, barcode...</span>
+              <div style={{ display: 'flex', gap: '0.2rem', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.65rem', color: '#1e3a5f', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.25rem', padding: '0.1rem 0.4rem', fontWeight: 600 }}>Ctrl</span>
+                <span style={{ fontSize: '0.65rem', color: '#1e3a5f', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.25rem', padding: '0.1rem 0.4rem', fontWeight: 600 }}>B</span>
               </div>
-              <div style={{ position: 'relative' }}>
-                <Search size={17} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: spotQ ? '#818cf8' : '#334155', pointerEvents: 'none', transition: 'color 0.15s' }} />
-                {spotLoading && <Loader2 size={14} style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#475569', animation: 'spin 0.8s linear infinite' }} />}
-                <input
-                  ref={spotRef}
-                  value={spotQ}
-                  onChange={e => handleSpotChange(e.target.value)}
-                  onFocus={() => spotQ.length >= 2 && setSpotOpen(true)}
-                  onKeyDown={e => {
-                    if (e.key === 'ArrowDown') { e.preventDefault(); setSpotKeyIdx(i => Math.min(i + 1, spotResults.length - 1)) }
-                    else if (e.key === 'ArrowUp') { e.preventDefault(); setSpotKeyIdx(i => Math.max(i - 1, 0)) }
-                    else if (e.key === 'Enter') {
-                      e.preventDefault()
-                      const target = spotKeyIdx >= 0 && spotResults[spotKeyIdx] ? spotResults[spotKeyIdx] : spotResults[0]
-                      if (target) { selectFromSpotlight(target); setSpotKeyIdx(-1) }
-                    }
-                    else if (e.key === 'Escape') { setSpotQ(''); setSpotResults([]); setSpotOpen(false); setSpotKeyIdx(-1) }
-                  }}
-                  placeholder="Nombre, SKU, código de barras, IMEI..."
-                  style={{ width: '100%', padding: '0.875rem 2.75rem 0.875rem 2.75rem', background: spotQ ? 'rgba(99,102,241,0.05)' : 'rgba(255,255,255,0.025)', border: `1px solid ${spotQ ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.08)'}`, borderRadius: '0.875rem', color: '#f0f4ff', fontSize: '0.9375rem', outline: 'none', fontFamily: F, transition: 'all 0.15s', boxSizing: 'border-box' }}
-                />
+            </button>
 
-                {/* Spotlight dropdown */}
-                {spotOpen && spotQ.length >= 2 && (
-                  <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 200, background: '#0c1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '1rem', boxShadow: '0 20px 60px rgba(0,0,0,0.8)', overflow: 'hidden', animation: 'spotlightSlide 0.12s ease' }}>
-                    {spotResults.length === 0 && !spotLoading && (
-                      <div style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span style={{ color: '#334155', fontSize: '0.85rem' }}>Sin resultados para "{spotQ}"</span>
-                        <button onMouseDown={() => { setPfmInitialName(spotQ); setShowPFM(true); setSpotOpen(false) }}
-                          style={{ color: '#818cf8', fontWeight: 700, background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.5rem', padding: '0.3rem 0.75rem', cursor: 'pointer', fontSize: '0.8rem', fontFamily: F }}>
-                          + Crear producto
-                        </button>
-                      </div>
-                    )}
-                    {spotResults.map((inv, i) => {
-                      const ss2 = stockState(inv.stock_quantity)
-                      const priceToShow = esClienteMayorista && inv.precio_mayorista ? inv.precio_mayorista : inv.sale_price
-                      const isHighlighted = i === spotKeyIdx
-                      return (
-                        <button key={inv.id} onMouseDown={() => { selectFromSpotlight(inv); setSpotKeyIdx(-1) }}
-                          style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', width: '100%', padding: '0.75rem 1.25rem', background: isHighlighted ? 'rgba(99,102,241,0.12)' : i === 0 && spotKeyIdx === -1 ? 'rgba(99,102,241,0.06)' : 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer', textAlign: 'left', fontFamily: F, transition: 'background 0.08s' }}
-                          onMouseEnter={e => { setSpotKeyIdx(i); e.currentTarget.style.background = 'rgba(99,102,241,0.1)' }}
-                          onMouseLeave={e => { e.currentTarget.style.background = isHighlighted ? 'rgba(99,102,241,0.12)' : 'none' }}>
-                          <div style={{ width: 36, height: 36, borderRadius: '0.5rem', background: 'rgba(99,102,241,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <Package size={15} color="#818cf8" />
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ color: '#f0f4ff', fontSize: '0.875rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {inv.name}{inv.variant_name ? ` — ${inv.variant_name}` : ''}
-                            </div>
-                            <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center', marginTop: '0.1rem', flexWrap: 'wrap' }}>
-                              {inv.code && <span style={{ color: '#334155', fontSize: '0.7rem' }}>#{inv.code}</span>}
-                              <span style={{ color: '#1e3a5f', fontSize: '0.7rem' }}>{inv.category}</span>
-                            </div>
-                          </div>
-                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                            <div style={{ color: '#818cf8', fontSize: '0.9375rem', fontWeight: 800 }}>{fmtARS(priceToShow)}</div>
-                            <div style={{ color: STOCK_COLORS[ss2], fontSize: '0.7rem', fontWeight: ss2 !== 'ok' ? 700 : 400 }}>
-                              {ss2 === 'out' ? 'Sin stock' : ss2 === 'low' ? `${inv.stock_quantity} bajo` : `${inv.stock_quantity} stock`}
-                            </div>
-                          </div>
-                          {(i === 0 && spotKeyIdx === -1 || i === spotKeyIdx) && (
-                            <span style={{ fontSize: '0.62rem', color: '#334155', background: 'rgba(255,255,255,0.06)', padding: '0.15rem 0.4rem', borderRadius: '0.25rem', flexShrink: 0 }}>Enter</span>
-                          )}
-                        </button>
-                      )
-                    })}
-                    {spotResults.length > 0 && (
-                      <button onMouseDown={() => { setPfmInitialName(spotQ); setShowPFM(true); setSpotOpen(false) }}
-                        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.625rem 1.25rem', background: 'rgba(99,102,241,0.06)', border: 'none', borderTop: '1px solid rgba(255,255,255,0.06)', color: '#818cf8', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
-                        <Plus size={13} /> Crear producto completo: "{spotQ}"
+            {/* PRODUCTOS RECIENTES — chips de acceso rápido */}
+            {recentProducts.length > 0 && (
+              <div>
+                <span style={{ fontSize: '0.62rem', fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: '0.375rem' }}>Recientes</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                  {recentProducts.map(p => {
+                    const ss2 = stockState(p.stock_quantity)
+                    return (
+                      <button key={p.id} onClick={() => selectFromSpotlight(p)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.3rem 0.625rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '9999px', cursor: 'pointer', fontFamily: F, transition: 'all 0.1s' }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.08)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.25)' }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)' }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: STOCK_COLORS[ss2], flexShrink: 0 }} />
+                        <span style={{ color: '#475569', fontSize: '0.75rem', maxWidth: '9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                        <span style={{ color: '#334155', fontSize: '0.72rem', fontWeight: 700, flexShrink: 0 }}>{fmtARS(esClienteMayorista && p.precio_mayorista ? p.precio_mayorista : p.sale_price)}</span>
                       </button>
-                    )}
-                  </div>
-                )}
+                    )
+                  })}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* ITEMS CARDS */}
             <div>
@@ -1109,6 +1090,129 @@ export function ComprobanteProModal({
       @keyframes spotlightSlide { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
       @keyframes successBounce { 0% { transform: scale(0.5); opacity: 0; } 60% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } }
     `}</style>
+
+    {/* ── SPOTLIGHT OVERLAY (Raycast style) ──────────────────────────────── */}
+    {spotlightMode && (
+      <div
+        onClick={e => { if (e.target === e.currentTarget) closeSpotlight() }}
+        style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: '7%', fontFamily: F }}
+      >
+        <div style={{ width: '100%', maxWidth: 620, background: '#0c1a2e', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '1.375rem', boxShadow: '0 40px 100px rgba(0,0,0,0.95)', overflow: 'hidden', animation: 'spotlightSlide 0.14s ease' }}>
+          {/* Search input */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', padding: '1rem 1.25rem', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+            <Search size={20} color={spotQ ? '#818cf8' : '#334155'} style={{ flexShrink: 0, transition: 'color 0.15s' }} />
+            <input
+              ref={spotRef}
+              autoFocus
+              value={spotQ}
+              onChange={e => handleSpotChange(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'ArrowDown') { e.preventDefault(); setSpotKeyIdx(i => Math.min(i + 1, spotResults.length - 1)) }
+                else if (e.key === 'ArrowUp') { e.preventDefault(); setSpotKeyIdx(i => Math.max(i - 1, 0)) }
+                else if (e.key === 'Enter') {
+                  e.preventDefault()
+                  const target = spotKeyIdx >= 0 && spotResults[spotKeyIdx] ? spotResults[spotKeyIdx] : spotResults[0]
+                  if (target) selectFromSpotlight(target)
+                  else if (!spotQ && spotResults.length === 0) closeSpotlight()
+                }
+                else if (e.key === 'Escape') closeSpotlight()
+              }}
+              placeholder="Buscar por nombre, SKU, código de barras, IMEI..."
+              style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#f0f4ff', fontSize: '1.0625rem', fontFamily: F, caretColor: '#818cf8' }}
+            />
+            {spotLoading && <Loader2 size={16} color="#475569" style={{ flexShrink: 0, animation: 'spin 0.8s linear infinite' }} />}
+            {!spotLoading && spotQ && <button onClick={closeSpotlight} style={{ background: 'none', border: 'none', color: '#334155', cursor: 'pointer', padding: '0.2rem', display: 'flex', fontFamily: F }}><X size={15} /></button>}
+          </div>
+
+          {/* Results */}
+          {spotQ.length >= 2 && (
+            <div style={{ maxHeight: 340, overflowY: 'auto' }}>
+              {spotResults.length === 0 && !spotLoading && (
+                <div style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#334155', fontSize: '0.875rem' }}>Sin resultados para "{spotQ}"</span>
+                  <button onClick={() => { setPfmInitialName(spotQ); setShowPFM(true); closeSpotlight() }}
+                    style={{ color: '#818cf8', fontWeight: 700, background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.5rem', padding: '0.35rem 0.875rem', cursor: 'pointer', fontSize: '0.8rem', fontFamily: F }}>
+                    + Crear producto
+                  </button>
+                </div>
+              )}
+              {spotResults.map((inv, i) => {
+                const ss2 = stockState(inv.stock_quantity)
+                const priceToShow = esClienteMayorista && inv.precio_mayorista ? inv.precio_mayorista : inv.sale_price
+                const active = i === spotKeyIdx || (spotKeyIdx === -1 && i === 0)
+                return (
+                  <button key={inv.id}
+                    onClick={() => selectFromSpotlight(inv)}
+                    onMouseEnter={() => setSpotKeyIdx(i)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '1rem', width: '100%', padding: '0.75rem 1.25rem', background: active ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer', textAlign: 'left', fontFamily: F, transition: 'background 0.07s' }}>
+                    <div style={{ width: 40, height: 40, borderRadius: '0.625rem', background: active ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.07s' }}>
+                      <Package size={18} color={active ? '#818cf8' : '#334155'} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ color: '#f0f4ff', fontSize: '0.9375rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {inv.name}{inv.variant_name ? ` — ${inv.variant_name}` : ''}
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.15rem' }}>
+                        {inv.code && <span style={{ color: '#334155', fontSize: '0.72rem' }}>#{inv.code}</span>}
+                        <span style={{ color: '#1e3a5f', fontSize: '0.72rem' }}>{inv.category}</span>
+                        <span style={{ color: STOCK_COLORS[ss2], fontSize: '0.72rem', fontWeight: ss2 !== 'ok' ? 700 : 400 }}>
+                          {ss2 === 'out' ? 'Sin stock' : ss2 === 'low' ? `${inv.stock_quantity} bajo mínimo` : `${inv.stock_quantity} en stock`}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ color: active ? '#a5b4fc' : '#818cf8', fontSize: '1rem', fontWeight: 800 }}>{fmtARS(priceToShow)}</div>
+                      {esClienteMayorista && inv.precio_mayorista && inv.precio_mayorista !== inv.sale_price && (
+                        <div style={{ color: '#334155', fontSize: '0.7rem', textDecoration: 'line-through' }}>{fmtARS(inv.sale_price)}</div>
+                      )}
+                    </div>
+                    {active && <span style={{ fontSize: '0.65rem', color: '#475569', background: 'rgba(255,255,255,0.07)', padding: '0.15rem 0.45rem', borderRadius: '0.3rem', flexShrink: 0 }}>Enter</span>}
+                  </button>
+                )
+              })}
+              {spotResults.length > 0 && (
+                <button onClick={() => { setPfmInitialName(spotQ); setShowPFM(true); closeSpotlight() }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.625rem 1.25rem', background: 'rgba(99,102,241,0.05)', border: 'none', borderTop: '1px solid rgba(255,255,255,0.05)', color: '#818cf8', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+                  <Plus size={13} /> Crear producto completo: "{spotQ}"
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Recientes (cuando no hay query) */}
+          {!spotQ && recentProducts.length > 0 && (
+            <div style={{ padding: '0.875rem 1.25rem' }}>
+              <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.5rem' }}>Recientes</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
+                {recentProducts.map(p => {
+                  const ss2 = stockState(p.stock_quantity)
+                  return (
+                    <button key={p.id} onClick={() => selectFromSpotlight(p)}
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.375rem 0.75rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '9999px', cursor: 'pointer', fontFamily: F, transition: 'all 0.1s' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.1)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.3)' }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)' }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: STOCK_COLORS[ss2], flexShrink: 0 }} />
+                      <span style={{ color: '#64748b', fontSize: '0.82rem', maxWidth: '12rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}{p.variant_name ? ` — ${p.variant_name}` : ''}</span>
+                      <span style={{ color: '#475569', fontSize: '0.78rem', fontWeight: 700, flexShrink: 0 }}>{fmtARS(esClienteMayorista && p.precio_mayorista ? p.precio_mayorista : p.sale_price)}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Footer hints */}
+          <div style={{ display: 'flex', gap: '1.25rem', padding: '0.625rem 1.25rem', borderTop: '1px solid rgba(255,255,255,0.05)', background: 'rgba(0,0,0,0.2)' }}>
+            {[['↑↓','navegar'],['Enter','agregar'],['Esc','cerrar']].map(([k,l]) => (
+              <span key={k} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.65rem', color: '#1e3a5f' }}>
+                <span style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.25rem', padding: '0.1rem 0.35rem', fontWeight: 600 }}>{k}</span>
+                {l}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* ProductFormModal */}
     <ProductFormModal
