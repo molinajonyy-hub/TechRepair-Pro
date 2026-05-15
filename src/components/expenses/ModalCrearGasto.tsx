@@ -501,8 +501,7 @@ export function ModalCrearGasto({
       .eq('business_id', businessId)
       .eq('active', true)
       .order('name')
-      .then(({ data }) => setSuppliers(data || []))
-      .catch(() => setSuppliers([]))
+      .then(({ data }) => setSuppliers(data || []), () => setSuppliers([]))
   }, [isOpen, businessId])
 
   // Load current exchange rate
@@ -516,8 +515,7 @@ export function ModalCrearGasto({
       .order('updated_at', { ascending: false })
       .limit(1)
       .single()
-      .then(({ data }) => { if (data?.rate) setExchangeRate(String(data.rate)) })
-      .catch(() => {})
+      .then(({ data }) => { if (data?.rate) setExchangeRate(String(data.rate)) }, () => {})
   }, [isOpen, currency])
 
   // Supplier dropdown outside click

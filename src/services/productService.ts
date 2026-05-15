@@ -420,7 +420,9 @@ export interface ProductVariant {
   min_stock:           number
   location:            string | null
   active:              boolean
+  is_default:          boolean
   sort_order:          number
+  image_url:           string | null
   created_at:          string
   updated_at:          string
 }

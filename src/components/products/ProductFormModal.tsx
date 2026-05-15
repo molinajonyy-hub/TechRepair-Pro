@@ -69,27 +69,49 @@ export interface ProductFormModalProps {
 // ─── Variante en el formulario ────────────────────────────────────────────────
 
 interface VariantRow {
-  _key:       string
-  name:       string
-  sku:        string
-  barcode:    string
-  cost_ars:   string
-  cost_usd:   string
-  sale_price: string
-  wholesale:  string
-  stock:      string
-  min_stock:  string
-  location:   string
-  is_active:  boolean
-  expanded:   boolean
+  _key:        string
+  name:        string
+  sku:         string
+  barcode:     string
+  attributes:  Record<string, string>   // {"Color":"Negro","Capacidad":"128GB"}
+  cost_ars:    string
+  cost_usd:    string
+  sale_price:  string
+  wholesale:   string
+  stock:       string
+  min_stock:   string
+  location:    string
+  is_active:   boolean
+  is_default:  boolean
+  expanded:    boolean
+}
+
+interface GeneratorDimension {
+  _key:   string
+  name:   string
+  values: string[]
 }
 
 function emptyVariant(n = 1): VariantRow {
   return {
     _key: crypto.randomUUID(), name: `Variante ${n}`, sku: '', barcode: '',
-    cost_ars: '', cost_usd: '', sale_price: '', wholesale: '',
-    stock: '0', min_stock: '0', location: '', is_active: true, expanded: true,
+    attributes: {}, cost_ars: '', cost_usd: '', sale_price: '', wholesale: '',
+    stock: '0', min_stock: '0', location: '', is_active: true, is_default: n === 1, expanded: true,
   }
+}
+
+function cartesian(dims: GeneratorDimension[]): Record<string, string>[] {
+  const active = dims.filter(d => d.name.trim() && d.values.length)
+  if (!active.length) return []
+  return active.reduce<Record<string, string>[]>((acc, dim) => (
+    acc.flatMap(combo => dim.values.map(v => ({ ...combo, [dim.name.trim()]: v.trim() })))
+  ), [{}])
+}
+
+function stockBadge(stock: number, minStock: number) {
+  if (stock <= 0)        return { color: '#ef4444', bg: 'rgba(239,68,68,0.12)',  label: 'Sin stock' }
+  if (stock <= minStock) return { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', label: `${stock} bajo` }
+  return                        { color: '#22c55e', bg: 'rgba(34,197,94,0.1)',   label: `${stock}` }
 }
 
 interface FormState {
@@ -127,7 +149,8 @@ const EMPTY: FormState = {
   base_currency: 'ARS', exchange_rate: '', cost_ars: '', cost_usd: '',
   sale_price_ars: '', margin_pct: '',
   wholesale_price: '', stock_quantity: '0', min_stock: '0', location: '',
-  is_active: true, register_stock: false, variants: [emptyVariant(1)],
+  is_active: true, register_stock: false,
+  variants: [emptyVariant(1)],
 }
 
 const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
@@ -154,6 +177,11 @@ export function ProductFormModal({
     product: InventoryItem
     variants: ProductVariant[]
   } | null>(null)
+  // Generador masivo de variantes
+  const [showGenerator, setShowGenerator] = useState(false)
+  const [genDimensions, setGenDimensions] = useState<GeneratorDimension[]>([
+    { _key: crypto.randomUUID(), name: 'Color', values: [] },
+  ])
 
   // ── Pre-rellenar desde contexto al abrir ────────────────────────────────────
   useEffect(() => {
@@ -290,14 +318,61 @@ export function ProductFormModal({
       ...f,
       variants: f.variants.map(v => ({
         ...v,
-        cost_ars:   f.cost_ars   || v.cost_ars,
-        cost_usd:   f.cost_usd   || v.cost_usd,
-        sale_price: f.sale_price_ars || v.sale_price,
+        cost_ars:   f.cost_ars        || v.cost_ars,
+        cost_usd:   f.cost_usd        || v.cost_usd,
+        sale_price: f.sale_price_ars  || v.sale_price,
         wholesale:  f.wholesale_price || v.wholesale,
-        location:   f.location   || v.location,
-        min_stock:  f.min_stock  || v.min_stock,
+        location:   f.location        || v.location,
+        min_stock:  f.min_stock       || v.min_stock,
       }))
     }))
+
+  const setDefaultVariant = (key: string) =>
+    setForm(f => ({ ...f, variants: f.variants.map(v => ({ ...v, is_default: v._key === key })) }))
+
+  const updateVariantAttr = (key: string, attrKey: string, attrVal: string) =>
+    setForm(f => ({
+      ...f,
+      variants: f.variants.map(v =>
+        v._key === key ? { ...v, attributes: { ...v.attributes, [attrKey]: attrVal } } : v
+      ),
+    }))
+
+  const removeVariantAttr = (key: string, attrKey: string) =>
+    setForm(f => ({
+      ...f,
+      variants: f.variants.map(v => {
+        if (v._key !== key) return v
+        const next = { ...v.attributes }; delete next[attrKey]
+        return { ...v, attributes: next }
+      }),
+    }))
+
+  const generateVariants = () => {
+    const combos = cartesian(genDimensions)
+    if (!combos.length) return
+    const costARS = deriveCostARS(form)
+    const saleARS = parseFloat(form.sale_price_ars) || 0
+    const newRows: VariantRow[] = combos.map((combo, i) => ({
+      _key:       crypto.randomUUID(),
+      name:       Object.values(combo).join(' / '),
+      sku:        form.code ? `${form.code}-${Object.values(combo).join('-').toUpperCase().replace(/\s/g, '')}` : '',
+      barcode:    '',
+      attributes: combo,
+      cost_ars:   costARS ? String(costARS) : '',
+      cost_usd:   form.cost_usd || '',
+      sale_price: saleARS ? String(saleARS) : '',
+      wholesale:  form.wholesale_price || '',
+      stock:      '0',
+      min_stock:  form.min_stock || '0',
+      location:   form.location || '',
+      is_active:  true,
+      is_default: i === 0,
+      expanded:   false,
+    }))
+    setForm(f => ({ ...f, variants: newRows }))
+    setShowGenerator(false)
+  }
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
@@ -349,6 +424,7 @@ export function ProductFormModal({
           sku:          v.sku.trim() || undefined,
           barcode:      v.barcode.trim() || undefined,
           category:     catName,
+          attributes:   Object.keys(v.attributes).length ? v.attributes : undefined,
           cost_price_ars:  parseFloat(v.cost_ars) || costARS || 0,
           cost_price_usd:  form.base_currency === 'USD' ? (parseFloat(v.cost_usd) || costUSD) : undefined,
           cost_currency:   form.base_currency,
@@ -359,6 +435,7 @@ export function ProductFormModal({
           min_stock:  parseInt(v.min_stock) || 0,
           location:   v.location.trim() || undefined,
           active:     v.is_active,
+          is_default: v.is_default,
           sort_order: i,
         }))
         const ctx: ProductCreationContext = registerStock
@@ -735,111 +812,247 @@ export function ProductFormModal({
             </Section>
           )}
 
-          {/* ── Sección variantes (solo con_variantes) ── */}
+          {/* ── Sección variantes — diseño premium ── */}
           {form.tipo === 'with_variants' && (
             <Section label="Variantes">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: '#475569', fontSize: '0.78rem' }}>
-                  {form.variants.length} variante{form.variants.length !== 1 ? 's' : ''} agregada{form.variants.length !== 1 ? 's' : ''}
+
+              {/* Toolbar */}
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ color: '#334155', fontSize: '0.75rem', flex: 1 }}>
+                  {form.variants.length} variante{form.variants.length !== 1 ? 's' : ''}
                 </span>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <button type="button" onClick={applyBaseToVariants}
-                    style={{ padding: '0.3rem 0.75rem', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.5rem', color: '#818cf8', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
-                    ↓ Aplicar base a variantes
-                  </button>
-                  <button type="button" onClick={addVariantRow}
-                    style={{ padding: '0.3rem 0.75rem', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '0.5rem', color: '#22c55e', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
-                    + Agregar variante
-                  </button>
-                </div>
+                <button type="button" onClick={() => setShowGenerator(v => !v)}
+                  style={{ padding: '0.3rem 0.75rem', background: showGenerator ? 'rgba(245,158,11,0.15)' : 'rgba(245,158,11,0.07)', border: `1px solid ${showGenerator ? 'rgba(245,158,11,0.4)' : 'rgba(245,158,11,0.2)'}`, borderRadius: '0.5rem', color: '#f59e0b', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+                  Generador masivo
+                </button>
+                <button type="button" onClick={applyBaseToVariants}
+                  style={{ padding: '0.3rem 0.75rem', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '0.5rem', color: '#818cf8', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+                  Aplicar base
+                </button>
+                <button type="button" onClick={addVariantRow}
+                  style={{ padding: '0.3rem 0.75rem', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: '0.5rem', color: '#22c55e', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+                  + Agregar
+                </button>
               </div>
 
-              {form.variants.map((v, idx) => (
-                <div key={v._key} style={{ border: `1px solid ${v.is_active ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.04)'}`, borderRadius: '0.75rem', overflow: 'hidden', opacity: v.is_active ? 1 : 0.5 }}>
-                  {/* Cabecera variante */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.625rem 0.875rem', background: 'rgba(255,255,255,0.02)', cursor: 'pointer' }}
-                    onClick={() => updateVariant(v._key, { expanded: !v.expanded })}>
-                    <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 700, flex: 1 }}>
-                      {v.name.trim() || `Variante ${idx + 1}`}
-                      {v.sku && <span style={{ color: '#334155', marginLeft: '0.5rem' }}>#{v.sku}</span>}
-                    </span>
-                    {v.sale_price && <span style={{ color: '#818cf8', fontSize: '0.75rem', fontWeight: 700 }}>${parseFloat(v.sale_price).toLocaleString('es-AR')}</span>}
-                    <span style={{ color: '#475569', fontSize: '0.75rem' }}>{parseInt(v.stock) || 0} u</span>
-                    <div style={{ display: 'flex', gap: '0.25rem' }} onClick={e => e.stopPropagation()}>
-                      <button type="button" onClick={() => duplicateVariant(v._key)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.2rem', fontSize: '0.7rem' }} title="Duplicar">⊕</button>
-                      {form.variants.length > 1 && (
-                        <button type="button" onClick={() => removeVariant(v._key)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '0.2rem', fontSize: '0.7rem' }} title="Eliminar">✕</button>
-                      )}
-                    </div>
-                    <span style={{ color: '#334155', fontSize: '0.7rem' }}>{v.expanded ? '▲' : '▼'}</span>
+              {/* ── Generador masivo ── */}
+              {showGenerator && (
+                <div style={{ background: 'rgba(245,158,11,0.04)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '0.875rem', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: '#f59e0b', fontSize: '0.8rem', fontWeight: 700 }}>Generador masivo de variantes</span>
+                    <button type="button" onClick={() => setShowGenerator(false)} style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
                   </div>
+                  {genDimensions.map((dim, di) => (
+                    <div key={dim._key} style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <input value={dim.name}
+                          onChange={e => setGenDimensions(prev => prev.map((d, i) => i === di ? { ...d, name: e.target.value } : d))}
+                          placeholder="Color / Capacidad / Tamaño..."
+                          style={{ ...inputS, width: '140px', flex: '0 0 auto', fontSize: '0.78rem' }} />
+                        <span style={{ color: '#334155', fontSize: '0.72rem' }}>:</span>
+                        <div style={{ flex: 1, display: 'flex', gap: '0.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                          {dim.values.map((val, vi) => (
+                            <span key={vi} style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', padding: '0.2rem 0.5rem', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '999px', color: '#f59e0b', fontSize: '0.72rem' }}>
+                              {val}
+                              <button type="button" onClick={() => setGenDimensions(prev => prev.map((d, i) => i === di ? { ...d, values: d.values.filter((_, j) => j !== vi) } : d))}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#f59e0b', padding: 0, lineHeight: 1, fontSize: '0.7rem' }}>✕</button>
+                            </span>
+                          ))}
+                          <input
+                            placeholder="Valor + Enter"
+                            style={{ ...inputS, width: '110px', fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                                e.preventDefault()
+                                const val = e.currentTarget.value.trim()
+                                setGenDimensions(prev => prev.map((d, i) => i === di ? { ...d, values: [...d.values, val] } : d))
+                                e.currentTarget.value = ''
+                              }
+                            }}
+                          />
+                        </div>
+                        {genDimensions.length > 1 && (
+                          <button type="button" onClick={() => setGenDimensions(prev => prev.filter((_, i) => i !== di))}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '0.8rem' }}>✕</button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => setGenDimensions(prev => [...prev, { _key: crypto.randomUUID(), name: '', values: [] }])}
+                    style={{ alignSelf: 'flex-start', padding: '0.25rem 0.625rem', background: 'transparent', border: '1px dashed rgba(245,158,11,0.3)', borderRadius: '0.5rem', color: '#f59e0b', fontSize: '0.72rem', cursor: 'pointer', fontFamily: F }}>
+                    + Agregar dimensión
+                  </button>
+                  {(() => {
+                    const combos = cartesian(genDimensions)
+                    return combos.length > 0 ? (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.75rem', background: 'rgba(245,158,11,0.06)', borderRadius: '0.5rem' }}>
+                        <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>
+                          {combos.length} variante{combos.length !== 1 ? 's' : ''}: {combos.slice(0, 3).map(c => Object.values(c).join(' / ')).join(', ')}{combos.length > 3 ? `...` : ''}
+                        </span>
+                        <button type="button" onClick={generateVariants}
+                          style={{ padding: '0.35rem 0.875rem', background: '#f59e0b', border: 'none', borderRadius: '0.5rem', color: '#000', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', fontFamily: F }}>
+                          Generar {combos.length} variante{combos.length !== 1 ? 's' : ''}
+                        </button>
+                      </div>
+                    ) : null
+                  })()}
+                </div>
+              )}
 
-                  {/* Campos de la variante */}
-                  {v.expanded && (
-                    <div style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-                      <Row2>
-                        <Field label="Nombre *">
-                          <input value={v.name} onChange={e => updateVariant(v._key, { name: e.target.value })} placeholder="Rojo 128GB" style={inputS} />
-                        </Field>
-                        <Field label="SKU variante">
-                          <input value={v.sku} onChange={e => updateVariant(v._key, { sku: e.target.value })} placeholder="P001-R128" style={inputS} />
-                        </Field>
-                      </Row2>
-                      <Row2>
-                        <Field label={`Costo (${form.base_currency})`}>
-                          <div style={{ position: 'relative' }}>
-                            <span style={prefixS}>{form.base_currency === 'USD' ? 'U$' : '$'}</span>
-                            <input value={form.base_currency === 'USD' ? v.cost_usd : v.cost_ars}
-                              onChange={e => updateVariant(v._key, form.base_currency === 'USD' ? { cost_usd: e.target.value } : { cost_ars: e.target.value })}
-                              placeholder="0" style={{ ...inputS, paddingLeft: '1.75rem' }} />
+              {/* ── Variant cards premium ── */}
+              {form.variants.map((v, idx) => {
+                const stock = parseInt(v.stock) || 0
+                const minS  = parseInt(v.min_stock) || 0
+                const sb    = stockBadge(stock, minS)
+                const attrs = Object.entries(v.attributes || {})
+
+                return (
+                  <div key={v._key} style={{ borderRadius: '0.875rem', border: `1px solid ${v.is_default ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.07)'}`, borderLeft: `3px solid ${sb.color}`, overflow: 'hidden', opacity: v.is_active ? 1 : 0.55, transition: 'opacity 0.2s', background: 'rgba(255,255,255,0.018)' }}>
+
+                    {/* ─ Header colapsado ─ */}
+                    <div
+                      onClick={() => updateVariant(v._key, { expanded: !v.expanded })}
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.75rem 0.875rem', cursor: 'pointer', userSelect: 'none' }}
+                    >
+                      {/* nombre + atributos */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                          <span style={{ color: '#e2e8f0', fontWeight: 700, fontSize: '0.8rem', letterSpacing: '-0.01em' }}>
+                            {v.name.trim() || `Variante ${idx + 1}`}
+                          </span>
+                          {v.is_default && (
+                            <span style={{ fontSize: '0.6rem', fontWeight: 800, padding: '0.1rem 0.4rem', borderRadius: '999px', background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)', letterSpacing: '0.04em' }}>DEFAULT</span>
+                          )}
+                          {attrs.map(([k, val]) => (
+                            <span key={k} style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem', borderRadius: '999px', background: 'rgba(255,255,255,0.05)', color: '#64748b', border: '1px solid rgba(255,255,255,0.08)' }}>
+                              {k}: {val}
+                            </span>
+                          ))}
+                          {v.sku && <span style={{ fontSize: '0.65rem', color: '#334155' }}>#{v.sku}</span>}
+                        </div>
+                      </div>
+                      {/* price + stock */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexShrink: 0 }}>
+                        {v.sale_price && (
+                          <span style={{ color: '#818cf8', fontWeight: 700, fontSize: '0.8rem' }}>
+                            ${parseFloat(v.sale_price).toLocaleString('es-AR')}
+                          </span>
+                        )}
+                        <span style={{ padding: '0.15rem 0.5rem', borderRadius: '999px', background: sb.bg, color: sb.color, fontSize: '0.65rem', fontWeight: 700 }}>{sb.label}</span>
+                        <span style={{ color: '#334155', fontSize: '0.65rem', transform: v.expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</span>
+                      </div>
+                    </div>
+
+                    {/* ─ Cuerpo expandido ─ */}
+                    {v.expanded && (
+                      <div style={{ padding: '0 0.875rem 0.875rem', display: 'flex', flexDirection: 'column', gap: '0.625rem', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div style={{ paddingTop: '0.625rem' }} />
+
+                        {/* Atributos dinámicos */}
+                        <div>
+                          <label style={{ display: 'block', color: '#64748b', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.35rem' }}>Atributos</label>
+                          <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                            {attrs.map(([k]) => (
+                              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '999px', overflow: 'hidden' }}>
+                                <span style={{ paddingLeft: '0.5rem', color: '#475569', fontSize: '0.68rem' }}>{k}:</span>
+                                <input
+                                  value={v.attributes[k]}
+                                  onChange={e => updateVariantAttr(v._key, k, e.target.value)}
+                                  style={{ background: 'transparent', border: 'none', outline: 'none', color: '#818cf8', fontSize: '0.68rem', fontWeight: 600, width: `${Math.max(40, (v.attributes[k] || '').length * 8 + 10)}px`, padding: '0.2rem 0.25rem', fontFamily: F }}
+                                />
+                                <button type="button" onClick={() => removeVariantAttr(v._key, k)}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.2rem 0.35rem', fontSize: '0.65rem' }}>✕</button>
+                              </div>
+                            ))}
+                            {/* Agregar atributo nuevo */}
+                            <button type="button"
+                              onClick={() => {
+                                const k = prompt('Nombre del atributo (ej: Color, Capacidad):')
+                                if (k?.trim()) updateVariantAttr(v._key, k.trim(), '')
+                              }}
+                              style={{ padding: '0.2rem 0.5rem', background: 'transparent', border: '1px dashed rgba(255,255,255,0.15)', borderRadius: '999px', color: '#334155', fontSize: '0.65rem', cursor: 'pointer', fontFamily: F }}>
+                              + Atributo
+                            </button>
                           </div>
-                        </Field>
-                        <Field label="Precio venta (ARS)">
-                          <div style={{ position: 'relative' }}>
-                            <span style={prefixS}>$</span>
-                            <input value={v.sale_price} onChange={e => updateVariant(v._key, { sale_price: e.target.value })} placeholder="0" style={{ ...inputS, paddingLeft: '1.75rem' }} />
-                          </div>
-                        </Field>
-                      </Row2>
-                      <Row2>
-                        <Field label="Precio mayorista">
-                          <div style={{ position: 'relative' }}>
-                            <span style={prefixS}>$</span>
-                            <input value={v.wholesale} onChange={e => updateVariant(v._key, { wholesale: e.target.value })} placeholder="Opcional" style={{ ...inputS, paddingLeft: '1.75rem' }} />
-                          </div>
-                        </Field>
-                        <Field label="Código de barras">
-                          <input value={v.barcode} onChange={e => updateVariant(v._key, { barcode: e.target.value })} placeholder="Opcional" style={inputS} />
-                        </Field>
-                      </Row2>
-                      <Row2>
-                        <Field label="Stock inicial">
-                          <input value={v.stock} onChange={e => updateVariant(v._key, { stock: e.target.value })} type="number" min="0" style={inputS} />
-                        </Field>
-                        <Field label="Stock mínimo">
-                          <input value={v.min_stock} onChange={e => updateVariant(v._key, { min_stock: e.target.value })} type="number" min="0" style={inputS} />
-                        </Field>
-                      </Row2>
-                      <Row2>
+                        </div>
+
+                        <Row2>
+                          <Field label="Nombre *">
+                            <input value={v.name} onChange={e => updateVariant(v._key, { name: e.target.value })} style={inputS} />
+                          </Field>
+                          <Field label="SKU variante">
+                            <input value={v.sku} onChange={e => updateVariant(v._key, { sku: e.target.value })} placeholder="P001-VAR" style={inputS} />
+                          </Field>
+                        </Row2>
+                        <Row2>
+                          <Field label={`Costo (${form.base_currency})`}>
+                            <div style={{ position: 'relative' }}>
+                              <span style={prefixS}>{form.base_currency === 'USD' ? 'U$' : '$'}</span>
+                              <input value={form.base_currency === 'USD' ? v.cost_usd : v.cost_ars}
+                                onChange={e => updateVariant(v._key, form.base_currency === 'USD' ? { cost_usd: e.target.value } : { cost_ars: e.target.value })}
+                                placeholder="0" style={{ ...inputS, paddingLeft: '1.75rem' }} />
+                            </div>
+                          </Field>
+                          <Field label="Precio venta (ARS)">
+                            <div style={{ position: 'relative' }}>
+                              <span style={prefixS}>$</span>
+                              <input value={v.sale_price} onChange={e => updateVariant(v._key, { sale_price: e.target.value })} placeholder="0" style={{ ...inputS, paddingLeft: '1.75rem' }} />
+                            </div>
+                          </Field>
+                        </Row2>
+                        <Row2>
+                          <Field label="Mayorista (ARS)">
+                            <div style={{ position: 'relative' }}>
+                              <span style={prefixS}>$</span>
+                              <input value={v.wholesale} onChange={e => updateVariant(v._key, { wholesale: e.target.value })} placeholder="Opcional" style={{ ...inputS, paddingLeft: '1.75rem' }} />
+                            </div>
+                          </Field>
+                          <Field label="Código de barras">
+                            <input value={v.barcode} onChange={e => updateVariant(v._key, { barcode: e.target.value })} placeholder="Opcional" style={inputS} />
+                          </Field>
+                        </Row2>
+                        <Row2>
+                          <Field label="Stock inicial">
+                            <input value={v.stock} onChange={e => updateVariant(v._key, { stock: e.target.value })} type="number" min="0" style={inputS} />
+                          </Field>
+                          <Field label="Stock mínimo">
+                            <input value={v.min_stock} onChange={e => updateVariant(v._key, { min_stock: e.target.value })} type="number" min="0" style={inputS} />
+                          </Field>
+                        </Row2>
                         <Field label="Ubicación">
                           <input value={v.location} onChange={e => updateVariant(v._key, { location: e.target.value })} placeholder="Estante A3" style={inputS} />
                         </Field>
-                        <Field label="Estado">
-                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', paddingTop: '0.5rem' }}>
+
+                        {/* Footer de la card */}
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', paddingTop: '0.25rem', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                          <button type="button" onClick={() => setDefaultVariant(v._key)}
+                            style={{ padding: '0.25rem 0.625rem', background: v.is_default ? 'rgba(99,102,241,0.15)' : 'transparent', border: `1px solid ${v.is_default ? 'rgba(99,102,241,0.4)' : 'rgba(255,255,255,0.1)'}`, borderRadius: '0.5rem', color: v.is_default ? '#818cf8' : '#334155', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+                            {v.is_default ? 'Default' : 'Marcar default'}
+                          </button>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
                             <div onClick={() => updateVariant(v._key, { is_active: !v.is_active })}
-                              style={{ width: 18, height: 18, borderRadius: 4, flexShrink: 0, background: v.is_active ? '#22c55e' : 'transparent', border: `2px solid ${v.is_active ? '#22c55e' : 'rgba(255,255,255,0.2)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-                              {v.is_active && <Check size={11} color="#fff" strokeWidth={3} />}
+                              style={{ width: 16, height: 16, borderRadius: 4, flexShrink: 0, background: v.is_active ? '#22c55e' : 'transparent', border: `2px solid ${v.is_active ? '#22c55e' : 'rgba(255,255,255,0.15)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                              {v.is_active && <Check size={10} color="#fff" strokeWidth={3} />}
                             </div>
-                            <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>Activa</span>
+                            <span style={{ color: '#475569', fontSize: '0.7rem' }}>Activa</span>
                           </label>
-                        </Field>
-                      </Row2>
-                    </div>
-                  )}
-                </div>
-              ))}
+                          <div style={{ flex: 1 }} />
+                          <button type="button" onClick={() => duplicateVariant(v._key)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', fontSize: '0.72rem', fontFamily: F, padding: '0.2rem 0.375rem' }}>
+                            Duplicar
+                          </button>
+                          {form.variants.length > 1 && (
+                            <button type="button" onClick={() => removeVariant(v._key)}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: '0.72rem', fontFamily: F, padding: '0.2rem 0.375rem' }}>
+                              Eliminar
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </Section>
           )}
 
