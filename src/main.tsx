@@ -7,6 +7,10 @@ import { CajaProvider } from './contexts/CajaContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import './index.css'
 
+const buildVersion = import.meta.env.VITE_APP_VERSION || __BUILD_TIME__
+console.log('%cTechRepair Pro', 'color:#818cf8;font-weight:bold;font-size:14px')
+console.log('Build:', buildVersion)
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>

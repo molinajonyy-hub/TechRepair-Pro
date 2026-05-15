@@ -49,6 +49,7 @@ import { PortalRouter, PORTAL_DOMAINS } from './portal/PortalRouter'
 import { ProtectedRouteByFeature } from './components/auth/ProtectedRouteByFeature'
 import { ProtectedRouteBySystemOwner } from './components/auth/ProtectedRouteBySystemOwner'
 import { Onboarding } from './pages/Onboarding'
+import { UpdateBanner } from './components/UpdateBanner'
 
 function AppContent() {
   const { loadingState } = useLoading()
@@ -78,6 +79,7 @@ function AppContent() {
   return (
     <>
       {loadingNode}
+      <UpdateBanner />
       <Routes>
         <Route path="/landing" element={<LandingPage />} />
         <Route path="/login" element={<Login />} />
