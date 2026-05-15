@@ -17,6 +17,8 @@ import {
   RefreshIcon, AlertIcon,
 } from '../ui/icons'
 import { suppliersService, type CreatePurchaseInput } from '../services/suppliersService'
+import { ProductFormModal } from '../components/products/ProductFormModal'
+import type { InventoryItem } from '../hooks/useInventory'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -150,19 +152,13 @@ interface ItemRowProps {
   onUpdate: (id: string, patch: Partial<LineItem>) => void
   onRemove: (id: string) => void
   isOnly: boolean
+  onOpenProductForm: (name: string, itemId: string) => void
 }
 
-function ItemRow({ item, businessId, onUpdate, onRemove, isOnly }: ItemRowProps) {
-  const [q, setQ]             = useState(item.product_name)
+function ItemRow({ item, businessId, onUpdate, onRemove, isOnly, onOpenProductForm }: ItemRowProps) {
+  const [q, setQ]         = useState(item.product_name)
   const [results, setResults] = useState<any[]>([])
-  const [open, setOpen]       = useState(false)
-  const [creating, setCreating] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [newCost, setNewCost] = useState('')
-  const [newPrice, setNewPrice] = useState('')
-  const [newCat, setNewCat]   = useState('General')
-  const [savingProd, setSavingProd] = useState(false)
-  const [feedback, setFeedback] = useState('')
+  const [open, setOpen]   = useState(false)
 
   useEffect(() => {
     if (item.inventory_id || q.length < 2) { setResults([]); setOpen(false); return }
@@ -174,9 +170,8 @@ function ItemRow({ item, businessId, onUpdate, onRemove, isOnly }: ItemRowProps)
         .ilike('name', `%${q}%`)
         .not('has_variants', 'is', true)
         .limit(8)
-      const list = data || []
-      setResults(list)
-      setOpen(list.length > 0)
+      setResults(data || [])
+      setOpen(true)  // siempre abre — muestra resultados O botón "Crear"
     }, 280)
     return () => clearTimeout(t)
   }, [q, businessId, item.inventory_id])
@@ -191,116 +186,77 @@ function ItemRow({ item, businessId, onUpdate, onRemove, isOnly }: ItemRowProps)
     onUpdate(item._id, { inventory_id: null, product_name: '' })
   }
 
-  const handleCreateProduct = async () => {
-    if (!newName.trim()) return
-    setSavingProd(true)
-    try {
-      const { data: np, error } = await supabase.from('inventory')
-        .insert({ business_id: businessId, name: newName.trim(), cost_price: parseFloat(newCost) || 0, sale_price: parseFloat(newPrice) || parseFloat(newCost) || 0, category: newCat || 'General', stock_quantity: 0, updated_at: new Date().toISOString() })
-        .select().single()
-      if (error) throw error
-      setFeedback(`"${np.name}" creado`)
-      setTimeout(() => setFeedback(''), 4000)
-      setCreating(false); setNewName(''); setNewCost(''); setNewPrice(''); setNewCat('General')
-      setQ(np.name)
-      onUpdate(item._id, { inventory_id: np.id, product_name: np.name, costo_unitario: newCost || '' })
-    } catch (e: any) { console.error(e) } finally { setSavingProd(false) }
-  }
-
   const cell: React.CSSProperties = { padding: '0.4375rem 0.375rem', verticalAlign: 'top' }
 
   return (
-    <>
-      <tr>
-        {/* Producto */}
-        <td style={{ ...cell, minWidth: 220, position: 'relative' }}>
-          {item.inventory_id ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.4rem 0.625rem', background: 'rgba(99,102,241,0.07)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(99,102,241,0.18)' }}>
-              <span style={{ flex: 1, fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{item.product_name}</span>
-              <button onClick={clearProduct} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 0, display: 'flex', alignItems: 'center' }}>
-                <X size={12} />
-              </button>
-            </div>
-          ) : (
-            <div style={{ position: 'relative' }}>
-              <input style={inputSm} value={q}
-                onChange={e => { setQ(e.target.value); onUpdate(item._id, { product_name: e.target.value, inventory_id: null }) }}
-                onFocus={() => results.length > 0 && setOpen(true)}
-                onBlur={() => setTimeout(() => setOpen(false), 180)}
-                placeholder="Buscar producto..." />
-              {open && results.length > 0 && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 999, background: 'var(--bg-modal)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', width: '100%', minWidth: 240, boxShadow: 'var(--shadow-lg)', maxHeight: 180, overflowY: 'auto' }}>
-                  {results.map(r => (
-                    <div key={r.id} onMouseDown={() => selectProduct(r)}
-                      style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', fontSize: '0.82rem', borderBottom: '1px solid var(--border-subtle)' }}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-hover)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                      <span style={{ fontWeight: 600 }}>{r.name}</span>
-                      {r.cost_price > 0 && <span style={{ marginLeft: '0.5rem', fontSize: '0.72rem', color: 'var(--text-subtle)' }}>Costo: {fmtARS(r.cost_price)}</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          {!item.inventory_id && !creating && (
-            <button onClick={() => { setCreating(true); setNewName(q) }}
-              style={{ marginTop: '0.25rem', fontSize: '0.72rem', color: 'var(--accent-primary)', background: 'none', border: 'none', cursor: 'pointer', padding: '0.1rem 0', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-              <Plus size={10} /> Crear producto
+    <tr>
+      {/* Producto */}
+      <td style={{ ...cell, minWidth: 220, position: 'relative' }}>
+        {item.inventory_id ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.4rem 0.625rem', background: 'rgba(99,102,241,0.07)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(99,102,241,0.18)' }}>
+            <span style={{ flex: 1, fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-primary)' }}>{item.product_name}</span>
+            <button onClick={clearProduct} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: 0, display: 'flex', alignItems: 'center' }}>
+              <X size={12} />
             </button>
-          )}
-          {feedback && (
-            <p style={{ margin: '0.25rem 0 0', fontSize: '0.72rem', color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-              <Check size={10} /> {feedback}
-            </p>
-          )}
-        </td>
-        {/* Cantidad */}
-        <td style={{ ...cell, width: 76 }}>
-          <input style={{ ...inputSm, textAlign: 'right' }} type="number" min="0.01" step="1"
-            value={item.cantidad} onChange={e => onUpdate(item._id, { cantidad: e.target.value })} />
-        </td>
-        {/* Costo unit. */}
-        <td style={{ ...cell, width: 120 }}>
-          <input style={{ ...inputSm, textAlign: 'right' }} type="number" min="0" step="1"
-            value={item.costo_unitario} onChange={e => onUpdate(item._id, { costo_unitario: e.target.value })} placeholder="$ 0" />
-        </td>
-        {/* Subtotal */}
-        <td style={{ ...cell, width: 120, textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.9rem', paddingRight: '0.5rem', verticalAlign: 'middle' }}>
-          {fmtARS((parseFloat(item.cantidad) || 0) * (parseFloat(item.costo_unitario) || 0))}
-        </td>
-        {/* Eliminar */}
-        <td style={{ ...cell, width: 36, verticalAlign: 'middle' }}>
-          <button onClick={() => onRemove(item._id)} disabled={isOnly}
-            style={{ background: 'none', border: 'none', cursor: isOnly ? 'not-allowed' : 'pointer', color: 'var(--error)', padding: '0.25rem', display: 'flex', alignItems: 'center', opacity: isOnly ? 0.3 : 1 }}>
-            <X size={14} />
-          </button>
-        </td>
-      </tr>
-
-      {/* Inline create product form */}
-      {creating && (
-        <tr>
-          <td colSpan={5} style={{ padding: '0.375rem 0.375rem 0.75rem' }}>
-            <div style={{ padding: '0.75rem', background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-              <p style={{ ...labelS, marginBottom: 0, color: 'var(--accent-primary)' }}>Crear producto nuevo</p>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '0.5rem' }}>
-                <input style={inputSm} value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nombre *" autoFocus onKeyDown={e => e.key === 'Enter' && handleCreateProduct()} />
-                <input style={inputSm} type="number" value={newCost} onChange={e => setNewCost(e.target.value)} placeholder="Costo $" />
-                <input style={inputSm} type="number" value={newPrice} onChange={e => setNewPrice(e.target.value)} placeholder="Precio venta" />
-                <input style={inputSm} value={newCat} onChange={e => setNewCat(e.target.value)} placeholder="Categoría" />
+          </div>
+        ) : (
+          <div style={{ position: 'relative' }}>
+            <input style={inputSm} value={q}
+              onChange={e => { setQ(e.target.value); onUpdate(item._id, { product_name: e.target.value, inventory_id: null }) }}
+              onFocus={() => q.length >= 2 && setOpen(true)}
+              onBlur={() => setTimeout(() => setOpen(false), 200)}
+              placeholder="Buscar producto..." />
+            {open && q.trim().length >= 2 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 999, background: 'var(--bg-modal)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', width: '100%', minWidth: 240, boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}>
+                {results.length === 0 && (
+                  <div style={{ padding: '0.5rem 0.75rem', fontSize: '0.78rem', color: 'var(--text-subtle)' }}>
+                    Sin resultados para "{q.trim()}"
+                  </div>
+                )}
+                {results.map(r => (
+                  <div key={r.id} onMouseDown={() => selectProduct(r)}
+                    style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', fontSize: '0.82rem', borderBottom: '1px solid var(--border-subtle)' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-hover)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                    <span style={{ fontWeight: 600 }}>{r.name}</span>
+                    {r.cost_price > 0 && <span style={{ marginLeft: '0.5rem', fontSize: '0.72rem', color: 'var(--text-subtle)' }}>Costo: {fmtARS(r.cost_price)}</span>}
+                  </div>
+                ))}
+                <div
+                  onMouseDown={() => { setOpen(false); onOpenProductForm(q.trim(), item._id) }}
+                  style={{ padding: '0.5rem 0.75rem', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 700, color: 'var(--accent-primary)', background: 'rgba(99,102,241,0.06)', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '0.375rem' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.12)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.06)')}
+                >
+                  <Plus size={11} /> Crear producto completo: "{q.trim()}"
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                <AppButton variant="ghost" size="xs" onClick={() => setCreating(false)}>Cancelar</AppButton>
-                <AppButton variant="indigo" size="xs" loading={savingProd} onClick={handleCreateProduct} leftIcon={<Check size={11} />}>
-                  Guardar producto
-                </AppButton>
-              </div>
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
+            )}
+          </div>
+        )}
+      </td>
+      {/* Cantidad */}
+      <td style={{ ...cell, width: 76 }}>
+        <input style={{ ...inputSm, textAlign: 'right' }} type="number" min="0.01" step="1"
+          value={item.cantidad} onChange={e => onUpdate(item._id, { cantidad: e.target.value })} />
+      </td>
+      {/* Costo unit. */}
+      <td style={{ ...cell, width: 120 }}>
+        <input style={{ ...inputSm, textAlign: 'right' }} type="number" min="0" step="1"
+          value={item.costo_unitario} onChange={e => onUpdate(item._id, { costo_unitario: e.target.value })} placeholder="$ 0" />
+      </td>
+      {/* Subtotal */}
+      <td style={{ ...cell, width: 120, textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.9rem', paddingRight: '0.5rem', verticalAlign: 'middle' }}>
+        {fmtARS((parseFloat(item.cantidad) || 0) * (parseFloat(item.costo_unitario) || 0))}
+      </td>
+      {/* Eliminar */}
+      <td style={{ ...cell, width: 36, verticalAlign: 'middle' }}>
+        <button onClick={() => onRemove(item._id)} disabled={isOnly}
+          style={{ background: 'none', border: 'none', cursor: isOnly ? 'not-allowed' : 'pointer', color: 'var(--error)', padding: '0.25rem', display: 'flex', alignItems: 'center', opacity: isOnly ? 0.3 : 1 }}>
+          <X size={14} />
+        </button>
+      </td>
+    </tr>
   )
 }
 
@@ -341,6 +297,17 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
 
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
+
+  // ProductFormModal — abrir desde ItemRow al hacer "Crear producto completo"
+  const [showProductFormModal, setShowProductFormModal] = useState(false)
+  const [productFormItemId, setProductFormItemId]       = useState<string | null>(null)
+  const [productFormInitialName, setProductFormInitialName] = useState('')
+
+  const handleOpenProductForm = (name: string, itemId: string) => {
+    setProductFormInitialName(name)
+    setProductFormItemId(itemId)
+    setShowProductFormModal(true)
+  }
 
   const totalFactura = items.reduce((s, it) => s + (parseFloat(it.cantidad) || 0) * (parseFloat(it.costo_unitario) || 0), 0)
 
@@ -432,6 +399,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
   const modalMaxW  = tipo === 'factura' ? 900 : 560
 
   return (
+    <>
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div style={{ background: 'var(--bg-modal)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-2xl)', width: '100%', maxWidth: modalMaxW, display: 'flex', flexDirection: 'column', maxHeight: '92vh', boxShadow: 'var(--shadow-xl)', transition: 'max-width 0.2s' }}>
@@ -608,7 +576,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
                     </thead>
                     <tbody>
                       {items.map(it => (
-                        <ItemRow key={it._id} item={it} businessId={businessId} onUpdate={updateItem} onRemove={removeItem} isOnly={items.length === 1} />
+                        <ItemRow key={it._id} item={it} businessId={businessId} onUpdate={updateItem} onRemove={removeItem} isOnly={items.length === 1} onOpenProductForm={handleOpenProductForm} />
                       ))}
                     </tbody>
                     <tfoot>
@@ -659,6 +627,27 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
         </div>
       </div>
     </div>
+
+    {/* ProductFormModal — registerStock=false: el stock se suma al registrar la factura */}
+    <ProductFormModal
+      isOpen={showProductFormModal}
+      onClose={() => { setShowProductFormModal(false); setProductFormItemId(null) }}
+      onCreated={(product: InventoryItem) => {
+        if (productFormItemId) {
+          updateItem(productFormItemId, {
+            inventory_id:   product.id,
+            product_name:   product.name,
+            costo_unitario: product.cost_price ? String(Math.round(product.cost_price)) : '',
+          })
+        }
+        setShowProductFormModal(false)
+        setProductFormItemId(null)
+      }}
+      initialName={productFormInitialName}
+      registerStock={false}
+      sourceType="supplier_invoice"
+    />
+    </>
   )
 }
 
