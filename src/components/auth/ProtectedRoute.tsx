@@ -1,15 +1,22 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { RefreshCw } from 'lucide-react'
+import { useRef } from 'react'
 
 export function ProtectedRoute() {
   const { isAuthenticated, loading, hasBusinessAccess, profileLoading, profile, profileError } = useAuth()
   const location = useLocation()
 
-  // Wait for BOTH auth and profile to finish loading before any redirect decision.
-  // Belt-and-suspenders: also wait if user exists but profile hasn't resolved yet,
-  // covering any race window where profileLoading is briefly false before loadProfile starts.
-  if (loading || profileLoading || (isAuthenticated && !profile && !profileError)) {
+  // Una vez que el perfil se cargó exitosamente, jamás lo olvidamos.
+  // Esto evita que TOKEN_REFRESHED u otros re-auth temporales desmontenten
+  // la página activa (lo que cerraría modales y resetearía estado de UI).
+  const profileEverLoadedRef = useRef(false)
+  if (profile) profileEverLoadedRef.current = true
+  const profileEstablished = profileEverLoadedRef.current
+
+  // Mostrar loading SOLO en la carga inicial (primera vez), nunca en re-auth.
+  const isInitialLoad = !profileEstablished
+  if (loading || (profileLoading && isInitialLoad) || (isAuthenticated && !profile && !profileError && isInitialLoad)) {
     return (
       <div style={{
         display: 'flex',

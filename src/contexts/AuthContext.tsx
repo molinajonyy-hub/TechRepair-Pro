@@ -288,12 +288,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
       const sessionFromEvent = nextSession ?? null;
       applySession(sessionFromEvent);
       setLoading(false);
 
       if (sessionFromEvent?.user) {
+        // TOKEN_REFRESHED solo actualiza el token, no el perfil de usuario.
+        // No poner profileLoading=true para evitar que ProtectedRoute desmonte
+        // las páginas activas (cerrando modales y reseteando estado).
+        if (event === 'TOKEN_REFRESHED') return;
+
         // Marcar profileLoading ANTES del setTimeout para que ProtectedRoute
         // muestre loader en vez de redirigir a /no-business durante el tick de espera.
         setProfileLoading(true);
