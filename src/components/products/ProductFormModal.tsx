@@ -54,6 +54,7 @@ export interface ProductFormModalProps {
   initialCost?:     number
   initialQuantity?: number
   initialCurrency?: 'ARS' | 'USD'
+  initialTipo?:     'product' | 'service' | 'with_variants'
   supplierId?:      string
   supplierName?:    string
 
@@ -159,7 +160,7 @@ const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 export function ProductFormModal({
   isOpen, onClose, onCreated, onVariantSelected,
-  initialName, initialCost, initialQuantity, initialCurrency,
+  initialName, initialCost, initialQuantity, initialCurrency, initialTipo,
   supplierId, supplierName,
   registerStock = false, sourceType, sourceId, sourceNote,
 }: ProductFormModalProps) {
@@ -187,8 +188,13 @@ export function ProductFormModal({
   useEffect(() => {
     if (!isOpen) return
     const rate = form.exchange_rate || ''
+    const resolvedTipo = initialTipo ?? 'product'
+    if (resolvedTipo === 'with_variants') {
+      console.log('[PRODUCT_VARIANTS_PREMIUM_RENDERED]')
+    }
     setForm({
       ...EMPTY,
+      tipo:          resolvedTipo,
       name:          initialName      ?? '',
       category:      '',
       supplier_id:   supplierId       ?? '',

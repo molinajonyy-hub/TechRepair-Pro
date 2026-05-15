@@ -83,8 +83,9 @@ export function Inventory() {
   const [showModal, setShowModal] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showProductMenu, setShowProductMenu] = useState(false)
-  // ProductFormModal — para "Producto simple" y "Servicio" (sin variantes)
+  // ProductFormModal — cubre Producto simple, Servicio y Con variantes
   const [showProductFormModal, setShowProductFormModal] = useState(false)
+  const [productFormTipo, setProductFormTipo] = useState<'product' | 'service' | 'with_variants'>('product')
   const [editingItem, setEditingItem] = useState<any>(null)
   const [variantParentItem, setVariantParentItem] = useState<any>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -1707,7 +1708,7 @@ export function Inventory() {
                   minWidth: '200px'
                 }}>
                   <button
-                    onClick={() => { setShowProductMenu(false); setShowProductFormModal(true); }}
+                    onClick={() => { setShowProductMenu(false); setProductFormTipo('product'); setShowProductFormModal(true); }}
                     style={{
                       width: '100%',
                       padding: '0.875rem 1rem',
@@ -1721,10 +1722,10 @@ export function Inventory() {
                       borderBottom: '1px solid rgba(0,0,0,0.1)'
                     }}
                   >
-                    📦 Producto simple
+                    Producto simple
                   </button>
                   <button
-                    onClick={() => { setShowProductMenu(false); openAddModal(); setTimeout(() => setFormData(prev => ({ ...prev, has_variants: true, tipo: 'product' })), 100); }}
+                    onClick={() => { setShowProductMenu(false); setProductFormTipo('with_variants'); setShowProductFormModal(true); }}
                     style={{
                       width: '100%',
                       padding: '0.875rem 1rem',
@@ -1738,10 +1739,10 @@ export function Inventory() {
                       borderBottom: '1px solid rgba(0,0,0,0.1)'
                     }}
                   >
-                    🔀 Producto con variantes
+                    Producto con variantes
                   </button>
                   <button
-                    onClick={() => { setShowProductMenu(false); setShowProductFormModal(true); }}
+                    onClick={() => { setShowProductMenu(false); setProductFormTipo('service'); setShowProductFormModal(true); }}
                     style={{
                       width: '100%',
                       padding: '0.875rem 1rem',
@@ -1754,7 +1755,7 @@ export function Inventory() {
                       fontWeight: 600
                     }}
                   >
-                    🔧 Nuevo Servicio
+                    Nuevo Servicio
                   </button>
                 </div>
               )}
@@ -2031,7 +2032,7 @@ export function Inventory() {
                         <p style={{ color: '#94a3b8', fontSize: '0.9375rem', marginBottom: '1.5rem', maxWidth: '400px', margin: '0 auto 1.5rem' }}>
                           Comenzá agregando productos al inventario para gestionar tu stock y precios.
                         </p>
-                        <button onClick={() => { setShowProductFormModal(true) }} style={{
+                        <button onClick={() => { setProductFormTipo('product'); setShowProductFormModal(true) }} style={{
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '0.5rem',
@@ -3156,7 +3157,7 @@ export function Inventory() {
         />
       )}
 
-      {/* ProductFormModal — alta de producto simple y servicio */}
+      {/* ProductFormModal — Producto simple, Servicio y Con variantes */}
       <ProductFormModal
         isOpen={showProductFormModal}
         onClose={() => setShowProductFormModal(false)}
@@ -3164,6 +3165,7 @@ export function Inventory() {
           setShowProductFormModal(false)
           void refresh()
         }}
+        initialTipo={productFormTipo}
         registerStock
         sourceType="manual"
         sourceNote="Stock inicial desde Inventario"
