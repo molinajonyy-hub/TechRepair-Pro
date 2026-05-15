@@ -144,7 +144,6 @@ function ProductSearchInput({
   const [results, setResults] = useState<InventoryItem[]>([])
   const [open, setOpen] = useState(false)
   const [searching, setSearching] = useState(false)
-  const [showNewForm, setShowNewForm] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout>>()
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -189,7 +188,6 @@ function ProductSearchInput({
   const selectProduct = (prod: InventoryItem) => {
     setQuery(prod.name)
     setOpen(false)
-    setShowNewForm(false)
     onChange({
       inventoryId: prod.id,
       nombre: prod.name,
@@ -251,165 +249,101 @@ function ProductSearchInput({
 
       <div style={{ padding: '0 0.875rem 0.875rem', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
         {/* Product search */}
-        {!showNewForm ? (
-          <div ref={wrapperRef} style={{ position: 'relative' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={13} style={{ position: 'absolute', left: '0.625rem', top: '50%', transform: 'translateY(-50%)', color: '#475569', pointerEvents: 'none' }} />
-              <input
-                type="text"
-                value={query}
-                onChange={e => handleInputChange(e.target.value)}
-                onFocus={() => { setOpen(true); if (!results.length && query) search(query) }}
-                placeholder="Buscar producto o código..."
-                style={{ ...inputStyle, paddingLeft: '2rem', paddingRight: item.inventoryId ? '2rem' : undefined }}
-              />
-              {item.inventoryId && (
-                <CheckCircle2 size={13} style={{ position: 'absolute', right: '0.625rem', top: '50%', transform: 'translateY(-50%)', color: '#10b981' }} />
-              )}
-            </div>
-
-            {/* Dropdown */}
-            {open && (
-              <div style={{
-                position: 'absolute',
-                top: 'calc(100% + 4px)',
-                left: 0,
-                right: 0,
-                backgroundColor: '#0b1120',
-                border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '0.5rem',
-                zIndex: 999,
-                boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-                overflow: 'hidden',
-                maxHeight: '220px',
-                overflowY: 'auto',
-              }}>
-                {searching ? (
-                  <div style={{ padding: '0.75rem 1rem', color: '#64748b', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Loader2 size={12} className="animate-spin" /> Buscando...
-                  </div>
-                ) : results.length === 0 && query.trim() ? (
-                  <>
-                    <div style={{ padding: '0.75rem 1rem', color: '#64748b', fontSize: '0.8rem' }}>
-                      Sin resultados para "{query}"
-                    </div>
-                    <button
-                      onClick={handleCreateNew}
-                      style={{
-                        width: '100%', textAlign: 'left', padding: '0.625rem 1rem',
-                        background: 'rgba(99,102,241,0.1)', border: 'none',
-                        borderTop: '1px solid rgba(255,255,255,0.06)',
-                        color: '#818cf8', fontSize: '0.8rem', cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', gap: '0.5rem'
-                      }}
-                    >
-                      <Plus size={12} /> Crear "{query}" como nuevo producto
-                    </button>
-                  </>
-                ) : results.length > 0 ? (
-                  <>
-                    {results.map(r => (
-                      <button
-                        key={r.id}
-                        onClick={() => selectProduct(r)}
-                        style={{
-                          width: '100%', textAlign: 'left', padding: '0.625rem 1rem',
-                          background: 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.04)',
-                          color: '#f1f5f9', fontSize: '0.8rem', cursor: 'pointer',
-                          display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.04)')}
-                        onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
-                      >
-                        <span>
-                          <span style={{ color: '#f1f5f9', fontWeight: 500 }}>{r.name}</span>
-                          {r.code && <span style={{ color: '#475569', marginLeft: '0.5rem' }}>#{r.code}</span>}
-                        </span>
-                        <span style={{ color: '#475569', fontSize: '0.75rem', whiteSpace: 'nowrap', marginLeft: '0.5rem' }}>
-                          Stock: {r.stock_quantity}
-                        </span>
-                      </button>
-                    ))}
-                    <button
-                      onClick={handleCreateNew}
-                      style={{
-                        width: '100%', textAlign: 'left', padding: '0.625rem 1rem',
-                        background: 'rgba(99,102,241,0.06)', border: 'none',
-                        borderTop: '1px solid rgba(255,255,255,0.06)',
-                        color: '#818cf8', fontSize: '0.8rem', cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', gap: '0.5rem'
-                      }}
-                    >
-                      <Plus size={12} /> Crear nuevo producto{query ? ` "${query}"` : ''}
-                    </button>
-                  </>
-                ) : null}
-              </div>
+        <div ref={wrapperRef} style={{ position: 'relative' }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={13} style={{ position: 'absolute', left: '0.625rem', top: '50%', transform: 'translateY(-50%)', color: '#475569', pointerEvents: 'none' }} />
+            <input
+              type="text"
+              value={query}
+              onChange={e => handleInputChange(e.target.value)}
+              onFocus={() => { setOpen(true); if (!results.length && query) search(query) }}
+              placeholder="Buscar producto o código..."
+              style={{ ...inputStyle, paddingLeft: '2rem', paddingRight: item.inventoryId ? '2rem' : undefined }}
+            />
+            {item.inventoryId && (
+              <CheckCircle2 size={13} style={{ position: 'absolute', right: '0.625rem', top: '50%', transform: 'translateY(-50%)', color: '#10b981' }} />
             )}
           </div>
-        ) : (
-          /* Inline new product form — reemplazado por ProductFormModal */
-          <div style={{
-            border: '1px solid rgba(99,102,241,0.3)',
-            borderRadius: '0.5rem',
-            padding: '0.75rem',
-            backgroundColor: 'rgba(99,102,241,0.06)',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.625rem' }}>
-              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#818cf8' }}>✦ Creando producto...</span>
-              <button
-                onClick={() => { setShowNewForm(false); onChange({ esNuevo: false, inventoryId: null, nombre: '' }); setQuery('') }}
-                style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: '0.7rem' }}
-              >
-                Buscar existente
-              </button>
+
+          {/* Dropdown */}
+          {open && (
+            <div style={{
+              position: 'absolute',
+              top: 'calc(100% + 4px)',
+              left: 0,
+              right: 0,
+              backgroundColor: '#0b1120',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: '0.5rem',
+              zIndex: 999,
+              boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+              overflow: 'hidden',
+              maxHeight: '220px',
+              overflowY: 'auto',
+            }}>
+              {searching ? (
+                <div style={{ padding: '0.75rem 1rem', color: '#64748b', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Loader2 size={12} className="animate-spin" /> Buscando...
+                </div>
+              ) : results.length === 0 && query.trim() ? (
+                <>
+                  <div style={{ padding: '0.75rem 1rem', color: '#64748b', fontSize: '0.8rem' }}>
+                    Sin resultados para "{query}"
+                  </div>
+                  <button
+                    onClick={handleCreateNew}
+                    style={{
+                      width: '100%', textAlign: 'left', padding: '0.625rem 1rem',
+                      background: 'rgba(99,102,241,0.1)', border: 'none',
+                      borderTop: '1px solid rgba(255,255,255,0.06)',
+                      color: '#818cf8', fontSize: '0.8rem', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: '0.5rem'
+                    }}
+                  >
+                    <Plus size={12} /> Crear producto completo: "{query}"
+                  </button>
+                </>
+              ) : results.length > 0 ? (
+                <>
+                  {results.map(r => (
+                    <button
+                      key={r.id}
+                      onClick={() => selectProduct(r)}
+                      style={{
+                        width: '100%', textAlign: 'left', padding: '0.625rem 1rem',
+                        background: 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                        color: '#f1f5f9', fontSize: '0.8rem', cursor: 'pointer',
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.04)')}
+                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    >
+                      <span>
+                        <span style={{ color: '#f1f5f9', fontWeight: 500 }}>{r.name}</span>
+                        {r.code && <span style={{ color: '#475569', marginLeft: '0.5rem' }}>#{r.code}</span>}
+                      </span>
+                      <span style={{ color: '#475569', fontSize: '0.75rem', whiteSpace: 'nowrap', marginLeft: '0.5rem' }}>
+                        Stock: {r.stock_quantity}
+                      </span>
+                    </button>
+                  ))}
+                  <button
+                    onClick={handleCreateNew}
+                    style={{
+                      width: '100%', textAlign: 'left', padding: '0.625rem 1rem',
+                      background: 'rgba(99,102,241,0.06)', border: 'none',
+                      borderTop: '1px solid rgba(255,255,255,0.06)',
+                      color: '#818cf8', fontSize: '0.8rem', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: '0.5rem'
+                    }}
+                  >
+                    <Plus size={12} /> Crear producto completo: "{query}"
+                  </button>
+                </>
+              ) : null}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={{ fontSize: '0.7rem', color: '#64748b', display: 'block', marginBottom: '0.25rem' }}>Nombre *</label>
-                <input
-                  type="text"
-                  value={item.nombre}
-                  onChange={e => onChange({ nombre: e.target.value })}
-                  placeholder="Nombre del producto"
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: '0.7rem', color: '#64748b', display: 'block', marginBottom: '0.25rem' }}>Código</label>
-                <input
-                  type="text"
-                  value={item.codigo}
-                  onChange={e => onChange({ codigo: e.target.value })}
-                  placeholder="SKU / Código"
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: '0.7rem', color: '#64748b', display: 'block', marginBottom: '0.25rem' }}>Categoría</label>
-                <select
-                  value={item.categoriaInventario}
-                  onChange={e => onChange({ categoriaInventario: e.target.value })}
-                  style={{ ...inputStyle }}
-                >
-                  {INVENTORY_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={{ fontSize: '0.7rem', color: '#64748b', display: 'block', marginBottom: '0.25rem' }}>Precio de venta sugerido</label>
-                <input
-                  type="number"
-                  value={item.precioVenta || ''}
-                  onChange={e => onChange({ precioVenta: parseFloat(e.target.value) || 0 })}
-                  placeholder="0.00"
-                  min="0"
-                  step="0.01"
-                  style={inputStyle}
-                />
-              </div>
-            </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Qty + Cost + Total */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', alignItems: 'end' }}>

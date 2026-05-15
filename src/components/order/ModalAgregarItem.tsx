@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { currencyService } from '../../services/currencyService'
 import { ProductFormModal } from '../products/ProductFormModal'
+import { productService } from '../../services/productService'
 import type { InventoryItem } from '../../hooks/useInventory'
 
 interface InventoryProduct {
@@ -25,7 +26,7 @@ interface ModalAgregarItemProps {
 }
 
 export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: ModalAgregarItemProps) {
-  const { businessId } = useAuth()
+  const { businessId, user } = useAuth()
   const [tipo, setTipo] = useState<'repuesto' | 'servicio'>('repuesto')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -40,7 +41,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
   const [clientePagaRepuesto, setClientePagaRepuesto] = useState(() => {
     try { return localStorage.getItem(PREF_KEY) === 'true' } catch { return false }
   })
-  const [showInventorySearch, setShowInventorySearch] = useState(false)
+  const [showInventorySearch, setShowInventorySearch] = useState(true)
 
   // Shared fields
   const [descripcion, setDescripcion] = useState('')
@@ -207,31 +208,25 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
 
     setIsSubmitting(true)
     try {
-      // Si no hay producto del inventario seleccionado → crear en inventario
+      // Si no hay producto del inventario seleccionado → crear via productService
       let inventoryProductId: string | null = selectedProduct?.id || null
       if (!selectedProduct && descripcion.trim() && businessId) {
         const isService = tipo === 'servicio'
-        const { data: newInvItem, error: invError } = await supabase
-          .from('inventory')
-          .insert({
-            business_id: businessId,
-            name: descripcion.trim(),
-            sale_price: precio,              // siempre en ARS
-            cost_price: costo || null,       // siempre en ARS
-            base_currency: baseCurrency,
-            base_price: baseCurrency === 'USD' ? rawPrecio : precio,
-            exchange_rate_used: baseCurrency === 'USD' ? rate : null,
-            cost_price_usd: baseCurrency === 'USD' ? rawCosto : null,
-            stock_quantity: isService ? 0 : qty,
-            min_stock: 0,
-            tipo: isService ? 'service' : 'product',
-            is_active: true,
-          })
-          .select('id')
-          .single()
-        if (!invError && newInvItem) {
-          inventoryProductId = newInvItem.id
-        }
+        const newProduct = await productService.createProduct({
+          business_id:        businessId,
+          created_by:         user?.id ?? '',
+          name:               descripcion.trim(),
+          tipo:               isService ? 'service' : 'product',
+          base_currency:      baseCurrency,
+          base_price:         baseCurrency === 'USD' ? rawPrecio : precio,
+          cost_price:         costo || 0,
+          cost_price_usd:     baseCurrency === 'USD' ? rawCosto : undefined,
+          sale_price:         precio,
+          exchange_rate_used: baseCurrency === 'USD' ? rate : undefined,
+          stock_quantity:     0,
+          min_stock:          0,
+        })
+        inventoryProductId = newProduct.id
       }
 
       const { error: insertError } = await supabase
