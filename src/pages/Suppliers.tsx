@@ -3,7 +3,7 @@ import {
   Truck, Plus, Search, Edit2, Trash2, Eye, ChevronLeft,
   Phone, Mail, MapPin, AlertCircle,
   CheckCircle, Clock, X, CreditCard, MessageCircle,
-  FileText, TrendingUp, ShoppingCart, Banknote, RefreshCw,
+  FileText, TrendingUp, ShoppingCart, Banknote, RefreshCw, Wallet,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -325,6 +325,15 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
 
   const totalAmount = rows.reduce((s, r) => s + r.quantity * r.unit_cost, 0)
   const pendingAmount = Math.max(0, totalAmount - paidAmount)
+  // Métodos del grid visual (no cambia lógica de guardado)
+  const PROV_METHODS = [
+    { id: 'efectivo',      label: 'Efectivo',      short: 'Efec.',    color: '#22c55e' },
+    { id: 'transferencia', label: 'Transferencia', short: 'Trans.',   color: '#3b82f6' },
+    { id: 'tarjeta',       label: 'Tarjeta',       short: 'Tarj.',    color: '#f59e0b' },
+    { id: 'cheque',        label: 'Cheque',        short: 'Cheque',   color: '#94a3b8' },
+    { id: 'dolares',       label: 'Dólares',       short: 'USD',      color: '#22c55e' },
+    { id: 'otro',          label: 'Otro',          short: 'Otro',     color: '#64748b' },
+  ]
 
   const updateRow = (key: string, updates: Partial<PurchaseItemRow>) =>
     setRows(prev => prev.map(r => r._key === key ? { ...r, ...updates } : r))
@@ -461,8 +470,8 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
           </div>
         </div>
 
-        {/* Total + Pago */}
-        <div style={{ ...cardS, background: 'rgba(99,102,241,0.05)', borderColor: 'rgba(99,102,241,0.2)' }}>
+        {/* Total + Pago — diseño unificado con ComprobanteProModal */}
+        <div style={{ ...cardS, background: 'rgba(99,102,241,0.04)', borderColor: 'rgba(99,102,241,0.18)' }}>
           {/* Header con total y deuda previa */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.875rem' }}>
             <div>
@@ -476,35 +485,53 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
             <span style={{ fontSize: '1.625rem', fontWeight: 900, color: '#818cf8', letterSpacing: '-0.03em' }}>{fmtARS(totalAmount)}</span>
           </div>
 
-          {/* Selector visual de estado de pago */}
+          {/* ESTADO DE PAGO — 3 opciones claras */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.375rem', marginBottom: '0.875rem' }}>
             {[
-              { label: 'Todo a CC', desc: 'Se agendará como deuda', value: 0, color: '#818cf8', bg: 'rgba(99,102,241,0.12)', border: 'rgba(99,102,241,0.4)', active: paidAmount <= 0 },
-              { label: 'Pago parcial', desc: 'Paga parte ahora', value: -1, color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.35)', active: paidAmount > 0 && paidAmount < totalAmount },
-              { label: 'Pagado', desc: 'Factura saldada', value: totalAmount, color: '#22c55e', bg: 'rgba(34,197,94,0.1)', border: 'rgba(34,197,94,0.35)', active: paidAmount >= totalAmount && totalAmount > 0 },
+              { label: 'A cuenta corriente', icon: <Wallet size={13} />, value: 0 as number, color: '#818cf8', bg: 'rgba(99,102,241,0.12)', border: 'rgba(99,102,241,0.4)', active: paidAmount <= 0 },
+              { label: 'Pago parcial',        icon: <Banknote size={13} />, value: -1 as number, color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.35)', active: paidAmount > 0 && paidAmount < totalAmount },
+              { label: 'Pagado completo',     icon: <CheckCircle size={13} />, value: totalAmount, color: '#22c55e', bg: 'rgba(34,197,94,0.1)', border: 'rgba(34,197,94,0.35)', active: paidAmount >= totalAmount && totalAmount > 0 },
             ].map(opt => (
               <button key={opt.label}
-                onClick={() => opt.value === -1 ? setPaidAmount(Math.round(totalAmount / 2)) : setPaidAmount(opt.value)}
-                style={{ padding: '0.5rem 0.375rem', borderRadius: '0.5rem', border: `1px solid ${opt.active ? opt.border : 'rgba(255,255,255,0.08)'}`, background: opt.active ? opt.bg : 'rgba(255,255,255,0.02)', cursor: 'pointer', textAlign: 'center', transition: 'all 0.1s' }}>
-                <div style={{ color: opt.active ? opt.color : '#475569', fontSize: '0.75rem', fontWeight: opt.active ? 800 : 600 }}>{opt.label}</div>
-                <div style={{ color: opt.active ? opt.color : '#334155', fontSize: '0.62rem', opacity: 0.8, marginTop: '0.1rem' }}>{opt.desc}</div>
+                onClick={() => opt.value === -1 ? setPaidAmount(Math.round(totalAmount / 2)) : setPaidAmount(opt.value as number)}
+                style={{ padding: '0.5rem 0.3rem', borderRadius: '0.5rem', border: `1px solid ${opt.active ? opt.border : 'rgba(255,255,255,0.07)'}`, background: opt.active ? opt.bg : 'rgba(255,255,255,0.02)', cursor: 'pointer', textAlign: 'center', transition: 'all 0.1s', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
+                <span style={{ color: opt.active ? opt.color : '#334155' }}>{opt.icon}</span>
+                <span style={{ color: opt.active ? opt.color : '#475569', fontSize: '0.7rem', fontWeight: opt.active ? 800 : 500, lineHeight: 1.2 }}>{opt.label}</span>
               </button>
             ))}
           </div>
 
-          {/* Input de monto pagado — solo visible si no es "Todo a CC" */}
+          {/* Grid de métodos de cobro — mismo visual que ComprobanteProModal */}
+          <div style={{ marginBottom: '0.875rem' }}>
+            <div style={{ fontSize: '0.6rem', color: '#334155', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.375rem' }}>Método de pago</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.3rem' }}>
+              {PROV_METHODS.map(m => {
+                const active = paymentMethod === m.id
+                return (
+                  <button key={m.id} onClick={() => setPaymentMethod(m.id)}
+                    style={{ padding: '0.4rem 0.3rem', borderRadius: '0.5rem', border: `1px solid ${active ? m.color + '80' : 'rgba(255,255,255,0.06)'}`, background: active ? m.color + '22' : 'rgba(255,255,255,0.02)', color: active ? m.color : '#334155', fontSize: '0.72rem', fontWeight: active ? 700 : 500, cursor: 'pointer', transition: 'all 0.1s', textAlign: 'center' }}
+                    onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
+                    onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.02)' }}>
+                    {m.short}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Input de monto — solo en pago parcial */}
           {paidAmount > 0 && paidAmount < totalAmount && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.875rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.625rem', marginBottom: '0.875rem' }}>
               <div>
-                <label style={labelS}>Monto pagado ahora</label>
+                <label style={labelS}>Pagado ahora</label>
                 <input style={{ ...inputS, fontSize: '1rem', fontWeight: 700 }} type="number" min={0} max={totalAmount}
                   value={paidAmount || ''} onChange={e => setPaidAmount(Math.min(totalAmount, +e.target.value || 0))}
                   placeholder="$ pagado" />
               </div>
               <div>
-                <label style={labelS}>Va a CC proveedor</label>
-                <div style={{ ...inputS, color: '#818cf8', fontWeight: 800, fontSize: '1rem', display: 'flex', alignItems: 'center', background: 'rgba(99,102,241,0.06)', borderColor: 'rgba(99,102,241,0.25)' }}>
-                  {fmtARS(pendingAmount)}
+                <label style={{ ...labelS, color: '#818cf8' }}>Va a CC proveedor</label>
+                <div style={{ ...inputS, color: '#818cf8', fontWeight: 800, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.375rem', background: 'rgba(99,102,241,0.06)', borderColor: 'rgba(99,102,241,0.25)' }}>
+                  <Wallet size={14} color="#818cf8" /> {fmtARS(pendingAmount)}
                 </div>
               </div>
             </div>
@@ -515,41 +542,28 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
             <div style={{ padding: '0.625rem 0.75rem', background: 'rgba(0,0,0,0.2)', borderRadius: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
               {paidAmount > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Pagado ahora</span>
+                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Pagado ({PROV_METHODS.find(m => m.id === paymentMethod)?.label ?? paymentMethod})</span>
                   <span style={{ fontSize: '0.75rem', color: '#22c55e', fontWeight: 700 }}>{fmtARS(paidAmount)}</span>
                 </div>
               )}
               {pendingAmount > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: paidAmount > 0 ? '0.2rem' : 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '0.78rem', color: '#818cf8', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                    CC {supplier.name}
+                    <Wallet size={12} /> CC {supplier.name}
                   </span>
-                  <span style={{ fontSize: '0.88rem', color: '#818cf8', fontWeight: 900 }}>{fmtARS(pendingAmount)}</span>
+                  <span style={{ fontSize: '0.9rem', color: '#818cf8', fontWeight: 900 }}>{fmtARS(pendingAmount)}</span>
                 </div>
               )}
               {pendingAmount <= 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', color: '#22c55e', fontSize: '0.78rem', fontWeight: 700 }}>
-                  <CheckCircle size={13} /> Factura pagada completamente
+                  <CheckCircle size={13} /> Factura saldada completamente
                 </div>
               )}
               {pendingAmount > 0 && supplier.pending_amount > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.2rem', borderTop: '1px solid rgba(255,255,255,0.05)', marginTop: '0.1rem' }}>
-                  <span style={{ fontSize: '0.72rem', color: '#334155' }}>CC total acumulado</span>
-                  <span style={{ fontSize: '0.72rem', color: '#f59e0b', fontWeight: 700 }}>{fmtARS(supplier.pending_amount + pendingAmount)}</span>
+                  <span style={{ fontSize: '0.72rem', color: '#334155' }}>CC total acumulado con {supplier.name}</span>
+                  <span style={{ fontSize: '0.78rem', color: '#f59e0b', fontWeight: 800 }}>{fmtARS(supplier.pending_amount + pendingAmount)}</span>
                 </div>
-              )}
-            </div>
-          )}
-          {/* Estado CC resultante */}
-          {totalAmount > 0 && (
-            <div style={{ marginTop: '0.75rem', padding: '0.5rem 0.75rem', borderRadius: '0.5rem', background: pendingAmount > 0 ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)', border: `1px solid ${pendingAmount > 0 ? 'rgba(245,158,11,0.25)' : 'rgba(34,197,94,0.25)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.78rem', color: pendingAmount > 0 ? '#f59e0b' : '#22c55e', fontWeight: 600 }}>
-                {pendingAmount <= 0 ? '✓ Factura pagada completamente' : pendingAmount === totalAmount ? `Factura queda en CC (${fmtARS(pendingAmount)} a deber)` : `Pago parcial — queda ${fmtARS(pendingAmount)} en CC`}
-              </span>
-              {pendingAmount > 0 && supplier.pending_amount > 0 && (
-                <span style={{ fontSize: '0.72rem', color: '#334155' }}>
-                  CC total: {fmtARS(supplier.pending_amount + pendingAmount)}
-                </span>
               )}
             </div>
           )}
