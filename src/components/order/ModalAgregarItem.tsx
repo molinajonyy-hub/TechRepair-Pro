@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { X, Search, Package, Wrench, AlertCircle, Loader2, ChevronDown, ChevronUp, DollarSign } from 'lucide-react'
+import { X, Search, Package, Wrench, AlertCircle, Loader2, ChevronDown, ChevronUp, DollarSign, Plus } from 'lucide-react'
 import { CloseButton } from '../ui/CloseButton'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { currencyService } from '../../services/currencyService'
+import { ProductFormModal } from '../products/ProductFormModal'
+import type { InventoryItem } from '../../hooks/useInventory'
 
 interface InventoryProduct {
   id: string
@@ -52,6 +54,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
   const [exchangeRateInput, setExchangeRateInput] = useState('')
   const [loadingRate, setLoadingRate] = useState(false)
 
+  const [showProductForm, setShowProductForm] = useState(false)
   const searchRef = useRef<HTMLDivElement>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -275,6 +278,20 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
     }
   }
 
+  // Cuando el ProductFormModal crea un producto → lo selecciona automáticamente
+  function handleProductCreated(product: InventoryItem) {
+    selectProduct({
+      id:             product.id,
+      name:           product.name,
+      code:           product.code,
+      category:       product.category,
+      stock_quantity: product.stock_quantity,
+      sale_price:     product.sale_price,
+      cost_price:     product.cost_price,
+    })
+    setShowProductForm(false)
+  }
+
   if (!isOpen) return null
 
   const rate = parseFloat(exchangeRateInput) || exchangeRate || 1
@@ -286,6 +303,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
   const margen = subtotal - costoARS * (parseInt(cantidad) || 1)
 
   return (
+    <>
     <div
       style={{
         position: 'fixed', inset: 0, zIndex: 1000,
@@ -420,7 +438,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
                 </div>
 
                 {/* Dropdown results */}
-                {showDropdown && searchResults.length > 0 && (
+                {(showDropdown || (searchQuery.trim().length >= 2 && !isSearching && !selectedProduct)) && (
                   <div style={{
                     position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
                     backgroundColor: '#1e293b',
@@ -430,6 +448,11 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
                     boxShadow: '0 10px 25px rgba(0,0,0,0.4)',
                     overflow: 'hidden'
                   }}>
+                    {searchResults.length === 0 && searchQuery.trim().length >= 2 && !isSearching && (
+                      <p style={{ margin: 0, padding: '0.625rem 1rem', color: '#475569', fontSize: '0.82rem' }}>
+                        No se encontró "{searchQuery.trim()}"
+                      </p>
+                    )}
                     {searchResults.map((product) => (
                       <button
                         key={product.id}
@@ -474,6 +497,24 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
                         </div>
                       </button>
                     ))}
+                    {/* Botón crear producto completo (siempre disponible cuando hay búsqueda) */}
+                    {searchQuery.trim().length >= 2 && (
+                      <button
+                        type="button"
+                        onClick={() => { setShowDropdown(false); setShowProductForm(true) }}
+                        style={{
+                          width: '100%', padding: '0.625rem 1rem',
+                          background: 'rgba(99,102,241,0.08)',
+                          border: 'none', borderTop: '1px solid rgba(255,255,255,0.06)',
+                          color: '#818cf8', fontSize: '0.8rem', fontWeight: 700,
+                          cursor: 'pointer', textAlign: 'left',
+                          display: 'flex', alignItems: 'center', gap: '0.5rem',
+                        }}
+                      >
+                        <Plus size={14} />
+                        Crear producto completo: "{searchQuery.trim()}"
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -774,5 +815,19 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
         </form>
       </div>
     </div>
+
+    {/* ProductFormModal — se abre al hacer clic en "Crear producto completo" */}
+    <ProductFormModal
+      isOpen={showProductForm}
+      onClose={() => setShowProductForm(false)}
+      onCreated={handleProductCreated}
+      initialName={searchQuery.trim()}
+      initialCost={parseFloat(costoUnitario) || undefined}
+      initialQuantity={parseInt(cantidad) || 1}
+      initialCurrency={baseCurrency}
+      sourceType="manual"
+      registerStock={false}
+    />
+    </>
   )
 }
