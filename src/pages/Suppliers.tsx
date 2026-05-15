@@ -10,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { smartSearch, buildSupabaseQuery } from '../utils/searchUtils'
 import { ProductFormModal } from '../components/products/ProductFormModal'
 import type { InventoryItem } from '../hooks/useInventory'
+import type { ProductVariant } from '../services/productService'
 import suppliersService, {
   type SupplierWithStats,
   type SupplierPurchase,
@@ -517,6 +518,18 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
           selectProduct(productFormRowKey, {
             id: product.id, name: product.name, variant_name: undefined,
             cost_price: product.cost_price, stock_quantity: product.stock_quantity,
+          })
+        }
+        setShowProductForm(false); setProductFormRowKey(null)
+      }}
+      onVariantSelected={(variantInventory: InventoryItem, variantMeta: ProductVariant) => {
+        if (productFormRowKey) {
+          selectProduct(productFormRowKey, {
+            id: variantInventory.id,
+            name: variantInventory.name,
+            variant_name: variantMeta.name,
+            cost_price: variantMeta.cost_price_ars,
+            stock_quantity: variantMeta.stock,
           })
         }
         setShowProductForm(false); setProductFormRowKey(null)
