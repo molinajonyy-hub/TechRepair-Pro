@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { ProductFormModal } from '../products/ProductFormModal'
 import type { InventoryItem as InventoryItemHook } from '../../hooks/useInventory'
+import { productService } from '../../services/productService'
+import { inventoryMovementsService } from '../../services/inventoryMovementsService'
 import {
   DollarSign, Calendar, Tag, Building2, Loader2, Plus, Trash2,
   Search, Package, ChevronDown, AlertCircle, CheckCircle2, ShoppingCart,
@@ -595,64 +597,46 @@ export function ModalCrearGasto({
       for (const it of validItems) {
         if (it.inventoryId) {
           resolvedItems.push({ ...it, resolvedId: it.inventoryId })
-        } else {
-          // Create new inventory item
-          const { data: newItem, error: invErr } = await supabase
-            .from('inventory')
-            .insert({
-              name: it.nombre.trim(),
-              code: it.codigo.trim() || null,
-              category: it.categoriaInventario,
-              stock_quantity: 0,
-              reserved_quantity: 0,
-              min_stock: 0,
-              cost_price: it.costoUnitario * rate,
-              sale_price: it.precioVenta || 0,
-              is_active: true,
-              business_id: businessId,
-              created_by: userId || null,
-            })
-            .select('id')
-            .single()
-
-          if (invErr) throw new Error(`Error creando producto "${it.nombre}": ${invErr.message}`)
-          resolvedItems.push({ ...it, resolvedId: newItem.id, inventoryId: newItem.id })
+        } else if (it.nombre.trim() && businessId && userId) {
+          // Fallback: crear producto completo via productService (no debería llegar aquí
+          // si ProductFormModal está correctamente integrado, pero lo mantenemos como red de seguridad)
+          const product = await productService.createProduct({
+            business_id:  businessId,
+            created_by:   userId,
+            name:         it.nombre.trim(),
+            code:         it.codigo.trim() || undefined,
+            category:     it.categoriaInventario || 'Otros',
+            tipo:         'product',
+            base_currency: currency as 'ARS' | 'USD',
+            base_price:   it.costoUnitario,
+            cost_price:   it.costoUnitario * rate,
+            sale_price:   it.precioVenta || 0,
+            stock_quantity: 0,  // stock sube en el paso siguiente
+            is_active:    true,
+          })
+          resolvedItems.push({ ...it, resolvedId: product.id, inventoryId: product.id })
         }
       }
 
-      // 2. Update stock for each item and register movements
+      // 2. Sumar stock via inventoryMovementsService (maneja previous_stock, new_stock, audit)
       for (const it of resolvedItems) {
-        // Read current stock then write incremented value
-        const { data: current } = await supabase
-          .from('inventory')
-          .select('stock_quantity, cost_price')
-          .eq('id', it.resolvedId)
-          .single()
-
-        const newStock = (current?.stock_quantity || 0) + it.cantidad
-        const newCost = it.costoUnitario * rate
-
-        await supabase
-          .from('inventory')
-          .update({
-            stock_quantity: newStock,
-            cost_price: newCost,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', it.resolvedId)
-
-        // Register inventory movement
-        await supabase
-          .from('inventory_movements')
-          .insert({
-            inventory_id: it.resolvedId,
-            type: 'purchase',
-            quantity: it.cantidad,
-            reference_type: 'purchase',
-            notes: `Compra: ${supplierQuery || 'Proveedor'}${invoiceNumber ? ` - Factura ${invoiceNumber}` : ''}`,
-            business_id: businessId,
-            created_by: userId || null,
-          })
+        await inventoryMovementsService.registerMovement(
+          it.resolvedId,
+          'purchase',
+          it.cantidad,
+          'purchase',
+          undefined,   // referenceId se asigna en paso 3 cuando tengamos el purchaseId
+          `Compra: ${supplierQuery || 'Proveedor'}${invoiceNumber ? ` - Factura ${invoiceNumber}` : ''}`,
+          businessId ?? undefined,
+          userId ?? undefined
+        )
+        // Actualizar también el costo unitario
+        if (it.costoUnitario > 0) {
+          await supabase
+            .from('inventory')
+            .update({ cost_price: it.costoUnitario * rate, updated_at: new Date().toISOString() })
+            .eq('id', it.resolvedId)
+        }
       }
 
       // 3. Create purchase record
