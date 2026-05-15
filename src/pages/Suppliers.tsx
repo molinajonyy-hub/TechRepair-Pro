@@ -464,7 +464,14 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
         {/* Total + Pago */}
         <div style={{ ...cardS, background: 'rgba(99,102,241,0.06)', borderColor: 'rgba(99,102,241,0.2)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Total de compra</span>
+            <div>
+              <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Total de compra</span>
+              {supplier.pending_amount > 0 && (
+                <div style={{ fontSize: '0.72rem', color: '#f59e0b', marginTop: '0.15rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <span>⚠</span> Deuda previa: {fmtARS(supplier.pending_amount)}
+                </div>
+              )}
+            </div>
             <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#818cf8' }}>{fmtARS(totalAmount)}</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -489,6 +496,19 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
             <button style={{ flex: 1, padding: '0.5rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.375rem', background: paidAmount >= totalAmount && totalAmount > 0 ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.04)', color: paidAmount >= totalAmount && totalAmount > 0 ? '#22c55e' : '#64748b', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 600 }}
               onClick={() => setPaidAmount(totalAmount)}>Pago completo</button>
           </div>
+          {/* Estado CC resultante */}
+          {totalAmount > 0 && (
+            <div style={{ marginTop: '0.75rem', padding: '0.5rem 0.75rem', borderRadius: '0.5rem', background: pendingAmount > 0 ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)', border: `1px solid ${pendingAmount > 0 ? 'rgba(245,158,11,0.25)' : 'rgba(34,197,94,0.25)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.78rem', color: pendingAmount > 0 ? '#f59e0b' : '#22c55e', fontWeight: 600 }}>
+                {pendingAmount <= 0 ? '✓ Factura pagada completamente' : pendingAmount === totalAmount ? `Factura queda en CC (${fmtARS(pendingAmount)} a deber)` : `Pago parcial — queda ${fmtARS(pendingAmount)} en CC`}
+              </span>
+              {pendingAmount > 0 && supplier.pending_amount > 0 && (
+                <span style={{ fontSize: '0.72rem', color: '#334155' }}>
+                  CC total: {fmtARS(supplier.pending_amount + pendingAmount)}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Notas */}
