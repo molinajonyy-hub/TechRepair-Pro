@@ -3,6 +3,7 @@ import { formatDisplayMessage } from '../utils/formatMessage'
 import {
   Plus, Receipt, AlertTriangle, Calendar,
   Check, X, ChevronDown, ShoppingBag,
+  Wallet, Banknote, CheckCircle, Truck, Minus, RefreshCw,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useCaja } from '../contexts/CajaContext'
@@ -291,9 +292,19 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
   const [items, setItems]                 = useState<LineItem[]>([mkItem()])
   const [numFactura, setNumFactura]       = useState('')
   const [facMetodo, setFacMetodo]         = useState('efectivo')
+  const [facPayState, setFacPayState]     = useState<'paid' | 'partial' | 'cc'>('paid')
+  const [facPartialAmt, setFacPartialAmt] = useState('')
   const [facDescripcion, setFacDescripcion] = useState('')
   const [facNotas, setFacNotas]           = useState('')
   const [facFecha, setFacFecha]           = useState(today())
+  const FAC_METHODS = [
+    { id: 'efectivo',      short: 'Efec.',  color: '#22c55e' },
+    { id: 'transferencia', short: 'Trans.', color: '#3b82f6' },
+    { id: 'tarjeta',       short: 'Tarj.',  color: '#f59e0b' },
+    { id: 'cheque',        short: 'Cheque', color: '#94a3b8' },
+    { id: 'dolares',       short: 'USD',    color: '#22c55e' },
+    { id: 'otro',          short: 'Otro',   color: '#64748b' },
+  ]
 
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
@@ -372,7 +383,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
         purchase_date: facFecha,
         invoice_number: numFactura || undefined,
         total_amount: totalFactura,
-        paid_amount: totalFactura,
+        paid_amount: facPaidAmount,
         payment_method: facMetodo,
         notes: facNotas || undefined,
         items: validItems.map(it => ({
@@ -395,8 +406,11 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
     } catch (e: any) { setError(e.message || 'Error al guardar') } finally { setSaving(false) }
   }
 
+  const facPaidAmount = facPayState === 'paid' ? totalFactura : facPayState === 'cc' ? 0 : (parseFloat(facPartialAmt) || 0)
+  const facPendingAmount = Math.max(0, totalFactura - facPaidAmount)
+
   const handleSave = () => tipo === 'general' ? handleSaveGeneral() : handleSaveFactura()
-  const modalMaxW  = tipo === 'factura' ? 900 : 560
+  const modalMaxW  = tipo === 'factura' ? 1100 : 560
 
   return (
     <>
@@ -422,32 +436,31 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
           <AppButton variant="ghost" size="sm" onClick={onClose}><X size={16} /></AppButton>
         </div>
 
-        {/* Body */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-          {/* Alerta: caja cerrada */}
-          {!cajaIsOpen && (
-            <div style={{ display: 'flex', gap: '0.625rem', padding: '0.75rem 1rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 'var(--radius-md)', alignItems: 'center' }}>
-              <AlertTriangle size={15} style={{ color: '#f87171', flexShrink: 0 }} />
-              <p style={{ margin: 0, fontSize: '0.8rem', color: '#f87171', fontWeight: 600 }}>
-                No hay caja abierta — Abrí caja antes de registrar gastos
-              </p>
-            </div>
-          )}
-
-          {/* Tipo selector */}
-          <div style={{ display: 'flex', gap: '0.375rem', padding: '0.25rem', background: 'var(--bg-surface)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)', width: 'fit-content' }}>
+        {/* Barra superior: caja alert + tipo selector */}
+        <div style={{ padding: '0.75rem 1.25rem', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '0.375rem', padding: '0.2rem', background: 'var(--bg-surface)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-subtle)' }}>
             {(['general', 'factura'] as const).map(t => (
               <button key={t} onClick={() => { setTipo(t); setError('') }}
-                style={{ padding: '0.5rem 1.25rem', borderRadius: 'var(--radius-md)', background: tipo === t ? (t === 'factura' ? 'var(--accent-primary)' : 'var(--error)') : 'transparent', color: tipo === t ? 'white' : 'var(--text-secondary)', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.375rem', transition: 'all 0.15s' }}>
-                {t === 'general' ? <><Receipt size={14} /> General</> : <><ShoppingBag size={14} /> Factura de proveedor</>}
+                style={{ padding: '0.375rem 1rem', borderRadius: 'var(--radius-md)', background: tipo === t ? (t === 'factura' ? 'var(--accent-primary)' : 'var(--error)') : 'transparent', color: tipo === t ? 'white' : 'var(--text-secondary)', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.375rem', transition: 'all 0.15s' }}>
+                {t === 'general' ? <><Receipt size={13} /> General</> : <><ShoppingBag size={13} /> Factura de proveedor</>}
               </button>
             ))}
           </div>
+          {!cajaIsOpen && (
+            <div style={{ display: 'flex', gap: '0.375rem', padding: '0.375rem 0.75rem', background: 'rgba(248,113,113,0.07)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 'var(--radius-md)', alignItems: 'center' }}>
+              <AlertTriangle size={13} style={{ color: '#f87171', flexShrink: 0 }} />
+              <span style={{ fontSize: '0.75rem', color: '#f87171', fontWeight: 600 }}>Caja cerrada</span>
+            </div>
+          )}
+        </div>
 
-          {/* ══ GENERAL ══════════════════════════════════════════════════════════ */}
+        {/* Body — columna única (General) ó dos columnas (Factura) */}
+        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+
+          {/* ══ GENERAL — columna única scrollable ═══════════════════════════════ */}
           {tipo === 'general' && (
-            <>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
               <div>
                 <label style={labelS}>Monto *</label>
                 <input style={{ ...inputS, fontSize: '1.5rem', fontWeight: 800, textAlign: 'right', color: 'var(--error)' }}
@@ -496,137 +509,235 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
                   </div>
                 )}
               </div>
-            </>
+            </div>
           )}
 
-          {/* ══ FACTURA ══════════════════════════════════════════════════════════ */}
+          {/* ══ FACTURA — dos columnas POS ════════════════════════════════════════ */}
           {tipo === 'factura' && (
-            <>
-              {/* Proveedor */}
-              <div style={{ padding: '1rem', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)' }}>
-                <p style={{ ...labelS, marginBottom: '0.625rem' }}>Proveedor</p>
-                <select style={inputS}
-                  value={showNewSupplier ? '__new__' : supplierId}
-                  onChange={e => {
-                    if (e.target.value === '__new__') { setShowNewSupplier(true); setSupplierId('') }
-                    else { setShowNewSupplier(false); setSupplierId(e.target.value) }
-                  }}>
-                  <option value="">— Seleccioná un proveedor —</option>
-                  {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  <option value="__new__">+ Nuevo proveedor...</option>
-                </select>
-                {showNewSupplier && (
-                  <QuickSupplierForm
-                    businessId={businessId}
-                    userId={userId}
-                    onCreated={s => {
-                      setSuppliers(prev => [...prev, s].sort((a, b) => a.name.localeCompare(b.name)))
-                      setSupplierId(s.id)
-                      setShowNewSupplier(false)
-                    }}
-                    onCancel={() => setShowNewSupplier(false)}
-                  />
-                )}
-              </div>
+            <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
-              {/* Datos de la factura */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+              {/* ── IZQUIERDA: proveedor + meta + items + notas ── */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: '0.875rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.875rem', borderRight: '2px solid rgba(255,255,255,0.06)' }}>
+
+                {/* Proveedor */}
                 <div>
-                  <label style={labelS}>N° Factura (opcional)</label>
-                  <input style={inputS} value={numFactura} onChange={e => setNumFactura(e.target.value)} placeholder="Ej: A-0001-00012345" />
-                </div>
-                <div>
-                  <label style={labelS}>Fecha</label>
-                  <input style={inputS} type="date" value={facFecha} onChange={e => setFacFecha(e.target.value)} />
-                </div>
-                <div>
-                  <label style={labelS}>Método de pago</label>
-                  <select style={inputS} value={facMetodo} onChange={e => setFacMetodo(e.target.value)}>
-                    <option value="efectivo">Efectivo</option>
-                    <option value="transferencia">Transferencia</option>
-                    <option value="tarjeta">Tarjeta</option>
+                  <label style={labelS}>Proveedor</label>
+                  <select style={inputS}
+                    value={showNewSupplier ? '__new__' : supplierId}
+                    onChange={e => {
+                      if (e.target.value === '__new__') { setShowNewSupplier(true); setSupplierId('') }
+                      else { setShowNewSupplier(false); setSupplierId(e.target.value) }
+                    }}>
+                    <option value="">— Seleccioná un proveedor —</option>
+                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    <option value="__new__">+ Nuevo proveedor...</option>
                   </select>
+                  {showNewSupplier && (
+                    <QuickSupplierForm businessId={businessId} userId={userId}
+                      onCreated={s => { setSuppliers(prev => [...prev, s].sort((a, b) => a.name.localeCompare(b.name))); setSupplierId(s.id); setShowNewSupplier(false) }}
+                      onCancel={() => setShowNewSupplier(false)} />
+                  )}
+                </div>
+
+                {/* N° Factura + Fecha */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.625rem' }}>
+                  <div>
+                    <label style={labelS}>N° Factura (opcional)</label>
+                    <input style={inputS} value={numFactura} onChange={e => setNumFactura(e.target.value)} placeholder="A-0001-00012345" />
+                  </div>
+                  <div>
+                    <label style={labelS}>Fecha</label>
+                    <input style={inputS} type="date" value={facFecha} onChange={e => setFacFecha(e.target.value)} />
+                  </div>
+                </div>
+
+                {/* Descripción */}
+                <div>
+                  <label style={labelS}>Descripción (se auto-genera)</label>
+                  <input style={inputS} value={facDescripcion} onChange={e => setFacDescripcion(e.target.value)}
+                    placeholder={`Factura ${suppliers.find(s => s.id === supplierId)?.name || 'proveedor'}${numFactura ? ' #' + numFactura : ''}`} />
+                </div>
+
+                {/* Productos — cards premium */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                    <span style={{ fontSize: '0.62rem', fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                      Productos ({items.filter(it => it.product_name).length})
+                    </span>
+                    <button onClick={() => setItems(prev => [...prev, mkItem()])}
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.25rem 0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.375rem', color: '#475569', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' }}>
+                      <Plus size={11} /> Agregar fila
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+                    {items.map(it => (
+                      <ItemRow key={it._id} item={it} businessId={businessId} onUpdate={updateItem} onRemove={removeItem} isOnly={items.length === 1} onOpenProductForm={handleOpenProductForm} />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Notas */}
+                <div>
+                  <label style={labelS}>Notas internas</label>
+                  <textarea style={{ ...inputS, minHeight: 52, resize: 'vertical' as const }} value={facNotas} onChange={e => setFacNotas(e.target.value)} placeholder="Condiciones, observaciones..." />
                 </div>
               </div>
 
-              <div>
-                <label style={labelS}>Descripción (opcional — se auto-genera)</label>
-                <input style={inputS} value={facDescripcion} onChange={e => setFacDescripcion(e.target.value)}
-                  placeholder={`Factura ${suppliers.find(s => s.id === supplierId)?.name || 'proveedor'}${numFactura ? ' #' + numFactura : ''}`} />
-              </div>
+              {/* ── DERECHA: panel financiero sticky ── */}
+              <div style={{ width: 380, display: 'flex', flexDirection: 'column', background: '#07101f', flexShrink: 0 }}>
 
-              {/* Tabla de productos */}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                  <p style={{ ...labelS, marginBottom: 0 }}>Productos / artículos</p>
-                  <AppButton variant="ghost" size="xs" leftIcon={<Plus size={11} />} onClick={() => setItems(prev => [...prev, mkItem()])}>
-                    Agregar fila
-                  </AppButton>
+                {/* Supplier info */}
+                <div style={{ padding: '0.875rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Truck size={14} color="#818cf8" />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ color: '#f1f5f9', fontWeight: 700, fontSize: '0.875rem' }}>
+                        {suppliers.find(s => s.id === supplierId)?.name ?? 'Sin proveedor seleccionado'}
+                      </div>
+                      {!supplierId && <div style={{ color: '#1e3a5f', fontSize: '0.68rem' }}>Seleccioná uno de la izquierda</div>}
+                    </div>
+                  </div>
                 </div>
-                <div style={{ border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid var(--border-subtle)' }}>
-                        <th style={{ padding: '0.5rem 0.5rem', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left' }}>Producto</th>
-                        <th style={{ padding: '0.5rem 0.375rem', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right', width: 76 }}>Cant.</th>
-                        <th style={{ padding: '0.5rem 0.375rem', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right', width: 120 }}>Costo unit.</th>
-                        <th style={{ padding: '0.5rem 0.375rem', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right', width: 120 }}>Subtotal</th>
-                        <th style={{ width: 36 }} />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {items.map(it => (
-                        <ItemRow key={it._id} item={it} businessId={businessId} onUpdate={updateItem} onRemove={removeItem} isOnly={items.length === 1} onOpenProductForm={handleOpenProductForm} />
+
+                {/* TOTAL grande */}
+                <div style={{ padding: '0.875rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+                  <div style={{ color: '#334155', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.2rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total de compra</div>
+                  <div style={{ color: totalFactura > 0 ? '#f0f4ff' : '#1e3a5f', fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1, transition: 'color 0.2s' }}>
+                    {totalFactura > 0 ? fmtARS(totalFactura) : '$0'}
+                  </div>
+                  {totalFactura === 0 && <div style={{ color: '#1e3a5f', fontSize: '0.7rem', marginTop: '0.2rem' }}>Agregá productos para ver el total</div>}
+                </div>
+
+                {/* ESTADO + MÉTODOS + RESUMEN */}
+                <div style={{ padding: '0.875rem 1rem', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+
+                  {/* Estado de pago */}
+                  <div>
+                    <div style={{ fontSize: '0.6rem', color: '#1e3a5f', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.3rem' }}>Estado de pago</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.3rem' }}>
+                      {([
+                        { key: 'cc' as const,      label: 'A CC',    sub: 'Todo a deber', icon: <Wallet size={12} />,      color: '#818cf8', bg: 'rgba(99,102,241,0.12)',  border: 'rgba(99,102,241,0.4)'  },
+                        { key: 'partial' as const,  label: 'Parcial', sub: 'Paga algo hoy',icon: <Banknote size={12} />,     color: '#f59e0b', bg: 'rgba(245,158,11,0.1)',  border: 'rgba(245,158,11,0.35)' },
+                        { key: 'paid' as const,     label: 'Pagado',  sub: 'Saldado hoy',  icon: <CheckCircle size={12} />, color: '#22c55e', bg: 'rgba(34,197,94,0.1)',   border: 'rgba(34,197,94,0.35)'  },
+                      ]).map(opt => (
+                        <button key={opt.key} onClick={() => setFacPayState(opt.key)}
+                          style={{ padding: '0.5rem 0.25rem', borderRadius: '0.5rem', border: `1px solid ${facPayState === opt.key ? opt.border : 'rgba(255,255,255,0.07)'}`, background: facPayState === opt.key ? opt.bg : 'rgba(255,255,255,0.02)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.15rem', transition: 'all 0.1s' }}>
+                          <span style={{ color: facPayState === opt.key ? opt.color : '#334155' }}>{opt.icon}</span>
+                          <span style={{ color: facPayState === opt.key ? opt.color : '#475569', fontSize: '0.72rem', fontWeight: facPayState === opt.key ? 800 : 500 }}>{opt.label}</span>
+                          <span style={{ color: facPayState === opt.key ? opt.color : '#1e3a5f', fontSize: '0.6rem', opacity: 0.8 }}>{opt.sub}</span>
+                        </button>
                       ))}
-                    </tbody>
-                    <tfoot>
-                      <tr style={{ borderTop: '2px solid var(--border-color)', background: 'rgba(255,255,255,0.03)' }}>
-                        <td colSpan={3} style={{ padding: '0.75rem 0.5rem', fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                          Total factura ({items.filter(it => it.product_name).length} producto{items.filter(it => it.product_name).length !== 1 ? 's' : ''})
-                        </td>
-                        <td style={{ padding: '0.75rem 0.5rem', textAlign: 'right', fontWeight: 800, fontSize: '1.1rem', color: totalFactura > 0 ? 'var(--accent-primary)' : 'var(--text-muted)' }}>
-                          {fmtARS(totalFactura)}
-                        </td>
-                        <td />
-                      </tr>
-                    </tfoot>
-                  </table>
+                    </div>
+                  </div>
+
+                  {/* Grid de métodos */}
+                  <div>
+                    <div style={{ fontSize: '0.6rem', color: '#1e3a5f', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.3rem' }}>Método de pago</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.3rem' }}>
+                      {FAC_METHODS.map(m => {
+                        const active = facMetodo === m.id
+                        return (
+                          <button key={m.id} onClick={() => setFacMetodo(m.id)}
+                            style={{ padding: '0.4rem 0.25rem', borderRadius: '0.5rem', border: `1px solid ${active ? m.color + '80' : 'rgba(255,255,255,0.06)'}`, background: active ? m.color + '20' : 'rgba(255,255,255,0.02)', color: active ? m.color : '#334155', fontSize: '0.72rem', fontWeight: active ? 700 : 500, cursor: 'pointer', transition: 'all 0.1s', textAlign: 'center' }}
+                            onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
+                            onMouseLeave={e => { e.currentTarget.style.background = active ? m.color + '20' : 'rgba(255,255,255,0.02)' }}>
+                            {m.short}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Input monto parcial */}
+                  {facPayState === 'partial' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                      <div>
+                        <div style={{ fontSize: '0.6rem', color: '#334155', fontWeight: 700, textTransform: 'uppercase', marginBottom: '0.25rem' }}>Pagado ahora</div>
+                        <input type="number" min="0" max={totalFactura} value={facPartialAmt}
+                          onChange={e => setFacPartialAmt(e.target.value)}
+                          placeholder="$"
+                          style={{ width: '100%', padding: '0.5rem 0.625rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', color: '#f0f4ff', fontSize: '0.9rem', fontWeight: 700, outline: 'none', boxSizing: 'border-box' as const }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.6rem', color: '#818cf8', fontWeight: 700, textTransform: 'uppercase', marginBottom: '0.25rem' }}>Va a CC</div>
+                        <div style={{ padding: '0.5rem 0.625rem', background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.5rem', color: '#818cf8', fontSize: '0.9rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                          <Wallet size={13} color="#818cf8" /> {fmtARS(facPendingAmount)}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Resumen financiero */}
+                  <div style={{ background: 'rgba(0,0,0,0.25)', borderRadius: '0.625rem', padding: '0.625rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.225rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.2rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                      <span style={{ fontSize: '0.72rem', color: '#334155', fontWeight: 600 }}>Total factura</span>
+                      <span style={{ fontSize: '0.72rem', color: totalFactura > 0 ? '#94a3b8' : '#1e3a5f', fontWeight: 700 }}>{fmtARS(totalFactura)}</span>
+                    </div>
+                    {totalFactura === 0 ? (
+                      <div style={{ color: '#1e3a5f', fontSize: '0.7rem', fontStyle: 'italic', padding: '0.2rem 0' }}>El resumen aparecerá al agregar productos</div>
+                    ) : (
+                      <>
+                        {facPaidAmount > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Pagado ({FAC_METHODS.find(m => m.id === facMetodo)?.short ?? facMetodo})</span>
+                            <span style={{ fontSize: '0.75rem', color: '#22c55e', fontWeight: 700 }}>{fmtARS(facPaidAmount)}</span>
+                          </div>
+                        )}
+                        {facPendingAmount > 0 && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.78rem', color: '#818cf8', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                              <Wallet size={12} /> Cuenta Corriente
+                            </span>
+                            <span style={{ fontSize: '0.9rem', color: '#818cf8', fontWeight: 900 }}>{fmtARS(facPendingAmount)}</span>
+                          </div>
+                        )}
+                        {facPendingAmount <= 0 && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#22c55e', fontSize: '0.75rem', fontWeight: 700 }}>
+                            <CheckCircle size={12} /> Factura saldada completamente
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Footer del panel: error + guardar */}
+                <div style={{ padding: '0.875rem 1rem', borderTop: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
+                  {error && (
+                    <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center', marginBottom: '0.5rem', padding: '0.5rem 0.625rem', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: '0.5rem' }}>
+                      <AlertTriangle size={13} color="#f87171" style={{ flexShrink: 0 }} />
+                      <span style={{ color: '#f87171', fontSize: '0.72rem' }}>{formatDisplayMessage(error)}</span>
+                    </div>
+                  )}
+                  <button onClick={handleSave} disabled={saving}
+                    style={{ width: '100%', padding: '0.875rem', borderRadius: '0.75rem', border: 'none', background: saving ? 'rgba(99,102,241,0.4)' : 'linear-gradient(135deg,#6366f1,#4f46e5)', color: '#fff', fontSize: '0.9375rem', fontWeight: 800, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', boxShadow: saving ? 'none' : '0 4px 20px rgba(99,102,241,0.4)', transition: 'all 0.15s' }}>
+                    {saving ? <><RefreshCw size={15} style={{ animation: 'spin 0.8s linear infinite' }} /> Registrando...</> : <><ShoppingBag size={15} /> {totalFactura > 0 ? `Registrar ${fmtARS(totalFactura)}` : 'Registrar factura'}</>}
+                  </button>
+                  <button onClick={onClose} style={{ width: '100%', marginTop: '0.375rem', padding: '0.375rem', background: 'none', border: 'none', color: '#334155', fontSize: '0.78rem', cursor: 'pointer' }}>
+                    Cancelar
+                  </button>
                 </div>
               </div>
-
-              <div>
-                <label style={labelS}>Notas internas (opcional)</label>
-                <textarea style={{ ...inputS, minHeight: 56, resize: 'vertical' as const }} value={facNotas} onChange={e => setFacNotas(e.target.value)} placeholder="Condiciones, observaciones..." />
-              </div>
-            </>
+            </div>
           )}
 
-          {error && <p style={{ margin: 0, color: 'var(--error)', fontSize: '0.8rem', fontWeight: 600 }}>{formatDisplayMessage(error)}</p>}
+          {tipo === 'general' && error && <div style={{ padding: '0 1.5rem 0.75rem' }}><p style={{ margin: 0, color: 'var(--error)', fontSize: '0.8rem', fontWeight: 600 }}>{formatDisplayMessage(error)}</p></div>}
         </div>
 
-        {/* Footer */}
-        <div style={{ flexShrink: 0, padding: '1rem 1.5rem', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', background: 'var(--bg-modal)', borderRadius: '0 0 var(--radius-2xl) var(--radius-2xl)' }}>
-          {tipo === 'factura' && totalFactura > 0 && (
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-subtle)' }}>
-              Se actualizará el stock y se registrará en Proveedores
-            </span>
-          )}
-          {tipo === 'general' && <span />}
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <AppButton variant="secondary" onClick={onClose}>Cancelar</AppButton>
-            {tipo === 'general' ? (
-              <AppButton variant="red" onClick={handleSave} loading={saving} leftIcon={<Receipt size={14} />}>
-                Registrar gasto
-              </AppButton>
-            ) : (
-              <AppButton variant="indigo" onClick={handleSave} loading={saving} leftIcon={<ShoppingBag size={14} />}>
-                Registrar factura {totalFactura > 0 && `— ${fmtARS(totalFactura)}`}
-              </AppButton>
-            )}
-          </div>
+        {/* Footer — solo para gasto general */}
+        {tipo === 'general' && (
+        <div style={{ flexShrink: 0, padding: '1rem 1.5rem', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.75rem', background: 'var(--bg-modal)', borderRadius: '0 0 var(--radius-2xl) var(--radius-2xl)' }}>
+          <AppButton variant="secondary" onClick={onClose}>Cancelar</AppButton>
+          <AppButton variant="red" onClick={handleSave} loading={saving} leftIcon={<Receipt size={14} />}>
+            Registrar gasto
+          </AppButton>
         </div>
+        )}
       </div>
     </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
     {/* ProductFormModal — registerStock=false: el stock se suma al registrar la factura */}
     <ProductFormModal
