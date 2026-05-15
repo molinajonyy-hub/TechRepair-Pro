@@ -326,7 +326,10 @@ export function ComprobanteProModal({
     const ganancia     = total - costo
     const margenPct    = total > 0 ? (ganancia / total) * 100 : 0
     const vuelto       = totalPagado > total ? totalPagado - total : 0
-    return { subtotal, iva, total, descuento, costo, ganancia, margenPct, totalPagado, saldo, totalRecargo, vuelto }
+    // Desglose CC vs caja
+    const pagadoCC   = pagos.filter(p => p.payment_method === 'cuenta_corriente').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+    const pagadoCaja = pagos.filter(p => p.payment_method !== 'cuenta_corriente').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+    return { subtotal, iva, total, descuento, costo, ganancia, margenPct, totalPagado, saldo, totalRecargo, vuelto, pagadoCC, pagadoCaja }
   }, [lineas, tipo, exchangeRate, pagos])
 
   // ── handleSubmit ──────────────────────────────────────────────────────────
@@ -1027,27 +1030,97 @@ export function ComprobanteProModal({
                 </div>
               )}
 
-              {/* CC + Saldo / Vuelto */}
-              {clienteId && totales.saldo > 0 && !pagos.find(p => p.payment_method === 'cuenta_corriente') && (
-                <button onClick={handleAddCC}
-                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.45rem 0.75rem', background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.18)', borderRadius: '0.5rem', color: '#818cf8', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: F, width: '100%' }}>
-                  <span><Wallet size={12} style={{ verticalAlign: 'middle', marginRight: '0.375rem' }} />Enviar a cuenta corriente</span>
-                  <span>{fmtARS(totales.saldo)}</span>
-                </button>
-              )}
+              {/* ── CUENTA CORRIENTE — siempre visible ── */}
+              {(() => {
+                const ccPago = pagos.find(p => p.payment_method === 'cuenta_corriente')
+                const tieneCC = !!ccPago
+                const sinCliente = !clienteId
+                return (
+                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '0.625rem' }}>
+                    <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.375rem' }}>Cuenta Corriente</div>
+                    {tieneCC ? (
+                      /* CC activo — chip editable */
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.75rem', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.35)', borderRadius: '0.625rem' }}>
+                        <Wallet size={14} color="#818cf8" style={{ flexShrink: 0 }} />
+                        <span style={{ flex: 1, color: '#818cf8', fontSize: '0.82rem', fontWeight: 700 }}>Cuenta Corriente</span>
+                        <span style={{ color: '#334155', fontSize: '0.72rem' }}>$</span>
+                        <input type="number" min="0" value={ccPago!.amount}
+                          onChange={e => setPagos(prev => prev.map(pp => pp._key === ccPago!._key ? { ...pp, amount: e.target.value } : pp))}
+                          style={{ width: '5.5rem', textAlign: 'right', padding: '0.2rem 0.375rem', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '0.375rem', color: '#a5b4fc', fontSize: '0.88rem', fontWeight: 800, outline: 'none', fontFamily: F }} />
+                        <button onClick={() => setPagos(prev => prev.filter(pp => pp._key !== ccPago!._key))}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#334155', padding: '0.15rem', display: 'flex', alignItems: 'center' }}
+                          onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                          onMouseLeave={e => e.currentTarget.style.color = '#334155'}>
+                          <X size={13} />
+                        </button>
+                      </div>
+                    ) : (
+                      /* CC no activo — botón de acción */
+                      <button
+                        onClick={() => {
+                          if (!clienteId) return
+                          const s = totales.saldo
+                          const montoCC = s > 0 ? s : totales.total - pagos.reduce((acc, p) => acc + (parseFloat(p.amount) || 0), 0)
+                          if (montoCC <= 0 && totales.total <= 0) return
+                          setPagos(prev => [...prev.filter(p => p.payment_method !== 'cuenta_corriente'), {
+                            _key: Math.random().toString(36).slice(2), payment_method: 'cuenta_corriente' as MedioPago,
+                            payment_provider: '', amount: String(Math.round(Math.max(0, montoCC > 0 ? montoCC : totales.total))),
+                            commission_rate: 0, _option_label: 'Cuenta Corriente', _color: '#818cf8',
+                            _original_amount: String(Math.round(Math.max(0, montoCC > 0 ? montoCC : totales.total))),
+                          } as any])
+                        }}
+                        disabled={sinCliente || totales.total <= 0}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '0.5rem 0.75rem', background: sinCliente ? 'rgba(255,255,255,0.02)' : 'rgba(99,102,241,0.06)', border: `1px solid ${sinCliente ? 'rgba(255,255,255,0.05)' : 'rgba(99,102,241,0.2)'}`, borderRadius: '0.625rem', color: sinCliente ? '#1e3a5f' : '#818cf8', fontSize: '0.82rem', fontWeight: 600, cursor: sinCliente ? 'not-allowed' : 'pointer', fontFamily: F, transition: 'all 0.12s' }}
+                        onMouseEnter={e => { if (!sinCliente) e.currentTarget.style.borderColor = 'rgba(99,102,241,0.4)' }}
+                        onMouseLeave={e => { if (!sinCliente) e.currentTarget.style.borderColor = 'rgba(99,102,241,0.2)' }}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                          <Wallet size={13} />
+                          {sinCliente ? 'CC (seleccioná un cliente)' : totales.saldo > 0 ? `Enviar saldo a CC` : 'Cargar a CC'}
+                        </span>
+                        {!sinCliente && totales.saldo > 0 && <span style={{ fontWeight: 800 }}>{fmtARS(totales.saldo)}</span>}
+                        {!sinCliente && totales.saldo <= 0 && totales.total > 0 && <span style={{ opacity: 0.5, fontSize: '0.72rem' }}>Todo a CC</span>}
+                      </button>
+                    )}
+                  </div>
+                )
+              })()}
 
-              {pagos.length > 0 && (
-                <div style={{ padding: '0.375rem 0', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                  {totales.saldo > 0 && (
+              {/* ── RESUMEN FINANCIERO ── */}
+              {totales.total > 0 && (pagos.length > 0 || totales.saldo > 0) && (
+                <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '0.625rem', padding: '0.625rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.25rem', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: '0.1rem' }}>
+                    <span style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 600 }}>Total</span>
+                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 700 }}>{fmtARS(totales.total)}</span>
+                  </div>
+                  {totales.pagadoCaja > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: '0.78rem', color: '#f59e0b', fontWeight: 600 }}>Saldo pendiente</span>
-                      <span style={{ fontSize: '0.78rem', color: '#f59e0b', fontWeight: 800 }}>{fmtARS(totales.saldo)}</span>
+                      <span style={{ fontSize: '0.75rem', color: '#334155' }}>Pagado en caja</span>
+                      <span style={{ fontSize: '0.75rem', color: '#22c55e', fontWeight: 600 }}>{fmtARS(totales.pagadoCaja)}</span>
+                    </div>
+                  )}
+                  {totales.pagadoCC > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#334155' }}>Cuenta corriente</span>
+                      <span style={{ fontSize: '0.75rem', color: '#818cf8', fontWeight: 700 }}>{fmtARS(totales.pagadoCC)}</span>
+                    </div>
+                  )}
+                  {totales.totalRecargo > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#334155' }}>Recargo tarjeta</span>
+                      <span style={{ fontSize: '0.75rem', color: '#f59e0b' }}>+{fmtARS(totales.totalRecargo)}</span>
+                    </div>
+                  )}
+                  {totales.saldo > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.2rem', borderTop: '1px solid rgba(245,158,11,0.2)' }}>
+                      <span style={{ fontSize: '0.78rem', color: '#f59e0b', fontWeight: 700 }}>Saldo pendiente</span>
+                      <span style={{ fontSize: '0.85rem', color: '#f59e0b', fontWeight: 900 }}>{fmtARS(totales.saldo)}</span>
                     </div>
                   )}
                   {totales.vuelto > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.2rem', borderTop: '1px solid rgba(34,197,94,0.15)' }}>
                       <span style={{ fontSize: '0.82rem', color: '#22c55e', fontWeight: 700 }}>Vuelto</span>
-                      <span style={{ fontSize: '0.95rem', color: '#22c55e', fontWeight: 900 }}>{fmtARS(totales.vuelto)}</span>
+                      <span style={{ fontSize: '1rem', color: '#22c55e', fontWeight: 900 }}>{fmtARS(totales.vuelto)}</span>
                     </div>
                   )}
                 </div>

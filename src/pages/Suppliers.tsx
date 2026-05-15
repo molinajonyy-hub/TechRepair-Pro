@@ -462,40 +462,84 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
         </div>
 
         {/* Total + Pago */}
-        <div style={{ ...cardS, background: 'rgba(99,102,241,0.06)', borderColor: 'rgba(99,102,241,0.2)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <div style={{ ...cardS, background: 'rgba(99,102,241,0.05)', borderColor: 'rgba(99,102,241,0.2)' }}>
+          {/* Header con total y deuda previa */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.875rem' }}>
             <div>
-              <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Total de compra</span>
+              <span style={{ color: '#94a3b8', fontSize: '0.78rem', fontWeight: 600 }}>Total a registrar</span>
               {supplier.pending_amount > 0 && (
-                <div style={{ fontSize: '0.72rem', color: '#f59e0b', marginTop: '0.15rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                  <span>⚠</span> Deuda previa: {fmtARS(supplier.pending_amount)}
+                <div style={{ marginTop: '0.25rem', padding: '0.25rem 0.625rem', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '0.375rem', fontSize: '0.72rem', color: '#f59e0b', fontWeight: 700 }}>
+                  ⚠ Deuda previa: {fmtARS(supplier.pending_amount)}
                 </div>
               )}
             </div>
-            <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#818cf8' }}>{fmtARS(totalAmount)}</span>
+            <span style={{ fontSize: '1.625rem', fontWeight: 900, color: '#818cf8', letterSpacing: '-0.03em' }}>{fmtARS(totalAmount)}</span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-            <div>
-              <label style={labelS}>Monto pagado ahora</label>
-              <input style={{ ...inputS, fontSize: '1rem', fontWeight: 700 }} type="number" min={0} max={totalAmount}
-                value={paidAmount || ''} onChange={e => setPaidAmount(Math.min(totalAmount, +e.target.value || 0))}
-                placeholder="$ pagado" />
-            </div>
-            <div>
-              <label style={labelS}>Saldo pendiente</label>
-              <div style={{ ...inputS, color: pendingAmount > 0 ? '#f59e0b' : '#22c55e', fontWeight: 700, fontSize: '1rem', display: 'flex', alignItems: 'center' }}>
-                {fmtARS(pendingAmount)}
+
+          {/* Selector visual de estado de pago */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.375rem', marginBottom: '0.875rem' }}>
+            {[
+              { label: 'Todo a CC', desc: 'Se agendará como deuda', value: 0, color: '#818cf8', bg: 'rgba(99,102,241,0.12)', border: 'rgba(99,102,241,0.4)', active: paidAmount <= 0 },
+              { label: 'Pago parcial', desc: 'Paga parte ahora', value: -1, color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.35)', active: paidAmount > 0 && paidAmount < totalAmount },
+              { label: 'Pagado', desc: 'Factura saldada', value: totalAmount, color: '#22c55e', bg: 'rgba(34,197,94,0.1)', border: 'rgba(34,197,94,0.35)', active: paidAmount >= totalAmount && totalAmount > 0 },
+            ].map(opt => (
+              <button key={opt.label}
+                onClick={() => opt.value === -1 ? setPaidAmount(Math.round(totalAmount / 2)) : setPaidAmount(opt.value)}
+                style={{ padding: '0.5rem 0.375rem', borderRadius: '0.5rem', border: `1px solid ${opt.active ? opt.border : 'rgba(255,255,255,0.08)'}`, background: opt.active ? opt.bg : 'rgba(255,255,255,0.02)', cursor: 'pointer', textAlign: 'center', transition: 'all 0.1s' }}>
+                <div style={{ color: opt.active ? opt.color : '#475569', fontSize: '0.75rem', fontWeight: opt.active ? 800 : 600 }}>{opt.label}</div>
+                <div style={{ color: opt.active ? opt.color : '#334155', fontSize: '0.62rem', opacity: 0.8, marginTop: '0.1rem' }}>{opt.desc}</div>
+              </button>
+            ))}
+          </div>
+
+          {/* Input de monto pagado — solo visible si no es "Todo a CC" */}
+          {paidAmount > 0 && paidAmount < totalAmount && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.875rem' }}>
+              <div>
+                <label style={labelS}>Monto pagado ahora</label>
+                <input style={{ ...inputS, fontSize: '1rem', fontWeight: 700 }} type="number" min={0} max={totalAmount}
+                  value={paidAmount || ''} onChange={e => setPaidAmount(Math.min(totalAmount, +e.target.value || 0))}
+                  placeholder="$ pagado" />
+              </div>
+              <div>
+                <label style={labelS}>Va a CC proveedor</label>
+                <div style={{ ...inputS, color: '#818cf8', fontWeight: 800, fontSize: '1rem', display: 'flex', alignItems: 'center', background: 'rgba(99,102,241,0.06)', borderColor: 'rgba(99,102,241,0.25)' }}>
+                  {fmtARS(pendingAmount)}
+                </div>
               </div>
             </div>
-          </div>
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
-            <button style={{ flex: 1, padding: '0.5rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.375rem', background: paidAmount <= 0 ? 'rgba(239,68,68,0.15)' : 'rgba(255,255,255,0.04)', color: paidAmount <= 0 ? '#ef4444' : '#64748b', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 600 }}
-              onClick={() => setPaidAmount(0)}>Queda pendiente</button>
-            <button style={{ flex: 1, padding: '0.5rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.375rem', background: paidAmount > 0 && paidAmount < totalAmount ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.04)', color: paidAmount > 0 && paidAmount < totalAmount ? '#f59e0b' : '#64748b', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 600 }}
-              onClick={() => setPaidAmount(Math.round(totalAmount / 2))}>Pago parcial</button>
-            <button style={{ flex: 1, padding: '0.5rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.375rem', background: paidAmount >= totalAmount && totalAmount > 0 ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.04)', color: paidAmount >= totalAmount && totalAmount > 0 ? '#22c55e' : '#64748b', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 600 }}
-              onClick={() => setPaidAmount(totalAmount)}>Pago completo</button>
-          </div>
+          )}
+
+          {/* Resumen financiero resultante */}
+          {totalAmount > 0 && (
+            <div style={{ padding: '0.625rem 0.75rem', background: 'rgba(0,0,0,0.2)', borderRadius: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              {paidAmount > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Pagado ahora</span>
+                  <span style={{ fontSize: '0.75rem', color: '#22c55e', fontWeight: 700 }}>{fmtARS(paidAmount)}</span>
+                </div>
+              )}
+              {pendingAmount > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: paidAmount > 0 ? '0.2rem' : 0 }}>
+                  <span style={{ fontSize: '0.78rem', color: '#818cf8', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    CC {supplier.name}
+                  </span>
+                  <span style={{ fontSize: '0.88rem', color: '#818cf8', fontWeight: 900 }}>{fmtARS(pendingAmount)}</span>
+                </div>
+              )}
+              {pendingAmount <= 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', color: '#22c55e', fontSize: '0.78rem', fontWeight: 700 }}>
+                  <CheckCircle size={13} /> Factura pagada completamente
+                </div>
+              )}
+              {pendingAmount > 0 && supplier.pending_amount > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.2rem', borderTop: '1px solid rgba(255,255,255,0.05)', marginTop: '0.1rem' }}>
+                  <span style={{ fontSize: '0.72rem', color: '#334155' }}>CC total acumulado</span>
+                  <span style={{ fontSize: '0.72rem', color: '#f59e0b', fontWeight: 700 }}>{fmtARS(supplier.pending_amount + pendingAmount)}</span>
+                </div>
+              )}
+            </div>
+          )}
           {/* Estado CC resultante */}
           {totalAmount > 0 && (
             <div style={{ marginTop: '0.75rem', padding: '0.5rem 0.75rem', borderRadius: '0.5rem', background: pendingAmount > 0 ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)', border: `1px solid ${pendingAmount > 0 ? 'rgba(245,158,11,0.25)' : 'rgba(34,197,94,0.25)'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
