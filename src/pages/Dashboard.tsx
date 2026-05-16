@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useDashboardStats } from '../hooks/useDashboardStats'
+import { useFinancialDashboard, type FinancialDashboardData } from '../hooks/useFinancialDashboard'
 import { useComprobantes } from '../hooks/useComprobantes'
 import { refreshDollarRate, refreshInventoryDollarPrices, type DollarRateResult } from '../services/dollarRateService'
 import { useCaja } from '../contexts/CajaContext'
@@ -56,9 +57,10 @@ export function Dashboard() {
   const { isOpen: cajaIsOpen, cajaId, loading: cajaLoading, activeCaja: cajaActiva } = useCaja()
   const cajaStatus = cajaIsOpen ? 'open' : 'closed'
 
-  const { stats, loading: statsLoading, error: statsError, refresh: refreshStats } = useDashboardStats()
-  const { comprobantes, listarComprobantes } = useComprobantes()
   const { businessId } = useAuth()
+  const { stats, loading: statsLoading, error: statsError, refresh: refreshStats } = useDashboardStats()
+  const { data: finData, loading: finLoading, refresh: refreshFin } = useFinancialDashboard(businessId)
+  const { comprobantes, listarComprobantes } = useComprobantes()
   const navigate = useNavigate()
 
   // ── Cargar tipo de cambio ──
@@ -92,8 +94,10 @@ export function Dashboard() {
       .eq('caja_id', cajaId)
       .order('created_at', { ascending: false })
       .limit(10)
-      .then(({ data }) => setMovimientosCaja(data || []))
-      .finally(() => setMovimientosLoading(false))
+      .then(
+        ({ data }) => { setMovimientosCaja(data || []); setMovimientosLoading(false) },
+        ()         => { setMovimientosLoading(false) }
+      )
   }, [businessId, cajaId])
 
   // ── Comprobantes lazy ──
@@ -306,6 +310,9 @@ export function Dashboard() {
         </div>
       )}
 
+      {/* ── 5b. Resumen financiero premium ────────────────────────────────────── */}
+      <FinancialSummarySection data={finData} loading={finLoading} onRefresh={refreshFin} />
+
       {/* ── 6. Accesos rápidos ─────────────────────────────────────────────── */}
       <section style={{ marginBottom: '1.5rem' }}>
         <AppSectionHeader title="Accesos rápidos" />
@@ -513,6 +520,192 @@ export function Dashboard() {
           )}
         </div>
       </section>
+    </div>
+  )
+}
+
+// ─── FinancialSummarySection ──────────────────────────────────────────────────
+
+// FinancialDashboardData ya importado arriba desde useFinancialDashboard
+
+interface FinancialSummarySectionProps {
+  data:      FinancialDashboardData | null
+  loading:   boolean
+  onRefresh: () => void
+}
+
+function FinancialSummarySection({ data, loading, onRefresh }: FinancialSummarySectionProps) {
+  const fmt = (n: number) => '$' + Math.round(n).toLocaleString('es-AR')
+
+  if (loading && !data) {
+    return (
+      <div style={{ marginBottom: '1.5rem' }}>
+        <AppSectionHeader title="Finanzas del día" />
+        <AppLoadingState rows={3} type="cards" />
+      </div>
+    )
+  }
+
+  if (!data) return null
+
+  const hasPayments = data.paymentMethods.length > 0
+  const hasCajaData = data.caja.income > 0 || data.caja.expense > 0
+  const hasCC       = data.ccClientesDeuda > 0 || data.ccProveedoresDeuda > 0
+
+  return (
+    <div style={{ marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.875rem' }}>
+        <AppSectionHeader title="Finanzas del día" />
+        <AppIconButton icon={<RefreshIcon size={13} />} label="Actualizar finanzas" size="xs" onClick={onRefresh} />
+      </div>
+
+      {/* ── Row 1: KPIs ventas + CC + stock ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.875rem', marginBottom: '0.875rem' }}>
+
+        {/* Ventas hoy */}
+        <div className="stat-card" style={{ position: 'relative', overflow: 'hidden' }}>
+          <div className="stat-card-label">Cobrado hoy</div>
+          <div className="stat-card-value" style={{ color: '#34d399', fontSize: '1.5rem' }}>
+            {fmt(data.ventasHoy)}
+          </div>
+          <div style={{ fontSize: '0.73rem', color: 'var(--text-subtle)' }}>
+            {fmt(data.ventasSemana)} esta semana
+          </div>
+        </div>
+
+        {/* Ventas mes */}
+        <div className="stat-card">
+          <div className="stat-card-label">Cobrado este mes</div>
+          <div className="stat-card-value" style={{ color: 'var(--accent-primary)', fontSize: '1.5rem' }}>
+            {fmt(data.ventasMes)}
+          </div>
+          <div style={{ fontSize: '0.73rem', color: 'var(--text-subtle)' }}>
+            acumulado mensual
+          </div>
+        </div>
+
+        {/* CC clientes */}
+        {data.ccClientesDeuda > 0.01 && (
+          <div className="stat-card" style={{ cursor: 'pointer' }} onClick={() => {}}>
+            <div className="stat-card-label">Me deben (clientes)</div>
+            <div className="stat-card-value" style={{ color: '#f87171', fontSize: '1.5rem' }}>
+              {fmt(data.ccClientesDeuda)}
+            </div>
+            <div style={{ fontSize: '0.73rem', color: 'var(--text-subtle)' }}>
+              en cuentas corrientes
+            </div>
+          </div>
+        )}
+
+        {/* CC proveedores */}
+        {data.ccProveedoresDeuda > 0.01 && (
+          <div className="stat-card">
+            <div className="stat-card-label">Les debo (proveedores)</div>
+            <div className="stat-card-value" style={{ color: '#f59e0b', fontSize: '1.5rem' }}>
+              {fmt(data.ccProveedoresDeuda)}
+            </div>
+            <div style={{ fontSize: '0.73rem', color: 'var(--text-subtle)' }}>
+              compras pendientes
+            </div>
+          </div>
+        )}
+
+        {/* Stock bajo */}
+        {data.stockBajoCount > 0 && (
+          <div className="stat-card">
+            <div className="stat-card-label">Stock bajo</div>
+            <div className="stat-card-value" style={{ color: '#fb923c', fontSize: '1.5rem' }}>
+              {data.stockBajoCount}
+            </div>
+            <div style={{ fontSize: '0.73rem', color: 'var(--text-subtle)' }}>
+              productos ≤ 5 unidades
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Row 2: Métodos de pago + Caja ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: hasPayments && hasCajaData ? '1fr 1fr' : '1fr', gap: '0.875rem' }}>
+
+        {/* Métodos de pago hoy */}
+        {hasPayments && (
+          <div className="card" style={{ padding: '1.125rem 1.25rem' }}>
+            <div className="stat-card-label" style={{ marginBottom: '0.875rem' }}>Cobros por método — hoy</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+              {data.paymentMethods.map((pm: FinancialDashboardData['paymentMethods'][number]) => (
+                <div key={pm.method}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: pm.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{pm.label}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>
+                        {pm.pct.toFixed(0)}%
+                      </span>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 700, color: pm.color, fontFamily: 'monospace' }}>
+                        {fmt(pm.amount)}
+                      </span>
+                    </div>
+                  </div>
+                  {/* Mini progress bar */}
+                  <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.04)', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${pm.pct}%`,
+                      borderRadius: 2,
+                      background: pm.color,
+                      opacity: 0.8,
+                      transition: 'width 0.4s ease',
+                    }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Caja del día: balance */}
+        {hasCajaData && (
+          <div className="card" style={{ padding: '1.125rem 1.25rem' }}>
+            <div className="stat-card-label" style={{ marginBottom: '0.875rem' }}>Balance de caja — hoy</div>
+            <div style={{ display: 'flex', gap: '0.875rem', marginBottom: '0.875rem' }}>
+              <div style={{ flex: 1, padding: '0.625rem', borderRadius: 'var(--radius-md)', background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.12)' }}>
+                <div style={{ fontSize: '0.65rem', color: '#34d399', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>Ingresos</div>
+                <div style={{ fontSize: '1rem', fontWeight: 800, fontFamily: 'monospace', color: '#34d399' }}>{fmt(data.caja.income)}</div>
+              </div>
+              <div style={{ flex: 1, padding: '0.625rem', borderRadius: 'var(--radius-md)', background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.12)' }}>
+                <div style={{ fontSize: '0.65rem', color: '#f87171', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>Egresos</div>
+                <div style={{ fontSize: '1rem', fontWeight: 800, fontFamily: 'monospace', color: '#f87171' }}>{fmt(data.caja.expense)}</div>
+              </div>
+              <div style={{ flex: 1, padding: '0.625rem', borderRadius: 'var(--radius-md)', background: data.caja.net >= 0 ? 'rgba(52,211,153,0.06)' : 'rgba(248,113,113,0.06)', border: `1px solid ${data.caja.net >= 0 ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)'}` }}>
+                <div style={{ fontSize: '0.65rem', color: data.caja.net >= 0 ? '#34d399' : '#f87171', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>Neto</div>
+                <div style={{ fontSize: '1rem', fontWeight: 800, fontFamily: 'monospace', color: data.caja.net >= 0 ? '#34d399' : '#f87171' }}>{fmt(data.caja.net)}</div>
+              </div>
+            </div>
+            {/* By method */}
+            {data.caja.byMethod.slice(0, 4).map((m: FinancialDashboardData['caja']['byMethod'][number]) => (
+              <div key={m.method} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.3rem 0', borderTop: '1px solid rgba(255,255,255,0.03)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: m.color }} />
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>{m.label}</span>
+                </div>
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  {m.income > 0  && <span style={{ fontSize: '0.75rem', color: '#34d399', fontFamily: 'monospace' }}>+{fmt(m.income)}</span>}
+                  {m.expense > 0 && <span style={{ fontSize: '0.75rem', color: '#f87171', fontFamily: 'monospace' }}>−{fmt(m.expense)}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Fallback: sin movimientos hoy */}
+        {!hasPayments && !hasCajaData && !hasCC && (
+          <div className="card" style={{ padding: '2rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-subtle)' }}>Sin movimientos financieros registrados hoy.</div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

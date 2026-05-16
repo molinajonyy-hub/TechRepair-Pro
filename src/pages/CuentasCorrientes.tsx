@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Search, Plus, X, ChevronRight, AlertTriangle, CheckCircle2, TrendingUp,
-  TrendingDown, User, Building2, DollarSign, RefreshCw, Filter,
-  CreditCard, ArrowUpRight, ArrowDownRight, FileText, Edit2, Loader2,
+  Plus, X, ChevronRight, TrendingUp,
+  TrendingDown, User, Building2, RefreshCw,
+  CreditCard, ArrowUpRight, ArrowDownRight, Edit2,
 } from 'lucide-react'
+import { TimelineView } from '../components/shared/TimelineView'
+import { useEntityTimeline } from '../hooks/useEntityTimeline'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDisplayMessage } from '../utils/formatMessage'
@@ -11,14 +13,13 @@ import {
   AppButton, AppIconButton, AppPageHeader, AppSearchInput,
   AppEmptyState, AppLoadingState,
 } from '../ui'
-import { AddIcon, DeleteIcon } from '../ui/icons'
+import { AddIcon } from '../ui/icons'
 import {
   cuentasService,
   getAccountStatus,
   type Account,
   type AccountMovement,
   type AccountType,
-  type MovementType,
 } from '../services/cuentasService'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -35,15 +36,6 @@ const STATUS_META = {
   al_dia:  { label: 'Al día',   color: '#34d399', bg: 'rgba(52,211,153,0.10)',  border: 'rgba(52,211,153,0.25)'  },
   deuda:   { label: 'En deuda', color: '#f87171', bg: 'rgba(248,113,113,0.10)', border: 'rgba(248,113,113,0.25)' },
   a_favor: { label: 'A favor',  color: '#60a5fa', bg: 'rgba(96,165,250,0.10)',  border: 'rgba(96,165,250,0.25)'  },
-}
-
-const MOV_META: Record<MovementType, { label: string; color: string }> = {
-  venta:    { label: 'Venta',    color: '#34d399' },
-  compra:   { label: 'Compra',   color: '#f87171' },
-  gasto:    { label: 'Gasto',    color: '#fb923c' },
-  pago:     { label: 'Pago',     color: '#60a5fa' },
-  ajuste:   { label: 'Ajuste',   color: '#a78bfa' },
-  apertura: { label: 'Apertura', color: '#94a3b8' },
 }
 
 // ─── MovementModal ────────────────────────────────────────────────────────────
@@ -84,32 +76,28 @@ function MovementModal({ mode, account, businessId, userId, onSaved, onClose }: 
     finally { setSaving(false) }
   }
 
-  const inputS: React.CSSProperties = { width: '100%', padding: '0.5625rem 0.875rem', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' as const }
-  const labelS: React.CSSProperties = { display: 'block', fontSize: '0.72rem', fontWeight: 600, color: '#94a3b8', marginBottom: '0.35rem', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }
-
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{ background: 'var(--bg-modal)', border: `1px solid ${colors[mode]}33`, borderRadius: 'var(--radius-2xl)', width: '100%', maxWidth: 440, boxShadow: 'var(--shadow-xl)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.5rem 1rem', borderBottom: '1px solid var(--border-subtle)' }}>
+    <div className="modal-overlay-dark" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal-card" style={{ border: `1px solid ${colors[mode]}33` }}>
+        <div className="modal-hdr">
           <div>
-            <h2 style={{ margin: 0, fontWeight: 700, color: 'var(--text-primary)', fontSize: '1rem' }}>{titles[mode]}</h2>
-            <p style={{ margin: '0.15rem 0 0', fontSize: '0.75rem', color: '#475569' }}>{account.entity_name}</p>
+            <h2 style={{ margin: 0 }}>{titles[mode]}</h2>
+            <p className="body-sm" style={{ margin: 0 }}>{account.entity_name}</p>
           </div>
           <AppButton variant="ghost" size="sm" onClick={onClose}><X size={15} /></AppButton>
         </div>
 
-        <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div className="modal-body-scroll" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>
-            <label style={labelS}>Monto *</label>
-            <input style={{ ...inputS, fontSize: '1.5rem', fontWeight: 800, textAlign: 'right', color: colors[mode] }}
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Monto *</label>
+            <input className="form-control mono" style={{ fontSize: '1.5rem', fontWeight: 800, textAlign: 'right', color: colors[mode] }}
               type="number" min="0.01" step="0.01" value={amount}
               onChange={e => setAmount(e.target.value)} placeholder="$ 0" autoFocus />
           </div>
 
           {mode === 'ajuste' && (
             <div>
-              <label style={labelS}>Tipo de ajuste</label>
+              <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Tipo de ajuste</label>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 {[{ v: true, l: 'Acreedor (reduce deuda)', c: '#34d399' }, { v: false, l: 'Deudor (agrega deuda)', c: '#f87171' }].map(o => (
                   <button key={String(o.v)} type="button" onClick={() => setIsCredit(o.v)}
@@ -122,19 +110,19 @@ function MovementModal({ mode, account, businessId, userId, onSaved, onClose }: 
           )}
 
           <div>
-            <label style={labelS}>Descripción *</label>
-            <input style={inputS} type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Motivo o referencia..." />
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Descripción *</label>
+            <input className="form-control" type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Motivo o referencia..." />
           </div>
 
           <div>
-            <label style={labelS}>Fecha</label>
-            <input style={inputS} type="date" value={date} onChange={e => setDate(e.target.value)} />
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Fecha</label>
+            <input className="form-control" type="date" value={date} onChange={e => setDate(e.target.value)} />
           </div>
 
-          {err && <p style={{ margin: 0, color: 'var(--error)', fontSize: '0.8rem', fontWeight: 600 }}>{formatDisplayMessage(err)}</p>}
+          {err && <div className="alert-inline alert-error">{formatDisplayMessage(err)}</div>}
         </div>
 
-        <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', background: 'var(--bg-modal)', borderRadius: '0 0 var(--radius-2xl) var(--radius-2xl)' }}>
+        <div className="modal-ftr">
           <AppButton variant="secondary" onClick={onClose}>Cancelar</AppButton>
           <AppButton variant="indigo" loading={saving} onClick={handleSave} leftIcon={mode === 'pago' ? <ArrowDownRight size={14} /> : mode === 'deuda' ? <ArrowUpRight size={14} /> : <Edit2 size={14} />}>
             Guardar
@@ -181,44 +169,63 @@ function NewAccountModal({ activeTab, businessId, onCreated, onClose }: NewAccou
     finally { setSaving(false) }
   }
 
-  const inputS: React.CSSProperties = { width: '100%', padding: '0.5625rem 0.875rem', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' as const }
-  const labelS: React.CSSProperties = { display: 'block', fontSize: '0.72rem', fontWeight: 600, color: '#94a3b8', marginBottom: '0.35rem', textTransform: 'uppercase' as const, letterSpacing: '0.05em' }
-
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{ background: 'var(--bg-modal)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-2xl)', width: '100%', maxWidth: 420, boxShadow: 'var(--shadow-xl)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.5rem 1rem', borderBottom: '1px solid var(--border-subtle)' }}>
-          <h2 style={{ margin: 0, fontWeight: 700, color: 'var(--text-primary)', fontSize: '1rem' }}>
-            Nueva cuenta — {activeTab === 'cliente' ? 'Cliente' : 'Proveedor'}
-          </h2>
+    <div className="modal-overlay-dark" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal-card">
+        <div className="modal-hdr">
+          <h2>Nueva cuenta — {activeTab === 'cliente' ? 'Cliente' : 'Proveedor'}</h2>
           <AppButton variant="ghost" size="sm" onClick={onClose}><X size={15} /></AppButton>
         </div>
-        <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div className="modal-body-scroll" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           {loading ? <AppLoadingState rows={3} /> : (
             <>
               <div>
-                <label style={labelS}>{activeTab === 'cliente' ? 'Cliente' : 'Proveedor'} *</label>
-                <select style={inputS} value={entityId} onChange={e => setEntityId(e.target.value)}>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>{activeTab === 'cliente' ? 'Cliente' : 'Proveedor'} *</label>
+                <select className="form-select" value={entityId} onChange={e => setEntityId(e.target.value)}>
                   <option value="">— Seleccioná —</option>
                   {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
                 </select>
               </div>
               <div>
-                <label style={labelS}>Límite de crédito (opcional)</label>
-                <input style={inputS} type="number" min="0" step="1" value={creditLimit}
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Límite de crédito (opcional)</label>
+                <input className="form-control" type="number" min="0" step="1" value={creditLimit}
                   onChange={e => setCreditLimit(e.target.value)} placeholder="Sin límite" />
               </div>
             </>
           )}
-          {err && <p style={{ margin: 0, color: 'var(--error)', fontSize: '0.8rem' }}>{formatDisplayMessage(err)}</p>}
+          {err && <div className="alert-inline alert-error">{formatDisplayMessage(err)}</div>}
         </div>
-        <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', borderRadius: '0 0 var(--radius-2xl) var(--radius-2xl)' }}>
+        <div className="modal-ftr">
           <AppButton variant="secondary" onClick={onClose}>Cancelar</AppButton>
           <AppButton variant="indigo" loading={saving} onClick={handleCreate} leftIcon={<Plus size={14} />}>Agregar cuenta</AppButton>
         </div>
       </div>
     </div>
+  )
+}
+
+// ─── TimelineAccount (sub-component for AccountDetail) ───────────────────────
+
+function TimelineAccount({ accountId, businessId, refreshTick }: { accountId: string; businessId: string; refreshTick: number }) {
+  const { events, loading } = useEntityTimeline({
+    entityKind: 'customer_account',
+    entityId:   accountId,
+    businessId,
+    limit:      200,
+    enabled:    !!accountId && !!businessId,
+  })
+
+  // refreshTick forces re-mount when parent refreshes movements
+  void refreshTick
+
+  return (
+    <TimelineView
+      events={events}
+      loading={loading}
+      emptyTitle="Sin movimientos"
+      emptyDesc="Registrá el primer movimiento para comenzar el historial."
+      compact
+    />
   )
 }
 
@@ -234,7 +241,6 @@ interface AccountDetailProps {
 
 function AccountDetail({ account, businessId, userId, onClose, onRefreshList }: AccountDetailProps) {
   const [movements, setMovements] = useState<AccountMovement[]>([])
-  const [loading, setLoading]     = useState(true)
   const [localBalance, setLocalBalance] = useState(account.balance)
   const [modal, setModal]         = useState<ModalMode | null>(null)
 
@@ -242,13 +248,11 @@ function AccountDetail({ account, businessId, userId, onClose, onRefreshList }: 
   const sm     = STATUS_META[status]
 
   const loadMovements = useCallback(async () => {
-    setLoading(true)
     const movs = await cuentasService.getMovements(account.id, 200)
     setMovements(movs)
     // Refresh balance from DB
     const fresh = await cuentasService.getAccount(account.id)
     if (fresh) setLocalBalance(fresh.balance)
-    setLoading(false)
   }, [account.id])
 
   useEffect(() => { loadMovements() }, [loadMovements])
@@ -287,9 +291,9 @@ function AccountDetail({ account, businessId, userId, onClose, onRefreshList }: 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1rem', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(255,255,255,0.05)', marginBottom: '0.875rem' }}>
           <div>
             <div style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>Saldo actual</div>
-            <div style={{ fontSize: '1.625rem', fontWeight: 800, fontFamily: 'monospace', color: bal.color, letterSpacing: '-0.02em' }}>{bal.text}</div>
+            <div className="mono" style={{ fontSize: '1.625rem', fontWeight: 800, color: bal.color, letterSpacing: '-0.02em' }}>{bal.text}</div>
           </div>
-          <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '0.25rem 0.625rem', borderRadius: '9999px', background: sm.bg, color: sm.color, border: `1px solid ${sm.border}` }}>
+          <span className={`badge ${getAccountStatus(account.balance) === 'deuda' ? 'badge-error' : getAccountStatus(account.balance) === 'a_favor' ? 'badge-info' : 'badge-success'}`}>
             {sm.label}
           </span>
         </div>
@@ -303,49 +307,9 @@ function AccountDetail({ account, businessId, userId, onClose, onRefreshList }: 
         </div>
       </div>
 
-      {/* Extracto */}
+      {/* Extracto — Timeline premium */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {loading ? (
-          <div style={{ padding: '1.25rem' }}><AppLoadingState rows={5} /></div>
-        ) : movements.length === 0 ? (
-          <AppEmptyState icon={<FileText size={24} />} title="Sin movimientos" description="Registrá el primer movimiento para este cliente." />
-        ) : (
-          <div style={{ overflowX: 'auto' as const }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
-              <thead>
-                <tr style={{ background: 'rgba(255,255,255,0.02)', position: 'sticky', top: 0 }}>
-                  {['Fecha', 'Tipo', 'Descripción', 'Debe', 'Haber', 'Saldo'].map((h, i) => (
-                    <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: i >= 3 ? 'right' : 'left', color: '#334155', fontWeight: 700, fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid rgba(255,255,255,0.05)', whiteSpace: 'nowrap' as const }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {movements.map(mov => {
-                  const mm  = MOV_META[mov.type] || MOV_META.ajuste
-                  const balS = getAccountStatus(mov.balance_after)
-                  return (
-                    <tr key={mov.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                      <td style={{ padding: '0.5625rem 0.75rem', color: '#475569', whiteSpace: 'nowrap' as const }}>{fmtDate(mov.date)}</td>
-                      <td style={{ padding: '0.5625rem 0.75rem', whiteSpace: 'nowrap' as const }}>
-                        <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '0.25rem', background: `${mm.color}18`, color: mm.color }}>{mm.label}</span>
-                      </td>
-                      <td style={{ padding: '0.5625rem 0.75rem', color: 'var(--text-secondary)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{mov.description}</td>
-                      <td style={{ padding: '0.5625rem 0.75rem', textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color: mov.debit > 0 ? '#f87171' : '#1e3a5f' }}>
-                        {mov.debit > 0 ? fmtARS(mov.debit) : '—'}
-                      </td>
-                      <td style={{ padding: '0.5625rem 0.75rem', textAlign: 'right', fontFamily: 'monospace', fontWeight: 600, color: mov.credit > 0 ? '#34d399' : '#1e3a5f' }}>
-                        {mov.credit > 0 ? fmtARS(mov.credit) : '—'}
-                      </td>
-                      <td style={{ padding: '0.5625rem 0.75rem', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: STATUS_META[balS].color, whiteSpace: 'nowrap' as const }}>
-                        {Math.abs(mov.balance_after) < 0.01 ? '$0' : fmtARS(mov.balance_after)}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <TimelineAccount accountId={account.id} businessId={businessId} refreshTick={movements.length} />
       </div>
 
       {/* Movement modals */}
@@ -509,7 +473,7 @@ export function CuentasCorrientes() {
                         )}
                         <td style={{ textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, fontSize: '0.9rem', color: sm.color }}>{bal}</td>
                         <td>
-                          <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '0.15rem 0.5rem', borderRadius: '9999px', background: sm.bg, color: sm.color, border: `1px solid ${sm.border}` }}>
+                          <span className={`badge ${status === 'deuda' ? 'badge-error' : status === 'a_favor' ? 'badge-info' : 'badge-success'}`}>
                             {sm.label}
                           </span>
                         </td>

@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Wallet, TrendingUp, TrendingDown, Plus, Loader2, AlertCircle,
+  Wallet, Plus, Loader2, AlertCircle,
   Lock, Unlock, RefreshCw, Trash2, Calendar, ChevronRight, ChevronDown,
-  ArrowUpRight, ArrowDownRight, DollarSign, CreditCard, Building2,
-  Banknote, X, CheckCircle, AlertTriangle, FileText, Receipt, Truck,
+  DollarSign, CreditCard, Building2,
+  Banknote, X, AlertTriangle, FileText, Receipt, Truck,
 } from 'lucide-react'
 import { CloseButton } from '../components/ui/CloseButton'
 import { supabase } from '../lib/supabase'
@@ -131,12 +131,11 @@ function MethodCard({ method, totals, cotizacion = 1, isSelected, onClick }: Met
   const negBalance = totals.balance < 0
 
   return (
-    <div onClick={onClick} style={{
-      padding: '1rem 1.125rem', borderRadius: '0.75rem', cursor: 'pointer',
+    <div onClick={onClick} className="card-interactive" style={{
+      padding: '1rem 1.125rem', borderRadius: '0.75rem',
       background: isSelected ? meta.accent : 'rgba(255,255,255,0.02)',
       border: `1px solid ${isSelected ? meta.color + '44' : 'rgba(255,255,255,0.06)'}`,
       borderLeft: `3px solid ${meta.color}`,
-      transition: 'all 0.15s',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.625rem' }}>
         <Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
@@ -169,7 +168,7 @@ interface HistoryCajaPanelProps {
   businessId: string
 }
 
-function HistoryCajaPanel({ caja, onNavigate, businessId }: HistoryCajaPanelProps) {
+function HistoryCajaPanel({ caja, onNavigate }: HistoryCajaPanelProps) {
   const [movs, setMovs]     = useState<CajaMovement[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -181,8 +180,6 @@ function HistoryCajaPanel({ caja, onNavigate, businessId }: HistoryCajaPanelProp
   }, [caja.id])
 
   const totals = useMemo(() => computeTotals(caja, movs), [caja, movs])
-  const arsTotal = METHODS.filter(m => m !== 'usd').reduce((s, m) => s + totals[m].balance, 0)
-
   return (
     <div style={{ marginTop: '0.75rem', background: 'rgba(0,0,0,0.2)', borderRadius: '0.625rem', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.05)' }}>
       {/* Summary */}
@@ -492,14 +489,12 @@ export function CajaPage() {
     <div style={{ padding: '1.5rem', maxWidth: '1100px', margin: '0 auto' }}>
 
       {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <div style={{ width: 44, height: 44, borderRadius: '0.75rem', background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Wallet size={22} style={{ color: '#34d399' }} />
-          </div>
+      <div className="page-hdr">
+        <div className="page-hdr-left">
+          <div className="page-hdr-icon green"><Wallet size={22} /></div>
           <div>
-            <h1 style={{ fontSize: '1.375rem', fontWeight: 800, color: '#f8fafc', margin: 0, lineHeight: 1 }}>Caja</h1>
-            <p style={{ fontSize: '0.8rem', color: '#475569', margin: '0.2rem 0 0' }}>
+            <h1 className="page-hdr-title">Caja</h1>
+            <p className="page-hdr-subtitle">
               {activeCaja
                 ? `Abierta ${fmtDateLong(activeCaja.opened_at)}`
                 : activeCaja === null ? 'Sin caja abierta' : 'Cargando...'}
@@ -508,30 +503,24 @@ export function CajaPage() {
         </div>
 
         {activeCaja && (
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <button onClick={loadCaja} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#64748b', cursor: 'pointer', fontSize: '0.8rem' }}>
-              <RefreshCw size={14} /> Actualizar
-            </button>
-            <button onClick={() => setShowAddMov(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '0.5rem', color: '#818cf8', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
-              <Plus size={15} /> Movimiento
-            </button>
-            <button onClick={() => setShowClose(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
-              <Lock size={14} /> Cerrar Caja
-            </button>
+          <div className="page-hdr-right">
+            <button onClick={loadCaja} className="btn btn-ghost btn-sm"><RefreshCw size={14} /> Actualizar</button>
+            <button onClick={() => setShowAddMov(true)} className="btn btn-indigo btn-sm btn-lift"><Plus size={15} /> Movimiento</button>
+            <button onClick={() => setShowClose(true)} className="btn btn-danger btn-sm btn-lift"><Lock size={14} /> Cerrar Caja</button>
           </div>
         )}
       </div>
 
       {error && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1rem', marginBottom: '1rem', background: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.3)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.875rem' }}>
-          <AlertCircle size={16} /> {formatDisplayMessage(error)}
+        <div className="alert-inline alert-error" style={{ marginBottom: '1rem' }}>
+          <AlertCircle size={15} style={{ flexShrink: 0 }} /> {formatDisplayMessage(error)}
         </div>
       )}
 
       {/* ── Loading ── */}
       {isLoading && (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
-          <Loader2 size={32} style={{ color: '#6366f1', animation: 'spin 1s linear infinite' }} />
+          <Loader2 size={32} style={{ color: 'var(--accent-primary)', animation: 'tr-spin 1s linear infinite' }} />
         </div>
       )}
 
@@ -569,9 +558,9 @@ export function CajaPage() {
                 })}
               </div>
 
-              <button onClick={handleOpenCaja} disabled={opening}
+              <button onClick={handleOpenCaja} disabled={opening} className="btn btn-lift"
                 style={{ width: '100%', padding: '0.875rem', background: opening ? 'rgba(52,211,153,0.08)' : 'rgba(52,211,153,0.18)', border: '1px solid rgba(52,211,153,0.35)', borderRadius: '0.625rem', color: '#34d399', fontWeight: 800, fontSize: '1rem', cursor: opening ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                {opening ? <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Unlock size={18} />}
+                {opening ? <Loader2 size={18} style={{ animation: 'tr-spin 1s linear infinite' }} /> : <Unlock size={18} />}
                 {opening ? 'Abriendo...' : 'Abrir Caja'}
               </button>
             </div>
@@ -643,7 +632,7 @@ export function CajaPage() {
                   <thead>
                     <tr style={{ background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                       {['Hora', 'Descripción', 'Fuente', 'Método', 'Monto', ''].map(h => (
-                        <th key={h} style={{ padding: '0.625rem 1rem', textAlign: 'left', color: '#334155', fontWeight: 700, fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                        <th key={h} className="label-caps" style={{ padding: '0.625rem 1rem', textAlign: 'left' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -789,18 +778,17 @@ export function CajaPage() {
 
       {/* ── Modal: Agregar movimiento ── */}
       {showAddMov && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}
-          onClick={e => { if (e.target === e.currentTarget) setShowAddMov(false) }}>
-          <div style={{ background: '#0f172a', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '0.875rem', width: '100%', maxWidth: 420, padding: '1.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-              <h3 style={{ fontWeight: 700, color: '#f8fafc', margin: 0 }}>Registrar movimiento</h3>
+        <div className="modal-overlay-dark" onClick={e => { if (e.target === e.currentTarget) setShowAddMov(false) }}>
+          <div className="modal-card">
+            <div className="modal-hdr">
+              <h3>Registrar movimiento</h3>
               <CloseButton onClick={() => setShowAddMov(false)} />
             </div>
-            {movError && <div style={{ padding: '0.5rem 0.75rem', marginBottom: '1rem', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.375rem', color: '#f87171', fontSize: '0.8rem' }}>{movError}</div>}
-            <form onSubmit={handleAddMovement} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {movError && <div className="alert-inline alert-error" style={{ margin: '0.75rem 1.375rem 0' }}>{movError}</div>}
+            <form onSubmit={handleAddMovement} className="modal-body-scroll" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {/* Tipo */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', marginBottom: '0.375rem', fontWeight: 600 }}>Tipo</label>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Tipo</label>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   {([['income','Ingreso','#34d399'],['expense','Egreso','#f87171']] as const).map(([v,l,c]) => (
                     <button key={v} type="button" onClick={() => setMovForm(f => ({ ...f, type: v }))}
@@ -812,7 +800,7 @@ export function CajaPage() {
               </div>
               {/* Método */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', marginBottom: '0.375rem', fontWeight: 600 }}>Método</label>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Método</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.375rem' }}>
                   {METHODS.map(m => {
                     const meta = METHOD_META[m]
@@ -829,25 +817,24 @@ export function CajaPage() {
               </div>
               {/* Monto */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', marginBottom: '0.375rem', fontWeight: 600 }}>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>
                   Monto {movForm.method === 'usd' ? '(USD)' : '(ARS)'}
                 </label>
                 <input type="number" min="0.01" step="0.01" required value={movForm.amount}
                   onChange={e => setMovForm(f => ({ ...f, amount: e.target.value }))} placeholder="0"
-                  style={{ width: '100%', padding: '0.625rem 0.875rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', color: '#f8fafc', fontSize: '1.1rem', fontFamily: 'monospace', fontWeight: 700, outline: 'none', boxSizing: 'border-box' }} />
+                  className="form-control mono" style={{ fontSize: '1.1rem', fontWeight: 700 }} />
               </div>
               {/* Descripción */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', marginBottom: '0.375rem', fontWeight: 600 }}>Descripción (opcional)</label>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Descripción (opcional)</label>
                 <input type="text" value={movForm.description}
                   onChange={e => setMovForm(f => ({ ...f, description: e.target.value }))}
                   placeholder="Ej: Alquiler, cobro cliente..."
-                  style={{ width: '100%', padding: '0.625rem 0.875rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', color: '#f8fafc', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' }} />
+                  className="form-control" />
               </div>
-              <button type="submit" disabled={savingMov}
-                style={{ padding: '0.75rem', background: savingMov ? 'rgba(99,102,241,0.1)' : 'rgba(99,102,241,0.2)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: '0.5rem', color: '#818cf8', fontWeight: 800, fontSize: '1rem', cursor: savingMov ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                {savingMov ? <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={18} />}
-                {savingMov ? 'Guardando...' : 'Registrar'}
+              <button type="submit" disabled={savingMov} className="btn btn-indigo btn-lift"
+                style={{ width: '100%', padding: '0.75rem', fontWeight: 800, fontSize: '1rem' }}>
+                {savingMov ? <><Loader2 size={18} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</> : <><Plus size={18} /> Registrar</>}
               </button>
             </form>
           </div>
@@ -856,27 +843,24 @@ export function CajaPage() {
 
       {/* ── Modal: Cerrar caja ── */}
       {showClose && activeCaja && totals && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}
-          onClick={e => { if (e.target === e.currentTarget) setShowClose(false) }}>
-          <div style={{ background: '#0d1a30', border: '1px solid rgba(248,113,113,0.2)', borderRadius: '1rem', width: '100%', maxWidth: 560, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div className="modal-overlay-dark" onClick={e => { if (e.target === e.currentTarget) setShowClose(false) }}>
+          <div className="modal-card modal-card-lg" style={{ border: '1px solid rgba(248,113,113,0.2)' }}>
             {/* Header */}
-            <div style={{ padding: '1.25rem 1.5rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+            <div className="modal-hdr">
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <div style={{ width: 36, height: 36, borderRadius: '0.5rem', background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Lock size={17} style={{ color: '#f87171' }} />
                 </div>
                 <div>
-                  <h3 style={{ fontWeight: 800, color: '#f8fafc', margin: 0, fontSize: '1rem' }}>Cerrar Caja</h3>
-                  <p style={{ margin: 0, fontSize: '0.72rem', color: '#475569' }}>Ingresá el saldo contado por método</p>
+                  <h3 style={{ margin: 0 }}>Cerrar Caja</h3>
+                  <p className="body-sm" style={{ margin: 0 }}>Ingresá el saldo contado por método</p>
                 </div>
               </div>
-              <button onClick={() => setShowClose(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.25rem', display: 'flex' }}>
-                <X size={16} />
-              </button>
+              <button onClick={() => setShowClose(false)} className="icon-btn" aria-label="Cerrar"><X size={16} /></button>
             </div>
 
             {/* Body */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem' }}>
+            <div className="modal-body-scroll">
               {/* Comparison table */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0', marginBottom: '1.25rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '0.625rem', overflow: 'hidden' }}>
                 {/* Header */}
@@ -940,23 +924,18 @@ export function CajaPage() {
               </div>
 
               {/* Notes */}
-              <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', color: '#64748b', marginBottom: '0.375rem', fontWeight: 600 }}>Notas de cierre (opcional)</label>
+              <div style={{ marginTop: '0.75rem' }}>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Notas de cierre (opcional)</label>
                 <textarea value={closingNotes} onChange={e => setClosingNotes(e.target.value)} rows={2}
-                  placeholder="Observaciones del turno..."
-                  style={{ width: '100%', padding: '0.625rem 0.875rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#f8fafc', fontSize: '0.875rem', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }} />
+                  placeholder="Observaciones del turno..." className="form-control" style={{ resize: 'vertical' }} />
               </div>
             </div>
 
             {/* Footer */}
-            <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexShrink: 0, background: '#0d1a30' }}>
-              <button onClick={() => setShowClose(false)} style={{ padding: '0.625rem 1.25rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#64748b', fontWeight: 600, cursor: 'pointer', fontSize: '0.875rem' }}>
-                Cancelar
-              </button>
-              <button onClick={handleCloseCaja} disabled={closing}
-                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.5rem', background: closing ? 'rgba(248,113,113,0.1)' : 'rgba(248,113,113,0.18)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: '0.5rem', color: '#f87171', fontWeight: 800, cursor: closing ? 'not-allowed' : 'pointer', fontSize: '0.875rem' }}>
-                {closing ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Lock size={16} />}
-                {closing ? 'Cerrando...' : 'Confirmar cierre'}
+            <div className="modal-ftr">
+              <button onClick={() => setShowClose(false)} className="btn btn-ghost">Cancelar</button>
+              <button onClick={handleCloseCaja} disabled={closing} className="btn btn-danger btn-lift">
+                {closing ? <><Loader2 size={16} style={{ animation: 'tr-spin 1s linear infinite' }} /> Cerrando...</> : <><Lock size={16} /> Confirmar cierre</>}
               </button>
             </div>
           </div>

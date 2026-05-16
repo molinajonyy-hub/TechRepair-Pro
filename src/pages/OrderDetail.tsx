@@ -13,6 +13,9 @@ import {
   MessageCircle,
   Save,
   Loader2,
+  Phone,
+  Mail,
+  MapPin,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { ModalEnviarWhatsApp } from '../components/whatsapp/ModalEnviarWhatsApp'
@@ -221,17 +224,8 @@ export function OrderDetail() {
 
             <button
               onClick={() => setShowWhatsAppModal(true)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '0.375rem',
-                padding: '0.375rem 0.875rem',
-                backgroundColor: 'rgba(37,211,102,0.12)',
-                border: '1px solid rgba(37,211,102,0.3)',
-                borderRadius: '0.5rem', color: '#25d366',
-                fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'rgba(37,211,102,0.22)')}
-              onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'rgba(37,211,102,0.12)')}
+              className="btn btn-ghost btn-sm"
+              style={{ color: '#25d366', borderColor: 'rgba(37,211,102,0.3)', background: 'rgba(37,211,102,0.08)' }}
             >
               <MessageCircle size={15} />
               WhatsApp
@@ -251,33 +245,20 @@ export function OrderDetail() {
       )}
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', borderBottom: '1px solid #374151' }}>
+      <div className="tabs" style={{ marginBottom: '1.5rem' }}>
         {[
-          { id: 'overview', label: 'General', icon: Smartphone },
-          { id: 'notes', label: 'Notas', icon: FileText },
-          { id: 'documents', label: 'Documentos', icon: Image },
-          { id: 'comunicacion', label: 'Comunicación', icon: MessageCircle },
-          { id: 'history', label: 'Historial', icon: History },
+          { id: 'overview',     label: 'General',       icon: Smartphone   },
+          { id: 'notes',        label: 'Notas',         icon: FileText     },
+          { id: 'documents',    label: 'Documentos',    icon: Image        },
+          { id: 'comunicacion', label: 'Comunicación',  icon: MessageCircle },
+          { id: 'history',      label: 'Historial',     icon: History      },
         ].map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            style={{
-              padding: '0.75rem 1rem',
-              backgroundColor: 'transparent',
-              border: 'none',
-              borderBottom: `2px solid ${activeTab === tab.id ? '#6366f1' : 'transparent'}`,
-              color: activeTab === tab.id ? '#6366f1' : '#a0aec0',
-              fontSize: '0.875rem',
-              fontWeight: 500,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              marginBottom: '-1px'
-            }}
+            className={`tab${activeTab === tab.id ? ' tab-active' : ''}`}
           >
-            <tab.icon size={16} />
+            <tab.icon size={15} />
             {tab.label}
           </button>
         ))}
@@ -297,10 +278,20 @@ export function OrderDetail() {
                   {order.customer?.name || 'Sin cliente'}
                 </p>
                 {order.customer?.phone && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', color: '#a0aec0', fontSize: '0.875rem' }}>
-                    <span>📞 {order.customer.phone}</span>
-                    {order.customer.email && <span>✉️ {order.customer.email}</span>}
-                    {order.customer.address && <span>📍 {order.customer.address}</span>}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+                    <span className="body-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Phone size={13} style={{ flexShrink: 0 }} /> {order.customer.phone}
+                    </span>
+                    {order.customer.email && (
+                      <span className="body-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <Mail size={13} style={{ flexShrink: 0 }} /> {order.customer.email}
+                      </span>
+                    )}
+                    {order.customer.address && (
+                      <span className="body-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <MapPin size={13} style={{ flexShrink: 0 }} /> {order.customer.address}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -316,16 +307,16 @@ export function OrderDetail() {
                   <>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
                       <div>
-                        <p style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.25rem' }}>Marca</p>
+                        <p className="label-caps" style={{ marginBottom: '0.25rem' }}>Marca</p>
                         <p style={{ fontWeight: 500, color: '#f8fafc' }}>{order.device.brand}</p>
                       </div>
                       <div>
-                        <p style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.25rem' }}>Modelo</p>
+                        <p className="label-caps" style={{ marginBottom: '0.25rem' }}>Modelo</p>
                         <p style={{ fontWeight: 500, color: '#f8fafc' }}>{order.device.model}</p>
                       </div>
                     </div>
                     <div>
-                      <p style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.25rem' }}>Problema</p>
+                      <p className="label-caps" style={{ marginBottom: '0.25rem' }}>Problema</p>
                       <p style={{ color: '#f8fafc' }}>{order.device.issue}</p>
                     </div>
                   </>

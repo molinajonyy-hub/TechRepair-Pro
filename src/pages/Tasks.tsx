@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  Plus, X, Check, Clock, AlertTriangle, CheckCircle2, Circle,
-  ChevronRight, MoreHorizontal, Calendar, User, Flag, MessageSquare,
+  Plus, X, Check, Clock, CheckCircle2, Circle,
+  ChevronRight, MoreHorizontal, Calendar, User, MessageSquare,
   History, ListChecks, Edit2, Trash2, RefreshCw, LayoutGrid, List,
-  TrendingUp, Users, BarChart3, Filter, Send,
+  BarChart3, Filter, Send,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -128,7 +128,7 @@ function TaskCard({ task, assigneeName, isAdmin, onSelect, onStatusChange, onDel
   const nextStatuses = STATUS_META[task.status]?.next || []
 
   return (
-    <div style={{
+    <div className="card-interactive" style={{
       background: 'rgba(255,255,255,0.025)',
       border: `1px solid ${over ? 'rgba(248,113,113,0.25)' : 'rgba(255,255,255,0.06)'}`,
       borderLeft: `4px solid ${pm.color}`,
@@ -136,19 +136,16 @@ function TaskCard({ task, assigneeName, isAdmin, onSelect, onStatusChange, onDel
       padding: '0.875rem 0.875rem 0.875rem 0.75rem',
       cursor: 'pointer',
       position: 'relative',
-      transition: 'border-color 0.15s, background 0.15s',
     }}
       onClick={onSelect}
-      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.04)')}
-      onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.025)')}
     >
       {/* Priority + overdue badges */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginBottom: '0.5rem' }}>
-        <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.375rem', borderRadius: '0.25rem', background: pm.bg, color: pm.color, border: `1px solid ${pm.border}` }}>
+        <span className={`badge ${task.priority === 'high' ? 'badge-error' : task.priority === 'medium' ? 'badge-warning' : 'badge-success'}`} style={{ borderRadius: '0.25rem' }}>
           {pm.label}
         </span>
-        {over && <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.375rem', borderRadius: '0.25rem', background: 'rgba(248,113,113,0.12)', color: '#f87171', border: '1px solid rgba(248,113,113,0.3)' }}>Vencida</span>}
-        {soon && !over && <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.375rem', borderRadius: '0.25rem', background: 'rgba(251,191,36,0.1)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.25)' }}>Vence pronto</span>}
+        {over && <span className="badge badge-error" style={{ borderRadius: '0.25rem' }}>Vencida</span>}
+        {soon && !over && <span className="badge badge-warning" style={{ borderRadius: '0.25rem' }}>Vence pronto</span>}
 
         {/* Menu */}
         {isAdmin && (
@@ -362,7 +359,7 @@ interface TaskDetailPanelProps {
   onUpdated: (t: Task) => void
 }
 
-function TaskDetailPanel({ task, profiles, profileMap, isAdmin, businessId, userId, myName, onClose, onEdit, onStatusChange, onUpdated }: TaskDetailPanelProps) {
+function TaskDetailPanel({ task, profiles: _profiles, profileMap, isAdmin, businessId, userId, myName, onClose, onEdit, onStatusChange, onUpdated: _onUpdated }: TaskDetailPanelProps) {
   const [tab, setTab]           = useState<DetailTab>('details')
   const [items, setItems]       = useState<TaskItem[]>([])
   const [comments, setComments] = useState<TaskComment[]>([])
@@ -462,8 +459,8 @@ function TaskDetailPanel({ task, profiles, profileMap, isAdmin, businessId, user
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '0.75rem' }}>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.375rem' }}>
-              <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '0.25rem', background: pm.bg, color: pm.color, border: `1px solid ${pm.border}` }}>{pm.label}</span>
-              <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '0.25rem', background: STATUS_META[task.status].bg, color: STATUS_META[task.status].color }}>
+              <span className={`badge ${task.priority === 'high' ? 'badge-error' : task.priority === 'medium' ? 'badge-warning' : 'badge-success'}`} style={{ borderRadius: '0.25rem' }}>{pm.label}</span>
+              <span className={`badge ${task.status === 'completed' ? 'badge-success' : task.status === 'cancelled' ? 'badge-error' : task.status === 'in_progress' ? 'badge-info' : 'badge-neutral'}`} style={{ borderRadius: '0.25rem' }}>
                 {STATUS_META[task.status].label}
               </span>
               {isOverdue(task) && <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '0.25rem', background: 'rgba(248,113,113,0.12)', color: '#f87171' }}>Vencida</span>}

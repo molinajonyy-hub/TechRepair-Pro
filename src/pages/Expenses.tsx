@@ -3,7 +3,7 @@ import { formatDisplayMessage } from '../utils/formatMessage'
 import {
   Plus, Receipt, AlertTriangle, Calendar,
   Check, X, ChevronDown, ShoppingBag,
-  Wallet, Banknote, CheckCircle, Truck, Minus, RefreshCw,
+  Wallet, Banknote, CheckCircle, Truck, RefreshCw,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useCaja } from '../contexts/CajaContext'
@@ -74,19 +74,8 @@ const PAYMENT_METHOD_LABELS: Record<string, { label: string; color: string }> = 
   tarjeta:       { label: 'Tarjeta',       color: '#f59e0b' },
 }
 
-// ─── Module-level styles (prevents sub-component remount bugs) ────────────────
-
-const _inputBase: React.CSSProperties = {
-  width: '100%', background: 'var(--input-bg)', border: '1px solid var(--input-border)',
-  color: 'var(--text-primary)', outline: 'none', boxSizing: 'border-box' as const,
-}
-const inputS: React.CSSProperties  = { ..._inputBase, padding: '0.625rem 0.875rem', fontSize: '0.875rem', borderRadius: 'var(--radius-md)' }
-const inputSm: React.CSSProperties = { ..._inputBase, padding: '0.5rem 0.625rem', fontSize: '0.85rem', borderRadius: 'var(--radius-sm)' }
-const labelS: React.CSSProperties  = {
-  display: 'block', fontSize: '0.72rem', fontWeight: 600,
-  color: 'var(--text-subtle)', marginBottom: '0.35rem',
-  textTransform: 'uppercase' as const, letterSpacing: '0.05em',
-}
+// ─── Module-level styles ──────────────────────────────────────────────────────
+// (migrated to CSS classes — kept only what's still needed inline)
 
 // ─── QuickSupplierForm ────────────────────────────────────────────────────────
 
@@ -119,19 +108,19 @@ function QuickSupplierForm({ businessId, userId, onCreated, onCancel }: QuickSup
 
   return (
     <div style={{ padding: '0.875rem', background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
-      <p style={{ ...labelS, marginBottom: 0, color: 'var(--accent-primary)' }}>Nuevo proveedor</p>
+      <p className="label-caps" style={{ marginBottom: 0, color: 'var(--accent-primary)' }}>Nuevo proveedor</p>
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '0.75rem' }}>
         <div>
-          <label style={labelS}>Nombre *</label>
-          <input style={inputS} value={name} onChange={e => setName(e.target.value)} placeholder="Nombre del proveedor" autoFocus onKeyDown={e => e.key === 'Enter' && handleCreate()} />
+          <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Nombre *</label>
+          <input className="form-control" value={name} onChange={e => setName(e.target.value)} placeholder="Nombre del proveedor" autoFocus onKeyDown={e => e.key === 'Enter' && handleCreate()} />
         </div>
         <div>
-          <label style={labelS}>Teléfono</label>
-          <input style={inputS} value={phone} onChange={e => setPhone(e.target.value)} placeholder="351-xxx-xxxx" />
+          <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Teléfono</label>
+          <input className="form-control" value={phone} onChange={e => setPhone(e.target.value)} placeholder="351-xxx-xxxx" />
         </div>
         <div>
-          <label style={labelS}>Email</label>
-          <input style={inputS} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="opcional" />
+          <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Email</label>
+          <input className="form-control" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="opcional" />
         </div>
       </div>
       {err && <p style={{ margin: 0, color: 'var(--error)', fontSize: '0.8rem' }}>{err}</p>}
@@ -202,7 +191,7 @@ function ItemRow({ item, businessId, onUpdate, onRemove, isOnly, onOpenProductFo
           </div>
         ) : (
           <div style={{ position: 'relative' }}>
-            <input style={inputSm} value={q}
+            <input className="form-control" value={q}
               onChange={e => { setQ(e.target.value); onUpdate(item._id, { product_name: e.target.value, inventory_id: null }) }}
               onFocus={() => q.length >= 2 && setOpen(true)}
               onBlur={() => setTimeout(() => setOpen(false), 200)}
@@ -238,12 +227,12 @@ function ItemRow({ item, businessId, onUpdate, onRemove, isOnly, onOpenProductFo
       </td>
       {/* Cantidad */}
       <td style={{ ...cell, width: 76 }}>
-        <input style={{ ...inputSm, textAlign: 'right' }} type="number" min="0.01" step="1"
+        <input className="form-control" style={{ textAlign: 'right' }} type="number" min="0.01" step="1"
           value={item.cantidad} onChange={e => onUpdate(item._id, { cantidad: e.target.value })} />
       </td>
       {/* Costo unit. */}
       <td style={{ ...cell, width: 120 }}>
-        <input style={{ ...inputSm, textAlign: 'right' }} type="number" min="0" step="1"
+        <input className="form-control" style={{ textAlign: 'right' }} type="number" min="0" step="1"
           value={item.costo_unitario} onChange={e => onUpdate(item._id, { costo_unitario: e.target.value })} placeholder="$ 0" />
       </td>
       {/* Subtotal */}
@@ -462,20 +451,20 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
           <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
               <div>
-                <label style={labelS}>Monto *</label>
-                <input style={{ ...inputS, fontSize: '1.5rem', fontWeight: 800, textAlign: 'right', color: 'var(--error)' }}
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Monto *</label>
+                <input className="form-control" style={{ fontSize: '1.5rem', fontWeight: 800, textAlign: 'right', color: 'var(--error)' }}
                   type="number" min="0" step="1" value={monto} onChange={e => setMonto(e.target.value)} placeholder="$ 0" autoFocus />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div>
-                  <label style={labelS}>Categoría *</label>
-                  <select style={inputS} value={categoria} onChange={e => setCategoria(e.target.value)}>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Categoría *</label>
+                  <select className="form-control" value={categoria} onChange={e => setCategoria(e.target.value)}>
                     {categories.filter(c => c.is_active).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label style={labelS}>Método de pago</label>
-                  <select style={inputS} value={metodo} onChange={e => setMetodo(e.target.value)}>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Método de pago</label>
+                  <select className="form-control" value={metodo} onChange={e => setMetodo(e.target.value)}>
                     <option value="efectivo">Efectivo</option>
                     <option value="transferencia">Transferencia</option>
                     <option value="tarjeta">Tarjeta</option>
@@ -483,16 +472,16 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
                 </div>
               </div>
               <div>
-                <label style={labelS}>Descripción *</label>
-                <input style={inputS} type="text" value={descripcion} onChange={e => setDescripcion(e.target.value)} placeholder="¿En qué se gastó?" />
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Descripción *</label>
+                <input className="form-control" type="text" value={descripcion} onChange={e => setDescripcion(e.target.value)} placeholder="¿En qué se gastó?" />
               </div>
               <div>
-                <label style={labelS}>Fecha</label>
-                <input style={inputS} type="date" value={fecha} onChange={e => setFecha(e.target.value)} />
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Fecha</label>
+                <input className="form-control" type="date" value={fecha} onChange={e => setFecha(e.target.value)} />
               </div>
               <div>
-                <label style={labelS}>Notas (opcional)</label>
-                <textarea style={{ ...inputS, minHeight: 60, resize: 'vertical' as const }} value={notas} onChange={e => setNotas(e.target.value)} placeholder="Información adicional..." />
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Notas (opcional)</label>
+                <textarea className="form-control" style={{ minHeight: 60, resize: 'vertical' as const }} value={notas} onChange={e => setNotas(e.target.value)} placeholder="Información adicional..." />
               </div>
               <div style={{ padding: '0.875rem 1rem', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', cursor: 'pointer' }}>
@@ -501,8 +490,8 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
                 </label>
                 {recurrente && (
                   <div>
-                    <label style={labelS}>Frecuencia</label>
-                    <select style={inputS} value={frecuencia} onChange={e => setFrecuencia(e.target.value)}>
+                    <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Frecuencia</label>
+                    <select className="form-control" value={frecuencia} onChange={e => setFrecuencia(e.target.value)}>
                       <option value="mensual">Mensual</option>
                       <option value="semanal">Semanal</option>
                     </select>
@@ -521,8 +510,8 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
 
                 {/* Proveedor */}
                 <div>
-                  <label style={labelS}>Proveedor</label>
-                  <select style={inputS}
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Proveedor</label>
+                  <select className="form-control"
                     value={showNewSupplier ? '__new__' : supplierId}
                     onChange={e => {
                       if (e.target.value === '__new__') { setShowNewSupplier(true); setSupplierId('') }
@@ -542,19 +531,19 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
                 {/* N° Factura + Fecha */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.625rem' }}>
                   <div>
-                    <label style={labelS}>N° Factura (opcional)</label>
-                    <input style={inputS} value={numFactura} onChange={e => setNumFactura(e.target.value)} placeholder="A-0001-00012345" />
+                    <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>N° Factura (opcional)</label>
+                    <input className="form-control" value={numFactura} onChange={e => setNumFactura(e.target.value)} placeholder="A-0001-00012345" />
                   </div>
                   <div>
-                    <label style={labelS}>Fecha</label>
-                    <input style={inputS} type="date" value={facFecha} onChange={e => setFacFecha(e.target.value)} />
+                    <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Fecha</label>
+                    <input className="form-control" type="date" value={facFecha} onChange={e => setFacFecha(e.target.value)} />
                   </div>
                 </div>
 
                 {/* Descripción */}
                 <div>
-                  <label style={labelS}>Descripción (se auto-genera)</label>
-                  <input style={inputS} value={facDescripcion} onChange={e => setFacDescripcion(e.target.value)}
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Descripción (se auto-genera)</label>
+                  <input className="form-control" value={facDescripcion} onChange={e => setFacDescripcion(e.target.value)}
                     placeholder={`Factura ${suppliers.find(s => s.id === supplierId)?.name || 'proveedor'}${numFactura ? ' #' + numFactura : ''}`} />
                 </div>
 
@@ -578,8 +567,8 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
 
                 {/* Notas */}
                 <div>
-                  <label style={labelS}>Notas internas</label>
-                  <textarea style={{ ...inputS, minHeight: 52, resize: 'vertical' as const }} value={facNotas} onChange={e => setFacNotas(e.target.value)} placeholder="Condiciones, observaciones..." />
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Notas internas</label>
+                  <textarea className="form-control" style={{ minHeight: 52, resize: 'vertical' as const }} value={facNotas} onChange={e => setFacNotas(e.target.value)} placeholder="Condiciones, observaciones..." />
                 </div>
               </div>
 

@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { Plus, Search, Eye, Phone, Mail, Users, Download, Upload, Pencil, Trash2, Loader2, X } from 'lucide-react'
 import { smartSearch } from '../utils/searchUtils'
 import { CloseButton } from '../components/ui/CloseButton'
-import { customersService, ordersService } from '../services/api'
+import { EmptyState } from '../components/ui/EmptyState'
+import { customersService } from '../services/api'
 import { useLoading } from '../contexts/LoadingContext'
 import { ModalImportExcel } from '../components/ModalImportExcel'
 import { ExcelService, ExcelRow } from '../services/excelService'
@@ -301,203 +302,93 @@ export function Customers() {
 
   if (error) {
     return (
-      <div style={{ padding: '2rem' }}>
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#ffffff', marginBottom: '1rem' }}>
-          Clientes
-        </h1>
-        <div style={{ padding: '1.5rem', backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '0.75rem' }}>
-          <p style={{ color: '#f87171', marginBottom: '1rem' }}>Error al cargar clientes: {error}</p>
-          <button onClick={() => void loadCustomers()} className="btn btn-outline">
-            Reintentar
-          </button>
+      <div>
+        <div className="page-hdr">
+          <div className="page-hdr-left">
+            <div className="page-hdr-icon"><Users size={22} /></div>
+            <div><h1 className="page-hdr-title">Clientes</h1></div>
+          </div>
         </div>
+        <div className="alert-inline alert-error" style={{ marginBottom: '1rem' }}>{error}</div>
+        <button onClick={() => void loadCustomers()} className="btn btn-ghost btn-sm">Reintentar</button>
       </div>
     )
   }
 
   return (
     <div>
-      <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-          <div style={{
-            width: '44px', height: '44px', borderRadius: '0.75rem',
-            background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2))',
-            border: '1px solid rgba(99,102,241,0.3)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
-          }}>
-            <Users size={22} style={{ color: '#818cf8' }} />
-          </div>
+      <div className="page-hdr">
+        <div className="page-hdr-left">
+          <div className="page-hdr-icon"><Users size={22} /></div>
           <div>
-            <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#f8fafc' }}>Clientes</h1>
-            <p style={{ margin: 0, fontSize: '0.8rem', color: '#475569' }}>Gestiona la base de datos de clientes</p>
+            <h1 className="page-hdr-title">Clientes</h1>
+            <p className="page-hdr-subtitle">Gestiona la base de datos de clientes</p>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <button onClick={handleDownloadTemplate} style={{
-            display: 'flex', alignItems: 'center', gap: '0.5rem',
-            padding: '0.5rem 0.875rem',
-            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-            color: '#94a3b8', borderRadius: '0.5rem', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem'
-          }}>
-            <Download size={15} />
-            Plantilla
-          </button>
-          <button onClick={handleExportCustomers} style={{
-            display: 'flex', alignItems: 'center', gap: '0.5rem',
-            padding: '0.5rem 0.875rem',
-            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-            color: '#94a3b8', borderRadius: '0.5rem', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem'
-          }}>
-            <Download size={15} />
-            Exportar
-          </button>
-          <button onClick={() => setShowImportModal(true)} style={{
-            display: 'flex', alignItems: 'center', gap: '0.5rem',
-            padding: '0.5rem 0.875rem',
-            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-            color: '#94a3b8', borderRadius: '0.5rem', cursor: 'pointer', fontWeight: 500, fontSize: '0.8rem'
-          }}>
-            <Upload size={15} />
-            Importar
-          </button>
-          <Link to="/customers/new" style={{
-            display: 'flex', alignItems: 'center', gap: '0.5rem',
-            padding: '0.625rem 1.25rem',
-            background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-            border: 'none', color: '#ffffff', borderRadius: '0.625rem',
-            cursor: 'pointer', fontWeight: 600, textDecoration: 'none',
-            boxShadow: '0 4px 12px rgba(99,102,241,0.35)', fontSize: '0.875rem'
-          }}>
-            <Plus size={18} />
-            Nuevo Cliente
+        <div className="page-hdr-right">
+          <button onClick={handleDownloadTemplate} className="btn btn-ghost btn-sm"><Download size={15} />Plantilla</button>
+          <button onClick={handleExportCustomers} className="btn btn-ghost btn-sm"><Download size={15} />Exportar</button>
+          <button onClick={() => setShowImportModal(true)} className="btn btn-ghost btn-sm"><Upload size={15} />Importar</button>
+          <Link to="/customers/new" className="btn btn-primary btn-sm btn-lift" style={{ textDecoration: 'none' }}>
+            <Plus size={16} />Nuevo Cliente
           </Link>
         </div>
       </div>
 
-      <div
-        style={{
-          marginBottom: '1.5rem',
-          padding: '1rem',
-          backgroundColor: '#0f1829',
-          border: '1px solid rgba(255,255,255,0.06)',
-          borderRadius: '0.75rem',
-          display: 'flex',
-          gap: '1rem',
-          flexWrap: 'wrap',
-        }}
-      >
+      <div className="filter-bar">
         <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
-          <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', pointerEvents: 'none' }} />
+          <Search size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
           <input
             type="text"
-            placeholder="Buscar por nombre, teléfono, DNI, email, dirección..."
+            placeholder="Buscar por nombre, teléfono, email..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '0.625rem 2.25rem 0.625rem 2.5rem',
-              backgroundColor: 'rgba(15,23,42,0.8)',
-              border: `1px solid ${searchTerm ? 'rgba(99,102,241,0.4)' : 'rgba(51,65,85,0.6)'}`,
-              borderRadius: '0.5rem',
-              color: '#f1f5f9',
-              outline: 'none',
-              boxSizing: 'border-box',
-              transition: 'border-color 0.15s',
-            }}
+            className="form-control"
+            style={{ paddingLeft: '2.25rem', paddingRight: searchTerm ? '2rem' : undefined }}
           />
           {searchTerm && (
-            <button onClick={() => setSearchTerm('')}
-              style={{ position: 'absolute', right: '0.625rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', alignItems: 'center', padding: '0.125rem' }}>
-              <X size={14} />
+            <button onClick={() => setSearchTerm('')} className="icon-btn" aria-label="Limpiar"
+              style={{ position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)', width: 22, height: 22 }}>
+              <X size={12} />
             </button>
           )}
         </div>
         {debouncedSearch && (
-          <span style={{ fontSize: '0.75rem', color: '#475569', whiteSpace: 'nowrap' }}>
+          <span className="body-sm" style={{ whiteSpace: 'nowrap', alignSelf: 'center' }}>
             {filteredCustomers.length} resultado{filteredCustomers.length !== 1 ? 's' : ''}
           </span>
         )}
       </div>
 
-      <div
-        style={{
-          backgroundColor: '#0f1829',
-          border: '1px solid rgba(255,255,255,0.06)',
-          borderRadius: '0.75rem',
-          overflow: 'hidden',
-        }}
-      >
-        <div style={{ padding: 0 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className="surface-raised" style={{ overflow: 'hidden' }}>
+        <div className="table-wrap">
+          <table className="data-table">
             <thead>
-              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>
-                  Cliente
-                </th>
-                <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>
-                  Contacto
-                </th>
-                <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>
-                  Ordenes
-                </th>
-                <th style={{ padding: '1rem', textAlign: 'right', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>
-                  Total
-                </th>
-                <th style={{ padding: '1rem', textAlign: 'right', fontSize: '0.875rem', fontWeight: 500, color: '#94a3b8' }}>
-                  Acciones
-                </th>
+              <tr>
+                <th>Cliente</th>
+                <th>Contacto</th>
+                <th>Órdenes</th>
+                <th style={{ textAlign: 'right' }}>Total</th>
+                <th style={{ textAlign: 'right' }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {filteredCustomers.length === 0 ? (
-                <tr>
+                <tr className="empty-row">
                   <td colSpan={5}>
                     {customers.length === 0 ? (
-                      <div style={{ padding: '4rem 2rem', textAlign: 'center' }}>
-                        <div style={{
-                          width: '64px',
-                          height: '64px',
-                          borderRadius: '50%',
-                          backgroundColor: 'rgba(15,23,42,0.8)',
-                          margin: '0 auto 1.5rem',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}>
-                          <Users size={32} style={{ color: '#64748b' }} />
-                        </div>
-                        <h3 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#ffffff', marginBottom: '0.5rem' }}>
-                          Todavía no tenés clientes
-                        </h3>
-                        <p style={{ color: '#94a3b8', fontSize: '0.9375rem', marginBottom: '1.5rem', maxWidth: '400px', margin: '0 auto 1.5rem' }}>
-                          Comenzá agregando tu primer cliente para empezar a gestionar sus reparaciones.
-                        </p>
-                        <Link
-                          to="/customers/new"
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            padding: '0.75rem 1.5rem',
-                            background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-                            border: 'none',
-                            color: '#ffffff',
-                            borderRadius: '0.625rem',
-                            cursor: 'pointer',
-                            fontWeight: 600,
-                            textDecoration: 'none',
-                            fontSize: '0.875rem',
-                            boxShadow: '0 4px 12px rgba(99,102,241,0.35)'
-                          }}
-                        >
-                          <Plus size={16} />
-                          Crear Primer Cliente
-                        </Link>
-                      </div>
+                      <EmptyState
+                        icon={Users}
+                        title="Todavía no tenés clientes"
+                        description="Comenzá agregando tu primer cliente para gestionar sus reparaciones."
+                      />
                     ) : (
-                      <div style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>
-                        <p>No se encontraron clientes para "{searchTerm}"</p>
-                      </div>
+                      <EmptyState
+                        icon={Search}
+                        title={`Sin resultados para "${searchTerm}"`}
+                        description="Probá con otro nombre, teléfono o email"
+                        action={{ label: 'Limpiar búsqueda', onClick: () => setSearchTerm('') }}
+                      />
                     )}
                   </td>
                 </tr>
@@ -506,82 +397,41 @@ export function Customers() {
                   const stats = customerStats[customer.id] || { orders: 0, total: 0 }
 
                   return (
-                    <tr key={customer.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                      <td style={{ padding: '1rem' }}>
+                    <tr key={customer.id}>
+                      <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                          <Link to={`/customers/${customer.id}`} style={{ color: '#818cf8', fontWeight: 500, textDecoration: 'none' }}>
+                          <Link to={`/customers/${customer.id}`} style={{ color: 'var(--accent-primary)', fontWeight: 600, textDecoration: 'none' }}>
                             {customer.name}
                           </Link>
                           {(customer as any).customer_type === 'mayorista' && (
-                            <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.45rem', borderRadius: '9999px', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.35)', color: '#a5b4fc', whiteSpace: 'nowrap' }}>
-                              MAYORISTA
-                            </span>
+                            <span className="badge badge-info" style={{ fontSize: '0.62rem' }}>MAYORISTA</span>
                           )}
                         </div>
                       </td>
-                      <td style={{ padding: '1rem' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                          <span style={{ fontSize: '0.875rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <Phone size={14} /> {customer.phone || 'Sin telefono'}
+                      <td>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                          <span className="body-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <Phone size={13} /> {customer.phone || <span style={{ opacity: 0.5 }}>Sin teléfono</span>}
                           </span>
-                          <span style={{ fontSize: '0.875rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <Mail size={14} /> {customer.email || 'Sin email'}
+                          <span className="body-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <Mail size={13} /> {customer.email || <span style={{ opacity: 0.5 }}>Sin email</span>}
                           </span>
                         </div>
                       </td>
-                      <td style={{ padding: '1rem', color: '#94a3b8' }}>
-                        {stats.orders}
-                      </td>
-                      <td style={{ padding: '1rem', textAlign: 'right', fontWeight: 600, color: '#ffffff' }}>
+                      <td>{stats.orders}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
                         {formatCurrency(stats.total)}
                       </td>
-                      <td style={{ padding: '1rem', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                          <Link
-                            to={`/customers/${customer.id}`}
-                            title="Ver detalle"
-                            style={{
-                              padding: '0.5rem',
-                              backgroundColor: 'rgba(255,255,255,0.05)',
-                              border: '1px solid rgba(255,255,255,0.08)',
-                              borderRadius: '0.375rem',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              textDecoration: 'none',
-                            }}
-                          >
-                            <Eye size={16} style={{ color: '#94a3b8' }} />
+                      <td>
+                        <div style={{ display: 'flex', gap: '0.375rem', justifyContent: 'flex-end' }}>
+                          <Link to={`/customers/${customer.id}`} className="icon-btn" title="Ver detalle" style={{ textDecoration: 'none' }}>
+                            <Eye size={15} />
                           </Link>
-                          <button
-                            title="Editar cliente"
-                            onClick={() => openEdit(customer)}
-                            style={{
-                              padding: '0.5rem',
-                              backgroundColor: 'rgba(99,102,241,0.08)',
-                              border: '1px solid rgba(99,102,241,0.2)',
-                              borderRadius: '0.375rem',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                            }}
-                          >
-                            <Pencil size={16} style={{ color: '#818cf8' }} />
+                          <button onClick={() => openEdit(customer)} className="icon-btn icon-btn-primary" title="Editar cliente">
+                            <Pencil size={15} />
                           </button>
-                          <button
-                            title="Eliminar cliente"
-                            onClick={() => { setDeletingCustomer(customer); setDeleteError('') }}
-                            style={{
-                              padding: '0.5rem',
-                              backgroundColor: 'rgba(248,113,113,0.08)',
-                              border: '1px solid rgba(248,113,113,0.2)',
-                              borderRadius: '0.375rem',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                            }}
-                          >
-                            <Trash2 size={16} style={{ color: '#f87171' }} />
+                          <button onClick={() => { setDeletingCustomer(customer); setDeleteError('') }} className="icon-btn icon-btn-danger" title="Eliminar cliente">
+                            <Trash2 size={15} />
                           </button>
                         </div>
                       </td>
@@ -606,81 +456,59 @@ export function Customers() {
 
       {/* ── Modal Editar Cliente ─────────────────────────────── */}
       {editingCustomer && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 1100,
-          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem',
-        }} onClick={() => setEditingCustomer(null)}>
-          <div style={{
-            background: '#0f1829', border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: '1rem', padding: '1.75rem', width: '100%', maxWidth: 480,
-            boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
-          }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-              <h2 style={{ margin: 0, color: '#f8fafc', fontSize: '1.125rem', fontWeight: 700 }}>Editar Cliente</h2>
+        <div className="modal-overlay-dark" onClick={() => setEditingCustomer(null)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <div className="modal-hdr">
+              <h2>Editar Cliente</h2>
               <CloseButton onClick={() => setEditingCustomer(null)} />
             </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {[
-                { label: 'Nombre *', key: 'name', placeholder: 'Nombre y apellido' },
-                { label: 'Teléfono', key: 'phone', placeholder: 'Ej: 5493512345678' },
-                { label: 'Email', key: 'email', placeholder: 'correo@ejemplo.com' },
-                { label: 'Dirección', key: 'address', placeholder: 'Av. Corrientes 1234, CABA' },
-                { label: 'Notas', key: 'notes', placeholder: 'Observaciones...' },
-              ].map(f => (
-                <div key={f.key}>
-                  <label style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '0.375rem' }}>{f.label}</label>
-                  <input
-                    type="text"
-                    value={(editForm as any)[f.key]}
-                    onChange={e => setEditForm(prev => ({ ...prev, [f.key]: e.target.value }))}
-                    placeholder={f.placeholder}
-                    style={{
-                      width: '100%', padding: '0.625rem 0.875rem', boxSizing: 'border-box',
-                      background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(51,65,85,0.6)',
-                      borderRadius: '0.5rem', color: '#f1f5f9', fontSize: '0.9rem', outline: 'none',
-                    }}
-                  />
-                </div>
-              ))}
-            </div>
-
-            {/* Tipo de cliente */}
-            <div style={{ marginTop: '0.5rem' }}>
-              <label style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '0.375rem' }}>Tipo de cliente</label>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                {(['minorista', 'mayorista'] as const).map(tipo => (
-                  <button key={tipo} type="button" onClick={() => setEditForm(prev => ({ ...prev, customer_type: tipo }))}
-                    style={{ flex: 1, padding: '0.625rem', borderRadius: '0.5rem', border: `2px solid ${editForm.customer_type === tipo ? tipo === 'mayorista' ? 'rgba(99,102,241,0.5)' : 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.08)'}`, background: editForm.customer_type === tipo ? tipo === 'mayorista' ? 'rgba(99,102,241,0.15)' : 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)', color: editForm.customer_type === tipo ? tipo === 'mayorista' ? '#c7d2fe' : '#4ade80' : '#64748b', fontWeight: editForm.customer_type === tipo ? 700 : 400, fontSize: '0.85rem', cursor: 'pointer', textTransform: 'capitalize' }}>
-                    {tipo === 'mayorista' ? '🏬 Mayorista' : '👤 Minorista'}
-                  </button>
+            <div className="modal-body-scroll">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                {[
+                  { label: 'Nombre *', key: 'name', placeholder: 'Nombre y apellido' },
+                  { label: 'Teléfono', key: 'phone', placeholder: 'Ej: 5493512345678' },
+                  { label: 'Email', key: 'email', placeholder: 'correo@ejemplo.com' },
+                  { label: 'Dirección', key: 'address', placeholder: 'Av. Corrientes 1234, CABA' },
+                  { label: 'Notas', key: 'notes', placeholder: 'Observaciones...' },
+                ].map(f => (
+                  <div key={f.key}>
+                    <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>{f.label}</label>
+                    <input
+                      type="text"
+                      value={(editForm as any)[f.key]}
+                      onChange={e => setEditForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                      placeholder={f.placeholder}
+                      className="form-control"
+                    />
+                  </div>
                 ))}
+                <div>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Tipo de cliente</label>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    {(['minorista', 'mayorista'] as const).map(tipo => (
+                      <button key={tipo} type="button" onClick={() => setEditForm(prev => ({ ...prev, customer_type: tipo }))}
+                        style={{ flex: 1, padding: '0.625rem', borderRadius: '0.5rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: editForm.customer_type === tipo ? 700 : 400,
+                          border: `2px solid ${editForm.customer_type === tipo ? tipo === 'mayorista' ? 'rgba(99,102,241,0.5)' : 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.08)'}`,
+                          background: editForm.customer_type === tipo ? tipo === 'mayorista' ? 'rgba(99,102,241,0.12)' : 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.03)',
+                          color: editForm.customer_type === tipo ? tipo === 'mayorista' ? '#c7d2fe' : '#4ade80' : 'var(--text-muted)',
+                        }}>
+                        {tipo === 'mayorista' ? 'Mayorista' : 'Minorista'}
+                      </button>
+                    ))}
+                  </div>
+                  {editForm.customer_type === 'mayorista' && (
+                    <p className="body-sm" style={{ margin: '0.35rem 0 0', color: 'var(--accent-primary)' }}>
+                      Se usarán precios mayoristas automáticamente al cobrarle
+                    </p>
+                  )}
+                </div>
+                {editError && <div className="alert-inline alert-error">{editError}</div>}
               </div>
-              {editForm.customer_type === 'mayorista' && (
-                <p style={{ margin: '0.35rem 0 0', fontSize: '0.72rem', color: '#818cf8' }}>
-                  Se usarán precios mayoristas automáticamente al cobrarle
-                </p>
-              )}
             </div>
-
-            {editError && (
-              <p style={{ color: '#f87171', fontSize: '0.85rem', marginTop: '0.75rem', marginBottom: 0 }}>{editError}</p>
-            )}
-
-            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
-              <button onClick={() => setEditingCustomer(null)} style={{
-                flex: 1, padding: '0.75rem', borderRadius: '0.5rem', cursor: 'pointer',
-                background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8', fontWeight: 500,
-              }}>Cancelar</button>
-              <button onClick={handleEditSave} disabled={editLoading} style={{
-                flex: 1, padding: '0.75rem', borderRadius: '0.5rem', cursor: 'pointer',
-                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none',
-                color: '#fff', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                opacity: editLoading ? 0.7 : 1,
-              }}>
-                {editLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
-                {editLoading ? 'Guardando...' : 'Guardar cambios'}
+            <div className="modal-ftr">
+              <button onClick={() => setEditingCustomer(null)} className="btn btn-ghost">Cancelar</button>
+              <button onClick={handleEditSave} disabled={editLoading} className="btn btn-primary btn-lift">
+                {editLoading ? <><Loader2 size={15} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</> : 'Guardar cambios'}
               </button>
             </div>
           </div>
@@ -689,56 +517,28 @@ export function Customers() {
 
       {/* ── Modal Confirmar Eliminación ──────────────────────── */}
       {deletingCustomer && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 1100,
-          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem',
-        }} onClick={() => setDeletingCustomer(null)}>
-          <div style={{
-            background: '#0f1829', border: '1px solid rgba(248,113,113,0.2)',
-            borderRadius: '1rem', padding: '1.75rem', width: '100%', maxWidth: 420,
-            boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
-          }} onClick={e => e.stopPropagation()}>
-            <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-              <div style={{
-                width: 56, height: 56, borderRadius: '50%', margin: '0 auto 1rem',
-                background: 'rgba(248,113,113,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <Trash2 size={24} color="#f87171" />
-              </div>
-              <h2 style={{ margin: '0 0 0.5rem', color: '#f8fafc', fontSize: '1.1rem', fontWeight: 700 }}>
-                ¿Eliminar cliente?
-              </h2>
-              <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.9rem' }}>
-                Se eliminará a <strong style={{ color: '#f1f5f9' }}>{deletingCustomer.name}</strong> permanentemente.
-                Esta acción no se puede deshacer.
-              </p>
+        <div className="modal-overlay-dark" onClick={() => setDeletingCustomer(null)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <div className="modal-hdr">
+              <h3>Eliminar cliente</h3>
+              <CloseButton onClick={() => setDeletingCustomer(null)} />
             </div>
-
-            {deleteError && (
-              <p style={{ color: '#f87171', fontSize: '0.85rem', textAlign: 'center', marginBottom: '1rem' }}>{deleteError}</p>
-            )}
-
-            <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <button onClick={() => setDeletingCustomer(null)} style={{
-                flex: 1, padding: '0.75rem', borderRadius: '0.5rem', cursor: 'pointer',
-                background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', color: '#94a3b8', fontWeight: 500,
-              }}>Cancelar</button>
-              <button onClick={handleDeleteConfirm} disabled={deleteLoading} style={{
-                flex: 1, padding: '0.75rem', borderRadius: '0.5rem', cursor: 'pointer',
-                background: '#ef4444', border: 'none', color: '#fff', fontWeight: 600,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                opacity: deleteLoading ? 0.7 : 1,
-              }}>
-                {deleteLoading ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : null}
-                {deleteLoading ? 'Eliminando...' : 'Sí, eliminar'}
+            <div className="modal-body-scroll">
+              <p className="body-md" style={{ marginBottom: '0.5rem' }}>
+                Se eliminará a <strong style={{ color: 'var(--text-primary)' }}>{deletingCustomer.name}</strong> permanentemente.
+              </p>
+              <p className="body-sm">Esta acción no se puede deshacer.</p>
+              {deleteError && <div className="alert-inline alert-error" style={{ marginTop: '0.75rem' }}>{deleteError}</div>}
+            </div>
+            <div className="modal-ftr">
+              <button onClick={() => setDeletingCustomer(null)} className="btn btn-ghost">Cancelar</button>
+              <button onClick={handleDeleteConfirm} disabled={deleteLoading} className="btn btn-danger btn-lift">
+                {deleteLoading ? <><Loader2 size={14} style={{ animation: 'tr-spin 1s linear infinite' }} /> Eliminando...</> : <><Trash2 size={14} /> Sí, eliminar</>}
               </button>
             </div>
           </div>
         </div>
       )}
-
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }

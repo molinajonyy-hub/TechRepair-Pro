@@ -1,4 +1,6 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react'
+import { TimelineView } from '../components/shared/TimelineView'
+import { useEntityTimeline } from '../hooks/useEntityTimeline'
 import {
   Truck, Plus, Search, Edit2, Trash2, Eye, ChevronLeft,
   Phone, Mail, MapPin, AlertCircle,
@@ -29,34 +31,10 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
 
 // ─── Style helpers ────────────────────────────────────────────────────────────
 
+// Alias CSS-in-JS mínimos — sólo donde no alcanza con className
 const cardS: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+  background: 'var(--bg-card)', border: '1px solid var(--border-color)',
   borderRadius: '0.875rem', padding: '1.25rem',
-}
-const inputS: React.CSSProperties = {
-  width: '100%', padding: '0.625rem 0.875rem', background: 'rgba(255,255,255,0.05)',
-  border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem',
-  color: '#e2e8f0', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box',
-}
-const labelS: React.CSSProperties = {
-  display: 'block', fontSize: '0.72rem', fontWeight: 600,
-  color: '#64748b', marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.05em',
-}
-const btnPrimary: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
-  padding: '0.5rem 1rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)',
-  border: 'none', borderRadius: '0.5rem', color: '#fff', fontWeight: 600,
-  fontSize: '0.8rem', cursor: 'pointer',
-}
-const btnSecondary: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
-  padding: '0.5rem 1rem', background: 'rgba(255,255,255,0.06)',
-  border: '1px solid rgba(255,255,255,0.12)', borderRadius: '0.5rem',
-  color: '#94a3b8', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer',
-}
-const btnGhost: React.CSSProperties = {
-  background: 'none', border: 'none', cursor: 'pointer',
-  borderRadius: '0.375rem', padding: '0.35rem', display: 'inline-flex', alignItems: 'center',
 }
 
 const fmtARS = (n: number) => '$' + Math.round(n).toLocaleString('es-AR')
@@ -69,16 +47,12 @@ const daysSince = (d: string | null) => {
 
 function StatusBadge({ status }: { status: 'pending' | 'partial' | 'paid' }) {
   const map = {
-    pending: { label: 'Pendiente', bg: 'rgba(239,68,68,0.15)', color: '#ef4444', border: 'rgba(239,68,68,0.3)' },
-    partial: { label: 'Parcial', bg: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: 'rgba(245,158,11,0.3)' },
-    paid: { label: 'Pagada', bg: 'rgba(34,197,94,0.15)', color: '#22c55e', border: 'rgba(34,197,94,0.3)' },
+    pending: { label: 'Pendiente', cls: 'badge-error' },
+    partial: { label: 'Parcial',   cls: 'badge-warning' },
+    paid:    { label: 'Pagada',    cls: 'badge-success' },
   }
-  const s = map[status]
-  return (
-    <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '0.2rem 0.5rem', borderRadius: '9999px', background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
-      {s.label}
-    </span>
-  )
+  const { label, cls } = map[status]
+  return <span className={`badge ${cls}`}>{label}</span>
 }
 
 // ─── Modal Overlay ────────────────────────────────────────────────────────────
@@ -122,7 +96,7 @@ function ModalHeader({ title, subtitle, icon, onClose }: { title: string; subtit
           {subtitle && <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748b' }}>{subtitle}</p>}
         </div>
       </div>
-      <button onClick={onClose} style={{ ...btnGhost, color: '#64748b' }}><X size={16} /></button>
+      <button onClick={onClose} className="icon-btn" aria-label="Cerrar"><X size={16} /></button>
     </div>
   )
 }
@@ -135,8 +109,8 @@ function SField({ form, set, label, name, type = 'text', placeholder = '', requi
 }) {
   return (
     <div>
-      <label style={labelS}>{label}{required && ' *'}</label>
-      <input style={inputS} type={type} value={form[name] || ''} placeholder={placeholder}
+      <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>{label}{required && ' *'}</label>
+      <input className="form-control" type={type} value={form[name] || ''} placeholder={placeholder}
         onChange={e => set(name, e.target.value)} />
     </div>
   )
@@ -148,8 +122,8 @@ function SSelect({ form, set, label, name, options }: {
 }) {
   return (
     <div>
-      <label style={labelS}>{label}</label>
-      <select style={{ ...inputS }} value={form[name] || ''} onChange={e => set(name, e.target.value)}>
+      <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>{label}</label>
+      <select className="form-select" value={form[name] || ''} onChange={e => set(name, e.target.value)}>
         <option value="">— Seleccionar —</option>
         {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
@@ -238,7 +212,7 @@ function ModalSupplierForm({ onClose, onSaved, editing, businessId, userId }: Mo
               <SField form={form} set={set} label="País" name="country" />
             </div>
             <div>
-              <label style={labelS}>Estado</label>
+              <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Estado</label>
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 {[true, false].map(v => (
                   <label key={String(v)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', color: '#94a3b8', fontSize: '0.875rem' }}>
@@ -265,8 +239,8 @@ function ModalSupplierForm({ onClose, onSaved, editing, businessId, userId }: Mo
             </div>
             <SField form={form} set={set} label="Web / Instagram / Catálogo" name="website" placeholder="https://..." />
             <div>
-              <label style={labelS}>Notas internas</label>
-              <textarea style={{ ...inputS, minHeight: 80, resize: 'vertical' as const }}
+              <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Notas internas</label>
+              <textarea className="form-control" style={{ minHeight: 80, resize: 'vertical' as const }}
                 value={form.internal_notes || ''} onChange={e => set('internal_notes', e.target.value)}
                 placeholder="Observaciones internas, condiciones, advertencias..." />
             </div>
@@ -276,8 +250,8 @@ function ModalSupplierForm({ onClose, onSaved, editing, businessId, userId }: Mo
       </ModalBody>
 
       <ModalFooter>
-        <button style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button style={btnPrimary} onClick={handleSave} disabled={saving}>
+        <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-primary btn-lift" onClick={handleSave} disabled={saving}>
           {saving ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
           {saving ? 'Guardando...' : editing ? 'Guardar cambios' : 'Crear proveedor'}
         </button>
@@ -774,27 +748,27 @@ function ModalRegistrarPago({ onClose, onSaved, supplier, purchases, businessId,
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
           <div>
-            <label style={labelS}>Fecha</label>
-            <input style={inputS} type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} />
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Fecha</label>
+            <input className="form-control" type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} />
           </div>
           <div>
-            <label style={labelS}>Método de pago</label>
-            <select style={inputS} value={method} onChange={e => setMethod(e.target.value)}>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Método de pago</label>
+            <select className="form-control" value={method} onChange={e => setMethod(e.target.value)}>
               {PAYMENT_METHODS.map(m => <option key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</option>)}
             </select>
           </div>
         </div>
 
         <div>
-          <label style={labelS}>Monto *</label>
-          <input style={{ ...inputS, fontSize: '1.25rem', fontWeight: 700, textAlign: 'right' }} type="number" min={0}
+          <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Monto *</label>
+          <input className="form-control" style={{ fontSize: '1.25rem', fontWeight: 700, textAlign: 'right' }} type="number" min={0}
             value={amount || ''} onChange={e => setAmount(+e.target.value || 0)} placeholder="$ 0" />
         </div>
 
         {pendingPurchases.length > 0 && (
           <div>
-            <label style={labelS}>Compra asociada (opcional)</label>
-            <select style={inputS} value={purchaseId} onChange={e => setPurchaseId(e.target.value)}>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Compra asociada (opcional)</label>
+            <select className="form-control" value={purchaseId} onChange={e => setPurchaseId(e.target.value)}>
               <option value="">— Sin vincular a compra —</option>
               {pendingPurchases.map(p => (
                 <option key={p.id} value={p.id}>
@@ -806,16 +780,16 @@ function ModalRegistrarPago({ onClose, onSaved, supplier, purchases, businessId,
         )}
 
         <div>
-          <label style={labelS}>Notas</label>
-          <textarea style={{ ...inputS, minHeight: 64, resize: 'vertical' as const }} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observaciones del pago..." />
+          <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Notas</label>
+          <textarea className="form-control" style={{ minHeight: 64, resize: 'vertical' as const }} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Observaciones del pago..." />
         </div>
         {error && <p style={{ margin: 0, color: '#ef4444', fontSize: '0.8rem' }}>{error}</p>}
       </ModalBody>
 
       <ModalFooter>
-        <button style={btnSecondary} onClick={onClose}>Cancelar</button>
-        <button style={{ ...btnPrimary, background: 'linear-gradient(135deg,#22c55e,#16a34a)' }} onClick={handleSave} disabled={saving}>
-          {saving ? <RefreshCw size={14} className="animate-spin" /> : <Banknote size={14} />}
+        <button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-success btn-lift" onClick={handleSave} disabled={saving}>
+          {saving ? <RefreshCw size={14} style={{ animation: 'tr-spin 1s linear infinite' }} /> : <Banknote size={14} />}
           {saving ? 'Guardando...' : 'Registrar pago'}
         </button>
       </ModalFooter>
@@ -833,7 +807,7 @@ function ModalVerCompra({ purchase, onClose }: { purchase: SupplierPurchase; onC
       <ModalBody>
         {/* Items */}
         <div>
-          <label style={labelS}>Productos</label>
+          <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Productos</label>
           <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
@@ -884,14 +858,14 @@ function ModalVerCompra({ purchase, onClose }: { purchase: SupplierPurchase; onC
 
         {purchase.notes && (
           <div style={{ ...cardS }}>
-            <label style={labelS}>Notas</label>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Notas</label>
             <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.875rem' }}>{purchase.notes}</p>
           </div>
         )}
       </ModalBody>
 
       <ModalFooter>
-        <button style={btnSecondary} onClick={onClose}>Cerrar</button>
+        <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       </ModalFooter>
     </ModalOverlay>
   )
@@ -902,6 +876,30 @@ function ModalVerCompra({ purchase, onClose }: { purchase: SupplierPurchase; onC
 type FilterKey = 'all' | 'active' | 'inactive' | 'with_debt' | 'no_debt'
 type SortKey = 'name' | 'total_purchases' | 'pending_amount' | 'last_purchase_date'
 type TabKey = 'compras' | 'cuenta' | 'pagos' | 'notas'
+
+// ─── SupplierTimeline ─────────────────────────────────────────────────────────
+
+const SupplierTimeline = memo(function SupplierTimeline({
+  supplierId, businessId, refreshTick,
+}: { supplierId: string; businessId: string; refreshTick: number }) {
+  const { events, loading } = useEntityTimeline({
+    entityKind: 'supplier_account',
+    entityId:   supplierId,
+    businessId,
+    limit:      200,
+    enabled:    !!supplierId && !!businessId,
+  })
+  void refreshTick
+  return (
+    <TimelineView
+      events={events}
+      loading={loading}
+      emptyTitle="Sin movimientos"
+      emptyDesc="Las compras y pagos a este proveedor aparecerán aquí."
+      compact
+    />
+  )
+})
 
 export function Suppliers() {
   const { businessId, user } = useAuth()
@@ -1062,7 +1060,7 @@ export function Suppliers() {
             <p className="page-subtitle">{suppliers.length} proveedores registrados</p>
           </div>
         </div>
-        <button style={btnPrimary} onClick={() => { setEditingSupplier(null); setShowModalSupplier(true) }}>
+        <button className="btn btn-primary btn-lift" onClick={() => { setEditingSupplier(null); setShowModalSupplier(true) }}>
           <Plus size={15} /> Nuevo proveedor
         </button>
       </div>
@@ -1091,7 +1089,7 @@ export function Suppliers() {
       <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
           <Search size={14} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#475569' }} />
-          <input style={{ ...inputS, paddingLeft: '2.25rem' }} placeholder="Buscar por nombre, CUIT, rubro, ciudad, teléfono..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+          <input className="form-control" style={{ paddingLeft: '2.25rem' }} placeholder="Buscar por nombre, CUIT, rubro, ciudad, teléfono..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
         </div>
         <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
           {([
@@ -1106,7 +1104,7 @@ export function Suppliers() {
               {f.label}
             </button>
           ))}
-          <select style={{ ...inputS, width: 'auto', fontSize: '0.75rem', padding: '0.4rem 0.625rem' }} value={sortBy} onChange={e => setSortBy(e.target.value as SortKey)}>
+          <select className="form-select" style={{ width: 'auto', fontSize: '0.75rem' }} value={sortBy} onChange={e => setSortBy(e.target.value as SortKey)}>
             <option value="name">A-Z</option>
             <option value="total_purchases">Mayor volumen</option>
             <option value="pending_amount">Mayor deuda</option>
@@ -1188,12 +1186,12 @@ export function Suppliers() {
                     </td>
                     <td style={{ padding: '0.875rem 0.75rem' }}>
                       <div style={{ display: 'flex', gap: '0.25rem', justifyContent: 'flex-end' }}>
-                        <button style={{ ...btnGhost, color: '#818cf8' }} title="Ver detalle" onClick={() => openDetail(s.id)}><Eye size={15} /></button>
-                        <button style={{ ...btnGhost, color: '#64748b' }} title="Editar" onClick={() => { setEditingSupplier(s); setShowModalSupplier(true) }}><Edit2 size={15} /></button>
-                        <button style={{ ...btnGhost, color: s.active ? '#64748b' : '#22c55e' }} title={s.active ? 'Desactivar' : 'Activar'} onClick={() => handleToggleActive(s)}>
+                        <button className="icon-btn icon-btn-primary" title="Ver detalle" onClick={() => openDetail(s.id)}><Eye size={15} /></button>
+                        <button className="icon-btn icon-btn-violet" title="Editar" onClick={() => { setEditingSupplier(s); setShowModalSupplier(true) }}><Edit2 size={15} /></button>
+                        <button className={`icon-btn ${s.active ? '' : 'icon-btn-primary'}`} title={s.active ? 'Desactivar' : 'Activar'} onClick={() => handleToggleActive(s)}>
                           {s.active ? <X size={15} /> : <CheckCircle size={15} />}
                         </button>
-                        <button style={{ ...btnGhost, color: '#ef4444' }} title="Eliminar" onClick={() => handleDelete(s)}><Trash2 size={15} /></button>
+                        <button className="icon-btn icon-btn-danger" title="Eliminar" onClick={() => handleDelete(s)}><Trash2 size={15} /></button>
                       </div>
                     </td>
                   </tr>
@@ -1250,7 +1248,7 @@ export function Suppliers() {
     <div className="page-shell">
       {/* Encabezado detalle */}
       <div style={{ marginBottom: '1.25rem' }}>
-        <button style={{ ...btnGhost, color: '#64748b', marginBottom: '0.75rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }} onClick={backToList}>
+        <button className="btn btn-ghost btn-sm" style={{ marginBottom: '0.75rem' }} onClick={backToList}>
           <ChevronLeft size={16} /> Volver a proveedores
         </button>
 
@@ -1280,17 +1278,17 @@ export function Suppliers() {
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             {(s.whatsapp || s.phone) && (
               <a href={`https://wa.me/${(s.whatsapp || s.phone || '').replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
-                style={{ ...btnSecondary, textDecoration: 'none', color: '#22c55e', borderColor: 'rgba(34,197,94,0.3)' }}>
+                className="btn btn-ghost btn-sm" style={{ textDecoration: 'none', color: '#22c55e' }}>
                 <MessageCircle size={14} /> WhatsApp
               </a>
             )}
-            <button style={btnSecondary} onClick={() => { setEditingSupplier(s); setShowModalSupplier(true) }}>
+            <button className="btn btn-ghost" onClick={() => { setEditingSupplier(s); setShowModalSupplier(true) }}>
               <Edit2 size={14} /> Editar
             </button>
-            <button style={{ ...btnSecondary, color: '#22c55e', borderColor: 'rgba(34,197,94,0.3)' }} onClick={() => { setDefaultPurchaseId(null); setShowModalPayment(true) }}>
+            <button className="btn btn-ghost btn-sm" style={{ color: '#22c55e' }} onClick={() => { setDefaultPurchaseId(null); setShowModalPayment(true) }}>
               <Banknote size={14} /> Registrar pago
             </button>
-            <button style={btnPrimary} onClick={() => setShowModalPurchase(true)}>
+            <button className="btn btn-primary btn-lift" onClick={() => setShowModalPurchase(true)}>
               <Plus size={14} /> Nueva compra
             </button>
           </div>
@@ -1364,7 +1362,7 @@ export function Suppliers() {
       {activeTab === 'compras' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
-            <button style={btnPrimary} onClick={() => setShowModalPurchase(true)}>
+            <button className="btn btn-primary btn-lift" onClick={() => setShowModalPurchase(true)}>
               <Plus size={13} /> Nueva compra
             </button>
           </div>
@@ -1372,7 +1370,7 @@ export function Suppliers() {
             <div style={{ ...cardS, textAlign: 'center', padding: '3rem', color: '#475569' }}>
               <ShoppingCart size={32} style={{ marginBottom: '0.75rem', opacity: 0.3 }} />
               <p>No hay compras registradas a este proveedor.</p>
-              <button style={{ ...btnPrimary, marginTop: '0.75rem' }} onClick={() => setShowModalPurchase(true)}><Plus size={13} /> Registrar primera compra</button>
+              <button className="btn btn-primary btn-sm btn-lift" style={{ marginTop: '0.75rem' }} onClick={() => setShowModalPurchase(true)}><Plus size={13} /> Registrar primera compra</button>
             </div>
           ) : (
             <div style={{ ...cardS, padding: 0, overflow: 'hidden' }}>
@@ -1403,9 +1401,9 @@ export function Suppliers() {
                       <td style={{ padding: '0.75rem 0.875rem' }}><StatusBadge status={p.payment_status} /></td>
                       <td style={{ padding: '0.75rem 0.625rem' }}>
                         <div style={{ display: 'flex', gap: '0.25rem' }}>
-                          <button style={{ ...btnGhost, color: '#818cf8' }} title="Ver detalle" onClick={() => setViewingPurchase(p)}><Eye size={14} /></button>
+                          <button className="icon-btn icon-btn-primary" title="Ver detalle" onClick={() => setViewingPurchase(p)}><Eye size={14} /></button>
                           {p.payment_status !== 'paid' && (
-                            <button style={{ ...btnGhost, color: '#22c55e' }} title="Registrar pago" onClick={() => { setDefaultPurchaseId(p.id); setShowModalPayment(true) }}><Banknote size={14} /></button>
+                            <button className="icon-btn" style={{ color: '#22c55e' }} title="Registrar pago" onClick={() => { setDefaultPurchaseId(p.id); setShowModalPayment(true) }}><Banknote size={14} /></button>
                           )}
                         </div>
                       </td>
@@ -1418,57 +1416,17 @@ export function Suppliers() {
         </div>
       )}
 
-      {/* Tab: Cuenta corriente */}
+      {/* Tab: Cuenta corriente — Timeline premium */}
       {activeTab === 'cuenta' && (
-        <div>
-          {movements.length === 0 ? (
-            <div style={{ ...cardS, textAlign: 'center', padding: '3rem', color: '#475569' }}>
-              <CreditCard size={32} style={{ marginBottom: '0.75rem', opacity: 0.3 }} />
-              <p>No hay movimientos en la cuenta corriente.</p>
-            </div>
-          ) : (
-            <div style={{ ...cardS, padding: 0, overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-                    {['Fecha', 'Tipo', 'Descripción', 'Debe', 'Haber', 'Saldo'].map(h => (
-                      <th key={h} style={{ padding: '0.625rem 0.875rem', fontSize: '0.65rem', color: '#475569', fontWeight: 700, textAlign: ['Debe','Haber','Saldo'].includes(h) ? 'right' : 'left', textTransform: 'uppercase' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {movements.map(m => (
-                    <tr key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                      <td style={{ padding: '0.625rem 0.875rem', color: '#94a3b8', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{fmtDate(m.movement_date)}</td>
-                      <td style={{ padding: '0.625rem 0.875rem' }}>
-                        <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '0.15rem 0.4rem', borderRadius: '0.25rem', background: m.type === 'purchase' ? 'rgba(239,68,68,0.12)' : 'rgba(34,197,94,0.12)', color: m.type === 'purchase' ? '#ef4444' : '#22c55e' }}>
-                          {m.type === 'purchase' ? 'Compra' : m.type === 'payment' ? 'Pago' : m.type === 'adjustment' ? 'Ajuste' : 'Nota créd.'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '0.625rem 0.875rem', color: '#e2e8f0', fontSize: '0.8rem' }}>{m.description}</td>
-                      <td style={{ padding: '0.625rem 0.875rem', textAlign: 'right', color: m.debit > 0 ? '#ef4444' : '#334155', fontWeight: m.debit > 0 ? 700 : 400, fontSize: '0.875rem' }}>
-                        {m.debit > 0 ? fmtARS(m.debit) : '—'}
-                      </td>
-                      <td style={{ padding: '0.625rem 0.875rem', textAlign: 'right', color: m.credit > 0 ? '#22c55e' : '#334155', fontWeight: m.credit > 0 ? 700 : 400, fontSize: '0.875rem' }}>
-                        {m.credit > 0 ? fmtARS(m.credit) : '—'}
-                      </td>
-                      <td style={{ padding: '0.625rem 0.875rem', textAlign: 'right', fontWeight: 700, color: m.balance_after > 0 ? '#f59e0b' : '#22c55e', fontSize: '0.875rem' }}>
-                        {fmtARS(m.balance_after)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr style={{ background: 'rgba(255,255,255,0.04)', borderTop: '2px solid rgba(255,255,255,0.1)' }}>
-                    <td colSpan={4} style={{ padding: '0.75rem 0.875rem', fontWeight: 700, color: '#94a3b8', fontSize: '0.8rem' }}>Saldo actual</td>
-                    <td colSpan={2} style={{ padding: '0.75rem 0.875rem', textAlign: 'right', fontWeight: 800, fontSize: '1rem', color: s.pending_amount > 0 ? '#f59e0b' : '#22c55e' }}>
-                      {fmtARS(s.pending_amount)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
+        <div style={{ ...cardS, padding: 0, overflow: 'hidden' }}>
+          {/* Saldo total sticky */}
+          <div style={{ padding: '0.875rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)' }}>
+            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Saldo proveedor</span>
+            <span style={{ fontSize: '1.125rem', fontWeight: 800, fontFamily: 'monospace', color: s.pending_amount > 0.01 ? '#f59e0b' : '#34d399' }}>
+              {s.pending_amount > 0.01 ? `$${Math.round(s.pending_amount).toLocaleString('es-AR')} a pagar` : 'Al día'}
+            </span>
+          </div>
+          <SupplierTimeline supplierId={s.id} businessId={businessId!} refreshTick={movements.length} />
         </div>
       )}
 
@@ -1476,7 +1434,7 @@ export function Suppliers() {
       {activeTab === 'pagos' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
-            <button style={{ ...btnPrimary, background: 'linear-gradient(135deg,#22c55e,#16a34a)' }} onClick={() => { setDefaultPurchaseId(null); setShowModalPayment(true) }}>
+            <button className="btn btn-success btn-lift" onClick={() => { setDefaultPurchaseId(null); setShowModalPayment(true) }}>
               <Plus size={13} /> Registrar pago
             </button>
           </div>
@@ -1563,12 +1521,12 @@ function NoteEditor({ supplier, businessId, onSaved }: { supplier: SupplierWithS
   return (
     <div style={cardS}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-        <label style={labelS}>Notas internas del proveedor</label>
-        <button style={{ ...btnPrimary, fontSize: '0.75rem', padding: '0.375rem 0.75rem' }} onClick={handleSave} disabled={saving}>
+        <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Notas internas del proveedor</label>
+        <button className="btn btn-primary btn-sm btn-lift" onClick={handleSave} disabled={saving}>
           {saved ? <><CheckCircle size={13} /> Guardado</> : saving ? 'Guardando...' : 'Guardar notas'}
         </button>
       </div>
-      <textarea style={{ ...inputS, minHeight: 200, resize: 'vertical' as const, fontSize: '0.875rem', lineHeight: 1.6 }}
+      <textarea className="form-control" style={{ minHeight: 200, resize: 'vertical' as const, fontSize: '0.875rem', lineHeight: 1.6 }}
         value={notes} onChange={e => setNotes(e.target.value)}
         placeholder={'Ej:\n• Entrega rápido en menos de 48hs\n• Tiene buenos precios en pantallas\n• No comprar baterías, fallaron varias\n• Pide seña para pedidos grandes'} />
       <p style={{ margin: '0.5rem 0 0', fontSize: '0.72rem', color: '#475569' }}>Estas notas son solo internas y no se muestran al proveedor.</p>

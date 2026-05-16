@@ -1,6 +1,7 @@
 import { Outlet, useNavigate } from 'react-router-dom'
 import { Sidebar } from '../components/layout/Sidebar'
 import { TopHeader } from '../components/layout/TopHeader'
+import { CommandPalette } from '../components/ui/CommandPalette'
 import { useAuth } from '../contexts/AuthContext'
 import { useSidebar } from '../hooks/useSidebar'
 import { SubscriptionGuard } from '../components/subscription/SubscriptionGuard'
@@ -79,6 +80,7 @@ export function MainLayout() {
 
   return (
     <SystemStatusProvider>
+    <CommandPalette />
     <div
       style={{
         minHeight: '100vh',

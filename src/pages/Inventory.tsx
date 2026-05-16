@@ -416,6 +416,8 @@ export function Inventory() {
       variants: [],
       stock_quantity: 0,
       min_stock: tipo === 'service' ? 0 : 1,
+      precio_mayorista: (parentItem as any)?.precio_mayorista ?? null,
+      mayorista_currency: 'ARS' as 'ARS' | 'USD',
       cost_price: parentItem?.cost_price || 0,
       cost_price_usd: parentItem?.cost_price_usd || 0,
       sale_price: parentItem?.sale_price || 0,
@@ -1607,161 +1609,52 @@ export function Inventory() {
   return (
     <div>
       {/* Header */}
-      <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-          <div style={{
-            width: '44px', height: '44px', borderRadius: '0.75rem',
-            background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2))',
-            border: '1px solid rgba(99,102,241,0.3)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
-          }}>
-            <Package size={22} style={{ color: '#818cf8' }} />
-          </div>
+      <div className="page-hdr">
+        <div className="page-hdr-left">
+          <div className="page-hdr-icon"><Package size={22} /></div>
           <div>
-            <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#f8fafc' }}>Inventario</h1>
-            <p style={{ margin: 0, fontSize: '0.8rem', color: '#475569' }}>
-              {rootItems.length} productos base · {variantItems.length} variantes · {effectiveLowStockItems.length} stock bajo · {effectiveOutOfStockItems.length} agotados
+            <h1 className="page-hdr-title">Inventario</h1>
+            <p className="page-hdr-subtitle">
+              {rootItems.length} productos · {effectiveLowStockItems.length} stock bajo · {effectiveOutOfStockItems.length} agotados
             </p>
           </div>
         </div>
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <button onClick={handleDownloadTemplate} style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              padding: '0.625rem 1rem',
-              backgroundColor: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              color: '#94a3b8',
-              borderRadius: '0.5rem',
-              cursor: 'pointer',
-              fontWeight: 500,
-              fontSize: '0.875rem'
-            }}>
-              <Download size={16} />
-              Plantilla
+        <div className="page-hdr-right">
+            <button onClick={handleDownloadTemplate} className="btn btn-ghost btn-sm">
+              <Download size={15} />Plantilla
             </button>
-            <button onClick={handleExportInventory} style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              padding: '0.625rem 1rem',
-              backgroundColor: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              color: '#94a3b8',
-              borderRadius: '0.5rem',
-              cursor: 'pointer',
-              fontWeight: 500,
-              fontSize: '0.875rem'
-            }}>
-              <Download size={16} />
-              Exportar
+            <button onClick={handleExportInventory} className="btn btn-ghost btn-sm">
+              <Download size={15} />Exportar
             </button>
-            <button onClick={() => setShowImportModal(true)} style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              padding: '0.625rem 1rem',
-              backgroundColor: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              color: '#94a3b8',
-              borderRadius: '0.5rem',
-              cursor: 'pointer',
-              fontWeight: 500,
-              fontSize: '0.875rem'
-            }}>
-              <Upload size={16} />
-              Importar
+            <button onClick={() => setShowImportModal(true)} className="btn btn-ghost btn-sm">
+              <Upload size={15} />Importar
             </button>
             <div style={{ position: 'relative' }} data-product-menu>
               <button
                 onClick={() => setShowProductMenu(!showProductMenu)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.625rem 1.25rem',
-                  background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-                  border: 'none',
-                  color: '#ffffff',
-                  borderRadius: '0.625rem',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                  boxShadow: '0 4px 12px rgba(99,102,241,0.35)',
-                  fontSize: '0.875rem'
-                }}
+                className="btn btn-primary btn-sm btn-lift"
               >
                 <Plus size={18} />
                 Nuevo Producto
                 <ChevronDown size={16} />
               </button>
               {showProductMenu && (
-                <div style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: 0,
-                  marginTop: '0.5rem',
-                  backgroundColor: '#ffffff',
-                  border: '1px solid rgba(0,0,0,0.15)',
-                  borderRadius: '0.5rem',
-                  zIndex: 10,
-                  minWidth: '200px'
-                }}>
-                  <button
-                    onClick={() => { setShowProductMenu(false); setProductFormTipo('product'); setShowProductFormModal(true); }}
-                    style={{
-                      width: '100%',
-                      padding: '0.875rem 1rem',
-                      backgroundColor: 'transparent',
-                      border: 'none',
-                      color: '#1e293b',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      fontSize: '0.875rem',
-                      fontWeight: 500,
-                      borderBottom: '1px solid rgba(0,0,0,0.1)'
-                    }}
-                  >
+                <div className="dropdown-menu" style={{ position: 'absolute', top: 'calc(100% + 0.375rem)', right: 0, zIndex: 50, minWidth: '200px' }}>
+                  <button onClick={() => { setShowProductMenu(false); setProductFormTipo('product'); setShowProductFormModal(true) }} className="dropdown-item">
                     Producto simple
                   </button>
-                  <button
-                    onClick={() => { setShowProductMenu(false); setProductFormTipo('with_variants'); setShowProductFormModal(true); }}
-                    style={{
-                      width: '100%',
-                      padding: '0.875rem 1rem',
-                      backgroundColor: 'transparent',
-                      border: 'none',
-                      color: '#1e293b',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      fontSize: '0.875rem',
-                      fontWeight: 500,
-                      borderBottom: '1px solid rgba(0,0,0,0.1)'
-                    }}
-                  >
+                  <button onClick={() => { setShowProductMenu(false); setProductFormTipo('with_variants'); setShowProductFormModal(true) }} className="dropdown-item">
                     Producto con variantes
                   </button>
-                  <button
-                    onClick={() => { setShowProductMenu(false); setProductFormTipo('service'); setShowProductFormModal(true); }}
-                    style={{
-                      width: '100%',
-                      padding: '0.875rem 1rem',
-                      backgroundColor: 'transparent',
-                      border: 'none',
-                      color: '#6366f1',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      fontSize: '0.875rem',
-                      fontWeight: 600
-                    }}
-                  >
+                  <div className="dropdown-separator" />
+                  <button onClick={() => { setShowProductMenu(false); setProductFormTipo('service'); setShowProductFormModal(true) }} className="dropdown-item" style={{ color: 'var(--accent-primary)' }}>
                     Nuevo Servicio
                   </button>
                 </div>
               )}
             </div>
-          </div>
         </div>
+      </div>
 
       {/* Alertas de stock bajo */}
       {(effectiveLowStockItems.length > 0 || effectiveOutOfStockItems.length > 0) && (

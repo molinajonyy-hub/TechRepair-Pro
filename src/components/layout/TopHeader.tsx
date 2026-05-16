@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, Search } from 'lucide-react'
 import { GlobalSearch } from './GlobalSearch'
 import { NotificationsDropdown } from './NotificationsDropdown'
 import { useSystemStatus } from '../../contexts/SystemStatusContext'
@@ -79,6 +79,28 @@ export function TopHeader() {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', width: '100%', justifyContent: 'flex-end' }}>
+        {/* Botón Ctrl+K — abre CommandPalette */}
+        <button
+          onClick={() => window.dispatchEvent(new Event('tr-open-palette'))}
+          title="Buscar o ejecutar acción (Ctrl+K)"
+          style={{
+            display: 'flex', alignItems: 'center', gap: '0.5rem',
+            padding: '0.35rem 0.75rem 0.35rem 0.625rem',
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '0.625rem', cursor: 'pointer',
+            color: '#475569', fontSize: '0.8rem', fontWeight: 500,
+            transition: 'all 0.12s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.08)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.25)'; e.currentTarget.style.color = '#818cf8' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#475569' }}
+        >
+          <Search size={13} />
+          <span>Buscar...</span>
+          <div style={{ display: 'flex', gap: '0.2rem', marginLeft: '0.375rem' }}>
+            <kbd style={{ fontSize: '0.6rem', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.25rem', padding: '0.05rem 0.35rem', fontFamily: 'monospace' }}>⌘K</kbd>
+          </div>
+        </button>
         <GlobalSearch />
         {showDot && <SystemStatusDot status={status} />}
         <ReconnectButton />
