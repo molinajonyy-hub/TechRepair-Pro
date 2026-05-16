@@ -208,15 +208,15 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
 
     setIsSubmitting(true)
     try {
-      // Si no hay producto del inventario seleccionado → crear via productService
+      // inventoryProductId: solo repuestos sin producto seleccionado crean un nuevo
+      // ítem en inventory. Los servicios nunca tocan la tabla inventory.
       let inventoryProductId: string | null = selectedProduct?.id || null
-      if (!selectedProduct && descripcion.trim() && businessId) {
-        const isService = tipo === 'servicio'
+      if (!selectedProduct && descripcion.trim() && businessId && tipo === 'repuesto') {
         const newProduct = await productService.createProduct({
           business_id:        businessId,
           created_by:         user?.id ?? '',
           name:               descripcion.trim(),
-          tipo:               isService ? 'service' : 'product',
+          tipo:               'product',
           base_currency:      baseCurrency,
           base_price:         baseCurrency === 'USD' ? rawPrecio : precio,
           cost_price:         costo || 0,
@@ -228,6 +228,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
         })
         inventoryProductId = newProduct.id
       }
+      // Para servicios sin producto de inventario: inventoryProductId queda null (correcto)
 
       const { error: insertError } = await supabase
         .from('order_items')

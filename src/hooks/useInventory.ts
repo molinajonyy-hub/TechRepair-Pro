@@ -69,22 +69,18 @@ export function useInventory() {
 
   async function loadInventory(options?: { background?: boolean }) {
     const background = options?.background === true
+    if (!businessId) { if (!background) setLoading(false); return }
     try {
       if (!background) setLoading(true)
       setError(null)
 
-      let query = supabase
+      const { data, error: fetchError } = await supabase
         .from('inventory')
         .select('*')
+        .eq('business_id', businessId)
         .eq('is_active', true)
         .order('name', { ascending: true })
         .limit(5000)
-
-      if (businessId) {
-        query = query.eq('business_id', businessId)
-      }
-
-      const { data, error: fetchError } = await query
 
       if (fetchError) throw fetchError
       setItems(data || [])

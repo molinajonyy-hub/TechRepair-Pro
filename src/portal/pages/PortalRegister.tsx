@@ -43,7 +43,7 @@ export function PortalRegister() {
       instagram:    form.instagram,
     })
     setLoading(false)
-    if (err) { setError(err); return }
+    if (err) { setError(typeof err === 'string' ? err : (err as any)?.message || 'Error al registrarse'); return }
     navigate(`${basePath}/pendiente`)
   }
 

@@ -191,7 +191,7 @@ export const suppliersService = {
   },
 
   async getSupplierById(id: string, businessId: string): Promise<Supplier | null> {
-    const { data } = await supabase.from('suppliers').select('*').eq('id', id).eq('business_id', businessId).single();
+    const { data } = await supabase.from('suppliers').select('*').eq('id', id).eq('business_id', businessId).maybeSingle();
     return data;
   },
 
@@ -290,8 +290,19 @@ export const suppliersService = {
     // 3. Movimiento cuenta corriente (débito = compra)
     await this._addAccountMovement(businessId, supplier_id, purchase.id, null, purchase_date, 'purchase', `Compra${invoice_number ? ' #' + invoice_number : ''}`, total_amount, 0);
 
-    // 4. Si hay pago inicial
+    // 4. Si hay pago inicial — registrar en supplier_payments + cuenta corriente + finanzas
     if (paid_amount > 0) {
+      // Insertar fila en supplier_payments para que sea visible en el historial de pagos
+      await supabase.from('supplier_payments').insert({
+        business_id:    businessId,
+        supplier_id,
+        purchase_id:    purchase.id,
+        payment_date: purchase_date,
+        amount:         paid_amount,
+        payment_method: payment_method || 'efectivo',
+        notes:          `Pago inicial al crear compra${invoice_number ? ' #' + invoice_number : ''}`,
+        created_by:     userId,
+      });
       await this._recordPaymentInternal(businessId, supplier_id, purchase.id, purchase_date, paid_amount, payment_method || 'efectivo', `Pago inicial compra${invoice_number ? ' #' + invoice_number : ''}`, userId, supplierName);
     }
 
@@ -403,18 +414,19 @@ export const suppliersService = {
     date: string, type: AccountMovement['type'],
     description: string, debit: number, credit: number
   ) {
-    const { data: prev } = await supabase
-      .from('supplier_account_movements')
-      .select('balance_after')
-      .eq('supplier_id', supplierId).eq('business_id', businessId)
-      .order('created_at', { ascending: false }).limit(1).maybeSingle();
-    const lastBalance = prev?.balance_after || 0;
-    const balance_after = lastBalance + debit - credit;
-
+    // balance_after es calculado server-side por trig_supplier_account_movement_balance
+    // (BEFORE INSERT con pg_advisory_xact_lock) — no calcular aquí para evitar race conditions.
     await supabase.from('supplier_account_movements').insert({
-      business_id: businessId, supplier_id: supplierId,
-      purchase_id: purchaseId, payment_id: paymentId,
-      movement_date: date, type, description, debit, credit, balance_after,
+      business_id:    businessId,
+      supplier_id:    supplierId,
+      purchase_id:    purchaseId,
+      payment_id:     paymentId,
+      movement_date:  date,
+      type,
+      description,
+      debit,
+      credit,
+      balance_after:  0,  // sobreescrito por el trigger BEFORE INSERT
     });
   },
 
