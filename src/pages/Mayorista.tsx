@@ -15,8 +15,7 @@ import {
   getWholesaleOrders, updateOrderStatus,
   getOrCreateCustomerFromPortal,
 } from '../portal/services/portalService'
-import type { WholesaleCustomer, WholesaleOrder } from '../portal/types'
-import { ORDER_STATUS_LABEL, ORDER_STATUS_COLOR } from '../portal/types'
+import { ORDER_STATUS_LABEL, ORDER_STATUS_COLOR, type WholesaleCustomer, type WholesaleOrder } from '../portal/types'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -580,31 +579,23 @@ export function Mayorista() {
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
       {/* ── Header ── */}
-      <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-          <div style={{ width: 44, height: 44, borderRadius: '0.75rem', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 20px rgba(99,102,241,0.35)' }}>
-            <Store size={22} color="white" />
-          </div>
+      <div className="page-hdr">
+        <div className="page-hdr-left">
+          <div className="page-hdr-icon"><Store size={22} /></div>
           <div>
-            <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#f1f5f9' }}>Mayorista</h1>
-            <p style={{ margin: 0, fontSize: '0.82rem', color: '#64748b' }}>Precios especiales para revendedores y clientes mayoristas</p>
+            <h1 className="page-hdr-title">Mayorista</h1>
+            <p className="page-hdr-subtitle">Precios especiales para revendedores y clientes mayoristas</p>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '0.625rem' }}>
-          <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.625rem', color: '#94a3b8', fontSize: '0.8rem', cursor: 'pointer' }}>
-            <RefreshCw size={13} /> Actualizar
-          </button>
-          <button onClick={() => setShowComprobante(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', background: 'linear-gradient(135deg, #22c55e, #16a34a)', border: 'none', borderRadius: '0.625rem', color: 'white', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 12px rgba(34,197,94,0.3)' }}>
-            <FileText size={13} /> Nuevo Comprobante
-          </button>
-          <button onClick={() => setShowBulk(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none', borderRadius: '0.625rem', color: 'white', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}>
-            <Zap size={13} /> Generar precios masivos
-          </button>
+        <div className="page-hdr-right">
+          <button onClick={load} className="btn btn-ghost btn-sm"><RefreshCw size={13} /> Actualizar</button>
+          <button onClick={() => setShowComprobante(true)} className="btn btn-success btn-sm btn-lift"><FileText size={13} /> Nuevo Comprobante</button>
+          <button onClick={() => setShowBulk(true)} className="btn btn-primary btn-sm btn-lift"><Zap size={13} /> Generar precios masivos</button>
         </div>
       </div>
 
       {/* ── Tabs ── */}
-      <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1.5rem', padding: '0.25rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', width: 'fit-content' }}>
+      <div className="tabs" style={{ marginBottom: '1.5rem' }}>
         {([
           { id: 'precios',  label: 'Precios', icon: TrendingUp },
           ...(portalConfig.wholesale_portal_enabled ? [
@@ -615,16 +606,11 @@ export function Mayorista() {
             { id: 'config',   label: 'Configuración',   icon: Settings    },
           ] : []),
         ] as const).map(({ id, label, icon: Icon }) => (
-          <button key={id} onClick={() => setActiveTab(id as any)} style={{
-            display: 'flex', alignItems: 'center', gap: '0.375rem',
-            padding: '0.5rem 1rem', borderRadius: '0.5rem', border: 'none',
-            background: activeTab === id ? 'rgba(99,102,241,0.18)' : 'transparent',
-            color: activeTab === id ? '#818cf8' : '#64748b',
-            fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', transition: 'all 0.15s',
-          }}>
+          <button key={id} onClick={() => setActiveTab(id as any)}
+            className={`tab${activeTab === id ? ' tab-active' : ''}`}>
             <Icon size={14} /> {label}
             {id === 'clientes' && portalCustomers.filter(c => !c.approved && !c.suspended).length > 0 && (
-              <span style={{ background: '#ef4444', color: '#fff', fontSize: '0.65rem', fontWeight: 800, padding: '0.1rem 0.375rem', borderRadius: '99px', marginLeft: '0.2rem' }}>
+              <span className="badge badge-error" style={{ fontSize: '0.62rem', padding: '0.1rem 0.375rem', marginLeft: '0.2rem' }}>
                 {portalCustomers.filter(c => !c.approved && !c.suspended).length}
               </span>
             )}
@@ -636,26 +622,26 @@ export function Mayorista() {
       {activeTab === 'precios' && (<>
 
       {error && (
-        <div style={{ padding: '0.875rem 1rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '0.75rem', color: '#f87171', fontSize: '0.875rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <AlertTriangle size={16} /> {error}
+        <div className="alert-inline alert-error" style={{ marginBottom: '1.5rem' }}>
+          <AlertTriangle size={15} style={{ flexShrink: 0 }} /> {error}
         </div>
       )}
 
       {/* ── Cards ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.75rem' }}>
         {[
-          { label: 'Con precio mayorista', value: metrics.withPrice, icon: <CheckCircle size={18} style={{ color: '#22c55e' }} />, color: '#22c55e', note: `de ${metrics.total} productos` },
-          { label: 'Sin precio mayorista', value: metrics.withoutPrice, icon: <AlertTriangle size={18} style={{ color: '#f59e0b' }} />, color: '#f59e0b', note: 'requieren configuración' },
-          { label: 'Margen promedio', value: `${metrics.avgMargin.toFixed(1)}%`, icon: <TrendingUp size={18} style={{ color: '#818cf8' }} />, color: '#818cf8', note: 'sobre costo' },
-          { label: 'Clientes mayoristas', value: '—', icon: <Users size={18} style={{ color: '#60a5fa' }} />, color: '#60a5fa', note: 'ver en Clientes' },
+          { label: 'Con precio mayorista', value: metrics.withPrice,           icon: <CheckCircle  size={16} />, color: '#22c55e', note: `de ${metrics.total} productos` },
+          { label: 'Sin precio mayorista', value: metrics.withoutPrice,        icon: <AlertTriangle size={16} />, color: '#f59e0b', note: 'requieren configuración' },
+          { label: 'Margen promedio',      value: `${metrics.avgMargin.toFixed(1)}%`, icon: <TrendingUp size={16} />, color: '#818cf8', note: 'sobre costo' },
+          { label: 'Clientes mayoristas',  value: '—',                         icon: <Users size={16} />,       color: '#60a5fa', note: 'ver en Clientes' },
         ].map(card => (
-          <div key={card.label} style={{ background: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.875rem', padding: '1.125rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.625rem' }}>
-              <span style={{ fontSize: '0.75rem', color: '#475569', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{card.label}</span>
-              {card.icon}
+          <div key={card.label} className="stat-card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem' }}>
+              <span className="stat-card-label">{card.label}</span>
+              <span style={{ color: card.color }}>{card.icon}</span>
             </div>
-            <div style={{ fontSize: '1.75rem', fontWeight: 800, color: card.color, lineHeight: 1, marginBottom: '0.25rem' }}>{card.value}</div>
-            <div style={{ fontSize: '0.72rem', color: '#334155' }}>{card.note}</div>
+            <div className="stat-card-value" style={{ color: card.color }}>{card.value}</div>
+            <div className="body-sm">{card.note}</div>
           </div>
         ))}
       </div>
@@ -664,7 +650,7 @@ export function Mayorista() {
       <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 180 }}>
           <Search size={14} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#475569', pointerEvents: 'none' }} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nombre, SKU, categoría..." style={{ width: '100%', padding: '0.5rem 0.75rem 0.5rem 2.25rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.625rem', color: '#f0f4ff', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar por nombre, SKU, categoría..." className="form-control" style={{ paddingLeft: '2.25rem' }} />
         </div>
 
         <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>

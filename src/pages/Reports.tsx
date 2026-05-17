@@ -803,31 +803,20 @@ export function Reports() {
 
   return (
     <div className="animate-fade-in">
-      <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-        <div style={{
-          width: '44px', height: '44px', borderRadius: '0.75rem',
-          background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2))',
-          border: '1px solid rgba(99,102,241,0.3)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
-        }}>
-          <TrendingUp size={22} style={{ color: '#818cf8' }} />
-        </div>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#f8fafc' }}>Reportes y Análisis</h1>
-          <p style={{ margin: 0, fontSize: '0.8rem', color: '#475569' }}>Visualizaciones y métricas sincronizadas con el negocio actual</p>
+      <div className="page-hdr">
+        <div className="page-hdr-left">
+          <div className="page-hdr-icon"><TrendingUp size={22} /></div>
+          <div>
+            <h1 className="page-hdr-title">Reportes y Análisis</h1>
+            <p className="page-hdr-subtitle">Visualizaciones y métricas sincronizadas con el negocio actual</p>
+          </div>
         </div>
       </div>
 
       {activeError && reportData && (
-        <div style={{
-          padding: '1rem',
-          backgroundColor: 'rgba(245, 158, 11, 0.12)',
-          border: '1px solid rgba(245, 158, 11, 0.28)',
-          borderRadius: '0.75rem',
-          color: '#fbbf24',
-          marginBottom: '1.5rem',
-        }}>
-          Algunas metricas no pudieron actualizarse y se muestran con fallback. {activeError}
+        <div className="alert-inline alert-warning" style={{ marginBottom: '1.5rem' }}>
+          <AlertCircle size={15} style={{ flexShrink: 0 }} />
+          Algunas métricas no pudieron actualizarse y se muestran con fallback. {activeError}
         </div>
       )}
 
@@ -855,33 +844,18 @@ export function Reports() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem', marginBottom: '1.5rem' }}>
         {statCards.map((stat) => (
-          <div key={stat.label} className="card" style={{ backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderTop: `3px solid ${stat.color}`, borderRadius: '0.75rem' }}>
-            <div className="card-body">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <div style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '0.75rem',
-                  backgroundColor: `${stat.color}20`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  <stat.icon size={24} color={stat.color} />
-                </div>
-                <div>
-                  <p style={{ fontSize: '0.875rem', color: '#a0aec0', margin: 0 }}>{stat.label}</p>
-                  <p style={{ fontSize: '1.5rem', fontWeight: 700, color: '#f8fafc', margin: '0.25rem 0' }}>
-                    {stat.value}
-                  </p>
-                  <p style={{ fontSize: '0.75rem', color: stat.trend === 'up' ? '#10b981' : '#f59e0b', margin: 0 }}>
-                    <TrendingUp size={12} style={{ display: 'inline', marginRight: '0.25rem' }} />
-                    {stat.change}
-                  </p>
-                </div>
+          <div key={stat.label} className="stat-card" style={{ borderTop: `3px solid ${stat.color}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+              <div style={{ width: '40px', height: '40px', borderRadius: '0.625rem', backgroundColor: `${stat.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <stat.icon size={20} color={stat.color} />
               </div>
+              <span className="stat-card-label">{stat.label}</span>
+            </div>
+            <div className="stat-card-value" style={{ color: stat.color }}>{stat.value}</div>
+            <div className="body-sm" style={{ marginTop: '0.25rem', color: stat.trend === 'up' ? '#10b981' : '#f59e0b' }}>
+              {stat.change}
             </div>
           </div>
         ))}

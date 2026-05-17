@@ -291,67 +291,59 @@ export function NewOrder() {
   return (
     <div className="animate-fade-in">
       <div style={{ marginBottom: '2rem' }}>
-        <button 
-          onClick={() => navigate('/orders')} 
-          className="btn btn-outline btn-sm" 
-          style={{ marginBottom: '1rem' }}
-        >
-          <ArrowLeft size={16} />
+        <button onClick={() => navigate('/orders')} className="btn btn-ghost btn-sm" style={{ marginBottom: '1rem' }}>
+          <ArrowLeft size={15} />
           Volver a Órdenes
         </button>
-        
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#f8fafc' }}>
-          Nueva Orden de Trabajo
-        </h1>
-        <p style={{ color: '#a0aec0' }}>
-          Crea una nueva orden paso a paso
-        </p>
+        <div className="page-hdr" style={{ marginBottom: 0 }}>
+          <div className="page-hdr-left">
+            <div className="page-hdr-icon"><Plus size={20} /></div>
+            <div>
+              <h1 className="page-hdr-title">Nueva Orden de Trabajo</h1>
+              <p className="page-hdr-subtitle">Crea una nueva orden paso a paso</p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
         {[
-          { id: 'customer', label: '1. Cliente', icon: UserPlus, clickable: true },
-          { id: 'device', label: '2. Dispositivo', icon: Smartphone, clickable: !!selectedCustomer },
-          { id: 'details', label: '3. Detalles', icon: Plus, clickable: !!selectedCustomer }
+          { id: 'customer', label: '1. Cliente',     icon: UserPlus,  clickable: true },
+          { id: 'device',   label: '2. Dispositivo', icon: Smartphone, clickable: !!selectedCustomer },
+          { id: 'details',  label: '3. Detalles',    icon: Plus,       clickable: !!selectedCustomer }
         ].map((s) => (
-          <button 
+          <button
             key={s.id}
             onClick={() => s.clickable && setStep(s.id as any)}
             disabled={!s.clickable}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              padding: '0.75rem 1rem',
-              borderRadius: '0.5rem',
-              backgroundColor: step === s.id ? '#6366f1' : s.clickable ? 'rgba(15,23,42,0.8)' : '#0b1120',
-              color: step === s.id ? '#0a0e1a' : s.clickable ? '#a0aec0' : '#475569',
-              fontWeight: 500,
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+              padding: '0.625rem 1rem',
+              borderRadius: '0.625rem',
+              background: step === s.id
+                ? 'linear-gradient(135deg,#6366f1,#8b5cf6)'
+                : s.clickable ? 'rgba(255,255,255,0.04)' : 'transparent',
+              color: step === s.id ? '#fff' : s.clickable ? 'var(--text-secondary)' : 'var(--text-muted)',
+              fontWeight: step === s.id ? 700 : 500,
               fontSize: '0.875rem',
-              border: 'none',
+              border: `1px solid ${step === s.id ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.08)'}`,
               cursor: s.clickable ? 'pointer' : 'not-allowed',
-              opacity: s.clickable ? 1 : 0.5,
-              transition: 'all 0.2s ease'
+              opacity: s.clickable ? 1 : 0.45,
+              transition: 'all 0.15s',
+              boxShadow: step === s.id ? '0 4px 12px rgba(99,102,241,0.3)' : 'none',
             }}
           >
-            <s.icon size={16} />
+            <s.icon size={15} />
             {s.label}
-            {s.id === 'customer' && selectedCustomer && <span style={{ marginLeft: '0.25rem' }}>✓</span>}
+            {s.id === 'customer' && selectedCustomer && (
+              <span style={{ marginLeft: '0.125rem', color: step === s.id ? '#a5f3fc' : '#34d399', fontSize: '0.8rem' }}>✓</span>
+            )}
           </button>
         ))}
       </div>
 
       {error && (
-        <div style={{
-          padding: '1rem',
-          backgroundColor: 'rgba(220, 38, 38, 0.1)',
-          border: '1px solid rgba(220, 38, 38, 0.3)',
-          borderRadius: '0.5rem',
-          color: '#dc2626',
-          marginBottom: '1.5rem'
-        }}>
-          {error}
-        </div>
+        <div className="alert-inline alert-error" style={{ marginBottom: '1.5rem' }}>{error}</div>
       )}
 
       {step === 'customer' && (
@@ -378,7 +370,7 @@ export function NewOrder() {
                   autoFocus
                 />
                 {isSearching && (
-                  <Loader2 size={16} style={{ position: 'absolute', right: '0.875rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', animation: 'spin 1s linear infinite' }} />
+                  <Loader2 size={16} style={{ position: 'absolute', right: '0.875rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', animation: 'tr-spin 1s linear infinite' }} />
                 )}
               </div>
               <button

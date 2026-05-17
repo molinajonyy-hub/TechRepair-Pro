@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Building2,
@@ -482,7 +482,7 @@ export default function Settings() {
       if (updateError) throw updateError
 
       // Actualizar estado local
-      setBusinessSettings({ ...businessSettings, logo_url: publicUrl })
+      setBusinessSettings({ ...businessSettings, logo_url: publicUrl ?? undefined })
 
       alert('Logo actualizado exitosamente')
     } catch (error: any) {
@@ -630,62 +630,32 @@ export default function Settings() {
 
   if (loading) {
     return (
-      <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4rem', color: 'var(--text-muted)', gap: '0.75rem' }}>
+        <Loader2 size={22} style={{ animation: 'tr-spin 1s linear infinite' }} />
         Cargando configuración...
       </div>
     )
   }
 
   return (
-    <div style={{ padding: '2rem', backgroundColor: '#0b1220', minHeight: '100vh' }}>
-      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-        <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-          <div style={{
-            width: '44px', height: '44px', borderRadius: '0.75rem',
-            background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2))',
-            border: '1px solid rgba(99,102,241,0.3)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
-          }}>
-            <SettingsIcon size={22} style={{ color: '#818cf8' }} />
-          </div>
-          <div>
-            <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#f8fafc' }}>Configuración General</h1>
-            <p style={{ margin: 0, fontSize: '0.8rem', color: '#475569' }}>Administra los datos y preferencias del negocio</p>
+    <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+        <div className="page-hdr">
+          <div className="page-hdr-left">
+            <div className="page-hdr-icon"><SettingsIcon size={22} /></div>
+            <div>
+              <h1 className="page-hdr-title">Configuración General</h1>
+              <p className="page-hdr-subtitle">Administra los datos y preferencias del negocio</p>
+            </div>
           </div>
         </div>
 
         {/* Tabs de navegación */}
-        <div style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '0.25rem',
-          marginBottom: '2rem',
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          paddingBottom: '0',
-        }}>
+        <div className="tabs" style={{ marginBottom: '2rem', flexWrap: 'wrap' }}>
           {tabs.map(tab => {
             const Icon = tab.icon
             return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.375rem',
-                  padding: '0.625rem 0.875rem',
-                  backgroundColor: activeTab === tab.id ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
-                  border: 'none',
-                  borderBottom: activeTab === tab.id ? '2px solid #6366f1' : '2px solid transparent',
-                  color: activeTab === tab.id ? '#6366f1' : '#64748b',
-                  cursor: 'pointer',
-                  fontSize: '0.8rem',
-                  fontWeight: 500,
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                  transition: 'all 0.2s'
-                }}
-              >
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                className={`tab${activeTab === tab.id ? ' tab-active' : ''}`}>
                 <Icon size={15} />
                 {tab.label}
               </button>
@@ -695,9 +665,9 @@ export default function Settings() {
 
         {/* Contenido de las pestañas */}
         {activeTab === 'datos' && (
-          <div style={{ backgroundColor: '#0f1829', borderRadius: '0.75rem', padding: '2rem', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <h2 style={{ color: '#ffffff', fontSize: '1.25rem', fontWeight: 600, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <Building2 size={24} style={{ color: '#6366f1' }} />
+          <div className="surface-raised" style={{ padding: '2rem' }}>
+            <h2 className="heading-md" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <Building2 size={22} style={{ color: 'var(--accent-primary)' }} />
               Datos Generales del Negocio
             </h2>
 
@@ -775,45 +745,12 @@ export default function Settings() {
                     disabled={uploadingLogo}
                     style={{ display: 'none' }}
                   />
-                  <label
-                    htmlFor="logo-upload"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      padding: '0.625rem 1.25rem',
-                      background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-                      border: 'none',
-                      color: '#ffffff',
-                      borderRadius: '0.625rem',
-                      cursor: uploadingLogo ? 'not-allowed' : 'pointer',
-                      fontWeight: 600,
-                      fontSize: '0.875rem',
-                      boxShadow: '0 4px 12px rgba(99,102,241,0.35)'
-                    }}
-                  >
-                    {uploadingLogo ? <Loader2 size={16} className="spin" /> : <Plus size={16} />}
+                  <label htmlFor="logo-upload" className="btn btn-primary btn-sm btn-lift" style={{ cursor: uploadingLogo ? 'not-allowed' : 'pointer' }}>
+                    {uploadingLogo ? <Loader2 size={16} style={{ animation: 'tr-spin 1s linear infinite' }} /> : <Plus size={16} />}
                     {uploadingLogo ? 'Subiendo...' : businessSettings.logo_url ? 'Cambiar Logo' : 'Subir Logo'}
                   </label>
                   {businessSettings.logo_url && (
-                    <button
-                      onClick={handleLogoDelete}
-                      disabled={uploadingLogo}
-                      style={{
-                        marginLeft: '0.5rem',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '0.5rem',
-                        padding: '0.625rem 1.25rem',
-                        backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                        border: '1px solid rgba(239, 68, 68, 0.2)',
-                        color: '#ef4444',
-                        borderRadius: '0.5rem',
-                        cursor: uploadingLogo ? 'not-allowed' : 'pointer',
-                        fontWeight: 500,
-                        fontSize: '0.875rem'
-                      }}
-                    >
+                    <button onClick={handleLogoDelete} disabled={uploadingLogo} className="btn btn-danger btn-sm" style={{ marginLeft: '0.5rem' }}>
                       <Trash2 size={16} />
                       Eliminar
                     </button>
@@ -824,74 +761,42 @@ export default function Settings() {
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.5rem' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Nombre Comercial *</label>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Nombre Comercial *</label>
                 <input
                   type="text"
                   value={businessSettings.nombre_comercial}
                   onChange={(e) => setBusinessSettings({ ...businessSettings, nombre_comercial: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '0.625rem 0.75rem',
-                    backgroundColor: 'rgba(15,23,42,0.8)',
-                    border: '1px solid rgba(51,65,85,0.6)',
-                    borderRadius: '0.5rem',
-                    color: '#f1f5f9',
-                    outline: 'none'
-                  }}
+                  className="form-control"
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Razón Social *</label>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Razón Social *</label>
                 <input
                   type="text"
                   value={businessSettings.razon_social}
                   onChange={(e) => setBusinessSettings({ ...businessSettings, razon_social: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '0.625rem 0.75rem',
-                    backgroundColor: 'rgba(15,23,42,0.8)',
-                    border: '1px solid rgba(51,65,85,0.6)',
-                    borderRadius: '0.5rem',
-                    color: '#f1f5f9',
-                    outline: 'none'
-                  }}
+                  className="form-control"
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>CUIT *</label>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>CUIT *</label>
                 <input
                   type="text"
                   value={businessSettings.cuit}
                   onChange={(e) => setBusinessSettings({ ...businessSettings, cuit: e.target.value })}
                   placeholder="XX-XXXXXXXX-X"
-                  style={{
-                    width: '100%',
-                    padding: '0.625rem 0.75rem',
-                    backgroundColor: 'rgba(15,23,42,0.8)',
-                    border: '1px solid rgba(51,65,85,0.6)',
-                    borderRadius: '0.5rem',
-                    color: '#f1f5f9',
-                    outline: 'none'
-                  }}
+                  className="form-control"
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Condición frente al IVA *</label>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Condición frente al IVA *</label>
                 <select
                   value={businessSettings.condicion_iva}
                   onChange={(e) => setBusinessSettings({ ...businessSettings, condicion_iva: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '0.625rem 0.75rem',
-                    backgroundColor: 'rgba(15,23,42,0.8)',
-                    border: '1px solid rgba(51,65,85,0.6)',
-                    borderRadius: '0.5rem',
-                    color: '#f1f5f9',
-                    outline: 'none'
-                  }}
+                  className="form-control"
                 >
                   <option value="Responsable Inscripto">Responsable Inscripto</option>
                   <option value="Responsable Monotributo">Responsable Monotributo</option>
@@ -902,116 +807,68 @@ export default function Settings() {
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Domicilio Fiscal *</label>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Domicilio Fiscal *</label>
                 <input
                   type="text"
                   value={businessSettings.domicilio_fiscal}
                   onChange={(e) => setBusinessSettings({ ...businessSettings, domicilio_fiscal: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '0.625rem 0.75rem',
-                    backgroundColor: 'rgba(15,23,42,0.8)',
-                    border: '1px solid rgba(51,65,85,0.6)',
-                    borderRadius: '0.5rem',
-                    color: '#f1f5f9',
-                    outline: 'none'
-                  }}
+                  className="form-control"
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Localidad *</label>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Localidad *</label>
                 <input
                   type="text"
                   value={businessSettings.localidad}
                   onChange={(e) => setBusinessSettings({ ...businessSettings, localidad: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '0.625rem 0.75rem',
-                    backgroundColor: 'rgba(15,23,42,0.8)',
-                    border: '1px solid rgba(51,65,85,0.6)',
-                    borderRadius: '0.5rem',
-                    color: '#f1f5f9',
-                    outline: 'none'
-                  }}
+                  className="form-control"
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Provincia *</label>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Provincia *</label>
                 <input
                   type="text"
                   value={businessSettings.provincia}
                   onChange={(e) => setBusinessSettings({ ...businessSettings, provincia: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '0.625rem 0.75rem',
-                    backgroundColor: 'rgba(15,23,42,0.8)',
-                    border: '1px solid rgba(51,65,85,0.6)',
-                    borderRadius: '0.5rem',
-                    color: '#f1f5f9',
-                    outline: 'none'
-                  }}
+                  className="form-control"
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Código Postal *</label>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Código Postal *</label>
                 <input
                   type="text"
                   value={businessSettings.codigo_postal}
                   onChange={(e) => setBusinessSettings({ ...businessSettings, codigo_postal: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '0.625rem 0.75rem',
-                    backgroundColor: 'rgba(15,23,42,0.8)',
-                    border: '1px solid rgba(51,65,85,0.6)',
-                    borderRadius: '0.5rem',
-                    color: '#f1f5f9',
-                    outline: 'none'
-                  }}
+                  className="form-control"
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Teléfono</label>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Teléfono</label>
                 <input
                   type="text"
                   value={businessSettings.telefono}
                   onChange={(e) => setBusinessSettings({ ...businessSettings, telefono: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '0.625rem 0.75rem',
-                    backgroundColor: 'rgba(15,23,42,0.8)',
-                    border: '1px solid rgba(51,65,85,0.6)',
-                    borderRadius: '0.5rem',
-                    color: '#f1f5f9',
-                    outline: 'none'
-                  }}
+                  className="form-control"
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Email</label>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Email</label>
                 <input
                   type="email"
                   value={businessSettings.email}
                   onChange={(e) => setBusinessSettings({ ...businessSettings, email: e.target.value })}
-                  style={{
-                    width: '100%',
-                    padding: '0.625rem 0.75rem',
-                    backgroundColor: 'rgba(15,23,42,0.8)',
-                    border: '1px solid rgba(51,65,85,0.6)',
-                    borderRadius: '0.5rem',
-                    color: '#f1f5f9',
-                    outline: 'none'
-                  }}
+                  className="form-control"
                 />
               </div>
             </div>
 
             <div style={{ marginTop: '1.5rem' }}>
-              <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Observaciones de Comprobantes</label>
+              <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Observaciones de Comprobantes</label>
               <textarea
                 value={businessSettings.observaciones_comprobantes}
                 onChange={(e) => setBusinessSettings({ ...businessSettings, observaciones_comprobantes: e.target.value })}
@@ -1033,20 +890,7 @@ export default function Settings() {
               <button
                 onClick={handleSaveBusinessSettings}
                 disabled={saving}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.75rem 1.5rem',
-                  background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-                  border: 'none',
-                  color: '#ffffff',
-                  borderRadius: '0.625rem',
-                  cursor: saving ? 'not-allowed' : 'pointer',
-                  fontWeight: 600,
-                  opacity: saving ? 0.7 : 1,
-                  boxShadow: '0 4px 12px rgba(99,102,241,0.35)'
-                }}
+                className="btn btn-primary btn-lift"
               >
                 <Save size={18} />
                 {saving ? 'Guardando...' : 'Guardar Cambios'}
@@ -1056,7 +900,7 @@ export default function Settings() {
         )}
 
         {activeTab === 'puntos' && (
-          <div style={{ backgroundColor: '#0f1829', borderRadius: '0.75rem', padding: '2rem', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <div className="surface-raised" style={{ padding: '2rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
               <h2 style={{ color: '#ffffff', fontSize: '1.25rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.75rem', margin: 0 }}>
                 <MapPin size={24} style={{ color: '#6366f1' }} />
@@ -1170,7 +1014,7 @@ export default function Settings() {
         )}
 
         {activeTab === 'arca' && (
-          <div style={{ backgroundColor: '#0f1829', borderRadius: '0.75rem', padding: '2rem', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <div className="surface-raised" style={{ padding: '2rem' }}>
             <h2 style={{ color: '#ffffff', fontSize: '1.25rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <Server size={24} style={{ color: '#6366f1' }} />
               Integración ARCA / AFIP
@@ -1306,38 +1150,22 @@ export default function Settings() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>CUIT Emisor *</label>
+                    <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>CUIT Emisor *</label>
                     <input
                       type="text"
                       value={arcaConfig.cuit || ''}
                       onChange={(e) => setArcaConfig({ ...arcaConfig, cuit: e.target.value })}
                       placeholder="XX-XXXXXXXX-X"
-                      style={{
-                        width: '100%',
-                        padding: '0.625rem 0.75rem',
-                        backgroundColor: 'rgba(15,23,42,0.8)',
-                        border: '1px solid rgba(51,65,85,0.6)',
-                        borderRadius: '0.5rem',
-                        color: '#f1f5f9',
-                        outline: 'none'
-                      }}
+                      className="form-control"
                     />
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Ambiente *</label>
+                    <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Ambiente *</label>
                     <select
                       value={arcaConfig.ambiente}
                       onChange={(e) => setArcaConfig({ ...arcaConfig, ambiente: e.target.value as 'homologacion' | 'produccion' })}
-                      style={{
-                        width: '100%',
-                        padding: '0.625rem 0.75rem',
-                        backgroundColor: 'rgba(15,23,42,0.8)',
-                        border: '1px solid rgba(51,65,85,0.6)',
-                        borderRadius: '0.5rem',
-                        color: '#f1f5f9',
-                        outline: 'none'
-                      }}
+                      className="form-control"
                     >
                       <option value="homologacion">Homologación (Testing)</option>
                       <option value="produccion">Producción</option>
@@ -1345,37 +1173,21 @@ export default function Settings() {
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Punto de Venta *</label>
+                    <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Punto de Venta *</label>
                     <input
                       type="number"
                       value={arcaConfig.punto_venta}
                       onChange={(e) => setArcaConfig({ ...arcaConfig, punto_venta: parseInt(e.target.value) || 1 })}
-                      style={{
-                        width: '100%',
-                        padding: '0.625rem 0.75rem',
-                        backgroundColor: 'rgba(15,23,42,0.8)',
-                        border: '1px solid rgba(51,65,85,0.6)',
-                        borderRadius: '0.5rem',
-                        color: '#f1f5f9',
-                        outline: 'none'
-                      }}
+                      className="form-control"
                     />
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Web Service</label>
+                    <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Web Service</label>
                     <select
                       value={arcaConfig.web_service}
                       onChange={(e) => setArcaConfig({ ...arcaConfig, web_service: e.target.value })}
-                      style={{
-                        width: '100%',
-                        padding: '0.625rem 0.75rem',
-                        backgroundColor: 'rgba(15,23,42,0.8)',
-                        border: '1px solid rgba(51,65,85,0.6)',
-                        borderRadius: '0.5rem',
-                        color: '#f1f5f9',
-                        outline: 'none'
-                      }}
+                      className="form-control"
                     >
                       <option value="wsfev1">WSFEv1 (Factura Electrónica)</option>
                       <option value="wsbfe">WSBFE (Bono Fiscal)</option>
@@ -1384,21 +1196,13 @@ export default function Settings() {
                 </div>
 
                 <div style={{ marginTop: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Alias del Certificado</label>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Alias del Certificado</label>
                   <input
                     type="text"
                     value={arcaConfig.alias || ''}
                     onChange={(e) => setArcaConfig({ ...arcaConfig, alias: e.target.value })}
                     placeholder="Ej: Certificado Producción 2024"
-                    style={{
-                      width: '100%',
-                      padding: '0.625rem 0.75rem',
-                      backgroundColor: 'rgba(15,23,42,0.8)',
-                      border: '1px solid rgba(51,65,85,0.6)',
-                      borderRadius: '0.5rem',
-                      color: '#f1f5f9',
-                      outline: 'none'
-                    }}
+                    className="form-control"
                   />
                 </div>
 
@@ -1444,7 +1248,7 @@ export default function Settings() {
 
                 {/* Campo certificado .crt */}
                 <div style={{ marginTop: '1.25rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>
                     Certificado (.crt) emitido por AFIP
                   </label>
                   <textarea
@@ -1524,8 +1328,8 @@ export default function Settings() {
         )}
 
         {activeTab === 'preferencias' && (
-          <div style={{ backgroundColor: '#0f1829', borderRadius: '0.75rem', padding: '2rem', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <h2 style={{ color: '#ffffff', fontSize: '1.25rem', fontWeight: 600, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div className="surface-raised" style={{ padding: '2rem' }}>
+            <h2 className="heading-md" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <SettingsIcon size={24} style={{ color: '#6366f1' }} />
               Preferencias del Sistema
             </h2>
@@ -1584,19 +1388,11 @@ export default function Settings() {
                 <h3 style={{ color: '#ffffff', fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Valores por Defecto</h3>
 
                 <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Moneda Predeterminada</label>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Moneda Predeterminada</label>
                   <select
                     value={businessSettings.moneda_predeterminada}
                     onChange={(e) => setBusinessSettings({ ...businessSettings, moneda_predeterminada: e.target.value })}
-                    style={{
-                      width: '100%',
-                      padding: '0.625rem 0.75rem',
-                      backgroundColor: 'rgba(15,23,42,0.8)',
-                      border: '1px solid rgba(51,65,85,0.6)',
-                      borderRadius: '0.5rem',
-                      color: '#f1f5f9',
-                      outline: 'none'
-                    }}
+                    className="form-control"
                   >
                     <option value="ARS">Pesos Argentinos (ARS)</option>
                     <option value="USD">Dólares (USD)</option>
@@ -1605,19 +1401,11 @@ export default function Settings() {
                 </div>
 
                 <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Formato de Fecha</label>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Formato de Fecha</label>
                   <select
                     value={businessSettings.formato_fecha}
                     onChange={(e) => setBusinessSettings({ ...businessSettings, formato_fecha: e.target.value })}
-                    style={{
-                      width: '100%',
-                      padding: '0.625rem 0.75rem',
-                      backgroundColor: 'rgba(15,23,42,0.8)',
-                      border: '1px solid rgba(51,65,85,0.6)',
-                      borderRadius: '0.5rem',
-                      color: '#f1f5f9',
-                      outline: 'none'
-                    }}
+                    className="form-control"
                   >
                     <option value="DD/MM/YYYY">DD/MM/YYYY</option>
                     <option value="MM/DD/YYYY">MM/DD/YYYY</option>
@@ -1626,20 +1414,12 @@ export default function Settings() {
                 </div>
 
                 <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Porcentaje de IVA por Defecto</label>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Porcentaje de IVA por Defecto</label>
                   <input
                     type="number"
                     value={businessSettings.iva_por_defecto}
                     onChange={(e) => setBusinessSettings({ ...businessSettings, iva_por_defecto: parseFloat(e.target.value) || 0 })}
-                    style={{
-                      width: '100%',
-                      padding: '0.625rem 0.75rem',
-                      backgroundColor: 'rgba(15,23,42,0.8)',
-                      border: '1px solid rgba(51,65,85,0.6)',
-                      borderRadius: '0.5rem',
-                      color: '#f1f5f9',
-                      outline: 'none'
-                    }}
+                    className="form-control"
                   />
                 </div>
               </div>
@@ -1649,20 +1429,7 @@ export default function Settings() {
               <button
                 onClick={handleSaveBusinessSettings}
                 disabled={saving}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.75rem 1.5rem',
-                  background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-                  border: 'none',
-                  color: '#ffffff',
-                  borderRadius: '0.625rem',
-                  cursor: saving ? 'not-allowed' : 'pointer',
-                  fontWeight: 600,
-                  opacity: saving ? 0.7 : 1,
-                  boxShadow: '0 4px 12px rgba(99,102,241,0.35)'
-                }}
+                className="btn btn-primary btn-lift"
               >
                 <Save size={18} />
                 {saving ? 'Guardando...' : 'Guardar Cambios'}
@@ -1672,8 +1439,8 @@ export default function Settings() {
         )}
 
         {activeTab === 'seguridad' && (
-          <div style={{ backgroundColor: '#0f1829', borderRadius: '0.75rem', padding: '2rem', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <h2 style={{ color: '#ffffff', fontSize: '1.25rem', fontWeight: 600, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div className="surface-raised" style={{ padding: '2rem' }}>
+            <h2 className="heading-md" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <Shield size={24} style={{ color: '#6366f1' }} />
               Seguridad y Permisos
             </h2>
@@ -1727,7 +1494,7 @@ export default function Settings() {
         )}
 
         {activeTab === 'orden' && (
-          <div style={{ backgroundColor: '#0f1829', borderRadius: '0.75rem', padding: '2rem', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <div className="surface-raised" style={{ padding: '2rem' }}>
             <OrderPrintSettings />
           </div>
         )}
@@ -1796,94 +1563,54 @@ export default function Settings() {
 
               <div style={{ padding: '1.5rem' }}>
                 <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Número *</label>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Número *</label>
                   <input
                     type="number"
                     value={salesPointForm.numero}
                     onChange={(e) => setSalesPointForm({ ...salesPointForm, numero: parseInt(e.target.value) || 1 })}
-                    style={{
-                      width: '100%',
-                      padding: '0.625rem 0.75rem',
-                      backgroundColor: 'rgba(15,23,42,0.8)',
-                      border: '1px solid rgba(51,65,85,0.6)',
-                      borderRadius: '0.5rem',
-                      color: '#f1f5f9',
-                      outline: 'none'
-                    }}
+                    className="form-control"
                   />
                 </div>
 
                 <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Nombre *</label>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Nombre *</label>
                   <input
                     type="text"
                     value={salesPointForm.nombre}
                     onChange={(e) => setSalesPointForm({ ...salesPointForm, nombre: e.target.value })}
                     placeholder="Ej: Sucursal Centro"
-                    style={{
-                      width: '100%',
-                      padding: '0.625rem 0.75rem',
-                      backgroundColor: 'rgba(15,23,42,0.8)',
-                      border: '1px solid rgba(51,65,85,0.6)',
-                      borderRadius: '0.5rem',
-                      color: '#f1f5f9',
-                      outline: 'none'
-                    }}
+                    className="form-control"
                   />
                 </div>
 
                 <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Sucursal *</label>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Sucursal *</label>
                   <input
                     type="text"
                     value={salesPointForm.sucursal}
                     onChange={(e) => setSalesPointForm({ ...salesPointForm, sucursal: e.target.value })}
                     placeholder="Ej: Centro"
-                    style={{
-                      width: '100%',
-                      padding: '0.625rem 0.75rem',
-                      backgroundColor: 'rgba(15,23,42,0.8)',
-                      border: '1px solid rgba(51,65,85,0.6)',
-                      borderRadius: '0.5rem',
-                      color: '#f1f5f9',
-                      outline: 'none'
-                    }}
+                    className="form-control"
                   />
                 </div>
 
                 <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Domicilio</label>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Domicilio</label>
                   <input
                     type="text"
                     value={salesPointForm.domicilio}
                     onChange={(e) => setSalesPointForm({ ...salesPointForm, domicilio: e.target.value })}
                     placeholder="Dirección física"
-                    style={{
-                      width: '100%',
-                      padding: '0.625rem 0.75rem',
-                      backgroundColor: 'rgba(15,23,42,0.8)',
-                      border: '1px solid rgba(51,65,85,0.6)',
-                      borderRadius: '0.5rem',
-                      color: '#f1f5f9',
-                      outline: 'none'
-                    }}
+                    className="form-control"
                   />
                 </div>
 
                 <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Condición Fiscal</label>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Condición Fiscal</label>
                   <select
                     value={salesPointForm.condicion_fiscal}
                     onChange={(e) => setSalesPointForm({ ...salesPointForm, condicion_fiscal: e.target.value })}
-                    style={{
-                      width: '100%',
-                      padding: '0.625rem 0.75rem',
-                      backgroundColor: 'rgba(15,23,42,0.8)',
-                      border: '1px solid rgba(51,65,85,0.6)',
-                      borderRadius: '0.5rem',
-                      color: '#f1f5f9',
-                      outline: 'none'
-                    }}
+                    className="form-control"
                   >
                     <option value="Responsable Inscripto">Responsable Inscripto</option>
                     <option value="Responsable Monotributo">Responsable Monotributo</option>
@@ -1894,19 +1621,11 @@ export default function Settings() {
                 </div>
 
                 <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem', fontWeight: 500 }}>Tipo de Emisión</label>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Tipo de Emisión</label>
                   <select
                     value={salesPointForm.tipo_emision}
                     onChange={(e) => setSalesPointForm({ ...salesPointForm, tipo_emision: e.target.value as 'manual' | 'electronica' | 'ambas' })}
-                    style={{
-                      width: '100%',
-                      padding: '0.625rem 0.75rem',
-                      backgroundColor: 'rgba(15,23,42,0.8)',
-                      border: '1px solid rgba(51,65,85,0.6)',
-                      borderRadius: '0.5rem',
-                      color: '#f1f5f9',
-                      outline: 'none'
-                    }}
+                    className="form-control"
                   >
                     <option value="manual">Manual</option>
                     <option value="electronica">Electrónica ARCA</option>
@@ -1972,6 +1691,5 @@ export default function Settings() {
           </div>
         )}
       </div>
-    </div>
   )
 }
