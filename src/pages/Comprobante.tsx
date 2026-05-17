@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, AlertCircle, CheckCircle, Loader2, ExternalLink, TrendingUp, Wallet } from 'lucide-react';
+import { ArrowLeft, AlertCircle, CheckCircle, Loader2, ExternalLink, TrendingUp, Wallet, Edit2, X, FileText } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useComprobantes } from '../hooks/useComprobantes';
 import { useOrderPrintSettings } from '../hooks/useOrderPrintSettings';
@@ -11,6 +11,7 @@ import { ComprobanteActions } from '../components/comprobantes/ComprobanteAction
 import { ComprobantePrintLayout } from '../components/comprobantes/ComprobantePrintLayout';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { comprobanteService, MedioPago } from '../services/comprobanteService';
 
 const TIPO_LABELS: Record<string, string> = {
   factura_a: 'Factura A',
@@ -22,7 +23,7 @@ const TIPO_LABELS: Record<string, string> = {
 export default function ComprobantePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { businessId } = useAuth();
+  const { businessId, user } = useAuth();
 
   const {
     comprobanteActual,
@@ -42,6 +43,18 @@ export default function ComprobantePage() {
   const { settings: profile, loading: loadingProfile } = useOrderPrintSettings(businessId);
 
   const [showSuccess, setShowSuccess] = useState<string | null>(null);
+
+  // ── Editar cobro ──────────────────────────────────────────────────────────
+  const [showEditPago, setShowEditPago] = useState(false);
+  const [editPagoLoading, setEditPagoLoading] = useState(false);
+  const [editPagoMethod, setEditPagoMethod] = useState<MedioPago>('efectivo');
+  const [editPagoAmount, setEditPagoAmount] = useState(0);
+  const [editPagoNotes, setEditPagoNotes] = useState('');
+
+  // ── Crear nota de crédito ─────────────────────────────────────────────────
+  const [showNotaCredito, setShowNotaCredito] = useState(false);
+  const [notaCreditoMotivo, setNotaCreditoMotivo] = useState('');
+  const [notaCreditoLoading, setNotaCreditoLoading] = useState(false);
 
   // Ganancia real del comprobante
   const [profitInfo, setProfitInfo] = useState<{
@@ -181,6 +194,59 @@ export default function ComprobantePage() {
     window.print();
     setTimeout(() => document.body.classList.remove('printing-comprobante'), 500);
   };
+
+  const openEditPago = () => {
+    if (!comprobanteActual) return;
+    const pagos = (comprobanteActual as any).pagos as any[] | undefined;
+    const primero = pagos?.[0];
+    setEditPagoMethod((primero?.payment_method as MedioPago) || 'efectivo');
+    setEditPagoAmount((comprobanteActual as any).total_cobrado || comprobanteActual.total || 0);
+    setEditPagoNotes(primero?.notes || '');
+    setShowEditPago(true);
+  };
+
+  const handleSaveEditPago = async () => {
+    if (!comprobanteActual || !businessId || !user) return;
+    setEditPagoLoading(true);
+    try {
+      const result = await comprobanteService.actualizarPago(
+        comprobanteActual.id, businessId, user.id,
+        { payment_method: editPagoMethod, amount: editPagoAmount, currency: 'ARS', notes: editPagoNotes }
+      );
+      if (result.success) {
+        setShowSuccess('Cobro actualizado correctamente');
+        setTimeout(() => setShowSuccess(null), 4000);
+        setShowEditPago(false);
+        if (id) cargarComprobante(id);
+      } else {
+        window.alert(result.error || 'Error al actualizar el cobro');
+      }
+    } finally {
+      setEditPagoLoading(false);
+    }
+  };
+
+  const handleCrearNotaCredito = async () => {
+    if (!comprobanteActual || !businessId || !user) return;
+    setNotaCreditoLoading(true);
+    try {
+      const result = await comprobanteService.crearNotaCredito({
+        originalComprobanteId: comprobanteActual.id,
+        businessId,
+        userId: user.id,
+        motivo: notaCreditoMotivo,
+      });
+      if (result.success && result.comprobante) {
+        setShowNotaCredito(false);
+        setNotaCreditoMotivo('');
+        navigate(`/comprobantes/${result.comprobante.id}`);
+      } else {
+        window.alert(result.error || 'Error al crear la nota de crédito');
+      }
+    } finally {
+      setNotaCreditoLoading(false);
+    }
+  };
   const puedeEditar = comprobanteActual?.estado === 'borrador';
 
   // ── Loading ───────────────────────────────────────────────────────────────
@@ -312,6 +378,7 @@ export default function ComprobantePage() {
               onAnular={handleAnular}
               onDescargarPDF={handleDescargarPDF}
               onImprimir={handleImprimir}
+              onCrearNotaCredito={() => setShowNotaCredito(true)}
               emitiendo={emitiendo}
             />
 
@@ -408,26 +475,10 @@ export default function ComprobantePage() {
 
             {/* Estado de cobro */}
             {comprobanteActual && !['anulado','cancelled'].includes(comprobanteActual.estado || '') && (
-              <div style={{
-                marginTop: '1rem', padding: '0.875rem 1rem',
-                backgroundColor: (comprobanteActual as any).estado_comercial === 'pagado' ? 'rgba(52,211,153,0.07)' : 'rgba(245,158,11,0.07)',
-                border: `1px solid ${(comprobanteActual as any).estado_comercial === 'pagado' ? 'rgba(52,211,153,0.25)' : 'rgba(245,158,11,0.25)'}`,
-                borderRadius: '0.75rem',
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Wallet size={15} style={{ color: (comprobanteActual as any).estado_comercial === 'pagado' ? '#34d399' : '#f59e0b' }} />
-                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: (comprobanteActual as any).estado_comercial === 'pagado' ? '#34d399' : '#f59e0b' }}>
-                    {(comprobanteActual as any).estado_comercial === 'pagado' ? 'Cobrado' : 'Pendiente de cobro'}
-                  </span>
-                </div>
-                <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.875rem', color: (comprobanteActual as any).estado_comercial === 'pagado' ? '#34d399' : '#f59e0b' }}>
-                  {(comprobanteActual as any).estado_comercial === 'pagado'
-                    ? `$${((comprobanteActual as any).total_cobrado || comprobanteActual.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                    : `Saldo: $${((comprobanteActual as any).saldo_pendiente || comprobanteActual.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                  }
-                </span>
-              </div>
+              <EstadoCobroWidget
+                comprobante={comprobanteActual}
+                onEditarCobro={openEditPago}
+              />
             )}
 
             {/* Metadata */}
@@ -454,6 +505,248 @@ export default function ComprobantePage() {
           </div>
         </div>
       )}
+
+      {/* ── Modal: Editar cobro ──────────────────────────────────────────────── */}
+      {showEditPago && comprobanteActual && (
+        <div className="modal-overlay-dark">
+          <div className="modal-card" style={{ maxWidth: 440 }}>
+            <div className="modal-hdr">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                <Wallet size={18} style={{ color: 'var(--accent-primary)' }} />
+                <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Editar cobro
+                </h2>
+              </div>
+              <button onClick={() => setShowEditPago(false)} className="icon-btn" aria-label="Cerrar">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="modal-body-scroll" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label className="label-caps">Medio de pago</label>
+                <select
+                  value={editPagoMethod}
+                  onChange={e => setEditPagoMethod(e.target.value as MedioPago)}
+                  className="form-select"
+                >
+                  <option value="efectivo">Efectivo</option>
+                  <option value="transferencia">Transferencia</option>
+                  <option value="tarjeta_debito">Tarjeta débito</option>
+                  <option value="tarjeta_credito">Tarjeta crédito</option>
+                  <option value="qr">QR / Mercado Pago</option>
+                  <option value="mixto">Mixto</option>
+                  <option value="cuenta_corriente">Cuenta corriente</option>
+                  <option value="otro">Otro</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="label-caps">Monto cobrado (ARS)</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={editPagoAmount}
+                  onChange={e => setEditPagoAmount(parseFloat(e.target.value) || 0)}
+                  className="form-control"
+                  style={{ fontFamily: 'monospace', fontSize: '1rem', fontWeight: 700 }}
+                />
+                <p style={{ margin: '0.375rem 0 0', fontSize: '0.72rem', color: 'var(--text-subtle)' }}>
+                  Total del comprobante: ${(comprobanteActual.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              </div>
+
+              <div>
+                <label className="label-caps">Observación interna</label>
+                <input
+                  type="text"
+                  value={editPagoNotes}
+                  onChange={e => setEditPagoNotes(e.target.value)}
+                  placeholder="Ej: Pagó en dos cuotas, transferencia 18/5..."
+                  className="form-control"
+                />
+              </div>
+
+              {editPagoMethod === 'cuenta_corriente' && (
+                <div className="alert-inline alert-warning">
+                  <AlertCircle size={14} style={{ flexShrink: 0 }} />
+                  <span>Al elegir cuenta corriente, el saldo quedará pendiente y se registrará en la CC del cliente.</span>
+                </div>
+              )}
+            </div>
+
+            <div className="modal-ftr" style={{ justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowEditPago(false)} className="btn btn-ghost" disabled={editPagoLoading}>
+                Cancelar
+              </button>
+              <button
+                onClick={() => void handleSaveEditPago()}
+                disabled={editPagoLoading || editPagoAmount < 0}
+                className="btn btn-primary btn-lift"
+              >
+                {editPagoLoading ? <><Loader2 size={14} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</> : <><CheckCircle size={14} /> Guardar cobro</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Crear nota de crédito ──────────────────────────────────────── */}
+      {showNotaCredito && comprobanteActual && (
+        <div className="modal-overlay-dark">
+          <div className="modal-card" style={{ maxWidth: 480 }}>
+            <div className="modal-hdr">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                <FileText size={18} style={{ color: 'var(--accent-primary)' }} />
+                <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Crear Nota de Crédito
+                </h2>
+              </div>
+              <button onClick={() => setShowNotaCredito(false)} className="icon-btn" aria-label="Cerrar">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="modal-body-scroll" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div className="alert-inline alert-warning">
+                <AlertCircle size={14} style={{ flexShrink: 0 }} />
+                <span>
+                  Se creará una Nota de Crédito en borrador vinculada al comprobante{' '}
+                  <strong>#{comprobanteActual.numero}</strong> por ${(comprobanteActual.total || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}.
+                  Deberás emitirla manualmente en AFIP desde el detalle de la nota.
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.75rem', background: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                {[
+                  ['Tipo', 'Nota de Crédito'],
+                  ['Comprobante original', `#${comprobanteActual.numero}`],
+                  ['Cliente', (comprobanteActual as any).customer?.name || comprobanteActual.condicion_fiscal || 'Consumidor Final'],
+                  ['Total', `$${(comprobanteActual.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`],
+                ].map(([label, value]) => (
+                  <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+                    <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>{value}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <label className="label-caps">Motivo (opcional)</label>
+                <input
+                  type="text"
+                  value={notaCreditoMotivo}
+                  onChange={e => setNotaCreditoMotivo(e.target.value)}
+                  placeholder="Ej: Error en precio, devolución, duplicado..."
+                  className="form-control"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div className="modal-ftr" style={{ justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowNotaCredito(false)} className="btn btn-ghost" disabled={notaCreditoLoading}>
+                Cancelar
+              </button>
+              <button
+                onClick={() => void handleCrearNotaCredito()}
+                disabled={notaCreditoLoading}
+                className="btn btn-primary btn-lift"
+              >
+                {notaCreditoLoading
+                  ? <><Loader2 size={14} style={{ animation: 'tr-spin 1s linear infinite' }} /> Creando...</>
+                  : <><FileText size={14} /> Crear nota de crédito</>
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Widget de estado de cobro mejorado ────────────────────────────────────────
+
+const MEDIO_LABELS: Record<string, string> = {
+  efectivo:        'Efectivo',
+  transferencia:   'Transferencia',
+  tarjeta_debito:  'Débito',
+  tarjeta_credito: 'Crédito',
+  qr:              'QR / MercadoPago',
+  mixto:           'Mixto',
+  cuenta_corriente:'Cuenta corriente',
+  otro:            'Otro',
+};
+
+function EstadoCobroWidget({
+  comprobante,
+  onEditarCobro,
+}: {
+  comprobante: any;
+  onEditarCobro: () => void;
+}) {
+  const estado   = comprobante.estado_comercial as string | undefined;
+  const cobrado  = Number(comprobante.total_cobrado || 0);
+  const saldo    = Number(comprobante.saldo_pendiente || 0);
+  const pagos    = (comprobante.pagos as any[] | undefined) || [];
+  const metodo   = pagos[0]?.payment_method as string | undefined;
+
+  const isPagado  = estado === 'pagado'  || (cobrado > 0 && saldo <= 0.01);
+  const isParcial = estado === 'parcial' || (cobrado > 0 && saldo > 0.01);
+
+  const color = isPagado ? '#34d399' : isParcial ? '#fbbf24' : '#f59e0b';
+  const bg    = isPagado ? 'rgba(52,211,153,0.07)' : isParcial ? 'rgba(251,191,36,0.07)' : 'rgba(245,158,11,0.07)';
+  const bdr   = isPagado ? 'rgba(52,211,153,0.25)'  : isParcial ? 'rgba(251,191,36,0.25)'  : 'rgba(245,158,11,0.25)';
+
+  const label = isPagado ? 'Cobrado' : isParcial ? 'Pago parcial' : 'Pendiente de cobro';
+
+  const fmt = (n: number) =>
+    `$${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  return (
+    <div style={{ marginTop: '1rem', borderRadius: '0.75rem', border: `1px solid ${bdr}`, background: bg, overflow: 'hidden' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.625rem 0.875rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <Wallet size={14} style={{ color }} />
+          <span style={{ fontSize: '0.8rem', fontWeight: 700, color }}>{label}</span>
+        </div>
+        <button
+          onClick={onEditarCobro}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '0.7rem', fontWeight: 600, padding: '0.2rem 0.4rem', borderRadius: 4 }}
+          title="Editar cobro"
+        >
+          <Edit2 size={11} /> Editar
+        </button>
+      </div>
+
+      {/* Detalle */}
+      <div style={{ padding: '0 0.875rem 0.625rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+        {metodo && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+            <span style={{ color: 'var(--text-subtle)' }}>Medio</span>
+            <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>{MEDIO_LABELS[metodo] || metodo}</span>
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+          <span style={{ color: 'var(--text-subtle)' }}>Cobrado</span>
+          <span style={{ fontFamily: 'monospace', fontWeight: 700, color }}>{fmt(cobrado)}</span>
+        </div>
+        {saldo > 0.01 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+            <span style={{ color: 'var(--text-subtle)' }}>Saldo pendiente</span>
+            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#f87171' }}>{fmt(saldo)}</span>
+          </div>
+        )}
+        {isPagado && saldo <= 0.01 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+            <span style={{ color: 'var(--text-subtle)' }}>Saldo</span>
+            <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#34d399' }}>$0,00</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -279,9 +279,15 @@ export const comprobanteService = {
       const total    = subtotalARS + tax;
       const totalUSD = subtotalUSD + (tipo === 'factura_a' ? subtotalUSD * 0.21 : 0);
 
+      // Auto-default: si no hay pagos explícitos, cobrar efectivo por el total.
+      // Evita que comprobantes nuevos arranquen como "pendiente" sin selección explícita.
+      const pagosEffective: ComprobantePago[] = pagos.length > 0
+        ? pagos
+        : [{ payment_method: 'efectivo', amount: total, currency: 'ARS', exchange_rate: globalRate }];
+
       // Separar pagos reales (caja) de cuenta corriente (deuda en ledger, no caja)
-      const pagosCash = pagos.filter(p => p.payment_method !== 'cuenta_corriente');
-      const ccTotal   = pagos
+      const pagosCash = pagosEffective.filter(p => p.payment_method !== 'cuenta_corriente');
+      const ccTotal   = pagosEffective
         .filter(p => p.payment_method === 'cuenta_corriente')
         .reduce((s, p) => {
           const rate = p.exchange_rate || globalRate;
@@ -742,6 +748,150 @@ export const comprobanteService = {
     });
 
     return error ? { success: false, error: error.message } : { success: true };
+  },
+
+  // ── Actualizar medio/estado de cobro ──────────────────────────────────────────
+  /**
+   * Modifica el pago de un comprobante ya creado.
+   * - Si existen comprobante_payments: hace UPDATE (la sync trigger recalcula estado_comercial).
+   * - Si no existen: inserta uno nuevo (la finance trigger crea el movimiento de caja).
+   * - Actualiza el metodo_pago del financial_movements vinculado.
+   * NO toca datos fiscales (CAE, número, tipo, items).
+   */
+  async actualizarPago(
+    comprobanteId: string,
+    businessId: string,
+    userId: string,
+    params: {
+      payment_method: MedioPago;
+      amount: number;
+      currency?: 'ARS' | 'USD';
+      exchange_rate?: number;
+      notes?: string;
+    }
+  ): Promise<{ success: boolean; error?: string }> {
+    const rate   = params.exchange_rate || 1;
+    const amtARS = (params.currency || 'ARS') === 'USD' ? params.amount * rate : params.amount;
+
+    const cajMethod =
+      (params.currency || 'ARS') === 'USD'           ? 'usd'
+      : params.payment_method === 'efectivo'          ? 'efectivo'
+      : params.payment_method === 'transferencia'     ? 'transferencia'
+      : ['tarjeta_debito','tarjeta_credito','qr','mixto','otro'].includes(params.payment_method) ? 'tarjeta'
+      : 'efectivo';
+
+    const { data: existing } = await supabase
+      .from('comprobante_payments')
+      .select('id')
+      .eq('comprobante_id', comprobanteId)
+      .eq('business_id', businessId)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      // UPDATE: la sync trigger recalcula total_cobrado/saldo_pendiente/estado_comercial
+      const { error } = await supabase
+        .from('comprobante_payments')
+        .update({
+          payment_method: params.payment_method,
+          amount:         params.amount,
+          amount_ars:     amtARS,
+          currency:       params.currency || 'ARS',
+          exchange_rate:  rate,
+          notes:          params.notes || null,
+        })
+        .eq('id', existing[0].id);
+
+      if (error) return { success: false, error: error.message };
+
+      // Actualizar metodo_pago en financial_movements (el finance trigger no dispara en UPDATE)
+      await supabase.from('financial_movements')
+        .update({ metodo_pago: cajMethod, amount: params.amount, amount_ars: amtARS })
+        .eq('comprobante_id', comprobanteId)
+        .eq('business_id',    businessId)
+        .eq('type',           'income')
+        .eq('source',         'comprobante');
+
+    } else {
+      // Sin pagos previos: insertar (la finance trigger crea el movimiento de caja)
+      const { error } = await supabase.from('comprobante_payments').insert({
+        comprobante_id: comprobanteId,
+        business_id:    businessId,
+        amount:         params.amount,
+        amount_ars:     amtARS,
+        currency:       params.currency || 'ARS',
+        exchange_rate:  rate,
+        payment_method: params.payment_method,
+        notes:          params.notes || null,
+        date:           new Date().toISOString().split('T')[0],
+        created_by:     userId,
+      });
+      if (error) return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  },
+
+  // ── Crear nota de crédito vinculada ───────────────────────────────────────────
+  /**
+   * Crea una Nota de Crédito como comprobante nuevo, vinculada al original.
+   * El usuario debe confirmar antes de llamar este método.
+   * NO emite en ARCA automáticamente — queda como borrador para revisión.
+   */
+  async crearNotaCredito(params: {
+    originalComprobanteId: string;
+    businessId: string;
+    userId: string;
+    motivo?: string;
+    cajaId?: string | null;
+  }): Promise<{ success: boolean; comprobante?: Comprobante; error?: string }> {
+    const original = await this.getById(params.originalComprobanteId, params.businessId);
+    if (!original) return { success: false, error: 'Comprobante original no encontrado' };
+
+    const originalTipo = original.type || original.tipo;
+    if (!['factura_a', 'factura_c'].includes(originalTipo)) {
+      return { success: false, error: 'Solo se puede crear nota de crédito sobre Facturas A o C' };
+    }
+
+    const items = (original.items || []).map(i => ({
+      descripcion:     `NC: ${i.descripcion}`,
+      tipo_linea:      (i.tipo_linea as any) || 'servicio',
+      cantidad:        i.cantidad,
+      precio_unitario: i.precio_unitario,
+      descuento_linea: i.descuento_linea || 0,
+      costo_unitario:  0,
+      currency:        (i.currency as any) || 'ARS',
+      exchange_rate:   i.exchange_rate || 1,
+      inventory_id:    null,  // NC no descuenta stock
+    }));
+
+    if (items.length === 0) return { success: false, error: 'El comprobante original no tiene ítems' };
+
+    const result = await this.crear({
+      tipo:             'nota_credito',
+      punto_venta:      original.punto_venta || '0001',
+      condicion_fiscal: original.condicion_fiscal || 'Consumidor Final',
+      customer_id:      original.customer_id || null,
+      order_id:         original.order_id   || null,
+      observaciones:    `Nota de crédito · comprobante original #${original.numero || original.id.slice(0,8)}${params.motivo ? ` · ${params.motivo}` : ''}`,
+      es_fiscal:        false,
+      emitir_en_arca:   false,
+      items,
+      pagos:            [],   // NC queda sin cobro — es una devolución
+      business_id:      params.businessId,
+      created_by:       params.userId,
+      caja_id:          params.cajaId || null,
+      skip_finance_entry: true,
+    });
+
+    if (!result.success || !result.comprobante) return result;
+
+    // Vincular la NC al comprobante original via observaciones fiscales si no hay columna específica
+    await supabase.from('comprobantes')
+      .update({ observaciones: result.comprobante.observaciones })
+      .eq('id', result.comprobante.id)
+      .eq('business_id', params.businessId);
+
+    return result;
   },
 
   // ── Eliminar borrador ─────────────────────────────────────────────────────────

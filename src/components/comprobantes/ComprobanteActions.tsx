@@ -10,6 +10,7 @@ import {
   Shield,
   Clock,
   Ban,
+  FileText,
 } from 'lucide-react';
 import { Comprobante } from '../../hooks/useComprobantes';
 
@@ -19,6 +20,7 @@ interface ComprobanteActionsProps {
   onAnular: (motivo: string) => void;
   onDescargarPDF: () => void;
   onImprimir: () => void;
+  onCrearNotaCredito?: () => void;
   emitiendo?: boolean;
 }
 
@@ -28,6 +30,7 @@ export function ComprobanteActions({
   onAnular,
   onDescargarPDF,
   onImprimir,
+  onCrearNotaCredito,
   emitiendo = false,
 }: ComprobanteActionsProps) {
   const [showAnularModal, setShowAnularModal] = useState(false);
@@ -124,6 +127,18 @@ export function ComprobanteActions({
           <button onClick={onImprimir} className="btn btn-outline" style={{ width: '100%', justifyContent: 'center' }}>
             <Printer size={15} /> Imprimir
           </button>
+
+          {/* Nota de crédito */}
+          {esEmitido && ['factura_a','factura_c'].includes(comprobante.tipo) && onCrearNotaCredito && (
+            <button
+              onClick={onCrearNotaCredito}
+              className="btn btn-outline"
+              style={{ width: '100%', justifyContent: 'center' }}
+              title="Crear una nota de crédito vinculada a este comprobante"
+            >
+              <FileText size={15} /> Nota de crédito
+            </button>
+          )}
 
           {/* Anular */}
           {esEmitido && (
