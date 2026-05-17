@@ -1,13 +1,17 @@
-import { useState, useEffect, useCallback } from 'react'
+﻿import { useState, useEffect, useCallback } from 'react'
 import {
   TrendingUp, TrendingDown, DollarSign, BarChart3, Plus,
   Loader2, AlertCircle, CheckCircle, Pencil, Trash2, RefreshCw,
   ArrowUpRight, ArrowDownRight, Minus, Filter,
   Wallet, Building2, User, Users, Layers, Activity, Award, Target,
-  Package, RepeatIcon, History, CheckCircle2, X, ChevronDown, ChevronUp,
+  Package, RepeatIcon, History, CheckCircle2, X,
 } from 'lucide-react'
 import { useRecurringExpenses, RecurringExpenseWithStatus } from '../hooks/useRecurringExpenses'
 import { CloseButton } from '../components/ui/CloseButton'
+import { EmptyState } from '../components/ui/EmptyState'
+import { FinanceBarChart } from '../components/finance/FinanceBarChart'
+import { FinanceDonutChart } from '../components/finance/FinanceDonutChart'
+import { FinanceLineChart } from '../components/finance/FinanceLineChart'
 import { useAuth } from '../contexts/AuthContext'
 import { currencyService } from '../services/currencyService'
 import { supabase } from '../lib/supabase'
@@ -27,7 +31,6 @@ import {
   type PeriodType,
   type FinanceSummary,
   type MonthPoint,
-  type DistributionSlice,
 } from '../services/financeService'
 import { getFinancialSummary, type FinancialSummary as UnifiedSummary } from '../services/financialMetricsService'
 
@@ -69,146 +72,7 @@ function filterByView(entries: FinanceEntry[], view: ViewType): FinanceEntry[] {
   return entries
 }
 
-// ─── SVG Bar Chart ─────────────────────────────────────────────────────────────
-
-function BarChart({ data }: { data: MonthPoint[] }) {
-  if (!data.length) return null
-  const H = 160
-  const W = 100
-  const maxVal = Math.max(...data.flatMap(d => [d.income, d.expenses]), 1)
-  const barW = Math.max(8, Math.min(22, (W / data.length) * 0.35))
-  const gap = (W - data.length * barW * 2.5) / (data.length + 1)
-
-  return (
-    <svg viewBox={`0 0 ${W} ${H + 24}`} style={{ width: '100%', height: '100%', overflow: 'visible' }}>
-      {data.map((d, i) => {
-        const x = gap + i * (W / data.length) + gap * 0.2
-        const incH = (d.income / maxVal) * H
-        const expH = (d.expenses / maxVal) * H
-        return (
-          <g key={i}>
-            {/* Income bar */}
-            <rect
-              x={x} y={H - incH} width={barW} height={incH}
-              rx={2} fill="rgba(52,211,153,0.7)"
-            >
-              <title>{d.label}: Ingresos {fmt(d.income)}</title>
-            </rect>
-            {/* Expense bar */}
-            <rect
-              x={x + barW + 2} y={H - expH} width={barW} height={expH}
-              rx={2} fill="rgba(248,113,113,0.7)"
-            >
-              <title>{d.label}: Egresos {fmt(d.expenses)}</title>
-            </rect>
-            {/* Label */}
-            <text
-              x={x + barW} y={H + 14}
-              textAnchor="middle" fontSize={7} fill="#64748b"
-            >
-              {d.label}
-            </text>
-          </g>
-        )
-      })}
-      {/* Legend */}
-      <rect x={2} y={H + 18} width={6} height={4} rx={1} fill="rgba(52,211,153,0.7)" />
-      <text x={10} y={H + 22} fontSize={6} fill="#94a3b8">Ingresos</text>
-      <rect x={38} y={H + 18} width={6} height={4} rx={1} fill="rgba(248,113,113,0.7)" />
-      <text x={46} y={H + 22} fontSize={6} fill="#94a3b8">Egresos</text>
-    </svg>
-  )
-}
-
-// ─── SVG Donut Chart ──────────────────────────────────────────────────────────
-
-function DonutChart({ slices }: { slices: DistributionSlice[] }) {
-  if (!slices.length) return null
-  const R = 38, r = 24, cx = 50, cy = 50
-  let cumAngle = -Math.PI / 2
-
-  const arcs = slices.map(s => {
-    const angle = (s.pct / 100) * Math.PI * 2
-    const x1 = cx + R * Math.cos(cumAngle)
-    const y1 = cy + R * Math.sin(cumAngle)
-    cumAngle += angle
-    const x2 = cx + R * Math.cos(cumAngle)
-    const y2 = cy + R * Math.sin(cumAngle)
-    const xi1 = cx + r * Math.cos(cumAngle - angle)
-    const yi1 = cy + r * Math.sin(cumAngle - angle)
-    const xi2 = cx + r * Math.cos(cumAngle)
-    const yi2 = cy + r * Math.sin(cumAngle)
-    const large = angle > Math.PI ? 1 : 0
-    return { ...s, d: `M${x1},${y1} A${R},${R},0,${large},1,${x2},${y2} L${xi2},${yi2} A${r},${r},0,${large},0,${xi1},${yi1} Z` }
-  })
-
-  return (
-    <svg viewBox="0 0 100 100" style={{ width: '100%', height: '100%' }}>
-      {arcs.map((a, i) => (
-        <path key={i} d={a.d} fill={a.color} opacity={0.85}>
-          <title>{a.label}: {a.pct.toFixed(1)}%</title>
-        </path>
-      ))}
-      <circle cx={cx} cy={cy} r={r - 1} fill="#0b1220" />
-      <text x={cx} y={cy - 4} textAnchor="middle" fontSize={7} fill="#94a3b8">Total</text>
-      <text x={cx} y={cy + 7} textAnchor="middle" fontSize={8} fontWeight="700" fill="#f8fafc">
-        {slices.length}
-      </text>
-      <text x={cx} y={cy + 15} textAnchor="middle" fontSize={6} fill="#64748b">tipos</text>
-    </svg>
-  )
-}
-
-// ─── SVG Line Chart (net result) ──────────────────────────────────────────────
-
-function LineChart({ data }: { data: MonthPoint[] }) {
-  if (data.length < 2) return null
-  const W = 200, H = 100
-  const vals = data.map(d => d.net)
-  const minV = Math.min(...vals)
-  const maxV = Math.max(...vals)
-  const range = maxV - minV || 1
-  const scaleY = (v: number) => H - ((v - minV) / range) * (H - 16) - 8
-  const scaleX = (i: number) => (i / (data.length - 1)) * W
-
-  const points = data.map((d, i) => `${scaleX(i).toFixed(1)},${scaleY(d.net).toFixed(1)}`).join(' ')
-  const zeroY = scaleY(0)
-
-  return (
-    <svg viewBox={`0 0 ${W} ${H + 14}`} style={{ width: '100%', height: '100%', overflow: 'visible' }}>
-      {/* Zero line */}
-      {minV < 0 && maxV > 0 && (
-        <line x1={0} y1={zeroY} x2={W} y2={zeroY} stroke="rgba(255,255,255,0.08)" strokeDasharray="3,3" strokeWidth={0.8} />
-      )}
-      {/* Area fill */}
-      <polyline
-        points={points}
-        fill="none"
-        stroke="rgba(99,102,241,0.7)"
-        strokeWidth={1.5}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-      {/* Dots */}
-      {data.map((d, i) => (
-        <circle
-          key={i}
-          cx={scaleX(i)} cy={scaleY(d.net)} r={2.5}
-          fill={d.net >= 0 ? '#34d399' : '#f87171'}
-          stroke="#0b1220" strokeWidth={1}
-        >
-          <title>{d.label}: {fmt(d.net)}</title>
-        </circle>
-      ))}
-      {/* X labels */}
-      {data.map((d, i) => (
-        <text key={i} x={scaleX(i)} y={H + 12} textAnchor="middle" fontSize={6} fill="#475569">
-          {d.label.slice(0, 3)}
-        </text>
-      ))}
-    </svg>
-  )
-}
+// Charts extraídos a src/components/finance/ — FinanceBarChart, FinanceDonutChart, FinanceLineChart
 
 // ─── Status Banner ─────────────────────────────────────────────────────────────
 
@@ -517,64 +381,26 @@ function EntryModal({ entry, exchangeRate, businessId, userId, onClose, onSaved 
     }
   }
 
-  const inp: React.CSSProperties = {
-    width: '100%', padding: '0.5rem 0.75rem', boxSizing: 'border-box',
-    backgroundColor: 'rgba(15,23,42,0.8)', border: '1px solid rgba(51,65,85,0.6)',
-    borderRadius: '0.375rem', color: '#f1f5f9', fontSize: '0.875rem', outline: 'none',
-  }
-
-  const lbl: React.CSSProperties = {
-    display: 'block', fontSize: '0.72rem', color: '#64748b',
-    marginBottom: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.04em',
-  }
-
   return (
-    <div style={{
-      position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.75)',
-      backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center',
-      justifyContent: 'center', zIndex: 100, padding: '1rem',
-    }}>
-      <div style={{
-        backgroundColor: '#0a1628', border: '1px solid rgba(51,65,85,0.6)',
-        borderRadius: '1rem', width: '100%', maxWidth: '580px',
-        maxHeight: '90vh', overflow: 'auto',
-        boxShadow: '0 25px 50px rgba(0,0,0,0.6)',
-      }}>
+    <div className="modal-overlay-dark" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal-card modal-card-lg">
         {/* Header */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '1.25rem 1.5rem',
-          borderBottom: '1px solid rgba(255,255,255,0.05)',
-        }}>
+        <div className="modal-hdr">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-            <div style={{
-              width: '34px', height: '34px', borderRadius: '0.5rem',
-              backgroundColor: `${typeDef.color}20`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
+            <div style={{ width: '34px', height: '34px', borderRadius: '0.5rem', backgroundColor: `${typeDef.color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <DollarSign size={17} style={{ color: typeDef.color }} />
             </div>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#f8fafc' }}>
-              {isEdit ? 'Editar movimiento' : 'Nuevo movimiento'}
-            </h3>
+            <h3 style={{ margin: 0 }}>{isEdit ? 'Editar movimiento' : 'Nuevo movimiento'}</h3>
           </div>
           <CloseButton onClick={onClose} />
         </div>
 
-        <form onSubmit={handleSubmit} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {error && (
-            <div style={{
-              padding: '0.6rem 0.875rem', backgroundColor: 'rgba(239,68,68,0.1)',
-              border: '1px solid rgba(239,68,68,0.3)', borderRadius: '0.4rem',
-              color: '#f87171', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.5rem',
-            }}>
-              <AlertCircle size={14} /> {error}
-            </div>
-          )}
+        <form onSubmit={handleSubmit} className="modal-body-scroll" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {error && <div className="alert-inline alert-error"><AlertCircle size={14} /> {error}</div>}
 
           {/* Type selector */}
           <div>
-            <label style={lbl}>Tipo de movimiento</label>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Tipo de movimiento</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
               {ENTRY_TYPES.map(t => (
                 <button key={t.value} type="button"
@@ -595,11 +421,11 @@ function EntryModal({ entry, exchangeRate, businessId, userId, onClose, onSaved 
           {/* Date + Currency */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
             <div>
-              <label style={lbl}>Fecha</label>
-              <input type="date" value={form.date} onChange={e => set('date', e.target.value)} style={inp} required />
+              <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Fecha</label>
+              <input type="date" value={form.date} onChange={e => set('date', e.target.value)} className="form-control" required />
             </div>
             <div>
-              <label style={lbl}>Moneda</label>
+              <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Moneda</label>
               <div style={{ display: 'flex', gap: '0.4rem' }}>
                 {(['ARS', 'USD'] as Currency[]).map(c => (
                   <button key={c} type="button" onClick={() => set('currency', c)}
@@ -624,8 +450,8 @@ function EntryModal({ entry, exchangeRate, businessId, userId, onClose, onSaved 
           {/* Category + Subcategory */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
             <div>
-              <label style={lbl}>Categoría</label>
-              <select value={form.category} onChange={e => set('category', e.target.value)} style={{ ...inp, appearance: 'none' }} required>
+              <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Categoría</label>
+              <select value={form.category} onChange={e => set('category', e.target.value)} className="form-select" required>
                 <option value="">Seleccionar...</option>
                 {typeDef.categories.map(c => (
                   <option key={c.value} value={c.value}>{c.label}</option>
@@ -633,24 +459,24 @@ function EntryModal({ entry, exchangeRate, businessId, userId, onClose, onSaved 
               </select>
             </div>
             <div>
-              <label style={lbl}>Subcategoría (opcional)</label>
+              <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Subcategoría (opcional)</label>
               <input type="text" value={form.subcategory} onChange={e => set('subcategory', e.target.value)}
-                placeholder="Ej: Factura EDESUR" style={inp} />
+                placeholder="Ej: Factura EDESUR" className="form-control" />
             </div>
           </div>
 
           {/* Description + Amount */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
             <div>
-              <label style={lbl}>Descripción</label>
+              <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Descripción</label>
               <input type="text" value={form.description} onChange={e => set('description', e.target.value)}
-                placeholder="Descripción del movimiento" style={inp} />
+                placeholder="Descripción del movimiento" className="form-control" />
             </div>
             <div>
-              <label style={lbl}>Monto ({form.currency})</label>
+              <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Monto ({form.currency})</label>
               <input type="number" min="0.01" step="0.01" value={form.amount}
                 onChange={e => set('amount', e.target.value)} placeholder="0.00"
-                style={{ ...inp, fontFamily: 'monospace', fontSize: '1rem', color: typeDef.color }}
+                className="form-control mono" style={{ fontSize: '1rem', color: typeDef.color }}
                 required />
               {form.currency === 'USD' && exchangeRate > 1 && form.amount && (
                 <p style={{ margin: '0.2rem 0 0', fontSize: '0.68rem', color: '#475569' }}>
@@ -662,8 +488,8 @@ function EntryModal({ entry, exchangeRate, businessId, userId, onClose, onSaved 
 
           {/* Payment Method */}
           <div>
-            <label style={lbl}>Método de pago</label>
-            <select value={form.payment_method} onChange={e => set('payment_method', e.target.value)} style={{ ...inp, appearance: 'none' }}>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Método de pago</label>
+            <select value={form.payment_method} onChange={e => set('payment_method', e.target.value)} className="form-select">
               <option value="">Sin especificar</option>
               {PAYMENT_METHODS.map(m => (
                 <option key={m.value} value={m.value}>{m.label}</option>
@@ -674,47 +500,34 @@ function EntryModal({ entry, exchangeRate, businessId, userId, onClose, onSaved 
           {/* References */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
             <div>
-              <label style={lbl}>N° Orden / Comprobante (opcional)</label>
+              <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>N° Orden / Comprobante (opcional)</label>
               <input type="text" value={form.reference_order_id}
                 onChange={e => set('reference_order_id', e.target.value)}
-                placeholder="Ej: ORD-0042" style={inp} />
+                placeholder="Ej: ORD-0042" className="form-control" />
             </div>
             <div>
-              <label style={lbl}>Empleado relacionado (opcional)</label>
+              <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Empleado relacionado (opcional)</label>
               <input type="text" value={form.reference_employee}
                 onChange={e => set('reference_employee', e.target.value)}
-                placeholder="Nombre del empleado" style={inp} />
+                placeholder="Nombre del empleado" className="form-control" />
             </div>
           </div>
 
           {/* Notes */}
           <div>
-            <label style={lbl}>Observaciones</label>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.3rem' }}>Observaciones</label>
             <textarea value={form.notes} onChange={e => set('notes', e.target.value)}
               placeholder="Notas adicionales..."
               rows={2}
-              style={{ ...inp, resize: 'vertical', fontFamily: 'inherit' }} />
+              className="form-control" style={{ resize: 'vertical' }} />
           </div>
 
           {/* Actions */}
           <div style={{ display: 'flex', gap: '0.625rem', paddingTop: '0.25rem' }}>
-            <button type="button" onClick={onClose} style={{
-              flex: 1, padding: '0.625rem', backgroundColor: 'transparent',
-              border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem',
-              color: '#64748b', cursor: 'pointer', fontSize: '0.875rem',
-            }}>
-              Cancelar
-            </button>
-            <button type="submit" disabled={saving} style={{
-              flex: 2, padding: '0.625rem',
-              background: saving ? 'rgba(99,102,241,0.4)' : 'linear-gradient(135deg,#6366f1,#818cf8)',
-              border: 'none', borderRadius: '0.5rem', color: '#fff',
-              cursor: saving ? 'not-allowed' : 'pointer',
-              fontSize: '0.875rem', fontWeight: 600,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
-            }}>
+            <button type="button" onClick={onClose} className="btn btn-ghost" style={{ flex: 1 }}>Cancelar</button>
+            <button type="submit" disabled={saving} className="btn btn-primary btn-lift" style={{ flex: 2 }}>
               {saving
-                ? <><Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</>
+                ? <><Loader2 size={15} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</>
                 : <><CheckCircle size={15} /> {isEdit ? 'Actualizar' : 'Guardar movimiento'}</>}
             </button>
           </div>
@@ -745,14 +558,14 @@ function EntryModal({ entry, exchangeRate, businessId, userId, onClose, onSaved 
                     </label>
                     <input type="text" value={recurringName} onChange={e => setRecurringName(e.target.value)}
                       placeholder={form.description || getCategoryLabel(form.type as EntryType, form.category) || 'Ej: Alquiler del local'}
-                      style={{ ...inp }} />
+                      className="form-control" />
                   </div>
                   <div>
                     <label style={{ display: 'block', fontSize: '0.68rem', color: '#64748b', fontWeight: 600, marginBottom: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                       Día del mes en que vence
                     </label>
                     <input type="number" value={recurringDay} onChange={e => setRecurringDay(e.target.value)} min="1" max="28"
-                      style={{ ...inp, maxWidth: 100 }} />
+                      className="form-control" style={{ maxWidth: 100 }} />
                   </div>
                 </div>
               )}
@@ -775,39 +588,22 @@ function MovementsTable({
 }) {
   if (!entries.length) {
     return (
-      <div style={{
-        padding: '3rem', textAlign: 'center',
-        backgroundColor: '#0f1829',
-        border: '1px solid rgba(255,255,255,0.06)',
-        borderRadius: '0.75rem',
-      }}>
-        <DollarSign size={36} style={{ color: '#1e3a5f', margin: '0 auto 0.75rem' }} />
-        <p style={{ margin: 0, color: '#334155', fontWeight: 500 }}>Sin movimientos en este período</p>
-        <p style={{ margin: '0.25rem 0 0', color: '#1e293b', fontSize: '0.8rem' }}>
-          Hacé clic en "Nuevo movimiento" para registrar el primero
-        </p>
-      </div>
+      <EmptyState
+        icon={DollarSign}
+        title="Sin movimientos en este período"
+        description={'Hacé clic en "Nuevo movimiento" para registrar el primero'}
+      />
     )
   }
 
   return (
-    <div style={{
-      backgroundColor: '#0f1829',
-      border: '1px solid rgba(255,255,255,0.06)',
-      borderRadius: '0.75rem', overflow: 'hidden',
-    }}>
+    <div className="surface-raised table-wrap" style={{ overflow: 'hidden' }}>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+        <table className="data-table">
           <thead>
-            <tr style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}>
+            <tr>
               {['Fecha', 'Tipo', 'Categoría', 'Descripción', 'Moneda', 'Monto ARS', 'Pago', ''].map(h => (
-                <th key={h} style={{
-                  padding: '0.75rem 0.875rem', textAlign: 'left',
-                  color: '#334155', fontWeight: 600, fontSize: '0.7rem',
-                  textTransform: 'uppercase', letterSpacing: '0.05em',
-                  borderBottom: '1px solid rgba(255,255,255,0.05)',
-                  whiteSpace: 'nowrap',
-                }}>{h}</th>
+                <th key={h}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -815,70 +611,42 @@ function MovementsTable({
             {entries.map(e => {
               const tDef = getTypeDef(e.type)
               return (
-                <tr key={e.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.025)' }}>
-                  <td style={{ padding: '0.7rem 0.875rem', color: '#64748b', whiteSpace: 'nowrap' }}>
-                    {fmtDate(e.date)}
-                  </td>
-                  <td style={{ padding: '0.7rem 0.875rem' }}>
-                    <span style={{
-                      display: 'inline-block', padding: '0.2rem 0.5rem', borderRadius: '0.3rem',
-                      backgroundColor: tDef.bgColor, color: tDef.color,
-                      fontSize: '0.7rem', fontWeight: 700, whiteSpace: 'nowrap',
-                    }}>
+                <tr key={e.id}>
+                  <td className="body-sm" style={{ whiteSpace: 'nowrap' }}>{fmtDate(e.date)}</td>
+                  <td>
+                    <span className="badge" style={{ background: tDef.bgColor, color: tDef.color }}>
                       {tDef.label}
                     </span>
                   </td>
-                  <td style={{ padding: '0.7rem 0.875rem', color: '#94a3b8' }}>
+                  <td>
                     {getCategoryLabel(e.type, e.category)}
-                    {e.subcategory && (
-                      <span style={{ display: 'block', fontSize: '0.68rem', color: '#475569' }}>
-                        {e.subcategory}
-                      </span>
-                    )}
+                    {e.subcategory && <span className="body-sm" style={{ display: 'block' }}>{e.subcategory}</span>}
                   </td>
-                  <td style={{ padding: '0.7rem 0.875rem', color: '#cbd5e1', maxWidth: '200px' }}>
+                  <td style={{ maxWidth: '200px' }}>
                     <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {e.description || '—'}
                     </span>
                     {e.notes && (
-                      <span style={{ display: 'block', fontSize: '0.68rem', color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span className="body-sm" style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {e.notes}
                       </span>
                     )}
                   </td>
-                  <td style={{ padding: '0.7rem 0.875rem' }}>
-                    <span style={{
-                      padding: '0.15rem 0.4rem', borderRadius: '0.25rem', fontSize: '0.7rem', fontWeight: 700,
-                      backgroundColor: e.currency === 'USD' ? 'rgba(96,165,250,0.12)' : 'rgba(52,211,153,0.1)',
-                      color: e.currency === 'USD' ? '#60a5fa' : '#34d399',
-                    }}>
+                  <td>
+                    <span className={e.currency === 'USD' ? 'badge badge-info' : 'badge badge-success'} style={{ fontSize: '0.7rem' }}>
                       {e.currency}
                     </span>
                   </td>
-                  <td style={{ padding: '0.7rem 0.875rem', fontFamily: 'monospace', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                  <td className="mono" style={{ fontWeight: 700, whiteSpace: 'nowrap', textAlign: 'right' }}>
                     <span style={{ color: e.type === 'income' ? '#34d399' : '#f87171' }}>
                       {e.type === 'income' ? '+' : '−'}{fmt(e.amount_ars)}
                     </span>
                   </td>
-                  <td style={{ padding: '0.7rem 0.875rem', color: '#334155', fontSize: '0.72rem' }}>
-                    {PAYMENT_METHODS.find(m => m.value === e.payment_method)?.label ?? '—'}
-                  </td>
-                  <td style={{ padding: '0.7rem 0.875rem' }}>
-                    <div style={{ display: 'flex', gap: '0.25rem' }}>
-                      <button onClick={() => onEdit(e)} style={{
-                        background: 'none', border: '1px solid rgba(255,255,255,0.06)',
-                        borderRadius: '0.35rem', color: '#64748b', cursor: 'pointer', padding: '0.25rem',
-                        display: 'flex', alignItems: 'center',
-                      }}>
-                        <Pencil size={13} />
-                      </button>
-                      <button onClick={() => onDelete(e.id)} style={{
-                        background: 'none', border: '1px solid rgba(239,68,68,0.15)',
-                        borderRadius: '0.35rem', color: '#ef4444', cursor: 'pointer', padding: '0.25rem',
-                        display: 'flex', alignItems: 'center',
-                      }}>
-                        <Trash2 size={13} />
-                      </button>
+                  <td className="body-sm">{PAYMENT_METHODS.find(m => m.value === e.payment_method)?.label ?? '—'}</td>
+                  <td>
+                    <div style={{ display: 'flex', gap: '0.25rem', justifyContent: 'flex-end' }}>
+                      <button onClick={() => onEdit(e)} className="icon-btn icon-btn-primary" title="Editar"><Pencil size={13} /></button>
+                      <button onClick={() => onDelete(e.id)} className="icon-btn icon-btn-danger" title="Eliminar"><Trash2 size={13} /></button>
                     </div>
                   </td>
                 </tr>
@@ -941,11 +709,7 @@ function InventoryMetrics({ data, loading }: { data: InvAnalytics | null; loadin
   )
 
   if (!data) return (
-    <div style={{ textAlign: 'center', padding: '4rem 2rem', backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem' }}>
-      <Package size={40} style={{ color: '#1e3a5f', marginBottom: '0.75rem' }} />
-      <p style={{ margin: 0, color: '#334155', fontWeight: 500 }}>No hay datos de inventario disponibles</p>
-      <p style={{ margin: '0.25rem 0 0', color: '#1e293b', fontSize: '0.8rem' }}>Agregá productos al inventario para ver las métricas</p>
-    </div>
+    <EmptyState icon={Package} title="No hay datos de inventario disponibles" description="Agregá productos al inventario para ver las métricas" />
   )
 
   const gananciaPct = data.capitalInvertido > 0
@@ -999,22 +763,16 @@ function InventoryMetrics({ data, loading }: { data: InvAnalytics | null; loadin
         const sinCosto = data.products.filter(p => p.stock > 0 && p.costPrice === 0)
         if (sinCosto.length === 0) return null
         return (
-          <div style={{
-            display: 'flex', gap: '0.875rem', alignItems: 'flex-start',
-            padding: '0.875rem 1.1rem', marginBottom: '1.25rem',
-            backgroundColor: 'rgba(245,158,11,0.07)',
-            border: '1px solid rgba(245,158,11,0.3)',
-            borderRadius: '0.625rem',
-          }}>
-            <AlertCircle size={16} style={{ color: '#f59e0b', flexShrink: 0, marginTop: '0.1rem' }} />
+          <div className="alert-inline alert-warning" style={{ marginBottom: '1.25rem', alignItems: 'flex-start' }}>
+            <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
             <div>
-              <p style={{ margin: 0, fontWeight: 700, color: '#f59e0b', fontSize: '0.85rem' }}>
+              <p style={{ margin: 0, fontWeight: 700, fontSize: '0.85rem' }}>
                 {sinCosto.length} producto{sinCosto.length > 1 ? 's' : ''} con stock sin precio de costo
               </p>
-              <p style={{ margin: '0.2rem 0 0', color: '#94a3b8', fontSize: '0.8rem', lineHeight: 1.5 }}>
+              <p className="body-sm" style={{ margin: '0.2rem 0 0' }}>
                 El capital invertido puede estar subestimado. Editá cada producto en Inventario y completá el precio de costo.
               </p>
-              <p style={{ margin: '0.35rem 0 0', color: '#64748b', fontSize: '0.75rem' }}>
+              <p className="body-sm" style={{ margin: '0.35rem 0 0' }}>
                 {sinCosto.slice(0, 5).map(p => p.name).join(', ')}{sinCosto.length > 5 ? ` y ${sinCosto.length - 5} más` : ''}
               </p>
             </div>
@@ -1233,19 +991,17 @@ function InventoryMetrics({ data, loading }: { data: InvAnalytics | null; loadin
       </div>
 
       {/* ── Per-Product Profitability Table ── */}
-      <div style={{ backgroundColor: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem', overflow: 'hidden' }}>
-        <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <Package size={15} style={{ color: '#818cf8' }} />
-          <h3 style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Rentabilidad por producto
-          </h3>
-          <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: '#334155' }}>
+      <div className="surface-raised" style={{ overflow: 'hidden' }}>
+        <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <Package size={15} style={{ color: 'var(--accent-primary)' }} />
+          <h3 className="label-caps" style={{ margin: 0 }}>Rentabilidad por producto</h3>
+          <span className="body-sm" style={{ marginLeft: 'auto' }}>
             {data.products.length} producto{data.products.length !== 1 ? 's' : ''}
           </span>
-          <span style={{ fontSize: '0.68rem', color: '#1e3a5f', fontStyle: 'italic' }}>Clic en encabezado para ordenar</span>
+          <span className="body-sm" style={{ fontStyle: 'italic' }}>Clic en encabezado para ordenar</span>
         </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+        <div className="table-wrap">
+          <table className="data-table" style={{ fontSize: '0.8rem' }}>
             <thead>
               <tr style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}>
                 {([
@@ -1386,49 +1142,41 @@ function RegisterPaymentModal({ expense, exchangeRate, businessId, userId, onClo
     }
   }
 
-  const inputS: React.CSSProperties = {
-    width: '100%', padding: '0.5rem 0.75rem',
-    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '0.5rem', color: '#f0f4ff', fontSize: '0.875rem',
-    outline: 'none', boxSizing: 'border-box',
-  }
-
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{ background: '#0d1a30', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '1.25rem', width: '100%', maxWidth: '460px', padding: '1.5rem', boxShadow: '0 32px 64px rgba(0,0,0,0.6)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+    <div className="modal-overlay-dark" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal-card">
+        <div className="modal-hdr">
           <div>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#f0f4ff' }}>Registrar pago</h3>
-            <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>{expense.name}</p>
+            <h3 style={{ margin: 0 }}>Registrar pago</h3>
+            <p className="body-sm" style={{ margin: 0 }}>{expense.name}</p>
           </div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '0.5rem', width: 30, height: 30, cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={15} /></button>
+          <button onClick={onClose} className="icon-btn" aria-label="Cerrar"><X size={15} /></button>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+        <div className="modal-body-scroll" style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Monto</label>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Monto</label>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <input type="number" value={amount} onChange={e => setAmount(e.target.value)} min="0" step="0.01" style={{ ...inputS, flex: 1 }} />
+              <input type="number" value={amount} onChange={e => setAmount(e.target.value)} min="0" step="0.01" className="form-control" style={{ flex: 1 }} />
               <div style={{ display: 'flex', gap: '0.25rem' }}>
                 {(['ARS', 'USD'] as const).map(c => (
-                  <button key={c} onClick={() => setCurrency(c)} style={{ padding: '0.375rem 0.625rem', borderRadius: '0.5rem', border: `1px solid ${currency === c ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.1)'}`, background: currency === c ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.04)', color: currency === c ? '#818cf8' : '#64748b', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>{c}</button>
+                  <button key={c} onClick={() => setCurrency(c)} className={`badge ${currency === c ? 'badge-info' : 'badge-neutral'}`} style={{ cursor: 'pointer', border: 'none', padding: '0.375rem 0.625rem', fontSize: '0.75rem' }}>{c}</button>
                 ))}
               </div>
             </div>
             {currency === 'USD' && exchangeRate > 1 && (
-              <p style={{ margin: '0.25rem 0 0', fontSize: '0.72rem', color: '#475569' }}>= {fmtARS(amountArs)}</p>
+              <p className="body-sm" style={{ margin: '0.25rem 0 0' }}>= {fmtARS(amountArs)}</p>
             )}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Fecha</label>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputS} />
+              <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Fecha</label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} className="form-control" />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Método de pago</label>
-              <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} style={inputS}>
+              <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Método de pago</label>
+              <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} className="form-select">
                 <option value="">— Sin especificar</option>
                 <option value="efectivo">Efectivo</option>
                 <option value="transferencia">Transferencia</option>
@@ -1439,14 +1187,16 @@ function RegisterPaymentModal({ expense, exchangeRate, businessId, userId, onClo
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Notas <span style={{ color: '#334155', textTransform: 'none', fontWeight: 400 }}>(opcional)</span></label>
-            <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ej: con aumento" style={inputS} />
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Notas (opcional)</label>
+            <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ej: con aumento" className="form-control" />
           </div>
 
-          {err && <p style={{ margin: 0, fontSize: '0.8rem', color: '#f87171' }}>{err}</p>}
+          {err && <div className="alert-inline alert-error">{err}</div>}
+        </div>
 
-          <button onClick={handleSave} disabled={saving} style={{ width: '100%', padding: '0.75rem', borderRadius: '0.75rem', background: 'linear-gradient(135deg, #22c55e, #16a34a)', border: 'none', color: 'white', fontWeight: 700, fontSize: '0.9375rem', cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', opacity: saving ? 0.7 : 1 }}>
-            {saving ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</> : <>✓ Registrar pago</>}
+        <div className="modal-ftr">
+          <button onClick={handleSave} disabled={saving} className="btn btn-success btn-lift btn-full">
+            {saving ? <><Loader2 size={16} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</> : <><CheckCircle size={15} /> Registrar pago</>}
           </button>
         </div>
       </div>
@@ -1468,13 +1218,6 @@ function EditRecurringModal({ expense, onClose, onSaved }: EditRecurringModalPro
   const [notes, setNotes] = useState(expense.notes || '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
-
-  const inputS: React.CSSProperties = {
-    width: '100%', padding: '0.5rem 0.75rem',
-    background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '0.5rem', color: '#f0f4ff', fontSize: '0.875rem',
-    outline: 'none', boxSizing: 'border-box',
-  }
 
   const handleSave = async () => {
     const amountNum = parseFloat(amount)
@@ -1499,35 +1242,35 @@ function EditRecurringModal({ expense, onClose, onSaved }: EditRecurringModalPro
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{ background: '#0d1a30', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '1.25rem', width: '100%', maxWidth: '420px', padding: '1.5rem', boxShadow: '0 32px 64px rgba(0,0,0,0.6)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#f0f4ff' }}>Editar gasto recurrente</h3>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '0.5rem', width: 30, height: 30, cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={15} /></button>
+    <div className="modal-overlay-dark" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal-card">
+        <div className="modal-hdr">
+          <h3 style={{ margin: 0 }}>Editar gasto recurrente</h3>
+          <button onClick={onClose} className="icon-btn" aria-label="Cerrar"><X size={15} /></button>
         </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+        <div className="modal-body-scroll" style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Nombre</label>
-            <input type="text" value={name} onChange={e => setName(e.target.value)} style={inputS} />
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Nombre</label>
+            <input type="text" value={name} onChange={e => setName(e.target.value)} className="form-control" />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Monto esperado</label>
-              <input type="number" value={amount} onChange={e => setAmount(e.target.value)} min="0" style={inputS} />
+              <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Monto esperado</label>
+              <input type="number" value={amount} onChange={e => setAmount(e.target.value)} min="0" className="form-control" />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Día del mes</label>
-              <input type="number" value={dayOfMonth} onChange={e => setDayOfMonth(e.target.value)} min="1" max="28" style={inputS} />
+              <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Día del mes</label>
+              <input type="number" value={dayOfMonth} onChange={e => setDayOfMonth(e.target.value)} min="1" max="28" className="form-control" />
             </div>
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', fontWeight: 600, marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Notas</label>
-            <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Proveedor, referencia, etc." style={inputS} />
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Notas</label>
+            <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Proveedor, referencia, etc." className="form-control" />
           </div>
-          {err && <p style={{ margin: 0, fontSize: '0.8rem', color: '#f87171' }}>{err}</p>}
-          <button onClick={handleSave} disabled={saving} style={{ width: '100%', padding: '0.75rem', borderRadius: '0.75rem', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', border: 'none', color: 'white', fontWeight: 700, fontSize: '0.9375rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+          {err && <div className="alert-inline alert-error">{err}</div>}
+        </div>
+        <div className="modal-ftr">
+          <button onClick={handleSave} disabled={saving} className="btn btn-primary btn-lift btn-full">
             {saving ? 'Guardando...' : 'Guardar cambios'}
           </button>
         </div>
@@ -1556,38 +1299,37 @@ function HistoryModal({ expense, loadHistory, onClose }: HistoryModalProps) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{ background: '#0d1a30', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '1.25rem', width: '100%', maxWidth: '500px', maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 32px 64px rgba(0,0,0,0.6)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.25rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+    <div className="modal-overlay-dark" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal-card">
+        <div className="modal-hdr">
           <div>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#f0f4ff' }}>Historial de pagos</h3>
-            <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>{expense.name} · últimos 24 meses</p>
+            <h3 style={{ margin: 0 }}>Historial de pagos</h3>
+            <p className="body-sm" style={{ margin: 0 }}>{expense.name} · últimos 24 meses</p>
           </div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '0.5rem', width: 30, height: 30, cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={15} /></button>
+          <button onClick={onClose} className="icon-btn" aria-label="Cerrar"><X size={15} /></button>
         </div>
-        <div style={{ overflowY: 'auto', padding: '1rem 1.5rem', flex: 1 }}>
+        <div className="modal-body-scroll">
           {loading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite', color: '#64748b' }} /></div>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}>
+              <Loader2 size={20} style={{ animation: 'tr-spin 1s linear infinite', color: 'var(--text-muted)' }} />
+            </div>
           ) : history.length === 0 ? (
-            <p style={{ textAlign: 'center', color: '#475569', fontSize: '0.875rem', padding: '2rem 0' }}>Sin pagos registrados aún</p>
+            <EmptyState icon={History} title="Sin pagos registrados aún" compact />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               {history.map((h, i) => {
                 const changed = i < history.length - 1 && h.amount_ars !== history[i + 1].amount_ars
                 return (
-                  <div key={h.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.875rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.625rem' }}>
+                  <div key={h.id} className="surface-inset" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.875rem' }}>
                     <div>
-                      <div style={{ fontSize: '0.875rem', color: '#e2e8f0', fontWeight: 500, textTransform: 'capitalize' }}>{monthLabel(h.date)}</div>
-                      {h.notes && <div style={{ fontSize: '0.72rem', color: '#475569', marginTop: '0.125rem' }}>{h.notes}</div>}
+                      <div style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500, textTransform: 'capitalize' }}>{monthLabel(h.date)}</div>
+                      {h.notes && <div className="body-sm" style={{ marginTop: '0.125rem' }}>{h.notes}</div>}
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#f87171', fontFamily: 'monospace' }}>
+                      <div className="mono" style={{ fontSize: '0.9rem', fontWeight: 700, color: '#f87171' }}>
                         {fmtARS(h.amount_ars)}
                       </div>
-                      {changed && (
-                        <div style={{ fontSize: '0.65rem', color: '#f59e0b', marginTop: '0.1rem' }}>monto cambió</div>
-                      )}
+                      {changed && <div className="body-sm" style={{ color: '#f59e0b', marginTop: '0.1rem' }}>monto cambió</div>}
                     </div>
                   </div>
                 )
@@ -1595,12 +1337,10 @@ function HistoryModal({ expense, loadHistory, onClose }: HistoryModalProps) {
             </div>
           )}
         </div>
-        <div style={{ padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{history.length} registro{history.length !== 1 ? 's' : ''}</span>
+        <div className="modal-ftr" style={{ justifyContent: 'space-between' }}>
+          <span className="body-sm">{history.length} registro{history.length !== 1 ? 's' : ''}</span>
           {history.length > 0 && (
-            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
-              Promedio: {fmtARS(history.reduce((s, h) => s + h.amount_ars, 0) / history.length)}
-            </span>
+            <span className="body-sm">Promedio: {fmtARS(history.reduce((s, h) => s + h.amount_ars, 0) / history.length)}</span>
           )}
         </div>
       </div>
@@ -1636,28 +1376,26 @@ function RecurringExpensesPanel({ businessId, userId, exchangeRate, onEntryCreat
 
   if (loading) return (
     <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
-      <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: '#64748b' }} />
+      <Loader2 size={24} style={{ animation: 'tr-spin 1s linear infinite', color: 'var(--text-muted)' }} />
     </div>
   )
 
   if (error) return (
-    <div style={{ padding: '1rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '0.75rem', color: '#f87171', fontSize: '0.875rem' }}>
-      {error}
-    </div>
+    <div className="alert-inline alert-error">{error}</div>
   )
 
   return (
     <>
       {/* Resumen del mes */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
         {[
-          { label: `Total esperado — ${monthName}`, value: fmtARS(totalExpected), color: '#94a3b8' },
+          { label: `Total esperado — ${monthName}`, value: fmtARS(totalExpected), color: 'var(--text-secondary)' },
           { label: 'Pagado este mes', value: fmtARS(totalPaid), color: '#22c55e' },
           { label: 'Pendientes', value: String(pendingCount), color: pendingCount > 0 ? '#f59e0b' : '#22c55e', suffix: ` gasto${pendingCount !== 1 ? 's' : ''}` },
         ].map(card => (
-          <div key={card.label} style={{ background: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem', padding: '1rem' }}>
-            <div style={{ fontSize: '0.72rem', color: '#475569', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>{card.label}</div>
-            <div style={{ fontSize: '1.375rem', fontWeight: 800, color: card.color, fontFamily: 'monospace' }}>
+          <div key={card.label} className="stat-card">
+            <div className="stat-card-label">{card.label}</div>
+            <div className="stat-card-value mono" style={{ color: card.color }}>
               {card.value}{card.suffix || ''}
             </div>
           </div>
@@ -1666,13 +1404,11 @@ function RecurringExpensesPanel({ businessId, userId, exchangeRate, onEntryCreat
 
       {/* Lista de gastos recurrentes */}
       {expenses.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '4rem 2rem', background: '#0f1829', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.75rem' }}>
-          <RepeatIcon size={40} style={{ color: '#1e3a5f', marginBottom: '0.75rem' }} />
-          <p style={{ margin: '0 0 0.375rem', color: '#334155', fontWeight: 500 }}>Sin gastos recurrentes</p>
-          <p style={{ margin: 0, color: '#1e293b', fontSize: '0.8rem' }}>
-            Al agregar un gasto fijo o sueldo, activá "Repetir mensualmente" para que aparezca aquí
-          </p>
-        </div>
+        <EmptyState
+          icon={RepeatIcon}
+          title="Sin gastos recurrentes"
+          description={'Al agregar un gasto fijo o sueldo, activá "Repetir mensualmente" para que aparezca aquí'}
+        />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           {expenses.map(expense => (
@@ -2014,60 +1750,28 @@ export function Finance() {
     { value: 'custom', label: 'Personalizado' },
   ]
 
-  const cardStyle: React.CSSProperties = {
-    backgroundColor: '#0f1829',
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: '0.75rem',
-    padding: '1.25rem',
-  }
+  // cardStyle migrado a .surface-raised en el JSX
 
   return (
     <div style={{ padding: '1.5rem', maxWidth: '1400px', margin: '0 auto' }}>
 
       {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.5rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-          <div style={{
-            width: '44px', height: '44px', borderRadius: '0.75rem',
-            background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2))',
-            border: '1px solid rgba(99,102,241,0.3)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <BarChart3 size={22} style={{ color: '#818cf8' }} />
-          </div>
+      <div className="page-hdr">
+        <div className="page-hdr-left">
+          <div className="page-hdr-icon"><BarChart3 size={22} /></div>
           <div>
-            <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#f8fafc' }}>
-              Panel Financiero
-            </h1>
-            <p style={{ margin: 0, fontSize: '0.8rem', color: '#475569' }}>
-              Control integral de ingresos, costos y resultados del negocio
-            </p>
+            <h1 className="page-hdr-title">Panel Financiero</h1>
+            <p className="page-hdr-subtitle">Control integral de ingresos, costos y resultados del negocio</p>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button onClick={load} style={{
-            display: 'flex', alignItems: 'center', gap: '0.375rem',
-            padding: '0.5rem 0.875rem',
-            backgroundColor: 'transparent', border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: '0.5rem', color: '#64748b', cursor: 'pointer', fontSize: '0.8rem',
-          }}>
-            <RefreshCw size={14} /> Actualizar
-          </button>
-          <button onClick={handleNew} style={{
-            display: 'flex', alignItems: 'center', gap: '0.375rem',
-            padding: '0.5rem 1rem',
-            background: 'linear-gradient(135deg,#6366f1,#8b5cf6)',
-            border: 'none', borderRadius: '0.5rem', color: '#fff',
-            cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600,
-            boxShadow: '0 4px 12px rgba(99,102,241,0.3)',
-          }}>
-            <Plus size={16} /> Nuevo movimiento
-          </button>
+        <div className="page-hdr-right">
+          <button onClick={load} className="btn btn-ghost btn-sm"><RefreshCw size={14} /> Actualizar</button>
+          <button onClick={handleNew} className="btn btn-primary btn-sm btn-lift"><Plus size={15} /> Nuevo movimiento</button>
         </div>
       </div>
 
       {/* ── Main Tabs ── */}
-      <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '0' }}>
+      <div className="tabs" style={{ marginBottom: '1.5rem' }}>
         {([
           { key: 'movimientos', label: 'Movimientos y Finanzas', icon: BarChart3 },
           { key: 'recurrentes', label: 'Gastos Recurrentes', icon: RepeatIcon },
@@ -2075,17 +1779,8 @@ export function Finance() {
         ] as const).map(tab => {
           const Icon = tab.icon
           return (
-            <button key={tab.key} onClick={() => setActiveMainTab(tab.key)} style={{
-              display: 'flex', alignItems: 'center', gap: '0.5rem',
-              padding: '0.625rem 1.125rem',
-              background: 'none', cursor: 'pointer',
-              fontSize: '0.875rem', fontWeight: activeMainTab === tab.key ? 700 : 500,
-              color: activeMainTab === tab.key ? '#818cf8' : '#475569',
-              border: 'none',
-              borderBottom: `2px solid ${activeMainTab === tab.key ? '#6366f1' : 'transparent'}`,
-              marginBottom: '-1px',
-              transition: 'all 0.15s',
-            }}>
+            <button key={tab.key} onClick={() => setActiveMainTab(tab.key)}
+              className={`tab${activeMainTab === tab.key ? ' tab-active' : ''}`}>
               <Icon size={15} />
               {tab.label}
             </button>
@@ -2128,18 +1823,10 @@ export function Finance() {
         {period === 'custom' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginLeft: '0.25rem' }}>
             <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
-              style={{
-                padding: '0.3rem 0.6rem', backgroundColor: '#0f1829',
-                border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.4rem',
-                color: '#94a3b8', fontSize: '0.8rem', outline: 'none',
-              }} />
-            <span style={{ color: '#334155', fontSize: '0.75rem' }}>hasta</span>
+              className="form-control" style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }} />
+            <span className="body-sm">hasta</span>
             <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
-              style={{
-                padding: '0.3rem 0.6rem', backgroundColor: '#0f1829',
-                border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.4rem',
-                color: '#94a3b8', fontSize: '0.8rem', outline: 'none',
-              }} />
+              className="form-control" style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }} />
           </div>
         )}
         <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: '#334155' }}>
@@ -2149,23 +1836,16 @@ export function Finance() {
 
       {/* ── Setup requerido ── */}
       {tableReady === false && (
-        <div style={{
-          padding: '1.5rem',
-          backgroundColor: 'rgba(251,191,36,0.06)',
-          border: '1px solid rgba(251,191,36,0.25)',
-          borderRadius: '0.75rem',
-          marginBottom: '1.25rem',
-        }}>
-          <div style={{ display: 'flex', gap: '0.875rem', alignItems: 'flex-start' }}>
-            <AlertCircle size={20} style={{ color: '#fbbf24', flexShrink: 0, marginTop: '0.1rem' }} />
-            <div style={{ flex: 1 }}>
-              <p style={{ margin: '0 0 0.375rem', fontWeight: 700, color: '#fbbf24', fontSize: '0.95rem' }}>
-                Configuración inicial requerida
-              </p>
-              <p style={{ margin: '0 0 1rem', color: '#94a3b8', fontSize: '0.85rem', lineHeight: 1.5 }}>
-                La tabla <code style={{ backgroundColor: 'rgba(255,255,255,0.08)', padding: '0.1rem 0.35rem', borderRadius: '0.25rem', fontFamily: 'monospace', fontSize: '0.82rem' }}>business_finance_entries</code> no existe todavía.
-                Ejecutá el siguiente SQL en <strong>Supabase → SQL Editor</strong> y recargá la página.
-              </p>
+        <div className="alert-inline alert-warning" style={{ marginBottom: '1.25rem', alignItems: 'flex-start' }}>
+          <AlertCircle size={18} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
+          <div style={{ flex: 1 }}>
+            <p style={{ margin: '0 0 0.375rem', fontWeight: 700, fontSize: '0.95rem' }}>
+              Configuración inicial requerida
+            </p>
+            <p className="body-sm" style={{ margin: '0 0 1rem', lineHeight: 1.5 }}>
+              La tabla <code className="mono" style={{ background: 'rgba(255,255,255,0.08)', padding: '0.1rem 0.35rem', borderRadius: '0.25rem' }}>business_finance_entries</code> no existe todavía.
+              Ejecutá el siguiente SQL en <strong>Supabase → SQL Editor</strong> y recargá la página.
+            </p>
               <details style={{ cursor: 'pointer' }}>
                 <summary style={{ color: '#818cf8', fontSize: '0.85rem', fontWeight: 600, userSelect: 'none', marginBottom: '0.5rem' }}>
                   Ver SQL de migración
@@ -2219,40 +1899,23 @@ CREATE POLICY "bfe_update" ON business_finance_entries FOR UPDATE
 CREATE POLICY "bfe_delete" ON business_finance_entries FOR DELETE
   USING (business_id IN (SELECT business_id FROM profiles WHERE id = auth.uid()));`}</pre>
               </details>
-              <button
-                onClick={load}
-                style={{
-                  marginTop: '0.875rem',
-                  display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
-                  padding: '0.5rem 1rem',
-                  backgroundColor: 'rgba(251,191,36,0.15)',
-                  border: '1px solid rgba(251,191,36,0.35)',
-                  borderRadius: '0.5rem',
-                  color: '#fbbf24', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600,
-                }}
-              >
+              <button onClick={load} className="btn btn-ghost btn-sm" style={{ marginTop: '0.875rem', color: 'var(--warning)' }}>
                 <RefreshCw size={13} /> Reintentar después de ejecutar el SQL
               </button>
-            </div>
           </div>
         </div>
       )}
 
       {/* ── Error ── */}
       {error && (
-        <div style={{
-          padding: '0.75rem 1rem', marginBottom: '1rem',
-          backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)',
-          borderRadius: '0.5rem', color: '#f87171', display: 'flex', alignItems: 'center', gap: '0.5rem',
-          fontSize: '0.875rem',
-        }}>
-          <AlertCircle size={16} /> {error}
+        <div className="alert-inline alert-error" style={{ marginBottom: '1rem' }}>
+          <AlertCircle size={15} style={{ flexShrink: 0 }} /> {error}
         </div>
       )}
 
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '6rem' }}>
-          <Loader2 size={36} style={{ color: '#6366f1', animation: 'spin 1s linear infinite' }} />
+          <Loader2 size={36} style={{ color: '#6366f1', animation: 'tr-spin 1s linear infinite' }} />
         </div>
       ) : (
         <>
@@ -2438,7 +2101,7 @@ CREATE POLICY "bfe_delete" ON business_finance_entries FOR DELETE
           {/* ── Charts + Break-Even ── */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
             {/* Charts panel */}
-            <div style={{ ...cardStyle }}>
+            <div className="surface-raised" style={{ padding: '1.25rem' }}>
               {/* Chart tabs */}
               <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.75rem' }}>
                 {([
@@ -2461,14 +2124,14 @@ CREATE POLICY "bfe_delete" ON business_finance_entries FOR DELETE
               <div style={{ height: '220px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {activeChartTab === 'bars' && (
                   monthlyData.length > 0
-                    ? <BarChart data={monthlyData} />
+                    ? <FinanceBarChart data={monthlyData} />
                     : <span style={{ color: '#334155', fontSize: '0.8rem' }}>Sin datos de los últimos meses</span>
                 )}
                 {activeChartTab === 'donut' && (
                   distribution.length > 0
                     ? <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', width: '100%' }}>
                         <div style={{ width: '140px', height: '140px', flexShrink: 0 }}>
-                          <DonutChart slices={distribution} />
+                          <FinanceDonutChart slices={distribution} />
                         </div>
                         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                           {distribution.map(s => (
@@ -2484,7 +2147,7 @@ CREATE POLICY "bfe_delete" ON business_finance_entries FOR DELETE
                 )}
                 {activeChartTab === 'line' && (
                   monthlyData.length >= 2
-                    ? <LineChart data={monthlyData} />
+                    ? <FinanceLineChart data={monthlyData} />
                     : <span style={{ color: '#334155', fontSize: '0.8rem' }}>Se necesitan al menos 2 meses de datos</span>
                 )}
               </div>
@@ -2495,7 +2158,7 @@ CREATE POLICY "bfe_delete" ON business_finance_entries FOR DELETE
           </div>
 
           {/* ── Cascada financiera ── */}
-          <div style={{ ...cardStyle, marginBottom: '1.25rem' }}>
+          <div className="surface-raised" style={{ padding: '1.25rem', marginBottom: '1.25rem' }}>
             <h3 style={{ margin: '0 0 1rem', fontSize: '0.875rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Cascada de resultados
             </h3>
