@@ -1231,11 +1231,6 @@ export function ModalCrearGasto({
         )}
       </div>
 
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        .animate-spin { animation: spin 1s linear infinite; }
-      `}</style>
-
       {/* ProductFormModal — creación de producto desde ítem de compra
           registerStock=false: el stock se suma en handleSaveCompra al registrar la factura */}
       <ProductFormModal

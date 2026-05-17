@@ -169,7 +169,7 @@ const LineaCard = memo(function LineaCard({
             {isSearchActive && (
               <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 300, background: '#0c1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.625rem', boxShadow: '0 12px 40px rgba(0,0,0,0.6)', overflow: 'hidden', maxHeight: 200, overflowY: 'auto' }}>
                 {lineSearchLoading ? (
-                  <div style={{ padding: '0.625rem 0.875rem', color: '#334155', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}><Loader2 size={12} style={{ animation: 'spin 0.8s linear infinite' }} /> Buscando...</div>
+                  <div style={{ padding: '0.625rem 0.875rem', color: '#334155', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}><Loader2 size={12} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> Buscando...</div>
                 ) : lineResults.slice(0, 8).map(inv => (
                   <button key={inv.id} onMouseDown={() => onSelectInv(inv)}
                     style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '0.5rem 0.875rem', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', textAlign: 'left', fontFamily: F, gap: '0.5rem' }}
@@ -1094,7 +1094,7 @@ export function ComprobanteProModal({
                   placeholder="Buscar producto, SKU o escanear código..."
                   style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#94a3b8', fontSize: '0.875rem', fontFamily: F, caretColor: '#818cf8' }}
                 />
-                {spotLoading && <Loader2 size={13} color="#818cf8" style={{ flexShrink: 0, animation: 'spin 0.8s linear infinite' }} />}
+                {spotLoading && <Loader2 size={13} color="#818cf8" style={{ flexShrink: 0, animation: 'tr-spin 0.8s linear infinite' }} />}
                 {spotQ && !spotLoading && (
                   <button
                     onClick={() => { setSpotQ(''); setSpotResults([]); refocusInput(0) }}
@@ -1494,7 +1494,7 @@ export function ComprobanteProModal({
                 onMouseDown={e => { if (!submitting) e.currentTarget.style.transform = 'scale(0.98)' }}
                 onMouseUp={e => { e.currentTarget.style.transform = '' }}>
                 {submitting ? (
-                  <><RefreshCw size={16} style={{ animation: 'spin 0.8s linear infinite' }} /> Procesando...</>
+                  <><RefreshCw size={16} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> Procesando...</>
                 ) : (
                   <><Zap size={16} /> Cobrar{' '}
                   {totales.total > 0 && (
@@ -1514,7 +1514,6 @@ export function ComprobanteProModal({
 
     {/* Animations */}
     <style>{`
-      @keyframes spin { to { transform: rotate(360deg); } }
       @keyframes itemSlideIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
       @keyframes spotlightSlide { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
       @keyframes successBounce { 0% { transform: scale(0.5); opacity: 0; } 60% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } }
@@ -1566,7 +1565,7 @@ export function ComprobanteProModal({
               placeholder="Buscar por nombre, SKU, código de barras, IMEI..."
               style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#f0f4ff', fontSize: '1.0625rem', fontFamily: F, caretColor: '#818cf8' }}
             />
-            {spotLoading && <Loader2 size={16} color="#475569" style={{ flexShrink: 0, animation: 'spin 0.8s linear infinite' }} />}
+            {spotLoading && <Loader2 size={16} color="#475569" style={{ flexShrink: 0, animation: 'tr-spin 0.8s linear infinite' }} />}
             {!spotLoading && spotQ && <button onClick={closeSpotlight} style={{ background: 'none', border: 'none', color: '#334155', cursor: 'pointer', padding: '0.2rem', display: 'flex', fontFamily: F }}><X size={15} /></button>}
           </div>
 

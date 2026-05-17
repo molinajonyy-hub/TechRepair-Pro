@@ -927,7 +927,7 @@ export function ModalCrearComprobante({
                             <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: '-92px', right: '-34px', minWidth: '340px', backgroundColor: '#0d1a30', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '0.75rem', zIndex: 200, maxHeight: '320px', overflowY: 'auto', boxShadow: '0 20px 40px rgba(0,0,0,0.6)' }}>
                               {searchLoading ? (
                                 <div style={{ padding: '1rem', color: '#64748b', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                  <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Buscando...
+                                  <Loader2 size={12} style={{ animation: 'tr-spin 1s linear infinite' }} /> Buscando...
                                 </div>
                               ) : searchResults.length === 0 && l.descripcion.trim().length >= 2 && !searchLoading ? (
                                 <>
@@ -1521,7 +1521,7 @@ export function ModalCrearComprobante({
                   }}
                 >
                   {submitting ? (
-                    <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> {emitirEnArca ? 'Emitiendo en ARCA...' : 'Creando...'}</>
+                    <><Loader2 size={16} style={{ animation: 'tr-spin 1s linear infinite' }} /> {emitirEnArca ? 'Emitiendo en ARCA...' : 'Creando...'}</>
                   ) : submitSuccess ? (
                     <><CheckCircle2 size={16} /> ¡Creado!</>
                   ) : (
@@ -1535,9 +1535,6 @@ export function ModalCrearComprobante({
         </div>
       </div>
 
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}</style>
 
       {/* ProductFormModal — crear producto completo desde búsqueda de ítems
           registerStock=false: el stock se descuenta al confirmar el comprobante */}

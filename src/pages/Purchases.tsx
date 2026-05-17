@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Plus, RefreshCw, Package, DollarSign, Calendar, Building2, CheckCircle, XCircle, Eye, Search } from 'lucide-react';
+import { Plus, Package, DollarSign, Calendar, Building2, CheckCircle, XCircle, Eye, Search } from 'lucide-react';
 import { purchasesService, Purchase } from '../services/purchasesService';
 import { useAuth } from '../contexts/AuthContext';
 import { smartSearch } from '../utils/searchUtils';
+import { Loader } from '../components/ui/Loader';
 
 const STATUS_CLASS: Record<string, string> = {
   pending:   'badge badge-warning',
@@ -57,7 +58,7 @@ export function Purchases() {
   if (loading) {
     return (
       <div className="page-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
-        <RefreshCw className="animate-spin" size={32} style={{ color: '#6366f1' }} />
+        <Loader size="lg" />
       </div>
     );
   }
@@ -69,19 +70,21 @@ export function Purchases() {
   return (
     <div className="page-shell">
       {/* ── Encabezado ── */}
-      <div className="page-top">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-          <div className="stat-icon" style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)' }}>
-            <Building2 size={20} style={{ color: '#818cf8' }} />
+      <div className="page-hdr">
+        <div className="page-hdr-left">
+          <div className="page-hdr-icon">
+            <Building2 size={20} style={{ color: 'var(--accent-primary)' }} />
           </div>
           <div>
-            <h1 className="page-title">Compras a Proveedores</h1>
-            <p className="page-subtitle">Gestioná tus órdenes de compra</p>
+            <h1 className="page-hdr-title">Compras a Proveedores</h1>
+            <p className="page-hdr-subtitle">Gestioná tus órdenes de compra</p>
           </div>
         </div>
-        <button className="btn btn-primary">
-          <Plus size={16} /> Nueva Compra
-        </button>
+        <div className="page-hdr-right">
+          <button className="btn btn-primary btn-lift">
+            <Plus size={16} /> Nueva Compra
+          </button>
+        </div>
       </div>
 
       {/* ── Stat Cards ── */}
