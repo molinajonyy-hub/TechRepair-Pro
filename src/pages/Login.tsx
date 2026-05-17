@@ -542,7 +542,7 @@ export function Login() {
 
               <button type="submit" disabled={isLoading} style={S.btnPrimary(isLoading)}>
                 {isLoading
-                  ? <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> Enviando...</>
+                  ? <><Loader2 size={18} style={{ animation: 'tr-spin 1s linear infinite' }} /> Enviando...</>
                   : 'Enviar enlace de recuperación'
                 }
               </button>
@@ -677,7 +677,7 @@ export function Login() {
             >
               {isLoading ? (
                 <>
-                  <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
+                  <Loader2 size={18} style={{ animation: 'tr-spin 1s linear infinite' }} />
                   {mode === 'login' ? 'Iniciando sesión...' : 'Creando cuenta...'}
                 </>
               ) : (
@@ -717,7 +717,7 @@ export function Login() {
               >
                 {isGoogleLoading ? (
                   <>
-                    <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
+                    <Loader2 size={18} style={{ animation: 'tr-spin 1s linear infinite' }} />
                     Redirigiendo a Google...
                   </>
                 ) : (

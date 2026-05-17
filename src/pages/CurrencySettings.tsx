@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { DollarSign, RefreshCw, Save, History, Cloud, MapPin, Globe } from 'lucide-react';
+import { Loader } from '../components/ui/Loader';
 import { useAuth } from '../contexts/AuthContext';
 import { currencyService, BusinessSettings, ExchangeRate } from '../services/currencyService';
 import { exchangeRateService, DolarSource } from '../services/exchangeRateService';
@@ -151,53 +152,40 @@ export function CurrencySettings() {
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
-        <RefreshCw className="animate-spin" size={32} style={{ color: '#6366f1' }} />
+        <Loader size="lg" />
       </div>
     );
   }
 
   return (
     <div>
-      <div style={{ marginBottom: '2rem' }}>
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#ffffff', marginBottom: '0.5rem' }}>
-          Configuración de Moneda
-        </h1>
-        <p style={{ color: '#94a3b8' }}>
-          Configura los tipos de cambio y preferencias de moneda
-        </p>
+      <div className="page-hdr">
+        <div className="page-hdr-left">
+          <div className="page-hdr-icon">
+            <DollarSign size={20} style={{ color: 'var(--accent-primary)' }} />
+          </div>
+          <div>
+            <h1 className="page-hdr-title">Configuración de Moneda</h1>
+            <p className="page-hdr-subtitle">Configura los tipos de cambio y preferencias de moneda</p>
+          </div>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gap: '2rem', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))' }}>
         {/* Configuración de moneda */}
-        <div style={{
-          backgroundColor: '#111827',
-          border: '1px solid rgba(255,255,255,0.05)',
-          borderRadius: '0.75rem',
-          padding: '1.5rem'
-        }}>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#ffffff', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <DollarSign size={24} style={{ color: '#6366f1' }} />
+        <div className="surface-raised" style={{ padding: '1.5rem' }}>
+          <h2 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <DollarSign size={18} style={{ color: 'var(--accent-primary)' }} />
             Configuración General
           </h2>
 
           <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem' }}>
-              Moneda por defecto
-            </label>
+            <label className="label-caps">Moneda por defecto</label>
             <select
               value={settings?.default_currency || 'ARS'}
               onChange={(e) => setSettings({ ...settings!, default_currency: e.target.value })}
               disabled={!canManageSettings}
-              style={{
-                width: '100%',
-                padding: '0.625rem 0.875rem',
-                backgroundColor: '#1e293b',
-                border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '0.5rem',
-                color: '#ffffff',
-                outline: 'none',
-                cursor: canManageSettings ? 'pointer' : 'not-allowed'
-              }}
+              className="form-select"
             >
               <option value="ARS">Pesos Argentinos (ARS)</option>
               <option value="USD">Dólares Estadounidenses (USD)</option>
@@ -234,9 +222,7 @@ export function CurrencySettings() {
 
           {/* Selector de fuente del dólar */}
           <div style={{ marginBottom: '1.5rem' }}>
-            <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.75rem', fontWeight: 500 }}>
-              Fuente del Dólar Blue
-            </label>
+            <label className="label-caps">Fuente del Dólar Blue</label>
             <div style={{ display: 'flex', gap: '0.75rem' }}>
               {/* Opción Nacional */}
               <button
@@ -319,62 +305,30 @@ export function CurrencySettings() {
           </div>
 
           {canManageSettings && (
-            <button
-              onClick={handleSaveSettings}
-              disabled={saving}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                padding: '0.625rem 1.25rem',
-                backgroundColor: '#4f46e5',
-                border: 'none',
-                color: '#ffffff',
-                borderRadius: '0.5rem',
-                cursor: saving ? 'not-allowed' : 'pointer',
-                fontWeight: 500,
-                opacity: saving ? 0.5 : 1
-              }}
-            >
-              <Save size={18} />
+            <button onClick={handleSaveSettings} disabled={saving} className="btn btn-primary btn-lift">
+              <Save size={16} />
               {saving ? 'Guardando...' : 'Guardar Configuración'}
             </button>
           )}
         </div>
 
         {/* Tipo de cambio */}
-        <div style={{
-          backgroundColor: '#111827',
-          border: '1px solid rgba(255,255,255,0.05)',
-          borderRadius: '0.75rem',
-          padding: '1.5rem'
-        }}>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: '#ffffff', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <RefreshCw size={24} style={{ color: '#6366f1' }} />
+        <div className="surface-raised" style={{ padding: '1.5rem' }}>
+          <h2 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <RefreshCw size={18} style={{ color: 'var(--accent-primary)' }} />
             Tipo de Cambio
           </h2>
 
           <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', fontSize: '0.875rem', color: '#94a3b8', marginBottom: '0.5rem' }}>
-              USD a ARS
-            </label>
+            <label className="label-caps">USD a ARS</label>
             <input
               type="number"
               step="0.01"
               value={exchangeRate}
               onChange={(e) => setExchangeRate(parseFloat(e.target.value) || 0)}
               disabled={!canManageSettings}
-              style={{
-                width: '100%',
-                padding: '0.625rem 0.875rem',
-                backgroundColor: '#1e293b',
-                border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '0.5rem',
-                color: '#ffffff',
-                outline: 'none',
-                fontSize: '1.25rem',
-                fontWeight: 600
-              }}
+              className="form-control"
+              style={{ fontSize: '1.25rem', fontWeight: 600 }}
             />
           </div>
 
@@ -382,26 +336,10 @@ export function CurrencySettings() {
             Última actualización: {settings?.updated_at ? new Date(settings.updated_at).toLocaleString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
           </div>
 
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
             {canManageSettings && (
-              <button
-                onClick={handleUpdateRate}
-                disabled={saving}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.625rem 1.25rem',
-                  backgroundColor: '#4f46e5',
-                  border: 'none',
-                  color: '#ffffff',
-                  borderRadius: '0.5rem',
-                  cursor: saving ? 'not-allowed' : 'pointer',
-                  fontWeight: 500,
-                  opacity: saving ? 0.5 : 1
-                }}
-              >
-                <RefreshCw size={18} />
+              <button onClick={handleUpdateRate} disabled={saving} className="btn btn-primary btn-lift">
+                <RefreshCw size={15} />
                 {saving ? 'Actualizando...' : 'Actualizar Tipo de Cambio'}
               </button>
             )}
@@ -410,52 +348,26 @@ export function CurrencySettings() {
               <button
                 onClick={handleUpdateFromAPI}
                 disabled={saving}
+                className="btn btn-lift"
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.625rem 1.25rem',
-                  backgroundColor: dolarSource === 'cordoba' ? '#059669' : '#0284c7',
-                  border: 'none',
-                  color: '#ffffff',
-                  borderRadius: '0.5rem',
-                  cursor: saving ? 'not-allowed' : 'pointer',
-                  fontWeight: 500,
-                  opacity: saving ? 0.5 : 1,
-                  whiteSpace: 'nowrap',
+                  background: dolarSource === 'cordoba' ? '#059669' : '#0284c7',
+                  color: '#fff', border: 'none', whiteSpace: 'nowrap',
+                  opacity: saving ? 0.55 : 1,
                 }}
                 title={dolarSource === 'cordoba'
                   ? 'Obtener valor de venta Blue Córdoba desde infodolar.com'
                   : 'Obtener Blue Nacional desde Bluelytics API'}
               >
-                {dolarSource === 'cordoba' ? <MapPin size={18} /> : <Cloud size={18} />}
-                {saving
-                  ? 'Actualizando...'
-                  : dolarSource === 'cordoba'
-                    ? 'Actualizar · Blue Córdoba'
-                    : 'Actualizar · Blue Nacional'}
+                {dolarSource === 'cordoba' ? <MapPin size={15} /> : <Cloud size={15} />}
+                {saving ? 'Actualizando...' : dolarSource === 'cordoba' ? 'Actualizar · Blue Córdoba' : 'Actualizar · Blue Nacional'}
               </button>
             )}
 
             <button
-              onClick={() => {
-                setShowHistory(!showHistory);
-                if (!showHistory) loadRateHistory();
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                padding: '0.625rem 1.25rem',
-                backgroundColor: 'transparent',
-                border: '1px solid rgba(255,255,255,0.1)',
-                color: '#ffffff',
-                borderRadius: '0.5rem',
-                cursor: 'pointer',
-                fontWeight: 500
-              }}
+              onClick={() => { setShowHistory(!showHistory); if (!showHistory) loadRateHistory(); }}
+              className="btn btn-ghost"
             >
-              <History size={18} />
+              <History size={15} />
               {showHistory ? 'Ocultar' : 'Ver Historial'}
             </button>
           </div>

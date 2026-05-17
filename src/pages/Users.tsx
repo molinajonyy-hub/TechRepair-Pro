@@ -19,191 +19,83 @@ export function Users() {
 
   return (
     <div>
-      <div style={{ marginBottom: '2rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-          <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#ffffff' }}>
-            Usuarios
-          </h1>
-          <button style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            padding: '0.625rem 1.25rem',
-            backgroundColor: '#4f46e5',
-            border: 'none',
-            color: '#ffffff',
-            borderRadius: '0.5rem',
-            cursor: 'pointer',
-            fontWeight: 500
-          }}>
-            <Plus size={18} />
-            Nuevo Usuario
+      <div className="page-hdr">
+        <div className="page-hdr-left">
+          <div className="page-hdr-icon">
+            <Shield size={22} style={{ color: 'var(--accent-primary)' }} />
+          </div>
+          <div>
+            <h1 className="page-hdr-title">Usuarios</h1>
+            <p className="page-hdr-subtitle">Gestiona usuarios y permisos del sistema</p>
+          </div>
+        </div>
+        <div className="page-hdr-right">
+          <button className="btn btn-primary btn-lift">
+            <Plus size={16} /> Nuevo Usuario
           </button>
         </div>
-        <p style={{ color: '#94a3b8' }}>
-          Gestiona usuarios y permisos del sistema
-        </p>
       </div>
 
-      <div style={{
-        backgroundColor: '#111827',
-        border: '1px solid rgba(255,255,255,0.05)',
-        borderRadius: '0.75rem',
-        overflow: 'hidden'
-      }}>
-        <div style={{ padding: 0 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                <th style={{ 
-                  padding: '1rem', 
-                  textAlign: 'left', 
-                  fontSize: '0.875rem', 
-                  fontWeight: 500, 
-                  color: '#94a3b8' 
-                }}>
-                  Usuario
-                </th>
-                <th style={{ 
-                  padding: '1rem', 
-                  textAlign: 'left', 
-                  fontSize: '0.875rem', 
-                  fontWeight: 500, 
-                  color: '#94a3b8' 
-                }}>
-                  Email
-                </th>
-                <th style={{ 
-                  padding: '1rem', 
-                  textAlign: 'left', 
-                  fontSize: '0.875rem', 
-                  fontWeight: 500, 
-                  color: '#94a3b8' 
-                }}>
-                  Rol
-                </th>
-                <th style={{ 
-                  padding: '1rem', 
-                  textAlign: 'left', 
-                  fontSize: '0.875rem', 
-                  fontWeight: 500, 
-                  color: '#94a3b8' 
-                }}>
-                  Estado
-                </th>
-                <th style={{ 
-                  padding: '1rem', 
-                  textAlign: 'right', 
-                  fontSize: '0.875rem', 
-                  fontWeight: 500, 
-                  color: '#94a3b8' 
-                }}>
-                  Acciones
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((user) => (
-                <tr key={user.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                  <td style={{ padding: '1rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                      <div style={{
-                        width: '2rem',
-                        height: '2rem',
-                        borderRadius: '50%',
-                        backgroundColor: '#4f46e5',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        color: '#ffffff'
-                      }}>
-                        {user.name.split(' ').map(n => n[0]).join('')}
-                      </div>
-                      <span style={{ fontWeight: 500, color: '#ffffff' }}>{user.name}</span>
-                    </div>
-                  </td>
-                  <td style={{ padding: '1rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <Mail size={14} style={{ color: '#64748b' }} />
-                      <span style={{ color: '#94a3b8' }}>{user.email}</span>
-                    </div>
-                  </td>
-                  <td style={{ padding: '1rem' }}>
-                    <span style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: '0.5rem',
-                      fontSize: '0.875rem',
-                      color: '#94a3b8'
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th className="label-caps">Usuario</th>
+              <th className="label-caps">Email</th>
+              <th className="label-caps">Rol</th>
+              <th className="label-caps">Estado</th>
+              <th className="label-caps" style={{ textAlign: 'right' }}>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((user) => (
+              <tr key={user.id}>
+                <td>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{
+                      width: 32, height: 32, borderRadius: '50%',
+                      background: 'var(--accent-primary-subtle)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: '0.72rem', fontWeight: 700, color: 'var(--accent-primary)',
+                      flexShrink: 0,
                     }}>
-                      <Shield size={14} style={{ color: '#4f46e5' }} />
-                      {roleLabels[user.role]}
-                    </span>
-                  </td>
-                  <td style={{ padding: '1rem' }}>
-                    {user.active ? (
-                      <span style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem',
-                        padding: '0.25rem 0.75rem',
-                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                        color: '#34d399',
-                        borderRadius: '9999px',
-                        fontSize: '0.75rem',
-                        fontWeight: 500
-                      }}>
-                        <CheckCircle size={12} />
-                        Activo
-                      </span>
-                    ) : (
-                      <span style={{
-                        padding: '0.25rem 0.75rem',
-                        backgroundColor: 'rgba(148, 163, 184, 0.1)',
-                        color: '#94a3b8',
-                        borderRadius: '9999px',
-                        fontSize: '0.75rem',
-                        fontWeight: 500
-                      }}>
-                        Inactivo
-                      </span>
-                    )}
-                  </td>
-                  <td style={{ padding: '1rem', textAlign: 'right' }}>
-                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                      <button style={{
-                        padding: '0.5rem',
-                        backgroundColor: '#111827',
-                        border: '1px solid rgba(255,255,255,0.05)',
-                        borderRadius: '0.375rem',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem'
-                      }}>
-                        <Edit size={16} style={{ color: '#94a3b8' }} />
-                      </button>
-                      <button style={{
-                        padding: '0.5rem',
-                        backgroundColor: '#111827',
-                        border: '1px solid rgba(255,255,255,0.05)',
-                        borderRadius: '0.375rem',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem'
-                      }}>
-                        <Trash2 size={16} style={{ color: '#ef4444' }} />
-                      </button>
+                      {user.name.split(' ').map(n => n[0]).join('')}
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{user.name}</span>
+                  </div>
+                </td>
+                <td>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-muted)' }}>
+                    <Mail size={14} style={{ color: 'var(--text-subtle)' }} />
+                    {user.email}
+                  </div>
+                </td>
+                <td>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                    <Shield size={13} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+                    {roleLabels[user.role]}
+                  </span>
+                </td>
+                <td>
+                  {user.active
+                    ? <span className="badge badge-success"><CheckCircle size={11} /> Activo</span>
+                    : <span className="badge badge-neutral">Inactivo</span>
+                  }
+                </td>
+                <td style={{ textAlign: 'right' }}>
+                  <div style={{ display: 'flex', gap: '0.375rem', justifyContent: 'flex-end' }}>
+                    <button className="icon-btn icon-btn-violet" aria-label="Editar">
+                      <Edit size={15} />
+                    </button>
+                    <button className="icon-btn icon-btn-danger" aria-label="Eliminar">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   )

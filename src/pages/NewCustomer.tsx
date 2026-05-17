@@ -60,33 +60,25 @@ export function NewCustomer() {
 
   return (
     <div className="animate-fade-in">
-      <div style={{ marginBottom: '2rem' }}>
-        <button 
-          onClick={() => navigate(returnTo)} 
-          className="btn btn-outline btn-sm" 
-          style={{ marginBottom: '1rem' }}
-        >
-          <ArrowLeft size={16} />
-          Volver
-        </button>
-        
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#f8fafc' }}>
-          Nuevo Cliente
-        </h1>
-        <p style={{ color: '#475569' }}>
-          Registra un nuevo cliente en el sistema
-        </p>
+      <div className="page-hdr">
+        <div className="page-hdr-left">
+          <div className="page-hdr-icon">
+            <UserPlus size={20} style={{ color: 'var(--accent-primary)' }} />
+          </div>
+          <div>
+            <h1 className="page-hdr-title">Nuevo Cliente</h1>
+            <p className="page-hdr-subtitle">Registra un nuevo cliente en el sistema</p>
+          </div>
+        </div>
+        <div className="page-hdr-right">
+          <button onClick={() => navigate(returnTo)} className="btn btn-outline btn-sm">
+            <ArrowLeft size={15} /> Volver
+          </button>
+        </div>
       </div>
 
       {error && (
-        <div style={{
-          padding: '1rem',
-          backgroundColor: 'rgba(220, 38, 38, 0.1)',
-          border: '1px solid rgba(220, 38, 38, 0.3)',
-          borderRadius: '0.5rem',
-          color: '#dc2626',
-          marginBottom: '1.5rem'
-        }}>
+        <div className="alert-inline alert-error" style={{ marginBottom: '1.5rem' }}>
           {error}
         </div>
       )}
@@ -233,48 +225,15 @@ export function NewCustomer() {
             </div>
 
             <div style={{ display: 'flex', gap: '1rem' }}>
-              <button
-                type="button"
-                onClick={() => navigate(returnTo)}
-                className="btn"
-                style={{
-                  backgroundColor: 'rgba(255,255,255,0.05)',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  color: '#94a3b8',
-                  borderRadius: '0.5rem',
-                  fontWeight: 600
-                }}
-              >
+              <button type="button" onClick={() => navigate(returnTo)} className="btn btn-ghost">
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="btn"
+                className="btn btn-primary btn-lift"
                 disabled={isSubmitting || !formData.name || !formData.phone}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-                  border: 'none',
-                  color: '#ffffff',
-                  borderRadius: '0.625rem',
-                  fontWeight: 600,
-                  boxShadow: '0 4px 12px rgba(99,102,241,0.35)',
-                  cursor: 'pointer'
-                }}
               >
-                {isSubmitting ? (
-                  <>
-                    <span className="spinner-border spinner-border-sm" style={{ marginRight: '0.5rem' }}></span>
-                    Guardando...
-                  </>
-                ) : (
-                  <>
-                    <Save size={18} />
-                    Guardar Cliente
-                  </>
-                )}
+                {isSubmitting ? 'Guardando...' : <><Save size={16} /> Guardar Cliente</>}
               </button>
             </div>
           </form>

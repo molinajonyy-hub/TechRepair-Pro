@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Search, RefreshCw, MessageCircle, Mail, StickyNote } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { Loader } from '../components/ui/Loader'
+import { EmptyState } from '../components/ui/EmptyState'
 
 type LeadStatus = 'nuevo' | 'contactado' | 'convertido' | 'descartado'
 
@@ -22,8 +24,6 @@ const STATUS_CONFIG: Record<LeadStatus, { label: string; color: string; bg: stri
   convertido:  { label: 'Convertido',  color: '#22c55e', bg: 'rgba(34,197,94,0.12)'   },
   descartado:  { label: 'Descartado',  color: '#475569', bg: 'rgba(71,85,105,0.12)'   },
 }
-
-const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 export function AdminLeads() {
   const [leads, setLeads]           = useState<Lead[]>([])
@@ -82,91 +82,76 @@ export function AdminLeads() {
   }
 
   return (
-    <div style={{ padding: '2rem', fontFamily: F, maxWidth: '1100px', margin: '0 auto' }}>
+    <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
-        <div>
-          <h1 style={{ margin: 0, color: '#f1f5f9', fontSize: '1.5rem', fontWeight: 800, letterSpacing: '-0.03em' }}>
-            Leads de contacto
-          </h1>
-          <p style={{ margin: '0.25rem 0 0', color: '#475569', fontSize: '0.85rem' }}>
-            Formulario de contacto de la landing pública
-          </p>
+      <div className="page-hdr">
+        <div className="page-hdr-left">
+          <div className="page-hdr-icon">
+            <Mail size={20} style={{ color: 'var(--accent-primary)' }} />
+          </div>
+          <div>
+            <h1 className="page-hdr-title">Leads de contacto</h1>
+            <p className="page-hdr-subtitle">Formulario de contacto de la landing pública</p>
+          </div>
         </div>
-        <button
-          onClick={loadLeads}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.625rem', color: '#94a3b8', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer' }}
-        >
-          <RefreshCw size={14} /> Actualizar
-        </button>
+        <div className="page-hdr-right">
+          <button onClick={loadLeads} className="btn btn-ghost btn-sm">
+            <RefreshCw size={13} /> Actualizar
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.75rem', marginBottom: '1.75rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.75rem', marginBottom: '1.75rem' }}>
         {[
-          { label: 'Total', value: stats.total,      color: '#94a3b8' },
-          { label: 'Nuevos', value: stats.nuevo,      color: '#818cf8' },
+          { label: 'Total',       value: stats.total,      color: 'var(--text-secondary)' },
+          { label: 'Nuevos',      value: stats.nuevo,      color: '#818cf8' },
           { label: 'Contactados', value: stats.contactado, color: '#fbbf24' },
           { label: 'Convertidos', value: stats.convertido, color: '#22c55e' },
-          { label: 'Descartados', value: stats.descartado, color: '#475569' },
+          { label: 'Descartados', value: stats.descartado, color: 'var(--text-subtle)' },
         ].map(s => (
-          <div key={s.label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', padding: '0.875rem 1rem' }}>
-            <div style={{ color: s.color, fontSize: '1.5rem', fontWeight: 800 }}>{s.value}</div>
-            <div style={{ color: '#475569', fontSize: '0.75rem', fontWeight: 600, marginTop: '0.125rem' }}>{s.label}</div>
+          <div key={s.label} className="stat-card">
+            <div className="stat-card-value" style={{ color: s.color }}>{s.value}</div>
+            <div className="stat-card-label">{s.label}</div>
           </div>
         ))}
       </div>
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: '1', minWidth: '200px' }}>
-          <Search size={14} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#475569', pointerEvents: 'none' }} />
+      <div className="filter-bar">
+        <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+          <Search size={14} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
           <input
             type="text"
             placeholder="Buscar por nombre, email, negocio..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            style={{
-              width: '100%', boxSizing: 'border-box', paddingLeft: '2.25rem', paddingRight: '0.875rem',
-              paddingTop: '0.625rem', paddingBottom: '0.625rem',
-              background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-              borderRadius: '0.625rem', color: '#f1f5f9', fontSize: '0.85rem', fontFamily: F, outline: 'none',
-            }}
+            className="form-control"
+            style={{ paddingLeft: '2.25rem' }}
           />
         </div>
 
-        <div style={{ display: 'flex', gap: '0.375rem' }}>
-          {(['all', 'nuevo', 'contactado', 'convertido', 'descartado'] as const).map(s => {
-            const isActive = filterStatus === s
-            const cfg = s === 'all' ? null : STATUS_CONFIG[s]
-            return (
-              <button
-                key={s}
-                onClick={() => setFilter(s)}
-                style={{
-                  padding: '0.5rem 0.875rem',
-                  borderRadius: '0.625rem',
-                  border: '1px solid ' + (isActive && cfg ? cfg.color + '55' : 'rgba(255,255,255,0.08)'),
-                  background: isActive && cfg ? cfg.bg : isActive ? 'rgba(255,255,255,0.07)' : 'transparent',
-                  color: isActive && cfg ? cfg.color : isActive ? '#f1f5f9' : '#475569',
-                  fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: F,
-                }}
-              >
-                {s === 'all' ? 'Todos' : STATUS_CONFIG[s].label}
-              </button>
-            )
-          })}
+        <div className="tabs">
+          {(['all', 'nuevo', 'contactado', 'convertido', 'descartado'] as const).map(s => (
+            <button key={s} onClick={() => setFilter(s)} className={`tab ${filterStatus === s ? 'tab-active' : ''}`}>
+              {s === 'all' ? 'Todos' : STATUS_CONFIG[s].label}
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Table */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '4rem', color: '#475569' }}>Cargando leads...</div>
-      ) : filtered.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '4rem', color: '#334155', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '1rem' }}>
-          {leads.length === 0 ? 'Todavía no hay leads. Cuando alguien complete el formulario de la landing, aparecerá aquí.' : 'No hay leads que coincidan con el filtro.'}
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
+          <Loader size="lg" />
         </div>
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={Mail}
+          title={leads.length === 0 ? 'Sin leads' : 'Sin resultados'}
+          description={leads.length === 0 ? 'Cuando alguien complete el formulario de la landing, aparecerá aquí.' : 'No hay leads que coincidan con el filtro.'}
+        />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {filtered.map(lead => {
@@ -219,7 +204,7 @@ export function AdminLeads() {
                       border: '1px solid ' + cfg.color + '55',
                       borderRadius: '0.5rem',
                       color: cfg.color,
-                      fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', fontFamily: F, outline: 'none',
+                      fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', outline: 'none',
                     }}
                   >
                     {(Object.entries(STATUS_CONFIG) as [LeadStatus, typeof STATUS_CONFIG[LeadStatus]][]).map(([v, c]) => (
@@ -273,20 +258,14 @@ export function AdminLeads() {
                             onChange={e => setEditNotes({ id: lead.id, text: e.target.value })}
                             rows={3}
                             autoFocus
-                            style={{ width: '100%', boxSizing: 'border-box', padding: '0.625rem 0.875rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(99,102,241,0.4)', borderRadius: '0.625rem', color: '#f1f5f9', fontSize: '0.82rem', fontFamily: F, outline: 'none', resize: 'vertical' }}
+                            className="form-control"
+                            style={{ resize: 'vertical' }}
                           />
                           <div style={{ display: 'flex', gap: '0.5rem' }}>
-                            <button
-                              onClick={saveNotes}
-                              disabled={savingNotes}
-                              style={{ padding: '0.4rem 0.875rem', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: '0.5rem', color: '#fff', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}
-                            >
+                            <button onClick={saveNotes} disabled={savingNotes} className="btn btn-primary btn-sm">
                               {savingNotes ? 'Guardando...' : 'Guardar'}
                             </button>
-                            <button
-                              onClick={() => setEditNotes(null)}
-                              style={{ padding: '0.4rem 0.875rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', color: '#64748b', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', fontFamily: F }}
-                            >
+                            <button onClick={() => setEditNotes(null)} className="btn btn-ghost btn-sm">
                               Cancelar
                             </button>
                           </div>
