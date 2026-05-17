@@ -16,10 +16,6 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const THEME_KEY = 'techrepair_theme';
 const LEGACY_THEME_KEY = 'theme';
 
-const isTheme = (value: string | null): value is Theme => (
-  value === 'light' || value === 'dark' || value === 'system'
-);
-
 const getSystemTheme = (): ResolvedTheme => {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
     return 'dark';

@@ -1,11 +1,10 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Search, ShoppingCart, Plus, LogOut } from 'lucide-react'
 import { usePortal } from '../contexts/PortalContext'
 import { usePortalCart } from '../hooks/usePortalCart'
 import { usePortalGuard } from '../hooks/usePortalGuard'
-import { getCatalog } from '../services/portalService'
-import { logoutCustomer } from '../services/portalService'
+import { getCatalog, logoutCustomer } from '../services/portalService'
 import { PortalLayout, PortalCard, PT } from '../components/PortalLayout'
 import type { PortalProduct } from '../types'
 
@@ -88,7 +87,7 @@ function ProductCardItem({
 
 export function PortalCatalog() {
   usePortalGuard()
-  const { business, customer, setCustomer, slug, basePath } = usePortal()
+  const { business, customer, setCustomer, basePath } = usePortal()
   const navigate = useNavigate()
   const { addItem, itemCount } = usePortalCart(business?.id || '')
 

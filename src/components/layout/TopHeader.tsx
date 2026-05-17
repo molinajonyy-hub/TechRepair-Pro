@@ -112,7 +112,6 @@ export function TopHeader() {
           70%  { box-shadow: 0 0 0 5px transparent; }
           100% { box-shadow: 0 0 0 0 transparent; }
         }
-        @keyframes spin { to { transform: rotate(360deg); } }
       `}</style>
     </header>
   )

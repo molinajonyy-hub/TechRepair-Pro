@@ -14,7 +14,7 @@
  *   registerStock   — si true, suma stock al crear (con movimiento registrado)
  *   sourceType / sourceId — para trazar el movimiento
  */
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, Component, type ErrorInfo } from 'react'
 import { X, RefreshCw, DollarSign, Package, Check, AlertCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -1203,7 +1203,6 @@ export function ProductFormModal({
           </button>
         </div>
       </div>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       {/* ── Diálogo: cambios sin guardar ─────────────────────────────────── */}
       {showCloseConfirm && (
@@ -1308,8 +1307,6 @@ function Row2({ children }: { children: React.ReactNode }) {
 }
 
 // ─── ErrorBoundary ────────────────────────────────────────────────────────────
-
-import { Component, type ErrorInfo } from 'react'
 
 class ProductFormModalErrorBoundary extends Component<
   { children: React.ReactNode; onClose: () => void },

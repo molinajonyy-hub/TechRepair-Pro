@@ -114,7 +114,7 @@ export function StockRepairTool() {
             opacity: loading ? 0.6 : 1,
           }}
         >
-          {loading && !confirm ? <Loader2 size={15} style={{ animation: 'spin 0.7s linear infinite' }} /> : <Eye size={15} />}
+          {loading && !confirm ? <Loader2 size={15} style={{ animation: 'tr-spin 0.7s linear infinite' }} /> : <Eye size={15} />}
           Analizar ventas sin descontar
         </button>
 
@@ -201,7 +201,7 @@ export function StockRepairTool() {
                 display: 'flex', alignItems: 'center', gap: '0.375rem',
               }}
             >
-              {loading ? <Loader2 size={14} style={{ animation: 'spin 0.7s linear infinite' }} /> : null}
+              {loading ? <Loader2 size={14} style={{ animation: 'tr-spin 0.7s linear infinite' }} /> : null}
               Sí, aplicar corrección
             </button>
             <button
@@ -241,8 +241,6 @@ export function StockRepairTool() {
           {error}
         </div>
       )}
-
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }

@@ -32,7 +32,7 @@ interface Props {
 }
 
 export function PortalLayout({ children, title, showBack = false, showCart = true, backTo }: Props) {
-  const { business, customer, setCustomer, slug, basePath } = usePortal()
+  const { business, customer, setCustomer, basePath } = usePortal()
   const navigate = useNavigate()
   const { itemCount } = usePortalCart(business?.id || '')
 

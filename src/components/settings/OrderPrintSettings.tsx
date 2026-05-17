@@ -7,7 +7,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { uploadBusinessLogo } from '../../lib/storageSetup'
-import { useOrderPrintSettings, DEFAULT_CONDITIONS, DEFAULT_THANK_YOU, OrderPrintSettings as OrderPrintSettingsType } from '../../hooks/useOrderPrintSettings'
+import { useOrderPrintSettings, DEFAULT_CONDITIONS, OrderPrintSettings as OrderPrintSettingsType } from '../../hooks/useOrderPrintSettings'
 import { ServiceOrderPrint, ServiceOrderData } from '../print/ServiceOrderPrint'
 
 // ─── Sample order for preview ─────────────────────────────────────────────────
@@ -340,10 +340,6 @@ export function OrderPrintSettings() {
           </div>
         </div>
       )}
-
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}</style>
     </div>
   )
 }

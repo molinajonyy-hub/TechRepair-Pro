@@ -118,10 +118,6 @@ const categoriasConfig = {
   },
 }
 
-const INVENTORY_CATEGORIES = [
-  'Repuestos', 'Accesorios', 'Pantallas', 'Baterías',
-  'Herramientas', 'Insumos', 'Equipos', 'Cables', 'Otro'
-]
 
 // ─── Sub-component: ProductSearchInput ────────────────────────────────────────
 

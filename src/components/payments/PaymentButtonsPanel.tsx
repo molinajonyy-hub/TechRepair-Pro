@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   Wallet, CreditCard, Building2, Smartphone, Zap,
-  Calculator, ChevronRight, Loader2, CheckCircle2,
-  AlertCircle, DollarSign, Percent, ArrowRight,
+  Calculator, Loader2, CheckCircle2,
+  AlertCircle, DollarSign, Percent,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { paymentButtonService } from '../../services/paymentButtonService';
@@ -56,7 +56,7 @@ export function PaymentButtonsPanel({
   saldoPendiente,
   onPaymentRegistered,
 }: Props) {
-  const { businessId, user } = useAuth();
+  const { businessId } = useAuth();
 
   const [buttons, setButtons]         = useState<PaymentButton[]>([]);
   const [loading, setLoading]         = useState(true);
@@ -483,8 +483,6 @@ export function PaymentButtonsPanel({
           )}
         </div>
       )}
-
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

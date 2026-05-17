@@ -279,8 +279,8 @@ export function CustomerDetail() {
     return (
       <div style={{ padding: '2rem' }}>
         <Link to="/customers" className="btn btn-outline btn-sm" style={{ marginBottom: '1rem' }}><ArrowLeft size={16} /> Volver a Clientes</Link>
-        <div style={{ padding: '1.5rem', backgroundColor: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '0.75rem' }}>
-          <p style={{ color: '#f87171' }}>{error || 'Cliente no encontrado'}</p>
+        <div className="alert-inline alert-error">
+          {error || 'Cliente no encontrado'}
         </div>
       </div>
     )
@@ -288,22 +288,31 @@ export function CustomerDetail() {
 
   return (
     <div className="animate-fade-in">
-      <Link to="/customers" className="btn btn-outline btn-sm" style={{ marginBottom: '1rem' }}>
-        <ArrowLeft size={16} /> Volver a Clientes
-      </Link>
-
-      {/* Name + badge */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#f8fafc', margin: 0 }}>{customer.name}</h1>
-        {customer.customer_type === 'mayorista' ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.25rem 0.75rem', borderRadius: '999px', background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.35)', fontSize: '0.78rem', fontWeight: 700, color: '#818cf8' }}>
-            <Building2 size={12} /> Mayorista
-          </span>
-        ) : (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.25rem 0.75rem', borderRadius: '999px', background: 'rgba(100,116,139,0.12)', border: '1px solid rgba(100,116,139,0.25)', fontSize: '0.78rem', fontWeight: 600, color: '#64748b' }}>
-            <User size={12} /> Minorista
-          </span>
-        )}
+      {/* Header */}
+      <div className="page-hdr">
+        <div className="page-hdr-left">
+          <div className="page-hdr-icon">
+            <User size={22} style={{ color: 'var(--accent-primary)' }} />
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>
+              <h1 className="page-hdr-title">{customer.name}</h1>
+              {customer.customer_type === 'mayorista' ? (
+                <span className="badge badge-info"><Building2 size={11} /> Mayorista</span>
+              ) : (
+                <span className="badge badge-neutral"><User size={11} /> Minorista</span>
+              )}
+            </div>
+            <p className="page-hdr-subtitle">
+              {customer.orders?.length ?? 0} orden{(customer.orders?.length ?? 0) !== 1 ? 'es' : ''}
+            </p>
+          </div>
+        </div>
+        <div className="page-hdr-right">
+          <Link to="/customers" className="btn btn-outline btn-sm">
+            <ArrowLeft size={16} /> Volver
+          </Link>
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -465,8 +474,7 @@ export function CustomerDetail() {
             <div style={{ padding: 0 }}>
               {compLoading ? (
                 <div style={{ padding: '2.5rem', textAlign: 'center', color: '#64748b' }}>
-                  <div style={{ width: 24, height: 24, borderRadius: '50%', border: '2px solid #6366f1', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite', margin: '0 auto 0.5rem' }} />
-                  <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                  <Loader size="sm" />
                   Cargando historial de compras...
                 </div>
               ) : comprobantes.length === 0 ? (

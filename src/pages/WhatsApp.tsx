@@ -23,7 +23,6 @@ import {
   saveManualConnection,
   sendTestMessage,
   type WhatsAppConnection,
-  type WhatsAppAutomationSettings,
 } from '../services/whatsappCloudService'
 
 // ──────────────────────────────────────────────────────────────
@@ -217,8 +216,7 @@ export default function WhatsApp() {
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300 }}>
-        <Loader2 size={28} className="spin" style={{ color: 'var(--accent-primary)', animation: 'spin 1s linear infinite' }} />
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        <Loader2 size={28} style={{ color: 'var(--accent-primary)', animation: 'tr-spin 1s linear infinite' }} />
       </div>
     )
   }
@@ -274,7 +272,7 @@ export default function WhatsApp() {
               color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13, fontWeight: 500,
             }}
           >
-            {disconnecting ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Unplug size={14} />}
+            {disconnecting ? <Loader2 size={14} style={{ animation: 'tr-spin 1s linear infinite' }} /> : <Unplug size={14} />}
             Desconectar
           </button>
         </div>
@@ -412,7 +410,7 @@ export default function WhatsApp() {
             }}
           >
             {saving
-              ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</>
+              ? <><Loader2 size={16} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</>
               : <><Save size={16} /> Conectar WhatsApp</>
             }
           </button>
@@ -457,7 +455,7 @@ export default function WhatsApp() {
               }}
             >
               {sendingTest
-                ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />
+                ? <Loader2 size={15} style={{ animation: 'tr-spin 1s linear infinite' }} />
                 : <Send size={15} />}
               Enviar prueba
             </button>
@@ -527,7 +525,7 @@ export default function WhatsApp() {
             }}
           >
             {savingAuto
-              ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />
+              ? <Loader2 size={15} style={{ animation: 'tr-spin 1s linear infinite' }} />
               : <Save size={15} />}
             Guardar configuración
           </button>
@@ -538,8 +536,6 @@ export default function WhatsApp() {
           )}
         </div>
       </div>
-
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }

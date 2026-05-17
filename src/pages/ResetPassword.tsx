@@ -121,7 +121,6 @@ export function ResetPassword() {
           <p style={{ color: '#64748b', fontSize: '0.875rem', margin: 0 }}>
             Verificando enlace...
           </p>
-          <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
         </div>
       </div>
     )
@@ -240,7 +239,6 @@ export function ResetPassword() {
           </form>
         </div>
       </div>
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }

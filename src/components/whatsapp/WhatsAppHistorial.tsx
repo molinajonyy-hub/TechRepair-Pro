@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { MessageCircle, Clock, User, Zap, CheckCircle, Copy, ExternalLink, XCircle, RefreshCw } from 'lucide-react'
+import { MessageCircle, Clock, User, Zap, Copy, ExternalLink, XCircle, RefreshCw } from 'lucide-react'
 import { whatsappService, WhatsAppLog } from '../../services/whatsappService'
 
 interface WhatsAppHistorialProps {
@@ -7,16 +7,18 @@ interface WhatsAppHistorialProps {
 }
 
 const RESULT_CONFIG = {
-  opened:  { label: 'Enviado',  color: '#25d366', icon: ExternalLink },
-  copied:  { label: 'Copiado',  color: '#6366f1', icon: Copy },
-  failed:  { label: 'Error',    color: '#dc2626', icon: XCircle },
-  skipped: { label: 'Omitido', color: '#64748b', icon: XCircle },
-}
+  opened:   { label: 'Enviado',  color: '#25d366', icon: ExternalLink },
+  copied:   { label: 'Copiado',  color: '#6366f1', icon: Copy },
+  failed:   { label: 'Error',    color: '#dc2626', icon: XCircle },
+  skipped:  { label: 'Omitido',  color: '#64748b', icon: XCircle },
+  sent_api: { label: 'API',      color: '#818cf8', icon: Zap },
+} as const
 
 const MODE_CONFIG = {
   manual: { label: 'Manual',    color: '#818cf8', icon: User },
   auto:   { label: 'Automático', color: '#25d366', icon: Zap },
-}
+  api:    { label: 'API',        color: '#a78bfa', icon: Zap },
+} as const
 
 export function WhatsAppHistorial({ orderId }: WhatsAppHistorialProps) {
   const [logs, setLogs] = useState<WhatsAppLog[]>([])
@@ -96,8 +98,8 @@ export function WhatsAppHistorial({ orderId }: WhatsAppHistorialProps) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
             {logs.map((log, i) => {
-              const resultCfg = RESULT_CONFIG[log.send_result] || RESULT_CONFIG.opened
-              const modeCfg   = MODE_CONFIG[log.send_mode]    || MODE_CONFIG.manual
+              const resultCfg = RESULT_CONFIG[log.send_result as keyof typeof RESULT_CONFIG] ?? RESULT_CONFIG.opened
+              const modeCfg   = MODE_CONFIG[log.send_mode as keyof typeof MODE_CONFIG]       ?? MODE_CONFIG.manual
               const ResultIcon = resultCfg.icon
               const ModeIcon   = modeCfg.icon
 

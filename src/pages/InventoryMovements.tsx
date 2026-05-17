@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowUpRight, ArrowDownRight, RefreshCw, SlidersHorizontal,
-  Package, FileText, Truck, ShoppingCart, RotateCcw,
+  Package, FileText, Truck, RotateCcw,
   Wrench, Settings2, AlertTriangle, X, ExternalLink,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'

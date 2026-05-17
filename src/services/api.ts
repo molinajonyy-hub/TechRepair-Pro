@@ -1,16 +1,6 @@
-import { supabase } from '../lib/supabase'
-import type { 
-  Order, 
-  Customer, 
-  Device, 
-  Note, 
-  PartUsed, 
-  InventoryItem,
-  Supplier,
-  Expense,
-  User,
-  StatusHistory 
-} from '../lib/supabase'
+import { supabase, type Order, type Customer, type Device, type Note,
+  type PartUsed, type InventoryItem, type Supplier, type Expense,
+  type User, type StatusHistory } from '../lib/supabase'
 
 type CustomerPayload = Omit<Customer, 'id' | 'created_at' | 'updated_at' | 'business_id' | 'created_by'>
 type OrderPayload = Omit<Order, 'id' | 'created_at' | 'updated_at' | 'business_id' | 'created_by'>

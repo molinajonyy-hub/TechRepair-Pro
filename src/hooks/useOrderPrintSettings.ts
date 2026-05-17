@@ -10,6 +10,7 @@ export interface OrderPrintSettings {
   email: string
   localidad: string
   provincia: string
+  cuit?: string | null
   logo_url?: string | null
 
   // Campos nuevos específicos para la orden impresa

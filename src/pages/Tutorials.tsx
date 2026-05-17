@@ -6,7 +6,7 @@ import {
   ChevronDown, ChevronRight, ExternalLink,
   CheckCircle, AlertTriangle, Info, FileText, Shield,
   Settings, Upload, Key, Globe, Terminal,
-  Wallet, Smartphone, CreditCard, Zap, Lock, ArrowRight,
+  Wallet, Zap,
 } from 'lucide-react'
 import logoSvg from '../assets/logo.svg'
 

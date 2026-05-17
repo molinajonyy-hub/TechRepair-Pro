@@ -176,8 +176,6 @@ export function ComprobanteActions({
         )}
       </div>
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-
       {/* Modal de anulación */}
       {showAnularModal && (
         <div style={{

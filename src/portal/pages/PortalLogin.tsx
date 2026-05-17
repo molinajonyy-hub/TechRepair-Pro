@@ -102,7 +102,7 @@ const CSS = `
 `
 
 export function PortalLogin() {
-  const { business, bizLoading, setCustomer, slug, basePath } = usePortal()
+  const { business, bizLoading, setCustomer, basePath } = usePortal()
   const navigate = useNavigate()
 
   const [email,       setEmail]       = useState('')

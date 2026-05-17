@@ -1,4 +1,5 @@
 import { Route, Routes } from 'react-router-dom'
+import { PremiumErrorBoundary } from './components/ui/PremiumErrorBoundary'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { MainLayout } from './layouts/MainLayout'
 import { LoadingProvider, useLoading } from './contexts/LoadingContext'
@@ -167,9 +168,11 @@ function AppContent() {
 
 function App() {
   return (
-    <LoadingProvider>
-      <AppContent />
-    </LoadingProvider>
+    <PremiumErrorBoundary context="App">
+      <LoadingProvider>
+        <AppContent />
+      </LoadingProvider>
+    </PremiumErrorBoundary>
   )
 }
 

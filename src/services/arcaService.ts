@@ -1,5 +1,4 @@
 import { supabase } from '../lib/supabase'
-import EncryptionService from './encryptionService'
 
 /**
  * Servicio para integración con ARCA/AFIP.

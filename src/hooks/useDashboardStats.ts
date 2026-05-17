@@ -197,7 +197,7 @@ export function useDashboardStats() {
         totalCustomers,
         newCustomersThisMonth,
         financeResult,
-        compItemsResult,
+        _compItemsResult,
         ccAccountsResult,
       ] = await Promise.all([
 

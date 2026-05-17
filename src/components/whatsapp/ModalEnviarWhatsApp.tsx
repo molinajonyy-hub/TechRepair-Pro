@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   MessageCircle, Copy, ExternalLink, Phone, CheckCircle,
-  AlertTriangle, Send, Edit3
+  AlertTriangle, Edit3
 } from 'lucide-react'
 import { CloseButton } from '../ui/CloseButton'
 import { useAuth } from '../../contexts/AuthContext'
@@ -25,8 +25,8 @@ interface ModalEnviarWhatsAppProps {
 export function ModalEnviarWhatsApp({ isOpen, onClose, order }: ModalEnviarWhatsAppProps) {
   const { businessId } = useAuth()
 
-  const [settings, setSettings] = useState<WhatsAppSettings | null>(null)
-  const [template, setTemplate] = useState<WhatsAppTemplate | null>(null)
+  const [, setSettings] = useState<WhatsAppSettings | null>(null)
+  const [, setTemplate] = useState<WhatsAppTemplate | null>(null)
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)

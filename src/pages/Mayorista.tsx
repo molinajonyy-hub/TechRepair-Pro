@@ -569,14 +569,12 @@ export function Mayorista() {
 
   if (loading) return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-      <Loader2 size={28} style={{ animation: 'spin 1s linear infinite', color: '#6366f1' }} />
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      <Loader2 size={28} style={{ animation: 'tr-spin 1s linear infinite', color: '#6366f1' }} />
     </div>
   )
 
   return (
     <div>
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
       {/* ── Header ── */}
       <div className="page-hdr">

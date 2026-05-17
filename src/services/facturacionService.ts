@@ -391,8 +391,7 @@ export const facturacionService = {
       .select('*')
       .eq('id', data.customer_id)
       .single()
-      .then(({ data: c }) => c)
-      .catch(() => null) : null;
+      .then(({ data: c }) => c, () => null) : null;
 
     // Cargar orden
     const orden = data.order_id ? await supabase
@@ -400,8 +399,7 @@ export const facturacionService = {
       .select('id')
       .eq('id', data.order_id)
       .single()
-      .then(({ data: o }) => o)
-      .catch(() => null) : null;
+      .then(({ data: o }) => o, () => null) : null;
 
     return {
       ...data,

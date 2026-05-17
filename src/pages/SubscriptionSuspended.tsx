@@ -8,8 +8,7 @@ import { useNavigate } from 'react-router-dom'
 import { Lock, Zap, LogOut } from 'lucide-react'
 import { useSubscription } from '../hooks/useSubscription'
 import { useAuth } from '../contexts/AuthContext'
-import { STATUS_LABELS } from '../types/subscription'
-import type { SubscriptionStatus } from '../types/subscription'
+import { STATUS_LABELS, type SubscriptionStatus } from '../types/subscription'
 
 export function SubscriptionSuspended() {
   const navigate = useNavigate()

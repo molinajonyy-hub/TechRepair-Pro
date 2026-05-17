@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { MessageCircle, ChevronDown, ChevronUp, Package } from 'lucide-react'
 import { usePortal } from '../contexts/PortalContext'
 import { getCustomerOrders } from '../services/portalService'
 import { usePortalGuard } from '../hooks/usePortalGuard'
 import { PortalLayout, PortalCard, PortalButton, PT } from '../components/PortalLayout'
-import { ORDER_STATUS_LABEL, ORDER_STATUS_COLOR } from '../types'
-import type { WholesaleOrder } from '../types'
+import { ORDER_STATUS_LABEL, ORDER_STATUS_COLOR, type WholesaleOrder } from '../types'
 
 function fmtARS(n: number) {
   return '$' + Math.round(n).toLocaleString('es-AR')

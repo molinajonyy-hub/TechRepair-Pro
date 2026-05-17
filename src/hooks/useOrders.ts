@@ -62,7 +62,7 @@ export function useOrders() {
 
       if (ordersError) throw ordersError
 
-      setOrders((data as OrderListItem[]) ?? [])
+      setOrders((data as unknown as OrderListItem[]) ?? [])
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error al cargar órdenes'
       console.error('Error loading orders:', err)

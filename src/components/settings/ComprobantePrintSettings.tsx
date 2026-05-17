@@ -18,15 +18,15 @@ import {
   OrderPrintSettings as OPS,
 } from '../../hooks/useOrderPrintSettings'
 import { ComprobanteDocumento } from '../comprobantes/ComprobanteDocumento'
-import type { Comprobante, ComprobanteItem } from '../../hooks/useComprobantes'
+import type { ComprobanteItem } from '../../hooks/useComprobantes'
 
 // ─── Sample data for preview ──────────────────────────────────────────────────
 
-const SAMPLE_COMPROBANTE: Comprobante = {
+const SAMPLE_COMPROBANTE = {
   id: 'preview-00000000-0000-0000-0000-000000000000',
   order_id: null,
   customer_id: null,
-  business_id: null,
+  business_id: 'preview',
   tipo: 'factura_c',
   numero: '00000001',
   punto_venta: '0001',
@@ -356,7 +356,6 @@ export function ComprobantePrintSettings() {
             <><Save size={15} /> Guardar cambios</>
           )}
         </button>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
 
       {/* ── Right panel: live preview ── */}
@@ -382,7 +381,7 @@ export function ComprobantePrintSettings() {
           {/* Scale-down wrapper so preview fits without scrolling */}
           <div style={{ transformOrigin: 'top left', transform: 'scale(0.85)', width: '117.6%', pointerEvents: 'none', userSelect: 'none' }}>
             <ComprobanteDocumento
-              comprobante={SAMPLE_COMPROBANTE}
+              comprobante={SAMPLE_COMPROBANTE as any}
               items={SAMPLE_ITEMS}
               cliente={SAMPLE_CLIENTE}
               orden={SAMPLE_ORDEN}

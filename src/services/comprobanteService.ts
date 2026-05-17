@@ -141,7 +141,6 @@ export const PROVIDER_LABELS: Record<string, string> = {
 // Tipo AFIP code map
 const AFIP_TIPO_CODE: Partial<Record<TipoComprobante, number>> = {
   factura_a:    1,
-  factura_b:    6,
   factura_c:    11,
   nota_credito: 3,
 };
@@ -381,8 +380,11 @@ export const comprobanteService = {
         descuento_total:  descuentoTotal,
         recargo_total:    0,
         total_bruto:      totalBruto,
-        total_cobrado:    pagosCash.length > 0 ? pagosConComision.reduce((s, p) => s + p.amtARS, 0) : 0,
-        saldo_pendiente:  Math.max(0, totalBruto - (pagosCash.length > 0 ? pagosConComision.reduce((s, p) => s + p.amtARS, 0) : 0)),
+        // total_cobrado y saldo_pendiente los actualiza el trigger trig_comprobante_payment_sync
+        // al insertar comprobante_payments. Arrancamos en estado honesto (sin pago registrado)
+        // para evitar total_cobrado huérfano si el insert de pagos falla.
+        total_cobrado:    0,
+        saldo_pendiente:  totalBruto,
         total_comisiones: totalComisiones,
         total_neto:       totalNeto,
         estado:           estadoDefinitivo === 'issued' ? 'emitido' : 'borrador',
@@ -471,7 +473,12 @@ export const comprobanteService = {
           .from('comprobante_payments')
           .insert(pagosToInsert);
 
-        if (pagErr) console.warn('Error al registrar pagos:', pagErr.message);
+        if (pagErr) {
+          // Rollback: eliminar items y comprobante para no dejar estado inconsistente
+          await supabase.from('comprobante_items').delete().eq('comprobante_id', comp.id);
+          await supabase.from('comprobantes').delete().eq('id', comp.id).eq('business_id', business_id);
+          throw new Error(`Error al registrar los pagos del comprobante: ${pagErr.message}`);
+        }
       }
 
       // ── 8. Registrar costo de productos en finanzas ──────────────────────
@@ -678,9 +685,16 @@ export const comprobanteService = {
 
     if (error) return { success: false, error: error.message };
 
-    // Reverso en finanzas (trigger también lo hace, esto es backup)
+    // Reverso en finanzas — idempotente: solo insertar si aún no existe una entrada negativa
     const numero = comp.number || comp.numero || comprobanteId.slice(0, 8);
-    await supabase.from('business_finance_entries').insert({
+    const { data: existingReversal } = await supabase
+      .from('business_finance_entries')
+      .select('id')
+      .eq('reference_comprobante_id', comprobanteId)
+      .lt('amount_ars', 0)
+      .maybeSingle();
+
+    if (!existingReversal) await supabase.from('business_finance_entries').insert({
       business_id:              businessId,
       date:                     new Date().toISOString().split('T')[0],
       type:                     'income',

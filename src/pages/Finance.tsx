@@ -2251,9 +2251,6 @@ CREATE POLICY "bfe_delete" ON business_finance_entries FOR DELETE
         />
       )}
 
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}</style>
     </div>
   )
 }

@@ -55,7 +55,6 @@ const TIPO_LETRA: Record<string, string> = {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ComprobantePrintLayout({ comprobante, items, cliente, orden, profile }: Props) {
-  const tipoLabel  = TIPO_LABEL[comprobante.tipo]  ?? comprobante.tipo.toUpperCase()
   const tipoLetra  = TIPO_LETRA[comprobante.tipo]  ?? '?'
   const nombre     = profile.nombre_comercial || 'Mi Negocio'
   const esRemito   = comprobante.tipo === 'remito'

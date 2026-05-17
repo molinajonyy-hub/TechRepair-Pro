@@ -8,7 +8,6 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, ChevronRight, CheckCircle2, Circle, Clock, AlertTriangle, ListChecks, Send, X } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { taskService, type TaskLite, type TaskSummary } from '../../services/taskService'
-import { supabase } from '../../lib/supabase'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

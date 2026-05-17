@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Search, X, User, Package, FileText, Wrench, Loader2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { normalizeText, tokenize } from '../../utils/searchUtils'
+import { tokenize } from '../../utils/searchUtils'
 
 interface SearchResult {
   id: string
@@ -510,10 +510,6 @@ export function GlobalSearch() {
           </div>
         </div>
       )}
-
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}</style>
     </div>
   )
 }

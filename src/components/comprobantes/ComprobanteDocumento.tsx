@@ -5,8 +5,7 @@
  * y los datos del comprobante por props.
  */
 
-import type { ReactNode } from 'react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   Plus, Trash2, Edit2, Check, X, Package,
   Phone, Instagram, Mail, MapPin,
@@ -290,7 +289,7 @@ function DocInfo({ comprobante, cliente, orden }: {
             comprobante.cae && comprobante.cae_vencimiento
               ? ['Venc. CAE', fmtFecha(comprobante.cae_vencimiento)]
               : null,
-          ].filter(Boolean).map(([label, value]) => (
+          ].filter((row): row is string[] => row !== null).map(([label, value]) => (
             <div key={label as string} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
               <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem' }}>{label}</span>
               <span style={{

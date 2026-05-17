@@ -20,7 +20,7 @@ import {
   PAYMENT_STATUS_COLORS,
   type SubscriptionStatus,
 } from '../types/subscription'
-import { PLAN_FEATURES, PLAN_DISPLAY, type PlanFeature } from '../config/planFeatures'
+import { PLAN_FEATURES, type PlanFeature } from '../config/planFeatures'
 import { supabase } from '../lib/supabase'
 
 function StatusIcon({ status }: { status: SubscriptionStatus }) {
@@ -405,8 +405,6 @@ export function Subscription() {
           </div>
         </div>
       )}
-
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }
