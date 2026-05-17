@@ -92,8 +92,9 @@ export default function ComprobantePage() {
         const profit = totalRevenue - totalCost;
         const margin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
         setProfitInfo({ totalCost, totalRevenue, profit, margin, inventoryItemsCount, totalItemsCount: items.length });
-      })
-      .catch(() => setProfitInfo(null));
+      },
+      () => setProfitInfo(null)
+      );
   }, [comprobanteActual]);
 
   const handleEmitir = async () => {
@@ -186,9 +187,8 @@ export default function ComprobantePage() {
   if (loading || loadingProfile) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4rem', gap: '1rem' }}>
-        <Loader2 style={{ width: 36, height: 36, color: 'var(--accent-primary)', animation: 'spin 1s linear infinite' }} />
+        <Loader2 style={{ width: 36, height: 36, color: 'var(--accent-primary)', animation: 'tr-spin 1s linear infinite' }} />
         <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Cargando comprobante...</p>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
   }
@@ -227,63 +227,57 @@ export default function ComprobantePage() {
   return (
     <div>
       {/* Title row */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', gap: '1rem' }}>
-        <div>
-          <nav style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.8125rem', marginBottom: '0.375rem' }}>
-            <Link to="/comprobantes" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>Comprobantes</Link>
-            <span style={{ color: 'var(--border-strong)' }}>/</span>
-            <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>
-              {comprobanteActual && TIPO_LABELS[comprobanteActual.tipo]}
-            </span>
-          </nav>
-          <h1 style={{ fontSize: '1.375rem', fontWeight: 700, color: 'var(--text-primary)', margin: 0, lineHeight: 1.3 }}>
-            {comprobanteActual && TIPO_LABELS[comprobanteActual.tipo]}
-            {comprobanteActual?.numero && (
-              <span style={{ fontFamily: 'monospace', fontWeight: 500, color: 'var(--text-muted)', fontSize: '1rem', marginLeft: '0.5rem' }}>
-                #{String(comprobanteActual.numero).padStart(8, '0')}
+      <div className="page-hdr">
+        <div className="page-hdr-left">
+          <div>
+            <nav style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.8125rem', marginBottom: '0.375rem' }}>
+              <Link to="/comprobantes" style={{ color: 'var(--text-muted)', textDecoration: 'none' }}>Comprobantes</Link>
+              <span style={{ color: 'var(--border-strong)' }}>/</span>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 500 }}>
+                {comprobanteActual && TIPO_LABELS[comprobanteActual.tipo]}
               </span>
-            )}
-          </h1>
+            </nav>
+            <h1 className="page-hdr-title">
+              {comprobanteActual && TIPO_LABELS[comprobanteActual.tipo]}
+              {comprobanteActual?.numero && (
+                <span style={{ fontFamily: 'monospace', fontWeight: 500, color: 'var(--text-muted)', fontSize: '1rem', marginLeft: '0.5rem' }}>
+                  #{String(comprobanteActual.numero).padStart(8, '0')}
+                </span>
+              )}
+            </h1>
+          </div>
         </div>
-        <Link
-          to={comprobanteActual?.order_id ? `/orders/${comprobanteActual.order_id}` : '/comprobantes'}
-          className="btn btn-outline"
-        >
-          <ArrowLeft size={15} /> Volver
-        </Link>
+        <div className="page-hdr-right">
+          <Link
+            to={comprobanteActual?.order_id ? `/orders/${comprobanteActual.order_id}` : '/comprobantes'}
+            className="btn btn-outline"
+          >
+            <ArrowLeft size={15} /> Volver
+          </Link>
+        </div>
       </div>
 
       {/* Alerts */}
       {error && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '0.75rem',
-          padding: '0.875rem 1rem', borderRadius: 'var(--radius-md)',
-          background: 'var(--error-light)', border: '1px solid var(--error)',
-          marginBottom: '1rem',
-        }}>
-          <AlertCircle size={16} style={{ color: 'var(--error)', flexShrink: 0 }} />
-          <span style={{ color: 'var(--error)', fontSize: '0.875rem', flex: 1 }}>{formatDisplayMessage(error)}</span>
-          <button onClick={limpiarError} style={{ background: 'none', border: 'none', color: 'var(--error)', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline' }}>
+        <div className="alert-inline alert-error" style={{ marginBottom: '1rem' }}>
+          <AlertCircle size={16} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>{formatDisplayMessage(error)}</span>
+          <button onClick={limpiarError} style={{ background: 'none', border: 'none', color: 'inherit', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline' }}>
             Cerrar
           </button>
         </div>
       )}
       {showSuccess && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '0.75rem',
-          padding: '0.875rem 1rem', borderRadius: 'var(--radius-md)',
-          background: 'var(--success-light)', border: '1px solid var(--success)',
-          marginBottom: '1rem',
-        }}>
-          <CheckCircle size={16} style={{ color: 'var(--success)', flexShrink: 0 }} />
-          <span style={{ color: 'var(--success)', fontSize: '0.875rem' }}>{showSuccess}</span>
+        <div className="alert-inline alert-success" style={{ marginBottom: '1rem' }}>
+          <CheckCircle size={16} style={{ flexShrink: 0 }} />
+          <span>{showSuccess}</span>
         </div>
       )}
 
       {/* Print layout — invisible normally, full-page on print */}
       {comprobanteActual && (
         <ComprobantePrintLayout
-          comprobante={comprobanteActual}
+          comprobante={comprobanteActual as any}
           items={items}
           cliente={cliente}
           orden={orden}
@@ -298,7 +292,7 @@ export default function ComprobantePage() {
           {/* Document */}
           <div style={{ flex: 1, minWidth: 0 }}>
             <ComprobanteDocumento
-              comprobante={comprobanteActual}
+              comprobante={comprobanteActual as any}
               items={items}
               cliente={cliente}
               orden={orden}
@@ -313,7 +307,7 @@ export default function ComprobantePage() {
           {/* Sidebar */}
           <div style={{ width: 272, flexShrink: 0, position: 'sticky', top: '1.5rem' }} className="print:hidden">
             <ComprobanteActions
-              comprobante={comprobanteActual}
+              comprobante={comprobanteActual as any}
               onEmitir={handleEmitir}
               onAnular={handleAnular}
               onDescargarPDF={handleDescargarPDF}
@@ -323,10 +317,9 @@ export default function ComprobantePage() {
 
             {/* Ganancia real del comprobante */}
             {profitInfo !== null && (
-              <div style={{
+              <div className="surface-raised" style={{
                 marginTop: '1rem',
                 padding: '1rem',
-                backgroundColor: '#0a1628',
                 border: `1px solid ${profitInfo.profit >= 0 ? 'rgba(52,211,153,0.25)' : 'rgba(248,113,113,0.25)'}`,
                 borderRadius: '0.75rem',
               }}>

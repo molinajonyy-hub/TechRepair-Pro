@@ -130,7 +130,7 @@ function AdminImageUploader({
 
       <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" multiple style={{ display: 'none' }} onChange={e => upload(e.target.files)} />
       <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.875rem', background: S.primaryBg, border: `1px dashed ${S.borderActive}`, borderRadius: S.radiusSm, color: S.primary, fontSize: '0.8rem', fontWeight: 600, cursor: uploading ? 'not-allowed' : 'pointer', opacity: uploading ? 0.7 : 1 }}>
-        {uploading ? <Loader2 size={13} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Upload size={13} />}
+        {uploading ? <Loader2 size={13} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> : <Upload size={13} />}
         {uploading ? 'Subiendo...' : 'Subir imágenes'}
       </button>
       {err && <p style={{ margin: '0.375rem 0 0', fontSize: '0.72rem', color: S.danger }}>{err}</p>}
@@ -166,8 +166,6 @@ function EditDrawer({ product, businessId, onClose, onSaved }: { product: AdminP
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)', display: 'flex', justifyContent: 'flex-end', zIndex: 9999 }} onClick={e => { if (e.target === e.currentTarget && !saving) onClose() }}>
       <div style={{ width: '100%', maxWidth: 520, background: S.surface, borderLeft: `1px solid ${S.border}`, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-
         {/* Header */}
         <div style={{ padding: '1.25rem 1.5rem', borderBottom: `1px solid ${S.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: S.surface, zIndex: 1 }}>
           <div>
@@ -295,7 +293,7 @@ function EditDrawer({ product, businessId, onClose, onSaved }: { product: AdminP
           {err && <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.375rem', color: S.danger, fontSize: '0.8rem' }}><AlertCircle size={14} />{err}</div>}
           <button onClick={onClose} disabled={saving} style={{ padding: '0.625rem 1.125rem', background: 'rgba(255,255,255,0.05)', border: `1px solid ${S.border}`, borderRadius: S.radiusSm, color: S.textSub, fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
           <button onClick={save} disabled={saving || success} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.375rem', background: success ? 'rgba(34,197,94,0.15)' : `linear-gradient(135deg,${S.primary},#8b5cf6)`, border: success ? '1px solid rgba(34,197,94,0.35)' : 'none', borderRadius: S.radiusSm, color: success ? '#34d399' : '#fff', fontSize: '0.875rem', fontWeight: 700, cursor: saving || success ? 'not-allowed' : 'pointer', opacity: saving ? 0.75 : 1 }}>
-            {saving ? <><Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} />Guardando...</> : success ? <><CheckCircle2 size={14} />Guardado</> : 'Guardar'}
+            {saving ? <><Loader2 size={14} style={{ animation: 'tr-spin 0.8s linear infinite' }} />Guardando...</> : success ? <><CheckCircle2 size={14} />Guardado</> : 'Guardar'}
           </button>
         </div>
       </div>
@@ -467,7 +465,6 @@ export function AdminPortalClic() {
 
   return (
     <div style={{ minHeight: '100vh', background: S.bg, color: S.text, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       {/* ── Header ── */}
       <div style={{ padding: '2rem 2rem 1.5rem', maxWidth: 1400, margin: '0 auto' }}>
@@ -550,7 +547,7 @@ export function AdminPortalClic() {
 
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '5rem' }}>
-            <Loader2 size={32} style={{ animation: 'spin 1s linear infinite', color: S.primary }} />
+            <Loader2 size={32} style={{ animation: 'tr-spin 1s linear infinite', color: S.primary }} />
           </div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: '5rem', textAlign: 'center', color: S.textSub }}>

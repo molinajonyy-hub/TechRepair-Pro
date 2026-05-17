@@ -148,29 +148,15 @@ function EditPermissionsModal({ user, onClose, onSaved }: EditPermissionsModalPr
   };
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0,
-      backgroundColor: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      zIndex: 60, padding: '1rem',
-    }}>
-      <div style={{
-        backgroundColor: '#0b1120', borderRadius: '1rem',
-        border: '1px solid rgba(255,255,255,0.08)',
-        width: '100%', maxWidth: '520px',
-        maxHeight: '90vh', display: 'flex', flexDirection: 'column',
-      }}>
+    <div className="modal-overlay-dark">
+      <div className="modal-card" style={{ maxWidth: '520px' }}>
         {/* Header */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '1.25rem 1.5rem',
-          borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0,
-        }}>
+        <div className="modal-hdr">
           <div>
-            <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc' }}>
+            <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
               Permisos — {user.full_name || user.email}
             </h2>
-            <p style={{ margin: '0.15rem 0 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+            <p style={{ margin: '0.15rem 0 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
               Rol base: {user.role} · Personalizá los accesos
             </p>
           </div>
@@ -178,15 +164,12 @@ function EditPermissionsModal({ user, onClose, onSaved }: EditPermissionsModalPr
         </div>
 
         {/* Scrollable matrix */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem' }}>
+        <div className="modal-body-scroll">
           <PermissionsMatrix role={user.role} value={perms} onChange={setPerms} />
         </div>
 
         {/* Footer */}
-        <div style={{
-          display: 'flex', gap: '0.625rem', padding: '1rem 1.5rem',
-          borderTop: '1px solid rgba(255,255,255,0.07)', flexShrink: 0,
-        }}>
+        <div className="modal-ftr">
           <button onClick={handleReset} style={{
             padding: '0.5rem 0.875rem', fontSize: '0.8rem',
             backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
@@ -212,7 +195,7 @@ function EditPermissionsModal({ user, onClose, onSaved }: EditPermissionsModalPr
 // ─── Main Component ───────────────────────────────────────────────────────────
 export function UsersManagement() {
   const { businessId, isOwner, isAdmin, profile } = useAuth();
-  const { maxUsers, currentPlan } = useSubscription();
+  const { } = useSubscription();
   const [users, setUsers] = useState<BusinessUser[]>([]);
   const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -379,17 +362,17 @@ export function UsersManagement() {
 
   const getRoleBadge = (userRole: string) => {
     const colors: Record<string, { bg: string; text: string }> = {
-      owner:   { bg: '#fef3c7', text: '#92400e' },
-      admin:   { bg: '#dbeafe', text: '#1e40af' },
-      manager: { bg: '#d1fae5', text: '#065f46' },
-      tech:    { bg: '#f3e8ff', text: '#6b21a8' },
-      sales:   { bg: '#fce7f3', text: '#9d174d' },
-      cashier: { bg: '#ffedd5', text: '#9a3412' },
-      viewer:  { bg: '#f1f5f9', text: '#475569' },
+      owner:   { bg: 'rgba(251,191,36,0.15)',  text: '#fbbf24' },
+      admin:   { bg: 'rgba(99,102,241,0.15)',  text: '#818cf8' },
+      manager: { bg: 'rgba(52,211,153,0.15)',  text: '#34d399' },
+      tech:    { bg: 'rgba(167,139,250,0.15)', text: '#a78bfa' },
+      sales:   { bg: 'rgba(248,113,113,0.15)', text: '#f87171' },
+      cashier: { bg: 'rgba(251,146,60,0.15)',  text: '#fb923c' },
+      viewer:  { bg: 'rgba(148,163,184,0.12)', text: '#94a3b8' },
     };
     const style = colors[userRole] || colors.viewer;
     return (
-      <span style={{ padding: '0.25rem 0.625rem', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 500, ...style }}>
+      <span style={{ padding: '0.25rem 0.625rem', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600, backgroundColor: style.bg, color: style.text }}>
         {userRole.charAt(0).toUpperCase() + userRole.slice(1)}
       </span>
     );
@@ -405,7 +388,7 @@ export function UsersManagement() {
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
-        <RefreshCw className="animate-spin" size={32} style={{ color: '#6366f1' }} />
+        <RefreshCw size={32} style={{ color: '#6366f1', animation: 'tr-spin 1s linear infinite' }} />
       </div>
     );
   }
@@ -413,22 +396,17 @@ export function UsersManagement() {
   return (
     <div>
       {/* Page header */}
-      <div style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-          <div style={{
-            width: '44px', height: '44px', borderRadius: '0.75rem',
-            background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2))',
-            border: '1px solid rgba(99,102,241,0.3)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          }}>
-            <UserCheck size={22} style={{ color: '#818cf8' }} />
+      <div className="page-hdr">
+        <div className="page-hdr-left">
+          <div className="page-hdr-icon">
+            <UserCheck size={22} style={{ color: 'var(--accent-primary)' }} />
           </div>
           <div>
-            <h1 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 800, color: '#f8fafc' }}>Usuarios del Negocio</h1>
-            <p style={{ margin: 0, fontSize: '0.8rem', color: '#475569' }}>Gestioná usuarios, roles y permisos</p>
+            <h1 className="page-hdr-title">Usuarios del Negocio</h1>
+            <p className="page-hdr-subtitle">Gestioná usuarios, roles y permisos</p>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <div className="page-hdr-right">
           {canManageUsers && (
             <button onClick={() => setShowInvitations(v => !v)} style={{
               display: 'flex', alignItems: 'center', gap: '0.5rem',
@@ -443,14 +421,7 @@ export function UsersManagement() {
             </button>
           )}
           {canManageUsers && (
-            <button onClick={() => setShowInviteModal(true)} style={{
-              display: 'flex', alignItems: 'center', gap: '0.5rem',
-              padding: '0.625rem 1.25rem',
-              background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-              border: 'none', color: '#ffffff', borderRadius: '0.625rem',
-              cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem',
-              boxShadow: '0 4px 12px rgba(99,102,241,0.35)',
-            }}>
+            <button onClick={() => setShowInviteModal(true)} className="btn btn-primary btn-lift">
               <Plus size={18} />
               Invitar Usuario
             </button>
@@ -608,16 +579,16 @@ export function UsersManagement() {
 
       {/* Invite modal */}
       {showInviteModal && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '1rem' }}>
-          <div style={{ backgroundColor: '#0b1120', borderRadius: '1rem', border: '1px solid rgba(255,255,255,0.08)', width: '100%', maxWidth: '580px', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
+        <div className="modal-overlay-dark">
+          <div className="modal-card" style={{ maxWidth: '580px' }}>
             {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
-              <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#ffffff' }}>Invitar Usuario</h2>
+            <div className="modal-hdr">
+              <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Invitar Usuario</h2>
               <CloseButton onClick={() => setShowInviteModal(false)} />
             </div>
 
             {/* Scrollable body */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem' }}>
+            <div className="modal-body-scroll">
               <div style={{ marginBottom: '1rem' }}>
                 <label style={inputLabelStyle}>Email</label>
                 <input
@@ -649,7 +620,7 @@ export function UsersManagement() {
             </div>
 
             {/* Footer */}
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
+            <div className="modal-ftr" style={{ justifyContent: 'flex-end' }}>
               <button onClick={() => setShowInviteModal(false)} style={secondaryButtonStyle}>Cancelar</button>
               <button
                 onClick={() => void handleInvite()}
@@ -686,8 +657,8 @@ const headerCellStyle = {
 
 const headerRightCellStyle = { ...headerCellStyle, textAlign: 'right' as const };
 
-const activeBadgeStyle = { padding: '0.25rem 0.625rem', backgroundColor: '#d1fae5', color: '#065f46', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 500 };
-const inactiveBadgeStyle = { padding: '0.25rem 0.625rem', backgroundColor: '#fee2e2', color: '#991b1b', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 500 };
+const activeBadgeStyle = { padding: '0.25rem 0.625rem', backgroundColor: 'rgba(52,211,153,0.15)', color: '#34d399', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600 };
+const inactiveBadgeStyle = { padding: '0.25rem 0.625rem', backgroundColor: 'rgba(248,113,113,0.15)', color: '#f87171', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600 };
 
 const dangerButtonStyle = {
   padding: '0.375rem 0.5rem', backgroundColor: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',

@@ -46,8 +46,7 @@ type AdminBiz = {
 
 function StatusBadge({ status }: { status: SubscriptionStatus }) {
   return (
-    <span style={{
-      padding: '0.2rem 0.6rem', borderRadius: '1rem', fontSize: '0.75rem', fontWeight: 600,
+    <span className="badge" style={{
       background: STATUS_COLORS[status] + '20', color: STATUS_COLORS[status],
     }}>
       {STATUS_LABELS[status]}
@@ -135,17 +134,19 @@ export function AdminSubscriptions() {
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-        <div>
-          <h1 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.75rem', fontWeight: 700 }}>
-            Panel de Suscripciones
-          </h1>
-          <p style={{ color: 'var(--text-muted)', margin: '0.35rem 0 0', fontSize: '0.875rem' }}>Gestión interna — solo administradores</p>
+      <div className="page-hdr">
+        <div className="page-hdr-left">
+          <div>
+            <h1 className="page-hdr-title">Panel de Suscripciones</h1>
+            <p className="page-hdr-subtitle">Gestión interna — solo administradores</p>
+          </div>
         </div>
-        <button onClick={load} style={ghostBtn}>
-          <RefreshCw size={16} />
-          Actualizar
-        </button>
+        <div className="page-hdr-right">
+          <button onClick={load} style={ghostBtn}>
+            <RefreshCw size={16} />
+            Actualizar
+          </button>
+        </div>
       </div>
 
       {/* Stats row */}
@@ -160,17 +161,14 @@ export function AdminSubscriptions() {
 
       {/* Search */}
       <div style={{ position: 'relative', marginBottom: '1.5rem' }}>
-        <Search size={16} style={{ position: 'absolute', left: '0.875rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+        <Search size={16} style={{ position: 'absolute', left: '0.875rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
         <input
           value={query}
           onChange={e => setQuery(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && load()}
           placeholder="Buscar por nombre de negocio..."
-          style={{
-            width: '100%', padding: '0.625rem 1rem 0.625rem 2.5rem', boxSizing: 'border-box',
-            background: 'var(--input-bg)', border: '1px solid var(--input-border)',
-            borderRadius: '0.75rem', color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none',
-          }}
+          className="form-control"
+          style={{ paddingLeft: '2.5rem' }}
         />
       </div>
 
@@ -178,7 +176,7 @@ export function AdminSubscriptions() {
       <div className="card" style={{ overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-            <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
+            <Loader2 size={24} style={{ animation: 'tr-spin 1s linear infinite' }} />
           </div>
         ) : businesses.length === 0 ? (
           <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
@@ -203,13 +201,13 @@ export function AdminSubscriptions() {
                         {b.mp_payer_email && <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{b.mp_payer_email}</div>}
                       </td>
                       <td style={tdS}><StatusBadge status={b.subscription_status} /></td>
-                      <td style={tdS}>{PLANS.find(p => p.id === b.subscription_plan)?.name || b.subscription_plan || '—'}</td>
+                      <td style={tdS}>{PLANS.find(p => p.id === b.subscription_plan)?.name || b.subscription_plan || 'â€"'}</td>
                       <td style={tdS}>
                         {b.current_period_end
                           ? new Date(b.current_period_end).toLocaleDateString('es-AR')
                           : b.trial_ends_at
                             ? `Prueba: ${new Date(b.trial_ends_at).toLocaleDateString('es-AR')}`
-                            : '—'}
+                            : 'â€"'}
                       </td>
                       <td style={tdS}>
                         {b.last_payment_status ? (
@@ -220,7 +218,7 @@ export function AdminSubscriptions() {
                           }}>
                             {(PAYMENT_STATUS_LABELS as Record<string,string>)[b.last_payment_status] || b.last_payment_status}
                           </span>
-                        ) : '—'}
+                        ) : 'â€"'}
                       </td>
                       <td style={tdS}>{formatSubscriptionPrice(b.total_revenue)}</td>
                       <td style={tdS}>
@@ -242,7 +240,7 @@ export function AdminSubscriptions() {
                                 title="Activar manualmente"
                               >
                                 {actionLoading === b.business_id + '_activate'
-                                  ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                                  ? <Loader2 size={13} style={{ animation: 'tr-spin 1s linear infinite' }} />
                                   : <Zap size={13} />}
                               </button>
                             </div>
@@ -254,7 +252,7 @@ export function AdminSubscriptions() {
                               title="Suspender"
                             >
                               {actionLoading === b.business_id + '_suspend'
-                                ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+                                ? <Loader2 size={13} style={{ animation: 'tr-spin 1s linear infinite' }} />
                                 : <Ban size={13} />}
                             </button>
                           </div>
@@ -278,7 +276,7 @@ export function AdminSubscriptions() {
                             Webhooks / Eventos
                           </h4>
                           {loadingEvents === b.business_id ? (
-                            <Loader2 size={16} style={{ animation: 'spin 1s linear infinite', color: 'var(--text-muted)' }} />
+                            <Loader2 size={16} style={{ animation: 'tr-spin 1s linear infinite', color: 'var(--text-muted)' }} />
                           ) : (events[b.business_id] || []).length === 0 ? (
                             <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: 0 }}>Sin eventos registrados.</p>
                           ) : (
@@ -295,13 +293,13 @@ export function AdminSubscriptions() {
                                   <tr key={ev.id}>
                                     <td style={{ padding: '0.3rem 0.5rem', color: 'var(--text-muted)' }}>{new Date(ev.created_at).toLocaleString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
                                     <td style={{ padding: '0.3rem 0.5rem', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>{ev.event_type}</td>
-                                    <td style={{ padding: '0.3rem 0.5rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{ev.external_id || '—'}</td>
+                                    <td style={{ padding: '0.3rem 0.5rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{ev.external_id || 'â€"'}</td>
                                     <td style={{ padding: '0.3rem 0.5rem' }}>
                                       {ev.processed
                                         ? <CheckCircle size={14} color="#34d399" />
                                         : <Clock size={14} color="#fbbf24" />}
                                     </td>
-                                    <td style={{ padding: '0.3rem 0.5rem', color: '#f87171', fontSize: '0.75rem' }}>{ev.error_message || '—'}</td>
+                                    <td style={{ padding: '0.3rem 0.5rem', color: '#f87171', fontSize: '0.75rem' }}>{ev.error_message || 'â€"'}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -318,16 +316,15 @@ export function AdminSubscriptions() {
         )}
       </div>
 
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }
 
 function StatCard({ label, value, color }: { label: string; value: string | number; color: string }) {
   return (
-    <div className="card" style={{ padding: '1rem 1.25rem' }}>
-      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>{label}</div>
-      <div style={{ fontSize: '1.5rem', fontWeight: 700, color }}>{value}</div>
+    <div className="stat-card">
+      <div className="stat-card-label">{label}</div>
+      <div className="stat-card-value" style={{ color }}>{value}</div>
     </div>
   )
 }
