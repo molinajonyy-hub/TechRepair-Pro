@@ -775,9 +775,6 @@ export const comprobanteService = {
     const rate   = params.exchange_rate || 1;
     const amtARS = (params.currency || 'ARS') === 'USD' ? params.amount * rate : params.amount;
 
-    // DEBUG-TEMP: remover después de confirmar fix en producción
-    console.log('[actualizarPago rpc args]', { comprobanteId, paymentMethod: params.payment_method, amount: params.amount, amtARS });
-
     // Usa la RPC atómica replace_comprobante_payment que:
     // 1. Borra TODOS los pagos existentes del comprobante (sin dejar rows viejos).
     // 2. Borra los financial_movements + BFE de ingresos del comprobante.
