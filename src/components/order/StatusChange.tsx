@@ -233,7 +233,7 @@ export function StatusChange({ orderId, currentStatus, order, onStatusChange }: 
           }}
         >
           {isUpdating
-            ? <><Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</>
+            ? <><Loader2 size={15} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</>
             : !selectedStatus || selectedStatus === currentStatus
             ? 'Seleccioná un estado'
             : confirmCancel

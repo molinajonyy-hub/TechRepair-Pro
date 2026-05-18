@@ -115,7 +115,7 @@ export function ResetPassword() {
             width: '48px', height: '48px', borderRadius: '50%',
             border: '3px solid rgba(99,102,241,0.15)',
             borderTop: '3px solid #6366f1',
-            animation: 'spin 0.8s linear infinite',
+            animation: 'tr-spin 0.8s linear infinite',
             margin: '0 auto 1.25rem',
           }} />
           <p style={{ color: '#64748b', fontSize: '0.875rem', margin: 0 }}>
@@ -232,7 +232,7 @@ export function ResetPassword() {
               }}
             >
               {loading
-                ? <><Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</>
+                ? <><Loader2 size={18} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</>
                 : 'Guardar nueva contraseña'
               }
             </button>

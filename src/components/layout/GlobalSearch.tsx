@@ -340,7 +340,7 @@ export function GlobalSearch() {
           <Loader2 size={16} style={{
             position: 'absolute', left: '0.75rem',
             color: 'var(--text-muted)',
-            animation: 'spin 1s linear infinite',
+            animation: 'tr-spin 1s linear infinite',
           }} />
         ) : (
           <Search size={16} style={{

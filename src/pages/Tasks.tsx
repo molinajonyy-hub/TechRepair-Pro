@@ -496,7 +496,7 @@ function TaskDetailPanel({ task, profiles: _profiles, profileMap, isAdmin, busin
       <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 1.25rem' }}>
         {loadingTab ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}>
-            <div style={{ width: 24, height: 24, border: '2px solid var(--accent-primary)', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            <div style={{ width: 24, height: 24, border: '2px solid var(--accent-primary)', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'tr-spin 1s linear infinite' }} />
           </div>
         ) : tab === 'details' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -863,7 +863,7 @@ export function Tasks() {
 
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
-          <div style={{ width: 32, height: 32, border: '3px solid var(--accent-primary)', borderTop: '3px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+          <div style={{ width: 32, height: 32, border: '3px solid var(--accent-primary)', borderTop: '3px solid transparent', borderRadius: '50%', animation: 'tr-spin 1s linear infinite' }} />
         </div>
       ) : view === 'kanban' ? (
         /* ── Kanban ── */

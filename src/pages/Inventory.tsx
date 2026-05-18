@@ -3020,7 +3020,7 @@ export function Inventory() {
                   gap: '0.5rem'
                 }}>
                   {isSubmitting ? (
-                    <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</>
+                    <><Loader2 size={16} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</>
                   ) : (
                     modalSubmitLabel
                   )}

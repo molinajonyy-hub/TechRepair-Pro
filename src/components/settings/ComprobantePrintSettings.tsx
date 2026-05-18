@@ -347,7 +347,7 @@ export function ComprobantePrintSettings() {
         >
           {saving ? (
             <>
-              <span style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.8s linear infinite' }} />
+              <span style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'tr-spin 0.8s linear infinite' }} />
               Guardando...
             </>
           ) : savedOk ? (

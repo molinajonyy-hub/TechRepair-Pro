@@ -227,7 +227,7 @@ function HistoryCajaPanel({ caja, onNavigate }: HistoryCajaPanelProps) {
       {/* Movements */}
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '1.25rem' }}>
-          <Loader2 size={20} style={{ color: '#6366f1', animation: 'spin 1s linear infinite' }} />
+          <Loader2 size={20} style={{ color: '#6366f1', animation: 'tr-spin 1s linear infinite' }} />
         </div>
       ) : movs.length === 0 ? (
         <div style={{ padding: '1.25rem', textAlign: 'center', color: '#334155', fontSize: '0.8rem' }}>Sin movimientos registrados</div>

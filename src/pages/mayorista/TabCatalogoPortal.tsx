@@ -77,7 +77,7 @@ function PriceCell({
       onClick={() => { setDraft(String(value ?? '')); setEditing(true) }}
       style={{ background: 'none', border: 'none', cursor: 'pointer', color: value ? '#818cf8' : '#334155', fontFamily: 'monospace', fontSize: '0.82rem', padding: '0.2rem 0.4rem', borderRadius: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
     >
-      {saving ? <Loader2 size={11} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Edit2 size={11} style={{ opacity: 0.5 }} />}
+      {saving ? <Loader2 size={11} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> : <Edit2 size={11} style={{ opacity: 0.5 }} />}
       {value ? fmtARS(value) : <span style={{ color: '#334155' }}>{placeholder}</span>}
     </button>
   )
@@ -167,7 +167,6 @@ export function TabCatalogoPortal({ businessId, portalSlug }: Props) {
 
   return (
     <div>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       {/* Stats + controls */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
@@ -229,7 +228,7 @@ export function TabCatalogoPortal({ businessId, portalSlug }: Props) {
       {/* Table */}
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
-          <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: '#6366f1' }} />
+          <Loader2 size={24} style={{ animation: 'tr-spin 1s linear infinite', color: '#6366f1' }} />
         </div>
       ) : filtered.length === 0 ? (
         <div style={{ padding: '3rem', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.06)', color: '#475569' }}>

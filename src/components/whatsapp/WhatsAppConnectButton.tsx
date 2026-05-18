@@ -256,7 +256,7 @@ export function WhatsAppConnectButton({
       title={label}
     >
       {loading ? (
-        <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} />
+        <Loader2 size={18} style={{ animation: 'tr-spin 1s linear infinite' }} />
       ) : (
         /* Ícono "f" de Facebook estilizado */
         <span
@@ -281,13 +281,6 @@ export function WhatsAppConnectButton({
 
       <span>{loading ? 'Conectando con Meta…' : label}</span>
 
-      {/* Animación para el spinner */}
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to   { transform: rotate(360deg); }
-        }
-      `}</style>
     </button>
   )
 }

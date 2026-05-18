@@ -574,7 +574,7 @@ export function NoBusiness() {
             >
               {loading ? (
                 <>
-                  <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
+                  <Loader2 size={20} style={{ animation: 'tr-spin 1s linear infinite' }} />
                   Creando negocio...
                 </>
               ) : (
@@ -585,16 +585,6 @@ export function NoBusiness() {
         )}
       </div>
 
-      {/* Add spin animation */}
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        .spin {
-          animation: spin 1s linear infinite;
-        }
-      `}</style>
     </div>
   );
 }

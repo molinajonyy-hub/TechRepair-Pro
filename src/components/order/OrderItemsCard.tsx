@@ -109,7 +109,7 @@ export function OrderItemsCard({ orderId, onTotalsChange }: OrderItemsCardProps)
     return (
       <div className="card">
         <div className="card-body" style={{ textAlign: 'center', padding: '2rem' }}>
-          <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: '#6366f1' }} />
+          <Loader2 size={24} style={{ animation: 'tr-spin 1s linear infinite', color: '#6366f1' }} />
         </div>
       </div>
     )
@@ -354,7 +354,7 @@ function ItemRow({
           }}
         >
           {isDeleting
-            ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />
+            ? <Loader2 size={15} style={{ animation: 'tr-spin 1s linear infinite' }} />
             : <Trash2 size={15} />
           }
         </button>

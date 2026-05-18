@@ -106,7 +106,7 @@ export function AuthCallback() {
               width: '52px', height: '52px', borderRadius: '50%',
               border: '3px solid rgba(99,102,241,0.15)',
               borderTop: '3px solid #6366f1',
-              animation: 'spin 0.8s linear infinite',
+              animation: 'tr-spin 0.8s linear infinite',
               margin: '0 auto 1.25rem',
             }} />
             <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', fontWeight: 700, color: '#f1f5f9' }}>

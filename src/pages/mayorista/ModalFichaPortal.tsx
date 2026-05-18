@@ -117,7 +117,7 @@ function ImageUploader({
         disabled={uploading}
         style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', background: 'rgba(99,102,241,0.1)', border: '1px dashed rgba(99,102,241,0.35)', borderRadius: '0.5rem', color: '#818cf8', fontSize: '0.82rem', fontWeight: 600, cursor: uploading ? 'not-allowed' : 'pointer', opacity: uploading ? 0.7 : 1 }}
       >
-        {uploading ? <Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Upload size={14} />}
+        {uploading ? <Loader2 size={14} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> : <Upload size={14} />}
         {uploading ? 'Subiendo...' : 'Subir imágenes'}
       </button>
       <p style={{ margin: '0.375rem 0 0', fontSize: '0.7rem', color: '#334155' }}>
@@ -300,8 +300,6 @@ export function ModalFichaPortal({ item, businessId, onClose, onSaved }: Props) 
 
         {/* Body */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-
           {/* Título y orden */}
           <div style={sectionS}>
             <p style={{ margin: 0, fontSize: '0.7rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Identificación</p>
@@ -394,7 +392,7 @@ export function ModalFichaPortal({ item, businessId, onClose, onSaved }: Props) 
             disabled={saving || success}
             style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1.25rem', background: success ? 'rgba(52,211,153,0.15)' : 'linear-gradient(135deg,#6366f1,#8b5cf6)', border: success ? '1px solid rgba(52,211,153,0.35)' : 'none', borderRadius: '0.5rem', color: success ? '#34d399' : '#fff', fontSize: '0.875rem', fontWeight: 600, cursor: saving || success ? 'not-allowed' : 'pointer', opacity: saving ? 0.75 : 1 }}
           >
-            {saving ? <><Loader2 size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> Guardando...</> : success ? <><CheckCircle2 size={14} /> Guardado</> : 'Guardar ficha'}
+            {saving ? <><Loader2 size={14} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> Guardando...</> : success ? <><CheckCircle2 size={14} /> Guardado</> : 'Guardar ficha'}
           </button>
         </div>
       </div>

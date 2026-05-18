@@ -230,7 +230,7 @@ function BulkPriceModal({ products, onClose, onApplied, businessId }: BulkModalP
           <button onClick={handleApply} disabled={applying || previews.length === 0}
             style={{ width: '100%', padding: '0.875rem', borderRadius: '0.75rem', background: previews.length > 0 ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(255,255,255,0.06)', border: 'none', color: previews.length > 0 ? 'white' : '#475569', fontWeight: 700, fontSize: '0.9375rem', cursor: applying || previews.length === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', opacity: applying ? 0.7 : 1 }}>
             {applying
-              ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Aplicando...</>
+              ? <><Loader2 size={16} style={{ animation: 'tr-spin 1s linear infinite' }} /> Aplicando...</>
               : previews.length === 0
               ? 'Sin productos para actualizar'
               : <><Zap size={16} /> Aplicar a {previews.length} producto{previews.length !== 1 ? 's' : ''}</>}
@@ -308,7 +308,7 @@ function InlineEditor({ product, exchangeRate, onSave }: InlineEditorProps) {
           />
           <button onClick={handleSave} disabled={saving}
             style={{ width: 24, height: 24, borderRadius: '0.375rem', background: 'rgba(34,197,94,0.15)', border: '1px solid rgba(34,197,94,0.3)', color: '#22c55e', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            {saving ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Check size={11} />}
+            {saving ? <Loader2 size={11} style={{ animation: 'tr-spin 1s linear infinite' }} /> : <Check size={11} />}
           </button>
           <button onClick={() => setEditing(false)}
             style={{ width: 24, height: 24, borderRadius: '0.375rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: '#64748b', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -907,7 +907,7 @@ export function Mayorista() {
           </div>
           {portalLoading ? (
             <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
-              <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: '#6366f1' }} />
+              <Loader2 size={24} style={{ animation: 'tr-spin 1s linear infinite', color: '#6366f1' }} />
             </div>
           ) : portalCustomers.length === 0 ? (
             <div style={{ padding: '3rem', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.06)', color: '#475569' }}>
@@ -1064,7 +1064,7 @@ export function Mayorista() {
 
             {portalLoading ? (
               <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
-                <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: '#6366f1' }} />
+                <Loader2 size={24} style={{ animation: 'tr-spin 1s linear infinite', color: '#6366f1' }} />
               </div>
             ) : filteredOrders.length === 0 ? (
               <div style={{ padding: '3rem', textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: '0.75rem', border: '1px solid rgba(255,255,255,0.06)', color: '#475569' }}>
@@ -1214,7 +1214,7 @@ export function Mayorista() {
               disabled={configSaving}
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', background: configSaved ? 'rgba(34,197,94,0.15)' : 'linear-gradient(135deg,#6366f1,#8b5cf6)', border: configSaved ? '1px solid rgba(34,197,94,0.35)' : 'none', borderRadius: '0.625rem', color: configSaved ? '#22c55e' : '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: configSaving ? 'not-allowed' : 'pointer', opacity: configSaving ? 0.7 : 1, transition: 'all 0.15s' }}
             >
-              {configSaving ? <><Loader2 size={15} style={{ animation: 'spin 0.8s linear infinite' }} /> Guardando...</> : configSaved ? <><CheckCircle size={15} /> Guardado</> : 'Guardar configuración'}
+              {configSaving ? <><Loader2 size={15} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> Guardando...</> : configSaved ? <><CheckCircle size={15} /> Guardado</> : 'Guardar configuración'}
             </button>
           </div>
         </div>

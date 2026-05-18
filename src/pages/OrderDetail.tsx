@@ -423,7 +423,7 @@ export function OrderDetail() {
                 }}
               >
                 {savingNotes
-                  ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</>
+                  ? <><Loader2 size={14} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</>
                   : notesSaved
                     ? '✓ Guardado'
                     : <><Save size={14} /> Guardar</>

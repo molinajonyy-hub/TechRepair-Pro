@@ -420,7 +420,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
                     }}
                   />
                   {isSearching && (
-                    <Loader2 size={15} style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', animation: 'spin 1s linear infinite' }} />
+                    <Loader2 size={15} style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', animation: 'tr-spin 1s linear infinite' }} />
                   )}
                   {selectedProduct && (
                     <button
@@ -609,7 +609,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
                     Cotización USD/ARS
                   </span>
                   {loadingRate ? (
-                    <Loader2 size={14} color="#10b981" style={{ animation: 'spin 1s linear infinite' }} />
+                    <Loader2 size={14} color="#10b981" style={{ animation: 'tr-spin 1s linear infinite' }} />
                   ) : (
                     <input
                       type="number"
@@ -802,7 +802,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
               }}
             >
               {isSubmitting ? (
-                <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</>
+                <><Loader2 size={16} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</>
               ) : (
                 `Agregar ${tipo === 'repuesto' ? 'repuesto' : 'servicio'}`
               )}

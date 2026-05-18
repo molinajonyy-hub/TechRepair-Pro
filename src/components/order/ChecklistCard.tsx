@@ -285,7 +285,7 @@ export function ChecklistCard({ orderId, checklist, onChecklistChange }: Checkli
               >
                 {isSubmitting ? (
                   <>
-                    <Loader2 size={16} style={{ marginRight: '0.5rem', animation: 'spin 1s linear infinite' }} />
+                    <Loader2 size={16} style={{ marginRight: '0.5rem', animation: 'tr-spin 1s linear infinite' }} />
                     Guardando...
                   </>
                 ) : (

@@ -165,7 +165,7 @@ export function OrderPrintSettings() {
               disabled={saving}
               style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem', background: savedOk ? '#059669' : 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)', border: 'none', color: '#ffffff', borderRadius: '0.625rem', cursor: saving ? 'not-allowed' : 'pointer', fontSize: '0.8125rem', fontWeight: 600, opacity: saving ? 0.7 : 1, boxShadow: savedOk ? 'none' : '0 4px 12px rgba(99,102,241,0.35)' }}
             >
-              {saving ? <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> : savedOk ? <CheckCircle size={14} /> : <Save size={14} />}
+              {saving ? <RefreshCw size={14} style={{ animation: 'tr-spin 1s linear infinite' }} /> : savedOk ? <CheckCircle size={14} /> : <Save size={14} />}
               {saving ? 'Guardando…' : savedOk ? 'Guardado' : 'Guardar'}
             </button>
           </div>

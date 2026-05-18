@@ -139,7 +139,7 @@ export function NotificationsDropdown() {
           <div style={{ maxHeight: '360px', overflowY: 'auto' }}>
             {loading ? (
               <div style={{ padding: '2rem', textAlign: 'center' }}>
-                <Loader2 size={24} color="#6366f1" style={{ animation: 'spin 1s linear infinite' }} />
+                <Loader2 size={24} color="#6366f1" style={{ animation: 'tr-spin 1s linear infinite' }} />
               </div>
             ) : notifications.length === 0 ? (
               <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>

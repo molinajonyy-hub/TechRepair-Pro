@@ -737,7 +737,7 @@ export function WhatsAppSettings() {
         onMouseLeave={e => { if (!saving) e.currentTarget.style.backgroundColor = '#25d366' }}
       >
         {saving
-          ? <><RefreshCw size={17} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</>
+          ? <><RefreshCw size={17} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</>
           : <><Save size={17} /> Guardar configuración</>
         }
       </button>

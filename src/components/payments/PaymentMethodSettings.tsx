@@ -215,7 +215,7 @@ function ButtonForm({ initial, businessId, onSave, onCancel }: ButtonFormProps) 
             display: 'flex', alignItems: 'center', gap: '0.375rem',
           }}
         >
-          {saving ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</> : <><CheckCircle2 size={13} /> Guardar</>}
+          {saving ? <><Loader2 size={13} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</> : <><CheckCircle2 size={13} /> Guardar</>}
         </button>
       </div>
     </div>
@@ -330,7 +330,7 @@ export function PaymentMethodSettings() {
         {/* Lista */}
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}>
-            <Loader2 size={20} style={{ color: '#6366f1', animation: 'spin 1s linear infinite' }} />
+            <Loader2 size={20} style={{ color: '#6366f1', animation: 'tr-spin 1s linear infinite' }} />
           </div>
         ) : buttons.length === 0 ? (
           <div style={{ padding: '2.5rem', textAlign: 'center', color: '#475569', fontSize: '0.85rem' }}>
@@ -396,7 +396,7 @@ export function PaymentMethodSettings() {
                     onMouseLeave={e => (e.currentTarget.style.color = '#64748b')}
                   >
                     {deleting === btn.id
-                      ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />
+                      ? <Loader2 size={15} style={{ animation: 'tr-spin 1s linear infinite' }} />
                       : <Trash2 size={15} />
                     }
                   </button>

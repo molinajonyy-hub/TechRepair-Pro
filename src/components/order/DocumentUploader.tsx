@@ -165,7 +165,7 @@ export function DocumentUploader({ orderId, documents, onDocumentsChange }: Docu
         >
           {uploading ? (
             <>
-              <Loader2 size={32} color="#10b981" style={{ marginBottom: '0.75rem', animation: 'spin 1s linear infinite' }} />
+              <Loader2 size={32} color="#10b981" style={{ marginBottom: '0.75rem', animation: 'tr-spin 1s linear infinite' }} />
               <p style={{ color: '#10b981', marginBottom: '0.5rem' }}>
                 {uploadProgress}
               </p>
@@ -279,12 +279,6 @@ export function DocumentUploader({ orderId, documents, onDocumentsChange }: Docu
         )}
       </div>
       
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
     </div>
   )
 }

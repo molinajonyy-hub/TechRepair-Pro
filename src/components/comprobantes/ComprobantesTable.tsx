@@ -569,7 +569,7 @@ export function ComprobantesTable({ comprobantes, onEdit, onAnular, onEliminar, 
                               }}
                             >
                               {actionLoading === comprobante.id
-                                ? <Loader2 size={15} style={{ color: '#f59e0b', animation: 'spin 1s linear infinite' }} />
+                                ? <Loader2 size={15} style={{ color: '#f59e0b', animation: 'tr-spin 1s linear infinite' }} />
                                 : <Ban size={15} style={{ color: '#f59e0b' }} />
                               }
                             </button>

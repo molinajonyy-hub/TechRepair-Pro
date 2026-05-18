@@ -8,7 +8,6 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { uploadBusinessLogo } from '../lib/storageSetup'
 
-const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 const RUBROS = [
   { id: 'celulares',        label: 'Celulares y smartphones' },
@@ -165,7 +164,6 @@ export function Onboarding() {
       flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
-      fontFamily: F,
       padding: '2rem 1.25rem',
       background: `
         radial-gradient(ellipse 70% 50% at 20% 10%, rgba(99,102,241,0.06) 0%, transparent 60%),
@@ -236,7 +234,7 @@ export function Onboarding() {
                   placeholder="Ej: Tecno Reparaciones"
                   style={{
                     width: '100%', boxSizing: 'border-box',
-                    padding: '13px 15px', fontSize: '1rem', fontFamily: F,
+                    padding: '13px 15px', fontSize: '1rem',
                     background: 'rgba(255,255,255,0.05)', border: '1.5px solid rgba(255,255,255,0.1)',
                     borderRadius: 12, color: '#f1f5f9',
                   }}
@@ -384,7 +382,7 @@ export function Onboarding() {
                     placeholder={placeholder}
                     style={{
                       width: '100%', boxSizing: 'border-box',
-                      padding: '12px 15px', fontSize: '0.95rem', fontFamily: F,
+                      padding: '12px 15px', fontSize: '0.95rem',
                       background: 'rgba(255,255,255,0.05)', border: '1.5px solid rgba(255,255,255,0.1)',
                       borderRadius: 12, color: '#f1f5f9',
                     }}

@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Building2,
@@ -1240,7 +1240,7 @@ export default function Settings() {
                     }}
                   >
                     {generandoCSR
-                      ? <><Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> Generando CSR...</>
+                      ? <><Loader2 size={15} style={{ animation: 'tr-spin 1s linear infinite' }} /> Generando CSR...</>
                       : <><FileText size={15} /> Generar CSR para AFIP</>
                     }
                   </button>
@@ -1296,7 +1296,7 @@ export default function Settings() {
                       boxShadow: '0 4px 12px rgba(99,102,241,0.35)'
                     }}
                   >
-                    {saving ? <Loader2 size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={18} />}
+                    {saving ? <Loader2 size={18} style={{ animation: 'tr-spin 1s linear infinite' }} /> : <Save size={18} />}
                     {saving ? 'Guardando...' : 'Guardar Configuración'}
                   </button>
                   <button

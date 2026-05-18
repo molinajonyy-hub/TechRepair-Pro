@@ -180,7 +180,7 @@ export function PaymentButtonsPanel({
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}>
-        <Loader2 size={20} style={{ color: '#6366f1', animation: 'spin 1s linear infinite' }} />
+        <Loader2 size={20} style={{ color: '#6366f1', animation: 'tr-spin 1s linear infinite' }} />
       </div>
     );
   }
@@ -472,7 +472,7 @@ export function PaymentButtonsPanel({
                 }}
               >
                 {submitting ? (
-                  <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Procesando...</>
+                  <><Loader2 size={14} style={{ animation: 'tr-spin 1s linear infinite' }} /> Procesando...</>
                 ) : isIntegrated(calc.button) ? (
                   <><Zap size={14} /> Crear orden {fmtARS(calcResult.charge_amount)}</>
                 ) : (

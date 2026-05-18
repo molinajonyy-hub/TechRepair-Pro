@@ -1199,7 +1199,7 @@ export function ProductFormModal({
             disabled={saving}
             style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.5rem', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: '0.75rem', color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: F }}
           >
-            {saving ? <><RefreshCw size={14} style={{ animation: 'spin 0.8s linear infinite' }} /> Guardando...</> : 'Guardar producto'}
+            {saving ? <><RefreshCw size={14} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> Guardando...</> : 'Guardar producto'}
           </button>
         </div>
       </div>

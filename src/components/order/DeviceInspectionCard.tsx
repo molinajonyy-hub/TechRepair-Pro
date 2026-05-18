@@ -215,7 +215,7 @@ export function DeviceInspectionCard({ orderId, checklist, type, onChecklistChan
             </div>
 
             <button type="submit" className="btn btn-primary" disabled={isSubmitting} style={{ width: '100%' }}>
-              {isSubmitting ? <><Loader2 size={16} style={{ marginRight: '0.5rem', animation: 'spin 1s linear infinite' }} /> Guardando...</> : `Guardar ${type === 'reception' ? 'Recepción' : 'Entrega'}`}
+              {isSubmitting ? <><Loader2 size={16} style={{ marginRight: '0.5rem', animation: 'tr-spin 1s linear infinite' }} /> Guardando...</> : `Guardar ${type === 'reception' ? 'Recepción' : 'Entrega'}`}
             </button>
           </form>
         ) : (

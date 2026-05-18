@@ -307,7 +307,7 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
   if (loading) {
     return (
       <div style={{ padding: '2rem', textAlign: 'center' }}>
-        <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
+        <Loader2 size={24} style={{ animation: 'tr-spin 1s linear infinite' }} />
       </div>
     )
   }
@@ -575,7 +575,7 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
               )}
 
               <button type="submit" className="btn btn-primary" disabled={isSubmitting} style={{ width: '100%' }}>
-                {isSubmitting ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</> : 'Agregar Repuesto'}
+                {isSubmitting ? <><Loader2 size={16} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</> : 'Agregar Repuesto'}
               </button>
             </form>
           )}
@@ -762,7 +762,7 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
               </div>
 
               <button type="submit" className="btn btn-primary" disabled={isSubmitting} style={{ width: '100%' }}>
-                {isSubmitting ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Guardando...</> : 'Registrar Pago'}
+                {isSubmitting ? <><Loader2 size={16} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</> : 'Registrar Pago'}
               </button>
             </form>
           )}
