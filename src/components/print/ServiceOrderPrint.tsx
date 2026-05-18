@@ -61,6 +61,7 @@ const fmtCurrency = (n: number) =>
   new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n)
 
 const STATUS_MAP: Record<string, { label: string; bg: string; color: string; border: string }> = {
+  new:             { label: 'Recibida',              bg: '#dbeafe', color: '#1d4ed8', border: '#93c5fd' },
   received:        { label: 'Recibido',              bg: '#dbeafe', color: '#1d4ed8', border: '#93c5fd' },
   diagnosis:       { label: 'En diagnóstico',        bg: '#ffedd5', color: '#c2410c', border: '#fdba74' },
   budget_pending:  { label: 'Pdte. de presupuesto',  bg: '#fef9c3', color: '#a16207', border: '#fde047' },
@@ -416,8 +417,6 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
             </div>
           )}
 
-          {/* Firma cliente */}
-          <SignatureRow label="Firma del cliente" />
         </div>
       </div>
     )
@@ -559,8 +558,8 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
           </div>
         )}
 
-        {/* Firma técnico */}
-        <SignatureRow label="Firma del técnico" showTech />
+        {/* Firma del cliente — solo en copia local */}
+        <SignatureRow label="Firma del cliente" />
       </div>
     )
 

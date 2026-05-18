@@ -10,6 +10,7 @@ import { formatDisplayMessage } from '../utils/formatMessage';
 import { ComprobanteActions } from '../components/comprobantes/ComprobanteActions';
 import { ComprobantePrintLayout } from '../components/comprobantes/ComprobantePrintLayout';
 import { comprobanteService, MedioPago } from '../services/comprobanteService';
+import { sanitizeFilenamePart } from '../lib/printFilename';
 
 const TIPO_LABELS: Record<string, string> = {
   factura_a: 'Factura A',
@@ -191,7 +192,14 @@ export default function ComprobantePage() {
         doc.setTextColor(100, 100, 100);
         doc.text(profile.comp_mensaje_agradecimiento, 14, finalY + 28);
       }
-      doc.save(`comprobante-${comprobanteActual.numero || comprobanteActual.id.slice(0, 8)}.pdf`);
+      const TIPO_FILE: Record<string, string> = {
+        factura_a: 'Factura-A', factura_c: 'Factura-C',
+        remito: 'Remito', nota_credito: 'Nota-de-Credito',
+      };
+      const bizPart  = sanitizeFilenamePart(profile.nombre_comercial || 'TechRepair');
+      const tipoPart = TIPO_FILE[comprobanteActual.tipo] || 'Comprobante';
+      const numPart  = comprobanteActual.numero || comprobanteActual.id.slice(0, 8);
+      doc.save(`${bizPart}-${tipoPart}-${numPart}.pdf`);
     } catch (err) {
       console.error('Error generando PDF:', err);
     } finally {

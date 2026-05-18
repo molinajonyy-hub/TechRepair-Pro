@@ -22,6 +22,7 @@ import {
   useWarranties,
 } from '../hooks/useWarranties'
 import { useOrderPrintSettings } from '../hooks/useOrderPrintSettings'
+import { sanitizeFilenamePart } from '../lib/printFilename'
 import { suppliersService, Supplier } from '../services/suppliersService'
 import { WarrantyFormModal } from '../components/warranties/WarrantyFormModal'
 import { WarrantyDetailModal } from '../components/warranties/WarrantyDetailModal'
@@ -155,7 +156,7 @@ export function Warranties() {
     if (!win) { setPrintingWarranty(null); return }
     win.document.write(
       `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">` +
-      `<title>Garantia-${printingWarranty.number}</title></head>` +
+      `<title>${sanitizeFilenamePart(printSettings.nombre_comercial || 'Garantia')}-Garantia-${printingWarranty.number}</title></head>` +
       `<body style="margin:0;padding:0">${html}</body></html>`
     )
     win.document.close()

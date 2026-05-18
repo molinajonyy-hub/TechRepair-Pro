@@ -4,6 +4,9 @@ import { CloseButton } from '../ui/CloseButton'
 import { ServiceOrderPrint, ServiceOrderData, PrintOrderItem } from './ServiceOrderPrint'
 import { OrderDetailSimple } from '../../hooks/useOrderSimple'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../contexts/AuthContext'
+import { useOrderPrintSettings } from '../../hooks/useOrderPrintSettings'
+import { sanitizeFilenamePart } from '../../lib/printFilename'
 
 interface OrderPrintPreviewModalProps {
   isOpen: boolean
@@ -58,6 +61,8 @@ export const OrderPrintPreviewModal: React.FC<OrderPrintPreviewModalProps> = ({
 }) => {
   const printRef = useRef<HTMLDivElement>(null)
   const [orderItems, setOrderItems] = useState<PrintOrderItem[]>([])
+  const { businessId } = useAuth()
+  const { settings } = useOrderPrintSettings(businessId)
 
   // Fetch order_items when modal opens — reset al cerrar
   useEffect(() => {
@@ -82,9 +87,11 @@ export const OrderPrintPreviewModal: React.FC<OrderPrintPreviewModalProps> = ({
     const html = printRef.current.innerHTML
     const win = window.open('', '_blank')
     if (!win) return
+    const bizName = sanitizeFilenamePart(settings.nombre_comercial || 'Orden-de-Servicio')
+    const orderNum = order.id.slice(0, 8).toUpperCase()
     win.document.write(
       `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">` +
-      `<title>Orden-${order.id.slice(0, 8)}</title>` +
+      `<title>${bizName}-Orden-${orderNum}</title>` +
       `<style>@page{size:A4 portrait;margin:0}body{margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style>` +
       `</head><body style="margin:0;padding:0">${html}</body></html>`
     )

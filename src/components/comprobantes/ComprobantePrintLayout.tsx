@@ -140,7 +140,6 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
           display: flex; align-items: center; justify-content: center;
           font-size: 24pt; font-weight: 900; color: #111;
         }
-        .cpl-letter-sub { font-size: 7pt; color: #777; }
 
         /* ── Right of header ── */
         .cpl-doc-meta { text-align: right; }
@@ -169,7 +168,7 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
         }
         .cpl-table th.right, .cpl-table td.right { text-align: right; }
         .cpl-table th.center, .cpl-table td.center { text-align: center; }
-        .cpl-table td { padding: 5pt 8pt; border-bottom: 0.5pt solid #e0e0e0; vertical-align: middle; }
+        .cpl-table td { padding: 5pt 8pt; border-bottom: 0.5pt solid #e0e0e0; vertical-align: middle; word-break: break-word; overflow-wrap: break-word; }
         .cpl-table tr:last-child td { border-bottom: none; }
         .cpl-table tr:nth-child(even) td { background: #f8f8f8; }
         .cpl-table-outer { border: 1pt solid #ccc; border-radius: 4pt; overflow: hidden; margin-bottom: 10pt; }
@@ -193,7 +192,6 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
           text-align: center;
         }
         .cpl-footer-msg { font-size: 11pt; font-weight: 600; margin-bottom: 4pt; }
-        .cpl-footer-contact { font-size: 9pt; color: #555; }
         .cpl-footer-id { margin-top: 8pt; font-size: 7.5pt; color: #aaa; font-family: 'Courier New', monospace; }
       `}</style>
 
@@ -231,7 +229,6 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
         <div className="cpl-letter-box">
           <p className="cpl-doc-title">{TIPO_LABEL[comprobante.tipo] ?? comprobante.tipo}</p>
           <div className="cpl-letter">{tipoLetra}</div>
-          <p className="cpl-letter-sub">Código de tipo</p>
         </div>
 
         {/* Right: number, date, status */}
@@ -240,16 +237,18 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
           <p className="cpl-doc-num">{formatNumero(comprobante.numero, comprobante.punto_venta)}</p>
           <p className="cpl-doc-date">{fmtFecha(comprobante.fecha)}</p>
           <p className="cpl-muted">Pto. Venta {padPV(comprobante.punto_venta)}</p>
-          <span
-            className="cpl-estado"
-            style={{
-              color: comprobante.estado === 'emitido' ? '#059669' : comprobante.estado === 'anulado' ? '#dc2626' : '#555',
-              borderColor: comprobante.estado === 'emitido' ? '#059669' : comprobante.estado === 'anulado' ? '#dc2626' : '#999',
-              background: comprobante.estado === 'emitido' ? '#ecfdf5' : comprobante.estado === 'anulado' ? '#fef2f2' : '#f9f9f9',
-            }}
-          >
-            {comprobante.estado === 'emitido' ? '● Emitido' : comprobante.estado === 'anulado' ? '✕ Anulado' : '○ Borrador'}
-          </span>
+          {(comprobante.estado === 'emitido' || comprobante.estado === 'anulado') && (
+            <span
+              className="cpl-estado"
+              style={{
+                color: comprobante.estado === 'emitido' ? '#059669' : '#dc2626',
+                borderColor: comprobante.estado === 'emitido' ? '#059669' : '#dc2626',
+                background: comprobante.estado === 'emitido' ? '#ecfdf5' : '#fef2f2',
+              }}
+            >
+              {comprobante.estado === 'emitido' ? '● Emitido' : '✕ Anulado'}
+            </span>
+          )}
         </div>
       </div>
 
@@ -431,10 +430,9 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
             {profile.comp_notas}
           </p>
         )}
-        <p className="cpl-footer-id">
-          ID: {comprobante.id}
-          {comprobante.cae && '  ·  Comprobante electrónico autorizado por AFIP'}
-        </p>
+        {comprobante.cae && (
+          <p className="cpl-footer-id">Comprobante electrónico autorizado por AFIP</p>
+        )}
       </div>
     </div>
   )
