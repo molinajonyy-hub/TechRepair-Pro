@@ -687,6 +687,48 @@ function EstadoCobroWidget({
   comprobante: any;
   onEditarCobro: () => void;
 }) {
+  const tipo    = (comprobante.tipo || comprobante.type) as string | undefined;
+  const total   = Number(comprobante.total || 0);
+
+  const fmt = (n: number) =>
+    `$${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // ── Nota de crédito: no es un cobro, es un ajuste/devolución ─────────────
+  if (tipo === 'nota_credito') {
+    return (
+      <div style={{
+        marginTop: '1rem', borderRadius: '0.75rem', overflow: 'hidden',
+        border: '1px solid rgba(99,102,241,0.2)',
+        background: 'rgba(99,102,241,0.06)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 0.875rem' }}>
+          <FileText size={14} style={{ color: 'var(--accent-primary)', flexShrink: 0 }} />
+          <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--accent-primary)' }}>
+            Nota de crédito
+          </span>
+        </div>
+        <div style={{ padding: '0 0.875rem 0.625rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+            <span style={{ color: 'var(--text-subtle)' }}>Tipo</span>
+            <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Devolución / ajuste</span>
+          </div>
+          {total > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+              <span style={{ color: 'var(--text-subtle)' }}>Importe de ajuste</span>
+              <span style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--accent-primary)' }}>
+                {fmt(total)}
+              </span>
+            </div>
+          )}
+          <p style={{ margin: '0.25rem 0 0', fontSize: '0.68rem', color: 'var(--text-subtle)', lineHeight: 1.4 }}>
+            Este comprobante no genera cobro en caja.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Comprobantes normales (remito, factura_a, factura_c) ──────────────────
   const estado   = comprobante.estado_comercial as string | undefined;
   const cobrado  = Number(comprobante.total_cobrado || 0);
   const saldo    = Number(comprobante.saldo_pendiente || 0);
@@ -699,11 +741,7 @@ function EstadoCobroWidget({
   const color = isPagado ? '#34d399' : isParcial ? '#fbbf24' : '#f59e0b';
   const bg    = isPagado ? 'rgba(52,211,153,0.07)' : isParcial ? 'rgba(251,191,36,0.07)' : 'rgba(245,158,11,0.07)';
   const bdr   = isPagado ? 'rgba(52,211,153,0.25)'  : isParcial ? 'rgba(251,191,36,0.25)'  : 'rgba(245,158,11,0.25)';
-
   const label = isPagado ? 'Cobrado' : isParcial ? 'Pago parcial' : 'Pendiente de cobro';
-
-  const fmt = (n: number) =>
-    `$${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   return (
     <div style={{ marginTop: '1rem', borderRadius: '0.75rem', border: `1px solid ${bdr}`, background: bg, overflow: 'hidden' }}>
