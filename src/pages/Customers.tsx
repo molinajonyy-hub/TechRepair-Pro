@@ -10,6 +10,7 @@ import { ModalImportExcel } from '../components/ModalImportExcel'
 import { ExcelService, ExcelRow } from '../services/excelService'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { useRefreshOnWakeUp } from '../hooks/useAppWakeUp'
 
 type CustomerSummary = {
   id: string
@@ -152,6 +153,8 @@ export function Customers() {
     }
   }
 
+  useRefreshOnWakeUp(loadCustomers)
+
   const handleExportCustomers = async () => {
     try {
       // Obtener datos completos de clientes
@@ -172,7 +175,7 @@ export function Customers() {
         'Estado': customer.active ? 'Activo' : 'Inactivo'
       }))
 
-      ExcelService.exportToExcel(exportData, 'clientes', 'Clientes')
+      await ExcelService.exportToExcel(exportData, 'clientes', 'Clientes')
       alert('Clientes exportados exitosamente')
     } catch (error) {
       alert('Error al exportar clientes: ' + (error instanceof Error ? error.message : 'Error desconocido'))
@@ -235,7 +238,7 @@ export function Customers() {
     }
   }
 
-  const handleDownloadTemplate = () => {
+  const handleDownloadTemplate = async () => {
     const headers = [
       'Nombre y apellido',
       'Teléfono',
@@ -260,7 +263,7 @@ export function Customers() {
       'Estado': 'Activo'
     }]
 
-    ExcelService.createTemplate(headers, 'plantilla_clientes', exampleData)
+    await ExcelService.createTemplate(headers, 'plantilla_clientes', exampleData)
   }
 
 

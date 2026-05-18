@@ -22,6 +22,7 @@ interface ComprobanteActionsProps {
   onImprimir: () => void;
   onCrearNotaCredito?: () => void;
   emitiendo?: boolean;
+  pdfLoading?: boolean;
 }
 
 export function ComprobanteActions({
@@ -32,6 +33,7 @@ export function ComprobanteActions({
   onImprimir,
   onCrearNotaCredito,
   emitiendo = false,
+  pdfLoading = false,
 }: ComprobanteActionsProps) {
   const [showAnularModal, setShowAnularModal] = useState(false);
   const [motivoAnulacion, setMotivoAnulacion] = useState('');
@@ -118,8 +120,8 @@ export function ComprobanteActions({
 
           {/* Descargar PDF */}
           {esEmitido && (
-            <button onClick={onDescargarPDF} className="btn btn-outline" style={{ width: '100%', justifyContent: 'center' }}>
-              <Download size={15} /> Descargar PDF
+            <button onClick={onDescargarPDF} className="btn btn-outline" disabled={pdfLoading} style={{ width: '100%', justifyContent: 'center' }}>
+              <Download size={15} /> {pdfLoading ? 'Generando...' : 'Descargar PDF'}
             </button>
           )}
 

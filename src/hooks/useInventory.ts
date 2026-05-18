@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { inventoryService } from '../services/inventoryService'
+import { useRefreshOnWakeUp } from './useAppWakeUp'
 
 // Normaliza cualquier error (Supabase PostgrestError, Error nativo, string, objeto)
 // a una instancia de Error que además conserva los metadatos relevantes
@@ -66,6 +67,8 @@ export function useInventory() {
   useEffect(() => {
     void loadInventory()
   }, [businessId])
+
+  useRefreshOnWakeUp(() => { void loadInventory({ background: true }) })
 
   async function loadInventory(options?: { background?: boolean }) {
     const background = options?.background === true

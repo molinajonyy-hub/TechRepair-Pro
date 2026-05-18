@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useRef, useMemo } from 'react'
+import { Fragment, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { smartSearch } from '../utils/searchUtils'
 import {
   Package,
@@ -264,7 +264,7 @@ export function Inventory() {
       { getValue: (item: any) => item.supplier_code,  weight: 1 },
     ]), [items, searchTerm])
 
-  const matchesInventoryFilters = (item: any) => {
+  const matchesInventoryFilters = useCallback((item: any) => {
     const matchesSearch = !searchTerm.trim() || searchedItems.some(s => (s as any).id === item.id)
     const matchesCategory = !selectedCategory || item.category === selectedCategory
     const matchesStockStatus =
@@ -272,33 +272,28 @@ export function Inventory() {
       (stockStatusFilter === 'low' && isLowStock(item)) ||
       (stockStatusFilter === 'out' && isOutOfStock(item))
     return matchesSearch && matchesCategory && matchesStockStatus
-  }
+  }, [searchTerm, searchedItems, selectedCategory, stockStatusFilter])
 
-  const variantItems = items.filter(isVariantItem)
-  const rootItems = items.filter(item => !isVariantItem(item))
-  const variantsByParent = variantItems.reduce<Record<string, any[]>>((acc, item) => {
-    const parentId = getVariantParentId(item)
-
-    if (!parentId) {
+  const variantItems = useMemo(() => items.filter(isVariantItem), [items])
+  const rootItems = useMemo(() => items.filter(item => !isVariantItem(item)), [items])
+  const variantsByParent = useMemo(() => {
+    const result = variantItems.reduce<Record<string, any[]>>((acc, item) => {
+      const parentId = getVariantParentId(item)
+      if (!parentId) return acc
+      if (!acc[parentId]) acc[parentId] = []
+      acc[parentId].push(item)
       return acc
-    }
-
-    if (!acc[parentId]) {
-      acc[parentId] = []
-    }
-
-    acc[parentId].push(item)
-    return acc
-  }, {})
-
-  // Ordenar variantes: las más nuevas arriba
-  Object.keys(variantsByParent).forEach(parentId => {
-    variantsByParent[parentId].sort((a, b) => {
-      const aTime = new Date(a.created_at || 0).getTime()
-      const bTime = new Date(b.created_at || 0).getTime()
-      return bTime - aTime
+    }, {})
+    // Ordenar variantes: las más nuevas arriba
+    Object.keys(result).forEach(parentId => {
+      result[parentId].sort((a, b) => {
+        const aTime = new Date(a.created_at || 0).getTime()
+        const bTime = new Date(b.created_at || 0).getTime()
+        return bTime - aTime
+      })
     })
-  })
+    return result
+  }, [variantItems])
 
   // Calcula stock efectivo (suma de variantes) para un producto base
   const getEffectiveStock = (item: any) => {
@@ -336,23 +331,24 @@ export function Inventory() {
     }
   }
 
-  const displayedItems = rootItems.filter(item => {
+  const displayedItems = useMemo(() => rootItems.filter(item => {
     const directMatch = matchesInventoryFilters(item)
     const variantMatch = (variantsByParent[item.id] || []).some(matchesInventoryFilters)
     return directMatch || variantMatch
-  })
+  }), [rootItems, variantsByParent, matchesInventoryFilters])
 
   // Listas efectivas para el banner/contador de alertas:
   //  - Incluye variantes cuyo stock propio está agotado/bajo.
   //  - Incluye productos base sin variantes cuyo stock está agotado/bajo.
   //  - EXCLUYE productos base con variantes cuando el total de variantes > 0.
-  const effectiveOutOfStockItems = items.filter(item => {
+  const effectiveOutOfStockItems = useMemo(() => items.filter(item => {
     if (isVariantItem(item)) return (item.stock_quantity || 0) === 0
     const variants = variantsByParent[item.id] || []
     if (variants.length === 0) return (item.stock_quantity || 0) === 0
     return variants.reduce((sum, v) => sum + (v.stock_quantity || 0), 0) === 0
-  })
-  const effectiveLowStockItems = items.filter(item => {
+  }), [items, variantsByParent])
+
+  const effectiveLowStockItems = useMemo(() => items.filter(item => {
     if (isVariantItem(item)) {
       return (item.stock_quantity || 0) > 0 && (item.stock_quantity || 0) <= (item.min_stock || 0)
     }
@@ -363,7 +359,7 @@ export function Inventory() {
     const totalStock = variants.reduce((sum, v) => sum + (v.stock_quantity || 0), 0)
     const totalMin = variants.reduce((sum, v) => sum + (v.min_stock || 0), 0)
     return totalStock > 0 && totalStock <= totalMin
-  })
+  }), [items, variantsByParent])
 
   const getVariantName = (item: any, parentItem?: any) => {
     if (item?.subcategory) {
@@ -1142,7 +1138,7 @@ export function Inventory() {
     }
   }
 
-  const handleExportInventory = () => {
+  const handleExportInventory = async () => {
     try {
       const exportData = items.map(item => ({
         'Código/SKU': item.code,
@@ -1160,7 +1156,7 @@ export function Inventory() {
         'Tipo de cambio usado': item.exchange_rate_used || 0
       }))
 
-      ExcelService.exportToExcel(exportData, 'inventario', 'Inventario')
+      await ExcelService.exportToExcel(exportData, 'inventario', 'Inventario')
       alert('Inventario exportado exitosamente')
     } catch (error) {
       alert('Error al exportar inventario: ' + (error instanceof Error ? error.message : 'Error desconocido'))
@@ -1230,7 +1226,7 @@ export function Inventory() {
     }
   }
 
-  const handleDownloadTemplate = () => {
+  const handleDownloadTemplate = async () => {
     const headers = [
       'Código/SKU',
       'Nombre del producto',
@@ -1263,7 +1259,7 @@ export function Inventory() {
       'Tipo de cambio usado': 560
     }]
 
-    ExcelService.createTemplate(headers, 'plantilla_inventario', exampleData)
+    await ExcelService.createTemplate(headers, 'plantilla_inventario', exampleData)
   }
 
   const renderInventoryRow = (item: any, options?: { isVariant?: boolean; parentItem?: any }) => {

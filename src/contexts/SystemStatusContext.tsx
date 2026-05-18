@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useCallback, useRef } from 
 import { useNavigate } from 'react-router-dom'
 import { useAppWakeUp, type AppStatus, emitWakeUp } from '../hooks/useAppWakeUp'
 import { supabase } from '../lib/supabase'
+import { useAuth } from './AuthContext'
+import { forcePrefetch } from '../services/refreshCriticalData'
 
 // ─── Toast mínimo ─────────────────────────────────────────────────────────────
 
@@ -37,6 +39,7 @@ export function SystemStatusProvider({ children }: { children: React.ReactNode }
   const [toasts, setToasts] = useState<Toast[]>([])
   const navigate = useNavigate()
   const refreshRef = useRef<() => void>(() => {})
+  const { businessId } = useAuth()
 
   const addToast = useCallback((message: string, type: Toast['type'] = 'info', duration = 3500) => {
     const id = ++toastId
@@ -51,7 +54,8 @@ export function SystemStatusProvider({ children }: { children: React.ReactNode }
   const handleWakeUp = useCallback(async () => {
     addToast('Actualizando datos del sistema…', 'info', 2500)
     setLastRefresh(new Date())
-  }, [addToast])
+    if (businessId) forcePrefetch(businessId)
+  }, [addToast, businessId])
 
   const handleSessionExpired = useCallback(() => {
     addToast('Tu sesión venció. Redirigiendo al login…', 'error', 4000)
@@ -89,6 +93,7 @@ export function SystemStatusProvider({ children }: { children: React.ReactNode }
       }
       setStatus('online')
       setLastRefresh(new Date())
+      if (businessId) forcePrefetch(businessId)
       emitWakeUp()
       addToast('Sistema reconectado correctamente', 'success', 3000)
     } catch {

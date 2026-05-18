@@ -76,33 +76,66 @@ export async function prefetchCustomers(businessId: string): Promise<LightCustom
   if (!AppCache.isStale(CACHE_KEYS.customers(businessId))) {
     return AppCache.get<LightCustomer[]>(CACHE_KEYS.customers(businessId)) || []
   }
-  const { data } = await supabase
-    .from('customers')
-    .select('id, name, phone, email, customer_type')
-    .eq('business_id', businessId)
-    .order('updated_at', { ascending: false })
-    .limit(200)
-  const result = (data || []) as LightCustomer[]
-  AppCache.set(CACHE_KEYS.customers(businessId), result)
-  return result
+
+  try {
+    const { data, error } = await supabase
+      .from('customers')
+      .select('id, name, phone, email, customer_type')
+      .eq('business_id', businessId)
+      .order('updated_at', { ascending: false })
+      .limit(200)
+
+    if (error) {
+      console.warn('[prefetchCustomers] DB error, keeping stale cache:', error.message)
+      return AppCache.getStale<LightCustomer[]>(CACHE_KEYS.customers(businessId)) || []
+    }
+
+    const result = (data || []) as LightCustomer[]
+    AppCache.set(CACHE_KEYS.customers(businessId), result)
+    return result
+  } catch {
+    console.warn('[prefetchCustomers] network error, keeping stale cache')
+    return AppCache.getStale<LightCustomer[]>(CACHE_KEYS.customers(businessId)) || []
+  }
 }
 
 export async function prefetchInventory(businessId: string): Promise<LightInventoryItem[]> {
   if (!AppCache.isStale(CACHE_KEYS.inventory(businessId))) {
     return AppCache.get<LightInventoryItem[]>(CACHE_KEYS.inventory(businessId)) || []
   }
-  const { data } = await supabase
-    .from('inventory')
-    .select('id, name, variant_name, code, category, stock_quantity, sale_price, cost_price, precio_mayorista')
-    .eq('business_id', businessId)
-    .eq('is_active', true)
-    .not('has_variants', 'is', true)
-    .gt('stock_quantity', 0)
-    .order('name')
-    .limit(500)
-  const result = (data || []) as LightInventoryItem[]
-  AppCache.set(CACHE_KEYS.inventory(businessId), result)
-  return result
+
+  try {
+    const { data, error } = await supabase
+      .from('inventory')
+      .select('id, name, variant_name, code, category, stock_quantity, sale_price, cost_price, precio_mayorista')
+      .eq('business_id', businessId)
+      .eq('is_active', true)
+      .not('has_variants', 'is', true)
+      .gt('stock_quantity', 0)
+      .order('name')
+      .limit(500)
+
+    if (error) {
+      console.warn('[prefetchInventory] DB error, keeping stale cache:', error.message)
+      return AppCache.getStale<LightInventoryItem[]>(CACHE_KEYS.inventory(businessId)) || []
+    }
+
+    const result = (data || []) as LightInventoryItem[]
+    AppCache.set(CACHE_KEYS.inventory(businessId), result)
+    return result
+  } catch {
+    console.warn('[prefetchInventory] network error, keeping stale cache')
+    return AppCache.getStale<LightInventoryItem[]>(CACHE_KEYS.inventory(businessId)) || []
+  }
+}
+
+/** Prefetch forzado — invalida caché antes de fetchear (para wake-up) */
+export function forcePrefetch(businessId: string): void {
+  if (!businessId || !navigator.onLine) return
+  AppCache.invalidate(CACHE_KEYS.customers(businessId))
+  AppCache.invalidate(CACHE_KEYS.inventory(businessId))
+  prefetchCustomers(businessId).catch(() => {})
+  prefetchInventory(businessId).catch(() => {})
 }
 
 /** Precarga en segundo plano — no bloquea la UI */

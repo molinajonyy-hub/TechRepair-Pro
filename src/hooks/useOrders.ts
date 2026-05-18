@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { useRefreshOnWakeUp } from './useAppWakeUp'
 
 export interface OrderListItem {
   id: string
@@ -75,6 +76,8 @@ export function useOrders() {
   useEffect(() => {
     fetchOrders()
   }, [businessId])
+
+  useRefreshOnWakeUp(fetchOrders)
 
   return { orders, loading, error, total, refresh: fetchOrders }
 }

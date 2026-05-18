@@ -1,7 +1,5 @@
 import { AlertCircle, Calendar, ClipboardList, DollarSign, Download, Package, TrendingUp, Users } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { jsPDF } from 'jspdf'
-import autoTable from 'jspdf-autotable'
 import { useAuth } from '../contexts/AuthContext'
 import { useDashboardStats } from '../hooks/useDashboardStats'
 import { supabase } from '../lib/supabase'
@@ -400,6 +398,7 @@ export function Reports() {
   const [reportData, setReportData] = useState<ReportSnapshot | null>(null)
   const [reportLoading, setReportLoading] = useState(true)
   const [reportError, setReportError] = useState<string | null>(null)
+  const [exportLoading, setExportLoading] = useState(false)
 
   const { businessId, isAuthenticated, hasBusinessAccess, loading: authLoading, profileLoading } = useAuth()
   const { stats, loading: statsLoading, error: statsError } = useDashboardStats()
@@ -646,10 +645,17 @@ export function Reports() {
   const loading = authLoading || profileLoading || statsLoading || reportLoading
   const activeError = reportError || (!reportData && statsError ? statsError : null)
 
-  const handleExport = () => {
-    if (!reportData) {
+  const handleExport = async () => {
+    if (!reportData || exportLoading) {
       return
     }
+
+    setExportLoading(true)
+    try {
+    const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+    ])
 
     const generatedAt = new Date()
     const periodLabel = PERIOD_OPTIONS.find((option) => option.value === selectedPeriod)?.label || selectedPeriod
@@ -781,6 +787,11 @@ export function Reports() {
     }
 
     doc.save(`reporte-${selectedPeriod}-${generatedAt.toISOString().slice(0, 10)}.pdf`)
+    } catch (err) {
+      console.error('Error generando PDF de reporte:', err)
+    } finally {
+      setExportLoading(false)
+    }
   }
 
   if (loading) {
@@ -837,9 +848,9 @@ export function Reports() {
               ))}
             </select>
           </div>
-          <button className="btn btn-outline" onClick={handleExport} disabled={!reportData}>
+          <button className="btn btn-outline" onClick={handleExport} disabled={!reportData || exportLoading}>
             <Download size={16} />
-            Descargar PDF
+            {exportLoading ? 'Generando...' : 'Descargar PDF'}
           </button>
         </div>
       </div>

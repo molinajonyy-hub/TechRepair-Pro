@@ -9,8 +9,6 @@ import { ComprobanteDocumento } from '../components/comprobantes/ComprobanteDocu
 import { formatDisplayMessage } from '../utils/formatMessage';
 import { ComprobanteActions } from '../components/comprobantes/ComprobanteActions';
 import { ComprobantePrintLayout } from '../components/comprobantes/ComprobantePrintLayout';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { comprobanteService, MedioPago } from '../services/comprobanteService';
 
 const TIPO_LABELS: Record<string, string> = {
@@ -43,6 +41,7 @@ export default function ComprobantePage() {
   const { settings: profile, loading: loadingProfile } = useOrderPrintSettings(businessId);
 
   const [showSuccess, setShowSuccess] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   // ── Editar cobro ──────────────────────────────────────────────────────────
   const [showEditPago, setShowEditPago] = useState(false);
@@ -126,67 +125,78 @@ export default function ComprobantePage() {
     }
   };
 
-  const handleDescargarPDF = () => {
-    if (!comprobanteActual) return;
-    const doc = new jsPDF();
-    const name = profile.nombre_comercial || 'TechRepair';
-    doc.setFont('helvetica');
-    doc.setFontSize(18);
-    doc.setTextColor(79, 70, 229);
-    doc.text(name, 14, 20);
-    doc.setFontSize(10);
-    doc.setTextColor(100, 100, 100);
-    if (profile.domicilio_fiscal) doc.text(profile.domicilio_fiscal, 14, 28);
-    doc.setFontSize(16);
-    doc.setTextColor(0, 0, 0);
-    const tipoLabels: Record<string, string> = {
-      factura_a: 'FACTURA A', factura_c: 'FACTURA C',
-      remito: 'REMITO', nota_credito: 'NOTA DE CRÉDITO',
-    };
-    doc.text(tipoLabels[comprobanteActual.tipo] || comprobanteActual.tipo, 14, 45);
-    doc.setFontSize(12);
-    doc.text(`N° ${comprobanteActual.numero || '---'}`, 14, 52);
-    doc.setFontSize(10);
-    doc.text(`Fecha: ${new Date(comprobanteActual.fecha).toLocaleDateString('es-AR')}`, 14, 58);
-    if (comprobanteActual.cae) {
-      doc.setTextColor(0, 128, 0);
-      doc.text(`CAE: ${comprobanteActual.cae}`, 14, 68);
-      if (comprobanteActual.cae_vencimiento) {
-        doc.text(`Venc.: ${new Date(comprobanteActual.cae_vencimiento).toLocaleDateString('es-AR')}`, 14, 73);
-      }
-    }
-    const items = (comprobanteActual as any).items || [];
-    doc.setTextColor(0, 0, 0);
-    autoTable(doc, {
-      startY: 82,
-      head: [['#', 'Descripción', 'Cant.', 'P.Unit', 'Subtotal']],
-      body: items.map((item: any, i: number) => [
-        i + 1, item.descripcion, item.cantidad,
-        `$${item.precio_unitario.toFixed(2)}`, `$${item.subtotal.toFixed(2)}`,
-      ]),
-      theme: 'striped',
-      headStyles: { fillColor: [79, 70, 229], textColor: 255 },
-      styles: { fontSize: 9 },
-    });
-    const finalY = (doc as any).lastAutoTable?.finalY + 10 || 140;
-    doc.setFontSize(10);
-    doc.text('Subtotal:', 140, finalY);
-    doc.text(`$${comprobanteActual.subtotal.toFixed(2)}`, 195, finalY, { align: 'right' });
-    if (comprobanteActual.impuestos > 0) {
-      doc.text('IVA (21%):', 140, finalY + 6);
-      doc.text(`$${comprobanteActual.impuestos.toFixed(2)}`, 195, finalY + 6, { align: 'right' });
-    }
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text('TOTAL:', 140, finalY + 15);
-    doc.text(`$${comprobanteActual.total.toFixed(2)}`, 195, finalY + 15, { align: 'right' });
-    if (profile.comp_mensaje_agradecimiento) {
+  const handleDescargarPDF = async () => {
+    if (!comprobanteActual || pdfLoading) return;
+    setPdfLoading(true);
+    try {
+      const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+        import('jspdf'),
+        import('jspdf-autotable'),
+      ]);
+      const doc = new jsPDF();
+      const name = profile.nombre_comercial || 'TechRepair';
+      doc.setFont('helvetica');
+      doc.setFontSize(18);
+      doc.setTextColor(79, 70, 229);
+      doc.text(name, 14, 20);
       doc.setFontSize(10);
-      doc.setFont('helvetica', 'italic');
       doc.setTextColor(100, 100, 100);
-      doc.text(profile.comp_mensaje_agradecimiento, 14, finalY + 28);
+      if (profile.domicilio_fiscal) doc.text(profile.domicilio_fiscal, 14, 28);
+      doc.setFontSize(16);
+      doc.setTextColor(0, 0, 0);
+      const tipoLabels: Record<string, string> = {
+        factura_a: 'FACTURA A', factura_c: 'FACTURA C',
+        remito: 'REMITO', nota_credito: 'NOTA DE CRÉDITO',
+      };
+      doc.text(tipoLabels[comprobanteActual.tipo] || comprobanteActual.tipo, 14, 45);
+      doc.setFontSize(12);
+      doc.text(`N° ${comprobanteActual.numero || '---'}`, 14, 52);
+      doc.setFontSize(10);
+      doc.text(`Fecha: ${new Date(comprobanteActual.fecha).toLocaleDateString('es-AR')}`, 14, 58);
+      if (comprobanteActual.cae) {
+        doc.setTextColor(0, 128, 0);
+        doc.text(`CAE: ${comprobanteActual.cae}`, 14, 68);
+        if (comprobanteActual.cae_vencimiento) {
+          doc.text(`Venc.: ${new Date(comprobanteActual.cae_vencimiento).toLocaleDateString('es-AR')}`, 14, 73);
+        }
+      }
+      const items = (comprobanteActual as any).items || [];
+      doc.setTextColor(0, 0, 0);
+      autoTable(doc, {
+        startY: 82,
+        head: [['#', 'Descripción', 'Cant.', 'P.Unit', 'Subtotal']],
+        body: items.map((item: any, i: number) => [
+          i + 1, item.descripcion, item.cantidad,
+          `$${item.precio_unitario.toFixed(2)}`, `$${item.subtotal.toFixed(2)}`,
+        ]),
+        theme: 'striped',
+        headStyles: { fillColor: [79, 70, 229], textColor: 255 },
+        styles: { fontSize: 9 },
+      });
+      const finalY = (doc as any).lastAutoTable?.finalY + 10 || 140;
+      doc.setFontSize(10);
+      doc.text('Subtotal:', 140, finalY);
+      doc.text(`$${comprobanteActual.subtotal.toFixed(2)}`, 195, finalY, { align: 'right' });
+      if (comprobanteActual.impuestos > 0) {
+        doc.text('IVA (21%):', 140, finalY + 6);
+        doc.text(`$${comprobanteActual.impuestos.toFixed(2)}`, 195, finalY + 6, { align: 'right' });
+      }
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('TOTAL:', 140, finalY + 15);
+      doc.text(`$${comprobanteActual.total.toFixed(2)}`, 195, finalY + 15, { align: 'right' });
+      if (profile.comp_mensaje_agradecimiento) {
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(100, 100, 100);
+        doc.text(profile.comp_mensaje_agradecimiento, 14, finalY + 28);
+      }
+      doc.save(`comprobante-${comprobanteActual.numero || comprobanteActual.id.slice(0, 8)}.pdf`);
+    } catch (err) {
+      console.error('Error generando PDF:', err);
+    } finally {
+      setPdfLoading(false);
     }
-    doc.save(`comprobante-${comprobanteActual.numero || comprobanteActual.id.slice(0, 8)}.pdf`);
   };
 
   const handleImprimir = () => {
@@ -380,6 +390,7 @@ export default function ComprobantePage() {
               onImprimir={handleImprimir}
               onCrearNotaCredito={() => setShowNotaCredito(true)}
               emitiendo={emitiendo}
+              pdfLoading={pdfLoading}
             />
 
             {/* Ganancia real del comprobante */}

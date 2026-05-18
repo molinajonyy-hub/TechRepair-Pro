@@ -8,7 +8,7 @@ import { SubscriptionGuard } from '../components/subscription/SubscriptionGuard'
 import { SubscriptionBanner } from '../components/subscription/SubscriptionBanner'
 import { TrialBanner } from '../components/subscription/TrialBanner'
 import { SystemStatusProvider } from '../contexts/SystemStatusContext'
-import { useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 import { backgroundPrefetch } from '../services/refreshCriticalData'
 import logoSvg from '../assets/logo.svg'
 
@@ -135,7 +135,19 @@ export function MainLayout() {
             <SubscriptionGuard>
               <SubscriptionBanner />
               <TrialBanner />
-              <Outlet />
+              <Suspense fallback={
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+                  <div style={{
+                    width: 32, height: 32,
+                    border: '3px solid rgba(99,102,241,0.2)',
+                    borderTopColor: '#6366f1',
+                    borderRadius: '50%',
+                    animation: 'spin 0.7s linear infinite',
+                  }} />
+                </div>
+              }>
+                <Outlet />
+              </Suspense>
             </SubscriptionGuard>
           )}
         </div>

@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from 'react'
+﻿import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   TrendingUp, TrendingDown, DollarSign, BarChart3, Plus,
   Loader2, AlertCircle, CheckCircle, Pencil, Trash2, RefreshCw,
@@ -1720,13 +1720,13 @@ export function Finance() {
   }
 
   // Calcular summary desde BFE (para distribución, lista de entradas, etc.)
-  const rawSummary  = calculateSummary(entries)
-  const distribution = buildExpenseDistribution(entries)
-  const visibleEntries = filterByView(entries, view)
+  const rawSummary  = useMemo(() => calculateSummary(entries), [entries])
+  const distribution = useMemo(() => buildExpenseDistribution(entries), [entries])
+  const visibleEntries = useMemo(() => filterByView(entries, view), [entries, view])
 
   // Sobrescribir con datos corregidos del servicio unificado cuando estén disponibles.
   // El servicio unificado filtra income de comprobantes DRAFT, evitando inflación.
-  const summary: FinanceSummary = unifiedSummary ? {
+  const summary = useMemo<FinanceSummary>(() => unifiedSummary ? {
     totalIncome:          unifiedSummary.ingresosPeriodo,
     variableCosts:        unifiedSummary.costosVariables,
     grossMargin:          unifiedSummary.margenBruto,
@@ -1740,7 +1740,7 @@ export function Finance() {
     breakEvenPoint:       rawSummary.breakEvenPoint,
     status: unifiedSummary.resultadoNeto > 500 ? 'positive'
           : unifiedSummary.resultadoNeto < -500 ? 'negative' : 'break_even',
-  } : rawSummary
+  } : rawSummary, [unifiedSummary, rawSummary])
 
   const PERIOD_OPTS: { value: PeriodType; label: string }[] = [
     { value: 'today', label: 'Hoy' },

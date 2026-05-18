@@ -370,9 +370,9 @@ export function CajaPage() {
     activeMethod === 'all' ? movements : movements.filter(m => (m.metodo_pago || 'efectivo') === activeMethod)
   , [movements, activeMethod])
 
-  const totalARS = totals
-    ? fmtARS(METHODS.filter(m => m !== 'usd').reduce((s, m) => s + totals[m].balance, 0))
-    : '$0'
+  const totalARS = useMemo(() =>
+    totals ? fmtARS(METHODS.filter(m => m !== 'usd').reduce((s, m) => s + totals[m].balance, 0)) : '$0'
+  , [totals])
 
   // Expected balances for close modal
   const expectedClose = useMemo(() => {

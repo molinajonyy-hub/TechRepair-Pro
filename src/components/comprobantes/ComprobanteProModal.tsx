@@ -621,10 +621,15 @@ export function ComprobanteProModal({
     setLoad(true)
     try {
       const dbQ = buildSupabaseQuery(q)
-      const { data } = await supabase.from('inventory')
+      const { data, error: searchErr } = await supabase.from('inventory')
         .select('id,code,name,variant_name,category,stock_quantity,cost_price,sale_price,precio_mayorista,base_price,base_currency,has_variants')
         .eq('business_id', businessId).eq('is_active', true).not('has_variants', 'is', true)
         .or(`name.ilike.${dbQ},variant_name.ilike.${dbQ},code.ilike.${dbQ},category.ilike.${dbQ}`).limit(40)
+      if (searchErr) {
+        console.warn('[ComprobanteProModal.runSearch] DB error:', searchErr.message)
+        onResult([])
+        return
+      }
       const sorted = smartSearch((data || []) as InventoryResult[], q, [
         { getValue: (inv) => inv.name, weight: 2 },
         { getValue: (inv) => inv.variant_name ?? '', weight: 1.5 },
