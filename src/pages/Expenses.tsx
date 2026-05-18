@@ -454,7 +454,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
 
               <div>
                 <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Monto *</label>
-                <input className="form-control" style={{ fontSize: '1.5rem', fontWeight: 800, textAlign: 'right', color: 'var(--error)' }}
+                <input data-testid="expense-amount-input" className="form-control" style={{ fontSize: '1.5rem', fontWeight: 800, textAlign: 'right', color: 'var(--error)' }}
                   type="number" min="0" step="1" value={monto} onChange={e => setMonto(e.target.value)} placeholder="$ 0" autoFocus />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -466,7 +466,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
                 </div>
                 <div>
                   <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Método de pago</label>
-                  <select className="form-control" value={metodo} onChange={e => setMetodo(e.target.value)}>
+                  <select data-testid="expense-payment-method-select" className="form-control" value={metodo} onChange={e => setMetodo(e.target.value)}>
                     <option value="efectivo">Efectivo</option>
                     <option value="transferencia">Transferencia</option>
                     <option value="tarjeta">Tarjeta</option>
@@ -475,7 +475,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
               </div>
               <div>
                 <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Descripción *</label>
-                <input className="form-control" type="text" value={descripcion} onChange={e => setDescripcion(e.target.value)} placeholder="¿En qué se gastó?" />
+                <input data-testid="expense-description-input" className="form-control" type="text" value={descripcion} onChange={e => setDescripcion(e.target.value)} placeholder="¿En qué se gastó?" />
               </div>
               <div>
                 <label className="label-caps" style={{ display: 'block', marginBottom: '0.35rem' }}>Fecha</label>
@@ -721,7 +721,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
         {tipo === 'general' && (
         <div style={{ flexShrink: 0, padding: '1rem 1.5rem', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.75rem', background: 'var(--bg-modal)', borderRadius: '0 0 var(--radius-2xl) var(--radius-2xl)' }}>
           <AppButton variant="secondary" onClick={onClose}>Cancelar</AppButton>
-          <AppButton variant="red" onClick={handleSave} loading={saving} leftIcon={<Receipt size={14} />}>
+          <AppButton data-testid="expense-save-button" variant="red" onClick={handleSave} loading={saving} leftIcon={<Receipt size={14} />}>
             Registrar gasto
           </AppButton>
         </div>
@@ -919,7 +919,7 @@ export function Expenses() {
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <AppButton variant="ghost" size="sm" leftIcon={<RefreshIcon size={14} />} onClick={() => { loadExpenses(); loadCategories() }}>Actualizar</AppButton>
             <AppButton variant="secondary" size="sm" leftIcon={<ChevronDown size={14} />} onClick={() => setShowCategories(v => !v)}>Categorías</AppButton>
-            <AppButton variant="red" size="sm" leftIcon={<AddIcon size={14} />} onClick={() => setShowModal(true)}>Nuevo Gasto</AppButton>
+            <AppButton data-testid="expense-new-button" variant="red" size="sm" leftIcon={<AddIcon size={14} />} onClick={() => setShowModal(true)}>Nuevo Gasto</AppButton>
           </div>
         }
       />

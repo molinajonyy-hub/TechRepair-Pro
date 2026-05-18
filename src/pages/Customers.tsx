@@ -332,7 +332,7 @@ export function Customers() {
           <button onClick={handleDownloadTemplate} className="btn btn-ghost btn-sm"><Download size={15} />Plantilla</button>
           <button onClick={handleExportCustomers} className="btn btn-ghost btn-sm"><Download size={15} />Exportar</button>
           <button onClick={() => setShowImportModal(true)} className="btn btn-ghost btn-sm"><Upload size={15} />Importar</button>
-          <Link to="/customers/new" className="btn btn-primary btn-sm btn-lift" style={{ textDecoration: 'none' }}>
+          <Link to="/customers/new" data-testid="customer-new-button" className="btn btn-primary btn-sm btn-lift" style={{ textDecoration: 'none' }}>
             <Plus size={16} />Nuevo Cliente
           </Link>
         </div>
@@ -343,6 +343,7 @@ export function Customers() {
           <Search size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
           <input
             type="text"
+            data-testid="customer-search-input"
             placeholder="Buscar por nombre, teléfono, email..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}

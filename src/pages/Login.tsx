@@ -592,7 +592,7 @@ export function Login() {
               <div style={{ position: 'relative' }}>
                 <Mail size={17} style={{ ...S.iconLeft, color: emailError ? '#f87171' : '#334155' }} />
                 <input
-                  id="email" ref={emailInputRef} type="email" value={email}
+                  id="email" data-testid="login-email" ref={emailInputRef} type="email" value={email}
                   placeholder="tu@email.com" autoComplete="email" disabled={disabled}
                   style={S.input(!!emailError, disabled)}
                   onChange={e => { setEmail(e.target.value); setEmailError(''); setError('') }}
@@ -609,7 +609,7 @@ export function Login() {
               <div style={{ position: 'relative' }}>
                 <Lock size={17} style={{ ...S.iconLeft, color: passwordError ? '#f87171' : '#334155' }} />
                 <input
-                  id="password" type={showPassword ? 'text' : 'password'} value={password}
+                  id="password" data-testid="login-password" type={showPassword ? 'text' : 'password'} value={password}
                   placeholder="••••••••"
                   autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                   disabled={disabled}
@@ -671,7 +671,7 @@ export function Login() {
 
             {/* Botón principal */}
             <button
-              type="submit" disabled={disabled} style={S.btnPrimary(disabled)}
+              type="submit" data-testid="login-submit" disabled={disabled} style={S.btnPrimary(disabled)}
               onMouseEnter={e => { if (!disabled) { (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 8px 28px rgba(99,102,241,0.55)' } }}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 20px rgba(99,102,241,0.4)' }}
             >

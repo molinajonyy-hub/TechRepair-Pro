@@ -1627,6 +1627,7 @@ export function Inventory() {
             </button>
             <div style={{ position: 'relative' }} data-product-menu>
               <button
+                data-testid="inventory-new-button"
                 onClick={() => setShowProductMenu(!showProductMenu)}
                 className="btn btn-primary btn-sm btn-lift"
               >
@@ -1746,6 +1747,7 @@ export function Inventory() {
           <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', pointerEvents: 'none' }} />
           <input
             type="text"
+            data-testid="inventory-search-input"
             placeholder="Buscar por nombre, SKU, categoría, descripción..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}

@@ -545,6 +545,7 @@ export default function ComprobantePage() {
               <div>
                 <label className="label-caps">Medio de pago</label>
                 <select
+                  data-testid="edit-payment-method-select"
                   value={editPagoMethod}
                   onChange={e => setEditPagoMethod(e.target.value as MedioPago)}
                   className="form-select"
@@ -563,6 +564,7 @@ export default function ComprobantePage() {
               <div>
                 <label className="label-caps">Monto cobrado (ARS)</label>
                 <input
+                  data-testid="edit-payment-amount-input"
                   type="number"
                   min={0}
                   step={0.01}
@@ -600,6 +602,7 @@ export default function ComprobantePage() {
                 Cancelar
               </button>
               <button
+                data-testid="edit-payment-save-button"
                 onClick={() => void handleSaveEditPago()}
                 disabled={editPagoLoading || editPagoAmount < 0}
                 className="btn btn-primary btn-lift"
@@ -715,7 +718,7 @@ function EstadoCobroWidget({
   // ── Nota de crédito: no es un cobro, es un ajuste/devolución ─────────────
   if (tipo === 'nota_credito') {
     return (
-      <div style={{
+      <div data-testid="estado-cobro-widget" style={{
         marginTop: '1rem', borderRadius: '0.75rem', overflow: 'hidden',
         border: '1px solid rgba(99,102,241,0.2)',
         background: 'rgba(99,102,241,0.06)',
@@ -763,7 +766,7 @@ function EstadoCobroWidget({
   const label = isPagado ? 'Cobrado' : isParcial ? 'Pago parcial' : 'Pendiente de cobro';
 
   return (
-    <div style={{ marginTop: '1rem', borderRadius: '0.75rem', border: `1px solid ${bdr}`, background: bg, overflow: 'hidden' }}>
+    <div data-testid="estado-cobro-widget" style={{ marginTop: '1rem', borderRadius: '0.75rem', border: `1px solid ${bdr}`, background: bg, overflow: 'hidden' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.625rem 0.875rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -771,6 +774,7 @@ function EstadoCobroWidget({
           <span style={{ fontSize: '0.8rem', fontWeight: 700, color }}>{label}</span>
         </div>
         <button
+          data-testid="edit-payment-button"
           onClick={onEditarCobro}
           style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '0.7rem', fontWeight: 600, padding: '0.2rem 0.4rem', borderRadius: 4 }}
           title="Editar cobro"
