@@ -775,60 +775,31 @@ export const comprobanteService = {
     const rate   = params.exchange_rate || 1;
     const amtARS = (params.currency || 'ARS') === 'USD' ? params.amount * rate : params.amount;
 
-    const cajMethod =
-      (params.currency || 'ARS') === 'USD'           ? 'usd'
-      : params.payment_method === 'efectivo'          ? 'efectivo'
-      : params.payment_method === 'transferencia'     ? 'transferencia'
-      : ['tarjeta_debito','tarjeta_credito','qr','mixto','otro'].includes(params.payment_method) ? 'tarjeta'
-      : 'efectivo';
+    // DEBUG-TEMP: remover después de confirmar fix en producción
+    console.log('[actualizarPago rpc args]', { comprobanteId, paymentMethod: params.payment_method, amount: params.amount, amtARS });
 
-    const { data: existing } = await supabase
-      .from('comprobante_payments')
-      .select('id')
-      .eq('comprobante_id', comprobanteId)
-      .eq('business_id', businessId)
-      .limit(1);
+    // Usa la RPC atómica replace_comprobante_payment que:
+    // 1. Borra TODOS los pagos existentes del comprobante (sin dejar rows viejos).
+    // 2. Borra los financial_movements + BFE de ingresos del comprobante.
+    // 3. Inserta el nuevo pago único.
+    // 4. Los triggers recalculan total_cobrado y crean movimientos financieros frescos.
+    // Esto corrige el bug donde pagos mixtos dejaban rows extra que inflaban total_cobrado.
+    const { data, error } = await supabase.rpc('replace_comprobante_payment', {
+      p_comprobante_id:  comprobanteId,
+      p_business_id:     businessId,
+      p_payment_method:  params.payment_method,
+      p_amount:          params.amount,
+      p_amount_ars:      amtARS,
+      p_currency:        params.currency || 'ARS',
+      p_exchange_rate:   rate,
+      p_notes:           params.notes || null,
+      p_user_id:         userId,
+    });
 
-    if (existing && existing.length > 0) {
-      // UPDATE: la sync trigger recalcula total_cobrado/saldo_pendiente/estado_comercial
-      const { error } = await supabase
-        .from('comprobante_payments')
-        .update({
-          payment_method: params.payment_method,
-          amount:         params.amount,
-          amount_ars:     amtARS,
-          currency:       params.currency || 'ARS',
-          exchange_rate:  rate,
-          notes:          params.notes || null,
-        })
-        .eq('id', existing[0].id);
+    if (error) return { success: false, error: error.message };
 
-      if (error) return { success: false, error: error.message };
-
-      // Actualizar metodo_pago en financial_movements (el finance trigger no dispara en UPDATE)
-      await supabase.from('financial_movements')
-        .update({ metodo_pago: cajMethod, amount: params.amount, amount_ars: amtARS })
-        .eq('comprobante_id', comprobanteId)
-        .eq('business_id',    businessId)
-        .eq('type',           'income')
-        .eq('source',         'comprobante');
-
-    } else {
-      // Sin pagos previos: insertar (la finance trigger crea el movimiento de caja)
-      const { error } = await supabase.from('comprobante_payments').insert({
-        comprobante_id: comprobanteId,
-        business_id:    businessId,
-        amount:         params.amount,
-        amount_ars:     amtARS,
-        currency:       params.currency || 'ARS',
-        exchange_rate:  rate,
-        payment_method: params.payment_method,
-        notes:          params.notes || null,
-        date:           new Date().toISOString().split('T')[0],
-        created_by:     userId,
-      });
-      if (error) return { success: false, error: error.message };
-    }
+    const result = data as { ok: boolean; error?: string } | null;
+    if (!result?.ok) return { success: false, error: result?.error || 'Error al actualizar cobro' };
 
     return { success: true };
   },

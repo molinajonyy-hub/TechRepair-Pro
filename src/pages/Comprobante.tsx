@@ -218,14 +218,29 @@ export default function ComprobantePage() {
     const pagos = (comprobanteActual as any).pagos as any[] | undefined;
     const primero = pagos?.[0];
     setEditPagoMethod((primero?.payment_method as MedioPago) || 'efectivo');
-    setEditPagoAmount((comprobanteActual as any).total_cobrado || comprobanteActual.total || 0);
+    setEditPagoAmount(comprobanteActual.total || 0);
     setEditPagoNotes(primero?.notes || '');
+    // DEBUG-TEMP: remover después de confirmar fix en producción
+    if (import.meta.env.DEV || true) console.log('[openEditPago]', {
+      id: comprobanteActual.id,
+      total: comprobanteActual.total,
+      total_cobrado: (comprobanteActual as any).total_cobrado,
+      suggestedAmount: comprobanteActual.total || 0,
+    });
     setShowEditPago(true);
   };
 
   const handleSaveEditPago = async () => {
     if (!comprobanteActual || !businessId || !user) return;
     setEditPagoLoading(true);
+    // DEBUG-TEMP: remover después de confirmar fix en producción
+    if (import.meta.env.DEV || true) console.log('[saveEditPago payload]', {
+      comprobanteId: comprobanteActual.id,
+      total: comprobanteActual.total,
+      total_cobrado: (comprobanteActual as any).total_cobrado,
+      editPagoAmount,
+      editPagoMethod,
+    });
     try {
       const result = await comprobanteService.actualizarPago(
         comprobanteActual.id, businessId, user.id,
