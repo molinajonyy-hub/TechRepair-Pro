@@ -385,6 +385,13 @@ export const facturacionService = {
       console.error('Error obteniendo items:', itemsError);
     }
 
+    // Cargar pagos (para widget de cobro)
+    const { data: pagos } = await supabase
+      .from('comprobante_payments')
+      .select('payment_method, amount, amount_ars, notes, date')
+      .eq('comprobante_id', id)
+      .order('created_at', { ascending: true });
+
     // Cargar cliente
     const cliente = data.customer_id ? await supabase
       .from('customers')
@@ -404,6 +411,7 @@ export const facturacionService = {
     return {
       ...data,
       items: items || [],
+      pagos: pagos || [],
       cliente,
       orden
     } as any;

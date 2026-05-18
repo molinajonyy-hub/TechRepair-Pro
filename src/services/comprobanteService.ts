@@ -281,9 +281,11 @@ export const comprobanteService = {
 
       // Auto-default: si no hay pagos explícitos, cobrar efectivo por el total.
       // Evita que comprobantes nuevos arranquen como "pendiente" sin selección explícita.
-      const pagosEffective: ComprobantePago[] = pagos.length > 0
-        ? pagos
-        : [{ payment_method: 'efectivo', amount: total, currency: 'ARS', exchange_rate: globalRate }];
+      // Excepción: nota_credito es una reversión contable, no genera pago ni ingreso en caja.
+      const pagosEffective: ComprobantePago[] =
+        pagos.length > 0 || tipo === 'nota_credito'
+          ? pagos
+          : [{ payment_method: 'efectivo', amount: total, currency: 'ARS', exchange_rate: globalRate }];
 
       // Separar pagos reales (caja) de cuenta corriente (deuda en ledger, no caja)
       const pagosCash = pagosEffective.filter(p => p.payment_method !== 'cuenta_corriente');
