@@ -335,24 +335,26 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
       const catKey = categoria.toLowerCase().split(' ')[0]
       const financeTypeMap: Record<string, string> = { inventario: 'variable_cost', sueldos: 'salary', impuestos: 'taxes' }
       const financeType = financeTypeMap[catKey] || 'fixed_cost_local'
-      const { data: bfe, error: bfeErr } = await supabase.from('business_finance_entries').insert({
-        business_id: businessId, date: fecha, type: financeType, category: catKey,
-        description: descripcion, amount: montoNum, currency: 'ARS', amount_ars: montoNum,
-        exchange_rate: 1, payment_method: metodo, source: 'expense', created_by: userId,
-      }).select('id').single()
-      if (bfeErr) throw bfeErr
-      await supabase.from('expenses').insert({
-        description: descripcion, category: categoria, amount: montoNum, amount_ars: montoNum,
-        date: fecha, business_id: businessId, payment_method: metodo, currency: 'ARS',
-        exchange_rate: 1, is_recurring: recurrente, frequency: recurrente ? frecuencia : null,
-        notes: notas || null, finance_entry_id: bfe?.id || null, created_by: userId, tipo: 'general',
+      // RPC atómica: crea BFE + expense + FM en una sola transacción.
+      // Si cualquier insert falla, los 3 hacen rollback automático.
+      const { data: rpcResult, error: rpcErr } = await supabase.rpc('create_expense_with_finance', {
+        p_business_id:    businessId,
+        p_user_id:        userId,
+        p_description:    descripcion,
+        p_category:       categoria,
+        p_category_key:   catKey,
+        p_finance_type:   financeType,
+        p_amount:         montoNum,
+        p_payment_method: metodo,
+        p_date:           fecha,
+        p_is_recurring:   recurrente,
+        p_frequency:      recurrente ? frecuencia : null,
+        p_notes:          notas || null,
+        p_caja_id:        cajaId || null,
       })
-      await supabase.from('financial_movements').insert({
-        business_id: businessId, date: fecha, type: 'expense', currency: 'ARS',
-        amount: montoNum, amount_ars: montoNum, exchange_rate: 1,
-        description: descripcion, source: 'expense', reference_id: bfe?.id || null,
-        created_by: userId, caja_id: cajaId || null, metodo_pago: metodo,
-      })
+      if (rpcErr) throw rpcErr
+      const result = rpcResult as { ok: boolean; error?: string } | null
+      if (!result?.ok) throw new Error(result?.error || 'Error al guardar el gasto')
       onSaved()
     } catch (e: any) { setError(e.message || 'Error al guardar') } finally { setSaving(false) }
   }
