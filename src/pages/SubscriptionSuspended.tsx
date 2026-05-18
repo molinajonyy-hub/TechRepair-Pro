@@ -46,24 +46,16 @@ export function SubscriptionSuspended() {
       </div>
 
       {/* Status badge */}
-      <div style={{
-        padding: '0.5rem 1.25rem', borderRadius: '1rem',
-        background: isCanceled ? 'rgba(148,163,184,0.12)' : 'rgba(248,113,113,0.12)',
-        color: isCanceled ? '#94a3b8' : '#f87171',
-        fontSize: '0.875rem', fontWeight: 600,
-      }}>
+      <span className={isCanceled ? 'badge badge-neutral' : 'badge badge-error'} style={{ fontSize: '0.875rem', padding: '0.375rem 0.875rem' }}>
         {STATUS_LABELS[status]}
-      </div>
+      </span>
 
       {/* Actions */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', width: '100%', maxWidth: 320 }}>
         <button
           onClick={() => navigate('/subscription/plans')}
-          style={{
-            padding: '0.875rem', borderRadius: '0.75rem', border: 'none',
-            background: '#6366f1', color: '#fff', fontSize: '1rem', fontWeight: 600,
-            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-          }}
+          className="btn btn-primary btn-lift"
+          style={{ justifyContent: 'center', padding: '0.875rem', fontSize: '1rem' }}
         >
           <Zap size={18} />
           {isCanceled ? 'Reactivar mi cuenta' : 'Ver planes y reactivar'}
@@ -71,12 +63,8 @@ export function SubscriptionSuspended() {
 
         <button
           onClick={() => signOut()}
-          style={{
-            padding: '0.75rem', borderRadius: '0.75rem',
-            border: '1px solid var(--border-color)', background: 'transparent',
-            color: 'var(--text-muted)', fontSize: '0.9rem', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-          }}
+          className="btn btn-ghost"
+          style={{ justifyContent: 'center', padding: '0.75rem' }}
         >
           <LogOut size={16} />
           Cerrar sesión

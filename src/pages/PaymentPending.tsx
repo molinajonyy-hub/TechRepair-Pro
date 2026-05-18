@@ -14,7 +14,6 @@ import { useSubscription } from '../hooks/useSubscription'
 import { getLatestCheckoutSession, syncSubscriptionStatus } from '../services/subscriptionService'
 import { useAuth } from '../contexts/AuthContext'
 
-const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 const MAX_CHECKS = 24  // 2 minutos a intervalos de 5s
 
 export function PaymentPending() {
@@ -110,7 +109,7 @@ export function PaymentPending() {
 
   return (
     <StatusScreen
-      icon={<Loader2 size={36} color="#6366f1" style={{ animation: 'spin 0.7s linear infinite' }} />}
+      icon={<Loader2 size={36} color="#6366f1" style={{ animation: 'tr-spin 0.7s linear infinite' }} />}
       color="rgba(99,102,241,0.1)"
       title="Verificando tu pago..."
       message={`Esperando confirmación de Mercado Pago. Verificación ${checks + 1}/${MAX_CHECKS}.`}
@@ -130,26 +129,21 @@ function StatusScreen({ icon, color, title, message, actions }: {
   return (
     <div style={{
       minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      flexDirection: 'column', gap: '1.5rem', textAlign: 'center', padding: '2rem', fontFamily: F,
+      flexDirection: 'column', gap: '1.5rem', textAlign: 'center', padding: '2rem',
     }}>
       <div style={{ width: 72, height: 72, borderRadius: '50%', background: color, border: '2px solid ' + color.replace('0.1','0.4').replace('0.12','0.4'), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {icon}
       </div>
       <div>
-        <h2 style={{ margin: '0 0 0.5rem', color: '#f1f5f9', fontSize: '1.5rem', fontWeight: 800, letterSpacing: '-0.03em' }}>{title}</h2>
-        <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem', maxWidth: 420, lineHeight: 1.6 }}>{message}</p>
+        <h2 style={{ margin: '0 0 0.5rem', color: 'var(--text-primary)', fontSize: '1.5rem', fontWeight: 800, letterSpacing: '-0.03em' }}>{title}</h2>
+        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem', maxWidth: 420, lineHeight: 1.6 }}>{message}</p>
       </div>
       {actions && (
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
           {actions.map(a => (
-            <button key={a.label} onClick={a.onClick} style={{
-              padding: '0.75rem 1.5rem', borderRadius: '0.875rem', fontFamily: F,
-              fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer',
-              background: a.primary ? 'linear-gradient(135deg, #6366f1, #4f46e5)' : 'rgba(255,255,255,0.05)',
-              border: a.primary ? 'none' : '1px solid rgba(255,255,255,0.1)',
-              color: a.primary ? '#fff' : '#94a3b8',
-              boxShadow: a.primary ? '0 4px 16px rgba(99,102,241,0.3)' : 'none',
-            }}>
+            <button key={a.label} onClick={a.onClick}
+              className={a.primary ? 'btn btn-primary btn-lift' : 'btn btn-ghost'}
+            >
               {a.label}
             </button>
           ))}

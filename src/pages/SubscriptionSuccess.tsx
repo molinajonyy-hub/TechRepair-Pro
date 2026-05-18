@@ -1,9 +1,8 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { CheckCircle } from 'lucide-react'
 import { useSubscription } from '../hooks/useSubscription'
 import { PLAN_DISPLAY } from '../config/planFeatures'
-
-const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 
 export function SubscriptionSuccess() {
   const navigate = useNavigate()
@@ -16,7 +15,7 @@ export function SubscriptionSuccess() {
   return (
     <div style={{
       minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      flexDirection: 'column', gap: '1.5rem', textAlign: 'center', padding: '2rem', fontFamily: F,
+      flexDirection: 'column', gap: '1.5rem', textAlign: 'center', padding: '2rem',
     }}>
       {/* Check animado */}
       <div style={{
@@ -25,38 +24,27 @@ export function SubscriptionSuccess() {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         animation: 'popIn 0.4s cubic-bezier(0.22,1,0.36,1)',
       }}>
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="20 6 9 17 4 12"/>
-        </svg>
+        <CheckCircle size={36} style={{ color: '#22c55e' }} />
       </div>
 
       <div>
-        <h1 style={{ margin: '0 0 0.5rem', color: '#f1f5f9', fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.04em' }}>
+        <h1 style={{ margin: '0 0 0.5rem', color: 'var(--text-primary)', fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.04em' }}>
           Suscripción activada
         </h1>
         {planInfo && (
-          <p style={{ margin: '0 0 0.375rem', color: '#64748b', fontSize: '0.9rem' }}>
+          <p style={{ margin: '0 0 0.375rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
             Plan <strong style={{ color: planInfo.color }}>{planInfo.label}</strong> activo
           </p>
         )}
-        <p style={{ margin: 0, color: '#475569', fontSize: '0.875rem' }}>
+        <p style={{ margin: 0, color: 'var(--text-subtle)', fontSize: '0.875rem' }}>
           Gracias por tu confianza. Ya tenés acceso completo al sistema.
         </p>
       </div>
 
       <button
         onClick={() => navigate('/dashboard', { replace: true })}
-        style={{
-          padding: '0.875rem 2rem',
-          background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-          border: 'none', borderRadius: '0.875rem',
-          color: '#fff', fontWeight: 700, fontSize: '0.95rem',
-          cursor: 'pointer', fontFamily: F,
-          boxShadow: '0 4px 20px rgba(99,102,241,0.3)',
-          transition: 'opacity 0.15s',
-        }}
-        onMouseEnter={e => e.currentTarget.style.opacity = '0.88'}
-        onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+        className="btn btn-primary btn-lift"
+        style={{ padding: '0.875rem 2rem', fontSize: '0.95rem' }}
       >
         Ir al dashboard
       </button>

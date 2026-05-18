@@ -106,7 +106,7 @@ export function Subscription() {
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '40vh', gap: '1rem', color: 'var(--text-muted)' }}>
-        <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
+        <Loader2 size={24} style={{ animation: 'tr-spin 1s linear infinite' }} />
         Cargando suscripción...
       </div>
     )
@@ -115,22 +115,28 @@ export function Subscription() {
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2rem' }}>
-        <div>
-          <h1 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.75rem', fontWeight: 700 }}>
-            Mi Suscripción
-          </h1>
-          <p style={{ color: 'var(--text-muted)', margin: '0.5rem 0 0', fontSize: '0.9rem' }}>
-            {user?.email}
-          </p>
+      <div className="page-hdr">
+        <div className="page-hdr-left">
+          <div className="page-hdr-icon">
+            <CreditCard size={20} style={{ color: 'var(--accent-primary)' }} />
+          </div>
+          <div>
+            <h1 className="page-hdr-title">Mi Suscripción</h1>
+            <p className="page-hdr-subtitle">{user?.email}</p>
+          </div>
         </div>
-        <button onClick={refresh} style={btnStyle('ghost')}>
-          <RefreshCw size={16} />
-          Actualizar
-        </button>
+        <div className="page-hdr-right">
+          <button onClick={refresh} className="btn btn-ghost btn-sm">
+            <RefreshCw size={15} /> Actualizar
+          </button>
+        </div>
       </div>
 
-      {error && <ErrorBanner message={error} />}
+      {error && (
+        <div className="alert-inline alert-error" style={{ marginBottom: '1rem' }}>
+          {error}
+        </div>
+      )}
 
       {/* Status card */}
       <div className="card" style={{ marginBottom: '1.5rem', borderColor: STATUS_COLORS[status] + '40' }}>
@@ -148,10 +154,7 @@ export function Subscription() {
               <h2 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.25rem' }}>
                 {plan ? `Plan ${plan.name}` : 'Sin plan activo'}
               </h2>
-              <span style={{
-                padding: '0.25rem 0.75rem', borderRadius: '1rem', fontSize: '0.8rem', fontWeight: 600,
-                background: STATUS_COLORS[status] + '20', color: STATUS_COLORS[status],
-              }}>
+              <span className="badge" style={{ background: STATUS_COLORS[status] + '20', color: STATUS_COLORS[status] }}>
                 {STATUS_LABELS[status]}
               </span>
             </div>
@@ -173,7 +176,8 @@ export function Subscription() {
                   {(isUrgent || isVencido) && (
                     <button
                       onClick={() => navigate('/subscription/plans')}
-                      style={{ marginTop: '0.5rem', padding: '0.4rem 1rem', background: isVencido ? '#ef4444' : '#f59e0b', border: 'none', borderRadius: '0.5rem', color: '#fff', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}
+                      className="btn btn-primary btn-lift"
+                      style={{ marginTop: '0.5rem', padding: '0.4rem 1rem', fontSize: '0.78rem' }}
                     >
                       {isVencido ? 'Activar plan ahora' : 'Elegir plan'}
                     </button>
@@ -197,13 +201,13 @@ export function Subscription() {
           {/* Actions */}
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
             {(isSuspended || isCanceled || isTrial) && (
-              <button onClick={() => navigate('/subscription/plans')} style={btnStyle('primary')}>
+              <button onClick={() => navigate('/subscription/plans')} className="btn btn-primary btn-lift">
                 <Zap size={16} />
                 {isSuspended || isCanceled ? 'Reactivar' : 'Elegir plan'}
               </button>
             )}
             {(isActive || isPastDue) && (
-              <button onClick={() => navigate('/subscription/plans')} style={btnStyle('ghost')}>
+              <button onClick={() => navigate('/subscription/plans')} className="btn btn-ghost">
                 Cambiar plan
               </button>
             )}
@@ -302,7 +306,7 @@ export function Subscription() {
                   <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
                     Actualizá para desbloquear más funciones
                   </span>
-                  <button onClick={() => navigate('/subscription/plans')} style={{ ...btnStyle('primary'), padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
+                  <button onClick={() => navigate('/subscription/plans')} className="btn btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem' }}>
                     Ver planes
                   </button>
                 </div>
@@ -335,33 +339,31 @@ export function Subscription() {
                 No hay pagos registrados aún.
               </p>
             ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                    {['Fecha', 'Importe', 'Plan', 'Estado'].map(h => (
-                      <th key={h} style={{ padding: '0.75rem 1rem', textAlign: 'left', color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {payments.map(p => (
-                    <tr key={p.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                      <td style={tdStyle}>{p.paid_at ? new Date(p.paid_at).toLocaleDateString('es-AR') : new Date(p.created_at).toLocaleDateString('es-AR')}</td>
-                      <td style={tdStyle}>{formatSubscriptionPrice(p.amount, p.currency)}</td>
-                      <td style={tdStyle}>{PLANS.find(pl => pl.id === p.subscription_plan)?.name || p.subscription_plan || '—'}</td>
-                      <td style={tdStyle}>
-                        <span style={{
-                          padding: '0.2rem 0.6rem', borderRadius: '1rem', fontSize: '0.75rem', fontWeight: 600,
-                          background: PAYMENT_STATUS_COLORS[p.status] + '20',
-                          color: PAYMENT_STATUS_COLORS[p.status],
-                        }}>
-                          {PAYMENT_STATUS_LABELS[p.status]}
-                        </span>
-                      </td>
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      {['Fecha', 'Importe', 'Plan', 'Estado'].map(h => (
+                        <th key={h} className="label-caps">{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {payments.map(p => (
+                      <tr key={p.id}>
+                        <td>{p.paid_at ? new Date(p.paid_at).toLocaleDateString('es-AR') : new Date(p.created_at).toLocaleDateString('es-AR')}</td>
+                        <td>{formatSubscriptionPrice(p.amount, p.currency)}</td>
+                        <td>{PLANS.find(pl => pl.id === p.subscription_plan)?.name || p.subscription_plan || '—'}</td>
+                        <td>
+                          <span className="badge" style={{ background: PAYMENT_STATUS_COLORS[p.status] + '20', color: PAYMENT_STATUS_COLORS[p.status] }}>
+                            {PAYMENT_STATUS_LABELS[p.status]}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         )}
@@ -373,31 +375,31 @@ export function Subscription() {
           <div className="card-header"><h3 className="card-title">Administrar suscripción</h3></div>
           <div className="card-body" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
             {/* Verificar pago — útil cuando el webhook tardó */}
-            <button onClick={handleReconcile} disabled={reconciling} style={btnStyle('ghost')}>
-              {reconciling ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={16} />}
+            <button onClick={handleReconcile} disabled={reconciling} className="btn btn-ghost">
+              {reconciling ? <Loader2 size={16} style={{ animation: 'tr-spin 1s linear infinite' }} /> : <RefreshCw size={16} />}
               Verificar pago
             </button>
             {reconcileMsg && (
-              <span style={{ alignSelf: 'center', fontSize: '0.78rem', color: '#94a3b8' }}>{reconcileMsg}</span>
+              <span style={{ alignSelf: 'center', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{reconcileMsg}</span>
             )}
-            <button onClick={handleUpdatePayment} disabled={updatingPayment} style={btnStyle('ghost')}>
-              {updatingPayment ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <CreditCard size={16} />}
+            <button onClick={handleUpdatePayment} disabled={updatingPayment} className="btn btn-ghost">
+              {updatingPayment ? <Loader2 size={16} style={{ animation: 'tr-spin 1s linear infinite' }} /> : <CreditCard size={16} />}
               Actualizar método de pago
               <ExternalLink size={14} />
             </button>
 
             {!cancelConfirm ? (
-              <button onClick={() => setCancelConfirm(true)} style={btnStyle('danger')}>
+              <button onClick={() => setCancelConfirm(true)} className="btn" style={{ color: '#f87171', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)' }}>
                 Cancelar suscripción
               </button>
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                 <span style={{ color: '#f87171', fontSize: '0.875rem' }}>¿Confirmás la cancelación?</span>
-                <button onClick={handleCancel} disabled={canceling} style={btnStyle('danger')}>
-                  {canceling ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+                <button onClick={handleCancel} disabled={canceling} className="btn" style={{ color: '#f87171', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)' }}>
+                  {canceling ? <Loader2 size={14} style={{ animation: 'tr-spin 1s linear infinite' }} /> : null}
                   Sí, cancelar
                 </button>
-                <button onClick={() => setCancelConfirm(false)} style={btnStyle('ghost')}>
+                <button onClick={() => setCancelConfirm(false)} className="btn btn-ghost">
                   No, volver
                 </button>
               </div>
@@ -413,33 +415,8 @@ export function Subscription() {
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>{label}</div>
+      <div className="label-caps" style={{ marginBottom: '0.25rem' }}>{label}</div>
       <div style={{ color: 'var(--text-primary)', fontSize: '0.9rem', fontWeight: 500 }}>{value}</div>
     </div>
   )
-}
-
-function ErrorBanner({ message }: { message: string }) {
-  return (
-    <div style={{
-      padding: '0.875rem 1rem', background: 'rgba(248,113,113,0.08)',
-      border: '1px solid rgba(248,113,113,0.3)', borderRadius: '0.75rem',
-      color: '#f87171', fontSize: '0.875rem', marginBottom: '1rem',
-    }}>
-      {message}
-    </div>
-  )
-}
-
-const tdStyle: React.CSSProperties = { padding: '0.75rem 1rem', color: 'var(--text-secondary)', fontSize: '0.875rem' }
-
-function btnStyle(variant: 'primary' | 'ghost' | 'danger'): React.CSSProperties {
-  const base: React.CSSProperties = {
-    display: 'flex', alignItems: 'center', gap: '0.4rem',
-    padding: '0.5rem 1rem', borderRadius: '0.625rem',
-    fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer', border: '1px solid transparent',
-  }
-  if (variant === 'primary') return { ...base, background: '#6366f1', color: '#fff', borderColor: '#6366f1' }
-  if (variant === 'danger')  return { ...base, background: 'rgba(248,113,113,0.1)', color: '#f87171', borderColor: 'rgba(248,113,113,0.3)' }
-  return { ...base, background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)', borderColor: 'var(--border-color)' }
 }

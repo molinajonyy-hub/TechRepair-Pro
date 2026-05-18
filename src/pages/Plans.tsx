@@ -10,7 +10,6 @@ import { useSubscription } from '../hooks/useSubscription'
 import { createSubscription } from '../services/subscriptionService'
 import { PLANS, type SubscriptionPlan } from '../types/subscription'
 
-const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 type Cycle = 'monthly' | 'annual'
 
 // Features visibles por plan en la card interna
@@ -80,49 +79,34 @@ export function Plans() {
   }
 
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto', fontFamily: F }}>
+    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
 
       {/* Header */}
       <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
-        <h1 style={{ margin: '0 0 0.625rem', fontSize: '2rem', fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.04em' }}>
+        <h1 style={{ margin: '0 0 0.625rem', fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.04em' }}>
           Elegí tu plan
         </h1>
 
         {isTrial ? (
-          <div style={{
-            display: 'inline-block', padding: '0.4rem 1rem',
-            background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)',
-            borderRadius: '999px', marginBottom: '0.875rem',
-          }}>
-            <span style={{ fontSize: '0.82rem', color: '#818cf8', fontWeight: 600 }}>
-              {daysUntilTrialEnd !== null && daysUntilTrialEnd <= 3 && daysUntilTrialEnd > 0
-                ? `Tu prueba vence en ${daysUntilTrialEnd} día${daysUntilTrialEnd !== 1 ? 's' : ''}. Elegí un plan para mantener el acceso.`
-                : 'Tu prueba gratuita incluye funciones del Plan Pro'}
-            </span>
-          </div>
+          <span className="badge badge-info" style={{ display: 'inline-block', marginBottom: '0.875rem', fontSize: '0.82rem', padding: '0.4rem 1rem' }}>
+            {daysUntilTrialEnd !== null && daysUntilTrialEnd <= 3 && daysUntilTrialEnd > 0
+              ? `Tu prueba vence en ${daysUntilTrialEnd} día${daysUntilTrialEnd !== 1 ? 's' : ''}. Elegí un plan para mantener el acceso.`
+              : 'Tu prueba gratuita incluye funciones del Plan Pro'}
+          </span>
         ) : currentPlan && (
-          <div style={{ display: 'inline-block', padding: '0.4rem 1rem', background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)', borderRadius: '999px', marginBottom: '0.875rem' }}>
-            <span style={{ fontSize: '0.82rem', color: '#34d399', fontWeight: 600 }}>
-              Plan actual: {currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)}
-            </span>
-          </div>
+          <span className="badge badge-success" style={{ display: 'inline-block', marginBottom: '0.875rem', fontSize: '0.82rem', padding: '0.4rem 1rem' }}>
+            Plan actual: {currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)}
+          </span>
         )}
 
-        <p style={{ margin: '0 0 1.75rem', color: '#64748b', fontSize: '0.9rem' }}>
+        <p style={{ margin: '0 0 1.75rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
           Sin contratos. Cancelás cuando querés.
         </p>
 
         {/* Toggle mensual / anual */}
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '999px', padding: '0.25rem' }}>
+        <div className="tabs" style={{ display: 'inline-flex' }}>
           {(['monthly', 'annual'] as Cycle[]).map(c => (
-            <button key={c} onClick={() => setCycle(c)} style={{
-              padding: '0.4rem 1.125rem', borderRadius: '999px', border: 'none',
-              background: cycle === c ? 'rgba(255,255,255,0.1)' : 'transparent',
-              color: cycle === c ? '#f1f5f9' : '#64748b',
-              fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: '0.5rem',
-              fontFamily: F, transition: 'all 0.2s',
-            }}>
+            <button key={c} onClick={() => setCycle(c)} className={`tab ${cycle === c ? 'tab-active' : ''}`}>
               {c === 'monthly' ? 'Mensual' : (
                 <>Anual <span style={{ padding: '0.1rem 0.4rem', borderRadius: '999px', background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontSize: '0.7rem', fontWeight: 800 }}>−20%</span></>
               )}
@@ -132,13 +116,13 @@ export function Plans() {
       </div>
 
       {error && (
-        <div style={{ padding: '0.875rem 1rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '0.875rem', color: '#f87171', fontSize: '0.875rem', marginBottom: '1.75rem', textAlign: 'center' }}>
+        <div className="alert-inline alert-error" style={{ marginBottom: '1.75rem', justifyContent: 'center' }}>
           {error}
         </div>
       )}
 
       {/* Plan cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1rem', alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', alignItems: 'start' }}>
         {PLANS.map(plan => {
           const s     = PLAN_STYLES[plan.id]
           const price = isAnnual ? Math.round(plan.price_annual / 12) : plan.price_monthly
@@ -215,25 +199,15 @@ export function Plans() {
               <button
                 onClick={() => handleSelect(plan.id)}
                 disabled={!!loading}
+                className={isPro ? 'btn btn-primary btn-lift' : 'btn btn-ghost'}
                 style={{
-                  width: '100%', padding: '14px',
-                  background: isPro ? 'linear-gradient(135deg, #6366f1, #4f46e5)' : 'rgba(255,255,255,0.05)',
-                  border: isPro ? 'none' : `1px solid ${s.border}`,
-                  borderRadius: '0.875rem',
-                  color: isPro ? '#fff' : '#94a3b8',
-                  fontWeight: 700, fontSize: '0.9rem',
-                  cursor: loading ? 'not-allowed' : 'pointer',
+                  width: '100%', justifyContent: 'center', padding: '14px', fontSize: '0.9rem',
                   opacity: loading && !isBusy ? 0.5 : 1,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                  boxShadow: isPro ? '0 4px 20px rgba(99,102,241,0.3)' : 'none',
-                  transition: 'opacity 0.15s, transform 0.15s',
-                  fontFamily: F,
+                  border: isPro ? undefined : `1px solid ${s.border}`,
                 }}
-                onMouseEnter={e => { if (!loading) e.currentTarget.style.opacity = '0.88' }}
-                onMouseLeave={e => { e.currentTarget.style.opacity = loading && !isBusy ? '0.5' : '1' }}
               >
                 {isBusy ? (
-                  <Loader2 size={17} style={{ animation: 'spin 0.7s linear infinite' }} />
+                  <Loader2 size={17} style={{ animation: 'tr-spin 0.7s linear infinite' }} />
                 ) : null}
                 {isBusy ? 'Redirigiendo...' : `Elegir ${plan.name}`}
               </button>
@@ -248,10 +222,7 @@ export function Plans() {
 
       {/* Botón volver */}
       <div style={{ textAlign: 'center', marginTop: '1.25rem' }}>
-        <button
-          onClick={() => navigate(-1)}
-          style={{ background: 'none', border: 'none', color: '#475569', fontSize: '0.82rem', cursor: 'pointer', fontFamily: F }}
-        >
+        <button onClick={() => navigate(-1)} className="btn btn-ghost btn-sm">
           Volver
         </button>
       </div>
