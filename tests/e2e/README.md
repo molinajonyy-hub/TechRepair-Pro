@@ -163,6 +163,28 @@ Necesita un comprobante de tipo **nota de crédito**.
 
 ---
 
+## Requisitos de runtime para @finance
+
+Algunos tests @finance requieren estado activo en la cuenta QA:
+
+### `expenses-atomic` — crear gasto simple
+
+Requiere **caja abierta**. Si la caja está cerrada, `handleSaveGeneral` retorna con error client-side antes de llamar a la RPC, y el test salta automáticamente con el mensaje:
+
+> `Caja cerrada — abrir caja desde la app antes de correr este test @finance`
+
+**Cómo abrir la caja:** Menú → Caja → botón "Abrir caja".
+
+### `editar-cobro-unico` — regresión BUG-01
+
+Requiere al menos **un comprobante** en la cuenta QA. Si la lista está vacía, el test salta con:
+
+> `Sin comprobantes visibles en el listado tras 15s — crear al menos uno desde la app.`
+
+**Cómo activarlo:** Crear cualquier comprobante desde la app (venta, remito) y correr el test nuevamente.
+
+---
+
 ## Artefactos ante falla
 
 Los tests guardan trace, screenshot y video en `playwright-report/` y `test-results/` cuando fallan.

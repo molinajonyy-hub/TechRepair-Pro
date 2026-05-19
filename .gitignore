@@ -40,3 +40,7 @@ supabase/.temp
 
 # Build-time generated files (no commitear — se regeneran en cada build)
 public/version.json
+
+# Playwright E2E — artefactos de ejecución local (nunca commitear)
+playwright-report/
+test-results/
