@@ -714,7 +714,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
             </div>
           )}
 
-          {tipo === 'general' && error && <div style={{ padding: '0 1.5rem 0.75rem' }}><p style={{ margin: 0, color: 'var(--error)', fontSize: '0.8rem', fontWeight: 600 }}>{formatDisplayMessage(error)}</p></div>}
+          {tipo === 'general' && error && <div role="alert" data-testid="expense-error-message" style={{ padding: '0 1.5rem 0.75rem' }}><p style={{ margin: 0, color: 'var(--error)', fontSize: '0.8rem', fontWeight: 600 }}>{formatDisplayMessage(error)}</p></div>}
         </div>
 
         {/* Footer — solo para gasto general */}

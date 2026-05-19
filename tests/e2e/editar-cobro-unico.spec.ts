@@ -4,15 +4,18 @@
  * Protege el fix de replace_comprobante_payment RPC.
  *
  * ESTRATEGIA AUTOSUFICIENTE:
- *   - Navega al listado de comprobantes y toma el primero disponible.
+ *   - Si E2E_COMPROBANTE_ID_EFECTIVO está en .env.test, navega directo a ese ID.
+ *   - Si no, navega al listado y espera que aparezca el primer comprobante.
  *   - Lee el monto pre-cargado en el modal de editar cobro.
- *   - Guarda sin cambiar el monto.
- *   - Verifica que el monto mostrado post-guardado coincide con el pre-cargado.
- *   - Si no hay comprobantes en la cuenta QA, el test se saltea con skip.
+ *   - Cambia solo el método de pago (mismo monto) y guarda.
+ *   - Verifica que el monto post-guardado no está inflado (x1.5 o x2).
+ *   - Si no hay comprobantes en la cuenta QA, salta con skip explicativo.
+ *
+ * FIX: el count() inmediato retornaba 0 antes de que el listado cargara
+ * (lazy chunk + Supabase async). Reemplazado por waitFor con timeout.
  *
  * FALLBACK MANUAL:
- *   Si querés fijar un comprobante específico (ej. con pago mixto $500+$500),
- *   setear E2E_COMPROBANTE_ID_EFECTIVO en .env.test. El test usará ese ID.
+ *   Setear E2E_COMPROBANTE_ID_EFECTIVO en .env.test para usar un ID fijo.
  */
 import { test, expect } from '@playwright/test'
 import { login } from './helpers/auth'
@@ -27,14 +30,17 @@ test.describe('@finance Editar cobro — regresión BUG-01 (autosuficiente)', ()
     if (fixedId) {
       await page.goto(`/comprobantes/${fixedId}`)
     } else {
-      // Buscar el primer comprobante disponible en el listado
+      // Navegar al listado y ESPERAR que aparezca al menos un comprobante
       await nav.comprobantes(page)
-      await page.waitForLoadState('networkidle')
 
       const firstLink = page.locator('a[href*="/comprobantes/"]').first()
-      const count = await firstLink.count()
-      if (!count) {
-        test.skip(true, 'Sin comprobantes en la cuenta QA — crear al menos uno desde la app.')
+      const appeared = await firstLink
+        .waitFor({ state: 'attached', timeout: 15_000 })
+        .then(() => true)
+        .catch(() => false)
+
+      if (!appeared) {
+        test.skip(true, 'Sin comprobantes visibles en el listado tras 15s — crear al menos uno desde la app.')
         return
       }
       await firstLink.click()
@@ -58,7 +64,7 @@ test.describe('@finance Editar cobro — regresión BUG-01 (autosuficiente)', ()
     const preFillAmount = parseFloat(await amountInput.inputValue())
     expect(preFillAmount).toBeGreaterThan(0)
 
-    // Cambiar sólo el método de pago (mantener mismo monto) y guardar
+    // Cambiar solo el método de pago (mantener mismo monto) y guardar
     const methodSelect = page.locator('[data-testid="edit-payment-method-select"]')
     const currentMethod = await methodSelect.inputValue()
     const newMethod = currentMethod === 'efectivo' ? 'transferencia' : 'efectivo'
@@ -71,7 +77,7 @@ test.describe('@finance Editar cobro — regresión BUG-01 (autosuficiente)', ()
     await expect(estadoWidget).toBeVisible({ timeout: 8_000 })
     const widgetText = await estadoWidget.textContent()
 
-    // El monto pre-cargado multiplicado (BUG-01 era x1.5 o x2) no debe aparecer
+    // BUG-01 inflaba x1.5 (suma de 2 payment rows) o x2 (doble impacto)
     const inflated150 = (preFillAmount * 1.5).toLocaleString('es-AR', { maximumFractionDigits: 0 })
     const inflated200 = (preFillAmount * 2).toLocaleString('es-AR', { maximumFractionDigits: 0 })
     expect(widgetText).not.toContain(inflated150)
