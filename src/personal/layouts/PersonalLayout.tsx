@@ -1,5 +1,6 @@
+import { useState, useEffect } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Home, ArrowLeftRight, CreditCard, Target, MoreHorizontal, ArrowLeft, Wallet } from 'lucide-react'
+import { Home, ArrowLeftRight, CreditCard, Target, MoreHorizontal, ArrowLeft, Wallet, X } from 'lucide-react'
 import { ToastProvider } from '../components/ui'
 
 const NAV = [
@@ -9,6 +10,74 @@ const NAV = [
   { path: '/personal/ahorros',     label: 'Ahorros',     Icon: Target,         testId: 'personal-nav-savings'   },
   { path: '/personal/mas',         label: 'Más',         Icon: MoreHorizontal, testId: 'personal-nav-more'      },
 ]
+
+// ── Install prompt card ────────────────────────────────────────────────────────
+
+function InstallCard() {
+  const [dismissed, setDismissed] = useState(false)
+
+  useEffect(() => {
+    if (localStorage.getItem('miguita_install_dismissed') === '1') setDismissed(true)
+  }, [])
+
+  // Don't show if already dismissed or running in standalone mode
+  const isStandalone =
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (navigator as any).standalone === true
+
+  if (dismissed || isStandalone) return null
+
+  const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+  const isAndroid = /Android/i.test(navigator.userAgent)
+
+  // Only show on mobile browsers (skip desktop)
+  const isMobile = window.innerWidth <= 768
+
+  if (!isMobile) return null
+
+  const dismiss = () => {
+    localStorage.setItem('miguita_install_dismissed', '1')
+    setDismissed(true)
+  }
+
+  return (
+    <div
+      data-testid="personal-install-card"
+      style={{ margin: '0.75rem 0.75rem 0', padding: '0.875rem', background: 'rgba(129,140,248,0.06)', border: '1px solid rgba(129,140,248,0.18)', borderRadius: '1rem', position: 'relative' }}
+    >
+      <button
+        data-testid="personal-install-dismiss"
+        onClick={dismiss}
+        style={{ position: 'absolute', top: '0.625rem', right: '0.625rem', background: 'none', border: 'none', cursor: 'pointer', color: '#334155', display: 'flex', minWidth: 28, minHeight: 28, alignItems: 'center', justifyContent: 'center' }}
+      >
+        <X size={14} />
+      </button>
+      <div style={{ fontWeight: 700, fontSize: '0.8125rem', color: '#818cf8', marginBottom: '0.375rem' }}>
+        Instalá Mi Guita
+      </div>
+      <div style={{ fontSize: '0.775rem', color: '#475569', marginBottom: '0.625rem', lineHeight: 1.4 }}>
+        Agregala a la pantalla de inicio para cargar gastos más rápido.
+      </div>
+      {isIOS && (
+        <div data-testid="personal-install-ios-steps" style={{ fontSize: '0.72rem', color: '#334155', lineHeight: 1.5 }}>
+          Tocá Compartir (□↑) → "Agregar a inicio" → Abrí Mi Guita desde el icono.
+        </div>
+      )}
+      {isAndroid && (
+        <div data-testid="personal-install-android-steps" style={{ fontSize: '0.72rem', color: '#334155', lineHeight: 1.5 }}>
+          Tocá el menú ⋮ → "Instalar app" → Abrí Mi Guita desde el icono.
+        </div>
+      )}
+      {!isIOS && !isAndroid && (
+        <div style={{ fontSize: '0.72rem', color: '#334155', lineHeight: 1.5 }}>
+          Usá el menú de tu navegador para agregar Mi Guita a la pantalla de inicio.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Layout ────────────────────────────────────────────────────────────────────
 
 export function PersonalLayout() {
   const location = useLocation()
@@ -56,15 +125,16 @@ export function PersonalLayout() {
         </div>
       </header>
 
-      {/* ── Page content — paddingBottom accounts for fixed bottom nav ── */}
+      {/* ── Page content ── */}
       <main style={{
         flex: 1,
         overflowY: 'auto',
         overflowX: 'hidden',
-        // Fixed bottom nav is ~64px + safe-area; add generous padding
         paddingBottom: 'calc(4.5rem + env(safe-area-inset-bottom, 0px))',
-        WebkitOverflowScrolling: 'touch', // smooth momentum scroll on iOS
+        WebkitOverflowScrolling: 'touch',
       }}>
+        {/* Install prompt — only on mobile, only if not standalone */}
+        <InstallCard />
         <Outlet />
       </main>
 
@@ -79,7 +149,6 @@ export function PersonalLayout() {
           WebkitBackdropFilter: 'blur(16px)',
           borderTop: '1px solid rgba(255,255,255,0.07)',
           display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)',
-          // Bottom padding accounts for iOS home indicator
           paddingTop: '0.375rem',
           paddingBottom: 'max(0.625rem, env(safe-area-inset-bottom, 0.625rem))',
           zIndex: 100,
@@ -98,7 +167,6 @@ export function PersonalLayout() {
                 display: 'flex', flexDirection: 'column', alignItems: 'center',
                 gap: '0.2rem', background: 'none', border: 'none', cursor: 'pointer',
                 padding: '0.25rem 0.125rem', transition: 'all 0.15s',
-                // Minimum tap target: 44px
                 minHeight: 44,
               }}
             >

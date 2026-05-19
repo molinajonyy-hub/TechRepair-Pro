@@ -3,7 +3,7 @@
   "short_name": "Mi Guita",
   "description": "Controlá tus finanzas personales separadas del negocio",
   "start_url": "/personal",
-  "scope": "/personal",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#071018",
@@ -12,16 +12,22 @@
   "categories": ["finance", "productivity"],
   "icons": [
     {
-      "src": "/icons/mi-guita-192.png",
+      "src": "/icons/miguita-192.svg",
       "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "type": "image/svg+xml",
+      "purpose": "any"
     },
     {
-      "src": "/icons/mi-guita-512.png",
+      "src": "/icons/miguita-512.svg",
       "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/miguita-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
   ],
   "screenshots": [],

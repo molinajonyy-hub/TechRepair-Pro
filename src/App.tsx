@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { PremiumErrorBoundary } from './components/ui/PremiumErrorBoundary'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
+import { PersonalProtectedRoute } from './components/auth/PersonalProtectedRoute'
 import { MainLayout } from './layouts/MainLayout'
 import { LoadingProvider, useLoading } from './contexts/LoadingContext'
 import { LoadingDino } from './components/LoadingDino'
@@ -28,6 +29,7 @@ const PersonalSettings    = lazy(() => import('./personal/pages/PersonalStubs').
 import { AcceptInvite } from './pages/AcceptInvite'
 import { AuthCallback } from './pages/AuthCallback'
 import { Login } from './pages/Login'
+import { MiGuitaBridge } from './pages/MiGuitaBridge'
 import { NoBusiness } from './pages/NoBusiness'
 import { Onboarding } from './pages/Onboarding'
 import { ResetPassword } from './pages/ResetPassword'
@@ -193,8 +195,12 @@ function AppContent() {
             </Route>
           </Route>
 
+          {/* ── Mi Guita — Bridge (desktop) ──────────────────────────── */}
+          <Route path="/mi-guita" element={<MiGuitaBridge />} />
+
           {/* ── Mi Guita — Finanzas Personales ─────────────────────── */}
-          <Route element={<ProtectedRoute />}>
+          {/* Uses PersonalProtectedRoute: auth-only, no business access required */}
+          <Route element={<PersonalProtectedRoute />}>
             <Route element={<PersonalLayout />}>
               <Route path="/personal"                  element={<PersonalDashboard />} />
               <Route path="/personal/movimientos"      element={<PersonalMovements />} />

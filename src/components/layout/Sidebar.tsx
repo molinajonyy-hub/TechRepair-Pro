@@ -238,7 +238,7 @@ const menuSections: NavSection[] = [
       { path: '/caja',     label: 'Caja',      icon: <CajaIcon />,     permission: 'finance' },
       { path: '/finance',  label: 'Finanzas',  icon: <FinanzasIcon />, permission: 'finance', planFeature: 'advancedFinance' },
       { path: '/reports',  label: 'Reportes',  icon: <ReportesIcon />, permission: 'reports', planFeature: 'reports' },
-      { path: '/personal', label: 'Mi Guita',  icon: <MiGuitaIcon /> },
+      { path: '/mi-guita', label: 'Mi Guita',  icon: <MiGuitaIcon /> },
     ],
   },
   {

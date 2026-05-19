@@ -275,7 +275,9 @@ export function Login() {
   const [passwordError, setPasswordError]       = useState('')
   const [confirmError, setConfirmError]         = useState('')
 
-  const from = location.state?.from?.pathname || '/dashboard'
+  // Support ?redirectTo=... from direct links (e.g., PWA deep links or Mi Guita shortcuts)
+  const searchRedirect = new URLSearchParams(location.search).get('redirectTo')
+  const from = searchRedirect || location.state?.from?.pathname || '/dashboard'
 
   // Detectar errores OAuth que redirigen de vuelta al login (ej: acceso denegado)
   useEffect(() => {
