@@ -90,7 +90,7 @@ function MovementModal({ mode, account, businessId, userId, onSaved, onClose }: 
         <div className="modal-body-scroll" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>
             <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Monto *</label>
-            <input className="form-control mono" style={{ fontSize: '1.5rem', fontWeight: 800, textAlign: 'right', color: colors[mode] }}
+            <input data-testid="cc-payment-amount-input" className="form-control mono" style={{ fontSize: '1.5rem', fontWeight: 800, textAlign: 'right', color: colors[mode] }}
               type="number" min="0.01" step="0.01" value={amount}
               onChange={e => setAmount(e.target.value)} placeholder="$ 0" autoFocus />
           </div>
@@ -111,7 +111,7 @@ function MovementModal({ mode, account, businessId, userId, onSaved, onClose }: 
 
           <div>
             <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Descripción *</label>
-            <input className="form-control" type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Motivo o referencia..." />
+            <input data-testid="cc-payment-description-input" className="form-control" type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Motivo o referencia..." />
           </div>
 
           <div>
@@ -124,7 +124,7 @@ function MovementModal({ mode, account, businessId, userId, onSaved, onClose }: 
 
         <div className="modal-ftr">
           <AppButton variant="secondary" onClick={onClose}>Cancelar</AppButton>
-          <AppButton variant="indigo" loading={saving} onClick={handleSave} leftIcon={mode === 'pago' ? <ArrowDownRight size={14} /> : mode === 'deuda' ? <ArrowUpRight size={14} /> : <Edit2 size={14} />}>
+          <AppButton data-testid="cc-payment-save-button" variant="indigo" loading={saving} onClick={handleSave} leftIcon={mode === 'pago' ? <ArrowDownRight size={14} /> : mode === 'deuda' ? <ArrowUpRight size={14} /> : <Edit2 size={14} />}>
             Guardar
           </AppButton>
         </div>
@@ -291,7 +291,7 @@ function AccountDetail({ account, businessId, userId, onClose, onRefreshList }: 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1rem', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(255,255,255,0.05)', marginBottom: '0.875rem' }}>
           <div>
             <div style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>Saldo actual</div>
-            <div className="mono" style={{ fontSize: '1.625rem', fontWeight: 800, color: bal.color, letterSpacing: '-0.02em' }}>{bal.text}</div>
+            <div data-testid="cc-detail-balance" className="mono" style={{ fontSize: '1.625rem', fontWeight: 800, color: bal.color, letterSpacing: '-0.02em' }}>{bal.text}</div>
           </div>
           <span className={`badge ${getAccountStatus(account.balance) === 'deuda' ? 'badge-error' : getAccountStatus(account.balance) === 'a_favor' ? 'badge-info' : 'badge-success'}`}>
             {sm.label}
@@ -300,7 +300,7 @@ function AccountDetail({ account, businessId, userId, onClose, onRefreshList }: 
 
         {/* Acciones */}
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' as const }}>
-          <AppButton variant="indigo" size="sm" leftIcon={<ArrowDownRight size={13} />} onClick={() => setModal('pago')}>Registrar pago</AppButton>
+          <AppButton data-testid="cc-register-payment-button" variant="indigo" size="sm" leftIcon={<ArrowDownRight size={13} />} onClick={() => setModal('pago')}>Registrar pago</AppButton>
           <AppButton variant="red" size="sm" leftIcon={<ArrowUpRight size={13} />} onClick={() => setModal('deuda')}>Registrar deuda</AppButton>
           <AppButton variant="ghost" size="sm" leftIcon={<Edit2 size={13} />} onClick={() => setModal('ajuste')}>Ajuste</AppButton>
           <AppButton variant="ghost" size="sm" leftIcon={<RefreshCw size={13} />} onClick={loadMovements}>Actualizar</AppButton>

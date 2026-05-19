@@ -232,7 +232,7 @@ function HistoryCajaPanel({ caja, onNavigate }: HistoryCajaPanelProps) {
       ) : movs.length === 0 ? (
         <div style={{ padding: '1.25rem', textAlign: 'center', color: '#334155', fontSize: '0.8rem' }}>Sin movimientos registrados</div>
       ) : (
-        <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+        <div data-testid="caja-movements-list" style={{ maxHeight: 280, overflowY: 'auto' }}>
           {movs.map(mov => {
             const src = getSourceMeta(mov.source)
             const SrcIcon = src.icon
@@ -240,7 +240,7 @@ function HistoryCajaPanel({ caja, onNavigate }: HistoryCajaPanelProps) {
             const isNav = ['comprobante','cobro_rapido','expense','pago_proveedor'].includes(mov.source)
             const amountARS = mov.currency === 'ARS' ? mov.amount : mov.amount_ars
             return (
-              <div key={mov.id} onClick={() => isNav && onNavigate(mov)}
+              <div data-testid="caja-movement-row" key={mov.id} onClick={() => isNav && onNavigate(mov)}
                 style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.5rem 0.875rem', borderBottom: '1px solid rgba(255,255,255,0.03)', cursor: isNav ? 'pointer' : 'default' }}
                 onMouseEnter={e => { if (isNav) e.currentTarget.style.background = 'rgba(255,255,255,0.025)' }}
                 onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>

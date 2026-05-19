@@ -24,8 +24,14 @@ test.describe('@finance Editar cobro — pago mixto (BUG-01 regression)', () => 
   test('pago mixto + editar cobro no genera total_cobrado > total', async ({ page }) => {
     test.fixme(
       !process.env.E2E_COMPROBANTE_ID_MIXTO,
-      'Requiere E2E_COMPROBANTE_ID_MIXTO: comprobante creado con pago $500 efectivo + $500 transferencia. ' +
-      'Ver instrucciones en el comentario del archivo.'
+      'Requiere E2E_COMPROBANTE_ID_MIXTO: comprobante creado con pago $500 efectivo + $500 transferencia.\n' +
+      'ALTERNATIVA AUTOSUFICIENTE (pendiente): ' +
+      'Ahora que ComprobanteProModal tiene data-testid (comprobante-product-search, comprobante-payment-efectivo/transferencia, ' +
+      'comprobante-payment-amount, comprobante-save-button), es factible crear el comprobante mixto en el test. ' +
+      'Requiere: (1) crear producto E2E, (2) abrir modal, (3) agregar producto, ' +
+      '(4) click efectivo + llenar $500, (5) click transferencia + llenar $500, (6) cobrar. ' +
+      'Ver helpers/comprobante.ts para el helper createComprobanteCash ya funcional. ' +
+      'Agregar createComprobanteMixed(page, {half1: "efectivo", half2: "transferencia", total: 1000}).'
     )
 
     await login(page)

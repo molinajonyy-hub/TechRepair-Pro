@@ -124,7 +124,7 @@ const LineaCard = memo(function LineaCard({
   const TipoIcon = linea.tipo_linea === 'repuesto' ? Wrench : linea.tipo_linea === 'servicio' ? Tag : Package
 
   return (
-    <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.625rem', overflow: 'visible', animation: 'itemSlideIn 0.12s ease', transition: 'border-color 0.12s' }}
+    <div data-testid={`comprobante-item-row-${idx}`} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.625rem', overflow: 'visible', animation: 'itemSlideIn 0.12s ease', transition: 'border-color 0.12s' }}
       onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(99,102,241,0.2)'}
       onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,255,255,0.06)'}
     >
@@ -139,6 +139,7 @@ const LineaCard = memo(function LineaCard({
         <div style={{ flex: 1, minWidth: 0 }} ref={dropdownRef}>
           <div style={{ position: 'relative' }}>
             <input
+              data-testid="comprobante-item-description"
               value={linea.descripcion}
               onChange={e => onDescChange(idx, e.target.value)}
               onFocus={onSearchFocus}
@@ -199,7 +200,7 @@ const LineaCard = memo(function LineaCard({
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.2rem 0.3rem', display: 'flex', alignItems: 'center', fontFamily: F }}>
               <Minus size={11} />
             </button>
-            <input type="number" value={linea.cantidad} min="0.01" step="1"
+            <input data-testid="comprobante-item-quantity" type="number" value={linea.cantidad} min="0.01" step="1"
               onChange={e => onUpdate({ cantidad: parseFloat(e.target.value) || 1 })}
               style={{ width: '2.25rem', textAlign: 'center', background: 'none', border: 'none', outline: 'none', color: '#f0f4ff', fontSize: '0.82rem', fontWeight: 700, fontFamily: F, padding: '0.2rem 0' }} />
             <button onClick={() => onUpdate({ cantidad: linea.cantidad + 1 })}
@@ -211,7 +212,7 @@ const LineaCard = memo(function LineaCard({
           {/* Price — compacto */}
           <div style={{ position: 'relative' }}>
             <span style={{ position: 'absolute', left: '0.3rem', top: '50%', transform: 'translateY(-50%)', color: '#334155', fontSize: '0.65rem', pointerEvents: 'none' }}>$</span>
-            <input type="number" value={linea.precio_unitario}
+            <input data-testid="comprobante-item-price" type="number" value={linea.precio_unitario}
               onChange={e => onUpdate({ precio_unitario: parseFloat(e.target.value) || 0, applied_price_type: 'manual' })}
               style={{ width: '5.25rem', paddingLeft: '0.875rem', paddingRight: '0.3rem', paddingTop: '0.25rem', paddingBottom: '0.25rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.375rem', color: '#f0f4ff', fontSize: '0.78rem', fontWeight: 600, outline: 'none', textAlign: 'right', fontFamily: F }} />
           </div>
@@ -225,13 +226,13 @@ const LineaCard = memo(function LineaCard({
           </div>
 
           {/* Subtotal — compacto */}
-          <div style={{ textAlign: 'right', minWidth: '4.25rem' }}>
+          <div data-testid="comprobante-item-subtotal" style={{ textAlign: 'right', minWidth: '4.25rem' }}>
             <div style={{ color: '#f0f4ff', fontSize: '0.82rem', fontWeight: 800 }}>{fmtARS(subtotal)}</div>
             {linea.descuento_linea > 0 && <div style={{ color: '#22c55e', fontSize: '0.62rem', textDecoration: 'line-through', opacity: 0.5 }}>{fmtARS(linea.cantidad * linea.precio_unitario * (linea.currency === 'USD' ? exchangeRate : 1))}</div>}
           </div>
 
           {/* Delete */}
-          <button onClick={onDelete} disabled={!canDelete}
+          <button data-testid="comprobante-item-remove" onClick={onDelete} disabled={!canDelete}
             style={{ background: 'none', border: 'none', cursor: canDelete ? 'pointer' : 'not-allowed', color: '#ef4444', opacity: canDelete ? 0.4 : 0.1, padding: '0.2rem', display: 'flex', alignItems: 'center', transition: 'opacity 0.1s' }}
             onMouseEnter={e => canDelete && ((e.currentTarget as HTMLButtonElement).style.opacity = '1')}
             onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.opacity = canDelete ? '0.4' : '0.1')}>
@@ -936,7 +937,7 @@ export function ComprobanteProModal({
                 }
               </svg>
             </button>
-            <button onClick={tryClose} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', cursor: 'pointer', color: '#475569', padding: '0.375rem', borderRadius: '0.5rem', display: 'flex', alignItems: 'center', transition: 'all 0.1s' }}
+            <button data-testid="comprobante-cancel-button" onClick={tryClose} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', cursor: 'pointer', color: '#475569', padding: '0.375rem', borderRadius: '0.5rem', display: 'flex', alignItems: 'center', transition: 'all 0.1s' }}
               onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#94a3b8' }}
               onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#475569' }}>
               <X size={16} />
@@ -1038,7 +1039,7 @@ export function ComprobanteProModal({
               ) : (
                 <div style={{ position: 'relative' }}>
                   <User size={14} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#334155', pointerEvents: 'none' }} />
-                  <input ref={clienteInputRef} value={clienteQuery}
+                  <input data-testid="comprobante-customer-search" ref={clienteInputRef} value={clienteQuery}
                     onChange={e => { setClienteQuery(e.target.value); setClienteOpen(true); if (!e.target.value) setClienteId('') }}
                     onFocus={() => setClienteOpen(true)}
                     placeholder="Buscar cliente por nombre... (F2)"
@@ -1048,9 +1049,9 @@ export function ComprobanteProModal({
 
               {/* Cliente dropdown */}
               {clienteOpen && (
-                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, background: '#0c1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.875rem', boxShadow: '0 16px 48px rgba(0,0,0,0.7)', maxHeight: 240, overflowY: 'auto', marginTop: '0.25rem', animation: 'spotlightSlide 0.12s ease' }}>
+                <div data-testid="comprobante-customer-results" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, background: '#0c1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.875rem', boxShadow: '0 16px 48px rgba(0,0,0,0.7)', maxHeight: 240, overflowY: 'auto', marginTop: '0.25rem', animation: 'spotlightSlide 0.12s ease' }}>
                   {clientes.filter(c => !clienteQuery || c.name.toLowerCase().includes(clienteQuery.toLowerCase())).slice(0, 25).map(c => (
-                    <button key={c.id} onMouseDown={() => { setClienteId(c.id); setClienteQuery(c.name); setClienteOpen(false) }}
+                    <button data-testid="comprobante-customer-option" key={c.id} onMouseDown={() => { setClienteId(c.id); setClienteQuery(c.name); setClienteOpen(false) }}
                       style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '0.625rem 1rem', background: c.id === clienteId ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', cursor: 'pointer', color: '#f0f4ff', fontSize: '0.845rem', textAlign: 'left', fontFamily: F, gap: '0.5rem', transition: 'background 0.08s' }}
                       onMouseEnter={e => { if (c.id !== clienteId) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
                       onMouseLeave={e => { e.currentTarget.style.background = c.id === clienteId ? 'rgba(99,102,241,0.1)' : 'none' }}>
@@ -1092,6 +1093,7 @@ export function ComprobanteProModal({
               >
                 <Search size={14} color="#334155" style={{ flexShrink: 0 }} />
                 <input
+                  data-testid="comprobante-product-search"
                   ref={spotRef}
                   value={spotQ}
                   onChange={e => handleSpotChange(e.target.value)}
@@ -1111,7 +1113,7 @@ export function ComprobanteProModal({
 
               {/* Inline dropdown resultados */}
               {spotResults.length > 0 && (
-                <div style={{
+                <div data-testid="comprobante-product-results" style={{
                   position: 'absolute' as const, top: 'calc(100% + 0.375rem)', left: 0, right: 0, zIndex: 200,
                   background: '#0c1a2e', border: '1px solid rgba(255,255,255,0.1)',
                   borderRadius: '0.875rem', boxShadow: '0 16px 48px rgba(0,0,0,0.7)',
@@ -1122,7 +1124,7 @@ export function ComprobanteProModal({
                     const isHL     = i === spotKeyIdx || (spotKeyIdx === -1 && i === 0)
                     const prShow   = esClienteMayorista && r.precio_mayorista ? r.precio_mayorista : r.sale_price
                     return (
-                      <button key={r.id}
+                      <button data-testid="comprobante-product-option" key={r.id}
                         onMouseDown={() => addOrIncrement(r)}
                         onMouseEnter={() => setSpotKeyIdx(i)}
                         style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', width: '100%', padding: '0.625rem 1rem', background: isHL ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer', textAlign: 'left' as const, fontFamily: F, transition: 'background 0.08s' }}>
@@ -1234,7 +1236,7 @@ export function ComprobanteProModal({
 
             {/* SUCCESS OVERLAY */}
             {showSuccess && (
-              <div style={{ position: 'absolute', inset: 0, background: '#07101f', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 10, padding: '1.5rem', animation: 'spotlightSlide 0.25s ease' }}>
+              <div data-testid="comprobante-success-screen" style={{ position: 'absolute', inset: 0, background: '#07101f', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 10, padding: '1.5rem', animation: 'spotlightSlide 0.25s ease' }}>
                 <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(34,197,94,0.1)', border: '2px solid rgba(34,197,94,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.25rem', animation: 'successBounce 0.4s ease' }}>
                   <CheckCircle2 size={36} color="#22c55e" />
                 </div>
@@ -1266,12 +1268,12 @@ export function ComprobanteProModal({
                       <MessageCircle size={14} /> WhatsApp
                     </button>
                   </div>
-                  <button onClick={() => { onCreado?.(); onClose() }}
+                  <button data-testid="comprobante-new-after-success" onClick={() => { onCreado?.(); onClose() }}
                     style={{ width: '100%', padding: '0.75rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', border: 'none', borderRadius: '0.75rem', color: '#fff', fontSize: '0.9rem', fontWeight: 800, cursor: 'pointer', fontFamily: F }}>
                     <Plus size={15} style={{ verticalAlign: 'middle', marginRight: '0.375rem' }} />
                     Nuevo comprobante
                   </button>
-                  <button onClick={() => { onCreado?.(); onClose() }}
+                  <button data-testid="comprobante-close-after-success" onClick={() => { onCreado?.(); onClose() }}
                     style={{ width: '100%', padding: '0.5rem', background: 'transparent', border: 'none', color: '#334155', fontSize: '0.78rem', cursor: 'pointer', fontFamily: F }}>
                     Cerrar
                   </button>
@@ -1336,7 +1338,7 @@ export function ComprobanteProModal({
                   )}
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ color: '#f0f4ff', fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1 }}>{fmtARS(totales.total)}</div>
+                  <div data-testid="comprobante-total" style={{ color: '#f0f4ff', fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1 }}>{fmtARS(totales.total)}</div>
                 </div>
               </div>
             </div>
@@ -1355,7 +1357,7 @@ export function ComprobanteProModal({
                       const pmKey = (m.id === 'efectivo' || m.id === 'transferencia') ? m.id : 'otro'
                       const active = !!pagos.find(p => p.payment_method === pmKey && (p as any)._option_id === optionId)
                       return (
-                        <button key={m.id} onClick={() => toggleMetodo(m)}
+                        <button data-testid={`comprobante-payment-${m.id}`} key={m.id} onClick={() => toggleMetodo(m)}
                           style={{ padding: '0.45rem 0.3rem', borderRadius: '0.5rem', border: `1px solid ${active ? (m.color || 'rgba(99,102,241,0.5)') : 'rgba(255,255,255,0.06)'}`, background: active ? `${m.color}20` : 'rgba(255,255,255,0.02)', color: active ? m.color || '#818cf8' : '#334155', fontSize: '0.72rem', fontWeight: active ? 700 : 500, cursor: 'pointer', transition: 'all 0.12s', textAlign: 'center', fontFamily: F, lineHeight: 1.3 }}
                           onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
                           onMouseLeave={e => { if (!active) e.currentTarget.style.background = active ? `${m.color}20` : 'rgba(255,255,255,0.02)' }}>
@@ -1376,6 +1378,7 @@ export function ComprobanteProModal({
                   <div>
                     <div style={{ fontSize: '0.6rem', color: '#1e3a5f', marginBottom: '0.25rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Cuenta corriente cliente</div>
                     <button
+                      data-testid="comprobante-payment-cuenta_corriente"
                       onClick={() => {
                         if (sinCliente || totales.total <= 0) return
                         if (ccActive) {
@@ -1416,17 +1419,17 @@ export function ComprobanteProModal({
                     const color = (p as any)._color || '#818cf8'
                     const isCC = p.payment_method === 'cuenta_corriente'
                     return (
-                      <div key={p._key} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.375rem 0.625rem', background: `${color}12`, border: `1px solid ${color}30`, borderRadius: '0.5rem', transition: 'border-color 0.1s' }}>
+                      <div data-testid="comprobante-payment-chip" key={p._key} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.375rem 0.625rem', background: `${color}12`, border: `1px solid ${color}30`, borderRadius: '0.5rem', transition: 'border-color 0.1s' }}>
                         {isCC && <Wallet size={12} color={color} style={{ flexShrink: 0 }} />}
                         {!isCC && <div style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />}
                         <span style={{ flex: 1, fontSize: '0.775rem', color, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {(p as any)._option_label || p.payment_method}
                         </span>
                         <span style={{ color: '#334155', fontSize: '0.7rem' }}>$</span>
-                        <input type="number" min="0" value={p.amount}
+                        <input data-testid="comprobante-payment-amount" type="number" min="0" value={p.amount}
                           onChange={e => setPagos(prev => prev.map(pp => pp._key === p._key ? { ...pp, amount: e.target.value } : pp))}
                           style={{ width: '5.25rem', textAlign: 'right', padding: '0.175rem 0.3rem', background: `${color}08`, border: `1px solid ${color}28`, borderRadius: '0.375rem', color: isCC ? '#a5b4fc' : '#f0f4ff', fontSize: '0.82rem', fontWeight: 700, outline: 'none', fontFamily: F }} />
-                        <button onClick={() => setPagos(prev => prev.filter(pp => pp._key !== p._key))}
+                        <button data-testid="comprobante-payment-remove" onClick={() => setPagos(prev => prev.filter(pp => pp._key !== p._key))}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#334155', padding: '0.1rem', display: 'flex', alignItems: 'center', transition: 'color 0.1s' }}
                           onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
                           onMouseLeave={e => e.currentTarget.style.color = '#334155'}>
@@ -1464,7 +1467,7 @@ export function ComprobanteProModal({
                     </div>
                   )}
                   {totales.saldo > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.2rem', borderTop: '1px solid rgba(245,158,11,0.2)' }}>
+                    <div data-testid="comprobante-balance" style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.2rem', borderTop: '1px solid rgba(245,158,11,0.2)' }}>
                       <span style={{ fontSize: '0.78rem', color: '#f59e0b', fontWeight: 700 }}>Saldo pendiente</span>
                       <span style={{ fontSize: '0.85rem', color: '#f59e0b', fontWeight: 900 }}>{fmtARS(totales.saldo)}</span>
                     </div>
@@ -1488,11 +1491,11 @@ export function ComprobanteProModal({
                 </div>
               )}
               {submitError && (
-                <div key={errorShakeKey} style={{ marginBottom: '0.5rem', padding: '0.5rem 0.625rem', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '0.5rem', animation: errorShakeKey > 0 ? 'shake 0.32s ease' : undefined }}>
+                <div data-testid="comprobante-error-message" key={errorShakeKey} style={{ marginBottom: '0.5rem', padding: '0.5rem 0.625rem', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '0.5rem', animation: errorShakeKey > 0 ? 'shake 0.32s ease' : undefined }}>
                   <span style={{ color: '#f87171', fontSize: '0.72rem' }}>{formatDisplayMessage(submitError)}</span>
                 </div>
               )}
-              <button onClick={() => void handleSubmit()} disabled={submitting}
+              <button data-testid="comprobante-save-button" onClick={() => void handleSubmit()} disabled={submitting}
                 style={{ width: '100%', padding: '1rem', borderRadius: '0.875rem', border: 'none', background: submitting ? 'rgba(99,102,241,0.4)' : 'linear-gradient(135deg,#6366f1,#4f46e5)', color: '#fff', fontSize: '1.0625rem', fontWeight: 800, cursor: submitting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontFamily: F, transition: 'all 0.15s', boxShadow: submitting ? 'none' : '0 4px 20px rgba(99,102,241,0.4)' }}
                 onMouseEnter={e => { if (!submitting) { e.currentTarget.style.boxShadow = '0 6px 28px rgba(99,102,241,0.55)'; e.currentTarget.style.transform = 'translateY(-1px)' } }}
                 onMouseLeave={e => { e.currentTarget.style.boxShadow = submitting ? 'none' : '0 4px 20px rgba(99,102,241,0.4)'; e.currentTarget.style.transform = '' }}
