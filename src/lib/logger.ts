@@ -26,6 +26,7 @@ export type LogContext =
   | 'REALTIME'     // subscripciones, canales
   | 'SUPABASE'     // queries, errores de DB
   | 'UI'           // renders, animaciones
+  | 'PERSONAL'       // Mi Guita — finanzas personales
   | 'GENERAL'
 
 export interface LogEntry {

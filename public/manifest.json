@@ -1,0 +1,40 @@
+{
+  "name": "Mi Guita — Finanzas Personales",
+  "short_name": "Mi Guita",
+  "description": "Controlá tus finanzas personales separadas del negocio",
+  "start_url": "/personal",
+  "scope": "/personal",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#071018",
+  "theme_color": "#34d399",
+  "lang": "es-AR",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/mi-guita-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/mi-guita-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Nuevo gasto",
+      "url": "/personal/movimientos/nuevo?type=expense",
+      "description": "Registrar un gasto personal"
+    },
+    {
+      "name": "Nuevo ingreso",
+      "url": "/personal/movimientos/nuevo?type=income",
+      "description": "Registrar un ingreso personal"
+    }
+  ]
+}

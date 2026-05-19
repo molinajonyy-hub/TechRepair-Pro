@@ -10,6 +10,20 @@ import { ProtectedRouteByFeature } from './components/auth/ProtectedRouteByFeatu
 import { ProtectedRouteBySystemOwner } from './components/auth/ProtectedRouteBySystemOwner'
 import { UpdateBanner } from './components/UpdateBanner'
 
+// ── Personal Finance (Mi Guita) ──────────────────────────────────
+const PersonalLayout      = lazy(() => import('./personal/layouts/PersonalLayout').then(m => ({ default: m.PersonalLayout })))
+const PersonalDashboard   = lazy(() => import('./personal/pages/PersonalDashboard').then(m => ({ default: m.PersonalDashboard })))
+const PersonalMovements   = lazy(() => import('./personal/pages/PersonalMovements').then(m => ({ default: m.PersonalMovements })))
+const PersonalAccounts    = lazy(() => import('./personal/pages/PersonalAccounts').then(m => ({ default: m.PersonalAccounts })))
+const OwnerWithdrawal     = lazy(() => import('./personal/pages/OwnerWithdrawal').then(m => ({ default: m.OwnerWithdrawalPage })))
+const PersonalMore        = lazy(() => import('./personal/pages/PersonalStubs').then(m => ({ default: m.PersonalMore })))
+const PersonalCreditCards = lazy(() => import('./personal/pages/PersonalStubs').then(m => ({ default: m.PersonalCreditCards })))
+const PersonalSavings     = lazy(() => import('./personal/pages/PersonalStubs').then(m => ({ default: m.PersonalSavings })))
+const PersonalDebts       = lazy(() => import('./personal/pages/PersonalStubs').then(m => ({ default: m.PersonalDebts })))
+const PersonalProjection  = lazy(() => import('./personal/pages/PersonalStubs').then(m => ({ default: m.PersonalProjection })))
+const PersonalCategories  = lazy(() => import('./personal/pages/PersonalStubs').then(m => ({ default: m.PersonalCategories })))
+const PersonalSettings    = lazy(() => import('./personal/pages/PersonalStubs').then(m => ({ default: m.PersonalSettings })))
+
 // ── Auth / utility — always static (critical paths, small size) ───
 import { AcceptInvite } from './pages/AcceptInvite'
 import { AuthCallback } from './pages/AuthCallback'
@@ -176,6 +190,25 @@ function AppContent() {
               <Route path="/subscription/suspended" element={<SubscriptionSuspended />} />
               <Route path="/tutorials" element={<Tutorials />} />
               <Route path="/whatsapp" element={<WhatsAppPage />} />
+            </Route>
+          </Route>
+
+          {/* ── Mi Guita — Finanzas Personales ─────────────────────── */}
+          <Route element={<ProtectedRoute />}>
+            <Route element={<PersonalLayout />}>
+              <Route path="/personal"                  element={<PersonalDashboard />} />
+              <Route path="/personal/movimientos"      element={<PersonalMovements />} />
+              <Route path="/personal/movimientos/nuevo" element={<PersonalMovements />} />
+              <Route path="/personal/cuentas"          element={<PersonalAccounts />} />
+              <Route path="/personal/sueldo"           element={<OwnerWithdrawal />} />
+              <Route path="/personal/tarjetas"         element={<PersonalCreditCards />} />
+              <Route path="/personal/tarjetas/compra"  element={<PersonalCreditCards />} />
+              <Route path="/personal/ahorros"          element={<PersonalSavings />} />
+              <Route path="/personal/deudas"           element={<PersonalDebts />} />
+              <Route path="/personal/proyecciones"     element={<PersonalProjection />} />
+              <Route path="/personal/categorias"       element={<PersonalCategories />} />
+              <Route path="/personal/configuracion"    element={<PersonalSettings />} />
+              <Route path="/personal/mas"              element={<PersonalMore />} />
             </Route>
           </Route>
 
