@@ -743,6 +743,7 @@ export function ProductFormModal({
             <Row2>
               <Field label="Nombre *">
                 <input
+                  data-testid="product-name-input"
                   value={form.name} required
                   onChange={e => set('name', e.target.value)}
                   onBlur={checkDuplicate}
@@ -855,7 +856,7 @@ export function ProductFormModal({
                 {form.base_currency === 'ARS' ? (
                   <div style={{ position: 'relative' }}>
                     <span style={prefixS}>$</span>
-                    <input value={form.cost_ars} onChange={e => handleCostChange(e.target.value, 'cost_ars')} placeholder="0" style={{ ...inputS, paddingLeft: '1.75rem' }} />
+                    <input data-testid="product-cost-input" value={form.cost_ars} onChange={e => handleCostChange(e.target.value, 'cost_ars')} placeholder="0" style={{ ...inputS, paddingLeft: '1.75rem' }} />
                   </div>
                 ) : (
                   <div style={{ position: 'relative' }}>
@@ -873,7 +874,7 @@ export function ProductFormModal({
               <Field label="Precio de venta (ARS)">
                 <div style={{ position: 'relative' }}>
                   <span style={prefixS}>$</span>
-                  <input value={form.sale_price_ars} onChange={e => handleSalePriceChange(e.target.value)} placeholder="0" style={{ ...inputS, paddingLeft: '1.75rem' }} />
+                  <input data-testid="product-price-input" value={form.sale_price_ars} onChange={e => handleSalePriceChange(e.target.value)} placeholder="0" style={{ ...inputS, paddingLeft: '1.75rem' }} />
                 </div>
               </Field>
             </Row2>
@@ -905,7 +906,7 @@ export function ProductFormModal({
             <Section label="Stock">
               <Row2>
                 <Field label="Stock inicial">
-                  <input value={form.stock_quantity} onChange={e => set('stock_quantity', e.target.value)} placeholder="0" type="number" min="0" style={inputS} />
+                  <input data-testid="product-stock-input" value={form.stock_quantity} onChange={e => set('stock_quantity', e.target.value)} placeholder="0" type="number" min="0" style={inputS} />
                 </Field>
                 <Field label="Stock mínimo">
                   <input value={form.min_stock} onChange={e => set('min_stock', e.target.value)} placeholder="0" type="number" min="0" style={inputS} />
@@ -1195,6 +1196,7 @@ export function ProductFormModal({
             Cancelar
           </button>
           <button
+            data-testid="product-save-button"
             onClick={handleSubmit}
             disabled={saving}
             style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.5rem', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: '0.75rem', color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: F }}

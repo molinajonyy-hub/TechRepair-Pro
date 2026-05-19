@@ -1,10 +1,21 @@
 /**
  * @finance
- * TEST CRÍTICO: Editar cobro con pago mixto no infla total_cobrado.
- * Protege el fix de BUG-01 (replace_comprobante_payment RPC).
+ * TEST CRÍTICO — Regresión BUG-01: Pago mixto + editar cobro no infla total_cobrado.
+ * Protege el fix de replace_comprobante_payment RPC.
  *
- * Este test es el caso más importante: mezcla de $500 + $500 → editar a $1000.
- * Resultado esperado: total_cobrado = $1000, NO $1500 ni $2000.
+ * POR QUÉ REQUIERE ID MANUAL:
+ *   El BUG-01 original solo manifestaba con comprobantes que tenían MÚLTIPLES
+ *   filas en comprobante_payments (ej: pago mixto = $500 efectivo + $500 transferencia).
+ *   Crear este comprobante vía UI de forma fiable desde un test es frágil:
+ *   requiere interactuar con ComprobanteProModal y seleccionar método "mixto".
+ *   Por eso este test queda en modo fixme hasta tener un helper de setup robusto.
+ *
+ * CÓMO ACTIVAR:
+ *   1. Crear un comprobante con método de pago "Mixto" ($500 efectivo + $500 transferencia).
+ *   2. Abrir el comprobante y copiar el UUID de la URL: /comprobantes/<uuid>
+ *   3. Agregar en .env.test:
+ *        E2E_COMPROBANTE_ID_MIXTO=<uuid-del-comprobante>
+ *   4. El test se activará automáticamente.
  */
 import { test, expect } from '@playwright/test'
 import { login } from './helpers/auth'
@@ -13,7 +24,8 @@ test.describe('@finance Editar cobro — pago mixto (BUG-01 regression)', () => 
   test('pago mixto + editar cobro no genera total_cobrado > total', async ({ page }) => {
     test.fixme(
       !process.env.E2E_COMPROBANTE_ID_MIXTO,
-      'Requiere E2E_COMPROBANTE_ID_MIXTO: ID de comprobante creado con pago $500 efectivo + $500 transferencia'
+      'Requiere E2E_COMPROBANTE_ID_MIXTO: comprobante creado con pago $500 efectivo + $500 transferencia. ' +
+      'Ver instrucciones en el comentario del archivo.'
     )
 
     await login(page)
@@ -28,13 +40,14 @@ test.describe('@finance Editar cobro — pago mixto (BUG-01 regression)', () => 
     const amountInput = page.locator('[data-testid="edit-payment-amount-input"]')
     await expect(amountInput).toBeVisible()
 
-    // Monto debe ser el total del comprobante, no la suma inflada
+    // El monto pre-cargado debe ser el total del comprobante, NO la suma inflada
+    // (BUG-01: la suma de 2 filas de payments daba $1000 + $500 = $1500)
     const amountValue = await amountInput.inputValue()
     const amount = parseFloat(amountValue)
-    expect(amount).toBeLessThanOrEqual(1000) // total del comprobante
+    expect(amount).toBeLessThanOrEqual(1000)
     expect(amount).not.toBe(1500)
 
-    // Cambiar a transferencia total
+    // Cambiar a transferencia total y guardar
     await amountInput.fill('1000')
     await page.selectOption('[data-testid="edit-payment-method-select"]', 'transferencia')
     await page.click('[data-testid="edit-payment-save-button"]')

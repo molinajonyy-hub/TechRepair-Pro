@@ -1,4 +1,22 @@
 import { defineConfig, devices } from '@playwright/test'
+import { readFileSync } from 'fs'
+import { resolve } from 'path'
+
+// Load .env.test for local development (CI injects vars directly via environment)
+try {
+  const lines = readFileSync(resolve('.env.test'), 'utf-8').split('\n')
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const eq = trimmed.indexOf('=')
+    if (eq === -1) continue
+    const key = trimmed.slice(0, eq).trim()
+    const val = trimmed.slice(eq + 1).trim()
+    if (key && val && !process.env[key]) process.env[key] = val
+  }
+} catch {
+  // .env.test not found — expected in CI where vars come from the environment
+}
 
 /**
  * TechRepair Pro — Playwright E2E config

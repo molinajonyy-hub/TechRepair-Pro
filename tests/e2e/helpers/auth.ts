@@ -6,9 +6,11 @@ const E2E_PASSWORD = process.env.E2E_PASSWORD || ''
 
 /** Login with QA credentials from environment variables. */
 export async function login(page: Page): Promise<void> {
-  if (!E2E_EMAIL || !E2E_PASSWORD) {
+  if (!E2E_EMAIL || !E2E_PASSWORD || E2E_EMAIL === 'COMPLETAR_MANUALMENTE') {
     throw new Error(
-      'E2E_EMAIL and E2E_PASSWORD must be set. Copy .env.test.example to .env.test and fill them in.'
+      'Faltan variables E2E_EMAIL/E2E_PASSWORD en .env.test.\n' +
+      '  → Copiá .env.test.example a .env.test y completá las credenciales manualmente.\n' +
+      '  → No hardcodear credenciales en código.'
     )
   }
   await page.goto('/login')

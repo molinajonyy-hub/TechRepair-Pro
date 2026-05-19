@@ -94,6 +94,7 @@ export function NewCustomer() {
               <label className="form-label">Nombre Completo *</label>
               <input
                 type="text"
+                data-testid="customer-name-input"
                 value={formData.name}
                 onChange={(e) => handleChange('name', e.target.value)}
                 className="form-control"
@@ -106,6 +107,7 @@ export function NewCustomer() {
               <label className="form-label">Teléfono *</label>
               <input
                 type="tel"
+                data-testid="customer-phone-input"
                 value={formData.phone}
                 onChange={(e) => handleChange('phone', e.target.value)}
                 className="form-control"
@@ -230,6 +232,7 @@ export function NewCustomer() {
               </button>
               <button
                 type="submit"
+                data-testid="customer-save-button"
                 className="btn btn-primary btn-lift"
                 disabled={isSubmitting || !formData.name || !formData.phone}
               >

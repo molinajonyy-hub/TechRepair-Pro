@@ -10,84 +10,164 @@ npm install
 npx playwright install chromium
 ```
 
-## Variables de entorno requeridas
+---
 
-Copiar `.env.test.example` a `.env.test` y completar:
-
-```
-E2E_BASE_URL=http://localhost:5173   # URL del dev server
-E2E_EMAIL=qa@techrepair.test         # Email del usuario QA
-E2E_PASSWORD=QA_password_here        # Contraseña del usuario QA
-```
-
-Variables opcionales (para tests que requieren comprobantes específicos):
-
-```
-E2E_COMPROBANTE_ID_EFECTIVO=<uuid>   # Comprobante pagado efectivo $1000
-E2E_COMPROBANTE_ID_MIXTO=<uuid>      # Comprobante con pago mixto $500+$500
-E2E_NOTA_CREDITO_ID=<uuid>           # ID de una nota de crédito
-```
-
-**NUNCA commitear `.env.test` con credenciales reales.**
-
-## Cómo correr
+## Configurar variables de entorno
 
 ```bash
-# Primero: levantar el dev server en otra terminal
-npm run dev
+# 1. Copiar el template
+cp .env.test.example .env.test
 
-# Correr todos los tests
+# 2. Completar .env.test manualmente (NUNCA commitear este archivo)
+```
+
+Contenido mínimo de `.env.test`:
+
+```
+E2E_BASE_URL=http://localhost:5173
+E2E_EMAIL=tu_usuario_qa@ejemplo.com
+E2E_PASSWORD=tu_password_qa
+```
+
+**Reglas de seguridad:**
+- `.env.test` está en `.gitignore` — nunca aparecerá en commits.
+- Usar un usuario QA dedicado, no una cuenta de negocio real.
+- No correr tests `@finance` contra `techrepairpro.app` (producción) sin datos aislados.
+
+---
+
+## Cómo correr los tests
+
+### Paso 1 — levantar el dev server (en una terminal separada)
+
+```bash
+npm run dev
+```
+
+### Paso 2 — correr tests
+
+```bash
+# Todos los tests
 npm run test:e2e
 
-# Modo interactivo (UI mode)
-npm run test:e2e:ui
-
-# Con browser visible
-npm run test:e2e:headed
-
-# Solo tests @smoke
+# Solo tests @smoke (seguros, solo lectura + crear datos E2E)
 npm run test:e2e -- --grep @smoke
 
 # Solo tests @finance
 npm run test:e2e -- --grep @finance
 
+# Modo UI interactivo (recomendado para desarrollo)
+npm run test:e2e:ui
+
+# Con browser visible
+npm run test:e2e:headed
+
 # Debug paso a paso
 npm run test:e2e:debug
 ```
 
+---
+
 ## Tests disponibles
 
-| Archivo | Tags | Descripción | Seguro en producción |
-|---------|------|-------------|---------------------|
-| `auth-navigation.spec.ts` | `@smoke` | Login + navegación básica | ✅ Solo lectura |
-| `customer-inventory.spec.ts` | `@smoke` | Crear cliente/producto E2E | ⚠️ Crea datos E2E |
-| `editar-cobro-unico.spec.ts` | `@finance` | Editar cobro único (BUG-01) | ⚠️ Requiere ID env |
-| `editar-cobro-mixto.spec.ts` | `@finance` | Editar cobro mixto (BUG-01) | ⚠️ Requiere ID env |
-| `expenses-atomic.spec.ts` | `@finance` | Gastos atómicos (INF-02) | ⚠️ Crea datos E2E |
-| `nota-credito.spec.ts` | `@finance` | Widget NC correcto | ⚠️ Requiere ID env |
+| Archivo | Tags | Descripción | Crea datos | Seguro en producción |
+|---|---|---|---|---|
+| `auth-navigation.spec.ts` | `@smoke` | Login + navegación por 6 secciones + redirect protegido | No | Sí — solo lectura |
+| `customer-inventory.spec.ts` | `@smoke` | Crear cliente E2E + crear producto E2E | Sí — prefijo `E2E ` | No — crea datos |
+| `editar-cobro-unico.spec.ts` | `@finance` | Regresión BUG-01 — autosuficiente (toma primer comprobante disponible) | No | No — modifica cobro |
+| `editar-cobro-mixto.spec.ts` | `@finance` | Regresión BUG-01 pago mixto — requiere ID manual | No | No — modifica cobro |
+| `expenses-atomic.spec.ts` | `@finance` | Gastos atómicos INF-02 — crear gasto + validar error | Sí — prefijo `E2E ` | No — crea datos |
+| `nota-credito.spec.ts` | `@finance` | Widget NC correcto sin "Pendiente de cobro" | No | No — requiere NC |
+
+---
+
+## Tests con `test.fixme` (se saltean si faltan IDs)
+
+Estos tests requieren IDs manuales en `.env.test`. Si los IDs no están, el test se **saltea automáticamente** sin fallar la suite.
+
+### `editar-cobro-mixto.spec.ts`
+
+Necesita un comprobante con pago **mixto** (múltiples filas en `comprobante_payments`).
+
+**Por qué no es autosuficiente:** Crear un comprobante mixto desde UI requiere interactuar con `ComprobanteProModal` + seleccionar método "Mixto". Esto es frágil en tests automatizados hasta tener un helper de setup más robusto.
+
+**Cómo activarlo:**
+1. Crear un comprobante desde la app con método de pago **Mixto** ($500 efectivo + $500 transferencia).
+2. Abrir el comprobante y copiar el UUID de la URL: `/comprobantes/<uuid>`
+3. Agregar en `.env.test`:
+   ```
+   E2E_COMPROBANTE_ID_MIXTO=<uuid>
+   ```
+
+### `nota-credito.spec.ts`
+
+Necesita un comprobante de tipo **nota de crédito**.
+
+**Por qué no es autosuficiente:** Crear una NC requiere crear primero un comprobante base y luego emitir la NC desde ese comprobante. Dos pasos dependientes, propenso a flakiness.
+
+**Cómo activarlo:**
+1. Crear una nota de crédito desde la app.
+2. Abrir la NC y copiar el UUID de la URL.
+3. Agregar en `.env.test`:
+   ```
+   E2E_NOTA_CREDITO_ID=<uuid>
+   ```
+
+---
+
+## Convenciones de datos E2E
+
+- Todos los datos creados por tests usan prefijo **`E2E `** (ej: `E2E Cliente 1A2B3C`).
+- Los datos E2E se acumulan en la DB de la cuenta QA. Limpiarlos manualmente o con un script de cleanup.
+- Nunca usar datos de clientes o comprobantes reales en los tests.
+
+---
+
+## data-testid disponibles
+
+| Elemento | Selector |
+|---|---|
+| Login email | `[data-testid="login-email"]` |
+| Login password | `[data-testid="login-password"]` |
+| Login submit | `[data-testid="login-submit"]` |
+| Customers — nuevo | `[data-testid="customers-new-button"]` |
+| Customers — búsqueda | `[data-testid="customers-search-input"]` |
+| NewCustomer — nombre | `[data-testid="customer-name-input"]` |
+| NewCustomer — teléfono | `[data-testid="customer-phone-input"]` |
+| NewCustomer — guardar | `[data-testid="customer-save-button"]` |
+| Inventory — nuevo | `[data-testid="inventory-new-button"]` |
+| Inventory — búsqueda | `[data-testid="inventory-search-input"]` |
+| ProductForm — nombre | `[data-testid="product-name-input"]` |
+| ProductForm — stock | `[data-testid="product-stock-input"]` |
+| ProductForm — costo | `[data-testid="product-cost-input"]` |
+| ProductForm — precio | `[data-testid="product-price-input"]` |
+| ProductForm — guardar | `[data-testid="product-save-button"]` |
+| Expense — nuevo | `[data-testid="expense-new-button"]` |
+| Expense — descripción | `[data-testid="expense-description-input"]` |
+| Expense — monto | `[data-testid="expense-amount-input"]` |
+| Expense — método | `[data-testid="expense-payment-method-select"]` |
+| Expense — guardar | `[data-testid="expense-save-button"]` |
+| Comprobante widget cobro | `[data-testid="estado-cobro-widget"]` |
+| Comprobante editar cobro | `[data-testid="edit-payment-button"]` |
+| Editar cobro — método | `[data-testid="edit-payment-method-select"]` |
+| Editar cobro — monto | `[data-testid="edit-payment-amount-input"]` |
+| Editar cobro — guardar | `[data-testid="edit-payment-save-button"]` |
+
+---
 
 ## Usuario QA
 
-Crear en Supabase Auth un usuario específico para tests:
-- Email: `qa@techrepair.test` (o similar)
-- Debe tener un negocio configurado
-- No usar cuentas de negocio real
+- Crear en Supabase Auth un usuario específico para tests.
+- El usuario debe tener un negocio configurado (completar onboarding).
+- No usar cuentas de negocio reales.
 
-## Convenciones
+---
 
-- Todo dato creado por tests usa prefijo **`E2E `** (ej: `E2E Cliente 1A2B3C`)
-- Los datos E2E pueden acumularse — limpiarlos manualmente o con script de cleanup
-- Tests con `test.fixme()` necesitan variables de entorno adicionales
-- No correr tests `@finance` ni `@stock` contra producción sin datos aislados
+## Artefactos ante falla
 
-## Crear datos de prueba para tests con .fixme
+Los tests guardan trace, screenshot y video en `playwright-report/` y `test-results/` cuando fallan.
 
-Para activar los tests que usan IDs específicos:
-1. Crear comprobantes de prueba desde la app
-2. Copiar sus IDs desde la URL
-3. Agregarlos a `.env.test`:
-   ```
-   E2E_COMPROBANTE_ID_EFECTIVO=<uuid-del-comprobante>
-   E2E_COMPROBANTE_ID_MIXTO=<uuid-del-comprobante-mixto>
-   E2E_NOTA_CREDITO_ID=<uuid-de-nc>
-   ```
+```bash
+# Ver reporte HTML post-ejecución
+npx playwright show-report
+```
