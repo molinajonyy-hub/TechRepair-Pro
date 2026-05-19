@@ -1,12 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Wallet, TrendingUp, TrendingDown, ArrowDownUp, Building2 } from 'lucide-react'
+import { Plus, Wallet, TrendingUp, TrendingDown, ArrowDownUp, Building2, CreditCard } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { personalService, type PersonalAccount, type PersonalTransaction } from '../services/personalService'
+import { creditCardService, type CreditCard as CCType, type CardPurchase } from '../services/creditCardService'
 import {
   SummaryCard, SectionHeader, TxRow, EmptyPersonal, SkeletonCard,
   PageContainer, Card, fmtMoney, fmtMoneyCompact,
 } from '../components/ui'
+import {
+  currentYearMonth, getAllCardsStatementTotal, getFutureInstallmentsTotal,
+  addMonths, getNextDueDate,
+} from '../utils/creditCards'
 
 const currentMonth = () => {
   const d = new Date()
@@ -20,20 +25,26 @@ export function PersonalDashboard() {
   const [accounts, setAccounts] = useState<PersonalAccount[]>([])
   const [recentTx, setRecentTx] = useState<PersonalTransaction[]>([])
   const [summary, setSummary] = useState({ totalIncome: 0, totalExpense: 0, balance: 0, available: 0 })
+  const [cards, setCards] = useState<CCType[]>([])
+  const [cardPurchases, setCardPurchases] = useState<CardPurchase[]>([])
 
   useEffect(() => {
     if (!user) return
     const load = async () => {
       try {
         await personalService.ensureDefaultCategories(user.id)
-        const [accts, txs, sum] = await Promise.all([
+        const [accts, txs, sum, crds, purch] = await Promise.all([
           personalService.getAccounts(user.id),
           personalService.getTransactions(user.id, { limit: 8 }),
           personalService.getMonthlySummary(user.id, currentMonth()),
+          creditCardService.getCreditCards(user.id).catch(() => [] as CCType[]),
+          creditCardService.getCardPurchases(user.id).catch(() => [] as CardPurchase[]),
         ])
         setAccounts(accts)
         setRecentTx(txs)
         setSummary(sum)
+        setCards(crds)
+        setCardPurchases(purch)
       } finally {
         setLoading(false)
       }
@@ -42,6 +53,13 @@ export function PersonalDashboard() {
   }, [user])
 
   const availableBalance = summary.available
+  const month = currentYearMonth()
+  const activeCards = cards.filter(c => c.is_active)
+  const totalCardsThisMonth = getAllCardsStatementTotal(cardPurchases, month)
+  const totalFutureInstallments = getFutureInstallmentsTotal(cardPurchases, addMonths(month, 1))
+  const nextCardDue = activeCards.length > 0
+    ? activeCards.map(c => ({ card: c, date: getNextDueDate(c) })).sort((a, b) => a.date.getTime() - b.date.getTime())[0]
+    : null
 
   return (
     <PageContainer testId="personal-dashboard">
@@ -126,6 +144,51 @@ export function PersonalDashboard() {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* ── Credit card summary ── */}
+      <div>
+        <SectionHeader
+          title="Tarjetas"
+          action={<button onClick={() => navigate('/personal/tarjetas')} style={{ fontSize: '0.72rem', color: '#818cf8', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Ver tarjetas</button>}
+        />
+        {loading ? <SkeletonCard rows={1} /> : activeCards.length === 0 ? (
+          <Card>
+            <div style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <CreditCard size={16} color="#334155" style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: '0.8rem', color: '#334155' }}>Agregá tus tarjetas para ver próximos vencimientos.</span>
+              <button onClick={() => navigate('/personal/tarjetas')} style={{ marginLeft: 'auto', fontSize: '0.72rem', padding: '0.25rem 0.625rem', background: 'rgba(129,140,248,0.08)', border: '1px solid rgba(129,140,248,0.2)', borderRadius: '0.5rem', color: '#818cf8', cursor: 'pointer', flexShrink: 0, minHeight: 32 }}>
+                + Agregar
+              </button>
+            </div>
+          </Card>
+        ) : (
+          <Card>
+            <div data-testid="personal-dashboard-card-statement" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.875rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+              <div>
+                <div style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Próximo resumen</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#818cf8', fontFamily: 'monospace', marginTop: '0.1rem' }}>{fmtMoney(totalCardsThisMonth)}</div>
+              </div>
+              {nextCardDue && (
+                <div data-testid="personal-dashboard-card-next-due" style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.7rem', color: '#475569' }}>Próx. vencimiento</div>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#f0f4ff', marginTop: '0.1rem' }}>
+                    {nextCardDue.card.name}
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: '#475569' }}>
+                    {nextCardDue.date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}
+                  </div>
+                </div>
+              )}
+            </div>
+            {totalFutureInstallments > 0 && (
+              <div data-testid="personal-dashboard-card-future-installments" style={{ padding: '0.625rem 1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.775rem', color: '#475569' }}>Cuotas futuras</span>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.875rem', color: '#fbbf24' }}>{fmtMoneyCompact(totalFutureInstallments)}</span>
+              </div>
+            )}
+          </Card>
+        )}
       </div>
 
       {/* ── Accounts ── */}

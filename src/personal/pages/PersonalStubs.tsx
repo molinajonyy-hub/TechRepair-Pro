@@ -1,5 +1,5 @@
 /** Stub pages for modules coming in future phases. */
-import { CreditCard, Target, AlertCircle, BarChart3, Settings, Tag, List } from 'lucide-react'
+import { Target, AlertCircle, BarChart3, Settings, Tag, List } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { PageContainer, EmptyPersonal } from '../components/ui'
 
@@ -19,10 +19,6 @@ function ComingSoon({ Icon, title, description }: { Icon: React.ElementType; tit
       </div>
     </PageContainer>
   )
-}
-
-export function PersonalCreditCards() {
-  return <ComingSoon Icon={CreditCard} title="Tarjetas de crédito" description="Registrá tus tarjetas, compras en cuotas y proyectá los próximos vencimientos." />
 }
 
 export function PersonalSavings() {

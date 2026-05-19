@@ -17,7 +17,7 @@ const PersonalMovements   = lazy(() => import('./personal/pages/PersonalMovement
 const PersonalAccounts    = lazy(() => import('./personal/pages/PersonalAccounts').then(m => ({ default: m.PersonalAccounts })))
 const OwnerWithdrawal     = lazy(() => import('./personal/pages/OwnerWithdrawal').then(m => ({ default: m.OwnerWithdrawalPage })))
 const PersonalMore        = lazy(() => import('./personal/pages/PersonalStubs').then(m => ({ default: m.PersonalMore })))
-const PersonalCreditCards = lazy(() => import('./personal/pages/PersonalStubs').then(m => ({ default: m.PersonalCreditCards })))
+const PersonalCreditCards = lazy(() => import('./personal/pages/PersonalCards').then(m => ({ default: m.PersonalCards })))
 const PersonalSavings     = lazy(() => import('./personal/pages/PersonalStubs').then(m => ({ default: m.PersonalSavings })))
 const PersonalDebts       = lazy(() => import('./personal/pages/PersonalStubs').then(m => ({ default: m.PersonalDebts })))
 const PersonalProjection  = lazy(() => import('./personal/pages/PersonalStubs').then(m => ({ default: m.PersonalProjection })))
