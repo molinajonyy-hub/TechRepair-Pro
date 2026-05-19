@@ -1637,7 +1637,7 @@ export function Inventory() {
               </button>
               {showProductMenu && (
                 <div className="dropdown-menu" style={{ position: 'absolute', top: 'calc(100% + 0.375rem)', right: 0, zIndex: 50, minWidth: '200px' }}>
-                  <button onClick={() => { setShowProductMenu(false); setProductFormTipo('product'); setShowProductFormModal(true) }} className="dropdown-item">
+                  <button data-testid="inventory-new-product-simple" onClick={() => { setShowProductMenu(false); setProductFormTipo('product'); setShowProductFormModal(true) }} className="dropdown-item">
                     Producto simple
                   </button>
                   <button onClick={() => { setShowProductMenu(false); setProductFormTipo('with_variants'); setShowProductFormModal(true) }} className="dropdown-item">
