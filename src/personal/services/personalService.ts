@@ -40,8 +40,8 @@ export interface PersonalTransaction {
   payment_method: string | null
   linked_owner_withdrawal_id: string | null
   created_at: string
-  account?: PersonalAccount
-  category?: PersonalCategory
+  account?: { name: string; type: string; currency: string }
+  category?: { name: string; icon: string; color: string }
 }
 
 export interface OwnerWithdrawal {
@@ -76,7 +76,7 @@ export const accountTypeLabel = (t: string) => ACCOUNT_TYPE_LABELS[t] ?? t
 
 export const personalService = {
 
-  // ── Ensure default categories exist ──────────────────────────────────────
+  // ── Ensure default categories (idempotent) ────────────────────────────────
   async ensureDefaultCategories(userId: string): Promise<void> {
     const { count } = await supabase
       .from('personal_categories')
@@ -112,12 +112,16 @@ export const personalService = {
     return data as PersonalAccount
   },
 
-  async updateAccount(id: string, updates: Partial<PersonalAccount>): Promise<void> {
-    const { error } = await supabase.from('personal_accounts').update(updates).eq('id', id)
+  async updateAccount(id: string, userId: string, updates: Pick<PersonalAccount, 'name' | 'type' | 'currency'>): Promise<void> {
+    const { error } = await supabase
+      .from('personal_accounts')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('user_id', userId)   // extra safety — RLS also enforces this
     if (error) throw error
   },
 
-  async deleteAccount(id: string): Promise<void> {
+  async deactivateAccount(id: string): Promise<void> {
     const { error } = await supabase
       .from('personal_accounts')
       .update({ is_active: false })
@@ -131,6 +135,7 @@ export const personalService = {
       .from('personal_categories')
       .select('*')
       .eq('user_id', userId)
+      .order('type', { ascending: true })
       .order('name', { ascending: true })
     if (error) throw error
     return (data ?? []) as PersonalCategory[]
@@ -167,13 +172,12 @@ export const personalService = {
       .order('created_at', { ascending: false })
 
     if (opts.month) {
+      // Use proper date range — no timezone offset needed since dates are stored as date (no time)
       const [y, m] = opts.month.split('-')
-      const from = `${y}-${m}-01`
-      const to = new Date(Number(y), Number(m), 0).toISOString().split('T')[0]
-      q = q.gte('date', from).lte('date', to)
+      const lastDay = new Date(Number(y), Number(m), 0).getDate()
+      q = q.gte('date', `${y}-${m}-01`).lte('date', `${y}-${m}-${String(lastDay).padStart(2, '0')}`)
     }
     if (opts.limit) q = q.limit(opts.limit)
-    if (opts.offset) q = q.range(opts.offset, opts.offset + (opts.limit ?? 20) - 1)
 
     const { data, error } = await q
     if (error) throw error
@@ -182,7 +186,18 @@ export const personalService = {
 
   async createTransaction(
     userId: string,
-    input: Omit<PersonalTransaction, 'id' | 'user_id' | 'created_at' | 'account' | 'category'>
+    input: {
+      account_id: string
+      category_id: string | null
+      type: 'income' | 'expense' | 'transfer'
+      amount: number
+      currency: string
+      date: string
+      description: string
+      notes: string | null
+      payment_method: string | null
+      linked_owner_withdrawal_id: string | null
+    }
   ): Promise<PersonalTransaction> {
     const { data, error } = await supabase
       .from('personal_transactions')
@@ -191,12 +206,17 @@ export const personalService = {
       .single()
     if (error) throw error
 
-    // Update account balance
-    const mult = input.type === 'income' ? 1 : -1
-    await supabase.rpc('personal_update_balance', {
+    // Update account balance via RPC (server-side, validates user ownership)
+    const delta = input.type === 'income' ? input.amount : -input.amount
+    const { error: balErr } = await supabase.rpc('personal_update_balance', {
       p_account_id: input.account_id,
-      p_delta: mult * Number(input.amount),
-    }).maybeSingle()
+      p_delta: delta,
+    })
+    if (balErr) {
+      // Rollback the transaction insert since balance update failed
+      await supabase.from('personal_transactions').delete().eq('id', (data as any).id)
+      throw balErr
+    }
 
     return data as PersonalTransaction
   },
@@ -204,98 +224,48 @@ export const personalService = {
   async deleteTransaction(id: string, accountId: string, amount: number, type: string): Promise<void> {
     const { error } = await supabase.from('personal_transactions').delete().eq('id', id)
     if (error) throw error
-    const mult = type === 'income' ? -1 : 1
+    const delta = type === 'income' ? -amount : amount
     await supabase.rpc('personal_update_balance', {
       p_account_id: accountId,
-      p_delta: mult * amount,
+      p_delta: delta,
     }).maybeSingle()
   },
 
-  // ── Summary ───────────────────────────────────────────────────────────────
+  // ── Monthly summary ───────────────────────────────────────────────────────
   async getMonthlySummary(userId: string, month: string): Promise<PersonalSummary> {
-    const txs = await personalService.getTransactions(userId, { month })
-    const totalIncome = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
-    const totalExpense = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
-    const accounts = await personalService.getAccounts(userId)
-    const available = accounts.reduce((s, a) => s + (a.currency === 'ARS' ? a.current_balance : 0), 0)
+    const [txs, accounts] = await Promise.all([
+      personalService.getTransactions(userId, { month }),
+      personalService.getAccounts(userId),
+    ])
+    const totalIncome  = txs.filter(t => t.type === 'income').reduce((s, t) => s + Number(t.amount), 0)
+    const totalExpense = txs.filter(t => t.type === 'expense').reduce((s, t) => s + Number(t.amount), 0)
+    const available    = accounts.reduce((s, a) => s + (a.currency === 'ARS' ? Number(a.current_balance) : 0), 0)
     return { totalIncome, totalExpense, balance: totalIncome - totalExpense, available }
   },
 
-  // ── Owner withdrawal ──────────────────────────────────────────────────────
+  // ── Owner withdrawal (ATOMIC via RPC) ─────────────────────────────────────
   async registerOwnerWithdrawal(params: {
     businessId: string
-    userId: string
     amount: number
     date: string
     destinationAccountId: string
     notes: string
-    businessFinanceTypeKey: string
-  }): Promise<OwnerWithdrawal> {
-    // 1. Create the personal transaction
-    let personalTxId: string | null = null
-    if (params.destinationAccountId) {
-      const { data: txData, error: txErr } = await supabase
-        .from('personal_transactions')
-        .insert({
-          user_id: params.userId,
-          account_id: params.destinationAccountId,
-          type: 'income',
-          amount: params.amount,
-          currency: 'ARS',
-          date: params.date,
-          description: 'Retiro del negocio',
-          notes: params.notes || null,
-          category_id: null,
-        })
-        .select()
-        .single()
-      if (txErr) throw txErr
-      personalTxId = txData.id
-
-      // Update account balance
-      await supabase.rpc('personal_update_balance', {
-        p_account_id: params.destinationAccountId,
-        p_delta: params.amount,
-      }).maybeSingle()
-    }
-
-    // 2. Create the owner_withdrawal record
-    const { data, error } = await supabase
-      .from('owner_withdrawals')
-      .insert({
-        business_id: params.businessId,
-        user_id: params.userId,
-        amount: params.amount,
-        currency: 'ARS',
-        date: params.date,
-        destination_account_id: params.destinationAccountId || null,
-        personal_transaction_id: personalTxId,
-        notes: params.notes || null,
-        status: 'completed',
-      })
-      .select()
-      .single()
+  }): Promise<{ withdrawal_id: string; personal_tx_id: string; business_fm_id: string }> {
+    const { data, error } = await supabase.rpc('create_owner_withdrawal', {
+      p_business_id:  params.businessId,
+      p_amount:       params.amount,
+      p_date:         params.date,
+      p_account_id:   params.destinationAccountId,
+      p_notes:        params.notes || null,
+    })
     if (error) throw error
-
-    // 3. Register the business expense via financial_movements
-    try {
-      await supabase.from('financial_movements').insert({
-        business_id: params.businessId,
-        user_id: params.userId,
-        type: 'egreso',
-        amount: params.amount,
-        currency: 'ARS',
-        finance_type: params.businessFinanceTypeKey || 'salaries',
-        description: `Retiro propietario${params.notes ? ': ' + params.notes : ''}`,
-        source: 'owner_withdrawal',
-        reference_id: data.id,
-        date: params.date,
-      })
-    } catch {
-      // non-critical — withdrawal already recorded
+    const result = data as { ok: boolean; error?: string; withdrawal_id?: string; personal_tx_id?: string; business_fm_id?: string }
+    if (!result?.ok) throw new Error(result?.error || 'Error al registrar el retiro')
+    return {
+      withdrawal_id:  result.withdrawal_id!,
+      personal_tx_id: result.personal_tx_id!,
+      business_fm_id: result.business_fm_id!,
     }
-
-    return data as OwnerWithdrawal
   },
 
   async getWithdrawals(userId: string, limit = 10): Promise<OwnerWithdrawal[]> {

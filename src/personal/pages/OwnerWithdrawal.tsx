@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { personalService, type PersonalAccount } from '../services/personalService'
 import {
   PersonalLoading, PageContainer, PrimaryBtn, PersonalInput,
-  PersonalSelect, fmtMoney,
+  PersonalSelect, showToast, fmtMoney,
 } from '../components/ui'
 import { logger } from '../../lib/logger'
 
@@ -34,27 +34,31 @@ export function OwnerWithdrawalPage() {
   }, [user])
 
   const amt = parseFloat(amount.replace(',', '.'))
-  const isValid = amt > 0 && destinationId && date
+  const isValid = amt > 0 && !!destinationId && !!date
 
   const handleConfirm = async () => {
-    if (!user || !businessId) { setError('No hay negocio activo. Iniciá sesión en TechRepair Pro primero.'); return }
+    if (!user || !businessId || saving) {
+      if (!businessId) setError('No hay negocio activo. Iniciá sesión en TechRepair Pro primero.')
+      return
+    }
     if (!isValid) { setError('Completá todos los campos requeridos'); return }
     setError('')
     setSaving(true)
     try {
       await personalService.registerOwnerWithdrawal({
         businessId,
-        userId: user.id,
         amount: amt,
         date,
         destinationAccountId: destinationId,
         notes: notes.trim(),
-        businessFinanceTypeKey: 'salaries',
       })
+      showToast({ message: `Retiro de ${fmtMoney(amt)} registrado`, type: 'success' })
       setSuccess(true)
     } catch (e: any) {
-      logger.error('PERSONAL', 'register', e)
-      setError(e.message || 'Error al registrar el retiro')
+      logger.error('PERSONAL', 'registerWithdrawal', e)
+      const msg = e.message || 'Error al registrar el retiro'
+      setError(msg)
+      showToast({ message: msg, type: 'error' })
     } finally {
       setSaving(false)
     }
@@ -65,7 +69,7 @@ export function OwnerWithdrawalPage() {
   if (success) {
     const destAccount = accounts.find(a => a.id === destinationId)
     return (
-      <PageContainer>
+      <PageContainer testId="personal-salary-success">
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.25rem', padding: '2rem 0.5rem', textAlign: 'center' }}>
           <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(52,211,153,0.12)', border: '2px solid rgba(52,211,153,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <CheckCircle2 size={36} color="#34d399" />
@@ -112,7 +116,7 @@ export function OwnerWithdrawalPage() {
   }
 
   return (
-    <PageContainer>
+    <PageContainer testId="personal-salary-page">
       {/* Header */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>
@@ -135,18 +139,20 @@ export function OwnerWithdrawalPage() {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        {/* Amount */}
+        {/* Amount — large display, font size already > 16px */}
         <div>
           <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto a retirar *</label>
           <input
+            data-testid="personal-salary-amount"
             type="number" min="0" step="1" value={amount}
             onChange={e => { setAmount(e.target.value); setConfirmed(false) }}
-            placeholder="$ 0" autoFocus
+            placeholder="0" autoFocus
             style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(129,140,248,0.05)', border: '1px solid rgba(129,140,248,0.25)', borderRadius: '0.875rem', color: '#818cf8', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
           />
         </div>
 
         <PersonalSelect
+          testId="personal-salary-account"
           label="Cuenta destino (personal) *"
           value={destinationId}
           onChange={e => setDestinationId(e.target.value)}
@@ -162,12 +168,20 @@ export function OwnerWithdrawalPage() {
         )}
 
         <PersonalInput label="Fecha" type="date" value={date} onChange={e => setDate(e.target.value)} />
-        <PersonalInput label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ej: Sueldo julio, Utilidad Q2..." />
+        <PersonalInput
+          testId="personal-salary-notes"
+          label="Nota (opcional)" value={notes}
+          onChange={e => setNotes(e.target.value)}
+          placeholder="Ej: Sueldo julio, Utilidad Q2..."
+        />
 
         {/* Confirm step */}
         {isValid && (
           <div
+            data-testid="personal-salary-confirm"
             onClick={() => setConfirmed(c => !c)}
+            role="checkbox"
+            aria-checked={confirmed}
             style={{ padding: '0.875rem', background: confirmed ? 'rgba(52,211,153,0.08)' : 'rgba(255,255,255,0.025)', border: `1px solid ${confirmed ? 'rgba(52,211,153,0.35)' : 'rgba(255,255,255,0.08)'}`, borderRadius: '0.875rem', cursor: 'pointer', display: 'flex', gap: '0.75rem', alignItems: 'center' }}
           >
             <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${confirmed ? '#34d399' : '#334155'}`, background: confirmed ? 'rgba(52,211,153,0.2)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -180,16 +194,19 @@ export function OwnerWithdrawalPage() {
         )}
 
         {error && (
-          <div style={{ padding: '0.625rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>{error}</div>
+          <div style={{ padding: '0.625rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>
+            {error}
+          </div>
         )}
 
         <PrimaryBtn
+          testId="personal-salary-submit"
           onClick={handleConfirm}
           loading={saving}
           disabled={!confirmed || !isValid || accounts.length === 0}
           fullWidth
         >
-          <Building2 size={16} /> Registrar retiro {amt > 0 ? `de ${fmtMoney(amt)}` : ''}
+          <Building2 size={16} /> {saving ? 'Registrando…' : `Registrar retiro${amt > 0 ? ` de ${fmtMoney(amt)}` : ''}`}
         </PrimaryBtn>
       </div>
     </PageContainer>
