@@ -78,6 +78,35 @@ npm run test:e2e:debug
 | `editar-cobro-mixto.spec.ts` | `@finance` | Regresión BUG-01 pago mixto — requiere ID manual | No | No — modifica cobro |
 | `expenses-atomic.spec.ts` | `@finance` | Gastos atómicos INF-02 — crear gasto + validar error | Sí — prefijo `E2E ` | No — crea datos |
 | `nota-credito.spec.ts` | `@finance` | Widget NC correcto sin "Pendiente de cobro" | No | No — requiere NC |
+| `orders-create.spec.ts` | `@orders` | Crear orden via UI, verificar detalle + navegación lista | Sí — marca, modelo, orden | No — crea datos |
+| `orders-minimal.spec.ts` | `@orders` | Orden mínima: verifica que no aparecen undefined/null/NaN en preview | Sí | No — crea datos |
+| `orders-print.spec.ts` | `@orders @print` | Branding en impresión (tabla + modal detalle) — estructura y consistencia | Sí | No — crea datos |
+| `orders-status.spec.ts` | `@orders` | Crear orden y cambiar estado; verifica persistencia | Sí | No — crea datos |
+
+### Cómo correr @orders
+
+```bash
+npm run dev   # terminal 1
+
+npm run test:e2e -- --grep @orders      # terminal 2
+npm run test:e2e -- --grep "@orders @print"  # solo tests de impresión
+```
+
+### Datos creados por @orders
+
+- Marcas de dispositivo: `E2E-Brand-XXXXXX`
+- Modelos de dispositivo: `E2E-Model-XXXXXX`
+- Órdenes: vinculadas a clientes E2E existentes
+
+### Advertencia de impresión
+
+Los tests `@print` no activan el diálogo nativo del browser. Validan el DOM del `ServiceOrderPrint` (hidden div o modal preview) antes de que se abra la ventana. El `window.open` se stubea para tests de tabla.
+
+### Requisitos de @orders
+
+- La cuenta QA debe tener al menos **un cliente registrado** (creado por `@smoke` o manualmente).
+- Para los tests de impresión desde tabla: debe haber al menos una orden (los tests `@orders` crean una).
+- El nombre del negocio mostrado en impresión depende de `business_settings.nombre_comercial`. Si está vacío, muestra "Mi Negocio" (comportamiento correcto). Los tests verifican CONSISTENCIA entre rutas, no un valor absoluto.
 
 ---
 

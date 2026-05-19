@@ -157,6 +157,7 @@ export function StatusChange({ orderId, currentStatus, order, onStatusChange }: 
           Cambiar a
         </label>
         <select
+          data-testid="order-status-select"
           value={selectedStatus}
           onChange={e => { setSelectedStatus(e.target.value as OrderStatus | ''); setConfirmCancel(false) }}
           disabled={isUpdating}
@@ -212,6 +213,7 @@ export function StatusChange({ orderId, currentStatus, order, onStatusChange }: 
         )}
 
         <button
+          data-testid="order-status-update-button"
           onClick={handleUpdate}
           disabled={isUpdating || !selectedStatus || selectedStatus === currentStatus}
           style={{

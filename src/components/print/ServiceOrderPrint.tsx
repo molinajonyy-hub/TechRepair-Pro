@@ -235,7 +235,7 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
 
         {/* Datos del local */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: '17px', fontWeight: 700, color: '#0f172a', lineHeight: 1.1, marginBottom: '2px' }}>{businessName}</div>
+          <div data-testid="service-order-business-name" style={{ fontSize: '17px', fontWeight: 700, color: '#0f172a', lineHeight: 1.1, marginBottom: '2px' }}>{businessName}</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 12px' }}>
             {footerItems.slice(0, 3).map((item, i) => (
               <span key={i} style={{ fontSize: '10px', color: '#475569' }}>{item}</span>
@@ -262,7 +262,7 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
           <img src={s.logo_url} alt="Logo" style={{ width: '44px', height: '30px', objectFit: 'contain', flexShrink: 0 }} />
         ) : null}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>{businessName}</div>
+          <div data-testid="service-order-business-name" style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>{businessName}</div>
           {footerItems[0] && <div style={{ fontSize: '9px', color: '#64748b' }}>{footerItems[0]}</div>}
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -274,7 +274,7 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
 
     // ── MITAD SUPERIOR — CLIENTE ───────────────────────────────────────────────
     const renderClientCopy = () => (
-      <div style={{
+      <div data-testid="service-order-client-copy" style={{
         flex: 1, padding: '11mm 11mm 8mm',
         display: 'flex', flexDirection: 'column', gap: '6px',
         fontFamily: "'Inter','Segoe UI',sans-serif",
@@ -423,7 +423,7 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
 
     // ── MITAD INFERIOR — TALLER ────────────────────────────────────────────────
     const renderLocalCopy = () => (
-      <div style={{
+      <div data-testid="service-order-local-copy" style={{
         flex: 1, padding: '8mm 11mm 10mm',
         display: 'flex', flexDirection: 'column', gap: '5px',
         fontFamily: "'Inter','Segoe UI',sans-serif",
@@ -582,6 +582,7 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
       return (
         <div
           ref={ref}
+          data-testid="service-order-print-root"
           className="sop-page"
           style={{
             backgroundColor: '#ffffff',
@@ -602,6 +603,7 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
       <div className="sop-screen-wrapper" style={{ padding: '16px', backgroundColor: '#e2e8f0', fontFamily: "'Inter','Segoe UI',sans-serif" }}>
         <div
           ref={ref}
+          data-testid="service-order-print-root"
           className="sop-page"
           style={{
             backgroundColor: '#ffffff',

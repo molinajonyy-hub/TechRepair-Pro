@@ -362,6 +362,7 @@ export function NewOrder() {
                 <Search size={18} style={{ position: 'absolute', left: '0.875rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
                 <input
                   type="text"
+                  data-testid="new-order-customer-search"
                   placeholder="Filtrar por nombre, teléfono o email..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -391,8 +392,9 @@ export function NewOrder() {
                   }
                 </p>
                 {customers.map((customer) => (
-                  <div 
+                  <div
                     key={customer.id}
+                    data-testid="new-order-customer-card"
                     onClick={() => handleSelectCustomer(customer)}
                     style={{
                       padding: '1rem',
@@ -426,6 +428,7 @@ export function NewOrder() {
                       </div>
                       {selectedCustomer?.id === customer.id && (
                         <button
+                          data-testid="new-order-customer-continue"
                           onClick={(e) => {
                             e.stopPropagation()
                             setStep('device')
@@ -509,6 +512,7 @@ export function NewOrder() {
                 <div style={{ marginBottom: '1rem' }}>
                   <label className="form-label">Tipo de Dispositivo</label>
                   <select
+                    data-testid="new-order-device-type-select"
                     value={formData.device_type}
                     onChange={(e) => handleChange('device_type', e.target.value)}
                     className="form-select"
@@ -523,6 +527,7 @@ export function NewOrder() {
 
                 <div style={{ marginBottom: '1rem' }}>
                   <Autocomplete
+                    testId="new-order-brand-input"
                     value={formData.brand}
                     onChange={handleBrandChange}
                     options={brands}
@@ -537,6 +542,7 @@ export function NewOrder() {
 
                 <div style={{ marginBottom: '1rem' }}>
                   <Autocomplete
+                    testId="new-order-model-input"
                     value={formData.model}
                     onChange={(value) => handleChange('model', value)}
                     options={models}
@@ -571,6 +577,7 @@ export function NewOrder() {
                 <div style={{ marginBottom: '1rem' }}>
                   <label className="form-label">Problema Reportado *</label>
                   <textarea
+                    data-testid="new-order-issue-input"
                     value={formData.issue}
                     onChange={(e) => handleChange('issue', e.target.value)}
                     className="form-control"
@@ -608,6 +615,7 @@ export function NewOrder() {
                 <div style={{ marginBottom: '1rem' }}>
                   <label className="form-label">Presupuesto Estimado</label>
                   <input
+                    data-testid="new-order-budget-input"
                     type="number"
                     value={formData.estimated_total}
                     onChange={(e) => handleChange('estimated_total', e.target.value)}
@@ -630,6 +638,7 @@ export function NewOrder() {
               Anterior
             </button>
             <button
+              data-testid="new-order-save-button"
               type="submit"
               className="btn btn-primary"
               disabled={isSubmitting || !formData.brand || !formData.model || !formData.issue}

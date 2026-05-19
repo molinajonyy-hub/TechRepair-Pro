@@ -118,7 +118,7 @@ export function Orders() {
   const handlePrint = (order: any) => {
     setPrintingOrder(order)
     // Wait for React to render ServiceOrderPrint with the resolved settings,
-    // then capture innerHTML. 300ms gives the render cycle enough time.
+    // then capture innerHTML. 500ms gives render + logo time.
     setTimeout(() => {
       if (printRef.current) {
         const printContent = printRef.current.innerHTML
@@ -168,7 +168,7 @@ export function Orders() {
         }
         setPrintingOrder(null)
       }
-    }, 300)
+    }, 500)
   }
 
   if (error) {
@@ -196,7 +196,7 @@ export function Orders() {
           </div>
         </div>
         <div className="page-hdr-right">
-          <Link to="/orders/new" className="btn btn-primary btn-sm btn-lift" style={{ textDecoration: 'none' }}>
+          <Link to="/orders/new" data-testid="orders-new-button" className="btn btn-primary btn-sm btn-lift" style={{ textDecoration: 'none' }}>
             <Plus size={16} />
             Nueva Orden
           </Link>
@@ -208,6 +208,7 @@ export function Orders() {
           <Search size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
           <input
             type="text"
+            data-testid="orders-search-input"
             placeholder="Buscar por cliente, teléfono, dispositivo, IMEI..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -320,7 +321,7 @@ export function Orders() {
                     <td className="body-sm">{new Date(order.created_at).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', year: 'numeric' })}</td>
                     <td>
                       <div style={{ display: 'flex', gap: '0.375rem', justifyContent: 'flex-end' }}>
-                        <button onClick={() => handlePrint(order)} className="icon-btn icon-btn-primary" title="Imprimir Orden">
+                        <button data-testid="order-print-button" onClick={() => handlePrint(order)} className="icon-btn icon-btn-primary" title="Imprimir Orden">
                           <Printer size={15} />
                         </button>
                         <Link to={`/orders/${order.id}`} className="icon-btn" title="Ver detalle" style={{ textDecoration: 'none' }}>
@@ -373,7 +374,7 @@ export function Orders() {
           de la página para evitar la carga asíncrona interna y el race condition
           que causa "Mi Negocio" si la DB no responde antes del captura de innerHTML */}
       {printingOrder && (
-        <div style={{ position: 'fixed', left: '-9999px', top: '-9999px' }}>
+        <div data-testid="order-print-hidden-root" style={{ position: 'fixed', left: '-9999px', top: '-9999px' }}>
           <div ref={printRef}>
             <ServiceOrderPrint order={printingOrder} printSettings={orderPrintSettings} />
           </div>

@@ -13,6 +13,7 @@ interface AutocompleteProps {
   onCreate?: (value: string) => Promise<string | void>
   isLoading?: boolean
   disabled?: boolean
+  testId?: string
 }
 
 export function Autocomplete({
@@ -26,6 +27,7 @@ export function Autocomplete({
   onCreate,
   isLoading = false,
   disabled = false,
+  testId,
 }: AutocompleteProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -114,6 +116,7 @@ export function Autocomplete({
           <input
             type="text"
             className="form-control"
+            data-testid={testId}
             value={isOpen ? searchTerm : value}
             onChange={(e) => setSearchTerm(e.target.value)}
             onFocus={() => {

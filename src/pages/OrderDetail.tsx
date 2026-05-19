@@ -215,6 +215,7 @@ export function OrderDetail() {
             )}
 
             <button
+              data-testid="order-print-preview-button"
               onClick={() => setShowPrintModal(true)}
               className="btn btn-outline btn-sm"
             >
