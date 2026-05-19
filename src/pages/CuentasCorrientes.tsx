@@ -410,7 +410,7 @@ export function CuentasCorrientes() {
         </div>
 
         <div style={{ flex: 1, minWidth: 200 }}>
-          <AppSearchInput value={searchQ} onChange={setSearchQ} placeholder={`Buscar ${activeTab}...`} />
+          <AppSearchInput data-testid="cc-search-input" value={searchQ} onChange={setSearchQ} placeholder={`Buscar ${activeTab}...`} />
         </div>
 
         <select value={filterStatus} onChange={e => setFilterStatus(e.target.value as any)}
@@ -458,7 +458,7 @@ export function CuentasCorrientes() {
                     const isSelected = selectedId === acc.id
                     const bal    = Math.abs(acc.balance) < 0.01 ? '$0' : fmtARS(acc.balance)
                     return (
-                      <tr key={acc.id} onClick={() => setSelectedId(p => p === acc.id ? null : acc.id)}
+                      <tr key={acc.id} data-testid="cc-account-row" onClick={() => setSelectedId(p => p === acc.id ? null : acc.id)}
                         style={{ background: isSelected ? 'var(--bg-hover)' : 'transparent' }}>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -471,7 +471,7 @@ export function CuentasCorrientes() {
                         {!selectedAccount && (
                           <td style={{ fontSize: '0.78rem', color: '#475569', textTransform: 'capitalize' as const }}>{acc.type}</td>
                         )}
-                        <td style={{ textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, fontSize: '0.9rem', color: sm.color }}>{bal}</td>
+                        <td data-testid="cc-balance-value" style={{ textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, fontSize: '0.9rem', color: sm.color }}>{bal}</td>
                         <td>
                           <span className={`badge ${status === 'deuda' ? 'badge-error' : status === 'a_favor' ? 'badge-info' : 'badge-success'}`}>
                             {sm.label}

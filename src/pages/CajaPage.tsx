@@ -494,7 +494,7 @@ export function CajaPage() {
           <div className="page-hdr-icon green"><Wallet size={22} /></div>
           <div>
             <h1 className="page-hdr-title">Caja</h1>
-            <p className="page-hdr-subtitle">
+            <p data-testid="caja-status" className="page-hdr-subtitle">
               {activeCaja
                 ? `Abierta ${fmtDateLong(activeCaja.opened_at)}`
                 : activeCaja === null ? 'Sin caja abierta' : 'Cargando...'}
@@ -505,7 +505,7 @@ export function CajaPage() {
         {activeCaja && (
           <div className="page-hdr-right">
             <button onClick={loadCaja} className="btn btn-ghost btn-sm"><RefreshCw size={14} /> Actualizar</button>
-            <button onClick={() => setShowAddMov(true)} className="btn btn-indigo btn-sm btn-lift"><Plus size={15} /> Movimiento</button>
+            <button data-testid="caja-add-movement-button" onClick={() => setShowAddMov(true)} className="btn btn-indigo btn-sm btn-lift"><Plus size={15} /> Movimiento</button>
             <button onClick={() => setShowClose(true)} className="btn btn-danger btn-sm btn-lift"><Lock size={14} /> Cerrar Caja</button>
           </div>
         )}
@@ -558,7 +558,7 @@ export function CajaPage() {
                 })}
               </div>
 
-              <button onClick={handleOpenCaja} disabled={opening} className="btn btn-lift"
+              <button data-testid="caja-open-button" onClick={handleOpenCaja} disabled={opening} className="btn btn-lift"
                 style={{ width: '100%', padding: '0.875rem', background: opening ? 'rgba(52,211,153,0.08)' : 'rgba(52,211,153,0.18)', border: '1px solid rgba(52,211,153,0.35)', borderRadius: '0.625rem', color: '#34d399', fontWeight: 800, fontSize: '1rem', cursor: opening ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
                 {opening ? <Loader2 size={18} style={{ animation: 'tr-spin 1s linear infinite' }} /> : <Unlock size={18} />}
                 {opening ? 'Abriendo...' : 'Abrir Caja'}
