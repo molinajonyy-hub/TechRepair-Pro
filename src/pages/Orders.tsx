@@ -8,6 +8,9 @@ import { useOrders, OrderListItem } from '../hooks/useOrders'
 import { STATUS_CONFIG } from '../types/orderStatus'
 import { ServiceOrderPrint } from '../components/print/ServiceOrderPrint'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
+import { useOrderPrintSettings } from '../hooks/useOrderPrintSettings'
+import { buildOrderPrintTitle } from '../lib/printFilename'
 
 const getStatusStyle = (status: string) => {
   const config = STATUS_CONFIG[status as keyof typeof STATUS_CONFIG]
@@ -59,6 +62,11 @@ export function Orders() {
   const [printingOrder, setPrintingOrder] = useState<any>(null)
   const printRef = useRef<HTMLDivElement>(null)
 
+  // Load business print settings once at page level so ServiceOrderPrint
+  // always receives them synchronously (no per-render async race condition).
+  const { businessId } = useAuth()
+  const { settings: orderPrintSettings } = useOrderPrintSettings(businessId)
+
   // Debounce 300ms
   useEffect(() => {
     clearTimeout(searchTimer.current)
@@ -109,16 +117,20 @@ export function Orders() {
 
   const handlePrint = (order: any) => {
     setPrintingOrder(order)
+    // Wait for React to render ServiceOrderPrint with the resolved settings,
+    // then capture innerHTML. 300ms gives the render cycle enough time.
     setTimeout(() => {
       if (printRef.current) {
         const printContent = printRef.current.innerHTML
         const printWindow = window.open('', '_blank', 'width=900,height=700')
         if (printWindow) {
+          const bizName = orderPrintSettings.nombre_comercial || orderPrintSettings.razon_social || null
+          const title = buildOrderPrintTitle(bizName, order.id)
           printWindow.document.write(`
             <!DOCTYPE html>
             <html>
             <head>
-              <title>Orden de Servicio #${order.id.slice(0, 8)}</title>
+              <title>${title}</title>
               <style>
                 @page { size: A4 portrait; margin: 0; }
                 html, body {
@@ -156,7 +168,7 @@ export function Orders() {
         }
         setPrintingOrder(null)
       }
-    }, 150)
+    }, 300)
   }
 
   if (error) {
@@ -357,11 +369,13 @@ export function Orders() {
         </div>
       )}
 
-      {/* Componente de impresión oculto */}
+      {/* Componente de impresión oculto — printSettings resueltos en el nivel
+          de la página para evitar la carga asíncrona interna y el race condition
+          que causa "Mi Negocio" si la DB no responde antes del captura de innerHTML */}
       {printingOrder && (
         <div style={{ position: 'fixed', left: '-9999px', top: '-9999px' }}>
           <div ref={printRef}>
-            <ServiceOrderPrint order={printingOrder} />
+            <ServiceOrderPrint order={printingOrder} printSettings={orderPrintSettings} />
           </div>
         </div>
       )}
