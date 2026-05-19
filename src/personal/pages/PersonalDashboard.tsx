@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Wallet, TrendingUp, TrendingDown, ArrowDownUp, Building2, CreditCard } from 'lucide-react'
+import { Plus, Wallet, TrendingUp, TrendingDown, ArrowDownUp, Building2, CreditCard, Target } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { personalService, type PersonalAccount, type PersonalTransaction } from '../services/personalService'
 import { creditCardService, type CreditCard as CCType, type CardPurchase } from '../services/creditCardService'
+import { savingsService, type SavingsGoal } from '../services/savingsService'
 import {
   SummaryCard, SectionHeader, TxRow, EmptyPersonal, SkeletonCard,
   PageContainer, Card, fmtMoney, fmtMoneyCompact,
@@ -12,6 +13,7 @@ import {
   currentYearMonth, getAllCardsStatementTotal, getFutureInstallmentsTotal,
   addMonths, getNextDueDate,
 } from '../utils/creditCards'
+import { getSavingsSummary, getTopGoal, getGoalProgress } from '../utils/savings'
 
 const currentMonth = () => {
   const d = new Date()
@@ -27,24 +29,27 @@ export function PersonalDashboard() {
   const [summary, setSummary] = useState({ totalIncome: 0, totalExpense: 0, balance: 0, available: 0 })
   const [cards, setCards] = useState<CCType[]>([])
   const [cardPurchases, setCardPurchases] = useState<CardPurchase[]>([])
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([])
 
   useEffect(() => {
     if (!user) return
     const load = async () => {
       try {
         await personalService.ensureDefaultCategories(user.id)
-        const [accts, txs, sum, crds, purch] = await Promise.all([
+        const [accts, txs, sum, crds, purch, goals] = await Promise.all([
           personalService.getAccounts(user.id),
           personalService.getTransactions(user.id, { limit: 8 }),
           personalService.getMonthlySummary(user.id, currentMonth()),
           creditCardService.getCreditCards(user.id).catch(() => [] as CCType[]),
           creditCardService.getCardPurchases(user.id).catch(() => [] as CardPurchase[]),
+          savingsService.getSavingsGoals(user.id).catch(() => [] as SavingsGoal[]),
         ])
         setAccounts(accts)
         setRecentTx(txs)
         setSummary(sum)
         setCards(crds)
         setCardPurchases(purch)
+        setSavingsGoals(goals)
       } finally {
         setLoading(false)
       }
@@ -54,6 +59,9 @@ export function PersonalDashboard() {
 
   const availableBalance = summary.available
   const month = currentYearMonth()
+  // Savings computed values
+  const savingsSummary = getSavingsSummary(savingsGoals)
+  const topGoal = getTopGoal(savingsGoals)
   const activeCards = cards.filter(c => c.is_active)
   const totalCardsThisMonth = getAllCardsStatementTotal(cardPurchases, month)
   const totalFutureInstallments = getFutureInstallmentsTotal(cardPurchases, addMonths(month, 1))
@@ -185,6 +193,54 @@ export function PersonalDashboard() {
               <div data-testid="personal-dashboard-card-future-installments" style={{ padding: '0.625rem 1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.775rem', color: '#475569' }}>Cuotas futuras</span>
                 <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.875rem', color: '#fbbf24' }}>{fmtMoneyCompact(totalFutureInstallments)}</span>
+              </div>
+            )}
+          </Card>
+        )}
+      </div>
+
+      {/* ── Savings summary ── */}
+      <div>
+        <SectionHeader
+          title="Ahorros"
+          action={<button onClick={() => navigate('/personal/ahorros')} style={{ fontSize: '0.72rem', color: '#34d399', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Ver objetivos</button>}
+        />
+        {loading ? <SkeletonCard rows={1} /> : savingsGoals.filter(g => g.status === 'active').length === 0 ? (
+          <Card>
+            <div style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <Target size={16} color="#334155" style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: '0.8rem', color: '#334155' }}>Creá objetivos de ahorro para separar plata sin mezclarla con tus gastos.</span>
+              <button onClick={() => navigate('/personal/ahorros')} style={{ marginLeft: 'auto', fontSize: '0.72rem', padding: '0.25rem 0.625rem', background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)', borderRadius: '0.5rem', color: '#34d399', cursor: 'pointer', flexShrink: 0, minHeight: 32 }}>
+                + Crear
+              </button>
+            </div>
+          </Card>
+        ) : (
+          <Card>
+            <div data-testid="personal-dashboard-savings-card" style={{ padding: '0.875rem 1rem', borderBottom: topGoal ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total ahorrado</div>
+                  <div data-testid="personal-dashboard-savings-total" style={{ fontSize: '1.25rem', fontWeight: 900, color: '#34d399', fontFamily: 'monospace', marginTop: '0.1rem' }}>{fmtMoney(savingsSummary.totalARS)}</div>
+                  {savingsSummary.totalUSD > 0 && <div style={{ fontSize: '0.75rem', color: '#4ade80', fontFamily: 'monospace' }}>{fmtMoney(savingsSummary.totalUSD, 'USD')}</div>}
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.7rem', color: '#475569' }}>{savingsSummary.activeCount} objetivo{savingsSummary.activeCount !== 1 ? 's' : ''}</div>
+                  {savingsSummary.completedCount > 0 && <div style={{ fontSize: '0.7rem', color: '#818cf8', marginTop: '0.1rem' }}>{savingsSummary.completedCount} completado{savingsSummary.completedCount !== 1 ? 's' : ''}</div>}
+                </div>
+              </div>
+            </div>
+            {topGoal && (
+              <div data-testid="personal-dashboard-savings-top-goal" style={{ padding: '0.75rem 1rem' }}>
+                <div style={{ fontSize: '0.7rem', color: '#475569', marginBottom: '0.375rem' }}>
+                  Más avanzado: <strong style={{ color: '#f0f4ff' }}>{topGoal.name}</strong>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div style={{ flex: 1, height: 5, borderRadius: 99, background: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+                    <div data-testid="personal-dashboard-savings-progress" style={{ height: '100%', width: `${Math.min(100, getGoalProgress(topGoal))}%`, background: '#34d399', borderRadius: 99 }} />
+                  </div>
+                  <span style={{ fontSize: '0.72rem', fontFamily: 'monospace', fontWeight: 700, color: '#34d399', flexShrink: 0 }}>{Math.round(getGoalProgress(topGoal))}%</span>
+                </div>
               </div>
             )}
           </Card>

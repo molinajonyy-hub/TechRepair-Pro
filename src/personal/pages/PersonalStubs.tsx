@@ -1,5 +1,5 @@
 /** Stub pages for modules coming in future phases. */
-import { Target, AlertCircle, BarChart3, Settings, Tag, List } from 'lucide-react'
+import { AlertCircle, BarChart3, Settings, Tag, List } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { PageContainer, EmptyPersonal } from '../components/ui'
 
@@ -21,9 +21,6 @@ function ComingSoon({ Icon, title, description }: { Icon: React.ElementType; tit
   )
 }
 
-export function PersonalSavings() {
-  return <ComingSoon Icon={Target} title="Objetivos de ahorro" description="Creá objetivos, seguí tu progreso y llegá a tus metas financieras." />
-}
 
 export function PersonalDebts() {
   return <ComingSoon Icon={AlertCircle} title="Deudas personales" description="Registrá tus deudas, seguí los pagos y sabe cuánto te falta cancelar." />
