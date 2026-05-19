@@ -10,7 +10,7 @@ import { formatDisplayMessage } from '../utils/formatMessage';
 import { ComprobanteActions } from '../components/comprobantes/ComprobanteActions';
 import { ComprobantePrintLayout } from '../components/comprobantes/ComprobantePrintLayout';
 import { comprobanteService, MedioPago } from '../services/comprobanteService';
-import { sanitizeFilenamePart } from '../lib/printFilename';
+import { buildComprobanteFilename } from '../lib/printFilename';
 
 const TIPO_LABELS: Record<string, string> = {
   factura_a: 'Factura A',
@@ -192,14 +192,8 @@ export default function ComprobantePage() {
         doc.setTextColor(100, 100, 100);
         doc.text(profile.comp_mensaje_agradecimiento, 14, finalY + 28);
       }
-      const TIPO_FILE: Record<string, string> = {
-        factura_a: 'Factura-A', factura_c: 'Factura-C',
-        remito: 'Remito', nota_credito: 'Nota-de-Credito',
-      };
-      const bizPart  = sanitizeFilenamePart(profile.nombre_comercial || 'TechRepair');
-      const tipoPart = TIPO_FILE[comprobanteActual.tipo] || 'Comprobante';
-      const numPart  = comprobanteActual.numero || comprobanteActual.id.slice(0, 8);
-      doc.save(`${bizPart}-${tipoPart}-${numPart}.pdf`);
+      const bizName = profile.nombre_comercial || profile.razon_social || null;
+      doc.save(buildComprobanteFilename(bizName, comprobanteActual.tipo, comprobanteActual.numero, comprobanteActual.id));
     } catch (err) {
       console.error('Error generando PDF:', err);
     } finally {
@@ -208,9 +202,19 @@ export default function ComprobantePage() {
   };
 
   const handleImprimir = () => {
+    if (!comprobanteActual) return;
+    // El browser usa document.title como nombre sugerido al "Guardar como PDF".
+    // Lo actualizamos temporalmente para que coincida con el filename correcto.
+    const bizName = profile.nombre_comercial || profile.razon_social || null;
+    const filename = buildComprobanteFilename(bizName, comprobanteActual.tipo, comprobanteActual.numero, comprobanteActual.id);
+    const prevTitle = document.title;
+    document.title = filename.replace(/\.pdf$/i, '');
     document.body.classList.add('printing-comprobante');
     window.print();
-    setTimeout(() => document.body.classList.remove('printing-comprobante'), 500);
+    setTimeout(() => {
+      document.body.classList.remove('printing-comprobante');
+      document.title = prevTitle;
+    }, 1000);
   };
 
   const openEditPago = () => {

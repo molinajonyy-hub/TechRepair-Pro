@@ -6,7 +6,7 @@ import { OrderDetailSimple } from '../../hooks/useOrderSimple'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { useOrderPrintSettings } from '../../hooks/useOrderPrintSettings'
-import { sanitizeFilenamePart } from '../../lib/printFilename'
+import { buildOrderPrintTitle } from '../../lib/printFilename'
 
 interface OrderPrintPreviewModalProps {
   isOpen: boolean
@@ -87,11 +87,11 @@ export const OrderPrintPreviewModal: React.FC<OrderPrintPreviewModalProps> = ({
     const html = printRef.current.innerHTML
     const win = window.open('', '_blank')
     if (!win) return
-    const bizName = sanitizeFilenamePart(settings.nombre_comercial || 'Orden-de-Servicio')
-    const orderNum = order.id.slice(0, 8).toUpperCase()
+    const bizName = settings.nombre_comercial || settings.razon_social || null
+    const title = buildOrderPrintTitle(bizName, order.id)
     win.document.write(
       `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">` +
-      `<title>${bizName}-Orden-${orderNum}</title>` +
+      `<title>${title}</title>` +
       `<style>@page{size:A4 portrait;margin:0}body{margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style>` +
       `</head><body style="margin:0;padding:0">${html}</body></html>`
     )
@@ -177,7 +177,10 @@ export const OrderPrintPreviewModal: React.FC<OrderPrintPreviewModalProps> = ({
               transform: `scale(${SCALE})`,
             }}>
               <div ref={printRef}>
-                <ServiceOrderPrint order={serviceData} previewMode />
+                {/* Pass already-loaded settings to avoid duplicate DB call and
+                    race condition where the child hook could show DEFAULT 'Mi Negocio'
+                    while its own async load is in flight. */}
+                <ServiceOrderPrint order={serviceData} previewMode printSettings={settings} />
               </div>
             </div>
           </div>
