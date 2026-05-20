@@ -6,7 +6,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, AlertTriangle, Clock, MapPin, Globe, Wrench } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
-  getCurrentDollarRate,
   refreshDollarRate,
   clearDollarCache,
   getDisplayExchangeRate,
@@ -48,18 +47,25 @@ export function DollarRateBadge({ variant = 'compact', autoRefresh = false, clas
   const [loading, setLoading] = useState(false)
   const [, setTick]           = useState(0) // fuerza re-render para el timeAgo
 
-  const load = useCallback(async (force = false) => {
+  const load = useCallback(async (_force = false) => {
     if (!businessId) return
     setLoading(true)
     try {
-      // Si force=false y hay caché, limpiarlo para obtener dato fresco la primera vez
-      // Esto evita que el caché incorrecto (con sell=compra) se muestre al usuario
-      if (!force) {
-        clearDollarCache(businessId)
+      // Siempre limpiar caché al cargar para evitar mostrar valores incorrectos guardados
+      clearDollarCache(businessId)
+      // force=true: ignora TTL, fuerza refetch del edge function
+      // force=false: misma lógica pero con limpieza de caché preventiva
+      const result = await refreshDollarRate(businessId, true)
+      if (result) {
+        const display = getDisplayExchangeRate(result)
+        console.log('[DollarRateBadge raw rate]', {
+          sellPrice: result.sellPrice,
+          buyPrice:  result.buyPrice,
+          source:    result.source,
+          isStale:   result.isStale,
+        })
+        console.log('[DollarRateBadge display]', display)
       }
-      const result = force
-        ? await refreshDollarRate(businessId, true)
-        : await getCurrentDollarRate(businessId)
       setRate(result)
     } finally {
       setLoading(false)

@@ -124,30 +124,59 @@ function isValidRate(r: number | null): r is number {
   return r !== null && r > 500 && r < 10_000;
 }
 
-// ─── Edge Function URL ────────────────────────────────────────────────────────
+// ─── Edge Function URLs ───────────────────────────────────────────────────────
 
-function getEdgeFunctionUrl(): string {
-  const url = import.meta.env.VITE_SUPABASE_URL as string ?? '';
-  return `${url}/functions/v1/fetch-dollar-rate`;
+function getSupabaseUrl(): string {
+  return (import.meta.env.VITE_SUPABASE_URL as string) ?? '';
+}
+function getAnonKey(): string {
+  return (import.meta.env.VITE_SUPABASE_ANON_KEY as string) ?? '';
 }
 
 // ─── Obtener cotización via Edge Function ─────────────────────────────────────
 
+/**
+ * Para Córdoba: usa el edge function dedicado `infodolar-cordoba` que retorna
+ * explícitamente { compra, venta, appliedRate, mode:'venta' }.
+ * Esto evita el bug de fetch-dollar-rate donde compra y venta se confunden
+ * porque la página puede mostrarlos en cualquier orden.
+ *
+ * Para nacional: usa fetch-dollar-rate con source='nacional' (Ámbito).
+ */
 async function fetchViaEdgeFunction(source: 'cordoba' | 'nacional', lastKnown: number): Promise<{
   sell: number; buy: number; source: DollarSource; province?: string; warning?: string;
 } | null> {
   try {
-    const resp = await fetch(getEdgeFunctionUrl(), {
+    if (source === 'cordoba') {
+      // Edge Function dedicada: retorna { compra, venta, appliedRate, mode:'venta' }
+      const url  = `${getSupabaseUrl()}/functions/v1/infodolar-cordoba`;
+      const key  = getAnonKey();
+      const resp = await fetch(url, {
+        headers: { 'apikey': key, 'Authorization': `Bearer ${key}` },
+        signal: AbortSignal.timeout(22000),
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      if (data.error) return null;
+      // appliedRate es siempre la VENTA (el precio a aplicar a productos)
+      const sell = Number(data.appliedRate ?? data.venta);
+      const buy  = Number(data.compra ?? 0);
+      if (!isValidRate(sell)) return null;
+      // Defensive: si por algún motivo sell < buy, intercambiar
+      const realSell = Math.max(sell, buy);
+      const realBuy  = Math.min(sell, buy);
+      return { sell: realSell, buy: realBuy, source: 'INFODOLAR_CORDOBA', province: 'CORDOBA' };
+    }
+
+    // Nacional: usa fetch-dollar-rate con POST
+    const resp = await fetch(`${getSupabaseUrl()}/functions/v1/fetch-dollar-rate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ source, lastKnown }),
     });
-
     if (!resp.ok) return null;
     const data = await resp.json();
-
     if (data.error) return null;
-
     return {
       sell:     data.sell,
       buy:      data.buy ?? 0,
@@ -163,20 +192,39 @@ async function fetchViaEdgeFunction(source: 'cordoba' | 'nacional', lastKnown: n
 // ─── Último valor válido en DB ────────────────────────────────────────────────
 
 async function getLastDBRate(businessId: string): Promise<DollarRateResult | null> {
-  const { data } = await supabase
-    .from('exchange_rates')
-    .select('rate, source, updated_at')
-    .eq('business_id', businessId)
-    .eq('base_currency', 'USD')
-    .eq('target_currency', 'ARS')
-    .order('updated_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // Leer sell price de exchange_rates y buy price de dollar_rate_history en paralelo
+  const [rateRes, histRes] = await Promise.all([
+    supabase
+      .from('exchange_rates')
+      .select('rate, source, updated_at')
+      .eq('business_id', businessId)
+      .eq('base_currency', 'USD')
+      .eq('target_currency', 'ARS')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('dollar_rate_history')
+      .select('sell_price, buy_price')
+      .eq('business_id', businessId)
+      .order('fetched_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
 
+  const data = rateRes.data;
   if (!data?.rate || !isValidRate(data.rate)) return null;
+
+  // Buy price: tomarlo del historial si es válido y estrictamente MENOR que sell
+  // (buy > sell indicaría datos invertidos — ignorar en ese caso)
+  const histBuy = histRes.data?.buy_price ?? null;
+  const buyPrice = (histBuy !== null && isValidRate(histBuy) && histBuy < data.rate)
+    ? histBuy
+    : undefined;
 
   return {
     sellPrice: data.rate,
+    buyPrice,
     source: (data.source as DollarSource) ?? 'DB_CACHE',
     fetchedAt: new Date(data.updated_at),
     isStale: true,
