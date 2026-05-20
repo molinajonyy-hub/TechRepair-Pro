@@ -56,16 +56,6 @@ export function DollarRateBadge({ variant = 'compact', autoRefresh = false, clas
       // force=true: ignora TTL, fuerza refetch del edge function
       // force=false: misma lógica pero con limpieza de caché preventiva
       const result = await refreshDollarRate(businessId, true)
-      if (result) {
-        const display = getDisplayExchangeRate(result)
-        console.log('[DollarRateBadge raw rate]', {
-          sellPrice: result.sellPrice,
-          buyPrice:  result.buyPrice,
-          source:    result.source,
-          isStale:   result.isStale,
-        })
-        console.log('[DollarRateBadge display]', display)
-      }
       setRate(result)
     } finally {
       setLoading(false)
