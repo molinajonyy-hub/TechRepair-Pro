@@ -26,7 +26,7 @@ export function PersonalDashboard() {
   const [loading, setLoading] = useState(true)
   const [accounts, setAccounts] = useState<PersonalAccount[]>([])
   const [recentTx, setRecentTx] = useState<PersonalTransaction[]>([])
-  const [summary, setSummary] = useState({ totalIncome: 0, totalExpense: 0, balance: 0, available: 0 })
+  const [summary, setSummary] = useState({ totalIncome: 0, totalExpense: 0, balance: 0, available: 0, availableARS: 0, availableUSD: 0 })
   const [cards, setCards] = useState<CCType[]>([])
   const [cardPurchases, setCardPurchases] = useState<CardPurchase[]>([])
   const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([])
@@ -57,7 +57,8 @@ export function PersonalDashboard() {
     void load()
   }, [user])
 
-  const availableBalance = summary.available
+  const availableBalance = summary.availableARS ?? summary.available
+  const availableUSD     = summary.availableUSD ?? 0
   const month = currentYearMonth()
   // Savings computed values
   const savingsSummary = getSavingsSummary(savingsGoals)
@@ -81,7 +82,7 @@ export function PersonalDashboard() {
         </div>
       </div>
 
-      {/* ── Available big card ── */}
+      {/* ── Available big card (ARS + USD if exists) ── */}
       <div
         data-testid="personal-balance-card"
         style={{ background: 'linear-gradient(135deg, rgba(52,211,153,0.12), rgba(16,185,129,0.06))', border: '1px solid rgba(52,211,153,0.2)', borderRadius: '1.25rem', padding: '1.25rem' }}
@@ -92,8 +93,15 @@ export function PersonalDashboard() {
         {loading ? (
           <div style={{ height: 40, width: '60%', borderRadius: 8, background: 'rgba(52,211,153,0.1)' }} />
         ) : (
-          <div style={{ fontSize: '2.5rem', fontWeight: 900, color: availableBalance >= 0 ? '#34d399' : '#f87171', letterSpacing: '-0.04em', lineHeight: 1, fontFamily: 'monospace' }}>
-            {fmtMoney(availableBalance)}
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.875rem', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: '2.5rem', fontWeight: 900, color: availableBalance >= 0 ? '#34d399' : '#f87171', letterSpacing: '-0.04em', lineHeight: 1, fontFamily: 'monospace' }}>
+              {fmtMoney(availableBalance)}
+            </div>
+            {availableUSD > 0 && (
+              <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#4ade80', letterSpacing: '-0.03em', lineHeight: 1, fontFamily: 'monospace' }}>
+                + {fmtMoney(availableUSD, 'USD')}
+              </div>
+            )}
           </div>
         )}
         <div style={{ fontSize: '0.75rem', color: '#047857', marginTop: '0.5rem' }}>

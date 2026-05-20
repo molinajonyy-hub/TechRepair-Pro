@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import {
   personalService, type PersonalTransaction,
   type PersonalAccount, type PersonalCategory,
+  getAccountCurrencies, getAccountBalanceForCurrency,
 } from '../services/personalService'
 import {
   TxRow, EmptyPersonal, PersonalLoading, PageContainer, Card,
@@ -26,15 +27,30 @@ function TransactionForm({
   onClose: () => void
 }) {
   const { user } = useAuth()
-  const [type, setType] = useState<'income' | 'expense'>(defaultType ?? 'expense')
-  const [amount, setAmount] = useState('')
+  const [type, setType]           = useState<'income' | 'expense'>(defaultType ?? 'expense')
+  const [amount, setAmount]       = useState('')
   const [description, setDescription] = useState('')
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? '')
+  const [currency, setCurrency]   = useState('ARS')
   const [categoryId, setCategoryId] = useState('')
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0])
-  const [notes, setNotes] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [date, setDate]           = useState(new Date().toISOString().split('T')[0])
+  const [notes, setNotes]         = useState('')
+  const [saving, setSaving]       = useState(false)
+  const [error, setError]         = useState('')
+
+  // Currencies available on selected account
+  const selectedAccount = accounts.find(a => a.id === accountId)
+  const accountCurrencies = selectedAccount ? getAccountCurrencies(selectedAccount) : ['ARS']
+  // Auto-select single currency when account changes
+  const handleAccountChange = (id: string) => {
+    setAccountId(id)
+    const acc = accounts.find(a => a.id === id)
+    if (acc) {
+      const curs = getAccountCurrencies(acc)
+      if (curs.length === 1) setCurrency(curs[0])
+      else if (!curs.includes(currency)) setCurrency(curs[0])
+    }
+  }
 
   const filteredCats = categories.filter(c => c.type === type && c.is_active)
 
@@ -52,7 +68,7 @@ function TransactionForm({
         category_id: categoryId || null,
         type,
         amount: amt,
-        currency: 'ARS',
+        currency,    // uses selected currency (ARS or USD)
         date,
         description: description.trim(),
         notes: notes.trim() || null,
@@ -76,12 +92,13 @@ function TransactionForm({
       data-testid="personal-movement-sheet"
       style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
     >
-      <div style={{ width: '100%', maxWidth: 480, background: '#0a1628', borderRadius: '1.5rem 1.5rem 0 0', border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none', padding: '1.25rem', maxHeight: '90dvh', overflowY: 'auto' }}>
+      <div style={{ width: '100%', maxWidth: 480, background: '#0a1628', borderRadius: '1.5rem 1.5rem 0 0', border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none', maxHeight: 'calc(100dvh - env(safe-area-inset-top, 20px) - 20px)', display: 'flex', flexDirection: 'column' }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.25rem 0.875rem', flexShrink: 0, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
           <span style={{ fontWeight: 800, fontSize: '1rem', color: '#f0f4ff' }}>Nuevo movimiento</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.25rem', display: 'flex', minWidth: 36, minHeight: 36, alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
         </div>
+        <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '1rem 1.25rem' }}>
 
         {/* Type toggle */}
         <div data-testid="personal-movement-type" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1.25rem' }}>
@@ -117,11 +134,35 @@ function TransactionForm({
           <PersonalSelect
             testId="personal-movement-account"
             label="Cuenta *" value={accountId}
-            onChange={e => setAccountId(e.target.value)}
+            onChange={e => handleAccountChange(e.target.value)}
           >
             <option value="">Seleccionar cuenta</option>
-            {accounts.map(a => <option key={a.id} value={a.id}>{a.name} ({fmtMoney(a.current_balance)})</option>)}
+            {accounts.map(a => {
+              const bal = getAccountBalanceForCurrency(a, currency)
+              return <option key={a.id} value={a.id}>{a.name} ({fmtMoney(bal, currency)})</option>
+            })}
           </PersonalSelect>
+
+          {/* Currency selector — only shown when account has multiple currencies */}
+          {accountCurrencies.length > 1 && (
+            <div>
+              <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>
+                Moneda
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                {accountCurrencies.map(cur => (
+                  <button
+                    key={cur}
+                    type="button"
+                    onClick={() => setCurrency(cur)}
+                    style={{ padding: '0.625rem', borderRadius: '0.625rem', border: `2px solid ${currency === cur ? (type === 'income' ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)') : 'rgba(255,255,255,0.08)'}`, background: currency === cur ? (type === 'income' ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)') : 'transparent', color: currency === cur ? (type === 'income' ? '#34d399' : '#f87171') : '#475569', fontWeight: 700, cursor: 'pointer', fontSize: '0.875rem', minHeight: 44 }}
+                  >
+                    {cur}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {filteredCats.length > 0 && (
             <PersonalSelect
@@ -147,6 +188,10 @@ function TransactionForm({
             </div>
           )}
 
+        </div>
+        </div>
+        {/* Button — always visible above safe area */}
+        <div style={{ padding: '0.875rem 1.25rem', paddingBottom: 'calc(0.875rem + env(safe-area-inset-bottom, 0px))', borderTop: '1px solid rgba(255,255,255,0.05)', flexShrink: 0, background: '#0a1628' }}>
           <PrimaryBtn testId="personal-movement-save" onClick={handleSave} loading={saving} fullWidth>
             {saving ? 'Guardando…' : `Guardar ${type === 'income' ? 'ingreso' : 'gasto'}`}
           </PrimaryBtn>
