@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Plus, Wallet, Edit2, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
@@ -109,10 +110,17 @@ function AccountForm({ initial, onSaved, onClose }: {
     }
   }
 
-  return (
+  const canSave = !saving && name.trim().length > 0 && currencies.length > 0
+
+  // createPortal renders outside <main webkit-overflow-scrolling:touch>,
+  // which on iOS Safari breaks position:fixed — the overlay would be clipped
+  // inside the scroll container instead of covering the full viewport.
+  return createPortal(
     <div
       style={{
-        position: 'fixed', inset: 0, zIndex: 200,
+        position: 'fixed', inset: 0,
+        // z-index 300 > bottom nav (100) to ensure footer renders on top
+        zIndex: 300,
         background: 'rgba(0,0,0,0.75)',
         backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
         display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
@@ -126,23 +134,24 @@ function AccountForm({ initial, onSaved, onClose }: {
           background: '#0a1628',
           borderRadius: '1.5rem 1.5rem 0 0',
           border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none',
-          // 85dvh es más robusto que la fórmula con safe-area-top en iOS PWA
-          maxHeight: '85dvh',
+          maxHeight: 'calc(100dvh - env(safe-area-inset-top, 20px) - 16px)',
           display: 'flex', flexDirection: 'column',
-          // Prevents the sheet from growing beyond the container
           overflow: 'hidden',
         }}
       >
         {/* Header — fixed, no scroll */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.25rem 0.875rem', flexShrink: 0, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '1.25rem 1.25rem 0.875rem',
+          flexShrink: 0, position: 'relative', zIndex: 2,
+          borderBottom: '1px solid rgba(255,255,255,0.05)',
+        }}>
           <span style={{ fontWeight: 800, fontSize: '1rem', color: '#f0f4ff' }}>{initial ? 'Editar cuenta' : 'Nueva cuenta'}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', minWidth: 36, minHeight: 36, alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
         </div>
 
-        {/* Scrollable content
-            min-height: 0 is CRITICAL for iOS — without it, flex items refuse to
-            shrink below their content size, pushing the footer off-screen */}
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '1rem 1.25rem' }}>
+        {/* Scrollable content — min-height:0 required for iOS flex shrink */}
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '1rem 1.25rem 0.5rem' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <PersonalInput
               testId="personal-account-name"
@@ -216,20 +225,29 @@ function AccountForm({ initial, onSaved, onClose }: {
           </div>
         </div>
 
-        {/* Button — ALWAYS visible, outside scroll, above safe area */}
+        {/* Footer — always visible, above safe area, above bottom nav */}
         <div style={{
-          padding: '0.875rem 1.25rem',
-          paddingBottom: 'calc(0.875rem + env(safe-area-inset-bottom, 0px))',
-          borderTop: '1px solid rgba(255,255,255,0.05)',
           flexShrink: 0,
+          position: 'relative', zIndex: 3,
+          padding: '1rem 1.25rem',
+          paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))',
+          borderTop: '1px solid rgba(255,255,255,0.05)',
           background: '#0a1628',
+          boxShadow: '0 -4px 16px rgba(0,0,0,0.2)',
         }}>
-          <PrimaryBtn testId="personal-account-save" onClick={handleSave} loading={saving} fullWidth>
+          <PrimaryBtn
+            testId="personal-account-save"
+            onClick={handleSave}
+            loading={saving}
+            disabled={!canSave}
+            fullWidth
+          >
             {saving ? 'Guardando…' : (initial ? 'Guardar cambios' : 'Crear cuenta')}
           </PrimaryBtn>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
