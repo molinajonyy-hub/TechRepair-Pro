@@ -130,6 +130,7 @@ function AccountForm({ initial, onSaved, onClose }: {
           value={name}
           onChange={e => setName(e.target.value)}
           placeholder="Ej: Efectivo billetera, Cuenta BBVA..."
+          autoCapitalize="words" autoComplete="off"
         />
         <PersonalSelect
           testId="personal-account-type"
@@ -172,10 +173,10 @@ function AccountForm({ initial, onSaved, onClose }: {
                       </label>
                       <input
                         data-testid={`personal-account-initial-balance-${cur.value}`}
-                        type="number" min="0" step="1"
+                        type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*"
                         value={entry?.initial_balance ?? '0'}
                         onChange={e => updateBalance(cur.value, e.target.value)}
-                        placeholder="0"
+                        placeholder="0" autoComplete="off"
                         style={{ width: '100%', padding: '0.625rem 0.875rem', boxSizing: 'border-box', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.625rem', color: '#34d399', fontSize: '1rem', fontFamily: 'monospace', fontWeight: 700, outline: 'none' }}
                       />
                     </div>

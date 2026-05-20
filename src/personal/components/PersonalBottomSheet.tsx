@@ -71,23 +71,24 @@ export function PersonalBottomSheet({
         onClick={closeOnOverlayClick ? onClose : undefined}
       />
 
-      {/* ── Sheet — explicit bottom so the gap is always real ── */}
+      {/* ── Sheet — centered vertically, floating card feel ── */}
       <div
         data-testid={testId}
         style={{
           position: 'fixed',
-          // 12 px lateral gap on each side
           left: 12,
           right: 12,
-          // Guaranteed air between sheet bottom and home indicator / screen edge
-          bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)',
+          // Vertically centered: top:50% places the top edge at mid-screen,
+          // translateY(-46%) raises it so the modal sits slightly below visual center —
+          // natural for modal dialogs. Short forms appear centered; tall forms stay
+          // within safe bounds because max-height prevents overflow.
+          top: '50%',
+          transform: 'translateY(-46%)',
           zIndex: 301,
-          // Center within the lateral gap up to maxWidth
           maxWidth,
           marginLeft: 'auto',
           marginRight: 'auto',
-          // Leaves room above for safe-area top + some air
-          maxHeight: 'min(82dvh, calc(100dvh - env(safe-area-inset-top, 20px) - env(safe-area-inset-bottom, 0px) - 48px))',
+          maxHeight: 'min(82dvh, calc(100dvh - env(safe-area-inset-top, 20px) - env(safe-area-inset-bottom, 0px) - 64px))',
           display: 'flex', flexDirection: 'column',
           overflow: 'hidden',
           borderRadius: '1.75rem',

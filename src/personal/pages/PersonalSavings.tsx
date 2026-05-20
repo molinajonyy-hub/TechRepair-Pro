@@ -94,13 +94,14 @@ function GoalForm({ initial, accounts, onSaved, onClose }: {
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <PersonalInput testId="personal-savings-name-input" label="Nombre del objetivo *" value={name} onChange={e => setName(e.target.value)} placeholder="Ej: Fondo de emergencia, Viaje, iPhone..." />
+        <PersonalInput testId="personal-savings-name-input" label="Nombre del objetivo *" value={name} onChange={e => setName(e.target.value)} placeholder="Ej: Fondo de emergencia, Viaje, iPhone..." autoCapitalize="words" autoComplete="off" />
         <div>
           <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Meta *</label>
           <input
             data-testid="personal-savings-target-input"
-            type="number" min="0" step="1" value={target}
-            onChange={e => setTarget(e.target.value)} placeholder="0" autoFocus
+            type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*"
+            value={target}
+            onChange={e => setTarget(e.target.value)} placeholder="0" autoFocus autoComplete="off"
             style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(52,211,153,0.05)', border: '1px solid rgba(52,211,153,0.25)', borderRadius: '0.875rem', color: '#34d399', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
           />
         </div>
@@ -108,8 +109,9 @@ function GoalForm({ initial, accounts, onSaved, onClose }: {
           <PersonalInput
             testId="personal-savings-current-input"
             label="Ya tenés ahorrado (opcional)"
-            type="number" min="0" step="1" value={current}
-            onChange={e => setCurrent(e.target.value)} placeholder="0"
+            type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*"
+            value={current}
+            onChange={e => setCurrent(e.target.value)} placeholder="0" autoComplete="off"
           />
         )}
         <PersonalSelect testId="personal-savings-currency" label="Moneda" value={currency} onChange={e => setCurrency(e.target.value)}>
@@ -204,14 +206,15 @@ function ContributeForm({ goals, accounts, defaultGoalId, onSaved, onClose }: {
           <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto del aporte *</label>
           <input
             data-testid="personal-savings-contribute-amount"
-            type="number" min="0" step="1" value={amount}
+            type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*"
+            value={amount}
             onChange={e => { setAmount(e.target.value); setConfirmed(false) }}
-            placeholder="0" autoFocus
+            placeholder="0" autoFocus autoComplete="off"
             style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(52,211,153,0.05)', border: '1px solid rgba(52,211,153,0.25)', borderRadius: '0.875rem', color: '#34d399', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
           />
         </div>
         <PersonalInput testId="personal-savings-contribute-date" label="Fecha" type="date" value={date} onChange={e => setDate(e.target.value)} />
-        <PersonalInput testId="personal-savings-contribute-notes" label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ej: Sueldo de julio..." />
+        <PersonalInput testId="personal-savings-contribute-notes" label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ej: Sueldo de julio..." autoCapitalize="sentences" autoComplete="off" />
         {wouldComplete && (
           <div style={{ padding: '0.625rem 0.875rem', background: 'rgba(129,140,248,0.08)', border: '1px solid rgba(129,140,248,0.25)', borderRadius: '0.75rem', fontSize: '0.8rem', color: '#818cf8', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             <Check size={14} style={{ flexShrink: 0 }} />
@@ -320,15 +323,17 @@ function WithdrawForm({ goals, accounts, defaultGoalId, onSaved, onClose }: {
           <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto a retirar *</label>
           <input
             data-testid="personal-savings-withdraw-amount"
-            type="number" min="0" step="1" value={amount}
+            type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*"
+            value={amount}
             onChange={e => { setAmount(e.target.value); setConfirmed(false) }}
+            autoComplete="off"
             placeholder="0" autoFocus
             style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: exceedsBalance ? 'rgba(248,113,113,0.05)' : 'rgba(251,191,36,0.05)', border: `1px solid ${exceedsBalance ? 'rgba(248,113,113,0.35)' : 'rgba(251,191,36,0.25)'}`, borderRadius: '0.875rem', color: exceedsBalance ? '#f87171' : '#fbbf24', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
           />
           {exceedsBalance && <div style={{ fontSize: '0.75rem', color: '#f87171', marginTop: '0.25rem' }}>Máximo disponible: {fmtMoney(maxAmount)}</div>}
         </div>
         <PersonalInput testId="personal-savings-withdraw-date" label="Fecha" type="date" value={date} onChange={e => setDate(e.target.value)} />
-        <PersonalInput testId="personal-savings-withdraw-notes" label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Razón del retiro..." />
+        <PersonalInput testId="personal-savings-withdraw-notes" label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Razón del retiro..." autoCapitalize="sentences" autoComplete="off" />
         {isValid && !exceedsBalance && (
           <div
             data-testid="personal-savings-withdraw-confirm"

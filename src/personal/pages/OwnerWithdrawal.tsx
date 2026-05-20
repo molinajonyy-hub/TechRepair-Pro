@@ -144,9 +144,10 @@ export function OwnerWithdrawalPage() {
           <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto a retirar *</label>
           <input
             data-testid="personal-salary-amount"
-            type="number" min="0" step="1" value={amount}
+            type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*"
+            value={amount}
             onChange={e => { setAmount(e.target.value); setConfirmed(false) }}
-            placeholder="0" autoFocus
+            placeholder="0" autoFocus autoComplete="off"
             style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(129,140,248,0.05)', border: '1px solid rgba(129,140,248,0.25)', borderRadius: '0.875rem', color: '#818cf8', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
           />
         </div>
@@ -172,6 +173,7 @@ export function OwnerWithdrawalPage() {
           testId="personal-salary-notes"
           label="Nota (opcional)" value={notes}
           onChange={e => setNotes(e.target.value)}
+          autoCapitalize="sentences" autoComplete="off"
           placeholder="Ej: Sueldo julio, Utilidad Q2..."
         />
 

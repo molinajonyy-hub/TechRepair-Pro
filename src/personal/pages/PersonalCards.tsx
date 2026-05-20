@@ -48,7 +48,7 @@ function CardForm({ initial, onSaved, onClose }: {
     const dd = parseInt(dueDay, 10)
     if (isNaN(cd) || cd < 1 || cd > 31) { setError('Día de cierre debe ser entre 1 y 31'); return }
     if (isNaN(dd) || dd < 1 || dd > 31) { setError('Día de vencimiento debe ser entre 1 y 31'); return }
-    const creditLimit = limit !== '' ? parseFloat(limit) : null
+    const creditLimit = limit !== '' ? parseFloat(limit.replace(',', '.')) : null
     if (creditLimit !== null && creditLimit < 0) { setError('El límite no puede ser negativo'); return }
     setError('')
     setSaving(true)
@@ -90,8 +90,8 @@ function CardForm({ initial, onSaved, onClose }: {
       }
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <PersonalInput testId="personal-card-name-input" label="Nombre de tarjeta *" value={name} onChange={e => setName(e.target.value)} placeholder="Ej: Visa Naranja, Mastercard Galicia..." />
-        <PersonalInput testId="personal-card-issuer-input" label="Emisor / Banco" value={issuer} onChange={e => setIssuer(e.target.value)} placeholder="Ej: Naranja X, Galicia, Santander..." />
+        <PersonalInput testId="personal-card-name-input" label="Nombre de tarjeta *" value={name} onChange={e => setName(e.target.value)} placeholder="Ej: Visa Naranja, Mastercard Galicia..." autoCapitalize="words" autoComplete="off" />
+        <PersonalInput testId="personal-card-issuer-input" label="Emisor / Banco" value={issuer} onChange={e => setIssuer(e.target.value)} placeholder="Ej: Naranja X, Galicia, Santander..." autoCapitalize="words" autoComplete="off" />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
           <div>
             <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Día de cierre *</label>
@@ -106,7 +106,7 @@ function CardForm({ initial, onSaved, onClose }: {
             </select>
           </div>
         </div>
-        <PersonalInput testId="personal-card-limit" label="Límite (opcional)" type="number" min="0" value={limit} onChange={e => setLimit(e.target.value)} placeholder="Sin límite" />
+        <PersonalInput testId="personal-card-limit" label="Límite (opcional)" type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*" value={limit} onChange={e => setLimit(e.target.value)} placeholder="Sin límite" autoComplete="off" />
         <PersonalSelect testId="personal-card-currency" label="Moneda" value={currency} onChange={e => setCurrency(e.target.value)}>
           <option value="ARS">ARS — Pesos</option>
           <option value="USD">USD — Dólares</option>
@@ -203,13 +203,14 @@ function PurchaseForm({ cards, categories, defaultCardId, onSaved, onClose }: {
           <option value="">Seleccionar tarjeta</option>
           {cards.filter(c => c.is_active).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </PersonalSelect>
-        <PersonalInput testId="personal-card-purchase-description" label="Descripción *" value={description} onChange={e => setDescription(e.target.value)} placeholder="¿Qué compraste?" />
+        <PersonalInput testId="personal-card-purchase-description" label="Descripción *" value={description} onChange={e => setDescription(e.target.value)} placeholder="¿Qué compraste?" autoCapitalize="sentences" autoComplete="off" />
         <div>
           <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto total *</label>
           <input
             data-testid="personal-card-purchase-amount"
-            type="number" min="0" step="0.01" value={amount}
-            onChange={e => setAmount(e.target.value)} placeholder="0" autoFocus
+            type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*"
+            value={amount}
+            onChange={e => setAmount(e.target.value)} placeholder="0" autoFocus autoComplete="off"
             style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(129,140,248,0.05)', border: '1px solid rgba(129,140,248,0.25)', borderRadius: '0.875rem', color: '#818cf8', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
           />
         </div>
@@ -226,7 +227,7 @@ function PurchaseForm({ cards, categories, defaultCardId, onSaved, onClose }: {
             {expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </PersonalSelect>
         )}
-        <PersonalInput label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Detalle adicional..." />
+        <PersonalInput label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Detalle adicional..." autoCapitalize="sentences" autoComplete="off" />
         {previewValid && previewSchedule.length > 0 && (
           <div data-testid="personal-card-purchase-preview" style={{ background: 'rgba(129,140,248,0.06)', border: '1px solid rgba(129,140,248,0.18)', borderRadius: '0.875rem', padding: '0.875rem' }}>
             <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>
@@ -335,14 +336,15 @@ function PaymentForm({ cards, accounts, onSaved, onClose }: {
             <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto del pago *</label>
             <input
               data-testid="personal-card-payment-amount"
-              type="number" min="0" step="0.01" value={amount}
+              type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*"
+              value={amount}
               onChange={e => { setAmount(e.target.value); setConfirmed(false) }}
-              placeholder="0" autoFocus
+              placeholder="0" autoFocus autoComplete="off"
               style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(248,113,113,0.05)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.875rem', color: '#f87171', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
             />
           </div>
           <PersonalInput testId="personal-card-payment-date" label="Fecha" type="date" value={date} onChange={e => setDate(e.target.value)} />
-          <PersonalInput testId="personal-card-payment-notes" label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ej: Pago resumen junio..." />
+          <PersonalInput testId="personal-card-payment-notes" label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ej: Pago resumen junio..." autoCapitalize="sentences" autoComplete="off" />
           {isValid && (
             <div
               data-testid="personal-card-payment-confirm"

@@ -118,8 +118,9 @@ function TransactionForm({
           <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto *</label>
           <input
             data-testid="personal-movement-amount"
-            type="number" min="0" step="0.01" value={amount}
-            onChange={e => setAmount(e.target.value)} placeholder="0" autoFocus
+            type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*"
+            value={amount}
+            onChange={e => setAmount(e.target.value)} placeholder="0" autoFocus autoComplete="off"
             style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(255,255,255,0.04)', border: `1px solid ${type === 'income' ? 'rgba(52,211,153,0.25)' : 'rgba(248,113,113,0.25)'}`, borderRadius: '0.875rem', color: type === 'income' ? '#34d399' : '#f87171', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
           />
         </div>
@@ -128,6 +129,7 @@ function TransactionForm({
           testId="personal-movement-description"
           label="Descripción *" value={description}
           onChange={e => setDescription(e.target.value)} placeholder="¿En qué?"
+          autoCapitalize="sentences" autoComplete="off"
         />
 
         <PersonalSelect
@@ -178,7 +180,7 @@ function TransactionForm({
           label="Fecha" type="date" value={date}
           onChange={e => setDate(e.target.value)}
         />
-        <PersonalInput label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Detalle adicional..." />
+        <PersonalInput label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Detalle adicional..." autoCapitalize="sentences" autoComplete="off" />
 
         {error && (
           <div style={{ padding: '0.625rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>
