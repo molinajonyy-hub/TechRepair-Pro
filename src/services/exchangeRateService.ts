@@ -4,10 +4,10 @@ export type DolarSource = 'nacional' | 'cordoba'
 export interface CordobaRateDetail {
   compra: number
   venta: number
-  /** Siempre 'venta' — nunca se usa compra ni promedio para productos. */
+  /** Siempre 'venta' — nunca promedio ni compra. */
   mode: 'venta'
-  /** Estrategia de parseo que tuvo éxito (útil para debugging). */
   strategy: string
+  fetchedAt?: string
 }
 
 // ── Helpers de parseo ─────────────────────────────────────────────────────────
@@ -23,28 +23,21 @@ function stripHtml(html: string): string {
     .trim()
 }
 
-/**
- * Convierte precio en formato argentino a número.
- * Soporta: "1.425,00" → 1425 | "1425" → 1425 | "1.394" → 1394
- */
 function parseArgPrice(s: string): number | null {
   const clean = s.replace(/[$\s]/g, '').replace(/\./g, '').replace(',', '.')
   const n = parseFloat(clean)
   return isFinite(n) && n >= 500 && n <= 9999 ? n : null
 }
 
-/** Regex para precio en formato argentino (sep miles con punto, decimal con coma). */
 const PRICE_RE = /\b(\d{1,2}[.]\d{3}(?:[,]\d{1,2})?|\d{3,4}(?:[,]\d{1,2})?)\b/g
 
 /**
- * Parser dedicado para infodolar.com/cotizacion-dolar-provincia-cordoba.aspx
- *
- * Intenta 4 estrategias en orden descendente de especificidad.
- * SIEMPRE retorna compra Y venta por separado — nunca promedio.
- * Retorna null si no puede determinar el valor de venta con certeza.
+ * Parser para infodolar.com HTML — 4 estrategias en orden de especificidad.
+ * Retorna compra Y venta explícitos, nunca promedio.
+ * Usado tanto en el frontend (fallback proxy) como en la Edge Function.
  */
 function extractInfoDolarCordobaRates(html: string): CordobaRateDetail | null {
-  // ── Estrategia 1: JSON embebido (algunos .aspx embeben datos como JSON) ──────
+  // Estrategia 1: JSON embebido
   const jsonMatch = html.match(
     /"compra"\s*:\s*["']?([\d.,]+)["']?[^}]{0,100}"venta"\s*:\s*["']?([\d.,]+)/i
   )
@@ -55,8 +48,7 @@ function extractInfoDolarCordobaRates(html: string): CordobaRateDetail | null {
       return { compra, venta, mode: 'venta', strategy: 'json-embedded' }
   }
 
-  // ── Estrategia 2: Fila de tabla HTML con "blue" o "informal" ────────────────
-  // Patrón: <tr> ... "blue"/"informal" ... <td>compra</td> <td>venta</td>
+  // Estrategia 2: Fila de tabla HTML con "blue" o "informal"
   const tableRowRe = /<tr[^>]*>(?:(?!<\/tr>)[\s\S])*?(?:blue|informal)(?:(?!<\/tr>)[\s\S])*?<\/tr>/gi
   let rowMatch: RegExpExecArray | null
   // eslint-disable-next-line no-cond-assign
@@ -67,18 +59,15 @@ function extractInfoDolarCordobaRates(html: string): CordobaRateDetail | null {
     const prices = cells.map(c => parseArgPrice(c)).filter((p): p is number => p !== null)
     if (prices.length >= 2) {
       const sorted = [...prices].sort((a, b) => a - b)
-      const compra = sorted[0]
-      const venta  = sorted[sorted.length - 1]
-      if (venta > compra)
-        return { compra, venta, mode: 'venta', strategy: 'html-table-row' }
+      const compra = sorted[0], venta = sorted[sorted.length - 1]
+      if (venta > compra) return { compra, venta, mode: 'venta', strategy: 'html-table-row' }
     }
   }
 
-  // ── Estrategia 3: HTML crudo — buscar "Compra ... precio ... Venta ... precio" ─
-  // InfoDolar.com frecuentemente pone: Compra $1.419 Venta $1.450 cerca de "Blue"
-  const compraVentaRe =
+  // Estrategia 3: Etiquetas compra/venta en HTML crudo
+  const cvMatch = html.match(
     /compra[^]*?(\$?\s*\d{1,2}[.]\d{3}(?:[,]\d{1,2})?|\$?\s*\d{3,4}(?:[,]\d{1,2})?)[^]*?venta[^]*?(\$?\s*\d{1,2}[.]\d{3}(?:[,]\d{1,2})?|\$?\s*\d{3,4}(?:[,]\d{1,2})?)/i
-  const cvMatch = html.match(compraVentaRe)
+  )
   if (cvMatch) {
     const compra = parseArgPrice(cvMatch[1])
     const venta  = parseArgPrice(cvMatch[2])
@@ -86,73 +75,91 @@ function extractInfoDolarCordobaRates(html: string): CordobaRateDetail | null {
       return { compra, venta, mode: 'venta', strategy: 'html-compra-venta-labels' }
   }
 
-  // ── Estrategia 4: Texto plano — sección "blue"/"informal" + dos precios ──────
+  // Estrategia 4: Texto plano — sección blue/informal
   const text = stripHtml(html)
   const blueIdx = text.search(/\b(?:blue|informal|dolar blue|dólar blue)\b/i)
   if (blueIdx !== -1) {
     const seg = text.slice(Math.max(0, blueIdx - 30), blueIdx + 600)
-
-    // Intentar encontrar labels "Compra" y "Venta" explícitos en el segmento
     const compraLabelIdx = seg.search(/compra/i)
     const ventaLabelIdx  = seg.search(/venta/i)
-
     if (compraLabelIdx !== -1 && ventaLabelIdx !== -1) {
-      const afterCompra = seg.slice(compraLabelIdx, compraLabelIdx + 120)
-      const afterVenta  = seg.slice(ventaLabelIdx,  ventaLabelIdx  + 120)
-      const compraM = afterCompra.match(PRICE_RE)
-      const ventaM  = afterVenta.match(PRICE_RE)
+      const compraM = seg.slice(compraLabelIdx, compraLabelIdx + 120).match(PRICE_RE)
+      const ventaM  = seg.slice(ventaLabelIdx,  ventaLabelIdx  + 120).match(PRICE_RE)
       const compra  = compraM ? parseArgPrice(compraM[0]) : null
       const venta   = ventaM  ? parseArgPrice(ventaM[0])  : null
       if (compra && venta && venta > compra)
         return { compra, venta, mode: 'venta', strategy: 'text-explicit-labels' }
     }
-
-    // Sin labels explícitos: extraer todos los precios del segmento, asumir menor=compra mayor=venta
     const allMatches = [...seg.matchAll(PRICE_RE)]
     const prices: number[] = []
-    for (const m of allMatches) {
-      const p = parseArgPrice(m[1])
-      if (p) prices.push(p)
-    }
-    // Deduplicar y ordenar
+    for (const m of allMatches) { const p = parseArgPrice(m[1]); if (p) prices.push(p) }
     const unique = [...new Set(prices)].sort((a, b) => a - b)
     if (unique.length >= 2) {
-      const compra = unique[0]
-      const venta  = unique[unique.length - 1]
-      // Solo aceptar si la diferencia es razonable (hasta 5% entre compra y venta)
+      const compra = unique[0], venta = unique[unique.length - 1]
       if (venta / compra <= 1.05)
         return { compra, venta, mode: 'venta', strategy: 'text-min-max' }
     }
   }
-
   return null
 }
 
 /** Parser original para Bluelytics (Blue Nacional) — no modificar. */
 function extractBlueVenta(html: string): number | null {
   const text = stripHtml(html)
-
   const idx = text.search(/\bblue\b/i)
   if (idx !== -1) {
     const seg = text.slice(idx, idx + 700)
     const matches = [...seg.matchAll(PRICE_RE)]
     const prices: number[] = []
-    for (const m of matches) {
-      const p = parseArgPrice(m[1])
-      if (p) prices.push(p)
-    }
+    for (const m of matches) { const p = parseArgPrice(m[1]); if (p) prices.push(p) }
     if (prices.length >= 2) return Math.max(...prices)
     if (prices.length === 1) return prices[0]
   }
-
   const raw = html.match(/blue[^]*?venta[^<]{0,200}?(\$?\s*[\d.]+,\d{2})/i)
-  if (raw) {
-    const p = parseArgPrice(raw[1])
-    if (p) return p
-  }
-
+  if (raw) { const p = parseArgPrice(raw[1]); if (p) return p }
   return null
 }
+
+// ── Fetch con timeout y retry ─────────────────────────────────────────────────
+
+interface FetchRetryOptions {
+  timeoutMs: number
+  retries: number
+  retryDelayMs: number
+  requestInit?: RequestInit
+}
+
+async function fetchWithTimeoutAndRetry(url: string, opts: FetchRetryOptions): Promise<Response> {
+  const { timeoutMs, retries, retryDelayMs, requestInit } = opts
+  let lastError: Error = new Error('fetch failed')
+  const total = retries + 1
+
+  for (let attempt = 1; attempt <= total; attempt++) {
+    const t0 = Date.now()
+    try {
+      console.log(`[fetchRetry] attempt ${attempt}/${total} timeout=${timeoutMs}ms`)
+      const res = await fetch(url, { ...requestInit, signal: AbortSignal.timeout(timeoutMs) })
+      console.log(`[fetchRetry] attempt ${attempt} OK in ${Date.now() - t0}ms status=${res.status}`)
+      return res
+    } catch (err: unknown) {
+      const e = err instanceof Error ? err : new Error(String(err))
+      lastError = e
+      const isTimeout = e.name === 'TimeoutError' || e.name === 'AbortError'
+      const isNetwork = e.name === 'TypeError' || e.message.includes('Failed to fetch')
+      console.warn(`[fetchRetry] attempt ${attempt} failed (${e.name}): ${e.message} after ${Date.now() - t0}ms`)
+      if (attempt < total && (isTimeout || isNetwork)) {
+        await new Promise(r => setTimeout(r, retryDelayMs))
+        continue
+      }
+      break
+    }
+  }
+  throw lastError
+}
+
+// URL de la Edge Function Supabase (server-side, sin proxy, sin CORS)
+const EDGE_FN_URL = 'https://vrdxxmjzxhfgqlnxmbwx.supabase.co/functions/v1/infodolar-cordoba'
+const SUPABASE_ANON_KEY = (import.meta as { env?: Record<string, string> }).env?.VITE_SUPABASE_ANON_KEY ?? ''
 
 // ── Servicio ──────────────────────────────────────────────────────────────────
 
@@ -176,58 +183,106 @@ export const exchangeRateService = {
   /**
    * InfoDolar Córdoba — devuelve compra Y venta explícitos.
    *
-   * SIEMPRE usa el valor de VENTA para productos.
-   * Si no puede determinar la venta con certeza, retorna null (NO usa fallback ni promedio).
+   * Estrategia 1 (primaria): Edge Function Supabase (fetch server-side, sin proxy).
+   * Estrategia 2 (fallback): allorigins.win proxy con 2 intentos y 15s timeout.
+   *
+   * SIEMPRE retorna venta. NUNCA usa promedio, compra ni fallback a nacional.
+   * Si ambas estrategias fallan → retorna null → error visible en UI, no se actualizan precios.
    */
   async getDolarBlueCordobaDetail(): Promise<CordobaRateDetail | null> {
+    // ── Estrategia 1: Edge Function (server-side, confiable) ──────────────────
     try {
-      const target   = 'https://www.infodolar.com/cotizacion-dolar-provincia-cordoba.aspx'
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(target)}`
+      const t0 = Date.now()
+      const res = await fetch(EDGE_FN_URL, {
+        headers: {
+          'apikey':        SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type':  'application/json',
+        },
+        signal: AbortSignal.timeout(20000),
+      })
+      const ms = Date.now() - t0
+      const data = await res.json()
 
-      const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) })
-      if (!res.ok) throw new Error('proxy HTTP ' + res.status)
+      if (!res.ok || data.error) {
+        const code: string = data.code ?? 'unknown'
+        if (code === 'timeout') throw new Error('No se pudo consultar InfoDolar Córdoba: la fuente tardó demasiado en responder. No se actualizaron precios.')
+        if (code === 'parse')   throw new Error('No se pudo detectar el valor de venta de InfoDolar Córdoba. No se actualizaron precios.')
+        throw new Error(data.error ?? `Edge Function HTTP ${res.status}`)
+      }
 
-      const json = await res.json()
+      const detail: CordobaRateDetail = {
+        compra:     data.compra,
+        venta:      data.venta,
+        mode:       'venta',
+        strategy:   `edge:${data.strategy ?? 'unknown'}`,
+        fetchedAt:  data.fetchedAt,
+      }
+      console.log(`[exchangeRate] Córdoba via EdgeFn (${ms}ms): compra=$${detail.compra} venta=$${detail.venta} → $${detail.venta}`)
+      return detail
+    } catch (edgeErr: unknown) {
+      const msg = edgeErr instanceof Error ? edgeErr.message : String(edgeErr)
+      // Si el error es sobre "no se pudo detectar" o timeout, propagarlo directamente
+      if (msg.includes('No se pudo') || msg.includes('InfoDolar')) {
+        console.error('[exchangeRate] Córdoba EdgeFn:', msg)
+        throw edgeErr
+      }
+      console.warn('[exchangeRate] Córdoba EdgeFn falló, intentando proxy:', msg)
+    }
+
+    // ── Estrategia 2: Proxy allorigins.win con retry ──────────────────────────
+    const target   = 'https://www.infodolar.com/cotizacion-dolar-provincia-cordoba.aspx'
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(target)}`
+
+    try {
+      const res = await fetchWithTimeoutAndRetry(proxyUrl, {
+        timeoutMs:    15000,
+        retries:      1,       // 2 intentos totales
+        retryDelayMs: 800,
+      })
+      if (!res.ok) throw new Error(`proxy HTTP ${res.status}`)
+
+      const json  = await res.json()
       const html: string = json.contents ?? ''
       if (!html) throw new Error('respuesta vacía del proxy')
 
       const detail = extractInfoDolarCordobaRates(html)
       if (detail) {
-        console.log(
-          `[exchangeRate] Córdoba via infodolar.com (${detail.strategy}):`,
-          `compra=$${detail.compra} venta=$${detail.venta} → aplicando $${detail.venta}`
-        )
+        console.log(`[exchangeRate] Córdoba via proxy (${detail.strategy}): compra=$${detail.compra} venta=$${detail.venta}`)
         return detail
       }
 
-      // Diagnóstico: mostrar fragmento del HTML para facilitar debugging futuro
-      const snippet = stripHtml(html).slice(0, 400)
-      console.warn('[exchangeRate] InfoDolar Córdoba: no se pudo parsear. Fragmento:', snippet)
-      throw new Error('No se pudo detectar el valor de venta de InfoDolar Córdoba')
-    } catch (err) {
-      console.error('[exchangeRate] InfoDolar Córdoba falló:', err)
-      return null
+      const snippet = stripHtml(html).slice(0, 300)
+      console.warn('[exchangeRate] Proxy: no se pudo parsear. Fragmento:', snippet)
+      throw new Error('No se pudo detectar el valor de venta de InfoDolar Córdoba. No se actualizaron precios.')
+    } catch (proxyErr: unknown) {
+      const e = proxyErr instanceof Error ? proxyErr : new Error(String(proxyErr))
+      const isTimeout = e.name === 'TimeoutError' || e.name === 'AbortError' || e.message.includes('timed out')
+      const userMsg = isTimeout
+        ? 'No se pudo consultar InfoDolar Córdoba: la fuente tardó demasiado en responder. No se actualizaron precios.'
+        : e.message.includes('No se pudo') ? e.message
+        : `Error al consultar InfoDolar Córdoba: ${e.message}`
+      console.error('[exchangeRate] Proxy Córdoba falló:', e.message)
+      throw new Error(userMsg)
     }
-    // ⚠️ NO hay fallback a Bluelytics nacional. Si Córdoba falla → retorna null → error visible.
-    // Esto evita pisar precios con cotización incorrecta (promedio nacional ≠ venta Córdoba).
+    // ⚠️ Sin fallback a dólar nacional. Si Córdoba falla → error visible en UI.
   },
 
   /**
    * Córdoba: retorna solo el precio de VENTA para aplicar a productos.
-   * Retorna null si no puede obtener la venta con certeza.
    */
   async getDolarBlueCordoba(): Promise<number | null> {
-    const detail = await this.getDolarBlueCordobaDetail()
-    return detail?.venta ?? null
+    try {
+      const detail = await this.getDolarBlueCordobaDetail()
+      return detail?.venta ?? null
+    } catch {
+      return null
+    }
   },
 
-  /**
-   * Obtener tasa según fuente configurada por el negocio.
-   */
+  /** Obtener tasa según fuente configurada por el negocio. */
   async getDolarRate(source: DolarSource = 'nacional'): Promise<number | null> {
-    return source === 'cordoba'
-      ? this.getDolarBlueCordoba()
-      : this.getDolarBlueNacional()
+    return source === 'cordoba' ? this.getDolarBlueCordoba() : this.getDolarBlueNacional()
   },
 
   /** @deprecated usa getDolarRate(source) */
@@ -242,7 +297,8 @@ export const exchangeRateService = {
     })
   },
 
-  // Exponer extractBlueVenta para tests unitarios
-  _extractBlueVenta: extractBlueVenta,
-  _extractInfoDolarCordobaRates: extractInfoDolarCordobaRates,
+  // Exponer para tests unitarios
+  _extractBlueVenta:                extractBlueVenta,
+  _extractInfoDolarCordobaRates:    extractInfoDolarCordobaRates,
+  _fetchWithTimeoutAndRetry:        fetchWithTimeoutAndRetry,
 }

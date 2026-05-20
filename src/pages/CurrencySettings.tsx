@@ -20,6 +20,11 @@ interface TestResult {
   error: string | null
 }
 
+interface LastValidRate {
+  rate: number
+  updatedAt: string
+}
+
 export function CurrencySettings() {
   const { businessId, isOwner, isAdmin } = useAuth();
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
@@ -29,6 +34,8 @@ export function CurrencySettings() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [cordobaTest, setCordobaTest] = useState<TestResult>({ loading: false, detail: null, error: null });
+  const [lastValidCordoba, setLastValidCordoba] = useState<LastValidRate | null>(null);
+  const [reapplyConfirm, setReapplyConfirm] = useState(false);
   const [rateHistory, setRateHistory] = useState<ExchangeRate[]>([]);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -36,6 +43,7 @@ export function CurrencySettings() {
     if (businessId) {
       loadSettings();
       loadCurrentRate();
+      loadLastValidCordoba();
     }
   }, [businessId]);
 
@@ -63,6 +71,25 @@ export function CurrencySettings() {
       setLoading(false);
     }
   };
+
+  /** Carga el último rate válido de InfoDolar Córdoba para mostrarlo como referencia. */
+  const loadLastValidCordoba = async () => {
+    if (!businessId) return
+    try {
+      const { data } = await import('../lib/supabase').then(m =>
+        m.supabase.from('exchange_rates')
+          .select('rate, updated_at')
+          .eq('business_id', businessId)
+          .eq('base_currency', 'USD')
+          .eq('target_currency', 'ARS')
+          .eq('source', 'infodolar-cordoba')
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      )
+      if (data) setLastValidCordoba({ rate: Number(data.rate), updatedAt: data.updated_at })
+    } catch { /* silencioso */ }
+  }
 
   const loadCurrentRate = async () => {
     if (!businessId) return;
@@ -482,6 +509,54 @@ export function CurrencySettings() {
                       <div style={{ fontSize: '0.9rem', fontWeight: 800, fontFamily: 'monospace', color: item.color }}>{item.value}</div>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Último valor válido guardado + Reaplicar */}
+              {lastValidCordoba && (
+                <div style={{ marginTop: '0.75rem', padding: '0.625rem 0.875rem', background: 'rgba(255,255,255,0.025)', borderRadius: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.75rem', color: '#475569' }}>
+                    Último valor válido Córdoba:{' '}
+                    <strong style={{ color: '#34d399', fontFamily: 'monospace' }}>
+                      ${lastValidCordoba.rate.toLocaleString('es-AR')}
+                    </strong>
+                    {' · '}
+                    <span style={{ color: '#334155' }}>
+                      {new Date(lastValidCordoba.updatedAt).toLocaleString('es-AR', {
+                        timeZone: 'America/Argentina/Cordoba',
+                        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+                      })}
+                    </span>
+                  </span>
+                  {canManageSettings && !syncing && (
+                    reapplyConfirm ? (
+                      <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.72rem', color: '#fbbf24' }}>
+                          ¿Reaplicar ${lastValidCordoba.rate.toLocaleString('es-AR')} a productos?
+                        </span>
+                        <button onClick={() => setReapplyConfirm(false)} className="btn btn-ghost btn-sm" style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem' }}>Cancelar</button>
+                        <button
+                          onClick={async () => {
+                            setReapplyConfirm(false)
+                            await syncProductPrices(lastValidCordoba.rate)
+                          }}
+                          className="btn btn-sm"
+                          style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24' }}
+                        >
+                          Confirmar
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setReapplyConfirm(true)}
+                        className="btn btn-ghost btn-sm"
+                        style={{ fontSize: '0.72rem', color: '#fbbf24', borderColor: 'rgba(251,191,36,0.2)' }}
+                        title="Aplica el último rate válido de Córdoba a todos los productos dolarizados"
+                      >
+                        <RefreshCw size={11} /> Reaplicar último valor válido
+                      </button>
+                    )
+                  )}
                 </div>
               )}
             </div>
