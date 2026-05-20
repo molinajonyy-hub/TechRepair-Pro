@@ -26,6 +26,58 @@ export interface DollarRateResult {
   warning?: string;
 }
 
+// ─── Source labels ────────────────────────────────────────────────────────────
+
+export const DOLLAR_SOURCE_LABELS: Record<DollarSource, string> = {
+  INFODOLAR_CORDOBA: 'InfoDolar Córdoba',
+  AMBITO_NACIONAL:   'Ámbito Nacional',
+  DOLARAPI:          'DolarAPI',
+  DB_CACHE:          'Último valor guardado',
+  MANUAL:            'Manual',
+};
+
+// ─── Display helper ───────────────────────────────────────────────────────────
+
+/**
+ * Normaliza un DollarRateResult para display en el Dashboard.
+ *
+ * Reglas:
+ * - mainValue = sellPrice (precio de VENTA — siempre el valor a mostrar grande)
+ * - secondaryLabel = "compra $X" solo si buyPrice existe, es válido y es MENOR que sellPrice
+ *   (nunca mostrar compra como valor principal, nunca duplicar si son iguales)
+ * - Si por algún bug sellPrice < buyPrice (datos invertidos), intercambiarlos
+ */
+export interface DisplayRate {
+  mainValue:      number
+  mainLabel:      'Venta'
+  secondaryLabel: string | null
+  sourceLabel:    string
+  mode:           'venta'
+}
+
+export function getDisplayExchangeRate(rate: DollarRateResult): DisplayRate {
+  let sell = rate.sellPrice;
+  let buy  = rate.buyPrice ?? 0;
+
+  // Defensive: si los datos llegaron invertidos (sell < buy), corregir en display
+  if (buy > 0 && buy > sell) {
+    [sell, buy] = [buy, sell];
+  }
+
+  const secondaryLabel =
+    buy > 0 && buy < sell
+      ? `compra $${Math.round(buy).toLocaleString('es-AR')}`
+      : null;
+
+  return {
+    mainValue:      sell,
+    mainLabel:      'Venta',
+    secondaryLabel,
+    sourceLabel:    DOLLAR_SOURCE_LABELS[rate.source] ?? rate.source,
+    mode:           'venta',
+  };
+}
+
 interface CacheEntry {
   result: DollarRateResult;
   ts: number;

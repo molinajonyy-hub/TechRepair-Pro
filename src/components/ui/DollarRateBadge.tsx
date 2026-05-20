@@ -8,6 +8,8 @@ import { useAuth } from '../../contexts/AuthContext'
 import {
   getCurrentDollarRate,
   refreshDollarRate,
+  clearDollarCache,
+  getDisplayExchangeRate,
   type DollarRateResult,
   type DollarSource,
 } from '../../services/dollarRateService'
@@ -50,6 +52,11 @@ export function DollarRateBadge({ variant = 'compact', autoRefresh = false, clas
     if (!businessId) return
     setLoading(true)
     try {
+      // Si force=false y hay caché, limpiarlo para obtener dato fresco la primera vez
+      // Esto evita que el caché incorrecto (con sell=compra) se muestre al usuario
+      if (!force) {
+        clearDollarCache(businessId)
+      }
       const result = force
         ? await refreshDollarRate(businessId, true)
         : await getCurrentDollarRate(businessId)
@@ -61,15 +68,17 @@ export function DollarRateBadge({ variant = 'compact', autoRefresh = false, clas
 
   useEffect(() => {
     if (autoRefresh) { load(true) } else { load(false) }
-    // Actualizar el timeAgo cada minuto
     const t = setInterval(() => setTick(n => n + 1), 60_000)
     return () => clearInterval(t)
   }, [load, autoRefresh])
 
   if (!rate && !loading) return null
 
-  const srcInfo = rate ? SOURCE_INFO[rate.source] : null
-  const fmtRate = rate ? `$${rate.sellPrice.toLocaleString('es-AR', { maximumFractionDigits: 0 })}` : '...'
+  // Usar getDisplayExchangeRate para normalizar sell/buy
+  // (defiende contra datos invertidos y garantiza que el valor principal sea siempre venta)
+  const display   = rate ? getDisplayExchangeRate(rate) : null
+  const srcInfo   = rate ? SOURCE_INFO[rate.source] : null
+  const fmtMain   = display ? `$${display.mainValue.toLocaleString('es-AR', { maximumFractionDigits: 0 })}` : '...'
 
   // ── Compact ──────────────────────────────────────────────────────────────────
   if (variant === 'compact') {
@@ -82,7 +91,7 @@ export function DollarRateBadge({ variant = 'compact', autoRefresh = false, clas
           <AlertTriangle size={13} style={{ color: '#f59e0b', flexShrink: 0 }} aria-label="Usando último valor guardado" />
         )}
         <span style={{ fontSize: '0.78rem', fontWeight: 700, color: srcInfo?.color ?? 'var(--text-secondary)' }}>
-          USD {fmtRate}
+          USD {fmtMain}
         </span>
         {srcInfo && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.68rem', color: 'var(--text-subtle)' }}>
@@ -131,23 +140,24 @@ export function DollarRateBadge({ variant = 'compact', autoRefresh = false, clas
         </button>
       </div>
 
-      {/* Valor */}
+      {/* Valor principal — siempre precio de VENTA */}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
         <span style={{ fontSize: '1.75rem', fontWeight: 800, color: srcInfo?.color ?? 'var(--text-primary)', letterSpacing: '-0.03em' }}>
-          {fmtRate}
+          {loading ? '...' : fmtMain}
         </span>
-        {rate?.buyPrice ? (
+        {/* Subtexto: compra $X, solo si es distinto al precio de venta */}
+        {display?.secondaryLabel && (
           <span style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>
-            compra ${rate.buyPrice.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+            {display.secondaryLabel}
           </span>
-        ) : null}
+        )}
       </div>
 
       {/* Fuente y hora */}
-      {rate && srcInfo && (
+      {rate && srcInfo && display && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: 'var(--text-subtle)' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', color: srcInfo.color }}>
-            {srcInfo.icon} {srcInfo.label}
+            {srcInfo.icon} {display.sourceLabel}
           </span>
           <span>·</span>
           <span>{timeAgo(rate.fetchedAt)}</span>
