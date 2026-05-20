@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Plus, CreditCard, X, Edit2, Trash2, ChevronRight, AlertCircle, Check } from 'lucide-react'
+import { PersonalBottomSheet } from '../components/PersonalBottomSheet'
 import { useAuth } from '../../contexts/AuthContext'
 import { creditCardService, type CreditCard as CCType, type CardPurchase } from '../services/creditCardService'
 import { type PersonalAccount, type PersonalCategory, personalService } from '../services/personalService'
@@ -76,54 +78,42 @@ function CardForm({ initial, onSaved, onClose }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      <div data-testid="personal-card-form" style={{ width: '100%', maxWidth: 480, background: '#0a1628', borderRadius: '1.5rem 1.5rem 0 0', border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none', padding: '1.25rem', maxHeight: '90dvh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-          <span style={{ fontWeight: 800, fontSize: '1rem', color: '#f0f4ff' }}>{initial ? 'Editar tarjeta' : 'Nueva tarjeta'}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', minWidth: 36, minHeight: 36, alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <PersonalInput testId="personal-card-name-input" label="Nombre de tarjeta *" value={name} onChange={e => setName(e.target.value)} placeholder="Ej: Visa Naranja, Mastercard Galicia..." />
-          <PersonalInput testId="personal-card-issuer-input" label="Emisor / Banco" value={issuer} onChange={e => setIssuer(e.target.value)} placeholder="Ej: Naranja X, Galicia, Santander..." />
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-            <div>
-              <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Día de cierre *</label>
-              <select
-                data-testid="personal-card-closing-day"
-                value={closingDay}
-                onChange={e => setClosingDay(e.target.value)}
-                style={{ width: '100%', padding: '0.75rem', boxSizing: 'border-box', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.75rem', color: '#f0f4ff', fontSize: '1rem', outline: 'none', cursor: 'pointer', minHeight: 44 }}
-              >
-                {DAY_OPTIONS.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Día de vencimiento *</label>
-              <select
-                data-testid="personal-card-due-day"
-                value={dueDay}
-                onChange={e => setDueDay(e.target.value)}
-                style={{ width: '100%', padding: '0.75rem', boxSizing: 'border-box', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.75rem', color: '#f0f4ff', fontSize: '1rem', outline: 'none', cursor: 'pointer', minHeight: 44 }}
-              >
-                {DAY_OPTIONS.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
+    <PersonalBottomSheet
+      open
+      title={initial ? 'Editar tarjeta' : 'Nueva tarjeta'}
+      onClose={onClose}
+      testId="personal-card-form"
+      footer={
+        <PrimaryBtn testId="personal-card-save" onClick={handleSave} loading={saving} fullWidth>
+          {saving ? 'Guardando…' : (initial ? 'Guardar cambios' : 'Crear tarjeta')}
+        </PrimaryBtn>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <PersonalInput testId="personal-card-name-input" label="Nombre de tarjeta *" value={name} onChange={e => setName(e.target.value)} placeholder="Ej: Visa Naranja, Mastercard Galicia..." />
+        <PersonalInput testId="personal-card-issuer-input" label="Emisor / Banco" value={issuer} onChange={e => setIssuer(e.target.value)} placeholder="Ej: Naranja X, Galicia, Santander..." />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+          <div>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Día de cierre *</label>
+            <select data-testid="personal-card-closing-day" value={closingDay} onChange={e => setClosingDay(e.target.value)} style={{ width: '100%', padding: '0.75rem', boxSizing: 'border-box', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.75rem', color: '#f0f4ff', fontSize: '1rem', outline: 'none', cursor: 'pointer', minHeight: 44 }}>
+              {DAY_OPTIONS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
           </div>
-
-          <PersonalInput testId="personal-card-limit" label="Límite (opcional)" type="number" min="0" value={limit} onChange={e => setLimit(e.target.value)} placeholder="Sin límite" />
-          <PersonalSelect testId="personal-card-currency" label="Moneda" value={currency} onChange={e => setCurrency(e.target.value)}>
-            <option value="ARS">ARS — Pesos</option>
-            <option value="USD">USD — Dólares</option>
-          </PersonalSelect>
-
-          {error && <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>{error}</div>}
-          <PrimaryBtn testId="personal-card-save" onClick={handleSave} loading={saving} fullWidth>
-            {saving ? 'Guardando…' : (initial ? 'Guardar cambios' : 'Crear tarjeta')}
-          </PrimaryBtn>
+          <div>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Día de vencimiento *</label>
+            <select data-testid="personal-card-due-day" value={dueDay} onChange={e => setDueDay(e.target.value)} style={{ width: '100%', padding: '0.75rem', boxSizing: 'border-box', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.75rem', color: '#f0f4ff', fontSize: '1rem', outline: 'none', cursor: 'pointer', minHeight: 44 }}>
+              {DAY_OPTIONS.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
         </div>
+        <PersonalInput testId="personal-card-limit" label="Límite (opcional)" type="number" min="0" value={limit} onChange={e => setLimit(e.target.value)} placeholder="Sin límite" />
+        <PersonalSelect testId="personal-card-currency" label="Moneda" value={currency} onChange={e => setCurrency(e.target.value)}>
+          <option value="ARS">ARS — Pesos</option>
+          <option value="USD">USD — Dólares</option>
+        </PersonalSelect>
+        {error && <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>{error}</div>}
       </div>
-    </div>
+    </PersonalBottomSheet>
   )
 }
 
@@ -197,76 +187,67 @@ function PurchaseForm({ cards, categories, defaultCardId, onSaved, onClose }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      <div data-testid="personal-card-purchase-form" style={{ width: '100%', maxWidth: 480, background: '#0a1628', borderRadius: '1.5rem 1.5rem 0 0', border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none', padding: '1.25rem', maxHeight: '90dvh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-          <span style={{ fontWeight: 800, fontSize: '1rem', color: '#f0f4ff' }}>Registrar compra</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', minWidth: 36, minHeight: 36, alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
+    <PersonalBottomSheet
+      open
+      title="Registrar compra"
+      onClose={onClose}
+      testId="personal-card-purchase-form"
+      footer={
+        <PrimaryBtn testId="personal-card-purchase-save" onClick={handleSave} loading={saving} fullWidth>
+          {saving ? 'Registrando…' : 'Registrar compra'}
+        </PrimaryBtn>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <PersonalSelect testId="personal-card-purchase-card" label="Tarjeta *" value={cardId} onChange={e => setCardId(e.target.value)}>
+          <option value="">Seleccionar tarjeta</option>
+          {cards.filter(c => c.is_active).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </PersonalSelect>
+        <PersonalInput testId="personal-card-purchase-description" label="Descripción *" value={description} onChange={e => setDescription(e.target.value)} placeholder="¿Qué compraste?" />
+        <div>
+          <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto total *</label>
+          <input
+            data-testid="personal-card-purchase-amount"
+            type="number" min="0" step="0.01" value={amount}
+            onChange={e => setAmount(e.target.value)} placeholder="0" autoFocus
+            style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(129,140,248,0.05)', border: '1px solid rgba(129,140,248,0.25)', borderRadius: '0.875rem', color: '#818cf8', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
+          />
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <PersonalSelect testId="personal-card-purchase-card" label="Tarjeta *" value={cardId} onChange={e => setCardId(e.target.value)}>
-            <option value="">Seleccionar tarjeta</option>
-            {cards.filter(c => c.is_active).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+          <PersonalInput testId="personal-card-purchase-installments" label="Cuotas" type="number" min="1" max="60" value={installments} onChange={e => setInstallments(e.target.value)} />
+          <PersonalInput testId="personal-card-purchase-date" label="Fecha de compra" type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} />
+        </div>
+        <PersonalSelect testId="personal-card-purchase-first-month" label="Primera cuota en" value={firstMonth} onChange={e => setFirstMonth(e.target.value)}>
+          {monthOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </PersonalSelect>
+        {expenseCategories.length > 0 && (
+          <PersonalSelect testId="personal-card-purchase-category" label="Categoría" value={categoryId} onChange={e => setCategoryId(e.target.value)}>
+            <option value="">Sin categoría</option>
+            {expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </PersonalSelect>
-
-          <PersonalInput testId="personal-card-purchase-description" label="Descripción *" value={description} onChange={e => setDescription(e.target.value)} placeholder="¿Qué compraste?" />
-
-          {/* Amount — large display input */}
-          <div>
-            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto total *</label>
-            <input
-              data-testid="personal-card-purchase-amount"
-              type="number" min="0" step="0.01" value={amount}
-              onChange={e => setAmount(e.target.value)} placeholder="0" autoFocus
-              style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(129,140,248,0.05)', border: '1px solid rgba(129,140,248,0.25)', borderRadius: '0.875rem', color: '#818cf8', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
-            />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-            <PersonalInput testId="personal-card-purchase-installments" label="Cuotas" type="number" min="1" max="60" value={installments} onChange={e => setInstallments(e.target.value)} />
-            <PersonalInput testId="personal-card-purchase-date" label="Fecha de compra" type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} />
-          </div>
-
-          <PersonalSelect testId="personal-card-purchase-first-month" label="Primera cuota en" value={firstMonth} onChange={e => setFirstMonth(e.target.value)}>
-            {monthOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </PersonalSelect>
-
-          {expenseCategories.length > 0 && (
-            <PersonalSelect testId="personal-card-purchase-category" label="Categoría" value={categoryId} onChange={e => setCategoryId(e.target.value)}>
-              <option value="">Sin categoría</option>
-              {expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </PersonalSelect>
-          )}
-
-          <PersonalInput label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Detalle adicional..." />
-
-          {/* Preview */}
-          {previewValid && previewSchedule.length > 0 && (
-            <div data-testid="personal-card-purchase-preview" style={{ background: 'rgba(129,140,248,0.06)', border: '1px solid rgba(129,140,248,0.18)', borderRadius: '0.875rem', padding: '0.875rem' }}>
-              <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>
-                {numInstallments === 1
-                  ? `Compra de ${fmtMoney(amt)} al contado`
-                  : `${fmtMoney(amt)} en ${numInstallments} cuotas de ${fmtMoney(amt / numInstallments)}`
-                }
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                {previewSchedule.map((s, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#a5b4fc' }}>
-                    <span>{formatYearMonth(s.month)}</span>
-                    <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{fmtMoney(s.amount)}</span>
-                  </div>
-                ))}
-              </div>
+        )}
+        <PersonalInput label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Detalle adicional..." />
+        {previewValid && previewSchedule.length > 0 && (
+          <div data-testid="personal-card-purchase-preview" style={{ background: 'rgba(129,140,248,0.06)', border: '1px solid rgba(129,140,248,0.18)', borderRadius: '0.875rem', padding: '0.875rem' }}>
+            <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>
+              {numInstallments === 1
+                ? `Compra de ${fmtMoney(amt)} al contado`
+                : `${fmtMoney(amt)} en ${numInstallments} cuotas de ${fmtMoney(amt / numInstallments)}`
+              }
             </div>
-          )}
-
-          {error && <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>{error}</div>}
-          <PrimaryBtn testId="personal-card-purchase-save" onClick={handleSave} loading={saving} fullWidth>
-            {saving ? 'Registrando…' : 'Registrar compra'}
-          </PrimaryBtn>
-        </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              {previewSchedule.map((s, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#a5b4fc' }}>
+                  <span>{formatYearMonth(s.month)}</span>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{fmtMoney(s.amount)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {error && <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>{error}</div>}
       </div>
-    </div>
+    </PersonalBottomSheet>
   )
 }
 
@@ -323,73 +304,64 @@ function PaymentForm({ cards, accounts, onSaved, onClose }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      <div data-testid="personal-card-payment-form" style={{ width: '100%', maxWidth: 480, background: '#0a1628', borderRadius: '1.5rem 1.5rem 0 0', border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none', padding: '1.25rem', maxHeight: '90dvh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-          <span style={{ fontWeight: 800, fontSize: '1rem', color: '#f0f4ff' }}>Pagar tarjeta</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', minWidth: 36, minHeight: 36, alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
+    <PersonalBottomSheet
+      open
+      title="Pagar tarjeta"
+      onClose={onClose}
+      testId="personal-card-payment-form"
+      footer={
+        activeAccounts.length > 0 ? (
+          <PrimaryBtn testId="personal-card-payment-save" onClick={handleSave} loading={saving} disabled={!confirmed || !isValid} fullWidth>
+            {saving ? 'Registrando…' : `Registrar pago${amt > 0 ? ` de ${fmtMoney(amt)}` : ''}`}
+          </PrimaryBtn>
+        ) : undefined
+      }
+    >
+      {activeAccounts.length === 0 ? (
+        <div style={{ padding: '1.25rem', textAlign: 'center', color: '#475569', fontSize: '0.875rem' }}>
+          No tenés cuentas personales activas para registrar el pago.
         </div>
-
-        {activeAccounts.length === 0 ? (
-          <div style={{ padding: '1.25rem', textAlign: 'center', color: '#475569', fontSize: '0.875rem' }}>
-            No tenés cuentas personales activas para registrar el pago.
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <PersonalSelect testId="personal-card-payment-card" label="Tarjeta" value={cardId} onChange={e => setCardId(e.target.value)}>
+            <option value="">Seleccionar tarjeta</option>
+            {cards.filter(c => c.is_active).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </PersonalSelect>
+          <PersonalSelect testId="personal-card-payment-account" label="Cuenta de origen *" value={accountId} onChange={e => setAccountId(e.target.value)}>
+            <option value="">Seleccionar cuenta</option>
+            {activeAccounts.map(a => <option key={a.id} value={a.id}>{a.name} ({fmtMoney(a.current_balance)})</option>)}
+          </PersonalSelect>
+          <div>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto del pago *</label>
+            <input
+              data-testid="personal-card-payment-amount"
+              type="number" min="0" step="0.01" value={amount}
+              onChange={e => { setAmount(e.target.value); setConfirmed(false) }}
+              placeholder="0" autoFocus
+              style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(248,113,113,0.05)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.875rem', color: '#f87171', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
+            />
           </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <PersonalSelect testId="personal-card-payment-card" label="Tarjeta" value={cardId} onChange={e => setCardId(e.target.value)}>
-              <option value="">Seleccionar tarjeta</option>
-              {cards.filter(c => c.is_active).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </PersonalSelect>
-
-            <PersonalSelect testId="personal-card-payment-account" label="Cuenta de origen *" value={accountId} onChange={e => setAccountId(e.target.value)}>
-              <option value="">Seleccionar cuenta</option>
-              {activeAccounts.map(a => <option key={a.id} value={a.id}>{a.name} ({fmtMoney(a.current_balance)})</option>)}
-            </PersonalSelect>
-
-            {/* Amount */}
-            <div>
-              <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto del pago *</label>
-              <input
-                data-testid="personal-card-payment-amount"
-                type="number" min="0" step="0.01" value={amount}
-                onChange={e => { setAmount(e.target.value); setConfirmed(false) }}
-                placeholder="0" autoFocus
-                style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(248,113,113,0.05)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.875rem', color: '#f87171', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
-              />
-            </div>
-
-            <PersonalInput testId="personal-card-payment-date" label="Fecha" type="date" value={date} onChange={e => setDate(e.target.value)} />
-            <PersonalInput testId="personal-card-payment-notes" label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ej: Pago resumen junio..." />
-
-            {isValid && (
-              <div
-                data-testid="personal-card-payment-confirm"
-                onClick={() => setConfirmed(c => !c)}
-                role="checkbox" aria-checked={confirmed}
-                style={{ padding: '0.875rem', background: confirmed ? 'rgba(248,113,113,0.08)' : 'rgba(255,255,255,0.025)', border: `1px solid ${confirmed ? 'rgba(248,113,113,0.35)' : 'rgba(255,255,255,0.08)'}`, borderRadius: '0.875rem', cursor: 'pointer', display: 'flex', gap: '0.75rem', alignItems: 'center' }}
-              >
-                <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${confirmed ? '#f87171' : '#334155'}`, background: confirmed ? 'rgba(248,113,113,0.2)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  {confirmed && <Check size={11} color="#f87171" />}
-                </div>
-                <span style={{ fontSize: '0.8rem', color: confirmed ? '#f87171' : '#475569', fontWeight: 600 }}>
-                  Confirmo pagar {fmtMoney(amt)} desde {accounts.find(a => a.id === accountId)?.name ?? 'la cuenta'}
-                </span>
-              </div>
-            )}
-
-            {error && <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>{error}</div>}
-            <PrimaryBtn
-              testId="personal-card-payment-save"
-              onClick={handleSave} loading={saving}
-              disabled={!confirmed || !isValid}
-              fullWidth
+          <PersonalInput testId="personal-card-payment-date" label="Fecha" type="date" value={date} onChange={e => setDate(e.target.value)} />
+          <PersonalInput testId="personal-card-payment-notes" label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ej: Pago resumen junio..." />
+          {isValid && (
+            <div
+              data-testid="personal-card-payment-confirm"
+              onClick={() => setConfirmed(c => !c)}
+              role="checkbox" aria-checked={confirmed}
+              style={{ padding: '0.875rem', background: confirmed ? 'rgba(248,113,113,0.08)' : 'rgba(255,255,255,0.025)', border: `1px solid ${confirmed ? 'rgba(248,113,113,0.35)' : 'rgba(255,255,255,0.08)'}`, borderRadius: '0.875rem', cursor: 'pointer', display: 'flex', gap: '0.75rem', alignItems: 'center' }}
             >
-              {saving ? 'Registrando…' : `Registrar pago${amt > 0 ? ` de ${fmtMoney(amt)}` : ''}`}
-            </PrimaryBtn>
-          </div>
-        )}
-      </div>
-    </div>
+              <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${confirmed ? '#f87171' : '#334155'}`, background: confirmed ? 'rgba(248,113,113,0.2)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                {confirmed && <Check size={11} color="#f87171" />}
+              </div>
+              <span style={{ fontSize: '0.8rem', color: confirmed ? '#f87171' : '#475569', fontWeight: 600 }}>
+                Confirmo pagar {fmtMoney(amt)} desde {accounts.find(a => a.id === accountId)?.name ?? 'la cuenta'}
+              </span>
+            </div>
+          )}
+          {error && <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>{error}</div>}
+        </div>
+      )}
+    </PersonalBottomSheet>
   )
 }
 
@@ -416,9 +388,17 @@ function CardDetailSheet({ card, purchases, cardIdx, onAddPurchase, onEdit, onDe
   const nextDue = getNextDueDate(card)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      <div style={{ width: '100%', maxWidth: 480, background: '#0a1628', borderRadius: '1.5rem 1.5rem 0 0', border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none', maxHeight: '92dvh', display: 'flex', flexDirection: 'column' }}>
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  return createPortal(
+    <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div style={{ width: '100%', maxWidth: 480, background: '#0a1628', borderRadius: '1.5rem 1.5rem 0 0', border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none', maxHeight: 'calc(100dvh - env(safe-area-inset-top, 20px) - 12px)', display: 'flex', flexDirection: 'column', boxShadow: '0 -8px 40px rgba(0,0,0,0.5)' }}>
         {/* Header */}
         <div style={{ padding: '1.25rem 1.25rem 0', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem' }}>
@@ -544,7 +524,8 @@ function CardDetailSheet({ card, purchases, cardIdx, onAddPurchase, onEdit, onDe
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 

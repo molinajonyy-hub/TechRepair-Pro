@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { createPortal } from 'react-dom'
-import { Plus, Wallet, Edit2, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { PersonalBottomSheet } from '../components/PersonalBottomSheet'
+import { Plus, Wallet, Edit2, ChevronDown, ChevronUp } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   personalService, type PersonalAccount, accountTypeLabel,
@@ -51,13 +51,6 @@ function AccountForm({ initial, onSaved, onClose }: {
     }
     return [{ currency: 'ARS', initial_balance: '0' }]
   })
-
-  // Lock body scroll while modal is open
-  useEffect(() => {
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = prev }
-  }, [])
 
   const selectedCurrencies = currencies.map(c => c.currency)
 
@@ -112,142 +105,94 @@ function AccountForm({ initial, onSaved, onClose }: {
 
   const canSave = !saving && name.trim().length > 0 && currencies.length > 0
 
-  // createPortal renders outside <main webkit-overflow-scrolling:touch>,
-  // which on iOS Safari breaks position:fixed — the overlay would be clipped
-  // inside the scroll container instead of covering the full viewport.
-  return createPortal(
-    <div
-      style={{
-        position: 'fixed', inset: 0,
-        // z-index 300 > bottom nav (100) to ensure footer renders on top
-        zIndex: 300,
-        background: 'rgba(0,0,0,0.75)',
-        backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
-        display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-      }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+  return (
+    <PersonalBottomSheet
+      open
+      title={initial ? 'Editar cuenta' : 'Nueva cuenta'}
+      onClose={onClose}
+      testId="personal-account-form"
+      footer={
+        <PrimaryBtn
+          testId="personal-account-save"
+          onClick={handleSave}
+          loading={saving}
+          disabled={!canSave}
+          fullWidth
+        >
+          {saving ? 'Guardando…' : (initial ? 'Guardar cambios' : 'Crear cuenta')}
+        </PrimaryBtn>
+      }
     >
-      <div
-        data-testid="personal-account-form"
-        style={{
-          width: '100%', maxWidth: 480,
-          background: '#0a1628',
-          borderRadius: '1.5rem 1.5rem 0 0',
-          border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none',
-          maxHeight: 'calc(100dvh - env(safe-area-inset-top, 20px) - 16px)',
-          display: 'flex', flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
-        {/* Header — fixed, no scroll */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '1.25rem 1.25rem 0.875rem',
-          flexShrink: 0, position: 'relative', zIndex: 2,
-          borderBottom: '1px solid rgba(255,255,255,0.05)',
-        }}>
-          <span style={{ fontWeight: 800, fontSize: '1rem', color: '#f0f4ff' }}>{initial ? 'Editar cuenta' : 'Nueva cuenta'}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', minWidth: 36, minHeight: 36, alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
-        </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <PersonalInput
+          testId="personal-account-name"
+          label="Nombre *"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="Ej: Efectivo billetera, Cuenta BBVA..."
+        />
+        <PersonalSelect
+          testId="personal-account-type"
+          label="Tipo"
+          value={type}
+          onChange={e => setType(e.target.value as PersonalAccount['type'])}
+        >
+          {ACCOUNT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </PersonalSelect>
 
-        {/* Scrollable content — min-height:0 required for iOS flex shrink */}
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '1rem 1.25rem 0.5rem' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <PersonalInput
-              testId="personal-account-name"
-              label="Nombre *"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="Ej: Efectivo billetera, Cuenta BBVA..."
-            />
-            <PersonalSelect
-              testId="personal-account-type"
-              label="Tipo"
-              value={type}
-              onChange={e => setType(e.target.value as PersonalAccount['type'])}
-            >
-              {ACCOUNT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </PersonalSelect>
-
-            {/* Multi-currency selection */}
-            <div>
-              <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.625rem' }}>
-                Monedas de la cuenta
-              </label>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                {CURRENCIES.map(cur => {
-                  const isSelected = selectedCurrencies.includes(cur.value)
-                  const entry = currencies.find(c => c.currency === cur.value)
-                  return (
-                    <div key={cur.value} style={{ background: isSelected ? 'rgba(52,211,153,0.04)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isSelected ? 'rgba(52,211,153,0.25)' : 'rgba(255,255,255,0.07)'}`, borderRadius: '0.875rem', overflow: 'hidden', transition: 'all 0.15s' }}>
-                      {/* Toggle row */}
-                      <div
-                        onClick={() => toggleCurrency(cur.value)}
-                        style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', cursor: 'pointer', minHeight: 48 }}
-                      >
-                        <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${isSelected ? '#34d399' : '#334155'}`, background: isSelected ? 'rgba(52,211,153,0.2)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s' }}>
-                          {isSelected && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#34d399' }} />}
-                        </div>
-                        <span style={{ fontWeight: 600, fontSize: '0.875rem', color: isSelected ? '#f0f4ff' : '#475569', flex: 1 }}>{cur.label}</span>
-                        {isSelected && (
-                          <span style={{ fontSize: '0.72rem', color: '#34d399', fontFamily: 'monospace' }}>
-                            {cur.symbol}{parseFloat(entry?.initial_balance || '0').toLocaleString('es-AR')}
-                          </span>
-                        )}
-                      </div>
-                      {/* Balance input — visible only when selected */}
-                      {isSelected && !initial && (
-                        <div style={{ padding: '0 1rem 0.875rem' }}>
-                          <label style={{ fontSize: '0.7rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', marginBottom: '0.375rem' }}>
-                            Saldo inicial {cur.value}
-                          </label>
-                          <input
-                            data-testid={`personal-account-initial-balance-${cur.value}`}
-                            type="number" min="0" step="1"
-                            value={entry?.initial_balance ?? '0'}
-                            onChange={e => updateBalance(cur.value, e.target.value)}
-                            placeholder="0"
-                            style={{ width: '100%', padding: '0.625rem 0.875rem', boxSizing: 'border-box', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.625rem', color: '#34d399', fontSize: '1rem', fontFamily: 'monospace', fontWeight: 700, outline: 'none' }}
-                          />
-                        </div>
-                      )}
+        {/* Multi-currency selection */}
+        <div>
+          <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.625rem' }}>
+            Monedas de la cuenta
+          </label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {CURRENCIES.map(cur => {
+              const isSelected = selectedCurrencies.includes(cur.value)
+              const entry = currencies.find(c => c.currency === cur.value)
+              return (
+                <div key={cur.value} style={{ background: isSelected ? 'rgba(52,211,153,0.04)' : 'rgba(255,255,255,0.02)', border: `1px solid ${isSelected ? 'rgba(52,211,153,0.25)' : 'rgba(255,255,255,0.07)'}`, borderRadius: '0.875rem', overflow: 'hidden', transition: 'all 0.15s' }}>
+                  <div
+                    onClick={() => toggleCurrency(cur.value)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', cursor: 'pointer', minHeight: 48 }}
+                  >
+                    <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${isSelected ? '#34d399' : '#334155'}`, background: isSelected ? 'rgba(52,211,153,0.2)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s' }}>
+                      {isSelected && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#34d399' }} />}
                     </div>
-                  )
-                })}
-              </div>
-            </div>
-
-            {error && (
-              <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>
-                {error}
-              </div>
-            )}
+                    <span style={{ fontWeight: 600, fontSize: '0.875rem', color: isSelected ? '#f0f4ff' : '#475569', flex: 1 }}>{cur.label}</span>
+                    {isSelected && (
+                      <span style={{ fontSize: '0.72rem', color: '#34d399', fontFamily: 'monospace' }}>
+                        {cur.symbol}{parseFloat(entry?.initial_balance || '0').toLocaleString('es-AR')}
+                      </span>
+                    )}
+                  </div>
+                  {isSelected && !initial && (
+                    <div style={{ padding: '0 1rem 0.875rem' }}>
+                      <label style={{ fontSize: '0.7rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', marginBottom: '0.375rem' }}>
+                        Saldo inicial {cur.value}
+                      </label>
+                      <input
+                        data-testid={`personal-account-initial-balance-${cur.value}`}
+                        type="number" min="0" step="1"
+                        value={entry?.initial_balance ?? '0'}
+                        onChange={e => updateBalance(cur.value, e.target.value)}
+                        placeholder="0"
+                        style={{ width: '100%', padding: '0.625rem 0.875rem', boxSizing: 'border-box', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.625rem', color: '#34d399', fontSize: '1rem', fontFamily: 'monospace', fontWeight: 700, outline: 'none' }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
 
-        {/* Footer — always visible, above safe area, above bottom nav */}
-        <div style={{
-          flexShrink: 0,
-          position: 'relative', zIndex: 3,
-          padding: '1rem 1.25rem',
-          paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))',
-          borderTop: '1px solid rgba(255,255,255,0.05)',
-          background: '#0a1628',
-          boxShadow: '0 -4px 16px rgba(0,0,0,0.2)',
-        }}>
-          <PrimaryBtn
-            testId="personal-account-save"
-            onClick={handleSave}
-            loading={saving}
-            disabled={!canSave}
-            fullWidth
-          >
-            {saving ? 'Guardando…' : (initial ? 'Guardar cambios' : 'Crear cuenta')}
-          </PrimaryBtn>
-        </div>
+        {error && (
+          <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>
+            {error}
+          </div>
+        )}
       </div>
-    </div>,
-    document.body
+    </PersonalBottomSheet>
   )
 }
 

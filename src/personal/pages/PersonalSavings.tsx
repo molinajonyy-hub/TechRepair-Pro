@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Plus, Target, X, Edit2, Pause, Play, Check, Trash2 } from 'lucide-react'
+import { PersonalBottomSheet } from '../components/PersonalBottomSheet'
 import { useAuth } from '../../contexts/AuthContext'
 import { savingsService, type SavingsGoal } from '../services/savingsService'
 import { type PersonalAccount, type PersonalCategory, personalService } from '../services/personalService'
@@ -80,57 +82,50 @@ function GoalForm({ initial, accounts, onSaved, onClose }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      <div data-testid="personal-savings-form" style={{ width: '100%', maxWidth: 480, background: '#0a1628', borderRadius: '1.5rem 1.5rem 0 0', border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none', padding: '1.25rem', maxHeight: '90dvh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-          <span style={{ fontWeight: 800, fontSize: '1rem', color: '#f0f4ff' }}>{initial ? 'Editar objetivo' : 'Nuevo objetivo'}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', minWidth: 36, minHeight: 36, alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
+    <PersonalBottomSheet
+      open
+      title={initial ? 'Editar objetivo' : 'Nuevo objetivo'}
+      onClose={onClose}
+      testId="personal-savings-form"
+      footer={
+        <PrimaryBtn testId="personal-savings-save" onClick={handleSave} loading={saving} fullWidth>
+          {saving ? 'Guardando…' : (initial ? 'Guardar cambios' : 'Crear objetivo')}
+        </PrimaryBtn>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <PersonalInput testId="personal-savings-name-input" label="Nombre del objetivo *" value={name} onChange={e => setName(e.target.value)} placeholder="Ej: Fondo de emergencia, Viaje, iPhone..." />
+        <div>
+          <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Meta *</label>
+          <input
+            data-testid="personal-savings-target-input"
+            type="number" min="0" step="1" value={target}
+            onChange={e => setTarget(e.target.value)} placeholder="0" autoFocus
+            style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(52,211,153,0.05)', border: '1px solid rgba(52,211,153,0.25)', borderRadius: '0.875rem', color: '#34d399', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
+          />
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <PersonalInput testId="personal-savings-name-input" label="Nombre del objetivo *" value={name} onChange={e => setName(e.target.value)} placeholder="Ej: Fondo de emergencia, Viaje, iPhone..." />
-
-          {/* Target amount — large display */}
-          <div>
-            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Meta *</label>
-            <input
-              data-testid="personal-savings-target-input"
-              type="number" min="0" step="1" value={target}
-              onChange={e => setTarget(e.target.value)} placeholder="0" autoFocus
-              style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(52,211,153,0.05)', border: '1px solid rgba(52,211,153,0.25)', borderRadius: '0.875rem', color: '#34d399', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
-            />
-          </div>
-
-          {!initial && (
-            <PersonalInput
-              testId="personal-savings-current-input"
-              label="Ya tenés ahorrado (opcional)"
-              type="number" min="0" step="1" value={current}
-              onChange={e => setCurrent(e.target.value)}
-              placeholder="0"
-            />
-          )}
-
-          <PersonalSelect testId="personal-savings-currency" label="Moneda" value={currency} onChange={e => setCurrency(e.target.value)}>
-            <option value="ARS">ARS — Pesos</option>
-            <option value="USD">USD — Dólares</option>
+        {!initial && (
+          <PersonalInput
+            testId="personal-savings-current-input"
+            label="Ya tenés ahorrado (opcional)"
+            type="number" min="0" step="1" value={current}
+            onChange={e => setCurrent(e.target.value)} placeholder="0"
+          />
+        )}
+        <PersonalSelect testId="personal-savings-currency" label="Moneda" value={currency} onChange={e => setCurrency(e.target.value)}>
+          <option value="ARS">ARS — Pesos</option>
+          <option value="USD">USD — Dólares</option>
+        </PersonalSelect>
+        <PersonalInput testId="personal-savings-target-date" label="Fecha objetivo (opcional)" type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} />
+        {accounts.length > 0 && (
+          <PersonalSelect testId="personal-savings-account" label="Cuenta asociada (opcional)" value={accountId} onChange={e => setAccountId(e.target.value)}>
+            <option value="">Sin cuenta específica</option>
+            {accounts.filter(a => a.is_active).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
           </PersonalSelect>
-
-          <PersonalInput testId="personal-savings-target-date" label="Fecha objetivo (opcional)" type="date" value={targetDate} onChange={e => setTargetDate(e.target.value)} />
-
-          {accounts.length > 0 && (
-            <PersonalSelect testId="personal-savings-account" label="Cuenta asociada (opcional)" value={accountId} onChange={e => setAccountId(e.target.value)}>
-              <option value="">Sin cuenta específica</option>
-              {accounts.filter(a => a.is_active).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </PersonalSelect>
-          )}
-
-          {error && <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>{error}</div>}
-          <PrimaryBtn testId="personal-savings-save" onClick={handleSave} loading={saving} fullWidth>
-            {saving ? 'Guardando…' : (initial ? 'Guardar cambios' : 'Crear objetivo')}
-          </PrimaryBtn>
-        </div>
+        )}
+        {error && <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>{error}</div>}
       </div>
-    </div>
+    </PersonalBottomSheet>
   )
 }
 
@@ -183,69 +178,64 @@ function ContributeForm({ goals, accounts, defaultGoalId, onSaved, onClose }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      <div data-testid="personal-savings-contribute-form" style={{ width: '100%', maxWidth: 480, background: '#0a1628', borderRadius: '1.5rem 1.5rem 0 0', border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none', padding: '1.25rem', maxHeight: '90dvh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-          <span style={{ fontWeight: 800, fontSize: '1rem', color: '#f0f4ff' }}>Aportar a objetivo</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', minWidth: 36, minHeight: 36, alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
+    <PersonalBottomSheet
+      open
+      title="Aportar a objetivo"
+      onClose={onClose}
+      testId="personal-savings-contribute-form"
+      footer={
+        <PrimaryBtn testId="personal-savings-contribute-save" onClick={handleSave} loading={saving} disabled={!confirmed || !isValid} fullWidth>
+          {saving ? 'Aportando…' : `Aportar${amt > 0 ? ` ${fmtMoney(amt)}` : ''}`}
+        </PrimaryBtn>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <PersonalSelect testId="personal-savings-contribute-goal" label="Objetivo *" value={goalId} onChange={e => setGoalId(e.target.value)}>
+          <option value="">Seleccionar objetivo</option>
+          {activeGoals.map(g => (
+            <option key={g.id} value={g.id}>{g.name} ({fmtMoneyCompact(Number(g.current_amount))}/{fmtMoneyCompact(Number(g.target_amount))} {g.currency})</option>
+          ))}
+        </PersonalSelect>
+        <PersonalSelect testId="personal-savings-contribute-account" label="Cuenta origen *" value={accountId} onChange={e => setAccountId(e.target.value)}>
+          <option value="">Seleccionar cuenta</option>
+          {accounts.filter(a => a.is_active).map(a => <option key={a.id} value={a.id}>{a.name} ({fmtMoney(a.current_balance)})</option>)}
+        </PersonalSelect>
+        <div>
+          <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto del aporte *</label>
+          <input
+            data-testid="personal-savings-contribute-amount"
+            type="number" min="0" step="1" value={amount}
+            onChange={e => { setAmount(e.target.value); setConfirmed(false) }}
+            placeholder="0" autoFocus
+            style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(52,211,153,0.05)', border: '1px solid rgba(52,211,153,0.25)', borderRadius: '0.875rem', color: '#34d399', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
+          />
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <PersonalSelect testId="personal-savings-contribute-goal" label="Objetivo *" value={goalId} onChange={e => setGoalId(e.target.value)}>
-            <option value="">Seleccionar objetivo</option>
-            {activeGoals.map(g => (
-              <option key={g.id} value={g.id}>{g.name} ({fmtMoneyCompact(Number(g.current_amount))}/{fmtMoneyCompact(Number(g.target_amount))} {g.currency})</option>
-            ))}
-          </PersonalSelect>
-
-          <PersonalSelect testId="personal-savings-contribute-account" label="Cuenta origen *" value={accountId} onChange={e => setAccountId(e.target.value)}>
-            <option value="">Seleccionar cuenta</option>
-            {accounts.filter(a => a.is_active).map(a => <option key={a.id} value={a.id}>{a.name} ({fmtMoney(a.current_balance)})</option>)}
-          </PersonalSelect>
-
-          <div>
-            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto del aporte *</label>
-            <input
-              data-testid="personal-savings-contribute-amount"
-              type="number" min="0" step="1" value={amount}
-              onChange={e => { setAmount(e.target.value); setConfirmed(false) }}
-              placeholder="0" autoFocus
-              style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(52,211,153,0.05)', border: '1px solid rgba(52,211,153,0.25)', borderRadius: '0.875rem', color: '#34d399', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
-            />
+        <PersonalInput testId="personal-savings-contribute-date" label="Fecha" type="date" value={date} onChange={e => setDate(e.target.value)} />
+        <PersonalInput testId="personal-savings-contribute-notes" label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ej: Sueldo de julio..." />
+        {wouldComplete && (
+          <div style={{ padding: '0.625rem 0.875rem', background: 'rgba(129,140,248,0.08)', border: '1px solid rgba(129,140,248,0.25)', borderRadius: '0.75rem', fontSize: '0.8rem', color: '#818cf8', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <Check size={14} style={{ flexShrink: 0 }} />
+            Con este aporte completás el objetivo "{selectedGoal!.name}" 🎉
           </div>
-
-          <PersonalInput testId="personal-savings-contribute-date" label="Fecha" type="date" value={date} onChange={e => setDate(e.target.value)} />
-          <PersonalInput testId="personal-savings-contribute-notes" label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Ej: Sueldo de julio..." />
-
-          {wouldComplete && (
-            <div style={{ padding: '0.625rem 0.875rem', background: 'rgba(129,140,248,0.08)', border: '1px solid rgba(129,140,248,0.25)', borderRadius: '0.75rem', fontSize: '0.8rem', color: '#818cf8', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <Check size={14} style={{ flexShrink: 0 }} />
-              Con este aporte completás el objetivo "{selectedGoal!.name}" 🎉
+        )}
+        {isValid && (
+          <div
+            data-testid="personal-savings-contribute-confirm"
+            onClick={() => setConfirmed(c => !c)}
+            role="checkbox" aria-checked={confirmed}
+            style={{ padding: '0.875rem', background: confirmed ? 'rgba(52,211,153,0.08)' : 'rgba(255,255,255,0.025)', border: `1px solid ${confirmed ? 'rgba(52,211,153,0.35)' : 'rgba(255,255,255,0.08)'}`, borderRadius: '0.875rem', cursor: 'pointer', display: 'flex', gap: '0.75rem', alignItems: 'center' }}
+          >
+            <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${confirmed ? '#34d399' : '#334155'}`, background: confirmed ? 'rgba(52,211,153,0.2)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              {confirmed && <Check size={11} color="#34d399" />}
             </div>
-          )}
-
-          {isValid && (
-            <div
-              data-testid="personal-savings-contribute-confirm"
-              onClick={() => setConfirmed(c => !c)}
-              role="checkbox" aria-checked={confirmed}
-              style={{ padding: '0.875rem', background: confirmed ? 'rgba(52,211,153,0.08)' : 'rgba(255,255,255,0.025)', border: `1px solid ${confirmed ? 'rgba(52,211,153,0.35)' : 'rgba(255,255,255,0.08)'}`, borderRadius: '0.875rem', cursor: 'pointer', display: 'flex', gap: '0.75rem', alignItems: 'center' }}
-            >
-              <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${confirmed ? '#34d399' : '#334155'}`, background: confirmed ? 'rgba(52,211,153,0.2)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                {confirmed && <Check size={11} color="#34d399" />}
-              </div>
-              <span style={{ fontSize: '0.8rem', color: confirmed ? '#34d399' : '#475569', fontWeight: 600 }}>
-                Confirmo aportar {fmtMoney(amt)} al objetivo
-              </span>
-            </div>
-          )}
-
-          {error && <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>{error}</div>}
-          <PrimaryBtn testId="personal-savings-contribute-save" onClick={handleSave} loading={saving} disabled={!confirmed || !isValid} fullWidth>
-            {saving ? 'Aportando…' : `Aportar${amt > 0 ? ` ${fmtMoney(amt)}` : ''}`}
-          </PrimaryBtn>
-        </div>
+            <span style={{ fontSize: '0.8rem', color: confirmed ? '#34d399' : '#475569', fontWeight: 600 }}>
+              Confirmo aportar {fmtMoney(amt)} al objetivo
+            </span>
+          </div>
+        )}
+        {error && <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>{error}</div>}
       </div>
-    </div>
+    </PersonalBottomSheet>
   )
 }
 
@@ -299,69 +289,64 @@ function WithdrawForm({ goals, accounts, defaultGoalId, onSaved, onClose }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      <div data-testid="personal-savings-withdraw-form" style={{ width: '100%', maxWidth: 480, background: '#0a1628', borderRadius: '1.5rem 1.5rem 0 0', border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none', padding: '1.25rem', maxHeight: '90dvh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-          <span style={{ fontWeight: 800, fontSize: '1rem', color: '#f0f4ff' }}>Retirar de objetivo</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', minWidth: 36, minHeight: 36, alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <PersonalSelect testId="personal-savings-withdraw-goal" label="Objetivo *" value={goalId} onChange={e => { setGoalId(e.target.value); setConfirmed(false) }}>
-            <option value="">Seleccionar objetivo</option>
-            {withdrawableGoals.map(g => (
-              <option key={g.id} value={g.id}>{g.name} (disponible: {fmtMoney(Number(g.current_amount))} {g.currency})</option>
-            ))}
-          </PersonalSelect>
-
-          {selectedGoal && (
-            <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.025)', borderRadius: '0.625rem', fontSize: '0.8rem', color: '#475569' }}>
-              Disponible en "{selectedGoal.name}": <strong style={{ color: '#34d399', fontFamily: 'monospace' }}>{fmtMoney(Number(selectedGoal.current_amount))}</strong>
-            </div>
-          )}
-
-          <PersonalSelect testId="personal-savings-withdraw-account" label="Cuenta destino *" value={accountId} onChange={e => setAccountId(e.target.value)}>
-            <option value="">Seleccionar cuenta</option>
-            {accounts.filter(a => a.is_active).map(a => <option key={a.id} value={a.id}>{a.name} ({fmtMoney(a.current_balance)})</option>)}
-          </PersonalSelect>
-
-          <div>
-            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto a retirar *</label>
-            <input
-              data-testid="personal-savings-withdraw-amount"
-              type="number" min="0" step="1" value={amount}
-              onChange={e => { setAmount(e.target.value); setConfirmed(false) }}
-              placeholder="0" autoFocus
-              style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: exceedsBalance ? 'rgba(248,113,113,0.05)' : 'rgba(251,191,36,0.05)', border: `1px solid ${exceedsBalance ? 'rgba(248,113,113,0.35)' : 'rgba(251,191,36,0.25)'}`, borderRadius: '0.875rem', color: exceedsBalance ? '#f87171' : '#fbbf24', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
-            />
-            {exceedsBalance && <div style={{ fontSize: '0.75rem', color: '#f87171', marginTop: '0.25rem' }}>Máximo disponible: {fmtMoney(maxAmount)}</div>}
+    <PersonalBottomSheet
+      open
+      title="Retirar de objetivo"
+      onClose={onClose}
+      testId="personal-savings-withdraw-form"
+      footer={
+        <PrimaryBtn testId="personal-savings-withdraw-save" onClick={handleSave} loading={saving} disabled={!confirmed || !isValid || exceedsBalance} fullWidth>
+          {saving ? 'Retirando…' : `Retirar${amt > 0 ? ` ${fmtMoney(amt)}` : ''}`}
+        </PrimaryBtn>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <PersonalSelect testId="personal-savings-withdraw-goal" label="Objetivo *" value={goalId} onChange={e => { setGoalId(e.target.value); setConfirmed(false) }}>
+          <option value="">Seleccionar objetivo</option>
+          {withdrawableGoals.map(g => (
+            <option key={g.id} value={g.id}>{g.name} (disponible: {fmtMoney(Number(g.current_amount))} {g.currency})</option>
+          ))}
+        </PersonalSelect>
+        {selectedGoal && (
+          <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.025)', borderRadius: '0.625rem', fontSize: '0.8rem', color: '#475569' }}>
+            Disponible en "{selectedGoal.name}": <strong style={{ color: '#34d399', fontFamily: 'monospace' }}>{fmtMoney(Number(selectedGoal.current_amount))}</strong>
           </div>
-
-          <PersonalInput testId="personal-savings-withdraw-date" label="Fecha" type="date" value={date} onChange={e => setDate(e.target.value)} />
-          <PersonalInput testId="personal-savings-withdraw-notes" label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Razón del retiro..." />
-
-          {isValid && !exceedsBalance && (
-            <div
-              data-testid="personal-savings-withdraw-confirm"
-              onClick={() => setConfirmed(c => !c)}
-              role="checkbox" aria-checked={confirmed}
-              style={{ padding: '0.875rem', background: confirmed ? 'rgba(251,191,36,0.08)' : 'rgba(255,255,255,0.025)', border: `1px solid ${confirmed ? 'rgba(251,191,36,0.35)' : 'rgba(255,255,255,0.08)'}`, borderRadius: '0.875rem', cursor: 'pointer', display: 'flex', gap: '0.75rem', alignItems: 'center' }}
-            >
-              <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${confirmed ? '#fbbf24' : '#334155'}`, background: confirmed ? 'rgba(251,191,36,0.2)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                {confirmed && <Check size={11} color="#fbbf24" />}
-              </div>
-              <span style={{ fontSize: '0.8rem', color: confirmed ? '#fbbf24' : '#475569', fontWeight: 600 }}>
-                Retiro de {fmtMoney(amt)} de "{selectedGoal?.name ?? '…'}". Este dinero vuelve a tu cuenta.
-              </span>
-            </div>
-          )}
-
-          {error && <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>{error}</div>}
-          <PrimaryBtn testId="personal-savings-withdraw-save" onClick={handleSave} loading={saving} disabled={!confirmed || !isValid || exceedsBalance} fullWidth>
-            {saving ? 'Retirando…' : `Retirar${amt > 0 ? ` ${fmtMoney(amt)}` : ''}`}
-          </PrimaryBtn>
+        )}
+        <PersonalSelect testId="personal-savings-withdraw-account" label="Cuenta destino *" value={accountId} onChange={e => setAccountId(e.target.value)}>
+          <option value="">Seleccionar cuenta</option>
+          {accounts.filter(a => a.is_active).map(a => <option key={a.id} value={a.id}>{a.name} ({fmtMoney(a.current_balance)})</option>)}
+        </PersonalSelect>
+        <div>
+          <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto a retirar *</label>
+          <input
+            data-testid="personal-savings-withdraw-amount"
+            type="number" min="0" step="1" value={amount}
+            onChange={e => { setAmount(e.target.value); setConfirmed(false) }}
+            placeholder="0" autoFocus
+            style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: exceedsBalance ? 'rgba(248,113,113,0.05)' : 'rgba(251,191,36,0.05)', border: `1px solid ${exceedsBalance ? 'rgba(248,113,113,0.35)' : 'rgba(251,191,36,0.25)'}`, borderRadius: '0.875rem', color: exceedsBalance ? '#f87171' : '#fbbf24', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
+          />
+          {exceedsBalance && <div style={{ fontSize: '0.75rem', color: '#f87171', marginTop: '0.25rem' }}>Máximo disponible: {fmtMoney(maxAmount)}</div>}
         </div>
+        <PersonalInput testId="personal-savings-withdraw-date" label="Fecha" type="date" value={date} onChange={e => setDate(e.target.value)} />
+        <PersonalInput testId="personal-savings-withdraw-notes" label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Razón del retiro..." />
+        {isValid && !exceedsBalance && (
+          <div
+            data-testid="personal-savings-withdraw-confirm"
+            onClick={() => setConfirmed(c => !c)}
+            role="checkbox" aria-checked={confirmed}
+            style={{ padding: '0.875rem', background: confirmed ? 'rgba(251,191,36,0.08)' : 'rgba(255,255,255,0.025)', border: `1px solid ${confirmed ? 'rgba(251,191,36,0.35)' : 'rgba(255,255,255,0.08)'}`, borderRadius: '0.875rem', cursor: 'pointer', display: 'flex', gap: '0.75rem', alignItems: 'center' }}
+          >
+            <div style={{ width: 20, height: 20, borderRadius: '50%', border: `2px solid ${confirmed ? '#fbbf24' : '#334155'}`, background: confirmed ? 'rgba(251,191,36,0.2)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              {confirmed && <Check size={11} color="#fbbf24" />}
+            </div>
+            <span style={{ fontSize: '0.8rem', color: confirmed ? '#fbbf24' : '#475569', fontWeight: 600 }}>
+              Retiro de {fmtMoney(amt)} de "{selectedGoal?.name ?? '…'}". Este dinero vuelve a tu cuenta.
+            </span>
+          </div>
+        )}
+        {error && <div style={{ padding: '0.5rem 0.75rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>{error}</div>}
       </div>
-    </div>
+    </PersonalBottomSheet>
   )
 }
 
@@ -384,9 +369,18 @@ function GoalDetailSheet({ goal, goalIdx, onContribute, onWithdraw, onEdit, onSt
   const monthlyNeeded = getEstimatedMonthlyNeeded(goal)
   const [confirmCancel, setConfirmCancel] = useState(false)
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
-      <div style={{ width: '100%', maxWidth: 480, background: '#0a1628', borderRadius: '1.5rem 1.5rem 0 0', border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none', maxHeight: '90dvh', overflowY: 'auto', padding: '1.25rem' }}>
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  return createPortal(
+    <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div style={{ width: '100%', maxWidth: 480, background: '#0a1628', borderRadius: '1.5rem 1.5rem 0 0', border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none', maxHeight: 'calc(100dvh - env(safe-area-inset-top, 20px) - 12px)', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 -8px 40px rgba(0,0,0,0.5)' }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '1.25rem' }}>
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -502,7 +496,9 @@ function GoalDetailSheet({ goal, goalIdx, onContribute, onWithdraw, onEdit, onSt
           </button>
         )}
       </div>
-    </div>
+      </div>
+    </div>,
+    document.body
   )
 }
 

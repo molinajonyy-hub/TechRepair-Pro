@@ -88,6 +88,17 @@ export function PersonalLayout() {
     return location.pathname.startsWith(path)
   }
 
+  const isStandalone =
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (navigator as any).standalone === true
+  // Back button: navigate to /personal from any sub-route; hide on root in PWA
+  const isOnRoot = location.pathname === '/personal'
+  const showBack = !(isStandalone && isOnRoot)
+  const handleBack = () => {
+    if (!isOnRoot) navigate('/personal')
+    else navigate('/dashboard') // browser fallback when on root
+  }
+
   return (
     <div
       data-testid="personal-layout"
@@ -109,12 +120,14 @@ export function PersonalLayout() {
         display: 'flex', alignItems: 'center', gap: '0.75rem',
         flexShrink: 0,
       }}>
-        <button
-          onClick={() => navigate('/dashboard')}
-          aria-label="Volver al negocio"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: '0.25rem', display: 'flex', alignItems: 'center', minWidth: 36, minHeight: 36 }}>
-          <ArrowLeft size={18} />
-        </button>
+        {showBack && (
+          <button
+            onClick={handleBack}
+            aria-label={isOnRoot ? 'Volver al negocio' : 'Inicio Mi Guita'}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: '0.25rem', display: 'flex', alignItems: 'center', minWidth: 36, minHeight: 36 }}>
+            <ArrowLeft size={18} />
+          </button>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
           <div style={{ width: 28, height: 28, borderRadius: '0.5rem', background: 'linear-gradient(135deg,rgba(52,211,153,0.25),rgba(16,185,129,0.15))', border: '1px solid rgba(52,211,153,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Wallet size={14} color="#34d399" />

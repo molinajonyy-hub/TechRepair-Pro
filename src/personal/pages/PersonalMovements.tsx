@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, ArrowDownUp, X } from 'lucide-react'
+import { Plus, ArrowDownUp } from 'lucide-react'
+import { PersonalBottomSheet } from '../components/PersonalBottomSheet'
 import { useAuth } from '../../contexts/AuthContext'
 import {
   personalService, type PersonalTransaction,
@@ -88,116 +89,104 @@ function TransactionForm({
   }
 
   return (
-    <div
-      data-testid="personal-movement-sheet"
-      style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+    <PersonalBottomSheet
+      open
+      title="Nuevo movimiento"
+      onClose={onClose}
+      testId="personal-movement-sheet"
+      footer={
+        <PrimaryBtn testId="personal-movement-save" onClick={handleSave} loading={saving} fullWidth>
+          {saving ? 'Guardando…' : `Guardar ${type === 'income' ? 'ingreso' : 'gasto'}`}
+        </PrimaryBtn>
+      }
     >
-      <div style={{ width: '100%', maxWidth: 480, background: '#0a1628', borderRadius: '1.5rem 1.5rem 0 0', border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none', maxHeight: 'calc(100dvh - env(safe-area-inset-top, 20px) - 20px)', display: 'flex', flexDirection: 'column' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.25rem 0.875rem', flexShrink: 0, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-          <span style={{ fontWeight: 800, fontSize: '1rem', color: '#f0f4ff' }}>Nuevo movimiento</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.25rem', display: 'flex', minWidth: 36, minHeight: 36, alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
-        </div>
-        <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '1rem 1.25rem' }}>
-
-        {/* Type toggle */}
-        <div data-testid="personal-movement-type" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1.25rem' }}>
-          {(['expense', 'income'] as const).map(t => (
-            <button
-              key={t}
-              onClick={() => setType(t)}
-              style={{ padding: '0.75rem', borderRadius: '0.75rem', border: `2px solid ${type === t ? (t === 'income' ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)') : 'rgba(255,255,255,0.08)'}`, background: type === t ? (t === 'income' ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)') : 'transparent', color: type === t ? (t === 'income' ? '#34d399' : '#f87171') : '#475569', fontWeight: 700, cursor: 'pointer', fontSize: '0.875rem', minHeight: 44 }}
-            >
-              {t === 'expense' ? '← Gasto' : 'Ingreso →'}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {/* Amount — large display input, must be ≥16px for iOS */}
-          <div>
-            <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto *</label>
-            <input
-              data-testid="personal-movement-amount"
-              type="number" min="0" step="0.01" value={amount}
-              onChange={e => setAmount(e.target.value)} placeholder="0" autoFocus
-              style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(255,255,255,0.04)', border: `1px solid ${type === 'income' ? 'rgba(52,211,153,0.25)' : 'rgba(248,113,113,0.25)'}`, borderRadius: '0.875rem', color: type === 'income' ? '#34d399' : '#f87171', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
-            />
-          </div>
-
-          <PersonalInput
-            testId="personal-movement-description"
-            label="Descripción *" value={description}
-            onChange={e => setDescription(e.target.value)} placeholder="¿En qué?"
-          />
-
-          <PersonalSelect
-            testId="personal-movement-account"
-            label="Cuenta *" value={accountId}
-            onChange={e => handleAccountChange(e.target.value)}
+      {/* Type toggle */}
+      <div data-testid="personal-movement-type" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1.25rem' }}>
+        {(['expense', 'income'] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => setType(t)}
+            style={{ padding: '0.75rem', borderRadius: '0.75rem', border: `2px solid ${type === t ? (t === 'income' ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)') : 'rgba(255,255,255,0.08)'}`, background: type === t ? (t === 'income' ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)') : 'transparent', color: type === t ? (t === 'income' ? '#34d399' : '#f87171') : '#475569', fontWeight: 700, cursor: 'pointer', fontSize: '0.875rem', minHeight: 44 }}
           >
-            <option value="">Seleccionar cuenta</option>
-            {accounts.map(a => {
-              const bal = getAccountBalanceForCurrency(a, currency)
-              return <option key={a.id} value={a.id}>{a.name} ({fmtMoney(bal, currency)})</option>
-            })}
-          </PersonalSelect>
-
-          {/* Currency selector — only shown when account has multiple currencies */}
-          {accountCurrencies.length > 1 && (
-            <div>
-              <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>
-                Moneda
-              </label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
-                {accountCurrencies.map(cur => (
-                  <button
-                    key={cur}
-                    type="button"
-                    onClick={() => setCurrency(cur)}
-                    style={{ padding: '0.625rem', borderRadius: '0.625rem', border: `2px solid ${currency === cur ? (type === 'income' ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)') : 'rgba(255,255,255,0.08)'}`, background: currency === cur ? (type === 'income' ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)') : 'transparent', color: currency === cur ? (type === 'income' ? '#34d399' : '#f87171') : '#475569', fontWeight: 700, cursor: 'pointer', fontSize: '0.875rem', minHeight: 44 }}
-                  >
-                    {cur}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {filteredCats.length > 0 && (
-            <PersonalSelect
-              testId="personal-movement-category"
-              label="Categoría" value={categoryId}
-              onChange={e => setCategoryId(e.target.value)}
-            >
-              <option value="">Sin categoría</option>
-              {filteredCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </PersonalSelect>
-          )}
-
-          <PersonalInput
-            testId="personal-movement-date"
-            label="Fecha" type="date" value={date}
-            onChange={e => setDate(e.target.value)}
-          />
-          <PersonalInput label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Detalle adicional..." />
-
-          {error && (
-            <div style={{ padding: '0.625rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>
-              {error}
-            </div>
-          )}
-
-        </div>
-        </div>
-        {/* Button — always visible above safe area */}
-        <div style={{ padding: '0.875rem 1.25rem', paddingBottom: 'calc(0.875rem + env(safe-area-inset-bottom, 0px))', borderTop: '1px solid rgba(255,255,255,0.05)', flexShrink: 0, background: '#0a1628' }}>
-          <PrimaryBtn testId="personal-movement-save" onClick={handleSave} loading={saving} fullWidth>
-            {saving ? 'Guardando…' : `Guardar ${type === 'income' ? 'ingreso' : 'gasto'}`}
-          </PrimaryBtn>
-        </div>
+            {t === 'expense' ? '← Gasto' : 'Ingreso →'}
+          </button>
+        ))}
       </div>
-    </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div>
+          <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>Monto *</label>
+          <input
+            data-testid="personal-movement-amount"
+            type="number" min="0" step="0.01" value={amount}
+            onChange={e => setAmount(e.target.value)} placeholder="0" autoFocus
+            style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(255,255,255,0.04)', border: `1px solid ${type === 'income' ? 'rgba(52,211,153,0.25)' : 'rgba(248,113,113,0.25)'}`, borderRadius: '0.875rem', color: type === 'income' ? '#34d399' : '#f87171', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
+          />
+        </div>
+
+        <PersonalInput
+          testId="personal-movement-description"
+          label="Descripción *" value={description}
+          onChange={e => setDescription(e.target.value)} placeholder="¿En qué?"
+        />
+
+        <PersonalSelect
+          testId="personal-movement-account"
+          label="Cuenta *" value={accountId}
+          onChange={e => handleAccountChange(e.target.value)}
+        >
+          <option value="">Seleccionar cuenta</option>
+          {accounts.map(a => {
+            const bal = getAccountBalanceForCurrency(a, currency)
+            return <option key={a.id} value={a.id}>{a.name} ({fmtMoney(bal, currency)})</option>
+          })}
+        </PersonalSelect>
+
+        {accountCurrencies.length > 1 && (
+          <div>
+            <label style={{ fontSize: '0.75rem', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '0.375rem' }}>
+              Moneda
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+              {accountCurrencies.map(cur => (
+                <button
+                  key={cur}
+                  type="button"
+                  onClick={() => setCurrency(cur)}
+                  style={{ padding: '0.625rem', borderRadius: '0.625rem', border: `2px solid ${currency === cur ? (type === 'income' ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)') : 'rgba(255,255,255,0.08)'}`, background: currency === cur ? (type === 'income' ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)') : 'transparent', color: currency === cur ? (type === 'income' ? '#34d399' : '#f87171') : '#475569', fontWeight: 700, cursor: 'pointer', fontSize: '0.875rem', minHeight: 44 }}
+                >
+                  {cur}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {filteredCats.length > 0 && (
+          <PersonalSelect
+            testId="personal-movement-category"
+            label="Categoría" value={categoryId}
+            onChange={e => setCategoryId(e.target.value)}
+          >
+            <option value="">Sin categoría</option>
+            {filteredCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </PersonalSelect>
+        )}
+
+        <PersonalInput
+          testId="personal-movement-date"
+          label="Fecha" type="date" value={date}
+          onChange={e => setDate(e.target.value)}
+        />
+        <PersonalInput label="Nota (opcional)" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Detalle adicional..." />
+
+        {error && (
+          <div style={{ padding: '0.625rem', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.5rem', color: '#f87171', fontSize: '0.8rem' }}>
+            {error}
+          </div>
+        )}
+      </div>
+    </PersonalBottomSheet>
   )
 }
 
