@@ -3,7 +3,7 @@ import { DollarSign, RefreshCw, Save, History, Cloud, MapPin, Globe, Package, Al
 import { Loader } from '../components/ui/Loader';
 import { useAuth } from '../contexts/AuthContext';
 import { currencyService, BusinessSettings, ExchangeRate } from '../services/currencyService';
-import { exchangeRateService, DolarSource } from '../services/exchangeRateService';
+import { exchangeRateService, DolarSource, type CordobaRateDetail } from '../services/exchangeRateService';
 
 interface SyncResult {
   updated: number
@@ -11,6 +11,13 @@ interface SyncResult {
   rate: number
   timestamp: string
   error?: string
+  cordobaDetail?: CordobaRateDetail
+}
+
+interface TestResult {
+  loading: boolean
+  detail: CordobaRateDetail | null
+  error: string | null
 }
 
 export function CurrencySettings() {
@@ -21,6 +28,7 @@ export function CurrencySettings() {
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+  const [cordobaTest, setCordobaTest] = useState<TestResult>({ loading: false, detail: null, error: null });
   const [rateHistory, setRateHistory] = useState<ExchangeRate[]>([]);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -122,18 +130,34 @@ export function CurrencySettings() {
     }
   };
 
+  /** Prueba InfoDolar Córdoba y muestra compra/venta sin aplicar nada. */
+  const handleTestCordoba = async () => {
+    setCordobaTest({ loading: true, detail: null, error: null })
+    try {
+      const detail = await exchangeRateService.getDolarBlueCordobaDetail()
+      if (!detail) {
+        setCordobaTest({ loading: false, detail: null, error: 'No se pudo detectar el valor de venta de InfoDolar Córdoba. Revisá el proxy o la estructura de la página.' })
+      } else {
+        setCordobaTest({ loading: false, detail, error: null })
+      }
+    } catch (e: any) {
+      setCordobaTest({ loading: false, detail: null, error: e.message || 'Error al probar InfoDolar Córdoba' })
+    }
+  }
+
   /** Sincroniza sale_price de todos los productos dolarizados con la cotización actual. */
-  const syncProductPrices = async (rate: number) => {
+  const syncProductPrices = async (rate: number, cordobaDetail?: CordobaRateDetail) => {
     if (!businessId) return
     setSyncing(true)
     try {
       const result = await currencyService.updateProductPricesByExchangeRate(businessId, rate)
       setSyncResult({
-        updated:   result.updated,
-        skipped:   result.skipped,
+        updated:        result.updated,
+        skipped:        result.skipped,
         rate,
-        timestamp: new Date().toLocaleString('es-AR'),
-        error:     result.error,
+        timestamp:      new Date().toLocaleString('es-AR'),
+        error:          result.error,
+        cordobaDetail,
       })
     } catch (e: any) {
       setSyncResult({ updated: 0, skipped: 0, rate, timestamp: new Date().toLocaleString('es-AR'), error: e.message })
@@ -149,7 +173,23 @@ export function CurrencySettings() {
 
     setSaving(true);
     try {
-      const apiRate = await exchangeRateService.getDolarRate(dolarSource);
+      let apiRate: number | null = null
+      let cordobaDetail: CordobaRateDetail | undefined
+
+      if (dolarSource === 'cordoba') {
+        // Para Córdoba: obtener detalle completo, usar SOLO el valor de VENTA
+        const detail = await exchangeRateService.getDolarBlueCordobaDetail()
+        if (!detail) {
+          alert('No se pudo detectar el valor de venta de InfoDolar Córdoba.\nRevisá la conexión o usá el botón "Probar InfoDolar Córdoba" para más detalle.')
+          return
+        }
+        apiRate = detail.venta
+        cordobaDetail = detail
+        // Actualizar el test panel para que muestre el último resultado
+        setCordobaTest({ loading: false, detail, error: null })
+      } else {
+        apiRate = await exchangeRateService.getDolarBlueNacional()
+      }
 
       if (!apiRate) {
         alert('No se pudo obtener el tipo de cambio. Verificá tu conexión o intentá más tarde.');
@@ -167,8 +207,8 @@ export function CurrencySettings() {
 
       setExchangeRate(apiRate);
       loadRateHistory();
-      // Sincronizar precios de productos dolarizados con la cotización obtenida de la API
-      await syncProductPrices(apiRate);
+      // Sincronizar precios — para Córdoba siempre usa venta (capturado en cordobaDetail)
+      await syncProductPrices(apiRate, cordobaDetail);
     } catch (error) {
       console.error('Error updating rate from API:', error);
       alert('Error al actualizar tipo de cambio desde la fuente seleccionada');
@@ -402,6 +442,51 @@ export function CurrencySettings() {
             </button>
           </div>
 
+          {/* ── Panel "Probar InfoDolar Córdoba" (solo cuando fuente = cordoba) ── */}
+          {dolarSource === 'cordoba' && (
+            <div style={{ marginTop: '1.25rem', padding: '1rem', background: 'rgba(16,185,129,0.04)', border: '1px solid rgba(16,185,129,0.15)', borderRadius: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', marginBottom: cordobaTest.detail || cordobaTest.error ? '0.75rem' : 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <MapPin size={15} style={{ color: '#10b981', flexShrink: 0 }} />
+                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#6ee7b7' }}>InfoDolar Córdoba</span>
+                  <span style={{ fontSize: '0.72rem', color: '#475569' }}>— siempre usa precio de VENTA</span>
+                </div>
+                <button
+                  onClick={handleTestCordoba}
+                  disabled={cordobaTest.loading}
+                  className="btn btn-ghost btn-sm"
+                  style={{ borderColor: 'rgba(16,185,129,0.3)', color: '#34d399' }}
+                >
+                  {cordobaTest.loading
+                    ? <><RefreshCw size={13} style={{ animation: 'tr-spin 1s linear infinite' }} /> Consultando...</>
+                    : <><MapPin size={13} /> Probar InfoDolar Córdoba</>}
+                </button>
+              </div>
+
+              {cordobaTest.error && (
+                <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'flex-start', fontSize: '0.775rem', color: '#f87171' }}>
+                  <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
+                  {cordobaTest.error}
+                </div>
+              )}
+
+              {cordobaTest.detail && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.625rem' }}>
+                  {[
+                    { label: 'Compra detectada', value: `$${cordobaTest.detail.compra.toLocaleString('es-AR')}`, color: '#94a3b8' },
+                    { label: 'Venta detectada',  value: `$${cordobaTest.detail.venta.toLocaleString('es-AR')}`,  color: '#34d399' },
+                    { label: 'Valor aplicado',   value: `$${cordobaTest.detail.venta.toLocaleString('es-AR')} · Venta`, color: '#34d399' },
+                  ].map(item => (
+                    <div key={item.label} style={{ padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.025)', borderRadius: '0.5rem', textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.66rem', color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.2rem' }}>{item.label}</div>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 800, fontFamily: 'monospace', color: item.color }}>{item.value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ── Sync status y botón Reaplicar ── */}
           <div style={{ marginTop: '1.25rem', padding: '1rem', background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
@@ -431,18 +516,27 @@ export function CurrencySettings() {
             )}
 
             {syncResult && !syncing && (
-              <div style={{ marginTop: '0.625rem' }}>
+              <div style={{ marginTop: '0.625rem', display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
                 {syncResult.error ? (
                   <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center', fontSize: '0.775rem', color: '#f87171' }}>
                     <AlertTriangle size={13} />
                     Error al sincronizar: {syncResult.error}
                   </div>
                 ) : (
-                  <div style={{ fontSize: '0.775rem', color: '#64748b', display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
-                    <span>✅ <strong style={{ color: '#34d399' }}>{syncResult.updated} productos</strong> actualizados a ${syncResult.rate.toLocaleString('es-AR')}</span>
-                    {syncResult.skipped > 0 && <span style={{ color: '#475569' }}>{syncResult.skipped} omitidos (sin precio USD base)</span>}
-                    <span style={{ color: '#334155' }}>{syncResult.timestamp}</span>
-                  </div>
+                  <>
+                    <div style={{ fontSize: '0.775rem', color: '#64748b', display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+                      <span>✅ <strong style={{ color: '#34d399' }}>{syncResult.updated} productos</strong> actualizados a ${syncResult.rate.toLocaleString('es-AR')}</span>
+                      {syncResult.skipped > 0 && <span style={{ color: '#475569' }}>{syncResult.skipped} omitidos (sin precio USD base)</span>}
+                      <span style={{ color: '#334155' }}>{syncResult.timestamp}</span>
+                    </div>
+                    {syncResult.cordobaDetail && (
+                      <div style={{ fontSize: '0.72rem', color: '#475569' }}>
+                        InfoDolar Córdoba: compra ${syncResult.cordobaDetail.compra.toLocaleString('es-AR')} ·{' '}
+                        <strong style={{ color: '#34d399' }}>venta ${syncResult.cordobaDetail.venta.toLocaleString('es-AR')}</strong>
+                        {' · '}modo: <strong style={{ color: '#34d399' }}>Venta</strong>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
