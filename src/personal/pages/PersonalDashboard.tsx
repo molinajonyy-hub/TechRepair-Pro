@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Wallet, TrendingUp, TrendingDown, ArrowDownUp, Building2, CreditCard, Target } from 'lucide-react'
+import { Plus, Wallet, TrendingUp, TrendingDown, ArrowDownUp, Building2, CreditCard, Target, AlertCircle } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { personalService, type PersonalAccount, type PersonalTransaction } from '../services/personalService'
 import { creditCardService, type CreditCard as CCType, type CardPurchase } from '../services/creditCardService'
 import { savingsService, type SavingsGoal } from '../services/savingsService'
+import { debtService, type PersonalDebt } from '../services/debtService'
 import {
   SummaryCard, SectionHeader, TxRow, EmptyPersonal, SkeletonCard,
   PageContainer, Card, fmtMoney, fmtMoneyCompact,
@@ -30,19 +31,21 @@ export function PersonalDashboard() {
   const [cards, setCards] = useState<CCType[]>([])
   const [cardPurchases, setCardPurchases] = useState<CardPurchase[]>([])
   const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>([])
+  const [debts,        setDebts]        = useState<PersonalDebt[]>([])
 
   useEffect(() => {
     if (!user) return
     const load = async () => {
       try {
         await personalService.ensureDefaultCategories(user.id)
-        const [accts, txs, sum, crds, purch, goals] = await Promise.all([
+        const [accts, txs, sum, crds, purch, goals, debtList] = await Promise.all([
           personalService.getAccounts(user.id),
           personalService.getTransactions(user.id, { limit: 8 }),
           personalService.getMonthlySummary(user.id, currentMonth()),
           creditCardService.getCreditCards(user.id).catch(() => [] as CCType[]),
           creditCardService.getCardPurchases(user.id).catch(() => [] as CardPurchase[]),
           savingsService.getSavingsGoals(user.id).catch(() => [] as SavingsGoal[]),
+          debtService.getDebts(user.id).catch(() => [] as PersonalDebt[]),
         ])
         setAccounts(accts)
         setRecentTx(txs)
@@ -50,6 +53,7 @@ export function PersonalDashboard() {
         setCards(crds)
         setCardPurchases(purch)
         setSavingsGoals(goals)
+        setDebts(debtList)
       } finally {
         setLoading(false)
       }
@@ -62,6 +66,7 @@ export function PersonalDashboard() {
   const month = currentYearMonth()
   // Savings computed values
   const savingsSummary = getSavingsSummary(savingsGoals)
+  const debtsSummary   = debtService.getDebtSummary(debts)
   const topGoal = getTopGoal(savingsGoals)
   const activeCards = cards.filter(c => c.is_active)
   const totalCardsThisMonth = getAllCardsStatementTotal(cardPurchases, month)
@@ -315,6 +320,45 @@ export function PersonalDashboard() {
           </Card>
         )}
       </div>
+
+      {/* ── Debts widget ── */}
+      {!loading && debtsSummary.activeCount > 0 && (
+        <div>
+          <SectionHeader
+            title="Deudas activas"
+            action={<button onClick={() => navigate('/personal/deudas')} style={{ fontSize: '0.72rem', color: '#f87171', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Ver todas</button>}
+          />
+          <button
+            data-testid="personal-debts-widget"
+            onClick={() => navigate('/personal/deudas')}
+            style={{ width: '100%', padding: '1rem', borderRadius: '1rem', background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.2)', cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 600 }}>
+                {debtsSummary.activeCount} deuda{debtsSummary.activeCount !== 1 ? 's' : ''} activa{debtsSummary.activeCount !== 1 ? 's' : ''}
+              </span>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {debtsSummary.totalARS > 0 && (
+                  <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#f87171', fontSize: '1rem' }}>
+                    {fmtMoneyCompact(debtsSummary.totalARS)}
+                  </span>
+                )}
+                {debtsSummary.totalUSD > 0 && (
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#fb923c', fontSize: '0.875rem' }}>
+                    {fmtMoney(debtsSummary.totalUSD, 'USD')}
+                  </span>
+                )}
+              </div>
+            </div>
+            {debtsSummary.nextDueDate && (
+              <div style={{ fontSize: '0.72rem', color: '#7f1d1d', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                <AlertCircle size={12} style={{ flexShrink: 0 }} />
+                Próx: <strong>{debtsSummary.nextDueName}</strong>
+              </div>
+            )}
+          </button>
+        </div>
+      )}
 
       {/* ── Salary shortcut ── */}
       <button
