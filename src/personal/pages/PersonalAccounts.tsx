@@ -126,19 +126,23 @@ function AccountForm({ initial, onSaved, onClose }: {
           background: '#0a1628',
           borderRadius: '1.5rem 1.5rem 0 0',
           border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none',
-          // max-height seguro: dvh - safe-area top - margen visual
-          maxHeight: 'calc(100dvh - env(safe-area-inset-top, 20px) - 20px)',
+          // 85dvh es más robusto que la fórmula con safe-area-top en iOS PWA
+          maxHeight: '85dvh',
           display: 'flex', flexDirection: 'column',
+          // Prevents the sheet from growing beyond the container
+          overflow: 'hidden',
         }}
       >
-        {/* Header — no scrollable */}
+        {/* Header — fixed, no scroll */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.25rem 0.875rem', flexShrink: 0, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
           <span style={{ fontWeight: 800, fontSize: '1rem', color: '#f0f4ff' }}>{initial ? 'Editar cuenta' : 'Nueva cuenta'}</span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', minWidth: 36, minHeight: 36, alignItems: 'center', justifyContent: 'center' }}><X size={18} /></button>
         </div>
 
-        {/* Scrollable content */}
-        <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '1rem 1.25rem' }}>
+        {/* Scrollable content
+            min-height: 0 is CRITICAL for iOS — without it, flex items refuse to
+            shrink below their content size, pushing the footer off-screen */}
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '1rem 1.25rem' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <PersonalInput
               testId="personal-account-name"
