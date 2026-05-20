@@ -1,5 +1,5 @@
 /** Stub pages for modules coming in future phases. */
-import { AlertCircle, BarChart3, Settings, Tag, List } from 'lucide-react'
+import { AlertCircle, BarChart3, Settings, Tag, List, RepeatIcon } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { PageContainer, EmptyPersonal } from '../components/ui'
 
@@ -41,11 +41,12 @@ export function PersonalSettings() {
 export function PersonalMore() {
   const navigate = useNavigate()
   const items = [
-    { label: 'Mis cuentas',    path: '/personal/cuentas',      Icon: List },
-    { label: 'Categorías',     path: '/personal/categorias',   Icon: Tag },
-    { label: 'Deudas',         path: '/personal/deudas',       Icon: AlertCircle },
-    { label: 'Proyecciones',   path: '/personal/proyecciones', Icon: BarChart3 },
-    { label: 'Configuración',  path: '/personal/configuracion', Icon: Settings },
+    { label: 'Mis cuentas',    path: '/personal/cuentas',       Icon: List        },
+    { label: 'Gastos fijos',   path: '/personal/gastos-fijos',  Icon: RepeatIcon  },
+    { label: 'Deudas',         path: '/personal/deudas',        Icon: AlertCircle },
+    { label: 'Categorías',     path: '/personal/categorias',    Icon: Tag         },
+    { label: 'Proyecciones',   path: '/personal/proyecciones',  Icon: BarChart3   },
+    { label: 'Configuración',  path: '/personal/configuracion', Icon: Settings    },
   ]
   return (
     <PageContainer>

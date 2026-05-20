@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   TrendingUp, TrendingDown, ArrowDownUp, Building2,
-  CreditCard, Target, AlertCircle, Wallet, Eye, EyeOff,
+  CreditCard, Target, AlertCircle, Wallet, Eye, EyeOff, RepeatIcon,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { personalService, type PersonalAccount, type PersonalTransaction, type PersonalCategory } from '../services/personalService'
@@ -76,6 +76,7 @@ export function PersonalDashboard() {
     { label: 'Ahorros',      path: '/personal/ahorros',      Icon: Target,       color: '#fbbf24', bg: 'rgba(251,191,36,0.1)'  },
     { label: 'Tarjetas',     path: '/personal/tarjetas',     Icon: CreditCard,   color: '#818cf8', bg: 'rgba(129,140,248,0.1)' },
     { label: 'Deudas',       path: '/personal/deudas',       Icon: AlertCircle,  color: '#f87171', bg: 'rgba(248,113,113,0.1)' },
+    { label: 'Gastos fijos', path: '/personal/gastos-fijos', Icon: RepeatIcon,   color: '#fbbf24', bg: 'rgba(251,191,36,0.1)'  },
     { label: 'Sueldo',       path: '/personal/sueldo',       Icon: Building2,    color: '#a78bfa', bg: 'rgba(167,139,250,0.1)' },
   ]
 
@@ -209,7 +210,7 @@ export function PersonalDashboard() {
       </div>
 
       {/* ── Module chips ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
         {modules.map(({ label, path, Icon, color, bg }) => (
           <button
             key={path}
