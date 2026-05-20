@@ -187,12 +187,15 @@ export function PersonalLayout() {
       {/* Toast notifications (renders above bottom nav) */}
       <ToastProvider />
 
-      {/* Fade bottom nav when a sheet is open */}
+      {/* Fade + slide bottom nav when a sheet is open */}
       <style>{`
-        [data-testid="personal-bottom-nav"] { transition: opacity 0.2s ease; }
+        [data-testid="personal-bottom-nav"] {
+          transition: opacity 0.25s ease, transform 0.25s ease;
+        }
         body.personal-sheet-open [data-testid="personal-bottom-nav"] {
-          opacity: 0;
-          pointer-events: none;
+          opacity: 0 !important;
+          pointer-events: none !important;
+          transform: translateX(-50%) translateY(10px) !important;
         }
       `}</style>
     </div>

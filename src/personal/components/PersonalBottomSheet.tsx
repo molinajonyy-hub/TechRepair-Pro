@@ -1,14 +1,14 @@
 /**
  * PersonalBottomSheet — reusable mobile bottom sheet for Mi Guita.
  *
- * Uses createPortal(document.body) to escape <main webkit-overflow-scrolling:touch>
- * in PersonalLayout, which causes position:fixed to misbehave on iOS Safari.
+ * The overlay and the sheet are TWO separate fixed elements so the
+ * bottom gap is explicit and guaranteed on iOS Safari.  Using a single
+ * flex container with align-items:flex-end causes the sheet to still
+ * look "glued to the floor" when content fills the max-height.
  *
- * Layout: overlay (blurred, full-screen) > floating sheet (margins, radius 28px)
- *         > header (fixed) + content (scrollable) + footer (fixed, always visible)
- *
- * When open: adds `personal-sheet-open` class to body so the bottom nav can
- * fade out via CSS (see PersonalLayout style block).
+ * Overlay: full-screen dim + blur (z-index 300)
+ * Sheet:   position:fixed with explicit left/right/bottom (z-index 301)
+ *          → bottom = safe-area-inset-bottom + 18 px of real air
  */
 import { type ReactNode, useEffect } from 'react'
 import { createPortal } from 'react-dom'
@@ -59,31 +59,41 @@ export function PersonalBottomSheet({
   if (!open || typeof document === 'undefined') return null
 
   return createPortal(
-    <div
-      style={{
-        position: 'fixed', inset: 0,
-        zIndex: 300,
-        background: 'rgba(0,0,0,0.62)',
-        backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
-        display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-        // Sheet floats with air — margins lift it off screen edges and bottom
-        padding: '0 0.75rem',
-        paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)',
-      }}
-      onClick={closeOnOverlayClick ? (e => { if (e.target === e.currentTarget) onClose() }) : undefined}
-    >
+    <>
+      {/* ── Dim overlay — separate element so sheet z-index is independent ── */}
+      <div
+        style={{
+          position: 'fixed', inset: 0,
+          zIndex: 300,
+          background: 'rgba(0,0,0,0.62)',
+          backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
+        }}
+        onClick={closeOnOverlayClick ? onClose : undefined}
+      />
+
+      {/* ── Sheet — explicit bottom so the gap is always real ── */}
       <div
         data-testid={testId}
         style={{
-          width: '100%', maxWidth,
-          background: '#0a1628',
-          // Full radius — sheet looks like a floating card, not glued to bottom
-          borderRadius: '1.75rem',
-          border: '1px solid rgba(255,255,255,0.1)',
-          maxHeight: 'min(86dvh, calc(100dvh - env(safe-area-inset-top, 20px) - 24px))',
+          position: 'fixed',
+          // 12 px lateral gap on each side
+          left: 12,
+          right: 12,
+          // Guaranteed air between sheet bottom and home indicator / screen edge
+          bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)',
+          zIndex: 301,
+          // Center within the lateral gap up to maxWidth
+          maxWidth,
+          marginLeft: 'auto',
+          marginRight: 'auto',
+          // Leaves room above for safe-area top + some air
+          maxHeight: 'min(82dvh, calc(100dvh - env(safe-area-inset-top, 20px) - env(safe-area-inset-bottom, 0px) - 48px))',
           display: 'flex', flexDirection: 'column',
           overflow: 'hidden',
-          boxShadow: '0 -4px 60px rgba(0,0,0,0.6), 0 0 0 0.5px rgba(255,255,255,0.06)',
+          borderRadius: '1.75rem',
+          background: '#0b1626',
+          border: '1px solid rgba(255,255,255,0.1)',
+          boxShadow: '0 24px 80px rgba(0,0,0,0.55), 0 0 0 0.5px rgba(255,255,255,0.06)',
         }}
       >
         {/* Header — fixed, never scrolls */}
@@ -108,9 +118,7 @@ export function PersonalBottomSheet({
           </button>
         </div>
 
-        {/* Scrollable content
-            min-height:0 is critical for iOS Safari — without it, flex items
-            refuse to shrink below content size, pushing the footer off-screen */}
+        {/* Scrollable content — min-height:0 critical for iOS flex shrink */}
         <div style={{
           flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch',
           padding: '1rem 1.25rem',
@@ -118,7 +126,7 @@ export function PersonalBottomSheet({
           {children}
         </div>
 
-        {/* Footer — fixed, always visible above safe area */}
+        {/* Footer — always visible, no extra safe-area (sheet already floats above it) */}
         {footer && (
           <div
             className="personal-sheet-footer"
@@ -126,7 +134,7 @@ export function PersonalBottomSheet({
               flexShrink: 0, position: 'relative', zIndex: 3,
               padding: '0.875rem 1.25rem 1rem',
               borderTop: '1px solid rgba(255,255,255,0.06)',
-              background: 'linear-gradient(to bottom, rgba(10,22,40,0.97) 0%, #0a1628 100%)',
+              background: 'linear-gradient(to bottom, rgba(11,22,38,0.97) 0%, #0b1626 100%)',
               boxShadow: '0 -1px 0 rgba(255,255,255,0.04)',
             }}
           >
@@ -143,7 +151,7 @@ export function PersonalBottomSheet({
           </div>
         )}
       </div>
-    </div>,
+    </>,
     document.body
   )
 }
