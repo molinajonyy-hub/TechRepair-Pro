@@ -54,6 +54,9 @@ export function useAutoExchangeRate() {
           is_manual: false,
           source: source === 'cordoba' ? 'infodolar-cordoba' : 'bluelytics',
         })
+
+        // Sincronizar precios de productos dolarizados con la nueva cotización
+        await currencyService.updateProductPricesByExchangeRate(businessId!, newRate)
       } catch (err) {
         // Silent — auto-update failure should never interrupt the user
         console.warn('[autoExchangeRate] update failed:', err)

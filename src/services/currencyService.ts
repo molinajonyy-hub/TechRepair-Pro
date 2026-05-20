@@ -188,53 +188,23 @@ export const currencyService = {
   },
 
   /**
-   * Actualizar precios de productos vinculados al dólar cuando cambia el tipo de cambio
+   * Sincroniza precios ARS de todos los productos con auto_update_price=true + base_currency='USD'.
+   * Usa la RPC update_inventory_dollar_prices que hace un batch UPDATE atómico.
+   * Reemplaza la lógica antigua que filtraba por linked_to_dolar + price_usd
+   * (bug: los productos reales usan base_price, no price_usd).
    */
   async updateProductPricesByExchangeRate(
     businessId: string,
     newRate: number
-  ): Promise<{ updated: number; error?: string }> {
-    try {
-      // Obtener productos vinculados al dólar
-      const { data: products, error: fetchError } = await supabase
-        .from('inventory')
-        .select('id, price_usd')
-        .eq('business_id', businessId)
-        .eq('linked_to_dolar', true)
-        .not('price_usd', 'is', null);
-
-      if (fetchError) throw fetchError;
-
-      if (!products || products.length === 0) {
-        return { updated: 0 };
-      }
-
-      // Actualizar cada producto
-      let updatedCount = 0;
-      for (const product of products) {
-        if (!product.price_usd) continue;
-
-        const newPriceARS = Math.round(product.price_usd * newRate * 100) / 100;
-
-        const { error: updateError } = await supabase
-          .from('inventory')
-          .update({
-            sale_price: newPriceARS,
-            exchange_rate_used: newRate,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', product.id);
-
-        if (!updateError) {
-          updatedCount++;
-        }
-      }
-
-      return { updated: updatedCount };
-    } catch (error: any) {
-      console.error('Error updating product prices:', error);
-      return { updated: 0, error: error.message };
-    }
+  ): Promise<{ updated: number; skipped: number; error?: string }> {
+    const { data, error } = await supabase.rpc('update_inventory_dollar_prices', {
+      p_business_id: businessId,
+      p_new_rate:    newRate,
+    })
+    if (error) return { updated: 0, skipped: 0, error: error.message }
+    const result = data as { ok: boolean; updated?: number; skipped?: number; error?: string }
+    if (!result?.ok) return { updated: 0, skipped: 0, error: result?.error ?? 'Error desconocido' }
+    return { updated: result.updated ?? 0, skipped: result.skipped ?? 0 }
   },
 
   /**

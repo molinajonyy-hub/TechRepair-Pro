@@ -440,20 +440,28 @@ export function CajaPage() {
     if (!activeCaja || !user || !totals) return
     setClosing(true)
     try {
-      const efDiff = closeForm.efectivo      !== '' ? (parseFloat(closeForm.efectivo)      || 0) - totals.efectivo.balance      : 0
-      const trDiff = closeForm.transferencia !== '' ? (parseFloat(closeForm.transferencia) || 0) - totals.transferencia.balance : 0
-      const taDiff = closeForm.tarjeta       !== '' ? (parseFloat(closeForm.tarjeta)       || 0) - totals.tarjeta.balance       : 0
-      const usDiff = closeForm.usd           !== '' ? ((parseFloat(closeForm.usd)          || 0) - totals.usd.balance) * exchangeRate : 0
+      // Usar lo que escribió el usuario; si dejó vacío, usar el total calculado del sistema
+      // (garantiza que *_cierre nunca quede en null y el historial muestre datos reales)
+      const efCierre = closeForm.efectivo      !== '' ? (parseFloat(closeForm.efectivo)      || 0) : totals.efectivo.balance
+      const trCierre = closeForm.transferencia !== '' ? (parseFloat(closeForm.transferencia) || 0) : totals.transferencia.balance
+      const taCierre = closeForm.tarjeta       !== '' ? (parseFloat(closeForm.tarjeta)       || 0) : totals.tarjeta.balance
+      const usCierre = closeForm.usd           !== '' ? (parseFloat(closeForm.usd)           || 0) : totals.usd.balance
+
+      // difference = lo contado vs lo esperado (0 si no se hizo conteo manual)
+      const efDiff = (parseFloat(closeForm.efectivo)      || 0) !== 0 || closeForm.efectivo      !== '' ? efCierre - totals.efectivo.balance      : 0
+      const trDiff = (parseFloat(closeForm.transferencia) || 0) !== 0 || closeForm.transferencia !== '' ? trCierre - totals.transferencia.balance : 0
+      const taDiff = (parseFloat(closeForm.tarjeta)       || 0) !== 0 || closeForm.tarjeta       !== '' ? taCierre - totals.tarjeta.balance       : 0
+      const usDiff = (parseFloat(closeForm.usd)           || 0) !== 0 || closeForm.usd           !== '' ? (usCierre - totals.usd.balance) * exchangeRate : 0
       const difference = efDiff + trDiff + taDiff + usDiff
 
       await supabase.from('cajas').update({
         status: 'cerrada',
         closed_at: new Date().toISOString(),
         closed_by: user.id,
-        efectivo_cierre:      parseFloat(closeForm.efectivo)      || null,
-        transferencia_cierre: parseFloat(closeForm.transferencia) || null,
-        tarjeta_cierre:       parseFloat(closeForm.tarjeta)       || null,
-        usd_cierre:           parseFloat(closeForm.usd)           || null,
+        efectivo_cierre:      efCierre > 0 ? efCierre : null,
+        transferencia_cierre: trCierre > 0 ? trCierre : null,
+        tarjeta_cierre:       taCierre > 0 ? taCierre : null,
+        usd_cierre:           usCierre > 0 ? usCierre : null,
         notas: closingNotes || null,
         difference,
       }).eq('id', activeCaja.id)
@@ -506,7 +514,18 @@ export function CajaPage() {
           <div className="page-hdr-right">
             <button onClick={loadCaja} className="btn btn-ghost btn-sm"><RefreshCw size={14} /> Actualizar</button>
             <button data-testid="caja-add-movement-button" onClick={() => setShowAddMov(true)} className="btn btn-indigo btn-sm btn-lift"><Plus size={15} /> Movimiento</button>
-            <button onClick={() => setShowClose(true)} className="btn btn-danger btn-sm btn-lift"><Lock size={14} /> Cerrar Caja</button>
+            <button onClick={() => {
+              // Pre-fill con montos esperados para que el cierre no quede en null/0
+              if (totals) {
+                setCloseForm({
+                  efectivo:      totals.efectivo.balance      > 0 ? String(Math.round(totals.efectivo.balance))      : '',
+                  transferencia: totals.transferencia.balance  > 0 ? String(Math.round(totals.transferencia.balance)) : '',
+                  tarjeta:       totals.tarjeta.balance        > 0 ? String(Math.round(totals.tarjeta.balance))       : '',
+                  usd:           totals.usd.balance            > 0 ? String(totals.usd.balance.toFixed(2))            : '',
+                })
+              }
+              setShowClose(true)
+            }} className="btn btn-danger btn-sm btn-lift"><Lock size={14} /> Cerrar Caja</button>
           </div>
         )}
       </div>

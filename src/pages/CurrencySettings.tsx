@@ -1,9 +1,17 @@
 import { useState, useEffect } from 'react';
-import { DollarSign, RefreshCw, Save, History, Cloud, MapPin, Globe } from 'lucide-react';
+import { DollarSign, RefreshCw, Save, History, Cloud, MapPin, Globe, Package, AlertTriangle } from 'lucide-react';
 import { Loader } from '../components/ui/Loader';
 import { useAuth } from '../contexts/AuthContext';
 import { currencyService, BusinessSettings, ExchangeRate } from '../services/currencyService';
 import { exchangeRateService, DolarSource } from '../services/exchangeRateService';
+
+interface SyncResult {
+  updated: number
+  skipped: number
+  rate: number
+  timestamp: string
+  error?: string
+}
 
 export function CurrencySettings() {
   const { businessId, isOwner, isAdmin } = useAuth();
@@ -11,6 +19,8 @@ export function CurrencySettings() {
   const [exchangeRate, setExchangeRate] = useState<number>(1000);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [rateHistory, setRateHistory] = useState<ExchangeRate[]>([]);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -101,8 +111,9 @@ export function CurrencySettings() {
         is_manual: true,
         source: 'manual'
       });
-      alert('Tipo de cambio actualizado exitosamente');
       loadRateHistory();
+      // Sincronizar precios de productos dolarizados con la nueva cotización
+      await syncProductPrices(exchangeRate);
     } catch (error) {
       console.error('Error updating rate:', error);
       alert('Error al actualizar tipo de cambio');
@@ -110,6 +121,26 @@ export function CurrencySettings() {
       setSaving(false);
     }
   };
+
+  /** Sincroniza sale_price de todos los productos dolarizados con la cotización actual. */
+  const syncProductPrices = async (rate: number) => {
+    if (!businessId) return
+    setSyncing(true)
+    try {
+      const result = await currencyService.updateProductPricesByExchangeRate(businessId, rate)
+      setSyncResult({
+        updated:   result.updated,
+        skipped:   result.skipped,
+        rate,
+        timestamp: new Date().toLocaleString('es-AR'),
+        error:     result.error,
+      })
+    } catch (e: any) {
+      setSyncResult({ updated: 0, skipped: 0, rate, timestamp: new Date().toLocaleString('es-AR'), error: e.message })
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const dolarSource: DolarSource = (settings?.dolar_source as DolarSource) ?? 'nacional'
 
@@ -125,8 +156,6 @@ export function CurrencySettings() {
         return;
       }
 
-      const sourceLabel = dolarSource === 'cordoba' ? 'Blue Córdoba (infodolar.com)' : 'Blue Nacional (Bluelytics)'
-
       await currencyService.upsertExchangeRate({
         business_id: businessId,
         base_currency: 'USD',
@@ -137,8 +166,9 @@ export function CurrencySettings() {
       });
 
       setExchangeRate(apiRate);
-      alert(`✅ Cotización actualizada desde ${sourceLabel}:\n$${apiRate.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
       loadRateHistory();
+      // Sincronizar precios de productos dolarizados con la cotización obtenida de la API
+      await syncProductPrices(apiRate);
     } catch (error) {
       console.error('Error updating rate from API:', error);
       alert('Error al actualizar tipo de cambio desde la fuente seleccionada');
@@ -338,7 +368,7 @@ export function CurrencySettings() {
 
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
             {canManageSettings && (
-              <button onClick={handleUpdateRate} disabled={saving} className="btn btn-primary btn-lift">
+              <button onClick={handleUpdateRate} disabled={saving || syncing} className="btn btn-primary btn-lift">
                 <RefreshCw size={15} />
                 {saving ? 'Actualizando...' : 'Actualizar Tipo de Cambio'}
               </button>
@@ -347,12 +377,12 @@ export function CurrencySettings() {
             {canManageSettings && (
               <button
                 onClick={handleUpdateFromAPI}
-                disabled={saving}
+                disabled={saving || syncing}
                 className="btn btn-lift"
                 style={{
                   background: dolarSource === 'cordoba' ? '#059669' : '#0284c7',
                   color: '#fff', border: 'none', whiteSpace: 'nowrap',
-                  opacity: saving ? 0.55 : 1,
+                  opacity: saving || syncing ? 0.55 : 1,
                 }}
                 title={dolarSource === 'cordoba'
                   ? 'Obtener valor de venta Blue Córdoba desde infodolar.com'
@@ -370,6 +400,52 @@ export function CurrencySettings() {
               <History size={15} />
               {showHistory ? 'Ocultar' : 'Ver Historial'}
             </button>
+          </div>
+
+          {/* ── Sync status y botón Reaplicar ── */}
+          <div style={{ marginTop: '1.25rem', padding: '1rem', background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Package size={15} style={{ color: syncing ? '#fbbf24' : '#475569', flexShrink: 0 }} />
+                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#64748b' }}>
+                  {syncing ? 'Actualizando precios de productos...' : 'Precios dolarizados'}
+                </span>
+              </div>
+              {canManageSettings && !syncing && (
+                <button
+                  onClick={() => syncProductPrices(exchangeRate)}
+                  disabled={syncing || exchangeRate <= 0}
+                  className="btn btn-ghost btn-sm"
+                  title="Reaplicar cotización actual a todos los productos con auto-actualización activada"
+                >
+                  <RefreshCw size={13} />
+                  Reaplicar dólar a productos
+                </button>
+              )}
+            </div>
+
+            {syncing && (
+              <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#fbbf24' }}>
+                Actualizando precios con cotización ${exchangeRate.toLocaleString('es-AR')}...
+              </div>
+            )}
+
+            {syncResult && !syncing && (
+              <div style={{ marginTop: '0.625rem' }}>
+                {syncResult.error ? (
+                  <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center', fontSize: '0.775rem', color: '#f87171' }}>
+                    <AlertTriangle size={13} />
+                    Error al sincronizar: {syncResult.error}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '0.775rem', color: '#64748b', display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+                    <span>✅ <strong style={{ color: '#34d399' }}>{syncResult.updated} productos</strong> actualizados a ${syncResult.rate.toLocaleString('es-AR')}</span>
+                    {syncResult.skipped > 0 && <span style={{ color: '#475569' }}>{syncResult.skipped} omitidos (sin precio USD base)</span>}
+                    <span style={{ color: '#334155' }}>{syncResult.timestamp}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {showHistory && (
