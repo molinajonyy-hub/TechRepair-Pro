@@ -54,6 +54,7 @@ const Customers = lazy(() => import('./pages/Customers').then(m => ({ default: m
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
 const Expenses = lazy(() => import('./pages/Expenses').then(m => ({ default: m.Expenses })))
 const Finance             = lazy(() => import('./pages/Finance').then(m => ({ default: m.Finance })))
+const FinanceDashboard    = lazy(() => import('./pages/FinanceDashboard').then(m => ({ default: m.FinanceDashboard })))
 const FinanceHealthCheck  = lazy(() => import('./pages/FinanceHealthCheck').then(m => ({ default: m.FinanceHealthCheck })))
 const Inventory = lazy(() => import('./pages/Inventory').then(m => ({ default: m.Inventory })))
 const LandingPage = lazy(() => import('./pages/LandingPage').then(m => ({ default: m.LandingPage })))
@@ -160,7 +161,8 @@ function AppContent() {
 
               {/* ── Rutas PRO — advancedFinance ── */}
               <Route element={<ProtectedRouteByFeature feature="advancedFinance" />}>
-                <Route path="/finance"               element={<Finance />} />
+                <Route path="/finance"               element={<FinanceDashboard />} />
+                <Route path="/finance/reports"       element={<Finance />} />
                 <Route path="/finance/health"        element={<FinanceHealthCheck />} />
               </Route>
 
