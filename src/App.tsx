@@ -53,7 +53,8 @@ const CustomerPortal = lazy(() => import('./pages/CustomerPortal').then(m => ({ 
 const Customers = lazy(() => import('./pages/Customers').then(m => ({ default: m.Customers })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
 const Expenses = lazy(() => import('./pages/Expenses').then(m => ({ default: m.Expenses })))
-const Finance = lazy(() => import('./pages/Finance').then(m => ({ default: m.Finance })))
+const Finance             = lazy(() => import('./pages/Finance').then(m => ({ default: m.Finance })))
+const FinanceHealthCheck  = lazy(() => import('./pages/FinanceHealthCheck').then(m => ({ default: m.FinanceHealthCheck })))
 const Inventory = lazy(() => import('./pages/Inventory').then(m => ({ default: m.Inventory })))
 const LandingPage = lazy(() => import('./pages/LandingPage').then(m => ({ default: m.LandingPage })))
 const Mayorista = lazy(() => import('./pages/Mayorista').then(m => ({ default: m.Mayorista })))
@@ -159,7 +160,8 @@ function AppContent() {
 
               {/* ── Rutas PRO — advancedFinance ── */}
               <Route element={<ProtectedRouteByFeature feature="advancedFinance" />}>
-                <Route path="/finance" element={<Finance />} />
+                <Route path="/finance"               element={<Finance />} />
+                <Route path="/finance/health"        element={<FinanceHealthCheck />} />
               </Route>
 
               {/* ── Rutas PRO — reports ── */}

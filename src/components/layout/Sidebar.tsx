@@ -116,6 +116,12 @@ const FinanzasIcon = () => (
     <polyline points="17 6 23 6 23 12"/>
   </svg>
 );
+const AuditoriaIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    <polyline points="9 12 11 14 15 10"/>
+  </svg>
+);
 const MiGuitaIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/>
@@ -236,8 +242,9 @@ const menuSections: NavSection[] = [
     items: [
       { path: '/expenses', label: 'Gastos',    icon: <GastosIcon />,   permission: 'finance' },
       { path: '/caja',     label: 'Caja',      icon: <CajaIcon />,     permission: 'finance' },
-      { path: '/finance',  label: 'Finanzas',  icon: <FinanzasIcon />, permission: 'finance', planFeature: 'advancedFinance' },
-      { path: '/reports',  label: 'Reportes',  icon: <ReportesIcon />, permission: 'reports', planFeature: 'reports' },
+      { path: '/finance',        label: 'Finanzas',  icon: <FinanzasIcon />,  permission: 'finance', planFeature: 'advancedFinance' },
+      { path: '/finance/health', label: 'Auditoría', icon: <AuditoriaIcon />, permission: 'finance', planFeature: 'advancedFinance' },
+      { path: '/reports',        label: 'Reportes',  icon: <ReportesIcon />,  permission: 'reports', planFeature: 'reports' },
       { path: '/mi-guita', label: 'Mi Guita',  icon: <MiGuitaIcon /> },
     ],
   },
