@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { Link, useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, User, Phone, Mail, MapPin, ClipboardList,
   Smartphone, Building2, CreditCard, ShoppingBag, ChevronDown,
-  ChevronRight, Receipt, Tag,
+  ChevronRight, Receipt, Tag, Search, ExternalLink,
+  TrendingUp, RotateCcw, Wallet,
 } from 'lucide-react'
 import { Loader } from '../components/ui/Loader'
 import { customersService } from '../services/api'
@@ -35,29 +36,48 @@ interface CustomerDetailData {
   orders?: CustomerOrderSummary[]
 }
 
-interface ComprobanteItem {
-  id: string
-  descripcion: string
-  tipo_linea: string
-  cantidad: number
+// ─── RPC types ────────────────────────────────────────────────────────────────
+
+interface PurchaseItem {
+  id:              string
+  descripcion:     string
+  tipo_linea:      string
+  cantidad:        number
   precio_unitario: number
-  costo_unitario: number
-  subtotal: number
-  applied_price_type?: string | null
+  subtotal:        number
 }
 
-interface CustomerComprobante {
-  id: string
-  numero: string | null
-  tipo: string
-  fecha: string
-  created_at: string
-  total: number
-  total_cobrado: number
-  saldo_pendiente: number
-  estado: string
-  estado_comercial?: string | null
-  items?: ComprobanteItem[]
+interface PurchaseRecord {
+  id:                       string
+  date:                     string
+  created_at:               string
+  tipo:                     string
+  numero:                   string | null
+  numero_local:             string | null
+  numero_fiscal:            string | null
+  cae:                      string | null
+  estado:                   string
+  estado_fiscal:            string | null
+  estado_comercial:         string
+  emitido_arca:             boolean
+  total:                    number
+  total_cobrado:            number
+  saldo_pendiente:          number
+  order_id:                 string | null
+  comprobante_original_id:  string | null
+  is_credit_note:           boolean
+  observaciones:            string | null
+  payment_methods:          string[]
+  items:                    PurchaseItem[]
+}
+
+interface PurchaseSummary {
+  total_purchases:  number
+  total_spent:      number
+  total_refunded:   number
+  net_spent:        number
+  pending_balance:  number
+  last_purchase_at: string | null
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -97,110 +117,144 @@ const getStatusStyle = (status: string) => {
   }
 }
 
-// ─── Comprobante row — expandable ─────────────────────────────────────────────
+// ─── Purchase row — historial de compras ──────────────────────────────────────
 
-function ComprobanteRow({ comp }: { comp: CustomerComprobante }) {
-  const [open, setOpen] = useState(false)
-  const meta = ESTADO_COM_META[comp.estado_comercial || 'pendiente'] || ESTADO_COM_META.pendiente
-  const isWholesale = comp.items?.some(i => i.applied_price_type === 'mayorista')
+function PurchaseRow({ purchase }: { purchase: PurchaseRecord }) {
+  const [open, setOpen]   = useState(false)
+  const navigate          = useNavigate()
+  const meta = ESTADO_COM_META[purchase.estado_comercial] || ESTADO_COM_META.pendiente
 
-  const totalCosto = (comp.items || []).reduce((s, i) => s + (i.costo_unitario || 0) * i.cantidad, 0)
-  const ganancia   = comp.total - totalCosto
+  const displayNumber = purchase.numero_fiscal ?? purchase.numero_local ?? purchase.id.slice(0, 8)
 
   return (
-    <>
-      <tr
-        onClick={() => setOpen(v => !v)}
-        style={{ cursor: 'pointer', borderBottom: open ? 'none' : '1px solid rgba(255,255,255,0.04)' }}
-        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.04)')}
-        onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-      >
-        <td style={{ padding: '0.625rem 1rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            {open ? <ChevronDown size={13} style={{ color: '#64748b', flexShrink: 0 }} /> : <ChevronRight size={13} style={{ color: '#64748b', flexShrink: 0 }} />}
-            <Link to={`/comprobantes/${comp.id}`} onClick={e => e.stopPropagation()} style={{ color: '#6366f1', fontWeight: 600, fontSize: '0.85rem' }}>
-              {comp.numero ? `#${comp.numero}` : `#${comp.id.slice(0, 8)}`}
-            </Link>
-            {isWholesale && (
-              <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '0.1rem 0.375rem', borderRadius: '0.25rem', background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)' }}>MAY</span>
-            )}
-            {/* Badge fiscal: distingue visualmente si fue emitido en ARCA o no */}
-            {!['emitido','issued'].includes(comp.estado || '') && (
-              <span title="No emitido en ARCA. La venta es real y ya impactó en stock/caja." style={{ fontSize: '0.6rem', fontWeight: 700, padding: '0.1rem 0.35rem', borderRadius: '0.25rem', background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)', whiteSpace: 'nowrap' }}>
-                Borrador ARCA
-              </span>
-            )}
-          </div>
-          <div style={{ fontSize: '0.7rem', color: '#475569', marginLeft: '1.375rem' }}>{TIPO_LABEL[comp.tipo] || comp.tipo}</div>
-        </td>
-        <td style={{ padding: '0.625rem 1rem', color: '#64748b', fontSize: '0.8rem' }}>
-          {new Date(comp.fecha || comp.created_at).toLocaleDateString('es-AR')}
-        </td>
-        <td style={{ padding: '0.625rem 1rem', fontSize: '0.78rem', color: '#64748b' }}>
-          {comp.items?.length ?? '—'} ítem{comp.items?.length !== 1 ? 's' : ''}
-        </td>
-        <td style={{ padding: '0.625rem 1rem', fontWeight: 600, fontFamily: 'monospace', fontSize: '0.85rem' }}>
-          {fmt(comp.total)}
-        </td>
-        <td style={{ padding: '0.625rem 1rem' }}>
-          <span style={{ padding: '0.15rem 0.5rem', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 700, background: meta.bg, color: meta.color }}>
-            {meta.label}
+    <div
+      data-testid="customer-purchase-row"
+      style={{
+        borderBottom: '1px solid rgba(255,255,255,0.04)',
+        padding: '0.875rem 1rem',
+        transition: 'background 0.12s',
+      }}
+      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.03)')}
+      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+    >
+      {/* ── Main row ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+        {/* Expand button */}
+        <button
+          data-testid="customer-purchase-expand"
+          onClick={() => setOpen(v => !v)}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-subtle)', padding: '0.1rem', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+        >
+          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </button>
+
+        {/* Tipo badge */}
+        <span style={{
+          padding: '0.15rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.68rem', fontWeight: 700,
+          background: purchase.is_credit_note ? 'rgba(251,191,36,0.12)' : purchase.tipo === 'remito' ? 'rgba(52,211,153,0.1)' : 'rgba(99,102,241,0.1)',
+          color: purchase.is_credit_note ? '#fbbf24' : purchase.tipo === 'remito' ? '#34d399' : '#818cf8',
+          whiteSpace: 'nowrap', flexShrink: 0,
+        }}>
+          {purchase.is_credit_note ? '↩ NC' : (TIPO_LABEL[purchase.tipo] || purchase.tipo)}
+        </span>
+
+        {/* ARCA / Local badge */}
+        {purchase.emitido_arca && (
+          <span style={{ padding: '0.1rem 0.4rem', borderRadius: '0.25rem', fontSize: '0.62rem', fontWeight: 700, background: 'rgba(6,182,212,0.1)', color: '#22d3ee', flexShrink: 0 }}>
+            ARCA ✓
           </span>
-          {comp.saldo_pendiente > 0.5 && (
-            <div style={{ fontSize: '0.68rem', color: '#f59e0b', marginTop: '0.1rem' }}>Saldo: {fmt(comp.saldo_pendiente)}</div>
-          )}
-        </td>
-        <td style={{ padding: '0.625rem 1rem', fontFamily: 'monospace', fontSize: '0.78rem', color: ganancia >= 0 ? '#34d399' : '#f87171' }}>
-          {totalCosto > 0 ? (ganancia >= 0 ? '+' : '') + fmt(ganancia) : '—'}
-        </td>
-      </tr>
-      {open && (
-        <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-          <td colSpan={6} style={{ padding: '0 0 0.875rem 1.375rem' }}>
-            <div style={{ margin: '0 1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '0.5rem', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.05)' }}>
-              {(comp.items || []).length === 0 ? (
-                <p style={{ margin: 0, padding: '0.875rem', color: '#475569', fontSize: '0.78rem' }}>Sin ítems registrados.</p>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
-                  <thead>
-                    <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                      {['Descripción', 'Tipo', 'Cant.', 'Precio unit.', 'Costo', 'Ganancia', 'Subtotal'].map(h => (
-                        <th key={h} style={{ padding: '0.4rem 0.75rem', textAlign: 'left', color: '#334155', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comp.items!.map(item => {
-                      const linGanancia = (item.precio_unitario - (item.costo_unitario || 0)) * item.cantidad
-                      return (
-                        <tr key={item.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                          <td style={{ padding: '0.4rem 0.75rem', color: '#e2e8f0' }}>
-                            {item.descripcion}
-                            {item.applied_price_type === 'mayorista' && <span style={{ marginLeft: '0.375rem', fontSize: '0.6rem', color: '#818cf8', fontWeight: 700 }}>MAYO</span>}
-                          </td>
-                          <td style={{ padding: '0.4rem 0.75rem' }}>
-                            <span style={{ padding: '0.1rem 0.375rem', borderRadius: '0.2rem', fontSize: '0.65rem', fontWeight: 700, background: `${TIPO_LINEA_COLOR[item.tipo_linea] || '#64748b'}18`, color: TIPO_LINEA_COLOR[item.tipo_linea] || '#64748b' }}>
-                              {item.tipo_linea}
-                            </span>
-                          </td>
-                          <td style={{ padding: '0.4rem 0.75rem', fontFamily: 'monospace', textAlign: 'center', color: '#94a3b8' }}>{item.cantidad}</td>
-                          <td style={{ padding: '0.4rem 0.75rem', fontFamily: 'monospace', color: '#94a3b8' }}>{fmt(item.precio_unitario)}</td>
-                          <td style={{ padding: '0.4rem 0.75rem', fontFamily: 'monospace', color: '#64748b' }}>{item.costo_unitario ? fmt(item.costo_unitario) : '—'}</td>
-                          <td style={{ padding: '0.4rem 0.75rem', fontFamily: 'monospace', color: linGanancia >= 0 ? '#34d399' : '#f87171', fontSize: '0.75rem' }}>
-                            {item.costo_unitario ? (linGanancia >= 0 ? '+' : '') + fmt(linGanancia) : '—'}
-                          </td>
-                          <td style={{ padding: '0.4rem 0.75rem', fontFamily: 'monospace', fontWeight: 600, color: '#f1f5f9' }}>{fmt(item.subtotal)}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </td>
-        </tr>
+        )}
+
+        {/* Número */}
+        <span style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: 600, flexShrink: 0 }}>
+          {displayNumber}
+        </span>
+
+        {/* Items summary */}
+        {purchase.items.length > 0 && (
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            {purchase.items.slice(0, 2).map(i => i.descripcion).join(', ')}
+            {purchase.items.length > 2 ? ` +${purchase.items.length - 2}` : ''}
+          </span>
+        )}
+
+        <div style={{ flex: 1 }} />
+
+        {/* Payment methods */}
+        <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}>
+          {(purchase.payment_methods || []).slice(0, 2).map(m => (
+            <span key={m} style={{ fontSize: '0.62rem', padding: '0.1rem 0.35rem', borderRadius: '0.25rem', background: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)', textTransform: 'capitalize' }}>
+              {m}
+            </span>
+          ))}
+        </div>
+
+        {/* Total */}
+        <span style={{ fontWeight: 700, fontSize: '0.9rem', color: purchase.is_credit_note ? '#fbbf24' : 'var(--text-primary)', fontFamily: 'monospace', flexShrink: 0 }}>
+          {purchase.is_credit_note ? '-' : ''}{fmt(purchase.total)}
+        </span>
+
+        {/* Estado comercial badge */}
+        <span style={{ padding: '0.15rem 0.5rem', borderRadius: '9999px', fontSize: '0.68rem', fontWeight: 600, background: meta.bg, color: meta.color, flexShrink: 0 }}>
+          {meta.label}
+        </span>
+
+        {/* Saldo */}
+        {purchase.saldo_pendiente > 0.5 && (
+          <span style={{ fontSize: '0.72rem', color: '#f87171', flexShrink: 0 }}>
+            Saldo: {fmt(purchase.saldo_pendiente)}
+          </span>
+        )}
+
+        {/* Fecha */}
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+          {new Date(purchase.date).toLocaleDateString('es-AR')}
+        </span>
+
+        {/* Open link */}
+        <button
+          data-testid="customer-purchase-open-comprobante"
+          onClick={e => { e.stopPropagation(); navigate(`/comprobantes/${purchase.id}`) }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-primary)', padding: '0.2rem', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+          title="Abrir comprobante"
+        >
+          <ExternalLink size={13} />
+        </button>
+      </div>
+
+      {/* ── Items expandidos ── */}
+      {open && purchase.items.length > 0 && (
+        <div
+          data-testid="customer-purchase-items"
+          style={{ marginTop: '0.625rem', marginLeft: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '0.5rem', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.05)' }}
+        >
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' }}>
+            <thead>
+              <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                {['Descripción', 'Tipo', 'Cant.', 'Precio unit.', 'Subtotal'].map(h => (
+                  <th key={h} style={{ padding: '0.35rem 0.75rem', textAlign: 'left', color: 'var(--text-subtle)', fontSize: '0.62rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {purchase.items.map(item => (
+                <tr key={item.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                  <td style={{ padding: '0.375rem 0.75rem', color: 'var(--text-secondary)' }}>{item.descripcion}</td>
+                  <td style={{ padding: '0.375rem 0.75rem' }}>
+                    <span style={{ padding: '0.1rem 0.35rem', borderRadius: '0.2rem', fontSize: '0.62rem', fontWeight: 700, background: `${TIPO_LINEA_COLOR[item.tipo_linea] || '#64748b'}18`, color: TIPO_LINEA_COLOR[item.tipo_linea] || '#64748b' }}>
+                      {item.tipo_linea}
+                    </span>
+                  </td>
+                  <td style={{ padding: '0.375rem 0.75rem', fontFamily: 'monospace', textAlign: 'center', color: 'var(--text-muted)' }}>{item.cantidad}</td>
+                  <td style={{ padding: '0.375rem 0.75rem', fontFamily: 'monospace', color: 'var(--text-muted)' }}>{fmt(item.precio_unitario)}</td>
+                  <td style={{ padding: '0.375rem 0.75rem', fontFamily: 'monospace', fontWeight: 600, color: 'var(--text-primary)' }}>{fmt(item.subtotal)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
-    </>
+    </div>
   )
 }
 
@@ -215,8 +269,12 @@ export function CustomerDetail() {
   const [ccAccount,     setCcAccount]     = useState<Account | null>(null)
   const [showPagarCC,   setShowPagarCC]   = useState(false)
   const [activeTab,     setActiveTab]     = useState<'ordenes' | 'compras'>('ordenes')
-  const [comprobantes,  setComprobantes]  = useState<CustomerComprobante[]>([])
-  const [compLoading,   setCompLoading]   = useState(false)
+  // RPC purchase history
+  const [purchases,     setPurchases]     = useState<PurchaseRecord[]>([])
+  const [phSummary,     setPhSummary]     = useState<PurchaseSummary | null>(null)
+  const [phLoading,     setPhLoading]     = useState(false)
+  const [searchTerm,    setSearchTerm]    = useState('')
+  const [filterTipo,    setFilterTipo]    = useState<'todos' | 'facturas' | 'remitos' | 'nc'>('todos')
 
   // Load customer
   useEffect(() => {
@@ -236,42 +294,42 @@ export function CustomerDetail() {
 
   useEffect(() => { void loadCcAccount() }, [loadCcAccount])
 
-  // Load comprobantes when tab selected
+  // Load purchase history via RPC when tab selected
   useEffect(() => {
     if (activeTab !== 'compras' || !id || !businessId) return
-    setCompLoading(true)
-    supabase
-      .from('comprobantes')
-      .select(`
-        id, numero, number, tipo, type, fecha, date, created_at,
-        total, total_cobrado, saldo_pendiente,
-        estado, status, estado_comercial, estado_fiscal,
-        items:comprobante_items(id, descripcion, tipo_linea, cantidad, precio_unitario, costo_unitario, subtotal, applied_price_type)
-      `)
-      .eq('business_id', businessId)
-      .eq('customer_id', id)
-      // Mostrar todas las ventas comerciales confirmadas, no solo las emitidas en ARCA.
-      // Un comprobante borrador fiscal pero cobrado sigue siendo una venta real.
-      .not('estado', 'in', '("anulado")')
-      .not('status', 'in', '("cancelled")')
-      .not('estado_comercial', 'eq', 'anulado')
-      .order('created_at', { ascending: false })
-      .then(({ data }) => {
-        setComprobantes((data || []).map((c: any) => ({
-          ...c,
-          numero:   c.numero || c.number || null,
-          tipo:     c.tipo   || c.type   || 'factura_c',
-          fecha:    c.fecha  || c.date   || c.created_at,
-          estado_comercial: c.estado_comercial || (c.saldo_pendiente > 0.5 ? 'parcial' : 'pagado'),
-        })) as CustomerComprobante[])
-        setCompLoading(false)
-      })
+    setPhLoading(true)
+    void Promise.resolve(
+      supabase.rpc('customer_purchase_history', { p_customer_id: id, p_business_id: businessId })
+    ).then(({ data, error: rpcErr }) => {
+      if (!rpcErr && data?.ok) {
+        setPurchases((data.purchases || []) as PurchaseRecord[])
+        setPhSummary(data.summary as PurchaseSummary)
+      }
+    }).finally(() => setPhLoading(false))
   }, [activeTab, id, businessId])
 
+  // Filtered + searched purchases
+  const filteredPurchases = useMemo(() => {
+    let list = purchases
+    if (filterTipo !== 'todos') {
+      if (filterTipo === 'facturas')  list = list.filter(p => ['factura_a','factura_c'].includes(p.tipo))
+      if (filterTipo === 'remitos')   list = list.filter(p => p.tipo === 'remito')
+      if (filterTipo === 'nc')        list = list.filter(p => p.is_credit_note)
+    }
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase()
+      list = list.filter(p =>
+        (p.numero ?? '').toLowerCase().includes(q) ||
+        p.items.some(i => i.descripcion.toLowerCase().includes(q))
+      )
+    }
+    return list
+  }, [purchases, filterTipo, searchTerm])
+
   // ── Computed stats ────────────────────────────────────────────────────────
-  const totalComprado = comprobantes.reduce((s, c) => s + (c.total || 0), 0)
+  const totalComprado = phSummary?.total_spent ?? purchases.reduce((s, p) => s + (p.total || 0), 0)
   const deudaCC       = ccAccount && ccAccount.balance > 0 ? ccAccount.balance : 0
-  const ultimaCompra  = comprobantes[0]?.fecha || comprobantes[0]?.created_at || null
+  const ultimaCompra  = phSummary?.last_purchase_at ?? (purchases[0]?.date || purchases[0]?.created_at || null)
 
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}><Loader size="lg" text="Cargando cliente..." /></div>
 
@@ -319,7 +377,7 @@ export function CustomerDetail() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.875rem', marginBottom: '1.5rem' }}>
         {[
           { label: 'Total comprado', value: fmt(totalComprado), color: '#818cf8', icon: <ShoppingBag size={16} /> },
-          { label: 'Comprobantes', value: String(comprobantes.length || (customer.orders?.length ?? 0)), color: '#34d399', icon: <Receipt size={16} /> },
+          { label: 'Comprobantes', value: String(purchases.length || (customer.orders?.length ?? 0)), color: '#34d399', icon: <Receipt size={16} /> },
           { label: 'Deuda CC', value: deudaCC > 0 ? fmt(deudaCC) : 'Sin deuda', color: deudaCC > 0 ? '#f87171' : '#34d399', icon: <CreditCard size={16} /> },
           { label: 'Última compra', value: ultimaCompra ? new Date(ultimaCompra).toLocaleDateString('es-AR') : '—', color: '#64748b', icon: <Tag size={16} /> },
         ].map(s => (
@@ -395,7 +453,7 @@ export function CustomerDetail() {
           <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '0 0.5rem' }}>
             {([
               { id: 'ordenes', label: 'Órdenes', icon: <ClipboardList size={14} />, count: customer.orders?.length ?? 0 },
-              { id: 'compras', label: 'Compras', icon: <ShoppingBag size={14} />, count: comprobantes.length },
+              { id: 'compras', label: 'Compras', icon: <ShoppingBag size={14} />, count: purchases.length },
             ] as const).map(tab => (
               <button
                 key={tab.id}
@@ -469,32 +527,86 @@ export function CustomerDetail() {
             </div>
           )}
 
-          {/* ── Tab: Compras (comprobantes) ── */}
+          {/* ── Tab: Compras — historial de compras ── */}
           {activeTab === 'compras' && (
-            <div style={{ padding: 0 }}>
-              {compLoading ? (
-                <div style={{ padding: '2.5rem', textAlign: 'center', color: '#64748b' }}>
-                  <Loader size="sm" />
-                  Cargando historial de compras...
+            <div data-testid="customer-purchase-history">
+
+              {/* ── Summary cards ── */}
+              {phSummary && !phLoading && (
+                <div
+                  data-testid="customer-purchase-summary"
+                  style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem', padding: '1.25rem 1.25rem 0' }}
+                >
+                  {[
+                    { icon: <ShoppingBag size={16} />, label: 'Compras',        value: String(phSummary.total_purchases),        color: '#818cf8' },
+                    { icon: <TrendingUp  size={16} />, label: 'Total gastado',   value: fmt(phSummary.total_spent),               color: '#34d399' },
+                    { icon: <RotateCcw   size={16} />, label: 'Devoluciones',    value: fmt(phSummary.total_refunded),            color: '#fbbf24' },
+                    { icon: <Wallet      size={16} />, label: 'Saldo pendiente', value: fmt(phSummary.pending_balance),           color: phSummary.pending_balance > 0 ? '#f87171' : '#34d399' },
+                  ].map(s => (
+                    <div key={s.label} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.625rem', padding: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <span style={{ color: s.color }}>{s.icon}</span>
+                      <div>
+                        <div style={{ fontSize: '1rem', fontWeight: 700, color: s.color }}>{s.value}</div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{s.label}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ) : comprobantes.length === 0 ? (
-                <div style={{ padding: '2.5rem', textAlign: 'center', color: '#64748b' }}>
-                  <ShoppingBag size={28} style={{ margin: '0 auto 0.75rem', opacity: 0.3, display: 'block' }} />
-                  Este cliente no tiene comprobantes registrados.
+              )}
+
+              {/* ── Search + filters ── */}
+              {!phLoading && purchases.length > 0 && (
+                <div style={{ display: 'flex', gap: '0.75rem', padding: '1rem 1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {/* Search */}
+                  <div style={{ position: 'relative', flex: 1, minWidth: 180 }}>
+                    <Search size={13} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-subtle)', pointerEvents: 'none' }} />
+                    <input
+                      className="form-control"
+                      style={{ paddingLeft: '2.25rem', height: 36, fontSize: '0.82rem' }}
+                      placeholder="Buscar por número o producto..."
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  {/* Type filter */}
+                  <div style={{ display: 'flex', gap: '0.375rem' }} data-testid="customer-purchase-filter">
+                    {([
+                      { key: 'todos',    label: 'Todos'   },
+                      { key: 'facturas', label: 'Facturas' },
+                      { key: 'remitos',  label: 'Remitos' },
+                      { key: 'nc',       label: 'NC'      },
+                    ] as const).map(f => (
+                      <button key={f.key} onClick={() => setFilterTipo(f.key)}
+                        style={{ padding: '0.3rem 0.75rem', borderRadius: '0.375rem', border: `1px solid ${filterTipo === f.key ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.08)'}`, background: filterTipo === f.key ? 'rgba(99,102,241,0.12)' : 'transparent', color: filterTipo === f.key ? '#818cf8' : 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}>
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  {filteredPurchases.length !== purchases.length && (
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-subtle)' }}>{filteredPurchases.length} resultado{filteredPurchases.length !== 1 ? 's' : ''}</span>
+                  )}
+                </div>
+              )}
+
+              {/* ── Content ── */}
+              {phLoading ? (
+                <div style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <Loader size="sm" />
+                  <span style={{ marginLeft: '0.5rem' }}>Cargando historial de compras…</span>
+                </div>
+              ) : purchases.length === 0 ? (
+                <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <ShoppingBag size={32} style={{ margin: '0 auto 0.875rem', opacity: 0.3, display: 'block' }} />
+                  <p style={{ margin: 0, fontWeight: 600 }}>Este cliente todavía no tiene compras registradas.</p>
+                </div>
+              ) : filteredPurchases.length === 0 ? (
+                <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  Sin resultados para la búsqueda.
                 </div>
               ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-                  <thead>
-                    <tr style={{ background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                      {['Comprobante', 'Fecha', 'Ítems', 'Total', 'Estado', 'Ganancia'].map(h => (
-                        <th key={h} style={{ padding: '0.625rem 1rem', textAlign: 'left', color: '#334155', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comprobantes.map(comp => <ComprobanteRow key={comp.id} comp={comp} />)}
-                  </tbody>
-                </table>
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', marginTop: '0.25rem' }}>
+                  {filteredPurchases.map(p => <PurchaseRow key={p.id} purchase={p} />)}
+                </div>
               )}
             </div>
           )}
