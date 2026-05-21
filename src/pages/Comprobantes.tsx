@@ -52,18 +52,29 @@ export default function ComprobantesPage() {
     finally { setActionLoading(null); }
   };
 
-  // ── Eliminar borrador ────────────────────────────────────────────────────────
-  const [eliminando, setEliminando]     = useState<Comprobante | null>(null);
+  // ── Eliminar comprobante local ───────────────────────────────────────────────
+  const [eliminando, setEliminando]       = useState<Comprobante | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError]     = useState<string | null>(null);
+  const [deleteSuccess, setDeleteSuccess] = useState<string | null>(null);
 
   const confirmarEliminar = async () => {
     if (!eliminando || !businessId) return;
     setDeleteLoading(true); setDeleteError(null);
     try {
       const r = await comprobanteService.eliminar(eliminando.id, businessId);
-      if (!r.success) throw new Error(r.error);
-      setEliminando(null); await cargarComprobantes();
+      if (!r.success) {
+        if (r.arca_blocked) {
+          setDeleteError('Este comprobante ya fue emitido fiscalmente. Para anularlo, generá una Nota de Crédito.');
+        } else {
+          throw new Error(r.error);
+        }
+        return;
+      }
+      setEliminando(null);
+      setDeleteSuccess('Comprobante eliminado y caja actualizada.');
+      setTimeout(() => setDeleteSuccess(null), 4000);
+      await cargarComprobantes();
     } catch (e: any) { setDeleteError(e.message || 'Error al eliminar'); }
     finally { setDeleteLoading(false); }
   };
@@ -166,11 +177,16 @@ export default function ComprobantesPage() {
         )}
       </div>
 
-      {/* ── Error ── */}
+      {/* ── Error / Success ── */}
       {error && (
         <div className="alert alert-error" style={{ marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>{formatDisplayMessage(error)}</span>
           <button className="btn btn-ghost btn-sm" onClick={limpiarError}>Cerrar</button>
+        </div>
+      )}
+      {deleteSuccess && (
+        <div className="alert alert-success" style={{ marginBottom: '1.25rem' }}>
+          {deleteSuccess}
         </div>
       )}
 
@@ -257,23 +273,39 @@ export default function ComprobantesPage() {
         </div>
       )}
 
-      {/* ── Modal Eliminar Borrador ── */}
+      {/* ── Modal Eliminar Comprobante ── */}
       {eliminando && (
-        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) setEliminando(null) }}>
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setEliminando(null); setDeleteError(null); } }}>
           <div className="modal-content" style={{ maxWidth: '420px' }}>
             <div className="modal-header">
-              <h3 className="modal-title">Eliminar Borrador</h3>
-              <CloseButton onClick={() => setEliminando(null)} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <AlertTriangle size={16} style={{ color: '#ef4444' }} />
+                <h3 className="modal-title">Eliminar Comprobante</h3>
+              </div>
+              <CloseButton onClick={() => { setEliminando(null); setDeleteError(null); }} />
             </div>
-            <div className="modal-body">
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               <p style={{ color: 'var(--text-secondary)' }}>
-                ¿Eliminás <strong>{eliminando.numero || `#${eliminando.id.slice(0,8)}`}</strong>? No se puede deshacer.
+                ¿Eliminás <strong>{eliminando.numero || `#${eliminando.id.slice(0,8)}`}</strong>? Esta acción no se puede deshacer.
               </p>
-              <p style={{ color: 'var(--text-subtle)', fontSize: '0.8125rem', marginTop: '0.5rem' }}>Como es un borrador, no afecta stock ni finanzas.</p>
-              {deleteError && <p style={{ color: 'var(--color-error)', fontSize: '0.85rem', marginTop: '0.75rem' }}>{deleteError}</p>}
+              <p style={{ color: 'var(--text-subtle)', fontSize: '0.8125rem' }}>
+                Se eliminarán también todos los pagos y movimientos de caja asociados a este comprobante.
+              </p>
+              {deleteError && (
+                <div style={{
+                  background: 'rgba(239,68,68,0.08)',
+                  border: '1px solid rgba(239,68,68,0.3)',
+                  borderRadius: '0.5rem',
+                  padding: '0.75rem',
+                  color: '#fca5a5',
+                  fontSize: '0.85rem',
+                }}>
+                  {deleteError}
+                </div>
+              )}
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setEliminando(null)} disabled={deleteLoading}>Cancelar</button>
+              <button className="btn btn-secondary" onClick={() => { setEliminando(null); setDeleteError(null); }} disabled={deleteLoading}>Cancelar</button>
               <button className="btn btn-red" onClick={confirmarEliminar} disabled={deleteLoading}>
                 {deleteLoading ? <><Loader2 size={14} className="animate-spin" /> Eliminando...</> : 'Eliminar'}
               </button>

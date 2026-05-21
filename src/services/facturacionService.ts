@@ -22,6 +22,8 @@ export interface Comprobante {
   total_usd: number;
   exchange_rate: number;
   estado: 'borrador' | 'emitido' | 'anulado';
+  estado_fiscal?: string | null;
+  numero_fiscal?: string | null;
   cae: string | null;
   cae_vencimiento: string | null;
   afip_response: any;

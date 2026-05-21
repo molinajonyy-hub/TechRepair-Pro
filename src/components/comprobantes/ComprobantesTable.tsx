@@ -552,10 +552,10 @@ export function ComprobantesTable({ comprobantes, onEdit, onAnular, onEliminar, 
                             </button>
                           )}
 
-                          {/* Anular — solo emitido */}
-                          {comprobante.estado === 'emitido' && onAnular && (
+                          {/* Anular — solo ARCA emitido (genera Nota de Crédito) */}
+                          {(comprobante.estado_fiscal === 'emitido' || !!comprobante.cae) && onAnular && (
                             <button
-                              title="Anular comprobante"
+                              title="Anular comprobante (genera Nota de Crédito)"
                               onClick={() => onAnular(comprobante)}
                               disabled={actionLoading === comprobante.id}
                               style={{
@@ -575,10 +575,10 @@ export function ComprobantesTable({ comprobantes, onEdit, onAnular, onEliminar, 
                             </button>
                           )}
 
-                          {/* Eliminar — solo borrador */}
-                          {comprobante.estado === 'borrador' && onEliminar && (
+                          {/* Eliminar — comprobantes NO emitidos en ARCA */}
+                          {!comprobante.cae && comprobante.estado_fiscal !== 'emitido' && onEliminar && (
                             <button
-                              title="Eliminar borrador"
+                              title="Eliminar comprobante y limpiar caja"
                               onClick={() => onEliminar(comprobante)}
                               disabled={actionLoading === comprobante.id}
                               style={{

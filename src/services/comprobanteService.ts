@@ -864,12 +864,26 @@ export const comprobanteService = {
     return result;
   },
 
-  // ── Eliminar borrador ─────────────────────────────────────────────────────────
-  async eliminar(comprobanteId: string, businessId: string): Promise<{ success: boolean; error?: string }> {
-    await supabase.from('comprobante_items').delete().eq('comprobante_id', comprobanteId);
-    const { error } = await supabase.from('comprobantes').delete()
-      .eq('id', comprobanteId).eq('business_id', businessId);
-    return error ? { success: false, error: error.message } : { success: true };
+  // ── Eliminar comprobante local (no fiscal) ────────────────────────────────────
+  // Llama la RPC atómica que elimina el comprobante junto con todos sus
+  // registros financieros asociados (payments, financial_movements, BFE).
+  // Bloquea si el comprobante ya fue emitido en ARCA (devuelve arca_blocked=true).
+  async eliminar(
+    comprobanteId: string,
+    _businessId: string
+  ): Promise<{ success: boolean; arca_blocked?: boolean; error?: string }> {
+    const { data, error } = await supabase.rpc('delete_comprobante_with_finance', {
+      p_comprobante_id: comprobanteId,
+    });
+    if (error) return { success: false, error: error.message };
+    if (!data?.success) {
+      return {
+        success:      false,
+        arca_blocked: data?.arca_blocked === true,
+        error:        data?.error || 'Error al eliminar el comprobante',
+      };
+    }
+    return { success: true };
   },
 
   // ── Calculadora de cobro ──────────────────────────────────────────────────────
