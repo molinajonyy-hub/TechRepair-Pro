@@ -1237,11 +1237,18 @@ export function ComprobanteProModal({
             {/* SUCCESS OVERLAY */}
             {showSuccess && (
               <div data-testid="comprobante-success-screen" style={{ position: 'absolute', inset: 0, background: '#07101f', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 10, padding: '1.5rem', animation: 'spotlightSlide 0.25s ease' }}>
-                <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(34,197,94,0.1)', border: '2px solid rgba(34,197,94,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.25rem', animation: 'successBounce 0.4s ease' }}>
-                  <CheckCircle2 size={36} color="#22c55e" />
+                {/* Icon and title change depending on whether ARCA succeeded */}
+                <div style={{ width: 72, height: 72, borderRadius: '50%', background: arcaWarning ? 'rgba(245,158,11,0.1)' : 'rgba(34,197,94,0.1)', border: `2px solid ${arcaWarning ? 'rgba(245,158,11,0.4)' : 'rgba(34,197,94,0.4)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.25rem', animation: 'successBounce 0.4s ease' }}>
+                  <CheckCircle2 size={36} color={arcaWarning ? '#f59e0b' : '#22c55e'} />
                 </div>
-                <h3 style={{ margin: '0 0 0.25rem', color: '#f0f4ff', fontSize: '1.25rem', fontWeight: 800, textAlign: 'center' }}>Cobro exitoso</h3>
-                <p style={{ margin: '0 0 1.5rem', color: '#475569', fontSize: '0.875rem', textAlign: 'center' }}>{tc.label} emitido correctamente</p>
+                <h3 style={{ margin: '0 0 0.25rem', color: '#f0f4ff', fontSize: '1.25rem', fontWeight: 800, textAlign: 'center' }}>
+                  {arcaWarning ? 'Cobro registrado' : 'Cobro exitoso'}
+                </h3>
+                <p style={{ margin: '0 0 1.5rem', color: '#475569', fontSize: '0.875rem', textAlign: 'center' }}>
+                  {arcaWarning
+                    ? 'El comprobante se guardó localmente. No se pudo emitir en ARCA.'
+                    : `${tc.label} emitido correctamente`}
+                </p>
 
                 <div style={{ width: '100%', background: 'rgba(255,255,255,0.04)', borderRadius: '0.875rem', padding: '1rem 1.25rem', marginBottom: '1.5rem', textAlign: 'center' }}>
                   <div style={{ color: '#334155', fontSize: '0.78rem', marginBottom: '0.25rem' }}>Total cobrado</div>
@@ -1253,9 +1260,18 @@ export function ComprobanteProModal({
                   )}
                 </div>
 
+                {/* ARCA error — prominent block, not just a footnote */}
                 {arcaWarning && (
-                  <div style={{ width: '100%', padding: '0.625rem 0.875rem', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '0.625rem', marginBottom: '1rem', color: '#f59e0b', fontSize: '0.75rem' }}>
-                    {arcaWarning}
+                  <div style={{ width: '100%', padding: '0.75rem 0.875rem', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '0.75rem', marginBottom: '1rem' }}>
+                    <div style={{ color: '#f59e0b', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.25rem' }}>
+                      Error al emitir en ARCA
+                    </div>
+                    <div style={{ color: '#d97706', fontSize: '0.75rem', lineHeight: 1.4 }}>
+                      {arcaWarning}
+                    </div>
+                    <div style={{ color: '#92400e', fontSize: '0.7rem', marginTop: '0.375rem' }}>
+                      El comprobante quedó como borrador. Podés reintentarlo desde la vista del comprobante.
+                    </div>
                   </div>
                 )}
 

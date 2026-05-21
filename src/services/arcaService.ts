@@ -198,7 +198,7 @@ export class ArcaService {
         setTimeout(() => reject(new Error('ARCA no respondió en 20 segundos. El comprobante se guardó como borrador.')), 20_000)
       )
 
-      const { data, error } = await Promise.race([
+      const invokeResult = await Promise.race([
         supabase.functions.invoke('afip-cae', {
           body: {
             business_id:  businessId,
@@ -211,7 +211,20 @@ export class ArcaService {
         timeout,
       ])
 
-      if (error) throw new Error(error.message || 'Error al conectar con afip-cae')
+      const { data, error } = invokeResult as { data: any; error: any }
+
+      if (error) {
+        // Supabase discards the response body for non-2xx and returns a generic
+        // message. Try to extract the real error from the response context.
+        let msg = error.message || 'Error al conectar con afip-cae'
+        try {
+          if (error.context?.json) {
+            const body = await error.context.json()
+            if (body?.error) msg = body.error
+          }
+        } catch {/* context not readable — use generic message */}
+        throw new Error(msg)
+      }
       if (!data?.success) throw new Error(data?.error || 'Error al solicitar CAE')
 
       return {
