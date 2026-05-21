@@ -181,6 +181,10 @@ export class ArcaService {
       moneda?:           string
       cotizacion_moneda?: number
       fecha_cbte?:       string
+      // Nota de Crédito: referencia al comprobante original (CbtesAsoc)
+      cbte_asoc_tipo?:    number
+      cbte_asoc_pto_vta?: number
+      cbte_asoc_nro?:     number
     }
   ): Promise<{
     success: boolean

@@ -34,7 +34,7 @@ export default function ComprobantesPage() {
   const limpiarError = () => setError(null);
   const handleEdit   = (comp: Comprobante) => navigate(`/comprobantes/${comp.id}`);
 
-  // ── Anular ──────────────────────────────────────────────────────────────────
+  // ── Anular (legacy — mantenido para comprobantes no-ARCA) ───────────────────
   const [anulando, setAnulando]           = useState<Comprobante | null>(null);
   const [anulandoMotivo, setAnulandoMotivo] = useState('');
   const [actionLoading, setActionLoading]   = useState<string | null>(null);
@@ -50,6 +50,37 @@ export default function ComprobantesPage() {
       await cargarComprobantes();
     } catch (e: any) { setActionError(e.message || 'Error al anular'); }
     finally { setActionLoading(null); }
+  };
+
+  // ── Nota de Crédito (para comprobantes emitidos en ARCA) ────────────────────
+  const [ncComprobante, setNcComprobante]   = useState<Comprobante | null>(null);
+  const [ncEmitirArca, setNcEmitirArca]     = useState(true);
+  const [ncLoading, setNcLoading]           = useState(false);
+  const [ncError, setNcError]               = useState<string | null>(null);
+  const [ncSuccess, setNcSuccess]           = useState<string | null>(null);
+
+  const confirmarNotaCredito = async () => {
+    if (!ncComprobante || !businessId) return;
+    setNcLoading(true); setNcError(null);
+    try {
+      const r = await comprobanteService.crearNotaCredito({
+        originalComprobanteId: ncComprobante.id,
+        businessId,
+        userId:       user?.id || '',
+        emitirEnArca: ncEmitirArca,
+      });
+      if (!r.success) throw new Error(r.error);
+      setNcComprobante(null);
+      const msg = r.cae
+        ? `Nota de Crédito emitida en ARCA. CAE: ${r.cae}`
+        : r.arca_error
+          ? `NC guardada. Error ARCA: ${r.arca_error}`
+          : 'Nota de Crédito generada como borrador.';
+      setNcSuccess(msg);
+      setTimeout(() => setNcSuccess(null), 6000);
+      await cargarComprobantes();
+    } catch (e: any) { setNcError(e.message || 'Error al generar Nota de Crédito'); }
+    finally { setNcLoading(false); }
   };
 
   // ── Eliminar comprobante local ───────────────────────────────────────────────
@@ -189,6 +220,11 @@ export default function ComprobantesPage() {
           {deleteSuccess}
         </div>
       )}
+      {ncSuccess && (
+        <div className="alert alert-success" style={{ marginBottom: '1.25rem' }}>
+          {ncSuccess}
+        </div>
+      )}
 
       {/* ── Buscador ── */}
       <div className="filter-bar">
@@ -229,8 +265,9 @@ export default function ComprobantesPage() {
           comprobantes={filtered}
           onEdit={handleEdit}
           onAnular={comp => { setActionError(null); setAnulandoMotivo(''); setAnulando(comp); }}
+          onNotaCredito={comp => { setNcError(null); setNcEmitirArca(true); setNcComprobante(comp); }}
           onEliminar={comp => { setDeleteError(null); setEliminando(comp); }}
-          actionLoading={actionLoading}
+          actionLoading={ncLoading ? (ncComprobante?.id ?? null) : actionLoading}
         />
       )}
 
@@ -308,6 +345,64 @@ export default function ComprobantesPage() {
               <button className="btn btn-secondary" onClick={() => { setEliminando(null); setDeleteError(null); }} disabled={deleteLoading}>Cancelar</button>
               <button className="btn btn-red" onClick={confirmarEliminar} disabled={deleteLoading}>
                 {deleteLoading ? <><Loader2 size={14} className="animate-spin" /> Eliminando...</> : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── Modal Nota de Crédito ── */}
+      {ncComprobante && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget && !ncLoading) { setNcComprobante(null); setNcError(null); } }}>
+          <div className="modal-content" style={{ maxWidth: '460px' }}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <AlertTriangle size={16} style={{ color: '#f59e0b' }} />
+                <h3 className="modal-title">Nota de Crédito</h3>
+              </div>
+              <CloseButton onClick={() => { if (!ncLoading) { setNcComprobante(null); setNcError(null); } }} />
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+              <p style={{ color: 'var(--text-secondary)' }}>
+                Vas a generar una Nota de Crédito para anular{' '}
+                <strong>{ncComprobante.numero_fiscal || ncComprobante.numero || `#${ncComprobante.id.slice(0,8)}`}</strong>{' '}
+                por <strong>${(ncComprobante.total ?? 0).toLocaleString('es-AR')}</strong>.
+              </p>
+              <p style={{ color: 'var(--text-subtle)', fontSize: '0.8125rem' }}>
+                El comprobante original quedará marcado como anulado. La caja quedará neteada por el importe de la NC.
+              </p>
+
+              {/* Toggle emitir en ARCA */}
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', cursor: 'pointer', padding: '0.75rem', background: 'var(--bg-surface)', borderRadius: '0.5rem', border: '1px solid var(--border-color)' }}>
+                <input
+                  type="checkbox"
+                  checked={ncEmitirArca}
+                  onChange={e => setNcEmitirArca(e.target.checked)}
+                  style={{ marginTop: '0.1rem', accentColor: 'var(--accent-primary)', cursor: 'pointer' }}
+                />
+                <div>
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.875rem' }}>Emitir en ARCA ahora</span>
+                  <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--text-subtle)' }}>
+                    {ncEmitirArca
+                      ? 'Se solicitará CAE a AFIP. Si ARCA falla, la NC queda como borrador para reintentar.'
+                      : 'Se guardará como borrador. Podés emitirla en ARCA desde el detalle de la NC.'}
+                  </p>
+                </div>
+              </label>
+
+              {ncError && (
+                <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '0.5rem', padding: '0.75rem', color: '#fca5a5', fontSize: '0.85rem' }}>
+                  {ncError}
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => { setNcComprobante(null); setNcError(null); }} disabled={ncLoading}>
+                Cancelar
+              </button>
+              <button className="btn btn-amber" onClick={confirmarNotaCredito} disabled={ncLoading}>
+                {ncLoading
+                  ? <><Loader2 size={14} className="animate-spin" /> Generando NC...</>
+                  : 'Generar Nota de Crédito'}
               </button>
             </div>
           </div>

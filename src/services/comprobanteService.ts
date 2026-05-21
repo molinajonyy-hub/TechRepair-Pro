@@ -79,6 +79,8 @@ export interface Comprobante {
   cae?: string | null;
   cae_vencimiento?: string | null;
   afip_response?: any;
+  tipo_comprobante_fiscal?: string | null;
+  comprobante_original_id?: string | null;
   created_by?: string | null;
   created_at: string;
   updated_at: string;
@@ -801,67 +803,147 @@ export const comprobanteService = {
     return { success: true };
   },
 
-  // ── Crear nota de crédito vinculada ───────────────────────────────────────────
+  // ── Crear Nota de Crédito para comprobante emitido en ARCA ───────────────────
   /**
-   * Crea una Nota de Crédito como comprobante nuevo, vinculada al original.
-   * El usuario debe confirmar antes de llamar este método.
-   * NO emite en ARCA automáticamente — queda como borrador para revisión.
+   * Flujo completo:
+   * 1. Llama RPC create_credit_note_from_comprobante (crea borrador + copia ítems)
+   * 2. Si emitirEnArca=true: llama afip-cae con CbtesAsoc → guarda CAE en NC
+   * 3. Actualiza original a estado_fiscal='anulado_fiscal'
+   * 4. Crea entrada negativa en business_finance_entries (reversa de caja)
    */
   async crearNotaCredito(params: {
-    originalComprobanteId: string;
-    businessId: string;
-    userId: string;
-    motivo?: string;
-    cajaId?: string | null;
-  }): Promise<{ success: boolean; comprobante?: Comprobante; error?: string }> {
-    const original = await this.getById(params.originalComprobanteId, params.businessId);
-    if (!original) return { success: false, error: 'Comprobante original no encontrado' };
+    originalComprobanteId: string
+    businessId: string
+    userId: string
+    emitirEnArca?: boolean
+    motivo?: string
+  }): Promise<{
+    success: boolean
+    nc?: Comprobante
+    cae?: string
+    arca_error?: string
+    error?: string
+  }> {
+    // ── 1. Crear draft NC + copiar ítems (RPC atómica) ───────────────────────
+    const { data: rpcData, error: rpcError } = await supabase.rpc(
+      'create_credit_note_from_comprobante',
+      { p_comprobante_id: params.originalComprobanteId }
+    )
+    if (rpcError) return { success: false, error: rpcError.message }
+    if (!rpcData?.success) return { success: false, error: rpcData?.error || 'Error al crear NC' }
 
-    const originalTipo = original.type || original.tipo;
-    if (!['factura_a', 'factura_c'].includes(originalTipo)) {
-      return { success: false, error: 'Solo se puede crear nota de crédito sobre Facturas A o C' };
+    const ncId:          string = rpcData.nc_id
+    const ncTipoFiscal:  number = rpcData.nc_tipo_fiscal
+    const originalTotal: number = rpcData.total ?? 0
+    const originalNumero: string = rpcData.original_numero || params.originalComprobanteId.slice(0, 8)
+
+    // ── 2. Obtener datos del original para CbtesAsoc ─────────────────────────
+    const original = await this.getById(params.originalComprobanteId, params.businessId)
+    if (!original) return { success: false, error: 'Comprobante original no encontrado tras crear NC' }
+
+    // Parsear punto_venta y número del original para CbtesAsoc
+    const cbteAsocTipo   = original.tipo_comprobante_fiscal
+      ? parseInt(original.tipo_comprobante_fiscal as unknown as string, 10)
+      : 11
+    // numero_fiscal = "0001-00000001"
+    const nroParts        = (original.numero_fiscal || '').split('-')
+    const cbteAsocPtoVta  = nroParts[0] ? parseInt(nroParts[0], 10) : (parseInt(original.punto_venta || '1', 10))
+    const cbteAsocNro     = nroParts[1] ? parseInt(nroParts[1], 10) : 0
+
+    let cae: string | undefined
+    let caeVencimiento: string | undefined
+    let numeroFiscal: string | undefined
+    let arcaError: string | undefined
+    let estadoFiscalNc: EstadoFiscal = 'pendiente_emision'
+
+    // ── 3. Emitir en ARCA (opcional) ─────────────────────────────────────────
+    if (params.emitirEnArca) {
+      const arcaResult = await ArcaService.emitirFactura(params.businessId, {
+        tipo_comprobante:  ncTipoFiscal,
+        tipo_doc_receptor: 99,
+        nro_doc_receptor:  '0',
+        concepto:          1,
+        importe_neto:      originalTotal,
+        importe_iva:       0,
+        alicuota_iva:      0,
+        importe_total:     originalTotal,
+        moneda:            'PES',
+        cotizacion_moneda: 1,
+        // CbtesAsoc: referencia a la factura original
+        cbte_asoc_tipo:    cbteAsocTipo,
+        cbte_asoc_pto_vta: cbteAsocPtoVta > 0 ? cbteAsocPtoVta : undefined,
+        cbte_asoc_nro:     cbteAsocNro    > 0 ? cbteAsocNro    : undefined,
+      })
+
+      if (arcaResult.success) {
+        cae            = arcaResult.cae
+        caeVencimiento = arcaResult.caeVencimiento
+        numeroFiscal   = arcaResult.numeroComprobante
+        estadoFiscalNc = 'emitido'
+      } else {
+        arcaError      = arcaResult.error
+        estadoFiscalNc = 'error_emision'
+      }
+
+      // Actualizar NC con resultado ARCA
+      await supabase.from('comprobantes')
+        .update({
+          cae,
+          cae_vencimiento:       caeVencimiento ?? null,
+          numero_fiscal:         numeroFiscal   ?? null,
+          estado_fiscal:         estadoFiscalNc,
+          estado:                estadoFiscalNc === 'emitido' ? 'emitido' : 'borrador',
+          status:                estadoFiscalNc === 'emitido' ? 'issued'  : 'draft',
+          afip_response:         arcaResult,
+          observaciones: `Nota de Crédito — anula ${originalNumero}${params.motivo ? ` · ${params.motivo}` : ''}`,
+          updated_at:            new Date().toISOString(),
+        })
+        .eq('id', ncId)
+        .eq('business_id', params.businessId)
+
+      // Si ARCA OK: marcar original como anulado_fiscal + crear reversa financiera
+      if (estadoFiscalNc === 'emitido') {
+        await supabase.from('comprobantes')
+          .update({
+            estado:          'anulado',
+            status:          'cancelled',
+            estado_comercial: 'anulado',
+            estado_fiscal:   'anulado_fiscal',
+            updated_at:      new Date().toISOString(),
+          })
+          .eq('id', params.originalComprobanteId)
+          .eq('business_id', params.businessId)
+
+        // Reversa en business_finance_entries (idempotente: evita duplicado)
+        const { data: existing } = await supabase
+          .from('business_finance_entries')
+          .select('id')
+          .eq('reference_comprobante_id', ncId)
+          .lt('amount_ars', 0)
+          .maybeSingle()
+
+        if (!existing) {
+          const ncNumero = numeroFiscal || ncId.slice(0, 8)
+          await supabase.from('business_finance_entries').insert({
+            business_id:              params.businessId,
+            date:                     new Date().toISOString().split('T')[0],
+            type:                     'income',
+            category:                 'ventas_productos',
+            description:              `NOTA DE CRÉDITO #${ncNumero} · anula ${originalNumero}`,
+            amount:                   -originalTotal,
+            currency:                 'ARS',
+            amount_ars:               -originalTotal,
+            exchange_rate:            original.exchange_rate || 1,
+            reference_comprobante_id: ncId,
+            source:                   'comprobante',
+            created_by:               params.userId,
+          })
+        }
+      }
     }
 
-    const items = (original.items || []).map(i => ({
-      descripcion:     `NC: ${i.descripcion}`,
-      tipo_linea:      (i.tipo_linea as any) || 'servicio',
-      cantidad:        i.cantidad,
-      precio_unitario: i.precio_unitario,
-      descuento_linea: i.descuento_linea || 0,
-      costo_unitario:  0,
-      currency:        (i.currency as any) || 'ARS',
-      exchange_rate:   i.exchange_rate || 1,
-      inventory_id:    null,  // NC no descuenta stock
-    }));
-
-    if (items.length === 0) return { success: false, error: 'El comprobante original no tiene ítems' };
-
-    const result = await this.crear({
-      tipo:             'nota_credito',
-      punto_venta:      original.punto_venta || '0001',
-      condicion_fiscal: original.condicion_fiscal || 'Consumidor Final',
-      customer_id:      original.customer_id || null,
-      order_id:         original.order_id   || null,
-      observaciones:    `Nota de crédito · comprobante original #${original.numero || original.id.slice(0,8)}${params.motivo ? ` · ${params.motivo}` : ''}`,
-      es_fiscal:        false,
-      emitir_en_arca:   false,
-      items,
-      pagos:            [],   // NC queda sin cobro — es una devolución
-      business_id:      params.businessId,
-      created_by:       params.userId,
-      caja_id:          params.cajaId || null,
-      skip_finance_entry: true,
-    });
-
-    if (!result.success || !result.comprobante) return result;
-
-    // Vincular la NC al comprobante original via observaciones fiscales si no hay columna específica
-    await supabase.from('comprobantes')
-      .update({ observaciones: result.comprobante.observaciones })
-      .eq('id', result.comprobante.id)
-      .eq('business_id', params.businessId);
-
-    return result;
+    const nc = await this.getById(ncId, params.businessId)
+    return { success: true, nc: nc ?? undefined, cae, arca_error: arcaError }
   },
 
   // ── Eliminar comprobante local (no fiscal) ────────────────────────────────────

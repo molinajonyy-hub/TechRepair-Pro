@@ -258,12 +258,12 @@ export default function ComprobantePage() {
         userId: user.id,
         motivo: notaCreditoMotivo,
       });
-      if (result.success && result.comprobante) {
+      if (result.success && result.nc) {
         setShowNotaCredito(false);
         setNotaCreditoMotivo('');
-        navigate(`/comprobantes/${result.comprobante.id}`);
+        navigate(`/comprobantes/${result.nc.id}`);
       } else {
-        window.alert(result.error || 'Error al crear la nota de crédito');
+        window.alert(result.error || result.arca_error || 'Error al crear la nota de crédito');
       }
     } finally {
       setNotaCreditoLoading(false);

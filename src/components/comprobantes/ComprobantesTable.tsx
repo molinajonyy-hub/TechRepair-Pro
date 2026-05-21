@@ -12,7 +12,6 @@ import {
   Printer,
   Pencil,
   Trash2,
-  Ban,
   Loader2,
 } from 'lucide-react';
 import { TipoComprobante, Comprobante } from '../../hooks/useComprobantes';
@@ -21,6 +20,7 @@ interface ComprobantesTableProps {
   comprobantes: Comprobante[];
   onEdit?: (comprobante: Comprobante) => void;
   onAnular?: (comprobante: Comprobante) => void;
+  onNotaCredito?: (comprobante: Comprobante) => void;
   onEliminar?: (comprobante: Comprobante) => void;
   actionLoading?: string | null; // id del comprobante en proceso
 }
@@ -79,7 +79,7 @@ const estadoConfig: Record<string, {
   }
 };
 
-export function ComprobantesTable({ comprobantes, onEdit, onAnular, onEliminar, actionLoading }: ComprobantesTableProps) {
+export function ComprobantesTable({ comprobantes, onEdit, onNotaCredito, onEliminar, actionLoading }: ComprobantesTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [tipoFilter, setTipoFilter] = useState<TipoComprobante | 'todos'>('todos');
   const [estadoFilter, setEstadoFilter] = useState<'todos' | 'borrador' | 'emitido' | 'anulado'>('todos');
@@ -552,26 +552,30 @@ export function ComprobantesTable({ comprobantes, onEdit, onAnular, onEliminar, 
                             </button>
                           )}
 
-                          {/* Anular — solo ARCA emitido (genera Nota de Crédito) */}
-                          {(comprobante.estado_fiscal === 'emitido' || !!comprobante.cae) && onAnular && (
+                          {/* Nota de Crédito — solo ARCA emitido, no ya anulado */}
+                          {(comprobante.estado_fiscal === 'emitido' || !!comprobante.cae)
+                            && comprobante.estado !== 'anulado'
+                            && onNotaCredito && (
                             <button
-                              title="Anular comprobante (genera Nota de Crédito)"
-                              onClick={() => onAnular(comprobante)}
+                              title="Generar Nota de Crédito (anulación fiscal ARCA)"
+                              onClick={() => onNotaCredito(comprobante)}
                               disabled={actionLoading === comprobante.id}
                               style={{
-                                display: 'inline-flex', alignItems: 'center',
-                                padding: '0.4rem',
+                                display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                padding: '0.3rem 0.5rem',
                                 backgroundColor: 'rgba(245,158,11,0.1)',
                                 border: '1px solid rgba(245,158,11,0.25)',
                                 borderRadius: '0.375rem',
                                 cursor: actionLoading === comprobante.id ? 'not-allowed' : 'pointer',
-                                opacity: actionLoading === comprobante.id ? 0.5 : 1
+                                opacity: actionLoading === comprobante.id ? 0.5 : 1,
+                                fontSize: '0.68rem', fontWeight: 700, color: '#f59e0b',
                               }}
                             >
                               {actionLoading === comprobante.id
-                                ? <Loader2 size={15} style={{ color: '#f59e0b', animation: 'tr-spin 1s linear infinite' }} />
-                                : <Ban size={15} style={{ color: '#f59e0b' }} />
+                                ? <Loader2 size={13} style={{ animation: 'tr-spin 1s linear infinite' }} />
+                                : <RotateCcw size={13} />
                               }
+                              NC
                             </button>
                           )}
 
