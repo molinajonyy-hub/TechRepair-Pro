@@ -147,6 +147,28 @@ const AFIP_TIPO_CODE: Partial<Record<TipoComprobante, number>> = {
   nota_credito: 3,
 };
 
+// Condición fiscal receptor → CondicionIVAReceptorId de AFIP
+// https://www.afip.gob.ar/ws/WSFE-v1/WSFEv1.xsd
+const CONDICION_IVA_RECEPTOR: Record<string, number> = {
+  'Consumidor Final':         5,
+  'Responsable Inscripto':    1,
+  'Responsable No Inscripto': 2,
+  'No Responsable':           3,
+  'Exento':                   4,
+  'IVA Exento':               4,
+  'Monotributo':              6,
+  'Monotributista':           6,
+  'Sujeto No Categorizado':   7,
+  'Proveedor del Exterior':   8,
+  'Cliente del Exterior':     9,
+};
+
+/** Devuelve el CondicionIVAReceptorId a partir del string de condicion_fiscal. */
+function condicionIvaId(condicionFiscal?: string | null): number {
+  if (!condicionFiscal) return 5; // default: Consumidor Final
+  return CONDICION_IVA_RECEPTOR[condicionFiscal] ?? 5;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function calcularLinea(item: CrearComprobanteInput['items'][0], globalRate: number) {
@@ -321,19 +343,28 @@ export const comprobanteService = {
       let arcaResponse: any = null;
 
       if (emitir_en_arca && esFiscal && AFIP_TIPO_CODE[tipo] !== undefined) {
+        // Validación: Factura A requiere receptor identificado (no Consumidor Final)
+        if (tipo === 'factura_a' && condicionIvaId(condicion_fiscal) === 5) {
+          return {
+            success: false,
+            error: 'Factura A requiere un receptor con CUIT y condición IVA (Responsable Inscripto / Monotributo). No se puede emitir como Consumidor Final.',
+          };
+        }
+
         try {
           const arcaResult = await ArcaService.emitirFactura(business_id, {
-            tipo_comprobante:  AFIP_TIPO_CODE[tipo]!,
-            tipo_doc_receptor: 99,   // Consumidor final por defecto
-            nro_doc_receptor:  '0',
-            concepto:          1,
-            importe_neto:      subtotalARS,
-            importe_iva:       tax,
-            alicuota_iva:      tipo === 'factura_a' ? 21 : 0,
-            importe_total:     total,
-            moneda:            'PES',
-            cotizacion_moneda: 1,
-            fecha_cbte:        new Date().toISOString().split('T')[0].replace(/-/g, ''),
+            tipo_comprobante:         AFIP_TIPO_CODE[tipo]!,
+            tipo_doc_receptor:        99,   // Consumidor Final por defecto (futuro: cargar de cliente)
+            nro_doc_receptor:         '0',
+            concepto:                 1,
+            importe_neto:             subtotalARS,
+            importe_iva:              tax,
+            alicuota_iva:             tipo === 'factura_a' ? 21 : 0,
+            importe_total:            total,
+            moneda:                   'PES',
+            cotizacion_moneda:        1,
+            fecha_cbte:               new Date().toISOString().split('T')[0].replace(/-/g, ''),
+            condicion_iva_receptor_id: condicionIvaId(condicion_fiscal),
           });
 
           if (arcaResult.success) {
@@ -604,14 +635,15 @@ export const comprobanteService = {
     if (emitirArcaAhora && AFIP_TIPO_CODE[tipo] !== undefined) {
       try {
         const arcaResult = await ArcaService.emitirFactura(businessId, {
-          tipo_comprobante:  AFIP_TIPO_CODE[tipo]!,
-          tipo_doc_receptor: 99,
-          nro_doc_receptor:  '0',
-          concepto:          1,
-          importe_neto:      comp.subtotal || 0,
-          importe_iva:       comp.impuestos || comp.tax || 0,
-          alicuota_iva:      tipo === 'factura_a' ? 21 : 0,
-          importe_total:     comp.total || 0,
+          tipo_comprobante:          AFIP_TIPO_CODE[tipo]!,
+          tipo_doc_receptor:         99,
+          nro_doc_receptor:          '0',
+          concepto:                  1,
+          importe_neto:              comp.subtotal || 0,
+          importe_iva:               comp.impuestos || comp.tax || 0,
+          alicuota_iva:              tipo === 'factura_a' ? 21 : 0,
+          importe_total:             comp.total || 0,
+          condicion_iva_receptor_id: condicionIvaId(comp.condicion_fiscal),
         });
 
         if (arcaResult.success) {
@@ -891,20 +923,22 @@ export const comprobanteService = {
     // ── 3. Emitir en ARCA (opcional) ─────────────────────────────────────────
     if (params.emitirEnArca) {
       const arcaResult = await ArcaService.emitirFactura(params.businessId, {
-        tipo_comprobante:  ncTipoFiscal,
-        tipo_doc_receptor: 99,
-        nro_doc_receptor:  '0',
-        concepto:          1,
-        importe_neto:      originalTotal,
-        importe_iva:       0,
-        alicuota_iva:      0,
-        importe_total:     originalTotal,
-        moneda:            'PES',
-        cotizacion_moneda: 1,
+        tipo_comprobante:          ncTipoFiscal,
+        tipo_doc_receptor:         99,
+        nro_doc_receptor:          '0',
+        concepto:                  1,
+        importe_neto:              originalTotal,
+        importe_iva:               0,
+        alicuota_iva:              0,
+        importe_total:             originalTotal,
+        moneda:                    'PES',
+        cotizacion_moneda:         1,
         // CbtesAsoc: referencia a la factura original
-        cbte_asoc_tipo:    cbteAsocTipo,
-        cbte_asoc_pto_vta: cbteAsocPtoVta > 0 ? cbteAsocPtoVta : undefined,
-        cbte_asoc_nro:     cbteAsocNro    > 0 ? cbteAsocNro    : undefined,
+        cbte_asoc_tipo:            cbteAsocTipo,
+        cbte_asoc_pto_vta:         cbteAsocPtoVta > 0 ? cbteAsocPtoVta : undefined,
+        cbte_asoc_nro:             cbteAsocNro    > 0 ? cbteAsocNro    : undefined,
+        // Condición IVA del receptor: heredar del comprobante original
+        condicion_iva_receptor_id: condicionIvaId(original.condicion_fiscal),
       })
 
       if (arcaResult.success) {

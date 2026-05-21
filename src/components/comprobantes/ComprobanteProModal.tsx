@@ -1214,16 +1214,22 @@ export function ComprobanteProModal({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.05)', marginTop: 'auto' }}>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                 <select value={condicion} onChange={e => setCondicion(e.target.value)}
-                  style={{ flex: 1, padding: '0.4rem 0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#64748b', fontSize: '0.78rem', cursor: 'pointer', outline: 'none', fontFamily: F }}>
+                  style={{ flex: 1, padding: '0.4rem 0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: 'var(--text-tertiary)', fontSize: '0.78rem', cursor: 'pointer', outline: 'none', fontFamily: F }}>
                   {CONDICIONES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
                 {TIPO_CONFIG[tipo].fiscal && (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', color: '#334155', fontSize: '0.78rem', cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', color: 'var(--text-secondary)', fontSize: '0.78rem', cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
                     <input type="checkbox" checked={emitirEnArca} onChange={e => setEmitirEnArca(e.target.checked)} />
                     Emitir en ARCA
                   </label>
                 )}
               </div>
+              {/* Aviso Factura A: requiere CUIT del receptor */}
+              {tipo === 'factura_a' && emitirEnArca && condicion === 'Consumidor Final' && (
+                <div style={{ display: 'flex', gap: '0.375rem', padding: '0.375rem 0.625rem', background: 'rgba(248,113,113,0.07)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: '0.375rem', fontSize: '0.72rem', color: '#f87171', fontFamily: F }}>
+                  ⚠ Factura A requiere receptor con CUIT. Cambiá la condición a Responsable Inscripto o Monotributo.
+                </div>
+              )}
               <textarea value={observaciones} onChange={e => setObservaciones(e.target.value)}
                 placeholder="Observaciones..."
                 rows={2}

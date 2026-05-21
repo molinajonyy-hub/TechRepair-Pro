@@ -185,6 +185,8 @@ export class ArcaService {
       cbte_asoc_tipo?:    number
       cbte_asoc_pto_vta?: number
       cbte_asoc_nro?:     number
+      // Condición IVA del receptor (RG AFIP — será obligatorio)
+      condicion_iva_receptor_id?: number
     }
   ): Promise<{
     success: boolean
