@@ -695,29 +695,61 @@ export const comprobanteService = {
 
     if (error) return { success: false, error: error.message };
 
-    // Reverso en finanzas — idempotente: solo insertar si aún no existe una entrada negativa
-    const numero = comp.number || comp.numero || comprobanteId.slice(0, 8);
-    const { data: existingReversal } = await supabase
+    // Reverso en finanzas — idempotente
+    // FM: sign=-1 en financial_movements (impacta caja)
+    // BFE: amount negativo en business_finance_entries (impacta reportes)
+    const numero  = comp.number || comp.numero || comprobanteId.slice(0, 8);
+    const total   = comp.total_bruto || comp.total || 0;
+    const today   = new Date().toISOString().split('T')[0];
+    const desc    = `ANULACIÓN Comprobante #${numero}${motivo ? ` — ${motivo}` : ''}`;
+
+    const { data: existingFm } = await supabase
+      .from('financial_movements')
+      .select('id')
+      .eq('comprobante_id', comprobanteId)
+      .eq('sign', -1)
+      .maybeSingle();
+
+    if (!existingFm) {
+      await supabase.from('financial_movements').insert({
+        business_id:   businessId,
+        date:          today,
+        type:          'expense',
+        currency:      comp.currency || 'ARS',
+        amount:        total,
+        exchange_rate: comp.exchange_rate || 1,
+        amount_ars:    total,
+        source:        'comprobante',
+        comprobante_id: comprobanteId,
+        description:   desc,
+        created_by:    userId,
+        sign:          -1,
+      });
+    }
+
+    const { data: existingBfe } = await supabase
       .from('business_finance_entries')
       .select('id')
       .eq('reference_comprobante_id', comprobanteId)
       .lt('amount_ars', 0)
       .maybeSingle();
 
-    if (!existingReversal) await supabase.from('business_finance_entries').insert({
-      business_id:              businessId,
-      date:                     new Date().toISOString().split('T')[0],
-      type:                     'income',
-      category:                 'ventas_productos',
-      description:              `ANULACIÓN Comprobante #${numero}` + (motivo ? ` — ${motivo}` : ''),
-      amount:                   -(comp.total_bruto || comp.total || 0),
-      currency:                 'ARS',
-      amount_ars:               -(comp.total_bruto || comp.total || 0),
-      exchange_rate:            comp.exchange_rate || 1,
-      reference_comprobante_id: comprobanteId,
-      source:                   'comprobante',
-      created_by:               userId,
-    });
+    if (!existingBfe) {
+      await supabase.from('business_finance_entries').insert({
+        business_id:              businessId,
+        date:                     today,
+        type:                     'income',
+        category:                 'ventas_productos',
+        description:              desc,
+        amount:                   -total,
+        currency:                 comp.currency || 'ARS',
+        amount_ars:               -total,
+        exchange_rate:            comp.exchange_rate || 1,
+        reference_comprobante_id: comprobanteId,
+        source:                   'comprobante',
+        created_by:               userId,
+      });
+    }
 
     return { success: true };
   },
@@ -885,60 +917,39 @@ export const comprobanteService = {
         estadoFiscalNc = 'error_emision'
       }
 
-      // Actualizar NC con resultado ARCA
+      // Actualizar NC con resultado ARCA — incluye numero/number para display en tabla
       await supabase.from('comprobantes')
         .update({
           cae,
-          cae_vencimiento:       caeVencimiento ?? null,
-          numero_fiscal:         numeroFiscal   ?? null,
-          estado_fiscal:         estadoFiscalNc,
-          estado:                estadoFiscalNc === 'emitido' ? 'emitido' : 'borrador',
-          status:                estadoFiscalNc === 'emitido' ? 'issued'  : 'draft',
-          afip_response:         arcaResult,
-          observaciones: `Nota de Crédito — anula ${originalNumero}${params.motivo ? ` · ${params.motivo}` : ''}`,
-          updated_at:            new Date().toISOString(),
+          cae_vencimiento:  caeVencimiento ?? null,
+          numero_fiscal:    numeroFiscal   ?? null,
+          numero:           estadoFiscalNc === 'emitido' ? (numeroFiscal ?? null) : null,
+          number:           estadoFiscalNc === 'emitido' ? (numeroFiscal ?? null) : null,
+          estado_fiscal:    estadoFiscalNc,
+          estado:           estadoFiscalNc === 'emitido' ? 'emitido' : 'borrador',
+          status:           estadoFiscalNc === 'emitido' ? 'issued'  : 'draft',
+          afip_response:    arcaResult,
+          observaciones:    `Nota de Crédito — anula ${originalNumero}${params.motivo ? ` · ${params.motivo}` : ''}`,
+          updated_at:       new Date().toISOString(),
         })
         .eq('id', ncId)
         .eq('business_id', params.businessId)
 
-      // Si ARCA OK: marcar original como anulado_fiscal + crear reversa financiera
+      // Si ARCA OK: marcar original como anulado_fiscal + crear reversa financiera via RPC
       if (estadoFiscalNc === 'emitido') {
         await supabase.from('comprobantes')
           .update({
-            estado:          'anulado',
-            status:          'cancelled',
+            estado:           'anulado',
+            status:           'cancelled',
             estado_comercial: 'anulado',
-            estado_fiscal:   'anulado_fiscal',
-            updated_at:      new Date().toISOString(),
+            estado_fiscal:    'anulado_fiscal',
+            updated_at:       new Date().toISOString(),
           })
           .eq('id', params.originalComprobanteId)
           .eq('business_id', params.businessId)
 
-        // Reversa en business_finance_entries (idempotente: evita duplicado)
-        const { data: existing } = await supabase
-          .from('business_finance_entries')
-          .select('id')
-          .eq('reference_comprobante_id', ncId)
-          .lt('amount_ars', 0)
-          .maybeSingle()
-
-        if (!existing) {
-          const ncNumero = numeroFiscal || ncId.slice(0, 8)
-          await supabase.from('business_finance_entries').insert({
-            business_id:              params.businessId,
-            date:                     new Date().toISOString().split('T')[0],
-            type:                     'income',
-            category:                 'ventas_productos',
-            description:              `NOTA DE CRÉDITO #${ncNumero} · anula ${originalNumero}`,
-            amount:                   -originalTotal,
-            currency:                 'ARS',
-            amount_ars:               -originalTotal,
-            exchange_rate:            original.exchange_rate || 1,
-            reference_comprobante_id: ncId,
-            source:                   'comprobante',
-            created_by:               params.userId,
-          })
-        }
+        // RPC SECURITY DEFINER: crea FM (sign=-1) + BFE negativo, idempotente
+        await supabase.rpc('create_credit_note_finance_reversal', { p_nc_id: ncId })
       }
     }
 
