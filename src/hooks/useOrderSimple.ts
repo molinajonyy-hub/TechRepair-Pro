@@ -61,6 +61,18 @@ export interface OrderDetailSimple {
     notes?: string
     added_at: string
   }[]
+  // Ítems de trabajo (servicios + repuestos) — fuente de verdad para facturación
+  orderItems?: {
+    id: string
+    tipo: 'servicio' | 'repuesto' | string
+    descripcion: string
+    cantidad: number
+    precio_unitario: number
+    costo_unitario: number
+    /** false = repuesto interno, no se factura al cliente */
+    cliente_paga_repuesto: boolean
+    product_id?: string | null
+  }[]
   // Inspecciones (checklist recepción y final)
   inspections?: {
     reception?: any
@@ -195,19 +207,34 @@ export function useOrderSimple(orderId: string | undefined) {
           if (import.meta.env.DEV) console.warn('Could not load checklist:', err)
         }
 
-        // Cargar repuestos
+        // Cargar repuestos (order_parts — métricas de costo/margen)
         try {
           const { data: partsData } = await supabase
             .from('order_parts')
             .select('*')
             .eq('order_id', orderId)
             .order('added_at', { ascending: false })
-          
+
           if (partsData) {
             result.parts = partsData
           }
         } catch (err) {
           if (import.meta.env.DEV) console.warn('Could not load parts:', err)
+        }
+
+        // Cargar ítems de trabajo (order_items — fuente autoritativa para facturación)
+        try {
+          const { data: itemsData } = await supabase
+            .from('order_items')
+            .select('id, tipo, descripcion, cantidad, precio_unitario, costo_unitario, cliente_paga_repuesto, product_id')
+            .eq('order_id', orderId)
+            .order('created_at', { ascending: true })
+
+          if (itemsData) {
+            result.orderItems = itemsData as OrderDetailSimple['orderItems']
+          }
+        } catch (err) {
+          if (import.meta.env.DEV) console.warn('Could not load order items:', err)
         }
 
         // Cargar pagos
@@ -348,6 +375,20 @@ export function useOrderSimple(orderId: string | undefined) {
         }
       } catch (err) {
         if (import.meta.env.DEV) console.warn('Could not load parts:', err)
+      }
+
+      // Recargar ítems de trabajo
+      try {
+        const { data: itemsData } = await supabase
+          .from('order_items')
+          .select('id, tipo, descripcion, cantidad, precio_unitario, costo_unitario, cliente_paga_repuesto, product_id')
+          .eq('order_id', orderId)
+          .order('created_at', { ascending: true })
+        if (itemsData) {
+          result.orderItems = itemsData as OrderDetailSimple['orderItems']
+        }
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn('Could not load order items:', err)
       }
 
       // Recargar pagos

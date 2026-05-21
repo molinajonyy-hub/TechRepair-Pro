@@ -53,8 +53,7 @@ export function OrderDetail() {
   const [notesText, setNotesText] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
   const [notesSaved, setNotesSaved] = useState(false)
-  // Service-only total calculated from order_items (tipo='servicio')
-  const [serviceTotal, setServiceTotal] = useState<number | null>(null)
+  // serviceTotal is now derived synchronously from order.orderItems (loaded by useOrderSimple)
 
   // Cargar datos reales desde Supabase
   const { order, loading, error, refresh } = useOrderSimple(id)
@@ -72,22 +71,6 @@ export function OrderDetail() {
       cargarComprobantesByOrder(id)
     }
   }, [id, cargarComprobantesByOrder])
-
-  // Cargar total de servicios desde order_items (sin incluir repuestos)
-  useEffect(() => {
-    if (!id) return
-    supabase
-      .from('order_items')
-      .select('tipo, precio_unitario, cantidad')
-      .eq('order_id', id)
-      .then(({ data }) => {
-        if (!data || data.length === 0) return
-        const total = (data as any[])
-          .filter((i: any) => i.tipo === 'servicio')
-          .reduce((s: number, i: any) => s + i.precio_unitario * i.cantidad, 0)
-        if (total > 0) setServiceTotal(total)
-      })
-  }, [id])
 
   // Sincronizar notas cuando carga la orden
   useEffect(() => {
@@ -483,44 +466,71 @@ export function OrderDetail() {
         )}
 
         {/* Modal Crear Comprobante */}
-        {order && (
-          <ModalCrearComprobante
-            isOpen={showModalCrearComprobante}
-            onClose={() => setShowModalCrearComprobante(false)}
-            initialClienteId={order.customer_id || order.customer?.id || ''}
-            initialItems={[
-              // Ítem de servicio / mano de obra
-              {
-                descripcion:     `Servicio - ${order.device?.brand ?? ''} ${order.device?.model ?? ''}`.trim(),
-                cantidad:        1,
-                precio_unitario: serviceTotal ?? order.labor_cost ?? order.estimated_total ?? 0,
-                currency:        'ARS',
-                tipo_linea:      'servicio',
-                costo_unitario:  0,  // costo de mano de obra (sin tracking actual → 0)
-              },
-              // Repuestos cobrados al cliente (excluye los marcados como internos)
-              ...(order.parts ?? [])
-                .filter((p: any) =>
-                  p.sale_price > 0 &&
-                  // cliente_paga_repuesto === false → internal part, never bill to customer.
-                  // undefined / true → default billable (old rows before migration).
-                  p.cliente_paga_repuesto !== false
-                )
-                .map((p: any) => ({
-                  descripcion:     p.name,
-                  cantidad:        p.quantity,
-                  precio_unitario: p.sale_price,
-                  currency:        'ARS' as const,
-                  tipo_linea:      'repuesto' as const,
-                  costo_unitario:  p.internal_cost ?? 0,
-                })),
-            ]}
-            onCreado={() => {
-              setShowModalCrearComprobante(false)
-              refresh()
-            }}
-          />
-        )}
+        {order && (() => {
+          // ── Build billable comprobante items from order.orderItems ──────────
+          // order.orderItems is the authoritative source: it always has the
+          // correct cliente_paga_repuesto value (set at insertion time) and the
+          // real precio_unitario (no async race conditions).
+          //
+          // Rule: include servicio items always + repuesto items only when
+          // cliente_paga_repuesto !== false.
+          //
+          // Fallback path: parts that live only in order_parts (added via
+          // orderPartsService without inventory link — no order_items record).
+          // These are always billable because orderPartsService has no
+          // "not charged" option for non-inventory parts.
+
+          const orderItemsDescriptions = new Set(
+            (order.orderItems ?? [])
+              .filter(i => i.tipo === 'repuesto')
+              .map(i => i.descripcion)
+          )
+
+          const billableFromOrderItems = (order.orderItems ?? [])
+            .filter(i =>
+              i.tipo === 'servicio' ||
+              (i.tipo === 'repuesto' && i.cliente_paga_repuesto !== false)
+            )
+            .map(i => ({
+              descripcion:     i.descripcion,
+              cantidad:        i.cantidad,
+              precio_unitario: i.precio_unitario,
+              currency:        'ARS' as const,
+              tipo_linea:      (i.tipo === 'servicio' ? 'servicio' : 'repuesto') as 'servicio' | 'repuesto',
+              costo_unitario:  i.costo_unitario ?? 0,
+              inventory_id:    i.product_id ?? undefined,
+            }))
+
+          // Parts in order_parts with no corresponding order_items entry
+          const billableFromPartsOnly = (order.parts ?? [])
+            .filter(p =>
+              p.sale_price > 0 &&
+              !orderItemsDescriptions.has(p.name)
+            )
+            .map(p => ({
+              descripcion:     p.name,
+              cantidad:        p.quantity,
+              precio_unitario: p.sale_price,
+              currency:        'ARS' as const,
+              tipo_linea:      'repuesto' as const,
+              costo_unitario:  p.internal_cost ?? 0,
+            }))
+
+          const computedItems = [...billableFromOrderItems, ...billableFromPartsOnly]
+
+          return (
+            <ModalCrearComprobante
+              isOpen={showModalCrearComprobante}
+              onClose={() => setShowModalCrearComprobante(false)}
+              initialClienteId={order.customer_id || order.customer?.id || ''}
+              initialItems={computedItems}
+              onCreado={() => {
+                setShowModalCrearComprobante(false)
+                refresh()
+              }}
+            />
+          )
+        })()}
 
         {activeTab === 'history' && (
           <div className="card" style={{ gridColumn: 'span 2' }}>
