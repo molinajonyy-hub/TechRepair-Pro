@@ -1,5 +1,4 @@
 import { supabase } from '../lib/supabase';
-import { inventoryService } from './inventoryService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -127,12 +126,6 @@ export interface CreatePaymentInput {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function calcPaymentStatus(total: number, paid: number): 'pending' | 'partial' | 'paid' {
-  if (paid <= 0) return 'pending';
-  if (paid >= total - 0.01) return 'paid';
-  return 'partial';
-}
-
 function computeRunningBalance(movements: AccountMovement[]): AccountMovement[] {
   let balance = 0;
   return movements.map(m => {
@@ -253,60 +246,36 @@ export const suppliersService = {
 
   async createPurchase(input: CreatePurchaseInput, businessId: string, userId: string, supplierName: string): Promise<SupplierPurchase> {
     const { supplier_id, purchase_date, invoice_number, total_amount, paid_amount, payment_method, notes, items } = input;
-    const pending_amount = Math.max(0, total_amount - paid_amount);
-    const payment_status = calcPaymentStatus(total_amount, paid_amount);
 
-    // 1. Crear compra
-    const { data: purchase, error: purchaseErr } = await supabase
+    const { data, error } = await supabase.rpc('create_supplier_purchase_atomic', {
+      p_business_id:    businessId,
+      p_supplier_id:    supplier_id,
+      p_user_id:        userId,
+      p_supplier_name:  supplierName,
+      p_purchase_date:  purchase_date,
+      p_invoice_number: invoice_number || '',
+      p_total_amount:   total_amount,
+      p_paid_amount:    paid_amount || 0,
+      p_payment_method: payment_method || '',
+      p_notes:          notes || '',
+      p_items:          items.map(i => ({
+        inventory_id: i.inventory_id || null,
+        product_name: i.product_name,
+        quantity:     i.quantity,
+        unit_cost:    i.unit_cost,
+      })),
+    });
+
+    if (error) throw new Error(error.message);
+    if (!data?.ok) throw new Error(data?.error || 'Error al crear compra');
+
+    const purchase = await supabase
       .from('supplier_purchases')
-      .insert({ business_id: businessId, supplier_id, purchase_date, invoice_number: invoice_number || null, total_amount, paid_amount, pending_amount, payment_status, payment_method: payment_method || null, notes: notes || null, created_by: userId })
-      .select().single();
-    if (purchaseErr || !purchase) throw new Error(purchaseErr?.message || 'Error al crear compra');
+      .select('*, items:supplier_purchase_items(*)')
+      .eq('id', data.purchase_id)
+      .single();
 
-    // 2. Insertar ítems y actualizar stock
-    if (items.length > 0) {
-      const itemsRows = items.map(item => ({
-        business_id: businessId, purchase_id: purchase.id, supplier_id,
-        inventory_id: item.inventory_id || null,
-        product_name: item.product_name,
-        quantity: item.quantity,
-        unit_cost: item.unit_cost,
-        subtotal: item.quantity * item.unit_cost,
-      }));
-      await supabase.from('supplier_purchase_items').insert(itemsRows);
-
-      for (const item of items) {
-        if (!item.inventory_id) continue;
-        await inventoryService.increaseStockFromPurchase(
-          item.inventory_id, item.quantity, purchase.id, businessId, userId
-        );
-        await supabase.from('inventory').update({
-          cost_price: item.unit_cost,
-          updated_at: new Date().toISOString(),
-        }).eq('id', item.inventory_id);
-      }
-    }
-
-    // 3. Movimiento cuenta corriente (débito = compra)
-    await this._addAccountMovement(businessId, supplier_id, purchase.id, null, purchase_date, 'purchase', `Compra${invoice_number ? ' #' + invoice_number : ''}`, total_amount, 0);
-
-    // 4. Si hay pago inicial — registrar en supplier_payments + cuenta corriente + finanzas
-    if (paid_amount > 0) {
-      // Insertar fila en supplier_payments para que sea visible en el historial de pagos
-      await supabase.from('supplier_payments').insert({
-        business_id:    businessId,
-        supplier_id,
-        purchase_id:    purchase.id,
-        payment_date: purchase_date,
-        amount:         paid_amount,
-        payment_method: payment_method || 'efectivo',
-        notes:          `Pago inicial al crear compra${invoice_number ? ' #' + invoice_number : ''}`,
-        created_by:     userId,
-      });
-      await this._recordPaymentInternal(businessId, supplier_id, purchase.id, purchase_date, paid_amount, payment_method || 'efectivo', `Pago inicial compra${invoice_number ? ' #' + invoice_number : ''}`, userId, supplierName);
-    }
-
-    return purchase as SupplierPurchase;
+    return (purchase.data || { id: data.purchase_id }) as SupplierPurchase;
   },
 
   async updatePurchase(id: string, updates: Partial<SupplierPurchase>, businessId: string): Promise<SupplierPurchase> {
@@ -319,39 +288,25 @@ export const suppliersService = {
     return data as SupplierPurchase;
   },
 
-  async cancelPurchase(purchaseId: string, businessId: string, _userId: string): Promise<void> {
-    const purchase = await this.getPurchaseWithItems(purchaseId, businessId);
-    if (!purchase) throw new Error('Compra no encontrada');
-
-    // Revertir stock con registro de movimiento
-    for (const item of purchase.items || []) {
-      if (!item.inventory_id) continue;
-      const { data: inv } = await supabase.from('inventory').select('stock_quantity').eq('id', item.inventory_id).single();
-      if (inv) {
-        const prevStock = inv.stock_quantity || 0;
-        const newStock  = Math.max(0, prevStock - item.quantity);
-        await supabase.from('inventory').update({
-          stock_quantity: newStock,
-          updated_at: new Date().toISOString(),
-        }).eq('id', item.inventory_id);
-        await supabase.from('inventory_movements').insert({
-          inventory_item_id: item.inventory_id,
-          movement_type:     'cancellation',
-          quantity:          -(prevStock - newStock),
-          previous_stock:    prevStock,
-          new_stock:         newStock,
-          reference_type:    'purchase',
-          reference_id:      purchaseId,
-          note:              'Reversión por cancelación de compra',
-          business_id:       businessId,
-          created_by:        _userId || null,
-        });
+  async deletePurchaseSafe(purchaseId: string, businessId: string, userId: string): Promise<{ blocked?: boolean; message?: string }> {
+    const { data, error } = await supabase.rpc('delete_supplier_purchase_safe', {
+      p_business_id: businessId,
+      p_purchase_id: purchaseId,
+      p_user_id:     userId,
+    });
+    if (error) throw new Error(error.message);
+    if (!data?.ok) {
+      if (data?.error === 'blocked_paid') {
+        return { blocked: true, message: data.message };
       }
+      throw new Error(data?.error || 'Error al eliminar compra');
     }
+    return {};
+  },
 
-    await supabase.from('supplier_purchases')
-      .update({ payment_status: 'pending', pending_amount: purchase.total_amount, paid_amount: 0, updated_at: new Date().toISOString() })
-      .eq('id', purchaseId).eq('business_id', businessId);
+  // @deprecated — kept for compatibility; use deletePurchaseSafe
+  async cancelPurchase(purchaseId: string, businessId: string, userId: string): Promise<void> {
+    await this.deletePurchaseSafe(purchaseId, businessId, userId);
   },
 
   // ── Pagos ───────────────────────────────────────────────────────────────────
@@ -369,28 +324,39 @@ export const suppliersService = {
   async createPayment(input: CreatePaymentInput, businessId: string, userId: string, supplierName: string): Promise<SupplierPayment> {
     const { supplier_id, purchase_id, payment_date, amount, payment_method, notes } = input;
 
-    // 1. Insertar pago
-    const { data: payment, error } = await supabase
-      .from('supplier_payments')
-      .insert({ business_id: businessId, supplier_id, purchase_id: purchase_id || null, payment_date, amount, payment_method, notes: notes || null, created_by: userId })
-      .select().single();
-    if (error || !payment) throw new Error(error?.message || 'Error al registrar pago');
-
-    // 2. Actualizar compra si está vinculada
-    if (purchase_id) {
-      const { data: p } = await supabase.from('supplier_purchases').select('total_amount, paid_amount').eq('id', purchase_id).single();
-      if (p) {
-        const newPaid = (p.paid_amount || 0) + amount;
-        const newPending = Math.max(0, p.total_amount - newPaid);
-        const newStatus = calcPaymentStatus(p.total_amount, newPaid);
-        await supabase.from('supplier_purchases').update({ paid_amount: newPaid, pending_amount: newPending, payment_status: newStatus, updated_at: new Date().toISOString() }).eq('id', purchase_id);
-      }
+    if (!purchase_id) {
+      // Pago libre sin factura vinculada — mantener flujo directo
+      const { data: payment, error } = await supabase
+        .from('supplier_payments')
+        .insert({ business_id: businessId, supplier_id, purchase_id: null, payment_date, amount, payment_method, notes: notes || null, created_by: userId })
+        .select().single();
+      if (error || !payment) throw new Error(error?.message || 'Error al registrar pago');
+      await this._recordPaymentInternal(businessId, supplier_id, null, payment_date, amount, payment_method, `Pago a ${supplierName}${notes ? ' — ' + notes : ''}`, userId, supplierName, payment.id);
+      return payment as SupplierPayment;
     }
 
-    // 3. Movimiento cuenta corriente + finanzas
-    await this._recordPaymentInternal(businessId, supplier_id, purchase_id || null, payment_date, amount, payment_method, `Pago a ${supplierName}${notes ? ' — ' + notes : ''}`, userId, supplierName, payment.id);
+    const { data, error } = await supabase.rpc('pay_supplier_purchase_atomic', {
+      p_business_id:    businessId,
+      p_supplier_id:    supplier_id,
+      p_user_id:        userId,
+      p_supplier_name:  supplierName,
+      p_purchase_id:    purchase_id,
+      p_payment_date:   payment_date,
+      p_amount:         amount,
+      p_payment_method: payment_method || '',
+      p_notes:          notes || '',
+    });
 
-    return payment as SupplierPayment;
+    if (error) throw new Error(error.message);
+    if (!data?.ok) throw new Error(data?.error || 'Error al registrar pago');
+
+    const { data: payment } = await supabase
+      .from('supplier_payments')
+      .select('*')
+      .eq('id', data.payment_id)
+      .single();
+
+    return (payment || { id: data.payment_id }) as SupplierPayment;
   },
 
   // ── Cuenta corriente ────────────────────────────────────────────────────────

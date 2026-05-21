@@ -6,6 +6,7 @@ import {
   Phone, Mail, MapPin, AlertCircle,
   CheckCircle, Clock, X, CreditCard, MessageCircle,
   FileText, TrendingUp, ShoppingCart, Banknote, RefreshCw, Wallet, Minus,
+  Package, Settings2,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -873,7 +874,7 @@ function ModalVerCompra({ purchase, onClose }: { purchase: SupplierPurchase; onC
 
 type FilterKey = 'all' | 'active' | 'inactive' | 'with_debt' | 'no_debt'
 type SortKey = 'name' | 'total_purchases' | 'pending_amount' | 'last_purchase_date'
-type TabKey = 'compras' | 'cuenta' | 'pagos' | 'notas'
+type TabKey = 'compras' | 'cuenta' | 'pagos' | 'notas' | 'productos' | 'datos'
 
 // ─── SupplierTimeline ─────────────────────────────────────────────────────────
 
@@ -928,6 +929,9 @@ export function Suppliers() {
   const [viewingPurchase, setViewingPurchase] = useState<SupplierPurchase | null>(null)
   const [editingSupplier, setEditingSupplier] = useState<SupplierWithStats | null>(null)
   const [defaultPurchaseId, setDefaultPurchaseId] = useState<string | null>(null)
+  const [deletePurchaseError, setDeletePurchaseError] = useState<string | null>(null)
+  // Datos tab inline-edit
+  const [editForm, setEditForm] = useState<Partial<SupplierWithStats>>({})
 
   // ── Carga lista ──
   const loadList = useCallback(async () => {
@@ -965,7 +969,24 @@ export function Suppliers() {
     setSelectedId(id)
     setView('detail')
     setActiveTab('compras')
+    setDeletePurchaseError(null)
     loadDetail(id)
+  }
+
+  const handleDeletePurchase = async (p: SupplierPurchase) => {
+    if (!businessId || !user?.id) return
+    if (!confirm(`¿Eliminar compra${p.invoice_number ? ' #' + p.invoice_number : ''}?`)) return
+    setDeletePurchaseError(null)
+    try {
+      const result = await suppliersService.deletePurchaseSafe(p.id, businessId, user.id)
+      if (result.blocked) {
+        setDeletePurchaseError(result.message || 'No se puede eliminar una compra pagada.')
+        return
+      }
+      refreshDetail()
+    } catch (e: any) {
+      setDeletePurchaseError(e.message || 'Error al eliminar compra')
+    }
   }
 
   const backToList = () => {
@@ -1046,7 +1067,7 @@ export function Suppliers() {
   // ─────────────────────────────────────────────────────────────────────────────
 
   if (view === 'list') return (
-    <div className="page-shell">
+    <div className="page-shell" data-testid="suppliers-page">
       {/* Encabezado */}
       <div className="page-top">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
@@ -1058,9 +1079,14 @@ export function Suppliers() {
             <p className="page-subtitle">{suppliers.length} proveedores registrados</p>
           </div>
         </div>
-        <button className="btn btn-primary btn-lift" onClick={() => { setEditingSupplier(null); setShowModalSupplier(true) }}>
-          <Plus size={15} /> Nuevo proveedor
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button className="btn btn-ghost" data-testid="supplier-new-invoice-button" onClick={() => { /* shortcut: open purchase modal without a supplier — handled from detail */ }}>
+            <FileText size={15} /> Nueva factura
+          </button>
+          <button className="btn btn-primary btn-lift" onClick={() => { setEditingSupplier(null); setShowModalSupplier(true) }}>
+            <Plus size={15} /> Nuevo proveedor
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -1132,8 +1158,9 @@ export function Suppliers() {
               )}
               {filtered.map(s => {
                 const days = daysSince(s.last_purchase_date)
+                void days  // used below
                 return (
-                  <tr key={s.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', transition: 'background 0.1s' }}
+                  <tr key={s.id} data-testid="supplier-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', transition: 'background 0.1s' }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                     <td style={{ padding: '0.875rem 1rem' }}>
@@ -1236,14 +1263,29 @@ export function Suppliers() {
   })()
 
   const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
-    { key: 'compras', label: 'Compras', icon: <ShoppingCart size={14} /> },
-    { key: 'cuenta', label: 'Cuenta corriente', icon: <CreditCard size={14} /> },
-    { key: 'pagos', label: 'Pagos', icon: <Banknote size={14} /> },
-    { key: 'notas', label: 'Notas', icon: <FileText size={14} /> },
+    { key: 'compras',   label: 'Compras',          icon: <ShoppingCart size={14} /> },
+    { key: 'pagos',     label: 'Pagos',             icon: <Banknote size={14} /> },
+    { key: 'cuenta',    label: 'CC',                icon: <CreditCard size={14} /> },
+    { key: 'productos', label: 'Productos',         icon: <Package size={14} /> },
+    { key: 'datos',     label: 'Datos',             icon: <Settings2 size={14} /> },
+    { key: 'notas',     label: 'Notas',             icon: <FileText size={14} /> },
   ]
 
+  // Productos tab: aggregate items across all purchases
+  const productosMap = useMemo(() => {
+    const map: Record<string, { name: string; qty: number; totalCost: number; purchases: number; inventoryId?: string | null }> = {}
+    purchases.forEach(p => (p.items || []).forEach(i => {
+      const key = i.inventory_id || i.product_name
+      if (!map[key]) map[key] = { name: i.product_name, qty: 0, totalCost: 0, purchases: 0, inventoryId: i.inventory_id }
+      map[key].qty       += i.quantity
+      map[key].totalCost += i.subtotal
+      map[key].purchases += 1
+    }))
+    return Object.values(map).sort((a, b) => b.qty - a.qty)
+  }, [purchases])
+
   return (
-    <div className="page-shell">
+    <div className="page-shell" data-testid="supplier-detail">
       {/* Encabezado detalle */}
       <div style={{ marginBottom: '1.25rem' }}>
         <button className="btn btn-ghost btn-sm" style={{ marginBottom: '0.75rem' }} onClick={backToList}>
@@ -1318,14 +1360,14 @@ export function Suppliers() {
       )}
 
       {/* Cards resumen */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+      <div data-testid="supplier-summary" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
         {[
-          { label: 'Total comprado', value: fmtARS(s.total_purchases), color: '#818cf8', icon: <TrendingUp size={16} /> },
-          { label: 'Total pagado', value: fmtARS(s.total_paid), color: '#22c55e', icon: <CheckCircle size={16} /> },
-          { label: 'Saldo pendiente', value: fmtARS(s.pending_amount), color: s.pending_amount > 0 ? '#f59e0b' : '#22c55e', icon: <AlertCircle size={16} /> },
-          { label: 'Compras', value: s.purchases_count, color: '#38bdf8', icon: <ShoppingCart size={16} /> },
+          { label: 'Total comprado',  value: fmtARS(s.total_purchases), color: '#818cf8', icon: <TrendingUp size={16} /> },
+          { label: 'Total pagado',    value: fmtARS(s.total_paid),      color: '#22c55e', icon: <CheckCircle size={16} /> },
+          { label: 'Saldo pendiente', value: fmtARS(s.pending_amount),  color: s.pending_amount > 0 ? '#f59e0b' : '#22c55e', icon: <AlertCircle size={16} />, testId: 'supplier-balance' },
+          { label: 'Compras',         value: s.purchases_count,         color: '#38bdf8', icon: <ShoppingCart size={16} /> },
         ].map((c, i) => (
-          <div key={i} style={cardS}>
+          <div key={i} style={cardS} data-testid={c.testId}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', color: c.color }}>{c.icon}<span style={{ fontSize: '0.68rem', color: '#475569', fontWeight: 600, textTransform: 'uppercase' }}>{c.label}</span></div>
             <div style={{ fontSize: '1.3rem', fontWeight: 800, color: c.color }}>{c.value}</div>
           </div>
@@ -1358,9 +1400,16 @@ export function Suppliers() {
 
       {/* Tab: Compras */}
       {activeTab === 'compras' && (
-        <div>
+        <div data-testid="supplier-purchases-tab supplier-invoices-tab">
+          {deletePurchaseError && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', borderRadius: '0.625rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', marginBottom: '0.75rem' }}>
+              <AlertCircle size={15} style={{ color: '#ef4444', flexShrink: 0 }} />
+              <span style={{ color: '#fca5a5', fontSize: '0.875rem', flex: 1 }}>{deletePurchaseError}</span>
+              <button className="icon-btn" style={{ flexShrink: 0 }} onClick={() => setDeletePurchaseError(null)}><X size={13} /></button>
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
-            <button className="btn btn-primary btn-lift" onClick={() => setShowModalPurchase(true)}>
+            <button className="btn btn-primary btn-lift" data-testid="supplier-new-invoice-button" onClick={() => setShowModalPurchase(true)}>
               <Plus size={13} /> Nueva compra
             </button>
           </div>
@@ -1396,13 +1445,14 @@ export function Suppliers() {
                       <td style={{ padding: '0.75rem 0.875rem', textAlign: 'right', color: '#22c55e', fontSize: '0.875rem' }}>{fmtARS(p.paid_amount)}</td>
                       <td style={{ padding: '0.75rem 0.875rem', textAlign: 'right', color: p.pending_amount > 0 ? '#f59e0b' : '#22c55e', fontSize: '0.875rem', fontWeight: p.pending_amount > 0 ? 700 : 400 }}>{fmtARS(p.pending_amount)}</td>
                       <td style={{ padding: '0.75rem 0.875rem', color: '#64748b', fontSize: '0.75rem' }}>{PAYMENT_METHOD_LABELS[p.payment_method || ''] || p.payment_method || '—'}</td>
-                      <td style={{ padding: '0.75rem 0.875rem' }}><StatusBadge status={p.payment_status} /></td>
+                      <td style={{ padding: '0.75rem 0.875rem' }} data-testid="supplier-payment-status"><StatusBadge status={p.payment_status} /></td>
                       <td style={{ padding: '0.75rem 0.625rem' }}>
                         <div style={{ display: 'flex', gap: '0.25rem' }}>
                           <button className="icon-btn icon-btn-primary" title="Ver detalle" onClick={() => setViewingPurchase(p)}><Eye size={14} /></button>
                           {p.payment_status !== 'paid' && (
                             <button className="icon-btn" style={{ color: '#22c55e' }} title="Registrar pago" onClick={() => { setDefaultPurchaseId(p.id); setShowModalPayment(true) }}><Banknote size={14} /></button>
                           )}
+                          <button className="icon-btn icon-btn-danger" title={p.paid_amount > 0 ? 'No se puede eliminar (tiene pagos)' : 'Eliminar compra'} onClick={() => handleDeletePurchase(p)} style={{ opacity: p.paid_amount > 0 ? 0.4 : 1 }}><Trash2 size={14} /></button>
                         </div>
                       </td>
                     </tr>
@@ -1430,7 +1480,7 @@ export function Suppliers() {
 
       {/* Tab: Pagos */}
       {activeTab === 'pagos' && (
-        <div>
+        <div data-testid="supplier-payments-tab">
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
             <button className="btn btn-success btn-lift" onClick={() => { setDefaultPurchaseId(null); setShowModalPayment(true) }}>
               <Plus size={13} /> Registrar pago
@@ -1467,6 +1517,58 @@ export function Suppliers() {
         </div>
       )}
 
+      {/* Tab: Productos */}
+      {activeTab === 'productos' && (
+        <div data-testid="supplier-products-tab">
+          {productosMap.length === 0 ? (
+            <div style={{ ...cardS, textAlign: 'center', padding: '3rem', color: '#475569' }}>
+              <Package size={32} style={{ marginBottom: '0.75rem', opacity: 0.3 }} />
+              <p>Sin productos registrados para este proveedor.</p>
+            </div>
+          ) : (
+            <div style={{ ...cardS, padding: 0, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                    {['Producto', 'En inventario', 'Cant. total', 'Compras', 'Costo total promedio'].map(h => (
+                      <th key={h} style={{ padding: '0.625rem 0.875rem', fontSize: '0.65rem', color: '#475569', fontWeight: 700, textAlign: ['Cant. total','Compras','Costo total promedio'].includes(h) ? 'right' : 'left', textTransform: 'uppercase' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {productosMap.map((prod, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <td style={{ padding: '0.75rem 0.875rem', color: '#e2e8f0', fontSize: '0.875rem', fontWeight: 600 }}>{prod.name}</td>
+                      <td style={{ padding: '0.75rem 0.875rem' }}>
+                        {prod.inventoryId
+                          ? <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.15rem 0.4rem', borderRadius: '0.25rem', background: 'rgba(99,102,241,0.12)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.2)' }}>✓ inventario</span>
+                          : <span style={{ fontSize: '0.65rem', color: '#475569' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '0.75rem 0.875rem', textAlign: 'right', color: '#94a3b8', fontSize: '0.875rem' }}>{prod.qty}</td>
+                      <td style={{ padding: '0.75rem 0.875rem', textAlign: 'right', color: '#64748b', fontSize: '0.875rem' }}>{prod.purchases}</td>
+                      <td style={{ padding: '0.75rem 0.875rem', textAlign: 'right', fontWeight: 600, color: '#e2e8f0', fontSize: '0.875rem' }}>{fmtARS(prod.totalCost / prod.purchases)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab: Datos — inline edit */}
+      {activeTab === 'datos' && (
+        <DatosTab
+          supplier={s}
+          businessId={businessId || ''}
+          editForm={editForm}
+          setEditForm={setEditForm}
+          onSaved={() => { refreshDetail(); setActiveTab('compras') }}
+        />
+      )}
+
       {/* Tab: Notas */}
       {activeTab === 'notas' && (
         <div>
@@ -1481,19 +1583,185 @@ export function Suppliers() {
           editing={editingSupplier} businessId={businessId || ''} userId={user?.id || ''} />
       )}
       {showModalPurchase && (
-        <ModalNuevaCompra onClose={() => setShowModalPurchase(false)}
-          onSaved={() => { setShowModalPurchase(false); refreshDetail() }}
-          supplier={s} businessId={businessId || ''} userId={user?.id || ''} />
+        <div data-testid="supplier-invoice-modal">
+          <ModalNuevaCompra onClose={() => setShowModalPurchase(false)}
+            onSaved={() => { setShowModalPurchase(false); refreshDetail() }}
+            supplier={s} businessId={businessId || ''} userId={user?.id || ''} />
+        </div>
       )}
       {showModalPayment && (
-        <ModalRegistrarPago onClose={() => { setShowModalPayment(false); setDefaultPurchaseId(null) }}
-          onSaved={() => { setShowModalPayment(false); setDefaultPurchaseId(null); refreshDetail() }}
-          supplier={s} purchases={purchases} businessId={businessId || ''} userId={user?.id || ''}
-          defaultPurchaseId={defaultPurchaseId} />
+        <div data-testid="supplier-payment-modal">
+          <ModalRegistrarPago onClose={() => { setShowModalPayment(false); setDefaultPurchaseId(null) }}
+            onSaved={() => { setShowModalPayment(false); setDefaultPurchaseId(null); refreshDetail() }}
+            supplier={s} purchases={purchases} businessId={businessId || ''} userId={user?.id || ''}
+            defaultPurchaseId={defaultPurchaseId} />
+        </div>
       )}
       {viewingPurchase && (
         <ModalVerCompra purchase={viewingPurchase} onClose={() => setViewingPurchase(null)} />
       )}
+    </div>
+  )
+}
+
+// ─── Datos tab — inline supplier editor ──────────────────────────────────────
+
+function DatosTab({
+  supplier, businessId, editForm, setEditForm, onSaved,
+}: {
+  supplier: SupplierWithStats
+  businessId: string
+  editForm: Partial<SupplierWithStats>
+  setEditForm: React.Dispatch<React.SetStateAction<Partial<SupplierWithStats>>>
+  onSaved: () => void
+}) {
+  const [saving, setSaving] = useState(false)
+  const [error, setError]   = useState('')
+  const [saved, setSaved]   = useState(false)
+
+  // Initialise form from supplier on first render / supplier change
+  const [initialised, setInitialised] = useState(false)
+  useEffect(() => {
+    if (!initialised) {
+      setEditForm({
+        name: supplier.name, business_name: supplier.business_name,
+        tax_id: supplier.tax_id, fiscal_condition: supplier.fiscal_condition,
+        phone: supplier.phone, whatsapp: supplier.whatsapp,
+        email: supplier.email, address: supplier.address,
+        city: supplier.city, province: supplier.province,
+        category: supplier.category, contact_name: supplier.contact_name,
+        delivery_days: supplier.delivery_days,
+        payment_method_preferred: supplier.payment_method_preferred,
+        bank_alias: supplier.bank_alias, bank_cbu: supplier.bank_cbu,
+        website: supplier.website,
+        active: supplier.active,
+      })
+      setInitialised(true)
+    }
+  }, [supplier, initialised, setEditForm])
+
+  const set = (k: string, v: string | boolean) => setEditForm(f => ({ ...f, [k]: v }))
+
+  const handleSave = async () => {
+    if (!editForm.name?.trim()) { setError('El nombre es obligatorio'); return }
+    setSaving(true); setError('')
+    try {
+      await suppliersService.updateSupplier(supplier.id, editForm, businessId)
+      setSaved(true)
+      setTimeout(() => { setSaved(false); onSaved() }, 800)
+    } catch (e: any) {
+      setError(e.message || 'Error al guardar')
+    } finally { setSaving(false) }
+  }
+
+  const f = editForm
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }} data-testid="supplier-datos-tab">
+      <div style={cardS}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <h3 style={{ margin: 0, fontSize: '0.875rem', fontWeight: 700, color: '#f0f4ff' }}>Datos principales</h3>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.8rem', color: '#94a3b8' }}>
+              <input type="checkbox" checked={f.active ?? true} onChange={e => set('active', e.target.checked)} />
+              Activo
+            </label>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <div>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Nombre *</label>
+            <input className="form-control" value={f.name || ''} onChange={e => set('name', e.target.value)} />
+          </div>
+          <div>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Razón social</label>
+            <input className="form-control" value={f.business_name || ''} onChange={e => set('business_name', e.target.value)} />
+          </div>
+          <div>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>CUIT / DNI</label>
+            <input className="form-control" value={f.tax_id || ''} onChange={e => set('tax_id', e.target.value)} />
+          </div>
+          <div>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Condición fiscal</label>
+            <select className="form-control" value={f.fiscal_condition || ''} onChange={e => set('fiscal_condition', e.target.value)}>
+              <option value="">— Seleccionar —</option>
+              {FISCAL_CONDITIONS.map(fc => <option key={fc} value={fc}>{fc}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Teléfono</label>
+            <input className="form-control" value={f.phone || ''} onChange={e => set('phone', e.target.value)} />
+          </div>
+          <div>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>WhatsApp</label>
+            <input className="form-control" value={f.whatsapp || ''} onChange={e => set('whatsapp', e.target.value)} />
+          </div>
+          <div>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Email</label>
+            <input className="form-control" type="email" value={f.email || ''} onChange={e => set('email', e.target.value)} />
+          </div>
+          <div>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Categoría</label>
+            <select className="form-control" value={f.category || ''} onChange={e => set('category', e.target.value)}>
+              <option value="">— Sin categoría —</option>
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Dirección</label>
+            <input className="form-control" value={f.address || ''} onChange={e => set('address', e.target.value)} />
+          </div>
+          <div>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Ciudad</label>
+            <input className="form-control" value={f.city || ''} onChange={e => set('city', e.target.value)} />
+          </div>
+          <div>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Provincia</label>
+            <input className="form-control" value={f.province || ''} onChange={e => set('province', e.target.value)} />
+          </div>
+        </div>
+      </div>
+
+      <div style={cardS}>
+        <h3 style={{ margin: '0 0 1rem', fontSize: '0.875rem', fontWeight: 700, color: '#f0f4ff' }}>Datos comerciales</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+          <div>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Contacto</label>
+            <input className="form-control" value={f.contact_name || ''} onChange={e => set('contact_name', e.target.value)} />
+          </div>
+          <div>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Días de entrega</label>
+            <input className="form-control" value={f.delivery_days || ''} onChange={e => set('delivery_days', e.target.value)} placeholder="ej: 3-5 días hábiles" />
+          </div>
+          <div>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Método de pago preferido</label>
+            <select className="form-control" value={f.payment_method_preferred || ''} onChange={e => set('payment_method_preferred', e.target.value)}>
+              <option value="">— Sin preferencia —</option>
+              {PAYMENT_METHODS.map(m => <option key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Alias / CVU</label>
+            <input className="form-control" value={f.bank_alias || ''} onChange={e => set('bank_alias', e.target.value)} />
+          </div>
+          <div>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>CBU</label>
+            <input className="form-control" value={f.bank_cbu || ''} onChange={e => set('bank_cbu', e.target.value)} />
+          </div>
+          <div>
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Sitio web</label>
+            <input className="form-control" value={f.website || ''} onChange={e => set('website', e.target.value)} placeholder="https://..." />
+          </div>
+        </div>
+      </div>
+
+      {error && <p style={{ margin: 0, color: '#ef4444', fontSize: '0.8rem' }}>{error}</p>}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+        <button className="btn btn-primary btn-lift" onClick={handleSave} disabled={saving}>
+          {saved ? <><CheckCircle size={14} /> Guardado</> : saving ? 'Guardando...' : <><Settings2 size={14} /> Guardar cambios</>}
+        </button>
+      </div>
     </div>
   )
 }
