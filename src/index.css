@@ -1001,6 +1001,39 @@ select option:disabled {
   font-weight: 400;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   OVERRIDE DEFINITIVO — texto de inputs siempre visible en dark mode
+   Tiene precedencia sobre inline styles, clases y UA stylesheet de Chrome.
+   Cubre el caso donde Chrome usa -webkit-text-fill-color propio
+   (autofill, date/number spinners, system color scheme).
+   ══════════════════════════════════════════════════════════════════════════ */
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+textarea,
+select,
+.form-control,
+[contenteditable="true"] {
+  color: var(--text-primary) !important;
+  -webkit-text-fill-color: var(--text-primary) !important;
+  caret-color: var(--text-primary) !important;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"])::placeholder,
+textarea::placeholder {
+  color: var(--input-placeholder) !important;
+  -webkit-text-fill-color: var(--input-placeholder) !important;
+  opacity: 1 !important;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):disabled,
+textarea:disabled,
+select:disabled,
+.form-control:disabled {
+  color: var(--text-muted) !important;
+  -webkit-text-fill-color: var(--text-muted) !important;
+  opacity: 0.65;
+}
+
 /* Labels */
 .form-label {
   display: block;

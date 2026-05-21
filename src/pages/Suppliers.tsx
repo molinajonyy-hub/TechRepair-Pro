@@ -402,11 +402,11 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
             {/* PRODUCTOS — cards premium */}
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                <span style={{ fontSize: '0.62rem', fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                <span style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
                   Productos ({rows.filter(r => r.product_name.trim()).length})
                 </span>
                 <button onClick={() => setRows(p => [...p, newRow()])}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.25rem 0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.375rem', color: '#475569', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.25rem 0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.375rem', color: 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: F }}>
                   <Plus size={11} /> Agregar fila
                 </button>
               </div>
@@ -421,7 +421,7 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
                       onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)')}>
                       {/* Icono */}
                       <div style={{ width: 32, height: 32, borderRadius: '0.5rem', background: 'rgba(99,102,241,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <ShoppingCart size={14} color="#475569" />
+                        <ShoppingCart size={14} color="var(--text-muted)" />
                       </div>
                       {/* Search */}
                       <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
@@ -429,11 +429,11 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
                           onChange={e => searchProduct(row._key, e.target.value)}
                           placeholder="Buscar o escribir producto..."
                           style={{ width: '100%', background: 'none', border: 'none', outline: 'none', color: '#f0f4ff', fontSize: '0.875rem', fontWeight: 600, fontFamily: F, padding: 0 }} />
-                        {row.inventory_id && <div style={{ fontSize: '0.68rem', color: '#334155', marginTop: '0.1rem' }}>Vinculado al inventario</div>}
+                        {row.inventory_id && <div style={{ fontSize: '0.68rem', color: 'var(--accent-primary)', marginTop: '0.1rem' }}>Vinculado al inventario</div>}
                         {(row.searchResults.length > 0 || (row.searchQ.trim().length >= 2 && !row.inventory_id)) && (
                           <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 200, background: '#0c1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.625rem', boxShadow: '0 12px 40px rgba(0,0,0,0.7)', overflow: 'hidden' }}>
                             {row.searchResults.length === 0 && (
-                              <div style={{ padding: '0.625rem 0.875rem', color: '#334155', fontSize: '0.78rem' }}>Sin resultados para "{row.searchQ.trim()}"</div>
+                              <div style={{ padding: '0.625rem 0.875rem', color: 'var(--text-secondary)', fontSize: '0.78rem' }}>Sin resultados para "{row.searchQ.trim()}"</div>
                             )}
                             {row.searchResults.map((p: any) => (
                               <button key={p.id} onMouseDown={() => selectProduct(row._key, p)}
@@ -441,7 +441,7 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
                                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.08)'}
                                 onMouseLeave={e => e.currentTarget.style.background = 'none'}>
                                 <span style={{ color: '#f0f4ff', fontSize: '0.83rem' }}>{p.name}{p.variant_name ? ` — ${p.variant_name}` : ''}</span>
-                                <span style={{ color: '#334155', fontSize: '0.72rem', flexShrink: 0, marginLeft: '0.5rem' }}>stock: {p.stock_quantity}</span>
+                                <span style={{ color: 'var(--text-subtle)', fontSize: '0.72rem', flexShrink: 0, marginLeft: '0.5rem' }}>stock: {p.stock_quantity}</span>
                               </button>
                             ))}
                             <button onMouseDown={() => { setProductFormRowKey(row._key); setShowProductForm(true); updateRow(row._key, { searchResults: [] }) }}
@@ -467,7 +467,7 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
                       </div>
                       {/* Costo unit. */}
                       <div style={{ position: 'relative', flexShrink: 0 }}>
-                        <span style={{ position: 'absolute', left: '0.4rem', top: '50%', transform: 'translateY(-50%)', color: '#334155', fontSize: '0.68rem' }}>$</span>
+                        <span style={{ position: 'absolute', left: '0.4rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontSize: '0.68rem' }}>$</span>
                         <input type="number" min={0} value={row.unit_cost || ''}
                           onChange={e => updateRow(row._key, { unit_cost: +e.target.value || 0 })}
                           placeholder="0"

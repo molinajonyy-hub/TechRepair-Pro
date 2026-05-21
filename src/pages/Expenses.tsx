@@ -706,7 +706,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
                     style={{ width: '100%', padding: '0.875rem', borderRadius: '0.75rem', border: 'none', background: saving ? 'rgba(99,102,241,0.4)' : 'linear-gradient(135deg,#6366f1,#4f46e5)', color: '#fff', fontSize: '0.9375rem', fontWeight: 800, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', boxShadow: saving ? 'none' : '0 4px 20px rgba(99,102,241,0.4)', transition: 'all 0.15s' }}>
                     {saving ? <><RefreshCw size={15} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> Registrando...</> : <><ShoppingBag size={15} /> {totalFactura > 0 ? `Registrar ${fmtARS(totalFactura)}` : 'Registrar factura'}</>}
                   </button>
-                  <button onClick={onClose} style={{ width: '100%', marginTop: '0.375rem', padding: '0.375rem', background: 'none', border: 'none', color: '#334155', fontSize: '0.78rem', cursor: 'pointer' }}>
+                  <button onClick={onClose} style={{ width: '100%', marginTop: '0.375rem', padding: '0.375rem', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '0.78rem', cursor: 'pointer' }}>
                     Cancelar
                   </button>
                 </div>

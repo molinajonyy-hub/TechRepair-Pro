@@ -420,21 +420,15 @@ export function OrderDetail() {
                 onChange={(e) => setNotesText(e.target.value)}
                 placeholder="Escribí notas internas sobre esta orden: diagnóstico, acuerdos con el cliente, observaciones..."
                 rows={7}
+                className="form-control"
                 style={{
-                  width: '100%', boxSizing: 'border-box',
-                  padding: '0.75rem',
-                  backgroundColor: '#0f172a',
-                  border: '1px solid #1e293b',
-                  borderRadius: '0.5rem',
-                  color: '#e2e8f0',
-                  fontSize: '0.9375rem',
+                  height: 'auto',
+                  minHeight: '10rem',
                   lineHeight: 1.6,
                   resize: 'vertical',
-                  outline: 'none',
-                  fontFamily: 'inherit'
                 }}
-                onFocus={e => e.target.style.borderColor = '#6366f1'}
-                onBlur={e => e.target.style.borderColor = '#1e293b'}
+                onFocus={e => { e.target.style.borderColor = 'var(--input-focus-border)'; e.target.style.boxShadow = 'var(--input-focus-shadow)' }}
+                onBlur={e => { e.target.style.borderColor = 'var(--input-border)'; e.target.style.boxShadow = 'none' }}
               />
               <p style={{ fontSize: '0.75rem', color: '#475569', marginTop: '0.5rem' }}>
                 Las notas son solo visibles internamente, no las ve el cliente.
