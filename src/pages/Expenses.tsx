@@ -552,7 +552,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
                 {/* Productos — cards premium */}
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                    <span style={{ fontSize: '0.62rem', fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                    <span style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
                       Productos ({items.filter(it => it.product_name).length})
                     </span>
                     <button onClick={() => setItems(prev => [...prev, mkItem()])}
@@ -587,18 +587,18 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
                       <div style={{ color: '#f1f5f9', fontWeight: 700, fontSize: '0.875rem' }}>
                         {suppliers.find(s => s.id === supplierId)?.name ?? 'Sin proveedor seleccionado'}
                       </div>
-                      {!supplierId && <div style={{ color: '#1e3a5f', fontSize: '0.68rem' }}>Seleccioná uno de la izquierda</div>}
+                      {!supplierId && <div style={{ color: 'var(--text-subtle)', fontSize: '0.68rem' }}>Seleccioná uno de la izquierda</div>}
                     </div>
                   </div>
                 </div>
 
                 {/* TOTAL grande */}
                 <div style={{ padding: '0.875rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
-                  <div style={{ color: '#334155', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.2rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total de compra</div>
-                  <div style={{ color: totalFactura > 0 ? '#f0f4ff' : '#1e3a5f', fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1, transition: 'color 0.2s' }}>
+                  <div style={{ color: 'var(--text-tertiary)', fontSize: '0.72rem', fontWeight: 600, marginBottom: '0.2rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Total de compra</div>
+                  <div style={{ color: totalFactura > 0 ? '#f0f4ff' : 'var(--text-subtle)', fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1, transition: 'color 0.2s' }}>
                     {totalFactura > 0 ? fmtARS(totalFactura) : '$0'}
                   </div>
-                  {totalFactura === 0 && <div style={{ color: '#1e3a5f', fontSize: '0.7rem', marginTop: '0.2rem' }}>Agregá productos para ver el total</div>}
+                  {totalFactura === 0 && <div style={{ color: 'var(--text-subtle)', fontSize: '0.7rem', marginTop: '0.2rem' }}>Agregá productos para ver el total</div>}
                 </div>
 
                 {/* ESTADO + MÉTODOS + RESUMEN */}
@@ -606,7 +606,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
 
                   {/* Estado de pago */}
                   <div>
-                    <div style={{ fontSize: '0.6rem', color: '#1e3a5f', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.3rem' }}>Estado de pago</div>
+                    <div style={{ fontSize: '0.6rem', color: 'var(--text-tertiary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.3rem' }}>Estado de pago</div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.3rem' }}>
                       {([
                         { key: 'cc' as const,      label: 'A CC',    sub: 'Todo a deber', icon: <Wallet size={12} />,      color: '#818cf8', bg: 'rgba(99,102,241,0.12)',  border: 'rgba(99,102,241,0.4)'  },
@@ -615,9 +615,9 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
                       ]).map(opt => (
                         <button key={opt.key} onClick={() => setFacPayState(opt.key)}
                           style={{ padding: '0.5rem 0.25rem', borderRadius: '0.5rem', border: `1px solid ${facPayState === opt.key ? opt.border : 'rgba(255,255,255,0.07)'}`, background: facPayState === opt.key ? opt.bg : 'rgba(255,255,255,0.02)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.15rem', transition: 'all 0.1s' }}>
-                          <span style={{ color: facPayState === opt.key ? opt.color : '#334155' }}>{opt.icon}</span>
-                          <span style={{ color: facPayState === opt.key ? opt.color : '#475569', fontSize: '0.72rem', fontWeight: facPayState === opt.key ? 800 : 500 }}>{opt.label}</span>
-                          <span style={{ color: facPayState === opt.key ? opt.color : '#1e3a5f', fontSize: '0.6rem', opacity: 0.8 }}>{opt.sub}</span>
+                          <span style={{ color: facPayState === opt.key ? opt.color : 'var(--text-muted)' }}>{opt.icon}</span>
+                          <span style={{ color: facPayState === opt.key ? opt.color : 'var(--text-muted)', fontSize: '0.72rem', fontWeight: facPayState === opt.key ? 800 : 500 }}>{opt.label}</span>
+                          <span style={{ color: facPayState === opt.key ? opt.color : 'var(--text-subtle)', fontSize: '0.6rem', opacity: 0.8 }}>{opt.sub}</span>
                         </button>
                       ))}
                     </div>
@@ -625,13 +625,13 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
 
                   {/* Grid de métodos */}
                   <div>
-                    <div style={{ fontSize: '0.6rem', color: '#1e3a5f', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.3rem' }}>Método de pago</div>
+                    <div style={{ fontSize: '0.6rem', color: 'var(--text-tertiary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.3rem' }}>Método de pago</div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.3rem' }}>
                       {FAC_METHODS.map(m => {
                         const active = facMetodo === m.id
                         return (
                           <button key={m.id} onClick={() => setFacMetodo(m.id)}
-                            style={{ padding: '0.4rem 0.25rem', borderRadius: '0.5rem', border: `1px solid ${active ? m.color + '80' : 'rgba(255,255,255,0.06)'}`, background: active ? m.color + '20' : 'rgba(255,255,255,0.02)', color: active ? m.color : '#334155', fontSize: '0.72rem', fontWeight: active ? 700 : 500, cursor: 'pointer', transition: 'all 0.1s', textAlign: 'center' }}
+                            style={{ padding: '0.4rem 0.25rem', borderRadius: '0.5rem', border: `1px solid ${active ? m.color + '80' : 'rgba(255,255,255,0.06)'}`, background: active ? m.color + '20' : 'rgba(255,255,255,0.02)', color: active ? m.color : 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: active ? 700 : 500, cursor: 'pointer', transition: 'all 0.1s', textAlign: 'center' }}
                             onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
                             onMouseLeave={e => { e.currentTarget.style.background = active ? m.color + '20' : 'rgba(255,255,255,0.02)' }}>
                             {m.short}
@@ -645,7 +645,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
                   {facPayState === 'partial' && (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                       <div>
-                        <div style={{ fontSize: '0.6rem', color: '#334155', fontWeight: 700, textTransform: 'uppercase', marginBottom: '0.25rem' }}>Pagado ahora</div>
+                        <div style={{ fontSize: '0.6rem', color: 'var(--text-tertiary)', fontWeight: 700, textTransform: 'uppercase', marginBottom: '0.25rem' }}>Pagado ahora</div>
                         <input type="number" min="0" max={totalFactura} value={facPartialAmt}
                           onChange={e => setFacPartialAmt(e.target.value)}
                           placeholder="$"
@@ -663,11 +663,11 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
                   {/* Resumen financiero */}
                   <div style={{ background: 'rgba(0,0,0,0.25)', borderRadius: '0.625rem', padding: '0.625rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.225rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.2rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                      <span style={{ fontSize: '0.72rem', color: '#334155', fontWeight: 600 }}>Total factura</span>
-                      <span style={{ fontSize: '0.72rem', color: totalFactura > 0 ? '#94a3b8' : '#1e3a5f', fontWeight: 700 }}>{fmtARS(totalFactura)}</span>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', fontWeight: 600 }}>Total factura</span>
+                      <span style={{ fontSize: '0.72rem', color: totalFactura > 0 ? '#94a3b8' : 'var(--text-subtle)', fontWeight: 700 }}>{fmtARS(totalFactura)}</span>
                     </div>
                     {totalFactura === 0 ? (
-                      <div style={{ color: '#1e3a5f', fontSize: '0.7rem', fontStyle: 'italic', padding: '0.2rem 0' }}>El resumen aparecerá al agregar productos</div>
+                      <div style={{ color: 'var(--text-subtle)', fontSize: '0.7rem', fontStyle: 'italic', padding: '0.2rem 0' }}>El resumen aparecerá al agregar productos</div>
                     ) : (
                       <>
                         {facPaidAmount > 0 && (

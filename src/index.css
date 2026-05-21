@@ -337,6 +337,8 @@ button:disabled, input:disabled, select:disabled, textarea:disabled {
 input, select, textarea {
   color: var(--text-primary);
   caret-color: var(--text-primary);
+  /* Heredar color-scheme para que el browser use dark widgets (date picker, etc.) */
+  color-scheme: inherit;
 }
 
 /* Override autofill del browser — Chrome cambia el fondo a blanco y el texto se vuelve ilegible */
@@ -353,8 +355,8 @@ textarea:-webkit-autofill:focus {
   -webkit-text-fill-color: var(--text-primary) !important;
   -webkit-box-shadow: 0 0 0px 1000px var(--input-bg) inset !important;
   box-shadow: 0 0 0px 1000px var(--input-bg) inset !important;
-  transition: background-color 5000s ease-in-out 0s;
-  caret-color: var(--text-primary);
+  transition: background-color 9999s ease-in-out 0s;
+  caret-color: var(--text-primary) !important;
 }
 
 :focus-visible {
@@ -907,12 +909,27 @@ textarea {
   border-color: var(--input-border);
   font-family: inherit;
   box-sizing: border-box;
+  color-scheme: inherit;
 }
 
 input::placeholder,
 textarea::placeholder {
   color: var(--input-placeholder);
   opacity: 1;
+}
+
+/* Placeholder no usa -webkit-text-fill-color — necesita override explícito */
+input::placeholder,
+textarea::placeholder {
+  -webkit-text-fill-color: var(--input-placeholder);
+}
+
+/* Selección de texto en inputs */
+input::selection,
+textarea::selection {
+  background-color: var(--accent-primary-light);
+  color: var(--text-primary);
+  -webkit-text-fill-color: var(--text-primary);
 }
 
 /* Focus global sin clase */
@@ -942,6 +959,7 @@ select option:disabled {
   height: 44px;
   padding: 0 14px;
   color: var(--text-primary);
+  caret-color: var(--text-primary);
   background: var(--input-bg);
   border: 1px solid var(--input-border);
   border-radius: 12px;
@@ -952,7 +970,9 @@ select option:disabled {
   -webkit-appearance: none;
   appearance: none;
   box-sizing: border-box;
+  color-scheme: inherit;
 }
+
 
 .form-control:focus,
 .form-select:focus {

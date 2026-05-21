@@ -356,7 +356,7 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
 
   const F = "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
   const iS: React.CSSProperties = { width: '100%', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', color: '#f0f4ff', fontSize: '0.82rem', outline: 'none', fontFamily: F, boxSizing: 'border-box' as const }
-  const lS: React.CSSProperties = { display: 'block', fontSize: '0.62rem', fontWeight: 700, color: '#334155', marginBottom: '0.3rem', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }
+  const lS: React.CSSProperties = { display: 'block', fontSize: '0.62rem', fontWeight: 700, color: 'var(--text-tertiary)', marginBottom: '0.3rem', textTransform: 'uppercase' as const, letterSpacing: '0.06em' }
 
   return (
     <>
@@ -373,10 +373,10 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
             </div>
             <div>
               <div style={{ color: '#f1f5f9', fontWeight: 800, fontSize: '0.9375rem', letterSpacing: '-0.02em' }}>Nueva compra</div>
-              <div style={{ color: '#334155', fontSize: '0.72rem', marginTop: '0.05rem' }}>Registrar factura a {supplier.name}</div>
+              <div style={{ color: 'var(--text-subtle)', fontSize: '0.72rem', marginTop: '0.05rem' }}>Registrar factura a {supplier.name}</div>
             </div>
           </div>
-          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', cursor: 'pointer', color: '#475569', padding: '0.375rem', borderRadius: '0.5rem', display: 'flex', alignItems: 'center', transition: 'all 0.1s' }}>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.375rem', borderRadius: '0.5rem', display: 'flex', alignItems: 'center', transition: 'all 0.1s' }}>
             <X size={16} />
           </button>
         </div>
@@ -537,7 +537,7 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
 
               {/* 3 estados de pago */}
               <div>
-                <div style={{ fontSize: '0.6rem', color: '#1e3a5f', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.375rem' }}>Estado de pago</div>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-tertiary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.375rem' }}>Estado de pago</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.3rem' }}>
                   {[
                     { label: 'A CC', sub: 'Todo a deber', icon: <Wallet size={12} />, value: 0 as number, color: '#818cf8', bg: 'rgba(99,102,241,0.12)', border: 'rgba(99,102,241,0.4)', active: paidAmount <= 0 },
@@ -547,9 +547,9 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
                     <button key={opt.label}
                       onClick={() => opt.value === -1 ? setPaidAmount(Math.round(totalAmount / 2)) : setPaidAmount(opt.value as number)}
                       style={{ padding: '0.5rem 0.25rem', borderRadius: '0.5rem', border: `1px solid ${opt.active ? opt.border : 'rgba(255,255,255,0.07)'}`, background: opt.active ? opt.bg : 'rgba(255,255,255,0.02)', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.15rem', transition: 'all 0.1s', fontFamily: F }}>
-                      <span style={{ color: opt.active ? opt.color : '#334155' }}>{opt.icon}</span>
-                      <span style={{ color: opt.active ? opt.color : '#475569', fontSize: '0.72rem', fontWeight: opt.active ? 800 : 500 }}>{opt.label}</span>
-                      <span style={{ color: opt.active ? opt.color : '#1e3a5f', fontSize: '0.6rem', opacity: 0.8 }}>{opt.sub}</span>
+                      <span style={{ color: opt.active ? opt.color : 'var(--text-muted)' }}>{opt.icon}</span>
+                      <span style={{ color: opt.active ? opt.color : 'var(--text-muted)', fontSize: '0.72rem', fontWeight: opt.active ? 800 : 500 }}>{opt.label}</span>
+                      <span style={{ color: opt.active ? opt.color : 'var(--text-subtle)', fontSize: '0.6rem', opacity: 0.8 }}>{opt.sub}</span>
                     </button>
                   ))}
                 </div>
@@ -557,13 +557,13 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
 
               {/* Métodos de pago — grid premium */}
               <div>
-                <div style={{ fontSize: '0.6rem', color: '#1e3a5f', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.3rem' }}>Método de pago</div>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-tertiary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.3rem' }}>Método de pago</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.3rem' }}>
                   {PROV_METHODS.map(m => {
                     const active = paymentMethod === m.id
                     return (
                       <button key={m.id} onClick={() => setPaymentMethod(m.id)}
-                        style={{ padding: '0.4rem 0.25rem', borderRadius: '0.5rem', border: `1px solid ${active ? m.color + '80' : 'rgba(255,255,255,0.06)'}`, background: active ? m.color + '20' : 'rgba(255,255,255,0.02)', color: active ? m.color : '#334155', fontSize: '0.72rem', fontWeight: active ? 700 : 500, cursor: 'pointer', transition: 'all 0.1s', textAlign: 'center', fontFamily: F }}
+                        style={{ padding: '0.4rem 0.25rem', borderRadius: '0.5rem', border: `1px solid ${active ? m.color + '80' : 'rgba(255,255,255,0.06)'}`, background: active ? m.color + '20' : 'rgba(255,255,255,0.02)', color: active ? m.color : 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: active ? 700 : 500, cursor: 'pointer', transition: 'all 0.1s', textAlign: 'center', fontFamily: F }}
                         onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
                         onMouseLeave={e => { e.currentTarget.style.background = active ? m.color + '20' : 'rgba(255,255,255,0.02)' }}>
                         {m.short}
@@ -593,11 +593,11 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
               {/* Resumen financiero — siempre visible */}
               <div style={{ background: 'rgba(0,0,0,0.25)', borderRadius: '0.625rem', padding: '0.625rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.225rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.2rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                  <span style={{ fontSize: '0.72rem', color: '#334155', fontWeight: 600 }}>Total factura</span>
-                  <span style={{ fontSize: '0.72rem', color: totalAmount > 0 ? '#94a3b8' : '#1e3a5f', fontWeight: 700 }}>{fmtARS(totalAmount)}</span>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', fontWeight: 600 }}>Total factura</span>
+                  <span style={{ fontSize: '0.72rem', color: totalAmount > 0 ? '#94a3b8' : 'var(--text-subtle)', fontWeight: 700 }}>{fmtARS(totalAmount)}</span>
                 </div>
                 {totalAmount === 0 ? (
-                  <div style={{ color: '#1e3a5f', fontSize: '0.72rem', padding: '0.25rem 0', fontStyle: 'italic' }}>
+                  <div style={{ color: 'var(--text-subtle)', fontSize: '0.72rem', padding: '0.25rem 0', fontStyle: 'italic' }}>
                     El resumen aparecerá al agregar productos
                   </div>
                 ) : (
@@ -623,7 +623,7 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
                     )}
                     {pendingAmount > 0 && supplier.pending_amount > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.2rem', borderTop: '1px solid rgba(245,158,11,0.15)', marginTop: '0.1rem' }}>
-                        <span style={{ fontSize: '0.72rem', color: '#334155' }}>Nueva deuda con {supplier.name}</span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Nueva deuda con {supplier.name}</span>
                         <span style={{ fontSize: '0.8rem', color: '#f59e0b', fontWeight: 900 }}>{fmtARS(supplier.pending_amount + pendingAmount)}</span>
                       </div>
                     )}
@@ -648,7 +648,7 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
                   <><ShoppingCart size={15} /> {totalAmount > 0 ? `Registrar ${fmtARS(totalAmount)}` : 'Registrar compra'}</>
                 )}
               </button>
-              <button onClick={onClose} style={{ width: '100%', marginTop: '0.375rem', padding: '0.375rem', background: 'none', border: 'none', color: '#334155', fontSize: '0.78rem', cursor: 'pointer', fontFamily: F }}>
+              <button onClick={onClose} style={{ width: '100%', marginTop: '0.375rem', padding: '0.375rem', background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '0.78rem', cursor: 'pointer', fontFamily: F }}>
                 Cancelar
               </button>
             </div>
