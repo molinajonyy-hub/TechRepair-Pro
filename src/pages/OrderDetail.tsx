@@ -498,9 +498,14 @@ export function OrderDetail() {
                 tipo_linea:      'servicio',
                 costo_unitario:  0,  // costo de mano de obra (sin tracking actual → 0)
               },
-              // Repuestos utilizados en la orden
+              // Repuestos cobrados al cliente (excluye los marcados como internos)
               ...(order.parts ?? [])
-                .filter((p: any) => p.sale_price > 0)
+                .filter((p: any) =>
+                  p.sale_price > 0 &&
+                  // cliente_paga_repuesto === false → internal part, never bill to customer.
+                  // undefined / true → default billable (old rows before migration).
+                  p.cliente_paga_repuesto !== false
+                )
                 .map((p: any) => ({
                   descripcion:     p.name,
                   cantidad:        p.quantity,

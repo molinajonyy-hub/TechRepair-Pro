@@ -56,6 +56,8 @@ export interface OrderDetailSimple {
     margin_percentage: number
     status: string
     deduct_from_inventory: boolean
+    /** false = internal/consumed, not billed to customer */
+    cliente_paga_repuesto: boolean
     notes?: string
     added_at: string
   }[]

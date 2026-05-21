@@ -262,6 +262,9 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
           margin_percentage:     costo > 0 ? ((precio - costo) / costo) * 100 : 0,
           status:                'used',
           deduct_from_inventory: false,
+          // Mirror the billing flag so OrderDetail can exclude internal parts
+          // from the comprobante without a cross-table join.
+          cliente_paga_repuesto: clientePagaRepuesto,
         })
       }
 
