@@ -218,6 +218,66 @@ export async function adminActivateBusiness(
   })
 }
 
+// ── Admin: change plan of an active business ─────────────────
+export async function adminChangePlan(
+  businessId: string,
+  newPlan: SubscriptionPlan
+): Promise<void> {
+  const { error } = await supabase
+    .from('businesses')
+    .update({
+      subscription_plan: newPlan,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', businessId)
+  if (error) throw error
+
+  await supabase.from('subscription_events').insert({
+    business_id: businessId,
+    provider: 'manual',
+    event_type: 'manual_plan_change',
+    external_id: null,
+    raw_payload: { new_plan: newPlan, changed_by: 'admin' },
+    processed: true,
+  })
+}
+
+// ── Admin: extend trial by N extra days ──────────────────────
+export async function adminExtendTrial(
+  businessId: string,
+  extraDays: number
+): Promise<void> {
+  // Fetch current trial_ends_at; if past, extend from now
+  const { data } = await supabase
+    .from('businesses')
+    .select('trial_ends_at')
+    .eq('id', businessId)
+    .single()
+
+  const base = data?.trial_ends_at ? new Date(data.trial_ends_at) : new Date()
+  if (base < new Date()) base.setTime(Date.now())
+  base.setDate(base.getDate() + extraDays)
+
+  const { error } = await supabase
+    .from('businesses')
+    .update({
+      subscription_status: 'trialing',
+      trial_ends_at: base.toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', businessId)
+  if (error) throw error
+
+  await supabase.from('subscription_events').insert({
+    business_id: businessId,
+    provider: 'manual',
+    event_type: 'trial_extended',
+    external_id: null,
+    raw_payload: { extra_days: extraDays, new_trial_ends_at: base.toISOString() },
+    processed: true,
+  })
+}
+
 // ── Admin: suspend a business ─────────────────────────────────
 export async function adminSuspendBusiness(businessId: string): Promise<void> {
   const { error } = await supabase

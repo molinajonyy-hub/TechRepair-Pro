@@ -14,6 +14,8 @@ import {
   adminGetEvents,
   adminActivateBusiness,
   adminSuspendBusiness,
+  adminChangePlan,
+  adminExtendTrial,
   formatSubscriptionPrice,
 } from '../services/subscriptionService'
 import {
@@ -66,6 +68,9 @@ export function AdminSubscriptions() {
   const [activatePlan, setActivatePlan] = useState<SubscriptionPlan>('basico')
 
   const canWrite = role === 'owner' || role === 'admin'
+  const [changePlanTarget, setChangePlanTarget] = useState<{ id: string; current: string } | null>(null)
+  const [changePlanValue, setChangePlanValue] = useState<SubscriptionPlan>('pro')
+  const [trialExtendDays, setTrialExtendDays] = useState(14)
 
   const load = useCallback(async () => {
     try {
@@ -116,6 +121,27 @@ export function AdminSubscriptions() {
     setActionLoading(businessId + '_suspend')
     try {
       await adminSuspendBusiness(businessId)
+      await load()
+    } catch (err: any) { alert(err.message) }
+    finally { setActionLoading(null) }
+  }
+
+  async function handleChangePlan() {
+    if (!canWrite || !changePlanTarget) return
+    setActionLoading(changePlanTarget.id + '_plan')
+    try {
+      await adminChangePlan(changePlanTarget.id, changePlanValue)
+      setChangePlanTarget(null)
+      await load()
+    } catch (err: any) { alert(err.message) }
+    finally { setActionLoading(null) }
+  }
+
+  async function handleExtendTrial(businessId: string) {
+    if (!canWrite) return
+    setActionLoading(businessId + '_trial')
+    try {
+      await adminExtendTrial(businessId, trialExtendDays)
       await load()
     } catch (err: any) { alert(err.message) }
     finally { setActionLoading(null) }
@@ -255,6 +281,26 @@ export function AdminSubscriptions() {
                                 ? <Loader2 size={13} style={{ animation: 'tr-spin 1s linear infinite' }} />
                                 : <Ban size={13} />}
                             </button>
+                            {/* Change plan */}
+                            <button
+                              onClick={() => { setChangePlanTarget({ id: b.business_id, current: b.subscription_plan ?? '' }); setChangePlanValue((b.subscription_plan as SubscriptionPlan) ?? 'pro') }}
+                              style={miniBtn('#818cf8')}
+                              title="Cambiar plan"
+                              data-testid={`admin-change-plan-${b.business_id}`}
+                            >
+                              <Clock size={13} />
+                            </button>
+                            {/* Extend trial */}
+                            <button
+                              onClick={() => handleExtendTrial(b.business_id)}
+                              disabled={actionLoading === b.business_id + '_trial'}
+                              style={miniBtn('#fbbf24')}
+                              title={`Extender trial ${trialExtendDays} días`}
+                            >
+                              {actionLoading === b.business_id + '_trial'
+                                ? <Loader2 size={13} style={{ animation: 'tr-spin 1s linear infinite' }} />
+                                : <RefreshCw size={13} />}
+                            </button>
                           </div>
                         )}
                       </td>
@@ -316,6 +362,52 @@ export function AdminSubscriptions() {
         )}
       </div>
 
+      {/* ── Modal: cambiar plan ─────────────────────────────────────────── */}
+      {changePlanTarget && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+          onClick={() => setChangePlanTarget(null)}>
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-strong)', borderRadius: '1rem', padding: '1.75rem', width: 340, display: 'flex', flexDirection: 'column', gap: '1rem' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+              Cambiar plan
+            </h3>
+            <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+              Plan actual: <strong>{changePlanTarget.current || 'sin plan'}</strong>
+            </p>
+            <select
+              value={changePlanValue}
+              onChange={e => setChangePlanValue(e.target.value as SubscriptionPlan)}
+              data-testid="admin-plan-select"
+              style={{ ...selectStyle, width: '100%' }}
+            >
+              {PLANS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <div style={{ display: 'flex', gap: '0.625rem' }}>
+              <button onClick={() => setChangePlanTarget(null)} style={{ flex: 1, padding: '0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-subtle)', borderRadius: '0.5rem', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.82rem' }}>
+                Cancelar
+              </button>
+              <button
+                onClick={handleChangePlan}
+                disabled={actionLoading === changePlanTarget.id + '_plan'}
+                data-testid="admin-plan-confirm"
+                style={{ flex: 2, padding: '0.625rem', background: '#6366f1', border: 'none', borderRadius: '0.5rem', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: '0.82rem' }}
+              >
+                {actionLoading === changePlanTarget.id + '_plan' ? 'Guardando…' : 'Confirmar cambio'}
+              </button>
+            </div>
+            <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '0.875rem' }}>
+              <p style={{ margin: '0 0 0.5rem', fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Extender trial</p>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <input type="number" min={1} max={365} value={trialExtendDays} onChange={e => setTrialExtendDays(Number(e.target.value))} style={{ ...selectStyle, width: 70 }} />
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>días</span>
+                <button onClick={() => { handleExtendTrial(changePlanTarget.id); setChangePlanTarget(null) }} style={{ flex: 1, padding: '0.5rem', background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: '0.5rem', color: '#fbbf24', fontWeight: 600, cursor: 'pointer', fontSize: '0.78rem' }}>
+                  Extender
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

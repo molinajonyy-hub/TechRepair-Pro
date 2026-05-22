@@ -61,7 +61,7 @@ export function OnboardingChecklist() {
   }
 
   return (
-    <div style={{
+    <div data-testid="setup-checklist" style={{
       background: '#0f1829',
       border: '1px solid rgba(255,255,255,0.07)',
       borderRadius: '1rem',

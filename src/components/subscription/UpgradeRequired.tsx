@@ -7,15 +7,16 @@ interface UpgradeRequiredProps {
 }
 
 const FEATURE_LABELS: Record<PlanFeature, string> = {
-  arca:            'Facturación electrónica ARCA',
-  currentAccounts: 'Cuentas corrientes',
-  reports:         'Reportes avanzados',
-  advancedFinance: 'Finanzas Pro',
-  tasks:           'Módulo de tareas',
-  advancedRoles:   'Permisos granulares',
-  audit:           'Auditoría del sistema',
-  multisucursal:   'Multi-sucursal',
-  mayorista:       'Módulo mayorista',
+  arca:             'Facturación electrónica ARCA',
+  currentAccounts:  'Cuentas corrientes',
+  reports:          'Reportes avanzados',
+  advancedFinance:  'Finanzas Pro',
+  tasks:            'Módulo de tareas',
+  advancedRoles:    'Permisos granulares',
+  audit:            'Auditoría del sistema',
+  multisucursal:    'Multi-sucursal',
+  mayorista:        'Módulo mayorista',
+  personal_finance: 'Mi Guita — Finanzas Personales',
 }
 
 export function UpgradeRequired({ feature }: UpgradeRequiredProps) {
