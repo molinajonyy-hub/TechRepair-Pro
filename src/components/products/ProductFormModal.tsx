@@ -427,8 +427,6 @@ export function ProductFormModal({
       const result = force
         ? await refreshDollarRate(businessId, true)
         : await getCurrentDollarRate(businessId)
-      // [QA debug] — remover antes del siguiente deploy de producción
-      console.log('[ProductFormModal] fetchRate', { force, businessId, sellPrice: result?.sellPrice, source: result?.source, fetchedAt: result?.fetchedAt })
       if (result?.sellPrice && result.sellPrice > 0) {
         setForm(f => ({ ...f, exchange_rate: String(result.sellPrice.toFixed(2)) }))
         setRateUpdatedAt(result.fetchedAt)

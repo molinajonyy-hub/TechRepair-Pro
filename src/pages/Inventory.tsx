@@ -101,12 +101,6 @@ export function Inventory() {
   const [movementsItem, setMovementsItem] = useState<any>(null)
   const tableRef = useRef<HTMLDivElement | null>(null)
 
-  // [QA debug] — remover antes del siguiente deploy
-  useEffect(() => {
-    console.log('[Inventory modal state]', { showProductFormModal, productFormEditItem, showModal })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showProductFormModal])
-
   const toggleExpanded = (id: string) => {
     setExpandedRows(prev => {
       const next = new Set(prev)
@@ -459,8 +453,6 @@ export function Inventory() {
   }
 
   const openCreateProductModal = (tipo: 'product' | 'service' | 'with_variants' = 'product') => {
-    // [QA debug] — remover antes del siguiente deploy
-    console.log('[Inventory openCreateProductModal]', { tipo, productFormEditItemBefore: productFormEditItem, showProductFormModalBefore: showProductFormModal })
     setProductFormEditItem(null)
     setProductFormTipo(tipo)
     setShowProductMenu(false)
@@ -471,7 +463,6 @@ export function Inventory() {
   const toggleNewProductMenu = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    console.log('[Inventory split arrow click]', { showNewProductMenuBefore: showNewProductMenu })
     setShowNewProductMenu(prev => !prev)
   }
 
@@ -1632,7 +1623,7 @@ export function Inventory() {
               <button
                 type="button"
                 data-testid="inventory-new-product-button"
-                onClick={() => { console.log('[Inventory split main click]'); openCreateProductModal('product') }}
+                onClick={() => openCreateProductModal('product')}
                 className="btn btn-primary btn-sm btn-lift"
                 style={{ borderRadius: 'var(--radius-md) 0 0 var(--radius-md)', borderRight: '1px solid rgba(255,255,255,0.2)', paddingRight: '0.625rem' }}
               >
@@ -1667,7 +1658,7 @@ export function Inventory() {
                   <button
                     type="button"
                     data-testid="inventory-new-product-simple"
-                    onClick={() => { console.log('[Inventory new product option]', { type: 'product' }); openCreateProductModal('product') }}
+                    onClick={() => openCreateProductModal('product')}
                     style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-secondary)', borderRadius: 'var(--radius-sm)', textAlign: 'left' }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-hover, rgba(255,255,255,0.06))')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'none')}
@@ -1678,7 +1669,7 @@ export function Inventory() {
                   <button
                     type="button"
                     data-testid="inventory-new-product-variants"
-                    onClick={() => { console.log('[Inventory new product option]', { type: 'with_variants' }); openCreateProductModal('with_variants') }}
+                    onClick={() => openCreateProductModal('with_variants')}
                     style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-secondary)', borderRadius: 'var(--radius-sm)', textAlign: 'left' }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-hover, rgba(255,255,255,0.06))')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'none')}
@@ -1689,7 +1680,7 @@ export function Inventory() {
                   <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '0.25rem 0' }} />
                   <button
                     type="button"
-                    onClick={() => { console.log('[Inventory new product option]', { type: 'service' }); openCreateProductModal('service') }}
+                    onClick={() => openCreateProductModal('service')}
                     style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--accent-primary)', borderRadius: 'var(--radius-sm)', textAlign: 'left' }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-hover, rgba(255,255,255,0.06))')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'none')}
