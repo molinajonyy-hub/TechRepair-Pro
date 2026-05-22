@@ -989,7 +989,11 @@ function FAQSection() {
                 <span>{f.q}</span>
                 <span className="lp-faq-chevron"><IC.ChevronDown /></span>
               </button>
-              {open === i && <div className="lp-faq-answer">{f.a}</div>}
+              <div className="lp-faq-answer-wrap">
+                <div className="lp-faq-answer-inner">
+                  <div className="lp-faq-answer">{f.a}</div>
+                </div>
+              </div>
             </div>
           ))}
         </div>
