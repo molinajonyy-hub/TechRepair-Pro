@@ -3,8 +3,9 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { ArrowLeft, Plus, Search, UserPlus, Smartphone, Loader2 } from 'lucide-react'
 import { ordersService, customersService, devicesService } from '../services/api'
 import {
-  getBrands, getModels, getBrandByName,
+  getBrands, getModels,
   ensureBrand, ensureModel, ensureBrandAndModel,
+  DEFAULT_BRANDS, DEFAULT_MODELS_BY_BRAND,
   type BrandItem, type ModelItem,
 } from '../services/deviceCatalogService'
 import { Autocomplete } from '../components/ui/Autocomplete'
@@ -121,15 +122,26 @@ export function NewOrder() {
     return () => { if (searchTimer.current) clearTimeout(searchTimer.current) }
   }, [searchQuery, allCustomers])
 
-  // Load brands on component mount
+  // Load brands on component mount: DB brands + DEFAULT_BRANDS combined
   useEffect(() => {
     const loadBrands = async () => {
       setIsLoadingBrands(true)
       try {
-        const data = await getBrands()
-        setBrandItems(data)
+        const dbBrands = await getBrands()
+
+        // Merge DB brands with defaults — defaults ensure non-empty list even for new businesses
+        const dbNames = new Set(dbBrands.map(b => b.name.toLowerCase()))
+        const extraDefaults = DEFAULT_BRANDS.filter(n => !dbNames.has(n.toLowerCase()))
+        const defaultItems: BrandItem[] = extraDefaults.map(n => ({ id: `default:${n.toLowerCase()}`, name: n }))
+        const merged = [...dbBrands, ...defaultItems]
+
+        // [QA debug] — remover antes del siguiente deploy
+        console.log('[DeviceCatalog brands loaded]', { dbBrandsCount: dbBrands.length, defaultBrandsCount: extraDefaults.length, totalBrands: merged.length, brands: merged.map(b => b.name) })
+
+        setBrandItems(merged)
       } catch (err) {
-        console.error('Error loading brands:', err)
+        console.error('Error loading brands, using defaults:', err)
+        setBrandItems(DEFAULT_BRANDS.map(n => ({ id: `default:${n.toLowerCase()}`, name: n })))
       } finally {
         setIsLoadingBrands(false)
       }
@@ -137,25 +149,52 @@ export function NewOrder() {
     loadBrands()
   }, [])
 
-  // Load models when brand is selected
+  // Load models when brand is selected: DB models + DEFAULT_MODELS combined
   useEffect(() => {
     const loadModels = async () => {
-      if (!selectedBrandId || selectedBrandId.startsWith('local:')) {
-        setModelItems([])
-        return
-      }
+      setModelItems([])
+      if (!formData.brand.trim()) return
+
       setIsLoadingModels(true)
       try {
-        const data = await getModels(selectedBrandId)
-        setModelItems(data)
+        // Get default models for this brand name (case-insensitive)
+        const brandKey = Object.keys(DEFAULT_MODELS_BY_BRAND).find(
+          k => k.toLowerCase() === formData.brand.trim().toLowerCase()
+        )
+        const defaultModelNames = brandKey ? DEFAULT_MODELS_BY_BRAND[brandKey] : []
+
+        // Get DB models (only if we have a real UUID brand ID)
+        let dbModels: ModelItem[] = []
+        if (selectedBrandId && !selectedBrandId.startsWith('default:')) {
+          dbModels = await getModels(selectedBrandId)
+        }
+
+        // Merge: DB models + default models that don't duplicate
+        const dbNames = new Set(dbModels.map(m => m.name.toLowerCase()))
+        const extraDefaults = defaultModelNames.filter(n => !dbNames.has(n.toLowerCase()))
+        const defaultItems: ModelItem[] = extraDefaults.map(n => ({
+          id: `default:${n.toLowerCase()}`, name: n, brand_id: selectedBrandId ?? ''
+        }))
+        const merged = [...dbModels, ...defaultItems]
+
+        // [QA debug] — remover antes del siguiente deploy
+        console.log('[DeviceCatalog models loaded]', { brand: formData.brand, brandId: selectedBrandId, dbModelsCount: dbModels.length, defaultModelsCount: extraDefaults.length, totalModels: merged.length })
+
+        setModelItems(merged)
       } catch (err) {
-        console.error('Error loading models:', err)
+        console.error('Error loading models, using defaults:', err)
+        const brandKey = Object.keys(DEFAULT_MODELS_BY_BRAND).find(
+          k => k.toLowerCase() === formData.brand.trim().toLowerCase()
+        )
+        const defaults = brandKey ? DEFAULT_MODELS_BY_BRAND[brandKey] : []
+        setModelItems(defaults.map(n => ({ id: `default:${n.toLowerCase()}`, name: n, brand_id: selectedBrandId ?? '' })))
       } finally {
         setIsLoadingModels(false)
       }
     }
     loadModels()
-  }, [selectedBrandId])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBrandId, formData.brand])
 
   const handleChange = (field: keyof NewOrderForm, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
@@ -164,22 +203,22 @@ export function NewOrder() {
   const handleBrandChange = async (value: string) => {
     handleChange('brand', value)
     handleChange('model', '') // Reset model when brand changes
-    setModelItems([])
 
     if (value.trim()) {
-      try {
-        // Look for exact match in already-loaded brands (fast path)
-        const local = brandItems.find(b => b.name.toLowerCase() === value.trim().toLowerCase())
-        if (local) {
+      // Fast path: look in already-loaded brand items
+      const local = brandItems.find(b => b.name.toLowerCase() === value.trim().toLowerCase())
+      if (local) {
+        // If it's a default: item, resolve to real DB ID
+        if (local.id.startsWith('default:')) {
+          // Will be persisted when form submits via ensureBrandAndModel
+          setSelectedBrandId(null)
+        } else {
           setSelectedBrandId(local.id)
-          return
         }
-        // Fallback: query DB
-        const found = await getBrandByName(value.trim())
-        setSelectedBrandId(found?.id ?? null)
-      } catch {
-        setSelectedBrandId(null)
+        return
       }
+      // Unknown brand typed: no DB ID yet (ensureBrandAndModel at submit handles it)
+      setSelectedBrandId(null)
     } else {
       setSelectedBrandId(null)
     }
@@ -189,14 +228,15 @@ export function NewOrder() {
     const trimmed = name.trim()
     if (!trimmed) return trimmed
 
-    // ensureBrand creates or returns existing (case-insensitive dedup in DB)
+    // Persist in DB immediately so models can be saved under this brand
     const brandId = await ensureBrand(trimmed)
     if (brandId) {
       setSelectedBrandId(brandId)
-      // Refresh brand list so new brand appears
       const updated = await getBrands()
-      setBrandItems(updated)
-      // Return the canonical name from DB if available
+      // Merge with defaults, preserving order
+      const dbNames = new Set(updated.map(b => b.name.toLowerCase()))
+      const extraDefaults = DEFAULT_BRANDS.filter(n => !dbNames.has(n.toLowerCase()))
+      setBrandItems([...updated, ...extraDefaults.map(n => ({ id: `default:${n.toLowerCase()}`, name: n }))])
       const canonical = updated.find(b => b.id === brandId)
       return canonical?.name ?? trimmed
     }
@@ -204,16 +244,24 @@ export function NewOrder() {
   }
 
   const handleCreateModel = async (name: string): Promise<string> => {
-    if (!selectedBrandId || selectedBrandId.startsWith('local:')) {
-      throw new Error('Seleccioná una marca primero')
-    }
     const trimmed = name.trim()
     if (!trimmed) return trimmed
 
-    // ensureModel creates or returns existing (case-insensitive dedup in DB)
-    const modelId = await ensureModel(trimmed, selectedBrandId)
+    // If brand is a default: item, persist it first to get a real UUID
+    let realBrandId = selectedBrandId
+    if (!realBrandId || realBrandId.startsWith('default:')) {
+      realBrandId = await ensureBrand(formData.brand) ?? null
+      if (realBrandId) setSelectedBrandId(realBrandId)
+    }
+
+    if (!realBrandId) {
+      // Brand unknown: will be handled at submit by ensureBrandAndModel
+      return trimmed
+    }
+
+    const modelId = await ensureModel(trimmed, realBrandId)
     if (modelId) {
-      const updated = await getModels(selectedBrandId)
+      const updated = await getModels(realBrandId)
       setModelItems(updated)
       const canonical = updated.find(m => m.id === modelId)
       return canonical?.name ?? trimmed
