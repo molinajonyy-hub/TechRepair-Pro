@@ -383,7 +383,7 @@ export function CustomerDetail() {
         ].map(s => (
           <div key={s.label} className="stat-card" style={{ padding: '0.875rem 1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem' }}>
-              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.label}</span>
+              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.label}</span>
               <span style={{ color: s.color }}>{s.icon}</span>
             </div>
             <div style={{ fontSize: '1rem', fontWeight: 700, color: s.color, fontFamily: 'monospace' }}>{s.value}</div>
@@ -428,20 +428,28 @@ export function CustomerDetail() {
           <div className="card-body">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Phone size={16} color="#64748b" />
-                <span style={{ fontSize: '0.875rem' }}>{customer.phone || 'Sin teléfono'}</span>
+                <Phone size={16} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+                <span style={{ fontSize: '0.875rem', color: customer.phone ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
+                  {customer.phone || 'Sin teléfono'}
+                </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Mail size={16} color="#64748b" />
-                <span style={{ fontSize: '0.875rem', wordBreak: 'break-all' }}>{customer.email || 'Sin email'}</span>
+                <Mail size={16} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+                <span style={{ fontSize: '0.875rem', wordBreak: 'break-all', color: customer.email ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
+                  {customer.email || 'Sin email'}
+                </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
-                <MapPin size={16} color="#64748b" style={{ flexShrink: 0, marginTop: '0.1rem' }} />
-                <span style={{ fontSize: '0.875rem' }}>{customer.address || 'Sin dirección'}</span>
+                <MapPin size={16} style={{ color: 'var(--text-tertiary)', flexShrink: 0, marginTop: '0.1rem' }} />
+                <span style={{ fontSize: '0.875rem', color: customer.address ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
+                  {customer.address || 'Sin dirección'}
+                </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Smartphone size={16} color="#64748b" />
-                <span style={{ fontSize: '0.875rem' }}>{customer.devices?.length || 0} dispositivo(s)</span>
+                <Smartphone size={16} style={{ color: 'var(--text-tertiary)', flexShrink: 0 }} />
+                <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                  {customer.devices?.length || 0} dispositivo(s)
+                </span>
               </div>
             </div>
           </div>
