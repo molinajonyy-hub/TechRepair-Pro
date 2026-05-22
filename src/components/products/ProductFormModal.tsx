@@ -18,7 +18,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, Component, type Erro
 import { X, RefreshCw, DollarSign, Package, Check, AlertCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { currencyService } from '../../services/currencyService'
+import { getCurrentDollarRate, refreshDollarRate } from '../../services/dollarRateService'
 import {
   productService,
   calculateMarginPct,
@@ -217,6 +217,7 @@ export function ProductFormModal({
   const [error, setError]             = useState('')
   const [duplicate, setDuplicate]     = useState<InventoryItem | null>(null)
   const [loadingRate, setLoadingRate] = useState(false)
+  const [rateUpdatedAt, setRateUpdatedAt] = useState<Date | null>(null)
   const [showCatInput, setShowCatInput] = useState(false)
   const [suppliers, setSuppliers]     = useState<{ id: string; name: string }[]>([])
   const [dbCategories, setDbCategories] = useState<string[]>([])
@@ -347,7 +348,7 @@ export function ProductFormModal({
       setForm(editForm)
       cleanFormRef.current = serializeForm(editForm)
       setError(''); setDuplicate(null); setShowCloseConfirm(false)
-      if (!editItem.exchange_rate_used) fetchRate()
+      if (!editItem.exchange_rate_used) fetchRate(false)  // usa caché si disponible
       loadSuppliers()
       loadCategories()
       return
@@ -374,8 +375,8 @@ export function ProductFormModal({
     setForm(initialForm)
     cleanFormRef.current = serializeForm(initialForm)
     setError(''); setDuplicate(null); setShowCloseConfirm(false)
-    // Cargar cotización
-    if (!form.exchange_rate) fetchRate()
+    // Cargar cotización desde fuente oficial (usa caché 15 min si disponible)
+    fetchRate(false)
     // Cargar proveedores y categorías
     loadSuppliers()
     loadCategories()
@@ -415,11 +416,19 @@ export function ProductFormModal({
     setDbCategories(cats)
   }, [businessId])
 
-  const fetchRate = async () => {
+  // Cotización oficial: InfoDolar Córdoba (venta) → misma fuente que Dashboard.
+  // getCurrentDollarRate usa cache en módulo (TTL 15min); fetchRate(force=true) fuerza actualización.
+  const fetchRate = async (force = false) => {
+    if (!businessId) return
     setLoadingRate(true)
     try {
-      const rate = await currencyService.getCurrentExchangeRate('USD', 'ARS')
-      setForm(f => ({ ...f, exchange_rate: String(rate.toFixed(2)) }))
+      const result = force
+        ? await refreshDollarRate(businessId, true)
+        : await getCurrentDollarRate(businessId)
+      if (result?.sellPrice && result.sellPrice > 0) {
+        setForm(f => ({ ...f, exchange_rate: String(result.sellPrice.toFixed(2)) }))
+        setRateUpdatedAt(result.fetchedAt)
+      }
     } catch { /* silent */ }
     finally { setLoadingRate(false) }
   }
@@ -862,6 +871,7 @@ export function ProductFormModal({
 
   return (
     <div
+      data-testid="product-form-modal"
       onClick={e => { if (e.target === e.currentTarget) tryClose() }}
       style={{
         position: 'fixed', inset: 0, zIndex: 9999,
@@ -1018,18 +1028,30 @@ export function ProductFormModal({
 
           {/* ── Sección: Costos y Precios ── */}
           <Section label="Costos y Precios">
-            {/* Cotización */}
+            {/* Cotización — InfoDolar Córdoba (venta), misma fuente que Dashboard */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.625rem 0.875rem', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.625rem' }}>
               <DollarSign size={14} color="#fbbf24" />
               <span style={{ color: '#64748b', fontSize: '0.78rem' }}>Cotización USD/ARS:</span>
               <input
+                data-testid="product-form-currency-rate"
                 value={form.exchange_rate}
                 onChange={e => setForm(f => ({ ...f, exchange_rate: e.target.value }))}
                 style={{ width: '90px', background: 'transparent', border: 'none', outline: 'none', color: '#f1f5f9', fontSize: '0.85rem', fontWeight: 700, textAlign: 'right', fontFamily: F }}
               />
-              <button type="button" onClick={fetchRate} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', padding: '0.125rem' }}>
+              <button
+                type="button"
+                data-testid="product-form-refresh-rate-button"
+                onClick={() => fetchRate(true)}
+                title="Actualizar cotización desde InfoDolar Córdoba"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', padding: '0.125rem' }}
+              >
                 <RefreshCw size={13} style={{ animation: loadingRate ? 'tr-spin 0.8s linear infinite' : 'none' }} />
               </button>
+              {rateUpdatedAt && (
+                <span style={{ fontSize: '0.68rem', color: '#334155', marginLeft: 'auto' }}>
+                  {rateUpdatedAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
             </div>
 
             {/* Moneda base */}
@@ -1472,7 +1494,7 @@ export function ProductFormModal({
             Cancelar
           </button>
           <button
-            data-testid="product-save-button"
+            data-testid="product-form-save-button"
             onClick={handleSubmit}
             disabled={saving}
             style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.5rem', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: '0.75rem', color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: F }}
