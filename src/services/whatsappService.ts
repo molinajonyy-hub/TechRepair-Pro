@@ -369,6 +369,54 @@ export function buildOrderVars(order: any, settings: WhatsAppSettings): WhatsApp
   }
 }
 
+// ============================================
+// URL HELPERS — FALLBACK / MANUAL OPEN
+// ============================================
+
+/** Detecta si estamos en un dispositivo móvil/tablet. */
+export function isMobileDevice(): boolean {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+}
+
+/**
+ * URL de WhatsApp Web (desktop).
+ * Abre directamente en web.whatsapp.com evitando la pantalla intermedia de
+ * api.whatsapp.com. Reutiliza la pestaña si se llama con el mismo target name.
+ */
+export function buildWhatsAppWebUrl(phone: string, message: string): string {
+  const { normalized } = normalizeWhatsAppPhone(phone)
+  return `https://web.whatsapp.com/send?phone=${normalized}&text=${encodeURIComponent(message)}`
+}
+
+/**
+ * URL universal wa.me (mobile / fallback).
+ * En móvil abre la app nativa; en desktop muestra la pantalla de selección.
+ */
+export function buildWhatsAppUniversalUrl(phone: string, message: string): string {
+  const { normalized } = normalizeWhatsAppPhone(phone)
+  if (!normalized) return `https://wa.me/?text=${encodeURIComponent(message)}`
+  return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`
+}
+
+/**
+ * URL inteligente según plataforma:
+ * - Desktop → web.whatsapp.com/send (sin pantalla intermedia)
+ * - Mobile  → wa.me (abre app nativa)
+ */
+export function buildWhatsAppFallbackUrl(phone: string, message: string): string {
+  return isMobileDevice()
+    ? buildWhatsAppUniversalUrl(phone, message)
+    : buildWhatsAppWebUrl(phone, message)
+}
+
+/**
+ * Abre WhatsApp reutilizando siempre la misma pestaña del navegador.
+ * No se usa noopener para que el named-window funcione correctamente.
+ */
+export function openWhatsAppWindow(url: string): void {
+  window.open(url, 'techrepair-whatsapp-web')
+}
+
 /**
  * Mejora normalizePhone para Argentina:
  * Maneja números con 15, con 0 inicial, con/sin código de país.
@@ -641,7 +689,9 @@ export const whatsappService = {
   // ---------- ENVÍO MANUAL ----------
 
   /**
-   * Abre WhatsApp con el mensaje precargado y guarda el log
+   * Abre WhatsApp con el mensaje precargado y guarda el log.
+   * Desktop → web.whatsapp.com (sin pantalla intermedia, reutiliza pestaña).
+   * Mobile  → wa.me (abre app nativa).
    */
   async sendManual(
     businessId: string,
@@ -649,10 +699,10 @@ export const whatsappService = {
     message: string,
     context: { order_id?: string; customer_id?: string; status_key?: string }
   ): Promise<{ success: boolean; link: string }> {
-    const link = generateWhatsAppLink(phone, message)
+    const link = buildWhatsAppFallbackUrl(phone, message)
 
     try {
-      window.open(link, '_blank', 'noopener,noreferrer')
+      openWhatsAppWindow(link)
       await this.logMessage(businessId, {
         order_id:    context.order_id,
         customer_id: context.customer_id,
@@ -753,9 +803,9 @@ export const whatsappService = {
         }
       }
 
-      // Fallback: wa.me link (requiere interacción del usuario)
-      const link = generateWhatsAppLink(phone, message)
-      window.open(link, '_blank', 'noopener,noreferrer')
+      // Fallback: abre WhatsApp (desktop → WhatsApp Web, mobile → wa.me)
+      const link = buildWhatsAppFallbackUrl(phone, message)
+      openWhatsAppWindow(link)
 
       await this.logMessage(businessId, {
         ...context,

@@ -11,7 +11,8 @@ import { useAuth } from '../../contexts/AuthContext'
 import {
   whatsappService,
   interpolateTemplate,
-  generateWhatsAppLink,
+  buildWhatsAppFallbackUrl,
+  isMobileDevice,
   normalizeWhatsAppPhone,
   WhatsAppVars,
   WhatsAppTemplate,
@@ -73,8 +74,9 @@ export function WhatsAppPreviewModal({
   const [status,     setStatus]     = useState<SendStatus>('idle')
   const [errorMsg,   setErrorMsg]   = useState('')
 
+  const isMobile   = isMobileDevice()
   const phoneResult = phone ? normalizeWhatsAppPhone(phone) : { normalized: '', valid: false, error: 'Sin teléfono' }
-  const waLink = phoneResult.valid ? generateWhatsAppLink(phone!, message) : ''
+  const waLink = phoneResult.valid ? buildWhatsAppFallbackUrl(phone!, message) : ''
 
   // ── Load settings + templates ──────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -142,13 +144,19 @@ export function WhatsAppPreviewModal({
 
   const handleOpenWaMe = async () => {
     if (!waLink) return
-    window.open(waLink, '_blank', 'noopener,noreferrer')
+    // Named target reuses the same tab on every click; no noopener so it works.
+    window.open(waLink, 'techrepair-whatsapp-web')
     setStatus('fallback_opened')
     if (businessId) {
-      void whatsappService.sendManual(businessId, phone || '', message, {
+      // Log only — window was already opened above to avoid double-open.
+      void whatsappService.logMessage(businessId, {
         order_id:    context.orderId,
         customer_id: context.customerId,
+        phone:       phone || '',
         status_key:  selectedKey,
+        message,
+        send_mode:   'manual',
+        send_result: 'opened',
       })
     }
   }
@@ -300,17 +308,19 @@ export function WhatsAppPreviewModal({
             {status === 'copied' ? 'Copiado' : 'Copiar'}
           </button>
 
-          {/* Fallback wa.me */}
+          {/* Fallback — WhatsApp Web en desktop, wa.me en mobile */}
           <button
             data-testid="whatsapp-fallback-button"
             onClick={handleOpenWaMe}
             disabled={!canSend}
             className="btn btn-ghost btn-sm"
             style={{ color: '#25d366', borderColor: canSend ? 'rgba(37,211,102,0.3)' : undefined }}
-            title={canSend ? 'Abrir WhatsApp en el navegador' : phoneResult.error}
+            title={canSend
+              ? (isMobile ? 'Abrir WhatsApp en tu dispositivo' : 'Abrir en WhatsApp Web (reutiliza la pestaña)')
+              : phoneResult.error}
           >
             <ExternalLink size={13} />
-            Abrir WhatsApp
+            {isMobile ? 'Abrir WhatsApp' : 'Abrir en WhatsApp Web'}
           </button>
 
           {/* Send via API */}
@@ -335,7 +345,7 @@ export function WhatsAppPreviewModal({
               style={{ background: canSend ? '#25d366' : undefined, border: 'none', color: canSend ? '#fff' : undefined }}
             >
               <MessageCircle size={13} />
-              Enviar WhatsApp
+              {isMobile ? 'Enviar WhatsApp' : 'Abrir en WhatsApp Web'}
             </button>
           )}
         </div>
