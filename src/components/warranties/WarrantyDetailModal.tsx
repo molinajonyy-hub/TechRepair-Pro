@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react'
 import { useReactToPrint } from 'react-to-print'
 import { CloseButton } from '../ui/CloseButton'
-import { Printer, Pencil, Copy as CopyIcon, Trash2, MessageCircle, AlertCircle } from 'lucide-react'
+import { Printer, Pencil, Copy as CopyIcon, Trash2, AlertCircle } from 'lucide-react'
 import {
   Warranty, computeWarrantyStatus, CHECKLIST_ITEMS,
 } from '../../hooks/useWarranties'
+import { WhatsAppActionButton } from '../whatsapp/WhatsAppActionButton'
 import { OrderPrintSettings } from '../../hooks/useOrderPrintSettings'
 import { WarrantyPrintLayout } from './WarrantyPrintLayout'
 
@@ -55,23 +56,6 @@ export function WarrantyDetailModal({
     warranty.issue_date,
     warranty.warranty_days
   )
-
-  const buildWhatsAppUrl = () => {
-    const phone = (warranty.customer_phone || '').replace(/\D/g, '')
-    const negocio = settings.nombre_comercial || 'el local'
-    const equipo = warranty.item_description || warranty.phone_model
-    const expiry = fmtDate(expiryDate)
-    const msg = encodeURIComponent(
-      `Hola ${warranty.customer_name}, te compartimos tu garantía en ${negocio}.\n\n` +
-      `📋 N° ${warranty.number}\n` +
-      `📱 ${equipo}\n` +
-      `📅 Válida hasta: ${expiry}\n\n` +
-      `Ante cualquier consulta, no dudes en contactarnos.`
-    )
-    return phone
-      ? `https://wa.me/${phone}?text=${msg}`
-      : `https://wa.me/?text=${msg}`
-  }
 
   const handleClaim = async () => {
     if (!onClaim || !warranty) return
@@ -369,23 +353,22 @@ export function WarrantyDetailModal({
               Editar
             </button>
           )}
-          {/* WhatsApp */}
-          <a
-            href={buildWhatsAppUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
+          {/* WhatsApp — usa WhatsAppActionButton + PreviewModal */}
+          <WhatsAppActionButton
             data-testid="warranty-whatsapp-button"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-              padding: '0.5rem 0.85rem',
-              background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)',
-              color: '#22c55e', borderRadius: '0.5rem', cursor: 'pointer',
-              fontWeight: 500, fontSize: '0.875rem', textDecoration: 'none',
+            recipientName={warranty.customer_name ?? ''}
+            phone={warranty.customer_phone}
+            templateKey={warranty.warranty_status === 'claimed' ? 'warranty_claim_received' : 'guarantee'}
+            vars={{
+              nombre:           (warranty.customer_name ?? '').split(' ')[0] || (warranty.customer_name ?? ''),
+              cliente:          warranty.customer_name ?? '',
+              equipo:           warranty.item_description || warranty.phone_model || '',
+              codigo_garantia:  warranty.number ?? '',
+              fecha_vencimiento:expiryDate,
+              negocio:          settings.nombre_comercial || '',
             }}
-          >
-            <MessageCircle size={15} />
-            WhatsApp
-          </a>
+            context={{ warrantyId: warranty.id }}
+          />
 
           {/* Registrar reclamo */}
           {onClaim && (

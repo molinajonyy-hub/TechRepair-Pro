@@ -65,6 +65,7 @@ export interface WhatsAppVars {
   horario?: string
   fecha?: string
   // Extended context vars
+  problema?: string
   tipo_comprobante?: string
   numero_comprobante?: string
   fecha_vencimiento?: string
@@ -234,6 +235,18 @@ export const DEFAULT_TEMPLATES: Omit<WhatsAppTemplate, 'id' | 'business_id'>[] =
     auto_send: false,
     is_active: true,
     message_template: 'Hola {nombre}, te contactamos desde {local}.',
+  },
+  {
+    status_key: 'warranty_claim_received',
+    status_label: 'Reclamo de garantía recibido',
+    auto_send: false,
+    is_active: true,
+    message_template:
+      'Hola {nombre} 👋\n' +
+      'Recibimos tu reclamo de garantía para tu {equipo} en {local}.\n\n' +
+      '📋 Garantía: {codigo_garantia}\n' +
+      'Vamos a revisarlo y te damos respuesta a la brevedad.\n' +
+      '¡Gracias por comunicarte con nosotros!',
   },
 ]
 

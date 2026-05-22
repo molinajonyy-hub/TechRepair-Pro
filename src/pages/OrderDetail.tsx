@@ -17,10 +17,12 @@ import {
   Mail,
   MapPin,
   ShieldCheck,
+  ChevronDown,
 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { ModalEnviarWhatsApp } from '../components/whatsapp/ModalEnviarWhatsApp'
 import { WhatsAppHistorial } from '../components/whatsapp/WhatsAppHistorial'
+import { WhatsAppPreviewModal } from '../components/whatsapp/WhatsAppPreviewModal'
 import { DocumentUploader } from '../components/order/DocumentUploader'
 import { NotificationCard } from '../components/order/NotificationCard'
 import { StatusChange } from '../components/order/StatusChange'
@@ -52,8 +54,12 @@ export function OrderDetail() {
   const [documents, setDocuments] = useState<Document[]>([])
   const [showModalCrearComprobante, setShowModalCrearComprobante] = useState(false)
   const [showPrintModal, setShowPrintModal] = useState(false)
-  const [showWhatsAppModal, setShowWhatsAppModal] = useState(false)
+  const [showWhatsAppModal, setShowWhatsAppModal] = useState(false)   // legacy: used by ModalEnviarWhatsApp
   const [showWarrantyModal, setShowWarrantyModal] = useState(false)
+  // New: WhatsApp preview with specific template
+  const [waPreview, setWaPreview] = useState<{ open: boolean; templateKey: string }>({ open: false, templateKey: 'free_message' })
+  const [waDropdownOpen, setWaDropdownOpen] = useState(false)
+  const waDropdownRef = useRef<HTMLDivElement>(null)
   const [notesText, setNotesText] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
 
@@ -212,14 +218,44 @@ export function OrderDetail() {
               Imprimir
             </button>
 
-            <button
-              onClick={() => setShowWhatsAppModal(true)}
-              className="btn btn-ghost btn-sm"
-              style={{ color: '#25d366', borderColor: 'rgba(37,211,102,0.3)', background: 'rgba(37,211,102,0.08)' }}
-            >
-              <MessageCircle size={15} />
-              WhatsApp
-            </button>
+            {/* WhatsApp action dropdown */}
+            <div ref={waDropdownRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => setWaDropdownOpen(v => !v)}
+                className="btn btn-ghost btn-sm"
+                style={{ color: '#25d366', borderColor: 'rgba(37,211,102,0.3)', background: 'rgba(37,211,102,0.08)' }}
+                title={!order.customer?.phone ? 'El cliente no tiene teléfono válido para WhatsApp' : undefined}
+              >
+                <MessageCircle size={15} />
+                WhatsApp
+                <ChevronDown size={12} style={{ marginLeft: '0.125rem' }} />
+              </button>
+              {waDropdownOpen && (
+                <div
+                  style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 200, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '0.25rem', minWidth: 190, boxShadow: 'var(--shadow-md)' }}
+                  onMouseLeave={() => setWaDropdownOpen(false)}
+                >
+                  {[
+                    { key: 'received',         label: 'Orden recibida',          testId: 'order-whatsapp-received' },
+                    { key: 'waiting_approval',  label: 'Presupuesto listo',       testId: 'order-whatsapp-quote'    },
+                    { key: 'ready_pickup',      label: 'Equipo listo para retirar',testId: 'order-whatsapp-ready'   },
+                    { key: 'free_message',      label: 'Mensaje libre',           testId: 'order-whatsapp-free'     },
+                  ].map(opt => (
+                    <button
+                      key={opt.key}
+                      data-testid={opt.testId}
+                      onClick={() => { setWaDropdownOpen(false); setWaPreview({ open: true, templateKey: opt.key }) }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-secondary)', borderRadius: 'var(--radius-sm)', textAlign: 'left' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(37,211,102,0.06)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                    >
+                      <MessageCircle size={12} style={{ color: '#25d366', flexShrink: 0 }} />
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <button
               data-testid="order-create-warranty-button"
@@ -600,11 +636,34 @@ export function OrderDetail() {
         order={order}
       />
 
-      {/* Modal WhatsApp */}
+      {/* Modal WhatsApp legacy (kept for WhatsAppHistorial compatibility) */}
       <ModalEnviarWhatsApp
         isOpen={showWhatsAppModal}
         onClose={() => setShowWhatsAppModal(false)}
         order={order}
+      />
+
+      {/* Modal WhatsApp nuevo con template selector */}
+      <WhatsAppPreviewModal
+        isOpen={waPreview.open}
+        onClose={() => setWaPreview(p => ({ ...p, open: false }))}
+        recipientName={order.customer?.name ?? ''}
+        phone={order.customer?.phone}
+        defaultTemplateKey={waPreview.templateKey}
+        vars={{
+          nombre:      (order.customer?.name ?? '').split(' ')[0],
+          cliente:     order.customer?.name ?? '',
+          telefono:    order.customer?.phone ?? '',
+          equipo:      [order.device?.brand, order.device?.model].filter(Boolean).join(' '),
+          marca:       order.device?.brand ?? '',
+          modelo:      order.device?.model ?? '',
+          problema:    order.device?.issue ?? '',
+          numero_orden:(order.id ?? '').slice(0, 8).toUpperCase(),
+          estado:      STATUS_CONFIG[order.status as keyof typeof STATUS_CONFIG]?.label ?? '',
+          precio:      order.total_cost ? `$${Math.round(order.total_cost).toLocaleString('es-AR')}` : '',
+          presupuesto: order.estimated_total ? `$${Math.round(order.estimated_total).toLocaleString('es-AR')}` : '',
+        }}
+        context={{ orderId: order.id, customerId: order.customer?.id ?? (order as any).customer_id }}
       />
 
       {/* Modal Garantía desde orden */}

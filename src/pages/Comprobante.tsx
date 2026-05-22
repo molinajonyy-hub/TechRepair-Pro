@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, AlertCircle, CheckCircle, Loader2, ExternalLink, TrendingUp, Wallet, Edit2, X, FileText } from 'lucide-react';
+import { WhatsAppActionButton } from '../components/whatsapp/WhatsAppActionButton';
 import { supabase } from '../lib/supabase';
 import { useComprobantes } from '../hooks/useComprobantes';
 import { useOrderPrintSettings } from '../hooks/useOrderPrintSettings';
@@ -335,7 +336,30 @@ export default function ComprobantePage() {
             </h1>
           </div>
         </div>
-        <div className="page-hdr-right">
+        <div className="page-hdr-right" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {/* WhatsApp: enviar comprobante o recordatorio de saldo */}
+          {comprobanteActual && (
+            <WhatsAppActionButton
+              data-testid={(comprobanteActual as any).saldo_pendiente > 0 ? 'comprobante-whatsapp-debt' : 'comprobante-whatsapp-send'}
+              recipientName={cliente?.name ?? ''}
+              phone={cliente?.phone ?? (orden?.customer as any)?.phone ?? null}
+              templateKey={(comprobanteActual as any).saldo_pendiente > 0 ? 'debt_reminder' : 'comprobante_issued'}
+              vars={{
+                nombre:             (cliente?.name ?? '').split(' ')[0] || (cliente?.name ?? ''),
+                cliente:            cliente?.name ?? '',
+                tipo_comprobante:   TIPO_LABELS[comprobanteActual.tipo] ?? comprobanteActual.tipo,
+                numero_comprobante: (comprobanteActual as any).numero_fiscal ?? comprobanteActual.numero ?? '',
+                precio:             comprobanteActual.total ? `$${Math.round(comprobanteActual.total).toLocaleString('es-AR')}` : '',
+                saldo:              (comprobanteActual as any).saldo_pendiente > 0 ? `$${Math.round((comprobanteActual as any).saldo_pendiente).toLocaleString('es-AR')}` : '',
+              }}
+              context={{
+                comprobantId: comprobanteActual.id,
+                customerId: cliente?.id ?? comprobanteActual.customer_id ?? undefined,
+                orderId: comprobanteActual.order_id ?? undefined,
+              }}
+              disabledReason={!cliente?.phone && !((orden?.customer as any)?.phone) ? 'El cliente no tiene teléfono registrado' : undefined}
+            />
+          )}
           <Link
             to={comprobanteActual?.order_id ? `/orders/${comprobanteActual.order_id}` : '/comprobantes'}
             className="btn btn-outline"

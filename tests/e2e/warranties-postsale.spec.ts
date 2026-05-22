@@ -117,7 +117,7 @@ test.describe('@warranty @smoke Garantías — detalle con datos existentes', ()
     expect(errors().length, 'Sin errores de consola').toBe(0)
   })
 
-  test('botón WhatsApp genera link wa.me en el detalle', async ({ page }) => {
+  test('botón WhatsApp existe en el detalle de garantía', async ({ page }) => {
     await login(page)
     await nav.warranties(page)
     await page.waitForLoadState('networkidle')
@@ -127,11 +127,9 @@ test.describe('@warranty @smoke Garantías — detalle con datos existentes', ()
 
     await firstRow.click()
 
-    const waBtn = page.locator('[data-testid="warranty-whatsapp-button"]')
+    // Migrated from <a href> to WhatsAppActionButton → data-testid="whatsapp-action-button"
+    const waBtn = page.locator('[data-testid="whatsapp-action-button"]').first()
     await expect(waBtn).toBeVisible({ timeout: 10_000 })
-
-    const href = await waBtn.getAttribute('href')
-    expect(href, 'Href debe ser un link de WhatsApp').toContain('wa.me')
   })
 
   test('botón Imprimir A4 presente en el detalle', async ({ page }) => {

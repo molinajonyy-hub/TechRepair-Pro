@@ -1,6 +1,6 @@
 /** Shared micro-components for Mi Guita. Mobile-first, dark theme. */
 import { Loader2, CheckCircle2, XCircle } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
 
 // ── Token ─────────────────────────────────────────────────────────────────────
 // Minimum font size for iOS: 16px prevents auto-zoom on input focus
@@ -71,9 +71,6 @@ export function ToastProvider() {
     </div>
   )
 }
-
-// React must be imported for ToastProvider JSX
-import React from 'react'
 
 // ── Summary card ────────────────────────────────────────────────────────────
 

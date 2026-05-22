@@ -4,7 +4,7 @@ import {
   ArrowLeft, User, Phone, Mail, MapPin, ClipboardList,
   Smartphone, Building2, CreditCard, ShoppingBag, ChevronDown,
   ChevronRight, Receipt, Tag, Search, ExternalLink,
-  TrendingUp, RotateCcw, Wallet,
+  TrendingUp, RotateCcw, Wallet, MessageCircle,
 } from 'lucide-react'
 import { WhatsAppActionButton } from '../components/whatsapp/WhatsAppActionButton'
 import { Loader } from '../components/ui/Loader'
@@ -79,6 +79,27 @@ interface PurchaseSummary {
   net_spent:        number
   pending_balance:  number
   last_purchase_at: string | null
+}
+
+interface WhatsAppLogEntry {
+  id: string
+  order_id: string | null
+  customer_id: string | null
+  phone: string | null
+  status_key: string | null
+  message: string
+  send_mode: string
+  send_result: string
+  error_message: string | null
+  created_at: string
+}
+
+const WA_RESULT_LABELS: Record<string, { label: string; color: string }> = {
+  sent_api:  { label: 'Enviado', color: '#22c55e' },
+  opened:    { label: 'WA abierto', color: '#22c55e' },
+  copied:    { label: 'Copiado', color: '#60a5fa' },
+  failed:    { label: 'Error', color: '#f87171' },
+  skipped:   { label: 'Omitido', color: '#94a3b8' },
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -269,13 +290,16 @@ export function CustomerDetail() {
   const [error,         setError]         = useState<string | null>(null)
   const [ccAccount,     setCcAccount]     = useState<Account | null>(null)
   const [showPagarCC,   setShowPagarCC]   = useState(false)
-  const [activeTab,     setActiveTab]     = useState<'ordenes' | 'compras'>('ordenes')
+  const [activeTab,     setActiveTab]     = useState<'ordenes' | 'compras' | 'comunicaciones'>('ordenes')
   // RPC purchase history
   const [purchases,     setPurchases]     = useState<PurchaseRecord[]>([])
   const [phSummary,     setPhSummary]     = useState<PurchaseSummary | null>(null)
   const [phLoading,     setPhLoading]     = useState(false)
   const [searchTerm,    setSearchTerm]    = useState('')
   const [filterTipo,    setFilterTipo]    = useState<'todos' | 'facturas' | 'remitos' | 'nc'>('todos')
+  // Comunicaciones (WhatsApp logs)
+  const [waLogs,   setWaLogs]   = useState<WhatsAppLogEntry[]>([])
+  const [waLoading,setWaLoading]= useState(false)
 
   // Load customer
   useEffect(() => {
@@ -326,6 +350,22 @@ export function CustomerDetail() {
     }
     return list
   }, [purchases, filterTipo, searchTerm])
+
+  // ── Load WA logs when Comunicaciones tab is selected ─────────────────────
+  useEffect(() => {
+    if (activeTab !== 'comunicaciones' || !id || !businessId) return
+    setWaLoading(true)
+    Promise.resolve(
+      supabase
+        .from('whatsapp_logs')
+        .select('*')
+        .eq('customer_id', id)
+        .eq('business_id', businessId)
+        .order('created_at', { ascending: false })
+        .limit(50)
+    ).then(({ data }) => { setWaLogs((data || []) as WhatsAppLogEntry[]) })
+     .finally(() => setWaLoading(false))
+  }, [activeTab, id, businessId])
 
   // ── Computed stats ────────────────────────────────────────────────────────
   const totalComprado = phSummary?.total_spent ?? purchases.reduce((s, p) => s + (p.total || 0), 0)
@@ -472,8 +512,9 @@ export function CustomerDetail() {
           {/* Tab bar */}
           <div className="tabs" style={{ padding: '0 0.25rem' }}>
             {([
-              { id: 'ordenes', label: 'Órdenes', icon: <ClipboardList size={14} />, count: customer.orders?.length ?? 0 },
-              { id: 'compras', label: 'Compras', icon: <ShoppingBag size={14} />, count: purchases.length },
+              { id: 'ordenes',         label: 'Órdenes',        icon: <ClipboardList size={14} />, count: customer.orders?.length ?? 0 },
+              { id: 'compras',         label: 'Compras',         icon: <ShoppingBag size={14} />,  count: purchases.length },
+              { id: 'comunicaciones',  label: 'Comunicaciones',  icon: <MessageCircle size={14} />, count: waLogs.length },
             ] as const).map(tab => (
               <button
                 key={tab.id}
@@ -621,6 +662,80 @@ export function CustomerDetail() {
                   {filteredPurchases.map(p => <PurchaseRow key={p.id} purchase={p} />)}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ── Tab: Comunicaciones ── */}
+          {activeTab === 'comunicaciones' && (
+            <div data-testid="customer-communications-section" style={{ padding: '1rem' }}>
+              {waLoading ? (
+                <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <MessageCircle size={24} className="animate-spin" style={{ margin: '0 auto 0.5rem', display: 'block', opacity: 0.4 }} />
+                  Cargando comunicaciones...
+                </div>
+              ) : waLogs.length === 0 ? (
+                <div className="es">
+                  <MessageCircle size={32} className="es-icon" />
+                  <p className="es-title">Sin comunicaciones registradas</p>
+                  <p className="es-text">Cuando envíes un mensaje por WhatsApp a este cliente, aparecerá acá.</p>
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+                  <thead>
+                    <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                      {['Fecha', 'Plantilla', 'Modo', 'Estado', 'Mensaje'].map(h => (
+                        <th key={h} style={{ padding: '0.5rem 0.75rem', fontSize: '0.62rem', fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left', borderBottom: '1px solid var(--border-subtle)' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {waLogs.map(log => {
+                      const res = WA_RESULT_LABELS[log.send_result] ?? { label: log.send_result, color: '#94a3b8' }
+                      return (
+                        <tr key={log.id} data-testid="customer-communication-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.03)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                          <td style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                            {new Date(log.created_at).toLocaleDateString('es-AR')} {new Date(log.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td style={{ padding: '0.5rem 0.75rem', color: 'var(--text-secondary)' }}>
+                            {log.status_key ?? '—'}
+                          </td>
+                          <td style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)' }}>
+                            {log.send_mode === 'api' ? '🔗 API' : '💬 Manual'}
+                          </td>
+                          <td style={{ padding: '0.5rem 0.75rem' }}>
+                            <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '0.2rem', background: res.color + '18', color: res.color }}>
+                              {res.label}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', maxWidth: 240 }}>
+                            <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {log.message?.slice(0, 80) ?? '—'}
+                            </span>
+                            {log.order_id && (
+                              <Link to={`/orders/${log.order_id}`} style={{ fontSize: '0.65rem', color: 'var(--accent-primary)', opacity: 0.8 }}>
+                                Ver orden
+                              </Link>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+              {/* WhatsApp quick action for this customer */}
+              <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
+                <WhatsAppActionButton
+                  recipientName={customer.name}
+                  phone={customer.phone}
+                  templateKey="free_message"
+                  vars={{ nombre: customer.name.split(' ')[0] || customer.name, cliente: customer.name }}
+                  context={{ customerId: customer.id }}
+                  label="Enviar WhatsApp"
+                />
+              </div>
             </div>
           )}
         </div>
