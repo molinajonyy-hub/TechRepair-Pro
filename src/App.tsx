@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { Route, Routes } from 'react-router-dom'
+import { Route, Routes, Navigate } from 'react-router-dom'
 import { PremiumErrorBoundary } from './components/ui/PremiumErrorBoundary'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { PersonalProtectedRoute } from './components/auth/PersonalProtectedRoute'
@@ -161,9 +161,11 @@ function AppContent() {
 
               {/* ── Rutas PRO — advancedFinance ── */}
               <Route element={<ProtectedRouteByFeature feature="advancedFinance" />}>
-                <Route path="/finance"               element={<FinanceDashboard />} />
-                <Route path="/finance/reports"       element={<Finance />} />
-                <Route path="/finance/health"        element={<FinanceHealthCheck />} />
+                <Route path="/finance"         element={<FinanceDashboard />} />
+                <Route path="/finance/reports" element={<Finance />} />
+                <Route path="/finance/health"  element={<FinanceHealthCheck />} />
+                {/* Backward compat redirect */}
+                <Route path="/finance/dashboard" element={<Navigate to="/finance" replace />} />
               </Route>
 
               {/* ── Rutas PRO — reports ── */}
