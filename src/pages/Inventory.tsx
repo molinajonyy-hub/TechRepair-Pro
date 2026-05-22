@@ -16,6 +16,7 @@ import {
   Copy,
   Loader2,
   History,
+  Zap,
 } from 'lucide-react'
 import { useInventory } from '../hooks/useInventory'
 import { useAuth } from '../contexts/AuthContext'
@@ -83,6 +84,8 @@ export function Inventory() {
   const [showModal, setShowModal] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showProductMenu, setShowProductMenu] = useState(false)
+  const [showNewProductMenu, setShowNewProductMenu] = useState(false)
+  const newProductMenuRef = useRef<HTMLDivElement>(null)
   // ProductFormModal — cubre Producto simple, Servicio y Con variantes (crear y editar)
   const [showProductFormModal, setShowProductFormModal] = useState(false)
   const [productFormTipo, setProductFormTipo] = useState<'product' | 'service' | 'with_variants'>('product')
@@ -127,6 +130,19 @@ export function Inventory() {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showProductMenu])
+
+  // Outside-click para el split button "Nuevo Producto"
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (newProductMenuRef.current && !newProductMenuRef.current.contains(e.target as Node)) {
+        setShowNewProductMenu(false)
+      }
+    }
+    if (showNewProductMenu) {
+      document.addEventListener('mousedown', handler)
+    }
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showNewProductMenu])
 
   useEffect(() => {
     if (businessId) {
@@ -448,7 +464,15 @@ export function Inventory() {
     setProductFormEditItem(null)
     setProductFormTipo(tipo)
     setShowProductMenu(false)
+    setShowNewProductMenu(false)
     setShowProductFormModal(true)
+  }
+
+  const toggleNewProductMenu = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    console.log('[Inventory split arrow click]', { showNewProductMenuBefore: showNewProductMenu })
+    setShowNewProductMenu(prev => !prev)
   }
 
   const addVariant = () => {
@@ -1602,36 +1626,75 @@ export function Inventory() {
             <button onClick={() => setShowImportModal(true)} className="btn btn-ghost btn-sm">
               <Upload size={15} />Importar
             </button>
-            {/* Split button: clic principal abre modal directamente; chevron abre dropdown */}
-            <div style={{ position: 'relative', display: 'flex' }} data-product-menu>
+            {/* Split button — ref propio, outside click via useEffect, stopPropagation en flecha */}
+            <div ref={newProductMenuRef} style={{ position: 'relative', display: 'inline-flex' }}>
+              {/* Botón principal: abre modal directamente */}
               <button
+                type="button"
                 data-testid="inventory-new-product-button"
-                onClick={() => openCreateProductModal('product')}
+                onClick={() => { console.log('[Inventory split main click]'); openCreateProductModal('product') }}
                 className="btn btn-primary btn-sm btn-lift"
-                style={{ borderRadius: 'var(--radius-md) 0 0 var(--radius-md)', borderRight: '1px solid rgba(255,255,255,0.15)' }}
+                style={{ borderRadius: 'var(--radius-md) 0 0 var(--radius-md)', borderRight: '1px solid rgba(255,255,255,0.2)', paddingRight: '0.625rem' }}
               >
-                <Plus size={18} />
+                <Plus size={16} />
                 Nuevo Producto
               </button>
+              {/* Flecha: toggle del dropdown */}
               <button
+                type="button"
                 data-testid="inventory-new-product-chevron"
-                onClick={() => setShowProductMenu(v => !v)}
+                onClick={toggleNewProductMenu}
+                aria-label="Abrir opciones de nuevo producto"
+                aria-expanded={showNewProductMenu}
                 className="btn btn-primary btn-sm btn-lift"
-                style={{ borderRadius: '0 var(--radius-md) var(--radius-md) 0', padding: '0 0.5rem' }}
-                title="Más opciones"
+                style={{ borderRadius: '0 var(--radius-md) var(--radius-md) 0', padding: '0 0.5rem', minWidth: '2rem' }}
               >
-                <ChevronDown size={14} />
+                <ChevronDown size={14} style={{ transition: 'transform 0.15s', transform: showNewProductMenu ? 'rotate(180deg)' : 'none' }} />
               </button>
-              {showProductMenu && (
-                <div data-testid="inventory-new-product-dropdown" className="dropdown-menu" style={{ position: 'absolute', top: 'calc(100% + 0.375rem)', right: 0, zIndex: 50, minWidth: '200px' }}>
-                  <button data-testid="inventory-new-product-simple" onClick={() => openCreateProductModal('product')} className="dropdown-item">
+              {/* Dropdown — z-index alto, pointer-events auto */}
+              {showNewProductMenu && (
+                <div
+                  data-testid="inventory-new-product-dropdown"
+                  onMouseDown={e => e.stopPropagation()}
+                  style={{
+                    position: 'absolute', top: 'calc(100% + 4px)', right: 0,
+                    zIndex: 9000, minWidth: '210px',
+                    background: 'var(--bg-card)', border: '1px solid var(--border-strong)',
+                    borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)',
+                    padding: '0.25rem', pointerEvents: 'auto',
+                  }}
+                >
+                  <button
+                    type="button"
+                    data-testid="inventory-new-product-simple"
+                    onClick={() => { console.log('[Inventory new product option]', { type: 'product' }); openCreateProductModal('product') }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-secondary)', borderRadius: 'var(--radius-sm)', textAlign: 'left' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-hover, rgba(255,255,255,0.06))')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                  >
+                    <Plus size={14} style={{ flexShrink: 0 }} />
                     Producto simple
                   </button>
-                  <button data-testid="inventory-new-product-variants" onClick={() => openCreateProductModal('with_variants')} className="dropdown-item">
+                  <button
+                    type="button"
+                    data-testid="inventory-new-product-variants"
+                    onClick={() => { console.log('[Inventory new product option]', { type: 'with_variants' }); openCreateProductModal('with_variants') }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--text-secondary)', borderRadius: 'var(--radius-sm)', textAlign: 'left' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-hover, rgba(255,255,255,0.06))')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                  >
+                    <Package size={14} style={{ flexShrink: 0 }} />
                     Producto con variantes
                   </button>
-                  <div className="dropdown-separator" />
-                  <button onClick={() => openCreateProductModal('service')} className="dropdown-item" style={{ color: 'var(--accent-primary)' }}>
+                  <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '0.25rem 0' }} />
+                  <button
+                    type="button"
+                    onClick={() => { console.log('[Inventory new product option]', { type: 'service' }); openCreateProductModal('service') }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%', padding: '0.5rem 0.75rem', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: 'var(--accent-primary)', borderRadius: 'var(--radius-sm)', textAlign: 'left' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-hover, rgba(255,255,255,0.06))')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                  >
+                    <Zap size={14} style={{ flexShrink: 0 }} />
                     Nuevo Servicio
                   </button>
                 </div>
