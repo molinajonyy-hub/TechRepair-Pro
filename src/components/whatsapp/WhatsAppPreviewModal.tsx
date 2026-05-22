@@ -11,7 +11,10 @@ import { useAuth } from '../../contexts/AuthContext'
 import {
   whatsappService,
   interpolateTemplate,
-  buildWhatsAppFallbackUrl,
+  buildWhatsAppDesktopUrl,
+  buildWhatsAppWebUrl,
+  buildWhatsAppUniversalUrl,
+  openWhatsAppDesktop,
   isMobileDevice,
   normalizeWhatsAppPhone,
   WhatsAppVars,
@@ -44,13 +47,15 @@ export interface WhatsAppPreviewModalProps {
 
 // ─── Status chip ──────────────────────────────────────────────────────────────
 
-type SendStatus = 'idle' | 'sending' | 'sent_api' | 'fallback_opened' | 'copied' | 'error'
+type SendStatus = 'idle' | 'sending' | 'sent_api' | 'fallback_opened' | 'desktop_opened' | 'web_opened' | 'copied' | 'error'
 
 const STATUS_UI: Record<SendStatus, { label: string; color: string } | null> = {
   idle:             null,
   sending:          { label: 'Enviando…', color: '#818cf8' },
   sent_api:         { label: '✓ Enviado por API', color: '#22c55e' },
   fallback_opened:  { label: '↗ WhatsApp abierto', color: '#22c55e' },
+  desktop_opened:   { label: '↗ WhatsApp Desktop abierto', color: '#22c55e' },
+  web_opened:       { label: '↗ WhatsApp Web abierto', color: '#22c55e' },
   copied:           { label: '✓ Mensaje copiado', color: '#60a5fa' },
   error:            { label: 'Error al enviar', color: '#f87171' },
 }
@@ -74,9 +79,11 @@ export function WhatsAppPreviewModal({
   const [status,     setStatus]     = useState<SendStatus>('idle')
   const [errorMsg,   setErrorMsg]   = useState('')
 
-  const isMobile   = isMobileDevice()
+  const isMobile    = isMobileDevice()
   const phoneResult = phone ? normalizeWhatsAppPhone(phone) : { normalized: '', valid: false, error: 'Sin teléfono' }
-  const waLink = phoneResult.valid ? buildWhatsAppFallbackUrl(phone!, message) : ''
+  const desktopUrl  = phoneResult.valid ? buildWhatsAppDesktopUrl(phone!, message) : ''
+  const webUrl      = phoneResult.valid ? buildWhatsAppWebUrl(phone!, message) : ''
+  const mobileUrl   = phoneResult.valid ? buildWhatsAppUniversalUrl(phone!, message) : ''
 
   // ── Load settings + templates ──────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -142,29 +149,46 @@ export function WhatsAppPreviewModal({
     } catch { setStatus('error'); setErrorMsg('No se pudo copiar') }
   }
 
-  const handleOpenWaMe = async () => {
-    if (!waLink) return
-    // Named target reuses the same tab on every click; no noopener so it works.
-    window.open(waLink, 'techrepair-whatsapp-web')
+  const logOpen = (result: 'opened') => {
+    if (!businessId) return
+    void whatsappService.logMessage(businessId, {
+      order_id:    context.orderId,
+      customer_id: context.customerId,
+      phone:       phone || '',
+      status_key:  selectedKey,
+      message,
+      send_mode:   'manual',
+      send_result: result,
+    })
+  }
+
+  // whatsapp:// — abre WhatsApp Desktop sin pestaña nueva; silencioso si no instalado
+  const handleOpenDesktop = () => {
+    if (!desktopUrl) return
+    openWhatsAppDesktop(desktopUrl)
+    setStatus('desktop_opened')
+    logOpen('opened')
+  }
+
+  // web.whatsapp.com — abre (o reutiliza si el usuario tiene suerte) una pestaña
+  const handleOpenWeb = () => {
+    if (!webUrl) return
+    window.open(webUrl, '_blank', 'noopener,noreferrer')
+    setStatus('web_opened')
+    logOpen('opened')
+  }
+
+  // wa.me — mobile: abre la app nativa
+  const handleOpenMobile = () => {
+    if (!mobileUrl) return
+    window.open(mobileUrl, '_blank', 'noopener,noreferrer')
     setStatus('fallback_opened')
-    if (businessId) {
-      // Log only — window was already opened above to avoid double-open.
-      void whatsappService.logMessage(businessId, {
-        order_id:    context.orderId,
-        customer_id: context.customerId,
-        phone:       phone || '',
-        status_key:  selectedKey,
-        message,
-        send_mode:   'manual',
-        send_result: 'opened',
-      })
-    }
+    logOpen('opened')
   }
 
   const handleSendApi = async () => {
     if (!settings?.api_mode || !settings.phone_number_id || !settings.access_token || !businessId) {
-      // Fallback to wa.me
-      await handleOpenWaMe()
+      isMobile ? handleOpenMobile() : handleOpenDesktop()
       return
     }
     setStatus('sending')
@@ -286,8 +310,15 @@ export function WhatsAppPreviewModal({
               {/* Fallback notice when API failed */}
               {status === 'error' && (
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
-                  No se pudo enviar por API. Podés abrir WhatsApp manualmente usando el botón de fallback.
+                  No se pudo enviar por API. Usá los botones de abajo para enviar manualmente.
                 </div>
+              )}
+
+              {/* Desktop hint */}
+              {!isMobile && !loading && (
+                <p style={{ margin: 0, fontSize: '0.68rem', color: 'var(--text-subtle)', lineHeight: 1.5 }}>
+                  Para evitar pestañas nuevas, usá <strong>WhatsApp Desktop</strong>. WhatsApp Web puede abrir una pestaña nueva según el navegador.
+                </p>
               )}
             </>
           )}
@@ -296,7 +327,7 @@ export function WhatsAppPreviewModal({
         {/* ── Footer actions ── */}
         <div style={{ padding: '0.875rem 1.25rem', borderTop: '1px solid var(--border-subtle)', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
 
-          {/* Copy */}
+          {/* Copy — siempre disponible */}
           <button
             data-testid="whatsapp-copy-button"
             onClick={handleCopy}
@@ -308,23 +339,8 @@ export function WhatsAppPreviewModal({
             {status === 'copied' ? 'Copiado' : 'Copiar'}
           </button>
 
-          {/* Fallback — WhatsApp Web en desktop, wa.me en mobile */}
-          <button
-            data-testid="whatsapp-fallback-button"
-            onClick={handleOpenWaMe}
-            disabled={!canSend}
-            className="btn btn-ghost btn-sm"
-            style={{ color: '#25d366', borderColor: canSend ? 'rgba(37,211,102,0.3)' : undefined }}
-            title={canSend
-              ? (isMobile ? 'Abrir WhatsApp en tu dispositivo' : 'Abrir en WhatsApp Web (reutiliza la pestaña)')
-              : phoneResult.error}
-          >
-            <ExternalLink size={13} />
-            {isMobile ? 'Abrir WhatsApp' : 'Abrir en WhatsApp Web'}
-          </button>
-
-          {/* Send via API */}
-          {apiEnabled ? (
+          {/* API override — cuando está configurada toma prioridad */}
+          {apiEnabled && (
             <button
               data-testid="whatsapp-send-api-button"
               onClick={handleSendApi}
@@ -336,16 +352,50 @@ export function WhatsAppPreviewModal({
                 ? <><RefreshCw size={13} className="animate-spin" /> Enviando…</>
                 : <><MessageCircle size={13} /> Enviar por API</>}
             </button>
-          ) : (
+          )}
+
+          {/* Mobile: un solo botón wa.me */}
+          {!apiEnabled && isMobile && (
             <button
               data-testid="whatsapp-send-api-button"
-              onClick={handleOpenWaMe}
+              onClick={handleOpenMobile}
               disabled={!canSend}
               className="btn btn-sm"
               style={{ background: canSend ? '#25d366' : undefined, border: 'none', color: canSend ? '#fff' : undefined }}
+              title={canSend ? 'Abrir WhatsApp en tu dispositivo' : phoneResult.error}
             >
               <MessageCircle size={13} />
-              {isMobile ? 'Enviar WhatsApp' : 'Abrir en WhatsApp Web'}
+              Abrir WhatsApp
+            </button>
+          )}
+
+          {/* Desktop: botón secundario WhatsApp Web */}
+          {!apiEnabled && !isMobile && (
+            <button
+              data-testid="whatsapp-fallback-button"
+              onClick={handleOpenWeb}
+              disabled={!canSend}
+              className="btn btn-ghost btn-sm"
+              style={{ color: '#25d366', borderColor: canSend ? 'rgba(37,211,102,0.3)' : undefined }}
+              title={canSend ? 'Abrir WhatsApp Web en el navegador (puede abrir pestaña nueva)' : phoneResult.error}
+            >
+              <ExternalLink size={13} />
+              WhatsApp Web
+            </button>
+          )}
+
+          {/* Desktop: botón principal WhatsApp Desktop (protocolo whatsapp://) */}
+          {!apiEnabled && !isMobile && (
+            <button
+              data-testid="whatsapp-send-api-button"
+              onClick={handleOpenDesktop}
+              disabled={!canSend}
+              className="btn btn-sm"
+              style={{ background: canSend ? '#25d366' : undefined, border: 'none', color: canSend ? '#fff' : undefined }}
+              title={canSend ? 'Abre WhatsApp Desktop si está instalado (sin pestaña nueva)' : phoneResult.error}
+            >
+              <MessageCircle size={13} />
+              WhatsApp Desktop
             </button>
           )}
         </div>

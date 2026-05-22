@@ -418,6 +418,24 @@ export function openWhatsAppWindow(url: string): void {
 }
 
 /**
+ * URL con protocolo whatsapp:// para la app de escritorio (WhatsApp Desktop).
+ * No abre una pestaña nueva — el OS delega en la app instalada.
+ * Si WhatsApp Desktop no está instalado el navegador muestra un aviso o no hace nada.
+ */
+export function buildWhatsAppDesktopUrl(phone: string, message: string): string {
+  const { normalized } = normalizeWhatsAppPhone(phone)
+  return `whatsapp://send?phone=${normalized}&text=${encodeURIComponent(message)}`
+}
+
+/**
+ * Navega a una URL de protocolo whatsapp:// sin abrir pestaña nueva.
+ * Equivalente a hacer click en un link tel: o mailto:.
+ */
+export function openWhatsAppDesktop(url: string): void {
+  window.location.href = url
+}
+
+/**
  * Mejora normalizePhone para Argentina:
  * Maneja números con 15, con 0 inicial, con/sin código de país.
  */
