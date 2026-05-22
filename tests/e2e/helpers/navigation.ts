@@ -13,5 +13,6 @@ export const nav = {
   orders:         (page: Page) => page.goto('/orders'),
   suppliers:      (page: Page) => page.goto('/suppliers'),
   warranties:     (page: Page) => page.goto('/warranties'),
+
   reports:        (page: Page) => page.goto('/reports'),
 }

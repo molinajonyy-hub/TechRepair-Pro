@@ -16,6 +16,7 @@ import {
   Phone,
   Mail,
   MapPin,
+  ShieldCheck,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { ModalEnviarWhatsApp } from '../components/whatsapp/ModalEnviarWhatsApp'
@@ -32,6 +33,8 @@ import { ComprobanteProModal as ModalCrearComprobante } from '../components/comp
 import { OrderPrintPreviewModal } from '../components/print/OrderPrintPreviewModal'
 import { STATUS_CONFIG } from '../types/orderStatus'
 import { DeviceLockCard } from '../components/order/DeviceLockCard'
+import { WarrantyFormModal } from '../components/warranties/WarrantyFormModal'
+import { useWarranties } from '../hooks/useWarranties'
 
 interface Document {
   id: string
@@ -50,8 +53,11 @@ export function OrderDetail() {
   const [showModalCrearComprobante, setShowModalCrearComprobante] = useState(false)
   const [showPrintModal, setShowPrintModal] = useState(false)
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false)
+  const [showWarrantyModal, setShowWarrantyModal] = useState(false)
   const [notesText, setNotesText] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
+
+  const { addWarranty } = useWarranties()
   const [notesSaved, setNotesSaved] = useState(false)
   // serviceTotal is now derived synchronously from order.orderItems (loaded by useOrderSimple)
 
@@ -213,6 +219,16 @@ export function OrderDetail() {
             >
               <MessageCircle size={15} />
               WhatsApp
+            </button>
+
+            <button
+              data-testid="order-create-warranty-button"
+              onClick={() => setShowWarrantyModal(true)}
+              className="btn btn-ghost btn-sm"
+              style={{ color: '#818cf8', borderColor: 'rgba(99,102,241,0.3)', background: 'rgba(99,102,241,0.08)' }}
+            >
+              <ShieldCheck size={15} />
+              Garantía
             </button>
           </div>
         </div>
@@ -591,6 +607,46 @@ export function OrderDetail() {
         order={order}
       />
 
+      {/* Modal Garantía desde orden */}
+      <WarrantyFormModal
+        open={showWarrantyModal}
+        onClose={() => setShowWarrantyModal(false)}
+        onSave={async (input) => {
+          const w = await addWarranty({
+            ...input,
+            warranty_source: 'service_order',
+            order_id: order.id,
+            customer_id: order.customer?.id ?? order.customer_id ?? null,
+          } as Parameters<typeof addWarranty>[0])
+          setShowWarrantyModal(false)
+          return w
+        }}
+        prefill={{
+          // Prefill with order data — treated as "new create" (no editing)
+          id: '', business_id: '', number: '', created_at: '', updated_at: '',
+          issue_date: new Date().toISOString().slice(0, 10),
+          customer_name: order.customer?.name ?? '',
+          customer_phone: order.customer?.phone ?? null,
+          customer_dni: null,
+          phone_model: [order.device?.brand, order.device?.model].filter(Boolean).join(' ') || '',
+          imei: null,
+          serial_number: null,
+          supplier_id: null,
+          warranty_days: 30,
+          equipment_status: 'new',
+          purchase_date: null,
+          checklist: {},
+          observations: order.device?.issue ?? null,
+          conditions: null,
+          attended_by_user_id: null,
+          attended_by_name: null,
+          is_active: true,
+          created_by: null,
+          warranty_source: 'service_order',
+          warranty_type: 'repair',
+          item_description: order.device?.issue ?? '',
+        }}
+      />
 
     </div>
   )

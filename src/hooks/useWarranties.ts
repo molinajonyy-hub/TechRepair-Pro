@@ -6,6 +6,64 @@ import { supabase } from '../lib/supabase'
 
 export type EquipmentStatus = 'new' | 'used'
 
+// ── Extensiones postventa ─────────────────────────────────────────────
+
+export type WarrantySource =
+  | 'sold_device'       // equipo vendido (legacy)
+  | 'service_order'     // reparación/servicio
+  | 'comprobante_item'  // producto/accesorio de un comprobante
+  | 'product_sale'      // venta directa de producto
+  | 'manual'            // creada manualmente sin origen específico
+
+export type WarrantyType =
+  | 'sold_device' | 'repair' | 'screen' | 'battery'
+  | 'service' | 'accessory' | 'product' | 'custom'
+
+export type WarrantyStoredStatus = 'open' | 'claimed' | 'resolved' | 'voided'
+
+export type WarrantyEventType =
+  | 'created' | 'claimed' | 'note_added' | 'resolved' | 'voided' | 'extended'
+
+export interface WarrantyEvent {
+  id: string
+  warranty_id: string
+  business_id: string
+  event_type: WarrantyEventType
+  notes: string | null
+  created_by: string | null
+  created_at: string
+}
+
+export const WARRANTY_SOURCE_LABELS: Record<WarrantySource, string> = {
+  sold_device:      'Equipo vendido',
+  service_order:    'Reparación',
+  comprobante_item: 'Comprobante',
+  product_sale:     'Venta producto',
+  manual:           'Manual',
+}
+
+export const WARRANTY_TYPE_LABELS: Record<WarrantyType, string> = {
+  sold_device: 'Equipo vendido',
+  repair:      'Reparación general',
+  screen:      'Cambio de pantalla',
+  battery:     'Cambio de batería',
+  service:     'Servicio técnico',
+  accessory:   'Accesorio',
+  product:     'Producto',
+  custom:      'Personalizada',
+}
+
+export const WARRANTY_TYPE_DEFAULT_DAYS: Record<WarrantyType, number> = {
+  sold_device: 90,
+  repair:      30,
+  screen:      60,
+  battery:     90,
+  service:     30,
+  accessory:   30,
+  product:     90,
+  custom:      30,
+}
+
 // Claves canónicas del checklist (en inglés para no cambiar si se traduce)
 export const CHECKLIST_ITEMS: Array<{ key: string; label: string }> = [
   { key: 'powers_on',          label: 'Enciende correctamente' },
@@ -39,7 +97,7 @@ export interface Warranty {
   customer_name: string
   customer_dni?: string | null
   customer_phone?: string | null
-  phone_model: string
+  phone_model: string           // equipo/producto/servicio (campo reutilizado para compatibilidad)
   imei?: string | null
   serial_number?: string | null
   supplier_id?: string | null
@@ -55,6 +113,19 @@ export interface Warranty {
   created_by?: string | null
   created_at: string
   updated_at: string
+  // ── Extensiones postventa (nullable — legacy rows = null / 'sold_device') ──
+  warranty_source?: WarrantySource | null
+  warranty_type?: WarrantyType | null
+  order_id?: string | null
+  comprobante_id?: string | null
+  comprobante_item_id?: string | null
+  inventory_id?: string | null
+  customer_id?: string | null
+  item_description?: string | null
+  warranty_status?: WarrantyStoredStatus | null
+  claim_notes?: string | null
+  void_reason?: string | null
+  resolved_at?: string | null
 }
 
 export type WarrantyInput = Omit<
@@ -241,6 +312,34 @@ export function useWarranties() {
     [businessId, loadWarranties]
   )
 
+  const addWarrantyEvent = useCallback(
+    async (warrantyId: string, eventType: WarrantyEventType, notes?: string) => {
+      if (!businessId) throw new Error('No hay business_id activo')
+      const { error: evtErr } = await supabase.from('warranty_events').insert({
+        warranty_id: warrantyId,
+        business_id: businessId,
+        event_type:  eventType,
+        notes:       notes ?? null,
+        created_by:  user?.id ?? null,
+      })
+      if (evtErr) throw toError(evtErr)
+    },
+    [businessId, user?.id]
+  )
+
+  const getWarrantyEvents = useCallback(
+    async (warrantyId: string): Promise<WarrantyEvent[]> => {
+      const { data, error: fetchErr } = await supabase
+        .from('warranty_events')
+        .select('*')
+        .eq('warranty_id', warrantyId)
+        .order('created_at', { ascending: false })
+      if (fetchErr) throw toError(fetchErr)
+      return (data || []) as WarrantyEvent[]
+    },
+    []
+  )
+
   return {
     items,
     loading,
@@ -250,5 +349,7 @@ export function useWarranties() {
     addWarranty,
     updateWarranty,
     deleteWarranty,
+    addWarrantyEvent,
+    getWarrantyEvents,
   }
 }

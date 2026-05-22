@@ -9,6 +9,11 @@ import {
   Warranty,
   WarrantyChecklist,
   WarrantyInput,
+  WarrantySource,
+  WarrantyType,
+  WARRANTY_SOURCE_LABELS,
+  WARRANTY_TYPE_LABELS,
+  WARRANTY_TYPE_DEFAULT_DAYS,
   computeExpiryDate,
 } from '../../hooks/useWarranties'
 import { useAuth } from '../../contexts/AuthContext'
@@ -117,6 +122,10 @@ export function WarrantyFormModal({
   const [observations, setObservations] = useState(DEFAULT_OBSERVATIONS)
   const [conditions, setConditions] = useState(DEFAULT_WARRANTY_CONDITIONS)
   const [attendedByName, setAttendedByName] = useState('')
+  // ── Nuevos campos postventa
+  const [warrantySource, setWarrantySource] = useState<WarrantySource>('sold_device')
+  const [warrantyType,   setWarrantyType]   = useState<WarrantyType>('sold_device')
+  const [itemDescription, setItemDescription] = useState('')
 
   // ── Cargar proveedores cuando se abre
   useEffect(() => {
@@ -164,6 +173,9 @@ export function WarrantyFormModal({
           ? seed.attended_by_name || ''
           : profile?.full_name || profile?.email || ''
       )
+      setWarrantySource((seed.warranty_source as WarrantySource) || 'sold_device')
+      setWarrantyType((seed.warranty_type as WarrantyType) || 'sold_device')
+      setItemDescription(seed.item_description || '')
     } else {
       setIssueDate(todayISO())
       setCustomerName('')
@@ -180,6 +192,9 @@ export function WarrantyFormModal({
       setObservations(DEFAULT_OBSERVATIONS)
       setConditions(DEFAULT_WARRANTY_CONDITIONS)
       setAttendedByName(profile?.full_name || profile?.email || '')
+      setWarrantySource('sold_device')
+      setWarrantyType('sold_device')
+      setItemDescription('')
     }
     setError(null)
   }, [open, editing, prefill, profile?.full_name, profile?.email])
@@ -201,13 +216,21 @@ export function WarrantyFormModal({
   }
 
   // ── Validación y armado del payload
+  const isDeviceSource = warrantySource === 'sold_device'
+
   const buildPayload = (): WarrantyInput | null => {
     if (!customerName.trim()) {
       setError('Nombre del cliente es obligatorio')
       return null
     }
-    if (!phoneModel.trim()) {
+    // For device warranties, phone_model is required.
+    // For others, item_description substitutes.
+    if (isDeviceSource && !phoneModel.trim()) {
       setError('Modelo del equipo es obligatorio')
+      return null
+    }
+    if (!isDeviceSource && !itemDescription.trim() && !phoneModel.trim()) {
+      setError('Descripción del servicio/producto es obligatoria')
       return null
     }
     if (!warrantyDays || warrantyDays <= 0) {
@@ -219,12 +242,17 @@ export function WarrantyFormModal({
       return null
     }
 
+    // For non-device sources, phone_model holds the description too
+    const resolvedModel = isDeviceSource
+      ? phoneModel.trim()
+      : itemDescription.trim() || phoneModel.trim() || '—'
+
     const payload: WarrantyInput = {
       issue_date: issueDate,
       customer_name: customerName.trim(),
       customer_dni: customerDni.trim() || null,
       customer_phone: customerPhone.trim() || null,
-      phone_model: phoneModel.trim(),
+      phone_model: resolvedModel,
       imei: imei.trim() || null,
       serial_number: serial.trim() || null,
       supplier_id: supplierId || null,
@@ -242,7 +270,12 @@ export function WarrantyFormModal({
         profile?.full_name ||
         profile?.email ||
         null,
-    }
+      // New fields
+      warranty_source:   warrantySource,
+      warranty_type:     warrantyType,
+      item_description:  itemDescription.trim() || null,
+      warranty_status:   'open',
+    } as WarrantyInput
     return payload
   }
 
@@ -344,6 +377,60 @@ export function WarrantyFormModal({
             flex: 1,
           }}
         >
+          {/* ── Tipo de garantía ── */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem', padding: '0.875rem 1rem', background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: '0.625rem' }}>
+            <div>
+              <label style={label}>Origen de garantía</label>
+              <select
+                value={warrantySource}
+                onChange={e => {
+                  const src = e.target.value as WarrantySource
+                  setWarrantySource(src)
+                  // Auto-adjust type
+                  if (src === 'sold_device') setWarrantyType('sold_device')
+                  else if (src === 'service_order') setWarrantyType('repair')
+                  else if (src === 'comprobante_item') setWarrantyType('product')
+                  else if (src === 'product_sale') setWarrantyType('product')
+                }}
+                style={input}
+              >
+                {(Object.entries(WARRANTY_SOURCE_LABELS) as [WarrantySource, string][]).map(([k, v]) => (
+                  <option key={k} value={k}>{v}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={label}>Tipo de cobertura</label>
+              <select
+                value={warrantyType}
+                onChange={e => {
+                  const t = e.target.value as WarrantyType
+                  setWarrantyType(t)
+                  // Auto-suggest days based on type
+                  if (!editing) setWarrantyDays(WARRANTY_TYPE_DEFAULT_DAYS[t])
+                }}
+                style={input}
+              >
+                {(Object.entries(WARRANTY_TYPE_LABELS) as [WarrantyType, string][]).map(([k, v]) => (
+                  <option key={k} value={k}>{v}</option>
+                ))}
+              </select>
+            </div>
+            {/* Item description for non-device sources */}
+            {!isDeviceSource && (
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={label}>Servicio / Producto cubierto *</label>
+                <input
+                  type="text"
+                  value={itemDescription}
+                  onChange={e => setItemDescription(e.target.value)}
+                  placeholder="Ej: Cambio de pantalla Samsung A52, Batería iPhone 13..."
+                  style={input}
+                />
+              </div>
+            )}
+          </div>
+
           {/* Fila 1 — Fecha + días + estado */}
           <div
             style={{

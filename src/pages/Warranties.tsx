@@ -17,7 +17,9 @@ import { useAuth } from '../contexts/AuthContext'
 import {
   Warranty,
   WarrantyInput,
+  WarrantySource,
   WarrantyStatus,
+  WARRANTY_SOURCE_LABELS,
   computeWarrantyStatus,
   useWarranties,
 } from '../hooks/useWarranties'
@@ -80,6 +82,7 @@ export function Warranties() {
   const [filterSupplier, setFilterSupplier] = useState<string>('')
   const [filterUser, setFilterUser] = useState<string>('')
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
+  const [filterSource, setFilterSource] = useState<WarrantySource | 'all'>('all')
   const [filterDateFrom, setFilterDateFrom] = useState<string>('')
   const [filterDateTo, setFilterDateTo] = useState<string>('')
 
@@ -112,19 +115,24 @@ export function Warranties() {
       if (filterUser && w.attended_by_name !== filterUser) return false
       if (filterDateFrom && w.issue_date < filterDateFrom) return false
       if (filterDateTo && w.issue_date > filterDateTo) return false
+      if (filterSource !== 'all') {
+        const src = w.warranty_source ?? 'sold_device'
+        if (src !== filterSource) return false
+      }
       if (filterStatus !== 'all') {
         const s = computeWarrantyStatus(w.issue_date, w.warranty_days).status
         if (s !== filterStatus) return false
       }
       return true
     })
-  }, [items, search, filterSupplier, filterUser, filterStatus, filterDateFrom, filterDateTo])
+  }, [items, search, filterSupplier, filterUser, filterStatus, filterSource, filterDateFrom, filterDateTo])
 
   const clearFilters = () => {
     setSearch('')
     setFilterSupplier('')
     setFilterUser('')
     setFilterStatus('all')
+    setFilterSource('all')
     setFilterDateFrom('')
     setFilterDateTo('')
   }
@@ -134,6 +142,7 @@ export function Warranties() {
     !!filterSupplier ||
     !!filterUser ||
     filterStatus !== 'all' ||
+    filterSource !== 'all' ||
     !!filterDateFrom ||
     !!filterDateTo
 
@@ -319,6 +328,16 @@ export function Warranties() {
         />
 
         <FilterSelect
+          label="Origen"
+          value={filterSource}
+          onChange={(v) => setFilterSource(v as WarrantySource | 'all')}
+          options={[
+            { value: 'all', label: 'Todos' },
+            ...Object.entries(WARRANTY_SOURCE_LABELS).map(([k, v]) => ({ value: k, label: v })),
+          ]}
+        />
+
+        <FilterSelect
           label="Proveedor"
           value={filterSupplier}
           onChange={setFilterSupplier}
@@ -403,7 +422,8 @@ export function Warranties() {
               <th>Número</th>
               <th>Fecha</th>
               <th>Cliente</th>
-              <th>Modelo</th>
+              <th>Origen</th>
+              <th>Modelo / Servicio</th>
               <th>IMEI</th>
               <th>Condición</th>
               <th>Días</th>
@@ -434,7 +454,12 @@ export function Warranties() {
                   <td><span style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>{w.number}</span></td>
                   <td>{fmtDate(w.issue_date)}</td>
                   <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{w.customer_name || '-'}</td>
-                  <td>{w.phone_model || '-'}</td>
+                  <td>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, padding: '0.12rem 0.45rem', borderRadius: '0.25rem', background: 'rgba(99,102,241,0.1)', color: '#818cf8', whiteSpace: 'nowrap' }}>
+                      {WARRANTY_SOURCE_LABELS[(w.warranty_source ?? 'sold_device') as WarrantySource] ?? w.warranty_source ?? 'Equipo vendido'}
+                    </span>
+                  </td>
+                  <td>{w.item_description || w.phone_model || '-'}</td>
                   <td className="body-sm">{w.imei || w.serial_number || '-'}</td>
                   <td>
                     <span className={w.equipment_status === 'new' ? 'badge badge-info' : 'badge badge-warning'} style={{ borderRadius: '4px' }}>
@@ -490,6 +515,9 @@ export function Warranties() {
         onEdit={(w) => openEdit(w)}
         onDuplicate={(w) => openDuplicate(w)}
         onDelete={(w) => handleDelete(w)}
+        onClaim={async (w, notes) => {
+          await updateWarranty(w.id, { warranty_status: 'claimed', claim_notes: notes })
+        }}
       />
 
       {/* Print layout oculto para Printer-btn de la tabla */}

@@ -1,8 +1,10 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useReactToPrint } from 'react-to-print'
 import { CloseButton } from '../ui/CloseButton'
-import { Printer, Pencil, Copy as CopyIcon, Trash2 } from 'lucide-react'
-import { Warranty, computeWarrantyStatus, CHECKLIST_ITEMS } from '../../hooks/useWarranties'
+import { Printer, Pencil, Copy as CopyIcon, Trash2, MessageCircle, AlertCircle } from 'lucide-react'
+import {
+  Warranty, computeWarrantyStatus, CHECKLIST_ITEMS,
+} from '../../hooks/useWarranties'
 import { OrderPrintSettings } from '../../hooks/useOrderPrintSettings'
 import { WarrantyPrintLayout } from './WarrantyPrintLayout'
 
@@ -14,6 +16,7 @@ interface WarrantyDetailModalProps {
   onEdit?: (w: Warranty) => void
   onDuplicate?: (w: Warranty) => void
   onDelete?: (w: Warranty) => void
+  onClaim?: (w: Warranty, notes: string) => Promise<void>
 }
 
 function fmtDate(iso?: string | null): string {
@@ -34,8 +37,12 @@ export function WarrantyDetailModal({
   onEdit,
   onDuplicate,
   onDelete,
+  onClaim,
 }: WarrantyDetailModalProps) {
   const printRef = useRef<HTMLDivElement>(null)
+  const [claimOpen, setClaimOpen] = useState(false)
+  const [claimNotes, setClaimNotes] = useState('')
+  const [claimSaving, setClaimSaving] = useState(false)
 
   const handlePrint = useReactToPrint({
     contentRef: printRef,
@@ -48,6 +55,34 @@ export function WarrantyDetailModal({
     warranty.issue_date,
     warranty.warranty_days
   )
+
+  const buildWhatsAppUrl = () => {
+    const phone = (warranty.customer_phone || '').replace(/\D/g, '')
+    const negocio = settings.nombre_comercial || 'el local'
+    const equipo = warranty.item_description || warranty.phone_model
+    const expiry = fmtDate(expiryDate)
+    const msg = encodeURIComponent(
+      `Hola ${warranty.customer_name}, te compartimos tu garantía en ${negocio}.\n\n` +
+      `📋 N° ${warranty.number}\n` +
+      `📱 ${equipo}\n` +
+      `📅 Válida hasta: ${expiry}\n\n` +
+      `Ante cualquier consulta, no dudes en contactarnos.`
+    )
+    return phone
+      ? `https://wa.me/${phone}?text=${msg}`
+      : `https://wa.me/?text=${msg}`
+  }
+
+  const handleClaim = async () => {
+    if (!onClaim || !warranty) return
+    setClaimSaving(true)
+    try {
+      await onClaim(warranty, claimNotes)
+      setClaimOpen(false)
+      setClaimNotes('')
+    } catch { /* ignore */ }
+    finally { setClaimSaving(false) }
+  }
 
   const statusBadge =
     status === 'active'
@@ -334,6 +369,42 @@ export function WarrantyDetailModal({
               Editar
             </button>
           )}
+          {/* WhatsApp */}
+          <a
+            href={buildWhatsAppUrl()}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="warranty-whatsapp-button"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+              padding: '0.5rem 0.85rem',
+              background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)',
+              color: '#22c55e', borderRadius: '0.5rem', cursor: 'pointer',
+              fontWeight: 500, fontSize: '0.875rem', textDecoration: 'none',
+            }}
+          >
+            <MessageCircle size={15} />
+            WhatsApp
+          </a>
+
+          {/* Registrar reclamo */}
+          {onClaim && (
+            <button
+              onClick={() => setClaimOpen(c => !c)}
+              data-testid="warranty-claim-button"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '0.4rem',
+                padding: '0.5rem 0.85rem',
+                background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)',
+                color: '#f59e0b', borderRadius: '0.5rem', cursor: 'pointer',
+                fontWeight: 500, fontSize: '0.875rem',
+              }}
+            >
+              <AlertCircle size={15} />
+              Reclamo
+            </button>
+          )}
+
           <button
             onClick={() => handlePrint()}
             style={{
@@ -356,6 +427,29 @@ export function WarrantyDetailModal({
           </button>
         </div>
       </div>
+
+      {/* Claim inline form */}
+      {claimOpen && (
+        <div style={{ padding: '0.875rem 1.5rem', borderTop: '1px solid rgba(245,158,11,0.2)', background: 'rgba(245,158,11,0.06)' }}>
+          <p style={{ margin: '0 0 0.5rem', fontSize: '0.8rem', color: '#fcd34d', fontWeight: 600 }}>
+            Registrar reclamo
+          </p>
+          <textarea
+            value={claimNotes}
+            onChange={e => setClaimNotes(e.target.value)}
+            placeholder="Descripción del reclamo del cliente..."
+            style={{ width: '100%', padding: '0.5rem 0.75rem', background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '0.5rem', color: '#f1f5f9', fontSize: '0.85rem', minHeight: 64, resize: 'vertical', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+          />
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', justifyContent: 'flex-end' }}>
+            <button onClick={() => setClaimOpen(false)} style={{ background: 'none', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', padding: '0.35rem 0.75rem', borderRadius: '0.375rem', cursor: 'pointer', fontSize: '0.8rem' }}>
+              Cancelar
+            </button>
+            <button onClick={handleClaim} disabled={claimSaving || !claimNotes.trim()} style={{ background: 'rgba(245,158,11,0.2)', border: '1px solid rgba(245,158,11,0.4)', color: '#f59e0b', padding: '0.35rem 0.75rem', borderRadius: '0.375rem', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>
+              {claimSaving ? 'Guardando...' : 'Guardar reclamo'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Print layout (hidden, used by react-to-print) */}
       <div style={{ position: 'fixed', left: '-10000px', top: 0 }}>
