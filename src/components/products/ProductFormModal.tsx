@@ -138,9 +138,13 @@ interface FormState {
   cost_ars:         string
   cost_usd:         string
   sale_price_ars:   string
+  sale_price_usd:   string           // precio venta USD → se guarda en base_price
   margin_pct:       string
+  auto_update_price:boolean          // auto-actualizar sale_price cuando cambia cotización
 
-  wholesale_price:  string
+  wholesale_price:  string           // mayorista ARS
+  wholesale_price_usd: string        // mayorista USD → se convierte a ARS al guardar
+  wholesale_currency: 'ARS' | 'USD' // moneda del mayorista
   stock_quantity:   string
   min_stock:        string
   location:         string
@@ -153,8 +157,9 @@ const EMPTY: FormState = {
   tipo: 'product', name: '', code: '', barcode: '', brand: '', model: '',
   description: '', category: '', newCategory: '', subcategory: '', supplier_id: '',
   base_currency: 'ARS', exchange_rate: '', cost_ars: '', cost_usd: '',
-  sale_price_ars: '', margin_pct: '',
-  wholesale_price: '', stock_quantity: '0', min_stock: '0', location: '',
+  sale_price_ars: '', sale_price_usd: '', margin_pct: '', auto_update_price: false,
+  wholesale_price: '', wholesale_price_usd: '', wholesale_currency: 'ARS',
+  stock_quantity: '0', min_stock: '0', location: '',
   is_active: true, register_stock: false,
   variants: [emptyVariant(1)],
 }
@@ -166,7 +171,9 @@ function serializeForm(f: FormState): string {
     brand: f.brand, model: f.model, description: f.description,
     category: f.category, subcategory: f.subcategory, supplier_id: f.supplier_id,
     base_currency: f.base_currency, cost_ars: f.cost_ars, cost_usd: f.cost_usd,
-    sale_price_ars: f.sale_price_ars, wholesale_price: f.wholesale_price,
+    sale_price_ars: f.sale_price_ars, sale_price_usd: f.sale_price_usd,
+    wholesale_price: f.wholesale_price, wholesale_price_usd: f.wholesale_price_usd,
+    wholesale_currency: f.wholesale_currency, auto_update_price: f.auto_update_price,
     stock_quantity: f.stock_quantity, min_stock: f.min_stock, location: f.location,
     is_active: f.is_active,
     variants: (f.variants ?? []).map(v => ({
@@ -212,6 +219,7 @@ export function ProductFormModal({
   const [loadingRate, setLoadingRate] = useState(false)
   const [showCatInput, setShowCatInput] = useState(false)
   const [suppliers, setSuppliers]     = useState<{ id: string; name: string }[]>([])
+  const [dbCategories, setDbCategories] = useState<string[]>([])
   // Estado post-creación con variantes: permite seleccionar cuál usar en la operación
   const [variantPickerData, setVariantPickerData] = useState<{
     product: InventoryItem
@@ -322,8 +330,13 @@ export function ProductFormModal({
                           : editItem.cost_price ?? 0),
         cost_usd:      String(editItem.cost_price_usd ?? ''),
         sale_price_ars:String(editItem.sale_price ?? 0),
+        // base_price = precio de venta USD cuando base_currency='USD'
+        sale_price_usd:baseCur === 'USD' ? String(editItem.base_price ?? '') : '',
         margin_pct:    '',
-        wholesale_price: String(ei.precio_mayorista ?? ''),
+        auto_update_price: ei.auto_update_price ?? (baseCur === 'USD'),
+        wholesale_price: String(ei.wholesale_price_ars ?? ei.precio_mayorista ?? ''),
+        wholesale_price_usd: '',       // no hay campo USD mayorista en inventory
+        wholesale_currency: 'ARS',
         stock_quantity:String(editItem.stock_quantity ?? 0),
         min_stock:     String(editItem.min_stock ?? 0),
         location:      editItem.location ?? '',
@@ -336,6 +349,7 @@ export function ProductFormModal({
       setError(''); setDuplicate(null); setShowCloseConfirm(false)
       if (!editItem.exchange_rate_used) fetchRate()
       loadSuppliers()
+      loadCategories()
       return
     }
 
@@ -362,8 +376,9 @@ export function ProductFormModal({
     setError(''); setDuplicate(null); setShowCloseConfirm(false)
     // Cargar cotización
     if (!form.exchange_rate) fetchRate()
-    // Cargar proveedores
+    // Cargar proveedores y categorías
     loadSuppliers()
+    loadCategories()
     // Verificar si existe borrador (solo si abre sin contexto pre-relleno)
     if (!initialName && !editItem) {
       try {
@@ -381,6 +396,24 @@ export function ProductFormModal({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
+
+  // Todas las categorías: predefinidas + las reales del negocio actual
+  const allCategories = useMemo(() =>
+    Array.from(new Set([...DEFAULT_CATEGORIES, ...dbCategories])).sort()
+  , [dbCategories])
+
+  const loadCategories = useCallback(async () => {
+    if (!businessId) return
+    const { data } = await supabase
+      .from('inventory')
+      .select('category')
+      .eq('business_id', businessId)
+      .eq('is_active', true)
+    const cats = (data || [])
+      .map((r: any) => (r.category || '').trim())
+      .filter(Boolean)
+    setDbCategories(cats)
+  }, [businessId])
 
   const fetchRate = async () => {
     setLoadingRate(true)
@@ -427,13 +460,30 @@ export function ProductFormModal({
     })
   }
 
-  // Al cambiar precio venta → recalcular margen
+  // Al cambiar precio venta ARS → recalcular margen
   const handleSalePriceChange = (val: string) => {
     setForm(f => {
       const costARS = deriveCostARS(f)
       const saleARS = parseFloat(val) || 0
       const margin  = calculateMarginPct(costARS, saleARS)
-      return { ...f, sale_price_ars: val, margin_pct: isFinite(margin) ? margin.toFixed(1) : '' }
+      return { ...f, sale_price_ars: val, margin_pct: isFinite(margin) && saleARS > 0 ? margin.toFixed(1) : '' }
+    })
+  }
+
+  // Al cambiar precio venta USD → calcular ARS equivalente + margen
+  const handleSalePriceUSDChange = (val: string) => {
+    setForm(f => {
+      const r      = parseFloat(f.exchange_rate) || 1
+      const usdVal = parseFloat(val) || 0
+      const arsVal = usdVal > 0 ? Math.round(convertToARS(usdVal, r)) : 0
+      const costARS = deriveCostARS(f)
+      const margin  = calculateMarginPct(costARS, arsVal)
+      return {
+        ...f,
+        sale_price_usd: val,
+        sale_price_ars: arsVal > 0 ? String(arsVal) : f.sale_price_ars,
+        margin_pct: isFinite(margin) && arsVal > 0 ? margin.toFixed(1) : f.margin_pct,
+      }
     })
   }
 
@@ -443,19 +493,38 @@ export function ProductFormModal({
       const costARS = deriveCostARS(f)
       const m = parseFloat(val) || 0
       const sale = calculateSaleFromMargin(costARS, m)
+      if (f.base_currency === 'USD') {
+        const r      = parseFloat(f.exchange_rate) || 1
+        const usdVal = r > 0 ? (sale / r).toFixed(2) : f.sale_price_usd
+        return { ...f, margin_pct: val, sale_price_usd: costARS > 0 ? usdVal : f.sale_price_usd, sale_price_ars: costARS > 0 ? sale.toFixed(2) : f.sale_price_ars }
+      }
       return { ...f, margin_pct: val, sale_price_ars: costARS > 0 ? sale.toFixed(2) : f.sale_price_ars }
     })
   }
 
-  // Al cambiar moneda base → recalcular precios cruzados
+  // Al cambiar moneda base → recalcular precios cruzados (costo Y venta)
   const handleCurrencyChange = (cur: 'ARS' | 'USD') => {
     setForm(f => {
       if (cur === 'USD') {
-        const arsVal = parseFloat(f.cost_ars) || 0
-        return { ...f, base_currency: 'USD', cost_usd: arsVal > 0 ? convertToUSD(arsVal, rate).toFixed(2) : '' }
+        const costARS  = parseFloat(f.cost_ars) || 0
+        const saleARS  = parseFloat(f.sale_price_ars) || 0
+        return {
+          ...f,
+          base_currency:  'USD',
+          cost_usd:       costARS > 0 ? convertToUSD(costARS, rate).toFixed(2) : '',
+          sale_price_usd: saleARS > 0 ? convertToUSD(saleARS, rate).toFixed(2) : '',
+          auto_update_price: true,
+        }
       } else {
-        const usdVal = parseFloat(f.cost_usd) || 0
-        return { ...f, base_currency: 'ARS', cost_ars: usdVal > 0 ? convertToARS(usdVal, rate).toFixed(2) : '' }
+        const costUSD  = parseFloat(f.cost_usd) || 0
+        const saleUSD  = parseFloat(f.sale_price_usd) || 0
+        return {
+          ...f,
+          base_currency:  'ARS',
+          cost_ars:       costUSD > 0 ? String(Math.round(convertToARS(costUSD, rate))) : '',
+          sale_price_ars: saleUSD > 0 ? String(Math.round(convertToARS(saleUSD, rate))) : '',
+          auto_update_price: false,
+        }
       }
     })
   }
@@ -564,6 +633,16 @@ export function ProductFormModal({
         ? form.newCategory.trim()
         : form.category || 'Otros'
 
+      // Precio venta final en ARS (siempre): si USD, convierte desde sale_price_usd
+      const saleARSFinal = form.base_currency === 'USD' && parseFloat(form.sale_price_usd) > 0
+        ? Math.round(convertToARS(parseFloat(form.sale_price_usd), rate))
+        : saleARS
+
+      // Mayorista en ARS: convierte si el usuario eligió USD
+      const wholesaleARS = form.wholesale_currency === 'USD' && parseFloat(form.wholesale_price_usd) > 0
+        ? Math.round(convertToARS(parseFloat(form.wholesale_price_usd), rate))
+        : (parseFloat(form.wholesale_price) || undefined)
+
       const baseInput: Omit<CreateProductInput, 'tipo' | 'stock_quantity'> = {
         business_id:    businessId,
         created_by:     user.id,
@@ -577,12 +656,17 @@ export function ProductFormModal({
         subcategory:    form.subcategory.trim() || undefined,
         supplier_id:    form.supplier_id || undefined,
         base_currency:  form.base_currency,
-        base_price:     form.base_currency === 'USD' ? (parseFloat(form.cost_usd) || 0) : costARS,
+        // base_price = precio de venta en USD (referencia para auto_update_price)
+        // NO es el costo — eso va en cost_price_usd
+        base_price:     form.base_currency === 'USD'
+          ? (parseFloat(form.sale_price_usd) || saleARSFinal)
+          : saleARSFinal,
         cost_price:     costARS,
         cost_price_usd: costUSD,
-        sale_price:     saleARS,
-        wholesale_price_ars: parseFloat(form.wholesale_price) || undefined,
+        sale_price:     saleARSFinal,
+        wholesale_price_ars: wholesaleARS,
         exchange_rate_used:  form.base_currency === 'USD' ? rate : undefined,
+        auto_update_price:   form.base_currency === 'USD' ? form.auto_update_price : false,
         min_stock:      parseInt(form.min_stock) || 0,
         location:       form.location.trim() || undefined,
         is_active:      form.is_active,
@@ -590,6 +674,13 @@ export function ProductFormModal({
 
       // ── Modo edición ───────────────────────────────────────────────────────
       if (isEditMode && editItem) {
+        const saleARSEdit = form.base_currency === 'USD' && parseFloat(form.sale_price_usd) > 0
+          ? Math.round(convertToARS(parseFloat(form.sale_price_usd), rate))
+          : saleARS
+        const wholesaleARSEdit = form.wholesale_currency === 'USD' && parseFloat(form.wholesale_price_usd) > 0
+          ? Math.round(convertToARS(parseFloat(form.wholesale_price_usd), rate))
+          : (parseFloat(form.wholesale_price) || undefined)
+
         await productService.updateProduct(editItem.id, {
           name:           form.name.trim(),
           code:           form.code.trim() || undefined,
@@ -601,12 +692,15 @@ export function ProductFormModal({
           subcategory:    form.subcategory.trim() || undefined,
           supplier_id:    form.supplier_id || undefined,
           base_currency:  form.base_currency,
-          base_price:     form.base_currency === 'USD' ? (parseFloat(form.cost_usd) || 0) : costARS,
+          base_price:     form.base_currency === 'USD'
+            ? (parseFloat(form.sale_price_usd) || saleARSEdit)
+            : saleARSEdit,
           cost_price:     costARS,
           cost_price_usd: costUSD,
-          sale_price:     saleARS,
-          wholesale_price_ars: parseFloat(form.wholesale_price) || undefined,
+          sale_price:     saleARSEdit,
+          wholesale_price_ars: wholesaleARSEdit,
           exchange_rate_used:  form.base_currency === 'USD' ? rate : undefined,
+          auto_update_price:   form.base_currency === 'USD' ? form.auto_update_price : false,
           min_stock:      parseInt(form.min_stock) || 0,
           location:       form.location.trim() || undefined,
           is_active:      form.is_active,
@@ -752,8 +846,16 @@ export function ProductFormModal({
 
   // ── Valores derivados para mostrar ─────────────────────────────────────────
   const costARS_display = deriveCostARS(form)
-  const saleARS_display = parseFloat(form.sale_price_ars) || 0
-  const margin_display  = calculateMarginPct(costARS_display, saleARS_display)
+  const saleARS_display = (() => {
+    if (form.base_currency === 'USD' && parseFloat(form.sale_price_usd) > 0) {
+      return Math.round(convertToARS(parseFloat(form.sale_price_usd), rate))
+    }
+    return parseFloat(form.sale_price_ars) || 0
+  })()
+  const margin_display  = (() => {
+    const m = calculateMarginPct(costARS_display, saleARS_display)
+    return isFinite(m) ? m : 0
+  })()
   const costUSD_display = form.base_currency === 'ARS' && costARS_display > 0 && rate > 1
     ? convertToUSD(costARS_display, rate)
     : parseFloat(form.cost_usd) || 0
@@ -888,7 +990,7 @@ export function ProductFormModal({
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <select value={form.category} onChange={e => set('category', e.target.value)} style={{ ...inputS, flex: 1 }}>
                       <option value="">Seleccionar...</option>
-                      {DEFAULT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                      {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                     <button type="button" onClick={() => setShowCatInput(true)} style={{ padding: '0 0.75rem', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.625rem', color: '#818cf8', fontSize: '0.75rem', cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
                       + Nueva
@@ -926,13 +1028,13 @@ export function ProductFormModal({
                 style={{ width: '90px', background: 'transparent', border: 'none', outline: 'none', color: '#f1f5f9', fontSize: '0.85rem', fontWeight: 700, textAlign: 'right', fontFamily: F }}
               />
               <button type="button" onClick={fetchRate} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', display: 'flex', padding: '0.125rem' }}>
-                <RefreshCw size={13} style={{ animation: loadingRate ? 'spin 1s linear infinite' : 'none' }} />
+                <RefreshCw size={13} style={{ animation: loadingRate ? 'tr-spin 0.8s linear infinite' : 'none' }} />
               </button>
             </div>
 
             {/* Moneda base */}
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <span style={{ color: '#64748b', fontSize: '0.78rem', fontWeight: 600 }}>Moneda del costo:</span>
+              <span style={{ color: '#64748b', fontSize: '0.78rem', fontWeight: 600 }}>Moneda del producto:</span>
               {(['ARS', 'USD'] as const).map(cur => (
                 <button
                   key={cur} type="button"
@@ -950,6 +1052,7 @@ export function ProductFormModal({
               ))}
             </div>
 
+            {/* Costo */}
             <Row2>
               <Field label={`Costo (${form.base_currency})`}>
                 {form.base_currency === 'ARS' ? (
@@ -960,7 +1063,7 @@ export function ProductFormModal({
                 ) : (
                   <div style={{ position: 'relative' }}>
                     <span style={prefixS}>U$</span>
-                    <input value={form.cost_usd} onChange={e => handleCostChange(e.target.value, 'cost_usd')} placeholder="0" style={{ ...inputS, paddingLeft: '2rem' }} />
+                    <input data-testid="product-cost-input" value={form.cost_usd} onChange={e => handleCostChange(e.target.value, 'cost_usd')} placeholder="0" style={{ ...inputS, paddingLeft: '2rem' }} />
                   </div>
                 )}
                 {form.base_currency === 'USD' && costARS_display > 0 && (
@@ -970,32 +1073,106 @@ export function ProductFormModal({
                   <p style={hintS}>≈ U${costUSD_display.toFixed(2)}</p>
                 )}
               </Field>
-              <Field label="Precio de venta (ARS)">
-                <div style={{ position: 'relative' }}>
-                  <span style={prefixS}>$</span>
-                  <input data-testid="product-price-input" value={form.sale_price_ars} onChange={e => handleSalePriceChange(e.target.value)} placeholder="0" style={{ ...inputS, paddingLeft: '1.75rem' }} />
-                </div>
-              </Field>
+
+              {/* Precio de venta — ARS si moneda ARS, USD si moneda USD */}
+              {form.base_currency === 'ARS' ? (
+                <Field label="Precio de venta (ARS)">
+                  <div style={{ position: 'relative' }}>
+                    <span style={prefixS}>$</span>
+                    <input data-testid="product-price-input" value={form.sale_price_ars} onChange={e => handleSalePriceChange(e.target.value)} placeholder="0" style={{ ...inputS, paddingLeft: '1.75rem' }} />
+                  </div>
+                </Field>
+              ) : (
+                <Field label="Precio de venta (USD)">
+                  <div style={{ position: 'relative' }}>
+                    <span style={prefixS}>U$</span>
+                    <input data-testid="product-price-input" value={form.sale_price_usd} onChange={e => handleSalePriceUSDChange(e.target.value)} placeholder="0" style={{ ...inputS, paddingLeft: '2rem' }} />
+                  </div>
+                  {parseFloat(form.sale_price_usd) > 0 && rate > 1 && (
+                    <p style={hintS}>≈ ${Math.round(parseFloat(form.sale_price_usd) * rate).toLocaleString('es-AR')} ARS</p>
+                  )}
+                </Field>
+              )}
             </Row2>
 
+            {/* Auto-update + precio ARS override cuando es USD */}
+            {form.base_currency === 'USD' && (
+              <Row2>
+                <Field label="Precio venta ARS (calculado)">
+                  <div style={{ position: 'relative' }}>
+                    <span style={prefixS}>$</span>
+                    <input
+                      value={form.sale_price_ars}
+                      onChange={e => handleSalePriceChange(e.target.value)}
+                      placeholder={parseFloat(form.sale_price_usd) > 0 ? String(Math.round(parseFloat(form.sale_price_usd) * rate)) : '0'}
+                      style={{ ...inputS, paddingLeft: '1.75rem' }}
+                    />
+                  </div>
+                  <p style={hintS}>Editable — se usa este valor si lo modificás manualmente</p>
+                </Field>
+                <Field label="Auto-actualizar precio">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', marginTop: '0.5rem', cursor: 'pointer' }}>
+                    <div
+                      onClick={() => set('auto_update_price', !form.auto_update_price)}
+                      style={{ width: 18, height: 18, borderRadius: 4, flexShrink: 0, background: form.auto_update_price ? '#fbbf24' : 'transparent', border: `2px solid ${form.auto_update_price ? '#fbbf24' : 'rgba(255,255,255,0.2)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                    >
+                      {form.auto_update_price && <Check size={11} color="#000" strokeWidth={3} />}
+                    </div>
+                    <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>
+                      Actualizar precio ARS cuando cambie la cotización
+                    </span>
+                  </label>
+                </Field>
+              </Row2>
+            )}
+
+            {/* Margen + Mayorista */}
             <Row2>
               <Field label="Margen de ganancia %">
                 <div style={{ position: 'relative' }}>
                   <input value={form.margin_pct} onChange={e => handleMarginChange(e.target.value)} placeholder="0" style={{ ...inputS, paddingRight: '1.75rem' }} />
                   <span style={{ ...prefixS, left: 'auto', right: '0.75rem' }}>%</span>
                 </div>
-                {isFinite(margin_display) && saleARS_display > 0 && (
+                {isFinite(margin_display) && saleARS_display > 0 && costARS_display > 0 && (
                   <p style={hintS}>
-                    Ganancia: ${Math.round((saleARS_display - costARS_display)).toLocaleString('es-AR')} ARS
+                    Ganancia: ${Math.round(saleARS_display - costARS_display).toLocaleString('es-AR')} ARS
                     {' '}({margin_display.toFixed(1)}%)
                   </p>
                 )}
               </Field>
-              <Field label="Precio mayorista (ARS)">
-                <div style={{ position: 'relative' }}>
-                  <span style={prefixS}>$</span>
-                  <input value={form.wholesale_price} onChange={e => set('wholesale_price', e.target.value)} placeholder="Opcional" style={{ ...inputS, paddingLeft: '1.75rem' }} />
+
+              {/* Precio mayorista con selector ARS/USD */}
+              <Field label="Precio mayorista">
+                <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '0.375rem' }}>
+                  {(['ARS', 'USD'] as const).map(cur => (
+                    <button key={cur} type="button"
+                      onClick={() => set('wholesale_currency', cur)}
+                      style={{
+                        padding: '0.2rem 0.6rem', borderRadius: '999px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 700, fontFamily: F,
+                        border: `1px solid ${form.wholesale_currency === cur ? '#22c55e' : 'rgba(255,255,255,0.08)'}`,
+                        background: form.wholesale_currency === cur ? 'rgba(34,197,94,0.1)' : 'transparent',
+                        color: form.wholesale_currency === cur ? '#22c55e' : '#475569',
+                      }}>
+                      {cur}
+                    </button>
+                  ))}
                 </div>
+                {form.wholesale_currency === 'ARS' ? (
+                  <div style={{ position: 'relative' }}>
+                    <span style={prefixS}>$</span>
+                    <input value={form.wholesale_price} onChange={e => set('wholesale_price', e.target.value)} placeholder="Opcional" style={{ ...inputS, paddingLeft: '1.75rem' }} />
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ position: 'relative' }}>
+                      <span style={prefixS}>U$</span>
+                      <input value={form.wholesale_price_usd} onChange={e => set('wholesale_price_usd', e.target.value)} placeholder="Opcional" style={{ ...inputS, paddingLeft: '2rem' }} />
+                    </div>
+                    {parseFloat(form.wholesale_price_usd) > 0 && rate > 1 && (
+                      <p style={hintS}>≈ ${Math.round(parseFloat(form.wholesale_price_usd) * rate).toLocaleString('es-AR')} ARS</p>
+                    )}
+                  </div>
+                )}
               </Field>
             </Row2>
           </Section>
