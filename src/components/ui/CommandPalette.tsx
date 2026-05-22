@@ -23,7 +23,7 @@ import {
   Search, X, User, Package, FileText, Wrench,
   Plus, ShoppingCart, DollarSign, BarChart3,
   Loader2, ArrowRight, Zap, Users, Truck,
-  ClipboardList, type LucideIcon,
+  ClipboardList, Smartphone, type LucideIcon,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -33,7 +33,7 @@ import { colors } from '../../lib/tokens'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ResultType = 'customer' | 'order' | 'inventory' | 'comprobante' | 'supplier'
+type ResultType = 'customer' | 'order' | 'inventory' | 'comprobante' | 'supplier' | 'device'
 type ActionType = 'navigation' | 'action'
 
 interface PaletteItem {
@@ -75,7 +75,8 @@ const TYPE_META: Record<string, { label: string; color: string }> = {
   order:       { label: 'Orden',       color: colors.warning },
   inventory:   { label: 'Producto',    color: '#22c55e' },
   comprobante: { label: 'Comprobante', color: '#a78bfa' },
-  supplier:    { label: 'Proveedor',   color: colors.warning },
+  supplier:    { label: 'Proveedor',   color: '#fb923c' },
+  device:      { label: 'Equipo',      color: '#22d3ee' },
   action:      { label: '',            color: colors.text.subtle },
   navigation:  { label: '',            color: colors.text.subtle },
 }
@@ -270,22 +271,28 @@ export function CommandPalette() {
     const term = `%${tokens.sort((a, b) => b.length - a.length)[0]}%`
 
     try {
-      const [customersRes, inventoryRes, ordersRes, comprobantesRes, suppliersRes] = await Promise.all([
+      const [customersRes, inventoryRes, ordersRes, comprobantesRes, suppliersRes, devicesRes] = await Promise.all([
         supabase.from('customers').select('id,name,phone,customer_type')
           .eq('business_id', businessId)
           .or(`name.ilike.${term},phone.ilike.${term},email.ilike.${term}`)
           .limit(4),
         supabase.from('inventory').select('id,name,code,stock_quantity,category')
           .eq('business_id', businessId).eq('is_active', true)
-          .or(`name.ilike.${term},code.ilike.${term}`)
+          .or(`name.ilike.${term},code.ilike.${term},description.ilike.${term}`)
           .limit(4),
         supabase.from('orders').select('id,status,customer:customers(name)')
           .eq('business_id', businessId).ilike('id', term).limit(3),
-        supabase.from('comprobantes').select('id,numero,tipo,total_ars,estado')
-          .eq('business_id', businessId).ilike('numero', term).limit(3),
+        supabase.from('comprobantes').select('id,numero,numero_fiscal,tipo,total_ars,estado')
+          .eq('business_id', businessId)
+          .or(`numero.ilike.${term},numero_fiscal.ilike.${term}`)
+          .limit(4),
         supabase.from('suppliers').select('id,name,phone')
           .eq('business_id', businessId).eq('active', true)
           .ilike('name', term).limit(3),
+        // Devices: search by IMEI, brand, model — no business_id (linked via order)
+        supabase.from('devices').select('id,brand,model,imei,order_id')
+          .or(`imei.ilike.${term},brand.ilike.${term},model.ilike.${term}`)
+          .limit(4),
       ])
 
       const items: PaletteItem[] = []
@@ -297,7 +304,7 @@ export function CommandPalette() {
       }
       for (const p of inventoryRes.data ?? []) {
         items.push({ id: p.id, type: 'inventory', group: 'Productos', icon: Package,
-          label: p.name, sublabel: `${p.code} · ${p.stock_quantity} en stock`,
+          label: p.name, sublabel: `${p.code} · stock: ${p.stock_quantity}`,
           path: '/inventory' })
       }
       for (const s of suppliersRes.data ?? []) {
@@ -308,14 +315,24 @@ export function CommandPalette() {
       for (const o of ordersRes.data ?? []) {
         const cust = (o.customer as any)?.name ?? 'Sin cliente'
         items.push({ id: o.id, type: 'order', group: 'Órdenes', icon: Wrench,
-          label: `Orden ${o.id.slice(0, 8)}`, sublabel: cust,
+          label: `Orden #${o.id.slice(-6).toUpperCase()}`, sublabel: cust,
           badge: o.status, path: `/orders/${o.id}` })
       }
       for (const c of comprobantesRes.data ?? []) {
+        const num = c.numero_fiscal ?? c.numero
         items.push({ id: c.id, type: 'comprobante', group: 'Comprobantes', icon: FileText,
-          label: `${c.tipo} #${c.numero}`,
+          label: `${c.tipo ?? 'Comprobante'} #${num}`,
           sublabel: c.total_ars ? `$${Math.round(c.total_ars).toLocaleString('es-AR')}` : undefined,
           path: `/comprobantes/${c.id}` })
+      }
+      // Devices: navigate to the associated order
+      for (const d of devicesRes.data ?? []) {
+        const label = [d.brand, d.model].filter(Boolean).join(' ') || 'Equipo'
+        items.push({
+          id: d.id, type: 'device', group: 'IMEI / Equipos', icon: Smartphone,
+          label, sublabel: d.imei ? `IMEI: ${d.imei}` : undefined,
+          path: d.order_id ? `/orders/${d.order_id}` : '/orders',
+        })
       }
 
       setResults(items)
@@ -349,6 +366,7 @@ export function CommandPalette() {
 
   return (
     <div
+      data-testid="global-search-modal"
       style={{
         position: 'fixed', inset: 0, zIndex: 99998,
         background: 'rgba(0,0,0,0.72)',
@@ -380,9 +398,10 @@ export function CommandPalette() {
           }
           <input
             ref={inputRef}
+            data-testid="global-search-input"
             value={query}
             onChange={e => { setQuery(e.target.value); setActiveIdx(0) }}
-            placeholder="Buscar o ejecutar... (Esc para cerrar)"
+            placeholder="Buscar clientes, órdenes, comprobantes, productos, equipos/IMEI... (Esc para cerrar)"
             style={{
               flex: 1, background: 'none', border: 'none', outline: 'none',
               color: '#f0f4ff', fontSize: '1rem', fontFamily: F,
