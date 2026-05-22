@@ -1,17 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { ArrowLeft, Plus, Search, UserPlus, Smartphone, Loader2 } from 'lucide-react'
-import { ordersService, customersService, devicesService, brandsService, deviceModelsService } from '../services/api'
+import { ordersService, customersService, devicesService } from '../services/api'
+import {
+  getBrands, getModels, getBrandByName,
+  ensureBrand, ensureModel, ensureBrandAndModel,
+  type BrandItem, type ModelItem,
+} from '../services/deviceCatalogService'
 import { Autocomplete } from '../components/ui/Autocomplete'
 
-const createLocalBrandId = (value: string) =>
-  `local:${value
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'brand'}`
 
 interface NewOrderForm {
   customer_id: string
@@ -38,11 +35,15 @@ export function NewOrder() {
   const [allCustomers, setAllCustomers] = useState<any[]>([])
   const [error, setError] = useState('')
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [brands, setBrands] = useState<string[]>([])
-  const [models, setModels] = useState<string[]>([])
+  const [brandItems, setBrandItems]       = useState<BrandItem[]>([])
+  const [modelItems, setModelItems]       = useState<ModelItem[]>([])
   const [isLoadingBrands, setIsLoadingBrands] = useState(false)
   const [isLoadingModels, setIsLoadingModels] = useState(false)
   const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null)
+
+  // Derived string arrays for Autocomplete
+  const brands = brandItems.map(b => b.name)
+  const models = modelItems.map(m => m.name)
 
   const [formData, setFormData] = useState<NewOrderForm>({
     customer_id: '',
@@ -125,8 +126,8 @@ export function NewOrder() {
     const loadBrands = async () => {
       setIsLoadingBrands(true)
       try {
-        const data = await brandsService.getAll()
-        setBrands(data.map((b: any) => b.name))
+        const data = await getBrands()
+        setBrandItems(data)
       } catch (err) {
         console.error('Error loading brands:', err)
       } finally {
@@ -139,14 +140,14 @@ export function NewOrder() {
   // Load models when brand is selected
   useEffect(() => {
     const loadModels = async () => {
-      if (!selectedBrandId) {
-        setModels([])
+      if (!selectedBrandId || selectedBrandId.startsWith('local:')) {
+        setModelItems([])
         return
       }
       setIsLoadingModels(true)
       try {
-        const data = await deviceModelsService.getAll(selectedBrandId)
-        setModels(data.map((m: any) => m.name))
+        const data = await getModels(selectedBrandId)
+        setModelItems(data)
       } catch (err) {
         console.error('Error loading models:', err)
       } finally {
@@ -163,13 +164,19 @@ export function NewOrder() {
   const handleBrandChange = async (value: string) => {
     handleChange('brand', value)
     handleChange('model', '') // Reset model when brand changes
+    setModelItems([])
 
-    if (value) {
+    if (value.trim()) {
       try {
-        const brandData = await brandsService.getAll()
-        // Búsqueda case-insensitive
-        const brand = brandData.find((b: any) => b.name.toLowerCase() === value.toLowerCase())
-        setSelectedBrandId(brand?.id || createLocalBrandId(value))
+        // Look for exact match in already-loaded brands (fast path)
+        const local = brandItems.find(b => b.name.toLowerCase() === value.trim().toLowerCase())
+        if (local) {
+          setSelectedBrandId(local.id)
+          return
+        }
+        // Fallback: query DB
+        const found = await getBrandByName(value.trim())
+        setSelectedBrandId(found?.id ?? null)
       } catch {
         setSelectedBrandId(null)
       }
@@ -182,65 +189,36 @@ export function NewOrder() {
     const trimmed = name.trim()
     if (!trimmed) return trimmed
 
-    try {
-      // Buscar en DB (case-insensitive) antes de crear
-      const allBrands = await brandsService.getAll()
-      const existing = allBrands.find(
-        (b: any) => b.name.toLowerCase() === trimmed.toLowerCase()
-      )
-
-      if (existing) {
-        // Ya existe — seleccionarla y devolver el nombre correcto
-        setBrands(prev =>
-          prev.some(b => b.toLowerCase() === existing.name.toLowerCase())
-            ? prev
-            : [...prev, existing.name]
-        )
-        setSelectedBrandId(existing.id)
-        return existing.name  // nombre con capitalización original
-      }
-
-      // No existe — crear nueva
-      const brand = await brandsService.create(trimmed)
-      setBrands(prev => [...prev, trimmed])
-      setSelectedBrandId(brand.id)
-      return trimmed
-    } catch (err) {
-      console.error('Error creating brand:', err)
-      throw err
+    // ensureBrand creates or returns existing (case-insensitive dedup in DB)
+    const brandId = await ensureBrand(trimmed)
+    if (brandId) {
+      setSelectedBrandId(brandId)
+      // Refresh brand list so new brand appears
+      const updated = await getBrands()
+      setBrandItems(updated)
+      // Return the canonical name from DB if available
+      const canonical = updated.find(b => b.id === brandId)
+      return canonical?.name ?? trimmed
     }
+    return trimmed
   }
 
   const handleCreateModel = async (name: string): Promise<string> => {
-    if (!selectedBrandId) throw new Error('Seleccioná una marca primero')
+    if (!selectedBrandId || selectedBrandId.startsWith('local:')) {
+      throw new Error('Seleccioná una marca primero')
+    }
     const trimmed = name.trim()
     if (!trimmed) return trimmed
 
-    try {
-      // Buscar en DB (case-insensitive) antes de crear
-      const allModels = await deviceModelsService.getAll(selectedBrandId)
-      const existing = (allModels as any[]).find(
-        (m: any) => m.name.toLowerCase() === trimmed.toLowerCase()
-      )
-
-      if (existing) {
-        // Ya existe — agregarlo al estado local si falta y devolver nombre correcto
-        setModels(prev =>
-          prev.some(m => m.toLowerCase() === existing.name.toLowerCase())
-            ? prev
-            : [...prev, existing.name]
-        )
-        return existing.name
-      }
-
-      // No existe — crear nuevo
-      await deviceModelsService.create(trimmed, selectedBrandId)
-      setModels(prev => [...prev, trimmed])
-      return trimmed
-    } catch (err) {
-      console.error('Error creating model:', err)
-      throw err
+    // ensureModel creates or returns existing (case-insensitive dedup in DB)
+    const modelId = await ensureModel(trimmed, selectedBrandId)
+    if (modelId) {
+      const updated = await getModels(selectedBrandId)
+      setModelItems(updated)
+      const canonical = updated.find(m => m.id === modelId)
+      return canonical?.name ?? trimmed
     }
+    return trimmed
   }
 
   const handleSelectCustomer = (customer: any) => {
@@ -259,6 +237,17 @@ export function NewOrder() {
     setError('')
 
     try {
+      // ── Persist brand + model in catalog (non-blocking: failure doesn't abort order) ──
+      // This guarantees that even if the user typed the brand/model without clicking
+      // "Crear", they are saved for future orders.
+      if (formData.brand && formData.model) {
+        try {
+          await ensureBrandAndModel(formData.brand, formData.model)
+        } catch {
+          // Catalog persistence failure is non-blocking — order creation continues
+        }
+      }
+
       const device = await devicesService.create({
         customer_id: formData.customer_id,
         type: formData.device_type as any,
