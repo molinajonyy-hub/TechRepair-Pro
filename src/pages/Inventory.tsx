@@ -83,9 +83,11 @@ export function Inventory() {
   const [showModal, setShowModal] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showProductMenu, setShowProductMenu] = useState(false)
-  // ProductFormModal — cubre Producto simple, Servicio y Con variantes
+  // ProductFormModal — cubre Producto simple, Servicio y Con variantes (crear y editar)
   const [showProductFormModal, setShowProductFormModal] = useState(false)
   const [productFormTipo, setProductFormTipo] = useState<'product' | 'service' | 'with_variants'>('product')
+  // editItem: si está seteado, ProductFormModal abre en modo edición
+  const [productFormEditItem, setProductFormEditItem] = useState<any>(null)
   const [editingItem, setEditingItem] = useState<any>(null)
   const [variantParentItem, setVariantParentItem] = useState<any>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -429,50 +431,9 @@ export function Inventory() {
   }
 
   const openEditModal = (item: any) => {
-    setEditingItem(item)
-    const parentId = getVariantParentId(item)
-    const parentItem = parentId ? items.find(currentItem => currentItem.id === parentId) : null
-    const childVariants = parentItem ? [] : (variantsByParent[item.id] || [])
-    setVariantParentItem(parentItem || null)
-    setUserManuallyEditedSalePrice(false)
-    setUserManuallyEditedCostPrice(false)
-    setFormData({
-      code: item.code,
-      name: parentItem?.name || item.name,
-      variant_name: parentItem ? getVariantName(item, parentItem) : '',
-      description: item.description || '',
-      category: parentItem?.category || item.category,
-      newCategory: '',
-      has_variants: childVariants.length > 0,
-      variants: childVariants.map((variant) => ({
-        id: variant.id,
-        code: variant.code,
-        name: getVariantName(variant, item),
-        stock_quantity: variant.stock_quantity,
-        sale_price: variant.sale_price,
-        cost_price: variant.cost_price,
-        cost_price_usd: variant.cost_price_usd,
-        base_price: variant.base_price,
-        base_currency: variant.base_currency,
-        exchange_rate_used: variant.exchange_rate_used,
-        location: variant.location
-      })),
-      stock_quantity: item.stock_quantity,
-      min_stock: item.min_stock,
-      cost_price: item.cost_price,
-      cost_price_usd: item.cost_price_usd || 0,
-      sale_price: item.sale_price,
-      precio_mayorista: (item as any).precio_mayorista ?? null,
-      mayorista_currency: 'ARS' as 'ARS' | 'USD',
-      location: item.location || '',
-      base_currency: item.base_currency || 'ARS',
-      base_price: item.base_price || 0,
-      exchange_rate_used: item.exchange_rate_used || exchangeRates['USD-ARS'] || 1,
-      auto_update_price: item.auto_update_price !== undefined ? item.auto_update_price : true,
-      tipo: (item.tipo as 'product' | 'service') || 'product'
-    })
-    setFormError('')
-    setShowModal(true)
+    // Usar ProductFormModal en modo edición (modal unificado)
+    setProductFormEditItem(item)
+    setShowProductFormModal(true)
   }
 
   const addVariant = () => {
@@ -3049,18 +3010,25 @@ export function Inventory() {
         />
       )}
 
-      {/* ProductFormModal — Producto simple, Servicio y Con variantes */}
+      {/* ProductFormModal — Producto simple, Servicio y Con variantes (también edición) */}
       <ProductFormModal
         isOpen={showProductFormModal}
-        onClose={() => setShowProductFormModal(false)}
+        onClose={() => { setShowProductFormModal(false); setProductFormEditItem(null) }}
+        editItem={productFormEditItem ?? undefined}
         onCreated={_product => {
           setShowProductFormModal(false)
+          setProductFormEditItem(null)
           void refresh()
         }}
-        initialTipo={productFormTipo}
-        registerStock
-        sourceType="manual"
-        sourceNote="Stock inicial desde Inventario"
+        onSaved={_product => {
+          setShowProductFormModal(false)
+          setProductFormEditItem(null)
+          void refresh()
+        }}
+        initialTipo={productFormEditItem ? undefined : productFormTipo}
+        registerStock={!productFormEditItem}
+        sourceType={productFormEditItem ? undefined : 'manual'}
+        sourceNote={productFormEditItem ? undefined : 'Stock inicial desde Inventario'}
       />
 
       {/* Herramienta de reparación de stock — solo owner/admin */}

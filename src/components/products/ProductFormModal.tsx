@@ -46,8 +46,13 @@ export interface ProductFormModalProps {
   isOpen:          boolean
   onClose:         () => void
   onCreated:       (product: InventoryItem) => void
+  /** Llamado después de guardar en modo edición */
+  onSaved?:        (product: InventoryItem) => void
   // Callback opcional cuando se crea con variantes: permite seleccionar cuál usar en la operación
   onVariantSelected?: (variantInventory: InventoryItem, variantMeta: ProductVariant) => void
+
+  /** Si se provee, el modal abre en modo EDICIÓN pre-relleno con los datos del ítem */
+  editItem?: InventoryItem
 
   // Pre-relleno desde contexto (buscador, factura, gasto, etc.)
   initialName?:     string
@@ -191,11 +196,13 @@ const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 export function ProductFormModal({
-  isOpen, onClose, onCreated, onVariantSelected,
+  isOpen, onClose, onCreated, onSaved, onVariantSelected,
+  editItem,
   initialName, initialCost, initialQuantity, initialCurrency, initialTipo,
   supplierId, supplierName,
   registerStock = false, sourceType, sourceId, sourceNote,
 }: ProductFormModalProps) {
+  const isEditMode = !!editItem
   const { businessId, user } = useAuth()
 
   const [form, setForm]               = useState<FormState>(EMPTY)
@@ -289,10 +296,53 @@ export function ProductFormModal({
   // ── Pre-rellenar desde contexto al abrir ────────────────────────────────────
   useEffect(() => {
     if (!isOpen) return
-    const rate = form.exchange_rate || ''
+    const currentRate = form.exchange_rate || ''
+
+    if (editItem) {
+      // ── Modo edición: cargar datos del ítem existente ───────────────────────
+      const ei = editItem as any  // cast para campos fuera del tipo base InventoryItem
+      const itemRate  = String(editItem.exchange_rate_used ?? '')
+      const baseCur   = (editItem.base_currency === 'USD' ? 'USD' : 'ARS') as 'ARS' | 'USD'
+      const editForm: FormState = {
+        ...EMPTY,
+        tipo:          (ei.tipo as 'product' | 'service') ?? 'product',
+        name:          editItem.name ?? '',
+        code:          editItem.code ?? '',
+        barcode:       ei.barcode ?? '',
+        brand:         ei.brand ?? '',
+        model:         ei.model ?? '',
+        description:   editItem.description ?? '',
+        category:      editItem.category ?? '',
+        subcategory:   editItem.subcategory ?? '',
+        supplier_id:   editItem.supplier_id ?? '',
+        base_currency: baseCur,
+        exchange_rate: itemRate || currentRate,
+        cost_ars:      String(baseCur === 'USD'
+                          ? (ei.cost_price_ars ?? editItem.cost_price)
+                          : editItem.cost_price ?? 0),
+        cost_usd:      String(editItem.cost_price_usd ?? ''),
+        sale_price_ars:String(editItem.sale_price ?? 0),
+        margin_pct:    '',
+        wholesale_price: String(ei.precio_mayorista ?? ''),
+        stock_quantity:String(editItem.stock_quantity ?? 0),
+        min_stock:     String(editItem.min_stock ?? 0),
+        location:      editItem.location ?? '',
+        is_active:     editItem.is_active ?? true,
+        register_stock:false,
+        variants:      [emptyVariant(1)],
+      }
+      setForm(editForm)
+      cleanFormRef.current = serializeForm(editForm)
+      setError(''); setDuplicate(null); setShowCloseConfirm(false)
+      if (!editItem.exchange_rate_used) fetchRate()
+      loadSuppliers()
+      return
+    }
+
+    // ── Modo creación: pre-rellenar desde props de contexto ──────────────────
     const resolvedTipo = initialTipo ?? 'product'
     if (resolvedTipo === 'with_variants') {
-      console.log('[PRODUCT_VARIANTS_PREMIUM_RENDERED]')
+      // log para analytics (no console.log — ver CLAUDE.md)
     }
     const initialForm: FormState = {
       ...EMPTY,
@@ -305,7 +355,7 @@ export function ProductFormModal({
       cost_usd:      initialCurrency === 'USD' ? String(initialCost ?? '') : '',
       stock_quantity: String(initialQuantity ?? 0),
       register_stock: registerStock,
-      exchange_rate: rate,
+      exchange_rate: currentRate,
     }
     setForm(initialForm)
     cleanFormRef.current = serializeForm(initialForm)
@@ -315,7 +365,7 @@ export function ProductFormModal({
     // Cargar proveedores
     loadSuppliers()
     // Verificar si existe borrador (solo si abre sin contexto pre-relleno)
-    if (!initialName) {
+    if (!initialName && !editItem) {
       try {
         const raw = localStorage.getItem(DRAFT_KEY)
         if (raw) {
@@ -538,6 +588,55 @@ export function ProductFormModal({
         is_active:      form.is_active,
       }
 
+      // ── Modo edición ───────────────────────────────────────────────────────
+      if (isEditMode && editItem) {
+        await productService.updateProduct(editItem.id, {
+          name:           form.name.trim(),
+          code:           form.code.trim() || undefined,
+          barcode:        form.barcode.trim() || undefined,
+          brand:          form.brand.trim() || undefined,
+          model:          form.model.trim() || undefined,
+          description:    form.description.trim() || undefined,
+          category:       catName,
+          subcategory:    form.subcategory.trim() || undefined,
+          supplier_id:    form.supplier_id || undefined,
+          base_currency:  form.base_currency,
+          base_price:     form.base_currency === 'USD' ? (parseFloat(form.cost_usd) || 0) : costARS,
+          cost_price:     costARS,
+          cost_price_usd: costUSD,
+          sale_price:     saleARS,
+          wholesale_price_ars: parseFloat(form.wholesale_price) || undefined,
+          exchange_rate_used:  form.base_currency === 'USD' ? rate : undefined,
+          min_stock:      parseInt(form.min_stock) || 0,
+          location:       form.location.trim() || undefined,
+          is_active:      form.is_active,
+        }, businessId)
+
+        // Construir el ítem actualizado fusionando editItem + cambios del form
+        const updatedItem: InventoryItem = {
+          ...(editItem as InventoryItem),
+          name:           form.name.trim(),
+          code:           form.code.trim() || editItem.code,
+          description:    form.description.trim() || undefined,
+          category:       catName,
+          subcategory:    form.subcategory.trim() || undefined,
+          supplier_id:    form.supplier_id || undefined,
+          base_currency:  form.base_currency,
+          cost_price:     costARS,
+          cost_price_usd: costUSD,
+          sale_price:     saleARS,
+          min_stock:      parseInt(form.min_stock) || 0,
+          stock_quantity: editItem.stock_quantity,  // no se modifica el stock desde edición
+          location:       form.location.trim() || undefined,
+          is_active:      form.is_active,
+        }
+
+        clearDraftOnSave()
+        onSaved ? onSaved(updatedItem) : onCreated(updatedItem)
+        onClose()
+        return
+      }
+
       // ── Producto con variantes ──────────────────────────────────────────────
       if (form.tipo === 'with_variants') {
         if (!form.variants.length) { setError('Agregá al menos una variante.'); return }
@@ -681,9 +780,9 @@ export function ProductFormModal({
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <Package size={20} color="#818cf8" />
             <h2 style={{ margin: 0, color: '#f1f5f9', fontSize: '1.1rem', fontWeight: 800, letterSpacing: '-0.03em' }}>
-              Nuevo producto
+              {isEditMode ? 'Editar producto' : 'Nuevo producto'}
             </h2>
-            {supplierName && (
+            {supplierName && !isEditMode && (
               <span style={{ fontSize: '0.75rem', color: '#475569', background: 'rgba(255,255,255,0.04)', padding: '0.2rem 0.625rem', borderRadius: '0.5rem', border: '1px solid rgba(255,255,255,0.07)' }}>
                 Proveedor: {supplierName}
               </span>
@@ -697,8 +796,8 @@ export function ProductFormModal({
         {/* Body */}
         <form onSubmit={handleSubmit} style={{ overflowY: 'auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
-          {/* Tipo — 3 opciones */}
-          <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
+          {/* Tipo — 3 opciones (solo en modo creación) */}
+          {!isEditMode && <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
             {([
               { v: 'product',       label: 'Producto',        color: '#6366f1' },
               { v: 'service',       label: 'Servicio',         color: '#06b6d4' },
@@ -718,7 +817,7 @@ export function ProductFormModal({
                 {label}
               </button>
             ))}
-          </div>
+          </div>}
 
           {/* Duplicado detectado */}
           {duplicate && (
@@ -1201,7 +1300,9 @@ export function ProductFormModal({
             disabled={saving}
             style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.5rem', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: '0.75rem', color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: F }}
           >
-            {saving ? <><RefreshCw size={14} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> Guardando...</> : 'Guardar producto'}
+            {saving
+              ? <><RefreshCw size={14} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> Guardando...</>
+              : isEditMode ? 'Guardar cambios' : 'Guardar producto'}
           </button>
         </div>
       </div>
@@ -1292,7 +1393,7 @@ export function ProductFormModal({
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-      <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.07em', paddingBottom: '0.25rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+      <div style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.07em', paddingBottom: '0.25rem', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
         {label}
       </div>
       {children}
