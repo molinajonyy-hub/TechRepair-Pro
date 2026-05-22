@@ -53,40 +53,51 @@ const CatLogoSVG = ({ size = 24 }: { size?: number }) => (
 function MockDashboard() {
   return (
     <div className="lp-mock-wrap" aria-hidden="true">
-      {/* Glow behind */}
       <div className="lp-mock-glow" />
       <div className="lp-mock-screen">
-        {/* Top bar */}
+        {/* Top bar — imita el header del sistema real */}
         <div className="lp-mock-topbar">
-          <div className="lp-mock-dots">
-            <span/><span/><span/>
+          <div className="lp-mock-dots"><span/><span/><span/></div>
+          <div className="lp-mock-topbar-logo">
+            <svg viewBox="0 0 100 100" width="14" height="14" fill="none">
+              <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.9"/>
+              <ellipse cx="37" cy="58" rx="5" ry="4.5" fill="#818cf8"/>
+              <ellipse cx="63" cy="58" rx="5" ry="4.5" fill="#818cf8"/>
+            </svg>
+            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8' }}>TechRepair Pro</span>
           </div>
-          <div className="lp-mock-topbar-title">TechRepair Pro</div>
-          <div className="lp-mock-badge lp-badge-green">● Online</div>
+          <div className="lp-mock-badge lp-badge-green" style={{ fontSize: '0.62rem' }}>● Activo</div>
         </div>
 
-        {/* Stats row */}
+        {/* KPI row — datos reales del sistema */}
         <div className="lp-mock-stats">
           {[
-            { label: 'Órdenes activas', value: '24', color: '#818cf8' },
-            { label: 'Caja hoy', value: '$142.500', color: '#34d399' },
-            { label: 'Stock bajo', value: '3', color: '#fbbf24' },
+            { label: 'Órdenes activas', value: '24', color: '#818cf8', icon: '🔧' },
+            { label: 'Caja del día', value: '$142.5k', color: '#34d399', icon: '💰' },
+            { label: 'Stock bajo', value: '3 items', color: '#fbbf24', icon: '⚠' },
           ].map(s => (
             <div key={s.label} className="lp-mock-stat">
+              <div style={{ fontSize: '0.8rem', marginBottom: '0.2rem' }}>{s.icon}</div>
               <div className="lp-mock-stat-val" style={{ color: s.color }}>{s.value}</div>
               <div className="lp-mock-stat-lbl">{s.label}</div>
             </div>
           ))}
         </div>
 
-        {/* Order list */}
-        <div className="lp-mock-section-label">Órdenes recientes</div>
+        {/* Tabs — como en el sistema real */}
+        <div className="lp-mock-tabs">
+          {['Órdenes', 'Comprobantes', 'Inventario', 'Caja'].map((t, i) => (
+            <div key={t} className={`lp-mock-tab ${i === 0 ? 'lp-mock-tab-active' : ''}`}>{t}</div>
+          ))}
+        </div>
+
+        {/* Order list — imitando orden de trabajo real */}
         <div className="lp-mock-orders">
           {[
-            { device: 'iPhone 14 Pro', brand: 'Apple', status: 'Reparando', color: '#818cf8' },
-            { device: 'Galaxy S23', brand: 'Samsung', status: 'Listo ✓', color: '#34d399' },
-            { device: 'Redmi Note 12', brand: 'Xiaomi', status: 'Diagnóstico', color: '#fbbf24' },
-            { device: 'Moto G84', brand: 'Motorola', status: 'Nuevo', color: '#60a5fa' },
+            { device: 'iPhone 14 Pro', brand: 'Apple · Pantalla rota', status: 'En reparación', color: '#818cf8' },
+            { device: 'Galaxy S23', brand: 'Samsung · Batería', status: 'Listo ✓', color: '#34d399' },
+            { device: 'Redmi Note 12', brand: 'Xiaomi · No enciende', status: 'Diagnóstico', color: '#fbbf24' },
+            { device: 'Moto G84', brand: 'Motorola · Carga rota', status: 'Recibido', color: '#60a5fa' },
           ].map((o, i) => (
             <div key={i} className="lp-mock-order">
               <div className="lp-mock-order-icon">📱</div>
@@ -94,35 +105,39 @@ function MockDashboard() {
                 <div className="lp-mock-order-device">{o.device}</div>
                 <div className="lp-mock-order-brand">{o.brand}</div>
               </div>
-              <div className="lp-mock-badge" style={{ color: o.color, background: o.color + '15', borderColor: o.color + '30' }}>
+              <div className="lp-mock-badge" style={{ color: o.color, background: o.color + '15', borderColor: o.color + '30', fontSize: '0.62rem' }}>
                 {o.status}
               </div>
             </div>
           ))}
         </div>
 
-        {/* Finance mini bar */}
+        {/* Finance bar — como en finanzas del sistema */}
         <div className="lp-mock-finance">
           <div className="lp-mock-finance-row">
-            <span>Ingresos mes</span>
-            <span style={{ color: '#34d399' }}>$1.840.000</span>
+            <span>Ingresos del mes</span>
+            <span style={{ color: '#34d399', fontWeight: 700 }}>$1.840.000</span>
           </div>
           <div className="lp-mock-bar-track">
             <div className="lp-mock-bar-fill" style={{ width: '72%', background: 'linear-gradient(90deg, #6366f1, #34d399)' }}/>
           </div>
+          <div className="lp-mock-finance-row" style={{ marginTop: '0.375rem' }}>
+            <span style={{ color: '#334155', fontSize: '0.62rem' }}>Facturación ARCA: 8 comp.</span>
+            <span style={{ color: '#334155', fontSize: '0.62rem' }}>WhatsApp: 12 enviados</span>
+          </div>
         </div>
       </div>
 
-      {/* Floating mobile card */}
+      {/* Tarjeta flotante — simula notificación/comprobante real */}
       <div className="lp-mock-mobile">
         <div className="lp-mock-mobile-top">
-          <div className="lp-mock-mobile-icon">🔧</div>
+          <div className="lp-mock-mobile-icon">🧾</div>
           <div>
-            <div className="lp-mock-mobile-title">Nueva orden</div>
-            <div className="lp-mock-mobile-sub">Honor Magic 6 Lite</div>
+            <div className="lp-mock-mobile-title">Comp. N° 00000042</div>
+            <div className="lp-mock-mobile-sub">$38.500 · efectivo</div>
           </div>
         </div>
-        <div className="lp-mock-badge lp-badge-indigo" style={{ fontSize: '0.68rem' }}>Recibido</div>
+        <div className="lp-mock-badge lp-badge-green" style={{ fontSize: '0.62rem' }}>Emitido ✓</div>
       </div>
     </div>
   )
@@ -248,17 +263,18 @@ function Hero({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
       <div className="lp-hero-inner">
         <div className="lp-hero-content">
           <div className="lp-fade-up" style={{ animationDelay: '0ms' }}>
-            <Badge color="indigo">⚡ Hecho para servicios técnicos y tiendas de celulares</Badge>
+            <Badge color="indigo">⚡ Para servicios técnicos y locales de celulares</Badge>
           </div>
 
           <h1 className="lp-hero-title lp-fade-up" style={{ animationDelay: '80ms' }}>
-            Gestioná tu servicio técnico{' '}
+            Gestioná tu servicio técnico<br />
+            o local de celulares{' '}
             <span className="lp-gradient-text">como una empresa pro</span>
           </h1>
 
           <p className="lp-hero-subtitle lp-fade-up" style={{ animationDelay: '160ms' }}>
-            Órdenes de reparación, clientes, inventario, caja, proveedores, facturación ARCA y finanzas
-            en un solo sistema pensado para talleres y tiendas de celulares.
+            Órdenes de reparación, ventas, clientes, inventario, caja, proveedores, facturación ARCA,
+            garantías, WhatsApp y finanzas en un solo sistema.
           </p>
 
           <div className="lp-hero-ctas lp-fade-up" style={{ animationDelay: '240ms' }}>
@@ -270,7 +286,7 @@ function Hero({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
             </a>
           </div>
 
-          <div className="lp-hero-badges lp-fade-up" style={{ animationDelay: '320px' }}>
+          <div className="lp-hero-badges lp-fade-up" style={{ animationDelay: '320ms' }}>
             <Badge color="green">✓ Sin tarjeta para probar</Badge>
             <Badge color="indigo">✓ Facturación ARCA</Badge>
             <Badge color="cyan">✓ Inventario + caja</Badge>
@@ -358,6 +374,71 @@ function FlowSection() {
               <p className="lp-flow-desc">{s.desc}</p>
             </div>
           ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// ─── SCALABILITY ─────────────────────────────────────────────────────────────
+function ScalabilitySection({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
+  const stages = [
+    {
+      plan: 'Básico', price: '$15.000/mes', color: '#64748b',
+      title: 'Para ordenar el inicio',
+      items: ['Órdenes y clientes', 'Inventario básico', 'Caja diaria', 'Comprobantes locales'],
+    },
+    {
+      plan: 'Pro', price: '$25.000/mes', color: '#818cf8',
+      title: 'Para operar con más control',
+      items: ['Todo lo del Básico', 'ARCA / Facturación', 'Finanzas avanzadas', 'Proveedores, WhatsApp', 'Mi Guita incluido'],
+      highlight: true,
+    },
+    {
+      plan: 'Full', price: '$45.000/mes', color: '#22d3ee',
+      title: 'Para escalar con equipo',
+      items: ['Todo lo del Pro', 'Multi-sucursal', 'Hasta 10 usuarios', 'Permisos granulares'],
+    },
+  ]
+  return (
+    <section className="lp-section">
+      <div className="lp-container">
+        <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
+          <SectionLabel>Sistema escalable</SectionLabel>
+          <h2 className="lp-section-title">
+            Arrancá simple.<br />
+            <span className="lp-gradient-text">Crecé sin cambiar de sistema.</span>
+          </h2>
+          <p className="lp-section-subtitle" style={{ margin: '0 auto' }}>
+            Hoy podés necesitar órdenes, clientes y stock. Mañana tal vez sumes facturación ARCA, proveedores, WhatsApp, finanzas, Mi Guita o equipo de trabajo. TechRepair Pro está pensado para acompañar cada etapa.
+          </p>
+        </div>
+
+        <div className="lp-scale-grid">
+          {stages.map((s, i) => (
+            <div key={i} className={`lp-scale-card ${s.highlight ? 'lp-scale-featured' : ''}`}>
+              {s.highlight && <div className="lp-scale-ribbon">Más elegido</div>}
+              <div className="lp-scale-header">
+                <span className="lp-scale-plan" style={{ color: s.color }}>{s.plan}</span>
+                <span className="lp-scale-price">{s.price}</span>
+              </div>
+              <p className="lp-scale-title">{s.title}</p>
+              <ul className="lp-scale-items">
+                {s.items.map((it, j) => (
+                  <li key={j}><span style={{ color: s.highlight ? '#818cf8' : '#34d399' }}><IC.Check /></span>{it}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ textAlign: 'center', marginTop: '2.5rem' }}>
+          <p style={{ color: '#475569', fontSize: '0.95rem', marginBottom: '1.5rem' }}>
+            No necesitás cambiar de sistema cuando tu negocio crece. TechRepair Pro crece con vos.
+          </p>
+          <button className="lp-btn-primary" onClick={() => navigate('/onboarding')}>
+            Empezar con 14 días gratis <IC.ArrowRight />
+          </button>
         </div>
       </div>
     </section>
@@ -474,7 +555,7 @@ function InventorySection() {
               <span className="lp-gradient-text">cobrás en pesos</span>
             </h2>
             <p style={{ color: '#64748b', fontSize: '1rem', lineHeight: 1.75, marginBottom: '2rem' }}>
-              TechRepair Pro maneja precios en USD y ARS al mismo tiempo. La cotización se actualiza desde InfoDolar Córdoba y los productos configurados se ajustan automáticamente.
+              TechRepair Pro maneja precios en USD y ARS al mismo tiempo. Elegís tu fuente de cotización — InfoDolar Córdoba o Ámbito — y el sistema la usa para calcular precios en pesos, actualizar productos configurados en USD y mantener coherencia entre inventario, ventas y dashboard.
             </p>
             <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '2rem' }}>
               {[
@@ -521,7 +602,7 @@ function InventorySection() {
             </div>
             <div className="lp-inv-note">
               <IC.Zap />
-              Cotización oficial desde InfoDolar Córdoba — misma fuente que el Dashboard
+              Cotización configurable: InfoDolar Córdoba o Ámbito, sincronizada con inventario y dashboard.
             </div>
           </div>
         </div>
@@ -844,7 +925,7 @@ function BeforeAfterSection() {
 // ─── TRUST ────────────────────────────────────────────────────────────────────
 function TrustSection() {
   const trust = [
-    { icon: '🔧', title: 'Diseñado junto a técnicos reales', desc: 'Cada flujo fue pensado para el día a día de un taller técnico, no para un negocio genérico.' },
+    { icon: '🔧', title: 'Pensado para el negocio real', desc: 'Cada flujo fue pensado para servicios técnicos, locales de celulares y comercios que venden, reparan y administran stock.' },
     { icon: '📱', title: 'Pensado para el flujo de reparación', desc: 'Del ingreso del equipo al cobro final: todo el proceso sin pasos innecesarios.' },
     { icon: '🛡️', title: 'Datos seguros en la nube', desc: 'Infraestructura moderna con Supabase/PostgreSQL. Accedés desde cualquier dispositivo.' },
     { icon: '🔄', title: 'Actualizaciones constantes', desc: 'El sistema mejora continuamente. Lo que pedís hoy puede estar disponible mañana.' },
@@ -880,16 +961,16 @@ function FAQSection() {
   const [open, setOpen] = useState<number | null>(null)
   const faqs = [
     { q: '¿Puedo probarlo gratis?', a: 'Sí. Tenés 14 días de prueba gratuita con funciones del plan Pro. Sin tarjeta de crédito.' },
-    { q: '¿Sirve para servicio técnico de celulares?', a: 'Sí. Está diseñado específicamente para servicios técnicos, talleres de reparación y tiendas de celulares. El flujo de órdenes, marcas/modelos, estados y WhatsApp están pensados para ese rubro.' },
-    { q: '¿Puedo usarlo si también vendo accesorios?', a: 'Sí. TechRepair Pro incluye inventario completo con productos y servicios, ventas rápidas, comprobantes y cuenta corriente de clientes.' },
-    { q: '¿Tiene facturación ARCA/AFIP?', a: 'Sí. El plan Pro incluye integración con ARCA para emitir facturas C y A, obtener CAE y emitir notas de crédito. Requiere configuración de certificados.' },
-    { q: '¿Puedo manejar precios en dólares?', a: 'Sí. El inventario soporta precios en USD y ARS. La cotización se toma de InfoDolar Córdoba y los productos configurados se actualizan automáticamente.' },
-    { q: '¿Tiene caja diaria?', a: 'Sí. Podés abrir y cerrar caja, registrar ingresos y egresos, controlar por método de pago (efectivo, tarjeta, QR, transferencia) y ver el historial.' },
-    { q: '¿Puedo tener varios usuarios?', a: 'Sí. El plan Pro incluye hasta 3 usuarios y el plan Full hasta 10, con roles y permisos granulares.' },
+    { q: '¿Sirve solo para servicios técnicos?', a: 'No. TechRepair Pro está pensado para servicios técnicos, locales de celulares, tiendas de accesorios y negocios que combinan reparación, venta, stock, caja y proveedores. El sistema se adapta a cómo trabaja tu local.' },
+    { q: '¿Puedo usarlo si solo vendo accesorios o celulares?', a: 'Sí. Podés usar inventario, ventas, caja, clientes, proveedores, precios en USD/ARS, comprobantes y finanzas aunque no uses el módulo de reparaciones todos los días.' },
+    { q: '¿El sistema crece con mi negocio?', a: 'Sí. Podés empezar con funciones esenciales (Básico) y avanzar a planes con más herramientas: ARCA, proveedores, WhatsApp, Mi Guita, equipo de trabajo y multisucursal (Pro y Full). No necesitás cambiar de sistema cuando tu negocio crece.' },
+    { q: '¿Tiene facturación ARCA/AFIP?', a: 'Sí. El plan Pro incluye integración con ARCA para emitir facturas C y A, obtener CAE y emitir notas de crédito. Requiere configuración de certificados del negocio.' },
+    { q: '¿Qué fuentes de dólar puedo usar?', a: 'Podés trabajar con cotización desde InfoDolar Córdoba o Ámbito, según la configuración de tu negocio. Esa referencia se usa para precios en USD, conversiones y actualización automática de productos.' },
+    { q: '¿Tiene caja diaria?', a: 'Sí. Podés abrir y cerrar caja, registrar ingresos y egresos, controlar por método de pago (efectivo, tarjeta, QR, transferencia) y ver el historial completo.' },
+    { q: '¿Puedo tener varios usuarios?', a: 'Sí. El plan Pro incluye hasta 3 usuarios y el plan Full hasta 10, con roles y permisos granulares por módulo.' },
     { q: '¿Qué pasa con mis proveedores?', a: 'TechRepair Pro tiene un módulo completo de proveedores con historial de compras, pagos, deuda y cuenta corriente por proveedor.' },
-    { q: '¿Funciona desde el celular?', a: 'Sí. Es completamente responsive. Funciona en desktop, tablet y mobile sin instalar nada. Mi Guita incluso se puede instalar como PWA en el celular.' },
+    { q: '¿Funciona desde el celular?', a: 'Sí. Es completamente responsive. Funciona en desktop, tablet y mobile sin instalar nada. Mi Guita se puede instalar como PWA en el celular.' },
     { q: '¿Qué incluye Mi Guita?', a: 'Mi Guita es un módulo de finanzas personales incluido en el plan Pro y Full. Te permite manejar cuentas, movimientos, tarjetas, ahorros, deudas y pagarte sueldo desde el negocio.' },
-    { q: '¿Puedo importar datos anteriores?', a: 'Sí. El sistema permite importar inventario desde Excel y los datos de órdenes anteriores se pueden cargar gradualmente.' },
     { q: '¿Cómo es el soporte?', a: 'El soporte es por WhatsApp con respuesta en horario de negocio. No hay chatbots automáticos.' },
   ]
   return (
@@ -1026,6 +1107,7 @@ export function LandingPage() {
         <Hero navigate={navigate} />
         <ProblemSection />
         <FlowSection />
+        <ScalabilitySection navigate={navigate} />
         <FeaturesSection navigate={navigate} />
         <InventorySection />
         <FinanceSection />
