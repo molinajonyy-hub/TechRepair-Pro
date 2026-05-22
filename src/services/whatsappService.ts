@@ -64,6 +64,14 @@ export interface WhatsAppVars {
   instagram?: string
   horario?: string
   fecha?: string
+  // Extended context vars
+  tipo_comprobante?: string
+  numero_comprobante?: string
+  fecha_vencimiento?: string
+  codigo_garantia?: string
+  presupuesto?: string
+  telefono?: string
+  negocio?: string
 }
 
 // ============================================
@@ -185,6 +193,48 @@ export const DEFAULT_TEMPLATES: Omit<WhatsAppTemplate, 'id' | 'business_id'>[] =
       'Te informamos que la orden #{numero_orden} fue cancelada.\n' +
       'Si querés retomar el servicio más adelante o necesitás ayuda, podés comunicarte con nosotros.',
   },
+  // ── Plantillas extendidas (contextos no-orden) ─────────────────────────────
+  {
+    status_key: 'comprobante_issued',
+    status_label: 'Comprobante emitido',
+    auto_send: false,
+    is_active: true,
+    message_template:
+      'Hola {nombre} 👋\n' +
+      'Te informamos que emitimos tu {tipo_comprobante} N° {numero_comprobante} en {local}.\n' +
+      'Total: {precio}\n' +
+      'Ante cualquier consulta, respondé este mensaje.',
+  },
+  {
+    status_key: 'guarantee',
+    status_label: 'Garantía',
+    auto_send: false,
+    is_active: true,
+    message_template:
+      'Hola {nombre} 😊\n' +
+      'Te compartimos la garantía de tu {equipo} en {local}.\n\n' +
+      '📋 Código: {codigo_garantia}\n' +
+      '📅 Válida hasta: {fecha_vencimiento}\n\n' +
+      'Ante cualquier inconveniente, no dudes en contactarnos.',
+  },
+  {
+    status_key: 'debt_reminder',
+    status_label: 'Recordatorio de saldo',
+    auto_send: false,
+    is_active: true,
+    message_template:
+      'Hola {nombre} 👋\n' +
+      'Te recordamos que tenés un saldo pendiente de {saldo} en {local}.\n' +
+      'Cuando puedas, escribinos para coordinar el pago.\n' +
+      '¡Gracias!',
+  },
+  {
+    status_key: 'free_message',
+    status_label: 'Mensaje libre',
+    auto_send: false,
+    is_active: true,
+    message_template: 'Hola {nombre}, te contactamos desde {local}.',
+  },
 ]
 
 export const DEFAULT_SETTINGS: Omit<WhatsAppSettings, 'id' | 'business_id'> = {
@@ -234,23 +284,30 @@ export function generateWhatsAppLink(phone: string, message: string): string {
 export function interpolateTemplate(template: string, vars: WhatsAppVars): string {
   let result = template
   const replacements: Record<string, string> = {
-    nombre:       vars.nombre       || '',
-    apellido:     vars.apellido     || '',
-    cliente:      vars.cliente      || vars.nombre || '',
-    equipo:       vars.equipo       || '',
-    marca:        vars.marca        || '',
-    modelo:       vars.modelo       || '',
-    estado:       vars.estado       || '',
-    precio:       vars.precio       || '',
-    anticipo:     vars.anticipo     || '',
-    saldo:        vars.saldo        || '',
-    numero_orden: vars.numero_orden || '',
-    local:        vars.local        || '',
-    direccion:    vars.direccion    || '',
-    whatsapp:     vars.whatsapp     || '',
-    instagram:    vars.instagram    || '',
-    horario:      vars.horario      || '',
-    fecha:        vars.fecha        || new Date().toLocaleDateString('es-AR'),
+    nombre:            vars.nombre            || '',
+    apellido:          vars.apellido          || '',
+    cliente:           vars.cliente           || vars.nombre || '',
+    equipo:            vars.equipo            || '',
+    marca:             vars.marca             || '',
+    modelo:            vars.modelo            || '',
+    estado:            vars.estado            || '',
+    precio:            vars.precio            || '',
+    anticipo:          vars.anticipo          || '',
+    saldo:             vars.saldo             || '',
+    numero_orden:      vars.numero_orden      || '',
+    local:             vars.local             || vars.negocio || '',
+    negocio:           vars.negocio           || vars.local || '',
+    direccion:         vars.direccion         || '',
+    whatsapp:          vars.whatsapp          || vars.telefono || '',
+    telefono:          vars.telefono          || vars.whatsapp || '',
+    instagram:         vars.instagram         || '',
+    horario:           vars.horario           || '',
+    fecha:             vars.fecha             || new Date().toLocaleDateString('es-AR'),
+    tipo_comprobante:  vars.tipo_comprobante  || '',
+    numero_comprobante:vars.numero_comprobante|| '',
+    fecha_vencimiento: vars.fecha_vencimiento || '',
+    codigo_garantia:   vars.codigo_garantia   || '',
+    presupuesto:       vars.presupuesto       || vars.precio || '',
   }
 
   for (const [key, value] of Object.entries(replacements)) {
@@ -296,6 +353,102 @@ export function buildOrderVars(order: any, settings: WhatsAppSettings): WhatsApp
     instagram:    settings.business_instagram  || '',
     horario:      settings.business_hours      || '',
     fecha:        new Date().toLocaleDateString('es-AR'),
+  }
+}
+
+/**
+ * Mejora normalizePhone para Argentina:
+ * Maneja números con 15, con 0 inicial, con/sin código de país.
+ */
+export function normalizeWhatsAppPhone(phone: string): { normalized: string; valid: boolean; error?: string } {
+  if (!phone?.trim()) return { normalized: '', valid: false, error: 'Sin teléfono' }
+  let cleaned = phone.replace(/\D/g, '')
+  // Remove leading 0 (for landlines like 011XXXXXXXX → 11XXXXXXXX)
+  if (cleaned.startsWith('0')) cleaned = cleaned.slice(1)
+  // Handle "15" local prefix for mobile in Argentina (11 15XXXXXXXX → 11XXXXXXXX)
+  // If it's a 10-digit Argentine number starting with area + 15:
+  if (cleaned.length === 11 && cleaned.charAt(2) === '1' && cleaned.charAt(3) === '5') {
+    cleaned = cleaned.slice(0, 2) + cleaned.slice(4)
+  }
+  // Add country code 54 if not present and length looks like Argentine local number
+  if (cleaned.length === 10) cleaned = '549' + cleaned
+  else if (cleaned.length === 11 && cleaned.startsWith('9')) cleaned = '54' + cleaned
+  else if (!cleaned.startsWith('54') && cleaned.length === 12) cleaned = '54' + cleaned
+
+  if (cleaned.length < 11) return { normalized: cleaned, valid: false, error: 'Número muy corto' }
+  return { normalized: cleaned, valid: true }
+}
+
+/**
+ * Construye variables para un cliente (sin orden específica).
+ */
+export function buildCustomerVars(
+  customer: { name?: string; phone?: string },
+  settings: WhatsAppSettings
+): WhatsAppVars {
+  const fullName = customer.name || ''
+  const firstName = fullName.split(' ')[0] || fullName
+  return {
+    nombre:   firstName,
+    apellido: fullName.split(' ').slice(1).join(' ') || '',
+    cliente:  fullName,
+    telefono: customer.phone || '',
+    local:    settings.business_name    || '',
+    negocio:  settings.business_name    || '',
+    direccion:settings.business_address || '',
+    whatsapp: settings.business_whatsapp   || '',
+    instagram:settings.business_instagram  || '',
+    horario:  settings.business_hours      || '',
+    fecha:    new Date().toLocaleDateString('es-AR'),
+  }
+}
+
+/**
+ * Construye variables para un comprobante.
+ */
+export function buildComprobanteVars(
+  comprobante: { numero?: string | null; tipo?: string; total_ars?: number; total?: number; customer?: { name?: string } },
+  settings: WhatsAppSettings
+): WhatsAppVars {
+  const customerName = comprobante.customer?.name || ''
+  const firstName = customerName.split(' ')[0] || customerName
+  const total = comprobante.total_ars || comprobante.total || 0
+  return {
+    nombre:             firstName,
+    cliente:            customerName,
+    tipo_comprobante:   comprobante.tipo || 'Comprobante',
+    numero_comprobante: comprobante.numero || '',
+    precio:             total > 0 ? `$${Math.round(total).toLocaleString('es-AR')}` : '',
+    local:    settings.business_name || '',
+    negocio:  settings.business_name || '',
+    whatsapp: settings.business_whatsapp || '',
+    horario:  settings.business_hours   || '',
+    fecha:    new Date().toLocaleDateString('es-AR'),
+  }
+}
+
+/**
+ * Construye variables para una garantía.
+ */
+export function buildWarrantyVars(
+  warranty: { customer_name?: string; customer_phone?: string; phone_model?: string; item_description?: string; number?: string; issue_date?: string; warranty_days?: number },
+  settings: WhatsAppSettings
+): WhatsAppVars {
+  const firstName = (warranty.customer_name || '').split(' ')[0] || warranty.customer_name || ''
+  const expiryDate = warranty.issue_date && warranty.warranty_days
+    ? (() => { const d = new Date(warranty.issue_date + 'T00:00:00'); d.setDate(d.getDate() + warranty.warranty_days); return d.toLocaleDateString('es-AR') })()
+    : ''
+  return {
+    nombre:           firstName,
+    cliente:          warranty.customer_name || '',
+    equipo:           warranty.item_description || warranty.phone_model || '',
+    codigo_garantia:  warranty.number || '',
+    fecha_vencimiento:expiryDate,
+    local:    settings.business_name || '',
+    negocio:  settings.business_name || '',
+    whatsapp: settings.business_whatsapp || '',
+    horario:  settings.business_hours   || '',
+    fecha:    new Date().toLocaleDateString('es-AR'),
   }
 }
 

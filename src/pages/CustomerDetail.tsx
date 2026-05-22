@@ -6,6 +6,7 @@ import {
   ChevronRight, Receipt, Tag, Search, ExternalLink,
   TrendingUp, RotateCcw, Wallet,
 } from 'lucide-react'
+import { WhatsAppActionButton } from '../components/whatsapp/WhatsAppActionButton'
 import { Loader } from '../components/ui/Loader'
 import { customersService } from '../services/api'
 import { supabase } from '../lib/supabase'
@@ -366,7 +367,18 @@ export function CustomerDetail() {
             </p>
           </div>
         </div>
-        <div className="page-hdr-right">
+        <div className="page-hdr-right" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <WhatsAppActionButton
+            recipientName={customer.name}
+            phone={customer.phone}
+            templateKey="free_message"
+            vars={{
+              nombre:  customer.name.split(' ')[0] || customer.name,
+              cliente: customer.name,
+              telefono: customer.phone ?? '',
+            }}
+            context={{ customerId: customer.id }}
+          />
           <Link to="/customers" className="btn btn-outline btn-sm">
             <ArrowLeft size={16} /> Volver
           </Link>
