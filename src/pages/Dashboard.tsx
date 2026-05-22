@@ -129,7 +129,7 @@ export function Dashboard() {
 
   // ─── RENDER ────────────────────────────────────────────────────────────────
   return (
-    <div className="page-shell">
+    <div className="page-shell" data-testid="dashboard-page">
       <OnboardingChecklist />
       {/* ── 1. Page Header ─────────────────────────────────────────────────── */}
       <AppPageHeader
@@ -221,7 +221,7 @@ export function Dashboard() {
           />
         </div>
       ) : (
-        <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
+        <div className="stats-grid" style={{ marginBottom: '1.5rem' }} data-testid="dashboard-kpis">
 
           {/* Órdenes activas */}
           <div className="stat-card">
@@ -293,7 +293,7 @@ export function Dashboard() {
       )}
 
       {/* ── 6. Accesos rápidos ─────────────────────────────────────────────── */}
-      <section style={{ marginBottom: '1.5rem' }}>
+      <section style={{ marginBottom: '1.5rem' }} data-testid="dashboard-quick-actions">
         <AppSectionHeader title="Accesos rápidos" />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.875rem' }}>
           {([

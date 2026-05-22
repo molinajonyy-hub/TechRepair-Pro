@@ -34,6 +34,18 @@ export default defineConfig({
   workers: 1,
   timeout: 30_000,
 
+  // In CI: auto-start the dev server. Locally: reuse if already running.
+  webServer: {
+    command: 'npx vite --port 5173',
+    port: 5173,
+    reuseExistingServer: !process.env.CI,
+    timeout: 60_000,
+    env: {
+      VITE_SUPABASE_URL:      process.env.VITE_SUPABASE_URL      ?? '',
+      VITE_SUPABASE_ANON_KEY: process.env.VITE_SUPABASE_ANON_KEY ?? '',
+    },
+  },
+
   reporter: [
     ['list'],
     ['html', { outputFolder: 'playwright-report', open: 'never' }],

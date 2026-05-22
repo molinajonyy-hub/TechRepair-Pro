@@ -1400,7 +1400,7 @@ export function Suppliers() {
 
       {/* Tab: Compras */}
       {activeTab === 'compras' && (
-        <div data-testid="supplier-purchases-tab supplier-invoices-tab">
+        <div data-testid="supplier-invoices-tab">
           {deletePurchaseError && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', borderRadius: '0.625rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', marginBottom: '0.75rem' }}>
               <AlertCircle size={15} style={{ color: '#ef4444', flexShrink: 0 }} />
