@@ -135,9 +135,6 @@ export function NewOrder() {
         const defaultItems: BrandItem[] = extraDefaults.map(n => ({ id: `default:${n.toLowerCase()}`, name: n }))
         const merged = [...dbBrands, ...defaultItems]
 
-        // [QA debug] — remover antes del siguiente deploy
-        console.log('[DeviceCatalog brands loaded]', { dbBrandsCount: dbBrands.length, defaultBrandsCount: extraDefaults.length, totalBrands: merged.length, brands: merged.map(b => b.name) })
-
         setBrandItems(merged)
       } catch (err) {
         console.error('Error loading brands, using defaults:', err)
@@ -176,9 +173,6 @@ export function NewOrder() {
           id: `default:${n.toLowerCase()}`, name: n, brand_id: selectedBrandId ?? ''
         }))
         const merged = [...dbModels, ...defaultItems]
-
-        // [QA debug] — remover antes del siguiente deploy
-        console.log('[DeviceCatalog models loaded]', { brand: formData.brand, brandId: selectedBrandId, dbModelsCount: dbModels.length, defaultModelsCount: extraDefaults.length, totalModels: merged.length })
 
         setModelItems(merged)
       } catch (err) {

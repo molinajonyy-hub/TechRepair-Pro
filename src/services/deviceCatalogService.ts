@@ -79,8 +79,6 @@ function isValidName(s: string): boolean {
  */
 export async function getBrands(): Promise<BrandItem[]> {
   const businessId = await getBusinessId()
-  // [QA debug] — remover antes del siguiente deploy
-  console.log('[DeviceCatalog debug business] getBrands', { businessId })
   if (!businessId) return []
 
   const { data, error } = await supabase
@@ -95,8 +93,6 @@ export async function getBrands(): Promise<BrandItem[]> {
     return []
   }
   const result = (data as BrandItem[]) ?? []
-  // [QA debug] — remover antes del siguiente deploy
-  console.log('[DeviceCatalog brands loaded]', { businessId, dbBrandsCount: result.length, brands: result.map(b => b.name) })
   return result
 }
 
@@ -121,8 +117,6 @@ export async function getModels(brandId: string): Promise<ModelItem[]> {
     return []
   }
   const result = (data as ModelItem[]) ?? []
-  // [QA debug] — remover antes del siguiente deploy
-  console.log('[DeviceCatalog models loaded]', { brandId, dbModelsCount: result.length, models: result.map(m => m.name) })
   return result
 }
 
@@ -201,8 +195,6 @@ export async function ensureBrandAndModel(
 ): Promise<{ brandId: string; modelId: string } | null> {
   if (!isValidName(brandName) || !isValidName(modelName)) return null
   const businessId = await getBusinessId()
-  // [QA debug] — remover antes del siguiente deploy
-  console.log('[NewOrder ensureBrandAndModel before submit]', { brandName, modelName, businessId })
   if (!businessId) return null
 
   const { data, error } = await supabase.rpc('ensure_brand_and_model', {
@@ -217,8 +209,6 @@ export async function ensureBrandAndModel(
   }
 
   const result = data as { brand_id: string; model_id: string } | null
-  // [QA debug] — remover antes del siguiente deploy
-  console.log('[NewOrder ensureBrandAndModel result]', result)
   if (!result?.brand_id || !result?.model_id) return null
   return { brandId: result.brand_id, modelId: result.model_id }
 }
