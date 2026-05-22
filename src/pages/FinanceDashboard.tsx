@@ -124,8 +124,8 @@ const HEALTH_CFG: Record<CheckStatus, { color: string; bg: string; label: string
 
 function DailyChart({ data }: { data: DailySeries[] }) {
   if (!data.length) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 160, color: 'var(--text-subtle)', fontSize: '0.8rem' }}>
-      Sin movimientos en el período
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 160 }}>
+      <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-subtle)' }}>Sin movimientos en el período seleccionado</p>
     </div>
   )
   const maxVal = Math.max(...data.flatMap(d => [d.income, d.expense]), 1)
@@ -404,19 +404,16 @@ export function FinanceDashboard() {
       </div>
 
       {/* ── Tab bar ── */}
-      <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.07)', marginBottom: '1.5rem', gap: '0.125rem' }}>
+      <div className="tabs" style={{ marginBottom: '1.5rem' }}>
         {TABS.map(t => (
-          <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
-            display: 'flex', alignItems: 'center', gap: '0.375rem',
-            padding: '0.625rem 0.875rem', border: 'none',
-            borderBottom: `2px solid ${activeTab === t.key ? '#6366f1' : 'transparent'}`,
-            background: 'none', color: activeTab === t.key ? '#818cf8' : 'var(--text-muted)',
-            fontSize: '0.8rem', fontWeight: activeTab === t.key ? 700 : 500,
-            cursor: 'pointer', transition: 'all 0.15s', borderRadius: '0.25rem 0.25rem 0 0',
-          }}>
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={`tab tab-sm${activeTab === t.key ? ' tab-active' : ''}`}
+          >
             {t.icon} {t.label}
             {t.key === 'auditoria' && hasAlerts && (
-              <span style={{ padding: '0.05rem 0.35rem', borderRadius: '9999px', fontSize: '0.6rem', fontWeight: 800, background: (data?.alerts.critical ?? 0) > 0 ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)', color: (data?.alerts.critical ?? 0) > 0 ? '#ef4444' : '#f59e0b' }}>
+              <span className={`badge badge-no-dot ${(data?.alerts.critical ?? 0) > 0 ? 'badge-error' : 'badge-warning'}`} style={{ fontSize: '0.6rem', marginLeft: '0.125rem' }}>
                 {(data?.alerts.critical ?? 0) + (data?.alerts.warning ?? 0)}
               </span>
             )}
@@ -428,9 +425,9 @@ export function FinanceDashboard() {
       {error && <div className="alert alert-error" style={{ marginBottom: '1.5rem' }}>{error}</div>}
 
       {loading && !data && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 280, gap: '0.75rem', color: 'var(--text-muted)' }}>
-          <RefreshCw size={22} className="animate-spin" style={{ color: '#818cf8' }} />
-          <span style={{ fontSize: '0.875rem' }}>Calculando…</span>
+        <div className="es">
+          <RefreshCw size={28} className="animate-spin es-icon" style={{ opacity: 1, color: '#818cf8' }} />
+          <p className="es-text" style={{ margin: 0 }}>Calculando…</p>
         </div>
       )}
 
@@ -701,10 +698,13 @@ export function FinanceDashboard() {
           )}
 
           {!healthData && !healthLoading && (
-            <div style={{ background: 'var(--bg-card-solid)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', padding: '3rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-              <ShieldCheck size={36} style={{ color: '#818cf8', margin: '0 auto 1rem', display: 'block' }} />
-              <p style={{ margin: '0 0 1rem' }}>Haz clic en "Re-ejecutar" para correr la auditoría.</p>
-              <button className="btn btn-primary" onClick={() => { setHealthRan(false) }}>Ejecutar auditoría</button>
+            <div className="card es">
+              <ShieldCheck size={36} className="es-icon" style={{ color: '#818cf8' }} />
+              <p className="es-title">Health-check financiero</p>
+              <p className="es-text">Detecta inconsistencias en comprobantes, caja, finanzas y estado fiscal antes de que afecten reportes.</p>
+              <button className="btn btn-primary" onClick={() => { setHealthRan(false) }}>
+                <RefreshCw size={14} /> Ejecutar auditoría
+              </button>
             </div>
           )}
 
@@ -742,7 +742,7 @@ export function FinanceDashboard() {
                   const cfg = HEALTH_CFG[check.status]
                   return (
                     <div key={check.id} style={{ background: 'var(--bg-card-solid)', border: `1px solid ${check.status === 'ok' ? 'var(--border-color)' : cfg.bg}`, borderRadius: 'var(--radius-md)', padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-                      <span style={{ padding: '0.15rem 0.5rem', borderRadius: '9999px', fontSize: '0.65rem', fontWeight: 700, color: cfg.color, background: cfg.bg, flexShrink: 0 }}>
+                      <span className={`badge badge-no-dot ${check.status === 'ok' ? 'badge-success' : check.status === 'critical' ? 'badge-error' : check.status === 'warning' ? 'badge-warning' : 'badge-neutral'}`}>
                         {check.status === 'ok' ? <CheckCircle2 size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 2 }} /> : check.status === 'critical' ? <AlertCircle size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 2 }} /> : null}
                         {cfg.label}
                       </span>

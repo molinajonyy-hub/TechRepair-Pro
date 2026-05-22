@@ -450,7 +450,7 @@ export function CustomerDetail() {
         {/* Tabbed main content */}
         <div className="card" style={{ overflow: 'hidden' }}>
           {/* Tab bar */}
-          <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '0 0.5rem' }}>
+          <div className="tabs" style={{ padding: '0 0.25rem' }}>
             {([
               { id: 'ordenes', label: 'Órdenes', icon: <ClipboardList size={14} />, count: customer.orders?.length ?? 0 },
               { id: 'compras', label: 'Compras', icon: <ShoppingBag size={14} />, count: purchases.length },
@@ -458,18 +458,11 @@ export function CustomerDetail() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '0.375rem',
-                  padding: '0.875rem 1rem', border: 'none', background: 'none',
-                  borderBottom: `2px solid ${activeTab === tab.id ? '#6366f1' : 'transparent'}`,
-                  color: activeTab === tab.id ? '#818cf8' : '#64748b',
-                  fontSize: '0.875rem', fontWeight: activeTab === tab.id ? 700 : 500,
-                  cursor: 'pointer', transition: 'all 0.15s',
-                }}
+                className={`tab${activeTab === tab.id ? ' tab-active' : ''}`}
               >
                 {tab.icon} {tab.label}
                 {tab.count > 0 && (
-                  <span style={{ padding: '0.1rem 0.4rem', borderRadius: '9999px', fontSize: '0.68rem', fontWeight: 700, background: activeTab === tab.id ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.05)', color: activeTab === tab.id ? '#818cf8' : '#475569' }}>
+                  <span className={`badge badge-no-dot ${activeTab === tab.id ? 'badge-primary' : 'badge-neutral'}`} style={{ fontSize: '0.65rem', marginLeft: '0.125rem' }}>
                     {tab.count}
                   </span>
                 )}

@@ -62,7 +62,7 @@ function ModalOverlay({ onClose, children, maxWidth = '640px' }: { onClose: () =
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{ background: '#0d1a30', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '1.25rem', width: '100%', maxWidth, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 32px 64px rgba(0,0,0,0.6)' }}>
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-strong)', borderRadius: '1.25rem', width: '100%', maxWidth, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-xl)' }}>
         {children}
       </div>
     </div>
@@ -81,7 +81,7 @@ function ModalBody({ children }: { children: React.ReactNode }) {
 /** Footer fijo al fondo del modal */
 function ModalFooter({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.07)', background: '#0d1a30', borderRadius: '0 0 1.25rem 1.25rem' }}>
+    <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', padding: '1rem 1.5rem', borderTop: '1px solid var(--border-subtle)', background: 'var(--bg-card)', borderRadius: '0 0 1.25rem 1.25rem' }}>
       {children}
     </div>
   )
@@ -89,12 +89,12 @@ function ModalFooter({ children }: { children: React.ReactNode }) {
 
 function ModalHeader({ title, subtitle, icon, onClose }: { title: string; subtitle?: string; icon?: React.ReactNode; onClose: () => void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.5rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.07)', position: 'sticky', top: 0, background: '#0d1a30', zIndex: 1, borderRadius: '1.25rem 1.25rem 0 0' }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.5rem 1rem', borderBottom: '1px solid var(--border-subtle)', position: 'sticky', top: 0, background: 'var(--bg-card)', zIndex: 1, borderRadius: '1.25rem 1.25rem 0 0' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
         {icon && <div style={{ width: 36, height: 36, borderRadius: '0.625rem', background: 'rgba(99,102,241,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{icon}</div>}
         <div>
-          <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#f0f4ff' }}>{title}</h2>
-          {subtitle && <p style={{ margin: 0, fontSize: '0.72rem', color: '#64748b' }}>{subtitle}</p>}
+          <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>{title}</h2>
+          {subtitle && <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>{subtitle}</p>}
         </div>
       </div>
       <button onClick={onClose} className="icon-btn" aria-label="Cerrar"><X size={16} /></button>
@@ -1389,10 +1389,10 @@ export function Suppliers() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: '0.25rem', borderBottom: '1px solid rgba(255,255,255,0.07)', marginBottom: '1.25rem' }}>
+      <div className="tabs" style={{ marginBottom: '1.25rem' }}>
         {TABS.map(t => (
           <button key={t.key} onClick={() => setActiveTab(t.key)}
-            style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.625rem 1rem', border: 'none', borderBottom: `2px solid ${activeTab === t.key ? '#6366f1' : 'transparent'}`, background: 'none', color: activeTab === t.key ? '#818cf8' : '#64748b', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s', borderRadius: '0.375rem 0.375rem 0 0' }}>
+            className={`tab tab-sm${activeTab === t.key ? ' tab-active' : ''}`}>
             {t.icon} {t.label}
           </button>
         ))}
