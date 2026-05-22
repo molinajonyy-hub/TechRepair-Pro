@@ -98,6 +98,12 @@ export function Inventory() {
   const [movementsItem, setMovementsItem] = useState<any>(null)
   const tableRef = useRef<HTMLDivElement | null>(null)
 
+  // [QA debug] — remover antes del siguiente deploy
+  useEffect(() => {
+    console.log('[Inventory modal state]', { showProductFormModal, productFormEditItem, showModal })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showProductFormModal])
+
   const toggleExpanded = (id: string) => {
     setExpandedRows(prev => {
       const next = new Set(prev)
@@ -433,6 +439,15 @@ export function Inventory() {
   const openEditModal = (item: any) => {
     // Usar ProductFormModal en modo edición (modal unificado)
     setProductFormEditItem(item)
+    setShowProductFormModal(true)
+  }
+
+  const openCreateProductModal = (tipo: 'product' | 'service' | 'with_variants' = 'product') => {
+    // [QA debug] — remover antes del siguiente deploy
+    console.log('[Inventory openCreateProductModal]', { tipo, productFormEditItemBefore: productFormEditItem, showProductFormModalBefore: showProductFormModal })
+    setProductFormEditItem(null)
+    setProductFormTipo(tipo)
+    setShowProductMenu(false)
     setShowProductFormModal(true)
   }
 
@@ -1587,26 +1602,36 @@ export function Inventory() {
             <button onClick={() => setShowImportModal(true)} className="btn btn-ghost btn-sm">
               <Upload size={15} />Importar
             </button>
-            <div style={{ position: 'relative' }} data-product-menu>
+            {/* Split button: clic principal abre modal directamente; chevron abre dropdown */}
+            <div style={{ position: 'relative', display: 'flex' }} data-product-menu>
               <button
                 data-testid="inventory-new-product-button"
-                onClick={() => setShowProductMenu(!showProductMenu)}
+                onClick={() => openCreateProductModal('product')}
                 className="btn btn-primary btn-sm btn-lift"
+                style={{ borderRadius: 'var(--radius-md) 0 0 var(--radius-md)', borderRight: '1px solid rgba(255,255,255,0.15)' }}
               >
                 <Plus size={18} />
                 Nuevo Producto
-                <ChevronDown size={16} />
+              </button>
+              <button
+                data-testid="inventory-new-product-chevron"
+                onClick={() => setShowProductMenu(v => !v)}
+                className="btn btn-primary btn-sm btn-lift"
+                style={{ borderRadius: '0 var(--radius-md) var(--radius-md) 0', padding: '0 0.5rem' }}
+                title="Más opciones"
+              >
+                <ChevronDown size={14} />
               </button>
               {showProductMenu && (
                 <div data-testid="inventory-new-product-dropdown" className="dropdown-menu" style={{ position: 'absolute', top: 'calc(100% + 0.375rem)', right: 0, zIndex: 50, minWidth: '200px' }}>
-                  <button data-testid="inventory-new-product-simple" onClick={() => { setShowProductMenu(false); setProductFormEditItem(null); setProductFormTipo('product'); setShowProductFormModal(true) }} className="dropdown-item">
+                  <button data-testid="inventory-new-product-simple" onClick={() => openCreateProductModal('product')} className="dropdown-item">
                     Producto simple
                   </button>
-                  <button data-testid="inventory-new-product-variants" onClick={() => { setShowProductMenu(false); setProductFormEditItem(null); setProductFormTipo('with_variants'); setShowProductFormModal(true) }} className="dropdown-item">
+                  <button data-testid="inventory-new-product-variants" onClick={() => openCreateProductModal('with_variants')} className="dropdown-item">
                     Producto con variantes
                   </button>
                   <div className="dropdown-separator" />
-                  <button onClick={() => { setShowProductMenu(false); setProductFormEditItem(null); setProductFormTipo('service'); setShowProductFormModal(true) }} className="dropdown-item" style={{ color: 'var(--accent-primary)' }}>
+                  <button onClick={() => openCreateProductModal('service')} className="dropdown-item" style={{ color: 'var(--accent-primary)' }}>
                     Nuevo Servicio
                   </button>
                 </div>
@@ -1885,7 +1910,7 @@ export function Inventory() {
                         <p style={{ color: '#94a3b8', fontSize: '0.9375rem', marginBottom: '1.5rem', maxWidth: '400px', margin: '0 auto 1.5rem' }}>
                           Comenzá agregando productos al inventario para gestionar tu stock y precios.
                         </p>
-                        <button data-testid="inventory-new-product-empty" onClick={() => { setProductFormEditItem(null); setProductFormTipo('product'); setShowProductFormModal(true) }} style={{
+                        <button data-testid="inventory-new-product-empty" onClick={() => openCreateProductModal('product')} style={{
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '0.5rem',

@@ -348,7 +348,8 @@ export function ProductFormModal({
       setForm(editForm)
       cleanFormRef.current = serializeForm(editForm)
       setError(''); setDuplicate(null); setShowCloseConfirm(false)
-      if (!editItem.exchange_rate_used) fetchRate(false)  // usa caché si disponible
+      // Forzar actualización desde InfoDolar en modo edición también
+      fetchRate(true)
       loadSuppliers()
       loadCategories()
       return
@@ -375,8 +376,9 @@ export function ProductFormModal({
     setForm(initialForm)
     cleanFormRef.current = serializeForm(initialForm)
     setError(''); setDuplicate(null); setShowCloseConfirm(false)
-    // Cargar cotización desde fuente oficial (usa caché 15 min si disponible)
-    fetchRate(false)
+    // Forzar actualización desde InfoDolar Córdoba en cada apertura del modal
+    // (force=true para evitar que el cache en módulo devuelva valor viejo)
+    fetchRate(true)
     // Cargar proveedores y categorías
     loadSuppliers()
     loadCategories()
@@ -425,11 +427,15 @@ export function ProductFormModal({
       const result = force
         ? await refreshDollarRate(businessId, true)
         : await getCurrentDollarRate(businessId)
+      // [QA debug] — remover antes del siguiente deploy de producción
+      console.log('[ProductFormModal] fetchRate', { force, businessId, sellPrice: result?.sellPrice, source: result?.source, fetchedAt: result?.fetchedAt })
       if (result?.sellPrice && result.sellPrice > 0) {
         setForm(f => ({ ...f, exchange_rate: String(result.sellPrice.toFixed(2)) }))
         setRateUpdatedAt(result.fetchedAt)
       }
-    } catch { /* silent */ }
+    } catch (err) {
+      console.warn('[ProductFormModal] fetchRate error', err)
+    }
     finally { setLoadingRate(false) }
   }
 
