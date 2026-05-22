@@ -1535,6 +1535,7 @@ export function Inventory() {
               <Copy size={16} style={{ color: '#a78bfa' }} />
             </button>
             <button
+              data-testid="inventory-history-button"
               onClick={() => setMovementsItem(item)}
               style={{
                 padding: '0.5rem',
