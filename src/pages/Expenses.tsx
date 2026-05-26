@@ -227,7 +227,7 @@ function ItemRow({ item, businessId, onUpdate, onRemove, isOnly, onOpenProductFo
       </td>
       {/* Cantidad */}
       <td style={{ ...cell, width: 76 }}>
-        <input className="form-control" style={{ textAlign: 'right' }} type="number" min="0.01" step="1"
+        <input className="form-control" style={{ textAlign: 'right' }} type="number" min="1" step="1"
           value={item.cantidad} onChange={e => onUpdate(item._id, { cantidad: e.target.value })} />
       </td>
       {/* Costo unit. */}

@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { ProductFormModalSafe as ProductFormModal } from '../products/ProductFormModal';
 import type { InventoryItem as InventoryItemFull } from '../../hooks/useInventory';
 import { isWholesaleCustomer, getProductPriceForCustomer } from '../../utils/pricing';
+import { parseUnitQuantity } from '../../utils/quantityUtils';
 import {
   X, FileText, Receipt, ChevronDown,
   Loader2, Plus, Zap, Package, Search, DollarSign,
@@ -1028,8 +1029,8 @@ export function ModalCrearComprobante({
                       <div style={{ display: 'grid', gridTemplateColumns: '64px 110px auto 80px 1fr', gap: '0.375rem', alignItems: 'center' }}>
                         <div>
                           <div style={{ fontSize: '0.6rem', color: '#475569', marginBottom: '0.15rem' }}>Cant.</div>
-                          <input type="number" value={l.cantidad} min="0.01" step="0.01"
-                            onChange={e => updateLinea(l._key, { cantidad: Number(e.target.value) || 0 })}
+                          <input type="number" value={l.cantidad} min="1" step="1"
+                            onChange={e => updateLinea(l._key, { cantidad: parseUnitQuantity(e.target.value) })}
                             style={{ ...inputS, padding: '0.375rem', textAlign: 'center', fontFamily: 'monospace', fontSize: '0.82rem' }} />
                         </div>
 

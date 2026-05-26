@@ -6,6 +6,7 @@
  */
 
 import { useState, type ReactNode } from 'react'
+import { parseUnitQuantity, formatUnitQuantity } from '../../utils/quantityUtils'
 import {
   Plus, Trash2, Edit2, Check, X, Package,
   Phone, Instagram, Mail, MapPin,
@@ -380,7 +381,7 @@ function DocItems({ items, editable, onAddItem, onUpdateItem, onDeleteItem }: {
           </div>
           <div>
             <label style={{ display: 'block', color: 'var(--text-muted)', fontSize: '0.7rem', marginBottom: '0.2rem' }}>Cant.</label>
-            <input type="number" value={newItem.cantidad} onChange={e => setNewItem({ ...newItem, cantidad: Number(e.target.value) })} min="0.01" step="0.01" style={INPUT_S} />
+            <input type="number" value={newItem.cantidad} onChange={e => setNewItem({ ...newItem, cantidad: parseUnitQuantity(e.target.value) })} min="1" step="1" style={INPUT_S} />
           </div>
           <div>
             <label style={{ display: 'block', color: 'var(--text-muted)', fontSize: '0.7rem', marginBottom: '0.2rem' }}>P. Unit.</label>
@@ -424,8 +425,8 @@ function DocItems({ items, editable, onAddItem, onUpdateItem, onDeleteItem }: {
                 </td>
                 <td style={{ padding: '0.625rem 0.875rem', textAlign: 'right' }}>
                   {editingItem === item.id
-                    ? <input type="number" value={editForm.cantidad || 0} onChange={e => setEditForm({ ...editForm, cantidad: Number(e.target.value) })} min="0.01" step="0.01" style={{ ...INPUT_S, width: 70, textAlign: 'right' }} />
-                    : <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{item.cantidad}</span>}
+                    ? <input type="number" value={editForm.cantidad || 0} onChange={e => setEditForm({ ...editForm, cantidad: parseUnitQuantity(e.target.value) })} min="1" step="1" style={{ ...INPUT_S, width: 70, textAlign: 'right' }} />
+                    : <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{formatUnitQuantity(item.cantidad)}</span>}
                 </td>
                 {/* Currency badge */}
                 <td style={{ padding: '0.625rem 0.5rem', textAlign: 'center' }}>

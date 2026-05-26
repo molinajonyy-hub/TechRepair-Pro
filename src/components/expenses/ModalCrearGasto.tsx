@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { CloseButton } from '../ui/CloseButton'
 import { supabase } from '../../lib/supabase'
+import { parseUnitQuantity } from '../../utils/quantityUtils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -348,9 +349,9 @@ function ProductSearchInput({
             <input
               type="number"
               value={item.cantidad}
-              onChange={e => onChange({ cantidad: parseFloat(e.target.value) || 0 })}
-              min="0.01"
-              step="0.01"
+              onChange={e => onChange({ cantidad: parseUnitQuantity(e.target.value) })}
+              min="1"
+              step="1"
               style={inputStyle}
             />
           </div>

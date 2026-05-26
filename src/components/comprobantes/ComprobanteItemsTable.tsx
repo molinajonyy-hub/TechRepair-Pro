@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Plus, Trash2, Edit2, Check, X, Package } from 'lucide-react';
 import { ComprobanteItem } from '../../hooks/useComprobantes';
+import { parseUnitQuantity, formatUnitQuantity } from '../../utils/quantityUtils';
 
 interface ComprobanteItemsTableProps {
   items: ComprobanteItem[];
@@ -110,8 +111,8 @@ export function ComprobanteItemsTable({
               <input
                 type="number"
                 value={newItem.cantidad}
-                onChange={e => setNewItem({ ...newItem, cantidad: Number(e.target.value) })}
-                min="0.01" step="0.01"
+                onChange={e => setNewItem({ ...newItem, cantidad: parseUnitQuantity(e.target.value) })}
+                min="1" step="1"
                 style={INPUT_STYLE}
               />
             </div>
@@ -214,12 +215,12 @@ export function ComprobanteItemsTable({
                     <input
                       type="number"
                       value={editForm.cantidad || 0}
-                      onChange={e => setEditForm({ ...editForm, cantidad: Number(e.target.value) })}
-                      min="0.01" step="0.01"
+                      onChange={e => setEditForm({ ...editForm, cantidad: parseUnitQuantity(e.target.value) })}
+                      min="1" step="1"
                       style={{ ...INPUT_STYLE, width: 80, textAlign: 'right' }}
                     />
                   ) : (
-                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{item.cantidad}</span>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{formatUnitQuantity(item.cantidad)}</span>
                   )}
                 </td>
 
