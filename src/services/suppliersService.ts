@@ -409,7 +409,7 @@ export const suppliersService = {
     await this._addAccountMovement(businessId, supplierId, purchaseId, paymentId || null, date, 'payment', description, 0, amount);
 
     await supabase.from('business_finance_entries').insert({
-      business_id: businessId, date, type: 'expense',
+      business_id: businessId, date, type: 'variable_cost',
       category: 'compras_proveedor',
       description: `${description} (${supplierName})`,
       amount, currency: 'ARS', amount_ars: amount, exchange_rate: 1,
