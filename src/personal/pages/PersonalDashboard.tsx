@@ -9,6 +9,7 @@ import { personalService, type PersonalAccount, type PersonalTransaction, type P
 import { creditCardService } from '../services/creditCardService'
 import { getAllCardsStatementTotal, getNextDueDate } from '../utils/creditCards'
 import { debtService, type DebtSummary } from '../services/debtService'
+import { budgetService, calculateBudgetUsage, getBudgetSummaryFromUsages, budgetStatusColor, type BudgetSummary } from '../services/budgetService'
 import {
   TxRow, EmptyPersonal, SkeletonCard, PageContainer, Card, fmtMoney, fmtMoneyCompact,
 } from '../components/ui'
@@ -35,6 +36,7 @@ export function PersonalDashboard() {
   const [nextCardDueText,      setNextCardDueText]      = useState<string | null>(null)
   const [debtSummary,          setDebtSummary]          = useState<DebtSummary | null>(null)
   const [debtInstallmentsEst,  setDebtInstallmentsEst]  = useState(0)
+  const [budgetSummaryDash,    setBudgetSummaryDash]    = useState<BudgetSummary | null>(null)
 
   // Privacy toggle — persisted in localStorage
   const [hidden, setHidden] = useState(() => localStorage.getItem(HIDE_KEY) === 'true')
@@ -52,7 +54,7 @@ export function PersonalDashboard() {
     setLoading(true)
     try {
       await personalService.ensureDefaultCategories(user.id)
-      const [accts, txs, sum, cats, ccards, cpurchases, debts] = await Promise.all([
+      const [accts, txs, sum, cats, ccards, cpurchases, debts, budgets, budgetExpenses] = await Promise.all([
         personalService.getAccounts(user.id),
         personalService.getTransactions(user.id, { limit: 4 }),
         personalService.getMonthlySummary(user.id, currentMonth()),
@@ -60,6 +62,8 @@ export function PersonalDashboard() {
         creditCardService.getCreditCards(user.id),
         creditCardService.getCardPurchases(user.id),
         debtService.getDebts(user.id),
+        budgetService.getBudgets(user.id, currentMonth()),
+        budgetService.getExpensesForPeriod(user.id, currentMonth()),
       ])
       setAccounts(accts)
       setRecentTx(txs)
@@ -72,6 +76,7 @@ export function PersonalDashboard() {
           .filter(d => d.status === 'active' && d.type === 'debt')
           .reduce((s, d) => s + Number(d.installment_amount ?? 0), 0)
       )
+      setBudgetSummaryDash(getBudgetSummaryFromUsages(calculateBudgetUsage(budgets, budgetExpenses)))
       const activeCC = ccards.filter(c => c.is_active)
       if (activeCC.length > 0) {
         const earliest = activeCC
@@ -312,6 +317,50 @@ export function PersonalDashboard() {
           </div>
         )
       })()}
+
+      {/* ── Budget widget ── */}
+      {(!loading || budgetSummaryDash) && (
+        <div
+          data-testid="personal-budgets-widget"
+          onClick={() => navigate('/personal/presupuestos')}
+          style={{ background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.18)', borderRadius: '1rem', padding: '0.875rem 1rem', cursor: 'pointer' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Wallet size={14} color="#fbbf24" />
+              <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Presupuestos</span>
+            </div>
+            <ChevronRight size={14} color="#334155" />
+          </div>
+          {loading ? (
+            <div style={{ height: 24, width: '40%', borderRadius: 4, background: 'rgba(251,191,36,0.1)', marginTop: '0.375rem' }} />
+          ) : !budgetSummaryDash || budgetSummaryDash.totalBudgeted === 0 ? (
+            <div style={{ marginTop: '0.375rem', fontSize: '0.75rem', color: '#334155' }}>Sin presupuestos este mes</div>
+          ) : (
+            <div style={{ marginTop: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.625rem', flexWrap: 'wrap' }}>
+                <div data-testid="personal-budgets-widget-spent"
+                  style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '1.125rem', color: budgetStatusColor(budgetSummaryDash.exceedCount > 0 ? 'exceeded' : budgetSummaryDash.warningCount > 0 ? 'warning' : 'healthy') }}
+                >
+                  {hidden ? MASK : amtComp(budgetSummaryDash.totalSpent)}
+                </div>
+                {!hidden && (
+                  <div style={{ fontSize: '0.68rem', color: '#475569' }}>
+                    de {amtComp(budgetSummaryDash.totalBudgeted)}
+                  </div>
+                )}
+              </div>
+              {(budgetSummaryDash.exceedCount > 0 || budgetSummaryDash.warningCount > 0) && (
+                <div style={{ marginTop: '0.25rem', fontSize: '0.68rem', color: budgetSummaryDash.exceedCount > 0 ? '#f87171' : '#fbbf24', fontWeight: 600 }}>
+                  {budgetSummaryDash.exceedCount > 0
+                    ? `${budgetSummaryDash.exceedCount} presupuesto${budgetSummaryDash.exceedCount > 1 ? 's' : ''} excedido${budgetSummaryDash.exceedCount > 1 ? 's' : ''}`
+                    : `${budgetSummaryDash.warningCount} cerca del límite`}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Recent transactions ── */}
       <div>

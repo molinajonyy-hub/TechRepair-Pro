@@ -23,6 +23,7 @@ const PersonalSavings     = lazy(() => import('./personal/pages/PersonalSavings'
 const PersonalDebts              = lazy(() => import('./personal/pages/PersonalDebts').then(m => ({ default: m.PersonalDebts })))
 const PersonalRecurringExpenses  = lazy(() => import('./personal/pages/PersonalRecurringExpenses').then(m => ({ default: m.PersonalRecurringExpenses })))
 const PersonalProjection  = lazy(() => import('./personal/pages/PersonalProjections').then(m => ({ default: m.PersonalProjections })))
+const PersonalBudgets     = lazy(() => import('./personal/pages/PersonalBudgets').then(m => ({ default: m.PersonalBudgets })))
 const PersonalCategories  = lazy(() => import('./personal/pages/PersonalStubs').then(m => ({ default: m.PersonalCategories })))
 const PersonalSettings    = lazy(() => import('./personal/pages/PersonalStubs').then(m => ({ default: m.PersonalSettings })))
 
@@ -220,6 +221,7 @@ function AppContent() {
               <Route path="/personal/deudas"           element={<PersonalDebts />} />
               <Route path="/personal/gastos-fijos"     element={<PersonalRecurringExpenses />} />
               <Route path="/personal/proyecciones"     element={<PersonalProjection />} />
+              <Route path="/personal/presupuestos"     element={<PersonalBudgets />} />
               <Route path="/personal/categorias"       element={<PersonalCategories />} />
               <Route path="/personal/configuracion"    element={<PersonalSettings />} />
               <Route path="/personal/mas"              element={<PersonalMore />} />
