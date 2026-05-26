@@ -7,9 +7,11 @@ import {
 import { useAuth } from '../../contexts/AuthContext'
 import { personalService, type PersonalAccount, type PersonalTransaction, type PersonalCategory } from '../services/personalService'
 import { creditCardService } from '../services/creditCardService'
-import { getAllCardsStatementTotal, getNextDueDate } from '../utils/creditCards'
+import { getAllCardsStatementTotal, getNextDueDate, addMonths, currentYearMonth } from '../utils/creditCards'
 import { debtService, type DebtSummary } from '../services/debtService'
 import { budgetService, calculateBudgetUsage, getBudgetSummaryFromUsages, budgetStatusColor, type BudgetSummary } from '../services/budgetService'
+import { recurringExpenseService } from '../services/recurringExpenseService'
+import { buildPersonalInsights, getTopInsights, type PersonalInsight } from '../services/insightService'
 import {
   TxRow, EmptyPersonal, SkeletonCard, PageContainer, Card, fmtMoney, fmtMoneyCompact,
 } from '../components/ui'
@@ -18,10 +20,6 @@ import { TransactionForm } from '../components/TransactionForm'
 const HIDE_KEY = 'miGuitaHideAmounts'
 const MASK     = '••••••'
 
-const currentMonth = () => {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-}
 
 export function PersonalDashboard() {
   const { user } = useAuth()
@@ -37,6 +35,7 @@ export function PersonalDashboard() {
   const [debtSummary,          setDebtSummary]          = useState<DebtSummary | null>(null)
   const [debtInstallmentsEst,  setDebtInstallmentsEst]  = useState(0)
   const [budgetSummaryDash,    setBudgetSummaryDash]    = useState<BudgetSummary | null>(null)
+  const [dashInsights,         setDashInsights]         = useState<PersonalInsight[]>([])
 
   // Privacy toggle — persisted in localStorage
   const [hidden, setHidden] = useState(() => localStorage.getItem(HIDE_KEY) === 'true')
@@ -54,29 +53,51 @@ export function PersonalDashboard() {
     setLoading(true)
     try {
       await personalService.ensureDefaultCategories(user.id)
-      const [accts, txs, sum, cats, ccards, cpurchases, debts, budgets, budgetExpenses] = await Promise.all([
+      const cm               = currentYearMonth()
+      const [cmYear, cmMon]  = cm.split('-').map(Number)
+      const [accts, txs, monthTxs, sum, cats, ccards, cpurchases, cpayments, debts, recurring, recPayments, budgets, budgetExpenses] = await Promise.all([
         personalService.getAccounts(user.id),
         personalService.getTransactions(user.id, { limit: 4 }),
-        personalService.getMonthlySummary(user.id, currentMonth()),
+        personalService.getTransactions(user.id, { month: cm, limit: 50 }),
+        personalService.getMonthlySummary(user.id, cm),
         personalService.getCategories(user.id),
         creditCardService.getCreditCards(user.id),
         creditCardService.getCardPurchases(user.id),
+        creditCardService.getCardPayments(user.id),
         debtService.getDebts(user.id),
-        budgetService.getBudgets(user.id, currentMonth()),
-        budgetService.getExpensesForPeriod(user.id, currentMonth()),
+        recurringExpenseService.getRecurringExpenses(user.id),
+        recurringExpenseService.getPaymentsForMonth(user.id, cmYear, cmMon),
+        budgetService.getBudgets(user.id, cm),
+        budgetService.getExpensesForPeriod(user.id, cm),
       ])
+      let prevSummary = null
+      try { prevSummary = await personalService.getMonthlySummary(user.id, addMonths(cm, -1)) } catch { /* ok */ }
       setAccounts(accts)
       setRecentTx(txs)
       setSummary(sum)
       setCategories(cats)
-      setCardTotalThisMonth(getAllCardsStatementTotal(cpurchases, currentMonth()))
+      setCardTotalThisMonth(getAllCardsStatementTotal(cpurchases, cm))
       setDebtSummary(debtService.getDebtSummary(debts))
       setDebtInstallmentsEst(
         debts
           .filter(d => d.status === 'active' && d.type === 'debt')
           .reduce((s, d) => s + Number(d.installment_amount ?? 0), 0)
       )
-      setBudgetSummaryDash(getBudgetSummaryFromUsages(calculateBudgetUsage(budgets, budgetExpenses)))
+      const budgetUsages = calculateBudgetUsage(budgets, budgetExpenses)
+      setBudgetSummaryDash(getBudgetSummaryFromUsages(budgetUsages))
+      setDashInsights(buildPersonalInsights({
+        month:            cm,
+        summary:          sum,
+        prevSummary,
+        budgetUsages,
+        cards:            ccards.filter(c => c.is_active),
+        cardPurchases:    cpurchases,
+        cardPayments:     cpayments,
+        debts,
+        recurringExpenses: recurring,
+        recurringPayments: recPayments,
+        transactions:     monthTxs,
+      }))
       const activeCC = ccards.filter(c => c.is_active)
       if (activeCC.length > 0) {
         const earliest = activeCC
@@ -361,6 +382,54 @@ export function PersonalDashboard() {
           )}
         </div>
       )}
+
+      {/* ── Insights widget ── */}
+      {(() => {
+        const topInsights = getTopInsights(dashInsights, 3)
+        const hasAlert    = topInsights.some(i => i.severity === 'danger' || i.severity === 'warning')
+        const sevColor    = (s: string) => s === 'danger' ? '#f87171' : s === 'warning' ? '#fbbf24' : s === 'success' ? '#34d399' : '#60a5fa'
+        return (
+          <div
+            data-testid="personal-insights-widget"
+            onClick={() => navigate('/personal/insights')}
+            style={{
+              background:   hasAlert ? 'rgba(248,113,113,0.06)' : 'rgba(96,165,250,0.06)',
+              border:       `1px solid ${hasAlert ? 'rgba(248,113,113,0.18)' : 'rgba(96,165,250,0.18)'}`,
+              borderRadius: '1rem',
+              padding:      '0.875rem 1rem',
+              cursor:       'pointer',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <AlertCircle size={14} color={hasAlert ? '#f87171' : '#60a5fa'} />
+                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Insights</span>
+              </div>
+              <ChevronRight size={14} color="#334155" />
+            </div>
+            {loading ? (
+              <div style={{ height: 20, width: '50%', borderRadius: 4, background: 'rgba(255,255,255,0.04)' }} />
+            ) : topInsights.length === 0 ? (
+              <div style={{ fontSize: '0.8125rem', color: '#34d399', fontWeight: 600 }}>
+                Todo tranquilo por ahora 🧘
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                {topInsights.map(insight => (
+                  <div key={insight.id} data-testid="personal-insights-widget-item" style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: sevColor(insight.severity), marginTop: '0.35rem', flexShrink: 0 }} />
+                    <span style={{ fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.4, flex: 1 }}>
+                      <span style={{ color: sevColor(insight.severity), fontWeight: 700 }}>{insight.title}</span>
+                      {' — '}
+                      {hidden ? MASK : insight.hiddenMessage}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* ── Recent transactions ── */}
       <div>

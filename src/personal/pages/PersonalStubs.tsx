@@ -1,5 +1,5 @@
 /** Stub pages for modules coming in future phases. */
-import { AlertCircle, BarChart3, Settings, Tag, List, RepeatIcon, Wallet } from 'lucide-react'
+import { AlertCircle, BarChart3, Settings, Tag, List, RepeatIcon, Wallet, Lightbulb } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { PageContainer, EmptyPersonal } from '../components/ui'
 
@@ -40,6 +40,7 @@ export function PersonalMore() {
     { label: 'Categorías',     path: '/personal/categorias',    Icon: Tag         },
     { label: 'Proyecciones',   path: '/personal/proyecciones',  Icon: BarChart3   },
     { label: 'Presupuestos',   path: '/personal/presupuestos',  Icon: Wallet      },
+    { label: 'Insights',       path: '/personal/insights',      Icon: Lightbulb   },
     { label: 'Configuración',  path: '/personal/configuracion', Icon: Settings    },
   ]
   return (
