@@ -22,9 +22,6 @@ function ComingSoon({ Icon, title, description }: { Icon: React.ElementType; tit
 }
 
 
-export function PersonalProjection() {
-  return <ComingSoon Icon={BarChart3} title="Proyecciones" description="Ve cuánto vas a tener disponible a fin de mes considerando todos tus compromisos." />
-}
 
 export function PersonalCategories() {
   return <ComingSoon Icon={Tag} title="Categorías" description="Personalizá las categorías de gastos e ingresos para organizar mejor tus finanzas." />

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   TrendingUp, TrendingDown, ArrowDownUp, Building2,
-  CreditCard, Target, AlertCircle, Wallet, Eye, EyeOff, RepeatIcon, ChevronRight,
+  CreditCard, Target, AlertCircle, Wallet, Eye, EyeOff, RepeatIcon, ChevronRight, BarChart3,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { personalService, type PersonalAccount, type PersonalTransaction, type PersonalCategory } from '../services/personalService'
@@ -31,9 +31,10 @@ export function PersonalDashboard() {
   const [recentTx,   setRecentTx]   = useState<PersonalTransaction[]>([])
   const [categories, setCategories] = useState<PersonalCategory[]>([])
   const [summary,    setSummary]    = useState({ totalIncome: 0, totalExpense: 0, balance: 0, available: 0, availableARS: 0, availableUSD: 0 })
-  const [cardTotalThisMonth, setCardTotalThisMonth] = useState(0)
-  const [nextCardDueText, setNextCardDueText] = useState<string | null>(null)
-  const [debtSummary, setDebtSummary] = useState<DebtSummary | null>(null)
+  const [cardTotalThisMonth,   setCardTotalThisMonth]   = useState(0)
+  const [nextCardDueText,      setNextCardDueText]      = useState<string | null>(null)
+  const [debtSummary,          setDebtSummary]          = useState<DebtSummary | null>(null)
+  const [debtInstallmentsEst,  setDebtInstallmentsEst]  = useState(0)
 
   // Privacy toggle — persisted in localStorage
   const [hidden, setHidden] = useState(() => localStorage.getItem(HIDE_KEY) === 'true')
@@ -66,6 +67,11 @@ export function PersonalDashboard() {
       setCategories(cats)
       setCardTotalThisMonth(getAllCardsStatementTotal(cpurchases, currentMonth()))
       setDebtSummary(debtService.getDebtSummary(debts))
+      setDebtInstallmentsEst(
+        debts
+          .filter(d => d.status === 'active' && d.type === 'debt')
+          .reduce((s, d) => s + Number(d.installment_amount ?? 0), 0)
+      )
       const activeCC = ccards.filter(c => c.is_active)
       if (activeCC.length > 0) {
         const earliest = activeCC
@@ -269,6 +275,43 @@ export function PersonalDashboard() {
           </div>
         )}
       </div>
+
+      {/* ── Projection widget ── */}
+      {(() => {
+        const pendingCommitments = cardTotalThisMonth + debtInstallmentsEst
+        const projResult = summary.balance - pendingCommitments
+        return (
+          <div
+            data-testid="personal-projections-widget"
+            onClick={() => navigate('/personal/proyecciones')}
+            style={{ background: projResult >= 0 ? 'rgba(129,140,248,0.06)' : 'rgba(248,113,113,0.06)', border: `1px solid ${projResult >= 0 ? 'rgba(129,140,248,0.18)' : 'rgba(248,113,113,0.18)'}`, borderRadius: '1rem', padding: '0.875rem 1rem', cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <BarChart3 size={14} color={projResult >= 0 ? '#818cf8' : '#f87171'} />
+                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Proyección</span>
+              </div>
+              <ChevronRight size={14} color="#334155" />
+            </div>
+            {loading ? (
+              <div style={{ height: 24, width: '45%', borderRadius: 4, background: 'rgba(129,140,248,0.1)', marginTop: '0.375rem' }} />
+            ) : (
+              <div style={{ marginTop: '0.375rem', display: 'flex', alignItems: 'baseline', gap: '0.625rem', flexWrap: 'wrap' }}>
+                <div data-testid="personal-projections-widget-result"
+                  style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '1.125rem', color: projResult >= 0 ? '#818cf8' : '#f87171' }}
+                >
+                  {hidden ? MASK : ((projResult >= 0 ? '+' : '') + amtComp(projResult))}
+                </div>
+                {pendingCommitments > 0 && (
+                  <div style={{ fontSize: '0.68rem', color: '#475569' }}>
+                    {hidden ? '' : `${amtComp(pendingCommitments)} en compromisos`}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* ── Recent transactions ── */}
       <div>
