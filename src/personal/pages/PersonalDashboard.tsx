@@ -8,6 +8,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { personalService, type PersonalAccount, type PersonalTransaction, type PersonalCategory } from '../services/personalService'
 import { creditCardService } from '../services/creditCardService'
 import { getAllCardsStatementTotal, getNextDueDate } from '../utils/creditCards'
+import { debtService, type DebtSummary } from '../services/debtService'
 import {
   TxRow, EmptyPersonal, SkeletonCard, PageContainer, Card, fmtMoney, fmtMoneyCompact,
 } from '../components/ui'
@@ -32,6 +33,7 @@ export function PersonalDashboard() {
   const [summary,    setSummary]    = useState({ totalIncome: 0, totalExpense: 0, balance: 0, available: 0, availableARS: 0, availableUSD: 0 })
   const [cardTotalThisMonth, setCardTotalThisMonth] = useState(0)
   const [nextCardDueText, setNextCardDueText] = useState<string | null>(null)
+  const [debtSummary, setDebtSummary] = useState<DebtSummary | null>(null)
 
   // Privacy toggle — persisted in localStorage
   const [hidden, setHidden] = useState(() => localStorage.getItem(HIDE_KEY) === 'true')
@@ -49,19 +51,21 @@ export function PersonalDashboard() {
     setLoading(true)
     try {
       await personalService.ensureDefaultCategories(user.id)
-      const [accts, txs, sum, cats, ccards, cpurchases] = await Promise.all([
+      const [accts, txs, sum, cats, ccards, cpurchases, debts] = await Promise.all([
         personalService.getAccounts(user.id),
         personalService.getTransactions(user.id, { limit: 4 }),
         personalService.getMonthlySummary(user.id, currentMonth()),
         personalService.getCategories(user.id),
         creditCardService.getCreditCards(user.id),
         creditCardService.getCardPurchases(user.id),
+        debtService.getDebts(user.id),
       ])
       setAccounts(accts)
       setRecentTx(txs)
       setSummary(sum)
       setCategories(cats)
       setCardTotalThisMonth(getAllCardsStatementTotal(cpurchases, currentMonth()))
+      setDebtSummary(debtService.getDebtSummary(debts))
       const activeCC = ccards.filter(c => c.is_active)
       if (activeCC.length > 0) {
         const earliest = activeCC
@@ -214,6 +218,53 @@ export function PersonalDashboard() {
             </div>
             {nextCardDueText && (
               <div style={{ fontSize: '0.68rem', color: '#475569' }}>{nextCardDueText}</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Debts widget ── */}
+      <div
+        data-testid="personal-debts-widget"
+        onClick={() => navigate('/personal/deudas')}
+        style={{ background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.18)', borderRadius: '1rem', padding: '0.875rem 1rem', cursor: 'pointer' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <AlertCircle size={14} color="#f87171" />
+            <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Deudas</span>
+          </div>
+          <ChevronRight size={14} color="#334155" />
+        </div>
+        {loading ? (
+          <div style={{ height: 24, width: '40%', borderRadius: 4, background: 'rgba(248,113,113,0.1)', marginTop: '0.375rem' }} />
+        ) : !debtSummary || debtSummary.activeCount === 0 ? (
+          <div style={{ marginTop: '0.375rem', fontSize: '0.75rem', color: '#334155' }}>Sin deudas activas</div>
+        ) : (
+          <div style={{ marginTop: '0.5rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+            {(debtSummary.totalOwed > 0 || debtSummary.totalOwedUSD > 0) && (
+              <div>
+                <div style={{ fontSize: '0.62rem', color: '#475569', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.15rem' }}>Yo debo</div>
+                <div data-testid="personal-debts-widget-owed" style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.9375rem', color: '#f87171' }}>
+                  {debtSummary.totalOwed > 0 ? (hidden ? MASK : fmtMoneyCompact(debtSummary.totalOwed)) : (hidden ? MASK : fmtMoneyCompact(debtSummary.totalOwedUSD) + ' USD')}
+                </div>
+              </div>
+            )}
+            {(debtSummary.totalReceivable > 0 || debtSummary.totalReceivableUSD > 0) && (
+              <div>
+                <div style={{ fontSize: '0.62rem', color: '#475569', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.15rem' }}>Me deben</div>
+                <div data-testid="personal-debts-widget-receivable" style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.9375rem', color: '#34d399' }}>
+                  {debtSummary.totalReceivable > 0 ? (hidden ? MASK : fmtMoneyCompact(debtSummary.totalReceivable)) : (hidden ? MASK : fmtMoneyCompact(debtSummary.totalReceivableUSD) + ' USD')}
+                </div>
+              </div>
+            )}
+            {debtSummary.nextDueDate && (
+              <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+                <div style={{ fontSize: '0.62rem', color: '#475569', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.15rem' }}>Próx. venc.</div>
+                <div style={{ fontSize: '0.75rem', color: '#fbbf24', fontWeight: 700 }}>
+                  {new Date(debtSummary.nextDueDate + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}
+                </div>
+              </div>
             )}
           </div>
         )}

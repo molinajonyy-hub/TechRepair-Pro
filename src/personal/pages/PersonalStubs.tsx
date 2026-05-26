@@ -22,10 +22,6 @@ function ComingSoon({ Icon, title, description }: { Icon: React.ElementType; tit
 }
 
 
-export function PersonalDebts() {
-  return <ComingSoon Icon={AlertCircle} title="Deudas personales" description="Registrá tus deudas, seguí los pagos y sabe cuánto te falta cancelar." />
-}
-
 export function PersonalProjection() {
   return <ComingSoon Icon={BarChart3} title="Proyecciones" description="Ve cuánto vas a tener disponible a fin de mes considerando todos tus compromisos." />
 }
