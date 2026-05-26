@@ -1,10 +1,15 @@
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Plus, CreditCard, X, Edit2, Trash2, ChevronRight, AlertCircle, Check } from 'lucide-react'
+import { Plus, CreditCard, X, Edit2, Trash2, ChevronLeft, ChevronRight, AlertCircle, Check, Eye, EyeOff } from 'lucide-react'
 import { PersonalBottomSheet } from '../components/PersonalBottomSheet'
 import { useAuth } from '../../contexts/AuthContext'
-import { creditCardService, type CreditCard as CCType, type CardPurchase } from '../services/creditCardService'
+import {
+  creditCardService,
+  type CreditCard as CCType,
+  type CardPurchase,
+  type PersonalCardPayment,
+} from '../services/creditCardService'
 import { type PersonalAccount, type PersonalCategory, personalService } from '../services/personalService'
 import {
   PageContainer, Card, SectionHeader, PrimaryBtn, PersonalInput, PersonalSelect,
@@ -17,6 +22,10 @@ import {
   formatCardCycle, isPurchaseActive, getRemainingInstallments,
 } from '../utils/creditCards'
 import { logger } from '../../lib/logger'
+
+// ── Privacy constants ─────────────────────────────────────────────────────────
+const HIDE_KEY = 'miGuitaHideAmounts'
+const MASK     = '••••'
 
 // ── Card accent colors (cycled by index) ──────────────────────────────────────
 const CARD_COLORS = ['#818cf8', '#34d399', '#60a5fa', '#fbbf24', '#f87171', '#a78bfa', '#fb923c']
@@ -146,7 +155,6 @@ function PurchaseForm({ cards, categories, defaultCardId, onSaved, onClose }: {
   const numInstallments = parseInt(installments, 10)
   const previewValid = amt > 0 && numInstallments >= 1 && firstMonth
 
-  // Build preview schedule
   const previewSchedule = previewValid
     ? Array.from({ length: numInstallments }, (_, i) => ({
         month: addMonths(firstMonth, i),
@@ -253,18 +261,28 @@ function PurchaseForm({ cards, categories, defaultCardId, onSaved, onClose }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PaymentForm — pay a credit card (creates an expense transaction)
+// PaymentForm — pay a credit card statement (atomic, period-tracked)
 // ─────────────────────────────────────────────────────────────────────────────
-function PaymentForm({ cards, accounts, onSaved, onClose }: {
+function PaymentForm({ cards, accounts, purchases, cardPayments, defaultCardId, defaultPeriod, onSaved, onClose }: {
   cards: CCType[]
   accounts: PersonalAccount[]
+  purchases: CardPurchase[]
+  cardPayments: PersonalCardPayment[]
+  defaultCardId?: string
+  defaultPeriod: string
   onSaved: () => void
   onClose: () => void
 }) {
   const { user } = useAuth()
-  const [cardId, setCardId]       = useState(cards[0]?.id ?? '')
-  const [accountId, setAccountId] = useState(accounts[0]?.id ?? '')
-  const [amount, setAmount]       = useState('')
+  const [cardId, setCardId]       = useState(defaultCardId ?? cards.find(c => c.is_active)?.id ?? '')
+  const [accountId, setAccountId] = useState(accounts.find(a => a.is_active)?.id ?? '')
+  const [period, setPeriod]       = useState(defaultPeriod)
+  const [amount, setAmount]       = useState(() => {
+    const id = defaultCardId ?? cards.find(c => c.is_active)?.id ?? ''
+    if (!id || !defaultPeriod) return ''
+    const total = getCardStatementTotal(id, purchases, defaultPeriod)
+    return total > 0 ? String(total) : ''
+  })
   const [date, setDate]           = useState(new Date().toISOString().split('T')[0])
   const [notes, setNotes]         = useState('')
   const [confirmed, setConfirmed] = useState(false)
@@ -272,30 +290,50 @@ function PaymentForm({ cards, accounts, onSaved, onClose }: {
   const [error, setError]         = useState('')
 
   const activeAccounts = accounts.filter(a => a.is_active)
-  const selectedCard = cards.find(c => c.id === cardId)
-  const amt = parseFloat(amount.replace(',', '.'))
-  const isValid = amt > 0 && !!cardId && !!accountId
+  const selectedCard   = cards.find(c => c.id === cardId)
+  const monthOptions   = monthSelectOptions(24)
+  const amt            = parseFloat(amount.replace(',', '.'))
+  const isValid        = amt > 0 && !!cardId && !!accountId
+  const alreadyPaid    = cardPayments.some(p => p.credit_card_id === cardId && p.period === period)
+
+  // Auto-fill amount from statement total when card or period changes
+  useEffect(() => {
+    if (!cardId || !period) return
+    const total = getCardStatementTotal(cardId, purchases, period)
+    setAmount(total > 0 ? String(total) : '')
+    setConfirmed(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardId, period])
 
   const handleSave = async () => {
     if (!user || saving) return
-    if (!cardId) { setError('Seleccioná una tarjeta'); return }
-    if (!accountId) { setError('Seleccioná una cuenta'); return }
-    if (!amt || amt <= 0) { setError('El monto debe ser mayor a $0'); return }
+    if (!cardId)         { setError('Seleccioná una tarjeta'); return }
+    if (!accountId)      { setError('Seleccioná una cuenta'); return }
+    if (!amt || amt <= 0){ setError('El monto debe ser mayor a $0'); return }
+    if (!period)         { setError('Seleccioná el período'); return }
     setError('')
     setSaving(true)
     try {
-      await creditCardService.payCreditCard(user.id, {
+      const result = await creditCardService.payCardStatement(user.id, {
+        cardId,
         cardName: selectedCard?.name ?? '',
         accountId,
+        period,
         amount: amt,
+        currency: selectedCard?.currency ?? 'ARS',
         date,
         notes,
-        categoryId: null,
       })
+      if (!result.ok) {
+        const msg = result.message ?? result.error ?? 'Error al registrar el pago'
+        setError(msg)
+        showToast({ message: msg, type: 'error' })
+        return
+      }
       showToast({ message: `Pago de ${fmtMoney(amt)} registrado`, type: 'success' })
       onSaved()
     } catch (e: any) {
-      logger.error('PERSONAL', 'payCreditCard', e)
+      logger.error('PERSONAL', 'payCardStatement', e)
       const msg = e.message || 'Error al registrar el pago'
       setError(msg)
       showToast({ message: msg, type: 'error' })
@@ -324,11 +362,20 @@ function PaymentForm({ cards, accounts, onSaved, onClose }: {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <PersonalSelect testId="personal-card-payment-card" label="Tarjeta" value={cardId} onChange={e => setCardId(e.target.value)}>
+          <PersonalSelect testId="personal-card-payment-card" label="Tarjeta" value={cardId} onChange={e => { setCardId(e.target.value); setConfirmed(false) }}>
             <option value="">Seleccionar tarjeta</option>
             {cards.filter(c => c.is_active).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </PersonalSelect>
-          <PersonalSelect testId="personal-card-payment-account" label="Cuenta de origen *" value={accountId} onChange={e => setAccountId(e.target.value)}>
+          <PersonalSelect testId="personal-card-payment-period" label="Período del resumen" value={period} onChange={e => { setPeriod(e.target.value); setConfirmed(false) }}>
+            {monthOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </PersonalSelect>
+          {alreadyPaid && (
+            <div data-testid="personal-card-payment-already-paid" style={{ padding: '0.5rem 0.75rem', background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.25)', borderRadius: '0.5rem', color: '#34d399', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+              <Check size={12} />
+              El resumen de {formatYearMonth(period)} ya fue pagado
+            </div>
+          )}
+          <PersonalSelect testId="personal-card-payment-account" label="Cuenta de origen *" value={accountId} onChange={e => { setAccountId(e.target.value); setConfirmed(false) }}>
             <option value="">Seleccionar cuenta</option>
             {activeAccounts.map(a => <option key={a.id} value={a.id}>{a.name} ({fmtMoney(a.current_balance)})</option>)}
           </PersonalSelect>
@@ -339,7 +386,7 @@ function PaymentForm({ cards, accounts, onSaved, onClose }: {
               type="text" inputMode="decimal" pattern="[0-9]*[.,]?[0-9]*"
               value={amount}
               onChange={e => { setAmount(e.target.value); setConfirmed(false) }}
-              placeholder="0" autoFocus autoComplete="off"
+              placeholder="0" autoComplete="off"
               style={{ width: '100%', padding: '0.875rem', boxSizing: 'border-box', background: 'rgba(248,113,113,0.05)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: '0.875rem', color: '#f87171', fontSize: '2rem', fontWeight: 900, outline: 'none', fontFamily: 'monospace', textAlign: 'right' }}
             />
           </div>
@@ -370,25 +417,33 @@ function PaymentForm({ cards, accounts, onSaved, onClose }: {
 // ─────────────────────────────────────────────────────────────────────────────
 // CardDetailSheet — detail view for one card with its purchases
 // ─────────────────────────────────────────────────────────────────────────────
-function CardDetailSheet({ card, purchases, cardIdx, onAddPurchase, onEdit, onDeactivate, onDeletePurchase, onClose }: {
+function CardDetailSheet({ card, purchases, cardIdx, cardPayments, viewMonth, hidden, onAddPurchase, onEdit, onDeactivate, onDeletePurchase, onPayStatement, onClose }: {
   card: CCType
   purchases: CardPurchase[]
   cardIdx: number
+  cardPayments: PersonalCardPayment[]
+  viewMonth: string
+  hidden: boolean
   onAddPurchase: () => void
   onEdit: () => void
   onDeactivate: () => void
   onDeletePurchase: (id: string) => void
+  onPayStatement: (cardId: string, period: string) => void
   onClose: () => void
 }) {
-  const month = currentYearMonth()
-  const color = cardColor(cardIdx)
-  const cardPurchases = purchases.filter(p => p.credit_card_id === card.id)
-  const thisMonthTotal = getCardStatementTotal(card.id, purchases, month)
-  const futureTotal = getFutureInstallmentsTotal(cardPurchases, addMonths(month, 1))
+  const month       = viewMonth
+  const color       = cardColor(cardIdx)
+  const cardPurchases   = purchases.filter(p => p.credit_card_id === card.id)
+  const thisMonthTotal  = getCardStatementTotal(card.id, purchases, month)
+  const futureTotal     = getFutureInstallmentsTotal(cardPurchases, addMonths(currentYearMonth(), 1))
   const activePurchases = cardPurchases.filter(p => isPurchaseActive(p, month))
-  const pastPurchases = cardPurchases.filter(p => !isPurchaseActive(p, month))
-  const nextDue = getNextDueDate(card)
+  const pastPurchases   = cardPurchases.filter(p => !isPurchaseActive(p, month))
+  const nextDue         = getNextDueDate(card)
+  const alreadyPaid     = cardPayments.some(p => p.credit_card_id === card.id && p.period === month)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const amtH = (n: number) => hidden ? MASK : fmtMoney(n)
+  const amtC = (n: number) => hidden ? MASK : fmtMoneyCompact(n)
 
   useEffect(() => {
     const prev = document.body.style.overflow
@@ -417,10 +472,10 @@ function CardDetailSheet({ card, purchases, cardIdx, onAddPurchase, onEdit, onDe
           </div>
 
           {/* Stats row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '1rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.625rem' }}>
             {[
-              { label: 'Este mes', value: fmtMoney(thisMonthTotal), color: '#818cf8' },
-              { label: 'Cuotas futuras', value: fmtMoneyCompact(futureTotal), color: '#fbbf24' },
+              { label: formatYearMonth(month), value: amtH(thisMonthTotal), color: '#818cf8' },
+              { label: 'Cuotas futuras',       value: amtC(futureTotal),    color: '#fbbf24' },
             ].map(s => (
               <div key={s.label} style={{ background: `${s.color}0d`, border: `1px solid ${s.color}25`, borderRadius: '0.75rem', padding: '0.75rem', textAlign: 'center' }}>
                 <div style={{ fontSize: '0.6rem', color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.label}</div>
@@ -429,18 +484,37 @@ function CardDetailSheet({ card, purchases, cardIdx, onAddPurchase, onEdit, onDe
             ))}
           </div>
 
+          {/* Payment status badge */}
+          <div style={{ marginBottom: '0.75rem' }}>
+            {alreadyPaid ? (
+              <span style={{ fontSize: '0.72rem', color: '#34d399', background: 'rgba(52,211,153,0.1)', borderRadius: '99px', padding: '0.25rem 0.625rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                <Check size={10} /> Resumen {formatYearMonth(month)} pagado
+              </span>
+            ) : thisMonthTotal > 0 ? (
+              <span style={{ fontSize: '0.72rem', color: '#fbbf24', background: 'rgba(251,191,36,0.1)', borderRadius: '99px', padding: '0.25rem 0.625rem' }}>
+                Resumen {formatYearMonth(month)} pendiente
+              </span>
+            ) : null}
+          </div>
+
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginBottom: '1rem' }}>
             <span style={{ fontSize: '0.72rem', color: '#475569', background: 'rgba(255,255,255,0.04)', borderRadius: '99px', padding: '0.25rem 0.625rem' }}>{formatCardCycle(card)}</span>
             <span style={{ fontSize: '0.72rem', color: '#475569', background: 'rgba(255,255,255,0.04)', borderRadius: '99px', padding: '0.25rem 0.625rem' }}>Vence {nextDue.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}</span>
-            {card.credit_limit && <span style={{ fontSize: '0.72rem', color: '#475569', background: 'rgba(255,255,255,0.04)', borderRadius: '99px', padding: '0.25rem 0.625rem' }}>Límite {fmtMoney(card.credit_limit)}</span>}
+            {card.credit_limit && <span style={{ fontSize: '0.72rem', color: '#475569', background: 'rgba(255,255,255,0.04)', borderRadius: '99px', padding: '0.25rem 0.625rem' }}>Límite {hidden ? MASK : fmtMoney(card.credit_limit)}</span>}
           </div>
 
-          {/* Action buttons */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.375rem', marginBottom: '1rem' }}>
+          {/* Action buttons — 2x2 grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.375rem', marginBottom: '1rem' }}>
             {[
-              { label: '+ Compra', onClick: onAddPurchase, color: '#818cf8', bg: 'rgba(129,140,248,0.1)' },
-              { label: '✏ Editar', onClick: onEdit, color: '#60a5fa', bg: 'rgba(96,165,250,0.1)' },
-              { label: '⊘ Desactivar', onClick: onDeactivate, color: '#f87171', bg: 'rgba(248,113,113,0.1)' },
+              { label: '+ Compra',     onClick: onAddPurchase,  color: '#818cf8', bg: 'rgba(129,140,248,0.1)' },
+              {
+                label: alreadyPaid ? '✓ Pagado' : (thisMonthTotal > 0 ? 'Pagar resumen' : 'Pagar'),
+                onClick: () => onPayStatement(card.id, month),
+                color: alreadyPaid ? '#34d399' : '#f87171',
+                bg: alreadyPaid ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)',
+              },
+              { label: '✏ Editar',    onClick: onEdit,         color: '#60a5fa', bg: 'rgba(96,165,250,0.1)'  },
+              { label: '⊘ Desactivar',onClick: onDeactivate,   color: '#f87171', bg: 'rgba(248,113,113,0.1)' },
             ].map(a => (
               <button key={a.label} onClick={a.onClick} style={{ padding: '0.625rem 0.25rem', borderRadius: '0.625rem', background: a.bg, border: `1px solid ${a.color}30`, color: a.color, fontWeight: 700, fontSize: '0.72rem', cursor: 'pointer', minHeight: 44 }}>
                 {a.label}
@@ -471,7 +545,7 @@ function CardDetailSheet({ card, purchases, cardIdx, onAddPurchase, onEdit, onDe
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#f0f4ff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.description}</div>
                               <div style={{ fontSize: '0.72rem', color: '#475569', marginTop: '0.15rem' }}>
-                                {p.installments === 1 ? 'Contado' : `${p.installments} cuotas de ${fmtMoney(perInstallment)}`}
+                                {p.installments === 1 ? 'Contado' : `${p.installments} cuotas de ${hidden ? MASK : fmtMoney(perInstallment)}`}
                                 {' · '}{remaining} restante{remaining !== 1 ? 's' : ''}
                               </div>
                               {p.category && (
@@ -481,7 +555,7 @@ function CardDetailSheet({ card, purchases, cardIdx, onAddPurchase, onEdit, onDe
                               )}
                             </div>
                             <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '0.5rem' }}>
-                              <div style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.9rem', color: '#818cf8' }}>{fmtMoney(p.total_amount)}</div>
+                              <div style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.9rem', color: '#818cf8' }}>{amtH(p.total_amount)}</div>
                               <div style={{ fontSize: '0.65rem', color: '#475569' }}>{new Date(p.purchase_date + 'T12:00:00').toLocaleDateString('es-AR')}</div>
                             </div>
                             <button
@@ -516,7 +590,7 @@ function CardDetailSheet({ card, purchases, cardIdx, onAddPurchase, onEdit, onDe
                             {p.installments === 1 ? 'Contado' : `${p.installments} cuotas`} · {new Date(p.purchase_date + 'T12:00:00').toLocaleDateString('es-AR')}
                           </div>
                         </div>
-                        <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.875rem', color: '#334155' }}>{fmtMoney(p.total_amount)}</div>
+                        <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.875rem', color: '#334155' }}>{amtH(p.total_amount)}</div>
                       </div>
                     ))}
                   </Card>
@@ -571,6 +645,18 @@ export function PersonalCards() {
   const [purchases, setPurchases]     = useState<CardPurchase[]>([])
   const [accounts, setAccounts]       = useState<PersonalAccount[]>([])
   const [categories, setCategories]   = useState<PersonalCategory[]>([])
+  const [cardPayments, setCardPayments] = useState<PersonalCardPayment[]>([])
+
+  // Privacy toggle — shared with dashboard via localStorage
+  const [hidden, setHidden] = useState(() => localStorage.getItem(HIDE_KEY) === 'true')
+  const toggleHidden = () => {
+    const next = !hidden
+    setHidden(next)
+    localStorage.setItem(HIDE_KEY, String(next))
+  }
+
+  // Month selector
+  const [viewMonth, setViewMonth] = useState(currentYearMonth())
 
   // Sheet state
   const [showCardForm, setShowCardForm]         = useState(false)
@@ -578,6 +664,7 @@ export function PersonalCards() {
   const [showPurchaseForm, setShowPurchaseForm] = useState(false)
   const [purchaseDefaultCard, setPurchaseDefaultCard] = useState('')
   const [showPaymentForm, setShowPaymentForm]   = useState(false)
+  const [paymentDefaultCard, setPaymentDefaultCard] = useState('')
   const [detailCard, setDetailCard]             = useState<CCType | null>(null)
   const [disableTarget, setDisableTarget]       = useState<CCType | null>(null)
 
@@ -585,13 +672,14 @@ export function PersonalCards() {
     if (!user) return
     setLoading(true)
     try {
-      const [c, p, a, cats] = await Promise.all([
+      const [c, p, a, cats, cp] = await Promise.all([
         creditCardService.getCreditCards(user.id),
         creditCardService.getCardPurchases(user.id),
         personalService.getAccounts(user.id),
         personalService.getCategories(user.id),
+        creditCardService.getCardPayments(user.id),
       ])
-      setCards(c); setPurchases(p); setAccounts(a); setCategories(cats)
+      setCards(c); setPurchases(p); setAccounts(a); setCategories(cats); setCardPayments(cp)
     } finally {
       setLoading(false)
     }
@@ -604,17 +692,19 @@ export function PersonalCards() {
     if (location.pathname.endsWith('/compra')) setShowPurchaseForm(true)
   }, [location.pathname])
 
-  const month = currentYearMonth()
-  const activeCards = cards.filter(c => c.is_active)
-  const totalThisMonth = getAllCardsStatementTotal(purchases, month)
-  const totalFuture = getFutureInstallmentsTotal(purchases, addMonths(month, 1))
+  const activeCards      = cards.filter(c => c.is_active)
+  const totalThisMonth   = getAllCardsStatementTotal(purchases, viewMonth)
+  const totalFuture      = getFutureInstallmentsTotal(purchases, addMonths(currentYearMonth(), 1))
+  const isCurrentMonth   = viewMonth === currentYearMonth()
 
-  // Next due: earliest upcoming due across all active cards
   const nextDueInfo = activeCards.length > 0
     ? activeCards
         .map(c => ({ card: c, date: getNextDueDate(c) }))
         .sort((a, b) => a.date.getTime() - b.date.getTime())[0]
     : null
+
+  const amt     = (n: number) => hidden ? MASK : fmtMoney(n)
+  const amtComp = (n: number) => hidden ? MASK : fmtMoneyCompact(n)
 
   const handleDeletePurchase = async (purchaseId: string) => {
     if (!user) return
@@ -649,12 +739,41 @@ export function PersonalCards() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ fontWeight: 800, fontSize: '1.125rem', color: '#f0f4ff' }}>Tarjetas</span>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <button
+            data-testid="personal-cards-toggle-hide"
+            onClick={toggleHidden}
+            aria-label={hidden ? 'Mostrar importes' : 'Ocultar importes'}
+            style={{ width: 32, height: 32, borderRadius: '0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#475569' }}
+          >
+            {hidden ? <Eye size={14} /> : <EyeOff size={14} />}
+          </button>
+          <button
+            data-testid="personal-card-new-button"
+            onClick={() => { setEditingCard(null); setShowCardForm(true) }}
+            style={{ width: 36, height: 36, borderRadius: '0.75rem', background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#818cf8' }}
+          >
+            <Plus size={18} />
+          </button>
+        </div>
+      </div>
+
+      {/* Month selector */}
+      <div data-testid="personal-cards-month-selector" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem' }}>
         <button
-          data-testid="personal-card-new-button"
-          onClick={() => { setEditingCard(null); setShowCardForm(true) }}
-          style={{ width: 36, height: 36, borderRadius: '0.75rem', background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#818cf8' }}
+          onClick={() => setViewMonth(m => addMonths(m, -1))}
+          style={{ width: 32, height: 32, borderRadius: '0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#475569' }}
         >
-          <Plus size={18} />
+          <ChevronLeft size={16} />
+        </button>
+        <span style={{ fontSize: '0.9375rem', fontWeight: 700, color: '#f0f4ff', minWidth: '7.5rem', textAlign: 'center' }}>
+          {formatYearMonth(viewMonth)}
+        </span>
+        <button
+          onClick={() => setViewMonth(m => addMonths(m, 1))}
+          style={{ width: 32, height: 32, borderRadius: '0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#475569' }}
+        >
+          <ChevronRight size={16} />
         </button>
       </div>
 
@@ -669,12 +788,14 @@ export function PersonalCards() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: nextDueInfo ? '0.75rem' : 0 }}>
             <div>
-              <div style={{ fontSize: '0.68rem', color: '#475569', marginBottom: '0.2rem' }}>Próximo resumen</div>
-              <div data-testid="personal-cards-total-due" style={{ fontSize: '1.5rem', fontWeight: 900, color: '#818cf8', fontFamily: 'monospace', letterSpacing: '-0.03em', lineHeight: 1 }}>{fmtMoney(totalThisMonth)}</div>
+              <div style={{ fontSize: '0.68rem', color: '#475569', marginBottom: '0.2rem' }}>
+                {isCurrentMonth ? 'Próximo resumen' : formatYearMonth(viewMonth)}
+              </div>
+              <div data-testid="personal-cards-total-due" style={{ fontSize: '1.5rem', fontWeight: 900, color: '#818cf8', fontFamily: 'monospace', letterSpacing: '-0.03em', lineHeight: 1 }}>{amt(totalThisMonth)}</div>
             </div>
             <div>
               <div style={{ fontSize: '0.68rem', color: '#475569', marginBottom: '0.2rem' }}>Cuotas futuras</div>
-              <div data-testid="personal-cards-future-total" style={{ fontSize: '1.5rem', fontWeight: 900, color: '#fbbf24', fontFamily: 'monospace', letterSpacing: '-0.03em', lineHeight: 1 }}>{fmtMoneyCompact(totalFuture)}</div>
+              <div data-testid="personal-cards-future-total" style={{ fontSize: '1.5rem', fontWeight: 900, color: '#fbbf24', fontFamily: 'monospace', letterSpacing: '-0.03em', lineHeight: 1 }}>{amtComp(totalFuture)}</div>
             </div>
           </div>
           {nextDueInfo && (
@@ -690,7 +811,7 @@ export function PersonalCards() {
         {[
           { label: '+ Tarjeta',  testId: 'personal-card-new-button-2',     color: '#818cf8', bg: 'rgba(129,140,248,0.1)', onClick: () => { setEditingCard(null); setShowCardForm(true) } },
           { label: '+ Compra',   testId: 'personal-card-purchase-button',  color: '#34d399', bg: 'rgba(52,211,153,0.1)',  onClick: () => { setPurchaseDefaultCard(''); setShowPurchaseForm(true) } },
-          { label: 'Pagar',      testId: 'personal-card-pay-button',       color: '#f87171', bg: 'rgba(248,113,113,0.1)', onClick: () => setShowPaymentForm(true) },
+          { label: 'Pagar',      testId: 'personal-card-pay-button',       color: '#f87171', bg: 'rgba(248,113,113,0.1)', onClick: () => { setPaymentDefaultCard(''); setShowPaymentForm(true) } },
         ].map(a => (
           <button
             key={a.label}
@@ -720,9 +841,9 @@ export function PersonalCards() {
               <SectionHeader title="Activas" />
               <Card>
                 {activeCards.map((card, i) => {
-                  const color = cardColor(i)
-                  const thisMonth = getCardStatementTotal(card.id, purchases, month)
-                  const nextDue = getNextDueDate(card)
+                  const color    = cardColor(i)
+                  const thisMonth = getCardStatementTotal(card.id, purchases, viewMonth)
+                  const nextDue  = getNextDueDate(card)
                   return (
                     <div
                       key={card.id}
@@ -746,9 +867,9 @@ export function PersonalCards() {
                         </div>
                       </div>
                       <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <div data-testid="personal-card-statement-total" style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.9375rem', color: thisMonth > 0 ? '#818cf8' : '#334155' }}>{fmtMoney(thisMonth)}</div>
+                        <div data-testid="personal-card-statement-total" style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.9375rem', color: thisMonth > 0 ? '#818cf8' : '#334155' }}>{amt(thisMonth)}</div>
                         {card.credit_limit && (
-                          <div style={{ fontSize: '0.65rem', color: '#334155', marginTop: '0.1rem' }}>Límite {fmtMoneyCompact(card.credit_limit)}</div>
+                          <div style={{ fontSize: '0.65rem', color: '#334155', marginTop: '0.1rem' }}>Límite {amtComp(card.credit_limit)}</div>
                         )}
                       </div>
                       <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}>
@@ -817,8 +938,12 @@ export function PersonalCards() {
         <PaymentForm
           cards={cards}
           accounts={accounts}
-          onSaved={() => { setShowPaymentForm(false); void load() }}
-          onClose={() => setShowPaymentForm(false)}
+          purchases={purchases}
+          cardPayments={cardPayments}
+          defaultCardId={paymentDefaultCard || undefined}
+          defaultPeriod={viewMonth}
+          onSaved={() => { setShowPaymentForm(false); setPaymentDefaultCard(''); void load() }}
+          onClose={() => { setShowPaymentForm(false); setPaymentDefaultCard('') }}
         />
       )}
 
@@ -827,10 +952,18 @@ export function PersonalCards() {
           card={detailCard}
           purchases={purchases}
           cardIdx={activeCards.findIndex(c => c.id === detailCard.id)}
+          cardPayments={cardPayments}
+          viewMonth={viewMonth}
+          hidden={hidden}
           onAddPurchase={() => { setPurchaseDefaultCard(detailCard.id); setDetailCard(null); setShowPurchaseForm(true) }}
           onEdit={() => { setEditingCard(detailCard); setDetailCard(null); setShowCardForm(true) }}
           onDeactivate={() => { setDisableTarget(detailCard); setDetailCard(null) }}
           onDeletePurchase={handleDeletePurchase}
+          onPayStatement={(cardId, _period) => {
+            setPaymentDefaultCard(cardId)
+            setDetailCard(null)
+            setShowPaymentForm(true)
+          }}
           onClose={() => setDetailCard(null)}
         />
       )}

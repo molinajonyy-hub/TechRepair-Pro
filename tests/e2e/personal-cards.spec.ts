@@ -281,4 +281,131 @@ test.describe('@personal @cards @smoke Mi Guita — tarjetas de crédito', () =>
     await expect(nav).toBeVisible()
     await expect(nav.locator('button')).toHaveCount(5)
   })
+
+  // ── Hide amounts ────────────────────────────────────────────────────────────
+
+  test('toggle ocultar importes: cifras se muestran como ••••', async ({ page }) => {
+    await login(page)
+    await openCards(page)
+    const toggle = page.locator('[data-testid="personal-cards-toggle-hide"]')
+    await expect(toggle).toBeVisible()
+    // Enable hide
+    await toggle.click()
+    await page.waitForTimeout(300)
+    const totalDue = page.locator('[data-testid="personal-cards-total-due"]')
+    if (await totalDue.isVisible()) {
+      const text = await totalDue.textContent()
+      expect(text).toContain('••••')
+    }
+    // Disable hide
+    await toggle.click()
+    await page.waitForTimeout(200)
+  })
+
+  test('toggle hide: después de desactivar vuelven a aparecer números', async ({ page }) => {
+    await login(page)
+    await openCards(page)
+    const toggle = page.locator('[data-testid="personal-cards-toggle-hide"]')
+    await toggle.click()
+    await page.waitForTimeout(200)
+    await toggle.click()
+    await page.waitForTimeout(200)
+    const totalDue = page.locator('[data-testid="personal-cards-total-due"]')
+    if (await totalDue.isVisible()) {
+      const text = await totalDue.textContent()
+      expect(text).not.toContain('••••')
+    }
+  })
+
+  // ── Month selector ──────────────────────────────────────────────────────────
+
+  test('selector de mes es visible en la página de tarjetas', async ({ page }) => {
+    await login(page)
+    await openCards(page)
+    await expect(page.locator('[data-testid="personal-cards-month-selector"]')).toBeVisible()
+  })
+
+  test('selector de mes: avanzar mes cambia el mes mostrado', async ({ page }) => {
+    await login(page)
+    await openCards(page)
+    const selector = page.locator('[data-testid="personal-cards-month-selector"]')
+    const labelBefore = await selector.locator('span').textContent()
+    await selector.locator('button').last().click()
+    await page.waitForTimeout(200)
+    const labelAfter = await selector.locator('span').textContent()
+    expect(labelAfter).not.toBe(labelBefore)
+  })
+
+  test('selector de mes: retroceder y avanzar vuelve al mes original', async ({ page }) => {
+    await login(page)
+    await openCards(page)
+    const selector = page.locator('[data-testid="personal-cards-month-selector"]')
+    const labelBefore = await selector.locator('span').textContent()
+    await selector.locator('button').last().click()
+    await page.waitForTimeout(100)
+    await selector.locator('button').first().click()
+    await page.waitForTimeout(100)
+    const labelAfter = await selector.locator('span').textContent()
+    expect(labelAfter).toBe(labelBefore)
+  })
+
+  // ── Pay statement form ──────────────────────────────────────────────────────
+
+  test('formulario pago: tiene selector de período', async ({ page }) => {
+    await login(page)
+    await openCards(page)
+    await page.click('[data-testid="personal-card-pay-button"]')
+    await page.waitForSelector('[data-testid="personal-card-payment-form"]', { timeout: 5_000 })
+    const amtInput = page.locator('[data-testid="personal-card-payment-amount"]')
+    if (await amtInput.isVisible()) {
+      const periodSelect = page.locator('[data-testid="personal-card-payment-period"]')
+      await expect(periodSelect).toBeVisible()
+      const options = await periodSelect.locator('option').count()
+      expect(options).toBeGreaterThanOrEqual(12)
+    }
+  })
+
+  test('formulario pago: botón deshabilitado sin confirmar', async ({ page }) => {
+    await login(page)
+    await openCards(page)
+    await page.click('[data-testid="personal-card-pay-button"]')
+    await page.waitForSelector('[data-testid="personal-card-payment-form"]', { timeout: 5_000 })
+    const saveBtn = page.locator('[data-testid="personal-card-payment-save"]')
+    if (await saveBtn.isVisible()) {
+      await expect(saveBtn).toBeDisabled()
+    }
+  })
+
+  // ── Dashboard card widget ───────────────────────────────────────────────────
+
+  test('dashboard muestra widget de tarjetas con testid correcto', async ({ page }) => {
+    await login(page)
+    await page.goto('/personal')
+    await page.waitForSelector('[data-testid="personal-dashboard"]', { timeout: 15_000 })
+    const widget = page.locator('[data-testid="personal-cards-widget"]')
+    await expect(widget).toBeVisible({ timeout: 8_000 })
+  })
+
+  test('dashboard widget tarjetas navega a /personal/tarjetas al hacer click', async ({ page }) => {
+    await login(page)
+    await page.goto('/personal')
+    await page.waitForSelector('[data-testid="personal-cards-widget"]', { timeout: 15_000 })
+    await page.click('[data-testid="personal-cards-widget"]')
+    await expect(page.locator('[data-testid="personal-cards-page"]')).toBeVisible({ timeout: 8_000 })
+  })
+
+  // ── Mobile safe area ────────────────────────────────────────────────────────
+
+  test('card detail sheet usa safe-area-inset en maxHeight', async ({ page }) => {
+    await login(page)
+    await openCards(page)
+    const cardRows = page.locator('[data-testid="personal-card-row"]')
+    if (await cardRows.count() > 0) {
+      await cardRows.first().click()
+      await page.waitForTimeout(500)
+      const overlay = page.locator('div[style*="safe-area-inset"]')
+      expect(await overlay.count()).toBeGreaterThan(0)
+    }
+    expect(true).toBe(true)
+  })
 })

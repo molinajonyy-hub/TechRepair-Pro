@@ -18,6 +18,20 @@ export interface CreditCard {
   updated_at: string
 }
 
+export interface PersonalCardPayment {
+  id: string
+  user_id: string
+  credit_card_id: string
+  period: string        // 'YYYY-MM'
+  amount: number
+  currency: string
+  account_id: string | null
+  transaction_id: string | null
+  payment_date: string
+  notes: string | null
+  created_at: string
+}
+
 export interface CardPurchase {
   id: string
   user_id: string
@@ -117,9 +131,55 @@ export const creditCardService = {
     if (error) throw error
   },
 
-  // ── Payment ───────────────────────────────────────────────────────────────
-  // Creates a personal expense transaction debiting the selected account.
-  // Does NOT delete purchases — they remain as history/projection.
+  // ── Payments ─────────────────────────────────────────────────────────────
+  async getCardPayments(userId: string, cardId?: string): Promise<PersonalCardPayment[]> {
+    let q = supabase
+      .from('personal_card_payments')
+      .select('*')
+      .eq('user_id', userId)
+      .order('payment_date', { ascending: false })
+    if (cardId) q = q.eq('credit_card_id', cardId)
+    const { data, error } = await q
+    if (error) throw error
+    return (data ?? []) as PersonalCardPayment[]
+  },
+
+  // Atomic: creates transaction + updates balance + records payment for the period.
+  // Returns { ok: false, error: 'already_paid' } if the period was already paid.
+  async payCardStatement(
+    userId: string,
+    params: {
+      cardId: string
+      cardName: string
+      accountId: string
+      period: string  // 'YYYY-MM'
+      amount: number
+      currency: string
+      date: string
+      notes: string
+    }
+  ): Promise<{ ok: boolean; paymentId?: string; error?: string; message?: string }> {
+    const { data, error } = await supabase.rpc('pay_card_statement_atomic', {
+      p_user_id:    userId,
+      p_card_id:    params.cardId,
+      p_account_id: params.accountId,
+      p_period:     params.period,
+      p_amount:     params.amount,
+      p_currency:   params.currency,
+      p_date:       params.date,
+      p_card_name:  params.cardName,
+      p_notes:      params.notes || '',
+    })
+    if (error) return { ok: false, error: error.message }
+    return {
+      ok:        data?.ok ?? false,
+      paymentId: data?.payment_id,
+      error:     data?.error,
+      message:   data?.message,
+    }
+  },
+
+  // @deprecated — kept for compatibility; prefer payCardStatement for period tracking.
   async payCreditCard(
     userId: string,
     params: {

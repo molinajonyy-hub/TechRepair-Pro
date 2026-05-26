@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   TrendingUp, TrendingDown, ArrowDownUp, Building2,
-  CreditCard, Target, AlertCircle, Wallet, Eye, EyeOff, RepeatIcon,
+  CreditCard, Target, AlertCircle, Wallet, Eye, EyeOff, RepeatIcon, ChevronRight,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { personalService, type PersonalAccount, type PersonalTransaction, type PersonalCategory } from '../services/personalService'
+import { creditCardService } from '../services/creditCardService'
+import { getAllCardsStatementTotal, getNextDueDate } from '../utils/creditCards'
 import {
   TxRow, EmptyPersonal, SkeletonCard, PageContainer, Card, fmtMoney, fmtMoneyCompact,
 } from '../components/ui'
@@ -28,6 +30,8 @@ export function PersonalDashboard() {
   const [recentTx,   setRecentTx]   = useState<PersonalTransaction[]>([])
   const [categories, setCategories] = useState<PersonalCategory[]>([])
   const [summary,    setSummary]    = useState({ totalIncome: 0, totalExpense: 0, balance: 0, available: 0, availableARS: 0, availableUSD: 0 })
+  const [cardTotalThisMonth, setCardTotalThisMonth] = useState(0)
+  const [nextCardDueText, setNextCardDueText] = useState<string | null>(null)
 
   // Privacy toggle — persisted in localStorage
   const [hidden, setHidden] = useState(() => localStorage.getItem(HIDE_KEY) === 'true')
@@ -45,16 +49,30 @@ export function PersonalDashboard() {
     setLoading(true)
     try {
       await personalService.ensureDefaultCategories(user.id)
-      const [accts, txs, sum, cats] = await Promise.all([
+      const [accts, txs, sum, cats, ccards, cpurchases] = await Promise.all([
         personalService.getAccounts(user.id),
         personalService.getTransactions(user.id, { limit: 4 }),
         personalService.getMonthlySummary(user.id, currentMonth()),
         personalService.getCategories(user.id),
+        creditCardService.getCreditCards(user.id),
+        creditCardService.getCardPurchases(user.id),
       ])
       setAccounts(accts)
       setRecentTx(txs)
       setSummary(sum)
       setCategories(cats)
+      setCardTotalThisMonth(getAllCardsStatementTotal(cpurchases, currentMonth()))
+      const activeCC = ccards.filter(c => c.is_active)
+      if (activeCC.length > 0) {
+        const earliest = activeCC
+          .map(c => ({ name: c.name, date: getNextDueDate(c) }))
+          .sort((a, b) => a.date.getTime() - b.date.getTime())[0]
+        if (earliest) {
+          setNextCardDueText(
+            `${earliest.name} · vence ${earliest.date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}`
+          )
+        }
+      }
     } finally {
       setLoading(false)
     }
@@ -170,6 +188,33 @@ export function PersonalDashboard() {
                 <div style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '0.9rem', color: s.color }}>{s.value}</div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Credit cards widget ── */}
+      <div
+        data-testid="personal-cards-widget"
+        onClick={() => navigate('/personal/tarjetas')}
+        style={{ background: 'rgba(129,140,248,0.06)', border: '1px solid rgba(129,140,248,0.18)', borderRadius: '1rem', padding: '0.875rem 1rem', cursor: 'pointer' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <CreditCard size={14} color="#818cf8" />
+            <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Tarjetas</span>
+          </div>
+          <ChevronRight size={14} color="#334155" />
+        </div>
+        {loading ? (
+          <div style={{ height: 24, width: '40%', borderRadius: 4, background: 'rgba(129,140,248,0.1)', marginTop: '0.375rem' }} />
+        ) : (
+          <div style={{ marginTop: '0.375rem', display: 'flex', alignItems: 'baseline', gap: '0.625rem', flexWrap: 'wrap' }}>
+            <div data-testid="personal-cards-widget-total" style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '1.125rem', color: '#818cf8' }}>
+              {amtComp(cardTotalThisMonth)}
+            </div>
+            {nextCardDueText && (
+              <div style={{ fontSize: '0.68rem', color: '#475569' }}>{nextCardDueText}</div>
+            )}
           </div>
         )}
       </div>
