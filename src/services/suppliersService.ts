@@ -380,20 +380,25 @@ export const suppliersService = {
     date: string, type: AccountMovement['type'],
     description: string, debit: number, credit: number
   ) {
-    // balance_after es calculado server-side por trig_supplier_account_movement_balance
-    // (BEFORE INSERT con pg_advisory_xact_lock) — no calcular aquí para evitar race conditions.
-    await supabase.from('supplier_account_movements').insert({
-      business_id:    businessId,
-      supplier_id:    supplierId,
-      purchase_id:    purchaseId,
-      payment_id:     paymentId,
-      movement_date:  date,
+    // balance_after is computed server-side by trig_supplier_account_movement_balance
+    // (BEFORE INSERT with pg_advisory_xact_lock). Omitting it here lets the DB DEFAULT=0
+    // act as the placeholder; the trigger always overrides it.
+    // debit/credit are coerced to 0 to prevent null arithmetic inside the trigger
+    // (JS runtime can pass NaN/null despite TypeScript number types).
+    const safeDebit  = (typeof debit  === 'number' && isFinite(debit))  ? debit  : 0;
+    const safeCredit = (typeof credit === 'number' && isFinite(credit)) ? credit : 0;
+    const { error } = await supabase.from('supplier_account_movements').insert({
+      business_id:   businessId,
+      supplier_id:   supplierId,
+      purchase_id:   purchaseId,
+      payment_id:    paymentId,
+      movement_date: date,
       type,
       description,
-      debit,
-      credit,
-      balance_after:  0,  // sobreescrito por el trigger BEFORE INSERT
+      debit:         safeDebit,
+      credit:        safeCredit,
     });
+    if (error) throw new Error(error.message);
   },
 
   async _recordPaymentInternal(

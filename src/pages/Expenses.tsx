@@ -361,11 +361,13 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
 
   // ── Save: Factura ──
   const handleSaveFactura = async () => {
+    if (saving) return
     if (!supplierId) { setError(showNewSupplier ? 'Primero guardá el nuevo proveedor' : 'Seleccioná un proveedor'); return }
     const validItems = items.filter(it => it.product_name.trim() && (parseFloat(it.cantidad) || 0) > 0 && (parseFloat(it.costo_unitario) || 0) > 0)
     if (validItems.length === 0) { setError('Completá al menos un producto con nombre, cantidad y costo'); return }
     if (totalFactura <= 0) { setError('El total de la factura debe ser mayor a $0'); return }
-    if (!cajaIsOpen) { setError('No hay caja abierta. Abrí caja antes de registrar facturas.'); return }
+    // Solo bloquear caja cuando hay movimiento de efectivo (paid o partial con monto > 0)
+    if (!cajaIsOpen && facPaidAmount > 0) { setError('No hay caja abierta. Abrí caja antes de registrar facturas con pago inmediato.'); return }
     setSaving(true); setError('')
     try {
       const supplierName = suppliers.find(s => s.id === supplierId)?.name || 'Proveedor'
