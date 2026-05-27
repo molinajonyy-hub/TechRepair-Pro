@@ -59,7 +59,7 @@ export function Dashboard() {
 
   const { businessId } = useAuth()
   const { stats, loading: statsLoading, error: statsError, refresh: refreshStats } = useDashboardStats()
-  const { data: finData, loading: finLoading } = useFinancialDashboard(businessId)
+  const { data: finData, loading: finLoading } = useFinancialDashboard(businessId, cajaId)
   const { comprobantes, listarComprobantes } = useComprobantes()
   const navigate = useNavigate()
 
@@ -270,15 +270,21 @@ export function Dashboard() {
       {(finData || finLoading) && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.875rem', marginBottom: '1.5rem' }}>
           <div className="stat-card">
-            <div className="stat-card-label">Cobrado hoy</div>
+            <div className="stat-card-label">Cobrado en caja</div>
             <div className="stat-card-value" style={{ color: 'var(--success)' }}>
               {finLoading && !finData ? '…' : fmtARS(finData?.ventasHoy ?? 0)}
             </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', marginTop: '0.125rem' }}>
+              {finLoading ? '' : (finData?.cajaAbierta ? 'Caja abierta actual' : 'Caja cerrada')}
+            </div>
           </div>
           <div className="stat-card">
-            <div className="stat-card-label">Caja neta hoy</div>
+            <div className="stat-card-label">Caja neta</div>
             <div className="stat-card-value" style={{ color: (finData ? finData.caja.income - finData.caja.expense : 0) >= 0 ? 'var(--success)' : 'var(--error)' }}>
               {finLoading && !finData ? '…' : fmtARS(finData ? finData.caja.income - finData.caja.expense : 0)}
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', marginTop: '0.125rem' }}>
+              {finLoading ? '' : (finData?.cajaAbierta ? 'Caja abierta actual' : 'Caja cerrada')}
             </div>
           </div>
           <Link to="/finance" style={{ textDecoration: 'none' }}>

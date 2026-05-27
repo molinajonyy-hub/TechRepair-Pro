@@ -2,11 +2,13 @@
  * useFinancialDashboard — datos financieros premium para el Dashboard.
  *
  * Carga en paralelo:
- *   1. Métodos de pago del día (comprobante_payments)
- *   2. Ventas hoy / semana / mes desde comprobante_payments
- *   3. CC proveedores (accounts type='proveedor')
- *   4. Caja del día: ingreso/egreso por método (financial_movements)
- *   5. Stock bajo: count de productos con stock ≤ min_stock
+ *   1. Ventas semana / mes (comprobante_payments por rango de fecha)
+ *   2. CC clientes / proveedores (accounts)
+ *   3. Caja activa: ingreso/egreso (financial_movements filtrado por caja_id)
+ *   4. Stock bajo: count de productos con stock ≤ min_stock
+ *
+ * Los cards "Cobrado en caja" y "Caja neta" usan SIEMPRE la caja abierta actual
+ * (openCajaId). Sin caja abierta devuelven $0. Nunca filtran por fecha calendario.
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
@@ -31,16 +33,17 @@ export interface CajaDayBreakdown {
 
 export interface FinancialDashboardData {
   // Ventas desde comprobante_payments
-  ventasHoy:     number
+  ventasHoy:     number   // suma de income de la caja abierta actual
   ventasSemana:  number
   ventasMes:     number
-  // Métodos de pago (hoy)
+  // Métodos de pago (caja actual)
   paymentMethods: PaymentMethodStat[]
   // CC
-  ccClientesDeuda:    number   // ya viene de useDashboardStats pero lo exponemos acá también
+  ccClientesDeuda:    number
   ccProveedoresDeuda: number
-  // Caja del día
+  // Caja activa (financial_movements de la caja abierta)
   caja:           CajaDayBreakdown
+  cajaAbierta:    boolean
   // Stock
   stockBajoCount: number
 }
@@ -67,6 +70,7 @@ function methodMeta(m: string) {
 interface CacheEntry {
   data:       FinancialDashboardData
   businessId: string
+  openCajaId: string | null
   timestamp:  number
 }
 
@@ -79,15 +83,22 @@ export function invalidateFinancialDashboardCache() {
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
-export function useFinancialDashboard(businessId: string | null | undefined) {
+export function useFinancialDashboard(businessId: string | null | undefined, openCajaId?: string | null) {
   const [data,    setData]    = useState<FinancialDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const mountedRef = useRef(true)
 
+  const cajaKey = openCajaId ?? null
+
   const load = useCallback(async (force = false) => {
     if (!businessId) { setLoading(false); return }
 
-    if (!force && cache && cache.businessId === businessId && Date.now() - cache.timestamp < CACHE_TTL) {
+    if (
+      !force && cache &&
+      cache.businessId === businessId &&
+      cache.openCajaId === cajaKey &&
+      Date.now() - cache.timestamp < CACHE_TTL
+    ) {
       setData(cache.data)
       setLoading(false)
       return
@@ -95,20 +106,13 @@ export function useFinancialDashboard(businessId: string | null | undefined) {
 
     setLoading(true)
     try {
-      const todayISO    = new Date().toISOString().slice(0, 10)
       const weekAgoISO  = new Date(Date.now() - 7  * 86_400_000).toISOString().slice(0, 10)
       const monthAgoISO = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
 
-      const [cpToday, cpSemana, cpMes, ccClientes, ccProveedores, fmToday, stockBajo] = await Promise.all([
+      // Queries que siempre se ejecutan
+      const [cpSemana, cpMes, ccClientes, ccProveedores, stockBajo, fmCaja] = await Promise.all([
 
-        // 1. Pagos hoy (métodos + montos)
-        supabase
-          .from('comprobante_payments')
-          .select('payment_method, amount_ars, commission_amount')
-          .eq('business_id', businessId)
-          .gte('date', todayISO),
-
-        // 2. Ventas semana
+        // 1. Ventas semana
         supabase
           .from('comprobante_payments')
           .select('amount_ars')
@@ -116,7 +120,7 @@ export function useFinancialDashboard(businessId: string | null | undefined) {
           .gte('date', weekAgoISO)
           .neq('payment_method', 'cuenta_corriente'),
 
-        // 3. Ventas mes
+        // 2. Ventas mes
         supabase
           .from('comprobante_payments')
           .select('amount_ars')
@@ -124,7 +128,7 @@ export function useFinancialDashboard(businessId: string | null | undefined) {
           .gte('date', monthAgoISO)
           .neq('payment_method', 'cuenta_corriente'),
 
-        // 4. CC clientes deuda
+        // 3. CC clientes deuda
         supabase
           .from('accounts')
           .select('balance')
@@ -132,7 +136,7 @@ export function useFinancialDashboard(businessId: string | null | undefined) {
           .eq('type', 'cliente')
           .gt('balance', 0),
 
-        // 5. CC proveedores deuda (suma de balances de todas las cuentas proveedor)
+        // 4. CC proveedores deuda
         supabase
           .from('accounts')
           .select('balance')
@@ -140,14 +144,7 @@ export function useFinancialDashboard(businessId: string | null | undefined) {
           .eq('type', 'proveedor')
           .gt('balance', 0),
 
-        // 6. Movimientos de caja hoy por método
-        supabase
-          .from('financial_movements')
-          .select('type, amount_ars, metodo_pago')
-          .eq('business_id', businessId)
-          .gte('date', todayISO),
-
-        // 7. Stock bajo (count)
+        // 5. Stock bajo (count)
         supabase
           .from('inventory')
           .select('*', { count: 'exact', head: true })
@@ -156,38 +153,18 @@ export function useFinancialDashboard(businessId: string | null | undefined) {
           .lte('stock_quantity', 5)
           .gt('stock_quantity', 0)
           .eq('tipo', 'product'),
+
+        // 6. Movimientos de la caja activa (solo si hay caja abierta)
+        cajaKey
+          ? supabase
+              .from('financial_movements')
+              .select('type, amount_ars, metodo_pago')
+              .eq('business_id', businessId)
+              .eq('caja_id', cajaKey)
+          : Promise.resolve({ data: [] as { type: string; amount_ars: number | null; metodo_pago: string | null }[], error: null }),
       ])
 
       if (!mountedRef.current) return
-
-      // ── Métodos de pago hoy ───────────────────────────────────────────
-      const todayPayments = cpToday.data || []
-      const methodMap = new Map<string, { amount: number; count: number }>()
-      let totalHoy = 0
-
-      for (const p of todayPayments) {
-        const m = p.payment_method || 'otro'
-        if (m === 'cuenta_corriente') continue  // CC no es caja real
-        const cur = methodMap.get(m) ?? { amount: 0, count: 0 }
-        const net = (p.amount_ars || 0) - (p.commission_amount || 0)
-        cur.amount += net
-        cur.count  += 1
-        methodMap.set(m, cur)
-        totalHoy += net
-      }
-
-      const paymentMethods: PaymentMethodStat[] = Array.from(methodMap.entries())
-        .map(([method, { amount, count }]) => ({
-          method,
-          label: methodMeta(method).label,
-          color: methodMeta(method).color,
-          amount,
-          count,
-          pct: totalHoy > 0 ? (amount / totalHoy) * 100 : 0,
-        }))
-        .sort((a, b) => b.amount - a.amount)
-
-      const ventasHoy = totalHoy
 
       // ── Ventas semana / mes ───────────────────────────────────────────
       const ventasSemana = (cpSemana.data || []).reduce((s, r) => s + (r.amount_ars || 0), 0)
@@ -197,11 +174,15 @@ export function useFinancialDashboard(businessId: string | null | undefined) {
       const ccClientesDeuda    = (ccClientes.data   || []).reduce((s, a) => s + Number(a.balance || 0), 0)
       const ccProveedoresDeuda = (ccProveedores.data || []).reduce((s, a) => s + Number(a.balance || 0), 0)
 
-      // ── Caja del día ──────────────────────────────────────────────────
-      const fmRows = fmToday.data || []
-      const cajaMethodMap = new Map<string, { income: number; expense: number }>()
+      // ── Stock bajo ────────────────────────────────────────────────────
+      const stockBajoCount = stockBajo.count ?? 0
 
+      // ── Caja activa — movimientos por caja_id ─────────────────────────
+      // Si no hay caja abierta (cajaKey = null) fmCaja.data es [] y todos los totales quedan en 0.
+      const fmRows = fmCaja.data || []
+      const cajaMethodMap = new Map<string, { income: number; expense: number }>()
       let cajaIncome = 0; let cajaExpense = 0
+
       for (const f of fmRows) {
         const m   = f.metodo_pago || 'otro'
         const amt = Math.abs(f.amount_ars || 0)
@@ -210,6 +191,22 @@ export function useFinancialDashboard(businessId: string | null | undefined) {
         else                      { cur.expense += amt; cajaExpense += amt }
         cajaMethodMap.set(m, cur)
       }
+
+      // "Cobrado en caja" = total de ingresos de la sesión actual
+      const ventasHoy = cajaIncome
+
+      // Desglose por método de pago (solo ingresos, para el breakdown)
+      const paymentMethods: PaymentMethodStat[] = Array.from(cajaMethodMap.entries())
+        .filter(([, v]) => v.income > 0)
+        .map(([method, { income }]) => ({
+          method,
+          label:  methodMeta(method).label,
+          color:  methodMeta(method).color,
+          amount: income,
+          count:  0,
+          pct:    cajaIncome > 0 ? (income / cajaIncome) * 100 : 0,
+        }))
+        .sort((a, b) => b.amount - a.amount)
 
       const cajaByMethod = Array.from(cajaMethodMap.entries())
         .map(([method, { income, expense }]) => ({
@@ -228,9 +225,6 @@ export function useFinancialDashboard(businessId: string | null | undefined) {
         byMethod: cajaByMethod,
       }
 
-      // ── Stock bajo ────────────────────────────────────────────────────
-      const stockBajoCount = stockBajo.count ?? 0
-
       const result: FinancialDashboardData = {
         ventasHoy,
         ventasSemana,
@@ -239,17 +233,18 @@ export function useFinancialDashboard(businessId: string | null | undefined) {
         ccClientesDeuda,
         ccProveedoresDeuda,
         caja,
+        cajaAbierta: cajaKey !== null,
         stockBajoCount,
       }
 
-      cache = { data: result, businessId, timestamp: Date.now() }
+      cache = { data: result, businessId, openCajaId: cajaKey, timestamp: Date.now() }
       if (mountedRef.current) { setData(result); setLoading(false) }
 
     } catch (e) {
       console.error('[useFinancialDashboard]', e)
       if (mountedRef.current) setLoading(false)
     }
-  }, [businessId])
+  }, [businessId, cajaKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     mountedRef.current = true
