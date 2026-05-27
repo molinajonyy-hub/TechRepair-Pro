@@ -12,10 +12,12 @@ import { debtService, type DebtSummary } from '../services/debtService'
 import { budgetService, calculateBudgetUsage, getBudgetSummaryFromUsages, budgetStatusColor, type BudgetSummary } from '../services/budgetService'
 import { recurringExpenseService } from '../services/recurringExpenseService'
 import { buildPersonalInsights, getTopInsights, type PersonalInsight } from '../services/insightService'
+import { calculateMood } from '../services/mascotMoodService'
 import {
   TxRow, EmptyPersonal, SkeletonCard, PageContainer, Card, fmtMoney, fmtMoneyCompact,
 } from '../components/ui'
 import { TransactionForm } from '../components/TransactionForm'
+import { PersonalMascot } from '../components/PersonalMascot'
 
 const HIDE_KEY = 'miGuitaHideAmounts'
 const MASK     = '••••••'
@@ -337,6 +339,21 @@ export function PersonalDashboard() {
             )}
           </div>
         )
+      })()}
+
+      {/* ── Michi AI mascot ── */}
+      {(() => {
+        const pendingCommitments = cardTotalThisMonth + debtInstallmentsEst
+        const projResult = summary.balance - pendingCommitments
+        const michiResult = calculateMood({
+          loading,
+          summary,
+          projResult,
+          budgetSummary: budgetSummaryDash,
+          debtSummary,
+          insights: dashInsights,
+        })
+        return <PersonalMascot result={michiResult} loading={loading} />
       })()}
 
       {/* ── Budget widget ── */}
