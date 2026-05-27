@@ -26,6 +26,7 @@ export interface MoodResult {
   mood: MascotMood
   message: string
   detail: string | null
+  cta: { label: string; route: string } | null
 }
 
 function daysUntil(dateStr: string): number {
@@ -39,15 +40,21 @@ export function calculateMood(input: MoodInput): MoodResult {
   const { loading, summary, projResult, budgetSummary, debtSummary, insights } = input
 
   if (loading) {
-    return { mood: 'thinking', message: 'Cargando tu resumen...', detail: null }
+    return {
+      mood: 'thinking',
+      message: 'Cargando tu resumen...',
+      detail: 'Ya casi estoy lista.',
+      cta: null,
+    }
   }
 
   const hasData = summary.totalIncome > 0 || summary.totalExpense > 0
   if (!hasData) {
     return {
       mood: 'thinking',
-      message: 'Cargá ingresos o gastos para ver tu situación.',
-      detail: null,
+      message: 'Sumá algunos ingresos o gastos y arrancamos juntas.',
+      detail: 'Con un poco más de contexto ya puedo acompañarte mejor.',
+      cta: { label: 'Cargar movimiento', route: '/personal/movimientos' },
     }
   }
 
@@ -69,8 +76,9 @@ export function calculateMood(input: MoodInput): MoodResult {
   ) {
     return {
       mood: 'alert',
-      message: 'Los compromisos superan el balance del mes.',
-      detail: 'Revisá proyecciones.',
+      message: 'Tu proyección viene bastante ajustada. Mejor lo miramos juntas ahora.',
+      detail: 'Hay una alerta importante, pero la podemos trabajar.',
+      cta: { label: 'Ver proyección', route: '/personal/proyecciones' },
     }
   }
 
@@ -82,29 +90,33 @@ export function calculateMood(input: MoodInput): MoodResult {
         mood: 'worried',
         message:
           n === 1
-            ? 'Un presupuesto está excedido.'
-            : `${n} presupuestos excedidos este mes.`,
-        detail: 'Revisá tus categorías.',
+            ? 'Ojo, se te está yendo el presupuesto en una categoría.'
+            : `Ojo, se te está yendo el presupuesto en ${n} categorías.`,
+        detail: 'No es grave, pero conviene revisarlo.',
+        cta: { label: 'Revisar presupuesto', route: '/personal/presupuestos' },
       }
     }
     if (projResult < 0) {
       return {
         mood: 'worried',
-        message: 'La proyección del mes cierra en negativo.',
-        detail: 'Revisá tarjetas y deudas.',
+        message: 'La proyección del mes no cerraría bien con los compromisos pendientes.',
+        detail: 'Estamos a tiempo de ajustar.',
+        cta: { label: 'Ver proyección', route: '/personal/proyecciones' },
       }
     }
     if (debtDueSoon) {
       return {
         mood: 'worried',
-        message: 'Tenés un vencimiento en los próximos días.',
-        detail: 'Revisá deudas.',
+        message: 'Tenés un vencimiento muy cerca, no lo pierdas de vista.',
+        detail: 'Revisá para quedar tranquila.',
+        cta: { label: 'Ver deudas', route: '/personal/deudas' },
       }
     }
     return {
       mood: 'worried',
-      message: 'Hay un aviso pendiente de revisar.',
+      message: 'Hay algunas cositas para mirar, pero estamos a tiempo.',
       detail: null,
+      cta: null,
     }
   }
 
@@ -118,8 +130,9 @@ export function calculateMood(input: MoodInput): MoodResult {
   if (isGreatMonth) {
     return {
       mood: 'celebrating',
-      message: '¡Mes muy bueno! El saldo está excelente.',
-      detail: null,
+      message: '¡Esooo! Este mes viene buenísimo.',
+      detail: 'Acá hay algo para festejar. Me encanta esta victoria.',
+      cta: null,
     }
   }
 
@@ -128,8 +141,9 @@ export function calculateMood(input: MoodInput): MoodResult {
   if (projResult > 0 && hasBudgets && !budgetWarning && budgetUsagePct < 0.85) {
     return {
       mood: 'motivated',
-      message: 'Vas dentro del presupuesto. ¡Seguí así!',
-      detail: null,
+      message: 'Vas bien encaminada. Los presupuestos te acompañan.',
+      detail: 'Seguí así y vas a cerrar muy bien el mes.',
+      cta: null,
     }
   }
 
@@ -137,23 +151,26 @@ export function calculateMood(input: MoodInput): MoodResult {
   if (projResult > 0 && summary.balance >= 0) {
     return {
       mood: 'happy',
-      message: 'El mes va bien. Todo en orden.',
-      detail: null,
+      message: 'Me gusta cómo viene este mes.',
+      detail: 'Vas bien, se nota que le estás prestando atención a tu plata.',
+      cta: null,
     }
   }
 
-  // tired — lots of expense activity but still manageable
+  // tired — lots of expense activity but manageable
   if (summary.totalExpense > summary.totalIncome * 0.8 && summary.balance >= 0) {
     return {
       mood: 'tired',
-      message: 'Mes con mucho movimiento. Todo registrado.',
-      detail: null,
+      message: 'Mes con mucho movimiento. Todo anotado.',
+      detail: 'Por hoy, bastante bien.',
+      cta: null,
     }
   }
 
   return {
     mood: 'calm',
-    message: 'Sin novedades. Todo tranquilo.',
-    detail: null,
+    message: 'Todo bastante en orden por acá.',
+    detail: 'No veo alarmas urgentes, y eso me gusta.',
+    cta: null,
   }
 }

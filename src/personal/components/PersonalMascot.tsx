@@ -1,37 +1,97 @@
 import type { CSSProperties } from 'react'
 import type { MascotMood, MoodResult } from '../services/mascotMoodService'
 
-// ── SVG cat expressions ───────────────────────────────────────────────────────
-
-interface EyeConfig {
-  ry: number
-  pupilR: number
-  isClosed?: boolean
-  isStars?: boolean
-}
+// ── Mood config ───────────────────────────────────────────────────────────────
 
 interface MoodConfig {
-  eyes: EyeConfig
+  eyes: { ry: number; pupilR: number; isClosed?: boolean; isStars?: boolean }
   mouth: 'smile' | 'bigsmile' | 'frown' | 'straight' | 'open'
   extra: 'sparkles' | 'zzz' | null
-  animation: 'float' | 'bounce' | 'shake' | 'pulse' | 'slow-float'
-  borderColor: string
-  bgColor: string
+  animation: 'float' | 'bounce' | 'pulse' | 'slow-float' | 'sway'
+  gradient: string
+  border: string
+  avatarBg: string
+  avatarGlow: string
   labelColor: string
-  label: string
+  title: string
 }
 
 const MOOD_CONFIG: Record<MascotMood, MoodConfig> = {
-  calm:        { eyes: { ry: 3.5, pupilR: 2.5 },                 mouth: 'smile',    extra: null,       animation: 'float',      borderColor: 'rgba(52,211,153,0.25)',  bgColor: 'rgba(52,211,153,0.06)',   labelColor: '#34d399', label: 'Tranquila'    },
-  happy:       { eyes: { ry: 5.5, pupilR: 3.5 },                 mouth: 'smile',    extra: null,       animation: 'bounce',     borderColor: 'rgba(52,211,153,0.35)',  bgColor: 'rgba(52,211,153,0.08)',   labelColor: '#34d399', label: 'Contenta'     },
-  proud:       { eyes: { ry: 5,   pupilR: 3 },                   mouth: 'bigsmile', extra: null,       animation: 'float',      borderColor: 'rgba(52,211,153,0.35)',  bgColor: 'rgba(52,211,153,0.08)',   labelColor: '#34d399', label: 'Orgullosa'    },
-  motivated:   { eyes: { ry: 6.5, pupilR: 4 },                   mouth: 'smile',    extra: null,       animation: 'bounce',     borderColor: 'rgba(96,165,250,0.35)',  bgColor: 'rgba(96,165,250,0.06)',   labelColor: '#60a5fa', label: 'Motivada'     },
-  worried:     { eyes: { ry: 5,   pupilR: 3 },                   mouth: 'frown',    extra: null,       animation: 'pulse',      borderColor: 'rgba(251,191,36,0.35)',  bgColor: 'rgba(251,191,36,0.06)',   labelColor: '#fbbf24', label: 'Preocupada'   },
-  alert:       { eyes: { ry: 7,   pupilR: 4.5 },                 mouth: 'open',     extra: null,       animation: 'shake',      borderColor: 'rgba(248,113,113,0.45)', bgColor: 'rgba(248,113,113,0.07)',  labelColor: '#f87171', label: 'Alerta'       },
-  celebrating: { eyes: { ry: 5,   pupilR: 3, isStars: true },    mouth: 'bigsmile', extra: 'sparkles', animation: 'bounce',     borderColor: 'rgba(251,191,36,0.45)',  bgColor: 'rgba(251,191,36,0.08)',   labelColor: '#fbbf24', label: '¡Celebrando!' },
-  thinking:    { eyes: { ry: 3,   pupilR: 2 },                   mouth: 'straight', extra: null,       animation: 'slow-float', borderColor: 'rgba(129,140,248,0.3)',  bgColor: 'rgba(129,140,248,0.06)',  labelColor: '#818cf8', label: 'Pensando'     },
-  tired:       { eyes: { ry: 2,   pupilR: 1.5, isClosed: true }, mouth: 'straight', extra: 'zzz',      animation: 'slow-float', borderColor: 'rgba(100,116,139,0.3)',  bgColor: 'rgba(100,116,139,0.05)',  labelColor: '#64748b', label: 'Cansada'      },
+  calm: {
+    eyes: { ry: 3.5, pupilR: 2.5 }, mouth: 'smile', extra: null, animation: 'float',
+    gradient:  'linear-gradient(145deg, rgba(52,211,153,0.07) 0%, rgba(4,7,15,0.72) 100%)',
+    border:    'rgba(52,211,153,0.2)',
+    avatarBg:  'rgba(52,211,153,0.1)',
+    avatarGlow:'rgba(52,211,153,0.2)',
+    labelColor:'#34d399', title: 'Michi está tranquila',
+  },
+  happy: {
+    eyes: { ry: 5.5, pupilR: 3.5 }, mouth: 'smile', extra: null, animation: 'float',
+    gradient:  'linear-gradient(145deg, rgba(52,211,153,0.1) 0%, rgba(4,7,15,0.72) 100%)',
+    border:    'rgba(52,211,153,0.28)',
+    avatarBg:  'rgba(52,211,153,0.13)',
+    avatarGlow:'rgba(52,211,153,0.28)',
+    labelColor:'#4ade80', title: 'Michi está contenta',
+  },
+  proud: {
+    eyes: { ry: 5, pupilR: 3 }, mouth: 'bigsmile', extra: null, animation: 'float',
+    gradient:  'linear-gradient(145deg, rgba(52,211,153,0.1) 0%, rgba(4,7,15,0.72) 100%)',
+    border:    'rgba(52,211,153,0.28)',
+    avatarBg:  'rgba(52,211,153,0.13)',
+    avatarGlow:'rgba(52,211,153,0.28)',
+    labelColor:'#4ade80', title: 'Michi está orgullosa',
+  },
+  motivated: {
+    eyes: { ry: 6.5, pupilR: 4 }, mouth: 'smile', extra: null, animation: 'bounce',
+    gradient:  'linear-gradient(145deg, rgba(96,165,250,0.08) 0%, rgba(4,7,15,0.72) 100%)',
+    border:    'rgba(96,165,250,0.22)',
+    avatarBg:  'rgba(96,165,250,0.1)',
+    avatarGlow:'rgba(96,165,250,0.2)',
+    labelColor:'#60a5fa', title: 'Michi está motivada',
+  },
+  worried: {
+    eyes: { ry: 5, pupilR: 3 }, mouth: 'frown', extra: null, animation: 'pulse',
+    gradient:  'linear-gradient(145deg, rgba(251,191,36,0.07) 0%, rgba(4,7,15,0.76) 100%)',
+    border:    'rgba(251,191,36,0.22)',
+    avatarBg:  'rgba(251,191,36,0.1)',
+    avatarGlow:'rgba(251,191,36,0.16)',
+    labelColor:'#fbbf24', title: 'Michi está preocupada',
+  },
+  alert: {
+    eyes: { ry: 7, pupilR: 4.5 }, mouth: 'open', extra: null, animation: 'sway',
+    gradient:  'linear-gradient(145deg, rgba(248,113,113,0.09) 0%, rgba(4,7,15,0.78) 100%)',
+    border:    'rgba(248,113,113,0.28)',
+    avatarBg:  'rgba(248,113,113,0.1)',
+    avatarGlow:'rgba(248,113,113,0.22)',
+    labelColor:'#f87171', title: 'Michi está atenta',
+  },
+  celebrating: {
+    eyes: { ry: 5, pupilR: 3, isStars: true }, mouth: 'bigsmile', extra: 'sparkles', animation: 'bounce',
+    gradient:  'linear-gradient(145deg, rgba(251,191,36,0.1) 0%, rgba(52,211,153,0.06) 60%, rgba(4,7,15,0.72) 100%)',
+    border:    'rgba(251,191,36,0.32)',
+    avatarBg:  'rgba(251,191,36,0.12)',
+    avatarGlow:'rgba(251,191,36,0.28)',
+    labelColor:'#fbbf24', title: '¡Michi está celebrando!',
+  },
+  thinking: {
+    eyes: { ry: 3, pupilR: 2 }, mouth: 'straight', extra: null, animation: 'slow-float',
+    gradient:  'linear-gradient(145deg, rgba(129,140,248,0.07) 0%, rgba(4,7,15,0.72) 100%)',
+    border:    'rgba(129,140,248,0.2)',
+    avatarBg:  'rgba(129,140,248,0.1)',
+    avatarGlow:'rgba(129,140,248,0.16)',
+    labelColor:'#818cf8', title: 'Michi está pensando',
+  },
+  tired: {
+    eyes: { ry: 2, pupilR: 1.5, isClosed: true }, mouth: 'straight', extra: 'zzz', animation: 'slow-float',
+    gradient:  'linear-gradient(145deg, rgba(52,211,153,0.04) 0%, rgba(4,7,15,0.8) 100%)',
+    border:    'rgba(148,163,184,0.18)',
+    avatarBg:  'rgba(148,163,184,0.08)',
+    avatarGlow:'rgba(148,163,184,0.12)',
+    labelColor:'#94a3b8', title: 'Michi está cansada',
+  },
 }
+
+// ── SVG cat ───────────────────────────────────────────────────────────────────
 
 const MOUTH_PATHS = {
   smile:    'M 33,56 Q 40,62 47,56',
@@ -44,12 +104,12 @@ const MOUTH_PATHS = {
 function MichiSVG({ mood }: { mood: MascotMood }) {
   const cfg = MOOD_CONFIG[mood]
   const { ry, pupilR, isClosed, isStars } = cfg.eyes
-  const green = '#34d399'
-  const greenDark = '#059669'
+  const green      = '#34d399'
+  const greenDark  = '#059669'
   const greenLight = '#6ee7b7'
 
   return (
-    <svg viewBox="0 0 80 80" width="68" height="68" aria-label="Michi" aria-hidden="false">
+    <svg viewBox="0 0 80 80" width="60" height="60" aria-label="Michi">
       {/* Ears */}
       <polygon points="10,32 23,5 37,30" fill={green} />
       <polygon points="70,32 57,5 43,30" fill={green} />
@@ -60,25 +120,21 @@ function MichiSVG({ mood }: { mood: MascotMood }) {
       <circle cx="40" cy="46" r="28" fill={green} />
 
       {isClosed ? (
-        /* Tired: closed eyes */
         <>
-          <path d="M 24,42 Q 30,38 36,42" stroke={greenDark} strokeWidth="2" fill="none" strokeLinecap="round" />
-          <path d="M 44,42 Q 50,38 56,42" stroke={greenDark} strokeWidth="2" fill="none" strokeLinecap="round" />
+          <path d="M 24,42 Q 30,38 36,42" stroke={greenDark} strokeWidth="2.2" fill="none" strokeLinecap="round" />
+          <path d="M 44,42 Q 50,38 56,42" stroke={greenDark} strokeWidth="2.2" fill="none" strokeLinecap="round" />
         </>
       ) : isStars ? (
-        /* Celebrating: star eyes */
         <>
           <text x="22" y="48" fontSize="13" fill="#fbbf24" textAnchor="middle">★</text>
           <text x="58" y="48" fontSize="13" fill="#fbbf24" textAnchor="middle">★</text>
         </>
       ) : (
-        /* Normal eyes */
         <>
           <ellipse cx="30" cy="42" rx="5.5" ry={ry} fill="white" />
           <ellipse cx="50" cy="42" rx="5.5" ry={ry} fill="white" />
           <circle cx="31" cy="43" r={pupilR} fill="#071018" />
           <circle cx="51" cy="43" r={pupilR} fill="#071018" />
-          {/* Highlights */}
           <circle cx="33" cy="40" r="1.5" fill="white" opacity="0.85" />
           <circle cx="53" cy="40" r="1.5" fill="white" opacity="0.85" />
         </>
@@ -97,23 +153,22 @@ function MichiSVG({ mood }: { mood: MascotMood }) {
       />
 
       {/* Whiskers */}
-      <line x1="14" y1="48" x2="28" y2="50" stroke="rgba(255,255,255,0.35)" strokeWidth="1.2" strokeLinecap="round" />
-      <line x1="14" y1="53" x2="28" y2="53" stroke="rgba(255,255,255,0.35)" strokeWidth="1.2" strokeLinecap="round" />
-      <line x1="66" y1="48" x2="52" y2="50" stroke="rgba(255,255,255,0.35)" strokeWidth="1.2" strokeLinecap="round" />
-      <line x1="66" y1="53" x2="52" y2="53" stroke="rgba(255,255,255,0.35)" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="14" y1="48" x2="28" y2="50" stroke="rgba(255,255,255,0.32)" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="14" y1="53" x2="28" y2="53" stroke="rgba(255,255,255,0.32)" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="66" y1="48" x2="52" y2="50" stroke="rgba(255,255,255,0.32)" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="66" y1="53" x2="52" y2="53" stroke="rgba(255,255,255,0.32)" strokeWidth="1.2" strokeLinecap="round" />
 
-      {/* Extras */}
       {cfg.extra === 'sparkles' && (
         <>
-          <text x="64" y="18" fontSize="9"  fill="#fbbf24" opacity="0.9">✦</text>
+          <text x="65" y="18" fontSize="9"  fill="#fbbf24" opacity="0.9">✦</text>
           <text x="8"  y="22" fontSize="7"  fill="#fbbf24" opacity="0.7">✦</text>
-          <text x="68" y="32" fontSize="6"  fill="#fbbf24" opacity="0.6">✦</text>
+          <text x="68" y="32" fontSize="6"  fill="#fbbf24" opacity="0.55">✦</text>
         </>
       )}
       {cfg.extra === 'zzz' && (
         <>
-          <text x="60" y="22" fontSize="10" fill="#94a3b8" fontWeight="700" opacity="0.9">z</text>
-          <text x="67" y="14" fontSize="8"  fill="#94a3b8" fontWeight="700" opacity="0.6">z</text>
+          <text x="60" y="22" fontSize="10" fill="#94a3b8" fontWeight="700" opacity="0.85">z</text>
+          <text x="67" y="14" fontSize="7"  fill="#94a3b8" fontWeight="700" opacity="0.55">z</text>
         </>
       )}
     </svg>
@@ -123,30 +178,45 @@ function MichiSVG({ mood }: { mood: MascotMood }) {
 // ── CSS animations ────────────────────────────────────────────────────────────
 
 const ANIM_CSS = `
-@keyframes michiFloat     { 0%,100%{transform:translateY(0)}   50%{transform:translateY(-4px)} }
-@keyframes michiBounce    { 0%,100%{transform:scale(1)}         40%{transform:scale(1.07)} }
-@keyframes michiShake     { 0%,100%{transform:rotate(0deg)}     25%{transform:rotate(-4deg)} 75%{transform:rotate(4deg)} }
-@keyframes michiPulse     { 0%,100%{opacity:1}                  50%{opacity:0.75} }
-@keyframes michiSlowFloat { 0%,100%{transform:translateY(0)}   50%{transform:translateY(-2px)} }
+@keyframes michiFloat     { 0%,100%{transform:translateY(0)}             50%{transform:translateY(-5px)} }
+@keyframes michiBounce    { 0%,100%{transform:scale(1) translateY(0)}    45%{transform:scale(1.07) translateY(-4px)} }
+@keyframes michiSway      { 0%,100%{transform:rotate(0deg)}              30%{transform:rotate(-2.5deg)} 70%{transform:rotate(2.5deg)} }
+@keyframes michiPulse     { 0%,100%{transform:scale(1)}                  50%{transform:scale(0.95)} }
+@keyframes michiSlowFloat { 0%,100%{transform:translateY(0)}             50%{transform:translateY(-2.5px)} }
 `
 
 const ANIM_STYLE: Record<MoodConfig['animation'], CSSProperties> = {
-  'float':      { animation: 'michiFloat 3s ease-in-out infinite' },
-  'bounce':     { animation: 'michiBounce 1.4s ease-in-out infinite' },
-  'shake':      { animation: 'michiShake 0.6s ease-in-out infinite' },
-  'pulse':      { animation: 'michiPulse 1.8s ease-in-out infinite' },
-  'slow-float': { animation: 'michiSlowFloat 4s ease-in-out infinite' },
+  'float':      { animation: 'michiFloat 3.2s ease-in-out infinite' },
+  'bounce':     { animation: 'michiBounce 1.5s ease-in-out infinite' },
+  'sway':       { animation: 'michiSway 2.4s ease-in-out infinite' },
+  'pulse':      { animation: 'michiPulse 2s ease-in-out infinite' },
+  'slow-float': { animation: 'michiSlowFloat 4.5s ease-in-out infinite' },
 }
 
-// ── Public component ──────────────────────────────────────────────────────────
+// ── CTA button colors ─────────────────────────────────────────────────────────
+
+const CTA_BG: Record<MascotMood, string> = {
+  calm:       'rgba(52,211,153,0.1)',
+  happy:      'rgba(52,211,153,0.1)',
+  proud:      'rgba(52,211,153,0.1)',
+  motivated:  'rgba(96,165,250,0.1)',
+  worried:    'rgba(251,191,36,0.1)',
+  alert:      'rgba(248,113,113,0.1)',
+  celebrating:'rgba(251,191,36,0.1)',
+  thinking:   'rgba(129,140,248,0.1)',
+  tired:      'rgba(148,163,184,0.08)',
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 interface PersonalMascotProps {
   result: MoodResult
   loading?: boolean
+  onCtaClick?: (route: string) => void
 }
 
-export function PersonalMascot({ result, loading = false }: PersonalMascotProps) {
-  const { mood, message, detail } = result
+export function PersonalMascot({ result, loading = false, onCtaClick }: PersonalMascotProps) {
+  const { mood, message, detail, cta } = result
   const cfg = MOOD_CONFIG[mood]
 
   return (
@@ -155,78 +225,116 @@ export function PersonalMascot({ result, loading = false }: PersonalMascotProps)
       <div
         data-testid="personal-michi-card"
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.875rem',
-          background: cfg.bgColor,
-          border: `1px solid ${cfg.borderColor}`,
-          borderRadius: '1.25rem',
-          padding: '0.875rem 1rem',
+          background: cfg.gradient,
+          border: `1px solid ${cfg.border}`,
+          borderRadius: '1.5rem',
+          padding: '1.125rem 1.125rem 1rem',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.22)',
         }}
       >
-        {/* Cat SVG with animation */}
-        <div
-          data-testid="personal-michi-avatar"
-          style={{
-            flexShrink: 0,
-            width: 68,
-            height: 68,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            ...ANIM_STYLE[cfg.animation],
-          }}
-        >
-          <MichiSVG mood={mood} />
-        </div>
+        {/* Row: avatar + text */}
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
 
-        {/* Text */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Avatar circle with glow */}
           <div
-            data-testid="personal-michi-mood-label"
+            data-testid="personal-michi-avatar"
             style={{
-              fontSize: '0.62rem',
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.07em',
-              color: cfg.labelColor,
-              marginBottom: '0.3rem',
+              flexShrink: 0,
+              width: 76,
+              height: 76,
+              borderRadius: '50%',
+              background: cfg.avatarBg,
+              border: `1.5px solid ${cfg.border}`,
+              boxShadow: `0 0 22px ${cfg.avatarGlow}, inset 0 0 12px ${cfg.avatarGlow}`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              ...ANIM_STYLE[cfg.animation],
             }}
           >
-            Michi · {cfg.label}
+            <MichiSVG mood={mood} />
           </div>
-          {loading ? (
-            <div style={{ height: 14, width: '70%', borderRadius: 4, background: 'rgba(255,255,255,0.06)' }} />
-          ) : (
-            <>
-              <p
-                data-testid="personal-michi-message"
-                style={{
-                  margin: 0,
-                  fontSize: '0.8125rem',
-                  fontWeight: 600,
-                  color: '#e2e8f0',
-                  lineHeight: 1.4,
-                }}
-              >
-                {message}
-              </p>
-              {detail && (
+
+          {/* Text column */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+
+            {/* Title: "Michi está [estado]" */}
+            <div
+              data-testid="personal-michi-mood-label"
+              style={{
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                color: cfg.labelColor,
+                marginBottom: '0.35rem',
+                letterSpacing: '-0.01em',
+              }}
+            >
+              {cfg.title}
+            </div>
+
+            {/* Message */}
+            {loading ? (
+              <>
+                <div style={{ height: 13, width: '85%', borderRadius: 4, background: 'rgba(255,255,255,0.05)', marginBottom: '0.35rem' }} />
+                <div style={{ height: 11, width: '60%', borderRadius: 4, background: 'rgba(255,255,255,0.03)' }} />
+              </>
+            ) : (
+              <>
                 <p
-                  data-testid="personal-michi-detail"
+                  data-testid="personal-michi-message"
                   style={{
-                    margin: '0.2rem 0 0',
-                    fontSize: '0.72rem',
-                    color: '#475569',
-                    lineHeight: 1.35,
+                    margin: 0,
+                    fontSize: '0.8125rem',
+                    fontWeight: 500,
+                    color: '#cbd5e1',
+                    lineHeight: 1.5,
                   }}
                 >
-                  {detail}
+                  {message}
                 </p>
-              )}
-            </>
-          )}
+
+                {detail && (
+                  <p
+                    data-testid="personal-michi-detail"
+                    style={{
+                      margin: '0.3rem 0 0',
+                      fontSize: '0.72rem',
+                      color: '#475569',
+                      lineHeight: 1.4,
+                      fontStyle: 'italic',
+                    }}
+                  >
+                    {detail}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
         </div>
+
+        {/* CTA pill */}
+        {!loading && cta && onCtaClick && (
+          <div style={{ marginTop: '0.875rem', paddingTop: '0.75rem', borderTop: `1px solid ${cfg.border}` }}>
+            <button
+              data-testid="personal-michi-cta"
+              onClick={() => onCtaClick(cta.route)}
+              style={{
+                background: CTA_BG[mood],
+                border: `1.5px solid ${cfg.border}`,
+                borderRadius: '99px',
+                padding: '0.375rem 1.125rem',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: cfg.labelColor,
+                cursor: 'pointer',
+                letterSpacing: '0.01em',
+                lineHeight: 1,
+              }}
+            >
+              {cta.label} →
+            </button>
+          </div>
+        )}
       </div>
     </>
   )

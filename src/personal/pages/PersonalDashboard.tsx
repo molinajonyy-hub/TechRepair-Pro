@@ -353,7 +353,7 @@ export function PersonalDashboard() {
           debtSummary,
           insights: dashInsights,
         })
-        return <PersonalMascot result={michiResult} loading={loading} />
+        return <PersonalMascot result={michiResult} loading={loading} onCtaClick={(route) => navigate(route)} />
       })()}
 
       {/* ── Budget widget ── */}
