@@ -4,11 +4,10 @@ import type { MascotMood, MoodResult } from '../services/mascotMoodService'
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
 interface EyeConfig {
-  type: 'ellipse' | 'happy' | 'closed' | 'stars'
-  ry?: number
-  pupilR?: number
-  pupilDx?: number
-  pupilDy?: number
+  type: 'circle' | 'happy' | 'closed' | 'stars'
+  r?: number
+  hlDx?: number
+  hlDy?: number
   showBrows?: boolean
 }
 
@@ -29,192 +28,192 @@ interface MoodConfig {
 
 const MOOD_CONFIG: Record<MascotMood, MoodConfig> = {
   calm: {
-    eyes:      { type: 'ellipse', ry: 4.5, pupilR: 3 },
+    eyes: { type: 'circle', r: 7.5 },
     mouth: 'smile', extra: null, animation: 'float',
     gradient:   'linear-gradient(145deg, rgba(52,211,153,0.07) 0%, rgba(4,7,15,0.72) 100%)',
     border:     'rgba(52,211,153,0.2)',
     avatarBg:   'rgba(52,211,153,0.1)',
     avatarGlow: 'rgba(52,211,153,0.2)',
     labelColor: '#34d399',
-    title: 'Michi está tranquila',
+    title: 'Miguita está tranquila',
   },
   happy: {
-    eyes:      { type: 'happy' },
+    eyes: { type: 'happy' },
     mouth: 'smile', extra: null, animation: 'float',
     gradient:   'linear-gradient(145deg, rgba(52,211,153,0.1) 0%, rgba(4,7,15,0.72) 100%)',
     border:     'rgba(52,211,153,0.28)',
     avatarBg:   'rgba(52,211,153,0.13)',
     avatarGlow: 'rgba(52,211,153,0.28)',
     labelColor: '#4ade80',
-    title: 'Michi está contenta',
+    title: 'Miguita está contenta',
   },
   proud: {
-    eyes:      { type: 'ellipse', ry: 6, pupilR: 3.5, pupilDy: -1 },
+    eyes: { type: 'circle', r: 8.5 },
     mouth: 'bigsmile', extra: null, animation: 'float',
     gradient:   'linear-gradient(145deg, rgba(52,211,153,0.1) 0%, rgba(4,7,15,0.72) 100%)',
     border:     'rgba(52,211,153,0.28)',
     avatarBg:   'rgba(52,211,153,0.13)',
     avatarGlow: 'rgba(52,211,153,0.28)',
     labelColor: '#4ade80',
-    title: 'Michi está orgullosa',
+    title: 'Miguita está orgullosa',
   },
   motivated: {
-    eyes:      { type: 'ellipse', ry: 8, pupilR: 4.5 },
+    eyes: { type: 'circle', r: 9.5 },
     mouth: 'smile', extra: null, animation: 'bounce',
     gradient:   'linear-gradient(145deg, rgba(96,165,250,0.08) 0%, rgba(4,7,15,0.72) 100%)',
     border:     'rgba(96,165,250,0.22)',
     avatarBg:   'rgba(96,165,250,0.1)',
     avatarGlow: 'rgba(96,165,250,0.2)',
     labelColor: '#60a5fa',
-    title: 'Michi está motivada',
+    title: 'Miguita está motivada',
   },
   worried: {
-    eyes:      { type: 'ellipse', ry: 6.5, pupilR: 3.5, showBrows: true },
+    eyes: { type: 'circle', r: 8.5, showBrows: true },
     mouth: 'frown', extra: null, animation: 'pulse',
     gradient:   'linear-gradient(145deg, rgba(251,191,36,0.07) 0%, rgba(4,7,15,0.76) 100%)',
     border:     'rgba(251,191,36,0.22)',
     avatarBg:   'rgba(251,191,36,0.1)',
     avatarGlow: 'rgba(251,191,36,0.16)',
     labelColor: '#fbbf24',
-    title: 'Michi está preocupada',
+    title: 'Miguita está preocupada',
   },
   alert: {
-    eyes:      { type: 'ellipse', ry: 8.5, pupilR: 4.5, showBrows: true },
+    eyes: { type: 'circle', r: 9.5, showBrows: true },
     mouth: 'open', extra: null, animation: 'sway',
     gradient:   'linear-gradient(145deg, rgba(248,113,113,0.09) 0%, rgba(4,7,15,0.78) 100%)',
     border:     'rgba(248,113,113,0.28)',
     avatarBg:   'rgba(248,113,113,0.1)',
     avatarGlow: 'rgba(248,113,113,0.22)',
     labelColor: '#f87171',
-    title: 'Michi está atenta',
+    title: 'Miguita está atenta',
   },
   celebrating: {
-    eyes:      { type: 'stars' },
+    eyes: { type: 'stars' },
     mouth: 'excited', extra: 'sparkles', animation: 'bounce',
     gradient:   'linear-gradient(145deg, rgba(251,191,36,0.1) 0%, rgba(52,211,153,0.06) 60%, rgba(4,7,15,0.72) 100%)',
     border:     'rgba(251,191,36,0.32)',
     avatarBg:   'rgba(251,191,36,0.12)',
     avatarGlow: 'rgba(251,191,36,0.28)',
     labelColor: '#fbbf24',
-    title: '¡Michi está celebrando!',
+    title: '¡Miguita está celebrando!',
   },
   thinking: {
-    eyes:      { type: 'ellipse', ry: 5, pupilR: 3, pupilDx: 1.5, pupilDy: -1.5 },
+    eyes: { type: 'circle', r: 8, hlDx: 2, hlDy: -2 },
     mouth: 'neutral', extra: null, animation: 'slow-float',
     gradient:   'linear-gradient(145deg, rgba(129,140,248,0.07) 0%, rgba(4,7,15,0.72) 100%)',
     border:     'rgba(129,140,248,0.2)',
     avatarBg:   'rgba(129,140,248,0.1)',
     avatarGlow: 'rgba(129,140,248,0.16)',
     labelColor: '#818cf8',
-    title: 'Michi está pensando',
+    title: 'Miguita está pensando',
   },
   tired: {
-    eyes:      { type: 'closed' },
+    eyes: { type: 'closed' },
     mouth: 'neutral', extra: 'zzz', animation: 'slow-float',
     gradient:   'linear-gradient(145deg, rgba(52,211,153,0.04) 0%, rgba(4,7,15,0.8) 100%)',
     border:     'rgba(148,163,184,0.18)',
     avatarBg:   'rgba(148,163,184,0.08)',
     avatarGlow: 'rgba(148,163,184,0.12)',
     labelColor: '#94a3b8',
-    title: 'Michi está cansada',
+    title: 'Miguita está cansada',
   },
 }
 
 // ── Paths de boca ─────────────────────────────────────────────────────────────
 
 const MOUTH_PATHS = {
-  smile:    'M 36,58 Q 40,63 44,58',
-  bigsmile: 'M 33,57 Q 40,65 47,57',
-  frown:    'M 36,61 Q 40,56 44,61',
-  neutral:  'M 38,59 L 40,62.5 L 42,59',
-  // 'open' se renderiza como ellipse separado
-  // 'excited' = W-smile
-  excited:  'M 33,57 Q 37,66 40,61 Q 43,66 47,57',
+  smile:    'M 36,53 Q 40,58 44,53',
+  bigsmile: 'M 33,52 Q 40,60 47,52',
+  frown:    'M 36,56 Q 40,51 44,56',
+  neutral:  'M 38,54 L 40,57.5 L 42,54',
+  excited:  'M 33,52 Q 37,62 40,57 Q 43,62 47,52',
 }
 
 // ── SVG principal ─────────────────────────────────────────────────────────────
 
-function MichiSVG({ mood }: { mood: MascotMood }) {
-  const cfg    = MOOD_CONFIG[mood]
-  const { type: eyeType, ry = 7, pupilR = 3.5, pupilDx = 0, pupilDy = 0, showBrows } = cfg.eyes
+function MascotSVG({ mood }: { mood: MascotMood }) {
+  const cfg = MOOD_CONFIG[mood]
+  const { type: eyeType, r: eyeR = 8.5, hlDx = 0, hlDy = 0, showBrows } = cfg.eyes
 
   const green      = '#34d399'
   const greenDark  = '#059669'
   const greenLight = '#a7f3d0'
+  const indigo     = '#4f46e5'
   const blush      = 'rgba(255,110,90,0.13)'
 
   return (
-    <svg viewBox="0 0 80 80" width="62" height="62" aria-label="Michi">
+    <svg viewBox="0 0 80 80" width="62" height="62" aria-label="Miguita">
 
-      {/* ── Orejas (detrás de la cabeza) ── */}
-      <polygon points="11,36 21,6 38,27"  fill={green} />
-      <polygon points="69,36 59,6 42,27"  fill={green} />
-      <polygon points="17,33 22,13 34,27" fill={greenLight} opacity="0.5" />
-      <polygon points="63,33 58,13 46,27" fill={greenLight} opacity="0.5" />
+      {/* ── Orejas (detras de la cabeza) ── */}
+      <polygon points="13,30 22,5 36,22"  fill={green} />
+      <polygon points="67,30 58,5 44,22"  fill={green} />
+      {/* orejas internas indigo (clay 3D) */}
+      <polygon points="17,28 22,11 32,22" fill={indigo} opacity="0.75" />
+      <polygon points="63,28 58,11 48,22" fill={indigo} opacity="0.75" />
 
       {/* ── Cabeza ── */}
-      <circle cx="40" cy="46" r="28" fill={green} />
+      <circle cx="40" cy="39" r="27" fill={green} />
 
-      {/* ── Rubor (siempre presente, muy sutil) ── */}
-      <ellipse cx="22" cy="52" rx="6"   ry="3.5" fill={blush} />
-      <ellipse cx="58" cy="52" rx="6"   ry="3.5" fill={blush} />
+      {/* ── Highlight de frente (efecto 3D clay) ── */}
+      <ellipse cx="38" cy="24" rx="13" ry="9" fill={greenLight} opacity="0.28" />
+
+      {/* ── Rubor ── */}
+      <ellipse cx="20" cy="44" rx="6"   ry="3.5" fill={blush} />
+      <ellipse cx="60" cy="44" rx="6"   ry="3.5" fill={blush} />
 
       {/* ── Ojos ── */}
       {eyeType === 'closed' ? (
-        /* Cansada: ojos cerrados como arcos suaves */
         <>
-          <path d="M 22,42 Q 29,36 36,42" stroke="white" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-          <path d="M 44,42 Q 51,36 58,42" stroke="white" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+          <path d="M 20,34 Q 28,28 36,34" stroke="white" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+          <path d="M 44,34 Q 52,28 60,34" stroke="white" strokeWidth="2.5" fill="none" strokeLinecap="round" />
         </>
       ) : eyeType === 'stars' ? (
-        /* Celebrando: ojos estrella dorados */
         <>
-          <text x="29" y="46" fontSize="14" fill="#fbbf24" textAnchor="middle" dominantBaseline="middle">★</text>
-          <text x="51" y="46" fontSize="14" fill="#fbbf24" textAnchor="middle" dominantBaseline="middle">★</text>
+          <text x="28" y="34" fontSize="14" fill="#fbbf24" textAnchor="middle" dominantBaseline="middle">&#9733;</text>
+          <text x="52" y="34" fontSize="14" fill="#fbbf24" textAnchor="middle" dominantBaseline="middle">&#9733;</text>
         </>
       ) : eyeType === 'happy' ? (
-        /* Contenta: medias lunas (arco superior, estilo ^_^) */
         <>
-          <path d="M 22.5,42 A 6.5,7.5 0 0 0 35.5,42 Z" fill="white" />
-          <circle cx="29"  cy="41" r="3.5" fill="#0a1520" />
-          <circle cx="32"  cy="39" r="1.8" fill="white"   opacity="0.9" />
-          <path d="M 44.5,42 A 6.5,7.5 0 0 0 57.5,42 Z" fill="white" />
-          <circle cx="51"  cy="41" r="3.5" fill="#0a1520" />
-          <circle cx="54"  cy="39" r="1.8" fill="white"   opacity="0.9" />
+          {/* Circulos oscuros base */}
+          <circle cx="28" cy="34" r="8.5" fill="#1a1a2e" />
+          <circle cx="52" cy="34" r="8.5" fill="#1a1a2e" />
+          {/* Arcos verdes cubren mitad inferior: efecto guino */}
+          <path d="M 19.5,34 A 8.5,8.5 0 0 1 36.5,34 Z" fill={green} />
+          <path d="M 43.5,34 A 8.5,8.5 0 0 1 60.5,34 Z" fill={green} />
+          {/* Highlights */}
+          <circle cx="32" cy="29" r="2"   fill="white" opacity="0.85" />
+          <circle cx="56" cy="29" r="2"   fill="white" opacity="0.85" />
+          <circle cx="25" cy="37" r="1.2" fill="white" opacity="0.4"  />
+          <circle cx="49" cy="37" r="1.2" fill="white" opacity="0.4"  />
         </>
       ) : (
-        /* Ellipse: normal / wide / calm / worried / motivated / proud / thinking */
+        /* circle: normal / worried / alert / motivated / proud / calm / thinking */
         <>
-          {/* Cejas fruncidas para worried/alert */}
           {showBrows && (
             <>
-              <path d="M 23,33 Q 28,30 34,34"   stroke={greenDark} strokeWidth="2"   fill="none" strokeLinecap="round" />
-              <path d="M 46,34 Q 52,30 57,33"   stroke={greenDark} strokeWidth="2"   fill="none" strokeLinecap="round" />
+              <path d="M 20,27 Q 28,23 36,28" stroke={greenDark} strokeWidth="2.2" fill="none" strokeLinecap="round" />
+              <path d="M 44,28 Q 52,23 60,27" stroke={greenDark} strokeWidth="2.2" fill="none" strokeLinecap="round" />
             </>
           )}
-          {/* Blancos del ojo */}
-          <ellipse cx="29" cy="41" rx="6.5" ry={ry}     fill="white" />
-          <ellipse cx="51" cy="41" rx="6.5" ry={ry}     fill="white" />
-          {/* Pupilas */}
-          <circle cx={29 + pupilDx} cy={41 + pupilDy} r={pupilR} fill="#0a1520" />
-          <circle cx={51 + pupilDx} cy={41 + pupilDy} r={pupilR} fill="#0a1520" />
+          {/* Ojos grandes oscuros (estilo clay) */}
+          <circle cx="28" cy="34" r={eyeR} fill="#1a1a2e" />
+          <circle cx="52" cy="34" r={eyeR} fill="#1a1a2e" />
           {/* Highlight principal */}
-          <circle cx={32 + pupilDx} cy={38.5 + pupilDy} r="2"   fill="white" opacity="0.9" />
-          <circle cx={54 + pupilDx} cy={38.5 + pupilDy} r="2"   fill="white" opacity="0.9" />
-          {/* Highlight secundario (más suave) */}
-          <circle cx={27 + pupilDx} cy={43   + pupilDy} r="1"   fill="white" opacity="0.4" />
-          <circle cx={49 + pupilDx} cy={43   + pupilDy} r="1"   fill="white" opacity="0.4" />
+          <circle cx={32 + hlDx} cy={30 + hlDy} r="2.5"  fill="white" opacity="0.9"  />
+          <circle cx={56 + hlDx} cy={30 + hlDy} r="2.5"  fill="white" opacity="0.9"  />
+          {/* Highlight secundario */}
+          <circle cx={25 + hlDx} cy={37 + hlDy} r="1.3"  fill="white" opacity="0.45" />
+          <circle cx={49 + hlDx} cy={37 + hlDy} r="1.3"  fill="white" opacity="0.45" />
         </>
       )}
 
-      {/* ── Nariz (triángulo invertido estilo gato) ── */}
-      <path d="M 37.5,50.5 L 40,54.5 L 42.5,50.5 Z" fill={greenDark} />
+      {/* ── Nariz indigo (oval) ── */}
+      <ellipse cx="40" cy="47" rx="3.5" ry="2.5" fill={indigo} />
 
       {/* ── Boca ── */}
       {cfg.mouth === 'open' ? (
-        /* Alerta: boca abierta (oval con relleno) */
-        <ellipse cx="40" cy="61" rx="5.5" ry="5"
-          fill="rgba(5,150,105,0.38)" stroke={greenDark} strokeWidth="1.5" />
+        <ellipse cx="40" cy="57" rx="5.5" ry="5"
+          fill="rgba(5,150,105,0.38)" stroke={indigo} strokeWidth="1.5" />
       ) : (
         <path
           d={MOUTH_PATHS[cfg.mouth as keyof typeof MOUTH_PATHS]}
@@ -227,17 +226,26 @@ function MichiSVG({ mood }: { mood: MascotMood }) {
       )}
 
       {/* ── Bigotes ── */}
-      <line x1="10" y1="48"   x2="24" y2="50.5" stroke="rgba(255,255,255,0.28)" strokeWidth="1.2" strokeLinecap="round" />
-      <line x1="10" y1="53"   x2="24" y2="53"   stroke="rgba(255,255,255,0.28)" strokeWidth="1.2" strokeLinecap="round" />
-      <line x1="70" y1="48"   x2="56" y2="50.5" stroke="rgba(255,255,255,0.28)" strokeWidth="1.2" strokeLinecap="round" />
-      <line x1="70" y1="53"   x2="56" y2="53"   stroke="rgba(255,255,255,0.28)" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="8"  y1="44" x2="22" y2="46.5" stroke="rgba(255,255,255,0.25)" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="8"  y1="50" x2="22" y2="50"   stroke="rgba(255,255,255,0.25)" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="72" y1="44" x2="58" y2="46.5" stroke="rgba(255,255,255,0.25)" strokeWidth="1.2" strokeLinecap="round" />
+      <line x1="72" y1="50" x2="58" y2="50"   stroke="rgba(255,255,255,0.25)" strokeWidth="1.2" strokeLinecap="round" />
+
+      {/* ── Collar indigo ── */}
+      <path d="M 18,62 Q 40,70 62,62" stroke={indigo} strokeWidth="3.5" fill="none" strokeLinecap="round" />
+
+      {/* ── Medalla con grafico de barras ascendente ── */}
+      <circle cx="40" cy="68" r="6.5" fill="#e0e7ff" />
+      <rect x="35.5" y="66.5" width="2" height="3.5" rx="0.5" fill={indigo} />
+      <rect x="39"   y="65"   width="2" height="5"   rx="0.5" fill={indigo} />
+      <rect x="42.5" y="63.5" width="2" height="6.5" rx="0.5" fill={indigo} />
 
       {/* ── Extras ── */}
       {cfg.extra === 'sparkles' && (
         <>
-          <text x="65" y="18" fontSize="9"  fill="#fbbf24" opacity="0.9">✦</text>
-          <text x="8"  y="22" fontSize="7"  fill="#fbbf24" opacity="0.75">✦</text>
-          <text x="68" y="32" fontSize="6"  fill="#fbbf24" opacity="0.55">✦</text>
+          <text x="65" y="18" fontSize="9"  fill="#fbbf24" opacity="0.9">&#10022;</text>
+          <text x="8"  y="22" fontSize="7"  fill="#fbbf24" opacity="0.75">&#10022;</text>
+          <text x="68" y="32" fontSize="6"  fill="#fbbf24" opacity="0.55">&#10022;</text>
         </>
       )}
       {cfg.extra === 'zzz' && (
@@ -253,19 +261,19 @@ function MichiSVG({ mood }: { mood: MascotMood }) {
 // ── CSS animaciones ───────────────────────────────────────────────────────────
 
 const ANIM_CSS = `
-@keyframes michiFloat     { 0%,100%{transform:translateY(0)}             50%{transform:translateY(-5px)} }
-@keyframes michiBounce    { 0%,100%{transform:scale(1) translateY(0)}    45%{transform:scale(1.07) translateY(-4px)} }
-@keyframes michiSway      { 0%,100%{transform:rotate(0deg)}              30%{transform:rotate(-2.5deg)} 70%{transform:rotate(2.5deg)} }
-@keyframes michiPulse     { 0%,100%{transform:scale(1)}                  50%{transform:scale(0.95)} }
-@keyframes michiSlowFloat { 0%,100%{transform:translateY(0)}             50%{transform:translateY(-2.5px)} }
+@keyframes mascotFloat     { 0%,100%{transform:translateY(0)}             50%{transform:translateY(-5px)} }
+@keyframes mascotBounce    { 0%,100%{transform:scale(1) translateY(0)}    45%{transform:scale(1.07) translateY(-4px)} }
+@keyframes mascotSway      { 0%,100%{transform:rotate(0deg)}              30%{transform:rotate(-2.5deg)} 70%{transform:rotate(2.5deg)} }
+@keyframes mascotPulse     { 0%,100%{transform:scale(1)}                  50%{transform:scale(0.95)} }
+@keyframes mascotSlowFloat { 0%,100%{transform:translateY(0)}             50%{transform:translateY(-2.5px)} }
 `
 
 const ANIM_STYLE: Record<MoodConfig['animation'], CSSProperties> = {
-  'float':      { animation: 'michiFloat 3.2s ease-in-out infinite' },
-  'bounce':     { animation: 'michiBounce 1.5s ease-in-out infinite' },
-  'sway':       { animation: 'michiSway 2.4s ease-in-out infinite' },
-  'pulse':      { animation: 'michiPulse 2s ease-in-out infinite' },
-  'slow-float': { animation: 'michiSlowFloat 4.5s ease-in-out infinite' },
+  'float':      { animation: 'mascotFloat 3.2s ease-in-out infinite' },
+  'bounce':     { animation: 'mascotBounce 1.5s ease-in-out infinite' },
+  'sway':       { animation: 'mascotSway 2.4s ease-in-out infinite' },
+  'pulse':      { animation: 'mascotPulse 2s ease-in-out infinite' },
+  'slow-float': { animation: 'mascotSlowFloat 4.5s ease-in-out infinite' },
 }
 
 // ── CTA bg por mood ───────────────────────────────────────────────────────────
@@ -282,7 +290,7 @@ const CTA_BG: Record<MascotMood, string> = {
   tired:       'rgba(148,163,184,0.08)',
 }
 
-// ── Componente público ────────────────────────────────────────────────────────
+// ── Componente publico ────────────────────────────────────────────────────────
 
 interface PersonalMascotProps {
   result: MoodResult
@@ -298,7 +306,7 @@ export function PersonalMascot({ result, loading = false, onCtaClick }: Personal
     <>
       <style>{ANIM_CSS}</style>
       <div
-        data-testid="personal-michi-card"
+        data-testid="personal-miguita-card"
         style={{
           background:   cfg.gradient,
           border:       `1px solid ${cfg.border}`,
@@ -312,7 +320,7 @@ export function PersonalMascot({ result, loading = false, onCtaClick }: Personal
 
           {/* Avatar circular con glow */}
           <div
-            data-testid="personal-michi-avatar"
+            data-testid="personal-miguita-avatar"
             style={{
               flexShrink: 0,
               width: 76, height: 76,
@@ -324,15 +332,15 @@ export function PersonalMascot({ result, loading = false, onCtaClick }: Personal
               ...ANIM_STYLE[cfg.animation],
             }}
           >
-            <MichiSVG mood={mood} />
+            <MascotSVG mood={mood} />
           </div>
 
           {/* Columna de texto */}
           <div style={{ flex: 1, minWidth: 0 }}>
 
-            {/* Título "Michi está [estado]" */}
+            {/* Titulo "Miguita esta [estado]" */}
             <div
-              data-testid="personal-michi-mood-label"
+              data-testid="personal-miguita-mood-label"
               style={{
                 fontSize: '0.8rem',
                 fontWeight: 700,
@@ -353,14 +361,14 @@ export function PersonalMascot({ result, loading = false, onCtaClick }: Personal
             ) : (
               <>
                 <p
-                  data-testid="personal-michi-message"
+                  data-testid="personal-miguita-message"
                   style={{ margin: 0, fontSize: '0.8125rem', fontWeight: 500, color: '#cbd5e1', lineHeight: 1.5 }}
                 >
                   {message}
                 </p>
                 {detail && (
                   <p
-                    data-testid="personal-michi-detail"
+                    data-testid="personal-miguita-detail"
                     style={{ margin: '0.3rem 0 0', fontSize: '0.72rem', color: '#475569', lineHeight: 1.4, fontStyle: 'italic' }}
                   >
                     {detail}
@@ -375,7 +383,7 @@ export function PersonalMascot({ result, loading = false, onCtaClick }: Personal
         {!loading && cta && onCtaClick && (
           <div style={{ marginTop: '0.875rem', paddingTop: '0.75rem', borderTop: `1px solid ${cfg.border}` }}>
             <button
-              data-testid="personal-michi-cta"
+              data-testid="personal-miguita-cta"
               onClick={() => onCtaClick(cta.route)}
               style={{
                 background: CTA_BG[mood],
@@ -390,7 +398,7 @@ export function PersonalMascot({ result, loading = false, onCtaClick }: Personal
                 lineHeight: 1,
               }}
             >
-              {cta.label} →
+              {cta.label} &rarr;
             </button>
           </div>
         )}
