@@ -1,7 +1,63 @@
 import { useState, useEffect } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Home, ArrowLeftRight, CreditCard, Target, MoreHorizontal, Wallet, X } from 'lucide-react'
+import { Home, ArrowLeftRight, CreditCard, Target, MoreHorizontal, X } from 'lucide-react'
 import { ToastProvider } from '../components/ui'
+import { useAuth } from '../../contexts/AuthContext'
+import type { User } from '@supabase/supabase-js'
+import type { Profile } from '../../contexts/AuthContext'
+
+// ── Greeting helpers ──────────────────────────────────────────────────────────
+
+function getFirstName(user: User | null, profile: Profile | null): string | null {
+  const raw =
+    profile?.full_name ||
+    (user?.user_metadata?.full_name as string | undefined) ||
+    (user?.user_metadata?.name   as string | undefined) ||
+    user?.email?.split('@')[0] ||
+    ''
+  const clean = raw.trim()
+  if (!clean) return null
+  return clean.split(' ')[0]
+}
+
+function getTimeGreeting(): 'Buen día' | 'Buenas tardes' | 'Buenas noches' {
+  const h = new Date().getHours()
+  if (h >= 5 && h < 12) return 'Buen día'
+  if (h >= 12 && h < 20) return 'Buenas tardes'
+  return 'Buenas noches'
+}
+
+const PHRASES: Record<ReturnType<typeof getTimeGreeting>, string[]> = {
+  'Buen día': [
+    'Arrancamos con los números claros.',
+    'Hoy ordenamos la guita sin drama.',
+    'Un cafecito y a mirar el mes.',
+    'Buen día para tomar control.',
+    'La guita no se ordena sola.',
+  ],
+  'Buenas tardes': [
+    'Tu plata, pero sin vueltas.',
+    'Vamos viendo cómo viene el día.',
+    'Revisamos rápido y seguimos.',
+    'Que los números no se hagan los vivos.',
+    'Chequeamos y seguimos.',
+  ],
+  'Buenas noches': [
+    'Cerramos el día con control.',
+    'A mirar el resumen sin sustos.',
+    'Última mirada antes de descansar.',
+    'Que la billetera duerma tranquila.',
+    'Números claros, mente tranquila.',
+  ],
+}
+
+function getGreetingPhrase(greeting: ReturnType<typeof getTimeGreeting>): string {
+  const list = PHRASES[greeting]
+  // Deterministic per day — no flickering on re-render
+  return list[new Date().getDate() % list.length]
+}
+
+// ── Nav ───────────────────────────────────────────────────────────────────────
 
 const NAV = [
   { path: '/personal',             label: 'Inicio',      Icon: Home,           testId: 'personal-nav-home'      },
@@ -80,13 +136,19 @@ function InstallCard() {
 // ── Layout ────────────────────────────────────────────────────────────────────
 
 export function PersonalLayout() {
-  const location = useLocation()
-  const navigate = useNavigate()
+  const location  = useLocation()
+  const navigate  = useNavigate()
+  const { user, profile } = useAuth()
 
   const active = (path: string) => {
     if (path === '/personal') return location.pathname === '/personal'
     return location.pathname.startsWith(path)
   }
+
+  const greeting  = getTimeGreeting()
+  const phrase    = getGreetingPhrase(greeting)
+  const firstName = getFirstName(user, profile)
+  const title     = firstName ? `${greeting}, ${firstName}` : greeting
 
   return (
     <div
@@ -99,23 +161,67 @@ export function PersonalLayout() {
       }}
     >
       {/* ── Top header ── */}
-      <header style={{
-        position: 'sticky', top: 0, zIndex: 50,
-        background: 'rgba(7,16,24,0.96)',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
-        padding: 'max(0.875rem, env(safe-area-inset-top, 0.875rem)) 1rem 0.75rem',
-        display: 'flex', alignItems: 'center', gap: '0.75rem',
-        flexShrink: 0,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
-          <div style={{ width: 28, height: 28, borderRadius: '0.5rem', background: 'linear-gradient(135deg,rgba(52,211,153,0.25),rgba(16,185,129,0.15))', border: '1px solid rgba(52,211,153,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Wallet size={14} color="#34d399" />
-          </div>
-          <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: '#f0f4ff', letterSpacing: '-0.01em' }}>
-            Mi Guita
-          </span>
+      <header
+        data-testid="personal-header"
+        style={{
+          position: 'sticky', top: 0, zIndex: 50,
+          background: 'rgba(7,16,24,0.96)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          padding: 'max(0.875rem, env(safe-area-inset-top, 0.875rem)) 1rem 0.75rem',
+          display: 'flex', alignItems: 'center', gap: '0.75rem',
+          flexShrink: 0,
+        }}
+      >
+        {/* Logo verde canónico Mi Guita */}
+        <div style={{
+          flexShrink: 0,
+          width: 38, height: 38,
+          borderRadius: '0.75rem',
+          boxShadow: '0 0 12px rgba(52,211,153,0.20)',
+          overflow: 'hidden',
+        }}>
+          <img
+            src="/icons/miguita-192.svg"
+            alt="Mi Guita"
+            data-testid="personal-header-logo"
+            style={{ width: '100%', height: '100%', display: 'block' }}
+          />
+        </div>
+
+        {/* Saludo personalizado */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p
+            data-testid="personal-header-greeting"
+            style={{
+              fontWeight: 700,
+              fontSize: '0.9375rem',
+              color: '#f0f4ff',
+              letterSpacing: '-0.01em',
+              lineHeight: 1.25,
+              margin: 0,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {title}
+          </p>
+          <p
+            data-testid="personal-header-phrase"
+            style={{
+              fontSize: '0.72rem',
+              color: '#475569',
+              margin: '0.125rem 0 0',
+              lineHeight: 1.3,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {phrase}
+          </p>
         </div>
       </header>
 
