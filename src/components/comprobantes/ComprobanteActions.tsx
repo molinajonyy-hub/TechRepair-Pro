@@ -40,8 +40,9 @@ export function ComprobanteActions({
   const [emitirConfirm, setEmitirConfirm] = useState(false);
 
   const esBorrador = comprobante.estado === 'borrador';
-  const esEmitido = comprobante.estado === 'emitido';
+  const esEmitido = comprobante.estado === 'emitido' || !!comprobante.cae;
   const esAnulado = comprobante.estado === 'anulado';
+  const esCobradoPendienteArca = esBorrador && (comprobante.total_cobrado || 0) > 0 && !comprobante.cae && comprobante.estado_fiscal !== 'emitido';
 
   const handleEmitirClick = () => {
     if (!emitirConfirm) {
@@ -54,16 +55,18 @@ export function ComprobanteActions({
   };
 
   // Status colors
-  const statusColor = esAnulado ? 'var(--error)' : esEmitido ? 'var(--success)' : 'var(--warning)';
-  const statusBg = esAnulado ? 'var(--error-subtle)' : esEmitido ? 'var(--success-subtle)' : 'var(--warning-light)';
-  const statusBorder = esAnulado ? 'var(--error)' : esEmitido ? 'var(--success)' : 'var(--warning)';
-  const statusLabel = esAnulado ? 'Comprobante anulado' : esEmitido ? 'Emitido y válido' : 'Pendiente de emisión';
+  const statusColor = esAnulado ? 'var(--error)' : esEmitido ? 'var(--success)' : esCobradoPendienteArca ? '#60a5fa' : 'var(--warning)';
+  const statusBg = esAnulado ? 'var(--error-subtle)' : esEmitido ? 'var(--success-subtle)' : esCobradoPendienteArca ? 'rgba(96,165,250,0.1)' : 'var(--warning-light)';
+  const statusBorder = esAnulado ? 'var(--error)' : esEmitido ? 'var(--success)' : esCobradoPendienteArca ? 'rgba(96,165,250,0.4)' : 'var(--warning)';
+  const statusLabel = esAnulado ? 'Comprobante anulado' : esEmitido ? 'Emitido y válido' : esCobradoPendienteArca ? 'Cobrado / Pendiente ARCA' : 'Pendiente de emisión';
   const statusSub = esAnulado
     ? 'Sin validez fiscal'
     : esEmitido
     ? comprobante.cae ? `CAE: ${comprobante.cae.slice(0, 12)}…` : 'Autorizado por AFIP'
+    : esCobradoPendienteArca
+    ? 'Cobro registrado · sin emisión fiscal'
     : 'Debe emitirse en AFIP';
-  const StatusIcon = esAnulado ? Ban : esEmitido ? Shield : Clock;
+  const StatusIcon = esAnulado ? Ban : esEmitido ? Shield : esCobradoPendienteArca ? CheckCircle : Clock;
 
   return (
     <>

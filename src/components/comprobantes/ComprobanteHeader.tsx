@@ -1,10 +1,14 @@
 import { TipoComprobante } from '../../hooks/useComprobantes';
+import { getComprobanteDisplayStatus } from '../../utils/comprobanteStatus';
 
 interface ComprobanteHeaderProps {
   tipo: TipoComprobante;
   numero: string | null;
   estado: 'borrador' | 'emitido' | 'anulado';
   puntoVenta: string;
+  estadoFiscal?: string | null;
+  cae?: string | null;
+  totalCobrado?: number | null;
 }
 
 const TIPO_CONFIG: Record<TipoComprobante, {
@@ -57,12 +61,26 @@ const ESTADO_CONFIG: Record<string, { label: string; dotColor: string; badgeBg: 
     badgeColor: 'var(--text-secondary)',
     badgeBorder: 'var(--border-color)',
   },
-  emitido: {
-    label: 'Emitido',
+  cobrado_pendiente_arca: {
+    label: 'Cobrado / Pendiente ARCA',
+    dotColor: '#60a5fa',
+    badgeBg: 'rgba(96,165,250,0.1)',
+    badgeColor: '#60a5fa',
+    badgeBorder: 'rgba(96,165,250,0.4)',
+  },
+  emitido_arca: {
+    label: 'Emitido ARCA',
     dotColor: 'var(--success)',
     badgeBg: 'var(--success-subtle)',
     badgeColor: 'var(--success)',
     badgeBorder: 'var(--success)',
+  },
+  error_arca: {
+    label: 'Error ARCA',
+    dotColor: 'var(--error)',
+    badgeBg: 'var(--error-subtle)',
+    badgeColor: 'var(--error)',
+    badgeBorder: 'var(--error)',
   },
   anulado: {
     label: 'Anulado',
@@ -84,9 +102,10 @@ function formatNumero(numero: string | null, puntoVenta: string) {
   return `${pv}-${num}`;
 }
 
-export function ComprobanteHeader({ tipo, numero, estado, puntoVenta }: ComprobanteHeaderProps) {
+export function ComprobanteHeader({ tipo, numero, estado, puntoVenta, estadoFiscal, cae, totalCobrado }: ComprobanteHeaderProps) {
   const cfg = TIPO_CONFIG[tipo] ?? TIPO_CONFIG.factura_c;
-  const est = ESTADO_CONFIG[estado] ?? ESTADO_CONFIG.borrador;
+  const displayStatus = getComprobanteDisplayStatus({ estado, estado_fiscal: estadoFiscal, cae, total_cobrado: totalCobrado })
+  const est = ESTADO_CONFIG[displayStatus.key] ?? ESTADO_CONFIG.borrador;
 
   return (
     <div style={{
@@ -167,7 +186,7 @@ export function ComprobanteHeader({ tipo, numero, estado, puntoVenta }: Comproba
             width: 6, height: 6, borderRadius: '50%',
             background: est.dotColor,
             display: 'inline-block',
-            ...(estado === 'emitido' ? { boxShadow: `0 0 4px ${est.dotColor}` } : {}),
+            ...(displayStatus.key === 'emitido_arca' ? { boxShadow: `0 0 4px ${est.dotColor}` } : {}),
           }} />
           <span style={{ fontSize: '0.75rem', fontWeight: 600, color: est.badgeColor }}>{est.label}</span>
         </div>

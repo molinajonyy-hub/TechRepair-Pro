@@ -15,6 +15,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { TipoComprobante, Comprobante } from '../../hooks/useComprobantes';
+import { getComprobanteDisplayStatus } from '../../utils/comprobanteStatus';
 
 interface ComprobantesTableProps {
   comprobantes: Comprobante[];
@@ -57,32 +58,11 @@ const tipoConfig: Record<TipoComprobante, {
   }
 };
 
-const estadoConfig: Record<string, { 
-  label: string; 
-  color: string; 
-  bgColor: string;
-}> = {
-  borrador: { 
-    label: 'Borrador', 
-    color: '#fbbf24', 
-    bgColor: 'rgba(245, 158, 11, 0.1)' 
-  },
-  emitido: { 
-    label: 'Emitido', 
-    color: '#34d399', 
-    bgColor: 'rgba(16, 185, 129, 0.1)' 
-  },
-  anulado: { 
-    label: 'Anulado', 
-    color: '#f87171', 
-    bgColor: 'rgba(239, 68, 68, 0.1)' 
-  }
-};
 
 export function ComprobantesTable({ comprobantes, onEdit, onNotaCredito, onEliminar, actionLoading }: ComprobantesTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [tipoFilter, setTipoFilter] = useState<TipoComprobante | 'todos'>('todos');
-  const [estadoFilter, setEstadoFilter] = useState<'todos' | 'borrador' | 'emitido' | 'anulado'>('todos');
+  const [estadoFilter, setEstadoFilter] = useState<'todos' | 'borrador' | 'cobrado_pendiente_arca' | 'emitido' | 'anulado'>('todos');
   const [showFilters, setShowFilters] = useState(false);
 
   const filteredComprobantes = comprobantes.filter(comp => {
@@ -92,7 +72,7 @@ export function ComprobantesTable({ comprobantes, onEdit, onNotaCredito, onElimi
       comp.tipo.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesTipo = tipoFilter === 'todos' || comp.tipo === tipoFilter;
-    const matchesEstado = estadoFilter === 'todos' || comp.estado === estadoFilter;
+    const matchesEstado = estadoFilter === 'todos' || getComprobanteDisplayStatus(comp).key === estadoFilter;
     
     return matchesSearch && matchesTipo && matchesEstado;
   });
@@ -127,7 +107,7 @@ export function ComprobantesTable({ comprobantes, onEdit, onNotaCredito, onElimi
       (comp as any).cliente_nombre || 'Sin cliente',
       (comp as any).currency || 'ARS',
       comp.total.toFixed(2),
-      estadoConfig[comp.estado].label
+      getComprobanteDisplayStatus(comp).label
     ]);
 
     const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
@@ -314,7 +294,8 @@ export function ComprobantesTable({ comprobantes, onEdit, onNotaCredito, onElimi
                 >
                   <option value="todos">Todos los estados</option>
                   <option value="borrador">Borrador</option>
-                  <option value="emitido">Emitido</option>
+                  <option value="cobrado_pendiente_arca">Cobrado / Pendiente ARCA</option>
+                  <option value="emitido">Emitido ARCA</option>
                   <option value="anulado">Anulado</option>
                 </select>
               </div>
@@ -416,7 +397,7 @@ export function ComprobantesTable({ comprobantes, onEdit, onNotaCredito, onElimi
               <tbody>
                 {filteredComprobantes.map((comprobante) => {
                   const Icon = tipoConfig[comprobante.tipo].icon;
-                  const estado = estadoConfig[comprobante.estado];
+                  const displayStatus = getComprobanteDisplayStatus(comprobante);
                   
                   return (
                     <tr 
@@ -506,13 +487,13 @@ export function ComprobantesTable({ comprobantes, onEdit, onNotaCredito, onElimi
                       <td style={{ padding: '1rem' }}>
                         <span style={{
                           padding: '0.25rem 0.75rem',
-                          backgroundColor: estado.bgColor,
-                          color: estado.color,
+                          backgroundColor: displayStatus.bgColor,
+                          color: displayStatus.color,
                           borderRadius: '9999px',
                           fontSize: '0.75rem',
                           fontWeight: 500
                         }}>
-                          {estado.label}
+                          {displayStatus.label}
                         </span>
                       </td>
                       <td style={{ padding: '1rem', textAlign: 'right' }}>

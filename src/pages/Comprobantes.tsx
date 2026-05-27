@@ -125,6 +125,7 @@ export default function ComprobantesPage() {
   const isEmitido  = (c: Comprobante) => ['emitido','issued'].includes((c.estado || c.status) ?? '');
   const isBorrador = (c: Comprobante) => ['borrador','draft'].includes((c.estado || c.status) ?? '');
   const emitidos      = comprobantes.filter(isEmitido);
+  const cobradosPendArca = comprobantes.filter(c => isBorrador(c) && (c.total_cobrado || 0) > 0 && !c.cae && c.estado_fiscal !== 'emitido');
   const montoTotalARS = emitidos.reduce((s, c) => s + (c.total_ars || c.total || 0), 0);
   const montoTotalUSD = emitidos.filter(c => c.currency === 'USD').reduce((s, c) => s + (c.total_usd || 0), 0);
 
@@ -175,7 +176,9 @@ export default function ComprobantesPage() {
           <div style={{ fontSize: '0.8125rem', color: 'var(--text-subtle)', display: 'flex', gap: '0.5rem' }}>
             <span style={{ color: '#10b981', fontWeight: 600 }}>{emitidos.length}</span> emitidos
             &nbsp;·&nbsp;
-            <span style={{ color: '#f59e0b', fontWeight: 600 }}>{comprobantes.filter(isBorrador).length}</span> borradores
+            <span style={{ color: '#60a5fa', fontWeight: 600 }}>{cobradosPendArca.length}</span> cobr./pend. ARCA
+            &nbsp;·&nbsp;
+            <span style={{ color: '#f59e0b', fontWeight: 600 }}>{comprobantes.filter(isBorrador).length - cobradosPendArca.length}</span> borradores
           </div>
         </div>
 
