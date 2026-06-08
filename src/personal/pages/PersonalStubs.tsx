@@ -1,35 +1,7 @@
-/** Stub pages for modules coming in future phases. */
-import { AlertCircle, BarChart3, Settings, Tag, List, RepeatIcon, Wallet, Lightbulb } from 'lucide-react'
+/** Navigation menu — "Más" section. */
+import { AlertCircle, BarChart3, Settings, Tag, List, RepeatIcon, Wallet, Lightbulb, CalendarDays } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { PageContainer, EmptyPersonal } from '../components/ui'
-
-function ComingSoon({ Icon, title, description }: { Icon: React.ElementType; title: string; description: string }) {
-  const navigate = useNavigate()
-  return (
-    <PageContainer style={{ justifyContent: 'center', minHeight: '60dvh' }}>
-      <EmptyPersonal
-        icon={<Icon size={26} />}
-        title={title}
-        description={description}
-        cta="Volver al inicio"
-        onCta={() => navigate('/personal')}
-      />
-      <div style={{ textAlign: 'center' }}>
-        <span style={{ fontSize: '0.7rem', color: '#1e3a5f', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Próximamente</span>
-      </div>
-    </PageContainer>
-  )
-}
-
-
-
-export function PersonalCategories() {
-  return <ComingSoon Icon={Tag} title="Categorías" description="Personalizá las categorías de gastos e ingresos para organizar mejor tus finanzas." />
-}
-
-export function PersonalSettings() {
-  return <ComingSoon Icon={Settings} title="Configuración" description="Ajustá la moneda principal, preferencias visuales y opciones de la app." />
-}
+import { PageContainer } from '../components/ui'
 
 export function PersonalMore() {
   const navigate = useNavigate()
@@ -40,6 +12,7 @@ export function PersonalMore() {
     { label: 'Categorías',     path: '/personal/categorias',    Icon: Tag         },
     { label: 'Proyecciones',   path: '/personal/proyecciones',  Icon: BarChart3   },
     { label: 'Presupuestos',   path: '/personal/presupuestos',  Icon: Wallet      },
+    { label: 'Plan del mes',   path: '/personal/plan',          Icon: CalendarDays},
     { label: 'Diagnóstico',    path: '/personal/insights',      Icon: Lightbulb   },
     { label: 'Configuración',  path: '/personal/configuracion', Icon: Settings    },
   ]

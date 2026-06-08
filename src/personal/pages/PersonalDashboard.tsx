@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   TrendingUp, TrendingDown, ArrowDownUp, Building2,
-  CreditCard, Target, AlertCircle, Wallet, Eye, EyeOff, RepeatIcon, ChevronRight, BarChart3,
+  CreditCard, Target, AlertCircle, Wallet, Eye, EyeOff, RepeatIcon, ChevronRight, BarChart3, CalendarDays,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { personalService, type PersonalAccount, type PersonalTransaction, type PersonalCategory } from '../services/personalService'
@@ -245,6 +245,52 @@ export function PersonalDashboard() {
         hidden={hidden}
         onNavigate={navigate}
       />
+
+      {/* ── Monthly plan widget ── */}
+      {(() => {
+        const hasDanger  = dashInsights.some(i => i.severity === 'danger')
+        const hasWarning = dashInsights.some(i => i.severity === 'warning')
+        const hasOverdue = false // no projection data in dashboard scope — use simple heuristic
+        const budgetOver = dashInsights.some(i => i.type === 'budget_exceeded')
+        let planStatus: 'healthy' | 'stable' | 'attention' | 'risk' | 'critical' = 'stable'
+        if (hasDanger || (projResult < 0 && summary.totalIncome > 0 && Math.abs(projResult) > summary.totalIncome * 0.4)) planStatus = 'critical'
+        else if (projResult < 0 || hasOverdue) planStatus = 'risk'
+        else if (budgetOver || hasWarning) planStatus = 'attention'
+        else if (projResult > 0 && summary.totalIncome > 0 && summary.totalExpense < summary.totalIncome * 0.55) planStatus = 'healthy'
+        const planColor = { healthy: '#34d399', stable: '#818cf8', attention: '#fbbf24', risk: '#f97316', critical: '#f87171' }[planStatus]
+        const planLabel = { healthy: 'Saludable', stable: 'Estable', attention: 'Atención', risk: 'Riesgo', critical: 'Crítico' }[planStatus]
+        const topAlert  = dashInsights.find(i => i.severity === 'danger' || i.severity === 'warning')
+        return (
+          <div
+            data-testid="personal-plan-widget"
+            onClick={() => navigate('/personal/plan')}
+            style={{ background: `${planColor}08`, border: `1px solid ${planColor}20`, borderRadius: '1rem', padding: '0.875rem 1rem', cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <CalendarDays size={14} color={planColor} />
+                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Plan del mes</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.62rem', fontWeight: 700, color: planColor, background: `${planColor}18`, border: `1px solid ${planColor}28`, borderRadius: 99, padding: '0.1rem 0.5rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{planLabel}</span>
+                <ChevronRight size={14} color="#334155" />
+              </div>
+            </div>
+            {loading ? (
+              <div style={{ height: 20, width: '50%', borderRadius: 4, background: 'rgba(255,255,255,0.04)' }} />
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <div style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '1.0625rem', color: projResult >= 0 ? planColor : '#f87171' }}>
+                  {hidden ? MASK : ((projResult >= 0 ? '+' : '') + amtComp(projResult))}
+                </div>
+                {topAlert && !hidden && (
+                  <div style={{ fontSize: '0.68rem', color: '#475569', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{topAlert.title}</div>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* ── Credit cards widget ── */}
       <div

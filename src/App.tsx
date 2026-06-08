@@ -25,8 +25,9 @@ const PersonalRecurringExpenses  = lazy(() => import('./personal/pages/PersonalR
 const PersonalProjection  = lazy(() => import('./personal/pages/PersonalProjections').then(m => ({ default: m.PersonalProjections })))
 const PersonalBudgets     = lazy(() => import('./personal/pages/PersonalBudgets').then(m => ({ default: m.PersonalBudgets })))
 const PersonalInsights    = lazy(() => import('./personal/pages/PersonalInsights').then(m => ({ default: m.PersonalInsights })))
-const PersonalCategories  = lazy(() => import('./personal/pages/PersonalStubs').then(m => ({ default: m.PersonalCategories })))
-const PersonalSettings    = lazy(() => import('./personal/pages/PersonalStubs').then(m => ({ default: m.PersonalSettings })))
+const PersonalCategories  = lazy(() => import('./personal/pages/PersonalCategories').then(m => ({ default: m.PersonalCategories })))
+const PersonalSettings    = lazy(() => import('./personal/pages/PersonalSettings').then(m => ({ default: m.PersonalSettings })))
+const PersonalMonthlyPlan = lazy(() => import('./personal/pages/PersonalMonthlyPlan').then(m => ({ default: m.PersonalMonthlyPlan })))
 
 // ── Auth / utility — always static (critical paths, small size) ───
 import { AcceptInvite } from './pages/AcceptInvite'
@@ -226,6 +227,7 @@ function AppContent() {
               <Route path="/personal/insights"         element={<PersonalInsights />} />
               <Route path="/personal/categorias"       element={<PersonalCategories />} />
               <Route path="/personal/configuracion"    element={<PersonalSettings />} />
+              <Route path="/personal/plan"             element={<PersonalMonthlyPlan />} />
               <Route path="/personal/mas"              element={<PersonalMore />} />
             </Route>
           </Route>
