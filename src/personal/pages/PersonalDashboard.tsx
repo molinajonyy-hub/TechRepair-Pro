@@ -12,12 +12,11 @@ import { debtService, type DebtSummary } from '../services/debtService'
 import { budgetService, calculateBudgetUsage, getBudgetSummaryFromUsages, budgetStatusColor, type BudgetSummary } from '../services/budgetService'
 import { recurringExpenseService } from '../services/recurringExpenseService'
 import { buildPersonalInsights, getTopInsights, type PersonalInsight } from '../services/insightService'
-import { calculateMood } from '../services/mascotMoodService'
 import {
   TxRow, EmptyPersonal, SkeletonCard, PageContainer, Card, fmtMoney, fmtMoneyCompact,
 } from '../components/ui'
 import { TransactionForm } from '../components/TransactionForm'
-import { PersonalMascot } from '../components/PersonalMascot'
+import { FinancialDiagnosisCard } from '../components/FinancialDiagnosisCard'
 
 const HIDE_KEY = 'miGuitaHideAmounts'
 const MASK     = '••••••'
@@ -136,6 +135,9 @@ export function PersonalDashboard() {
     { label: 'Sueldo',       path: '/personal/sueldo',       Icon: Building2,    color: '#a78bfa', bg: 'rgba(167,139,250,0.1)' },
   ]
 
+  const pendingCommitments = cardTotalThisMonth + debtInstallmentsEst
+  const projResult = summary.balance - pendingCommitments
+
   return (
     <PageContainer testId="personal-dashboard">
 
@@ -230,6 +232,20 @@ export function PersonalDashboard() {
         )}
       </div>
 
+      {/* ── Financial diagnosis ── */}
+      <FinancialDiagnosisCard
+        loading={loading}
+        summary={summary}
+        projResult={projResult}
+        cardCommitments={cardTotalThisMonth}
+        debtInstallments={debtInstallmentsEst}
+        insights={dashInsights}
+        budgetSummary={budgetSummaryDash}
+        debtSummary={debtSummary}
+        hidden={hidden}
+        onNavigate={navigate}
+      />
+
       {/* ── Credit cards widget ── */}
       <div
         data-testid="personal-cards-widget"
@@ -305,56 +321,35 @@ export function PersonalDashboard() {
       </div>
 
       {/* ── Projection widget ── */}
-      {(() => {
-        const pendingCommitments = cardTotalThisMonth + debtInstallmentsEst
-        const projResult = summary.balance - pendingCommitments
-        return (
-          <div
-            data-testid="personal-projections-widget"
-            onClick={() => navigate('/personal/proyecciones')}
-            style={{ background: projResult >= 0 ? 'rgba(129,140,248,0.06)' : 'rgba(248,113,113,0.06)', border: `1px solid ${projResult >= 0 ? 'rgba(129,140,248,0.18)' : 'rgba(248,113,113,0.18)'}`, borderRadius: '1rem', padding: '0.875rem 1rem', cursor: 'pointer' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <BarChart3 size={14} color={projResult >= 0 ? '#818cf8' : '#f87171'} />
-                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Proyección</span>
-              </div>
-              <ChevronRight size={14} color="#334155" />
+      <div
+        data-testid="personal-projections-widget"
+        onClick={() => navigate('/personal/proyecciones')}
+        style={{ background: projResult >= 0 ? 'rgba(129,140,248,0.06)' : 'rgba(248,113,113,0.06)', border: `1px solid ${projResult >= 0 ? 'rgba(129,140,248,0.18)' : 'rgba(248,113,113,0.18)'}`, borderRadius: '1rem', padding: '0.875rem 1rem', cursor: 'pointer' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <BarChart3 size={14} color={projResult >= 0 ? '#818cf8' : '#f87171'} />
+            <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Proyección</span>
+          </div>
+          <ChevronRight size={14} color="#334155" />
+        </div>
+        {loading ? (
+          <div style={{ height: 24, width: '45%', borderRadius: 4, background: 'rgba(129,140,248,0.1)', marginTop: '0.375rem' }} />
+        ) : (
+          <div style={{ marginTop: '0.375rem', display: 'flex', alignItems: 'baseline', gap: '0.625rem', flexWrap: 'wrap' }}>
+            <div data-testid="personal-projections-widget-result"
+              style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '1.125rem', color: projResult >= 0 ? '#818cf8' : '#f87171' }}
+            >
+              {hidden ? MASK : ((projResult >= 0 ? '+' : '') + amtComp(projResult))}
             </div>
-            {loading ? (
-              <div style={{ height: 24, width: '45%', borderRadius: 4, background: 'rgba(129,140,248,0.1)', marginTop: '0.375rem' }} />
-            ) : (
-              <div style={{ marginTop: '0.375rem', display: 'flex', alignItems: 'baseline', gap: '0.625rem', flexWrap: 'wrap' }}>
-                <div data-testid="personal-projections-widget-result"
-                  style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '1.125rem', color: projResult >= 0 ? '#818cf8' : '#f87171' }}
-                >
-                  {hidden ? MASK : ((projResult >= 0 ? '+' : '') + amtComp(projResult))}
-                </div>
-                {pendingCommitments > 0 && (
-                  <div style={{ fontSize: '0.68rem', color: '#475569' }}>
-                    {hidden ? '' : `${amtComp(pendingCommitments)} en compromisos`}
-                  </div>
-                )}
+            {pendingCommitments > 0 && (
+              <div style={{ fontSize: '0.68rem', color: '#475569' }}>
+                {hidden ? '' : `${amtComp(pendingCommitments)} en compromisos`}
               </div>
             )}
           </div>
-        )
-      })()}
-
-      {/* ── Michi AI mascot ── */}
-      {(() => {
-        const pendingCommitments = cardTotalThisMonth + debtInstallmentsEst
-        const projResult = summary.balance - pendingCommitments
-        const michiResult = calculateMood({
-          loading,
-          summary,
-          projResult,
-          budgetSummary: budgetSummaryDash,
-          debtSummary,
-          insights: dashInsights,
-        })
-        return <PersonalMascot result={michiResult} loading={loading} onCtaClick={(route) => navigate(route)} />
-      })()}
+        )}
+      </div>
 
       {/* ── Budget widget ── */}
       {(!loading || budgetSummaryDash) && (
@@ -420,7 +415,7 @@ export function PersonalDashboard() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <AlertCircle size={14} color={hasAlert ? '#f87171' : '#60a5fa'} />
-                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Insights</span>
+                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Diagnóstico</span>
               </div>
               <ChevronRight size={14} color="#334155" />
             </div>
@@ -428,7 +423,7 @@ export function PersonalDashboard() {
               <div style={{ height: 20, width: '50%', borderRadius: 4, background: 'rgba(255,255,255,0.04)' }} />
             ) : topInsights.length === 0 ? (
               <div style={{ fontSize: '0.8125rem', color: '#34d399', fontWeight: 600 }}>
-                Todo tranquilo por ahora 🧘
+                Sin alertas activas. Tu situación viene bien.
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>

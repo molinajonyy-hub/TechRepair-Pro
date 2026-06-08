@@ -40,7 +40,7 @@ export function PersonalMore() {
     { label: 'Categorías',     path: '/personal/categorias',    Icon: Tag         },
     { label: 'Proyecciones',   path: '/personal/proyecciones',  Icon: BarChart3   },
     { label: 'Presupuestos',   path: '/personal/presupuestos',  Icon: Wallet      },
-    { label: 'Insights',       path: '/personal/insights',      Icon: Lightbulb   },
+    { label: 'Diagnóstico',    path: '/personal/insights',      Icon: Lightbulb   },
     { label: 'Configuración',  path: '/personal/configuracion', Icon: Settings    },
   ]
   return (

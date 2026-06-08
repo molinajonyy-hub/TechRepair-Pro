@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { LucideIcon } from 'lucide-react'
 import {
+  type LucideIcon,
   TrendingDown, TrendingUp, AlertTriangle, AlertCircle, CheckCircle,
   CreditCard, Clock, Tag, BarChart3, RepeatIcon, Eye, EyeOff,
   Wallet, Info, ChevronRight, Sparkles,
@@ -272,7 +272,7 @@ export function PersonalInsights() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Mi Guita</div>
-          <div style={{ fontWeight: 800, fontSize: '1.25rem', color: '#f0f4ff', lineHeight: 1.2 }}>Insights</div>
+          <div style={{ fontWeight: 800, fontSize: '1.25rem', color: '#f0f4ff', lineHeight: 1.2 }}>Diagnóstico</div>
         </div>
         <button
           data-testid="personal-insights-toggle-hide"
@@ -345,12 +345,11 @@ export function PersonalInsights() {
           data-testid="personal-insights-empty"
           style={{ textAlign: 'center', padding: '2.5rem 1rem' }}
         >
-          <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>🧘</div>
           <div style={{ fontWeight: 800, fontSize: '1rem', color: '#f0f4ff', marginBottom: '0.375rem' }}>
-            No hay suficientes datos aún
+            Sin datos suficientes para el diagnóstico
           </div>
           <p style={{ fontSize: '0.8125rem', color: '#475569', lineHeight: 1.5, margin: 0 }}>
-            Registrá movimientos, presupuestos o tarjetas para que Mi Guita pueda interpretar tu situación financiera.
+            Registrá movimientos, presupuestos o tarjetas para ver el análisis financiero de tu mes.
           </p>
         </div>
       ) : filtered.length === 0 ? (
@@ -358,14 +357,15 @@ export function PersonalInsights() {
           data-testid="personal-insights-empty-filter"
           style={{ textAlign: 'center', padding: '2rem 1rem' }}
         >
-          <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>✅</div>
           <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: '#f0f4ff', marginBottom: '0.25rem' }}>
-            {filter === 'alert'       ? 'Sin alertas activas' :
+            {filter === 'alert'       ? 'Sin alertas activas este mes' :
              filter === 'opportunity' ? 'Sin oportunidades detectadas' :
-                                        'Sin indicadores de salud'}
+                                        'Sin indicadores de salud registrados'}
           </div>
           <p style={{ fontSize: '0.8125rem', color: '#475569', margin: 0 }}>
-            {filter === 'alert' ? 'Todo tranquilo por acá. ¡Bien ahí!' : 'Seguí cargando datos para más insights.'}
+            {filter === 'alert'
+              ? 'No se detectaron alertas en tu situación financiera actual.'
+              : 'Seguí registrando datos para un diagnóstico más completo.'}
           </p>
         </div>
       ) : (
