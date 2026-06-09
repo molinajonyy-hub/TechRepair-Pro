@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { TipoComprobante, Comprobante } from '../../hooks/useComprobantes';
 import { getComprobanteDisplayStatus } from '../../utils/comprobanteStatus';
+import { smartSearch } from '../../utils/searchUtils';
 
 interface ComprobantesTableProps {
   comprobantes: Comprobante[];
@@ -65,16 +66,18 @@ export function ComprobantesTable({ comprobantes, onEdit, onNotaCredito, onElimi
   const [estadoFilter, setEstadoFilter] = useState<'todos' | 'borrador' | 'cobrado_pendiente_arca' | 'emitido' | 'anulado'>('todos');
   const [showFilters, setShowFilters] = useState(false);
 
-  const filteredComprobantes = comprobantes.filter(comp => {
-    const matchesSearch = searchTerm === '' || 
-      comp.numero?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      ((comp as any).cliente_nombre?.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      comp.tipo.toLowerCase().includes(searchTerm.toLowerCase());
-    
+  const searchedComprobantes = searchTerm
+    ? smartSearch(comprobantes, searchTerm, [
+        { getValue: (c) => c.numero,                          weight: 5 },
+        { getValue: (c) => (c as any).cliente_nombre ?? null, weight: 3 },
+        { getValue: (c) => c.tipo,                            weight: 2 },
+      ])
+    : comprobantes;
+
+  const filteredComprobantes = searchedComprobantes.filter(comp => {
     const matchesTipo = tipoFilter === 'todos' || comp.tipo === tipoFilter;
     const matchesEstado = estadoFilter === 'todos' || getComprobanteDisplayStatus(comp).key === estadoFilter;
-    
-    return matchesSearch && matchesTipo && matchesEstado;
+    return matchesTipo && matchesEstado;
   });
 
   const formatCurrency = (value: number, currency?: string) => {

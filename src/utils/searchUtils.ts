@@ -6,6 +6,7 @@
  * - Multi-token: "iphone juan" encuentra ítems con ambas palabras
  * - Ranking por relevancia: exacto > prefijo > substring > campo secundario
  * - Tolerante a errores de tipeo leves
+ * - Cross-field AND: cada token puede matchear en un campo distinto
  */
 
 // ─── Normalización ────────────────────────────────────────────────────────────
@@ -38,24 +39,34 @@ export function tokenize(query: string): string[] {
 // ─── Scoring ──────────────────────────────────────────────────────────────────
 
 /**
+ * Puntúa qué tan bien un valor normalizado coincide con UN token.
+ * Retorna 0 si el token no aparece en el valor.
+ */
+function scoreToken(normalizedValue: string, token: string): number {
+  if (!normalizedValue || !token) return 0
+  if (!normalizedValue.includes(token)) {
+    if (!fuzzyIncludes(normalizedValue, token)) return 0
+    return 10 // match difuso, puntaje bajo
+  }
+  if (normalizedValue === token) return 100
+  if (normalizedValue.startsWith(token)) return 70
+  if (wordBoundaryMatch(normalizedValue, token)) return 50
+  return 30
+}
+
+/**
  * Puntúa qué tan bien un valor normalizado coincide con los tokens.
  * Retorna 0 si no coinciden TODOS los tokens.
+ * @deprecated Usar smartSearch en vez de llamar esto directamente.
  */
 export function scoreValue(normalizedValue: string, tokens: string[]): number {
   if (!normalizedValue || tokens.length === 0) return 0
 
   let total = 0
   for (const token of tokens) {
-    if (!normalizedValue.includes(token)) {
-      // Intento de tolerancia leve: un token con diferencia de 1 char
-      if (!fuzzyIncludes(normalizedValue, token)) return 0
-      total += 10 // match difuso, puntaje bajo
-      continue
-    }
-    if (normalizedValue === token) total += 100           // exacto
-    else if (normalizedValue.startsWith(token)) total += 70  // prefijo
-    else if (wordBoundaryMatch(normalizedValue, token)) total += 50 // inicio de palabra
-    else total += 30                                         // substring
+    const s = scoreToken(normalizedValue, token)
+    if (s === 0) return 0
+    total += s
   }
   return total
 }
@@ -77,7 +88,7 @@ function fuzzyIncludes(text: string, token: string): boolean {
   return false
 }
 
-function levenshtein(a: string, b: string): number {
+export function levenshtein(a: string, b: string): number {
   const m = a.length, n = b.length
   const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
     Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
@@ -102,6 +113,12 @@ export interface SearchField<T> {
 /**
  * Filtra y ordena un array de items por relevancia.
  *
+ * Algoritmo cross-field AND:
+ * - Cada token puede matchear en campos distintos (NO deben estar todos en un solo campo)
+ * - Por token: best-score-across-fields × weight
+ * - Score total: suma de best-scores por token
+ * - Hard AND: si algún token no matchea en ningún campo → item descartado
+ *
  * @param items - Array a filtrar
  * @param query - Texto del buscador
  * @param fields - Campos en los que buscar (en orden de prioridad)
@@ -117,20 +134,39 @@ export function smartSearch<T>(
   const tokens = tokenize(query)
   if (tokens.length === 0) return items
 
+  // Pre-normalizar todos los campos para evitar re-normalización por token
+  type NormField = { normValue: string; weight: number }
+  const itemNorms: NormField[][] = items.map(item =>
+    fields.map(field => ({
+      normValue: normalizeText(field.getValue(item)),
+      weight: field.weight ?? 1,
+    }))
+  )
+
   const scored: { item: T; score: number }[] = []
 
-  for (const item of items) {
-    let maxScore = 0
+  for (let idx = 0; idx < items.length; idx++) {
+    const normFields = itemNorms[idx]
+    let totalScore = 0
+    let allMatched = true
 
-    for (const field of fields) {
-      const raw = field.getValue(item)
-      if (!raw) continue
-      const norm = normalizeText(raw)
-      const s = scoreValue(norm, tokens) * (field.weight ?? 1)
-      if (s > maxScore) maxScore = s
+    for (const token of tokens) {
+      // Para este token: mejor score a través de todos los campos
+      let bestTokenScore = 0
+      for (const { normValue, weight } of normFields) {
+        if (!normValue) continue
+        const s = scoreToken(normValue, token) * weight
+        if (s > bestTokenScore) bestTokenScore = s
+      }
+
+      if (bestTokenScore === 0) {
+        allMatched = false
+        break
+      }
+      totalScore += bestTokenScore
     }
 
-    if (maxScore > 0) scored.push({ item, score: maxScore })
+    if (allMatched) scored.push({ item: items[idx], score: totalScore })
   }
 
   return scored

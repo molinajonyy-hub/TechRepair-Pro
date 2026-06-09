@@ -1048,25 +1048,34 @@ export function ComprobanteProModal({
               )}
 
               {/* Cliente dropdown */}
-              {clienteOpen && (
-                <div data-testid="comprobante-customer-results" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, background: '#0c1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.875rem', boxShadow: '0 16px 48px rgba(0,0,0,0.7)', maxHeight: 240, overflowY: 'auto', marginTop: '0.25rem', animation: 'spotlightSlide 0.12s ease' }}>
-                  {clientes.filter(c => !clienteQuery || c.name.toLowerCase().includes(clienteQuery.toLowerCase())).slice(0, 25).map(c => (
-                    <button data-testid="comprobante-customer-option" key={c.id} onMouseDown={() => { setClienteId(c.id); setClienteQuery(c.name); setClienteOpen(false) }}
-                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '0.625rem 1rem', background: c.id === clienteId ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', cursor: 'pointer', color: '#f0f4ff', fontSize: '0.845rem', textAlign: 'left', fontFamily: F, gap: '0.5rem', transition: 'background 0.08s' }}
-                      onMouseEnter={e => { if (c.id !== clienteId) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
-                      onMouseLeave={e => { e.currentTarget.style.background = c.id === clienteId ? 'rgba(99,102,241,0.1)' : 'none' }}>
-                      <div>
-                        <div style={{ fontWeight: c.id === clienteId ? 700 : 500 }}>{c.name}</div>
-                        {c.phone && <div style={{ color: '#334155', fontSize: '0.7rem' }}>{c.phone}</div>}
-                      </div>
-                      {c.customer_type === 'mayorista' && <span style={{ fontSize: '0.65rem', color: '#818cf8', fontWeight: 700, flexShrink: 0 }}>MAYORISTA</span>}
-                    </button>
-                  ))}
-                  {clientes.filter(c => !clienteQuery || c.name.toLowerCase().includes(clienteQuery.toLowerCase())).length === 0 && (
-                    <div style={{ padding: '0.75rem 1rem', color: '#334155', fontSize: '0.8rem' }}>Sin resultados</div>
-                  )}
-                </div>
-              )}
+              {clienteOpen && (() => {
+                const clienteResults = clienteQuery
+                  ? smartSearch(clientes, clienteQuery, [
+                      { getValue: (c) => c.name,  weight: 3 },
+                      { getValue: (c) => c.phone ?? null, weight: 5 },
+                      { getValue: (c) => c.cuit ?? null,  weight: 8 },
+                    ]).slice(0, 25)
+                  : clientes.slice(0, 25)
+                return (
+                  <div data-testid="comprobante-customer-results" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, background: '#0c1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.875rem', boxShadow: '0 16px 48px rgba(0,0,0,0.7)', maxHeight: 240, overflowY: 'auto', marginTop: '0.25rem', animation: 'spotlightSlide 0.12s ease' }}>
+                    {clienteResults.map(c => (
+                      <button data-testid="comprobante-customer-option" key={c.id} onMouseDown={() => { setClienteId(c.id); setClienteQuery(c.name); setClienteOpen(false) }}
+                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '0.625rem 1rem', background: c.id === clienteId ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', cursor: 'pointer', color: '#f0f4ff', fontSize: '0.845rem', textAlign: 'left', fontFamily: F, gap: '0.5rem', transition: 'background 0.08s' }}
+                        onMouseEnter={e => { if (c.id !== clienteId) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+                        onMouseLeave={e => { e.currentTarget.style.background = c.id === clienteId ? 'rgba(99,102,241,0.1)' : 'none' }}>
+                        <div>
+                          <div style={{ fontWeight: c.id === clienteId ? 700 : 500 }}>{c.name}</div>
+                          {c.phone && <div style={{ color: '#334155', fontSize: '0.7rem' }}>{c.phone}</div>}
+                        </div>
+                        {c.customer_type === 'mayorista' && <span style={{ fontSize: '0.65rem', color: '#818cf8', fontWeight: 700, flexShrink: 0 }}>MAYORISTA</span>}
+                      </button>
+                    ))}
+                    {clienteResults.length === 0 && (
+                      <div style={{ padding: '0.75rem 1rem', color: '#334155', fontSize: '0.8rem' }}>Sin resultados</div>
+                    )}
+                  </div>
+                )
+              })()}
 
               {/* Recalc prompt */}
               {showRecalcPrompt && (

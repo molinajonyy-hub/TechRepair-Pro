@@ -723,7 +723,13 @@ export function ModalCrearComprobante({
                           >
                             Consumidor Final
                           </button>
-                          {clientes.filter(c => c.name.toLowerCase().includes(clienteQuery.toLowerCase())).map(c => (
+                          {(clienteQuery
+                            ? smartSearch(clientes, clienteQuery, [
+                                { getValue: (c) => c.name, weight: 3 },
+                                { getValue: (c) => c.cuit ?? null, weight: 8 },
+                              ])
+                            : clientes
+                          ).map(c => (
                             <button
                               key={c.id}
                               onClick={() => { setClienteId(c.id); setClienteQuery(c.name); setClienteOpen(false); }}
