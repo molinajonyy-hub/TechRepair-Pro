@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Eye, MessageCircle, Info, Zap, Check, Copy } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Eye, MessageCircle, Info, Zap, Check, Copy, Play, Link } from 'lucide-react'
 import { PageContainer } from '../components/ui'
+import { useQuickExpense } from '../components/QuickExpensePopup'
 
 const HIDE_KEY        = 'miGuitaHideAmounts'
 const ASSISTANT_KEY   = 'miguita_recommendations_enabled'
-const APP_VERSION     = 'stable-miguita-quick-expense-shortcut-v1'
+const APP_VERSION     = 'stable-miguita-quick-expense-shortcut-v2'
 
 const QUICK_EXPENSE_URL = typeof window !== 'undefined'
   ? `${window.location.origin}/personal?quickExpense=1`
@@ -46,9 +48,11 @@ function SettingRow({ icon, title, description, right }: { icon: React.ReactNode
 }
 
 export function PersonalSettings() {
-  const [hideAmounts, setHideAmounts] = useState(() => localStorage.getItem(HIDE_KEY) === 'true')
-  const [assistant,   setAssistant]   = useState(() => localStorage.getItem(ASSISTANT_KEY) !== 'false')
-  const [copied,      setCopied]      = useState(false)
+  const navigate                        = useNavigate()
+  const { openPopup }                   = useQuickExpense()
+  const [hideAmounts, setHideAmounts]   = useState(() => localStorage.getItem(HIDE_KEY) === 'true')
+  const [assistant,   setAssistant]     = useState(() => localStorage.getItem(ASSISTANT_KEY) !== 'false')
+  const [copied,      setCopied]        = useState(false)
 
   const handleCopyLink = async () => {
     try {
@@ -60,6 +64,10 @@ export function PersonalSettings() {
     }
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleTestLink = () => {
+    navigate('/personal?quickExpense=1')
   }
 
   const toggleHide = (v: boolean) => {
@@ -110,8 +118,9 @@ export function PersonalSettings() {
         <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.5rem' }}>
           Atajos
         </div>
-        <div style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.875rem', padding: '0.875rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-          {/* Icon + título */}
+        <div style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.875rem', padding: '0.875rem 1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+          {/* Título */}
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.875rem' }}>
             <div style={{ width: 36, height: 36, borderRadius: '0.625rem', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Zap size={17} color="#f87171" />
@@ -119,45 +128,91 @@ export function PersonalSettings() {
             <div>
               <div style={{ fontWeight: 700, fontSize: '0.875rem', color: '#f0f4ff', marginBottom: '0.25rem' }}>Gasto rápido con Toque posterior</div>
               <div style={{ fontSize: '0.72rem', color: '#475569', lineHeight: 1.5 }}>
-                Abrí el popup de gasto rápido tocando dos veces atrás del iPhone, usando Atajos de iOS y Toque posterior.
+                Doble toque atrás del iPhone abre el panel flotante de gasto rápido vía Atajos de iOS.
               </div>
             </div>
           </div>
 
-          {/* URL para copiar */}
+          {/* Botones de prueba */}
           <div>
-            <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>Link para el atajo</div>
-            <div style={{ fontFamily: 'monospace', fontSize: '0.72rem', color: '#34d399', background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.15)', borderRadius: '0.5rem', padding: '0.5rem 0.75rem', wordBreak: 'break-all', marginBottom: '0.5rem', lineHeight: 1.4 }}>
+            <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>
+              Probar
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                data-testid="personal-settings-test-popup"
+                onClick={openPopup}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', borderRadius: '0.625rem', background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.2)', color: '#34d399', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', minHeight: 36, transition: 'all 0.15s' }}
+              >
+                <Play size={12} /> Probar popup
+              </button>
+              <button
+                data-testid="personal-settings-test-link"
+                onClick={handleTestLink}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', borderRadius: '0.625rem', background: 'rgba(129,140,248,0.08)', border: '1px solid rgba(129,140,248,0.2)', color: '#818cf8', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', minHeight: 36, transition: 'all 0.15s' }}
+              >
+                <Link size={12} /> Probar link
+              </button>
+              <button
+                data-testid="personal-settings-copy-shortcut-link"
+                onClick={() => void handleCopyLink()}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', borderRadius: '0.625rem', background: copied ? 'rgba(52,211,153,0.12)' : 'rgba(255,255,255,0.05)', border: `1px solid ${copied ? 'rgba(52,211,153,0.35)' : 'rgba(255,255,255,0.1)'}`, color: copied ? '#34d399' : '#94a3b8', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', minHeight: 36, transition: 'all 0.15s' }}
+              >
+                {copied ? <Check size={12} /> : <Copy size={12} />}
+                {copied ? '¡Copiado!' : 'Copiar link'}
+              </button>
+            </div>
+          </div>
+
+          {/* URL */}
+          <div>
+            <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>
+              Link del atajo
+            </div>
+            <div style={{ fontFamily: 'monospace', fontSize: '0.72rem', color: '#34d399', background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.15)', borderRadius: '0.5rem', padding: '0.5rem 0.75rem', wordBreak: 'break-all', lineHeight: 1.4 }}>
               {QUICK_EXPENSE_URL}
             </div>
-            <button
-              data-testid="personal-settings-copy-shortcut-link"
-              onClick={() => void handleCopyLink()}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', borderRadius: '0.625rem', background: copied ? 'rgba(52,211,153,0.12)' : 'rgba(255,255,255,0.05)', border: `1px solid ${copied ? 'rgba(52,211,153,0.35)' : 'rgba(255,255,255,0.1)'}`, color: copied ? '#34d399' : '#94a3b8', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', minHeight: 36, transition: 'all 0.15s' }}
-            >
-              {copied ? <Check size={13} /> : <Copy size={13} />}
-              {copied ? '¡Copiado!' : 'Copiar link de gasto rápido'}
-            </button>
           </div>
 
-          {/* Instrucciones */}
+          {/* Cómo crear el atajo */}
           <div>
-            <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>Cómo configurarlo</div>
+            <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>
+              Crear el atajo (una sola vez)
+            </div>
             {[
-              'Copiá el link de gasto rápido.',
-              'Abrí la app Atajos en tu iPhone.',
-              'Creá un nuevo atajo con la acción "Abrir URL" y pegá el link.',
-              'Andá a Ajustes → Accesibilidad → Tocar → Toque posterior.',
-              'Elegí "Tocar dos veces" y seleccioná el atajo de Mi Guita.',
-            ].map((step, i) => (
-              <div key={i} style={{ display: 'flex', gap: '0.625rem', marginBottom: '0.375rem', fontSize: '0.8rem', color: '#475569' }}>
-                <span style={{ color: '#34d399', fontWeight: 800, flexShrink: 0, minWidth: 16 }}>{i + 1}.</span>
-                <span style={{ lineHeight: 1.45 }}>{step}</span>
+              { n: 1, text: 'Copiá el link de arriba.' },
+              { n: 2, text: 'Abrí la app Atajos en tu iPhone.' },
+              { n: 3, text: 'Nuevo atajo → "+" → buscá y agregá la acción "URL", pegá el link.' },
+              { n: 4, text: 'Agregá una segunda acción: "Abrir URL" (no "Obtener contenido"). No usar "Abrir app".' },
+              { n: 5, text: 'Guardá el atajo con un nombre como "Gasto rápido".' },
+            ].map(({ n, text }) => (
+              <div key={n} style={{ display: 'flex', gap: '0.625rem', marginBottom: '0.4rem', fontSize: '0.8rem', color: '#475569' }}>
+                <span style={{ color: '#34d399', fontWeight: 800, flexShrink: 0, minWidth: 16 }}>{n}.</span>
+                <span style={{ lineHeight: 1.45 }}>{text}</span>
               </div>
             ))}
-            <div style={{ marginTop: '0.625rem', fontSize: '0.7rem', color: '#1e3a5f', lineHeight: 1.5, padding: '0.5rem 0.625rem', background: 'rgba(52,211,153,0.04)', borderRadius: '0.5rem', border: '1px solid rgba(52,211,153,0.08)' }}>
-              La integración funciona mediante Atajos de iOS. La app no detecta el gesto físico directamente — iOS ejecuta el atajo que abre el link.
+          </div>
+
+          {/* Cómo asignar Toque posterior */}
+          <div>
+            <div style={{ fontSize: '0.65rem', fontWeight: 700, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>
+              Asignar a Toque posterior
             </div>
+            {[
+              { n: 1, text: 'Ajustes → Accesibilidad → Tocar → Toque posterior.' },
+              { n: 2, text: 'Tocá "Tocar dos veces".' },
+              { n: 3, text: 'Bajá hasta la sección "Atajos" y seleccioná el atajo "Gasto rápido".' },
+            ].map(({ n, text }) => (
+              <div key={n} style={{ display: 'flex', gap: '0.625rem', marginBottom: '0.4rem', fontSize: '0.8rem', color: '#475569' }}>
+                <span style={{ color: '#f87171', fontWeight: 800, flexShrink: 0, minWidth: 16 }}>{n}.</span>
+                <span style={{ lineHeight: 1.45 }}>{text}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Nota técnica */}
+          <div style={{ fontSize: '0.7rem', color: '#1e3a5f', lineHeight: 1.5, padding: '0.5rem 0.625rem', background: 'rgba(52,211,153,0.04)', borderRadius: '0.5rem', border: '1px solid rgba(52,211,153,0.08)' }}>
+            La integración usa Atajos de iOS. La app no detecta el gesto físico directamente — iOS ejecuta el atajo que abre el link, y Mi Guita lo intercepta al volver a primer plano.
           </div>
         </div>
       </div>
