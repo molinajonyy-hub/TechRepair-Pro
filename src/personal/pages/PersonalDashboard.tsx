@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   TrendingUp, TrendingDown, ArrowDownUp, Building2,
-  CreditCard, Target, AlertCircle, Wallet, Eye, EyeOff, RepeatIcon, ChevronRight, BarChart3, CalendarDays,
+  CreditCard, Target, AlertCircle, Wallet, Eye, EyeOff, RepeatIcon, ChevronRight, BarChart3, CalendarDays, Zap,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { personalService, type PersonalAccount, type PersonalTransaction, type PersonalCategory } from '../services/personalService'
@@ -17,6 +17,7 @@ import {
 } from '../components/ui'
 import { TransactionForm } from '../components/TransactionForm'
 import { FinancialDiagnosisCard } from '../components/FinancialDiagnosisCard'
+import { useQuickExpense } from '../components/QuickExpensePopup'
 
 const HIDE_KEY = 'miGuitaHideAmounts'
 const MASK     = '••••••'
@@ -45,6 +46,8 @@ export function PersonalDashboard() {
     setHidden(next)
     localStorage.setItem(HIDE_KEY, String(next))
   }
+
+  const { openPopup: openQuickExpense } = useQuickExpense()
 
   // Quick-action sheet state
   const [quickType, setQuickType] = useState<'income' | 'expense' | null>(null)
@@ -206,6 +209,15 @@ export function PersonalDashboard() {
           <TrendingDown size={18} /> Gasto
         </button>
       </div>
+
+      {/* ── Gasto rápido shortcut ── */}
+      <button
+        data-testid="personal-quick-expense-shortcut"
+        onClick={openQuickExpense}
+        style={{ width: '100%', padding: '0.625rem 1rem', background: 'rgba(248,113,113,0.04)', border: '1px dashed rgba(248,113,113,0.2)', borderRadius: '0.875rem', color: '#f87171', fontWeight: 700, fontSize: '0.8125rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem', minHeight: 44 }}
+      >
+        <Zap size={14} /> Gasto rápido — monto y categoría al instante
+      </button>
 
       {/* ── Month summary ── */}
       <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '1rem', padding: '0.875rem 1rem' }}>

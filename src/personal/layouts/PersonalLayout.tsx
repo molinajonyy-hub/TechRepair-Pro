@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Home, ArrowLeftRight, CreditCard, Target, MoreHorizontal, X } from 'lucide-react'
 import { ToastProvider } from '../components/ui'
-import { useAuth } from '../../contexts/AuthContext'
+import { useAuth, type Profile } from '../../contexts/AuthContext'
 import type { User } from '@supabase/supabase-js'
-import type { Profile } from '../../contexts/AuthContext'
+import { useQuickExpenseShortcut } from '../hooks/useQuickExpenseShortcut'
+import { QuickExpensePopup, QuickExpenseContext } from '../components/QuickExpensePopup'
 
 // ── Greeting helpers ──────────────────────────────────────────────────────────
 
@@ -140,6 +141,8 @@ export function PersonalLayout() {
   const navigate  = useNavigate()
   const { user, profile } = useAuth()
 
+  const { open: quickOpen, openPopup, closePopup } = useQuickExpenseShortcut()
+
   const active = (path: string) => {
     if (path === '/personal') return location.pathname === '/personal'
     return location.pathname.startsWith(path)
@@ -235,7 +238,9 @@ export function PersonalLayout() {
       }}>
         {/* Install prompt — only on mobile, only if not standalone */}
         <InstallCard />
-        <Outlet />
+        <QuickExpenseContext.Provider value={{ openPopup }}>
+          <Outlet />
+        </QuickExpenseContext.Provider>
       </main>
 
       {/* ── Bottom Navigation ── */}
@@ -292,6 +297,9 @@ export function PersonalLayout() {
 
       {/* Toast notifications (renders above bottom nav) */}
       <ToastProvider />
+
+      {/* Quick expense popup — mounted at layout level, available on all personal routes */}
+      <QuickExpensePopup open={quickOpen} onClose={closePopup} />
 
       {/* Fade + slide bottom nav when a sheet is open */}
       <style>{`

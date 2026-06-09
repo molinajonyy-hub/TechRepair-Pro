@@ -33,6 +33,11 @@
   "screenshots": [],
   "shortcuts": [
     {
+      "name": "Gasto rápido",
+      "url": "/personal?quickExpense=1",
+      "description": "Registrar un gasto rápidamente"
+    },
+    {
       "name": "Nuevo gasto",
       "url": "/personal/movimientos/nuevo?type=expense",
       "description": "Registrar un gasto personal"

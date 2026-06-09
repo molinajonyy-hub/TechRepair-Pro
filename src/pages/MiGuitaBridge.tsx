@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { Smartphone, Copy, Check, Wallet, ExternalLink } from 'lucide-react'
 
 const APP_URL = typeof window !== 'undefined'
@@ -20,6 +21,16 @@ function QRCode({ url }: { url: string }) {
 
 export function MiGuitaBridge() {
   const [copied, setCopied] = useState(false)
+  const navigate  = useNavigate()
+  const location  = useLocation()
+
+  // If deeplink contains quickExpense param, redirect to the personal app
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    if (params.get('quickExpense') === '1' || params.get('action') === 'quick-expense') {
+      navigate('/personal?quickExpense=1', { replace: true })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCopy = async () => {
     try {
