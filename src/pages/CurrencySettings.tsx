@@ -4,11 +4,15 @@ import { Loader } from '../components/ui/Loader';
 import { useAuth } from '../contexts/AuthContext';
 import { currencyService, BusinessSettings, ExchangeRate } from '../services/currencyService';
 import { exchangeRateService, DolarSource, type CordobaRateDetail } from '../services/exchangeRateService';
+import { logger } from '../lib/logger';
 
 interface SyncResult {
   updated: number
   skipped: number
   rate: number
+  prevRate: number | null
+  source: string
+  changed: boolean
   timestamp: string
   error?: string
   cordobaDetail?: CordobaRateDetail
@@ -29,6 +33,7 @@ export function CurrencySettings() {
   const { businessId, isOwner, isAdmin } = useAuth();
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [exchangeRate, setExchangeRate] = useState<number>(1000);
+  const [prevRate, setPrevRate] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -55,7 +60,6 @@ export function CurrencySettings() {
       if (data) {
         setSettings({ ...data, business_id: data.business_id || businessId });
       } else {
-        // Crear configuración por defecto si no existe
         const defaultSettings = await currencyService.upsertBusinessSettings({
           business_id: businessId,
           default_currency: 'ARS',
@@ -66,7 +70,7 @@ export function CurrencySettings() {
         setSettings(defaultSettings);
       }
     } catch (error) {
-      console.error('Error loading settings:', error);
+      logger.error('INVENTORY', 'Error al cargar configuración de moneda', error);
     } finally {
       setLoading(false);
     }
@@ -97,8 +101,9 @@ export function CurrencySettings() {
     try {
       const rate = await currencyService.getCurrentExchangeRate('USD', 'ARS');
       setExchangeRate(rate);
+      setPrevRate(rate);  // Inicializar prevRate desde DB — es lo que los productos tienen hoy
     } catch (error) {
-      console.error('Error loading rate:', error);
+      logger.error('INVENTORY', 'Error al cargar cotización actual', error);
     }
   };
 
@@ -109,7 +114,7 @@ export function CurrencySettings() {
       const history = await currencyService.getExchangeRateHistory(businessId, 'USD', 'ARS');
       setRateHistory(history);
     } catch (error) {
-      console.error('Error loading rate history:', error);
+      logger.error('INVENTORY', 'Error al cargar historial de cotizaciones', error);
     }
   };
 
@@ -147,10 +152,9 @@ export function CurrencySettings() {
         source: 'manual'
       });
       loadRateHistory();
-      // Sincronizar precios de productos dolarizados con la nueva cotización
-      await syncProductPrices(exchangeRate);
+      await syncProductPrices(exchangeRate, 'manual');
     } catch (error) {
-      console.error('Error updating rate:', error);
+      logger.error('INVENTORY', 'Error al actualizar cotización manual', error);
       alert('Error al actualizar tipo de cambio');
     } finally {
       setSaving(false);
@@ -172,22 +176,32 @@ export function CurrencySettings() {
     }
   }
 
-  /** Sincroniza sale_price de todos los productos dolarizados con la cotización actual. */
-  const syncProductPrices = async (rate: number, cordobaDetail?: CordobaRateDetail) => {
+  /**
+   * Sincroniza precios ARS de productos dolarizados con la cotización recibida.
+   * Detecta si la cotización cambió realmente; si no cambió, omite el sync (idempotente).
+   * force=true omite la comparación — para el botón manual "Reaplicar dólar ahora".
+   */
+  const syncProductPrices = async (rate: number, source: string, force = false, cordobaDetail?: CordobaRateDetail) => {
     if (!businessId) return
     setSyncing(true)
     try {
-      const result = await currencyService.updateProductPricesByExchangeRate(businessId, rate)
+      const result = await currencyService.syncDollarizedProducts(businessId, rate, prevRate, source, force)
       setSyncResult({
-        updated:        result.updated,
-        skipped:        result.skipped,
+        updated:      result.updated,
+        skipped:      result.skipped,
         rate,
-        timestamp:      new Date().toLocaleString('es-AR'),
-        error:          result.error,
+        prevRate,
+        source,
+        changed:      result.changed,
+        timestamp:    new Date().toLocaleString('es-AR'),
+        error:        result.error,
         cordobaDetail,
       })
-    } catch (e: any) {
-      setSyncResult({ updated: 0, skipped: 0, rate, timestamp: new Date().toLocaleString('es-AR'), error: e.message })
+      if (result.changed && !result.error) setPrevRate(rate)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Error desconocido'
+      logger.error('INVENTORY', 'Error en syncProductPrices', e)
+      setSyncResult({ updated: 0, skipped: 0, rate, prevRate, source, changed: false, timestamp: new Date().toLocaleString('es-AR'), error: msg })
     } finally {
       setSyncing(false)
     }
@@ -234,10 +248,11 @@ export function CurrencySettings() {
 
       setExchangeRate(apiRate);
       loadRateHistory();
-      // Sincronizar precios — para Córdoba siempre usa venta (capturado en cordobaDetail)
-      await syncProductPrices(apiRate, cordobaDetail);
+      // Auto-sync con change detection: solo actualiza productos si la cotización cambió
+      const source = dolarSource === 'cordoba' ? 'infodolar-cordoba' : 'bluelytics'
+      await syncProductPrices(apiRate, source, false, cordobaDetail);
     } catch (error) {
-      console.error('Error updating rate from API:', error);
+      logger.error('INVENTORY', 'Error al actualizar cotización desde API', error);
       alert('Error al actualizar tipo de cambio desde la fuente seleccionada');
     } finally {
       setSaving(false);
@@ -538,7 +553,7 @@ export function CurrencySettings() {
                         <button
                           onClick={async () => {
                             setReapplyConfirm(false)
-                            await syncProductPrices(lastValidCordoba.rate)
+                            await syncProductPrices(lastValidCordoba.rate, 'infodolar-cordoba', true)
                           }}
                           className="btn btn-sm"
                           style={{ fontSize: '0.72rem', padding: '0.2rem 0.5rem', background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24' }}
@@ -573,20 +588,22 @@ export function CurrencySettings() {
               </div>
               {canManageSettings && !syncing && (
                 <button
-                  onClick={() => syncProductPrices(exchangeRate)}
+                  onClick={() => syncProductPrices(exchangeRate, 'manual', true)}
                   disabled={syncing || exchangeRate <= 0}
                   className="btn btn-ghost btn-sm"
-                  title="Reaplicar cotización actual a todos los productos con auto-actualización activada"
+                  title="Forzar reaplicación de la cotización actual a todos los productos dolarizados con auto-actualización activa"
                 >
                   <RefreshCw size={13} />
-                  Reaplicar dólar a productos
+                  Reaplicar dólar ahora
                 </button>
               )}
             </div>
 
             {syncing && (
               <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#fbbf24' }}>
-                Actualizando precios con cotización ${exchangeRate.toLocaleString('es-AR')}...
+                Verificando cambio de cotización
+                {prevRate ? <> (${prevRate.toLocaleString('es-AR')} → ${exchangeRate.toLocaleString('es-AR')})</> : null}
+                {' '}y actualizando productos...
               </div>
             )}
 
@@ -597,12 +614,28 @@ export function CurrencySettings() {
                     <AlertTriangle size={13} />
                     Error al sincronizar: {syncResult.error}
                   </div>
+                ) : !syncResult.changed ? (
+                  <div style={{ fontSize: '0.775rem', color: '#64748b' }}>
+                    ℹ️ Cotización sin cambio (${syncResult.rate.toLocaleString('es-AR')}) — precios no modificados.
+                    <span style={{ marginLeft: '0.5rem', color: '#334155' }}>{syncResult.timestamp}</span>
+                  </div>
                 ) : (
                   <>
                     <div style={{ fontSize: '0.775rem', color: '#64748b', display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
-                      <span>✅ <strong style={{ color: '#34d399' }}>{syncResult.updated} productos</strong> actualizados a ${syncResult.rate.toLocaleString('es-AR')}</span>
+                      <span>
+                        ✅ <strong style={{ color: '#34d399' }}>{syncResult.updated} productos</strong> actualizados
+                        {syncResult.prevRate && syncResult.prevRate !== syncResult.rate
+                          ? <> de <span style={{ fontFamily: 'monospace', color: '#94a3b8' }}>${syncResult.prevRate.toLocaleString('es-AR')}</span> a <span style={{ fontFamily: 'monospace', color: '#34d399' }}>${syncResult.rate.toLocaleString('es-AR')}</span></>
+                          : <> a <span style={{ fontFamily: 'monospace', color: '#34d399' }}>${syncResult.rate.toLocaleString('es-AR')}</span></>
+                        }
+                      </span>
                       {syncResult.skipped > 0 && <span style={{ color: '#475569' }}>{syncResult.skipped} omitidos (sin precio USD base)</span>}
-                      <span style={{ color: '#334155' }}>{syncResult.timestamp}</span>
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: '#334155', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                      <span>Fuente: <strong style={{ color: '#475569' }}>
+                        {syncResult.source === 'infodolar-cordoba' ? 'InfoDolar Córdoba' : syncResult.source === 'bluelytics' ? 'Ámbito / Bluelytics' : 'Manual'}
+                      </strong></span>
+                      <span>{syncResult.timestamp}</span>
                     </div>
                     {syncResult.cordobaDetail && (
                       <div style={{ fontSize: '0.72rem', color: '#475569' }}>

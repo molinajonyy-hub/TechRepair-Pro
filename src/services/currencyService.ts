@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { logger } from '../lib/logger';
 
 export interface ExchangeRate {
   id: string;
@@ -205,6 +206,39 @@ export const currencyService = {
     const result = data as { ok: boolean; updated?: number; skipped?: number; error?: string }
     if (!result?.ok) return { updated: 0, skipped: 0, error: result?.error ?? 'Error desconocido' }
     return { updated: result.updated ?? 0, skipped: result.skipped ?? 0 }
+  },
+
+  /**
+   * Sincroniza precios ARS de productos dolarizados solo si la cotización cambió realmente.
+   * Idempotente: si newRate y prevRate son iguales (dentro de tolerancia), no ejecuta updates.
+   * force=true omite la comparación — útil para el botón manual "Reaplicar dólar ahora".
+   */
+  async syncDollarizedProducts(
+    businessId: string,
+    newRate: number,
+    prevRate: number | null,
+    source: string,
+    force = false
+  ): Promise<{ updated: number; skipped: number; changed: boolean; prevRate: number | null; newRate: number; source: string; error?: string }> {
+    const CHANGE_THRESHOLD = 0.5  // ARS — evita re-sync por diferencias de centavos
+    const rateChanged = force || prevRate === null || Math.abs(newRate - prevRate) >= CHANGE_THRESHOLD
+
+    if (!rateChanged) {
+      logger.info('INVENTORY', `Cotización sin cambio: $${prevRate} → $${newRate} (${source}) — omitiendo sync`)
+      return { updated: 0, skipped: 0, changed: false, prevRate, newRate, source }
+    }
+
+    logger.info('INVENTORY', `Cotización cambió: $${prevRate ?? '–'} → $${newRate} (${source}) — sincronizando productos`)
+
+    const result = await this.updateProductPricesByExchangeRate(businessId, newRate)
+
+    if (result.error) {
+      logger.error('INVENTORY', 'Error al sincronizar precios dolarizados', { businessId, newRate, prevRate, source, error: result.error })
+    } else {
+      logger.info('INVENTORY', `Sync OK: ${result.updated} actualizados, ${result.skipped} omitidos`, { prevRate, newRate, source })
+    }
+
+    return { ...result, changed: true, prevRate, newRate, source }
   },
 
   /**
