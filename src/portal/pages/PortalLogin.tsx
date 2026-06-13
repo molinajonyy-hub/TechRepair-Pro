@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { Eye, EyeOff, AlertCircle, Zap } from 'lucide-react'
 import { usePortal } from '../contexts/PortalContext'
 import { loginCustomer } from '../services/portalService'
+import { WholesaleBrandHeader } from '../components/WholesaleBrandHeader'
 
 const IS_DEV = import.meta.env.DEV
 const DEMO_EMAIL    = 'demo@clicmayorista.com'
@@ -169,44 +170,12 @@ export function PortalLogin() {
       <div className="pl-wrap" style={{ width: '100%', maxWidth: 400 }}>
 
         {/* ── Branding ─────────────────────────────────────────────────────── */}
-        <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
-          {business?.logo_url ? (
-            <img
-              src={business.logo_url}
-              alt={business.name}
-              style={{
-                height: 'clamp(64px, 14vw, 90px)',
-                maxWidth: 260,
-                objectFit: 'contain',
-                objectPosition: 'center',
-                display: 'block',
-                margin: '0 auto 1.25rem',
-                imageRendering: '-webkit-optimize-contrast' as React.CSSProperties['imageRendering'],
-              }}
-            />
-          ) : (
-            <div style={{
-              fontSize: 'clamp(2.25rem, 8vw, 3rem)',
-              fontWeight: 800,
-              letterSpacing: '-0.05em',
-              color: '#1c1c1e',
-              lineHeight: 1,
-              marginBottom: '1.125rem',
-            }}>
-              {bizLoading ? ' ' : (business?.name || 'Portal')}
-            </div>
-          )}
-
-          <p style={{
-            margin: 0,
-            fontSize: '0.875rem',
-            color: '#8e8e93',
-            fontWeight: 400,
-            letterSpacing: '0.01em',
-          }}>
-            Acceso exclusivo para clientes mayoristas
-          </p>
-        </div>
+        <WholesaleBrandHeader
+          logoSrc={business?.logo_url || '/logo-clic.png'}
+          title="Clic Mayorista"
+          subtitle="Acceso exclusivo para clientes mayoristas"
+          badge="Portal privado"
+        />
 
         {/* ── Card ─────────────────────────────────────────────────────────── */}
         <div style={{
