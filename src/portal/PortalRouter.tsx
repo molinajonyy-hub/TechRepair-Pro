@@ -15,6 +15,19 @@ export const PORTAL_DOMAINS: Record<string, string> = {
   'www.clicmayorista.com.ar': 'clic',
 }
 
+// Mapa inverso: slug → dominio público dedicado del portal
+const PORTAL_PUBLIC_DOMAINS: Record<string, string> = {
+  clic: 'https://clicmayorista.com.ar',
+}
+
+/** URL pública del portal para un slug dado (dominio dedicado si existe, sino /mayorista/:slug). */
+export function getPortalUrl(slug: string, path = ''): string {
+  const dedicated = PORTAL_PUBLIC_DOMAINS[slug]
+  if (dedicated) return `${dedicated}${path}`
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  return `${origin}/mayorista/${slug}${path}`
+}
+
 interface Props {
   forcedSlug?: string
 }

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { getPortalUrl } from '../portal/PortalRouter'
 import {
   getAdminProducts, upsertSettings, uploadProductImage, deleteProductImage,
   BADGE_LABELS,
@@ -481,7 +482,7 @@ export function AdminPortalClic() {
             <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', background: 'rgba(255,255,255,0.05)', border: `1px solid ${S.border}`, borderRadius: S.radiusSm, color: S.textSub, fontSize: '0.8rem', cursor: 'pointer' }}>
               <RefreshCw size={13} /> Actualizar
             </button>
-            <a href="/mayorista/clic" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', background: S.primaryBg, border: `1px solid rgba(99,102,241,0.3)`, borderRadius: S.radiusSm, color: S.primary, fontSize: '0.8rem', fontWeight: 700, textDecoration: 'none' }}>
+            <a href={getPortalUrl('clic')} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', background: S.primaryBg, border: `1px solid rgba(99,102,241,0.3)`, borderRadius: S.radiusSm, color: S.primary, fontSize: '0.8rem', fontWeight: 700, textDecoration: 'none' }}>
               <ExternalLink size={13} /> Ver portal
             </a>
           </div>

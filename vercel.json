@@ -6,7 +6,7 @@
     {
       "source": "/",
       "has": [{ "type": "host", "value": "clicmayorista.com.ar" }],
-      "destination": "/mayorista/clic/login",
+      "destination": "/login",
       "permanent": false
     }
   ],

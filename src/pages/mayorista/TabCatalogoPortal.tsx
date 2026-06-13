@@ -4,6 +4,7 @@ import {
   RefreshCw, Filter, ExternalLink, Edit2, AlertCircle,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { getPortalUrl } from '../../portal/PortalRouter'
 import { ModalFichaPortal } from './ModalFichaPortal'
 import type { CatalogItem } from './catalogTypes'
 
@@ -181,7 +182,7 @@ export function TabCatalogoPortal({ businessId, portalSlug }: Props) {
             <RefreshCw size={12} /> Actualizar
           </button>
           {portalSlug && (
-            <a href={`/mayorista/${portalSlug}/catalogo`} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.375rem 0.75rem', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.5rem', color: '#818cf8', fontSize: '0.75rem', textDecoration: 'none', fontWeight: 600 }}>
+            <a href={getPortalUrl(portalSlug, '/catalogo')} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.375rem 0.75rem', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.5rem', color: '#818cf8', fontSize: '0.75rem', textDecoration: 'none', fontWeight: 600 }}>
               <ExternalLink size={12} /> Ver portal
             </a>
           )}

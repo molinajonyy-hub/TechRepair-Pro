@@ -16,6 +16,7 @@ import {
   getOrCreateCustomerFromPortal,
 } from '../portal/services/portalService'
 import { ORDER_STATUS_LABEL, ORDER_STATUS_COLOR, type WholesaleCustomer, type WholesaleOrder } from '../portal/types'
+import { getPortalUrl } from '../portal/PortalRouter'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -914,7 +915,7 @@ export function Mayorista() {
               <Globe size={28} style={{ marginBottom: '0.75rem', display: 'block', margin: '0 auto 0.75rem' }} />
               <p style={{ margin: 0 }}>Aún no hay clientes registrados en el portal.</p>
               <p style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
-                Compartí el link: <strong style={{ color: '#818cf8' }}>{window.location.origin}/mayorista/{portalConfig.wholesale_portal_slug || 'clic'}</strong>
+                Compartí el link: <strong style={{ color: '#818cf8' }}>{getPortalUrl(portalConfig.wholesale_portal_slug || 'clic')}</strong>
               </p>
             </div>
           ) : (
@@ -1184,7 +1185,7 @@ export function Mayorista() {
               </div>
               {portalConfig.wholesale_portal_slug && (
                 <p style={{ margin: '0.375rem 0 0', fontSize: '0.72rem', color: '#475569' }}>
-                  URL: {window.location.origin}/mayorista/{portalConfig.wholesale_portal_slug}
+                  URL: {getPortalUrl(portalConfig.wholesale_portal_slug)}
                 </p>
               )}
             </div>
