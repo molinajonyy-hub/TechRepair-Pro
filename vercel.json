@@ -2,6 +2,14 @@
   "installCommand": "rm -f package-lock.json && npm install --include=dev --include=optional && printf '#!/bin/sh\\nexit 0\\n' > node_modules/.bin/tsc && chmod +x node_modules/.bin/tsc",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "redirects": [
+    {
+      "source": "/",
+      "has": [{ "type": "host", "value": "clicmayorista.com.ar" }],
+      "destination": "/mayorista/clic/login",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
