@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Route, Routes, Navigate } from 'react-router-dom'
 import { PremiumErrorBoundary } from './components/ui/PremiumErrorBoundary'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
@@ -109,6 +109,15 @@ function AppContent() {
 
   // Si el hostname es un dominio exclusivo del portal, montar el portal en la raíz
   const portalSlug = PORTAL_DOMAINS[window.location.hostname]
+
+  // Tab title + favicon propios del portal mayorista
+  useEffect(() => {
+    if (!portalSlug) return
+    document.title = 'Clic Mayorista'
+    const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]')
+    if (favicon) favicon.href = '/logo-clic.png'
+  }, [portalSlug])
+
   if (portalSlug) {
     return (
       <>
