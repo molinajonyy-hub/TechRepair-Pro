@@ -48,7 +48,7 @@ export function PortalLayout({ children, title, showBack = false, showCart = tru
   }
 
   return (
-    <div style={{
+    <div data-theme="light" style={{
       minHeight: '100dvh',
       background: PT.bg,
       fontFamily: PT.font,

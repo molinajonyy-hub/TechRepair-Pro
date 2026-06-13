@@ -150,7 +150,7 @@ export function PortalLogin() {
   const busy = loading || demoLoading || bizLoading
 
   return (
-    <div style={{
+    <div data-theme="light" style={{
       minHeight: '100dvh',
       display: 'flex',
       flexDirection: 'column',
