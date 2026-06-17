@@ -15,6 +15,7 @@ import {
   AlertCircle, CheckCircle2, User, Loader2,
   Wallet, RefreshCw, Zap, ChevronDown,
   Keyboard, Minus, Printer, MessageCircle,
+  Check,
 } from 'lucide-react'
 import { soundSystem } from '../../lib/sounds'
 import { currencyService } from '../../services/currencyService'
@@ -862,12 +863,20 @@ export function ComprobanteProModal({
   const [showPFM, setShowPFM]         = useState(false)
   const [pfmLineIdx, setPfmLineIdx]   = useState<number | null>(null)
   const [pfmInitialName, setPfmInitialName] = useState('')
+  const [showKbdPopover, setShowKbdPopover] = useState(false)
 
   // ── Guard ─────────────────────────────────────────────────────────────────
   if (!isOpen) return null
 
   const tc = TIPO_CONFIG[tipo]
   const filledLineas = lineas.filter(l => l.descripcion.trim())
+
+  // ── Shared icon-button style ─────────────────────────────────────────────
+  const iBtn: React.CSSProperties = {
+    background: 'rgba(255,255,255,0.04)', border: '1px solid #263750',
+    cursor: 'pointer', color: '#8494aa', padding: '0.4rem', borderRadius: '0.5rem',
+    display: 'flex', alignItems: 'center', transition: 'all 0.15s',
+  }
 
   // ── JSX ───────────────────────────────────────────────────────────────────
   return (
@@ -896,40 +905,62 @@ export function ComprobanteProModal({
       }}>
 
         {/* ── HEADER ──────────────────────────────────────────────────────── */}
-        <div className="cpm-header" style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.75rem 1.375rem', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0, background: 'linear-gradient(180deg, #0f1f3d 0%, #0a1628 100%)' }}>
-          {/* Tipo tabs */}
-          <div style={{ display: 'flex', background: 'rgba(0,0,0,0.3)', borderRadius: '0.625rem', padding: '0.175rem', gap: '0.1rem' }}>
+        <div className="cpm-header" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0 1.25rem', height: 64, borderBottom: '1px solid #263750', flexShrink: 0, background: 'linear-gradient(180deg, #0f1f3d 0%, #07111f 100%)' }}>
+
+          {/* Tipo — segmented control */}
+          <div style={{ display: 'flex', background: 'rgba(0,0,0,0.35)', borderRadius: '0.75rem', padding: '0.2rem', gap: '0.125rem' }}>
             {(Object.entries(TIPO_CONFIG) as [TipoComprobante, typeof tc][]).map(([k, cfg]) => (
               <button key={k} onClick={() => setTipo(k)}
-                style={{ padding: '0.3rem 0.875rem', borderRadius: '0.5rem', border: 'none', background: k === tipo ? cfg.bg : 'transparent', color: k === tipo ? cfg.color : '#334155', fontSize: '0.78rem', fontWeight: k === tipo ? 800 : 500, cursor: 'pointer', transition: 'all 0.15s', fontFamily: F, letterSpacing: k === tipo ? '0.01em' : 0 }}>
+                style={{ padding: '0.35rem 0.875rem', borderRadius: '0.5rem', border: 'none', background: k === tipo ? cfg.bg : 'transparent', color: k === tipo ? cfg.color : '#8494aa', fontSize: '0.78rem', fontWeight: k === tipo ? 800 : 500, cursor: 'pointer', transition: 'all 0.15s', fontFamily: F }}>
                 {cfg.label}
               </button>
             ))}
           </div>
 
-          {/* PV + TC */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '0.25rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.5rem', padding: '0.2rem 0.5rem' }}>
-              <span style={{ fontSize: '0.68rem', color: '#334155', fontWeight: 700 }}>PV</span>
-              <input value={puntoVenta} onChange={e => setPuntoVenta(e.target.value)} style={{ width: '3.5rem', background: 'none', border: 'none', outline: 'none', color: '#64748b', fontSize: '0.8rem', textAlign: 'center', fontFamily: F }} />
+          {/* Centro: PV + dólar */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '0.375rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'rgba(0,0,0,0.25)', border: '1px solid #263750', borderRadius: '0.5rem', padding: '0.25rem 0.625rem' }}>
+              <span style={{ fontSize: '0.68rem', color: '#8494aa', fontWeight: 700 }}>PV</span>
+              <input value={puntoVenta} onChange={e => setPuntoVenta(e.target.value)} style={{ width: '3.5rem', background: 'none', border: 'none', outline: 'none', color: '#b8c4d6', fontSize: '0.82rem', textAlign: 'center', fontFamily: F }} />
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.5rem', padding: '0.2rem 0.5rem' }}>
-              <DollarSign size={11} color="#334155" />
-              <input type="number" value={exchangeRate} onChange={e => setExchangeRate(parseFloat(e.target.value) || 1)} style={{ width: '4.5rem', background: 'none', border: 'none', outline: 'none', color: '#64748b', fontSize: '0.8rem', textAlign: 'right', fontFamily: F }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'rgba(0,0,0,0.25)', border: '1px solid #263750', borderRadius: '0.5rem', padding: '0.25rem 0.625rem' }}>
+              <DollarSign size={11} color="#8494aa" />
+              <input type="number" value={exchangeRate} onChange={e => setExchangeRate(parseFloat(e.target.value) || 1)} style={{ width: '4.5rem', background: 'none', border: 'none', outline: 'none', color: '#b8c4d6', fontSize: '0.82rem', textAlign: 'right', fontFamily: F }} />
             </div>
           </div>
 
-          <div className="cpm-kbd-hints" style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginLeft: '0.25rem', color: '#1e3a5f', fontSize: '0.65rem' }}>
-            <Keyboard size={11} />
-            <span>F4/Enter cobrar · F2 cliente · Ctrl+B scanner · ⇧⌫ quitar último · Ctrl+⇧+F pantalla completa</span>
-          </div>
-
+          {/* Acciones */}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-            {/* Full Cashier toggle */}
+            {/* Sonidos */}
+            <button onClick={() => setSoundsEnabled(soundSystem.toggle())} title="Sonidos POS" aria-label={soundsEnabled ? 'Desactivar sonidos' : 'Activar sonidos'} style={iBtn}>
+              <span style={{ fontSize: '0.9rem', lineHeight: 1 }}>{soundsEnabled ? '🔊' : '🔇'}</span>
+            </button>
+
+            {/* Atajos — popover */}
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setShowKbdPopover(v => !v)} title="Atajos de teclado" aria-label="Atajos de teclado" aria-pressed={showKbdPopover}
+                style={{ ...iBtn, background: showKbdPopover ? 'rgba(99,102,241,0.12)' : 'rgba(255,255,255,0.04)', borderColor: showKbdPopover ? 'rgba(99,102,241,0.3)' : '#263750', color: showKbdPopover ? '#818cf8' : '#8494aa' }}>
+                <Keyboard size={14} />
+              </button>
+              {showKbdPopover && (
+                <div style={{ position: 'absolute', top: 'calc(100% + 0.5rem)', right: 0, zIndex: 200, background: '#0c1829', border: '1px solid #263750', borderRadius: '0.875rem', padding: '1rem', minWidth: 230, boxShadow: '0 12px 40px rgba(0,0,0,0.7)', animation: 'spotlightSlide 0.12s ease' }}>
+                  <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#8494aa', textTransform: 'uppercase' as const, letterSpacing: '0.07em', marginBottom: '0.625rem' }}>Atajos</div>
+                  {[['F4 / Enter','Cobrar'],['F2','Buscar cliente'],['Ctrl+B','Focus scanner'],['⇧+⌫','Quitar último ítem'],['Ctrl+⇧+F','Pantalla completa'],['Esc','Cerrar']].map(([k,d]) => (
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.2rem 0', gap: '1rem' }}>
+                      <span style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid #263750', borderRadius: '0.25rem', padding: '0.1rem 0.45rem', fontSize: '0.65rem', color: '#b8c4d6', fontWeight: 600, whiteSpace: 'nowrap' as const, fontFamily: 'monospace' }}>{k}</span>
+                      <span style={{ fontSize: '0.72rem', color: '#8494aa' }}>{d}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Pantalla completa */}
             <button
               onClick={() => setFullCashier(v => { try { localStorage.setItem('pos_full_cashier', !v ? '1' : '0') } catch {} return !v })}
-              title={fullCashier ? 'Salir de pantalla completa (Ctrl+Shift+F)' : 'Pantalla completa POS (Ctrl+Shift+F)'}
-              style={{ background: fullCashier ? 'rgba(99,102,241,0.12)' : 'rgba(255,255,255,0.04)', border: `1px solid ${fullCashier ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.07)'}`, cursor: 'pointer', color: fullCashier ? '#818cf8' : '#475569', padding: '0.35rem', borderRadius: '0.5rem', display: 'flex', alignItems: 'center', transition: 'all 0.15s' }}>
+              title={fullCashier ? 'Salir pantalla completa' : 'Pantalla completa (Ctrl+Shift+F)'}
+              aria-label={fullCashier ? 'Salir pantalla completa' : 'Pantalla completa'}
+              style={{ ...iBtn, background: fullCashier ? 'rgba(99,102,241,0.12)' : 'rgba(255,255,255,0.04)', borderColor: fullCashier ? 'rgba(99,102,241,0.3)' : '#263750', color: fullCashier ? '#818cf8' : '#8494aa' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                 {fullCashier
                   ? <><polyline points="8 3 3 3 3 8"/><polyline points="21 8 21 3 16 3"/><polyline points="3 16 3 21 8 21"/><polyline points="16 21 21 21 21 16"/></>
@@ -937,9 +968,12 @@ export function ComprobanteProModal({
                 }
               </svg>
             </button>
-            <button data-testid="comprobante-cancel-button" onClick={tryClose} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', cursor: 'pointer', color: '#475569', padding: '0.375rem', borderRadius: '0.5rem', display: 'flex', alignItems: 'center', transition: 'all 0.1s' }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#94a3b8' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#475569' }}>
+
+            {/* Cerrar */}
+            <button data-testid="comprobante-cancel-button" onClick={tryClose} aria-label="Cerrar"
+              style={iBtn}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#f8fafc' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#8494aa' }}>
               <X size={16} />
             </button>
           </div>
@@ -949,65 +983,56 @@ export function ComprobanteProModal({
         <div className="cpm-body" style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
           {/* ── LEFT COLUMN ─────────────────────────────────────────────── */}
-          <div className="cpm-left" style={{ flex: 1, overflow: 'auto', padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem', borderRight: '1px solid rgba(255,255,255,0.05)', position: 'relative' as const }}>
+          <div className="cpm-left" style={{ flex: 1, overflow: 'auto', padding: '1.125rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '1.125rem', borderRight: '1px solid #263750', position: 'relative' as const }}>
 
-            {/* OVERLAY PRODUCTO AGREGADO ─────────────────────────────────── */}
+            {/* OVERLAY PRODUCTO AGREGADO */}
             {addedOverlay && (
               <div style={{
-                position: 'absolute' as const, top: '0.75rem', right: '0.75rem', zIndex: 50,
-                background: 'rgba(10,20,40,0.97)', border: '1px solid rgba(52,211,153,0.35)',
-                borderRadius: '0.875rem', padding: '0.75rem 1rem', minWidth: 190,
-                boxShadow: '0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(52,211,153,0.15)',
-                animation: 'overlayIn 0.15s ease', pointerEvents: 'none',
+                position: 'absolute' as const, top: '0.875rem', right: '0.875rem', zIndex: 50,
+                background: 'rgba(7,17,31,0.97)', border: '1px solid rgba(52,211,153,0.4)',
+                borderRadius: '1rem', padding: '0.875rem 1.125rem', minWidth: 200,
+                boxShadow: '0 8px 32px rgba(0,0,0,0.7), 0 0 0 1px rgba(52,211,153,0.12)',
+                animation: 'overlayIn 0.15s ease', pointerEvents: 'none' as const,
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginBottom: '0.3rem' }}>
-                  <span style={{ color: '#34d399', fontSize: '0.72rem' }}>✓</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginBottom: '0.35rem' }}>
+                  <Check size={12} color="#34d399" />
                   <span style={{ color: '#34d399', fontSize: '0.72rem', fontWeight: 800, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>Agregado</span>
                 </div>
-                <div style={{ color: '#f0f4ff', fontSize: '0.82rem', fontWeight: 700, marginBottom: '0.2rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                <div style={{ color: '#f8fafc', fontSize: '0.875rem', fontWeight: 700, marginBottom: '0.25rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
                   {addedOverlay.name}
                 </div>
                 <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
                   <span style={{ color: '#34d399', fontFamily: 'monospace', fontWeight: 800, fontSize: '0.9rem' }}>{fmtARS(addedOverlay.price)}</span>
-                  <span style={{ color: '#475569', fontSize: '0.72rem' }}>×{addedOverlay.totalQty}</span>
-                  <span style={{ color: addedOverlay.stockLeft <= 0 ? '#f87171' : addedOverlay.stockLeft <= 5 ? '#f59e0b' : '#334155', fontSize: '0.68rem' }}>
+                  <span style={{ color: '#8494aa', fontSize: '0.72rem' }}>×{addedOverlay.totalQty}</span>
+                  <span style={{ color: addedOverlay.stockLeft <= 0 ? '#f87171' : addedOverlay.stockLeft <= 5 ? '#fbbf24' : '#8494aa', fontSize: '0.68rem' }}>
                     {addedOverlay.stockLeft <= 0 ? 'Sin stock' : `${addedOverlay.stockLeft} restante${addedOverlay.stockLeft !== 1 ? 's' : ''}`}
                   </span>
                 </div>
               </div>
             )}
 
-            {/* BARRA DE ESTADO POS ─────────────────────────────────────── */}
+            {/* STATUS BAR */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              {/* Indicador de modo */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.2rem 0.625rem', borderRadius: '9999px', background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.15)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.2rem 0.625rem', borderRadius: '9999px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)' }}>
                 <Zap size={10} color="#818cf8" />
                 <span style={{ fontSize: '0.63rem', fontWeight: 700, color: '#818cf8' }}>POS</span>
               </div>
-              {/* Último método usado */}
               {lastPayMethod && (
-                <div style={{ fontSize: '0.63rem', color: '#334155', padding: '0.2rem 0.5rem', borderRadius: '9999px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                  {lastPayMethod}
+                <div style={{ fontSize: '0.63rem', color: '#8494aa', padding: '0.2rem 0.5rem', borderRadius: '9999px', background: 'rgba(255,255,255,0.03)', border: '1px solid #263750' }}>
+                  Últ.: {lastPayMethod}
                 </div>
               )}
-              {/* Toggle sonidos */}
-              <button
-                onClick={() => setSoundsEnabled(soundSystem.toggle())}
-                title="Sonidos POS"
-                style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.2rem 0.5rem', borderRadius: '9999px', border: `1px solid rgba(255,255,255,0.07)`, background: 'none', cursor: 'pointer', fontFamily: F }}>
-                <span style={{ fontSize: '0.75rem', lineHeight: 1 }}>{soundsEnabled ? '🔊' : '🔇'}</span>
-              </button>
             </div>
 
             {/* CLIENTE */}
             <div ref={clienteWrapperRef} style={{ position: 'relative' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <User size={13} color="#334155" />
-                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Cliente</span>
+                <User size={13} color="#8494aa" />
+                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#8494aa', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Cliente</span>
                 {selectedCliente && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginLeft: 'auto' }}>
                     {esClienteMayorista && <span style={{ fontSize: '0.65rem', fontWeight: 800, padding: '0.15rem 0.5rem', borderRadius: '9999px', background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)' }}>MAYORISTA</span>}
-                    <button onClick={() => { setClienteId(''); setClienteQuery('') }} style={{ background: 'none', border: 'none', color: '#334155', cursor: 'pointer', fontSize: '0.7rem', fontFamily: F, display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
+                    <button onClick={() => { setClienteId(''); setClienteQuery('') }} style={{ background: 'none', border: 'none', color: '#8494aa', cursor: 'pointer', fontSize: '0.7rem', fontFamily: F, display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
                       <X size={10} /> Quitar
                     </button>
                   </div>
@@ -1018,7 +1043,7 @@ export function ComprobanteProModal({
               {!selectedCliente && !clienteOpen && hasContent && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.25rem 0.625rem', background: 'rgba(100,116,139,0.08)', border: '1px solid rgba(100,116,139,0.15)', borderRadius: '9999px', marginBottom: '0.375rem', width: 'fit-content' }}>
                   <span style={{ fontSize: '0.65rem', color: '#64748b' }}>👤</span>
-                  <span style={{ fontSize: '0.67rem', color: '#475569', fontWeight: 600 }}>Consumidor Final automático</span>
+                  <span style={{ fontSize: '0.67rem', color: '#b8c4d6', fontWeight: 600 }}>Consumidor Final automático</span>
                 </div>
               )}
 
@@ -1031,19 +1056,19 @@ export function ComprobanteProModal({
                     <User size={15} color="#818cf8" />
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ color: '#f0f4ff', fontSize: '0.875rem', fontWeight: 700 }}>{selectedCliente.name}</div>
-                    {selectedCliente.phone && <div style={{ color: '#334155', fontSize: '0.72rem' }}>{selectedCliente.phone}</div>}
+                    <div style={{ color: '#f8fafc', fontSize: '0.875rem', fontWeight: 700 }}>{selectedCliente.name}</div>
+                    {selectedCliente.phone && <div style={{ color: '#8494aa', fontSize: '0.72rem' }}>{selectedCliente.phone}</div>}
                   </div>
-                  <ChevronDown size={13} color="#334155" />
+                  <ChevronDown size={13} color="#8494aa" />
                 </div>
               ) : (
                 <div style={{ position: 'relative' }}>
-                  <User size={14} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#334155', pointerEvents: 'none' }} />
+                  <User size={14} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#8494aa', pointerEvents: 'none' }} />
                   <input data-testid="comprobante-customer-search" ref={clienteInputRef} value={clienteQuery}
                     onChange={e => { setClienteQuery(e.target.value); setClienteOpen(true); if (!e.target.value) setClienteId('') }}
                     onFocus={() => setClienteOpen(true)}
                     placeholder="Buscar cliente por nombre... (F2)"
-                    style={{ width: '100%', padding: '0.625rem 0.875rem 0.625rem 2.25rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.75rem', color: '#f0f4ff', fontSize: '0.875rem', outline: 'none', fontFamily: F, boxSizing: 'border-box' }} />
+                    style={{ width: '100%', padding: '0.625rem 0.875rem 0.625rem 2.25rem', background: 'rgba(255,255,255,0.04)', border: '1px solid #263750', borderRadius: '0.75rem', color: '#f8fafc', fontSize: '0.875rem', outline: 'none', fontFamily: F, boxSizing: 'border-box' }} />
                 </div>
               )}
 
@@ -1057,21 +1082,21 @@ export function ComprobanteProModal({
                     ]).slice(0, 25)
                   : clientes.slice(0, 25)
                 return (
-                  <div data-testid="comprobante-customer-results" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, background: '#0c1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.875rem', boxShadow: '0 16px 48px rgba(0,0,0,0.7)', maxHeight: 240, overflowY: 'auto', marginTop: '0.25rem', animation: 'spotlightSlide 0.12s ease' }}>
+                  <div data-testid="comprobante-customer-results" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, background: '#0c1a2e', border: '1px solid #263750', borderRadius: '0.875rem', boxShadow: '0 16px 48px rgba(0,0,0,0.7)', maxHeight: 240, overflowY: 'auto', marginTop: '0.25rem', animation: 'spotlightSlide 0.12s ease' }}>
                     {clienteResults.map(c => (
                       <button data-testid="comprobante-customer-option" key={c.id} onMouseDown={() => { setClienteId(c.id); setClienteQuery(c.name); setClienteOpen(false) }}
-                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '0.625rem 1rem', background: c.id === clienteId ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', cursor: 'pointer', color: '#f0f4ff', fontSize: '0.845rem', textAlign: 'left', fontFamily: F, gap: '0.5rem', transition: 'background 0.08s' }}
+                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '0.625rem 1rem', background: c.id === clienteId ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', cursor: 'pointer', color: '#f8fafc', fontSize: '0.845rem', textAlign: 'left', fontFamily: F, gap: '0.5rem', transition: 'background 0.08s' }}
                         onMouseEnter={e => { if (c.id !== clienteId) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
                         onMouseLeave={e => { e.currentTarget.style.background = c.id === clienteId ? 'rgba(99,102,241,0.1)' : 'none' }}>
                         <div>
                           <div style={{ fontWeight: c.id === clienteId ? 700 : 500 }}>{c.name}</div>
-                          {c.phone && <div style={{ color: '#334155', fontSize: '0.7rem' }}>{c.phone}</div>}
+                          {c.phone && <div style={{ color: '#8494aa', fontSize: '0.7rem' }}>{c.phone}</div>}
                         </div>
                         {c.customer_type === 'mayorista' && <span style={{ fontSize: '0.65rem', color: '#818cf8', fontWeight: 700, flexShrink: 0 }}>MAYORISTA</span>}
                       </button>
                     ))}
                     {clienteResults.length === 0 && (
-                      <div style={{ padding: '0.75rem 1rem', color: '#334155', fontSize: '0.8rem' }}>Sin resultados</div>
+                      <div style={{ padding: '0.75rem 1rem', color: '#8494aa', fontSize: '0.8rem' }}>Sin resultados</div>
                     )}
                   </div>
                 )
@@ -1082,7 +1107,7 @@ export function ComprobanteProModal({
                 <div style={{ marginTop: '0.5rem', padding: '0.625rem 0.875rem', background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '0.625rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '0.78rem', color: '#f59e0b', flex: 1 }}>Tipo de cliente cambió. ¿Recalcular precios?</span>
                   <button onClick={() => handleRecalcPrices(esClienteMayorista)} style={{ padding: '0.2rem 0.625rem', background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: '0.375rem', color: '#f59e0b', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>Recalcular</button>
-                  <button onClick={() => setShowRecalcPrompt(false)} style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: '0.75rem', fontFamily: F }}>No</button>
+                  <button onClick={() => setShowRecalcPrompt(false)} style={{ background: 'none', border: 'none', color: '#8494aa', cursor: 'pointer', fontSize: '0.75rem', fontFamily: F }}>No</button>
                 </div>
               )}
             </div>
@@ -1091,16 +1116,17 @@ export function ComprobanteProModal({
             <div style={{ position: 'relative' as const }}>
               <div style={{
                 display: 'flex', alignItems: 'center', gap: '0.5rem',
-                padding: '0.5rem 0.875rem',
+                padding: '0.75rem 0.875rem',
                 background: 'rgba(255,255,255,0.03)',
-                border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '0.75rem',
-                transition: 'border-color 0.15s',
+                border: '1px solid #263750',
+                borderRadius: '0.875rem',
+                transition: 'border-color 0.15s, box-shadow 0.15s',
+                minHeight: '52px',
               }}
-                onFocusCapture={e => ((e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(99,102,241,0.35)')}
-                onBlurCapture={e => ((e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,255,255,0.08)')}
+                onFocusCapture={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(99,102,241,0.5)'; (e.currentTarget as HTMLDivElement).style.boxShadow = '0 0 0 3px rgba(99,102,241,0.12)' }}
+                onBlurCapture={e => { (e.currentTarget as HTMLDivElement).style.borderColor = '#263750'; (e.currentTarget as HTMLDivElement).style.boxShadow = 'none' }}
               >
-                <Search size={14} color="#334155" style={{ flexShrink: 0 }} />
+                <Search size={15} color="#8494aa" style={{ flexShrink: 0 }} />
                 <input
                   data-testid="comprobante-product-search"
                   ref={spotRef}
@@ -1108,23 +1134,41 @@ export function ComprobanteProModal({
                   onChange={e => handleSpotChange(e.target.value)}
                   onKeyDown={handleSearchKeyDown}
                   placeholder="Buscar producto, SKU o escanear código..."
-                  style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#94a3b8', fontSize: '0.875rem', fontFamily: F, caretColor: '#818cf8' }}
+                  style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#f8fafc', fontSize: '0.9rem', fontFamily: F, caretColor: '#818cf8' }}
                 />
                 {spotLoading && <Loader2 size={13} color="#818cf8" style={{ flexShrink: 0, animation: 'tr-spin 0.8s linear infinite' }} />}
                 {spotQ && !spotLoading && (
                   <button
                     onClick={() => { setSpotQ(''); setSpotResults([]); refocusInput(0) }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#334155', padding: '0.1rem', display: 'flex', flexShrink: 0 }}>
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8494aa', padding: '0.1rem', display: 'flex', flexShrink: 0 }}>
                     <X size={13} />
                   </button>
                 )}
               </div>
 
+              {/* Quick actions — only when not typing */}
+              {!spotQ && (
+                <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem' }}>
+                  <button onClick={() => { setPfmInitialName(''); setShowPFM(true) }}
+                    style={{ ...iBtn, flex: 1, justifyContent: 'center', gap: '0.375rem', fontSize: '0.72rem', fontWeight: 600 }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = '#b8c4d6' }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#8494aa' }}>
+                    <Package size={12} /> Prod. manual
+                  </button>
+                  <button onClick={() => refocusInput(0)}
+                    style={{ ...iBtn, flex: 1, justifyContent: 'center', gap: '0.375rem', fontSize: '0.72rem', fontWeight: 600 }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; e.currentTarget.style.color = '#b8c4d6' }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#8494aa' }}>
+                    <Search size={12} /> Escanear
+                  </button>
+                </div>
+              )}
+
               {/* Inline dropdown resultados */}
               {spotResults.length > 0 && (
                 <div data-testid="comprobante-product-results" style={{
                   position: 'absolute' as const, top: 'calc(100% + 0.375rem)', left: 0, right: 0, zIndex: 200,
-                  background: '#0c1a2e', border: '1px solid rgba(255,255,255,0.1)',
+                  background: '#0c1a2e', border: '1px solid #263750',
                   borderRadius: '0.875rem', boxShadow: '0 16px 48px rgba(0,0,0,0.7)',
                   maxHeight: 280, overflowY: 'auto' as const, animation: 'spotlightSlide 0.12s ease',
                 }}>
@@ -1139,16 +1183,16 @@ export function ComprobanteProModal({
                         style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', width: '100%', padding: '0.625rem 1rem', background: isHL ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer', textAlign: 'left' as const, fontFamily: F, transition: 'background 0.08s' }}>
                         <span style={{ width: 8, height: 8, borderRadius: '50%', background: STOCK_COLORS[ss3], flexShrink: 0 }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ color: '#f0f4ff', fontSize: '0.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
-                            {r.name}{r.variant_name && <span style={{ color: '#475569' }}> — {r.variant_name}</span>}
+                          <div style={{ color: '#f8fafc', fontSize: '0.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>
+                            {r.name}{r.variant_name && <span style={{ color: '#8494aa' }}> — {r.variant_name}</span>}
                           </div>
-                          <div style={{ color: '#334155', fontSize: '0.68rem' }}>{r.category}{r.code && ` · ${r.code}`}</div>
+                          <div style={{ color: '#8494aa', fontSize: '0.68rem' }}>{r.category}{r.code && ` · ${r.code}`}</div>
                         </div>
                         <div style={{ flexShrink: 0, textAlign: 'right' as const }}>
                           <div style={{ color: isHL ? '#a5b4fc' : '#34d399', fontSize: '0.82rem', fontWeight: 700, fontFamily: 'monospace' }}>{fmtARS(prShow)}</div>
                           <div style={{ fontSize: '0.65rem', color: STOCK_COLORS[ss3] }}>{r.stock_quantity} stock</div>
                         </div>
-                        {isHL && <span style={{ fontSize: '0.63rem', color: '#475569', background: 'rgba(255,255,255,0.07)', padding: '0.1rem 0.4rem', borderRadius: '0.25rem', flexShrink: 0 }}>Enter</span>}
+                        {isHL && <span style={{ fontSize: '0.63rem', color: '#8494aa', background: 'rgba(255,255,255,0.07)', padding: '0.1rem 0.4rem', borderRadius: '0.25rem', flexShrink: 0 }}>Enter</span>}
                       </button>
                     )
                   })}
@@ -1160,21 +1204,21 @@ export function ComprobanteProModal({
               )}
             </div>
 
-            {/* PRODUCTOS RECIENTES — chips de acceso rápido */}
+            {/* PRODUCTOS RECIENTES — acceso rápido horizontal */}
             {recentProducts.length > 0 && (
               <div>
-                <span style={{ fontSize: '0.62rem', fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: '0.375rem' }}>Recientes</span>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem' }}>
+                <span style={{ fontSize: '0.62rem', fontWeight: 700, color: '#8494aa', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: '0.375rem' }}>Recientes</span>
+                <div style={{ display: 'flex', overflowX: 'auto', gap: '0.375rem', paddingBottom: '0.25rem' }}>
                   {recentProducts.map(p => {
                     const ss2 = stockState(p.stock_quantity)
                     return (
                       <button key={p.id} onClick={() => addOrIncrement(p)}
-                        style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.3rem 0.625rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '9999px', cursor: 'pointer', fontFamily: F, transition: 'all 0.1s' }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.08)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.25)' }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)' }}>
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.375rem 0.75rem', background: 'rgba(255,255,255,0.03)', border: '1px solid #263750', borderRadius: '9999px', cursor: 'pointer', fontFamily: F, transition: 'all 0.15s', flexShrink: 0 }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.08)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.3)' }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = '#263750' }}>
                         <span style={{ width: 6, height: 6, borderRadius: '50%', background: STOCK_COLORS[ss2], flexShrink: 0 }} />
-                        <span style={{ color: '#475569', fontSize: '0.75rem', maxWidth: '9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                        <span style={{ color: '#334155', fontSize: '0.72rem', fontWeight: 700, flexShrink: 0 }}>{fmtARS(esClienteMayorista && p.precio_mayorista ? p.precio_mayorista : p.sale_price)}</span>
+                        <span style={{ color: '#b8c4d6', fontSize: '0.75rem', maxWidth: '8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                        <span style={{ color: '#8494aa', fontSize: '0.72rem', fontWeight: 700, flexShrink: 0 }}>{fmtARS(esClienteMayorista && p.precio_mayorista ? p.precio_mayorista : p.sale_price)}</span>
                       </button>
                     )
                   })}
@@ -1185,13 +1229,13 @@ export function ComprobanteProModal({
             {/* ITEMS CARDS */}
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.625rem' }}>
-                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#8494aa', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
                   Ítems {filledLineas.length > 0 && `(${filledLineas.length})`}
                 </span>
                 <button onClick={() => setLineas(p => [...p, emptyLinea()])}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.275rem 0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: '#475569', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: F, transition: 'all 0.1s' }}
-                  onMouseEnter={e => { e.currentTarget.style.color = '#94a3b8'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)' }}
-                  onMouseLeave={e => { e.currentTarget.style.color = '#475569'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)' }}>
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.275rem 0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid #263750', borderRadius: '0.5rem', color: '#8494aa', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: F, transition: 'all 0.15s' }}
+                  onMouseEnter={e => { e.currentTarget.style.color = '#b8c4d6'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)' }}
+                  onMouseLeave={e => { e.currentTarget.style.color = '#8494aa'; e.currentTarget.style.borderColor = '#263750' }}>
                   <Plus size={11} /> Agregar fila
                 </button>
               </div>
@@ -1220,14 +1264,14 @@ export function ComprobanteProModal({
             </div>
 
             {/* BOTTOM: condicion + arca + observaciones */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.05)', marginTop: 'auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid #263750', marginTop: 'auto' }}>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                 <select value={condicion} onChange={e => setCondicion(e.target.value)}
-                  style={{ flex: 1, padding: '0.4rem 0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.5rem', color: 'var(--text-tertiary)', fontSize: '0.78rem', cursor: 'pointer', outline: 'none', fontFamily: F }}>
+                  style={{ flex: 1, padding: '0.4rem 0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid #263750', borderRadius: '0.5rem', color: '#b8c4d6', fontSize: '0.78rem', cursor: 'pointer', outline: 'none', fontFamily: F }}>
                   {CONDICIONES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
                 {TIPO_CONFIG[tipo].fiscal && (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', color: 'var(--text-secondary)', fontSize: '0.78rem', cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', color: '#b8c4d6', fontSize: '0.78rem', cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
                     <input type="checkbox" checked={emitirEnArca} onChange={e => setEmitirEnArca(e.target.checked)} />
                     Emitir en ARCA
                   </label>
@@ -1242,7 +1286,7 @@ export function ComprobanteProModal({
               <textarea value={observaciones} onChange={e => setObservaciones(e.target.value)}
                 placeholder="Observaciones..."
                 rows={2}
-                style={{ padding: '0.5rem 0.625rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.5rem', color: '#64748b', fontSize: '0.78rem', outline: 'none', resize: 'none', fontFamily: F, lineHeight: 1.4 }} />
+                style={{ padding: '0.5rem 0.625rem', background: 'rgba(255,255,255,0.03)', border: '1px solid #263750', borderRadius: '0.5rem', color: '#b8c4d6', fontSize: '0.78rem', outline: 'none', resize: 'none', fontFamily: F, lineHeight: 1.4 }} />
             </div>
           </div>
 
@@ -1266,7 +1310,7 @@ export function ComprobanteProModal({
                 </p>
 
                 <div style={{ width: '100%', background: 'rgba(255,255,255,0.04)', borderRadius: '0.875rem', padding: '1rem 1.25rem', marginBottom: '1.5rem', textAlign: 'center' }}>
-                  <div style={{ color: '#334155', fontSize: '0.78rem', marginBottom: '0.25rem' }}>Total cobrado</div>
+                  <div style={{ color: '#8494aa', fontSize: '0.78rem', marginBottom: '0.25rem' }}>Total cobrado</div>
                   <div style={{ color: '#f0f4ff', fontSize: '2rem', fontWeight: 900 }}>{fmtARS(totales.total)}</div>
                   {totales.vuelto > 0 && (
                     <div style={{ marginTop: '0.5rem', padding: '0.375rem 0.75rem', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '0.5rem', color: '#22c55e', fontSize: '0.875rem', fontWeight: 700, display: 'inline-block' }}>
@@ -1305,7 +1349,7 @@ export function ComprobanteProModal({
                     Nuevo comprobante
                   </button>
                   <button data-testid="comprobante-close-after-success" onClick={() => { onCreado?.(); onClose() }}
-                    style={{ width: '100%', padding: '0.5rem', background: 'transparent', border: 'none', color: '#334155', fontSize: '0.78rem', cursor: 'pointer', fontFamily: F }}>
+                    style={{ width: '100%', padding: '0.5rem', background: 'transparent', border: 'none', color: '#8494aa', fontSize: '0.78rem', cursor: 'pointer', fontFamily: F }}>
                     Cerrar
                   </button>
                 </div>
@@ -1315,16 +1359,16 @@ export function ComprobanteProModal({
             {/* ITEMS COMPACT */}
             {filledLineas.length > 0 && (
               <div style={{ padding: '0.875rem 1rem 0', maxHeight: '22%', overflowY: 'auto', flexShrink: 0 }}>
-                <span style={{ fontSize: '0.62rem', fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: '0.375rem' }}>Resumen</span>
+                <span style={{ fontSize: '0.62rem', fontWeight: 700, color: '#8494aa', textTransform: 'uppercase', letterSpacing: '0.07em', display: 'block', marginBottom: '0.375rem' }}>Resumen</span>
                 {filledLineas.map(l => {
                   const sub = l.cantidad * l.precio_unitario * (1 - (l.descuento_linea || 0) / 100) * (l.currency === 'USD' ? exchangeRate : 1)
                   return (
                     <div key={l._key} style={{ display: 'flex', gap: '0.5rem', justifyContent: 'space-between', padding: '0.2rem 0', borderBottom: '1px solid rgba(255,255,255,0.03)', alignItems: 'baseline' }}>
-                      <span style={{ color: '#334155', fontSize: '0.75rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {l.cantidad > 1 && <span style={{ color: '#1e3a5f', marginRight: '0.2rem', fontWeight: 700 }}>{l.cantidad}×</span>}
+                      <span style={{ color: '#8494aa', fontSize: '0.75rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {l.cantidad > 1 && <span style={{ color: '#b8c4d6', marginRight: '0.2rem', fontWeight: 700 }}>{l.cantidad}×</span>}
                         {l.descripcion}
                       </span>
-                      <span style={{ color: '#475569', fontSize: '0.75rem', fontWeight: 600, flexShrink: 0 }}>{fmtARS(sub)}</span>
+                      <span style={{ color: '#b8c4d6', fontSize: '0.75rem', fontWeight: 600, flexShrink: 0 }}>{fmtARS(sub)}</span>
                     </div>
                   )
                 })}
@@ -1332,11 +1376,11 @@ export function ComprobanteProModal({
             )}
 
             {/* TOTALES */}
-            <div style={{ padding: '0.875rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
+            <div style={{ padding: '0.875rem 1rem', borderBottom: '1px solid #263750', flexShrink: 0 }}>
               {totales.descuento > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                  <span style={{ color: '#334155', fontSize: '0.78rem' }}>Bruto</span>
-                  <span style={{ color: '#334155', fontSize: '0.78rem' }}>{fmtARS(totales.subtotal + totales.descuento)}</span>
+                  <span style={{ color: '#8494aa', fontSize: '0.78rem' }}>Bruto</span>
+                  <span style={{ color: '#8494aa', fontSize: '0.78rem' }}>{fmtARS(totales.subtotal + totales.descuento)}</span>
                 </div>
               )}
               {totales.descuento > 0 && (
@@ -1347,8 +1391,8 @@ export function ComprobanteProModal({
               )}
               {totales.iva > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                  <span style={{ color: '#334155', fontSize: '0.78rem' }}>IVA 21%</span>
-                  <span style={{ color: '#334155', fontSize: '0.78rem' }}>{fmtARS(totales.iva)}</span>
+                  <span style={{ color: '#8494aa', fontSize: '0.78rem' }}>IVA 21%</span>
+                  <span style={{ color: '#8494aa', fontSize: '0.78rem' }}>{fmtARS(totales.iva)}</span>
                 </div>
               )}
               {totales.totalRecargo > 0 && (
@@ -1361,7 +1405,7 @@ export function ComprobanteProModal({
               {/* TOTAL GRANDE */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
                 <div>
-                  <div style={{ color: '#334155', fontSize: '0.78rem', fontWeight: 600 }}>Total</div>
+                  <div style={{ color: '#8494aa', fontSize: '0.78rem', fontWeight: 600 }}>Total</div>
                   {totales.costo > 0 && (
                     <div style={{ fontSize: '0.7rem', color: totales.ganancia > 0 ? '#22c55e' : '#ef4444', marginTop: '0.1rem' }}>
                       Ganancia {fmtARS(totales.ganancia)} ({totales.margenPct.toFixed(0)}%)
@@ -1369,19 +1413,19 @@ export function ComprobanteProModal({
                   )}
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div data-testid="comprobante-total" style={{ color: '#f0f4ff', fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1 }}>{fmtARS(totales.total)}</div>
+                  <div data-testid="comprobante-total" style={{ color: '#f8fafc', fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1 }}>{fmtARS(totales.total)}</div>
                 </div>
               </div>
             </div>
 
             {/* MÉTODOS DE PAGO — grid unificado con CC integrada */}
             <div style={{ padding: '0.875rem 1rem', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-              <span style={{ fontSize: '0.62rem', fontWeight: 700, color: '#1e3a5f', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Métodos de pago</span>
+              <span style={{ fontSize: '0.62rem', fontWeight: 700, color: '#8494aa', textTransform: 'uppercase', letterSpacing: '0.07em' }}>¿Cómo paga?</span>
 
               {/* Grid de métodos dinámicos + CC al final */}
               {paymentGroups.map(group => (
                 <div key={group.name}>
-                  {paymentGroups.length > 1 && <div style={{ fontSize: '0.6rem', color: '#1e3a5f', marginBottom: '0.25rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{group.name}</div>}
+                  {paymentGroups.length > 1 && <div style={{ fontSize: '0.6rem', color: '#8494aa', marginBottom: '0.25rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{group.name}</div>}
                   <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(group.methods.length, 4)}, 1fr)`, gap: '0.3rem' }}>
                     {group.methods.map(m => {
                       const optionId = m.group_id ? m.id : null
@@ -1389,9 +1433,9 @@ export function ComprobanteProModal({
                       const active = !!pagos.find(p => p.payment_method === pmKey && (p as any)._option_id === optionId)
                       return (
                         <button data-testid={`comprobante-payment-${m.id}`} key={m.id} onClick={() => toggleMetodo(m)}
-                          style={{ padding: '0.45rem 0.3rem', borderRadius: '0.5rem', border: `1px solid ${active ? (m.color || 'rgba(99,102,241,0.5)') : 'rgba(255,255,255,0.06)'}`, background: active ? `${m.color}20` : 'rgba(255,255,255,0.02)', color: active ? m.color || '#818cf8' : '#334155', fontSize: '0.72rem', fontWeight: active ? 700 : 500, cursor: 'pointer', transition: 'all 0.12s', textAlign: 'center', fontFamily: F, lineHeight: 1.3 }}
-                          onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
-                          onMouseLeave={e => { if (!active) e.currentTarget.style.background = active ? `${m.color}20` : 'rgba(255,255,255,0.02)' }}>
+                          style={{ padding: '0.45rem 0.3rem', borderRadius: '0.5rem', border: `1px solid ${active ? (m.color || 'rgba(99,102,241,0.5)') : '#263750'}`, background: active ? `${m.color}20` : 'rgba(255,255,255,0.02)', color: active ? m.color || '#818cf8' : '#8494aa', fontSize: '0.72rem', fontWeight: active ? 700 : 500, cursor: 'pointer', transition: 'all 0.12s', textAlign: 'center', fontFamily: F, lineHeight: 1.3 }}
+                          onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#b8c4d6' } }}
+                          onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; e.currentTarget.style.color = '#8494aa' } }}>
                           {m.short_label || m.label}
                           {m.percentage > 0 && <div style={{ fontSize: '0.6rem', opacity: 0.7, marginTop: '0.1rem' }}>+{m.percentage}%</div>}
                         </button>
@@ -1407,7 +1451,7 @@ export function ComprobanteProModal({
                 const sinCliente = !clienteId
                 return (
                   <div>
-                    <div style={{ fontSize: '0.6rem', color: '#1e3a5f', marginBottom: '0.25rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Cuenta corriente cliente</div>
+                    <div style={{ fontSize: '0.6rem', color: '#8494aa', marginBottom: '0.25rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Cuenta corriente cliente</div>
                     <button
                       data-testid="comprobante-payment-cuenta_corriente"
                       onClick={() => {
@@ -1426,7 +1470,7 @@ export function ComprobanteProModal({
                         }
                       }}
                       disabled={sinCliente || totales.total <= 0}
-                      style={{ width: '100%', padding: '0.45rem 0.75rem', borderRadius: '0.5rem', border: `1px solid ${ccActive ? 'rgba(99,102,241,0.55)' : sinCliente ? 'rgba(255,255,255,0.04)' : 'rgba(99,102,241,0.2)'}`, background: ccActive ? 'rgba(99,102,241,0.15)' : sinCliente ? 'rgba(255,255,255,0.01)' : 'rgba(99,102,241,0.04)', color: ccActive ? '#a5b4fc' : sinCliente ? '#1e3a5f' : '#818cf8', fontSize: '0.75rem', fontWeight: ccActive ? 700 : 500, cursor: sinCliente || totales.total <= 0 ? 'not-allowed' : 'pointer', transition: 'all 0.12s', fontFamily: F, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}
+                      style={{ width: '100%', padding: '0.45rem 0.75rem', borderRadius: '0.5rem', border: `1px solid ${ccActive ? 'rgba(99,102,241,0.55)' : sinCliente ? '#263750' : 'rgba(99,102,241,0.2)'}`, background: ccActive ? 'rgba(99,102,241,0.15)' : sinCliente ? 'rgba(255,255,255,0.01)' : 'rgba(99,102,241,0.04)', color: ccActive ? '#a5b4fc' : sinCliente ? '#8494aa' : '#818cf8', fontSize: '0.75rem', fontWeight: ccActive ? 700 : 500, cursor: sinCliente || totales.total <= 0 ? 'not-allowed' : 'pointer', transition: 'all 0.12s', fontFamily: F, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}
                       onMouseEnter={e => { if (!sinCliente && !ccActive && totales.total > 0) e.currentTarget.style.background = 'rgba(99,102,241,0.08)' }}
                       onMouseLeave={e => { e.currentTarget.style.background = ccActive ? 'rgba(99,102,241,0.15)' : sinCliente ? 'rgba(255,255,255,0.01)' : 'rgba(99,102,241,0.04)' }}
                     >
@@ -1445,7 +1489,7 @@ export function ComprobanteProModal({
               {/* CHIPS — todos los métodos seleccionados en un único listado */}
               {pagos.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.275rem', paddingTop: '0.375rem', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ fontSize: '0.6rem', color: '#1e3a5f', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.1rem' }}>Cobros registrados</div>
+                  <div style={{ fontSize: '0.6rem', color: '#8494aa', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.1rem' }}>Cobros registrados</div>
                   {pagos.map(p => {
                     const color = (p as any)._color || '#818cf8'
                     const isCC = p.payment_method === 'cuenta_corriente'
@@ -1456,14 +1500,14 @@ export function ComprobanteProModal({
                         <span style={{ flex: 1, fontSize: '0.775rem', color, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {(p as any)._option_label || p.payment_method}
                         </span>
-                        <span style={{ color: '#334155', fontSize: '0.7rem' }}>$</span>
+                        <span style={{ color: '#8494aa', fontSize: '0.7rem' }}>$</span>
                         <input data-testid="comprobante-payment-amount" type="number" min="0" value={p.amount}
                           onChange={e => setPagos(prev => prev.map(pp => pp._key === p._key ? { ...pp, amount: e.target.value } : pp))}
-                          style={{ width: '5.25rem', textAlign: 'right', padding: '0.175rem 0.3rem', background: `${color}08`, border: `1px solid ${color}28`, borderRadius: '0.375rem', color: isCC ? '#a5b4fc' : '#f0f4ff', fontSize: '0.82rem', fontWeight: 700, outline: 'none', fontFamily: F }} />
+                          style={{ width: '5.25rem', textAlign: 'right', padding: '0.175rem 0.3rem', background: `${color}08`, border: `1px solid ${color}28`, borderRadius: '0.375rem', color: isCC ? '#a5b4fc' : '#f8fafc', fontSize: '0.82rem', fontWeight: 700, outline: 'none', fontFamily: F }} />
                         <button data-testid="comprobante-payment-remove" onClick={() => setPagos(prev => prev.filter(pp => pp._key !== p._key))}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#334155', padding: '0.1rem', display: 'flex', alignItems: 'center', transition: 'color 0.1s' }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8494aa', padding: '0.1rem', display: 'flex', alignItems: 'center', transition: 'color 0.1s' }}
                           onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
-                          onMouseLeave={e => e.currentTarget.style.color = '#334155'}>
+                          onMouseLeave={e => e.currentTarget.style.color = '#8494aa'}>
                           <X size={12} />
                         </button>
                       </div>
@@ -1476,24 +1520,24 @@ export function ComprobanteProModal({
               {totales.total > 0 && (pagos.length > 0 || totales.saldo > 0) && (
                 <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: '0.625rem', padding: '0.625rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '0.25rem', borderBottom: '1px solid rgba(255,255,255,0.05)', marginBottom: '0.1rem' }}>
-                    <span style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 600 }}>Total</span>
-                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 700 }}>{fmtARS(totales.total)}</span>
+                    <span style={{ fontSize: '0.75rem', color: '#8494aa', fontWeight: 600 }}>Total</span>
+                    <span style={{ fontSize: '0.75rem', color: '#b8c4d6', fontWeight: 700 }}>{fmtARS(totales.total)}</span>
                   </div>
                   {totales.pagadoCaja > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: '0.75rem', color: '#334155' }}>Pagado en caja</span>
+                      <span style={{ fontSize: '0.75rem', color: '#8494aa' }}>Pagado en caja</span>
                       <span style={{ fontSize: '0.75rem', color: '#22c55e', fontWeight: 600 }}>{fmtARS(totales.pagadoCaja)}</span>
                     </div>
                   )}
                   {totales.pagadoCC > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: '0.75rem', color: '#334155' }}>Cuenta corriente</span>
+                      <span style={{ fontSize: '0.75rem', color: '#8494aa' }}>Cuenta corriente</span>
                       <span style={{ fontSize: '0.75rem', color: '#818cf8', fontWeight: 700 }}>{fmtARS(totales.pagadoCC)}</span>
                     </div>
                   )}
                   {totales.totalRecargo > 0 && (
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: '0.75rem', color: '#334155' }}>Recargo tarjeta</span>
+                      <span style={{ fontSize: '0.75rem', color: '#8494aa' }}>Recargo tarjeta</span>
                       <span style={{ fontSize: '0.75rem', color: '#f59e0b' }}>+{fmtARS(totales.totalRecargo)}</span>
                     </div>
                   )}
@@ -1527,20 +1571,22 @@ export function ComprobanteProModal({
                 </div>
               )}
               <button data-testid="comprobante-save-button" onClick={() => void handleSubmit()} disabled={submitting}
-                style={{ width: '100%', padding: '1rem', borderRadius: '0.875rem', border: 'none', background: submitting ? 'rgba(99,102,241,0.4)' : 'linear-gradient(135deg,#6366f1,#4f46e5)', color: '#fff', fontSize: '1.0625rem', fontWeight: 800, cursor: submitting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontFamily: F, transition: 'all 0.15s', boxShadow: submitting ? 'none' : '0 4px 20px rgba(99,102,241,0.4)' }}
+                style={{ width: '100%', padding: '1rem', minHeight: 56, borderRadius: 14, border: 'none', background: submitting ? 'rgba(99,102,241,0.4)' : 'linear-gradient(135deg,#6366f1,#4f46e5)', color: '#fff', fontSize: '1.0625rem', fontWeight: 800, cursor: submitting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontFamily: F, transition: 'all 0.15s', boxShadow: submitting ? 'none' : '0 4px 20px rgba(99,102,241,0.4)' }}
                 onMouseEnter={e => { if (!submitting) { e.currentTarget.style.boxShadow = '0 6px 28px rgba(99,102,241,0.55)'; e.currentTarget.style.transform = 'translateY(-1px)' } }}
                 onMouseLeave={e => { e.currentTarget.style.boxShadow = submitting ? 'none' : '0 4px 20px rgba(99,102,241,0.4)'; e.currentTarget.style.transform = '' }}
                 onMouseDown={e => { if (!submitting) e.currentTarget.style.transform = 'scale(0.98)' }}
                 onMouseUp={e => { e.currentTarget.style.transform = '' }}>
                 {submitting ? (
                   <><RefreshCw size={16} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> Procesando...</>
+                ) : totales.saldo > 0 ? (
+                  <><Zap size={16} /> Completar pago{' '}
+                  <span style={{ transition: 'opacity 180ms ease, transform 180ms ease', display: 'inline-block' }}>
+                    {fmtARS(totales.saldo)}
+                  </span>{' '}
+                  <span style={{ opacity: 0.55, fontSize: '0.72rem', fontWeight: 500 }}>F4</span>
+                  </>
                 ) : (
-                  <><Zap size={16} /> Cobrar{' '}
-                  {totales.total > 0 && (
-                    <span style={{ transition: 'opacity 180ms ease, transform 180ms ease', display: 'inline-block' }}>
-                      {fmtARS(totales.total)}
-                    </span>
-                  )}{' '}
+                  <><Zap size={16} /> {totales.total > 0 ? `Cobrar ${fmtARS(totales.total)}` : 'Cobrar'}{' '}
                   <span style={{ opacity: 0.55, fontSize: '0.72rem', fontWeight: 500 }}>F4</span>
                   </>
                 )}
