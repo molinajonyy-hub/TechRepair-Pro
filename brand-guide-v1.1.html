@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>TechRepairPro · Logo system v1.1</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --green-400: #34d399;
+    --green-500: #10b981;
+    --mint:      #5eead4;
+    --indigo:    #6366f1;
+    --indigo-light: #818cf8;
+    --grafito:   #04070f;
+    --card:      #0d1a30;
+    --off-white: #f6f7fb;
+    --white:     #ffffff;
+    --text-muted: #64748b;
+    --border:    rgba(255,255,255,0.08);
+  }
+
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: #f6f7fb;
+    color: #1e293b;
+    line-height: 1.5;
+  }
+
+  /* ── Page wrapper ── */
+  .page { max-width: 900px; margin: 0 auto; padding: 2.5rem 2rem 4rem; }
+
+  /* ── Cover / header ── */
+  .cover {
+    background: var(--grafito);
+    border-radius: 16px;
+    padding: 2rem 2.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 2.5rem;
+    gap: 1rem;
+  }
+  .cover-left { display: flex; align-items: center; gap: 1rem; }
+  .cover-left h1 {
+    color: #fff;
+    font-size: 1.6rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .cover-left h1 span { color: var(--indigo-light); }
+  .cover-left p { color: #94a3b8; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin-top: 0.2rem; }
+  .cover-right { text-align: right; }
+  .cover-right .version { color: var(--indigo-light); font-size: 0.85rem; font-weight: 700; }
+  .cover-right .sub { color: #64748b; font-size: 0.75rem; margin-top: 0.15rem; }
+
+  /* ── Section ── */
+  .section { margin-bottom: 3rem; }
+  .section-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .section-num { color: var(--indigo); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em; }
+  .section-title { font-size: 1.15rem; font-weight: 700; color: #1e293b; }
+  .section-note { margin-left: auto; font-size: 0.75rem; color: var(--text-muted); }
+
+  /* ── Card grid ── */
+  .grid { display: grid; gap: 1rem; }
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+  /* ── Logo card ── */
+  .logo-card {
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+  }
+  .logo-card-body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 2rem 1.5rem;
+    min-height: 110px;
+  }
+  .logo-card-label {
+    background: #f8fafc;
+    padding: 0.5rem 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #475569;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-top: 1px solid #e2e8f0;
+  }
+  .logo-card-label .file { color: #94a3b8; font-weight: 500; text-transform: none; letter-spacing: 0; }
+
+  /* ── Dark card variant ── */
+  .dark { background: var(--grafito); border-color: rgba(255,255,255,0.06); }
+  .dark .logo-card-label { background: #0d1a30; border-color: rgba(255,255,255,0.06); color: #94a3b8; }
+  .hero-dark { background: var(--card); border-color: rgba(255,255,255,0.06); }
+  .hero-dark .logo-card-label { background: #0a162a; border-color: rgba(255,255,255,0.06); color: #94a3b8; }
+  .hero-light { background: var(--off-white); }
+  .brand-color {
+    background: linear-gradient(135deg, #6366f1 0%, #10b981 100%);
+    border-color: rgba(255,255,255,0.1);
+  }
+  .brand-color .logo-card-label { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.15); color: rgba(255,255,255,0.8); }
+
+  /* ── Wordmark ── */
+  .wordmark {
+    font-size: 1.8rem;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+  }
+  .wordmark .pro { color: var(--indigo-light); }
+  .wordmark-dark { color: #fff; }
+  .wordmark-dark .pro { color: var(--indigo-light); }
+  .wordmark-light { color: var(--grafito); }
+  .wordmark-light .pro { color: var(--indigo); }
+
+  /* ── SVG logos ── */
+  .logo-sm { width: 36px; height: 36px; flex-shrink: 0; }
+  .logo-md { width: 52px; height: 52px; flex-shrink: 0; }
+  .logo-lg { width: 80px; height: 80px; flex-shrink: 0; }
+
+  .logo-stacked { flex-direction: column; gap: 0.75rem; padding: 1.75rem 1.5rem; }
+  .logo-stacked .wordmark { font-size: 1.35rem; }
+
+  /* ── Icon grid ── */
+  .icon-sizes {
+    display: flex;
+    align-items: flex-end;
+    gap: 1.25rem;
+    padding: 1.5rem;
+    flex-wrap: wrap;
+  }
+  .icon-item { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
+  .icon-item span { font-size: 0.65rem; color: #94a3b8; font-weight: 600; }
+
+  /* ── Color swatches ── */
+  .swatch { border-radius: 10px; overflow: hidden; border: 1px solid #e2e8f0; }
+  .swatch-color { height: 64px; }
+  .swatch-label { padding: 0.5rem 0.625rem; background: #f8fafc; }
+  .swatch-label strong { display: block; font-size: 0.78rem; font-weight: 700; color: #1e293b; }
+  .swatch-label span { font-size: 0.68rem; color: #64748b; font-family: monospace; }
+  .swatch-label .role { font-size: 0.65rem; color: var(--indigo); font-weight: 600; margin-top: 0.2rem; display: block; }
+  .swatch-label .role-green { color: var(--green-500); }
+
+  /* ── Mono grid ── */
+  .mono-item { border-radius: 10px; overflow: hidden; border: 1px solid #e2e8f0; }
+  .mono-body { display: flex; align-items: center; justify-content: center; padding: 1.5rem; min-height: 90px; }
+  .mono-label { padding: 0.4rem 0.625rem; display: flex; justify-content: space-between; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; background: #f8fafc; color: #475569; border-top: 1px solid #e2e8f0; }
+  .mono-label .hex { font-weight: 500; text-transform: none; letter-spacing: 0; color: #94a3b8; }
+  .mono-body-dark { background: var(--grafito); }
+  .mono-body-brand { background: linear-gradient(135deg, var(--indigo) 0%, var(--green-500) 100%); }
+  .mono-body-indigo { background: var(--indigo); }
+  .mono-body-dark .mono-label,
+  .mono-body-brand .mono-label,
+  .mono-body-indigo .mono-label { background: rgba(0,0,0,0.25); color: rgba(255,255,255,0.7); border-top-color: rgba(255,255,255,0.1); }
+
+  /* ── Size guide ── */
+  .size-guide {
+    display: flex;
+    align-items: flex-end;
+    gap: 1.5rem;
+    padding: 1.5rem;
+    flex-wrap: wrap;
+    background: #f8fafc;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+  }
+  .size-item { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
+  .size-item span { font-size: 0.65rem; color: #64748b; font-weight: 600; text-align: center; }
+
+  /* ── Wrong use ── */
+  .wrong-item { border-radius: 10px; overflow: hidden; border: 2px solid rgba(239,68,68,0.25); }
+  .wrong-body { display: flex; align-items: center; justify-content: center; padding: 1.25rem; min-height: 80px; background: #fafafa; }
+  .wrong-label { padding: 0.4rem 0.625rem; background: rgba(239,68,68,0.06); font-size: 0.72rem; font-weight: 700; color: #ef4444; display: flex; align-items: center; gap: 0.3rem; }
+  .wrong-label::before { content: "✕"; font-weight: 900; }
+  .wrong-body svg { filter: grayscale(0.3); }
+
+  /* ── Architecture section ── */
+  .arch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+  .arch-card {
+    border-radius: 14px;
+    padding: 1.5rem;
+    border: 1px solid transparent;
+  }
+  .arch-indigo {
+    background: rgba(99,102,241,0.07);
+    border-color: rgba(99,102,241,0.25);
+  }
+  .arch-green {
+    background: rgba(16,185,129,0.07);
+    border-color: rgba(16,185,129,0.25);
+  }
+  .arch-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+  .arch-badge {
+    font-size: 0.65rem; font-weight: 800; letter-spacing: 0.08em;
+    text-transform: uppercase; padding: 0.25rem 0.6rem; border-radius: 999px;
+  }
+  .arch-badge-indigo { background: rgba(99,102,241,0.15); color: var(--indigo); border: 1px solid rgba(99,102,241,0.35); }
+  .arch-badge-green  { background: rgba(16,185,129,0.15); color: var(--green-500); border: 1px solid rgba(16,185,129,0.35); }
+  .arch-product { font-size: 1rem; font-weight: 700; color: #1e293b; }
+  .arch-sub { font-size: 0.75rem; color: #64748b; margin-top: 0.125rem; }
+  .arch-desc { font-size: 0.82rem; color: #475569; line-height: 1.55; }
+  .arch-desc strong { color: #1e293b; font-weight: 600; }
+  .arch-tags { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 0.875rem; }
+  .arch-tag {
+    font-size: 0.65rem; padding: 0.2rem 0.5rem; border-radius: 6px;
+    font-weight: 600; background: rgba(0,0,0,0.05); color: #475569;
+  }
+
+  /* ── Rules block ── */
+  .rules { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1.25rem; }
+  .rule {
+    display: flex; align-items: flex-start; gap: 0.625rem;
+    padding: 0.625rem 0.875rem; border-radius: 8px;
+    background: #f8fafc; border: 1px solid #e2e8f0;
+    font-size: 0.8rem; color: #475569;
+  }
+  .rule .icon { font-size: 0.75rem; flex-shrink: 0; margin-top: 0.1rem; }
+  .rule-ok .icon { color: #10b981; }
+  .rule-no .icon { color: #ef4444; }
+  .rule strong { color: #1e293b; font-weight: 600; }
+
+  /* ── Footer ── */
+  .footer {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 1rem 0; border-top: 1px solid #e2e8f0;
+    font-size: 0.72rem; color: #94a3b8; margin-top: 1rem;
+  }
+
+  /* ── Separator divider ── */
+  .divider { margin: 2.5rem 0; border: none; border-top: 1px solid #e2e8f0; }
+
+  @media print {
+    body { background: white; }
+    .page { padding: 1rem; }
+    .section { page-break-inside: avoid; }
+  }
+  @media (max-width: 640px) {
+    .grid-2, .grid-3, .grid-4, .arch-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ── Cover ── -->
+  <div class="cover">
+    <div class="cover-left">
+      <svg width="44" height="44" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+        <defs><linearGradient id="bg-cover" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs>
+        <rect width="100" height="100" rx="22" fill="url(#bg-cover)"/>
+        <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
+        <path d="M26 18 L20 43 L37 36 Z" fill="#6366f1" opacity="0.45"/>
+        <path d="M74 18 L80 43 L63 36 Z" fill="#6366f1" opacity="0.45"/>
+        <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+        <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+      </svg>
+      <div>
+        <h1>TechRepair<span>Pro</span> · Logo system</h1>
+        <p>Combinaciones, escalas y usos correctos</p>
+      </div>
+    </div>
+    <div class="cover-right">
+      <div class="version">v1.1 · Mayo 2026</div>
+      <div class="sub">Brand assets · Design System</div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       00 — ARQUITECTURA DE MARCA  (nueva sección)
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">00</span>
+      <span class="section-title">Arquitectura de marca</span>
+      <span class="section-note">Dos productos · un ecosistema</span>
+    </div>
+
+    <div class="arch-grid">
+      <!-- TechRepair Pro -->
+      <div class="arch-card arch-indigo">
+        <div class="arch-header">
+          <svg class="logo-sm" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bg-a" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs>
+            <rect width="100" height="100" rx="22" fill="url(#bg-a)"/>
+            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
+            <path d="M26 18 L20 43 L37 36 Z" fill="#6366f1" opacity="0.45"/>
+            <path d="M74 18 L80 43 L63 36 Z" fill="#6366f1" opacity="0.45"/>
+            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+          </svg>
+          <div>
+            <div class="arch-badge arch-badge-indigo">Índigo · Gestión</div>
+            <div class="arch-product">TechRepair Pro</div>
+            <div class="arch-sub">cat-logo.svg</div>
+          </div>
+        </div>
+        <p class="arch-desc">
+          <strong>Sistema principal de gestión</strong> para talleres técnicos y negocios de reparación.
+          Usa identidad índigo para transmitir <strong>tecnología, control, estabilidad y administración profesional</strong>.
+        </p>
+        <div class="arch-tags">
+          <span class="arch-tag">Dashboard</span>
+          <span class="arch-tag">Órdenes</span>
+          <span class="arch-tag">Comprobantes</span>
+          <span class="arch-tag">Inventario</span>
+          <span class="arch-tag">Caja</span>
+          <span class="arch-tag">Finanzas</span>
+          <span class="arch-tag">SaaS Admin</span>
+          <span class="arch-tag">Login</span>
+        </div>
+      </div>
+
+      <!-- Mi Guita -->
+      <div class="arch-card arch-green">
+        <div class="arch-header">
+          <svg class="logo-sm" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+            <defs>
+              <linearGradient id="bg-b" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#052e16"/><stop offset="55%" stop-color="#14532d"/><stop offset="100%" stop-color="#064e3b"/></linearGradient>
+              <radialGradient id="glow-b" cx="50%" cy="52%" r="46%"><stop offset="0%" stop-color="#22c55e" stop-opacity="0.22"/><stop offset="100%" stop-color="#22c55e" stop-opacity="0"/></radialGradient>
+              <linearGradient id="cat-b" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#f0fdf4"/><stop offset="100%" stop-color="#dcfce7"/></linearGradient>
+            </defs>
+            <rect width="100" height="100" rx="22" fill="url(#bg-b)"/>
+            <ellipse cx="50" cy="53" rx="38" ry="36" fill="url(#glow-b)"/>
+            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="url(#cat-b)" opacity="0.95"/>
+            <path d="M26 18 L20 43 L37 36 Z" fill="#052e16" opacity="0.35"/>
+            <path d="M74 18 L80 43 L63 36 Z" fill="#052e16" opacity="0.35"/>
+            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#052e16" opacity="0.85"/>
+            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#052e16" opacity="0.85"/>
+          </svg>
+          <div>
+            <div class="arch-badge arch-badge-green">Verde · Mi Guita</div>
+            <div class="arch-product">Mi Guita</div>
+            <div class="arch-sub">cat-logo-green.svg</div>
+          </div>
+        </div>
+        <p class="arch-desc">
+          <strong>App personal de finanzas</strong>, experiencia satélite del ecosistema.
+          Usa identidad verde para transmitir <strong>dinero, crecimiento, claridad financiera y uso mobile-first</strong>.
+        </p>
+        <div class="arch-tags">
+          <span class="arch-tag">PWA Personal</span>
+          <span class="arch-tag">Cuentas</span>
+          <span class="arch-tag">Movimientos</span>
+          <span class="arch-tag">Ahorros</span>
+          <span class="arch-tag">Tarjetas</span>
+          <span class="arch-tag">Deudas</span>
+          <span class="arch-tag">Sueldo</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reglas de coexistencia -->
+    <div class="rules" style="margin-top:1.25rem;">
+      <div class="rule rule-no"><span class="icon">✕</span><span>No usar el <strong>logo verde (Mi Guita)</strong> en el sistema principal de gestión TechRepair Pro.</span></div>
+      <div class="rule rule-no"><span class="icon">✕</span><span>No usar el <strong>logo índigo (TechRepair Pro)</strong> en la app personal Mi Guita.</span></div>
+      <div class="rule rule-no"><span class="icon">✕</span><span>No llamar <strong>"legacy"</strong> al logo índigo. Ambos logos son activos dentro del ecosistema, cada uno perteneciente a su producto.</span></div>
+      <div class="rule rule-ok"><span class="icon">✓</span><span>La <strong>base oscura</strong> (#04070f y #0d1a30) es compartida por ambos productos como lenguaje visual común del ecosistema.</span></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       01 — LOCKUP HORIZONTAL
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">01</span>
+      <span class="section-title">Lockup horizontal · canónico</span>
+      <span class="section-note">Símbolo + wordmark · gap 12px</span>
+    </div>
+    <div class="grid grid-2">
+      <!-- Dark principal -->
+      <div class="logo-card dark">
+        <div class="logo-card-body">
+          <svg class="logo-md" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bg-h1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs>
+            <rect width="100" height="100" rx="22" fill="url(#bg-h1)"/>
+            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
+            <path d="M26 18 L20 43 L37 36 Z" fill="#6366f1" opacity="0.45"/>
+            <path d="M74 18 L80 43 L63 36 Z" fill="#6366f1" opacity="0.45"/>
+            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+          </svg>
+          <span class="wordmark wordmark-dark">TechRepair<span class="pro">Pro</span></span>
+        </div>
+        <div class="logo-card-label">DARK · PRINCIPAL <span class="file">on #04070f</span></div>
+      </div>
+      <!-- Light -->
+      <div class="logo-card" style="background:#fff;">
+        <div class="logo-card-body">
+          <svg class="logo-md" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bg-h2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs>
+            <rect width="100" height="100" rx="22" fill="url(#bg-h2)"/>
+            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
+            <path d="M26 18 L20 43 L37 36 Z" fill="#6366f1" opacity="0.45"/>
+            <path d="M74 18 L80 43 L63 36 Z" fill="#6366f1" opacity="0.45"/>
+            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+          </svg>
+          <span class="wordmark wordmark-light">TechRepair<span class="pro">Pro</span></span>
+        </div>
+        <div class="logo-card-label">LIGHT <span class="file">on #ffffff</span></div>
+      </div>
+      <!-- Hero dark -->
+      <div class="logo-card hero-dark">
+        <div class="logo-card-body">
+          <svg class="logo-lg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bg-h3" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs>
+            <rect width="100" height="100" rx="22" fill="url(#bg-h3)"/>
+            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
+            <path d="M26 18 L20 43 L37 36 Z" fill="#6366f1" opacity="0.45"/>
+            <path d="M74 18 L80 43 L63 36 Z" fill="#6366f1" opacity="0.45"/>
+            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+          </svg>
+          <span class="wordmark wordmark-dark" style="font-size:2.2rem;">TechRepair<span class="pro">Pro</span></span>
+        </div>
+        <div class="logo-card-label" style="color:#64748b;">HERO · GRANDE <span class="file">on #0d1a30</span></div>
+      </div>
+      <!-- Hero light -->
+      <div class="logo-card hero-light">
+        <div class="logo-card-body">
+          <svg class="logo-lg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bg-h4" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs>
+            <rect width="100" height="100" rx="22" fill="url(#bg-h4)"/>
+            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
+            <path d="M26 18 L20 43 L37 36 Z" fill="#6366f1" opacity="0.45"/>
+            <path d="M74 18 L80 43 L63 36 Z" fill="#6366f1" opacity="0.45"/>
+            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+          </svg>
+          <span class="wordmark wordmark-light" style="font-size:2.2rem;">TechRepair<span class="pro">Pro</span></span>
+        </div>
+        <div class="logo-card-label">HERO · LIGHT <span class="file">on #f6f7fb</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       02 — LOCKUP VERTICAL
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">02</span>
+      <span class="section-title">Lockup vertical · centrado</span>
+      <span class="section-note">Mascota arriba, wordmark debajo</span>
+    </div>
+    <div class="grid grid-3">
+      <div class="logo-card dark">
+        <div class="logo-card-body logo-stacked" style="flex-direction:column;text-align:center;">
+          <svg class="logo-lg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bg-v1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs>
+            <rect width="100" height="100" rx="22" fill="url(#bg-v1)"/>
+            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
+            <path d="M26 18 L20 43 L37 36 Z" fill="#6366f1" opacity="0.45"/>
+            <path d="M74 18 L80 43 L63 36 Z" fill="#6366f1" opacity="0.45"/>
+            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+          </svg>
+          <span class="wordmark wordmark-dark">TechRepair<span class="pro">Pro</span></span>
+        </div>
+        <div class="logo-card-label">DARK <span class="file">stacked</span></div>
+      </div>
+      <div class="logo-card" style="background:#fff;">
+        <div class="logo-card-body logo-stacked" style="flex-direction:column;text-align:center;">
+          <svg class="logo-lg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bg-v2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs>
+            <rect width="100" height="100" rx="22" fill="url(#bg-v2)"/>
+            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
+            <path d="M26 18 L20 43 L37 36 Z" fill="#6366f1" opacity="0.45"/>
+            <path d="M74 18 L80 43 L63 36 Z" fill="#6366f1" opacity="0.45"/>
+            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+          </svg>
+          <span class="wordmark wordmark-light">TechRepair<span class="pro">Pro</span></span>
+        </div>
+        <div class="logo-card-label">LIGHT <span class="file">stacked</span></div>
+      </div>
+      <div class="logo-card brand-color">
+        <div class="logo-card-body logo-stacked" style="flex-direction:column;text-align:center;">
+          <svg class="logo-lg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100" height="100" rx="22" fill="rgba(255,255,255,0.12)"/>
+            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.95"/>
+            <path d="M26 18 L20 43 L37 36 Z" fill="#3730a3" opacity="0.30"/>
+            <path d="M74 18 L80 43 L63 36 Z" fill="#3730a3" opacity="0.30"/>
+            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#1e1b4b" opacity="0.7"/>
+            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#1e1b4b" opacity="0.7"/>
+          </svg>
+          <span class="wordmark" style="color:#fff;">TechRepair<span style="color:rgba(255,255,255,0.75);">Pro</span></span>
+        </div>
+        <div class="logo-card-label" style="color:rgba(255,255,255,0.7);background:rgba(0,0,0,0.2);border-top-color:rgba(255,255,255,0.1);">SOBRE BRAND COLOR <span class="file" style="color:rgba(255,255,255,0.45);">mono white</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       03 — SÍMBOLO AISLADO · APP ICON
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">03</span>
+      <span class="section-title">Símbolo aislado · App icon</span>
+      <span class="section-note">Múltiples escalas — favicon a store icon</span>
+    </div>
+    <div class="grid grid-3">
+      <!-- Verde · Mi Guita -->
+      <div class="logo-card" style="background:#fafafa;">
+        <div class="icon-sizes">
+          <div class="icon-item">
+            <svg width="96" height="96" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="bg-g1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#052e16"/><stop offset="55%" stop-color="#14532d"/><stop offset="100%" stop-color="#064e3b"/></linearGradient>
+                <radialGradient id="glow-g1" cx="50%" cy="52%" r="46%"><stop offset="0%" stop-color="#22c55e" stop-opacity="0.22"/><stop offset="100%" stop-color="#22c55e" stop-opacity="0"/></radialGradient>
+                <linearGradient id="cat-g1" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#f0fdf4"/><stop offset="100%" stop-color="#dcfce7"/></linearGradient>
+              </defs>
+              <rect width="100" height="100" rx="22" fill="url(#bg-g1)"/>
+              <ellipse cx="50" cy="53" rx="38" ry="36" fill="url(#glow-g1)"/>
+              <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="url(#cat-g1)" opacity="0.95"/>
+              <path d="M26 18 L20 43 L37 36 Z" fill="#052e16" opacity="0.35"/>
+              <path d="M74 18 L80 43 L63 36 Z" fill="#052e16" opacity="0.35"/>
+              <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#052e16" opacity="0.85"/>
+              <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#052e16" opacity="0.85"/>
+            </svg>
+            <span>96 px</span>
+          </div>
+          <div class="icon-item">
+            <svg width="48" height="48" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="bg-g2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#052e16"/><stop offset="55%" stop-color="#14532d"/><stop offset="100%" stop-color="#064e3b"/></linearGradient>
+                <linearGradient id="cat-g2" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#f0fdf4"/><stop offset="100%" stop-color="#dcfce7"/></linearGradient>
+              </defs>
+              <rect width="100" height="100" rx="22" fill="url(#bg-g2)"/>
+              <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="url(#cat-g2)" opacity="0.95"/>
+              <path d="M26 18 L20 43 L37 36 Z" fill="#052e16" opacity="0.35"/>
+              <path d="M74 18 L80 43 L63 36 Z" fill="#052e16" opacity="0.35"/>
+              <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#052e16" opacity="0.85"/>
+              <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#052e16" opacity="0.85"/>
+            </svg>
+            <span>48 px</span>
+          </div>
+          <div class="icon-item">
+            <svg width="24" height="24" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+              <defs><linearGradient id="bg-g3" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#14532d"/><stop offset="100%" stop-color="#064e3b"/></linearGradient></defs>
+              <rect width="100" height="100" rx="22" fill="url(#bg-g3)"/>
+              <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="#f0fdf4" opacity="0.95"/>
+              <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#052e16" opacity="0.85"/>
+              <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#052e16" opacity="0.85"/>
+            </svg>
+            <span>24 px</span>
+          </div>
+        </div>
+        <div class="logo-card-label" style="background:rgba(16,185,129,0.08);border-top-color:rgba(16,185,129,0.2);color:#065f46;">
+          VERDE · MI GUITA <span class="file" style="color:#6b7280;">cat-logo-green.svg</span>
+        </div>
+      </div>
+
+      <!-- Verde · Sobre dark -->
+      <div class="logo-card dark">
+        <div class="icon-sizes">
+          <div class="icon-item">
+            <svg width="96" height="96" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="bg-gd1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#052e16"/><stop offset="55%" stop-color="#14532d"/><stop offset="100%" stop-color="#064e3b"/></linearGradient>
+                <radialGradient id="glow-gd1" cx="50%" cy="52%" r="46%"><stop offset="0%" stop-color="#22c55e" stop-opacity="0.22"/><stop offset="100%" stop-color="#22c55e" stop-opacity="0"/></radialGradient>
+                <linearGradient id="cat-gd1" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#f0fdf4"/><stop offset="100%" stop-color="#dcfce7"/></linearGradient>
+              </defs>
+              <rect width="100" height="100" rx="22" fill="url(#bg-gd1)"/>
+              <ellipse cx="50" cy="53" rx="38" ry="36" fill="url(#glow-gd1)"/>
+              <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="url(#cat-gd1)" opacity="0.95"/>
+              <path d="M26 18 L20 43 L37 36 Z" fill="#052e16" opacity="0.35"/>
+              <path d="M74 18 L80 43 L63 36 Z" fill="#052e16" opacity="0.35"/>
+              <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#052e16" opacity="0.85"/>
+              <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#052e16" opacity="0.85"/>
+            </svg>
+            <span style="color:#64748b;">96 px</span>
+          </div>
+          <div class="icon-item">
+            <svg width="48" height="48" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+              <defs><linearGradient id="bg-gd2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#14532d"/><stop offset="100%" stop-color="#064e3b"/></linearGradient>
+              <linearGradient id="cat-gd2" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#f0fdf4"/><stop offset="100%" stop-color="#dcfce7"/></linearGradient></defs>
+              <rect width="100" height="100" rx="22" fill="url(#bg-gd2)"/>
+              <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="url(#cat-gd2)" opacity="0.95"/>
+              <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#052e16" opacity="0.85"/>
+              <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#052e16" opacity="0.85"/>
+            </svg>
+            <span style="color:#64748b;">48 px</span>
+          </div>
+          <div class="icon-item">
+            <svg width="24" height="24" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+              <defs><linearGradient id="bg-gd3" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#14532d"/><stop offset="100%" stop-color="#064e3b"/></linearGradient></defs>
+              <rect width="100" height="100" rx="22" fill="url(#bg-gd3)"/>
+              <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="#f0fdf4" opacity="0.95"/>
+              <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#052e16" opacity="0.85"/>
+              <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#052e16" opacity="0.85"/>
+            </svg>
+            <span style="color:#64748b;">24 px</span>
+          </div>
+        </div>
+        <div class="logo-card-label">VERDE · SOBRE DARK <span class="file">on #04070f</span></div>
+      </div>
+
+      <!-- Índigo · Gestión -->
+      <div class="logo-card" style="background:rgba(99,102,241,0.05); border:1px solid rgba(99,102,241,0.15);">
+        <div class="icon-sizes">
+          <div class="icon-item">
+            <svg width="96" height="96" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+              <defs><linearGradient id="bg-i1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs>
+              <rect width="100" height="100" rx="22" fill="url(#bg-i1)"/>
+              <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
+              <path d="M26 18 L20 43 L37 36 Z" fill="#6366f1" opacity="0.45"/>
+              <path d="M74 18 L80 43 L63 36 Z" fill="#6366f1" opacity="0.45"/>
+              <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+              <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+            </svg>
+            <span>96 px</span>
+          </div>
+          <div class="icon-item">
+            <svg width="48" height="48" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+              <defs><linearGradient id="bg-i2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs>
+              <rect width="100" height="100" rx="22" fill="url(#bg-i2)"/>
+              <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
+              <path d="M26 18 L20 43 L37 36 Z" fill="#6366f1" opacity="0.45"/>
+              <path d="M74 18 L80 43 L63 36 Z" fill="#6366f1" opacity="0.45"/>
+              <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+              <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+            </svg>
+            <span>48 px</span>
+          </div>
+          <div class="icon-item">
+            <svg width="24" height="24" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+              <defs><linearGradient id="bg-i3" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs>
+              <rect width="100" height="100" rx="22" fill="url(#bg-i3)"/>
+              <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
+              <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+              <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+            </svg>
+            <span>24 px</span>
+          </div>
+        </div>
+        <div class="logo-card-label" style="background:rgba(99,102,241,0.08);border-top-color:rgba(99,102,241,0.2);color:#4338ca;">
+          ÍNDIGO · GESTIÓN <span class="file" style="color:#6b7280;">cat-logo.svg</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       04 — MONOCROMO
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">04</span>
+      <span class="section-title">Monocromo · 1 color</span>
+      <span class="section-note">Para serigrafía, bordados, sellos, fax</span>
+    </div>
+    <div class="grid grid-4">
+      <div class="mono-item">
+        <div class="mono-body" style="background:#fff;">
+          <svg width="64" height="64" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100" height="100" rx="22" fill="#04110b"/>
+            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="#04110b"/>
+            <path d="M26 18 L20 43 L37 36 Z" fill="rgba(255,255,255,0.15)"/>
+            <path d="M74 18 L80 43 L63 36 Z" fill="rgba(255,255,255,0.15)"/>
+            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="rgba(255,255,255,0.9)"/>
+            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="rgba(255,255,255,0.9)"/>
+          </svg>
+        </div>
+        <div class="mono-label">NEGRO · POSITIVO <span class="hex">#04110b</span></div>
+      </div>
+      <div class="mono-item">
+        <div class="mono-body mono-body-dark">
+          <svg width="64" height="64" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100" height="100" rx="22" fill="rgba(255,255,255,0.08)"/>
+            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="#fff"/>
+            <path d="M26 18 L20 43 L37 36 Z" fill="rgba(0,0,0,0.25)"/>
+            <path d="M74 18 L80 43 L63 36 Z" fill="rgba(0,0,0,0.25)"/>
+            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="rgba(0,0,0,0.6)"/>
+            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="rgba(0,0,0,0.6)"/>
+          </svg>
+        </div>
+        <div class="mono-label" style="background:#111827;color:#94a3b8;border-top-color:#1e293b;">BLANCO · INVERTIDO <span class="hex" style="color:#4b5563;">#ffffff</span></div>
+      </div>
+      <div class="mono-item">
+        <div class="mono-body mono-body-brand">
+          <svg width="64" height="64" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100" height="100" rx="22" fill="rgba(255,255,255,0.12)"/>
+            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="#fff"/>
+            <path d="M26 18 L20 43 L37 36 Z" fill="rgba(0,0,0,0.2)"/>
+            <path d="M74 18 L80 43 L63 36 Z" fill="rgba(0,0,0,0.2)"/>
+            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="rgba(0,0,0,0.5)"/>
+            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="rgba(0,0,0,0.5)"/>
+          </svg>
+        </div>
+        <div class="mono-label" style="background:rgba(0,0,0,0.2);color:rgba(255,255,255,0.75);border-top-color:rgba(255,255,255,0.1);">SOBRE BRAND <span class="hex" style="color:rgba(255,255,255,0.4);">mono dark</span></div>
+      </div>
+      <div class="mono-item">
+        <div class="mono-body mono-body-indigo">
+          <svg width="64" height="64" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100" height="100" rx="22" fill="rgba(255,255,255,0.12)"/>
+            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="#fff"/>
+            <path d="M26 18 L20 43 L37 36 Z" fill="rgba(0,0,0,0.2)"/>
+            <path d="M74 18 L80 43 L63 36 Z" fill="rgba(0,0,0,0.2)"/>
+            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="rgba(0,0,0,0.5)"/>
+            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="rgba(0,0,0,0.5)"/>
+          </svg>
+        </div>
+        <div class="mono-label" style="background:rgba(0,0,0,0.2);color:rgba(255,255,255,0.75);border-top-color:rgba(255,255,255,0.1);">SOBRE ÍNDIGO <span class="hex" style="color:rgba(255,255,255,0.4);">mono white</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       05 — WORDMARK SIN SÍMBOLO
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">05</span>
+      <span class="section-title">Wordmark · sin símbolo</span>
+      <span class="section-note">Para piezas estrechas, headers, footer minimal</span>
+    </div>
+    <div class="grid grid-2">
+      <div class="logo-card dark">
+        <div class="logo-card-body" style="justify-content:center;">
+          <span class="wordmark wordmark-dark" style="font-size:2rem;">TechRepair<span class="pro">Pro</span></span>
+        </div>
+        <div class="logo-card-label">DARK <span class="file">Inter 800 · -2.5% tracking</span></div>
+      </div>
+      <div class="logo-card" style="background:#fff;">
+        <div class="logo-card-body" style="justify-content:center;">
+          <span class="wordmark wordmark-light" style="font-size:2rem;">TechRepair<span class="pro">Pro</span></span>
+        </div>
+        <div class="logo-card-label">LIGHT <span class="file">Inter 800</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       06 — TAMAÑOS MÍNIMOS · CLEAR SPACE
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">06</span>
+      <span class="section-title">Tamaños mínimos · clear space</span>
+      <span class="section-note">No reducir más allá de estos pisos</span>
+    </div>
+    <div class="grid grid-2">
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:1.5rem;">
+        <p style="font-size:0.72rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:1rem;">TAMAÑOS MÍNIMOS · no escalar abajo</p>
+        <div style="display:flex;align-items:flex-end;gap:1.5rem;flex-wrap:wrap;">
+          <div class="icon-item">
+            <svg width="16" height="16" viewBox="0 0 100 100"><defs><linearGradient id="bg-min1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs><rect width="100" height="100" rx="22" fill="url(#bg-min1)"/><path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/><ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/><ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/></svg>
+            <span style="font-size:0.65rem;color:#94a3b8;">16 px · favicon mín.</span>
+          </div>
+          <div class="icon-item">
+            <svg width="24" height="24" viewBox="0 0 100 100"><defs><linearGradient id="bg-min2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs><rect width="100" height="100" rx="22" fill="url(#bg-min2)"/><path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/><ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/><ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/></svg>
+            <span style="font-size:0.65rem;color:#94a3b8;">24 px · UI mín.</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:0.5rem;">
+            <svg width="20" height="20" viewBox="0 0 100 100"><defs><linearGradient id="bg-min3" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs><rect width="100" height="100" rx="22" fill="url(#bg-min3)"/><path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/><ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/><ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/></svg>
+            <span class="wordmark wordmark-light" style="font-size:0.85rem;">TechRepair<span class="pro">Pro</span></span>
+            <span style="font-size:0.65rem;color:#94a3b8;">Lockup · 32 px mín.</span>
+          </div>
+        </div>
+      </div>
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:1.5rem;">
+        <p style="font-size:0.72rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:1rem;">CLEAR SPACE · ≥ 0.5x en todos los lados</p>
+        <div style="display:inline-flex;padding:1rem;border:2px dashed #cbd5e1;border-radius:8px;position:relative;margin:0.5rem auto;display:flex;justify-content:center;">
+          <svg width="48" height="48" viewBox="0 0 100 100"><defs><linearGradient id="bg-cs" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs><rect width="100" height="100" rx="22" fill="url(#bg-cs)"/><path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/><ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/><ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/></svg>
+        </div>
+        <p style="font-size:0.7rem;color:#94a3b8;margin-top:0.5rem;text-align:center;">x = altura del símbolo</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       07 — PALETA DE MARCA
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">07</span>
+      <span class="section-title">Paleta de marca</span>
+      <span class="section-note">Colores por producto y base compartida</span>
+    </div>
+
+    <p style="font-size:0.78rem;color:#475569;margin-bottom:1rem;padding:0.625rem 0.875rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
+      Los colores de acento están <strong>vinculados al producto</strong>: Índigo → TechRepair Pro Gestión · Verde → Mi Guita. La base dark es compartida por ambos.
+    </p>
+
+    <!-- Mi Guita colors -->
+    <p style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--green-500);margin-bottom:0.625rem;">Mi Guita · finanzas personales</p>
+    <div class="grid grid-4" style="margin-bottom:1.5rem;">
+      <div class="swatch">
+        <div class="swatch-color" style="background:#34d399;"></div>
+        <div class="swatch-label"><strong>GREEN 400</strong><span>#34d399</span><span class="role role-green">primary · Mi Guita</span></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#10b981;"></div>
+        <div class="swatch-label"><strong>GREEN 500</strong><span>#10b981</span><span class="role role-green">deep · Mi Guita</span></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#5eead4;"></div>
+        <div class="swatch-label"><strong>MINT</strong><span>#5eead4</span><span class="role role-green">accent · Mi Guita</span></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:linear-gradient(135deg,#052e16,#14532d,#064e3b);"></div>
+        <div class="swatch-label"><strong>GREEN DARK</strong><span>#14532d</span><span class="role role-green">icon bg · Mi Guita</span></div>
+      </div>
+    </div>
+
+    <!-- TechRepair Pro colors -->
+    <p style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--indigo);margin-bottom:0.625rem;">TechRepair Pro · gestión</p>
+    <div class="grid grid-4" style="margin-bottom:1.5rem;">
+      <div class="swatch">
+        <div class="swatch-color" style="background:#6366f1;"></div>
+        <div class="swatch-label"><strong>INDIGO 500</strong><span>#6366f1</span><span class="role">primary · TechRepair Pro</span></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#818cf8;"></div>
+        <div class="swatch-label"><strong>INDIGO 400</strong><span>#818cf8</span><span class="role">light · TechRepair Pro</span></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#8b5cf6;"></div>
+        <div class="swatch-label"><strong>VIOLET 500</strong><span>#8b5cf6</span><span class="role">gradient end</span></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);"></div>
+        <div class="swatch-label"><strong>INDIGO GRAD</strong><span>6366f1 → 8b5cf6</span><span class="role">icon bg · TechRepair Pro</span></div>
+      </div>
+    </div>
+
+    <!-- Base shared -->
+    <p style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#64748b;margin-bottom:0.625rem;">Base compartida · ecosistema</p>
+    <div class="grid grid-4">
+      <div class="swatch">
+        <div class="swatch-color" style="background:#04070f;"></div>
+        <div class="swatch-label"><strong>GRAFITO</strong><span>#04070f</span><span class="role" style="color:#64748b;">base · ambos</span></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#0d1a30;"></div>
+        <div class="swatch-label"><strong>CARD</strong><span>#0d1a30</span><span class="role" style="color:#64748b;">surface · ambos</span></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#f6f7fb; border:1px solid #e2e8f0;"></div>
+        <div class="swatch-label"><strong>OFF-WHITE</strong><span>#f6f7fb</span><span class="role" style="color:#64748b;">soft bg</span></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#ffffff; border:1px solid #e2e8f0;"></div>
+        <div class="swatch-label"><strong>WHITE</strong><span>#ffffff</span><span class="role" style="color:#64748b;">light bg</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       08 — USOS INCORRECTOS
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">08</span>
+      <span class="section-title">Usos incorrectos</span>
+      <span class="section-note">Lo que rompe la identidad</span>
+    </div>
+    <div class="grid grid-3">
+      <div class="wrong-item">
+        <div class="wrong-body">
+          <svg width="54" height="54" style="transform:rotate(25deg)" viewBox="0 0 100 100"><defs><linearGradient id="bg-w1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs><rect width="100" height="100" rx="22" fill="url(#bg-w1)"/><path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/><ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/><ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/></svg>
+        </div>
+        <div class="wrong-label">No distorsionar ni rotar</div>
+      </div>
+      <div class="wrong-item">
+        <div class="wrong-body" style="background:#fbbf24;">
+          <svg width="54" height="54" viewBox="0 0 100 100"><defs><linearGradient id="bg-w2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs><rect width="100" height="100" rx="22" fill="url(#bg-w2)"/><path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/><ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/><ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/></svg>
+        </div>
+        <div class="wrong-label">No usar sobre colores chillones</div>
+      </div>
+      <div class="wrong-item">
+        <div class="wrong-body">
+          <svg width="54" height="54" style="opacity:0.25" viewBox="0 0 100 100"><defs><linearGradient id="bg-w3" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs><rect width="100" height="100" rx="22" fill="url(#bg-w3)"/><path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/><ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/><ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/></svg>
+        </div>
+        <div class="wrong-label">No bajar opacidad como decoración</div>
+      </div>
+      <div class="wrong-item">
+        <div class="wrong-body">
+          <svg width="80" height="40" viewBox="0 0 100 100" preserveAspectRatio="none"><defs><linearGradient id="bg-w4" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs><rect width="100" height="100" rx="22" fill="url(#bg-w4)"/><path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/><ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/><ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/></svg>
+        </div>
+        <div class="wrong-label">No estirar ni cambiar proporción</div>
+      </div>
+      <div class="wrong-item">
+        <div class="wrong-body" style="gap:0.5rem;flex-direction:row;">
+          <svg width="40" height="40" viewBox="0 0 100 100"><defs><linearGradient id="bg-w5" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs><rect width="100" height="100" rx="22" fill="url(#bg-w5)"/><path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/><ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/><ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/></svg>
+          <span style="font-size:1rem;font-weight:800;color:#ef4444;font-family:Georgia,serif;">TechRepair Pro</span>
+        </div>
+        <div class="wrong-label">No cambiar tipografía del wordmark</div>
+      </div>
+      <div class="wrong-item">
+        <div class="wrong-body" style="background:linear-gradient(135deg,#f43f5e,#ec4899);">
+          <svg width="54" height="54" viewBox="0 0 100 100"><defs><linearGradient id="bg-w6" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs><rect width="100" height="100" rx="22" fill="url(#bg-w6)"/><path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/><ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/><ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/></svg>
+        </div>
+        <div class="wrong-label">No usar sobre fondos saturados</div>
+      </div>
+      <!-- Extra rules for brand architecture misuse -->
+      <div class="wrong-item">
+        <div class="wrong-body" style="flex-direction:column;gap:0.25rem;">
+          <svg width="36" height="36" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+            <defs><linearGradient id="bg-w7" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#052e16"/><stop offset="55%" stop-color="#14532d"/><stop offset="100%" stop-color="#064e3b"/></linearGradient>
+            <linearGradient id="cat-w7" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#f0fdf4"/><stop offset="100%" stop-color="#dcfce7"/></linearGradient></defs>
+            <rect width="100" height="100" rx="22" fill="url(#bg-w7)"/>
+            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="url(#cat-w7)" opacity="0.95"/>
+            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#052e16" opacity="0.85"/>
+            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#052e16" opacity="0.85"/>
+          </svg>
+          <span style="font-size:0.7rem;font-weight:700;color:#1e293b;font-family:system-ui;">GESTIÓN</span>
+        </div>
+        <div class="wrong-label">No usar logo verde en el sistema de gestión</div>
+      </div>
+      <div class="wrong-item">
+        <div class="wrong-body" style="flex-direction:column;gap:0.25rem;">
+          <svg width="36" height="36" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bg-w8" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs>
+            <rect width="100" height="100" rx="22" fill="url(#bg-w8)"/>
+            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
+            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+          </svg>
+          <span style="font-size:0.7rem;font-weight:700;color:#1e293b;font-family:system-ui;">MI GUITA</span>
+        </div>
+        <div class="wrong-label">No usar logo índigo en Mi Guita</div>
+      </div>
+      <div class="wrong-item">
+        <div class="wrong-body" style="flex-direction:column;gap:0.375rem;">
+          <svg width="36" height="36" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+            <defs><linearGradient id="bg-w9" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#6366f1"/><stop offset="100%" style="stop-color:#8b5cf6"/></linearGradient></defs>
+            <rect width="100" height="100" rx="22" fill="url(#bg-w9)"/>
+            <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
+            <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+            <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.85"/>
+          </svg>
+          <span style="font-size:0.65rem;padding:0.15rem 0.4rem;border-radius:4px;background:#fef3c7;color:#92400e;font-weight:700;font-family:monospace;">LEGACY</span>
+        </div>
+        <div class="wrong-label">No llamar "legacy" al logo índigo</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Footer ── -->
+  <div class="footer">
+    <span>TechRepair Pro · Logo system v1.1 · Mayo 2026</span>
+    <span>cat-logo.svg · cat-logo-green.svg · cat-logo-monochrome.svg</span>
+  </div>
+
+</div>
+</body>
+</html>
