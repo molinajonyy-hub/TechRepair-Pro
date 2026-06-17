@@ -12,10 +12,11 @@ import type { InventoryItem as InventoryItemFull } from '../../hooks/useInventor
 import { isWholesaleCustomer, getProductPriceForCustomer } from '../../utils/pricing'
 import {
   X, Search, Plus, DollarSign, Package, Wrench, Tag,
-  AlertCircle, CheckCircle2, User, Loader2,
+  AlertCircle, AlertTriangle, CheckCircle2, User, Loader2,
   Wallet, RefreshCw, Zap, ChevronDown,
   Keyboard, Minus, Printer, MessageCircle,
-  Check,
+  Check, CreditCard, Banknote, ArrowRightLeft,
+  Volume2, VolumeX,
 } from 'lucide-react'
 import { soundSystem } from '../../lib/sounds'
 import { currencyService } from '../../services/currencyService'
@@ -73,6 +74,7 @@ const fmtARS = (n: number) => '$' + Math.round(n).toLocaleString('es-AR')
 const stockState = (qty: number) => qty <= 0 ? 'out' : qty <= 5 ? 'low' : 'ok'
 const STOCK_COLORS = { ok: '#22c55e', low: '#f59e0b', out: '#ef4444' }
 const STOCK_LABELS = { ok: '', low: 'Stock bajo', out: 'Sin stock' }
+const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
 
 // ─── Helpers POS ──────────────────────────────────────────────────────────────
 
@@ -123,6 +125,8 @@ const LineaCard = memo(function LineaCard({
   const stock = linea.inv_stock ?? -1
   const ss = stock >= 0 ? stockState(stock) : null
   const TipoIcon = linea.tipo_linea === 'repuesto' ? Wrench : linea.tipo_linea === 'servicio' ? Tag : Package
+  // Nombre accesible por fila — usa la descripción cargada o el índice como fallback.
+  const itemLabel = linea.descripcion.trim() || `Ítem ${idx + 1}`
 
   return (
     <div data-testid={`comprobante-item-row-${idx}`} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '0.625rem', overflow: 'visible', animation: 'itemSlideIn 0.12s ease', transition: 'border-color 0.12s' }}
@@ -156,14 +160,16 @@ const LineaCard = memo(function LineaCard({
               )}
               {ss === 'ok' && stock >= 0 && <span style={{ fontSize: '0.62rem', color: '#22c55e', opacity: 0.7 }}>{stock} en stock</span>}
               {linea.applied_price_type === 'mayorista' && <span style={{ fontSize: '0.62rem', color: '#818cf8', background: 'rgba(99,102,241,0.1)', padding: '0.1rem 0.35rem', borderRadius: '9999px' }}>Mayorista</span>}
-              {linea.no_mayorista_warning && <span style={{ fontSize: '0.62rem', color: '#f59e0b' }}>⚠ Sin precio may.</span>}
+              {linea.no_mayorista_warning && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.15rem', fontSize: '0.62rem', color: '#f59e0b' }}><AlertTriangle size={10} /> Sin precio may.</span>}
               {/* Currency + tipo */}
               <button onClick={() => onUpdate({ currency: linea.currency === 'ARS' ? 'USD' : 'ARS' })}
-                style={{ fontSize: '0.62rem', padding: '0.1rem 0.35rem', background: linea.currency === 'USD' ? 'rgba(34,197,94,0.1)' : 'transparent', border: `1px solid ${linea.currency === 'USD' ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.08)'}`, borderRadius: '9999px', color: linea.currency === 'USD' ? '#22c55e' : '#334155', cursor: 'pointer', fontFamily: F, fontWeight: 700 }}>
+                aria-label={`Moneda de ${itemLabel}, actual ${linea.currency}. Cambiar`}
+                style={{ fontSize: '0.62rem', padding: '0.1rem 0.35rem', background: linea.currency === 'USD' ? 'rgba(34,197,94,0.1)' : 'transparent', border: `1px solid ${linea.currency === 'USD' ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.08)'}`, borderRadius: '9999px', color: linea.currency === 'USD' ? '#22c55e' : 'var(--pos-text-muted)', cursor: 'pointer', fontFamily: F, fontWeight: 700 }}>
                 {linea.currency}
               </button>
               <select value={linea.tipo_linea} onChange={e => onUpdate({ tipo_linea: e.target.value as TipoLinea })}
-                style={{ fontSize: '0.62rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '9999px', color: '#334155', cursor: 'pointer', outline: 'none', fontFamily: F, padding: '0.1rem 0.3rem' }}>
+                aria-label={`Tipo de ${itemLabel}`}
+                style={{ fontSize: '0.62rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '9999px', color: 'var(--pos-text-muted)', cursor: 'pointer', outline: 'none', fontFamily: F, padding: '0.1rem 0.3rem' }}>
                 {(['producto','repuesto','servicio','otro'] as TipoLinea[]).map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
@@ -179,7 +185,7 @@ const LineaCard = memo(function LineaCard({
                     onMouseLeave={e => e.currentTarget.style.background = 'none'}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ color: '#f0f4ff', fontSize: '0.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inv.name}{inv.variant_name ? ` — ${inv.variant_name}` : ''}</div>
-                      <div style={{ color: '#334155', fontSize: '0.7rem' }}>{inv.stock_quantity} stock · {inv.category}</div>
+                      <div style={{ color: 'var(--pos-text-muted)', fontSize: '0.7rem' }}>{inv.stock_quantity} stock · {inv.category}</div>
                     </div>
                     <span style={{ color: '#818cf8', fontSize: '0.82rem', fontWeight: 700, flexShrink: 0 }}>{fmtARS(esClienteMayorista && inv.precio_mayorista ? inv.precio_mayorista : inv.sale_price)}</span>
                   </button>
@@ -198,22 +204,26 @@ const LineaCard = memo(function LineaCard({
           {/* Qty with +/- — compacto */}
           <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.375rem', overflow: 'hidden' }}>
             <button onClick={() => onUpdate({ cantidad: Math.max(0.01, linea.cantidad - 1) })}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.2rem 0.3rem', display: 'flex', alignItems: 'center', fontFamily: F }}>
+              aria-label={`Restar uno a ${itemLabel}`}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pos-text-muted)', padding: '0.2rem 0.3rem', display: 'flex', alignItems: 'center', fontFamily: F }}>
               <Minus size={11} />
             </button>
             <input data-testid="comprobante-item-quantity" type="number" value={linea.cantidad} min="0.01" step="1"
+              aria-label={`Cantidad de ${itemLabel}`}
               onChange={e => onUpdate({ cantidad: parseFloat(e.target.value) || 1 })}
               style={{ width: '2.25rem', textAlign: 'center', background: 'none', border: 'none', outline: 'none', color: '#f0f4ff', fontSize: '0.82rem', fontWeight: 700, fontFamily: F, padding: '0.2rem 0' }} />
             <button onClick={() => onUpdate({ cantidad: linea.cantidad + 1 })}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.2rem 0.3rem', display: 'flex', alignItems: 'center', fontFamily: F }}>
+              aria-label={`Sumar uno a ${itemLabel}`}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pos-text-muted)', padding: '0.2rem 0.3rem', display: 'flex', alignItems: 'center', fontFamily: F }}>
               <Plus size={11} />
             </button>
           </div>
 
           {/* Price — compacto */}
           <div style={{ position: 'relative' }}>
-            <span style={{ position: 'absolute', left: '0.3rem', top: '50%', transform: 'translateY(-50%)', color: '#334155', fontSize: '0.65rem', pointerEvents: 'none' }}>$</span>
+            <span style={{ position: 'absolute', left: '0.3rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--pos-text-muted)', fontSize: '0.65rem', pointerEvents: 'none' }}>$</span>
             <input data-testid="comprobante-item-price" type="number" value={linea.precio_unitario}
+              aria-label={`Precio unitario de ${itemLabel}`}
               onChange={e => onUpdate({ precio_unitario: parseFloat(e.target.value) || 0, applied_price_type: 'manual' })}
               style={{ width: '5.25rem', paddingLeft: '0.875rem', paddingRight: '0.3rem', paddingTop: '0.25rem', paddingBottom: '0.25rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.375rem', color: '#f0f4ff', fontSize: '0.78rem', fontWeight: 600, outline: 'none', textAlign: 'right', fontFamily: F }} />
           </div>
@@ -221,14 +231,15 @@ const LineaCard = memo(function LineaCard({
           {/* Discount — compacto */}
           <div style={{ position: 'relative' }}>
             <input type="number" value={linea.descuento_linea || ''} min="0" max="100" placeholder="0"
+              aria-label={`Descuento porcentual de ${itemLabel}`}
               onChange={e => onUpdate({ descuento_linea: parseFloat(e.target.value) || 0 })}
               style={{ width: '2.75rem', paddingRight: '1rem', paddingLeft: '0.25rem', paddingTop: '0.25rem', paddingBottom: '0.25rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.375rem', color: linea.descuento_linea > 0 ? '#22c55e' : '#475569', fontSize: '0.72rem', outline: 'none', textAlign: 'right', fontFamily: F }} />
-            <span style={{ position: 'absolute', right: '0.25rem', top: '50%', transform: 'translateY(-50%)', color: '#334155', fontSize: '0.6rem', pointerEvents: 'none' }}>%</span>
+            <span style={{ position: 'absolute', right: '0.25rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--pos-text-muted)', fontSize: '0.6rem', pointerEvents: 'none' }}>%</span>
           </div>
 
           {/* Subtotal — compacto */}
           <div data-testid="comprobante-item-subtotal" style={{ textAlign: 'right', minWidth: '4.25rem' }}>
-            <div style={{ color: '#f0f4ff', fontSize: '0.82rem', fontWeight: 800 }}>{fmtARS(subtotal)}</div>
+            <div style={{ color: '#f0f4ff', fontSize: '0.82rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtARS(subtotal)}</div>
             {linea.descuento_linea > 0 && <div style={{ color: '#22c55e', fontSize: '0.62rem', textDecoration: 'line-through', opacity: 0.5 }}>{fmtARS(linea.cantidad * linea.precio_unitario * (linea.currency === 'USD' ? exchangeRate : 1))}</div>}
           </div>
 
@@ -320,6 +331,10 @@ export function ComprobanteProModal({
 
   // ── Pago ─────────────────────────────────────────────────────────────────
   const [pagos, setPagos] = useState<PagoLinea[]>([])
+  // UI puramente presentacional: grupo de pago desplegado (MP/Tarjeta) y
+  // revelado manual de filas del carrito. No alteran lógica ni contratos.
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
+  const [manualRows, setManualRows] = useState(false)
 
   // ── Payment groups ────────────────────────────────────────────────────────
   const paymentGroups = useMemo(() => {
@@ -455,6 +470,7 @@ export function ComprobanteProModal({
     setPagos([]); setSpotQ(''); setSpotResults([]); setSpotKeyIdx(-1); setSpotlightMode(false)
     setActiveSearchIdx(null); setLineResults([])
     setShowCloseConfirm(false); setShowRecalcPrompt(false)
+    setExpandedGroup(null); setManualRows(false)
 
     if (initialItems && initialItems.length > 0) {
       setLineas(initialItems.map(i => ({
@@ -873,15 +889,43 @@ export function ComprobanteProModal({
 
   // ── Shared icon-button style ─────────────────────────────────────────────
   const iBtn: React.CSSProperties = {
-    background: 'rgba(255,255,255,0.04)', border: '1px solid #263750',
-    cursor: 'pointer', color: '#8494aa', padding: '0.4rem', borderRadius: '0.5rem',
+    background: 'rgba(255,255,255,0.04)', border: '1px solid var(--pos-border)',
+    cursor: 'pointer', color: 'var(--pos-text-muted)', padding: '0.4rem', borderRadius: '0.5rem',
     display: 'flex', alignItems: 'center', transition: 'all 0.15s',
   }
+
+  // ── Payment chip styling (medios primarios y grupos) ──────────────────────
+  const payChip = (active: boolean, color?: string): React.CSSProperties => ({
+    display: 'flex', alignItems: 'center', gap: '0.45rem',
+    padding: '0.55rem 0.625rem', borderRadius: '0.625rem', minHeight: 44,
+    border: `1px solid ${active ? (color || 'var(--pos-accent)') : 'var(--pos-border)'}`,
+    background: active ? `${color || '#6366f1'}1f` : 'rgba(255,255,255,0.025)',
+    color: active ? (color || 'var(--pos-accent)') : 'var(--pos-text-secondary)',
+    fontSize: '0.8rem', fontWeight: active ? 700 : 600, cursor: 'pointer',
+    transition: 'all 0.15s', textAlign: 'left', fontFamily: F,
+  })
+  const payHover = (e: React.MouseEvent<HTMLButtonElement>, active: boolean, enter: boolean) => {
+    if (active) return
+    e.currentTarget.style.background = enter ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.025)'
+    e.currentTarget.style.color = enter ? 'var(--pos-text-primary)' : 'var(--pos-text-secondary)'
+    e.currentTarget.style.borderColor = enter ? 'var(--pos-border-hover)' : 'var(--pos-border)'
+  }
+  // ── Empty-state action button style ───────────────────────────────────────
+  const emptyAction: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.45rem 0.75rem',
+    background: 'rgba(255,255,255,0.04)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem',
+    color: 'var(--pos-text-secondary)', fontSize: '0.74rem', fontWeight: 600, cursor: 'pointer', fontFamily: F,
+  }
+
+  // Carrito visualmente vacío: ninguna línea con descripción y sin filas
+  // manuales reveladas. No toca la estructura interna de `lineas`.
+  const showCartEmpty = filledLineas.length === 0 && !manualRows
 
   // ── JSX ───────────────────────────────────────────────────────────────────
   return (
     <>
     <div
+      className="cpm-root"
       onClick={e => { if (e.target === e.currentTarget) tryClose() }}
       style={{
         position: 'fixed', inset: 0, zIndex: 9999,
@@ -908,13 +952,18 @@ export function ComprobanteProModal({
         <div className="cpm-header" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0 1.25rem', height: 64, borderBottom: '1px solid #263750', flexShrink: 0, background: 'linear-gradient(180deg, #0f1f3d 0%, #07111f 100%)' }}>
 
           {/* Tipo — segmented control */}
-          <div style={{ display: 'flex', background: 'rgba(0,0,0,0.35)', borderRadius: '0.75rem', padding: '0.2rem', gap: '0.125rem' }}>
-            {(Object.entries(TIPO_CONFIG) as [TipoComprobante, typeof tc][]).map(([k, cfg]) => (
-              <button key={k} onClick={() => setTipo(k)}
-                style={{ padding: '0.35rem 0.875rem', borderRadius: '0.5rem', border: 'none', background: k === tipo ? cfg.bg : 'transparent', color: k === tipo ? cfg.color : '#8494aa', fontSize: '0.78rem', fontWeight: k === tipo ? 800 : 500, cursor: 'pointer', transition: 'all 0.15s', fontFamily: F }}>
-                {cfg.label}
-              </button>
-            ))}
+          <div role="group" aria-label="Tipo de comprobante" style={{ display: 'flex', background: 'rgba(0,0,0,0.35)', borderRadius: '0.75rem', padding: '0.2rem', gap: '0.125rem' }}>
+            {(Object.entries(TIPO_CONFIG) as [TipoComprobante, typeof tc][]).map(([k, cfg]) => {
+              const sel = k === tipo
+              return (
+                <button key={k} onClick={() => setTipo(k)} aria-pressed={sel} title={cfg.label}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.35rem 0.875rem', borderRadius: '0.5rem', border: `1px solid ${sel ? cfg.border : 'transparent'}`, background: sel ? cfg.bg : 'transparent', color: sel ? cfg.color : 'var(--pos-text-secondary)', fontSize: '0.78rem', fontWeight: sel ? 800 : 500, cursor: 'pointer', transition: 'all 0.15s', fontFamily: F }}>
+                  {/* Indicador no-cromático: check para el tipo activo */}
+                  {sel && <Check size={12} style={{ flexShrink: 0 }} />}
+                  {cfg.label}
+                </button>
+              )
+            })}
           </div>
 
           {/* Centro: PV + dólar */}
@@ -933,7 +982,7 @@ export function ComprobanteProModal({
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
             {/* Sonidos */}
             <button onClick={() => setSoundsEnabled(soundSystem.toggle())} title="Sonidos POS" aria-label={soundsEnabled ? 'Desactivar sonidos' : 'Activar sonidos'} style={iBtn}>
-              <span style={{ fontSize: '0.9rem', lineHeight: 1 }}>{soundsEnabled ? '🔊' : '🔇'}</span>
+              {soundsEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
             </button>
 
             {/* Atajos — popover */}
@@ -1002,7 +1051,7 @@ export function ComprobanteProModal({
                   {addedOverlay.name}
                 </div>
                 <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                  <span style={{ color: '#34d399', fontFamily: 'monospace', fontWeight: 800, fontSize: '0.9rem' }}>{fmtARS(addedOverlay.price)}</span>
+                  <span style={{ color: '#a5b4fc', fontFamily: 'monospace', fontWeight: 800, fontSize: '0.9rem', fontVariantNumeric: 'tabular-nums' }}>{fmtARS(addedOverlay.price)}</span>
                   <span style={{ color: '#8494aa', fontSize: '0.72rem' }}>×{addedOverlay.totalQty}</span>
                   <span style={{ color: addedOverlay.stockLeft <= 0 ? '#f87171' : addedOverlay.stockLeft <= 5 ? '#fbbf24' : '#8494aa', fontSize: '0.68rem' }}>
                     {addedOverlay.stockLeft <= 0 ? 'Sin stock' : `${addedOverlay.stockLeft} restante${addedOverlay.stockLeft !== 1 ? 's' : ''}`}
@@ -1042,7 +1091,7 @@ export function ComprobanteProModal({
               {/* Badge Consumidor Final automático — visible cuando hay items pero no hay cliente */}
               {!selectedCliente && !clienteOpen && hasContent && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.25rem 0.625rem', background: 'rgba(100,116,139,0.08)', border: '1px solid rgba(100,116,139,0.15)', borderRadius: '9999px', marginBottom: '0.375rem', width: 'fit-content' }}>
-                  <span style={{ fontSize: '0.65rem', color: '#64748b' }}>👤</span>
+                  <User size={11} color="var(--pos-text-muted)" />
                   <span style={{ fontSize: '0.67rem', color: '#b8c4d6', fontWeight: 600 }}>Consumidor Final automático</span>
                 </div>
               )}
@@ -1129,6 +1178,7 @@ export function ComprobanteProModal({
                 <Search size={15} color="#8494aa" style={{ flexShrink: 0 }} />
                 <input
                   data-testid="comprobante-product-search"
+                  className="cpm-no-focus-ring"
                   ref={spotRef}
                   value={spotQ}
                   onChange={e => handleSpotChange(e.target.value)}
@@ -1189,7 +1239,7 @@ export function ComprobanteProModal({
                           <div style={{ color: '#8494aa', fontSize: '0.68rem' }}>{r.category}{r.code && ` · ${r.code}`}</div>
                         </div>
                         <div style={{ flexShrink: 0, textAlign: 'right' as const }}>
-                          <div style={{ color: isHL ? '#a5b4fc' : '#34d399', fontSize: '0.82rem', fontWeight: 700, fontFamily: 'monospace' }}>{fmtARS(prShow)}</div>
+                          <div style={{ color: isHL ? '#a5b4fc' : '#818cf8', fontSize: '0.82rem', fontWeight: 700, fontFamily: 'monospace', fontVariantNumeric: 'tabular-nums' }}>{fmtARS(prShow)}</div>
                           <div style={{ fontSize: '0.65rem', color: STOCK_COLORS[ss3] }}>{r.stock_quantity} stock</div>
                         </div>
                         {isHL && <span style={{ fontSize: '0.63rem', color: '#8494aa', background: 'rgba(255,255,255,0.07)', padding: '0.1rem 0.4rem', borderRadius: '0.25rem', flexShrink: 0 }}>Enter</span>}
@@ -1232,14 +1282,32 @@ export function ComprobanteProModal({
                 <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#8494aa', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
                   Ítems {filledLineas.length > 0 && `(${filledLineas.length})`}
                 </span>
-                <button onClick={() => setLineas(p => [...p, emptyLinea()])}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.275rem 0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid #263750', borderRadius: '0.5rem', color: '#8494aa', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: F, transition: 'all 0.15s' }}
-                  onMouseEnter={e => { e.currentTarget.style.color = '#b8c4d6'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)' }}
-                  onMouseLeave={e => { e.currentTarget.style.color = '#8494aa'; e.currentTarget.style.borderColor = '#263750' }}>
-                  <Plus size={11} /> Agregar fila
-                </button>
+                {!showCartEmpty && (
+                  <button onClick={() => { setManualRows(true); setLineas(p => [...p, emptyLinea()]) }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.275rem 0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem', color: 'var(--pos-text-secondary)', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', fontFamily: F, transition: 'all 0.15s' }}
+                    onMouseEnter={e => { e.currentTarget.style.color = 'var(--pos-text-primary)'; e.currentTarget.style.borderColor = 'var(--pos-border-hover)' }}
+                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--pos-text-secondary)'; e.currentTarget.style.borderColor = 'var(--pos-border)' }}>
+                    <Plus size={11} /> Agregar fila
+                  </button>
+                )}
               </div>
 
+              {showCartEmpty ? (
+                <div data-testid="comprobante-cart-empty" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '0.75rem', padding: '1.75rem 1rem', border: '1px dashed var(--pos-border)', borderRadius: '0.875rem', background: 'rgba(255,255,255,0.015)' }}>
+                  <div style={{ width: 44, height: 44, borderRadius: '0.75rem', background: 'var(--pos-accent-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Package size={20} color="var(--pos-accent)" />
+                  </div>
+                  <div>
+                    <div style={{ color: 'var(--pos-text-primary)', fontSize: '0.9rem', fontWeight: 700 }}>Todavía no agregaste productos</div>
+                    <div style={{ color: 'var(--pos-text-secondary)', fontSize: '0.78rem', marginTop: '0.25rem', maxWidth: 300 }}>Buscá un producto, escaneá un código o agregá un servicio manual.</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                    <button onClick={() => refocusInput(0)} style={emptyAction}><Search size={12} /> Buscar / escanear</button>
+                    <button onClick={() => { setPfmInitialName(''); setShowPFM(true) }} style={emptyAction}><Package size={12} /> Producto manual</button>
+                    <button onClick={() => { setManualRows(true); setLineas(prev => prev.map((l, i) => i === 0 ? { ...l, tipo_linea: 'servicio' as TipoLinea } : l)) }} style={emptyAction}><Tag size={12} /> Servicio manual</button>
+                  </div>
+                </div>
+              ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {lineas.map((l, idx) => (
                   <LineaCard
@@ -1261,6 +1329,7 @@ export function ComprobanteProModal({
                   />
                 ))}
               </div>
+              )}
             </div>
 
             {/* BOTTOM: condicion + arca + observaciones */}
@@ -1279,8 +1348,9 @@ export function ComprobanteProModal({
               </div>
               {/* Aviso Factura A: requiere CUIT del receptor */}
               {tipo === 'factura_a' && emitirEnArca && condicion === 'Consumidor Final' && (
-                <div style={{ display: 'flex', gap: '0.375rem', padding: '0.375rem 0.625rem', background: 'rgba(248,113,113,0.07)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: '0.375rem', fontSize: '0.72rem', color: '#f87171', fontFamily: F }}>
-                  ⚠ Factura A requiere receptor con CUIT. Cambiá la condición a Responsable Inscripto o Monotributo.
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.375rem 0.625rem', background: 'rgba(248,113,113,0.07)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: '0.375rem', fontSize: '0.72rem', color: '#f87171', fontFamily: F }}>
+                  <AlertTriangle size={13} style={{ flexShrink: 0 }} />
+                  <span>Factura A requiere receptor con CUIT. Cambiá la condición a Responsable Inscripto o Monotributo.</span>
                 </div>
               )}
               <textarea value={observaciones} onChange={e => setObservaciones(e.target.value)}
@@ -1303,7 +1373,7 @@ export function ComprobanteProModal({
                 <h3 style={{ margin: '0 0 0.25rem', color: '#f0f4ff', fontSize: '1.25rem', fontWeight: 800, textAlign: 'center' }}>
                   {arcaWarning ? 'Cobro registrado' : 'Cobro exitoso'}
                 </h3>
-                <p style={{ margin: '0 0 1.5rem', color: '#475569', fontSize: '0.875rem', textAlign: 'center' }}>
+                <p style={{ margin: '0 0 1.5rem', color: 'var(--pos-text-secondary)', fontSize: '0.875rem', textAlign: 'center' }}>
                   {arcaWarning
                     ? 'El comprobante se guardó localmente. No se pudo emitir en ARCA.'
                     : `${tc.label} emitido correctamente`}
@@ -1311,7 +1381,7 @@ export function ComprobanteProModal({
 
                 <div style={{ width: '100%', background: 'rgba(255,255,255,0.04)', borderRadius: '0.875rem', padding: '1rem 1.25rem', marginBottom: '1.5rem', textAlign: 'center' }}>
                   <div style={{ color: '#8494aa', fontSize: '0.78rem', marginBottom: '0.25rem' }}>Total cobrado</div>
-                  <div style={{ color: '#f0f4ff', fontSize: '2rem', fontWeight: 900 }}>{fmtARS(totales.total)}</div>
+                  <div style={{ color: '#f0f4ff', fontSize: '2rem', fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>{fmtARS(totales.total)}</div>
                   {totales.vuelto > 0 && (
                     <div style={{ marginTop: '0.5rem', padding: '0.375rem 0.75rem', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '0.5rem', color: '#22c55e', fontSize: '0.875rem', fontWeight: 700, display: 'inline-block' }}>
                       Vuelto: {fmtARS(totales.vuelto)}
@@ -1325,10 +1395,10 @@ export function ComprobanteProModal({
                     <div style={{ color: '#f59e0b', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.25rem' }}>
                       Error al emitir en ARCA
                     </div>
-                    <div style={{ color: '#d97706', fontSize: '0.75rem', lineHeight: 1.4 }}>
+                    <div style={{ color: 'var(--pos-text-secondary)', fontSize: '0.75rem', lineHeight: 1.4 }}>
                       {arcaWarning}
                     </div>
-                    <div style={{ color: '#92400e', fontSize: '0.7rem', marginTop: '0.375rem' }}>
+                    <div style={{ color: 'var(--pos-text-muted)', fontSize: '0.7rem', marginTop: '0.375rem' }}>
                       El comprobante quedó como borrador. Podés reintentarlo desde la vista del comprobante.
                     </div>
                   </div>
@@ -1413,7 +1483,7 @@ export function ComprobanteProModal({
                   )}
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div data-testid="comprobante-total" style={{ color: '#f8fafc', fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1 }}>{fmtARS(totales.total)}</div>
+                  <div data-testid="comprobante-total" style={{ color: '#f8fafc', fontSize: '2.25rem', fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{fmtARS(totales.total)}</div>
                 </div>
               </div>
             </div>
@@ -1422,36 +1492,69 @@ export function ComprobanteProModal({
             <div style={{ padding: '0.875rem 1rem', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
               <span style={{ fontSize: '0.62rem', fontWeight: 700, color: '#8494aa', textTransform: 'uppercase', letterSpacing: '0.07em' }}>¿Cómo paga?</span>
 
-              {/* Grid de métodos dinámicos + CC al final */}
-              {paymentGroups.map(group => (
-                <div key={group.name}>
-                  {paymentGroups.length > 1 && <div style={{ fontSize: '0.6rem', color: '#8494aa', marginBottom: '0.25rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{group.name}</div>}
-                  <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(group.methods.length, 4)}, 1fr)`, gap: '0.3rem' }}>
+              {/* Medios primarios — chips. Efectivo/Transferencia agregan en un clic;
+                  los grupos dinámicos (MercadoPago/Tarjeta) despliegan sus opciones. */}
+              <div role="group" aria-label="Medios de pago" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.375rem' }}>
+                {paymentGroups.map(group => {
+                  const fixed = group.methods.length === 1 && (group.methods[0].id === 'efectivo' || group.methods[0].id === 'transferencia')
+                  if (fixed) {
+                    const m = group.methods[0]
+                    const active = !!pagos.find(p => p.payment_method === m.id)
+                    const Icon = m.id === 'efectivo' ? Banknote : ArrowRightLeft
+                    return (
+                      <button data-testid={`comprobante-payment-${m.id}`} key={group.name} onClick={() => toggleMetodo(m)} aria-pressed={active}
+                        style={payChip(active, m.color)} onMouseEnter={e => payHover(e, active, true)} onMouseLeave={e => payHover(e, active, false)}>
+                        <Icon size={15} style={{ flexShrink: 0 }} />
+                        <span style={{ flex: 1 }}>{m.label}</span>
+                        {active && <Check size={13} style={{ flexShrink: 0 }} />}
+                      </button>
+                    )
+                  }
+                  const groupActive = group.methods.some(m => !!pagos.find(p => p.payment_method === 'otro' && (p as any)._option_id === m.id))
+                  const expanded = expandedGroup === group.name
+                  return (
+                    <button key={group.name} onClick={() => setExpandedGroup(g => g === group.name ? null : group.name)}
+                      aria-expanded={expanded} aria-pressed={groupActive} aria-controls={`pos-pay-group-${slugify(group.name)}`}
+                      style={payChip(groupActive, group.color)} onMouseEnter={e => payHover(e, groupActive, true)} onMouseLeave={e => payHover(e, groupActive, false)}>
+                      <CreditCard size={15} style={{ flexShrink: 0 }} />
+                      <span style={{ flex: 1 }}>{group.name}</span>
+                      <ChevronDown size={13} style={{ flexShrink: 0, transition: 'transform 0.15s', transform: expanded ? 'rotate(180deg)' : 'none' }} />
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* Opciones del grupo seleccionado: variantes, cuotas y recargos (solo al desplegar) */}
+              {paymentGroups.map(group => {
+                const fixed = group.methods.length === 1 && (group.methods[0].id === 'efectivo' || group.methods[0].id === 'transferencia')
+                if (fixed || expandedGroup !== group.name) return null
+                return (
+                  <div key={`opts-${group.name}`} id={`pos-pay-group-${slugify(group.name)}`} role="group" aria-label={`Opciones de ${group.name}`}
+                    style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.3rem', padding: '0.5rem', background: 'rgba(0,0,0,0.18)', border: '1px solid var(--pos-border)', borderRadius: '0.625rem', animation: 'spotlightSlide 0.15s ease' }}>
                     {group.methods.map(m => {
-                      const optionId = m.group_id ? m.id : null
-                      const pmKey = (m.id === 'efectivo' || m.id === 'transferencia') ? m.id : 'otro'
-                      const active = !!pagos.find(p => p.payment_method === pmKey && (p as any)._option_id === optionId)
+                      const active = !!pagos.find(p => p.payment_method === 'otro' && (p as any)._option_id === m.id)
                       return (
-                        <button data-testid={`comprobante-payment-${m.id}`} key={m.id} onClick={() => toggleMetodo(m)}
-                          style={{ padding: '0.45rem 0.3rem', borderRadius: '0.5rem', border: `1px solid ${active ? (m.color || 'rgba(99,102,241,0.5)') : '#263750'}`, background: active ? `${m.color}20` : 'rgba(255,255,255,0.02)', color: active ? m.color || '#818cf8' : '#8494aa', fontSize: '0.72rem', fontWeight: active ? 700 : 500, cursor: 'pointer', transition: 'all 0.12s', textAlign: 'center', fontFamily: F, lineHeight: 1.3 }}
-                          onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#b8c4d6' } }}
-                          onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; e.currentTarget.style.color = '#8494aa' } }}>
+                        <button data-testid={`comprobante-payment-${m.id}`} key={m.id} onClick={() => toggleMetodo(m)} aria-pressed={active}
+                          style={{ padding: '0.5rem 0.4rem', borderRadius: '0.5rem', border: `1px solid ${active ? (m.color || 'var(--pos-accent)') : 'var(--pos-border)'}`, background: active ? `${m.color || '#6366f1'}22` : 'rgba(255,255,255,0.02)', color: active ? (m.color || 'var(--pos-accent)') : 'var(--pos-text-secondary)', fontSize: '0.72rem', fontWeight: active ? 700 : 600, cursor: 'pointer', transition: 'all 0.15s', textAlign: 'center', fontFamily: F, lineHeight: 1.3 }}
+                          onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'var(--pos-text-primary)' } }}
+                          onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; e.currentTarget.style.color = 'var(--pos-text-secondary)' } }}>
                           {m.short_label || m.label}
-                          {m.percentage > 0 && <div style={{ fontSize: '0.6rem', opacity: 0.7, marginTop: '0.1rem' }}>+{m.percentage}%</div>}
+                          {m.percentage > 0 && <div style={{ fontSize: '0.6rem', opacity: 0.85, marginTop: '0.1rem' }}>+{m.percentage}% recargo</div>}
                         </button>
                       )
                     })}
                   </div>
-                </div>
-              ))}
+                )
+              })}
 
-              {/* CC — mismo estilo que métodos, siempre visible en el grid */}
+              {/* CC — siempre presente. Sin cliente: explicación visible + acción para elegirlo. */}
               {(() => {
                 const ccActive = !!pagos.find(p => p.payment_method === 'cuenta_corriente')
                 const sinCliente = !clienteId
+                const ccDisabled = sinCliente || totales.total <= 0
                 return (
                   <div>
-                    <div style={{ fontSize: '0.6rem', color: '#8494aa', marginBottom: '0.25rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Cuenta corriente cliente</div>
+                    <div style={{ fontSize: '0.6rem', color: 'var(--pos-text-muted)', marginBottom: '0.25rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Cuenta corriente cliente</div>
                     <button
                       data-testid="comprobante-payment-cuenta_corriente"
                       onClick={() => {
@@ -1469,19 +1572,31 @@ export function ComprobanteProModal({
                           } as any])
                         }
                       }}
-                      disabled={sinCliente || totales.total <= 0}
-                      style={{ width: '100%', padding: '0.45rem 0.75rem', borderRadius: '0.5rem', border: `1px solid ${ccActive ? 'rgba(99,102,241,0.55)' : sinCliente ? '#263750' : 'rgba(99,102,241,0.2)'}`, background: ccActive ? 'rgba(99,102,241,0.15)' : sinCliente ? 'rgba(255,255,255,0.01)' : 'rgba(99,102,241,0.04)', color: ccActive ? '#a5b4fc' : sinCliente ? '#8494aa' : '#818cf8', fontSize: '0.75rem', fontWeight: ccActive ? 700 : 500, cursor: sinCliente || totales.total <= 0 ? 'not-allowed' : 'pointer', transition: 'all 0.12s', fontFamily: F, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}
-                      onMouseEnter={e => { if (!sinCliente && !ccActive && totales.total > 0) e.currentTarget.style.background = 'rgba(99,102,241,0.08)' }}
-                      onMouseLeave={e => { e.currentTarget.style.background = ccActive ? 'rgba(99,102,241,0.15)' : sinCliente ? 'rgba(255,255,255,0.01)' : 'rgba(99,102,241,0.04)' }}
+                      disabled={ccDisabled}
+                      aria-pressed={ccActive}
+                      style={{ ...payChip(ccActive, '#818cf8'), width: '100%', justifyContent: 'space-between', cursor: ccDisabled ? 'not-allowed' : 'pointer', opacity: ccDisabled && !ccActive ? 0.6 : 1 }}
+                      onMouseEnter={e => payHover(e, ccActive || ccDisabled, true)}
+                      onMouseLeave={e => payHover(e, ccActive || ccDisabled, false)}
                     >
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                        <Wallet size={13} />
-                        {ccActive ? 'Cuenta Corriente ✓' : sinCliente ? 'CC (requiere cliente)' : 'Cuenta Corriente'}
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <Wallet size={14} />
+                        Cuenta Corriente
+                        {ccActive && <Check size={13} />}
                       </span>
                       {!sinCliente && !ccActive && totales.saldo > 0 && (
-                        <span style={{ fontSize: '0.72rem', fontWeight: 700, opacity: 0.7 }}>{fmtARS(totales.saldo)}</span>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtARS(totales.saldo)}</span>
                       )}
                     </button>
+                    {sinCliente && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.375rem', padding: '0.5rem 0.625rem', background: 'var(--pos-accent-soft)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem' }}>
+                        <AlertCircle size={13} color="var(--pos-accent)" style={{ flexShrink: 0 }} />
+                        <span style={{ flex: 1, fontSize: '0.72rem', color: 'var(--pos-text-secondary)' }}>Seleccioná un cliente para cobrar en cuenta corriente.</span>
+                        <button onClick={() => { setClienteOpen(true); clienteInputRef.current?.focus() }}
+                          style={{ flexShrink: 0, fontSize: '0.72rem', fontWeight: 700, color: 'var(--pos-accent)', background: 'transparent', border: '1px solid var(--pos-border-hover)', borderRadius: '0.375rem', padding: '0.25rem 0.55rem', cursor: 'pointer', fontFamily: F }}>
+                          Elegir cliente
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )
               })()}
@@ -1502,8 +1617,9 @@ export function ComprobanteProModal({
                         </span>
                         <span style={{ color: '#8494aa', fontSize: '0.7rem' }}>$</span>
                         <input data-testid="comprobante-payment-amount" type="number" min="0" value={p.amount}
+                          aria-label={`Monto cobrado en ${(p as any)._option_label || p.payment_method}`}
                           onChange={e => setPagos(prev => prev.map(pp => pp._key === p._key ? { ...pp, amount: e.target.value } : pp))}
-                          style={{ width: '5.25rem', textAlign: 'right', padding: '0.175rem 0.3rem', background: `${color}08`, border: `1px solid ${color}28`, borderRadius: '0.375rem', color: isCC ? '#a5b4fc' : '#f8fafc', fontSize: '0.82rem', fontWeight: 700, outline: 'none', fontFamily: F }} />
+                          style={{ width: '5.25rem', textAlign: 'right', padding: '0.175rem 0.3rem', background: `${color}08`, border: `1px solid ${color}28`, borderRadius: '0.375rem', color: isCC ? '#a5b4fc' : '#f8fafc', fontSize: '0.82rem', fontWeight: 700, outline: 'none', fontFamily: F, fontVariantNumeric: 'tabular-nums' }} />
                         <button data-testid="comprobante-payment-remove" onClick={() => setPagos(prev => prev.filter(pp => pp._key !== p._key))}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8494aa', padding: '0.1rem', display: 'flex', alignItems: 'center', transition: 'color 0.1s' }}
                           onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
@@ -1544,7 +1660,7 @@ export function ComprobanteProModal({
                   {totales.saldo > 0 && (
                     <div data-testid="comprobante-balance" style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.2rem', borderTop: '1px solid rgba(245,158,11,0.2)' }}>
                       <span style={{ fontSize: '0.78rem', color: '#f59e0b', fontWeight: 700 }}>Saldo pendiente</span>
-                      <span style={{ fontSize: '0.85rem', color: '#f59e0b', fontWeight: 900 }}>{fmtARS(totales.saldo)}</span>
+                      <span style={{ fontSize: '0.85rem', color: '#f59e0b', fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>{fmtARS(totales.saldo)}</span>
                     </div>
                   )}
                   {totales.vuelto > 0 && (
@@ -1565,6 +1681,20 @@ export function ComprobanteProModal({
                   <span style={{ color: '#f87171', fontSize: '0.72rem', fontWeight: 600 }}>Caja cerrada — no se pueden emitir comprobantes</span>
                 </div>
               )}
+              {/* Hint proactivo: por qué todavía no se puede cobrar (sin deshabilitar el botón) */}
+              {(() => {
+                if (submitError || (!cajaIsOpen && !skipFinanceEntry)) return null
+                const hint = filledLineas.length === 0
+                  ? 'Agregá al menos un producto para cobrar.'
+                  : (pagos.length > 0 && pagos.every(p => (parseFloat(p.amount) || 0) <= 0) ? 'Ingresá el monto del cobro.' : null)
+                if (!hint) return null
+                return (
+                  <div data-testid="comprobante-cobrar-hint" style={{ display: 'flex', gap: '0.375rem', alignItems: 'center', marginBottom: '0.5rem', padding: '0.5rem 0.625rem', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem' }}>
+                    <AlertCircle size={13} color="var(--pos-text-muted)" style={{ flexShrink: 0 }} />
+                    <span style={{ color: 'var(--pos-text-secondary)', fontSize: '0.72rem' }}>{hint}</span>
+                  </div>
+                )
+              })()}
               {submitError && (
                 <div data-testid="comprobante-error-message" key={errorShakeKey} style={{ marginBottom: '0.5rem', padding: '0.5rem 0.625rem', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '0.5rem', animation: errorShakeKey > 0 ? 'shake 0.32s ease' : undefined }}>
                   <span style={{ color: '#f87171', fontSize: '0.72rem' }}>{formatDisplayMessage(submitError)}</span>
@@ -1766,12 +1896,12 @@ export function ComprobanteProModal({
               <AlertCircle size={20} color="#f59e0b" />
             </div>
             <h3 style={{ margin: '0 0 0.375rem', color: '#f1f5f9', fontSize: '1rem', fontWeight: 800 }}>Cambios sin guardar</h3>
-            <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem' }}>Hay ítems en el comprobante. ¿Qué querés hacer?</p>
+            <p style={{ margin: 0, color: '#b8c4d6', fontSize: '0.875rem' }}>Hay ítems en el comprobante. ¿Qué querés hacer?</p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.75rem 1.5rem 1.25rem' }}>
             <button onClick={() => setShowCloseConfirm(false)} style={{ width: '100%', padding: '0.625rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', border: 'none', borderRadius: '0.75rem', color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}>Seguir editando</button>
             <button onClick={saveDraftAndClose} style={{ width: '100%', padding: '0.625rem', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.75rem', color: '#818cf8', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}>Guardar borrador y cerrar</button>
-            <button onClick={discardAndClose} style={{ width: '100%', padding: '0.625rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', color: '#475569', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}>Descartar y cerrar</button>
+            <button onClick={discardAndClose} style={{ width: '100%', padding: '0.625rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', color: '#8494aa', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}>Descartar y cerrar</button>
           </div>
         </div>
       </div>
@@ -1786,7 +1916,7 @@ export function ComprobanteProModal({
               <CheckCircle2 size={20} color="#22c55e" />
             </div>
             <h3 style={{ margin: '0 0 0.375rem', color: '#f1f5f9', fontSize: '1rem', fontWeight: 800 }}>Borrador encontrado</h3>
-            <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem' }}>
+            <p style={{ margin: 0, color: '#b8c4d6', fontSize: '0.875rem' }}>
               Hay un comprobante sin finalizar
               {draftInfo.savedAt ? ` (${new Date(draftInfo.savedAt).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })})` : ''}.
             </p>
@@ -1805,7 +1935,7 @@ export function ComprobanteProModal({
               Restaurar borrador
             </button>
             <button onClick={() => { try { localStorage.removeItem(DRAFT_KEY) } catch {} setDraftInfo(null) }}
-              style={{ width: '100%', padding: '0.625rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', color: '#475569', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}>
+              style={{ width: '100%', padding: '0.625rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.75rem', color: '#8494aa', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer', fontFamily: F }}>
               Empezar de cero
             </button>
           </div>

@@ -1745,8 +1745,64 @@ tbody tr:hover td {
 .card-interactive:active { transform: translateY(0); }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   COMPROBANTEPROMODAL — Responsive
+   COMPROBANTEPROMODAL — Tokens scopeados + Responsive
+   Las variables --pos-* viven SOLO bajo .cpm-root: no afectan otras pantallas.
    ══════════════════════════════════════════════════════════════════════════ */
+
+.cpm-root {
+  --pos-bg:               #07111f;
+  --pos-surface:          #0c1829;
+  --pos-surface-elevated: #111f33;
+
+  --pos-text-primary:     #f8fafc;
+  --pos-text-secondary:   #b8c4d6;
+  --pos-text-muted:       #8494aa;
+
+  --pos-border:           #263750;
+  --pos-border-hover:     #3a4f70;
+
+  --pos-accent:           #6366f1;
+  --pos-accent-hover:     #7477ff;
+  --pos-accent-soft:      rgba(99, 102, 241, 0.14);
+
+  --pos-success:          #34d399;
+  --pos-warning:          #fbbf24;
+  --pos-danger:           #f87171;
+}
+
+/* Placeholders legibles dentro del modal (el global usa #64748b !important;
+   acá lo subimos a un gris azulado con mejor contraste, scopeado al POS). */
+.cpm-root input::placeholder,
+.cpm-root textarea::placeholder {
+  color: var(--pos-text-muted) !important;
+  -webkit-text-fill-color: var(--pos-text-muted) !important;
+  opacity: 1 !important;
+}
+
+/* Foco visible accesible (solo teclado): restaura un anillo en los controles
+   que suprimen el outline inline y no reciben indicación del contenedor.
+   El buscador principal se excluye con .cpm-no-focus-ring porque su wrapper
+   ya muestra foco. Los checkbox conservan su outline nativo. */
+.cpm-root input:not([type="checkbox"]):not([type="radio"]):focus-visible,
+.cpm-root select:focus-visible,
+.cpm-root textarea:focus-visible {
+  outline: 2px solid var(--pos-accent) !important;
+  outline-offset: 1px;
+}
+.cpm-root .cpm-no-focus-ring:focus-visible {
+  outline: none !important;
+}
+
+/* Respeta la preferencia de movimiento reducido — solo dentro del modal. */
+@media (prefers-reduced-motion: reduce) {
+  .cpm-root,
+  .cpm-root * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 /* Tablet: right panel más estrecho, ocultar atajos de teclado */
 @media (max-width: 1023px) and (min-width: 768px) {
