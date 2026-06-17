@@ -1,14 +1,12 @@
 import type { PersonalTransaction } from './personalService'
 import type { CreditCard, CardPurchase, PersonalCardPayment } from './creditCardService'
-import type { PersonalDebt } from './debtService'
-import type { RecurringExpense, RecurringExpensePayment } from './recurringExpenseService'
 import type { BudgetUsage } from './budgetService'
-import { isOverdue, getDebtPaidPercent } from './debtService'
+import { isOverdue, getDebtPaidPercent, type PersonalDebt } from './debtService'
 import {
   getNextDueDate, getAllCardsStatementTotal, getFutureInstallmentsTotal,
   getCardStatementTotal, addMonths,
 } from '../utils/creditCards'
-import { getRecurringStatusForMonth } from './recurringExpenseService'
+import { getRecurringStatusForMonth, type RecurringExpense, type RecurringExpensePayment } from './recurringExpenseService'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
