@@ -1908,6 +1908,93 @@ tbody tr:hover td {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   FILA DEL CARRITO + CONTROLES TÁCTILES (fase móvil)
+   Layout base (desktop) en clases para poder reflowar a tarjeta de dos zonas
+   en móvil/tablet vertical sin !important. Réplica exacta del inline anterior.
+   ══════════════════════════════════════════════════════════════════════════ */
+.cpm-item-row    { display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.625rem; }
+.cpm-item-fields { display: flex; align-items: center; gap: 0.3rem; flex-shrink: 0; }
+
+/* ── Reflow + área táctil: teléfono O tablet vertical ── */
+@media (max-width: 767px),
+       (min-width: 768px) and (max-width: 1023px) and (orientation: portrait) {
+
+  /* Inputs ≥16px para evitar el zoom automático de Safari iOS.
+     !important: colisiona con el font-size inline de cada control. */
+  .cpm-root .cpm-input16 { font-size: 16px !important; }
+
+  /* La fila pasa a tarjeta de dos zonas:
+       zona superior  → icono · descripción (principal) · eliminar
+       zona inferior  → cantidad · precio · descuento · subtotal */
+  .cpm-item-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "icon main delete"
+      "fields fields fields";
+    column-gap: 0.5rem;
+    row-gap: 0.5rem;
+    align-items: center;
+    padding: 0.625rem;
+  }
+  .cpm-item-icon   { grid-area: icon; align-self: start; margin-top: 0.15rem; }
+  .cpm-item-main   { grid-area: main; }
+  .cpm-item-delete { grid-area: delete; align-self: start; }
+
+  /* Zona inferior: stepper · precio · descuento en una fila; subtotal destacado debajo. */
+  .cpm-item-fields {
+    grid-area: fields;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "stepper price discount"
+      "subtotal subtotal subtotal";
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .cpm-item-stepper  { grid-area: stepper; flex-shrink: 0; }
+  .cpm-item-price    { grid-area: price; }
+  .cpm-item-discount { grid-area: discount; justify-self: end; }
+  .cpm-item-subtotal { grid-area: subtotal; justify-self: end; }
+
+  /* Precio y descuento ocupan su celda y crecen para no truncar montos. */
+  .cpm-item-price  input { width: 100% !important; min-height: 40px; }   /* colisiona width inline */
+  .cpm-item-discount input { width: 3.5rem !important; min-height: 40px; } /* colisiona width inline */
+  .cpm-item-stepper input  { width: 2.75rem !important; }                 /* colisiona width inline */
+
+  /* Subtotal con mayor jerarquía visual (no confundir con precio unitario). */
+  .cpm-item-subtotal > div:first-child { font-size: 1.05rem !important; } /* colisiona font-size inline */
+
+  /* Stepper táctil. */
+  .cpm-item-step { min-width: 44px; min-height: 44px; justify-content: center; }
+
+  /* Moneda / tipo táctiles y legibles. */
+  .cpm-item-currency { min-height: 34px; padding: 0.25rem 0.6rem !important; } /* colisiona padding inline */
+  .cpm-item-type     { min-height: 34px; padding: 0.3rem 0.45rem !important; } /* colisiona padding inline */
+
+  /* Eliminar: visible permanentemente en táctil (no depende de hover) + 44px.
+     El :not(:disabled) preserva el estado atenuado de la única línea no eliminable. */
+  .cpm-item-delete {
+    min-width: 44px; min-height: 44px;
+    justify-content: center;
+    border-radius: 0.5rem;
+  }
+  .cpm-item-delete:not(:disabled) {
+    opacity: 1 !important;          /* colisiona con opacity inline (patrón hover de desktop) */
+  }
+
+  /* Botones de icono compartidos (cerrar modal, sonido, cerrar sheet): área táctil 44px. */
+  .cpm-touch { min-width: 44px; min-height: 44px; justify-content: center; }
+
+  /* Empty state: acciones con altura táctil. */
+  .cpm-empty-action { min-height: 44px; }
+
+  /* Medios de pago: altura táctil + quitar pago accesible. */
+  .cpm-pay-chip   { min-height: 44px; }
+  .cpm-pay-remove { min-width: 38px; min-height: 38px; justify-content: center; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    LOGIN
    ══════════════════════════════════════════════════════════════════════════ */
 

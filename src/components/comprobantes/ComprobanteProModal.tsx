@@ -134,16 +134,17 @@ const LineaCard = memo(function LineaCard({
       onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.borderColor = 'rgba(255,255,255,0.06)'}
     >
       {/* Card body */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.45rem 0.625rem' }}>
+      <div className="cpm-item-row">
         {/* Product icon — compacto */}
-        <div style={{ width: 26, height: 26, borderRadius: '0.375rem', background: linea.tipo_linea === 'servicio' ? 'rgba(52,211,153,0.1)' : linea.tipo_linea === 'repuesto' ? 'rgba(245,158,11,0.1)' : 'rgba(99,102,241,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <div className="cpm-item-icon" style={{ width: 26, height: 26, borderRadius: '0.375rem', background: linea.tipo_linea === 'servicio' ? 'rgba(52,211,153,0.1)' : linea.tipo_linea === 'repuesto' ? 'rgba(245,158,11,0.1)' : 'rgba(99,102,241,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
           <TipoIcon size={13} color={linea.tipo_linea === 'servicio' ? '#34d399' : linea.tipo_linea === 'repuesto' ? '#f59e0b' : '#818cf8'} />
         </div>
 
         {/* Description + badges */}
-        <div style={{ flex: 1, minWidth: 0 }} ref={dropdownRef}>
+        <div className="cpm-item-main" style={{ flex: 1, minWidth: 0 }} ref={dropdownRef}>
           <div style={{ position: 'relative' }}>
             <input
+              className="cpm-input16"
               data-testid="comprobante-item-description"
               value={linea.descripcion}
               onChange={e => onDescChange(idx, e.target.value)}
@@ -163,11 +164,13 @@ const LineaCard = memo(function LineaCard({
               {linea.no_mayorista_warning && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.15rem', fontSize: '0.62rem', color: '#f59e0b' }}><AlertTriangle size={10} /> Sin precio may.</span>}
               {/* Currency + tipo */}
               <button onClick={() => onUpdate({ currency: linea.currency === 'ARS' ? 'USD' : 'ARS' })}
+                className="cpm-item-currency"
                 aria-label={`Moneda de ${itemLabel}, actual ${linea.currency}. Cambiar`}
                 style={{ fontSize: '0.62rem', padding: '0.1rem 0.35rem', background: linea.currency === 'USD' ? 'rgba(34,197,94,0.1)' : 'transparent', border: `1px solid ${linea.currency === 'USD' ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.08)'}`, borderRadius: '9999px', color: linea.currency === 'USD' ? '#22c55e' : 'var(--pos-text-muted)', cursor: 'pointer', fontFamily: F, fontWeight: 700 }}>
                 {linea.currency}
               </button>
               <select value={linea.tipo_linea} onChange={e => onUpdate({ tipo_linea: e.target.value as TipoLinea })}
+                className="cpm-item-type cpm-input16"
                 aria-label={`Tipo de ${itemLabel}`}
                 style={{ fontSize: '0.62rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '9999px', color: 'var(--pos-text-muted)', cursor: 'pointer', outline: 'none', fontFamily: F, padding: '0.1rem 0.3rem' }}>
                 {(['producto','repuesto','servicio','otro'] as TipoLinea[]).map(t => <option key={t} value={t}>{t}</option>)}
@@ -199,20 +202,23 @@ const LineaCard = memo(function LineaCard({
           </div>
         </div>
 
-        {/* Right side: qty + price + subtotal + delete */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0 }}>
+        {/* Fields zone: qty + price + discount + subtotal */}
+        <div className="cpm-item-fields">
           {/* Qty with +/- — compacto */}
-          <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.375rem', overflow: 'hidden' }}>
+          <div className="cpm-item-stepper" style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.375rem', overflow: 'hidden' }}>
             <button onClick={() => onUpdate({ cantidad: Math.max(0.01, linea.cantidad - 1) })}
+              className="cpm-item-step"
               aria-label={`Restar uno a ${itemLabel}`}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pos-text-muted)', padding: '0.2rem 0.3rem', display: 'flex', alignItems: 'center', fontFamily: F }}>
               <Minus size={11} />
             </button>
             <input data-testid="comprobante-item-quantity" type="number" value={linea.cantidad} min="0.01" step="1"
+              className="cpm-input16"
               aria-label={`Cantidad de ${itemLabel}`}
               onChange={e => onUpdate({ cantidad: parseFloat(e.target.value) || 1 })}
               style={{ width: '2.25rem', textAlign: 'center', background: 'none', border: 'none', outline: 'none', color: '#f0f4ff', fontSize: '0.82rem', fontWeight: 700, fontFamily: F, padding: '0.2rem 0' }} />
             <button onClick={() => onUpdate({ cantidad: linea.cantidad + 1 })}
+              className="cpm-item-step"
               aria-label={`Sumar uno a ${itemLabel}`}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--pos-text-muted)', padding: '0.2rem 0.3rem', display: 'flex', alignItems: 'center', fontFamily: F }}>
               <Plus size={11} />
@@ -220,17 +226,19 @@ const LineaCard = memo(function LineaCard({
           </div>
 
           {/* Price — compacto */}
-          <div style={{ position: 'relative' }}>
+          <div className="cpm-item-price" style={{ position: 'relative' }}>
             <span style={{ position: 'absolute', left: '0.3rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--pos-text-muted)', fontSize: '0.65rem', pointerEvents: 'none' }}>$</span>
             <input data-testid="comprobante-item-price" type="number" value={linea.precio_unitario}
+              className="cpm-input16"
               aria-label={`Precio unitario de ${itemLabel}`}
               onChange={e => onUpdate({ precio_unitario: parseFloat(e.target.value) || 0, applied_price_type: 'manual' })}
               style={{ width: '5.25rem', paddingLeft: '0.875rem', paddingRight: '0.3rem', paddingTop: '0.25rem', paddingBottom: '0.25rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.375rem', color: '#f0f4ff', fontSize: '0.78rem', fontWeight: 600, outline: 'none', textAlign: 'right', fontFamily: F }} />
           </div>
 
           {/* Discount — compacto */}
-          <div style={{ position: 'relative' }}>
+          <div className="cpm-item-discount" style={{ position: 'relative' }}>
             <input type="number" value={linea.descuento_linea || ''} min="0" max="100" placeholder="0"
+              className="cpm-input16"
               aria-label={`Descuento porcentual de ${itemLabel}`}
               onChange={e => onUpdate({ descuento_linea: parseFloat(e.target.value) || 0 })}
               style={{ width: '2.75rem', paddingRight: '1rem', paddingLeft: '0.25rem', paddingTop: '0.25rem', paddingBottom: '0.25rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.375rem', color: linea.descuento_linea > 0 ? '#22c55e' : '#475569', fontSize: '0.72rem', outline: 'none', textAlign: 'right', fontFamily: F }} />
@@ -238,19 +246,20 @@ const LineaCard = memo(function LineaCard({
           </div>
 
           {/* Subtotal — compacto */}
-          <div data-testid="comprobante-item-subtotal" style={{ textAlign: 'right', minWidth: '4.25rem' }}>
+          <div className="cpm-item-subtotal" data-testid="comprobante-item-subtotal" style={{ textAlign: 'right', minWidth: '4.25rem' }}>
             <div style={{ color: '#f0f4ff', fontSize: '0.82rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtARS(subtotal)}</div>
             {linea.descuento_linea > 0 && <div style={{ color: '#22c55e', fontSize: '0.62rem', textDecoration: 'line-through', opacity: 0.5 }}>{fmtARS(linea.cantidad * linea.precio_unitario * (linea.currency === 'USD' ? exchangeRate : 1))}</div>}
           </div>
-
-          {/* Delete */}
-          <button data-testid="comprobante-item-remove" onClick={onDelete} disabled={!canDelete}
-            style={{ background: 'none', border: 'none', cursor: canDelete ? 'pointer' : 'not-allowed', color: '#ef4444', opacity: canDelete ? 0.4 : 0.1, padding: '0.2rem', display: 'flex', alignItems: 'center', transition: 'opacity 0.1s' }}
-            onMouseEnter={e => canDelete && ((e.currentTarget as HTMLButtonElement).style.opacity = '1')}
-            onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.opacity = canDelete ? '0.4' : '0.1')}>
-            <X size={13} />
-          </button>
         </div>
+
+        {/* Delete — fuera de .cpm-item-fields para ubicarlo en la zona superior del grid móvil */}
+        <button data-testid="comprobante-item-remove" onClick={onDelete} disabled={!canDelete}
+          className="cpm-item-delete"
+          style={{ background: 'none', border: 'none', cursor: canDelete ? 'pointer' : 'not-allowed', color: '#ef4444', opacity: canDelete ? 0.4 : 0.1, padding: '0.2rem', display: 'flex', alignItems: 'center', transition: 'opacity 0.1s' }}
+          onMouseEnter={e => canDelete && ((e.currentTarget as HTMLButtonElement).style.opacity = '1')}
+          onMouseLeave={e => ((e.currentTarget as HTMLButtonElement).style.opacity = canDelete ? '0.4' : '0.1')}>
+          <X size={13} />
+        </button>
       </div>
     </div>
   )
@@ -991,7 +1000,7 @@ export function ComprobanteProModal({
           {/* Acciones */}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
             {/* Sonidos */}
-            <button onClick={() => setSoundsEnabled(soundSystem.toggle())} title="Sonidos POS" aria-label={soundsEnabled ? 'Desactivar sonidos' : 'Activar sonidos'} style={iBtn}>
+            <button onClick={() => setSoundsEnabled(soundSystem.toggle())} className="cpm-touch" title="Sonidos POS" aria-label={soundsEnabled ? 'Desactivar sonidos' : 'Activar sonidos'} style={iBtn}>
               {soundsEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
             </button>
 
@@ -1029,7 +1038,7 @@ export function ComprobanteProModal({
             </button>
 
             {/* Cerrar */}
-            <button data-testid="comprobante-cancel-button" onClick={tryClose} aria-label="Cerrar"
+            <button data-testid="comprobante-cancel-button" className="cpm-touch" onClick={tryClose} aria-label="Cerrar"
               style={iBtn}
               onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#f8fafc' }}
               onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#8494aa' }}>
@@ -1123,7 +1132,7 @@ export function ComprobanteProModal({
               ) : (
                 <div style={{ position: 'relative' }}>
                   <User size={14} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#8494aa', pointerEvents: 'none' }} />
-                  <input data-testid="comprobante-customer-search" ref={clienteInputRef} value={clienteQuery}
+                  <input data-testid="comprobante-customer-search" className="cpm-input16" ref={clienteInputRef} value={clienteQuery}
                     onChange={e => { setClienteQuery(e.target.value); setClienteOpen(true); if (!e.target.value) setClienteId('') }}
                     onFocus={() => setClienteOpen(true)}
                     placeholder="Buscar cliente por nombre... (F2)"
@@ -1188,7 +1197,7 @@ export function ComprobanteProModal({
                 <Search size={15} color="#8494aa" style={{ flexShrink: 0 }} />
                 <input
                   data-testid="comprobante-product-search"
-                  className="cpm-no-focus-ring"
+                  className="cpm-no-focus-ring cpm-input16"
                   ref={spotRef}
                   value={spotQ}
                   onChange={e => handleSpotChange(e.target.value)}
@@ -1312,9 +1321,9 @@ export function ComprobanteProModal({
                     <div style={{ color: 'var(--pos-text-secondary)', fontSize: '0.78rem', marginTop: '0.25rem', maxWidth: 300 }}>Buscá un producto, escaneá un código o agregá un servicio manual.</div>
                   </div>
                   <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-                    <button onClick={() => refocusInput(0)} style={emptyAction}><Search size={12} /> Buscar / escanear</button>
-                    <button onClick={() => { setPfmInitialName(''); setShowPFM(true) }} style={emptyAction}><Package size={12} /> Producto manual</button>
-                    <button onClick={() => { setManualRows(true); setLineas(prev => prev.map((l, i) => i === 0 ? { ...l, tipo_linea: 'servicio' as TipoLinea } : l)) }} style={emptyAction}><Tag size={12} /> Servicio manual</button>
+                    <button onClick={() => refocusInput(0)} className="cpm-empty-action" style={emptyAction}><Search size={12} /> Buscar / escanear</button>
+                    <button onClick={() => { setPfmInitialName(''); setShowPFM(true) }} className="cpm-empty-action" style={emptyAction}><Package size={12} /> Producto manual</button>
+                    <button onClick={() => { setManualRows(true); setLineas(prev => prev.map((l, i) => i === 0 ? { ...l, tipo_linea: 'servicio' as TipoLinea } : l)) }} className="cpm-empty-action" style={emptyAction}><Tag size={12} /> Servicio manual</button>
                   </div>
                 </div>
               ) : (
@@ -1346,6 +1355,7 @@ export function ComprobanteProModal({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid #263750', marginTop: 'auto' }}>
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                 <select value={condicion} onChange={e => setCondicion(e.target.value)}
+                  className="cpm-input16"
                   style={{ flex: 1, padding: '0.4rem 0.625rem', background: 'rgba(255,255,255,0.04)', border: '1px solid #263750', borderRadius: '0.5rem', color: '#b8c4d6', fontSize: '0.78rem', cursor: 'pointer', outline: 'none', fontFamily: F }}>
                   {CONDICIONES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
@@ -1364,6 +1374,7 @@ export function ComprobanteProModal({
                 </div>
               )}
               <textarea value={observaciones} onChange={e => setObservaciones(e.target.value)}
+                className="cpm-input16"
                 placeholder="Observaciones..."
                 rows={2}
                 style={{ padding: '0.5rem 0.625rem', background: 'rgba(255,255,255,0.03)', border: '1px solid #263750', borderRadius: '0.5rem', color: '#b8c4d6', fontSize: '0.78rem', outline: 'none', resize: 'none', fontFamily: F, lineHeight: 1.4 }} />
@@ -1379,7 +1390,7 @@ export function ComprobanteProModal({
                 <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#8494aa', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Cobro</div>
                 <div style={{ color: '#f8fafc', fontSize: '1.15rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{fmtARS(totales.total)}</div>
               </div>
-              <button ref={sheetCloseBtnRef} type="button" data-testid="comprobante-mobile-checkout-close" onClick={closeSheet} aria-label="Cerrar cobro" style={iBtn}>
+              <button ref={sheetCloseBtnRef} type="button" data-testid="comprobante-mobile-checkout-close" className="cpm-touch" onClick={closeSheet} aria-label="Cerrar cobro" style={iBtn}>
                 <X size={18} />
               </button>
             </div>
@@ -1461,6 +1472,7 @@ export function ComprobanteProModal({
                     const Icon = m.id === 'efectivo' ? Banknote : ArrowRightLeft
                     return (
                       <button data-testid={`comprobante-payment-${m.id}`} key={group.name} onClick={() => toggleMetodo(m)} aria-pressed={active}
+                        className="cpm-pay-chip"
                         style={payChip(active, m.color)} onMouseEnter={e => payHover(e, active, true)} onMouseLeave={e => payHover(e, active, false)}>
                         <Icon size={15} style={{ flexShrink: 0 }} />
                         <span style={{ flex: 1 }}>{m.label}</span>
@@ -1473,6 +1485,7 @@ export function ComprobanteProModal({
                   return (
                     <button key={group.name} onClick={() => setExpandedGroup(g => g === group.name ? null : group.name)}
                       aria-expanded={expanded} aria-pressed={groupActive} aria-controls={`pos-pay-group-${slugify(group.name)}`}
+                      className="cpm-pay-chip"
                       style={payChip(groupActive, group.color)} onMouseEnter={e => payHover(e, groupActive, true)} onMouseLeave={e => payHover(e, groupActive, false)}>
                       <CreditCard size={15} style={{ flexShrink: 0 }} />
                       <span style={{ flex: 1 }}>{group.name}</span>
@@ -1493,6 +1506,7 @@ export function ComprobanteProModal({
                       const active = !!pagos.find(p => p.payment_method === 'otro' && (p as any)._option_id === m.id)
                       return (
                         <button data-testid={`comprobante-payment-${m.id}`} key={m.id} onClick={() => toggleMetodo(m)} aria-pressed={active}
+                          className="cpm-pay-chip"
                           style={{ padding: '0.5rem 0.4rem', borderRadius: '0.5rem', border: `1px solid ${active ? (m.color || 'var(--pos-accent)') : 'var(--pos-border)'}`, background: active ? `${m.color || '#6366f1'}22` : 'rgba(255,255,255,0.02)', color: active ? (m.color || 'var(--pos-accent)') : 'var(--pos-text-secondary)', fontSize: '0.72rem', fontWeight: active ? 700 : 600, cursor: 'pointer', transition: 'all 0.15s', textAlign: 'center', fontFamily: F, lineHeight: 1.3 }}
                           onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'var(--pos-text-primary)' } }}
                           onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; e.currentTarget.style.color = 'var(--pos-text-secondary)' } }}>
@@ -1515,6 +1529,7 @@ export function ComprobanteProModal({
                     <div style={{ fontSize: '0.6rem', color: 'var(--pos-text-muted)', marginBottom: '0.25rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Cuenta corriente cliente</div>
                     <button
                       data-testid="comprobante-payment-cuenta_corriente"
+                      className="cpm-pay-chip"
                       onClick={() => {
                         if (sinCliente || totales.total <= 0) return
                         if (ccActive) {
@@ -1574,11 +1589,11 @@ export function ComprobanteProModal({
                           {(p as any)._option_label || p.payment_method}
                         </span>
                         <span style={{ color: '#8494aa', fontSize: '0.7rem' }}>$</span>
-                        <input data-testid="comprobante-payment-amount" type="number" min="0" value={p.amount}
+                        <input data-testid="comprobante-payment-amount" className="cpm-input16" type="number" min="0" value={p.amount}
                           aria-label={`Monto cobrado en ${(p as any)._option_label || p.payment_method}`}
                           onChange={e => setPagos(prev => prev.map(pp => pp._key === p._key ? { ...pp, amount: e.target.value } : pp))}
                           style={{ width: '5.25rem', textAlign: 'right', padding: '0.175rem 0.3rem', background: `${color}08`, border: `1px solid ${color}28`, borderRadius: '0.375rem', color: isCC ? '#a5b4fc' : '#f8fafc', fontSize: '0.82rem', fontWeight: 700, outline: 'none', fontFamily: F, fontVariantNumeric: 'tabular-nums' }} />
-                        <button data-testid="comprobante-payment-remove" onClick={() => setPagos(prev => prev.filter(pp => pp._key !== p._key))}
+                        <button data-testid="comprobante-payment-remove" className="cpm-pay-remove" onClick={() => setPagos(prev => prev.filter(pp => pp._key !== p._key))}
                           style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8494aa', padding: '0.1rem', display: 'flex', alignItems: 'center', transition: 'color 0.1s' }}
                           onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
                           onMouseLeave={e => e.currentTarget.style.color = '#8494aa'}>
