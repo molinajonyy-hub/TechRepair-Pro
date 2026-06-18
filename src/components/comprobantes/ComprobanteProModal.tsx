@@ -31,6 +31,7 @@ import {
   ComprobantePago, CrearComprobanteInput,
 } from '../../services/comprobanteService'
 import { usePaymentCommissions, type FlatPaymentMethod } from '../../hooks/usePaymentCommissions'
+import { useKeyboardAwareBottomOffset } from '../../hooks/useKeyboardAwareBottomOffset'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -389,6 +390,10 @@ export function ComprobanteProModal({
   const sheetCloseBtnRef = useRef<HTMLButtonElement>(null)
   const openSheet  = useCallback(() => { setSheetOpen(true);  setTimeout(() => sheetCloseBtnRef.current?.focus(), 60) }, [])
   const closeSheet = useCallback(() => { setSheetOpen(false); setTimeout(() => openSheetBtnRef.current?.focus(), 60) }, [])
+
+  // Offset del teclado virtual (px) — reusa el hook compartido (visualViewport).
+  // Se expone como CSS custom property en .cpm-root para que el sheet/footer lo consuman.
+  const keyboardOffset = useKeyboardAwareBottomOffset()
 
   // ── Totales ───────────────────────────────────────────────────────────────
   const totales = useMemo(() => {
@@ -953,7 +958,8 @@ export function ComprobanteProModal({
         backdropFilter: 'blur(12px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: fullCashier ? 0 : '0.5rem', fontFamily: F,
-      }}
+        '--cpm-keyboard-offset': `${keyboardOffset}px`,
+      } as React.CSSProperties}
     >
       <div className={`cpm-shell${fullCashier ? ' cpm-shell-full' : ''}`} style={{
         background: '#0a1628',

@@ -11,7 +11,7 @@ import {
 } from '../services/personalService'
 import { showToast } from './ui'
 import { logger } from '../../lib/logger'
-import { useKeyboardAwareBottomOffset } from '../hooks/useKeyboardAwareBottomOffset'
+import { useKeyboardAwareBottomOffset } from '../../hooks/useKeyboardAwareBottomOffset'
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
