@@ -1802,53 +1802,109 @@ tbody tr:hover td {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+  /* El bottom sheet y su overlay aparecen/desaparecen sin animación. */
+  .cpm-sheet-overlay { animation: none !important; }
+  .cpm-right         { transition: none !important; }
 }
 
-/* Tablet: right panel más estrecho, ocultar atajos de teclado */
-@media (max-width: 1023px) and (min-width: 768px) {
+@keyframes cpmFade { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── Viewport dinámico del shell (reemplaza el height inline 100vh/96vh) ──
+   Fallback en vh para navegadores sin dvh; dvh donde esté soportado.
+   position: relative = bloque contenedor de la barra/overlay/sheet en móvil. */
+.cpm-shell      { position: relative; height: 96vh; height: 96dvh; }
+.cpm-shell-full { height: 100vh; height: 100dvh; }
+
+/* Chrome móvil del checkout — oculto por defecto (desktop y tablet horizontal). */
+.cpm-compact-bar,
+.cpm-sheet-overlay,
+.cpm-sheet-header { display: none; }
+
+/* Tablet horizontal con ancho útil: se mantienen las dos columnas (panel más angosto). */
+@media (min-width: 768px) and (max-width: 1023px) and (orientation: landscape) {
   .cpm-right     { width: 320px !important; }
   .cpm-kbd-hints { display: none !important; }
 }
 
-/* Mobile: columnas apiladas, panel derecho como footer sticky */
-@media (max-width: 767px) {
-  .cpm-header    { flex-wrap: wrap; gap: 0.5rem; padding: 0.5rem 0.875rem !important; }
+/* ── Modo bottom sheet: teléfono O tablet vertical ──
+   El MISMO .cpm-right se reposiciona como sheet; no se duplica JSX. */
+@media (max-width: 767px),
+       (min-width: 768px) and (max-width: 1023px) and (orientation: portrait) {
+
   .cpm-kbd-hints { display: none !important; }
 
-  .cpm-body {
-    flex-direction: column !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-  }
-
+  /* El carrito ocupa todo el ancho y es el único scroll principal.
+     El padding inferior evita que el último contenido quede bajo la barra. */
   .cpm-left {
     border-right: none !important;
-    border-bottom: 1px solid rgba(255,255,255,0.06) !important;
-    flex: unset !important;
-    max-height: 52dvh;
-    overflow-y: auto !important;
-    padding: 0.75rem !important;
+    padding: 1rem 1rem 5.5rem !important;
   }
 
-  .cpm-right {
-    width: 100% !important;
-    flex-shrink: 0 !important;
-    max-height: 46dvh;
-    overflow-y: auto;
-  }
-
-  .cpm-cobrar-footer {
-    position: sticky;
-    bottom: 0;
+  /* Barra compacta inferior: Total + acción "Revisar y cobrar". */
+  .cpm-compact-bar {
+    display: flex;
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    z-index: 30;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.625rem 0.875rem;
     background: #07101f;
-    z-index: 5;
+    border-top: 1px solid #263750;
   }
 
-  .cpm-cobrar-footer button {
-    min-height: 52px !important;
-    font-size: 1.125rem !important;
-    border-radius: 0.75rem !important;
+  /* Overlay entre el carrito y el sheet (cierra el sheet, no el modal). */
+  .cpm-sheet-overlay {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    background: rgba(0, 0, 0, 0.55);
+    animation: cpmFade 0.18s ease;
   }
+
+  /* El panel de checkout (.cpm-right) reposicionado como bottom sheet.
+     visibility: hidden cuando está cerrado lo saca del orden de tabulación. */
+  .cpm-right {
+    position: absolute !important;
+    left: 0; right: 0; bottom: 0;
+    width: auto !important;
+    max-height: 90dvh;
+    flex-shrink: 0 !important;
+    z-index: 50;
+    border-top: 1px solid #263750;
+    border-radius: 1rem 1rem 0 0;
+    box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.6);
+    transform: translateY(110%);
+    visibility: hidden;
+    transition: transform 0.18s ease, visibility 0s linear 0.18s;
+  }
+  .cpm-root.cpm-sheet-open .cpm-right {
+    transform: translateY(0);
+    visibility: visible;
+    transition: transform 0.18s ease, visibility 0s;
+  }
+
+  /* Header propio del sheet (título Cobro + total + cerrar). */
+  .cpm-sheet-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-shrink: 0;
+    padding: 0.75rem 0.875rem;
+    border-bottom: 1px solid #263750;
+  }
+
+  /* Con el sheet abierto, se bloquea el scroll del carrito de fondo
+     mediante una clase en .cpm-root (sin tocar document.body globalmente). */
+  .cpm-root.cpm-sheet-open .cpm-left { overflow: hidden !important; }
+}
+
+/* Teléfono angosto: el header puede envolver. */
+@media (max-width: 767px) {
+  .cpm-header { flex-wrap: wrap; gap: 0.5rem; padding: 0.5rem 0.875rem !important; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

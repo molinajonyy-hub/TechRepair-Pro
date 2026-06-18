@@ -372,6 +372,15 @@ export function ComprobanteProModal({
   // ── Error shake key ───────────────────────────────────────────────────────
   const [errorShakeKey, setErrorShakeKey] = useState(0)
 
+  // ── Bottom sheet (checkout móvil) ─────────────────────────────────────────
+  // El panel .cpm-right es una ÚNICA instancia: en desktop es columna derecha y
+  // en teléfono/tablet vertical se reposiciona visualmente como bottom sheet vía CSS.
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const openSheetBtnRef  = useRef<HTMLButtonElement>(null)
+  const sheetCloseBtnRef = useRef<HTMLButtonElement>(null)
+  const openSheet  = useCallback(() => { setSheetOpen(true);  setTimeout(() => sheetCloseBtnRef.current?.focus(), 60) }, [])
+  const closeSheet = useCallback(() => { setSheetOpen(false); setTimeout(() => openSheetBtnRef.current?.focus(), 60) }, [])
+
   // ── Totales ───────────────────────────────────────────────────────────────
   const totales = useMemo(() => {
     let subtotal = 0, iva = 0, costo = 0, descuento = 0
@@ -602,6 +611,8 @@ export function ComprobanteProModal({
     if (!isOpen) return
     const h = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !showCloseConfirm && !draftInfo) {
+        // Prioridad: si el bottom sheet está abierto, cerrarlo primero (sin tocar el modal).
+        if (sheetOpen && !showSuccess) { e.preventDefault(); closeSheet(); return }
         if (hasContent && !showSuccess) setShowCloseConfirm(true); else if (!showSuccess) onClose(); return
       }
       if ((e.key === 'F4' || (e.shiftKey && e.key === 'Enter') || (e.ctrlKey && e.key === 'Enter')) && !showSuccess) { e.preventDefault(); void handleSubmit(); return }
@@ -630,7 +641,7 @@ export function ComprobanteProModal({
     }
     document.addEventListener('keydown', h)
     return () => document.removeEventListener('keydown', h)
-  }, [isOpen, hasContent, onClose, handleSubmit, showCloseConfirm, draftInfo, showSuccess])
+  }, [isOpen, hasContent, onClose, handleSubmit, showCloseConfirm, draftInfo, showSuccess, sheetOpen, closeSheet])
 
   // ── Search helpers ────────────────────────────────────────────────────────
 
@@ -925,7 +936,7 @@ export function ComprobanteProModal({
   return (
     <>
     <div
-      className="cpm-root"
+      className={`cpm-root${sheetOpen ? ' cpm-sheet-open' : ''}`}
       onClick={e => { if (e.target === e.currentTarget) tryClose() }}
       style={{
         position: 'fixed', inset: 0, zIndex: 9999,
@@ -935,13 +946,12 @@ export function ComprobanteProModal({
         padding: fullCashier ? 0 : '0.5rem', fontFamily: F,
       }}
     >
-      <div style={{
+      <div className={`cpm-shell${fullCashier ? ' cpm-shell-full' : ''}`} style={{
         background: '#0a1628',
         border: fullCashier ? 'none' : '1px solid rgba(255,255,255,0.08)',
         borderRadius: fullCashier ? 0 : '1.375rem',
         width: '100%',
         maxWidth: fullCashier ? '100vw' : '1340px',
-        height: fullCashier ? '100vh' : '96vh',
         display: 'flex', flexDirection: 'column',
         boxShadow: fullCashier ? 'none' : '0 40px 120px rgba(0,0,0,0.95), 0 0 0 1px rgba(255,255,255,0.04)',
         overflow: 'hidden',
@@ -1361,70 +1371,18 @@ export function ComprobanteProModal({
           </div>
 
           {/* ── RIGHT COLUMN ─────────────────────────────────────────────── */}
-          <div className="cpm-right" style={{ width: 400, display: 'flex', flexDirection: 'column', background: '#07101f', flexShrink: 0, position: 'relative' }}>
+          <div className="cpm-right" id="comprobante-mobile-checkout-sheet" data-testid="comprobante-mobile-checkout-sheet" style={{ width: 400, display: 'flex', flexDirection: 'column', background: '#07101f', flexShrink: 0, position: 'relative' }}>
 
-            {/* SUCCESS OVERLAY */}
-            {showSuccess && (
-              <div data-testid="comprobante-success-screen" style={{ position: 'absolute', inset: 0, background: '#07101f', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 10, padding: '1.5rem', animation: 'spotlightSlide 0.25s ease' }}>
-                {/* Icon and title change depending on whether ARCA succeeded */}
-                <div style={{ width: 72, height: 72, borderRadius: '50%', background: arcaWarning ? 'rgba(245,158,11,0.1)' : 'rgba(34,197,94,0.1)', border: `2px solid ${arcaWarning ? 'rgba(245,158,11,0.4)' : 'rgba(34,197,94,0.4)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.25rem', animation: 'successBounce 0.4s ease' }}>
-                  <CheckCircle2 size={36} color={arcaWarning ? '#f59e0b' : '#22c55e'} />
-                </div>
-                <h3 style={{ margin: '0 0 0.25rem', color: '#f0f4ff', fontSize: '1.25rem', fontWeight: 800, textAlign: 'center' }}>
-                  {arcaWarning ? 'Cobro registrado' : 'Cobro exitoso'}
-                </h3>
-                <p style={{ margin: '0 0 1.5rem', color: 'var(--pos-text-secondary)', fontSize: '0.875rem', textAlign: 'center' }}>
-                  {arcaWarning
-                    ? 'El comprobante se guardó localmente. No se pudo emitir en ARCA.'
-                    : `${tc.label} emitido correctamente`}
-                </p>
-
-                <div style={{ width: '100%', background: 'rgba(255,255,255,0.04)', borderRadius: '0.875rem', padding: '1rem 1.25rem', marginBottom: '1.5rem', textAlign: 'center' }}>
-                  <div style={{ color: '#8494aa', fontSize: '0.78rem', marginBottom: '0.25rem' }}>Total cobrado</div>
-                  <div style={{ color: '#f0f4ff', fontSize: '2rem', fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>{fmtARS(totales.total)}</div>
-                  {totales.vuelto > 0 && (
-                    <div style={{ marginTop: '0.5rem', padding: '0.375rem 0.75rem', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '0.5rem', color: '#22c55e', fontSize: '0.875rem', fontWeight: 700, display: 'inline-block' }}>
-                      Vuelto: {fmtARS(totales.vuelto)}
-                    </div>
-                  )}
-                </div>
-
-                {/* ARCA error — prominent block, not just a footnote */}
-                {arcaWarning && (
-                  <div style={{ width: '100%', padding: '0.75rem 0.875rem', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '0.75rem', marginBottom: '1rem' }}>
-                    <div style={{ color: '#f59e0b', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.25rem' }}>
-                      Error al emitir en ARCA
-                    </div>
-                    <div style={{ color: 'var(--pos-text-secondary)', fontSize: '0.75rem', lineHeight: 1.4 }}>
-                      {arcaWarning}
-                    </div>
-                    <div style={{ color: 'var(--pos-text-muted)', fontSize: '0.7rem', marginTop: '0.375rem' }}>
-                      El comprobante quedó como borrador. Podés reintentarlo desde la vista del comprobante.
-                    </div>
-                  </div>
-                )}
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <button style={{ flex: 1, padding: '0.625rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.625rem', color: '#64748b', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem', fontFamily: F }}>
-                      <Printer size={14} /> Imprimir
-                    </button>
-                    <button style={{ flex: 1, padding: '0.625rem', background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: '0.625rem', color: '#22c55e', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem', fontFamily: F }}>
-                      <MessageCircle size={14} /> WhatsApp
-                    </button>
-                  </div>
-                  <button data-testid="comprobante-new-after-success" onClick={() => { onCreado?.(); onClose() }}
-                    style={{ width: '100%', padding: '0.75rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', border: 'none', borderRadius: '0.75rem', color: '#fff', fontSize: '0.9rem', fontWeight: 800, cursor: 'pointer', fontFamily: F }}>
-                    <Plus size={15} style={{ verticalAlign: 'middle', marginRight: '0.375rem' }} />
-                    Nuevo comprobante
-                  </button>
-                  <button data-testid="comprobante-close-after-success" onClick={() => { onCreado?.(); onClose() }}
-                    style={{ width: '100%', padding: '0.5rem', background: 'transparent', border: 'none', color: '#8494aa', fontSize: '0.78rem', cursor: 'pointer', fontFamily: F }}>
-                    Cerrar
-                  </button>
-                </div>
+            {/* SHEET HEADER — solo visible en teléfono/tablet vertical (CSS lo oculta en desktop) */}
+            <div className="cpm-sheet-header">
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#8494aa', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Cobro</div>
+                <div style={{ color: '#f8fafc', fontSize: '1.15rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{fmtARS(totales.total)}</div>
               </div>
-            )}
+              <button ref={sheetCloseBtnRef} type="button" data-testid="comprobante-mobile-checkout-close" onClick={closeSheet} aria-label="Cerrar cobro" style={iBtn}>
+                <X size={18} />
+              </button>
+            </div>
 
             {/* ITEMS COMPACT */}
             {filledLineas.length > 0 && (
@@ -1724,6 +1682,93 @@ export function ComprobanteProModal({
             </div>
           </div>
         </div>
+
+        {/* OVERLAY del bottom sheet — solo se monta con el sheet abierto (CSS lo limita a móvil/tablet vertical) */}
+        {sheetOpen && (
+          <div className="cpm-sheet-overlay" data-testid="comprobante-mobile-checkout-overlay" onClick={closeSheet} aria-hidden="true" />
+        )}
+
+        {/* BARRA COMPACTA — solo visible en teléfono/tablet vertical (CSS la oculta en desktop) */}
+        <div className="cpm-compact-bar" data-testid="comprobante-mobile-checkout-bar">
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: '0.62rem', fontWeight: 700, color: '#8494aa', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Total</div>
+            <div style={{ color: '#f8fafc', fontSize: '1.25rem', fontWeight: 900, fontVariantNumeric: 'tabular-nums', lineHeight: 1.05 }}>{fmtARS(totales.total)}</div>
+            {totales.saldo > 0 ? (
+              <div style={{ fontSize: '0.7rem', color: '#f59e0b', fontWeight: 700 }}>Saldo pendiente {fmtARS(totales.saldo)}</div>
+            ) : pagos.length > 0 ? (
+              <div style={{ fontSize: '0.7rem', color: '#8494aa', fontWeight: 600 }}>{pagos.length} {pagos.length === 1 ? 'cobro agregado' : 'cobros agregados'}</div>
+            ) : null}
+          </div>
+          <button ref={openSheetBtnRef} type="button" data-testid="comprobante-mobile-checkout-open"
+            onClick={openSheet} aria-expanded={sheetOpen} aria-controls="comprobante-mobile-checkout-sheet"
+            style={{ flexShrink: 0, minHeight: 48, padding: '0 1.125rem', borderRadius: '0.75rem', border: 'none', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', color: '#fff', fontSize: '0.95rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem', fontFamily: F }}>
+            <Zap size={15} /> Revisar y cobrar
+          </button>
+        </div>
+
+        {/* SUCCESS OVERLAY — overlay de nivel modal (hermano de .cpm-body), independiente del
+            bottom sheet: siempre visible tras un cobro real, también con F4. Única instancia. */}
+        {showSuccess && (
+          <div data-testid="comprobante-success-screen" style={{ position: 'absolute', inset: 0, background: '#07101f', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: '1.5rem', animation: 'spotlightSlide 0.25s ease' }}>
+            {/* Icon and title change depending on whether ARCA succeeded */}
+            <div style={{ width: 72, height: 72, borderRadius: '50%', background: arcaWarning ? 'rgba(245,158,11,0.1)' : 'rgba(34,197,94,0.1)', border: `2px solid ${arcaWarning ? 'rgba(245,158,11,0.4)' : 'rgba(34,197,94,0.4)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.25rem', animation: 'successBounce 0.4s ease' }}>
+              <CheckCircle2 size={36} color={arcaWarning ? '#f59e0b' : '#22c55e'} />
+            </div>
+            <h3 style={{ margin: '0 0 0.25rem', color: '#f0f4ff', fontSize: '1.25rem', fontWeight: 800, textAlign: 'center' }}>
+              {arcaWarning ? 'Cobro registrado' : 'Cobro exitoso'}
+            </h3>
+            <p style={{ margin: '0 0 1.5rem', color: 'var(--pos-text-secondary)', fontSize: '0.875rem', textAlign: 'center' }}>
+              {arcaWarning
+                ? 'El comprobante se guardó localmente. No se pudo emitir en ARCA.'
+                : `${tc.label} emitido correctamente`}
+            </p>
+
+            <div style={{ width: '100%', background: 'rgba(255,255,255,0.04)', borderRadius: '0.875rem', padding: '1rem 1.25rem', marginBottom: '1.5rem', textAlign: 'center' }}>
+              <div style={{ color: '#8494aa', fontSize: '0.78rem', marginBottom: '0.25rem' }}>Total cobrado</div>
+              <div style={{ color: '#f0f4ff', fontSize: '2rem', fontWeight: 900, fontVariantNumeric: 'tabular-nums' }}>{fmtARS(totales.total)}</div>
+              {totales.vuelto > 0 && (
+                <div style={{ marginTop: '0.5rem', padding: '0.375rem 0.75rem', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.25)', borderRadius: '0.5rem', color: '#22c55e', fontSize: '0.875rem', fontWeight: 700, display: 'inline-block' }}>
+                  Vuelto: {fmtARS(totales.vuelto)}
+                </div>
+              )}
+            </div>
+
+            {/* ARCA error — prominent block, not just a footnote */}
+            {arcaWarning && (
+              <div style={{ width: '100%', padding: '0.75rem 0.875rem', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '0.75rem', marginBottom: '1rem' }}>
+                <div style={{ color: '#f59e0b', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.25rem' }}>
+                  Error al emitir en ARCA
+                </div>
+                <div style={{ color: 'var(--pos-text-secondary)', fontSize: '0.75rem', lineHeight: 1.4 }}>
+                  {arcaWarning}
+                </div>
+                <div style={{ color: 'var(--pos-text-muted)', fontSize: '0.7rem', marginTop: '0.375rem' }}>
+                  El comprobante quedó como borrador. Podés reintentarlo desde la vista del comprobante.
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', width: '100%' }}>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button style={{ flex: 1, padding: '0.625rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.625rem', color: '#64748b', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem', fontFamily: F }}>
+                  <Printer size={14} /> Imprimir
+                </button>
+                <button style={{ flex: 1, padding: '0.625rem', background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: '0.625rem', color: '#22c55e', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem', fontFamily: F }}>
+                  <MessageCircle size={14} /> WhatsApp
+                </button>
+              </div>
+              <button data-testid="comprobante-new-after-success" onClick={() => { onCreado?.(); onClose() }}
+                style={{ width: '100%', padding: '0.75rem', background: 'linear-gradient(135deg,#6366f1,#4f46e5)', border: 'none', borderRadius: '0.75rem', color: '#fff', fontSize: '0.9rem', fontWeight: 800, cursor: 'pointer', fontFamily: F }}>
+                <Plus size={15} style={{ verticalAlign: 'middle', marginRight: '0.375rem' }} />
+                Nuevo comprobante
+              </button>
+              <button data-testid="comprobante-close-after-success" onClick={() => { onCreado?.(); onClose() }}
+                style={{ width: '100%', padding: '0.5rem', background: 'transparent', border: 'none', color: '#8494aa', fontSize: '0.78rem', cursor: 'pointer', fontFamily: F }}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
 
