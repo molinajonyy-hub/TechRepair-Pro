@@ -16,8 +16,12 @@
  *    1) Nuestros objetos `{ event: '...' }`  → CONTRATO INTERNO (lo leen los tests).
  *       gtag.js (GA4 directo) los IGNORA: no son comandos suyos.
  *    2) Los `arguments` que empuja la función `gtag(...)` → COMANDOS de Google.
+ *  ⚠️ El stub DEBE usar la semántica oficial `function(){ dataLayer.push(arguments) }`.
+ *     gtag.js sólo procesa entries `[object Arguments]`; si se empuja un array (p. ej.
+ *     `(...args) => dataLayer.push(args)`) los comandos se ignoran y NO hay /collect.
  *  ⚠️ NO conectar Google Tag Manager para reenviar los objetos `{ event }` a GA4:
  *     duplicaría cada evento (ya los mandamos con `gtag('event', ...)`).
+ *  Cada evento externo lleva `send_to: <measurementId>` para hacer explícito el destino.
  *
  * ── Privacidad ────────────────────────────────────────────────────────────────
  *  A GA4/Clarity sólo viajan claves de una allowlist (`GA_ALLOWED_KEYS`). Nunca se
@@ -115,6 +119,8 @@ const SAFE_QUERY_KEYS = new Set<string>([
 let initialized = false
 let context: AttributionContext = {}
 let lastPageViewKey: string | null = null
+/** Measurement ID validado una vez que GA4 quedó configurado; se adjunta como `send_to`. */
+let gaMeasurementId: string | null = null
 
 // ─── Helpers de entorno (con `?.` por si import.meta.env no existe fuera de Vite) ─
 
@@ -212,12 +218,21 @@ export function installGA4(h: AnalyticsHost, measurementId: string | undefined |
   if (!isValidGaId(measurementId)) return false
   if (h.document.getElementById(GA_SCRIPT_ID)) return false // ya instalado
 
+  // Semántica EXACTA del snippet oficial. La cola de gtag DEBE recibir el objeto
+  // `arguments` (NO un array de rest params): gtag.js sólo procesa como comandos
+  // los entries `[object Arguments]`; con un array no dispara la request /collect.
+  // Se opera SIEMPRE sobre la MISMA referencia `h.dataLayer` (en el browser
+  // h === window, por lo que es window.dataLayer real; nunca se copia el array).
   h.dataLayer = h.dataLayer || []
-  const dl = h.dataLayer
-  const gtag = h.gtag || function (...args: unknown[]) { dl.push(args) }
-  h.gtag = gtag
-  gtag('js', new Date())
-  gtag('config', measurementId, { send_page_view: false })
+  if (typeof h.gtag !== 'function') {
+    h.gtag = function gtag() {
+      // eslint-disable-next-line prefer-rest-params -- gtag.js requiere `arguments`, no un array
+      (h.dataLayer as unknown[]).push(arguments)
+    }
+  }
+  h.gtag('js', new Date())
+  h.gtag('config', measurementId, { send_page_view: false })
+  gaMeasurementId = measurementId
 
   const script = h.document.createElement('script')
   script.id = GA_SCRIPT_ID
@@ -261,11 +276,20 @@ export function recordEvent(
   event: string,
   internalPayload: Record<string, unknown>,
   externalParams: Record<string, string | number | boolean>,
-  opts: { clarity?: boolean } = {},
+  opts: { clarity?: boolean; debug?: boolean } = {},
 ): void {
+  // Contrato interno: objeto `{ event }` (sin send_to/debug_mode).
   h.dataLayer = h.dataLayer || []
   h.dataLayer.push({ event, ...internalPayload })
-  if (typeof h.gtag === 'function') h.gtag('event', event, externalParams)
+
+  // Comando GA4: `send_to` explícito (destino) + `debug_mode` sólo en pruebas.
+  if (typeof h.gtag === 'function') {
+    const gaParams: Record<string, string | number | boolean> = { ...externalParams }
+    if (gaMeasurementId) gaParams.send_to = gaMeasurementId
+    if (opts.debug) gaParams.debug_mode = true
+    h.gtag('event', event, gaParams)
+  }
+
   if (opts.clarity !== false && typeof h.clarity === 'function') h.clarity('event', event)
 }
 
@@ -280,22 +304,46 @@ export function initLandingAnalytics(): void {
   context = readAttribution(h)
   installClarity(h, envClarity())
   installGA4(h, envGA())
+  attachDiagnostics(h)
 }
 
 /** Registra un evento de conversión: objeto interno + `gtag('event')` sanitizado. */
-export function track(event: LandingEvent, props: AnalyticsProps = {}): void {
+export function track(event: LandingEvent, props: AnalyticsProps = {}, opts: { debug?: boolean } = {}): void {
   if (!initialized) initLandingAnalytics()
   const h = host()
   if (h) {
     try {
       const internal = { ...context, ...props }
       const external = sanitizeForExternal({ ...externalContext(), ...props })
-      recordEvent(h, event, internal, external)
+      recordEvent(h, event, internal, external, { debug: opts.debug })
     } catch (err) {
       logger.warn('UI', `analytics track "${event}" falló`, err)
     }
   }
   logger.info('UI', `analytics: ${event}`, props)
+}
+
+/**
+ * Diagnóstico GA4 (dev o llamada explícita). Pide el client_id a gtag.js:
+ *  - si el callback nunca corre → `config` no se procesó (revisar el stub/cola);
+ *  - si devuelve un id → la config corrió y hay que mirar el transporte.
+ * No imprime ni persiste el client_id, ni lo envía a ningún servicio propio.
+ */
+export function getGaClientId(callback: (clientId: string) => void): void {
+  const h = host()
+  if (!h || !gaMeasurementId || typeof h.gtag !== 'function') return
+  h.gtag('get', gaMeasurementId, 'client_id', callback)
+}
+
+/** Expone una superficie mínima de diagnóstico para validar el transporte en prod. */
+function attachDiagnostics(h: AnalyticsHost): void {
+  const target = h as unknown as { __trpAnalytics?: unknown }
+  target.__trpAnalytics = {
+    clientId: getGaClientId,
+    // Dispara un evento puntual con debug_mode:true (visible en GA DebugView) sin
+    // dejar toda la producción en modo debug.
+    debugEvent: (name: string, params: AnalyticsProps = {}) => track(name as LandingEvent, params, { debug: true }),
+  }
 }
 
 /**
@@ -327,4 +375,5 @@ export function resetAnalyticsForTest(): void {
   initialized = false
   context = {}
   lastPageViewKey = null
+  gaMeasurementId = null
 }

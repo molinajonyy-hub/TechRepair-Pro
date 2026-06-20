@@ -35,16 +35,19 @@ function makeHost(over: Partial<AnalyticsHost> = {}): AnalyticsHost & { __script
   } as unknown as AnalyticsHost & { __scripts: any[] }
 }
 
+// gtag.js procesa SÓLO entries `[object Arguments]`; un array (rest params) se ignora.
+const isArgs = (e: unknown) => Object.prototype.toString.call(e) === '[object Arguments]'
+const gtagCommands = (h: AnalyticsHost): any[] => (h.dataLayer || []).filter(isArgs) as any[]
 const gtagEvents = (h: AnalyticsHost, name: string) =>
-  (h.dataLayer || []).filter(e => Array.isArray(e) && e[0] === 'event' && e[1] === name)
+  gtagCommands(h).filter(a => a[0] === 'event' && a[1] === name)
 const gtagConfig = (h: AnalyticsHost) =>
-  (h.dataLayer || []).find(e => Array.isArray(e) && e[0] === 'config') as unknown[] | undefined
+  gtagCommands(h).find(a => a[0] === 'config')
 const internalObjects = (h: AnalyticsHost, event: string) =>
-  (h.dataLayer || []).filter(e => !Array.isArray(e) && (e as { event?: string }).event === event)
+  (h.dataLayer || []).filter(e => !isArgs(e) && !Array.isArray(e) && (e as { event?: string }).event === event)
 
 // ─── Validación de ID ──────────────────────────────────────────────────────────
 test('isValidGaId acepta sólo el formato GA4', () => {
-  assert.ok(isValidGaId('G-92J0WYZQRK'))
+  assert.ok(isValidGaId('G-ABCDE12345'))
   assert.ok(isValidGaId(GA))
   assert.ok(!isValidGaId(''))
   assert.ok(!isValidGaId(undefined))
@@ -85,7 +88,56 @@ test('GA4: inicialización repetida no duplica script ni config', () => {
   assert.equal(installGA4(h, GA), true)
   assert.equal(installGA4(h, GA), false) // segunda vez: no-op
   assert.equal(h.__scripts.length, 1)
-  assert.equal((h.dataLayer || []).filter(e => Array.isArray(e) && e[0] === 'config').length, 1)
+  assert.equal(gtagCommands(h).filter(a => a[0] === 'config').length, 1)
+})
+
+// ─── Semántica canónica de la cola (arguments, no array) ────────────────────────
+test('gtag empuja un objeto arguments, NO un array de rest params (regresión /collect)', () => {
+  resetAnalyticsForTest()
+  const h = makeHost()
+  installGA4(h, GA)
+  recordEvent(h, 'plan_selected', { plan: 'pro' }, sanitizeForExternal({ plan: 'pro' }))
+
+  const evt = (h.dataLayer || []).find(e => isArgs(e) && (e as any)[1] === 'plan_selected')
+  assert.ok(evt, 'debe existir el comando event en la cola')
+  assert.equal(Object.prototype.toString.call(evt), '[object Arguments]')
+  assert.ok(!Array.isArray(evt), 'NO debe ser un array (la implementación con rest params fallaría acá)')
+  // Estructura tipo arguments: length + índices numéricos
+  assert.equal((evt as any).length, 3)
+  assert.equal((evt as any)[0], 'event')
+})
+
+test('eventos externos incluyen send_to con el measurement id validado', () => {
+  resetAnalyticsForTest()
+  const h = makeHost()
+  installGA4(h, GA)
+  recordEvent(h, 'signup_completed', { plan: 'pro', business_id: 'biz' }, sanitizeForExternal({ plan: 'pro', business_id: 'biz' }))
+  const evt = gtagEvents(h, 'signup_completed')[0]
+  assert.ok(evt, 'debe existir el comando event')
+  const params = evt[2] as Record<string, unknown>
+  assert.equal(params.send_to, GA)
+  assert.equal(params.plan, 'pro')
+  assert.equal(params.business_id, undefined, 'business_id NO debe llegar a GA4')
+})
+
+test('gtag y el loader comparten la MISMA referencia de dataLayer (sin copia desacoplada)', () => {
+  resetAnalyticsForTest()
+  const h = makeHost()
+  installGA4(h, GA)
+  // Reemplazar la referencia: el stub correcto debe escribir en la referencia viva.
+  const fresh: unknown[] = []
+  h.dataLayer = fresh
+  ;(h.gtag as (...a: unknown[]) => void)('event', 'ping')
+  assert.ok(fresh.some(isArgs), 'el stub debe empujar a la referencia actual de h.dataLayer')
+})
+
+test('init repetida no reemplaza el stub por otro desacoplado', () => {
+  resetAnalyticsForTest()
+  const h = makeHost()
+  installGA4(h, GA)
+  const firstStub = h.gtag
+  installGA4(h, GA) // no-op por guard de script id
+  assert.equal(h.gtag, firstStub, 'el stub no debe ser reemplazado')
 })
 
 // ─── Evento personalizado: objeto interno + un solo gtag('event') ───────────────
