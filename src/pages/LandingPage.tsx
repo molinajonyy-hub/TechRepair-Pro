@@ -727,7 +727,8 @@ function FAQSection() {
   const toggle = (i: number) => {
     const next = open === i ? null : i
     setOpen(next)
-    if (next === i) track('faq_opened', { question: faqs[i].q })
+    // faq_id viaja a GA4 (allowlist); `question` queda sólo en el contrato interno.
+    if (next === i) track('faq_opened', { faq_id: i, question: faqs[i].q })
   }
   return (
     <section id="faq" className="lp-section">

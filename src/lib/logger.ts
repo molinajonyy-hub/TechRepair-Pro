@@ -13,7 +13,8 @@
  *   stop()  // imprime "[PERF][POS] scan-to-add 12ms"
  */
 
-const isDev = import.meta.env.DEV
+// `?.` por si import.meta.env no existe fuera de Vite (p. ej. runner de tests Node)
+const isDev = import.meta.env?.DEV ?? false
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 

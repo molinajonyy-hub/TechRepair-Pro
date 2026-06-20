@@ -252,3 +252,36 @@ test.describe('@landing Analytics', () => {
     expect(events).toContain('signup_started')
   })
 })
+
+// ─── Resiliencia: GA/GTM/Clarity bloqueados por red (ad blocker) ───────────────
+test.describe('@landing Analytics resiliente', () => {
+  const EXTERNAL_ANALYTICS = /googletagmanager\.com|google-analytics\.com|clarity\.ms/
+
+  test('la landing funciona con la analítica externa bloqueada y conserva el contrato interno', async ({ page }) => {
+    const consoleErrors: string[] = []
+    page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()) })
+    // No hacer solicitudes reales a Google/Clarity durante el test.
+    await page.route(EXTERNAL_ANALYTICS, route => route.abort())
+
+    await page.goto('/landing')
+    await expect(page.locator('h1')).toBeVisible()
+    await expect.poll(() => dataLayerEvents(page)).toContain('landing_view')
+
+    // Eventos clave siguen registrándose en el dataLayer interno.
+    await page.getByRole('tab', { name: /se trabaja/i }).click()
+    await page.getByRole('button', { name: /necesito instalar algo/i }).click()
+    await expect.poll(() => dataLayerEvents(page)).toEqual(
+      expect.arrayContaining(['landing_view', 'journey_step_interaction', 'faq_opened']),
+    )
+
+    // El CTA sigue navegando al embudo de alta (onboarding, o /login si no hay sesión).
+    await page.locator('#top').getByRole('button', { name: /probar gratis 14 días/i }).click()
+    await expect(page).toHaveURL(/\/(onboarding|login)/)
+    expect(await dataLayerEvents(page)).toContain('hero_trial_click')
+
+    // Sin errores de consola propios (se ignora el ruido de red abortada).
+    const appErrors = consoleErrors.filter(e =>
+      !/Failed to load resource|ERR_FAILED|ERR_BLOCKED|net::|googletagmanager|google-analytics|clarity/i.test(e))
+    expect(appErrors, appErrors.join('\n')).toEqual([])
+  })
+})

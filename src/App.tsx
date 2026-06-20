@@ -10,6 +10,7 @@ import { PortalRouter, PORTAL_DOMAINS } from './portal/PortalRouter'
 import { ProtectedRouteByFeature } from './components/auth/ProtectedRouteByFeature'
 import { ProtectedRouteBySystemOwner } from './components/auth/ProtectedRouteBySystemOwner'
 import { UpdateBanner } from './components/UpdateBanner'
+import { AnalyticsRouteTracker } from './components/AnalyticsRouteTracker'
 
 // ── Personal Finance (Mi Guita) ──────────────────────────────────
 const PersonalLayout      = lazy(() => import('./personal/layouts/PersonalLayout').then(m => ({ default: m.PersonalLayout })))
@@ -132,6 +133,7 @@ function AppContent() {
   return (
     <>
       {loadingNode}
+      <AnalyticsRouteTracker />
       <UpdateBanner />
       <Suspense fallback={<PageFallback />}>
         <Routes>

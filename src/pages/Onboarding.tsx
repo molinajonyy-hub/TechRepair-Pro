@@ -259,8 +259,10 @@ export function Onboarding() {
 
       // El backend confirmó la finalización del onboarding: recién acá es una
       // conversión real. Guard idempotente para evitar duplicados por reintentos.
+      // `business_id` queda sólo en el contrato interno (dataLayer); el sanitizador
+      // de analytics lo excluye de GA4/Clarity. A externo sólo van plan/source.
       signupCompletedRef.current = true
-      track('signup_completed', { business_id: businessId, plan: originPlan ?? null })
+      track('signup_completed', { business_id: businessId, plan: originPlan ?? null, source: 'onboarding' })
       try { sessionStorage.removeItem(ORIGIN_PLAN_KEY) } catch { /* no-op */ }
 
       navigate('/dashboard', { replace: true })
