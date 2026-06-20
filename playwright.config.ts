@@ -34,16 +34,17 @@ export default defineConfig({
   workers: 1,
   timeout: 30_000,
 
-  // In CI: auto-start the dev server. Locally: reuse if already running.
+  // Arranque determinista: build + preview sirve el bundle de producción, sin la
+  // optimización de dependencias en caliente del dev server (que puede servir la
+  // SPA en blanco en el primer hit). `url` espera una respuesta HTTP real (no sólo
+  // el puerto abierto). En desarrollo, si ya hay un server en :5173 (p. ej.
+  // `npm run dev`), se reutiliza y no se reconstruye. El build toma sus variables
+  // de los archivos .env del repo.
   webServer: {
-    command: 'npx vite --port 5173',
-    port: 5173,
+    command: 'npx vite build && npx vite preview --port 5173 --strictPort',
+    url: 'http://localhost:5173/landing',
     reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
-    env: {
-      VITE_SUPABASE_URL:      process.env.VITE_SUPABASE_URL      ?? '',
-      VITE_SUPABASE_ANON_KEY: process.env.VITE_SUPABASE_ANON_KEY ?? '',
-    },
+    timeout: 180_000,
   },
 
   reporter: [

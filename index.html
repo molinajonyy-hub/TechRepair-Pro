@@ -5,6 +5,10 @@
     <link rel="icon" type="image/svg+xml" href="/cat-logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
 
+    <!-- Performance hints (Inter se carga desde la landing) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
     <!-- Primary Meta -->
     <title>TechRepair Pro — Sistema de gestión para talleres y locales de celulares</title>
     <meta name="description" content="Software para servicio técnico y reparación de celulares. Gestioná órdenes, inventario, caja, facturación ARCA y clientes desde cualquier dispositivo. Probalo gratis 14 días." />
@@ -31,7 +35,10 @@
     <meta name="twitter:description" content="Gestioná órdenes, inventario, facturación ARCA y caja desde cualquier dispositivo. 14 días gratis, sin tarjeta." />
     <meta name="twitter:image"       content="https://techrepairpro.app/og-image.png" />
 
-    <!-- Structured Data (JSON-LD) -->
+    <!-- Structured Data (JSON-LD) — SoftwareApplication + planes reales.
+         IMPORTANTE: lowPrice/highPrice/offerCount derivan de PLANS (src/types/subscription.ts).
+         Si cambian los precios, actualizar acá. El test tests/unit/landing-structured-data.test.ts
+         falla si este bloque se desincroniza de PLANS o si reaparece un aggregateRating. -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -39,22 +46,55 @@
       "name": "TechRepair Pro",
       "applicationCategory": "BusinessApplication",
       "operatingSystem": "Web",
-      "description": "Sistema de gestión para talleres y locales de reparación de celulares. Órdenes de servicio, inventario, facturación ARCA, caja y más.",
+      "description": "Sistema de gestión para talleres y locales de reparación de celulares. Órdenes de servicio, inventario, facturación ARCA, caja, clientes y finanzas conectadas.",
       "url": "https://techrepairpro.app",
       "offers": {
-        "@type": "Offer",
-        "price": "15000",
+        "@type": "AggregateOffer",
         "priceCurrency": "ARS",
+        "lowPrice": "15000",
+        "highPrice": "45000",
+        "offerCount": "3",
         "priceSpecification": {
           "@type": "UnitPriceSpecification",
+          "priceCurrency": "ARS",
           "billingDuration": "P1M"
         }
-      },
-      "aggregateRating": {
-        "@type": "AggregateRating",
-        "ratingValue": "4.9",
-        "reviewCount": "1"
       }
+    }
+    </script>
+
+    <!-- Structured Data (JSON-LD) — Preguntas frecuentes -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "¿Puedo probar TechRepair Pro gratis?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Sí. Tenés 14 días de prueba con las funciones del plan Pro, sin tarjeta de crédito." }
+        },
+        {
+          "@type": "Question",
+          "name": "¿Necesito instalar algo?",
+          "acceptedAnswer": { "@type": "Answer", "text": "No. Funciona en el navegador desde computadora, tablet y celular. No instalás programas ni servidores." }
+        },
+        {
+          "@type": "Question",
+          "name": "¿Cuánto cuesta empezar?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Empezás con 14 días gratis. Después, los planes arrancan en $15.000 por mes (Básico), con opción mensual o anual con descuento." }
+        },
+        {
+          "@type": "Question",
+          "name": "¿Cómo funciona la facturación ARCA?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Desde el plan Pro podés emitir facturas y notas de crédito con CAE. Requiere configurar los certificados fiscales del negocio." }
+        },
+        {
+          "@type": "Question",
+          "name": "¿Sirve para varias sucursales?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Sí. El plan Full incluye multisucursal con stock, caja y métricas por local, y permisos por usuario." }
+        }
+      ]
     }
     </script>
 

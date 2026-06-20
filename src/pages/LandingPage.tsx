@@ -1,248 +1,206 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import {
+  Menu, X, ArrowRight, Check, ChevronDown, HelpCircle,
+  ClipboardList, Search, Wrench, MessageCircle, CreditCard, BarChart3,
+  Receipt, Package, Users, User, Wallet, Building2,
+  DollarSign, FileText, ShieldCheck, Smartphone, Zap,
+} from 'lucide-react'
+import { PLANS, type SubscriptionPlan } from '../types/subscription'
+import { initLandingAnalytics, track } from '../lib/analytics'
 import '../css/landing.css'
 
-// ─── Contacto — actualizar antes del lanzamiento ──────────────────────────────
+// ─── Contacto ─────────────────────────────────────────────────────────────────
+// Se leen de variables de entorno (ver .env.example). NO hay valores por defecto:
+// si una variable no está configurada, el enlace simplemente no se renderiza, para
+// no mostrar contactos ficticios o rotos en producción.
 const CONTACT = {
-  whatsapp:    '5491112345678',
-  email:       'hola@techrepairpro.app',
-  instagram:   'techrepairpro',
-  whatsappMsg: 'Hola!%20Quiero%20m%C3%A1s%20info%20sobre%20TechRepair%20Pro',
+  whatsapp:  (import.meta.env.VITE_CONTACT_WHATSAPP  as string | undefined)?.trim() || '',
+  email:     (import.meta.env.VITE_CONTACT_EMAIL     as string | undefined)?.trim() || '',
+  instagram: (import.meta.env.VITE_CONTACT_INSTAGRAM as string | undefined)?.trim() || '',
 }
+const HAS_SOCIAL = !!(CONTACT.whatsapp || CONTACT.instagram)
 
+// Duración real de la prueba (verificada en Onboarding.tsx: trial Pro, 14 días, sin tarjeta)
+const TRIAL_DAYS = 14
 
-// ─── Icons (inline SVG) ───────────────────────────────────────────────────────
-const IC = {
-  Menu:         () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>,
-  X:            () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
-  Check:        () => <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>,
-  ArrowRight:   () => <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>,
-  ChevronDown:  () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="6 9 12 15 18 9"/></svg>,
-  Zap:          () => <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
-  Wrench:       () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>,
-  Package:      () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>,
-  Receipt:      () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>,
-  Users:        () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
-  TrendUp:      () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>,
-  Shield:       () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>,
-  Smartphone:   () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>,
-  DollarSign:   () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
-  Wallet:       () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg>,
-  MessageCircle:() => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
-  Star:         () => <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
-  Instagram:    () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>,
-}
-
-const WhatsAppSVG = ({ size = 22 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="#25d366">
-    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+// ─── Marca ────────────────────────────────────────────────────────────────────
+const BrandLogo = ({ size = 22 }: { size?: number }) => (
+  <svg viewBox="0 0 100 100" width={size} height={size} fill="none" aria-hidden="true">
+    <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="#fff" opacity="0.95" />
+    <ellipse cx="37" cy="58" rx="5.2" ry="4.8" fill="#4f46e5" />
+    <ellipse cx="63" cy="58" rx="5.2" ry="4.8" fill="#4f46e5" />
   </svg>
 )
 
-const CatLogoSVG = ({ size = 24 }: { size?: number }) => (
-  <svg viewBox="0 0 100 100" width={size} height={size} fill="none">
-    <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.93"/>
-    <path d="M26 18 L20 43 L37 36 Z" fill="#6366f1" opacity="0.45"/>
-    <path d="M74 18 L80 43 L63 36 Z" fill="#6366f1" opacity="0.45"/>
-    <ellipse cx="37" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.8"/>
-    <ellipse cx="63" cy="58" rx="5.5" ry="5" fill="#6366f1" opacity="0.8"/>
+const WhatsAppGlyph = ({ size = 18 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
   </svg>
 )
 
-// ─── Mock Dashboard Visual ────────────────────────────────────────────────────
-function MockDashboard() {
-  return (
-    <div className="lp-mock-wrap" aria-hidden="true">
-      <div className="lp-mock-glow" />
-      <div className="lp-mock-screen">
-        {/* Top bar — imita el header del sistema real */}
-        <div className="lp-mock-topbar">
-          <div className="lp-mock-dots"><span/><span/><span/></div>
-          <div className="lp-mock-topbar-logo">
-            <svg viewBox="0 0 100 100" width="14" height="14" fill="none">
-              <path d="M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z" fill="white" opacity="0.9"/>
-              <ellipse cx="37" cy="58" rx="5" ry="4.5" fill="#818cf8"/>
-              <ellipse cx="63" cy="58" rx="5" ry="4.5" fill="#818cf8"/>
-            </svg>
-            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#94a3b8' }}>TechRepair Pro</span>
-          </div>
-          <div className="lp-mock-badge lp-badge-green" style={{ fontSize: '0.62rem' }}>● Activo</div>
-        </div>
+// ─── Recorrido del producto (sección central) ─────────────────────────────────
+type RailKey = 'orden' | 'inventario' | 'cliente' | 'caja'
 
-        {/* KPI row — datos reales del sistema */}
-        <div className="lp-mock-stats">
-          {[
-            { label: 'Órdenes activas', value: '24', color: '#818cf8', icon: '🔧' },
-            { label: 'Caja del día', value: '$142.5k', color: '#34d399', icon: '💰' },
-            { label: 'Stock bajo', value: '3 items', color: '#fbbf24', icon: '⚠' },
-          ].map(s => (
-            <div key={s.label} className="lp-mock-stat">
-              <div style={{ fontSize: '0.8rem', marginBottom: '0.2rem' }}>{s.icon}</div>
-              <div className="lp-mock-stat-val" style={{ color: s.color }}>{s.value}</div>
-              <div className="lp-mock-stat-lbl">{s.label}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Tabs — como en el sistema real */}
-        <div className="lp-mock-tabs">
-          {['Órdenes', 'Comprobantes', 'Inventario', 'Caja'].map((t, i) => (
-            <div key={t} className={`lp-mock-tab ${i === 0 ? 'lp-mock-tab-active' : ''}`}>{t}</div>
-          ))}
-        </div>
-
-        {/* Order list — imitando orden de trabajo real */}
-        <div className="lp-mock-orders">
-          {[
-            { device: 'iPhone 14 Pro', brand: 'Apple · Pantalla rota', status: 'En reparación', color: '#818cf8' },
-            { device: 'Galaxy S23', brand: 'Samsung · Batería', status: 'Listo ✓', color: '#34d399' },
-            { device: 'Redmi Note 12', brand: 'Xiaomi · No enciende', status: 'Diagnóstico', color: '#fbbf24' },
-            { device: 'Moto G84', brand: 'Motorola · Carga rota', status: 'Recibido', color: '#60a5fa' },
-          ].map((o, i) => (
-            <div key={i} className="lp-mock-order">
-              <div className="lp-mock-order-icon">📱</div>
-              <div className="lp-mock-order-info">
-                <div className="lp-mock-order-device">{o.device}</div>
-                <div className="lp-mock-order-brand">{o.brand}</div>
-              </div>
-              <div className="lp-mock-badge" style={{ color: o.color, background: o.color + '15', borderColor: o.color + '30', fontSize: '0.62rem' }}>
-                {o.status}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Finance bar — como en finanzas del sistema */}
-        <div className="lp-mock-finance">
-          <div className="lp-mock-finance-row">
-            <span>Ingresos del mes</span>
-            <span style={{ color: '#34d399', fontWeight: 700 }}>$1.840.000</span>
-          </div>
-          <div className="lp-mock-bar-track">
-            <div className="lp-mock-bar-fill" style={{ width: '72%', background: 'linear-gradient(90deg, #6366f1, #34d399)' }}/>
-          </div>
-          <div className="lp-mock-finance-row" style={{ marginTop: '0.375rem' }}>
-            <span style={{ color: '#334155', fontSize: '0.62rem' }}>Facturación ARCA: 8 comp.</span>
-            <span style={{ color: '#334155', fontSize: '0.62rem' }}>WhatsApp: 12 enviados</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Tarjeta flotante — simula notificación/comprobante real */}
-      <div className="lp-mock-mobile">
-        <div className="lp-mock-mobile-top">
-          <div className="lp-mock-mobile-icon">🧾</div>
-          <div>
-            <div className="lp-mock-mobile-title">Comp. N° 00000042</div>
-            <div className="lp-mock-mobile-sub">$38.500 · efectivo</div>
-          </div>
-        </div>
-        <div className="lp-mock-badge lp-badge-green" style={{ fontSize: '0.62rem' }}>Emitido ✓</div>
-      </div>
-    </div>
-  )
+interface Stage {
+  id: string
+  tab: string
+  Icon: typeof Wrench
+  title: string
+  body: string
+  status: string
+  accent: string
+  rail: RailKey[]
+  detail: { label: string; value: string }[]
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function scrollTo(id: string) {
-  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+const STAGES: Stage[] = [
+  {
+    id: 'ingresa', tab: 'Ingresa', Icon: ClipboardList, accent: '#818cf8',
+    title: 'Entra un equipo y queda registrado',
+    body: 'Cargás marca, modelo y falla en segundos. El cliente y todo su historial quedan vinculados a la orden desde el primer momento.',
+    status: 'Recibido', rail: ['orden', 'cliente'],
+    detail: [
+      { label: 'Cliente', value: 'M. López' },
+      { label: 'Falla', value: 'Pantalla rota' },
+    ],
+  },
+  {
+    id: 'diagnostica', tab: 'Se diagnostica', Icon: Search, accent: '#60a5fa',
+    title: 'Diagnóstico y presupuesto, claros',
+    body: 'Asignás técnico, anotás el diagnóstico y definís el presupuesto. El cliente sabe qué se va a hacer y cuánto cuesta antes de empezar.',
+    status: 'Diagnóstico', rail: ['orden'],
+    detail: [
+      { label: 'Técnico', value: 'J. Pérez' },
+      { label: 'Presupuesto', value: '$60.900' },
+    ],
+  },
+  {
+    id: 'trabaja', tab: 'Se trabaja', Icon: Wrench, accent: '#a78bfa',
+    title: 'Usás repuestos sin perder el control del stock',
+    body: 'No solo descontás un repuesto: sabés en qué reparación se usó, cuánto costó y cuánto margen dejó el trabajo.',
+    status: 'En reparación', rail: ['orden', 'inventario'],
+    detail: [
+      { label: 'Repuesto', value: 'Pantalla iPhone 14 Pro' },
+      { label: 'Stock', value: '−1 · Margen 38%' },
+    ],
+  },
+  {
+    id: 'informa', tab: 'Se informa', Icon: MessageCircle, accent: '#34d399',
+    title: 'El cliente se entera sin que lo persigas',
+    body: 'Mensajes de WhatsApp listos para cada estado: recibido, en reparación, listo para retirar. Menos llamados y menos idas y vueltas.',
+    status: 'Avisado', rail: ['cliente'],
+    detail: [
+      { label: 'WhatsApp', value: '“Tu equipo está listo”' },
+      { label: 'Estado', value: 'Enviado' },
+    ],
+  },
+  {
+    id: 'cobra', tab: 'Se cobra', Icon: CreditCard, accent: '#fbbf24',
+    title: 'Cobrás y emitís el comprobante en el acto',
+    body: 'Venta rápida con varios métodos de pago. Si corresponde, factura ARCA con CAE sin salir del sistema.',
+    status: 'Cobrado', rail: ['orden', 'caja'],
+    detail: [
+      { label: 'Cobro', value: '$60.900 · efectivo' },
+      { label: 'Comprobante', value: 'N° 00000042' },
+    ],
+  },
+  {
+    id: 'registra', tab: 'Se registra', Icon: BarChart3, accent: '#22d3ee',
+    title: 'Todo impacta solo en caja y finanzas',
+    body: 'Cada cobro actualiza la caja, las finanzas, el stock y la cuenta corriente del cliente. Los números quedan cuadrados sin planillas.',
+    status: 'Cerrada', rail: ['caja', 'inventario', 'cliente'],
+    detail: [
+      { label: 'Caja del día', value: '+$60.900' },
+      { label: 'Resultado', value: 'Actualizado' },
+    ],
+  },
+]
+
+const RAIL_META: Record<RailKey, { label: string; Icon: typeof Wrench }> = {
+  orden:      { label: 'Orden',      Icon: Receipt },
+  inventario: { label: 'Inventario', Icon: Package },
+  cliente:    { label: 'Cliente',    Icon: Users },
+  caja:       { label: 'Caja',       Icon: Wallet },
 }
 
-function Badge({ children, color = 'indigo' }: { children: React.ReactNode; color?: 'indigo' | 'green' | 'cyan' | 'amber' }) {
-  const map = { indigo: '#818cf8', green: '#34d399', cyan: '#22d3ee', amber: '#fbbf24' }
-  const c = map[color]
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', fontWeight: 700, padding: '0.3rem 0.75rem', borderRadius: '999px', background: c + '15', border: `1px solid ${c}30`, color: c, letterSpacing: '0.03em' }}>
-      {children}
-    </span>
-  )
+// ─── UI helpers ───────────────────────────────────────────────────────────────
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return <span className="lp-eyebrow">{children}</span>
 }
 
-function SectionLabel({ children, color = 'indigo' }: { children: React.ReactNode; color?: 'indigo' | 'green' | 'cyan' }) {
-  const map: Record<string, [string, string, string]> = {
-    indigo: ['#818cf8', 'rgba(99,102,241,0.1)', 'rgba(99,102,241,0.2)'],
-    green:  ['#34d399', 'rgba(52,211,153,0.08)', 'rgba(52,211,153,0.2)'],
-    cyan:   ['#22d3ee', 'rgba(6,182,212,0.08)', 'rgba(6,182,212,0.2)'],
-  }
-  const [c, bg, br] = map[color]
-  return (
-    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.72rem', fontWeight: 700, color: c, textTransform: 'uppercase', letterSpacing: '0.12em', padding: '0.35rem 1rem', borderRadius: '999px', background: bg, border: `1px solid ${br}`, marginBottom: '1.25rem' }}>
-      {children}
-    </div>
-  )
-}
-
-function CheckItem({ children }: { children: React.ReactNode }) {
-  return (
-    <li style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', fontSize: '0.9rem', color: '#94a3b8' }}>
-      <span style={{ color: '#34d399', flexShrink: 0 }}><IC.Check /></span>
-      {children}
-    </li>
-  )
+function smoothScroll(id: string) {
+  const el = document.getElementById(id)
+  if (!el) return
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
 }
 
 // ─── HEADER ───────────────────────────────────────────────────────────────────
-function Header({ onNav }: { onNav: (id: string) => void }) {
+function Header({ onTrial }: { onTrial: (source: string) => void }) {
   const navigate = useNavigate()
   const [scrolled, setScrolled] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [open, setOpen] = useState(false)
 
   useEffect(() => {
-    const fn = () => setScrolled(window.scrollY > 20)
+    const fn = () => setScrolled(window.scrollY > 16)
+    fn()
     window.addEventListener('scroll', fn, { passive: true })
     return () => window.removeEventListener('scroll', fn)
   }, [])
 
   const links = [
-    { label: 'Funciones', id: 'features' },
-    { label: 'Planes', id: 'pricing' },
-    { label: 'FAQ', id: 'faq' },
+    { label: 'Cómo funciona', id: 'recorrido' },
+    { label: 'Soluciones', id: 'crecimiento' },
+    { label: 'Planes', id: 'planes' },
+    { label: 'Preguntas', id: 'faq' },
   ]
 
+  const go = (id: string) => { smoothScroll(id); setOpen(false) }
+
   return (
-    <header className={`lp-header${scrolled ? ' scrolled' : ''}`} style={{ position: 'sticky', top: 0, zIndex: 1000 }}>
+    <header className={`lp-header${scrolled ? ' is-scrolled' : ''}`}>
       <div className="lp-header-inner">
-        <a href="#hero" className="lp-logo" onClick={e => { e.preventDefault(); onNav('hero') }}>
-          <div className="lp-logo-icon"><CatLogoSVG size={22} /></div>
+        <a href="#top" className="lp-logo" onClick={e => { e.preventDefault(); smoothScroll('top') }}>
+          <span className="lp-logo-mark"><BrandLogo size={20} /></span>
           <span className="lp-logo-text">TechRepair<span>Pro</span></span>
         </a>
 
-        <nav className="lp-nav">
+        <nav className="lp-nav" aria-label="Secciones">
           {links.map(l => (
-            <a key={l.id} className="lp-nav-link" href={`#${l.id}`} onClick={e => { e.preventDefault(); onNav(l.id) }}>
-              {l.label}
-            </a>
+            <button key={l.id} className="lp-nav-link" onClick={() => go(l.id)}>{l.label}</button>
           ))}
-          <a href={`https://wa.me/${CONTACT.whatsapp}?text=${CONTACT.whatsappMsg}`} className="lp-nav-link" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <WhatsAppSVG size={16} /> Demo
-          </a>
         </nav>
 
-        <div className="lp-header-cta">
-          <button className="lp-btn-outline lp-btn-sm" onClick={() => navigate('/login')} aria-label="Iniciar sesión">
+        <div className="lp-header-actions">
+          <button className="lp-btn lp-btn-ghost lp-btn-sm lp-hide-mobile" onClick={() => navigate('/login')}>
             Ingresar
           </button>
-          <button className="lp-btn-primary lp-btn-sm" onClick={() => navigate('/onboarding')} aria-label="Probar gratis 14 días">
+          <button className="lp-btn lp-btn-primary lp-btn-sm" onClick={() => onTrial('header')}>
             Probar gratis
           </button>
-          <button className="lp-mobile-menu-btn" onClick={() => setMenuOpen(v => !v)} aria-label={menuOpen ? 'Cerrar menú' : 'Abrir menú'}>
-            {menuOpen ? <IC.X /> : <IC.Menu />}
+          <button
+            className="lp-burger"
+            onClick={() => setOpen(v => !v)}
+            aria-label={open ? 'Cerrar menú' : 'Abrir menú'}
+            aria-expanded={open}
+            aria-controls="lp-mobile-menu"
+          >
+            {open ? <X size={20} /> : <Menu size={20} />}
           </button>
         </div>
       </div>
 
-      {menuOpen && (
-        <div className="lp-mobile-menu">
+      {open && (
+        <div className="lp-mobile-menu" id="lp-mobile-menu">
           {links.map(l => (
-            <a key={l.id} className="lp-mobile-menu-link" href={`#${l.id}`} onClick={e => { e.preventDefault(); onNav(l.id); setMenuOpen(false) }}>
-              {l.label}
-            </a>
+            <button key={l.id} className="lp-mobile-link" onClick={() => go(l.id)}>{l.label}</button>
           ))}
-          <div className="lp-mobile-menu-sep" />
-          <button className="lp-btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => navigate('/onboarding')}>
-            Probar gratis — 14 días sin tarjeta
+          <div className="lp-mobile-sep" />
+          <button className="lp-btn lp-btn-primary lp-btn-block" onClick={() => onTrial('mobile_menu')}>
+            Probar gratis {TRIAL_DAYS} días
           </button>
-          <button className="lp-btn-outline" style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem' }} onClick={() => navigate('/login')}>
+          <button className="lp-btn lp-btn-ghost lp-btn-block" onClick={() => navigate('/login')}>
             Ingresar
           </button>
         </div>
@@ -252,127 +210,285 @@ function Header({ onNav }: { onNav: (id: string) => void }) {
 }
 
 // ─── HERO ─────────────────────────────────────────────────────────────────────
-function Hero({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
+function Hero({ onTrial, onDemo }: { onTrial: (s: string) => void; onDemo: () => void }) {
+  const trust = [
+    `${TRIAL_DAYS} días gratis`,
+    'Sin tarjeta',
+    'Facturación ARCA',
+    'Hecho en Argentina',
+  ]
   return (
-    <section id="hero" className="lp-hero">
-      {/* Background orbs */}
-      <div className="lp-orb lp-orb-1" />
-      <div className="lp-orb lp-orb-2" />
-      <div className="lp-orb lp-orb-3" />
+    <section id="top" className="lp-hero">
+      <div className="lp-hero-bg" aria-hidden="true">
+        <span className="lp-hero-glow lp-hero-glow-1" />
+        <span className="lp-hero-glow lp-hero-glow-2" />
+        <span className="lp-hero-grid" />
+      </div>
 
-      <div className="lp-hero-inner">
-        <div className="lp-hero-content">
-          <div className="lp-fade-up" style={{ animationDelay: '0ms' }}>
-            <Badge color="indigo">⚡ Para servicios técnicos y locales de celulares</Badge>
-          </div>
-
-          <h1 className="lp-hero-title lp-fade-up" style={{ animationDelay: '80ms' }}>
-            Gestioná tu servicio técnico<br />
-            o local de celulares{' '}
-            <span className="lp-gradient-text">como una empresa pro</span>
+      <div className="lp-container lp-hero-inner">
+        <div className="lp-hero-copy">
+          <div className="lp-reveal"><Eyebrow>Para servicios técnicos y locales de celulares</Eyebrow></div>
+          <h1 className="lp-hero-title lp-reveal">
+            Tu taller, bajo control.
+            <span className="lp-accent"> Del ingreso del equipo hasta que cobrás.</span>
           </h1>
-
-          <p className="lp-hero-subtitle lp-fade-up" style={{ animationDelay: '160ms' }}>
-            Órdenes de reparación, ventas, clientes, inventario, caja, proveedores, facturación ARCA,
-            garantías, WhatsApp y finanzas en un solo sistema.
+          <p className="lp-hero-sub lp-reveal">
+            TechRepair Pro conecta reparaciones, clientes, repuestos, ventas y finanzas
+            para que trabajes sin perseguir información.
           </p>
 
-          <div className="lp-hero-ctas lp-fade-up" style={{ animationDelay: '240ms' }}>
-            <button className="lp-btn-primary lp-btn-lg" onClick={() => navigate('/onboarding')} aria-label="Probar gratis 14 días">
-              Probar gratis 14 días <IC.ArrowRight />
+          <div className="lp-hero-ctas lp-reveal">
+            <button className="lp-btn lp-btn-primary lp-btn-lg" onClick={() => onTrial('hero')}>
+              Probar gratis {TRIAL_DAYS} días <ArrowRight size={18} />
             </button>
-            <a href={`https://wa.me/${CONTACT.whatsapp}?text=${CONTACT.whatsappMsg}`} className="lp-btn-outline lp-btn-lg" target="_blank" rel="noopener noreferrer" aria-label="Ver demo en WhatsApp">
-              <WhatsAppSVG size={18} /> Ver demo
-            </a>
+            <button className="lp-btn lp-btn-ghost lp-btn-lg" onClick={onDemo}>
+              Ver cómo funciona
+            </button>
           </div>
 
-          <div className="lp-hero-badges lp-fade-up" style={{ animationDelay: '320ms' }}>
-            <Badge color="green">✓ Sin tarjeta para probar</Badge>
-            <Badge color="indigo">✓ Facturación ARCA</Badge>
-            <Badge color="cyan">✓ Inventario + caja</Badge>
-          </div>
+          <ul className="lp-hero-trust lp-reveal" aria-label="Lo que incluye">
+            {trust.map(t => (
+              <li key={t}><Check size={15} aria-hidden="true" /> {t}</li>
+            ))}
+          </ul>
         </div>
 
-        <div className="lp-hero-visual lp-fade-up" style={{ animationDelay: '200ms' }}>
-          <MockDashboard />
+        <div className="lp-hero-visual lp-reveal" aria-hidden="true">
+          <SystemWindow stage={STAGES[4]} floating />
         </div>
       </div>
     </section>
   )
 }
 
-// ─── PROBLEM ──────────────────────────────────────────────────────────────────
-function ProblemSection() {
-  const problems = [
-    '📋 Órdenes anotadas en papel o perdidas',
-    '📦 Stock desordenado sin saber qué entra y sale',
-    '💸 Caja que no cierra ni cuadra',
-    '👤 Clientes sin historial de lo que trajeron',
-    '🔩 Repuestos que no se descuentan del inventario',
-    '🏭 Proveedores sin control de deuda ni pagos',
-    '🧾 Facturas y notas de crédito difíciles de seguir',
-    '📱 WhatsApps mezclados sin registro',
-  ]
+// ─── Ventana del sistema (visual reutilizable del recorrido) ──────────────────
+function SystemWindow({ stage, floating = false }: { stage: Stage; floating?: boolean }) {
   return (
-    <section id="problem" className="lp-section lp-section-alt">
-      <div className="lp-container">
-        <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-          <SectionLabel>El problema real</SectionLabel>
-          <h2 className="lp-section-title">
-            Cuando el taller crece,<br />
-            <span className="lp-gradient-text">la planilla queda chica</span>
-          </h2>
-        </div>
+    <div className={`lp-window${floating ? ' is-floating' : ''}`}>
+      <div className="lp-window-bar">
+        <span className="lp-window-dots"><i /><i /><i /></span>
+        <span className="lp-window-title">Orden #00042 · iPhone 14 Pro</span>
+        <span className="lp-window-status" style={{ color: stage.accent, borderColor: `${stage.accent}55`, background: `${stage.accent}1a` }}>
+          {stage.status}
+        </span>
+      </div>
 
-        <div className="lp-problem-grid">
-          {problems.map((p, i) => (
-            <div key={i} className="lp-problem-item lp-fade-up" style={{ animationDelay: `${i * 60}ms` }}>
-              <span>{p}</span>
+      <div className="lp-window-rail">
+        {(Object.keys(RAIL_META) as RailKey[]).map(key => {
+          const active = stage.rail.includes(key)
+          const { label, Icon } = RAIL_META[key]
+          return (
+            <span key={key} className={`lp-rail-chip${active ? ' is-active' : ''}`} style={active ? { color: stage.accent, borderColor: `${stage.accent}55`, background: `${stage.accent}14` } : undefined}>
+              <Icon size={14} aria-hidden="true" /> {label}
+            </span>
+          )
+        })}
+      </div>
+
+      <div className="lp-window-body" key={stage.id}>
+        <div className="lp-window-headline">
+          <span className="lp-window-step-icon" style={{ color: stage.accent, background: `${stage.accent}18` }}>
+            <stage.Icon size={18} aria-hidden="true" />
+          </span>
+          <span>{stage.title}</span>
+        </div>
+        <div className="lp-window-rows">
+          {stage.detail.map(d => (
+            <div className="lp-window-row" key={d.label}>
+              <span className="lp-window-row-label">{d.label}</span>
+              <span className="lp-window-row-value">{d.value}</span>
             </div>
           ))}
+          <div className="lp-window-progress">
+            <span className="lp-window-progress-fill" style={{ width: `${((STAGES.indexOf(stage) + 1) / STAGES.length) * 100}%`, background: stage.accent }} />
+          </div>
         </div>
+      </div>
+    </div>
+  )
+}
 
-        <div className="lp-problem-cta">
-          <p className="lp-problem-close">
-            TechRepair Pro centraliza todo para que cada reparación, venta y movimiento quede registrado y visible desde cualquier dispositivo.
+// ─── PROBLEMA ─────────────────────────────────────────────────────────────────
+function ProblemSection() {
+  const questions = [
+    '¿En qué estado está ese equipo?',
+    '¿Quién habló con el cliente?',
+    '¿Llegó el repuesto?',
+    '¿Ya se cobró?',
+    '¿Qué quedó en cuenta corriente?',
+    '¿Cuánto ganó realmente el negocio?',
+  ]
+  return (
+    <section className="lp-section lp-section-tint">
+      <div className="lp-container">
+        <div className="lp-section-head lp-reveal">
+          <Eyebrow>El día a día real</Eyebrow>
+          <h2 className="lp-section-title">Tu taller creció. La forma de organizarlo, no tanto.</h2>
+          <p className="lp-section-sub">
+            Entre WhatsApp, papeles, la memoria y tres planillas distintas, todos los días
+            aparecen las mismas preguntas sin respuesta rápida:
           </p>
         </div>
+
+        <div className="lp-questions">
+          {questions.map((q, i) => (
+            <div key={q} className="lp-question lp-reveal" style={{ transitionDelay: `${i * 50}ms` }}>
+              <HelpCircle size={18} aria-hidden="true" />
+              <span>{q}</span>
+            </div>
+          ))}
+        </div>
+
+        <p className="lp-problem-bridge lp-reveal">
+          TechRepair Pro reúne cada respuesta en un solo lugar.
+        </p>
       </div>
     </section>
   )
 }
 
-// ─── FLOW ─────────────────────────────────────────────────────────────────────
-function FlowSection() {
-  const steps = [
-    { n: '01', icon: '📥', title: 'Recibís el equipo', desc: 'Seleccionás marca y modelo. Si no existen, los creás y quedan guardados para siempre.' },
-    { n: '02', icon: '👤', title: 'Registrás el cliente', desc: 'Con historial completo: órdenes anteriores, compras y cuenta corriente.' },
-    { n: '03', icon: '🔍', title: 'Diagnóstico y presupuesto', desc: 'Cargás el problema, asignás técnico y establecés un presupuesto estimado.' },
-    { n: '04', icon: '🔩', title: 'Repuestos y servicios', desc: 'Agregás los repuestos del inventario. El stock se descuenta automáticamente.' },
-    { n: '05', icon: '📱', title: 'Avisás por WhatsApp', desc: 'Mensajes pre-armados para cada estado: recibido, listo, en espera, entregado.' },
-    { n: '06', icon: '💰', title: 'Cobrás y emitís comprobante', desc: 'Venta rápida con múltiples métodos de pago. Factura ARCA si corresponde.' },
-    { n: '07', icon: '📊', title: 'Impacta en caja y finanzas', desc: 'Cada cobro actualiza caja, finanzas, stock y cuenta corriente del cliente.' },
-  ]
+// ─── RECORRIDO (interactivo) ──────────────────────────────────────────────────
+function JourneySection() {
+  const [active, setActive] = useState(0)
+  const [autoplay, setAutoplay] = useState(true)
+  const [visible, setVisible] = useState(false)
+  const tablistRef = useRef<HTMLDivElement | null>(null)
+  const sectionRef = useRef<HTMLElement | null>(null)
+  const reduce = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  // Visibilidad de la sección (sólo autoavanza en pantalla)
+  useEffect(() => {
+    const node = sectionRef.current
+    if (!node) return
+    const obs = new IntersectionObserver(
+      ([entry]) => setVisible(entry.isIntersecting),
+      { threshold: 0.35 },
+    )
+    obs.observe(node)
+    return () => obs.disconnect()
+  }, [])
+
+  // Autoavance suave, se detiene al interactuar y respeta reduced-motion
+  useEffect(() => {
+    if (reduce || !autoplay || !visible) return
+    const t = window.setInterval(() => setActive(s => (s + 1) % STAGES.length), 4200)
+    return () => window.clearInterval(t)
+  }, [reduce, autoplay, visible])
+
+  const selectStage = useCallback((i: number, userInitiated = true) => {
+    setActive(i)
+    if (userInitiated) {
+      setAutoplay(false)
+      track('journey_step_interaction', { stage: STAGES[i].id, index: i })
+    }
+  }, [])
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+      e.preventDefault(); selectStage((active + 1) % STAGES.length)
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+      e.preventDefault(); selectStage((active - 1 + STAGES.length) % STAGES.length)
+    }
+  }
+
+  const stage = STAGES[active]
+
   return (
-    <section id="flow" className="lp-section">
+    <section id="recorrido" ref={sectionRef} data-track="journey" className="lp-section">
       <div className="lp-container">
-        <div style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
-          <SectionLabel>El flujo completo</SectionLabel>
-          <h2 className="lp-section-title">
-            Del ingreso del equipo<br />
-            <span className="lp-gradient-text">al cobro final</span>
-          </h2>
-          <p className="lp-section-subtitle">Todo conectado, sin pasos en el aire.</p>
+        <div className="lp-section-head lp-reveal">
+          <Eyebrow>El recorrido</Eyebrow>
+          <h2 className="lp-section-title">Una reparación. Todo el negocio conectado.</h2>
+          <p className="lp-section-sub">
+            Seguí una orden a medida que avanza por el sistema. Cada paso actualiza al siguiente,
+            sin volver a cargar nada.
+          </p>
         </div>
 
-        <div className="lp-flow-grid">
-          {steps.map((s, i) => (
-            <div key={i} className="lp-flow-step lp-fade-up" style={{ animationDelay: `${i * 70}ms` }}>
-              <div className="lp-flow-number">{s.n}</div>
-              <div className="lp-flow-icon">{s.icon}</div>
-              <h3 className="lp-flow-title">{s.title}</h3>
-              <p className="lp-flow-desc">{s.desc}</p>
+        <div className="lp-journey">
+          <div
+            className="lp-journey-steps"
+            role="tablist"
+            aria-label="Etapas de una reparación"
+            aria-orientation="vertical"
+            ref={tablistRef}
+            onKeyDown={onKeyDown}
+          >
+            {STAGES.map((s, i) => {
+              const isActive = i === active
+              return (
+                <button
+                  key={s.id}
+                  role="tab"
+                  id={`lp-tab-${s.id}`}
+                  aria-selected={isActive}
+                  aria-controls="lp-journey-panel"
+                  tabIndex={isActive ? 0 : -1}
+                  className={`lp-journey-step${isActive ? ' is-active' : ''}`}
+                  onClick={() => selectStage(i)}
+                >
+                  <span className="lp-journey-step-icon" style={isActive ? { color: s.accent, background: `${s.accent}1f`, borderColor: `${s.accent}55` } : undefined}>
+                    <s.Icon size={18} aria-hidden="true" />
+                  </span>
+                  <span className="lp-journey-step-text">
+                    <span className="lp-journey-step-tab">{s.tab}</span>
+                    <span className="lp-journey-step-title">{s.title}</span>
+                    {isActive && <span className="lp-journey-step-body">{s.body}</span>}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="lp-journey-visual">
+            <div className="lp-journey-sticky" id="lp-journey-panel" role="tabpanel" aria-labelledby={`lp-tab-${stage.id}`}>
+              <SystemWindow stage={stage} />
             </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// ─── CRECIMIENTO ──────────────────────────────────────────────────────────────
+function GrowthSection() {
+  const scenarios = [
+    {
+      Icon: User, tag: 'Trabajás solo',
+      title: 'Dejás de depender de tu memoria',
+      body: 'Órdenes, clientes, stock y caja en un solo lugar. Sabés qué tenés que entregar hoy y cuánto cerraste, sin abrir tres apps.',
+    },
+    {
+      Icon: Users, tag: 'Sumás un equipo',
+      title: 'Cada uno sabe qué le toca',
+      body: 'Asignás técnicos, repartís tareas y controlás quién hizo qué. Con roles y permisos, cada persona ve lo que necesita.',
+    },
+    {
+      Icon: Building2, tag: 'El negocio crece',
+      title: 'Escalás sin cambiar de sistema',
+      body: 'Multisucursal, métricas por local y auditoría. El mismo sistema que usaste solo te acompaña cuando sos varios.',
+    },
+  ]
+  return (
+    <section id="crecimiento" className="lp-section lp-section-tint">
+      <div className="lp-container">
+        <div className="lp-section-head lp-reveal">
+          <Eyebrow>Crece con vos</Eyebrow>
+          <h2 className="lp-section-title">Arrancás solo. Crecés con equipo.</h2>
+          <p className="lp-section-sub">
+            No necesitás cambiar de herramienta cuando tu negocio cambia de tamaño.
+          </p>
+        </div>
+
+        <div className="lp-growth-grid">
+          {scenarios.map((s, i) => (
+            <article key={s.tag} className="lp-growth-card lp-reveal" style={{ transitionDelay: `${i * 70}ms` }}>
+              <span className="lp-growth-icon"><s.Icon size={20} aria-hidden="true" /></span>
+              <span className="lp-growth-tag">{s.tag}</span>
+              <h3 className="lp-growth-title">{s.title}</h3>
+              <p className="lp-growth-body">{s.body}</p>
+            </article>
           ))}
         </div>
       </div>
@@ -380,577 +496,214 @@ function FlowSection() {
   )
 }
 
-// ─── SCALABILITY ─────────────────────────────────────────────────────────────
-function ScalabilitySection({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
-  const stages = [
-    {
-      plan: 'Básico', price: '$15.000/mes', color: '#64748b',
-      title: 'Para ordenar el inicio',
-      items: ['Órdenes y clientes', 'Inventario básico', 'Caja diaria', 'Comprobantes locales'],
-    },
-    {
-      plan: 'Pro', price: '$25.000/mes', color: '#818cf8',
-      title: 'Para operar con más control',
-      items: ['Todo lo del Básico', 'ARCA / Facturación', 'Finanzas avanzadas', 'Proveedores, WhatsApp', 'Mi Guita incluido'],
-      highlight: true,
-    },
-    {
-      plan: 'Full', price: '$45.000/mes', color: '#22d3ee',
-      title: 'Para escalar con equipo',
-      items: ['Todo lo del Pro', 'Multi-sucursal', 'Hasta 10 usuarios', 'Permisos granulares'],
-    },
+// ─── DIFERENCIACIÓN LOCAL ─────────────────────────────────────────────────────
+function LocalSection() {
+  const items = [
+    { Icon: Wallet, title: 'Cobro y caja conectados', body: 'Cada venta y cada cobro actualizan la caja del día al instante. El cierre cuadra sin sumar a mano.' },
+    { Icon: FileText, title: 'Comprobantes y ARCA', body: 'Emití comprobantes internos o factura ARCA con CAE según tu condición fiscal, desde el mismo flujo de venta.' },
+    { Icon: DollarSign, title: 'Pesos y dólares', body: 'Cargás costos en USD y vendés en pesos. El sistema convierte con la cotización que elegís y mantiene todo coherente.' },
+    { Icon: MessageCircle, title: 'WhatsApp del taller', body: 'Mensajes preparados para avisar estados, presupuestos y entregas. La comunicación queda registrada en la orden.' },
+    { Icon: Users, title: 'Cuentas corrientes', body: 'Llevás lo que te deben los clientes y lo que le debés a proveedores, con saldo calculado por el sistema.' },
+    { Icon: Package, title: 'Proveedores y compras', body: 'Registrás compras, pagos y deuda por proveedor, y los repuestos entran directo al inventario.' },
   ]
   return (
     <section className="lp-section">
       <div className="lp-container">
-        <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-          <SectionLabel>Sistema escalable</SectionLabel>
-          <h2 className="lp-section-title">
-            Arrancá simple.<br />
-            <span className="lp-gradient-text">Crecé sin cambiar de sistema.</span>
-          </h2>
-          <p className="lp-section-subtitle" style={{ margin: '0 auto' }}>
-            Hoy podés necesitar órdenes, clientes y stock. Mañana tal vez sumes facturación ARCA, proveedores, WhatsApp, finanzas, Mi Guita o equipo de trabajo. TechRepair Pro está pensado para acompañar cada etapa.
+        <div className="lp-section-head lp-reveal">
+          <Eyebrow>Hecho acá</Eyebrow>
+          <h2 className="lp-section-title">Pensado para cómo trabaja un taller argentino.</h2>
+          <p className="lp-section-sub">
+            No es un sistema importado con cosas que no usás. Es la operación real de un taller, resuelta.
           </p>
         </div>
 
-        <div className="lp-scale-grid">
-          {stages.map((s, i) => (
-            <div key={i} className={`lp-scale-card ${s.highlight ? 'lp-scale-featured' : ''}`}>
-              {s.highlight && <div className="lp-scale-ribbon">Más elegido</div>}
-              <div className="lp-scale-header">
-                <span className="lp-scale-plan" style={{ color: s.color }}>{s.plan}</span>
-                <span className="lp-scale-price">{s.price}</span>
+        <div className="lp-local-grid">
+          {items.map((it, i) => (
+            <article key={it.title} className="lp-local-card lp-reveal" style={{ transitionDelay: `${(i % 3) * 60}ms` }}>
+              <span className="lp-local-icon"><it.Icon size={18} aria-hidden="true" /></span>
+              <div>
+                <h3 className="lp-local-title">{it.title}</h3>
+                <p className="lp-local-body">{it.body}</p>
               </div>
-              <p className="lp-scale-title">{s.title}</p>
-              <ul className="lp-scale-items">
-                {s.items.map((it, j) => (
-                  <li key={j}><span style={{ color: s.highlight ? '#818cf8' : '#34d399' }}><IC.Check /></span>{it}</li>
-                ))}
-              </ul>
-            </div>
+            </article>
           ))}
         </div>
 
-        <div style={{ textAlign: 'center', marginTop: '2.5rem' }}>
-          <p style={{ color: '#475569', fontSize: '0.95rem', marginBottom: '1.5rem' }}>
-            No necesitás cambiar de sistema cuando tu negocio crece. TechRepair Pro crece con vos.
-          </p>
-          <button className="lp-btn-primary" onClick={() => navigate('/onboarding')}>
-            Empezar con 14 días gratis <IC.ArrowRight />
-          </button>
-        </div>
+        <p className="lp-fineprint lp-reveal">
+          <Zap size={14} aria-hidden="true" />
+          La cotización del dólar es configurable y la facturación ARCA depende de los certificados fiscales de tu negocio.
+        </p>
       </div>
     </section>
   )
 }
 
-// ─── FEATURES ─────────────────────────────────────────────────────────────────
-function FeaturesSection({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
-  const features = [
-    {
-      icon: <IC.Wrench />, color: '#818cf8',
-      title: 'Órdenes de trabajo',
-      desc: 'Recepción, diagnóstico, estados, presupuestos, impresión y seguimiento en tiempo real.',
-      items: ['Estados personalizables', 'Impresión ticket/A4', 'Garantías y notas'],
-    },
-    {
-      icon: <IC.Users />, color: '#34d399',
-      title: 'Clientes',
-      desc: 'Historial de reparaciones, compras, cuenta corriente y datos siempre a mano.',
-      items: ['Historial completo', 'Cuenta corriente', 'Comunicación WhatsApp'],
-    },
-    {
-      icon: <IC.Package />, color: '#60a5fa',
-      title: 'Inventario',
-      desc: 'Productos, variantes, stock, precios en USD/ARS, mayorista y movimientos.',
-      items: ['Variantes por producto', 'Precios en USD y ARS', 'Alertas de stock'],
-    },
-    {
-      icon: <IC.Receipt />, color: '#f472b6',
-      title: 'Ventas y comprobantes',
-      desc: 'Ventas rápidas, comprobantes, pagos mixtos, cuenta corriente y notas de crédito.',
-      items: ['Múltiples métodos de pago', 'Cuenta corriente', 'Notas de crédito'],
-    },
-    {
-      icon: <IC.Shield />, color: '#fbbf24',
-      title: 'ARCA / AFIP',
-      desc: 'Emití facturas y notas de crédito desde el sistema según tu configuración fiscal.',
-      items: ['Factura C y A', 'CAE y estados fiscales', 'Manejo de errores visible'],
-    },
-    {
-      icon: <IC.DollarSign />, color: '#34d399',
-      title: 'Caja diaria',
-      desc: 'Controlá ingresos, egresos, métodos de pago y cierres diarios sin planillas.',
-      items: ['Apertura y cierre', 'Por método de pago', 'Historial completo'],
-    },
-    {
-      icon: <IC.TrendUp />, color: '#a78bfa',
-      title: 'Proveedores',
-      desc: 'Compras, pagos, deuda, historial y productos comprados por proveedor.',
-      items: ['Cuenta corriente proveedor', 'Historial de compras', 'Facturación interna'],
-    },
-    {
-      icon: <IC.Zap />, color: '#22d3ee',
-      title: 'Finanzas',
-      desc: 'Dashboard claro con ingresos, gastos, caja, ventas, deudas y alertas.',
-      items: ['Dashboard visual', 'Resultado neto', 'Auditoría y alertas'],
-    },
-    {
-      icon: <IC.MessageCircle />, color: '#25d366',
-      title: 'WhatsApp',
-      desc: 'Mensajes preparados para avisos, órdenes, garantías y seguimiento.',
-      items: ['Templates por estado', 'Historial de envíos', 'WhatsApp Business API'],
-    },
+// ─── VISTA DEL NEGOCIO ────────────────────────────────────────────────────────
+function BusinessViewSection() {
+  const rows = [
+    { label: 'Ingresos del mes', value: '$1.840.000', pct: 88, color: '#34d399' },
+    { label: 'Gastos', value: '$520.000', pct: 28, color: '#f87171' },
+    { label: 'Resultado neto', value: '$1.320.000', pct: 72, color: '#818cf8' },
+  ]
+  const bullets = [
+    'Qué se cobró y qué quedó pendiente',
+    'Qué productos se vendieron y con qué margen',
+    'Qué reparaciones tienen demora',
+    'Cómo está la caja, hoy y en el mes',
   ]
   return (
-    <section id="features" className="lp-section lp-section-alt">
-      <div className="lp-container">
-        <div style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
-          <SectionLabel>Funciones</SectionLabel>
-          <h2 className="lp-section-title">
-            Todo lo que necesita<br />
-            <span className="lp-gradient-text">tu negocio técnico</span>
-          </h2>
-          <p className="lp-section-subtitle">Módulos conectados entre sí. No son apps separadas.</p>
-        </div>
-
-        <div className="lp-features-grid">
-          {features.map((f, i) => (
-            <div key={i} className="lp-feature-card lp-fade-up" style={{ animationDelay: `${(i % 3) * 80}ms` }}>
-              <div className="lp-feature-icon" style={{ color: f.color, background: f.color + '12', borderColor: f.color + '25' }}>
-                {f.icon}
-              </div>
-              <h3 className="lp-feature-title">{f.title}</h3>
-              <p className="lp-feature-desc">{f.desc}</p>
-              <ul className="lp-feature-items">
-                {f.items.map((it, j) => (
-                  <li key={j}><span style={{ color: f.color }}><IC.Check /></span> {it}</li>
-                ))}
-              </ul>
+    <section className="lp-section lp-section-tint">
+      <div className="lp-container lp-split">
+        <div className="lp-split-visual lp-reveal" aria-hidden="true">
+          <div className="lp-window">
+            <div className="lp-window-bar">
+              <span className="lp-window-dots"><i /><i /><i /></span>
+              <span className="lp-window-title">Finanzas · Mes actual</span>
+              <span className="lp-window-status" style={{ color: '#34d399', borderColor: '#34d39955', background: '#34d3991a' }}>En vivo</span>
             </div>
-          ))}
-        </div>
-
-        <div style={{ textAlign: 'center', marginTop: '2.5rem' }}>
-          <button className="lp-btn-primary" onClick={() => navigate('/onboarding')}>
-            Probar todas las funciones gratis <IC.ArrowRight />
-          </button>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-// ─── INVENTORY / DOLAR ────────────────────────────────────────────────────────
-function InventorySection() {
-  return (
-    <section id="inventory" className="lp-section">
-      <div className="lp-container">
-        <div className="lp-two-col">
-          <div className="lp-two-col-text">
-            <SectionLabel>📦 Inventario multimoneda</SectionLabel>
-            <h2 className="lp-section-title" style={{ fontSize: 'clamp(1.6rem, 3.5vw, 2.4rem)' }}>
-              Comprás en dólares,<br />
-              <span className="lp-gradient-text">cobrás en pesos</span>
-            </h2>
-            <p style={{ color: '#64748b', fontSize: '1rem', lineHeight: 1.75, marginBottom: '2rem' }}>
-              TechRepair Pro maneja precios en USD y ARS al mismo tiempo. Elegís tu fuente de cotización — InfoDolar Córdoba o Ámbito — y el sistema la usa para calcular precios en pesos, actualizar productos configurados en USD y mantener coherencia entre inventario, ventas y dashboard.
-            </p>
-            <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '2rem' }}>
-              {[
-                'Precio de costo en USD o ARS',
-                'Precio de venta en USD convertido a pesos',
-                'Precio mayorista en USD y ARS',
-                'Cotización actualizable con un click',
-                'Auto-actualización de productos atados al dólar',
-                'Categorías dinámicas creadas desde el negocio',
-                'Productos, servicios y variantes (colores, capacidades, etc.)',
-              ].map((it, i) => <CheckItem key={i}>{it}</CheckItem>)}
-            </ul>
-          </div>
-
-          <div className="lp-inv-visual">
-            <div className="lp-inv-card">
-              <div className="lp-inv-card-header">
-                <span style={{ fontWeight: 700, color: '#f1f5f9' }}>Pantalla iPhone 14 Pro</span>
-                <span style={{ fontSize: '0.72rem', color: '#64748b' }}>Pantallas</span>
-              </div>
-              <div className="lp-inv-prices">
-                <div className="lp-inv-price-row">
-                  <span>Costo</span>
-                  <span style={{ color: '#94a3b8' }}>U$D 28 ≈ <strong>$40.600</strong></span>
-                </div>
-                <div className="lp-inv-price-row">
-                  <span>Venta</span>
-                  <span style={{ color: '#34d399' }}>U$D 42 → <strong>$60.900</strong></span>
-                </div>
-                <div className="lp-inv-price-row">
-                  <span>Mayorista</span>
-                  <span style={{ color: '#818cf8' }}>U$D 36 → <strong>$52.200</strong></span>
-                </div>
-                <div className="lp-inv-divider" />
-                <div className="lp-inv-price-row">
-                  <span>Stock</span>
-                  <Badge color="green">12 unidades</Badge>
-                </div>
-                <div className="lp-inv-price-row">
-                  <span>Cotización USD/ARS</span>
-                  <span style={{ color: '#fbbf24', fontWeight: 700 }}>$1.450</span>
-                </div>
-              </div>
-            </div>
-            <div className="lp-inv-note">
-              <IC.Zap />
-              Cotización configurable: InfoDolar Córdoba o Ámbito, sincronizada con inventario y dashboard.
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-// ─── FINANZAS ─────────────────────────────────────────────────────────────────
-function FinanceSection() {
-  return (
-    <section id="finance" className="lp-section lp-section-alt">
-      <div className="lp-container">
-        <div className="lp-two-col lp-two-col-reverse">
-          <div className="lp-finance-visual">
-            <div className="lp-fin-card">
-              <div className="lp-fin-header">
-                <span>Dashboard Financiero</span>
-                <Badge color="green">Mes actual</Badge>
-              </div>
-              {[
-                { label: 'Ingresos', value: '$1.840.000', pct: 85, color: '#34d399' },
-                { label: 'Gastos', value: '$520.000', pct: 28, color: '#f87171' },
-                { label: 'Resultado neto', value: '$1.320.000', pct: 72, color: '#818cf8' },
-              ].map((row, i) => (
-                <div key={i} className="lp-fin-row">
+            <div className="lp-fin-body">
+              {rows.map(r => (
+                <div key={r.label} className="lp-fin-row">
                   <div className="lp-fin-row-top">
-                    <span>{row.label}</span>
-                    <span style={{ color: row.color, fontWeight: 700 }}>{row.value}</span>
+                    <span>{r.label}</span>
+                    <strong style={{ color: r.color }}>{r.value}</strong>
                   </div>
-                  <div className="lp-fin-bar-track">
-                    <div className="lp-fin-bar-fill" style={{ width: `${row.pct}%`, background: row.color }} />
-                  </div>
+                  <div className="lp-fin-track"><span className="lp-fin-fill" style={{ width: `${r.pct}%`, background: r.color }} /></div>
                 </div>
               ))}
-              <div className="lp-fin-footer">
-                <div className="lp-fin-kpi"><span className="lp-fin-kpi-val" style={{ color: '#fbbf24' }}>3</span><span>Alertas</span></div>
-                <div className="lp-fin-kpi"><span className="lp-fin-kpi-val" style={{ color: '#60a5fa' }}>18</span><span>Ventas hoy</span></div>
-                <div className="lp-fin-kpi"><span className="lp-fin-kpi-val" style={{ color: '#34d399' }}>✓</span><span>Caja abierta</span></div>
+              <div className="lp-fin-kpis">
+                <div><strong style={{ color: '#fbbf24' }}>3</strong><span>Alertas</span></div>
+                <div><strong style={{ color: '#60a5fa' }}>18</strong><span>Ventas hoy</span></div>
+                <div><strong style={{ color: '#34d399' }}><Check size={18} /></strong><span>Caja abierta</span></div>
               </div>
             </div>
           </div>
-
-          <div className="lp-two-col-text">
-            <SectionLabel>📊 Finanzas del negocio</SectionLabel>
-            <h2 className="lp-section-title" style={{ fontSize: 'clamp(1.6rem, 3.5vw, 2.4rem)' }}>
-              No alcanza con vender.<br />
-              <span className="lp-gradient-text">Necesitás saber qué queda.</span>
-            </h2>
-            <p style={{ color: '#64748b', fontSize: '1rem', lineHeight: 1.75, marginBottom: '2rem' }}>
-              TechRepair Pro incluye un dashboard financiero completo para que siempre sepás exactamente cuánto entrá, cuánto salió y cuánto quedó.
-            </p>
-            <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {[
-                'Ingresos, gastos y resultado neto',
-                'Caja por método de pago (efectivo, tarjeta, QR...)',
-                'Ventas ARCA y comprobantes locales',
-                'Notas de crédito y anulaciones',
-                'Deuda de proveedores y clientes',
-                'Alertas de auditoría y movimientos sospechosos',
-              ].map((it, i) => <CheckItem key={i}>{it}</CheckItem>)}
-            </ul>
-          </div>
         </div>
-      </div>
-    </section>
-  )
-}
 
-// ─── ARCA ─────────────────────────────────────────────────────────────────────
-function ARCASection({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
-  return (
-    <section id="arca" className="lp-section">
-      <div className="lp-container">
-        <div className="lp-arca-wrap">
-          <div className="lp-arca-badge">
-            <svg width="32" height="32" viewBox="0 0 200 100" fill="none">
-              <text x="10" y="72" fontFamily="Arial" fontWeight="900" fontSize="70" fill="#3b82f6">ARCA</text>
-            </svg>
-          </div>
-          <SectionLabel>Facturación electrónica</SectionLabel>
-          <h2 className="lp-section-title">
-            Facturación ARCA<br />
-            <span className="lp-gradient-text">integrada en el flujo</span>
-          </h2>
-          <p className="lp-section-subtitle">
-            Generá comprobantes con CAE sin salir del sistema. Todo configurado para tu situación fiscal.
+        <div className="lp-split-copy">
+          <div className="lp-reveal"><Eyebrow>Para el dueño</Eyebrow></div>
+          <h2 className="lp-section-title lp-reveal">Vos ves el negocio. No solo las reparaciones.</h2>
+          <p className="lp-section-sub lp-reveal" style={{ marginBottom: '1.5rem' }}>
+            Mientras el equipo trabaja, vos tenés una foto clara de cómo viene el negocio, sin pedirle números a nadie.
           </p>
-
-          <div className="lp-arca-cards">
-            {[
-              { icon: '🧾', title: 'Factura C / A', desc: 'Emití según tu condición fiscal. Punto de venta configurable.' },
-              { icon: '✅', title: 'CAE automático', desc: 'Conexión directa con ARCA/AFIP para obtener el código fiscal.' },
-              { icon: '❌', title: 'Notas de crédito', desc: 'Anulá comprobantes y emití notas de crédito con el mismo flujo.' },
-              { icon: '🔄', title: 'Estados visibles', desc: 'Error, pendiente, emitido — siempre sabés qué pasó con cada comprobante.' },
-            ].map((c, i) => (
-              <div key={i} className="lp-arca-card">
-                <div className="lp-arca-card-icon">{c.icon}</div>
-                <h4 style={{ fontWeight: 700, color: '#f1f5f9', margin: '0 0 0.375rem' }}>{c.title}</h4>
-                <p style={{ color: '#64748b', fontSize: '0.85rem', margin: 0, lineHeight: 1.5 }}>{c.desc}</p>
-              </div>
+          <ul className="lp-check-list lp-reveal">
+            {bullets.map(b => (
+              <li key={b}><span className="lp-check"><Check size={14} aria-hidden="true" /></span>{b}</li>
             ))}
-          </div>
-
-          <p style={{ fontSize: '0.78rem', color: '#334155', marginTop: '2rem' }}>
-            La disponibilidad depende de la configuración fiscal y los certificados del negocio. Plan Pro requerido.
-          </p>
-          <button className="lp-btn-primary" style={{ marginTop: '1.5rem' }} onClick={() => navigate('/onboarding')}>
-            Probarlo gratis <IC.ArrowRight />
-          </button>
+          </ul>
         </div>
       </div>
     </section>
   )
 }
 
-// ─── MI GUITA ─────────────────────────────────────────────────────────────────
-function MiGuitaSection() {
-  return (
-    <section id="miguita" className="lp-section lp-section-alt">
-      <div className="lp-container">
-        <div className="lp-miguita-wrap">
-          <div className="lp-miguita-icon">💰</div>
-          <SectionLabel color="green">Módulo personal — Plan Pro y Full</SectionLabel>
-          <h2 className="lp-section-title">
-            Separá tu plata del negocio<br />
-            <span className="lp-gradient-text">con Mi Guita</span>
-          </h2>
-          <p className="lp-section-subtitle" style={{ maxWidth: 560 }}>
-            TechRepair Pro incluye una app personal para controlar tus finanzas privadas, separada del negocio pero conectada a él.
-          </p>
-
-          <div className="lp-miguita-grid">
-            {[
-              { icon: '🏦', label: 'Cuentas personales' },
-              { icon: '💳', label: 'Tarjetas de crédito' },
-              { icon: '📈', label: 'Ahorros y metas' },
-              { icon: '📋', label: 'Gastos recurrentes' },
-              { icon: '💸', label: 'Deudas personales' },
-              { icon: '💵', label: 'Pagarme sueldo' },
-            ].map((it, i) => (
-              <div key={i} className="lp-miguita-item">
-                <span style={{ fontSize: '1.5rem' }}>{it.icon}</span>
-                <span style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 500 }}>{it.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-// ─── PRICING ──────────────────────────────────────────────────────────────────
-function PricingSection({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
-  const [annual, setAnnual] = useState(false)
-
-  const plans = [
-    {
-      id: 'basico', name: 'Básico', price: annual ? 12000 : 15000,
-      color: '#64748b', highlight: false,
-      desc: 'Para talleres que quieren ordenar lo esencial.',
-      features: [
-        'Órdenes de trabajo ilimitadas',
-        'Clientes con historial',
-        'Inventario con alertas de stock',
-        'Comprobantes locales',
-        'Caja diaria',
-        '1 usuario',
-      ],
-    },
-    {
-      id: 'pro', name: 'Pro', price: annual ? 20000 : 25000,
-      color: '#6366f1', highlight: true,
-      desc: 'El más elegido. Incluye facturación ARCA y todas las funciones avanzadas.',
-      features: [
-        'Todo lo del Básico',
-        'Facturación electrónica ARCA / CAE',
-        'Finanzas avanzadas con métricas',
-        'Proveedores y cuentas corrientes',
-        'Garantías y postventa',
-        'WhatsApp integrado',
-        'Mi Guita — finanzas personales',
-        'Hasta 3 usuarios',
-      ],
-    },
-    {
-      id: 'full', name: 'Full', price: annual ? 36000 : 45000,
-      color: '#475569', highlight: false,
-      desc: 'Para negocios con más equipo o mayor operación.',
-      features: [
-        'Todo lo del Pro',
-        'Multi-sucursal',
-        'Hasta 10 usuarios',
-        'Permisos granulares',
-        'Auditoría completa',
-        'Soporte prioritario',
-      ],
-    },
+// ─── PRUEBA / CREDIBILIDAD ────────────────────────────────────────────────────
+function CredibilitySection() {
+  const items = [
+    { Icon: Wrench, title: 'Hecho desde un taller real', body: 'No es un software genérico adaptado. Nació de la operación diaria de un servicio técnico.' },
+    { Icon: ShieldCheck, title: 'Tus datos, en la nube', body: 'Infraestructura moderna sobre Supabase y PostgreSQL. Accedés desde donde estés.' },
+    { Icon: Smartphone, title: 'Sin instalar nada', body: 'Funciona en el navegador: computadora, tablet y celular. Empezás hoy.' },
+    { Icon: FileText, title: 'Facturación ARCA integrada', body: 'Emití comprobantes con CAE sin salir del sistema, según tu situación fiscal.' },
   ]
+  return (
+    <section className="lp-section">
+      <div className="lp-container">
+        <div className="lp-credibility">
+          {items.map((it, i) => (
+            <div key={it.title} className="lp-credibility-item lp-reveal" style={{ transitionDelay: `${i * 60}ms` }}>
+              <span className="lp-credibility-icon"><it.Icon size={18} aria-hidden="true" /></span>
+              <h3>{it.title}</h3>
+              <p>{it.body}</p>
+            </div>
+          ))}
+        </div>
+        {/*
+          Espacio reservado para prueba social real (testimonios verificables, logos, métricas).
+          No se incluyen datos inventados. Cuando existan reseñas reales de talleres usuarios,
+          insertar aquí un carrusel/grilla con nombre, local y resultado concreto.
+        */}
+      </div>
+    </section>
+  )
+}
+
+// ─── PLANES (precios desde la fuente única: PLANS) ─────────────────────────────
+type Cycle = 'monthly' | 'annual'
+
+function PricingSection({ onSelect }: { onSelect: (plan: SubscriptionPlan) => void }) {
+  const [cycle, setCycle] = useState<Cycle>('monthly')
+  const annual = cycle === 'annual'
+
+  const audience: Record<SubscriptionPlan, string> = {
+    basico: 'Para empezar a ordenar el taller',
+    pro:    'Para controlar operación, números y crecimiento',
+    full:   'Para equipos y operaciones más complejas',
+  }
 
   return (
-    <section id="pricing" className="lp-section">
+    <section id="planes" data-track="pricing" className="lp-section lp-section-tint">
       <div className="lp-container">
-        <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-          <SectionLabel>Planes</SectionLabel>
-          <h2 className="lp-section-title">
-            Empezá con el plan que<br />
-            <span className="lp-gradient-text">se adapta a vos</span>
-          </h2>
-          <p className="lp-section-subtitle">14 días de prueba gratis con funciones Pro. Sin tarjeta de crédito.</p>
+        <div className="lp-section-head lp-reveal">
+          <Eyebrow>Planes</Eyebrow>
+          <h2 className="lp-section-title">Empezá con el plan que se adapta a vos.</h2>
+          <p className="lp-section-sub">
+            {TRIAL_DAYS} días de prueba con funciones del plan Pro. Sin tarjeta. Cancelás cuando quieras.
+          </p>
 
-          {/* Toggle mensual/anual */}
-          <div className="lp-billing-toggle">
-            <span className={!annual ? 'lp-billing-active' : ''}>Mensual</span>
-            <button
-              className="lp-toggle-btn"
-              onClick={() => setAnnual(v => !v)}
-              aria-label="Cambiar facturación"
-              role="switch"
-              aria-checked={annual}
-            >
-              <span className={`lp-toggle-thumb ${annual ? 'lp-toggle-on' : ''}`} />
+          <div className="lp-billing" role="group" aria-label="Ciclo de facturación">
+            <button className={`lp-billing-opt${!annual ? ' is-active' : ''}`} onClick={() => setCycle('monthly')} aria-pressed={!annual}>
+              Mensual
             </button>
-            <span className={annual ? 'lp-billing-active' : ''}>
-              Anual <Badge color="green">-20%</Badge>
-            </span>
+            <button className={`lp-billing-opt${annual ? ' is-active' : ''}`} onClick={() => setCycle('annual')} aria-pressed={annual}>
+              Anual <span className="lp-billing-save">−20%</span>
+            </button>
           </div>
         </div>
 
-        <div className="lp-pricing-grid">
-          {plans.map(p => (
-            <div key={p.id} className={`lp-plan-card ${p.highlight ? 'lp-plan-featured' : ''}`}>
-              {p.highlight && <div className="lp-plan-ribbon">⭐ Más elegido</div>}
-              <div className="lp-plan-header">
-                <h3 className="lp-plan-name" style={{ color: p.color }}>{p.name}</h3>
+        <div className="lp-plans">
+          {PLANS.map(plan => {
+            const monthly = annual ? Math.round(plan.price_annual / 12) : plan.price_monthly
+            const featured = !!plan.highlighted
+            return (
+              <article key={plan.id} className={`lp-plan${featured ? ' is-featured' : ''} lp-reveal`}>
+                {featured && <span className="lp-plan-ribbon">Más elegido</span>}
+                <header className="lp-plan-head">
+                  <span className="lp-plan-name">{plan.name}</span>
+                  <span className="lp-plan-audience">{audience[plan.id]}</span>
+                </header>
                 <div className="lp-plan-price">
                   <span className="lp-plan-currency">$</span>
-                  <span className="lp-plan-amount">{p.price.toLocaleString('es-AR')}</span>
+                  <span className="lp-plan-amount">{monthly.toLocaleString('es-AR')}</span>
                   <span className="lp-plan-period">/mes</span>
                 </div>
-                <p className="lp-plan-desc">{p.desc}</p>
-              </div>
-              <ul className="lp-plan-features">
-                {p.features.map((f, i) => (
-                  <li key={i}>
-                    <span style={{ color: p.highlight ? '#818cf8' : '#34d399' }}><IC.Check /></span>
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              <button
-                className={p.highlight ? 'lp-btn-primary' : 'lp-btn-outline'}
-                style={{ width: '100%', justifyContent: 'center', marginTop: 'auto' }}
-                onClick={() => navigate('/onboarding')}
-              >
-                {p.highlight ? 'Empezar gratis 14 días' : 'Probar gratis'}
-              </button>
-            </div>
-          ))}
+                <p className="lp-plan-cycle">
+                  {annual
+                    ? `$${plan.price_annual.toLocaleString('es-AR')} al año`
+                    : 'Facturación mensual'}
+                </p>
+                <ul className="lp-plan-features">
+                  {plan.features.map(f => (
+                    <li key={f}>
+                      <span className="lp-check" style={featured ? { color: '#818cf8' } : undefined}><Check size={14} aria-hidden="true" /></span>
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <button
+                  className={`lp-btn lp-btn-block ${featured ? 'lp-btn-primary' : 'lp-btn-ghost'}`}
+                  onClick={() => onSelect(plan.id)}
+                >
+                  Probar gratis {TRIAL_DAYS} días
+                </button>
+              </article>
+            )
+          })}
         </div>
 
-        <div className="lp-pricing-note">
-          <IC.Shield />
-          <span>Todos los planes incluyen soporte por WhatsApp y actualizaciones sin costo adicional.</span>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-// ─── ANTES / DESPUÉS ──────────────────────────────────────────────────────────
-function BeforeAfterSection() {
-  const before = [
-    '📋 Órdenes en papel o Excel',
-    '💬 WhatsApps sin registro ni orden',
-    '📦 Stock manual en planilla',
-    '💸 Caja desordenada sin cierre',
-    '👤 Clientes sin historial',
-    '💰 Precios desactualizados',
-    '🏭 Proveedores sin control',
-  ]
-  const after = [
-    '✅ Todo centralizado y buscable',
-    '📱 WhatsApp con plantillas y registro',
-    '📦 Stock actualizado en tiempo real',
-    '💸 Caja con cierre y reportes',
-    '👤 Historial completo por cliente',
-    '💰 Precios USD/ARS siempre al día',
-    '🏭 Proveedor con deuda y pagos',
-  ]
-  return (
-    <section id="compare" className="lp-section lp-section-alt">
-      <div className="lp-container">
-        <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-          <SectionLabel>La diferencia</SectionLabel>
-          <h2 className="lp-section-title">
-            Antes y <span className="lp-gradient-text">después</span>
-          </h2>
-        </div>
-        <div className="lp-compare-grid">
-          <div className="lp-compare-col lp-compare-before">
-            <div className="lp-compare-header">
-              <span>😣</span> Antes
-            </div>
-            {before.map((it, i) => <div key={i} className="lp-compare-item">{it}</div>)}
-          </div>
-          <div className="lp-compare-col lp-compare-after">
-            <div className="lp-compare-header">
-              <span>🚀</span> Con TechRepair Pro
-            </div>
-            {after.map((it, i) => <div key={i} className="lp-compare-item">{it}</div>)}
-          </div>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-// ─── TRUST ────────────────────────────────────────────────────────────────────
-function TrustSection() {
-  const trust = [
-    { icon: '🔧', title: 'Pensado para el negocio real', desc: 'Cada flujo fue pensado para servicios técnicos, locales de celulares y comercios que venden, reparan y administran stock.' },
-    { icon: '📱', title: 'Pensado para el flujo de reparación', desc: 'Del ingreso del equipo al cobro final: todo el proceso sin pasos innecesarios.' },
-    { icon: '🛡️', title: 'Datos seguros en la nube', desc: 'Infraestructura moderna con Supabase/PostgreSQL. Accedés desde cualquier dispositivo.' },
-    { icon: '🔄', title: 'Actualizaciones constantes', desc: 'El sistema mejora continuamente. Lo que pedís hoy puede estar disponible mañana.' },
-    { icon: '💬', title: 'Soporte por WhatsApp', desc: 'No hay chatbots. Un equipo real responde tus consultas por WhatsApp en horario de negocio.' },
-    { icon: '📊', title: 'Sin instalación', desc: 'Funciona en el navegador. Desktop, tablet y mobile. Sin instalar nada.' },
-  ]
-  return (
-    <section id="trust" className="lp-section">
-      <div className="lp-container">
-        <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-          <SectionLabel>Por qué confiar</SectionLabel>
-          <h2 className="lp-section-title">
-            Hecho para el día a día<br />
-            <span className="lp-gradient-text">de un local técnico</span>
-          </h2>
-        </div>
-        <div className="lp-trust-grid">
-          {trust.map((t, i) => (
-            <div key={i} className="lp-trust-card lp-fade-up" style={{ animationDelay: `${i * 60}ms` }}>
-              <div className="lp-trust-icon">{t.icon}</div>
-              <h4 className="lp-trust-title">{t.title}</h4>
-              <p className="lp-trust-desc">{t.desc}</p>
-            </div>
-          ))}
-        </div>
+        <p className="lp-fineprint lp-reveal">
+          <ShieldCheck size={14} aria-hidden="true" />
+          Mi Guita (finanzas personales) y la facturación ARCA están incluidas desde el plan Pro.
+        </p>
       </div>
     </section>
   )
@@ -958,44 +711,51 @@ function TrustSection() {
 
 // ─── FAQ ──────────────────────────────────────────────────────────────────────
 function FAQSection() {
-  const [open, setOpen] = useState<number | null>(null)
+  const [open, setOpen] = useState<number | null>(0)
   const faqs = [
-    { q: '¿Puedo probarlo gratis?', a: 'Sí. Tenés 14 días de prueba gratuita con funciones del plan Pro. Sin tarjeta de crédito.' },
-    { q: '¿Sirve solo para servicios técnicos?', a: 'No. TechRepair Pro está pensado para servicios técnicos, locales de celulares, tiendas de accesorios y negocios que combinan reparación, venta, stock, caja y proveedores. El sistema se adapta a cómo trabaja tu local.' },
-    { q: '¿Puedo usarlo si solo vendo accesorios o celulares?', a: 'Sí. Podés usar inventario, ventas, caja, clientes, proveedores, precios en USD/ARS, comprobantes y finanzas aunque no uses el módulo de reparaciones todos los días.' },
-    { q: '¿El sistema crece con mi negocio?', a: 'Sí. Podés empezar con funciones esenciales (Básico) y avanzar a planes con más herramientas: ARCA, proveedores, WhatsApp, Mi Guita, equipo de trabajo y multisucursal (Pro y Full). No necesitás cambiar de sistema cuando tu negocio crece.' },
-    { q: '¿Tiene facturación ARCA/AFIP?', a: 'Sí. El plan Pro incluye integración con ARCA para emitir facturas C y A, obtener CAE y emitir notas de crédito. Requiere configuración de certificados del negocio.' },
-    { q: '¿Qué fuentes de dólar puedo usar?', a: 'Podés trabajar con cotización desde InfoDolar Córdoba o Ámbito, según la configuración de tu negocio. Esa referencia se usa para precios en USD, conversiones y actualización automática de productos.' },
-    { q: '¿Tiene caja diaria?', a: 'Sí. Podés abrir y cerrar caja, registrar ingresos y egresos, controlar por método de pago (efectivo, tarjeta, QR, transferencia) y ver el historial completo.' },
-    { q: '¿Puedo tener varios usuarios?', a: 'Sí. El plan Pro incluye hasta 3 usuarios y el plan Full hasta 10, con roles y permisos granulares por módulo.' },
-    { q: '¿Qué pasa con mis proveedores?', a: 'TechRepair Pro tiene un módulo completo de proveedores con historial de compras, pagos, deuda y cuenta corriente por proveedor.' },
-    { q: '¿Funciona desde el celular?', a: 'Sí. Es completamente responsive. Funciona en desktop, tablet y mobile sin instalar nada. Mi Guita se puede instalar como PWA en el celular.' },
-    { q: '¿Qué incluye Mi Guita?', a: 'Mi Guita es un módulo de finanzas personales incluido en el plan Pro y Full. Te permite manejar cuentas, movimientos, tarjetas, ahorros, deudas y pagarte sueldo desde el negocio.' },
-    { q: '¿Cómo es el soporte?', a: 'El soporte es por WhatsApp con respuesta en horario de negocio. No hay chatbots automáticos.' },
+    { q: '¿Puedo probarlo gratis?', a: `Sí. Tenés ${TRIAL_DAYS} días de prueba con las funciones del plan Pro, sin tarjeta de crédito. Al terminar elegís un plan o seguís más adelante.` },
+    { q: '¿Necesito instalar algo?', a: 'No. Funciona en el navegador, en computadora, tablet y celular. No instalás programas ni servidores.' },
+    { q: '¿Funciona desde el celular?', a: 'Sí. Es responsive y está pensado para usarse también desde el mostrador con el teléfono.' },
+    { q: '¿Cuánto cuesta empezar?', a: `Empezás con ${TRIAL_DAYS} días gratis. Después, los planes arrancan en $${PLANS[0].price_monthly.toLocaleString('es-AR')} por mes (Básico), con opción mensual o anual con descuento.` },
+    { q: '¿Puedo cancelar cuando quiera?', a: 'Sí. No hay contratos ni permanencia. Cancelás cuando quieras desde Configuración → Suscripción.' },
+    { q: '¿Sirve para un técnico que trabaja solo?', a: 'Sí. El plan Básico está pensado para técnicos independientes y locales chicos: órdenes, clientes, inventario, caja y comprobantes internos.' },
+    { q: '¿Sirve para varias sucursales?', a: 'Sí. El plan Full incluye multisucursal con stock, caja y métricas por local, y permisos por usuario.' },
+    { q: '¿Cómo funciona la facturación ARCA?', a: 'Desde el plan Pro podés emitir facturas y notas de crédito con CAE. Requiere configurar los certificados fiscales de tu negocio.' },
+    { q: '¿Qué acompañamiento recibo?', a: 'Tenés soporte humano por los canales del negocio y actualizaciones del sistema sin costo adicional.' },
+    { q: '¿Qué pasa con mis datos?', a: 'Tus datos quedan en la nube sobre Supabase y PostgreSQL, asociados a tu negocio. Accedés desde cualquier dispositivo con tu cuenta.' },
   ]
+  const toggle = (i: number) => {
+    const next = open === i ? null : i
+    setOpen(next)
+    if (next === i) track('faq_opened', { question: faqs[i].q })
+  }
   return (
-    <section id="faq" className="lp-section lp-section-alt">
+    <section id="faq" className="lp-section">
       <div className="lp-container">
-        <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
-          <SectionLabel>Preguntas frecuentes</SectionLabel>
-          <h2 className="lp-section-title">
-            Dudas que seguro <span className="lp-gradient-text">ya tenés</span>
-          </h2>
+        <div className="lp-section-head lp-reveal">
+          <Eyebrow>Preguntas frecuentes</Eyebrow>
+          <h2 className="lp-section-title">Las dudas antes de empezar.</h2>
         </div>
-        <div className="lp-faq-list">
-          {faqs.map((f, i) => (
-            <div key={i} className={`lp-faq-item ${open === i ? 'lp-faq-open' : ''}`}>
-              <button className="lp-faq-btn" onClick={() => setOpen(open === i ? null : i)} aria-expanded={open === i}>
-                <span>{f.q}</span>
-                <span className="lp-faq-chevron"><IC.ChevronDown /></span>
-              </button>
-              <div className="lp-faq-answer-wrap">
-                <div className="lp-faq-answer-inner">
-                  <div className="lp-faq-answer">{f.a}</div>
+        <div className="lp-faq">
+          {faqs.map((f, i) => {
+            const isOpen = open === i
+            return (
+              <div key={f.q} className={`lp-faq-item${isOpen ? ' is-open' : ''} lp-reveal`}>
+                <button
+                  className="lp-faq-q"
+                  onClick={() => toggle(i)}
+                  aria-expanded={isOpen}
+                  aria-controls={`lp-faq-a-${i}`}
+                >
+                  <span>{f.q}</span>
+                  <ChevronDown size={18} className="lp-faq-chev" aria-hidden="true" />
+                </button>
+                <div className="lp-faq-a-wrap" id={`lp-faq-a-${i}`} role="region" aria-labelledby={`lp-faq-q-${i}`}>
+                  <div className="lp-faq-a-inner"><p>{f.a}</p></div>
                 </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
     </section>
@@ -1003,82 +763,71 @@ function FAQSection() {
 }
 
 // ─── CTA FINAL ────────────────────────────────────────────────────────────────
-function CTAFinal({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
+function FinalCTA({ onTrial }: { onTrial: (s: string) => void }) {
   return (
-    <section className="lp-cta-final">
-      <div className="lp-orb lp-cta-orb-1" />
-      <div className="lp-orb lp-cta-orb-2" />
-      <div className="lp-container" style={{ position: 'relative', zIndex: 1 }}>
-        <div style={{ textAlign: 'center', maxWidth: 640, margin: '0 auto' }}>
-          <h2 className="lp-section-title" style={{ fontSize: 'clamp(2rem, 4vw, 2.8rem)', marginBottom: '1.25rem' }}>
-            Ordená tu taller<br />
-            <span className="lp-gradient-text">desde hoy</span>
-          </h2>
-          <p style={{ color: '#64748b', fontSize: '1.1rem', lineHeight: 1.7, marginBottom: '2.5rem' }}>
-            Probá TechRepair Pro gratis durante 14 días y empezá a controlar órdenes, stock, caja y facturación desde un solo lugar.
-          </p>
-          <div className="lp-hero-ctas" style={{ justifyContent: 'center' }}>
-            <button className="lp-btn-primary lp-btn-lg" onClick={() => navigate('/onboarding')} aria-label="Probar gratis 14 días">
-              Probar gratis 14 días <IC.ArrowRight />
-            </button>
-            <a href={`https://wa.me/${CONTACT.whatsapp}?text=${CONTACT.whatsappMsg}`} className="lp-btn-outline lp-btn-lg" target="_blank" rel="noopener noreferrer" aria-label="Consultar por WhatsApp">
-              <WhatsAppSVG size={18} /> Consultar
-            </a>
-          </div>
-          <p style={{ fontSize: '0.8rem', color: '#334155', marginTop: '1.25rem' }}>Sin tarjeta de crédito · 14 días con funciones Pro · Cancelá cuando quieras</p>
-        </div>
+    <section className="lp-final">
+      <div className="lp-final-bg" aria-hidden="true"><span className="lp-hero-glow lp-hero-glow-1" /></div>
+      <div className="lp-container lp-final-inner lp-reveal">
+        <h2 className="lp-final-title">Tu taller ya funciona.<br />Ahora puede funcionar como una empresa.</h2>
+        <p className="lp-final-sub">
+          Probá TechRepair Pro gratis durante {TRIAL_DAYS} días y poné cada reparación, venta y peso en un solo lugar.
+        </p>
+        <button className="lp-btn lp-btn-primary lp-btn-lg" onClick={() => onTrial('cta_final')}>
+          Probar gratis {TRIAL_DAYS} días <ArrowRight size={18} />
+        </button>
+        <p className="lp-final-note">Sin tarjeta · Funciones Pro durante la prueba · Cancelás cuando quieras</p>
       </div>
     </section>
   )
 }
 
 // ─── FOOTER ───────────────────────────────────────────────────────────────────
-function Footer({ onNav }: { onNav: (id: string) => void }) {
+function Footer({ onTrial }: { onTrial: (s: string) => void }) {
   const navigate = useNavigate()
   return (
     <footer className="lp-footer">
       <div className="lp-container">
         <div className="lp-footer-grid">
-          {/* Brand */}
           <div className="lp-footer-brand">
-            <div className="lp-logo" style={{ marginBottom: '0.875rem' }}>
-              <div className="lp-logo-icon"><CatLogoSVG size={22} /></div>
+            <a href="#top" className="lp-logo" onClick={e => { e.preventDefault(); smoothScroll('top') }}>
+              <span className="lp-logo-mark"><BrandLogo size={20} /></span>
               <span className="lp-logo-text">TechRepair<span>Pro</span></span>
-            </div>
-            <p style={{ color: '#475569', fontSize: '0.875rem', lineHeight: 1.7, maxWidth: 260 }}>
-              Sistema de gestión para servicios técnicos, talleres de reparación y tiendas de celulares. Hecho en Argentina.
-            </p>
-            <div className="lp-footer-social">
-              <a href={`https://instagram.com/${CONTACT.instagram}`} target="_blank" rel="noopener noreferrer" aria-label="Instagram TechRepair Pro">
-                <IC.Instagram />
-              </a>
-              <a href={`https://wa.me/${CONTACT.whatsapp}`} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp TechRepair Pro">
-                <WhatsAppSVG size={18} />
-              </a>
-            </div>
+            </a>
+            <p>Sistema de gestión para servicios técnicos, talleres de reparación y locales de celulares. Hecho en Argentina.</p>
+            {HAS_SOCIAL && (
+              <div className="lp-footer-social">
+                {CONTACT.instagram && (
+                  <a href={`https://instagram.com/${CONTACT.instagram}`} target="_blank" rel="noopener noreferrer" aria-label="Instagram de TechRepair Pro">
+                    <Smartphone size={18} aria-hidden="true" />
+                  </a>
+                )}
+                {CONTACT.whatsapp && (
+                  <a href={`https://wa.me/${CONTACT.whatsapp}`} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp de TechRepair Pro">
+                    <WhatsAppGlyph size={18} />
+                  </a>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Links */}
-          <div className="lp-footer-col">
-            <h4>Producto</h4>
-            <a href="#features" onClick={e => { e.preventDefault(); onNav('features') }}>Funciones</a>
-            <a href="#pricing" onClick={e => { e.preventDefault(); onNav('pricing') }}>Planes</a>
-            <a href="#arca" onClick={e => { e.preventDefault(); onNav('arca') }}>Facturación ARCA</a>
-            <a href="#miguita" onClick={e => { e.preventDefault(); onNav('miguita') }}>Mi Guita</a>
-            <a href="#faq" onClick={e => { e.preventDefault(); onNav('faq') }}>Preguntas frecuentes</a>
-          </div>
+          <nav className="lp-footer-col" aria-label="Producto">
+            <h3>Producto</h3>
+            <button onClick={() => smoothScroll('recorrido')}>Cómo funciona</button>
+            <button onClick={() => smoothScroll('crecimiento')}>Soluciones</button>
+            <button onClick={() => smoothScroll('planes')}>Planes</button>
+            <button onClick={() => smoothScroll('faq')}>Preguntas frecuentes</button>
+          </nav>
 
-          <div className="lp-footer-col">
-            <h4>Empezar</h4>
-            <button onClick={() => navigate('/onboarding')}>Probar gratis</button>
+          <nav className="lp-footer-col" aria-label="Empezar">
+            <h3>Empezar</h3>
+            <button onClick={() => onTrial('footer')}>Probar gratis</button>
             <button onClick={() => navigate('/login')}>Ingresar</button>
-            <a href={`https://wa.me/${CONTACT.whatsapp}?text=${CONTACT.whatsappMsg}`} target="_blank" rel="noopener noreferrer">Contacto</a>
-            <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>
-          </div>
+            {CONTACT.email && <a href={`mailto:${CONTACT.email}`}>{CONTACT.email}</a>}
+          </nav>
         </div>
 
         <div className="lp-footer-bottom">
-          <span>© {new Date().getFullYear()} TechRepair Pro. Buenos Aires, Argentina.</span>
+          <span>© {new Date().getFullYear()} TechRepair Pro · Argentina</span>
           <span>Hecho para técnicos, por técnicos.</span>
         </div>
       </div>
@@ -1089,41 +838,78 @@ function Footer({ onNav }: { onNav: (id: string) => void }) {
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 export function LandingPage() {
   const navigate = useNavigate()
+  const rootRef = useRef<HTMLDivElement | null>(null)
 
-  // Intersection Observer for scroll animations
-  const observerRef = useRef<IntersectionObserver | null>(null)
+  const startTrial = useCallback((source: string) => {
+    if (source === 'hero') track('hero_trial_click', { source })
+    track('signup_started', { source })
+    navigate('/onboarding')
+  }, [navigate])
+
+  const openDemo = useCallback(() => {
+    track('hero_product_demo_click')
+    smoothScroll('recorrido')
+  }, [])
+
+  const selectPlan = useCallback((plan: SubscriptionPlan) => {
+    // `plan` proviene de PLANS (la grilla mapea sobre la fuente de verdad), así que
+    // ya es un id válido. Se pasa por query param y el onboarding lo revalida.
+    track('plan_selected', { plan })
+    track('signup_started', { source: 'pricing', plan })
+    navigate(`/onboarding?plan=${plan}`)
+  }, [navigate])
+
+  // Analytics + reveals + section tracking
   useEffect(() => {
-    observerRef.current = new IntersectionObserver(
-      entries => entries.forEach(e => { if (e.isIntersecting) (e.target as HTMLElement).style.opacity = '1' }),
-      { threshold: 0.1 }
-    )
-    document.querySelectorAll('.lp-fade-up').forEach(el => {
-      ;(el as HTMLElement).style.opacity = '0'
-      observerRef.current?.observe(el)
-    })
-    return () => observerRef.current?.disconnect()
+    initLandingAnalytics()
+    track('landing_view')
+
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const root = rootRef.current
+
+    let revealObs: IntersectionObserver | null = null
+    if (!reduce && root) {
+      root.classList.add('lp-anim')
+      revealObs = new IntersectionObserver((entries, obs) => {
+        entries.forEach(e => {
+          if (e.isIntersecting) { e.target.classList.add('is-visible'); obs.unobserve(e.target) }
+        })
+      }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' })
+      root?.querySelectorAll('.lp-reveal').forEach(el => revealObs?.observe(el))
+    }
+
+    const seen = new Set<string>()
+    const sectionObs = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        const id = (e.target as HTMLElement).dataset.track
+        if (e.isIntersecting && id && !seen.has(id)) {
+          seen.add(id)
+          if (id === 'journey') track('journey_section_reached')
+          if (id === 'pricing') track('pricing_section_reached')
+        }
+      })
+    }, { threshold: 0.3 })
+    root?.querySelectorAll('[data-track]').forEach(el => sectionObs.observe(el))
+
+    return () => { revealObs?.disconnect(); sectionObs.disconnect() }
   }, [])
 
   return (
-    <div className="landing-root">
-      <Header onNav={scrollTo} />
+    <div className="landing-root" ref={rootRef}>
+      <Header onTrial={startTrial} />
       <main>
-        <Hero navigate={navigate} />
+        <Hero onTrial={startTrial} onDemo={openDemo} />
         <ProblemSection />
-        <FlowSection />
-        <ScalabilitySection navigate={navigate} />
-        <FeaturesSection navigate={navigate} />
-        <InventorySection />
-        <FinanceSection />
-        <ARCASection navigate={navigate} />
-        <MiGuitaSection />
-        <PricingSection navigate={navigate} />
-        <BeforeAfterSection />
-        <TrustSection />
+        <JourneySection />
+        <GrowthSection />
+        <LocalSection />
+        <BusinessViewSection />
+        <CredibilitySection />
+        <PricingSection onSelect={selectPlan} />
         <FAQSection />
-        <CTAFinal navigate={navigate} />
+        <FinalCTA onTrial={startTrial} />
       </main>
-      <Footer onNav={scrollTo} />
+      <Footer onTrial={startTrial} />
     </div>
   )
 }

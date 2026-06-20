@@ -2,11 +2,20 @@
  * Onboarding.tsx — Wizard de creación de negocio y configuración inicial.
  * 7 pasos: Negocio → Logo → Contacto → Fiscal → Métodos de pago → Plan/Trial → ¡Listo!
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { uploadBusinessLogo } from '../lib/storageSetup'
+import { track } from '../lib/analytics'
+import { PLANS, type SubscriptionPlan } from '../types/subscription'
+
+// Plan elegido en la landing (?plan=...). Persistido temporalmente para
+// sobrevivir un refresh durante el onboarding. Se valida contra PLANS.
+const ORIGIN_PLAN_KEY = 'trp_origin_plan'
+function isValidPlan(v: string | null): v is SubscriptionPlan {
+  return !!v && PLANS.some(p => p.id === v)
+}
 
 const RUBROS = [
   { id: 'celulares',        label: 'Celulares y smartphones' },
@@ -75,6 +84,11 @@ export function Onboarding() {
   // ── Guard ────────────────────────────────────────────────────────────────────
   const [guardDone, setGuardDone] = useState(false)
 
+  // Plan de origen (landing → ?plan=...), validado contra la fuente de verdad.
+  const [originPlan, setOriginPlan] = useState<SubscriptionPlan | null>(null)
+  // Idempotencia: la conversión signup_completed se dispara una sola vez por flujo.
+  const signupCompletedRef = useRef(false)
+
   useEffect(() => {
     if (guardDone) return
     if (loading || profileLoading) return
@@ -82,6 +96,17 @@ export function Onboarding() {
     if (existingBusinessId) { navigate('/dashboard', { replace: true }); return }
     setGuardDone(true)
   }, [guardDone, loading, profileLoading, user, existingBusinessId, navigate])
+
+  useEffect(() => {
+    // Lee el plan elegido en la landing: query param primero, luego sessionStorage.
+    const fromUrl = new URLSearchParams(window.location.search).get('plan')
+    const stored = (() => { try { return sessionStorage.getItem(ORIGIN_PLAN_KEY) } catch { return null } })()
+    const candidate = fromUrl ?? stored
+    if (isValidPlan(candidate)) {
+      setOriginPlan(candidate)
+      try { sessionStorage.setItem(ORIGIN_PLAN_KEY, candidate) } catch { /* no-op */ }
+    }
+  }, [])
 
   if (!guardDone) {
     return (
@@ -220,14 +245,24 @@ export function Onboarding() {
 
   // ── Step 7: guardar y listo ───────────────────────────────────────────────
   const handleFinish = async () => {
+    // Ya completado en este flujo: no re-disparar la conversión, sólo continuar.
+    if (signupCompletedRef.current) { navigate('/dashboard', { replace: true }); return }
+    // Sin negocio creado no hubo onboarding válido: no es una conversión.
+    if (!businessId) { navigate('/dashboard', { replace: true }); return }
+
     setSaving(true); setError('')
     try {
-      if (businessId) {
-        await supabase.from('businesses').update({
-          onboarding_completed: true,
-          onboarding_completed_at: new Date().toISOString(),
-        }).eq('id', businessId)
-      }
+      await supabase.from('businesses').update({
+        onboarding_completed: true,
+        onboarding_completed_at: new Date().toISOString(),
+      }).eq('id', businessId)
+
+      // El backend confirmó la finalización del onboarding: recién acá es una
+      // conversión real. Guard idempotente para evitar duplicados por reintentos.
+      signupCompletedRef.current = true
+      track('signup_completed', { business_id: businessId, plan: originPlan ?? null })
+      try { sessionStorage.removeItem(ORIGIN_PLAN_KEY) } catch { /* no-op */ }
+
       navigate('/dashboard', { replace: true })
     } catch (e: any) {
       setError(e.message || 'Error al finalizar')
@@ -490,6 +525,11 @@ export function Onboarding() {
               <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem', lineHeight: 1.6 }}>
                 Acceso completo durante el período de prueba. Sin tarjeta requerida.
               </p>
+              {originPlan && (
+                <p style={{ margin: '0.625rem 0 0', color: '#818cf8', fontSize: '0.8rem', fontWeight: 600 }}>
+                  Elegiste el plan {PLANS.find(p => p.id === originPlan)?.name}: lo vas a poder activar al terminar la prueba.
+                </p>
+              )}
             </div>
             <div style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 14, padding: '1rem 1.125rem', marginBottom: '1.25rem' }}>
               <p style={{ margin: '0 0 0.75rem', fontSize: '0.72rem', fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>

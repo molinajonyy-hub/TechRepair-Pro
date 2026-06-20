@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<title>TechRepair Pro — OG image generator (1200×630)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; background: #05080f; color: #cbd5e1; font-family: Inter, system-ui, sans-serif; }
+  .wrap { padding: 24px; display: flex; flex-direction: column; gap: 16px; align-items: flex-start; }
+  canvas { width: 600px; height: 315px; border-radius: 8px; box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
+  a { color: #818cf8; font-size: 14px; }
+  p { font-size: 13px; color: #64748b; max-width: 600px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <canvas id="c" width="1200" height="630"></canvas>
+  <a id="dl" download="og-image.png">Descargar og-image.png</a>
+  <p>
+    Herramienta interna de diseño (no se publica). Dibuja la imagen Open Graph de TechRepair Pro
+    (Índigo · Gestión) con Canvas 2D y exporta un PNG nítido de 1200×630.
+    Para regenerar: abrir este archivo en un navegador (file:// o servido localmente),
+    descargar con el enlace de arriba y reemplazar <code>/public/og-image.png</code>.
+    La imagen renderizada también queda en <code>window.__OG_DATAURL</code>.
+  </p>
+</div>
+<script>
+const W = 1200, H = 630;
+const INDIGO_2 = '#818cf8';
+
+async function draw() {
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+
+  // Asegura que Inter esté cargada antes de pintar texto.
+  try {
+    await document.fonts.ready;
+    await Promise.all([
+      document.fonts.load('900 64px Inter'),
+      document.fonts.load('800 30px Inter'),
+      document.fonts.load('700 18px Inter'),
+      document.fonts.load('600 15px Inter'),
+    ]);
+  } catch (e) { /* sigue con fallback del sistema */ }
+
+  // ── Fondo (plano para PNG liviano) ────────────────────────────────────────
+  ctx.fillStyle = '#0a1020';
+  ctx.fillRect(0, 0, W, H);
+
+  // Banda índigo izquierda muy sutil (profundidad sin gradientes pesados)
+  ctx.fillStyle = 'rgba(99,102,241,0.05)';
+  ctx.fillRect(0, 0, 520, H);
+
+  // Grilla coarse arriba-izquierda (pocas líneas → buena compresión)
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= 700; x += 96) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 360); ctx.stroke(); }
+  for (let y = 0; y <= 360; y += 96) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(700, y); ctx.stroke(); }
+
+  // Línea índigo superior (acento de marca)
+  ctx.fillStyle = INDIGO_2;
+  ctx.fillRect(0, 0, W, 4);
+
+  // ── Logo + wordmark ─────────────────────────────────────────────────────
+  const lx = 80, ly = 92, ls = 58;
+  const lg = ctx.createLinearGradient(lx, ly, lx + ls, ly + ls);
+  lg.addColorStop(0, '#6366f1'); lg.addColorStop(1, '#4f46e5');
+  ctx.fillStyle = lg;
+  ctx.beginPath(); ctx.roundRect(lx, ly, ls, ls, 16); ctx.fill();
+
+  // Gato (mismo path que cat-logo.svg)
+  ctx.save();
+  ctx.translate(lx + ls * 0.10, ly + ls * 0.10);
+  ctx.scale((ls * 0.8) / 100, (ls * 0.8) / 100);
+  const body = new Path2D('M18 46 L25 14 L38 36 Q50 30 62 36 L75 14 L82 46 Q86 60 82 70 Q70 88 50 88 Q30 88 18 70 Q14 60 18 46 Z');
+  ctx.fillStyle = 'rgba(255,255,255,0.96)';
+  ctx.fill(body);
+  ctx.fillStyle = '#4f46e5';
+  ctx.beginPath(); ctx.ellipse(37, 58, 5.4, 5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(63, 58, 5.4, 5, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  ctx.textBaseline = 'middle';
+  ctx.font = '800 26px Inter, system-ui, sans-serif';
+  ctx.fillStyle = '#f4f7fc';
+  ctx.fillText('TechRepair', lx + ls + 16, ly + ls / 2);
+  const tw = ctx.measureText('TechRepair').width;
+  ctx.fillStyle = INDIGO_2;
+  ctx.fillText('Pro', lx + ls + 16 + tw + 2, ly + ls / 2);
+
+  // ── Eyebrow ───────────────────────────────────────────────────────────────
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = '700 15px Inter, system-ui, sans-serif';
+  const eb = 'PARA TALLERES Y LOCALES DE CELULARES';
+  const ebw = ctx.measureText(eb).width;
+  ctx.fillStyle = 'rgba(99,102,241,0.14)';
+  ctx.strokeStyle = 'rgba(99,102,241,0.4)';
+  ctx.beginPath(); ctx.roundRect(80, 198, ebw + 36, 34, 17); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = INDIGO_2;
+  ctx.fillText(eb, 98, 220);
+
+  // ── Título ────────────────────────────────────────────────────────────────
+  ctx.font = '900 66px Inter, system-ui, sans-serif';
+  ctx.fillStyle = '#f4f7fc';
+  ctx.fillText('Tu taller,', 80, 318);
+  const grad = ctx.createLinearGradient(80, 360, 620, 400);
+  grad.addColorStop(0, '#818cf8'); grad.addColorStop(0.6, '#a78bfa'); grad.addColorStop(1, '#6366f1');
+  ctx.fillStyle = grad;
+  ctx.fillText('bajo control.', 80, 392);
+
+  // ── Subtítulo ─────────────────────────────────────────────────────────────
+  ctx.font = '600 25px Inter, system-ui, sans-serif';
+  ctx.fillStyle = '#c6d2e6';
+  ctx.fillText('Reparaciones, stock, cobros y finanzas', 80, 452);
+  ctx.fillText('conectados.', 80, 488);
+
+  // ── Pie de confianza ──────────────────────────────────────────────────────
+  ctx.font = '600 16px Inter, system-ui, sans-serif';
+  ctx.fillStyle = '#94a3bd';
+  ctx.fillText('14 días gratis  ·  Sin tarjeta  ·  Facturación ARCA', 80, 548);
+
+  // ── Tarjeta del sistema (derecha) ──────────────────────────────────────────
+  const cardX = 742, cardY = 150, cardW = 378, cardH = 330;
+  ctx.fillStyle = '#0f1a31';
+  ctx.strokeStyle = 'rgba(99,102,241,0.30)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect(cardX, cardY, cardW, cardH, 18); ctx.fill(); ctx.stroke();
+
+  // Titlebar (sólo esquinas superiores redondeadas)
+  ctx.fillStyle = 'rgba(255,255,255,0.03)';
+  ctx.beginPath(); ctx.roundRect(cardX, cardY, cardW, 44, [18, 18, 0, 0]); ctx.fill();
+  const dots = ['#3a4a66', '#3a4a66', '#3a4a66'];
+  dots.forEach((c, i) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(cardX + 22 + i * 16, cardY + 22, 5, 0, Math.PI * 2); ctx.fill(); });
+  ctx.font = '600 14px Inter, system-ui, sans-serif';
+  ctx.fillStyle = '#94a3bd';
+  ctx.fillText('Orden #00042 · iPhone 14 Pro', cardX + 84, cardY + 27);
+  // Badge "Cobrado"
+  ctx.font = '700 12px Inter, system-ui, sans-serif';
+  const badge = 'Cobrado'; const bw = ctx.measureText(badge).width + 20;
+  ctx.fillStyle = 'rgba(251,191,36,0.16)'; ctx.strokeStyle = 'rgba(251,191,36,0.45)';
+  ctx.beginPath(); ctx.roundRect(cardX + cardW - bw - 14, cardY + 11, bw, 22, 11); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#fbbf24'; ctx.fillText(badge, cardX + cardW - bw - 4, cardY + 26);
+
+  // Rail de chips
+  const chips = [['Orden', true], ['Inventario', false], ['Cliente', true], ['Caja', true]];
+  let chx = cardX + 18; const chy = cardY + 62;
+  ctx.font = '600 12px Inter, system-ui, sans-serif';
+  chips.forEach(([label, on]) => {
+    const cw = ctx.measureText(label).width + 22;
+    ctx.fillStyle = on ? 'rgba(99,102,241,0.16)' : 'rgba(255,255,255,0.03)';
+    ctx.strokeStyle = on ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.08)';
+    ctx.beginPath(); ctx.roundRect(chx, chy, cw, 26, 8); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = on ? INDIGO_2 : '#7c8aa6';
+    ctx.fillText(label, chx + 11, chy + 17);
+    chx += cw + 8;
+  });
+
+  // Headline dentro de la tarjeta
+  ctx.font = '700 17px Inter, system-ui, sans-serif';
+  ctx.fillStyle = '#f4f7fc';
+  ctx.fillText('Cobrás y emitís el', cardX + 18, cardY + 128);
+  ctx.fillText('comprobante en el acto', cardX + 18, cardY + 152);
+
+  // Filas
+  const rows = [['Cobro', '$60.900 · efectivo'], ['Comprobante', 'N° 00000042']];
+  let ry = cardY + 196;
+  rows.forEach(([k, v]) => {
+    ctx.font = '500 14px Inter, system-ui, sans-serif'; ctx.fillStyle = '#94a3bd';
+    ctx.fillText(k, cardX + 18, ry);
+    ctx.font = '700 14px Inter, system-ui, sans-serif'; ctx.fillStyle = '#c6d2e6';
+    const vw = ctx.measureText(v).width;
+    ctx.fillText(v, cardX + cardW - 18 - vw, ry);
+    ry += 30;
+  });
+
+  // Barra de progreso (completa)
+  const pbx = cardX + 18, pby = cardY + 272, pbw = cardW - 36;
+  ctx.fillStyle = 'rgba(255,255,255,0.07)';
+  ctx.beginPath(); ctx.roundRect(pbx, pby, pbw, 6, 3); ctx.fill();
+  const pg = ctx.createLinearGradient(pbx, 0, pbx + pbw, 0);
+  pg.addColorStop(0, '#6366f1'); pg.addColorStop(1, '#fbbf24');
+  ctx.fillStyle = pg;
+  ctx.beginPath(); ctx.roundRect(pbx, pby, pbw, 6, 3); ctx.fill();
+
+  window.__OG_DATAURL = cv.toDataURL('image/png');
+  const a = document.getElementById('dl');
+  if (a) a.href = window.__OG_DATAURL;
+  window.__OG_READY = true;
+}
+draw();
+</script>
+</body>
+</html>
