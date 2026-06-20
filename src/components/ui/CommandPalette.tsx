@@ -30,6 +30,8 @@ import { useAuth } from '../../contexts/AuthContext'
 import { tokenize } from '../../utils/searchUtils'
 import { animate, transition, duration } from '../../lib/motion'
 import { colors } from '../../lib/tokens'
+import { currencyService } from '../../services/currencyService'
+import { resolveProductPricing } from '../../lib/pricing/productPricing'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,6 +46,8 @@ interface PaletteItem {
   sublabel?: string
   badge?:   string
   badgeColor?: string
+  /** Precio ARS vigente (productos): mismo valor resuelto que Inventario y POS. */
+  price?:   string
   path?:    string
   action?:  () => void
   group:    string
@@ -135,6 +139,15 @@ const ResultRow = memo(function ResultRow({ item, isActive, onSelect, onHover }:
         )}
       </div>
 
+      {/* Precio vigente (productos) */}
+      {item.price && (
+        <span style={{
+          fontSize: '0.78rem', fontWeight: 700, color: '#22c55e', flexShrink: 0,
+        }}>
+          {item.price}
+        </span>
+      )}
+
       {/* Badge */}
       {(item.badge || meta.label) && (
         <span style={{
@@ -177,6 +190,18 @@ export function CommandPalette() {
   const inputRef   = useRef<HTMLInputElement>(null)
   const listRef    = useRef<HTMLDivElement>(null)
   const searchRef  = useRef<ReturnType<typeof setTimeout>>()
+  // Cotización USD→ARS vigente para dolarizar precios de productos (compute-at-read).
+  // En un ref para no recrear la búsqueda ni re-render al cargarse.
+  const rateRef    = useRef(0)
+
+  useEffect(() => {
+    if (!businessId) { rateRef.current = 0; return }
+    let alive = true
+    currencyService.getCurrentExchangeRate('USD', 'ARS')
+      .then(r => { if (alive) rateRef.current = r || 0 })
+      .catch(() => { if (alive) rateRef.current = 0 })
+    return () => { alive = false }
+  }, [businessId])
 
   // Mostrar acciones rápidas cuando no hay query
   const displayItems = query.length >= 2 ? results : QUICK_ACTIONS
@@ -276,7 +301,9 @@ export function CommandPalette() {
           .eq('business_id', businessId)
           .or(`name.ilike.${term},phone.ilike.${term},email.ilike.${term}`)
           .limit(4),
-        supabase.from('inventory').select('id,name,code,stock_quantity,category')
+        // Trae los campos de pricing para resolver el precio vigente con el mismo
+        // motor que Inventario y POS (resolveProductPricing) — sin cálculo duplicado.
+        supabase.from('inventory').select('id,name,code,stock_quantity,category,sale_price,precio_mayorista,cost_price,cost_price_usd,base_price,base_currency,auto_update_price,exchange_rate_used')
           .eq('business_id', businessId).eq('is_active', true)
           .or(`name.ilike.${term},code.ilike.${term},description.ilike.${term}`)
           .limit(4),
@@ -303,8 +330,12 @@ export function CommandPalette() {
           path: `/customers/${c.id}` })
       }
       for (const p of inventoryRes.data ?? []) {
+        // Precio vigente minorista, dolarizado si el producto es USD-auto.
+        // Mismo motor que Inventario y POS → siempre el mismo precio.
+        const saleArs = resolveProductPricing(p, rateRef.current).saleArs
         items.push({ id: p.id, type: 'inventory', group: 'Productos', icon: Package,
           label: p.name, sublabel: `${p.code} · stock: ${p.stock_quantity}`,
+          price: saleArs > 0 ? '$' + Math.round(saleArs).toLocaleString('es-AR') : undefined,
           path: '/inventory' })
       }
       for (const s of suppliersRes.data ?? []) {

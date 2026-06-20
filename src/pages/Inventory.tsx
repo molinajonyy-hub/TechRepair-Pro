@@ -22,6 +22,7 @@ import { useInventory } from '../hooks/useInventory'
 import { useAuth } from '../contexts/AuthContext'
 import { currencyService } from '../services/currencyService'
 import { calcularPrecioLocal, convertirMoneda, calcularRentabilidad } from '../utils/priceCalculator'
+import { resolveProductPricing } from '../lib/pricing/productPricing'
 import { useLoading } from '../contexts/LoadingContext'
 import { ModalImportExcel } from '../components/ModalImportExcel'
 import { StockRepairTool } from '../components/inventory/StockRepairTool'
@@ -329,14 +330,16 @@ export function Inventory() {
 
   // Calcula precios efectivos desde variantes para un producto base con variantes
   const getEffectivePrices = (item: any): { costPrice: number; salePrice: number; isRange: boolean; minCost: number; maxCost: number; minSale: number; maxSale: number } => {
+    // Precio/costo ARS vigente: dolariza productos USD-auto con la cotización actual (motor central).
+    // Sin cotización cargada (rate 0) el motor cae al precio guardado, no a base × 1.
+    const rate = exchangeRates['USD-ARS'] || 0
     const variants = isVariantItem(item) ? [] : (variantsByParent[item.id] || [])
     if (variants.length === 0) {
-      const c = item.cost_price || 0
-      const s = item.sale_price || 0
-      return { costPrice: c, salePrice: s, isRange: false, minCost: c, maxCost: c, minSale: s, maxSale: s }
+      const e = resolveProductPricing(item, rate)
+      return { costPrice: e.costArs, salePrice: e.saleArs, isRange: false, minCost: e.costArs, maxCost: e.costArs, minSale: e.saleArs, maxSale: e.saleArs }
     }
-    const costs = variants.map(v => v.cost_price || 0)
-    const sales = variants.map(v => v.sale_price || 0)
+    const costs = variants.map(v => resolveProductPricing(v, rate).costArs)
+    const sales = variants.map(v => resolveProductPricing(v, rate).saleArs)
     const minCost = Math.min(...costs)
     const maxCost = Math.max(...costs)
     const minSale = Math.min(...sales)
@@ -1273,6 +1276,7 @@ export function Inventory() {
     const marginPercent = costPrice > 0 ? ((margin / costPrice) * 100).toFixed(1) : '0'
     const costPriceUSD = !hasVariants && item.base_currency === 'USD' ? formatUSD(item.cost_price_usd) : null
     const salePriceUSD = !hasVariants && item.base_currency === 'USD' ? formatUSD(item.base_price) : null
+    const pricing = !hasVariants ? resolveProductPricing(item, exchangeRates['USD-ARS'] || 0) : null
     const productName = isVariant ? getVariantName(item, parentItem) : item.name
 
     return (
@@ -1405,6 +1409,14 @@ export function Inventory() {
                 <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.125rem' }}>
                   {salePriceUSD}
                 </div>
+              )}
+              {pricing?.isAuto && (
+                <div style={{ fontSize: '0.6875rem', color: '#34d399', marginTop: '0.125rem' }} title={pricing.dollarUsed ? `Dólar usado: $${pricing.dollarUsed}` : undefined}>
+                  ↻ Actualizado por dólar{pricing.dollarUsed ? ` · $${Math.round(pricing.dollarUsed)}` : ''}
+                </div>
+              )}
+              {pricing && !pricing.isAuto && pricing.baseCurrency === 'USD' && (
+                <div style={{ fontSize: '0.6875rem', color: '#fbbf24', marginTop: '0.125rem' }}>Precio manual</div>
               )}
             </div>
           )}

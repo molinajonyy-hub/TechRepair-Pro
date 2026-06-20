@@ -10,6 +10,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react'
 import { ProductFormModalSafe as ProductFormModal } from '../products/ProductFormModal'
 import type { InventoryItem as InventoryItemFull } from '../../hooks/useInventory'
 import { isWholesaleCustomer, getProductPriceForCustomer } from '../../utils/pricing'
+import { resolveProductPricing } from '../../lib/pricing/productPricing'
 import {
   X, Search, Plus, DollarSign, Package, Wrench, Tag,
   AlertCircle, AlertTriangle, CheckCircle2, User, Loader2,
@@ -38,8 +39,10 @@ import { useKeyboardAwareBottomOffset } from '../../hooks/useKeyboardAwareBottom
 interface InventoryResult {
   id: string; code: string; name: string; variant_name?: string | null
   category: string; stock_quantity: number; cost_price: number
+  cost_price_usd?: number | null
   sale_price: number; precio_mayorista?: number | null
   base_price?: number | null; base_currency?: string | null; has_variants?: boolean | null
+  auto_update_price?: boolean | null; exchange_rate_used?: number | null
 }
 interface ClienteOption { id: string; name: string; cuit?: string; customer_type?: string; phone?: string }
 interface LineaItem {
@@ -72,6 +75,20 @@ const emptyLinea = (): LineaItem => ({
 })
 const F = "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
 const fmtARS = (n: number) => '$' + Math.round(n).toLocaleString('es-AR')
+
+/** Precio ARS efectivo para un cliente: dolariza productos USD-auto con la cotización
+ *  vigente (motor central) y aplica la regla minorista/mayorista. Función pura. */
+function effectiveCustomerPriceARS(
+  inv: Parameters<typeof resolveProductPricing>[0],
+  rate: number,
+  wholesale: boolean,
+): number {
+  const e = resolveProductPricing(inv, rate)
+  return getProductPriceForCustomer(
+    { sale_price: e.saleArs, precio_mayorista: e.mayoristaArs },
+    wholesale ? { customer_type: 'mayorista' } : { customer_type: 'minorista' },
+  ).price
+}
 const stockState = (qty: number) => qty <= 0 ? 'out' : qty <= 5 ? 'low' : 'ok'
 const STOCK_COLORS = { ok: '#22c55e', low: '#f59e0b', out: '#ef4444' }
 const STOCK_LABELS = { ok: '', low: 'Stock bajo', out: 'Sin stock' }
@@ -191,7 +208,7 @@ const LineaCard = memo(function LineaCard({
                       <div style={{ color: '#f0f4ff', fontSize: '0.82rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inv.name}{inv.variant_name ? ` — ${inv.variant_name}` : ''}</div>
                       <div style={{ color: 'var(--pos-text-muted)', fontSize: '0.7rem' }}>{inv.stock_quantity} stock · {inv.category}</div>
                     </div>
-                    <span style={{ color: '#818cf8', fontSize: '0.82rem', fontWeight: 700, flexShrink: 0 }}>{fmtARS(esClienteMayorista && inv.precio_mayorista ? inv.precio_mayorista : inv.sale_price)}</span>
+                    <span style={{ color: '#818cf8', fontSize: '0.82rem', fontWeight: 700, flexShrink: 0 }}>{fmtARS(effectiveCustomerPriceARS(inv, exchangeRate, esClienteMayorista))}</span>
                   </button>
                 ))}
                 <button onMouseDown={onCreateProduct}
@@ -536,7 +553,7 @@ export function ComprobanteProModal({
   useEffect(() => {
     if (!isOpen || !businessId) return
     supabase.from('comprobante_items')
-      .select('inventory_id, inventory:inventory_id(id,name,variant_name,sale_price,stock_quantity,cost_price,precio_mayorista,code,category,has_variants,is_active)')
+      .select('inventory_id, inventory:inventory_id(id,name,variant_name,sale_price,stock_quantity,cost_price,cost_price_usd,precio_mayorista,base_price,base_currency,auto_update_price,exchange_rate_used,code,category,has_variants,is_active)')
       .eq('business_id', businessId)
       .not('inventory_id', 'is', null)
       .order('created_at', { ascending: false })
@@ -665,7 +682,7 @@ export function ComprobanteProModal({
     try {
       const dbQ = buildSupabaseQuery(q)
       const { data, error: searchErr } = await supabase.from('inventory')
-        .select('id,code,name,variant_name,category,stock_quantity,cost_price,sale_price,precio_mayorista,base_price,base_currency,has_variants')
+        .select('id,code,name,variant_name,category,stock_quantity,cost_price,cost_price_usd,sale_price,precio_mayorista,base_price,base_currency,auto_update_price,exchange_rate_used,has_variants')
         .eq('business_id', businessId).eq('is_active', true).not('has_variants', 'is', true)
         .or(`name.ilike.${dbQ},variant_name.ilike.${dbQ},code.ilike.${dbQ},category.ilike.${dbQ}`).limit(40)
       if (searchErr) {
@@ -709,7 +726,9 @@ export function ComprobanteProModal({
 
   const addOrIncrement = useCallback((inv: InventoryResult, qty = 1) => {
     const customer = esClienteMayorista ? { customer_type: 'mayorista' } : { customer_type: 'minorista' }
-    const pr   = getProductPriceForCustomer({ sale_price: inv.sale_price, precio_mayorista: inv.precio_mayorista }, customer)
+    // Precio ARS vigente: dolariza productos USD-auto con la cotización actual antes de aplicar la regla por cliente.
+    const eff  = resolveProductPricing(inv, exchangeRate)
+    const pr   = getProductPriceForCustomer({ sale_price: eff.saleArs, precio_mayorista: eff.mayoristaArs }, customer)
     const desc = [inv.name, inv.variant_name].filter(Boolean).join(' — ') + (inv.code ? ` [${inv.code}]` : '')
     const stock = inv.stock_quantity
 
@@ -723,9 +742,11 @@ export function ComprobanteProModal({
         return prev.map((l, i) => i === existIdx ? { ...l, cantidad: l.cantidad + qty } : l)
       }
       const populated: Partial<LineaItem> = {
-        descripcion: desc, precio_unitario: pr.price, costo_unitario: Number(inv.cost_price) || 0,
-        inventory_id: inv.id, inv_sale_price: Number(inv.sale_price), inv_stock: stock,
-        inv_mayorista_price: inv.precio_mayorista != null ? Number(inv.precio_mayorista) : null,
+        // Costo ARS vigente: dolariza USD-auto con la cotización actual (eff.costArs),
+        // mismo motor que el precio. Se congela en comprobante_items al confirmar la venta.
+        descripcion: desc, precio_unitario: pr.price, costo_unitario: eff.costArs,
+        inventory_id: inv.id, inv_sale_price: eff.saleArs, inv_stock: stock,
+        inv_mayorista_price: eff.mayoristaArs,
         applied_price_type: pr.priceType as 'minorista' | 'mayorista', no_mayorista_warning: pr.fallback,
       }
       const ei = prev.findIndex(l => !l.descripcion.trim())
@@ -749,7 +770,7 @@ export function ComprobanteProModal({
 
     setSpotQ(''); setSpotResults([]); setSpotKeyIdx(-1); setSpotlightMode(false)
     refocusInput(30)
-  }, [esClienteMayorista, showToast])
+  }, [esClienteMayorista, showToast, exchangeRate])
 
   // ── doExactSearch — búsqueda por código/barcode exacto (scanner) ──────────
 
@@ -766,7 +787,7 @@ export function ComprobanteProModal({
 
     const { data } = await supabase
       .from('inventory')
-      .select('id,code,name,variant_name,category,stock_quantity,cost_price,sale_price,precio_mayorista,base_price,base_currency,has_variants')
+      .select('id,code,name,variant_name,category,stock_quantity,cost_price,cost_price_usd,sale_price,precio_mayorista,base_price,base_currency,auto_update_price,exchange_rate_used,has_variants')
       .eq('business_id', businessId)
       .eq('is_active', true)
       .not('has_variants', 'is', true)
@@ -840,16 +861,23 @@ export function ComprobanteProModal({
 
   const selectInventoryItem = useCallback((idx: number, inv: InventoryResult) => {
     const customer = esClienteMayorista ? { customer_type: 'mayorista' } : { customer_type: 'minorista' }
-    const pr = getProductPriceForCustomer({ sale_price: inv.sale_price, precio_mayorista: inv.precio_mayorista }, customer)
+    const eff = resolveProductPricing(inv, exchangeRate)
+    const pr = getProductPriceForCustomer({ sale_price: eff.saleArs, precio_mayorista: eff.mayoristaArs }, customer)
     const desc = [inv.name, inv.variant_name].filter(Boolean).join(' — ') + (inv.code ? ` [${inv.code}]` : '')
     setLineas(prev => prev.map((l, i) => i === idx ? {
-      ...l, descripcion: desc, precio_unitario: pr.price, costo_unitario: Number(inv.cost_price) || 0,
-      currency: 'ARS', inventory_id: inv.id, inv_sale_price: Number(inv.sale_price), inv_stock: inv.stock_quantity,
-      inv_mayorista_price: inv.precio_mayorista != null ? Number(inv.precio_mayorista) : null,
+      ...l, descripcion: desc, precio_unitario: pr.price, costo_unitario: eff.costArs,
+      currency: 'ARS', inventory_id: inv.id, inv_sale_price: eff.saleArs, inv_stock: inv.stock_quantity,
+      inv_mayorista_price: eff.mayoristaArs,
       applied_price_type: pr.priceType as 'minorista' | 'mayorista', no_mayorista_warning: pr.fallback,
     } : l))
     setActiveSearchIdx(null); setLineResults([])
-  }, [esClienteMayorista])
+  }, [esClienteMayorista, exchangeRate])
+
+  // Precio ARS efectivo para mostrar en buscadores/recientes — mismo motor que el alta
+  // (dolariza USD-auto con la cotización vigente y aplica la regla minorista/mayorista).
+  const effPrice = useCallback((p: InventoryResult): number =>
+    effectiveCustomerPriceARS(p, exchangeRate, esClienteMayorista),
+  [esClienteMayorista, exchangeRate])
 
   // ── Payment helpers ───────────────────────────────────────────────────────
 
@@ -1250,7 +1278,7 @@ export function ComprobanteProModal({
                   {spotResults.map((r, i) => {
                     const ss3      = stockState(r.stock_quantity)
                     const isHL     = i === spotKeyIdx || (spotKeyIdx === -1 && i === 0)
-                    const prShow   = esClienteMayorista && r.precio_mayorista ? r.precio_mayorista : r.sale_price
+                    const prShow   = effPrice(r)
                     return (
                       <button data-testid="comprobante-product-option" key={r.id}
                         onMouseDown={() => addOrIncrement(r)}
@@ -1293,7 +1321,7 @@ export function ComprobanteProModal({
                         onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = '#263750' }}>
                         <span style={{ width: 6, height: 6, borderRadius: '50%', background: STOCK_COLORS[ss2], flexShrink: 0 }} />
                         <span style={{ color: '#b8c4d6', fontSize: '0.75rem', maxWidth: '8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                        <span style={{ color: '#8494aa', fontSize: '0.72rem', fontWeight: 700, flexShrink: 0 }}>{fmtARS(esClienteMayorista && p.precio_mayorista ? p.precio_mayorista : p.sale_price)}</span>
+                        <span style={{ color: '#8494aa', fontSize: '0.72rem', fontWeight: 700, flexShrink: 0 }}>{fmtARS(effPrice(p))}</span>
                       </button>
                     )
                   })}
@@ -1864,7 +1892,8 @@ export function ComprobanteProModal({
               )}
               {spotResults.map((inv, i) => {
                 const ss2 = stockState(inv.stock_quantity)
-                const priceToShow = esClienteMayorista && inv.precio_mayorista ? inv.precio_mayorista : inv.sale_price
+                const ePr = resolveProductPricing(inv, exchangeRate)
+                const priceToShow = effPrice(inv)
                 const active = i === spotKeyIdx || (spotKeyIdx === -1 && i === 0)
                 return (
                   <button key={inv.id}
@@ -1888,8 +1917,8 @@ export function ComprobanteProModal({
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
                       <div style={{ color: active ? '#a5b4fc' : '#818cf8', fontSize: '1rem', fontWeight: 800 }}>{fmtARS(priceToShow)}</div>
-                      {esClienteMayorista && inv.precio_mayorista && inv.precio_mayorista !== inv.sale_price && (
-                        <div style={{ color: '#334155', fontSize: '0.7rem', textDecoration: 'line-through' }}>{fmtARS(inv.sale_price)}</div>
+                      {esClienteMayorista && ePr.mayoristaArs && ePr.mayoristaArs !== ePr.saleArs && (
+                        <div style={{ color: '#334155', fontSize: '0.7rem', textDecoration: 'line-through' }}>{fmtARS(ePr.saleArs)}</div>
                       )}
                     </div>
                     {active && <span style={{ fontSize: '0.65rem', color: '#475569', background: 'rgba(255,255,255,0.07)', padding: '0.15rem 0.45rem', borderRadius: '0.3rem', flexShrink: 0 }}>Enter</span>}
@@ -1919,7 +1948,7 @@ export function ComprobanteProModal({
                       onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)' }}>
                       <span style={{ width: 7, height: 7, borderRadius: '50%', background: STOCK_COLORS[ss2], flexShrink: 0 }} />
                       <span style={{ color: '#64748b', fontSize: '0.82rem', maxWidth: '12rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}{p.variant_name ? ` — ${p.variant_name}` : ''}</span>
-                      <span style={{ color: '#475569', fontSize: '0.78rem', fontWeight: 700, flexShrink: 0 }}>{fmtARS(esClienteMayorista && p.precio_mayorista ? p.precio_mayorista : p.sale_price)}</span>
+                      <span style={{ color: '#475569', fontSize: '0.78rem', fontWeight: 700, flexShrink: 0 }}>{fmtARS(effPrice(p))}</span>
                     </button>
                   )
                 })}
@@ -1945,7 +1974,7 @@ export function ComprobanteProModal({
       isOpen={showPFM}
       onClose={() => { setShowPFM(false); setPfmLineIdx(null) }}
       onCreated={(product: InventoryItemFull) => {
-        const inv: InventoryResult = { id: product.id, code: product.code ?? '', name: product.name, category: product.category ?? '', stock_quantity: product.stock_quantity, cost_price: product.cost_price, sale_price: product.sale_price, has_variants: false }
+        const inv: InventoryResult = { id: product.id, code: product.code ?? '', name: product.name, category: product.category ?? '', stock_quantity: product.stock_quantity, cost_price: product.cost_price, cost_price_usd: product.cost_price_usd ?? null, sale_price: product.sale_price, base_price: product.base_price ?? null, base_currency: product.base_currency ?? null, auto_update_price: product.auto_update_price ?? null, exchange_rate_used: product.exchange_rate_used ?? null, has_variants: false }
         if (pfmLineIdx !== null) selectInventoryItem(pfmLineIdx, inv)
         else addOrIncrement(inv)
         setShowPFM(false); setPfmLineIdx(null)
