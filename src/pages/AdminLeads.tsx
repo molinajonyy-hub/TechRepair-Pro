@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Search, RefreshCw, MessageCircle, Mail, StickyNote } from 'lucide-react'
+import { Search, RefreshCw, Mail, StickyNote } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { Loader } from '../components/ui/Loader'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -212,15 +212,10 @@ export function AdminLeads() {
                     ))}
                   </select>
 
-                  {/* Quick actions */}
+                  {/* Quick actions — los leads sólo tienen email (no teléfono),
+                      por eso no se ofrece WhatsApp acá: usar el email como número
+                      generaba un link roto. */}
                   <div style={{ display: 'flex', gap: '0.375rem' }} onClick={e => e.stopPropagation()}>
-                    <a
-                      href={`https://wa.me/${lead.email.replace('@', '')}?text=Hola%20${encodeURIComponent(lead.name)}%2C%20te%20contactamos%20desde%20TechRepair%20Pro`}
-                      title="WhatsApp (abrí manualmente)"
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', borderRadius: '0.5rem', background: 'rgba(37,211,102,0.1)', border: '1px solid rgba(37,211,102,0.2)', color: '#25d366', textDecoration: 'none' }}
-                    >
-                      <MessageCircle size={13} />
-                    </a>
                     <a
                       href={`mailto:${lead.email}?subject=TechRepair Pro - Tu consulta&body=Hola ${encodeURIComponent(lead.name)},%0D%0A%0D%0AGracias por contactarnos.`}
                       title="Enviar email"

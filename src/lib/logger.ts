@@ -28,6 +28,7 @@ export type LogContext =
   | 'SUPABASE'     // queries, errores de DB
   | 'UI'           // renders, animaciones
   | 'PERSONAL'       // Mi Guita — finanzas personales
+  | 'WHATSAPP'       // mensajería WhatsApp (service, Cloud API, plantillas)
   | 'GENERAL'
 
 export interface LogEntry {

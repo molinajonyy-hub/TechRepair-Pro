@@ -197,7 +197,7 @@ test.describe('@whatsapp @smoke OrderDetail — acciones WhatsApp', () => {
     await firstLink.click()
     await page.waitForLoadState('networkidle')
 
-    // Original WhatsApp button (ModalEnviarWhatsApp)
+    // WhatsApp dropdown button (opens WhatsAppPreviewModal)
     const waBtn = page.locator('button', { hasText: /whatsapp/i }).first()
     await expect(waBtn).toBeVisible({ timeout: 10_000 })
 

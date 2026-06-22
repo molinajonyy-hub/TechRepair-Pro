@@ -2,12 +2,17 @@
  * WhatsAppPreviewModal — modal genérico de preview y envío de WhatsApp.
  *
  * Funciona para cualquier contexto: orden, cliente, comprobante, garantía.
- * Carga templates del negocio, permite seleccionar plantilla y editar el
- * mensaje antes de enviarlo por API o abrir wa.me como fallback.
+ * Carga templates del negocio, permite elegir plantilla, EDITAR el teléfono y
+ * el mensaje, y enviar por Cloud API (si hay conexión activa) o abrir
+ * WhatsApp (Desktop / Web / wa.me) como fallback.
+ *
+ * Estados honestos: "abrir WhatsApp" NO confirma envío — sólo el envío por API
+ * confirmado muestra "Enviado por API".
  */
-import { useState, useEffect, useCallback } from 'react'
-import { MessageCircle, Copy, ExternalLink, Check, AlertTriangle, X, RefreshCw, ChevronDown } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { MessageCircle, Copy, ExternalLink, Check, AlertTriangle, X, RefreshCw, ChevronDown, Pencil } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
+import { getConnection } from '../../services/whatsappCloudService'
 import {
   whatsappService,
   interpolateTemplate,
@@ -30,7 +35,7 @@ export interface WhatsAppPreviewModalProps {
   onClose: () => void
   /** Display name for the recipient (for UI only) */
   recipientName: string
-  /** Phone number (raw, will be normalized) */
+  /** Phone number (raw, will be normalized; editable in the modal) */
   phone: string | null | undefined
   /** Pre-select this template key on open */
   defaultTemplateKey?: string
@@ -52,12 +57,12 @@ type SendStatus = 'idle' | 'sending' | 'sent_api' | 'fallback_opened' | 'desktop
 const STATUS_UI: Record<SendStatus, { label: string; color: string } | null> = {
   idle:             null,
   sending:          { label: 'Enviando…', color: '#818cf8' },
-  sent_api:         { label: '✓ Enviado por API', color: '#22c55e' },
-  fallback_opened:  { label: '↗ WhatsApp abierto', color: '#22c55e' },
-  desktop_opened:   { label: '↗ WhatsApp Desktop abierto', color: '#22c55e' },
-  web_opened:       { label: '↗ WhatsApp Web abierto', color: '#22c55e' },
-  copied:           { label: '✓ Mensaje copiado', color: '#60a5fa' },
-  error:            { label: 'Error al enviar', color: '#f87171' },
+  sent_api:         { label: 'Enviado por API', color: '#22c55e' },
+  fallback_opened:  { label: 'WhatsApp abierto', color: '#22c55e' },
+  desktop_opened:   { label: 'WhatsApp Desktop abierto', color: '#22c55e' },
+  web_opened:       { label: 'WhatsApp Web abierto', color: '#22c55e' },
+  copied:           { label: 'Mensaje copiado', color: '#60a5fa' },
+  error:            { label: 'No se pudo enviar', color: '#f87171' },
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -78,29 +83,49 @@ export function WhatsAppPreviewModal({
   const [message,    setMessage]    = useState('')
   const [status,     setStatus]     = useState<SendStatus>('idle')
   const [errorMsg,   setErrorMsg]   = useState('')
+  const [cloudConnected, setCloudConnected] = useState(false)
+  const [phoneInput, setPhoneInput] = useState(phone ?? '')
+  const [editingPhone, setEditingPhone] = useState(false)
+
+  const dialogRef       = useRef<HTMLDivElement>(null)
+  const textareaRef     = useRef<HTMLTextAreaElement>(null)
+  const previousFocus   = useRef<HTMLElement | null>(null)
 
   const isMobile    = isMobileDevice()
-  const phoneResult = phone ? normalizeWhatsAppPhone(phone) : { normalized: '', valid: false, error: 'Sin teléfono' }
-  const desktopUrl  = phoneResult.valid ? buildWhatsAppDesktopUrl(phone!, message) : ''
-  const webUrl      = phoneResult.valid ? buildWhatsAppWebUrl(phone!, message) : ''
-  const mobileUrl   = phoneResult.valid ? buildWhatsAppUniversalUrl(phone!, message) : ''
+  const phoneResult = normalizeWhatsAppPhone(phoneInput)
+  const desktopUrl  = phoneResult.valid ? buildWhatsAppDesktopUrl(phoneInput, message) : ''
+  const webUrl      = phoneResult.valid ? buildWhatsAppWebUrl(phoneInput, message) : ''
+  const mobileUrl   = phoneResult.valid ? buildWhatsAppUniversalUrl(phoneInput, message) : ''
 
-  // ── Load settings + templates ──────────────────────────────────────────────
+  // ── Load settings + templates + cloud connection ───────────────────────────
   const loadData = useCallback(async () => {
     if (!businessId || !isOpen) return
     setLoading(true)
     try {
-      const [cfg, tpls] = await Promise.all([
+      const [cfg, tpls, conn] = await Promise.all([
         whatsappService.getSettings(businessId),
         whatsappService.getTemplates(businessId),
+        getConnection(businessId),
       ])
       setSettings(cfg)
       setTemplates(tpls.length ? tpls : DEFAULT_TEMPLATES.map(t => ({ ...t })))
+      setCloudConnected(!!conn?.phone_number_id)
     } catch { /* silencioso */ }
     finally { setLoading(false) }
   }, [businessId, isOpen])
 
   useEffect(() => { void loadData() }, [loadData])
+
+  // ── Sync editable phone + reset transient state when (re)opened ─────────────
+  useEffect(() => {
+    if (isOpen) {
+      setPhoneInput(phone ?? '')
+      setEditingPhone(false)
+      setStatus('idle')
+      setErrorMsg('')
+      setSelectedKey(defaultTemplateKey)
+    }
+  }, [isOpen, phone, defaultTemplateKey])
 
   // ── Rebuild message when template or vars change ───────────────────────────
   useEffect(() => {
@@ -129,10 +154,35 @@ export function WhatsAppPreviewModal({
     setErrorMsg('')
   }, [selectedKey, templates, settings, vars, recipientName])
 
-  // ── Reset on close ────────────────────────────────────────────────────────
+  // ── Accessibility: Escape to close, focus trap-lite, focus restore ──────────
   useEffect(() => {
-    if (!isOpen) { setStatus('idle'); setErrorMsg(''); setSelectedKey(defaultTemplateKey) }
-  }, [isOpen, defaultTemplateKey])
+    if (!isOpen) return
+    previousFocus.current = document.activeElement as HTMLElement | null
+    // Foco inicial al cuerpo del diálogo
+    const focusTimer = setTimeout(() => {
+      textareaRef.current?.focus()
+    }, 0)
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose(); return }
+      if (e.key === 'Tab' && dialogRef.current) {
+        const focusables = dialogRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])'
+        )
+        if (focusables.length === 0) return
+        const first = focusables[0]
+        const last = focusables[focusables.length - 1]
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+      }
+    }
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      clearTimeout(focusTimer)
+      document.removeEventListener('keydown', onKeyDown, true)
+      previousFocus.current?.focus?.()
+    }
+  }, [isOpen, onClose])
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const handleCopy = async () => {
@@ -140,7 +190,7 @@ export function WhatsAppPreviewModal({
       await navigator.clipboard.writeText(message)
       setStatus('copied')
       if (businessId) {
-        void whatsappService.logCopy(businessId, phone || '', message, {
+        void whatsappService.logCopy(businessId, phoneInput || '', message, {
           order_id:    context.orderId,
           customer_id: context.customerId,
           status_key:  selectedKey,
@@ -154,7 +204,7 @@ export function WhatsAppPreviewModal({
     void whatsappService.logMessage(businessId, {
       order_id:    context.orderId,
       customer_id: context.customerId,
-      phone:       phone || '',
+      phone:       phoneInput || '',
       status_key:  selectedKey,
       message,
       send_mode:   'manual',
@@ -170,32 +220,41 @@ export function WhatsAppPreviewModal({
     logOpen('opened')
   }
 
-  // web.whatsapp.com — abre (o reutiliza si el usuario tiene suerte) una pestaña
+  // web.whatsapp.com — detecta bloqueo de popup
   const handleOpenWeb = () => {
     if (!webUrl) return
-    window.open(webUrl, '_blank', 'noopener,noreferrer')
+    const win = window.open(webUrl, '_blank', 'noopener,noreferrer')
+    if (!win) {
+      setStatus('error')
+      setErrorMsg('El navegador bloqueó la ventana. Copiá el mensaje o permití pop-ups para este sitio.')
+      return
+    }
     setStatus('web_opened')
     logOpen('opened')
   }
 
-  // wa.me — mobile: abre la app nativa
+  // wa.me — mobile: abre la app nativa; detecta bloqueo de popup
   const handleOpenMobile = () => {
     if (!mobileUrl) return
-    window.open(mobileUrl, '_blank', 'noopener,noreferrer')
+    const win = window.open(mobileUrl, '_blank', 'noopener,noreferrer')
+    if (!win) {
+      setStatus('error')
+      setErrorMsg('No se pudo abrir WhatsApp. Copiá el mensaje e intentá manualmente.')
+      return
+    }
     setStatus('fallback_opened')
     logOpen('opened')
   }
 
   const handleSendApi = async () => {
-    if (!settings?.api_mode || !settings.phone_number_id || !settings.access_token || !businessId) {
+    if (!cloudConnected || !businessId) {
       isMobile ? handleOpenMobile() : handleOpenDesktop()
       return
     }
     setStatus('sending')
     const result = await whatsappService.sendViaAPI(
-      businessId, phone || '', message,
-      { order_id: context.orderId, customer_id: context.customerId, status_key: selectedKey },
-      { phone_number_id: settings.phone_number_id, access_token: settings.access_token }
+      businessId, phoneInput || '', message,
+      { order_id: context.orderId, customer_id: context.customerId, status_key: selectedKey }
     )
     if (result.success) {
       setStatus('sent_api')
@@ -208,7 +267,7 @@ export function WhatsAppPreviewModal({
   if (!isOpen) return null
 
   const statusUi = STATUS_UI[status]
-  const apiEnabled = !!(settings?.api_mode && settings.phone_number_id && settings.access_token)
+  const apiEnabled = cloudConnected
   const canSend = phoneResult.valid && message.trim().length > 0
 
   return (
@@ -217,7 +276,13 @@ export function WhatsAppPreviewModal({
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
       data-testid="whatsapp-preview-modal"
     >
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-strong)', borderRadius: '1rem', width: '100%', maxWidth: 580, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Enviar WhatsApp a ${recipientName}`}
+        style={{ background: 'var(--bg-card)', border: '1px solid var(--border-strong)', borderRadius: '1rem', width: '100%', maxWidth: 580, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+      >
 
         {/* ── Header ── */}
         <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -232,7 +297,7 @@ export function WhatsAppPreviewModal({
               </p>
             </div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.25rem', display: 'flex' }}>
+          <button onClick={onClose} aria-label="Cerrar" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '0.25rem', display: 'flex' }}>
             <X size={15} />
           </button>
         </div>
@@ -246,23 +311,58 @@ export function WhatsAppPreviewModal({
             </div>
           ) : (
             <>
-              {/* Phone warning */}
-              {!phoneResult.valid && (
+              {/* Phone editor / warning */}
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.375rem' }}>
+                  <span>Teléfono</span>
+                  {!editingPhone && (
+                    <button
+                      data-testid="whatsapp-edit-phone"
+                      onClick={() => setEditingPhone(true)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#818cf8', display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.72rem', fontWeight: 700, textTransform: 'none' }}
+                    >
+                      <Pencil size={11} /> Editar
+                    </button>
+                  )}
+                </label>
+                {editingPhone ? (
+                  <input
+                    data-testid="whatsapp-phone-input"
+                    value={phoneInput}
+                    onChange={e => setPhoneInput(e.target.value)}
+                    placeholder="Ej: 351 15 1234567"
+                    className="form-control"
+                    inputMode="tel"
+                    autoFocus
+                  />
+                ) : (
+                  <div
+                    style={{ fontSize: '0.85rem', color: phoneResult.valid ? 'var(--text-primary)' : '#f87171', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                  >
+                    {phoneResult.valid
+                      ? <>+{phoneResult.normalized} <span style={{ color: 'var(--text-subtle)', fontSize: '0.72rem' }}>({phoneInput})</span></>
+                      : (phoneInput ? `Número inválido: ${phoneInput}` : 'Sin teléfono registrado')}
+                  </div>
+                )}
+              </div>
+
+              {!phoneResult.valid && !editingPhone && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.625rem 0.875rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 'var(--radius-sm)' }}>
                   <AlertTriangle size={14} style={{ color: '#f87171', flexShrink: 0 }} />
                   <span style={{ fontSize: '0.8rem', color: '#fca5a5' }}>
-                    {phone ? `Número inválido: ${phone}` : 'Este contacto no tiene teléfono registrado.'}
+                    {phoneInput ? 'El número no es válido. Tocá “Editar” para corregirlo.' : 'Este contacto no tiene teléfono. Podés ingresarlo con “Editar” o copiar el mensaje.'}
                   </span>
                 </div>
               )}
 
               {/* Template selector */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.375rem' }}>
+                <label htmlFor="wa-template-select" style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.375rem' }}>
                   Plantilla
                 </label>
                 <div style={{ position: 'relative' }}>
                   <select
+                    id="wa-template-select"
                     data-testid="whatsapp-template-select"
                     value={selectedKey}
                     onChange={e => setSelectedKey(e.target.value)}
@@ -279,10 +379,12 @@ export function WhatsAppPreviewModal({
 
               {/* Message preview / editor */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.375rem' }}>
+                <label htmlFor="wa-message" style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.375rem' }}>
                   Mensaje (editable)
                 </label>
                 <textarea
+                  id="wa-message"
+                  ref={textareaRef}
                   data-testid="whatsapp-preview-textarea"
                   value={message}
                   onChange={e => setMessage(e.target.value)}
@@ -301,16 +403,25 @@ export function WhatsAppPreviewModal({
                     ? <RefreshCw size={13} className="animate-spin" />
                     : status === 'error'
                     ? <AlertTriangle size={13} />
-                    : <Check size={13} />}
+                    : status === 'sent_api'
+                    ? <Check size={13} />
+                    : <ExternalLink size={13} />}
                   {statusUi.label}
                   {status === 'error' && errorMsg && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}> — {errorMsg}</span>}
                 </div>
               )}
 
+              {/* Honest reminder: opening WhatsApp ≠ message sent */}
+              {(status === 'fallback_opened' || status === 'desktop_opened' || status === 'web_opened') && (
+                <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--text-subtle)', lineHeight: 1.5 }}>
+                  Se abrió WhatsApp con el mensaje preparado. Recordá que abrir WhatsApp no confirma que el mensaje haya sido enviado.
+                </p>
+              )}
+
               {/* Fallback notice when API failed */}
               {status === 'error' && (
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
-                  No se pudo enviar por API. Usá los botones de abajo para enviar manualmente.
+                  Usá los botones de abajo para enviar manualmente o copiar el mensaje.
                 </div>
               )}
 
@@ -336,10 +447,10 @@ export function WhatsAppPreviewModal({
             title="Copiar mensaje al portapapeles"
           >
             {status === 'copied' ? <Check size={13} /> : <Copy size={13} />}
-            {status === 'copied' ? 'Copiado' : 'Copiar'}
+            {status === 'copied' ? 'Copiado' : 'Copiar mensaje'}
           </button>
 
-          {/* API override — cuando está configurada toma prioridad */}
+          {/* API — cuando hay conexión Cloud API activa, toma prioridad */}
           {apiEnabled && (
             <button
               data-testid="whatsapp-send-api-button"
@@ -365,7 +476,7 @@ export function WhatsAppPreviewModal({
               title={canSend ? 'Abrir WhatsApp en tu dispositivo' : phoneResult.error}
             >
               <MessageCircle size={13} />
-              Abrir WhatsApp
+              Abrir en WhatsApp
             </button>
           )}
 

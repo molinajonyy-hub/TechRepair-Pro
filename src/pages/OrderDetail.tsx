@@ -20,7 +20,6 @@ import {
   ChevronDown,
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
-import { ModalEnviarWhatsApp } from '../components/whatsapp/ModalEnviarWhatsApp'
 import { WhatsAppHistorial } from '../components/whatsapp/WhatsAppHistorial'
 import { WhatsAppPreviewModal } from '../components/whatsapp/WhatsAppPreviewModal'
 import { DocumentUploader } from '../components/order/DocumentUploader'
@@ -54,7 +53,6 @@ export function OrderDetail() {
   const [documents, setDocuments] = useState<Document[]>([])
   const [showModalCrearComprobante, setShowModalCrearComprobante] = useState(false)
   const [showPrintModal, setShowPrintModal] = useState(false)
-  const [showWhatsAppModal, setShowWhatsAppModal] = useState(false)   // legacy: used by ModalEnviarWhatsApp
   const [showWarrantyModal, setShowWarrantyModal] = useState(false)
   // New: WhatsApp preview with specific template
   const [waPreview, setWaPreview] = useState<{ open: boolean; templateKey: string }>({ open: false, templateKey: 'free_message' })
@@ -636,14 +634,7 @@ export function OrderDetail() {
         order={order}
       />
 
-      {/* Modal WhatsApp legacy (kept for WhatsAppHistorial compatibility) */}
-      <ModalEnviarWhatsApp
-        isOpen={showWhatsAppModal}
-        onClose={() => setShowWhatsAppModal(false)}
-        order={order}
-      />
-
-      {/* Modal WhatsApp nuevo con template selector */}
+      {/* Modal WhatsApp con selector de plantilla */}
       <WhatsAppPreviewModal
         isOpen={waPreview.open}
         onClose={() => setWaPreview(p => ({ ...p, open: false }))}

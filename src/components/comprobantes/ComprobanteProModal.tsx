@@ -29,8 +29,9 @@ import { formatDisplayMessage } from '../../utils/formatMessage'
 import {
   comprobanteService,
   TipoComprobante, TipoLinea, MedioPago,
-  ComprobantePago, CrearComprobanteInput,
+  ComprobantePago, CrearComprobanteInput, Comprobante,
 } from '../../services/comprobanteService'
+import { WhatsAppPreviewModal } from '../whatsapp/WhatsAppPreviewModal'
 import { usePaymentCommissions, type FlatPaymentMethod } from '../../hooks/usePaymentCommissions'
 import { useKeyboardAwareBottomOffset } from '../../hooks/useKeyboardAwareBottomOffset'
 
@@ -377,6 +378,8 @@ export function ComprobanteProModal({
   const [submitting, setSubmitting]   = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [showSuccess, setShowSuccess] = useState(false)
+  const [comprobanteCreado, setComprobanteCreado] = useState<Comprobante | null>(null)
+  const [showWaModal, setShowWaModal] = useState(false)
   const [arcaWarning, setArcaWarning] = useState<string | null>(null)
 
   // ── Draft ────────────────────────────────────────────────────────────────
@@ -492,6 +495,7 @@ export function ComprobanteProModal({
     if ('vibrate' in navigator) navigator.vibrate(80)
 
     try { localStorage.removeItem(DRAFT_KEY) } catch {}
+    setComprobanteCreado(result.comprobante ?? null)
     setSubmitting(false)
     isSubmittingRef.current = false
     setShowSuccess(true)
@@ -507,6 +511,7 @@ export function ComprobanteProModal({
     setCondicion(condicionFiscalInicial ?? 'Consumidor Final'); setClienteId(initialClienteId ?? '')
     setClienteQuery(''); setObservaciones(''); setEmitirEnArca(false)
     setSubmitError(null); setShowSuccess(false); setArcaWarning(null)
+    setComprobanteCreado(null); setShowWaModal(false)
     setPagos([]); setSpotQ(''); setSpotResults([]); setSpotKeyIdx(-1); setSpotlightMode(false)
     setActiveSearchIdx(null); setLineResults([])
     setShowCloseConfirm(false); setShowRecalcPrompt(false)
@@ -1802,7 +1807,10 @@ export function ComprobanteProModal({
                 <button style={{ flex: 1, padding: '0.625rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.625rem', color: '#64748b', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem', fontFamily: F }}>
                   <Printer size={14} /> Imprimir
                 </button>
-                <button style={{ flex: 1, padding: '0.625rem', background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: '0.625rem', color: '#22c55e', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem', fontFamily: F }}>
+                <button
+                  data-testid="comprobante-success-whatsapp"
+                  onClick={() => setShowWaModal(true)}
+                  style={{ flex: 1, padding: '0.625rem', background: 'rgba(34,197,94,0.07)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: '0.625rem', color: '#22c55e', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem', fontFamily: F }}>
                   <MessageCircle size={14} /> WhatsApp
                 </button>
               </div>
@@ -1980,6 +1988,26 @@ export function ComprobanteProModal({
         setShowPFM(false); setPfmLineIdx(null)
       }}
       initialName={pfmInitialName} registerStock={false} sourceType="manual"
+    />
+
+    {/* WhatsApp — enviar el comprobante recién cobrado sin volver a buscar al cliente */}
+    <WhatsAppPreviewModal
+      isOpen={showWaModal}
+      onClose={() => setShowWaModal(false)}
+      recipientName={selectedCliente?.name ?? 'Cliente'}
+      phone={selectedCliente?.phone ?? null}
+      defaultTemplateKey="comprobante_issued"
+      vars={{
+        nombre:             (selectedCliente?.name ?? '').split(' ')[0] || (selectedCliente?.name ?? ''),
+        cliente:            selectedCliente?.name ?? '',
+        tipo_comprobante:   tc?.label ?? 'Comprobante',
+        numero_comprobante: comprobanteCreado?.numero_fiscal ?? comprobanteCreado?.numero ?? '',
+        precio:             `$${Math.round(comprobanteCreado?.total ?? totales.total).toLocaleString('es-AR')}`,
+      }}
+      context={{
+        comprobantId: comprobanteCreado?.id,
+        customerId:   clienteId || undefined,
+      }}
     />
 
     {/* Close confirm */}

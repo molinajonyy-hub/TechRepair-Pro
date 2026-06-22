@@ -1,5 +1,30 @@
 import { supabase } from '../lib/supabase'
+import { logger } from '../lib/logger'
+import { getConnection as getCloudConnection } from './whatsappCloudService'
 import { OrderStatus, STATUS_CONFIG } from '../types/orderStatus'
+import {
+  interpolateTemplate,
+  buildWhatsAppFallbackUrl,
+  openWhatsAppWindow,
+  type WhatsAppVars,
+} from './whatsappFormat'
+
+// Re-export de los helpers puros (fuente única en whatsappFormat) para
+// mantener compatibilidad con los imports existentes desde whatsappService.
+export {
+  normalizeWhatsAppPhone,
+  normalizePhone,
+  generateWhatsAppLink,
+  isMobileDevice,
+  buildWhatsAppWebUrl,
+  buildWhatsAppUniversalUrl,
+  buildWhatsAppFallbackUrl,
+  buildWhatsAppDesktopUrl,
+  openWhatsAppWindow,
+  openWhatsAppDesktop,
+  interpolateTemplate,
+} from './whatsappFormat'
+export type { WhatsAppVars, NormalizedPhone } from './whatsappFormat'
 
 // ============================================
 // TIPOS
@@ -16,11 +41,14 @@ export interface WhatsAppSettings {
   business_instagram: string
   business_hours: string
   closing_message: string
-  // API Mode (WhatsApp Business Cloud API)
-  api_mode?: boolean
-  phone_number_id?: string
-  access_token?: string
+  // NOTA: la integración Cloud API (token, phone_number_id) vive en
+  // whatsapp_connections y se maneja 100% server-side. No se guardan
+  // credenciales de Meta en whatsapp_settings (ver migración RLS 20260622).
 }
+
+/** Columnas seguras de whatsapp_settings (sin secretos) para el cliente. */
+const SETTINGS_PUBLIC_COLUMNS =
+  'id, business_id, enabled, auto_send_enabled, business_name, business_address, business_whatsapp, business_instagram, business_hours, closing_message'
 
 export interface WhatsAppTemplate {
   id?: string
@@ -46,34 +74,7 @@ export interface WhatsAppLog {
   created_at?: string
 }
 
-export interface WhatsAppVars {
-  nombre?: string
-  apellido?: string
-  cliente?: string
-  equipo?: string
-  marca?: string
-  modelo?: string
-  estado?: string
-  precio?: string
-  anticipo?: string
-  saldo?: string
-  numero_orden?: string
-  local?: string
-  direccion?: string
-  whatsapp?: string
-  instagram?: string
-  horario?: string
-  fecha?: string
-  // Extended context vars
-  problema?: string
-  tipo_comprobante?: string
-  numero_comprobante?: string
-  fecha_vencimiento?: string
-  codigo_garantia?: string
-  presupuesto?: string
-  telefono?: string
-  negocio?: string
-}
+// (WhatsAppVars vive ahora en whatsappFormat y se re-exporta arriba)
 
 // ============================================
 // MAPEO ESTADO → TEMPLATE KEY
@@ -262,73 +263,9 @@ export const DEFAULT_SETTINGS: Omit<WhatsAppSettings, 'id' | 'business_id'> = {
 }
 
 // ============================================
-// HELPERS
+// HELPERS — construcción de variables por contexto
+// (los helpers puros de teléfono/link/plantilla viven en whatsappFormat)
 // ============================================
-
-/**
- * Normaliza un número de teléfono para usar en wa.me
- * Elimina espacios, guiones, paréntesis y el + inicial
- */
-export function normalizePhone(phone: string): string {
-  if (!phone) return ''
-  // Quitar todo excepto dígitos
-  let cleaned = phone.replace(/\D/g, '')
-  // Si empieza con 0, quitar el 0 (para Argentina: 011 → 11)
-  if (cleaned.startsWith('0')) cleaned = cleaned.slice(1)
-  // Si no tiene código de país y parece argentino (10 dígitos), agregar 54
-  if (cleaned.length === 10) cleaned = '54' + cleaned
-  return cleaned
-}
-
-/**
- * Genera el link de WhatsApp con mensaje pre-cargado
- */
-export function generateWhatsAppLink(phone: string, message: string): string {
-  const normalized = normalizePhone(phone)
-  const encoded = encodeURIComponent(message)
-  if (!normalized) return `https://wa.me/?text=${encoded}`
-  return `https://wa.me/${normalized}?text=${encoded}`
-}
-
-/**
- * Reemplaza variables {variable} con valores reales
- * Si una variable no existe, la deja vacía (no "undefined" ni "null")
- */
-export function interpolateTemplate(template: string, vars: WhatsAppVars): string {
-  let result = template
-  const replacements: Record<string, string> = {
-    nombre:            vars.nombre            || '',
-    apellido:          vars.apellido          || '',
-    cliente:           vars.cliente           || vars.nombre || '',
-    equipo:            vars.equipo            || '',
-    marca:             vars.marca             || '',
-    modelo:            vars.modelo            || '',
-    estado:            vars.estado            || '',
-    precio:            vars.precio            || '',
-    anticipo:          vars.anticipo          || '',
-    saldo:             vars.saldo             || '',
-    numero_orden:      vars.numero_orden      || '',
-    local:             vars.local             || vars.negocio || '',
-    negocio:           vars.negocio           || vars.local || '',
-    direccion:         vars.direccion         || '',
-    whatsapp:          vars.whatsapp          || vars.telefono || '',
-    telefono:          vars.telefono          || vars.whatsapp || '',
-    instagram:         vars.instagram         || '',
-    horario:           vars.horario           || '',
-    fecha:             vars.fecha             || new Date().toLocaleDateString('es-AR'),
-    tipo_comprobante:  vars.tipo_comprobante  || '',
-    numero_comprobante:vars.numero_comprobante|| '',
-    fecha_vencimiento: vars.fecha_vencimiento || '',
-    codigo_garantia:   vars.codigo_garantia   || '',
-    presupuesto:       vars.presupuesto       || vars.precio || '',
-  }
-
-  for (const [key, value] of Object.entries(replacements)) {
-    result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), value)
-  }
-
-  return result
-}
 
 /**
  * Construye las variables para una orden
@@ -367,95 +304,6 @@ export function buildOrderVars(order: any, settings: WhatsAppSettings): WhatsApp
     horario:      settings.business_hours      || '',
     fecha:        new Date().toLocaleDateString('es-AR'),
   }
-}
-
-// ============================================
-// URL HELPERS — FALLBACK / MANUAL OPEN
-// ============================================
-
-/** Detecta si estamos en un dispositivo móvil/tablet. */
-export function isMobileDevice(): boolean {
-  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-}
-
-/**
- * URL de WhatsApp Web (desktop).
- * Abre directamente en web.whatsapp.com evitando la pantalla intermedia de
- * api.whatsapp.com. Reutiliza la pestaña si se llama con el mismo target name.
- */
-export function buildWhatsAppWebUrl(phone: string, message: string): string {
-  const { normalized } = normalizeWhatsAppPhone(phone)
-  return `https://web.whatsapp.com/send?phone=${normalized}&text=${encodeURIComponent(message)}`
-}
-
-/**
- * URL universal wa.me (mobile / fallback).
- * En móvil abre la app nativa; en desktop muestra la pantalla de selección.
- */
-export function buildWhatsAppUniversalUrl(phone: string, message: string): string {
-  const { normalized } = normalizeWhatsAppPhone(phone)
-  if (!normalized) return `https://wa.me/?text=${encodeURIComponent(message)}`
-  return `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`
-}
-
-/**
- * URL inteligente según plataforma:
- * - Desktop → web.whatsapp.com/send (sin pantalla intermedia)
- * - Mobile  → wa.me (abre app nativa)
- */
-export function buildWhatsAppFallbackUrl(phone: string, message: string): string {
-  return isMobileDevice()
-    ? buildWhatsAppUniversalUrl(phone, message)
-    : buildWhatsAppWebUrl(phone, message)
-}
-
-/**
- * Abre WhatsApp reutilizando siempre la misma pestaña del navegador.
- * No se usa noopener para que el named-window funcione correctamente.
- */
-export function openWhatsAppWindow(url: string): void {
-  window.open(url, 'techrepair-whatsapp-web')
-}
-
-/**
- * URL con protocolo whatsapp:// para la app de escritorio (WhatsApp Desktop).
- * No abre una pestaña nueva — el OS delega en la app instalada.
- * Si WhatsApp Desktop no está instalado el navegador muestra un aviso o no hace nada.
- */
-export function buildWhatsAppDesktopUrl(phone: string, message: string): string {
-  const { normalized } = normalizeWhatsAppPhone(phone)
-  return `whatsapp://send?phone=${normalized}&text=${encodeURIComponent(message)}`
-}
-
-/**
- * Navega a una URL de protocolo whatsapp:// sin abrir pestaña nueva.
- * Equivalente a hacer click en un link tel: o mailto:.
- */
-export function openWhatsAppDesktop(url: string): void {
-  window.location.href = url
-}
-
-/**
- * Mejora normalizePhone para Argentina:
- * Maneja números con 15, con 0 inicial, con/sin código de país.
- */
-export function normalizeWhatsAppPhone(phone: string): { normalized: string; valid: boolean; error?: string } {
-  if (!phone?.trim()) return { normalized: '', valid: false, error: 'Sin teléfono' }
-  let cleaned = phone.replace(/\D/g, '')
-  // Remove leading 0 (for landlines like 011XXXXXXXX → 11XXXXXXXX)
-  if (cleaned.startsWith('0')) cleaned = cleaned.slice(1)
-  // Handle "15" local prefix for mobile in Argentina (11 15XXXXXXXX → 11XXXXXXXX)
-  // If it's a 10-digit Argentine number starting with area + 15:
-  if (cleaned.length === 11 && cleaned.charAt(2) === '1' && cleaned.charAt(3) === '5') {
-    cleaned = cleaned.slice(0, 2) + cleaned.slice(4)
-  }
-  // Add country code 54 if not present and length looks like Argentine local number
-  if (cleaned.length === 10) cleaned = '549' + cleaned
-  else if (cleaned.length === 11 && cleaned.startsWith('9')) cleaned = '54' + cleaned
-  else if (!cleaned.startsWith('54') && cleaned.length === 12) cleaned = '54' + cleaned
-
-  if (cleaned.length < 11) return { normalized: cleaned, valid: false, error: 'Número muy corto' }
-  return { normalized: cleaned, valid: true }
 }
 
 /**
@@ -542,12 +390,12 @@ export const whatsappService = {
   async getSettings(businessId: string): Promise<WhatsAppSettings> {
     const { data } = await supabase
       .from('whatsapp_settings')
-      .select('*')
+      .select(SETTINGS_PUBLIC_COLUMNS)
       .eq('business_id', businessId)
-      .single()
+      .maybeSingle()
 
     if (!data) return { ...DEFAULT_SETTINGS }
-    return data as WhatsAppSettings
+    return data as unknown as WhatsAppSettings
   },
 
   async saveSettings(businessId: string, settings: Omit<WhatsAppSettings, 'id' | 'business_id'>): Promise<void> {
@@ -650,7 +498,7 @@ export const whatsappService = {
     const { error } = await supabase
       .from('whatsapp_logs')
       .insert({ ...log, business_id: businessId })
-    if (error) console.error('Error guardando log WhatsApp:', error)
+    if (error) logger.error('WHATSAPP', 'Error guardando log', error)
   },
 
   async getLogs(orderId: string): Promise<WhatsAppLog[]> {
@@ -666,28 +514,31 @@ export const whatsappService = {
 
   /**
    * Envía un mensaje real vía WhatsApp Business Cloud API (Meta).
-   * Requiere phone_number_id y access_token configurados.
-   * Llama a la Edge Function `whatsapp-send` de Supabase (sin CORS).
+   *
+   * SEGURIDAD: las credenciales (phone_number_id, access_token) las carga la
+   * Edge Function `whatsapp-send` server-side desde `whatsapp_connections`.
+   * El cliente NUNCA maneja ni transmite el access_token.
+   *
+   * Limitación de Meta: los mensajes de texto libre sólo se entregan dentro de
+   * la ventana de 24 h iniciada por el cliente. Fuera de ella la API responde
+   * con error y se devuelve `success: false` (sin falso "enviado").
    */
   async sendViaAPI(
     businessId: string,
     phone: string,
     message: string,
-    context: { order_id?: string; customer_id?: string; status_key?: string },
-    credentials: { phone_number_id: string; access_token: string }
+    context: { order_id?: string; customer_id?: string; status_key?: string }
   ): Promise<{ success: boolean; message_id?: string; error?: string }> {
     try {
       const { data, error } = await supabase.functions.invoke('whatsapp-send', {
         body: {
           phone,
           message,
-          phone_number_id: credentials.phone_number_id,
-          access_token:    credentials.access_token,
-          business_id:     businessId,
-          order_id:        context.order_id,
-          customer_id:     context.customer_id,
-          status_key:      context.status_key,
-          send_mode:       'api',
+          business_id: businessId,
+          order_id:    context.order_id,
+          customer_id: context.customer_id,
+          status_key:  context.status_key,
+          send_mode:   'api',
         },
       })
 
@@ -699,7 +550,7 @@ export const whatsappService = {
         error:      data?.error,
       }
     } catch (err: any) {
-      console.error('Error sendViaAPI:', err)
+      logger.error('WHATSAPP', 'sendViaAPI falló', err)
       return { success: false, error: err?.message || 'Error al conectar con la API' }
     }
   },
@@ -716,11 +567,13 @@ export const whatsappService = {
     phone: string,
     message: string,
     context: { order_id?: string; customer_id?: string; status_key?: string }
-  ): Promise<{ success: boolean; link: string }> {
+  ): Promise<{ success: boolean; link: string; blocked?: boolean }> {
     const link = buildWhatsAppFallbackUrl(phone, message)
 
     try {
-      openWhatsAppWindow(link)
+      const win = openWhatsAppWindow(link)
+      // window.open devuelve null cuando el navegador bloqueó el popup.
+      const blocked = win === null
       await this.logMessage(businessId, {
         order_id:    context.order_id,
         customer_id: context.customer_id,
@@ -728,9 +581,10 @@ export const whatsappService = {
         status_key:  context.status_key,
         message,
         send_mode:   'manual',
-        send_result: 'opened',
+        send_result: blocked ? 'failed' : 'opened',
+        error_message: blocked ? 'Popup bloqueado por el navegador' : undefined,
       })
-      return { success: true, link }
+      return { success: !blocked, link, blocked }
     } catch (err: any) {
       await this.logMessage(businessId, {
         order_id:      context.order_id,
@@ -806,36 +660,23 @@ export const whatsappService = {
         status_key:  templateKey,
       }
 
-      // API mode: envío silencioso sin abrir el navegador
-      if (settings.api_mode && settings.phone_number_id && settings.access_token) {
-        const apiResult = await this.sendViaAPI(
-          businessId,
-          phone,
-          message,
-          context,
-          { phone_number_id: settings.phone_number_id, access_token: settings.access_token }
-        )
-        return {
-          sent:   apiResult.success,
-          reason: apiResult.success ? undefined : (apiResult.error || 'Error en API'),
-        }
+      // El auto-envío SÓLO procede de forma silenciosa cuando hay una conexión
+      // Cloud API activa (envío real confirmado server-side). En modo fallback
+      // NO se abre el navegador automáticamente: abrir WhatsApp no confirma
+      // entrega y hacerlo sin acción del usuario es invasivo. Queda como acción
+      // manual desde la orden.
+      const connection = await getCloudConnection(businessId)
+      if (!connection) {
+        return { sent: false, reason: 'Sin API conectada: avisá manualmente desde la orden' }
       }
 
-      // Fallback: abre WhatsApp (desktop → WhatsApp Web, mobile → wa.me)
-      const link = buildWhatsAppFallbackUrl(phone, message)
-      openWhatsAppWindow(link)
-
-      await this.logMessage(businessId, {
-        ...context,
-        phone,
-        message,
-        send_mode:   'auto',
-        send_result: 'opened',
-      })
-
-      return { sent: true }
+      const apiResult = await this.sendViaAPI(businessId, phone, message, context)
+      return {
+        sent:   apiResult.success,
+        reason: apiResult.success ? undefined : (apiResult.error || 'Error en API'),
+      }
     } catch (err: any) {
-      console.error('Error en auto-send WhatsApp:', err)
+      logger.error('WHATSAPP', 'Auto-send falló', err)
       return { sent: false, reason: err?.message }
     }
   },

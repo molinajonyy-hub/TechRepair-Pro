@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   MessageCircle, Save, RefreshCw, ToggleLeft, ToggleRight,
   Eye, EyeOff, ChevronDown, ChevronUp, Zap, CheckCircle, AlertTriangle, RotateCcw,
-  Key, Smartphone, ExternalLink
+  Key, ExternalLink
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import {
@@ -431,111 +431,25 @@ export function WhatsAppSettings() {
           <h3 style={{ color: '#fff', fontSize: '1rem', fontWeight: 600, margin: 0 }}>
             API WhatsApp Business
           </h3>
-          <span style={{
-            fontSize: '0.7rem', fontWeight: 700, color: '#f59e0b',
-            backgroundColor: 'rgba(245,158,11,0.12)',
-            border: '1px solid rgba(245,158,11,0.25)',
-            borderRadius: '999px', padding: '0.1rem 0.45rem'
-          }}>BETA</span>
         </div>
         <p style={{ color: '#64748b', fontSize: '0.8rem', margin: '0 0 1rem 0' }}>
-          Conectá la API oficial de Meta para enviar mensajes automáticamente sin abrir el navegador.{' '}
-          <a
-            href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started"
-            target="_blank" rel="noopener noreferrer"
-            style={{ color: '#6366f1', textDecoration: 'none' }}
-          >
-            Ver guía <ExternalLink size={11} style={{ display: 'inline', verticalAlign: 'middle' }} />
-          </a>
+          El envío oficial por Cloud API (modo silencioso, sin abrir el navegador) se conecta
+          desde la sección <strong style={{ color: '#94a3b8' }}>WhatsApp</strong> del menú, con el
+          inicio de sesión seguro de Meta. Las credenciales se guardan cifradas del lado del
+          servidor; por seguridad ya no se cargan tokens manualmente acá.
         </p>
-
-        <ToggleSwitch
-          checked={!!settings.api_mode}
-          onChange={v => setSettings(s => ({ ...s, api_mode: v }))}
-          label="Usar API oficial (modo silencioso)"
-          description="Los mensajes se envían directamente sin abrir WhatsApp en el navegador"
-          color="#25d366"
-        />
-
-        {settings.api_mode && (
-          <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-            <div style={{
-              padding: '0.75rem 1rem', borderRadius: '0.625rem',
-              backgroundColor: 'rgba(99,102,241,0.06)',
-              border: '1px solid rgba(99,102,241,0.2)',
-              fontSize: '0.8rem', color: '#94a3b8'
-            }}>
-              <strong style={{ color: '#818cf8' }}>¿Cómo configurarlo?</strong>
-              {' '}Necesitás una cuenta de Meta Business con WhatsApp Business API habilitada.
-              Encontrá el <code style={{ color: '#818cf8' }}>Phone Number ID</code> y el <code style={{ color: '#818cf8' }}>Access Token</code> en{' '}
-              <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener noreferrer" style={{ color: '#6366f1' }}>
-                Meta for Developers
-              </a>.
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <div>
-                <label style={labelStyle}>
-                  <Smartphone size={12} style={{ display: 'inline', marginRight: '0.3rem', verticalAlign: 'middle' }} />
-                  Phone Number ID
-                </label>
-                <input
-                  style={inputStyle}
-                  value={settings.phone_number_id || ''}
-                  onChange={e => setSettings(s => ({ ...s, phone_number_id: e.target.value }))}
-                  placeholder="1234567890123456"
-                  type="text"
-                />
-                <p style={{ color: '#475569', fontSize: '0.72rem', margin: '0.3rem 0 0 0' }}>
-                  ID del número de teléfono en Meta Business
-                </p>
-              </div>
-              <div>
-                <label style={labelStyle}>
-                  <Key size={12} style={{ display: 'inline', marginRight: '0.3rem', verticalAlign: 'middle' }} />
-                  Access Token
-                </label>
-                <input
-                  style={inputStyle}
-                  value={settings.access_token || ''}
-                  onChange={e => setSettings(s => ({ ...s, access_token: e.target.value }))}
-                  placeholder="EAAxxxxxxxxxxxxxxxx..."
-                  type="password"
-                  autoComplete="new-password"
-                />
-                <p style={{ color: '#475569', fontSize: '0.72rem', margin: '0.3rem 0 0 0' }}>
-                  Token de acceso permanente (nunca compartas este valor)
-                </p>
-              </div>
-            </div>
-
-            {settings.api_mode && (!settings.phone_number_id || !settings.access_token) && (
-              <div style={{
-                padding: '0.625rem 0.875rem', borderRadius: '0.5rem',
-                backgroundColor: 'rgba(245,158,11,0.06)',
-                border: '1px solid rgba(245,158,11,0.2)',
-                display: 'flex', gap: '0.5rem', alignItems: 'center'
-              }}>
-                <AlertTriangle size={14} color="#f59e0b" style={{ flexShrink: 0 }} />
-                <p style={{ color: '#f59e0b', fontSize: '0.78rem', margin: 0 }}>
-                  Completá el Phone Number ID y el Access Token para activar el modo API.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {!settings.api_mode && (
-          <div style={{
-            marginTop: '1rem', padding: '0.625rem 0.875rem', borderRadius: '0.5rem',
-            backgroundColor: 'rgba(15,23,42,0.3)',
-            border: '1px solid rgba(51,65,85,0.25)',
-            fontSize: '0.78rem', color: '#475569'
-          }}>
-            Modo actual: <strong style={{ color: '#94a3b8' }}>wa.me link</strong> — los mensajes abren WhatsApp en el navegador.
-            Activá el modo API para envíos silenciosos.
-          </div>
-        )}
+        <div style={{
+          padding: '0.75rem 1rem', borderRadius: '0.625rem',
+          backgroundColor: 'rgba(99,102,241,0.06)',
+          border: '1px solid rgba(99,102,241,0.2)',
+          fontSize: '0.8rem', color: '#94a3b8', display: 'flex', gap: '0.625rem', alignItems: 'flex-start'
+        }}>
+          <ExternalLink size={14} color="#818cf8" style={{ flexShrink: 0, marginTop: '0.15rem' }} />
+          <span>
+            Sin una conexión activa, los mensajes usan el modo <strong style={{ color: '#94a3b8' }}>wa.me / WhatsApp Web / Desktop</strong>:
+            abren WhatsApp con el mensaje preparado para que lo revises y envíes vos.
+          </span>
+        </div>
       </div>
 
       {/* ---- Datos del negocio ---- */}

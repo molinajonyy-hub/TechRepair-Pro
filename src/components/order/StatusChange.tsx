@@ -148,7 +148,7 @@ export function StatusChange({ orderId, currentStatus, order, onStatusChange }: 
           }}>
             <CheckCircle size={14} />
             Estado actualizado
-            {whatsappSent && <span style={{ color: '#4ade80' }}>· WhatsApp enviado 💬</span>}
+            {whatsappSent && <span style={{ color: '#4ade80' }}>· WhatsApp enviado por API</span>}
           </div>
         )}
 

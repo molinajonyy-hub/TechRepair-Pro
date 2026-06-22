@@ -35,6 +35,8 @@ export interface WhatsAppActionButtonProps {
   style?: React.CSSProperties
   /** compact = icon only, full = icon + label */
   size?: 'compact' | 'full'
+  /** Overrides the default button data-testid */
+  'data-testid'?: string
 }
 
 export function WhatsAppActionButton({
@@ -47,6 +49,7 @@ export function WhatsAppActionButton({
   className,
   style,
   size = 'full',
+  'data-testid': testId = 'whatsapp-action-button',
 }: WhatsAppActionButtonProps) {
   const [open, setOpen] = useState(false)
 
@@ -57,7 +60,7 @@ export function WhatsAppActionButton({
   return (
     <>
       <button
-        data-testid="whatsapp-action-button"
+        data-testid={testId}
         onClick={() => !disabled && setOpen(true)}
         disabled={disabled}
         title={tooltip}

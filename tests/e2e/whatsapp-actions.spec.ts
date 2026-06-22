@@ -407,3 +407,77 @@ test.describe('@whatsapp @smoke Fallback — wa.me disponible', () => {
     expect(msg, 'Mensaje no debe contener "[object Object]"').not.toContain('[object Object]')
   })
 })
+
+// ─── Edición de teléfono + estados honestos + interceptación de URLs ─────────
+
+test.describe('@whatsapp @smoke Preview modal — edición y estados honestos', () => {
+
+  /** Bloquea cualquier navegación real a WhatsApp para no abrir dominios externos. */
+  async function blockWhatsAppUrls(page: import('@playwright/test').Page) {
+    await page.route(/wa\.me|web\.whatsapp\.com|api\.whatsapp\.com/, route => route.abort())
+  }
+
+  async function openModalFromCustomer(page: import('@playwright/test').Page) {
+    await nav.customers(page)
+    await page.waitForLoadState('networkidle')
+    const firstLink = page.locator('table tbody tr a').first()
+    if (await firstLink.count() === 0) return false
+    await firstLink.click()
+    await page.waitForLoadState('networkidle')
+    const waBtn = page.locator('[data-testid="whatsapp-action-button"]').first()
+    if (await waBtn.count() === 0 || await waBtn.isDisabled()) return false
+    await waBtn.click()
+    return await page.locator('[data-testid="whatsapp-preview-modal"]').isVisible()
+  }
+
+  test('permite editar el teléfono y lo re-normaliza (formato AR 549…)', async ({ page }) => {
+    await login(page)
+    if (!(await openModalFromCustomer(page))) { test.skip(); return }
+
+    const modal = page.locator('[data-testid="whatsapp-preview-modal"]')
+    await modal.locator('[data-testid="whatsapp-edit-phone"]').click()
+    const input = modal.locator('[data-testid="whatsapp-phone-input"]')
+    await expect(input).toBeVisible({ timeout: 5_000 })
+    await input.fill('0351 15 1234567')
+
+    // El encabezado muestra el número normalizado a formato móvil AR.
+    await expect(modal).toContainText('+5493511234567', { timeout: 5_000 })
+  })
+
+  test('copiar mensaje funciona y reporta "Copiado" (no "Enviado")', async ({ page, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {})
+    await login(page)
+    if (!(await openModalFromCustomer(page))) { test.skip(); return }
+
+    const modal = page.locator('[data-testid="whatsapp-preview-modal"]')
+    await modal.locator('[data-testid="whatsapp-copy-button"]').click()
+
+    const status = modal.locator('[data-testid="whatsapp-send-status"]')
+    await expect(status).toBeVisible({ timeout: 5_000 })
+    await expect(status).toContainText(/copiado/i)
+    await expect(status).not.toContainText(/enviado por api/i)
+  })
+
+  test('abrir WhatsApp (fallback) NO afirma "Enviado por API"', async ({ page }) => {
+    await login(page)
+    await blockWhatsAppUrls(page)
+    if (!(await openModalFromCustomer(page))) { test.skip(); return }
+
+    const modal = page.locator('[data-testid="whatsapp-preview-modal"]')
+    // Botón principal de apertura (Desktop/Web/Mobile según plataforma).
+    const openBtn = modal.locator('[data-testid="whatsapp-send-api-button"], [data-testid="whatsapp-fallback-button"]').first()
+    if (await openBtn.count() === 0 || await openBtn.isDisabled()) { test.skip(); return }
+    await openBtn.click()
+
+    // Sin Cloud API conectada, nunca debe decir "Enviado por API".
+    await expect(modal).not.toContainText(/enviado por api/i, { timeout: 3_000 })
+  })
+
+  test('Escape cierra el modal', async ({ page }) => {
+    await login(page)
+    if (!(await openModalFromCustomer(page))) { test.skip(); return }
+
+    await page.keyboard.press('Escape')
+    await expect(page.locator('[data-testid="whatsapp-preview-modal"]')).toBeHidden({ timeout: 5_000 })
+  })
+})

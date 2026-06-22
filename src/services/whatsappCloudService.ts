@@ -1,4 +1,13 @@
 import { supabase } from '../lib/supabase'
+import { logger } from '../lib/logger'
+
+/**
+ * Columnas seguras de whatsapp_connections para uso en el frontend.
+ * NUNCA incluye `access_token`: el secreto sólo lo lee la Edge Function
+ * server-side. El cliente sólo necesita saber si hay conexión activa.
+ */
+const CONNECTION_PUBLIC_COLUMNS =
+  'id, business_id, user_id, waba_id, phone_number_id, business_phone_number, connected_account_name, status, metadata, created_at, updated_at'
 
 // ============================================================
 // TIPOS — WhatsApp Cloud API / Embedded Signup
@@ -70,19 +79,19 @@ export async function getConnection(businessId: string): Promise<WhatsAppConnect
   try {
     const { data, error } = await supabase
       .from('whatsapp_connections')
-      .select('*')
+      .select(CONNECTION_PUBLIC_COLUMNS)
       .eq('business_id', businessId)
       .eq('status', 'connected')
       .maybeSingle()
 
     if (error) {
-      console.error('Error al obtener conexión WhatsApp:', error)
+      logger.error('WHATSAPP', 'getConnection falló', error)
       return null
     }
 
-    return data as WhatsAppConnection | null
+    return data as unknown as WhatsAppConnection | null
   } catch (err) {
-    console.error('Error inesperado en getConnection:', err)
+    logger.error('WHATSAPP', 'getConnection error inesperado', err)
     return null
   }
 }
@@ -102,13 +111,13 @@ export async function getAutomationSettings(
       .maybeSingle()
 
     if (error) {
-      console.error('Error al obtener configuración de automatización:', error)
+      logger.error('WHATSAPP', 'getAutomationSettings falló', error)
       return null
     }
 
     return data as WhatsAppAutomationSettings | null
   } catch (err) {
-    console.error('Error inesperado en getAutomationSettings:', err)
+    logger.error('WHATSAPP', 'getAutomationSettings error inesperado', err)
     return null
   }
 }
@@ -134,14 +143,14 @@ export async function saveAutomationSettings(
       )
 
     if (error) {
-      console.error('Error al guardar configuración de automatización:', error)
+      logger.error('WHATSAPP', 'saveAutomationSettings falló', error)
       return { success: false, error: error.message }
     }
 
     return { success: true }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Error desconocido'
-    console.error('Error inesperado en saveAutomationSettings:', err)
+    logger.error('WHATSAPP', 'saveAutomationSettings error inesperado', err)
     return { success: false, error: message }
   }
 }
@@ -163,14 +172,14 @@ export async function disconnectWhatsApp(
       .eq('business_id', businessId)
 
     if (error) {
-      console.error('Error al desconectar WhatsApp:', error)
+      logger.error('WHATSAPP', 'disconnectWhatsApp falló', error)
       return { success: false, error: error.message }
     }
 
     return { success: true }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Error desconocido'
-    console.error('Error inesperado en disconnectWhatsApp:', err)
+    logger.error('WHATSAPP', 'disconnectWhatsApp error inesperado', err)
     return { success: false, error: message }
   }
 }
@@ -223,14 +232,14 @@ export async function saveManualConnection(
     }
 
     if (error) {
-      console.error('Error al guardar conexión manual:', error)
+      logger.error('WHATSAPP', 'saveManualConnection falló', error)
       return { success: false, error: error.message }
     }
 
     return { success: true }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Error desconocido'
-    console.error('Error inesperado en saveManualConnection:', err)
+    logger.error('WHATSAPP', 'saveManualConnection error inesperado', err)
     return { success: false, error: message }
   }
 }
@@ -249,7 +258,7 @@ export async function getEmbeddedSignupConfig(): Promise<{
   })
 
   if (error) {
-    console.error('Error al obtener configuración de Embedded Signup:', error)
+    logger.error('WHATSAPP', 'getEmbeddedSignupConfig falló', error)
     throw new Error(error.message || 'No se pudo obtener la configuración de Meta')
   }
 
@@ -283,14 +292,14 @@ export async function handleEmbeddedSignupCallback(
     })
 
     if (error) {
-      console.error('Error en callback de Embedded Signup:', error)
+      logger.error('WHATSAPP', 'handleEmbeddedSignupCallback falló', error)
       return { success: false, error: error.message }
     }
 
     return { success: true, connection: data?.connection }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Error desconocido'
-    console.error('Error inesperado en handleEmbeddedSignupCallback:', err)
+    logger.error('WHATSAPP', 'handleEmbeddedSignupCallback error inesperado', err)
     return { success: false, error: message }
   }
 }
@@ -313,7 +322,7 @@ export async function sendTestMessage(
     })
 
     if (error) {
-      console.error('Error al enviar mensaje de prueba:', error)
+      logger.error('WHATSAPP', 'sendTestMessage falló', error)
       return { success: false, error: error.message }
     }
 
@@ -324,7 +333,7 @@ export async function sendTestMessage(
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Error desconocido'
-    console.error('Error inesperado en sendTestMessage:', err)
+    logger.error('WHATSAPP', 'sendTestMessage error inesperado', err)
     return { success: false, error: message }
   }
 }
