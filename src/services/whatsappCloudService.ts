@@ -184,65 +184,11 @@ export async function disconnectWhatsApp(
   }
 }
 
-/**
- * Guarda una conexión manual con Phone Number ID + Access Token.
- * Usa upsert: si ya existe una conexión para el negocio, la actualiza.
- */
-export async function saveManualConnection(
-  businessId: string,
-  params: {
-    phone_number_id: string
-    access_token: string
-    connected_account_name?: string
-    business_phone_number?: string
-  }
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return { success: false, error: 'No autenticado' }
-
-    // Verificar si ya existe una conexión
-    const { data: existing } = await supabase
-      .from('whatsapp_connections')
-      .select('id')
-      .eq('business_id', businessId)
-      .maybeSingle()
-
-    const payload = {
-      business_id:            businessId,
-      user_id:                user.id,
-      phone_number_id:        params.phone_number_id,
-      access_token:           params.access_token,
-      connected_account_name: params.connected_account_name || 'Mi cuenta WhatsApp',
-      business_phone_number:  params.business_phone_number || null,
-      status:                 'connected',
-      updated_at:             new Date().toISOString(),
-    }
-
-    let error: any
-    if (existing?.id) {
-      ;({ error } = await supabase
-        .from('whatsapp_connections')
-        .update(payload)
-        .eq('id', existing.id))
-    } else {
-      ;({ error } = await supabase
-        .from('whatsapp_connections')
-        .insert(payload))
-    }
-
-    if (error) {
-      logger.error('WHATSAPP', 'saveManualConnection falló', error)
-      return { success: false, error: error.message }
-    }
-
-    return { success: true }
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Error desconocido'
-    logger.error('WHATSAPP', 'saveManualConnection error inesperado', err)
-    return { success: false, error: message }
-  }
-}
+// NOTA DE SEGURIDAD: se eliminó `saveManualConnection`. Cargar el access_token
+// de Meta desde el frontend exponía el secreto en el cliente. La conexión Cloud
+// API debe establecerse server-side (Embedded Signup vía edge function), donde
+// el token nunca pasa por el navegador. Hasta que ese flujo esté disponible,
+// los negocios usan el fallback manual (wa.me / WhatsApp Web / Desktop).
 
 /**
  * Obtiene la configuración inicial para el flujo de Embedded Signup de Meta.

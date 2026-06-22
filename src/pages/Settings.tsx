@@ -1690,6 +1690,19 @@ export default function Settings() {
             </div>
           </div>
         )}
+
+        {/* Versión de build — sección técnica, no invasiva. Permite confirmar
+            qué commit está desplegado sin exponer secretos. */}
+        <div
+          data-testid="settings-build-version"
+          style={{
+            marginTop: '2rem', paddingTop: '1rem',
+            borderTop: '1px solid rgba(255,255,255,0.06)',
+            textAlign: 'center', fontSize: '0.72rem', color: '#475569',
+          }}
+        >
+          Versión: <span style={{ fontFamily: 'monospace' }}>{__BUILD_COMMIT__}</span>
+        </div>
       </div>
   )
 }

@@ -9,7 +9,7 @@ import './index.css'
 
 const buildVersion = import.meta.env.VITE_APP_VERSION || __BUILD_TIME__
 console.log('%cTechRepair Pro', 'color:#818cf8;font-weight:bold;font-size:14px')
-console.log('Build:', buildVersion)
+console.log('Build:', buildVersion, '·', __BUILD_COMMIT__)
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

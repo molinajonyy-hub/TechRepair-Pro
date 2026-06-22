@@ -6,13 +6,8 @@ import {
   CheckCircle2,
   XCircle,
   Unplug,
-  ExternalLink,
-  Eye,
-  EyeOff,
   Send,
   Info,
-  Phone,
-  Key,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import {
@@ -20,7 +15,6 @@ import {
   getAutomationSettings,
   saveAutomationSettings,
   disconnectWhatsApp,
-  saveManualConnection,
   sendTestMessage,
   type WhatsAppConnection,
 } from '../services/whatsappCloudService'
@@ -53,6 +47,13 @@ const DEFAULT_AUTOMATION = {
   send_on_repair: false,
   send_on_ready: true,
   send_on_delivered: false,
+}
+
+/** Enmascara un teléfono dejando sólo los últimos 4 dígitos visibles. */
+function maskPhone(phone?: string | null): string {
+  const digits = (phone || '').replace(/\D/g, '')
+  if (digits.length < 4) return 'Cuenta conectada'
+  return '•••• ' + digits.slice(-4)
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -101,22 +102,11 @@ export default function WhatsApp() {
   const { profile } = useAuth()
   const businessId = profile?.business_id
 
-  // Estado de carga general
   const [loading, setLoading] = useState(true)
 
-  // Conexión activa
+  // Conexión Cloud API activa (el token vive sólo server-side en whatsapp_connections).
   const [connection, setConnection] = useState<WhatsAppConnection | null>(null)
-
-  // Formulario de conexión manual
-  const [phoneNumberId, setPhoneNumberId]   = useState('')
-  const [accessToken, setAccessToken]       = useState('')
-  const [accountName, setAccountName]       = useState('')
-  const [showToken, setShowToken]           = useState(false)
-  const [saving, setSaving]                 = useState(false)
-  const [saveError, setSaveError]           = useState<string | null>(null)
-
-  // Desconexión
-  const [disconnecting, setDisconnecting]   = useState(false)
+  const [disconnecting, setDisconnecting] = useState(false)
 
   // Automatizaciones
   const [automation, setAutomation] = useState<typeof DEFAULT_AUTOMATION>(DEFAULT_AUTOMATION)
@@ -133,6 +123,7 @@ export default function WhatsApp() {
   useEffect(() => {
     if (!businessId) return
     load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [businessId])
 
   async function load() {
@@ -153,31 +144,6 @@ export default function WhatsApp() {
       })
     }
     setLoading(false)
-  }
-
-  // ── Guardar conexión manual ───────────────────────────────
-
-  async function handleConnect() {
-    if (!phoneNumberId.trim() || !accessToken.trim()) {
-      setSaveError('Completá el Phone Number ID y el Access Token.')
-      return
-    }
-    setSaving(true)
-    setSaveError(null)
-    const result = await saveManualConnection(businessId!, {
-      phone_number_id:        phoneNumberId.trim(),
-      access_token:           accessToken.trim(),
-      connected_account_name: accountName.trim() || 'Mi cuenta WhatsApp',
-    })
-    if (result.success) {
-      setPhoneNumberId('')
-      setAccessToken('')
-      setAccountName('')
-      await load()
-    } else {
-      setSaveError(result.error || 'Error al guardar la conexión.')
-    }
-    setSaving(false)
   }
 
   // ── Desconectar ───────────────────────────────────────────
@@ -222,6 +188,9 @@ export default function WhatsApp() {
   }
 
   const isConnected = !!connection
+  const connectedDate = connection?.created_at
+    ? new Date(connection.created_at).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
+    : null
 
   return (
     <div style={{ maxWidth: 780, margin: '0 auto', padding: '2rem 1.5rem' }}>
@@ -241,24 +210,25 @@ export default function WhatsApp() {
             WhatsApp Business
           </h1>
           <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', margin: '2px 0 0' }}>
-            Enviá mensajes automáticos a tus clientes usando la API oficial de Meta
+            Comunicación con tus clientes por WhatsApp
           </p>
         </div>
       </div>
 
-      {/* ── Panel: Conectado ── */}
+      {/* ── Panel: Conectado (API oficial) ── */}
       {isConnected && (
         <div style={{
           background: 'rgba(37,211,102,0.07)', border: '1px solid rgba(37,211,102,0.25)',
           borderRadius: '0.75rem', padding: '1.25rem 1.5rem', marginBottom: '1.5rem',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <CheckCircle2 size={20} color="#25D366" />
             <div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#25D366' }}>Conectado</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#25D366' }}>API oficial conectada</div>
               <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>
-                {connection.connected_account_name || 'Cuenta WhatsApp'} · {connection.business_phone_number || connection.phone_number_id}
+                {connection!.connected_account_name || 'Cuenta WhatsApp'} · {maskPhone(connection!.business_phone_number)}
+                {connectedDate && <> · Conectada el {connectedDate}</>}
               </div>
             </div>
           </div>
@@ -278,142 +248,36 @@ export default function WhatsApp() {
         </div>
       )}
 
-      {/* ── Panel: Formulario de conexión ── */}
+      {/* ── Panel: Estado sin conexión oficial (honesto, sin pedir credenciales) ── */}
       {!isConnected && (
         <div style={{
           background: 'var(--bg-card, rgba(255,255,255,0.03))',
           border: '1px solid var(--border-color)',
           borderRadius: '0.75rem', padding: '1.5rem', marginBottom: '1.5rem',
         }}>
-          <h2 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 0.25rem' }}>
-            Conectar WhatsApp Business API
-          </h2>
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 1.25rem' }}>
-            Ingresá tus credenciales de la API oficial de Meta. Las encontrás en{' '}
-            <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener noreferrer"
-              style={{ color: 'var(--accent-primary)', textDecoration: 'none' }}>
-              Meta for Developers <ExternalLink size={11} style={{ verticalAlign: 'middle' }} />
-            </a>
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '0.75rem' }}>
+            <span style={{
+              fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 6,
+              background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', color: '#f59e0b',
+            }}>
+              API oficial no conectada
+            </span>
+          </div>
 
-          {/* Instrucciones */}
           <div style={{
             background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)',
-            borderRadius: 8, padding: '0.875rem 1rem', marginBottom: '1.25rem',
+            borderRadius: 8, padding: '0.875rem 1rem',
             display: 'flex', gap: 10,
           }}>
             <Info size={16} color="var(--accent-primary)" style={{ flexShrink: 0, marginTop: 1 }} />
             <div style={{ fontSize: 13, color: 'var(--text-secondary, var(--text-muted))', lineHeight: 1.6 }}>
-              <strong style={{ color: 'var(--text-primary)' }}>¿Dónde conseguir estos datos?</strong><br />
-              1. Entrá a <strong>Meta for Developers</strong> → seleccioná tu app → <strong>WhatsApp → Configuración de API</strong><br />
-              2. En "Número de teléfono", copiá el <strong>Phone Number ID</strong> (número largo)<br />
-              3. Generá un <strong>Token de acceso permanente</strong> desde la misma pantalla o desde System Users
+              Los mensajes por WhatsApp <strong style={{ color: 'var(--text-primary)' }}>siguen funcionando</strong> sin
+              conexión oficial: desde <strong>Clientes</strong>, <strong>Órdenes</strong> y <strong>Comprobantes</strong> podés
+              abrir WhatsApp Web o Desktop con el mensaje ya preparado.<br /><br />
+              La conexión automática con Meta todavía no está disponible. Podés seguir usando WhatsApp Web o Desktop desde
+              clientes, órdenes y comprobantes.
             </div>
           </div>
-
-          {/* Campo: Nombre de cuenta */}
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text-secondary, var(--text-muted))', marginBottom: 6 }}>
-              Nombre de cuenta <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(opcional)</span>
-            </label>
-            <input
-              type="text"
-              placeholder="Ej: TechRepair WhatsApp"
-              value={accountName}
-              onChange={e => setAccountName(e.target.value)}
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '9px 12px', borderRadius: 8, fontSize: 14,
-                background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)',
-                color: 'var(--text-primary)', outline: 'none',
-              }}
-            />
-          </div>
-
-          {/* Campo: Phone Number ID */}
-          <div style={{ marginBottom: '1rem' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 500, color: 'var(--text-secondary, var(--text-muted))', marginBottom: 6 }}>
-              <Phone size={13} /> Phone Number ID <span style={{ color: '#ef4444', marginLeft: 2 }}>*</span>
-            </label>
-            <input
-              type="text"
-              placeholder="Ej: 123456789012345"
-              value={phoneNumberId}
-              onChange={e => setPhoneNumberId(e.target.value)}
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '9px 12px', borderRadius: 8, fontSize: 14,
-                background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)',
-                color: 'var(--text-primary)', outline: 'none', fontFamily: 'monospace',
-              }}
-            />
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>
-              ID numérico del número de teléfono en Meta Business (no el número de teléfono en sí)
-            </p>
-          </div>
-
-          {/* Campo: Access Token */}
-          <div style={{ marginBottom: '1.25rem' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 500, color: 'var(--text-secondary, var(--text-muted))', marginBottom: 6 }}>
-              <Key size={13} /> Access Token <span style={{ color: '#ef4444', marginLeft: 2 }}>*</span>
-            </label>
-            <div style={{ position: 'relative' }}>
-              <input
-                type={showToken ? 'text' : 'password'}
-                placeholder="EAAxxxxxxxxxx..."
-                value={accessToken}
-                onChange={e => setAccessToken(e.target.value)}
-                style={{
-                  width: '100%', boxSizing: 'border-box',
-                  padding: '9px 40px 9px 12px', borderRadius: 8, fontSize: 14,
-                  background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)', outline: 'none', fontFamily: 'monospace',
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => setShowToken(v => !v)}
-                style={{
-                  position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                  background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0,
-                }}
-              >
-                {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '4px 0 0' }}>
-              Token de acceso permanente. Nunca lo compartas con nadie.
-            </p>
-          </div>
-
-          {saveError && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
-              borderRadius: 8, padding: '10px 14px', marginBottom: '1rem', fontSize: 13, color: '#f87171',
-            }}>
-              <XCircle size={15} /> {saveError}
-            </div>
-          )}
-
-          <button
-            onClick={handleConnect}
-            disabled={saving || !phoneNumberId.trim() || !accessToken.trim()}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '10px 20px', borderRadius: 8, border: 'none',
-              background: (!phoneNumberId.trim() || !accessToken.trim())
-                ? 'rgba(255,255,255,0.1)'
-                : 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
-              color: '#fff', cursor: (!phoneNumberId.trim() || !accessToken.trim()) ? 'not-allowed' : 'pointer',
-              fontSize: 14, fontWeight: 600, transition: 'all 0.2s',
-            }}
-          >
-            {saving
-              ? <><Loader2 size={16} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</>
-              : <><Save size={16} /> Conectar WhatsApp</>
-            }
-          </button>
         </div>
       )}
 
@@ -496,7 +360,7 @@ export default function WhatsApp() {
               background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)',
               color: '#f59e0b',
             }}>
-              Requiere cuenta conectada
+              Requiere API oficial conectada
             </span>
           )}
         </div>
