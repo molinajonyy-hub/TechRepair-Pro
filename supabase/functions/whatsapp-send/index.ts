@@ -135,22 +135,32 @@ serve(async (req: Request) => {
       return json({ success: false, error: 'No tenés acceso a este negocio.' }, 403)
     }
 
-    // ── Cargar credenciales server-side desde whatsapp_connections ──
+    // ── Cargar la conexión activa (metadatos; SIN secreto) ──
     const { data: connection } = await supabase
       .from('whatsapp_connections')
-      .select('phone_number_id, access_token, status')
+      .select('id, phone_number_id, status')
       .eq('business_id', business_id)
       .eq('status', 'connected')
-      .not('access_token', 'is', null)
       .not('phone_number_id', 'is', null)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
 
-    if (!connection?.access_token || !connection?.phone_number_id) {
+    if (!connection?.id || !connection?.phone_number_id) {
       return json({
         success: false,
         error: 'No hay una conexión de WhatsApp Cloud API activa para este negocio.',
+      })
+    }
+
+    // ── Resolver el token cifrado desde Vault (sólo server-side, vía RPC) ──
+    const { data: accessToken, error: tokenError } = await supabase
+      .rpc('whatsapp_credential_get_token', { p_connection_id: connection.id })
+
+    if (tokenError || !accessToken) {
+      return json({
+        success: false,
+        error: 'No se pudo resolver la credencial de la conexión de WhatsApp.',
       })
     }
 
@@ -161,7 +171,7 @@ serve(async (req: Request) => {
       {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${connection.access_token}`,
+          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({

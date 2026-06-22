@@ -100,8 +100,9 @@ function jsonResponse(data: unknown, status = 200): Response {
 // ──────────────────────────────────────────────
 
 /**
- * Busca la conexión WhatsApp activa (status='connected') para un negocio.
- * Valida que tenga access_token y phone_number_id configurados.
+ * Busca la conexión WhatsApp activa (status='connected') para un negocio y
+ * resuelve su token cifrado desde Vault vía RPC server-side. El token NUNCA
+ * se lee como columna de whatsapp_connections (no existe más).
  */
 async function loadActiveConnection(
   supabase: ReturnType<typeof createClient>,
@@ -109,10 +110,9 @@ async function loadActiveConnection(
 ): Promise<WhatsAppConnection> {
   const { data, error } = await supabase
     .from('whatsapp_connections')
-    .select('id, phone_number_id, access_token, business_phone_number, connected_account_name, status')
+    .select('id, phone_number_id, business_phone_number, connected_account_name, status')
     .eq('business_id', businessId)
     .eq('status', 'connected')
-    .not('access_token', 'is', null)
     .not('phone_number_id', 'is', null)
     .order('created_at', { ascending: false })
     .limit(1)
@@ -125,7 +125,16 @@ async function loadActiveConnection(
     )
   }
 
-  return data as WhatsAppConnection
+  const conn = data as Omit<WhatsAppConnection, 'access_token'> & { id: string }
+
+  const { data: token, error: tokenError } = await supabase
+    .rpc('whatsapp_credential_get_token', { p_connection_id: conn.id })
+
+  if (tokenError || !token) {
+    throw new Error('No se pudo resolver la credencial de la conexión de WhatsApp.')
+  }
+
+  return { ...conn, access_token: token as string } as WhatsAppConnection
 }
 
 // ──────────────────────────────────────────────
