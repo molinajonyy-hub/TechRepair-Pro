@@ -105,14 +105,14 @@ lanzaría `FEATURE_NOT_AVAILABLE`); `mayorista` inconsistente (trial sí / pro n
 ## 3. Archivos
 
 **Nuevos**
-- `supabase/migrations/20260623_100_billing_stageA_drift_and_constraints.sql`
-- `supabase/migrations/20260623_101_billing_stageA_entitlements_rpc.sql`
+- `supabase/migrations/20260623100000_billing_stageA_drift_and_constraints.sql`
+- `supabase/migrations/20260623101000_billing_stageA_entitlements_rpc.sql`
 - `supabase/migrations/_legacy/get_business_subscription_features_pre_audit.sql`
-- `supabase/migrations/20260623_120_billing_stageC_admin_roles_audit.sql`
-- `supabase/migrations/20260623_121_billing_stageC_admin_rpcs.sql`
-- `supabase/migrations/20260623_140_billing_stageD_protect_trigger.sql`
-- `supabase/migrations/20260623_160_billing_stageE_data_normalization.sql`
-- `supabase/migrations/20260623_161_billing_stageE_scheduling.sql`
+- `supabase/migrations/20260623120000_billing_stageC_admin_roles_audit.sql`
+- `supabase/migrations/20260623121000_billing_stageC_admin_rpcs.sql`
+- `supabase/migrations/20260623140000_billing_stageD_protect_trigger.sql`
+- `supabase/migrations/20260623160000_billing_stageE_data_normalization.sql`
+- `supabase/migrations/20260623161000_billing_stageE_scheduling.sql`
 - `src/lib/mpStatus.ts`
 - `tests/unit/planEntitlements.test.ts`, `tests/unit/mpStatus.test.ts`, `tests/unit/billingContracts.test.ts`
 - `tests/sql/billing_security.test.sql`
@@ -168,7 +168,7 @@ suscripción MP real cuando paguen.
 
 ### Etapa A — esquema (no bloqueante)
 - Preflight: `select count(*) from subscription_events;` (esperado 0).
-- Aplicar `20260623_100`, `20260623_101`.
+- Aplicar `20260623100000`, `20260623101000`.
 - Postflight: `select proname, proconfig from pg_proc where proname='get_business_subscription_features';` (debe tener `search_path`); `select obj_description` de columnas nuevas.
 - Rollback: ver pie de cada archivo + `_legacy/` para el RPC.
 
@@ -178,7 +178,7 @@ suscripción MP real cuando paguen.
 - Postflight: enviar webhook de prueba firmado (sandbox) → 200; firma inválida → 401; sin secret → 500.
 
 ### Etapa C — admin seguro (RPCs + auditoría)
-- Aplicar `20260623_120`, `20260623_121`. Reusa `system_admins` (no crea tabla nueva):
+- Aplicar `20260623120000`, `20260623121000`. Reusa `system_admins` (no crea tabla nueva):
   las filas existentes quedan `role='super_admin', is_active=true` → **no hay que sembrar nada**,
   los admins actuales siguen funcionando. Para agregar un `billing_admin` luego:
   `select public.admin_grant_role('<user_id>','billing_admin','motivo');` (sólo super_admin).
@@ -187,15 +187,15 @@ suscripción MP real cuando paguen.
 
 ### Etapa D — trigger protector
 - Confirmar que **no** quedan escrituras directas legítimas (panel ya usa RPCs).
-- Aplicar `20260623_140`.
+- Aplicar `20260623140000`.
 - Postflight: T1/T3 de `billing_security.test.sql` (cliente bloqueado; webhook/RPC siguen funcionando).
 
 ### Etapa E — datos + expiración
-- **Preview** (correr antes): las queries `PREFLIGHT` dentro de `20260623_160` y `_161` (deben listar 7 grandfather y los 9 trials vencidos).
+- **Preview** (correr antes): las queries `PREFLIGHT` dentro de `20260623160000` y `20260623161000` (deben listar 7 grandfather y los 9 trials vencidos).
 - Resolver `trial_ends_at` NULL (incluido).
-- Aplicar `20260623_160` (grandfather, con safety rail >10).
-- **Decidir** sobre los 9 trials vencidos (extender vía `admin_extend_trial` / convertir / aceptar suspensión) **antes** de `20260623_161`.
-- Aplicar `20260623_161` (pg_cron). Postflight: `select jobname, schedule from cron.job;`.
+- Aplicar `20260623160000` (grandfather, con safety rail >10).
+- **Decidir** sobre los 9 trials vencidos (extender vía `admin_extend_trial` / convertir / aceptar suspensión) **antes** de `20260623161000`.
+- Aplicar `20260623161000` (pg_cron). Postflight: `select jobname, schedule from cron.job;`.
 
 ---
 
@@ -250,6 +250,6 @@ Usar credenciales **TEST** (nunca producción). Tarjetas en `MERCADOPAGO_SETUP.m
 - **6 de 7 cuentas tienen período vencido** pero siguen `active`; quedan como legado
   gestionado hasta migrarlas a MP real.
 - **pg_cron** puede requerir habilitación de extensión en el plan de Supabase; si no está
-  disponible, usar el scheduler alternativo documentado en `20260623_161`.
+  disponible, usar el scheduler alternativo documentado en `20260623161000`.
 - Migraciones **no aplicadas ni validadas en una DB**; correr `billing_security.test.sql`
   en un branch antes de producción.

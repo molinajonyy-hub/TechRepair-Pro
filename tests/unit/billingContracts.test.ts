@@ -11,10 +11,10 @@ const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf-8
 
 const webhook   = read('../../supabase/functions/mp-webhook/index.ts')
 const service   = read('../../src/services/subscriptionService.ts')
-const trigger   = read('../../supabase/migrations/20260623_140_billing_stageD_protect_trigger.sql')
-const adminRpc  = read('../../supabase/migrations/20260623_121_billing_stageC_admin_rpcs.sql')
-const entRpc    = read('../../supabase/migrations/20260623_101_billing_stageA_entitlements_rpc.sql')
-const platform  = read('../../supabase/migrations/20260623_120_billing_stageC_admin_roles_audit.sql')
+const trigger   = read('../../supabase/migrations/20260623140000_billing_stageD_protect_trigger.sql')
+const adminRpc  = read('../../supabase/migrations/20260623121000_billing_stageC_admin_rpcs.sql')
+const entRpc    = read('../../supabase/migrations/20260623101000_billing_stageA_entitlements_rpc.sql')
+const platform  = read('../../supabase/migrations/20260623120000_billing_stageC_admin_roles_audit.sql')
 
 // ── Webhook: reliability + mandatory signature + idempotency ────────────────
 test('webhook AWAIT-ea el procesamiento (sin fire-and-forget)', () => {

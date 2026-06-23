@@ -21,6 +21,40 @@
 -- (pg_cron + previewed normalization) to avoid silently revoking access.
 -- ============================================================================
 
+-- NOTE: the helper functions are defined FIRST. get_business_subscription_features
+-- is a LANGUAGE sql function and Postgres validates its body at creation
+-- (check_function_bodies = on by default), so _feat_pro/_feat_full must already
+-- exist when the main function is (re)created.
+
+-- Helper: Pro-tier (trial + pro + full) — false when suspended/canceled.
+CREATE OR REPLACE FUNCTION public._feat_pro(p_status text, p_plan text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT CASE
+    WHEN p_status IN ('suspended','canceled') THEN false
+    WHEN p_status = 'trialing'                THEN true
+    WHEN p_plan   IN ('pro','full')           THEN true
+    ELSE false
+  END;
+$$;
+
+-- Helper: Full-only — false when suspended/canceled, false on trial (trial = Pro).
+CREATE OR REPLACE FUNCTION public._feat_full(p_status text, p_plan text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT CASE
+    WHEN p_status IN ('suspended','canceled') THEN false
+    WHEN p_plan   = 'full'                    THEN true
+    ELSE false
+  END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.get_business_subscription_features(p_business_id uuid)
 RETURNS jsonb
 LANGUAGE sql
@@ -54,35 +88,6 @@ AS $function$
   FROM public.businesses b
   WHERE b.id = p_business_id;
 $function$;
-
--- Helper: Pro-tier (trial + pro + full) — false when suspended/canceled.
-CREATE OR REPLACE FUNCTION public._feat_pro(p_status text, p_plan text)
-RETURNS boolean
-LANGUAGE sql
-IMMUTABLE
-SET search_path = public, pg_temp
-AS $$
-  SELECT CASE
-    WHEN p_status IN ('suspended','canceled') THEN false
-    WHEN p_status = 'trialing'                THEN true
-    WHEN p_plan   IN ('pro','full')           THEN true
-    ELSE false
-  END;
-$$;
-
--- Helper: Full-only — false when suspended/canceled, false on trial (trial = Pro).
-CREATE OR REPLACE FUNCTION public._feat_full(p_status text, p_plan text)
-RETURNS boolean
-LANGUAGE sql
-IMMUTABLE
-SET search_path = public, pg_temp
-AS $$
-  SELECT CASE
-    WHEN p_status IN ('suspended','canceled') THEN false
-    WHEN p_plan   = 'full'                    THEN true
-    ELSE false
-  END;
-$$;
 
 -- Also harden the sibling SECURITY DEFINER helper that lacked nothing here but
 -- keep its search_path explicit for consistency (idempotent no-op if already set).

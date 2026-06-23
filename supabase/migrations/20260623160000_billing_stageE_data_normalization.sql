@@ -72,7 +72,7 @@ BEGIN
   VALUES (
     'migration',
     'grandfather_normalization',
-    '20260623_160',
+    '20260623160000',
     jsonb_build_object(
       'classified_count', v_count,
       'business_ids',     to_jsonb(v_ids),
@@ -109,5 +109,5 @@ WHERE subscription_status = 'trialing'
 --         override_expires_at = NULL
 --     WHERE access_source = 'manual_grandfathered'
 --       AND override_reason = 'Legacy manual activation classified during 2026-06-23 billing audit';
---   DELETE FROM public.subscription_events WHERE event_type='grandfather_normalization' AND external_id='20260623_160';
+--   DELETE FROM public.subscription_events WHERE event_type='grandfather_normalization' AND external_id='20260623160000';
 -- ============================================================================
