@@ -27,8 +27,15 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
+// Allowed origin is configurable so it never goes stale on a Vercel domain change.
+// Set MP_CORS_ORIGIN (or APP_URL) in Edge Function secrets to the frontend origin.
+const ALLOWED_ORIGIN =
+  Deno.env.get('MP_CORS_ORIGIN') ??
+  Deno.env.get('APP_URL') ??
+  'https://tech-repair-pro-molinajonyy-hubs-projects.vercel.app'
+
 const corsHeaders = {
-  'Access-Control-Allow-Origin': 'https://tech-repair-pro-molinajonyy-hubs-projects.vercel.app',
+  'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Vary': 'Origin',

@@ -36,8 +36,9 @@ export function useSystemOwner() {
     setLoading(true)
     supabase
       .from('system_admins')
-      .select('user_id')
+      .select('user_id, is_active')
       .eq('user_id', userId)
+      .eq('is_active', true)
       .maybeSingle()
       .then(({ data, error }) => {
         if (error) {

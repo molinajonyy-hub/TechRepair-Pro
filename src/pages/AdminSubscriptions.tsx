@@ -8,7 +8,6 @@ import {
   Search, RefreshCw, CheckCircle, Clock,
   ChevronUp, Loader2, Eye, Zap, Ban
 } from 'lucide-react'
-import { useAuth } from '../contexts/AuthContext'
 import {
   adminListSubscriptions,
   adminGetEvents,
@@ -16,6 +15,7 @@ import {
   adminSuspendBusiness,
   adminChangePlan,
   adminExtendTrial,
+  getPlatformAdminRole,
   formatSubscriptionPrice,
 } from '../services/subscriptionService'
 import {
@@ -33,6 +33,7 @@ type AdminBiz = {
   business_name: string
   subscription_status: SubscriptionStatus
   subscription_plan: string | null
+  access_source: string | null
   mp_preapproval_id: string | null
   mp_payer_email: string | null
   current_period_end: string | null
@@ -40,10 +41,29 @@ type AdminBiz = {
   last_payment_status: string | null
   last_webhook_at: string | null
   trial_ends_at: string | null
+  override_expires_at: string | null
   created_at: string
   total_payments: number
-  last_paid_at: string | null
+  last_paid_at?: string | null
   total_revenue: number
+}
+
+// How the business obtained access — distinguishes a real MP payment from a
+// manual/grandfathered grant. NEVER render a manual grant as "paid".
+function AccessSourceBadge({ source, hasMp }: { source: string | null; hasMp: boolean }) {
+  const cfg: Record<string, { label: string; color: string }> = {
+    mercado_pago:         { label: 'Mercado Pago', color: '#34d399' },
+    trial:                { label: 'Trial',         color: '#60a5fa' },
+    manual_grandfathered: { label: 'Legacy manual', color: '#fbbf24' },
+    admin_override:       { label: 'Override admin', color: '#a78bfa' },
+  }
+  const key = source ?? (hasMp ? 'mercado_pago' : '')
+  const c = cfg[key] ?? { label: 'Sin clasificar', color: '#94a3b8' }
+  return (
+    <span className="badge" style={{ background: c.color + '20', color: c.color, fontSize: '0.7rem' }}>
+      {c.label}
+    </span>
+  )
 }
 
 function StatusBadge({ status }: { status: SubscriptionStatus }) {
@@ -57,7 +77,7 @@ function StatusBadge({ status }: { status: SubscriptionStatus }) {
 }
 
 export function AdminSubscriptions() {
-  const { role } = useAuth()
+  const [platformRole, setPlatformRole] = useState<string | null>(null)
   const [businesses, setBusinesses] = useState<AdminBiz[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
@@ -67,7 +87,17 @@ export function AdminSubscriptions() {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [activatePlan, setActivatePlan] = useState<SubscriptionPlan>('basico')
 
-  const canWrite = role === 'owner' || role === 'admin'
+  // Platform-admin authorization is server-side (RPC). The business "owner/admin"
+  // role does NOT grant access here. billing_admin/super_admin can write.
+  useEffect(() => { getPlatformAdminRole().then(setPlatformRole) }, [])
+  const canWrite = platformRole === 'billing_admin' || platformRole === 'super_admin'
+
+  // Prompt for a mandatory reason (audited server-side).
+  function askReason(label: string): string | null {
+    const r = window.prompt(`${label}\n\nMotivo (obligatorio, queda auditado):`)?.trim()
+    if (!r || r.length < 4) { if (r !== null) alert('El motivo es obligatorio (mín. 4 caracteres).'); return null }
+    return r
+  }
   const [changePlanTarget, setChangePlanTarget] = useState<{ id: string; current: string } | null>(null)
   const [changePlanValue, setChangePlanValue] = useState<SubscriptionPlan>('pro')
   const [trialExtendDays, setTrialExtendDays] = useState(14)
@@ -107,9 +137,11 @@ export function AdminSubscriptions() {
 
   async function handleActivate(businessId: string) {
     if (!canWrite) return
+    const reason = askReason(`Activar manualmente como Plan ${activatePlan} (override admin)`)
+    if (!reason) return
     setActionLoading(businessId + '_activate')
     try {
-      await adminActivateBusiness(businessId, activatePlan)
+      await adminActivateBusiness(businessId, activatePlan, reason)
       await load()
     } catch (err: any) { alert(err.message) }
     finally { setActionLoading(null) }
@@ -117,10 +149,11 @@ export function AdminSubscriptions() {
 
   async function handleSuspend(businessId: string) {
     if (!canWrite) return
-    if (!confirm('¿Suspender este negocio?')) return
+    const reason = askReason('Suspender este negocio')
+    if (!reason) return
     setActionLoading(businessId + '_suspend')
     try {
-      await adminSuspendBusiness(businessId)
+      await adminSuspendBusiness(businessId, reason)
       await load()
     } catch (err: any) { alert(err.message) }
     finally { setActionLoading(null) }
@@ -128,9 +161,11 @@ export function AdminSubscriptions() {
 
   async function handleChangePlan() {
     if (!canWrite || !changePlanTarget) return
+    const reason = askReason(`Cambiar plan a ${changePlanValue}`)
+    if (!reason) return
     setActionLoading(changePlanTarget.id + '_plan')
     try {
-      await adminChangePlan(changePlanTarget.id, changePlanValue)
+      await adminChangePlan(changePlanTarget.id, changePlanValue, reason)
       setChangePlanTarget(null)
       await load()
     } catch (err: any) { alert(err.message) }
@@ -139,9 +174,11 @@ export function AdminSubscriptions() {
 
   async function handleExtendTrial(businessId: string) {
     if (!canWrite) return
+    const reason = askReason(`Extender trial ${trialExtendDays} días`)
+    if (!reason) return
     setActionLoading(businessId + '_trial')
     try {
-      await adminExtendTrial(businessId, trialExtendDays)
+      await adminExtendTrial(businessId, trialExtendDays, reason)
       await load()
     } catch (err: any) { alert(err.message) }
     finally { setActionLoading(null) }
@@ -227,7 +264,12 @@ export function AdminSubscriptions() {
                         {b.mp_payer_email && <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>{b.mp_payer_email}</div>}
                       </td>
                       <td style={tdS}><StatusBadge status={b.subscription_status} /></td>
-                      <td style={tdS}>{PLANS.find(p => p.id === b.subscription_plan)?.name || b.subscription_plan || 'â€"'}</td>
+                      <td style={tdS}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                          <span>{PLANS.find(p => p.id === b.subscription_plan)?.name || b.subscription_plan || '—'}</span>
+                          <AccessSourceBadge source={b.access_source} hasMp={!!b.mp_preapproval_id} />
+                        </div>
+                      </td>
                       <td style={tdS}>
                         {b.current_period_end
                           ? new Date(b.current_period_end).toLocaleDateString('es-AR')

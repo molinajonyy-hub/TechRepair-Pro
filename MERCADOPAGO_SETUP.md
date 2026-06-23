@@ -30,17 +30,24 @@ Crear 9 planes (3 planes × 3 ciclos):
 
 | Plan    | Ciclo       | Precio ARS | Frecuencia |
 |---------|-------------|------------|------------|
-| Básico  | Mensual     | $4.900     | 1 mes      |
-| Básico  | Trimestral  | $12.900    | 3 meses    |
-| Básico  | Anual       | $44.900    | 12 meses   |
-| Pro     | Mensual     | $9.900     | 1 mes      |
-| Pro     | Trimestral  | $25.900    | 3 meses    |
-| Pro     | Anual       | $89.900    | 12 meses   |
-| Full    | Mensual     | $19.900    | 1 mes      |
-| Full    | Trimestral  | $51.900    | 3 meses    |
-| Full    | Anual       | $179.900   | 12 meses   |
+| Básico  | Mensual     | $15.000    | 1 mes      |
+| Básico  | Trimestral  | $39.000    | 3 meses    |
+| Básico  | Anual       | $144.000   | 12 meses   |
+| Pro     | Mensual     | $25.000    | 1 mes      |
+| Pro     | Trimestral  | $64.500    | 3 meses    |
+| Pro     | Anual       | $240.000   | 12 meses   |
+| Full    | Mensual     | $45.000    | 1 mes      |
+| Full    | Trimestral  | $117.000   | 3 meses    |
+| Full    | Anual       | $432.000   | 12 meses   |
 
 Cada plan creado tiene un ID que empieza con `2c938084...`
+
+> ⚠️ **Fuente de verdad del importe cobrado.** El monto que realmente se cobra lo
+> define el **plan de Mercado Pago** (panel MP), NO el frontend. Los precios de
+> arriba DEBEN coincidir exactamente con `src/types/subscription.ts` (`PLANS`),
+> que es lo que ve el usuario. Si actualizás precios, hacelo en AMBOS lugares.
+> (Corrección 2026-06-23: esta tabla tenía precios viejos $4.900/$9.900/$19.900
+> que no coincidían con los $15.000/$25.000/$45.000 mostrados al usuario.)
 
 ---
 

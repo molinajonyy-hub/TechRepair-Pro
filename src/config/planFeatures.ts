@@ -77,6 +77,8 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeatureSet> = {
 export const TRIAL_FEATURES: PlanFeatureSet = { ...PLAN_FEATURES.pro }
 
 // Plan mínimo requerido por feature (para el copy del upgrade CTA)
+// NOTA: la fuente de verdad server-side es el RPC `get_business_subscription_features`.
+// Esta matriz DEBE coincidir con PLAN_FEATURES y con ese RPC (ver test planEntitlements).
 export const FEATURE_REQUIRED_PLAN: Record<PlanFeature, 'pro' | 'full'> = {
   arca:             'pro',
   currentAccounts:  'pro',
@@ -86,7 +88,7 @@ export const FEATURE_REQUIRED_PLAN: Record<PlanFeature, 'pro' | 'full'> = {
   advancedRoles:    'full',
   audit:            'full',
   multisucursal:    'full',
-  mayorista:        'pro',
+  mayorista:        'full',  // mayorista es Full-only (antes decía 'pro' por error)
   personal_finance: 'pro',
 }
 

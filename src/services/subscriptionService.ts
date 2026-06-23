@@ -46,13 +46,15 @@ export async function getSubscription(businessId: string): Promise<BusinessSubsc
     .select(`
       subscription_status,
       subscription_plan,
+      access_source,
       mp_preapproval_id,
       mp_payer_email,
       current_period_start,
       current_period_end,
       grace_until,
       last_payment_status,
-      trial_ends_at
+      trial_ends_at,
+      override_expires_at
     `)
     .eq('id', businessId)
     .single()
@@ -155,21 +157,26 @@ export async function getUpdatePaymentLink(businessId: string): Promise<string> 
   return res.init_point
 }
 
+// ── Admin: platform-admin role of the current user (null if not an admin) ──
+// Reads system_admins.role via RPC. The "owner/admin" business role is NOT a
+// platform admin.
+export async function getPlatformAdminRole(): Promise<string | null> {
+  const { data, error } = await supabase.rpc('current_platform_admin_role')
+  if (error) { console.error('getPlatformAdminRole error:', error.message); return null }
+  return (data as string | null) ?? null
+}
+
 // ── Admin: list all businesses with subscription info ─────────
+// Goes through a SECURITY DEFINER RPC gated by system_admins (support_readonly+),
+// not the per-tenant RLS view (which would only show the caller's own business).
 export async function adminListSubscriptions(query?: string) {
-  let q = supabase
-    .from('v_subscription_overview')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(50)
-
-  if (query) {
-    q = q.ilike('business_name', `%${query}%`)
-  }
-
-  const { data, error } = await q
+  const { data, error } = await supabase.rpc('admin_list_subscriptions', {
+    p_query: query ?? null,
+    p_limit: 200,
+  })
   if (error) throw error
-  return data || []
+  // RPC returns SETOF jsonb → array of row objects.
+  return (data as unknown[]) ?? []
 }
 
 // ── Admin: get all events for a business ─────────────────────
@@ -185,109 +192,75 @@ export async function adminGetEvents(businessId: string) {
   return data || []
 }
 
-// ── Admin: manually activate a business ──────────────────────
+// ── Admin operations — all go through audited SECURITY DEFINER RPCs ──────────
+// The frontend NEVER writes subscription columns on `businesses` directly. Each
+// RPC validates platform-admin membership, requires a reason, writes only the
+// allowed columns and records an audit row. A direct UPDATE is blocked by the
+// `trg_protect_subscription_columns` trigger.
+
 export async function adminActivateBusiness(
   businessId: string,
-  plan: SubscriptionPlan
+  plan: SubscriptionPlan,
+  reason: string,
 ): Promise<void> {
-  const now = new Date()
-  const nextMonth = new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000)
-
-  const { error } = await supabase
-    .from('businesses')
-    .update({
-      subscription_status: 'active',
-      subscription_plan: plan,
-      current_period_start: now.toISOString(),
-      current_period_end: nextMonth.toISOString(),
-      grace_until: null,
-      updated_at: now.toISOString(),
-    })
-    .eq('id', businessId)
-
-  if (error) throw error
-
-  // Log manual activation
-  await supabase.from('subscription_events').insert({
-    business_id: businessId,
-    provider: 'manual',
-    event_type: 'manual_activation',
-    external_id: null,
-    raw_payload: { activated_plan: plan, activated_by: 'admin' },
-    processed: true,
+  const { error } = await supabase.rpc('admin_activate_subscription', {
+    p_business_id: businessId, p_plan: plan, p_reason: reason,
   })
+  if (error) throw error
 }
 
-// ── Admin: change plan of an active business ─────────────────
 export async function adminChangePlan(
   businessId: string,
-  newPlan: SubscriptionPlan
+  newPlan: SubscriptionPlan,
+  reason: string,
 ): Promise<void> {
-  const { error } = await supabase
-    .from('businesses')
-    .update({
-      subscription_plan: newPlan,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', businessId)
-  if (error) throw error
-
-  await supabase.from('subscription_events').insert({
-    business_id: businessId,
-    provider: 'manual',
-    event_type: 'manual_plan_change',
-    external_id: null,
-    raw_payload: { new_plan: newPlan, changed_by: 'admin' },
-    processed: true,
+  const { error } = await supabase.rpc('admin_change_subscription_plan', {
+    p_business_id: businessId, p_new_plan: newPlan, p_reason: reason,
   })
+  if (error) throw error
 }
 
-// ── Admin: extend trial by N extra days ──────────────────────
 export async function adminExtendTrial(
   businessId: string,
-  extraDays: number
+  extraDays: number,
+  reason: string,
 ): Promise<void> {
-  // Fetch current trial_ends_at; if past, extend from now
-  const { data } = await supabase
-    .from('businesses')
-    .select('trial_ends_at')
-    .eq('id', businessId)
-    .single()
-
-  const base = data?.trial_ends_at ? new Date(data.trial_ends_at) : new Date()
-  if (base < new Date()) base.setTime(Date.now())
-  base.setDate(base.getDate() + extraDays)
-
-  const { error } = await supabase
-    .from('businesses')
-    .update({
-      subscription_status: 'trialing',
-      trial_ends_at: base.toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', businessId)
-  if (error) throw error
-
-  await supabase.from('subscription_events').insert({
-    business_id: businessId,
-    provider: 'manual',
-    event_type: 'trial_extended',
-    external_id: null,
-    raw_payload: { extra_days: extraDays, new_trial_ends_at: base.toISOString() },
-    processed: true,
+  const { error } = await supabase.rpc('admin_extend_trial', {
+    p_business_id: businessId, p_extra_days: extraDays, p_reason: reason,
   })
+  if (error) throw error
 }
 
-// ── Admin: suspend a business ─────────────────────────────────
-export async function adminSuspendBusiness(businessId: string): Promise<void> {
-  const { error } = await supabase
-    .from('businesses')
-    .update({
-      subscription_status: 'suspended',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', businessId)
+export async function adminSuspendBusiness(businessId: string, reason: string): Promise<void> {
+  const { error } = await supabase.rpc('admin_suspend_subscription', {
+    p_business_id: businessId, p_reason: reason,
+  })
+  if (error) throw error
+}
 
+export async function adminCancelBusiness(businessId: string, reason: string): Promise<void> {
+  const { error } = await supabase.rpc('admin_cancel_subscription', {
+    p_business_id: businessId, p_reason: reason,
+  })
+  if (error) throw error
+}
+
+export async function adminGrantLegacyAccess(
+  businessId: string,
+  plan: SubscriptionPlan,
+  reason: string,
+  expiresAt?: string | null,
+): Promise<void> {
+  const { error } = await supabase.rpc('admin_grant_legacy_access', {
+    p_business_id: businessId, p_plan: plan, p_reason: reason, p_expires_at: expiresAt ?? null,
+  })
+  if (error) throw error
+}
+
+export async function adminRevokeLegacyAccess(businessId: string, reason: string): Promise<void> {
+  const { error } = await supabase.rpc('admin_revoke_legacy_access', {
+    p_business_id: businessId, p_reason: reason,
+  })
   if (error) throw error
 }
 
@@ -329,15 +302,27 @@ export async function reconcilePayment(businessId: string): Promise<{
   }
 }
 
-// ── Historial de pagos SaaS (subscription_payments) ───────────────────────
+// ── Historial de pagos SaaS ───────────────────────────────────────────────
+// Reads the canonical `payments` ledger (written by the webhook). The legacy
+// `subscription_payments` table is never populated by the webhook and is
+// deprecated — do not read it.
 export async function getSubscriptionPayments(businessId: string) {
   const { data } = await supabase
-    .from('subscription_payments')
-    .select('id, plan_id, billing_cycle, amount, currency, status, paid_at, created_at')
+    .from('payments')
+    .select('id, subscription_plan, amount, currency, status, paid_at, created_at')
     .eq('business_id', businessId)
     .order('created_at', { ascending: false })
     .limit(20)
-  return data ?? []
+  return (data ?? []).map(p => ({
+    id: p.id,
+    plan_id: p.subscription_plan,
+    billing_cycle: null as string | null,
+    amount: p.amount,
+    currency: p.currency,
+    status: p.status,
+    paid_at: p.paid_at,
+    created_at: p.created_at,
+  }))
 }
 
 // ── Format currency ───────────────────────────────────────────

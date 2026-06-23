@@ -13,6 +13,14 @@ export type SubscriptionStatus =
 
 export type SubscriptionPlan = 'basico' | 'pro' | 'full'
 
+// How a business obtained its current access. Distinguishes a verified Mercado
+// Pago payment from manual/grandfathered/override grants (never conflate them).
+export type AccessSource =
+  | 'mercado_pago'
+  | 'trial'
+  | 'manual_grandfathered'
+  | 'admin_override'
+
 export type PaymentStatus =
   | 'approved'
   | 'pending'
@@ -55,6 +63,7 @@ export type BillingCycle = 'monthly' | 'quarterly' | 'annual'
 export interface BusinessSubscription {
   subscription_status: SubscriptionStatus
   subscription_plan: SubscriptionPlan | null
+  access_source: AccessSource | null
   mp_preapproval_id: string | null
   mp_payer_email: string | null
   current_period_start: string | null
@@ -62,6 +71,7 @@ export interface BusinessSubscription {
   grace_until: string | null
   last_payment_status: PaymentStatus | null
   trial_ends_at: string | null
+  override_expires_at: string | null
 }
 
 // ─── Payment record ───────────────────────────────────────────
