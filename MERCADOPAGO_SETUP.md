@@ -111,10 +111,31 @@ supabase secrets set \
 
 ## 6. Deploy de Edge Functions
 
-```bash
-supabase functions deploy mp-subscription
-supabase functions deploy mp-webhook
+> ⚠️ **`mp-webhook` DEBE deployarse con `verify_jwt = false`.** Mercado Pago llama
+> al webhook SIN un JWT de Supabase; su seguridad es la **firma HMAC** (`x-signature`),
+> no el JWT. Si se deploya con `verify_jwt = true`, el gateway de Supabase rechaza
+> (401) las llamadas de MP **antes** de llegar a la función → el webhook nunca procesa
+> (esto pasó en producción: `subscription_events`/`payments` quedaron vacíos hasta el
+> 2026-06-23, cuando se corrigió a `verify_jwt=false` en la versión 18).
+> `mp-subscription` también va con `verify_jwt = false` (hace su propio `getAuthUser`).
+
+Para que el flag sea **reproducible** en `supabase functions deploy`, declararlo en
+`supabase/config.toml`:
+
+```toml
+[functions.mp-webhook]
+verify_jwt = false
+
+[functions.mp-subscription]
+verify_jwt = false
 ```
+
+```bash
+supabase functions deploy mp-subscription   # verify_jwt=false
+supabase functions deploy mp-webhook         # verify_jwt=false (NUNCA true)
+```
+
+Si se deploya desde el dashboard, dejar **"Verify JWT" apagado** en ambas funciones.
 
 Las URLs resultantes son:
 - `https://vrdxxmjzxhfgqlnxmbwx.supabase.co/functions/v1/mp-subscription`
