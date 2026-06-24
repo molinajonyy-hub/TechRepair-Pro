@@ -34,17 +34,36 @@ para revisión y rollout por etapas.
 
 ## 2. Hallazgos
 
-### CRÍTICO
+> 🔧 **Corrección de severidad y causa raíz (2026-06-23, durante el rollout productivo).**
+> Al validar contra los privilegios reales de producción se encontró que la tabla
+> `businesses` tiene los GRANTs restringidos: `authenticated`/`anon` sólo tienen
+> SELECT y `service_role` no tenía ningún privilegio. Implicancias:
+> - **C1 estaba SOBRE-evaluado:** `authenticated` **no tenía privilegio efectivo de
+>   UPDATE** sobre `businesses` (`has_table_privilege` = false). Por lo tanto la
+>   **autoactivación directa desde PostgREST NO era explotable** en el estado
+>   productivo encontrado. La política RLS `businesses_update` permisiva es un
+>   **riesgo latente** sólo si en el futuro se concede UPDATE a `authenticated`.
+>   El trigger de Stage D queda como **defensa en profundidad** (no como cierre de
+>   una vulnerabilidad activa).
+> - **El bloqueo real del webhook** no era un trigger, sino la **ausencia de
+>   privilegios de `service_role`** sobre `businesses` (no podía hacer UPDATE) →
+>   nunca podía activar una suscripción. Esto, sumado a `mp-webhook` desplegado con
+>   `verify_jwt:true` (que el gateway rechazaba antes de llegar a la función), eran
+>   **dos bloqueos independientes** del webhook. Fix: `verify_jwt=false` +
+>   migración `20260623130000` (GRANT mínimo a `service_role`).
+>
+> No se elimina el hallazgo original; se documenta la corrección.
 
-**C1 — Auto-activación por escritura directa a `businesses`.**
-`businesses_update` (RLS) permite a cualquier `owner/admin` actualizar la fila sin
-restricción de columna y **no hay trigger protector** (`businesses` sólo tiene
-`update_businesses_updated_at`). Un dueño puede ejecutar desde la consola:
-`supabase.from('businesses').update({subscription_status:'active',subscription_plan:'full'})`.
-Las funciones “admin” (`subscriptionService.adminActivateBusiness`, etc.) hacían
-exactamente eso desde React.
-- Impacto: cualquier negocio se otorga Full/trial infinito sin pagar.
-- Fix: trigger `protect_subscription_columns` (Stage D) + RPCs admin auditadas (Stage C) + frontend reescrito a RPCs.
+### CRÍTICO (severidad corregida — ver nota arriba)
+
+**C1 — Política RLS permisiva en `businesses` (riesgo latente, no explotable en prod).**
+`businesses_update` (RLS) permite a `owner/admin` actualizar la fila sin restricción
+de columna y **no había trigger protector**. En el estado productivo **no era
+explotable** porque `authenticated` carecía del GRANT de UPDATE (ver corrección).
+Las funciones “admin” cliente (`subscriptionService.adminActivateBusiness`, etc.)
+intentaban UPDATE directo desde React — que de hecho **fallaba** por falta de GRANT.
+- Impacto real: bajo en el estado encontrado; alto si se concediera UPDATE sin el trigger.
+- Fix: trigger `protect_subscription_columns` (Stage D, defensa en profundidad) + RPCs admin auditadas (Stage C) + frontend reescrito a RPCs.
 - Test: `tests/sql/billing_security.test.sql` T1/T4/T8; `tests/unit/billingContracts.test.ts`.
 
 **C2 — El pipeline MP nunca corrió en producción; 7 “active” sin pago verificable.**
