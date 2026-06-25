@@ -21,24 +21,102 @@
  *
  * ─── Security ──────────────────────────────────────────────────
  * - MP_ACCESS_TOKEN is ONLY in this Edge Function env (never frontend)
- * - Requires valid Supabase JWT from authenticated user
+ * - Requires valid Supabase JWT from authenticated user (validated in-function;
+ *   the gateway runs with verify_jwt=false so the CORS preflight can reach us)
  * - Verifies user belongs to the target business before any MP call
  */
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-// Allowed origin is configurable so it never goes stale on a Vercel domain change.
-// Set MP_CORS_ORIGIN (or APP_URL) in Edge Function secrets to the frontend origin.
-const ALLOWED_ORIGIN =
-  Deno.env.get('MP_CORS_ORIGIN') ??
-  Deno.env.get('APP_URL') ??
-  'https://tech-repair-pro-molinajonyy-hubs-projects.vercel.app'
+// ─────────────────────────────────────────────────────────────────
+// CORS — single source of truth (buildCorsHeaders + jsonResponse)
+//
+// Origin: an exact allowlist. We echo back ONLY the request's Origin when it is
+// allowed; otherwise we send NO Access-Control-Allow-Origin at all (no canonical
+// fallback) so an unauthorized origin can never read the response. Never '*'
+// (this endpoint is authenticated), never a comma list of origins.
+//
+// Allowlist sources (each may be a single origin OR a comma-separated list):
+//   - MP_CORS_ORIGIN  (preferred)
+//   - APP_URL         (also used for back URLs; usually the same origin)
+// The canonical production origin is a HARD default so a present-but-misconfigured
+// secret can never silently drop the real origin or fall back to a stale Vercel one.
+//
+// Headers: an explicit, case-insensitive allowlist. We return ONLY the
+// intersection of what the browser announces in Access-Control-Request-Headers
+// with that allowlist — never reflect arbitrary headers. `cache-control` and
+// `pragma` are included because Chrome adds them on a hard reload (Ctrl+Shift+R);
+// omitting them makes the browser fail the preflight and never send the POST.
+// ─────────────────────────────────────────────────────────────────
+// Both hosts are real production origins. The apex 307-redirects to www (Vercel),
+// so on the live site the browser's Origin is usually https://www.techrepairpro.app.
+// Allowing ONLY the apex is what rejected the POST preflight for real users
+// (the function answered OPTIONS 204 but with no Access-Control-Allow-Origin).
+const CANONICAL_ORIGINS = [
+  'https://www.techrepairpro.app',
+  'https://techrepairpro.app',
+]
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Vary': 'Origin',
+const stripSlash = (o: string) => o.trim().replace(/\/+$/, '')
+
+const parseOrigins = (raw: string | undefined): string[] =>
+  (raw ?? '').split(',').map(stripSlash).filter(Boolean)
+
+const ALLOWED_ORIGINS: string[] = [
+  ...new Set<string>([
+    ...CANONICAL_ORIGINS,
+    ...parseOrigins(Deno.env.get('MP_CORS_ORIGIN')),
+    ...parseOrigins(Deno.env.get('APP_URL')),
+  ]),
+]
+
+// Request headers we are willing to allow on the actual request (lower-case).
+const ALLOWED_REQUEST_HEADERS = new Set<string>([
+  'authorization',
+  'x-client-info',
+  'apikey',
+  'content-type',
+  'cache-control',
+  'pragma',
+])
+
+// Fallback list for non-preflight responses (where ACAH is ignored by the browser).
+const DEFAULT_ALLOW_HEADERS = 'authorization, x-client-info, apikey, content-type'
+
+// Intersection of the preflight's requested headers with our allowlist.
+// Normalizes to lower-case; drops anything unknown (no blind reflection).
+function pickAllowedRequestHeaders(req: Request): string {
+  const requested = req.headers.get('Access-Control-Request-Headers')
+  if (!requested) return DEFAULT_ALLOW_HEADERS
+  const allowed = requested
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter((h) => h.length > 0 && ALLOWED_REQUEST_HEADERS.has(h))
+  return allowed.join(', ')
+}
+
+// The single CORS-header builder. Used by every response (preflight, success, error).
+function buildCorsHeaders(req: Request): Record<string, string> {
+  const origin = stripSlash(req.headers.get('Origin') ?? '')
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Headers': pickAllowedRequestHeaders(req),
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin, Access-Control-Request-Headers',
+  }
+  // Only emit Allow-Origin for an authorized origin; never a canonical fallback.
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin
+  }
+  return headers
+}
+
+// The single JSON-response builder. Always carries the CORS headers.
+function jsonResponse(req: Request, body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...buildCorsHeaders(req), 'Content-Type': 'application/json' },
+  })
 }
 
 const MP_BASE = 'https://api.mercadopago.com'
@@ -132,36 +210,41 @@ async function getAuthUser(req: Request) {
 // ─────────────────────────────────────────────────────────────────
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    // Preflight — CORS headers only, no body.
+    return new Response(null, { status: 204, headers: buildCorsHeaders(req) })
   }
   if (req.method !== 'POST') {
-    return json({ error: 'Method not allowed' }, 405)
+    return jsonResponse(req, { error: 'Method not allowed' }, 405)
   }
 
   try {
-    const supabase = createClient(
+    // <any> Database generic: this function predates generated DB types; without
+    // it supabase-js infers table rows as `never` under strict type-checking
+    // (deno check). Type-only — erased at runtime.
+    const supabase = createClient<any>(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
 
+    // In-function auth (gateway runs verify_jwt=false so OPTIONS can reach us).
     const user = await getAuthUser(req)
-    if (!user) return json({ error: 'Unauthorized' }, 401)
+    if (!user) return jsonResponse(req, { error: 'Unauthorized' }, 401)
 
     const body = await req.json()
     const { action } = body
 
     switch (action) {
-      case 'create':               return await handleCreate(supabase, user, body)
-      case 'cancel':               return await handleCancel(supabase, user, body)
-      case 'status':               return await handleStatus(supabase, user, body)
-      case 'update_payment_method': return await handleUpdatePaymentMethod(supabase, user, body)
+      case 'create':               return await handleCreate(supabase, user, body, req)
+      case 'cancel':               return await handleCancel(supabase, user, body, req)
+      case 'status':               return await handleStatus(supabase, user, body, req)
+      case 'update_payment_method': return await handleUpdatePaymentMethod(supabase, user, body, req)
       default:
-        return json({ error: `Unknown action: ${action}` }, 400)
+        return jsonResponse(req, { error: `Unknown action: ${action}` }, 400)
     }
 
   } catch (err: any) {
     console.error('[mp-subscription] Unhandled error:', err)
-    return json({ error: err?.message ?? 'Internal server error' }, 500)
+    return jsonResponse(req, { error: err?.message ?? 'Internal server error' }, 500)
   }
 })
 
@@ -169,14 +252,15 @@ serve(async (req) => {
 // CREATE SUBSCRIPTION
 // ─────────────────────────────────────────────────────────────────
 async function handleCreate(
-  supabase: ReturnType<typeof createClient>,
+  supabase: ReturnType<typeof createClient<any>>,
   user: any,
-  body: Record<string, any>
+  body: Record<string, any>,
+  req: Request
 ) {
   const { business_id, plan, billing_cycle, payer_email, back_url } = body
 
   if (!business_id || !plan || !billing_cycle || !payer_email) {
-    return json({ error: 'Missing required fields: business_id, plan, billing_cycle, payer_email' }, 400)
+    return jsonResponse(req, { error: 'Missing required fields: business_id, plan, billing_cycle, payer_email' }, 400)
   }
 
   // ── Verify user belongs to this business ─────────────────────
@@ -189,7 +273,7 @@ async function handleCreate(
     .maybeSingle()
 
   if (!profile) {
-    return json({
+    return jsonResponse(req, {
       error: 'Forbidden: user does not belong to this business',
       debug: { userId: user.id, businessId: business_id, profileError: profileError?.message }
     }, 403)
@@ -198,7 +282,7 @@ async function handleCreate(
   // ── Resolve MP Plan ID ────────────────────────────────────────
   const planId = getMPPlanId(plan, billing_cycle)
   if (!planId) {
-    return json({
+    return jsonResponse(req, {
       error: `MP plan ID not configured. Set secret MP_PLAN_${plan.toUpperCase()}_${billing_cycle.toUpperCase()} in Supabase Edge Function secrets.`
     }, 500)
   }
@@ -238,13 +322,15 @@ async function handleCreate(
   // ── Construir URL de checkout de MP (redirect flow) ───────────
   // En lugar de crear el preapproval via API (que requiere card_token_id),
   // redirigimos al usuario al checkout del plan donde MP maneja todo.
+  // IMPORTANTE: devolvemos la URL como JSON (init_point); NO emitimos un redirect
+  // HTTP — el frontend hace window.location.assign(init_point).
   // Cuando el usuario pague, MP llama al webhook y activamos el negocio.
   const appUrl = back_url ?? `${Deno.env.get('APP_URL') ?? ''}/subscription/pending`
   const checkoutUrl = `https://www.mercadopago.com.ar/subscriptions/checkout?preapproval_plan_id=${planId}&payer_email=${encodeURIComponent(payer_email)}&external_reference=${business_id}&back_url=${encodeURIComponent(appUrl)}`
 
   console.log(`[mp-subscription] Redirecting business ${business_id} to MP checkout for plan ${planId}`)
 
-  return json({
+  return jsonResponse(req, {
     init_point:     checkoutUrl,
     preapproval_id: null,
   })
@@ -254,12 +340,13 @@ async function handleCreate(
 // CANCEL SUBSCRIPTION
 // ─────────────────────────────────────────────────────────────────
 async function handleCancel(
-  supabase: ReturnType<typeof createClient>,
+  supabase: ReturnType<typeof createClient<any>>,
   user: any,
-  body: Record<string, any>
+  body: Record<string, any>,
+  req: Request
 ) {
   const { business_id } = body
-  if (!business_id) return json({ error: 'Missing business_id' }, 400)
+  if (!business_id) return jsonResponse(req, { error: 'Missing business_id' }, 400)
 
   // Verify ownership
   const { data: profile } = await supabase
@@ -270,7 +357,7 @@ async function handleCancel(
     .eq('is_active', true)
     .maybeSingle()
 
-  if (!profile) return json({ error: 'Forbidden' }, 403)
+  if (!profile) return jsonResponse(req, { error: 'Forbidden' }, 403)
 
   const { data: biz } = await supabase
     .from('businesses')
@@ -279,7 +366,7 @@ async function handleCancel(
     .single()
 
   if (!biz?.mp_preapproval_id) {
-    return json({ error: 'No active subscription found for this business' }, 404)
+    return jsonResponse(req, { error: 'No active subscription found for this business' }, 404)
   }
 
   // ── Cancel in MP ──────────────────────────────────────────────
@@ -310,7 +397,7 @@ async function handleCancel(
 
   console.log(`[mp-subscription] Cancelled preapproval ${biz.mp_preapproval_id} for business ${business_id}`)
 
-  return json({ success: true })
+  return jsonResponse(req, { success: true })
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -318,12 +405,13 @@ async function handleCancel(
 // Returns DB data + live MP status for reconciliation
 // ─────────────────────────────────────────────────────────────────
 async function handleStatus(
-  supabase: ReturnType<typeof createClient>,
+  supabase: ReturnType<typeof createClient<any>>,
   user: any,
-  body: Record<string, any>
+  body: Record<string, any>,
+  req: Request
 ) {
   const { business_id } = body
-  if (!business_id) return json({ error: 'Missing business_id' }, 400)
+  if (!business_id) return jsonResponse(req, { error: 'Missing business_id' }, 400)
 
   const { data: biz } = await supabase
     .from('businesses')
@@ -342,7 +430,7 @@ async function handleStatus(
     .single()
 
   if (!biz?.mp_preapproval_id) {
-    return json(biz ?? {})
+    return jsonResponse(req, biz ?? {})
   }
 
   // Fetch live from MP for real-time status
@@ -353,7 +441,7 @@ async function handleStatus(
     console.warn('[mp-subscription] Could not fetch live status:', e)
   }
 
-  return json({ ...biz, mp_live: mpLive })
+  return jsonResponse(req, { ...biz, mp_live: mpLive })
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -362,12 +450,13 @@ async function handleStatus(
 // can re-enter their card in the MP checkout
 // ─────────────────────────────────────────────────────────────────
 async function handleUpdatePaymentMethod(
-  supabase: ReturnType<typeof createClient>,
+  supabase: ReturnType<typeof createClient<any>>,
   user: any,
-  body: Record<string, any>
+  body: Record<string, any>,
+  req: Request
 ) {
   const { business_id } = body
-  if (!business_id) return json({ error: 'Missing business_id' }, 400)
+  if (!business_id) return jsonResponse(req, { error: 'Missing business_id' }, 400)
 
   const { data: biz } = await supabase
     .from('businesses')
@@ -376,24 +465,14 @@ async function handleUpdatePaymentMethod(
     .single()
 
   if (!biz?.mp_preapproval_id) {
-    return json({ error: 'No subscription found for this business' }, 404)
+    return jsonResponse(req, { error: 'No subscription found for this business' }, 404)
   }
 
   // Fetch the preapproval — init_point is always available
   const preapproval = await mpFetch(`/preapproval/${biz.mp_preapproval_id}`)
 
-  return json({
+  return jsonResponse(req, {
     init_point:     preapproval.init_point,
     preapproval_id: biz.mp_preapproval_id,
-  })
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
 }

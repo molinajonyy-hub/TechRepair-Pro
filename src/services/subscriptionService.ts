@@ -5,6 +5,8 @@
  * Direct DB reads use Supabase client.
  */
 import { supabase } from '../lib/supabase'
+import { FunctionsHttpError, FunctionsRelayError, FunctionsFetchError } from '@supabase/supabase-js'
+import { logger } from '../lib/logger'
 import type {
   BusinessSubscription,
   Payment,
@@ -29,11 +31,30 @@ async function callEdge<T>(action: string, payload: Record<string, unknown>): Pr
   })
 
   if (error) {
-    // FunctionsHttpError has a .context with the response body
-    const msg = (error as any)?.context?.error
-      ?? (error as any)?.message
-      ?? `Error en la función de pago`
-    throw new Error(msg)
+    // Distinguir los 3 tipos de error de supabase-js para dar un mensaje útil
+    // y registrar un código técnico (sin exponer internals en producción).
+    if (error instanceof FunctionsHttpError) {
+      // La función respondió con un status de error; el body trae { error }.
+      let serverMessage = ''
+      try {
+        serverMessage = ((await error.context.json()) as { error?: string })?.error ?? ''
+      } catch {
+        /* body no-JSON: ignorar */
+      }
+      logger.error('GENERAL', `mp-subscription HTTP ${error.context.status} (${action})`, serverMessage)
+      throw new Error(serverMessage || `La función de pago devolvió un error (${error.context.status}).`)
+    }
+    if (error instanceof FunctionsRelayError) {
+      logger.error('GENERAL', `mp-subscription relay error (${action})`, error.message)
+      throw new Error('No pudimos contactar el servicio de pago. Reintentá en unos segundos.')
+    }
+    if (error instanceof FunctionsFetchError) {
+      // Falla de red o preflight CORS: el navegador no pudo leer la respuesta.
+      logger.error('GENERAL', `mp-subscription fetch/CORS error (${action})`, error.message)
+      throw new Error('No pudimos enviar la solicitud al servicio de pago. Revisá tu conexión e intentá de nuevo.')
+    }
+    logger.error('GENERAL', `mp-subscription error desconocido (${action})`, (error as Error)?.message)
+    throw new Error('Error en la función de pago.')
   }
 
   return data as T

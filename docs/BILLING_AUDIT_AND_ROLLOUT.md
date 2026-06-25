@@ -272,3 +272,83 @@ Usar credenciales **TEST** (nunca producción). Tarjetas en `MERCADOPAGO_SETUP.m
   disponible, usar el scheduler alternativo documentado en `20260623161000`.
 - Migraciones **no aplicadas ni validadas en una DB**; correr `billing_security.test.sql`
   en un branch antes de producción.
+
+---
+
+## 11. Hotfix CORS de `mp-subscription` (2026-06-25)
+
+**Síntoma (prod):** en `/subscription/plans` el navegador mostraba
+*“Failed to send a request to the Edge Function”*; en Network el `OPTIONS` daba
+`200/204` pero el `POST` quedaba `(failed)` / `net::ERR_FAILED` (type `cors`) y
+**nunca llegaba al runtime** (en los logs sólo había `OPTIONS`, ningún `POST`).
+
+**Causa raíz (cadena de 3 capas, la última es la definitiva):**
+1. `MP_CORS_ORIGIN` sin setear y `APP_URL` apuntando al **dominio viejo de Vercel**
+   (`https://tech-repair-pro.vercel.app`) → el preflight devolvía ese origen.
+2. `Access-Control-Allow-Headers` **estático** que no incluía `cache-control` ni
+   `pragma` — headers que Chrome agrega en **hard reload (Ctrl+Shift+R)**; el
+   navegador rechazaba el preflight por header no permitido.
+3. **El origen real del frontend es `https://www.techrepairpro.app`** (el apex
+   `techrepairpro.app` hace **`307 → www`** en Vercel). La allowlist sólo tenía el
+   apex → para el `Origin` real (www) la función respondía `OPTIONS 204` **sin
+   `Access-Control-Allow-Origin`** → el navegador bloqueaba el POST. Los smoke tests
+   con el apex pasaban y enmascaraban el problema.
+
+### Origen productivo canónico (fuente de verdad)
+
+```
+https://www.techrepairpro.app    # el apex https://techrepairpro.app redirige (307) acá
+```
+
+Se permiten **ambos** (www + apex) en la allowlist. Sin slash final. Nunca el dominio
+de Vercel. Los orígenes están **hardcodeados** en `CANONICAL_ORIGINS` (default duro) y
+además en los secrets, así un secret mal puesto nunca deja sin servicio al origen real.
+
+### Procedimiento reproducible
+
+1. **Secrets** (no tocar `MP_ACCESS_TOKEN` ni `MP_WEBHOOK_SECRET`):
+   ```
+   supabase secrets set MP_CORS_ORIGIN=https://www.techrepairpro.app,https://techrepairpro.app APP_URL=https://www.techrepairpro.app
+   ```
+   `MP_CORS_ORIGIN`/`APP_URL` admiten lista separada por comas. `APP_URL` es www
+   porque interviene en back URLs del checkout.
+
+2. **Deploy** (sólo esta función; preserva `verify_jwt=false` — la función valida el
+   JWT internamente vía `getAuthUser`, y el preflight `OPTIONS` debe llegar sin JWT):
+   ```
+   supabase functions deploy mp-subscription --no-verify-jwt
+   ```
+   `mp-webhook` **no** depende del CORS del navegador → no requiere redeploy.
+
+3. **Smoke test con el ORIGEN REAL (www)** — esperado `204`,
+   `ACAO: https://www.techrepairpro.app`, los headers pedidos reflejados,
+   `Vary: Origin, Access-Control-Request-Headers`, sin redirect, sin 401:
+   ```
+   curl -i -X OPTIONS https://<ref>.supabase.co/functions/v1/mp-subscription \
+     -H "Origin: https://www.techrepairpro.app" \
+     -H "Access-Control-Request-Method: POST" \
+     -H "Access-Control-Request-Headers: apikey,authorization,content-type,x-client-info,cache-control,pragma"
+   ```
+   Probar también: un origen **no autorizado** (debe responder **sin** ACAO, no el
+   canónico), y `POST` sin sesión (`401` JSON + ACAO correcto, legible por el navegador).
+
+### Implementación CORS (en `mp-subscription/index.ts`)
+
+Un único par de helpers — `buildCorsHeaders(req)` + `jsonResponse(req, body, status)` —
+construye **todas** las respuestas (preflight, éxito y error). Reglas:
+
+- **Origin:** allowlist exacta (www + apex + `MP_CORS_ORIGIN`/`APP_URL`). Se devuelve
+  **sólo** el `Origin` del request si está permitido; si no, **no** se emite
+  `Access-Control-Allow-Origin` (sin fallback canónico). Nunca `*`, nunca lista.
+- **Headers:** allowlist explícita case-insensitive
+  (`authorization, x-client-info, apikey, content-type, cache-control, pragma`); se
+  devuelve la **intersección** con `Access-Control-Request-Headers`. Header desconocido
+  → no se refleja.
+- `Access-Control-Allow-Methods: POST, OPTIONS`, `Access-Control-Max-Age: 86400`,
+  `Vary: Origin, Access-Control-Request-Headers`, `Content-Type: application/json`.
+- El checkout devuelve **JSON** con `init_point` (no un redirect HTTP); el frontend
+  navega con `window.location.href`.
+
+Verificación pre-deploy: `deno check supabase/functions/mp-subscription/index.ts`
+(la Edge Function no la cubre `tsc`, que sólo mira `src/`). Tests:
+`tests/unit/mpSubscriptionCors.test.ts` (guardas de contrato sobre el código fuente).
