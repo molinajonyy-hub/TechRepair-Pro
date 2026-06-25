@@ -7,10 +7,91 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': 'https://tech-repair-pro-molinajonyy-hubs-projects.vercel.app',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Vary': 'Origin',
+// ─────────────────────────────────────────────────────────────────
+// CORS — single source of truth (buildCorsHeaders + jsonResponse)
+//
+// Mirrors mp-subscription. Origin: an exact allowlist. We echo back ONLY the
+// request's Origin when it is allowed; otherwise we send NO Access-Control-
+// Allow-Origin at all (no wildcard, no canonical fallback) so an unauthorized
+// origin can never read the response.
+//
+// Allowlist sources (each a single origin OR a comma-separated list):
+//   - MP_CORS_ORIGIN  (preferred)
+//   - APP_URL         (usually the same origin)
+// The canonical production origins are HARD defaults so a misconfigured secret
+// can never drop the real origin or fall back to a stale Vercel domain.
+//
+// Headers: an explicit, case-insensitive allowlist. We return ONLY the
+// intersection of Access-Control-Request-Headers with that allowlist. cache-
+// control and pragma are included because Chrome adds them on a hard reload;
+// omitting them makes the browser fail the preflight and never send the POST.
+// ─────────────────────────────────────────────────────────────────
+// Both hosts are real production origins. The apex 307-redirects to www (Vercel),
+// so on the live site the browser's Origin is usually https://www.techrepairpro.app.
+const CANONICAL_ORIGINS = [
+  'https://www.techrepairpro.app',
+  'https://techrepairpro.app',
+]
+
+const stripSlash = (o: string) => o.trim().replace(/\/+$/, '')
+
+const parseOrigins = (raw: string | undefined): string[] =>
+  (raw ?? '').split(',').map(stripSlash).filter(Boolean)
+
+const ALLOWED_ORIGINS: string[] = [
+  ...new Set<string>([
+    ...CANONICAL_ORIGINS,
+    ...parseOrigins(Deno.env.get('MP_CORS_ORIGIN')),
+    ...parseOrigins(Deno.env.get('APP_URL')),
+  ]),
+]
+
+// Request headers we are willing to allow on the actual request (lower-case).
+const ALLOWED_REQUEST_HEADERS = new Set<string>([
+  'authorization',
+  'x-client-info',
+  'apikey',
+  'content-type',
+  'cache-control',
+  'pragma',
+])
+
+// Fallback for non-preflight responses (where ACAH is ignored by the browser).
+const DEFAULT_ALLOW_HEADERS = 'authorization, x-client-info, apikey, content-type'
+
+// Intersection of the preflight's requested headers with our allowlist.
+function pickAllowedRequestHeaders(req: Request): string {
+  const requested = req.headers.get('Access-Control-Request-Headers')
+  if (!requested) return DEFAULT_ALLOW_HEADERS
+  const allowed = requested
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter((h) => h.length > 0 && ALLOWED_REQUEST_HEADERS.has(h))
+  return allowed.join(', ')
+}
+
+// The single CORS-header builder. Used by every response (preflight, success, error).
+function buildCorsHeaders(req: Request): Record<string, string> {
+  const origin = stripSlash(req.headers.get('Origin') ?? '')
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Headers': pickAllowedRequestHeaders(req),
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin, Access-Control-Request-Headers',
+  }
+  // Only emit Allow-Origin for an authorized origin; never a canonical fallback.
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin
+  }
+  return headers
+}
+
+// The single JSON-response builder. Always carries the CORS headers.
+function jsonResponse(req: Request, body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...buildCorsHeaders(req), 'Content-Type': 'application/json' },
+  })
 }
 
 // ──────────────────────────────────────────────
@@ -252,7 +333,8 @@ function parseFECAEResponse(soapXml: string): CAEResult {
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    // Preflight — CORS headers only, no body.
+    return new Response(null, { status: 204, headers: buildCorsHeaders(req) })
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
@@ -280,10 +362,7 @@ serve(async (req: Request) => {
     } = body
 
     if (!business_id || !cuit || !punto_venta || !tipo_comprobante) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Faltan datos requeridos: business_id, cuit, punto_venta, tipo_comprobante' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse(req, { success: false, error: 'Faltan datos requeridos: business_id, cuit, punto_venta, tipo_comprobante' }, 400)
     }
 
     // 1. Obtener token+sign (llama internamente a afip-wsaa)
@@ -293,10 +372,7 @@ serve(async (req: Request) => {
 
     if (wsaaRes.error || !wsaaRes.data?.success) {
       const errMsg = wsaaRes.data?.error || wsaaRes.error?.message || 'Error al autenticar con WSAA'
-      return new Response(
-        JSON.stringify({ success: false, error: `WSAA: ${errMsg}` }),
-        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse(req, { success: false, error: `WSAA: ${errMsg}` }, 502)
     }
 
     const { token, sign } = wsaaRes.data as { token: string; sign: string }
@@ -351,24 +427,18 @@ serve(async (req: Request) => {
     // 4. Formatear número de comprobante
     const nroCbteFormateado = `${String(punto_venta).padStart(4, '0')}-${String(result.numero_cbte).padStart(8, '0')}`
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        cae:                result.cae,
-        cae_vencimiento:    result.cae_vencimiento,
-        numero_comprobante: nroCbteFormateado,
-        numero_cbte_raw:    result.numero_cbte,
-        resultado:          result.resultado,
-        observaciones:      result.observaciones || null,
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    return jsonResponse(req, {
+      success: true,
+      cae:                result.cae,
+      cae_vencimiento:    result.cae_vencimiento,
+      numero_comprobante: nroCbteFormateado,
+      numero_cbte_raw:    result.numero_cbte,
+      resultado:          result.resultado,
+      observaciones:      result.observaciones || null,
+    })
 
   } catch (err: any) {
     console.error('afip-cae error:', err)
-    return new Response(
-      JSON.stringify({ success: false, error: err?.message || 'Error interno en CAE' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    return jsonResponse(req, { success: false, error: err?.message || 'Error interno en CAE' }, 500)
   }
 })

@@ -20,22 +20,97 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 // @ts-ignore
 import forge from 'npm:node-forge@1.3.1'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': 'https://tech-repair-pro-molinajonyy-hubs-projects.vercel.app',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Vary': 'Origin',
+// ─────────────────────────────────────────────────────────────────
+// CORS — single source of truth (buildCorsHeaders + jsonResponse)
+//
+// Mirrors mp-subscription. Origin: an exact allowlist. We echo back ONLY the
+// request's Origin when it is allowed; otherwise we send NO Access-Control-
+// Allow-Origin at all (no wildcard, no canonical fallback) so an unauthorized
+// origin can never read the response.
+//
+// Allowlist sources (each a single origin OR a comma-separated list):
+//   - MP_CORS_ORIGIN  (preferred)
+//   - APP_URL         (usually the same origin)
+// The canonical production origins are HARD defaults so a misconfigured secret
+// can never drop the real origin or fall back to a stale Vercel domain.
+//
+// Headers: an explicit, case-insensitive allowlist. We return ONLY the
+// intersection of Access-Control-Request-Headers with that allowlist. cache-
+// control and pragma are included because Chrome adds them on a hard reload;
+// omitting them makes the browser fail the preflight and never send the POST.
+// ─────────────────────────────────────────────────────────────────
+// Both hosts are real production origins. The apex 307-redirects to www (Vercel),
+// so on the live site the browser's Origin is usually https://www.techrepairpro.app.
+const CANONICAL_ORIGINS = [
+  'https://www.techrepairpro.app',
+  'https://techrepairpro.app',
+]
+
+const stripSlash = (o: string) => o.trim().replace(/\/+$/, '')
+
+const parseOrigins = (raw: string | undefined): string[] =>
+  (raw ?? '').split(',').map(stripSlash).filter(Boolean)
+
+const ALLOWED_ORIGINS: string[] = [
+  ...new Set<string>([
+    ...CANONICAL_ORIGINS,
+    ...parseOrigins(Deno.env.get('MP_CORS_ORIGIN')),
+    ...parseOrigins(Deno.env.get('APP_URL')),
+  ]),
+]
+
+// Request headers we are willing to allow on the actual request (lower-case).
+const ALLOWED_REQUEST_HEADERS = new Set<string>([
+  'authorization',
+  'x-client-info',
+  'apikey',
+  'content-type',
+  'cache-control',
+  'pragma',
+])
+
+// Fallback for non-preflight responses (where ACAH is ignored by the browser).
+const DEFAULT_ALLOW_HEADERS = 'authorization, x-client-info, apikey, content-type'
+
+// Intersection of the preflight's requested headers with our allowlist.
+function pickAllowedRequestHeaders(req: Request): string {
+  const requested = req.headers.get('Access-Control-Request-Headers')
+  if (!requested) return DEFAULT_ALLOW_HEADERS
+  const allowed = requested
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter((h) => h.length > 0 && ALLOWED_REQUEST_HEADERS.has(h))
+  return allowed.join(', ')
 }
 
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
+// The single CORS-header builder. Used by every response (preflight, success, error).
+function buildCorsHeaders(req: Request): Record<string, string> {
+  const origin = stripSlash(req.headers.get('Origin') ?? '')
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Headers': pickAllowedRequestHeaders(req),
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin, Access-Control-Request-Headers',
+  }
+  // Only emit Allow-Origin for an authorized origin; never a canonical fallback.
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin
+  }
+  return headers
+}
+
+// The single JSON-response builder. Always carries the CORS headers.
+function jsonResponse(req: Request, body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...buildCorsHeaders(req), 'Content-Type': 'application/json' },
   })
 }
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    // Preflight — CORS headers only, no body.
+    return new Response(null, { status: 204, headers: buildCorsHeaders(req) })
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
@@ -45,7 +120,7 @@ serve(async (req: Request) => {
   // Verificar JWT del usuario
   const authHeader = req.headers.get('Authorization')
   if (!authHeader?.startsWith('Bearer ')) {
-    return json({ success: false, error: 'No autorizado' }, 401)
+    return jsonResponse(req, { success: false, error: 'No autorizado' }, 401)
   }
 
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
@@ -54,7 +129,7 @@ serve(async (req: Request) => {
   })
   const { data: { user }, error: authError } = await userClient.auth.getUser()
   if (authError || !user) {
-    return json({ success: false, error: 'Sesión inválida' }, 401)
+    return jsonResponse(req, { success: false, error: 'Sesión inválida' }, 401)
   }
 
   try {
@@ -71,7 +146,7 @@ serve(async (req: Request) => {
     } = body
 
     if (!business_id || !razon_social || !cuit) {
-      return json({
+      return jsonResponse(req, {
         success: false,
         error: 'Faltan campos requeridos: business_id, razon_social, cuit',
       }, 400)
@@ -87,7 +162,7 @@ serve(async (req: Request) => {
       .maybeSingle()
 
     if (!profile) {
-      return json({ success: false, error: 'No tenés acceso a este negocio' }, 403)
+      return jsonResponse(req, { success: false, error: 'No tenés acceso a este negocio' }, 403)
     }
 
     // ── 2. Generar par de claves RSA 2048 ───────────────────────────
@@ -163,7 +238,7 @@ serve(async (req: Request) => {
     console.log(`[generate-csr] CSR generado exitosamente para business ${business_id}`)
 
     // ── 5. Devolver CSR al cliente ──────────────────────────────────
-    return json({
+    return jsonResponse(req, {
       success: true,
       csr_pem: csrPem,
       // Info para mostrar al usuario
@@ -185,6 +260,6 @@ serve(async (req: Request) => {
 
   } catch (err: any) {
     console.error('[generate-csr] Error:', err)
-    return json({ success: false, error: err?.message || 'Error interno al generar CSR' }, 500)
+    return jsonResponse(req, { success: false, error: err?.message || 'Error interno al generar CSR' }, 500)
   }
 })

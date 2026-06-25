@@ -10,10 +10,91 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 // @ts-ignore: node-forge en Deno via npm
 import forge from 'npm:node-forge@1.3.1'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': 'https://tech-repair-pro-molinajonyy-hubs-projects.vercel.app',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Vary': 'Origin',
+// ─────────────────────────────────────────────────────────────────
+// CORS — single source of truth (buildCorsHeaders + jsonResponse)
+//
+// Mirrors mp-subscription. Origin: an exact allowlist. We echo back ONLY the
+// request's Origin when it is allowed; otherwise we send NO Access-Control-
+// Allow-Origin at all (no wildcard, no canonical fallback) so an unauthorized
+// origin can never read the response.
+//
+// Allowlist sources (each a single origin OR a comma-separated list):
+//   - MP_CORS_ORIGIN  (preferred)
+//   - APP_URL         (usually the same origin)
+// The canonical production origins are HARD defaults so a misconfigured secret
+// can never drop the real origin or fall back to a stale Vercel domain.
+//
+// Headers: an explicit, case-insensitive allowlist. We return ONLY the
+// intersection of Access-Control-Request-Headers with that allowlist. cache-
+// control and pragma are included because Chrome adds them on a hard reload;
+// omitting them makes the browser fail the preflight and never send the POST.
+// ─────────────────────────────────────────────────────────────────
+// Both hosts are real production origins. The apex 307-redirects to www (Vercel),
+// so on the live site the browser's Origin is usually https://www.techrepairpro.app.
+const CANONICAL_ORIGINS = [
+  'https://www.techrepairpro.app',
+  'https://techrepairpro.app',
+]
+
+const stripSlash = (o: string) => o.trim().replace(/\/+$/, '')
+
+const parseOrigins = (raw: string | undefined): string[] =>
+  (raw ?? '').split(',').map(stripSlash).filter(Boolean)
+
+const ALLOWED_ORIGINS: string[] = [
+  ...new Set<string>([
+    ...CANONICAL_ORIGINS,
+    ...parseOrigins(Deno.env.get('MP_CORS_ORIGIN')),
+    ...parseOrigins(Deno.env.get('APP_URL')),
+  ]),
+]
+
+// Request headers we are willing to allow on the actual request (lower-case).
+const ALLOWED_REQUEST_HEADERS = new Set<string>([
+  'authorization',
+  'x-client-info',
+  'apikey',
+  'content-type',
+  'cache-control',
+  'pragma',
+])
+
+// Fallback for non-preflight responses (where ACAH is ignored by the browser).
+const DEFAULT_ALLOW_HEADERS = 'authorization, x-client-info, apikey, content-type'
+
+// Intersection of the preflight's requested headers with our allowlist.
+function pickAllowedRequestHeaders(req: Request): string {
+  const requested = req.headers.get('Access-Control-Request-Headers')
+  if (!requested) return DEFAULT_ALLOW_HEADERS
+  const allowed = requested
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter((h) => h.length > 0 && ALLOWED_REQUEST_HEADERS.has(h))
+  return allowed.join(', ')
+}
+
+// The single CORS-header builder. Used by every response (preflight, success, error).
+function buildCorsHeaders(req: Request): Record<string, string> {
+  const origin = stripSlash(req.headers.get('Origin') ?? '')
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Headers': pickAllowedRequestHeaders(req),
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin, Access-Control-Request-Headers',
+  }
+  // Only emit Allow-Origin for an authorized origin; never a canonical fallback.
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin
+  }
+  return headers
+}
+
+// The single JSON-response builder. Always carries the CORS headers.
+function jsonResponse(req: Request, body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...buildCorsHeaders(req), 'Content-Type': 'application/json' },
+  })
 }
 
 // ──────────────────────────────────────────────
@@ -240,7 +321,8 @@ async function decryptField(supabase: any, encrypted: string): Promise<string> {
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    // Preflight — CORS headers only, no body.
+    return new Response(null, { status: 204, headers: buildCorsHeaders(req) })
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
@@ -251,10 +333,7 @@ serve(async (req: Request) => {
     const { business_id, service = 'wsfe', force_refresh = false } = await req.json()
 
     if (!business_id) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Falta business_id' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse(req, { success: false, error: 'Falta business_id' }, 400)
     }
 
     // 1. Cargar configuración ARCA
@@ -265,10 +344,7 @@ serve(async (req: Request) => {
       .single()
 
     if (configError || !config) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Configuración ARCA no encontrada para este negocio' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse(req, { success: false, error: 'Configuración ARCA no encontrada para este negocio' }, 404)
     }
 
     // 2. Verificar si el token en caché sigue siendo válido (con buffer de 30 min)
@@ -276,32 +352,23 @@ serve(async (req: Request) => {
       const expiresAt = new Date(config.wsaa_token_expires)
       const bufferMs  = 30 * 60 * 1000 // 30 minutos
       if (expiresAt.getTime() - Date.now() > bufferMs) {
-        return new Response(
-          JSON.stringify({
-            success: true,
-            token: config.wsaa_token,
-            sign:  config.wsaa_sign,
-            cached: true,
-          }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        )
+        return jsonResponse(req, {
+          success: true,
+          token: config.wsaa_token,
+          sign:  config.wsaa_sign,
+          cached: true,
+        })
       }
     }
 
     // 3. Validar que haya certificado
     if (!config.pfx_file && !config.cert_file) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'No hay certificado digital configurado. Cargá el PFX o el certificado en Configuración > ARCA.' }),
-        { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse(req, { success: false, error: 'No hay certificado digital configurado. Cargá el PFX o el certificado en Configuración > ARCA.' }, 422)
     }
 
     // 4. Verificar vencimiento del certificado
     if (config.expires_at && new Date(config.expires_at) < new Date()) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'El certificado digital está vencido. Renovalo en AFIP.' }),
-        { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse(req, { success: false, error: 'El certificado digital está vencido. Renovalo en AFIP.' }, 422)
     }
 
     // 5. Generar y firmar TRA
@@ -339,10 +406,7 @@ serve(async (req: Request) => {
       })
       .eq('business_id', business_id)
 
-    return new Response(
-      JSON.stringify({ success: true, token, sign, cached: false, expires_at: expiresAt }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    return jsonResponse(req, { success: true, token, sign, cached: false, expires_at: expiresAt })
 
   } catch (err: any) {
     console.error('afip-wsaa error:', err)
@@ -362,9 +426,6 @@ serve(async (req: Request) => {
 
     // Retornar 200 con success:false — un 500 hace que el cliente Supabase
     // descarte el body y muestre solo "Edge Function returned a non-2xx status code".
-    return new Response(
-      JSON.stringify({ success: false, error: errMsg }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    return jsonResponse(req, { success: false, error: errMsg }, 200)
   }
 })
