@@ -9,29 +9,34 @@
  *                  verificar que la conexión con la API funciona correctamente.
  *   - "template" → Envía un template específico al teléfono de un cliente.
  *
- * En ambas acciones se:
- *   1. Carga la conexión WhatsApp activa del negocio (whatsapp_connections).
- *   2. Llama a la Graph API de Meta para enviar el mensaje.
- *   3. Registra el intento en whatsapp_message_logs.
+ * SEGURIDAD (corregido — antes faltaba toda autorización de tenant):
+ *   - El actor se toma EXCLUSIVAMENTE del JWT validado; nunca de `user_id` del body.
+ *   - Se valida membresía ACTIVA del actor en `business_id` y un rol habilitado
+ *     (ALLOWED_SENDER_ROLES), ANTES de cargar la conexión/credenciales o llamar a
+ *     Meta. Esto impide el acceso cross-tenant (usuario de A usando business_id de B).
+ *   - Las credenciales se resuelven server-side desde Vault para el negocio ya
+ *     autorizado; nunca se leen credenciales de otro negocio.
+ *   - CORS con allowlist de orígenes (sin '*'); ver _shared/scopedCors.ts.
  *
  * Variables de entorno (provistas automáticamente por el runtime de Supabase):
- *   SUPABASE_URL
- *   SUPABASE_SERVICE_ROLE_KEY
- *   SUPABASE_ANON_KEY
+ *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { createCors, computeAllowedOrigins } from '../_shared/scopedCors.ts'
+import { authorizeWhatsAppSender } from '../_shared/whatsappAuth.ts'
 
 // ──────────────────────────────────────────────
-// Cabeceras CORS
+// CORS — allowlist de orígenes (sin comodín)
 // ──────────────────────────────────────────────
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
+const cors = createCors(
+  computeAllowedOrigins([
+    Deno.env.get('WHATSAPP_CORS_ORIGIN'),
+    Deno.env.get('APP_URL'),
+  ]),
+)
 
 // ──────────────────────────────────────────────
 // Tipos auxiliares
@@ -84,16 +89,10 @@ interface WhatsAppConnection {
   status: string
 }
 
-// ──────────────────────────────────────────────
-// Helper: respuesta JSON estandarizada
-// ──────────────────────────────────────────────
-
-function jsonResponse(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  })
-}
+// <any> schema generic: this function predates generated DB types; without it
+// supabase-js infers table rows/RPC params as `never` under strict deno check
+// (rows become never[], rpc params become undefined). Type-only — erased at runtime.
+type ServiceClient = ReturnType<typeof createClient<any>>
 
 // ──────────────────────────────────────────────
 // Helper: cargar la conexión activa del negocio
@@ -103,9 +102,11 @@ function jsonResponse(data: unknown, status = 200): Response {
  * Busca la conexión WhatsApp activa (status='connected') para un negocio y
  * resuelve su token cifrado desde Vault vía RPC server-side. El token NUNCA
  * se lee como columna de whatsapp_connections (no existe más).
+ *
+ * Sólo debe llamarse DESPUÉS de autorizar al actor para `businessId`.
  */
 async function loadActiveConnection(
-  supabase: ReturnType<typeof createClient>,
+  supabase: ServiceClient,
   businessId: string,
 ): Promise<WhatsAppConnection> {
   const { data, error } = await supabase
@@ -216,7 +217,7 @@ async function callMetaMessagesAPI(
  * No lanza excepción si el log falla (no es crítico para el flujo principal).
  */
 async function logMessage(
-  supabase: ReturnType<typeof createClient>,
+  supabase: ServiceClient,
   params: {
     businessId: string
     connectionId: string
@@ -256,25 +257,22 @@ async function logMessage(
  * Envía el template estándar "hello_world" al número de prueba provisto.
  * Útil para verificar que las credenciales y la conexión funcionan correctamente.
  * El template "hello_world" está pre-aprobado por Meta para todas las cuentas.
+ *
+ * Precondición: el actor YA fue autorizado para `business_id` en el handler raíz.
  */
-async function handleTest(payload: TestPayload): Promise<Response> {
+async function handleTest(req: Request, supabase: ServiceClient, payload: TestPayload): Promise<Response> {
   const { business_id, test_phone } = payload
 
-  if (!business_id || !test_phone) {
-    return jsonResponse({ success: false, error: 'Faltan campos requeridos: business_id, test_phone' })
+  if (!test_phone) {
+    return cors.json(req, { success: false, error: 'Falta el campo requerido: test_phone' })
   }
 
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-  )
-
-  // 1. Cargar conexión activa del negocio
+  // 1. Cargar conexión activa del negocio (ya autorizado)
   let connection: WhatsAppConnection
   try {
     connection = await loadActiveConnection(supabase, business_id)
   } catch (err: any) {
-    return jsonResponse({ success: false, error: err.message })
+    return cors.json(req, { success: false, error: err.message })
   }
 
   // 2. Construir mensaje de prueba con el template "hello_world"
@@ -313,10 +311,10 @@ async function handleTest(payload: TestPayload): Promise<Response> {
   })
 
   if (sendStatus === 'failed') {
-    return jsonResponse({ success: false, error: errorMessage })
+    return cors.json(req, { success: false, error: errorMessage })
   }
 
-  return jsonResponse({
+  return cors.json(req, {
     success: true,
     meta_message_id: metaMessageId,
     status: sendStatus,
@@ -332,8 +330,10 @@ async function handleTest(payload: TestPayload): Promise<Response> {
 /**
  * Envía un template específico al teléfono de un cliente.
  * El template debe estar previamente aprobado en Meta Business Manager.
+ *
+ * Precondición: el actor YA fue autorizado para `business_id` en el handler raíz.
  */
-async function handleTemplate(payload: TemplatePayload): Promise<Response> {
+async function handleTemplate(req: Request, supabase: ServiceClient, payload: TemplatePayload): Promise<Response> {
   const {
     business_id,
     customer_phone,
@@ -343,32 +343,27 @@ async function handleTemplate(payload: TemplatePayload): Promise<Response> {
   } = payload
 
   // Validar campos requeridos
-  if (!business_id || !customer_phone || !template_name) {
-    return jsonResponse({
+  if (!customer_phone || !template_name) {
+    return cors.json(req, {
       success: false,
-      error: 'Faltan campos requeridos: business_id, customer_phone, template_name',
+      error: 'Faltan campos requeridos: customer_phone, template_name',
     })
   }
 
   // Validar formato del teléfono (debe empezar con +)
   if (!customer_phone.startsWith('+')) {
-    return jsonResponse({
+    return cors.json(req, {
       success: false,
       error: 'El número de teléfono debe estar en formato E.164 (ej: +5491112345678)',
     })
   }
 
-  const supabase = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-  )
-
-  // 1. Cargar conexión activa del negocio
+  // 1. Cargar conexión activa del negocio (ya autorizado)
   let connection: WhatsAppConnection
   try {
     connection = await loadActiveConnection(supabase, business_id)
   } catch (err: any) {
-    return jsonResponse({ success: false, error: err.message })
+    return cors.json(req, { success: false, error: err.message })
   }
 
   // 2. Construir el payload del mensaje
@@ -408,10 +403,10 @@ async function handleTemplate(payload: TemplatePayload): Promise<Response> {
   })
 
   if (sendStatus === 'failed') {
-    return jsonResponse({ success: false, error: errorMessage })
+    return cors.json(req, { success: false, error: errorMessage })
   }
 
-  return jsonResponse({
+  return cors.json(req, {
     success: true,
     meta_message_id: metaMessageId,
     status: sendStatus,
@@ -426,44 +421,92 @@ async function handleTemplate(payload: TemplatePayload): Promise<Response> {
 // ──────────────────────────────────────────────
 
 serve(async (req: Request) => {
-  // Manejar preflight CORS
+  // Preflight CORS
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return cors.preflight(req)
   }
 
   // Solo se acepta POST
   if (req.method !== 'POST') {
-    return jsonResponse({ success: false, error: 'Método no permitido. Usar POST.' }, 405)
+    return cors.json(req, { success: false, error: 'Método no permitido. Usar POST.' }, 405)
   }
 
   let payload: RequestPayload
-
   try {
     payload = await req.json()
   } catch {
-    return jsonResponse({ success: false, error: 'El cuerpo de la solicitud debe ser JSON válido.' })
+    return cors.json(req, { success: false, error: 'El cuerpo de la solicitud debe ser JSON válido.' }, 400)
   }
 
-  const action = (payload as any)?.action
+  const supabaseUrl    = Deno.env.get('SUPABASE_URL')!
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  const anonKey        = Deno.env.get('SUPABASE_ANON_KEY')
+
+  // Fail closed: el cliente que representa al USUARIO debe usar la anon key.
+  // Nunca caer al service_role como reemplazo (eso anularía la verificación del
+  // JWT). No se registran ni se devuelven valores de entorno. Esta validación
+  // ocurre ANTES de cargar conexiones, credenciales (Vault) o llamar a Meta.
+  if (!anonKey) {
+    console.error('whatsapp-send-message: SUPABASE_ANON_KEY no está configurada')
+    return cors.json(req, {
+      success: false,
+      error: 'Configuración del servidor incompleta.',
+      code: 'SERVER_MISCONFIGURED',
+    }, 500)
+  }
+
+  // Cliente service-role: SÓLO para operaciones backend POSTERIORES a la autorización.
+  const supabase = createClient<any>(supabaseUrl, serviceRoleKey)
+
+  // ── Autorización OBLIGATORIA (antes de cargar conexión/credenciales o llamar a Meta) ──
+  // Actor exclusivamente desde el JWT; membresía activa + rol en `business_id`.
+  const authz = await authorizeWhatsAppSender({
+    businessId: (payload as { business_id?: unknown })?.business_id,
+    getUserId: async () => {
+      const authHeader = req.headers.get('Authorization') || ''
+      if (!authHeader.startsWith('Bearer ')) return null
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+      })
+      const { data: { user }, error } = await userClient.auth.getUser()
+      if (error || !user) return null
+      return user.id
+    },
+    getActiveMembership: async (userId, businessId) => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('user_id', userId)
+        .eq('business_id', businessId)
+        .eq('is_active', true)
+        .maybeSingle()
+      return data ? { role: (data as { role: string }).role } : null
+    },
+  })
+  if (!authz.ok) {
+    return cors.json(req, { success: false, error: authz.error }, authz.status)
+  }
+
+  const action = (payload as { action?: string })?.action
 
   try {
     switch (action) {
       case 'test':
-        return await handleTest(payload as TestPayload)
+        return await handleTest(req, supabase, payload as TestPayload)
 
       case 'template':
-        return await handleTemplate(payload as TemplatePayload)
+        return await handleTemplate(req, supabase, payload as TemplatePayload)
 
       default:
-        return jsonResponse({
+        return cors.json(req, {
           success: false,
           error: `Acción desconocida: "${action}". Las acciones válidas son: "test", "template".`,
         })
     }
   } catch (err: any) {
-    // Error inesperado: loguear en servidor y devolver respuesta amigable
+    // Error inesperado: loguear en servidor y devolver respuesta amigable (con CORS)
     console.error('whatsapp-send-message [unhandled error]:', err)
-    return jsonResponse({
+    return cors.json(req, {
       success: false,
       error: err?.message || 'Error interno del servidor.',
     })
