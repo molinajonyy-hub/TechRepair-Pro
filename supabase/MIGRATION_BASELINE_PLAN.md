@@ -29,8 +29,11 @@ Status legend: ✅ done in this branch · ⏳ needs the DB password (run by a hu
     `20240411` files would be **silently skipped**.
   - Local `20240413/14/15`, `20260415/16/18` versions are **absent** remotely → push would
     **re-execute** them onto prod (objects already exist under other versions).
-  - Remote `20260626174811 owner_system_owner_activation` has **no local file** (drift the
-    other way).
+  - Remote `20260626174811 owner_system_owner_activation` had **no local file** (drift the
+    other way). **Resolved:** archived as
+    `migrations/_legacy/20260626174811_owner_system_owner_activation.sql` (the real remote
+    version, not the local `20260626160000`); the CLI ignores `_legacy/`, so it is never
+    re-applied. See "Owner activation" below.
 - **Local also has internal duplicate versions:** `20240411 ×2`, `20260622 ×2`.
 
 **Conclusion:** do not try to reconcile 133 rows. Local is a strict subset of prod, so
@@ -50,6 +53,36 @@ baseline as already-applied on remote (additive — keep the 133 rows as audit h
   (dangerous RLS-disablers/nukes quarantined in `_dev-only-DANGER/`). Seeds kept in place.
 - The active `migrations/` path is now **empty** → `db reset` succeeds but builds an empty
   schema until the baseline (Phase 1) is added.
+- **Consolidated into `main`** (2026-06-28) via `git cherry-pick` of the Phase 0 commit
+  `1c08bbc` → new commit `91baf38`. The shared parent was `37c4899`, so it applied with **no
+  conflicts**. `main` now carries Phase 0 **plus** the owner-activation work (entitlements
+  centralization + tests). The owner activation migration was archived to `_legacy/`, which
+  now holds **22** files.
+
+---
+
+## Owner activation — data migration already applied (do NOT reapply)
+
+The System Owner activation (`molina.jonyy@gmail.com` → business "Clic" `aa930802…`:
+`pending_activation → active`, plan `full`, permanent `manual_grandfathered` override) was
+already applied to **production** via MCP `apply_migration`, recorded remotely as version
+**`20260626174811`**, name `owner_system_owner_activation` — the **newest of the 133** remote
+rows.
+
+- It is a **DATA migration** (UPDATE on `businesses` + an audit row in
+  `subscription_admin_actions`), **not** DDL.
+- The Phase 1 schema baseline (`db dump`) captures **schema only**, so it will **NOT** contain
+  this UPDATE. The effect is already live in prod data and persists independently of the baseline.
+- The local file is archived as
+  `migrations/_legacy/20260626174811_owner_system_owner_activation.sql` **for historical
+  evidence only**. `_legacy/` is ignored by the Supabase CLI ⇒ it is **never re-loaded or
+  re-applied** (and the SQL is idempotent regardless).
+- Phase 3 reconciliation stays **additive**: it stamps only the **new baseline** as applied and
+  **preserves the 133 historical remote rows** (including `20260626174811`). The owner row is
+  never deleted or rewritten.
+- `supabase migration repair` will **not** run without explicit approval; immediately before it,
+  re-verify (read-only) that prod is unchanged (`max(version)` still `20260626174811`,
+  `count(*)` still `133`).
 
 ---
 
