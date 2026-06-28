@@ -200,7 +200,7 @@ type NavItem = {
   portalAdmin?: boolean;
   /** If set, this item is hidden unless the active plan has this feature */
   planFeature?: import('../../config/planFeatures').PlanFeature;
-  /** If true, this item is only visible to system owners (molina.jonyy@gmail.com) */
+  /** If true, this item is only visible to System Owners (system_admins.user_id = auth.uid()) */
   systemOwnerOnly?: boolean;
 };
 type NavSection = {

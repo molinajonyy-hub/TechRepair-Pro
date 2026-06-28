@@ -3,23 +3,14 @@
 // ============================================================
 
 // ─── Status types ────────────────────────────────────────────
-export type SubscriptionStatus =
-  | 'trialing'
-  | 'active'
-  | 'past_due'
-  | 'suspended'
-  | 'canceled'
-  | 'pending_activation'
+// SubscriptionStatus, AccessSource, AccessLevel (+ getAccessLevel/isAccessAllowed)
+// viven en ./subscriptionAccess (módulo hoja puro, testeable bajo `node --test`).
+// Se importan para uso interno y se re-exportan para no romper imports existentes.
+import type { SubscriptionStatus, AccessSource } from './subscriptionAccess'
+export { getAccessLevel, isAccessAllowed } from './subscriptionAccess'
+export type { SubscriptionStatus, AccessSource, AccessLevel } from './subscriptionAccess'
 
 export type SubscriptionPlan = 'basico' | 'pro' | 'full'
-
-// How a business obtained its current access. Distinguishes a verified Mercado
-// Pago payment from manual/grandfathered/override grants (never conflate them).
-export type AccessSource =
-  | 'mercado_pago'
-  | 'trial'
-  | 'manual_grandfathered'
-  | 'admin_override'
 
 export type PaymentStatus =
   | 'approved'
@@ -148,29 +139,6 @@ export interface CreateSubscriptionRequest {
 export interface CreateSubscriptionResponse {
   init_point: string
   preapproval_id: string
-}
-
-// ─── Access level derived from status ────────────────────────
-export type AccessLevel = 'full' | 'limited' | 'blocked'
-
-export function getAccessLevel(status: SubscriptionStatus): AccessLevel {
-  switch (status) {
-    case 'active':
-    case 'trialing':
-      return 'full'
-    case 'past_due':
-      return 'limited'
-    case 'suspended':
-    case 'canceled':
-    case 'pending_activation':
-      return 'blocked'
-    default:
-      return 'blocked'
-  }
-}
-
-export function isAccessAllowed(status: SubscriptionStatus): boolean {
-  return getAccessLevel(status) !== 'blocked'
 }
 
 // ─── Plan catalog ─────────────────────────────────────────────

@@ -16,16 +16,13 @@ import {
   type Payment,
   type SubscriptionStatus,
   type AccessLevel,
-  getAccessLevel,
-  isAccessAllowed,
 } from '../types/subscription'
 import {
   type PlanId,
   type PlanFeature,
   type PlanFeatureSet,
-  PLAN_FEATURES,
-  TRIAL_FEATURES,
 } from '../config/planFeatures'
+import { resolveEntitlement } from '../lib/entitlements'
 
 export interface UseSubscriptionReturn {
   subscription:  BusinessSubscription | null
@@ -161,29 +158,22 @@ export function useSubscription(): UseSubscriptionReturn {
     }
   }, [businessId, load])
 
-  // ── Status resolution ───────────────────────────────────────
-  // When subscription is null (not yet loaded, or migration not run):
-  // → default to 'trialing' so the app stays accessible.
-  // We only hard-block (suspended/canceled) when we have EXPLICIT confirmed data.
-  const rawStatus = subscription?.subscription_status as SubscriptionStatus | undefined
-  const status: SubscriptionStatus = rawStatus ?? 'trialing'
-  const accessLevel = getAccessLevel(status)
-
-  // ── Plan & feature resolution ────────────────────────────────
-  const rawPlan = subscription?.subscription_plan as PlanId | undefined | null
-  const currentPlan: PlanId | null = rawPlan ?? null
-
-  // During trial → grant Pro features. No plan set → grant Pro as fallback.
-  const planFeatures: PlanFeatureSet = status === 'trialing'
-    ? TRIAL_FEATURES
-    : currentPlan
-      ? PLAN_FEATURES[currentPlan]
-      : TRIAL_FEATURES
-
-  const hasFeature = (feature: PlanFeature): boolean => {
-    if (!isAccessAllowed(status)) return false
-    return !!planFeatures[feature]
-  }
+  // ── Entitlement resolution (centralizado en lib/entitlements) ────────────
+  // Sin datos confirmados → default optimista 'trialing' (no bloquear la app).
+  // Sólo bloqueamos (suspended/canceled/pending_activation) con datos confirmados.
+  // El resolver además respeta un override permanente vigente (fail-safe): un
+  // negocio con grant manual/admin no se bloquea aunque el estado derive.
+  const resolved = resolveEntitlement({
+    subscription_status: subscription?.subscription_status,
+    subscription_plan:   subscription?.subscription_plan,
+    access_source:       subscription?.access_source,
+    override_expires_at: subscription?.override_expires_at,
+  })
+  const status: SubscriptionStatus = resolved.effectiveStatus
+  const accessLevel: AccessLevel    = resolved.accessLevel
+  const currentPlan: PlanId | null  = resolved.currentPlan
+  const planFeatures: PlanFeatureSet = resolved.planFeatures
+  const hasFeature: (feature: PlanFeature) => boolean = resolved.hasFeature
 
   return {
     subscription,
@@ -191,7 +181,7 @@ export function useSubscription(): UseSubscriptionReturn {
     loading,
     error,
     accessLevel,
-    isAllowed:    isAccessAllowed(status),
+    isAllowed:    resolved.isAllowed,
     isTrial:      status === 'trialing',
     isActive:     status === 'active',
     isPastDue:    status === 'past_due',
