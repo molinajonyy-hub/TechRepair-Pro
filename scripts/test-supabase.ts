@@ -14,16 +14,14 @@ async function testConnection() {
     if (error) {
       console.error('❌ Error de conexión:', error.message)
       console.log('')
-      console.log('📋 Para configurar Supabase:')
-      console.log('1. Ve a https://supabase.com/dashboard')
-      console.log('2. Abre tu proyecto')
-      console.log('3. Ve a SQL Editor > New query')
-      console.log('4. Copia y pega el contenido de supabase/schema.sql')
-      console.log('5. Ejecuta el script')
+      console.log('📋 Para reconstruir el esquema localmente:')
+      console.log('1. supabase start && supabase db reset')
+      console.log('   (aplica el baseline en supabase/migrations/)')
+      console.log('2. Ver supabase/MIGRATION_BASELINE_PLAN.md para el flujo completo')
       console.log('')
-      console.log('📁 Archivos en: supabase/')
-      console.log('- schema.sql: Estructura de tablas')
-      console.log('- seed.sql: Datos de ejemplo')
+      console.log('📁 Esquema histórico (NO usar para nuevos entornos):')
+      console.log('- supabase/_archive/loose-scripts/  (scripts sueltos legacy)')
+      console.log('- supabase/migrations/_legacy/       (migraciones pre-baseline)')
       return false
     }
     

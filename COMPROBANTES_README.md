@@ -7,7 +7,7 @@ Módulo completo de comprobantes y facturación preparado para integración con 
 ### Backend (Supabase)
 
 ```
-supabase/comprobantes_schema.sql    # Tablas, funciones y políticas RLS
+supabase/_archive/loose-scripts/comprobantes_schema.sql    # Tablas, funciones y políticas RLS
 ```
 
 **Tablas creadas:**
@@ -48,7 +48,7 @@ Ir a Supabase SQL Editor y ejecutar:
 
 ```sql
 -- Copiar y pegar todo el contenido de:
-supabase/comprobantes_schema.sql
+supabase/_archive/loose-scripts/comprobantes_schema.sql
 ```
 
 ### 2. Instalar dependencia para PDF (opcional)
