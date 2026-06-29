@@ -13,13 +13,18 @@
 --   Portal Clic privado — que además queda expuesto a `anon` por la policy
 --   `businesses_portal_public_read`.
 --
--- SOLUCIÓN (autorización privada adicional):
---   Trigger BEFORE UPDATE que bloquea cualquier CAMBIO de wholesale_portal_enabled
---   salvo que el actor sea:
---     - un backend privilegiado (service_role / postgres / mantenimiento), o
---     - un administrador de plataforma activo (public.current_platform_admin_role()).
---   Los UPDATE de un tenant (rol `authenticated`) que NO sea platform admin son
---   rechazados. Updates que NO tocan la columna pasan sin restricción.
+-- SOLUCIÓN (autorización privada, ALLOWLIST fail-closed):
+--   Trigger BEFORE UPDATE OF wholesale_portal_enabled. Ante un CAMBIO efectivo
+--   del flag (IS DISTINCT FROM), solo se PERMITE si el actor es:
+--     - un backend técnico autorizado:
+--         current_user IN ('postgres','supabase_admin','service_role'); o
+--     - administración de plataforma SOLO vía rol authenticated con platform admin
+--         activo: current_user = 'authenticated'
+--                  AND public.current_platform_admin_role() IS NOT NULL.
+--   Todo lo demás queda DENEGADO por defecto: anon, authenticated no-admin,
+--   authenticator, dashboard_user, pgbouncer, supabase_*_admin no listados, y
+--   cualquier rol arbitrario o futuro. (No se deja current_platform_admin_role()
+--   abierto a cualquier current_user.)
 --
 -- Idempotente. No modifica datos. SECURITY INVOKER en el trigger (necesita ver el
 -- rol real del llamador vía current_user); la verificación de platform admin se
@@ -34,18 +39,22 @@ BEGIN
   -- Solo controlamos el CAMBIO efectivo del flag privado.
   IF NEW."wholesale_portal_enabled" IS DISTINCT FROM OLD."wholesale_portal_enabled" THEN
 
-    -- Backends privilegiados (service_role, postgres, mantenimiento) pasan.
-    -- En requests de PostgREST el rol efectivo es 'authenticated' o 'anon'.
-    IF current_user NOT IN ('authenticated', 'anon') THEN
+    -- Allowlist explícita de backends técnicos autorizados (fail-closed).
+    IF current_user IN ('postgres', 'supabase_admin', 'service_role') THEN
       RETURN NEW;
     END IF;
 
-    -- Dentro de una sesión de usuario final, solo un platform admin activo
-    -- puede activar/desactivar el portal privado.
-    IF "public"."current_platform_admin_role"() IS NOT NULL THEN
+    -- Administración de plataforma: SOLO mediante el rol authenticated y con
+    -- platform admin activo. No se habilita current_platform_admin_role() para
+    -- cualquier current_user.
+    IF current_user = 'authenticated'
+       AND "public"."current_platform_admin_role"() IS NOT NULL THEN
       RETURN NEW;
     END IF;
 
+    -- Cualquier otro rol (anon, authenticated no-admin, authenticator,
+    -- dashboard_user, pgbouncer, supabase_*_admin no listados, roles arbitrarios
+    -- o futuros) queda denegado por defecto.
     RAISE EXCEPTION
       'wholesale_portal_enabled solo puede ser modificado por la administración de la plataforma'
       USING ERRCODE = 'insufficient_privilege';
@@ -61,7 +70,7 @@ REVOKE ALL ON FUNCTION "public"."enforce_wholesale_portal_activation"() FROM PUB
 
 DROP TRIGGER IF EXISTS "trig_enforce_wholesale_portal_activation" ON "public"."businesses";
 CREATE TRIGGER "trig_enforce_wholesale_portal_activation"
-  BEFORE UPDATE ON "public"."businesses"
+  BEFORE UPDATE OF "wholesale_portal_enabled" ON "public"."businesses"
   FOR EACH ROW
   EXECUTE FUNCTION "public"."enforce_wholesale_portal_activation"();
 -- ============================================================================
