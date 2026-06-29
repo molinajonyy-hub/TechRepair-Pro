@@ -8,6 +8,122 @@ Status legend: ✅ done in this branch · ⏳ needs the DB password (run by a hu
 
 ---
 
+## FINAL BASELINE — generated & verified (2026-06-28)
+
+> This section records the concrete, verified outcome. The Phases below remain the procedure;
+> the values here are authoritative. **Not committed yet** — pending review of the two `db diff`
+> commands in section 10.
+
+### 1. Baseline final
+- **Version:** `20260628190324`
+- **File:** `supabase/migrations/20260628190324_remote_baseline.sql`
+- **Final size:** `544714` bytes
+- **Final SHA-256:** `8E2301B881A63B318875D9A9E43D433033E1C32E285A3B3902C1E0A94678111E`
+  - **Replaces** the pre-ACL/Storage hash `7F50C4E0DA65FEEE8965E2DA7A9B8379CDA8EA9FCA91ECF8A010D725A628AF6C`
+    (526139 bytes) — that earlier value is **superseded** and no longer valid.
+- **Only active SQL** in `migrations/` (everything else lives in `migrations/_legacy/`, ignored by the CLI).
+
+### 2. Parity demonstrated
+`supabase db reset --no-seed` finished with **exit 0** (no warnings) and rebuilt, matching production exactly:
+100 tables · RLS 100/100 · 1607 columns · PK 100 · FK 221 · UNIQUE 27 · CHECK 115 · indexes 399 ·
+views 6 · functions 157 · SECURITY DEFINER 104 · triggers 52 · policies(public) 269 · buckets 4 · policies(storage) 4.
+ACL parity was validated **object-by-object via catalogs** (`information_schema` / `pg_*`), not by counts alone.
+
+### 3. Table & column ACLs (appended at end of baseline)
+- `REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated, service_role;`
+- **143 explicit GRANTs** equivalent to production (tables + views; no `WITH GRANT OPTION`).
+- Column-level grants restored for `service_role` (REVOKE ALL above would wipe them):
+  - `public.businesses`: 15 billing columns (`access_source, current_period_*, grace_until, last_payment_*, last_webhook_at, mp_*, subscription_*, updated_at`).
+  - `public.subscription_checkout_sessions`: `status, updated_at`.
+- Validated object-by-object (grantee/table/privilege and grantee/table/column), not just counts.
+- The generator artifact for the 143 GRANTs is kept **outside the repo** (scratchpad) — **never commit scratchpad artifacts**.
+
+### 4. Default privileges
+- Local broadening came from `pg_default_acl` of role **`postgres`**.
+- Its `defaclnamespace` was **`2200` = `public`** specifically — **not global** (`0`).
+- Production has **no** such public/global defaults.
+- Neutralized **only** `postgres` defaults on `public` for **TABLES** and **SEQUENCES**, for **anon / authenticated / service_role**:
+  `ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES|SEQUENCES FROM anon, authenticated, service_role;`
+- `supabase_admin` defaults were **not touched** (local-image infrastructure; app migrations create tables as `postgres`).
+
+### 5. Functions / pg_trgm
+- The **20 sensitive functions** (admin/billing/Vault/WhatsApp RPCs; PUBLIC revoked) match production **exactly** and were **not modified**.
+- The **31 `pg_trgm` extension functions** carry extra explicit `anon/authenticated/service_role` EXECUTE **in the local image**, granted by **`supabase_admin`** (its default ACL at extension install).
+- Production already allows EXECUTE via **PUBLIC** → **no effective escalation**.
+- We did **not** use `SET ROLE`, `GRANTED BY`, nor modify `supabase_admin`.
+- Classified as an **expected platform difference**, NOT application schema drift. (`db diff` would not surface it; catalog comparison did.)
+
+### 6. Storage
+- Baseline includes **bucket definitions only** for the 4 buckets, with fields: `id, name, public, file_size_limit, allowed_mime_types, avif_autodetection, type` (`ON CONFLICT (id)` updates `name` + the rest).
+- **No** `storage.objects` rows, **no** files, **no** `owner`/`owner_id`, **no** timestamps, **no** signed URLs, **no** secrets.
+- The **4 PERMISSIVE policies** of `storage.objects` (bucket `business-assets`) were copied **exactly** from production.
+- The baseline reproduces the **current** state; any hardening of those policies (e.g. tighter isolation) will be a **new migration**, not a silent change here.
+
+### 7. pg_cron
+- `billing-expire-trials` — `0 3 * * *` — `SELECT public.expire_trials();`
+- `billing-enforce-grace` — `5 3 * * *` — `SELECT public.enforce_grace_period();`
+- **Documented only; NOT auto-created.** Preview Branches and local must **not** run billing automatically.
+  Enable manually only in authorized environments (idempotent `cron.schedule(...)` snippet is in the baseline as a comment).
+
+### 8. Limitations & managed objects (NOT in the baseline)
+- Vault secrets are **not** exported.
+- Auth config is **not** exported.
+- Storage files/objects are **not** exported.
+- Cron is **not** auto-activated.
+- `pg_net` and other internal objects may vary by local image version.
+- These are **platform/managed** differences and must **not** be mistaken for `public` schema drift.
+
+### 9. Local ports (Windows)
+- `54420–54429` (the committed `+100` remap) fall inside a **Windows excluded range** (`54372–54471`, Hyper-V/winnat) → Docker cannot bind them.
+- Used **`55420–55429` temporarily** to run `supabase start` / `db reset` locally.
+- `config.toml` was **restored** afterwards (zero net change). The temp remap is **not** part of the baseline or any commit.
+
+### 10. db diff — REQUIRED before commit
+```bash
+supabase db diff --linked --schema public
+supabase db diff --linked --schema storage
+```
+- Do **not** apply the output; do **not** auto-generate a migration from it.
+- Classify any diff as: real / platform / ordering-formatting (non-semantic) / blocking.
+- ACL was already compared via catalogs because `db diff` does not fully cover privileges.
+
+**Results (2026-06-28 — both finished `Finished supabase db diff on branch main`):**
+
+- **`--schema public`** — single item: constraint `business_settings_dolar_source_check`
+  rendered as DROP + ADD NOT VALID + VALIDATE. Catalog comparison (local vs prod):
+  both `convalidated=true`, `condeferrable=false`, `condeferred=false`, column `dolar_source`.
+  - prod : `CHECK (((dolar_source)::text = ANY ((ARRAY['nacional'::character varying, 'cordoba'::character varying])::text[])))`
+  - local: `CHECK (((dolar_source)::text = ANY (ARRAY[('nacional'::character varying)::text, ('cordoba'::character varying)::text])))`
+  - Same accepted set `{nacional, cordoba}`, same rejects. Difference = whole-array vs
+    per-element cast rendering only. **Category 4** (cast/representation, no semantic change).
+    **NOT blocking. Baseline NOT modified.**
+- **`--schema storage`** — 3 policies re-rendered (upload/update/delete on `business-assets`);
+  `Public read business assets` matched (absent from the diff). Catalog comparison: all 3
+  PERMISSIVE, role `{authenticated}`, same `cmd`, same USING/WITH CHECK predicate
+  (`bucket_id='business-assets' AND auth.uid() IN (SELECT user_id FROM profiles WHERE COALESCE(user_id,id)=auth.uid())`).
+  - Only difference: prod uses unaliased `profiles` / local uses alias `p`
+    (`profiles.user_id` vs `p.user_id`). **Category 4** (alias/representation, no semantic change).
+    **NOT blocking. Policies NOT modified** (per "do not chase an empty db diff").
+- **Conclusion:** no Category-1 (blocking) differences in either schema. **Caveat:** `db diff`
+  (migra) is **not fully stable** for normalized CHECK constraints and RLS policies — it
+  re-renders semantically-identical expressions as DROP/ADD; and it does **not** compare
+  ACLs/grants at all (those were validated separately, object-by-object, via catalogs).
+
+### 11. Phase 3 (reconciliation) — still pending explicit approval
+- **Additive** strategy: keep the **133** remote migrations; stamp **only** `20260628190324` as applied.
+- Do **not** run the baseline SQL on production; do **not** `db push` before the repair.
+- Immediately before the repair, re-verify (read-only): `count = 133`, `max(version) = 20260626174811`. If changed → STOP.
+- Rollback: `supabase migration repair --status reverted 20260628190324`.
+
+### 12. Future commit (after both db diff reviewed, no blockers)
+`chore(supabase): add verified remote schema baseline` — includes **only**:
+- `supabase/migrations/20260628190324_remote_baseline.sql`
+- `supabase/MIGRATION_BASELINE_PLAN.md`
+
+Excludes: `tests/sql/owner_portal_isolation.test.sql`, scratchpad, backups, db diff output, temp config, any file with remote data. **No Co-Authored-By, no push.**
+
+---
+
 ## Diagnosis (verified read-only, 2026-06-26)
 
 - **Base schema was never in `migrations/`.** The first historical migration
