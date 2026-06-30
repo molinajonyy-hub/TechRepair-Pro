@@ -20,8 +20,17 @@ const BADGE = (label: string, color: string, bg: string) => (
 // ─── Toggle cell with auto-save ───────────────────────────────────────────────
 
 function Toggle({
-  value, onToggle, color = '#22c55e',
-}: { value: boolean; onToggle: () => void; color?: string }) {
+  value, onToggle, color = '#22c55e', readOnly = false,
+}: { value: boolean; onToggle: () => void; color?: string; readOnly?: boolean }) {
+  if (readOnly) {
+    return (
+      <span
+        aria-label={value ? 'Sí' : 'No'}
+        title={value ? 'Sí' : 'No'}
+        style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: value ? color : 'rgba(255,255,255,0.15)' }}
+      />
+    )
+  }
   return (
     <button
       onClick={onToggle}
@@ -44,11 +53,19 @@ function Toggle({
 // ─── Inline price editor ──────────────────────────────────────────────────────
 
 function PriceCell({
-  value, onSave, placeholder,
-}: { value: number | null; onSave: (n: number | null) => Promise<void>; placeholder: string }) {
+  value, onSave, placeholder, readOnly = false,
+}: { value: number | null; onSave: (n: number | null) => Promise<void>; placeholder: string; readOnly?: boolean }) {
   const [editing, setEditing] = useState(false)
   const [draft,   setDraft]   = useState(String(value ?? ''))
   const [saving,  setSaving]  = useState(false)
+
+  if (readOnly) {
+    return (
+      <span style={{ color: value ? '#818cf8' : '#334155', fontFamily: 'monospace', fontSize: '0.82rem', padding: '0.2rem 0.4rem' }}>
+        {value ? fmtARS(value) : placeholder}
+      </span>
+    )
+  }
 
   const commit = async () => {
     const n = draft === '' ? null : parseFloat(draft) || 0
@@ -89,9 +106,11 @@ function PriceCell({
 interface Props {
   businessId: string
   portalSlug: string
+  /** Fail-closed: por defecto solo lectura (true) salvo que el caller habilite gestión. */
+  readOnly?: boolean
 }
 
-export function TabCatalogoPortal({ businessId, portalSlug }: Props) {
+export function TabCatalogoPortal({ businessId, portalSlug, readOnly = true }: Props) {
   const [items,    setItems]    = useState<CatalogItem[]>([])
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState('')
@@ -130,6 +149,7 @@ export function TabCatalogoPortal({ businessId, portalSlug }: Props) {
 
   // patch one item field locally + save to DB
   const patch = useCallback(async (id: string, changes: Partial<CatalogItem>) => {
+    if (readOnly) return // defensa en profundidad: no escribir en modo solo lectura
     setSaving(id)
     setItems(prev => prev.map(i => i.id === id ? { ...i, ...changes } : i))
     const { error: e } = await supabase
@@ -139,7 +159,7 @@ export function TabCatalogoPortal({ businessId, portalSlug }: Props) {
       .eq('business_id', businessId)
     if (e) console.error('[TabCatalogoPortal] patch error:', e.message)
     setSaving(null)
-  }, [businessId])
+  }, [businessId, readOnly])
 
   const cats = useMemo(() => [...new Set(items.map(i => i.category))].sort(), [items])
 
@@ -286,37 +306,42 @@ export function TabCatalogoPortal({ businessId, portalSlug }: Props) {
                         value={item.precio_mayorista}
                         placeholder="Sin precio"
                         onSave={n => patch(item.id, { precio_mayorista: n })}
+                        readOnly={readOnly}
                       />
                     </td>
 
-                    {/* Min qty — inline editable */}
+                    {/* Min qty — inline editable (estático en solo lectura) */}
                     <td style={{ padding: '0.375rem 0.5rem' }}>
-                      <input
-                        type="number" min="1" step="1"
-                        value={item.portal_min_qty || 1}
-                        onChange={e => patch(item.id, { portal_min_qty: parseInt(e.target.value) || 1 })}
-                        style={{ width: 52, padding: '0.2rem 0.4rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.375rem', color: '#94a3b8', fontSize: '0.78rem', fontFamily: 'monospace', outline: 'none', textAlign: 'center' }}
-                      />
+                      {readOnly ? (
+                        <span style={{ display: 'inline-block', width: 52, textAlign: 'center', fontFamily: 'monospace', fontSize: '0.78rem', color: '#94a3b8' }}>{item.portal_min_qty || 1}</span>
+                      ) : (
+                        <input
+                          type="number" min="1" step="1"
+                          value={item.portal_min_qty || 1}
+                          onChange={e => patch(item.id, { portal_min_qty: parseInt(e.target.value) || 1 })}
+                          style={{ width: 52, padding: '0.2rem 0.4rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.375rem', color: '#94a3b8', fontSize: '0.78rem', fontFamily: 'monospace', outline: 'none', textAlign: 'center' }}
+                        />
+                      )}
                     </td>
 
                     {/* Visible */}
                     <td style={{ padding: '0.625rem 0.75rem', textAlign: 'center' }}>
-                      <Toggle value={item.visible_in_wholesale} color="#22c55e" onToggle={() => patch(item.id, { visible_in_wholesale: !item.visible_in_wholesale })} />
+                      <Toggle value={item.visible_in_wholesale} color="#22c55e" readOnly={readOnly} onToggle={() => patch(item.id, { visible_in_wholesale: !item.visible_in_wholesale })} />
                     </td>
 
                     {/* Destacado */}
                     <td style={{ padding: '0.625rem 0.75rem', textAlign: 'center' }}>
-                      <Toggle value={item.portal_featured} color="#f59e0b" onToggle={() => patch(item.id, { portal_featured: !item.portal_featured })} />
+                      <Toggle value={item.portal_featured} color="#f59e0b" readOnly={readOnly} onToggle={() => patch(item.id, { portal_featured: !item.portal_featured })} />
                     </td>
 
                     {/* Nuevo */}
                     <td style={{ padding: '0.625rem 0.75rem', textAlign: 'center' }}>
-                      <Toggle value={item.portal_is_new} color="#34d399" onToggle={() => patch(item.id, { portal_is_new: !item.portal_is_new })} />
+                      <Toggle value={item.portal_is_new} color="#34d399" readOnly={readOnly} onToggle={() => patch(item.id, { portal_is_new: !item.portal_is_new })} />
                     </td>
 
                     {/* Oferta */}
                     <td style={{ padding: '0.625rem 0.75rem', textAlign: 'center' }}>
-                      <Toggle value={item.portal_on_sale} color="#f87171" onToggle={() => patch(item.id, { portal_on_sale: !item.portal_on_sale })} />
+                      <Toggle value={item.portal_on_sale} color="#f87171" readOnly={readOnly} onToggle={() => patch(item.id, { portal_on_sale: !item.portal_on_sale })} />
                     </td>
 
                     {/* Badges summary */}
@@ -334,14 +359,18 @@ export function TabCatalogoPortal({ businessId, portalSlug }: Props) {
                       </div>
                     </td>
 
-                    {/* Edit ficha */}
+                    {/* Edit ficha (oculto en solo lectura) */}
                     <td style={{ padding: '0.5rem 0.75rem', textAlign: 'center' }}>
-                      <button
-                        onClick={() => setEditItem(item)}
-                        style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.3rem 0.625rem', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.375rem', color: '#818cf8', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
-                      >
-                        <Edit2 size={11} /> Ficha
-                      </button>
+                      {readOnly ? (
+                        <span style={{ color: '#334155' }}>—</span>
+                      ) : (
+                        <button
+                          onClick={() => setEditItem(item)}
+                          style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.3rem 0.625rem', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.375rem', color: '#818cf8', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                        >
+                          <Edit2 size={11} /> Ficha
+                        </button>
+                      )}
                     </td>
                   </tr>
                 )
@@ -353,11 +382,13 @@ export function TabCatalogoPortal({ businessId, portalSlug }: Props) {
 
       {/* Sort order hint */}
       <p style={{ margin: '0.75rem 0 0', fontSize: '0.72rem', color: '#1e3a5f' }}>
-        Tocá el precio mayorista para editarlo. Los toggles guardan automáticamente. Usá "Ficha" para agregar imágenes, descripción y detalles del producto.
+        {readOnly
+          ? 'Vista de solo lectura.'
+          : 'Tocá el precio mayorista para editarlo. Los toggles guardan automáticamente. Usá "Ficha" para agregar imágenes, descripción y detalles del producto.'}
       </p>
 
-      {/* Edit modal */}
-      {editItem && (
+      {/* Edit modal — nunca en solo lectura (defensa en profundidad) */}
+      {editItem && !readOnly && (
         <ModalFichaPortal
           item={editItem}
           businessId={businessId}

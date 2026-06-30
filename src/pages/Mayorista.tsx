@@ -485,6 +485,11 @@ export function Mayorista() {
     if (activeTab === 'config') loadPortalConfig()
   }, [activeTab, loadPortalData, loadPortalConfig])
 
+  // Si pierde el permiso de gestión estando en Configuración, volver a una pestaña válida.
+  useEffect(() => {
+    if (activeTab === 'config' && !canManage) setActiveTab('precios')
+  }, [activeTab, canManage])
+
   const load = useCallback(async () => {
     if (!businessId) return
     setLoading(true)
@@ -837,10 +842,12 @@ export function Mayorista() {
             <span style={{ fontSize: '0.72rem', color: '#475569' }}>{cfg.label}</span>
           </div>
         ))}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-          <Pencil size={10} style={{ color: '#475569' }} />
-          <span style={{ fontSize: '0.72rem', color: '#475569' }}>Click en el precio para editar</span>
-        </div>
+        {canManage && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+            <Pencil size={10} style={{ color: '#475569' }} />
+            <span style={{ fontSize: '0.72rem', color: '#475569' }}>Click en el precio para editar</span>
+          </div>
+        )}
       </div>
 
       {showBulk && businessId && (
@@ -859,6 +866,7 @@ export function Mayorista() {
         <TabCatalogoPortal
           businessId={businessId}
           portalSlug={portalConfig.wholesale_portal_slug || 'clic'}
+          readOnly={!canManage}
         />
       )}
 
