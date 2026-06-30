@@ -1,0 +1,6 @@
+-- HISTORICAL MIGRATION MARKER â€” NO-OP
+-- Remote version: 20260609154237
+-- Original remote name: fix_personal_tables_grants_and_rls
+-- This migration was executed historically in production.
+-- Its SQL is represented by the verified baseline 20260628190324.
+-- Do not add executable SQL to this file.

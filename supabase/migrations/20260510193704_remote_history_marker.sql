@@ -1,0 +1,6 @@
+-- HISTORICAL MIGRATION MARKER â€” NO-OP
+-- Remote version: 20260510193704
+-- Original remote name: sync_logo_url_businesses_trigger
+-- This migration was executed historically in production.
+-- Its SQL is represented by the verified baseline 20260628190324.
+-- Do not add executable SQL to this file.

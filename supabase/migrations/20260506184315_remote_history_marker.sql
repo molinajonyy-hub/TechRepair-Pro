@@ -1,0 +1,6 @@
+-- HISTORICAL MIGRATION MARKER â€” NO-OP
+-- Remote version: 20260506184315
+-- Original remote name: audit_fix_stock_sync_and_indexes
+-- This migration was executed historically in production.
+-- Its SQL is represented by the verified baseline 20260628190324.
+-- Do not add executable SQL to this file.

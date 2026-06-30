@@ -1,0 +1,6 @@
+-- HISTORICAL MIGRATION MARKER â€” NO-OP
+-- Remote version: 20260504212304
+-- Original remote name: security_fix_view_functions_revoke
+-- This migration was executed historically in production.
+-- Its SQL is represented by the verified baseline 20260628190324.
+-- Do not add executable SQL to this file.

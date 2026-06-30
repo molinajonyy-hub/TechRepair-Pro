@@ -1,0 +1,6 @@
+-- HISTORICAL MIGRATION MARKER â€” NO-OP
+-- Remote version: 20260518223039
+-- Original remote name: add_create_expense_with_finance_rpc
+-- This migration was executed historically in production.
+-- Its SQL is represented by the verified baseline 20260628190324.
+-- Do not add executable SQL to this file.

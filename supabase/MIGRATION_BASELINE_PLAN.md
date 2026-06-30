@@ -124,6 +124,46 @@ Excludes: `tests/sql/owner_portal_isolation.test.sql`, scratchpad, backups, db d
 
 ---
 
+## History markers — `db push` reconciliation (2026-06-29)
+
+After the additive reconciliation (Phase 3: baseline `20260628190324` stamped **applied**, the
+133 historical rows kept), `supabase db push --linked --dry-run` still **refused** with
+*"Remote migration versions not found in local migrations directory"* and suggested
+`supabase migration repair --status reverted <133 versions>` or `supabase db pull`. The CLI
+compares remote `schema_migrations` against local migration **files**; the 133 pre-baseline
+versions exist remotely but had **no local file** (they live in `_legacy/`, ignored by the
+CLI), so `db push` blocked on the mismatch.
+
+`--status reverted` was **rejected**: it would delete those 133 rows from the remote history
+table, destroying the audited trail we deliberately preserved. `db pull` was also rejected (it
+would rewrite local files and abandon the squashed baseline).
+
+**Chosen solution — local no-op history markers.** One file per historical version:
+`supabase/migrations/<version>_remote_history_marker.sql`, containing **only comments**
+(no DDL / DML / functions / DO blocks / BEGIN/COMMIT / data / secrets / SQL copied from
+`_legacy/`). The CLI now finds every remote timestamp locally, while the **baseline
+`20260628190324` remains the only file that rebuilds the historical schema**.
+
+Invariants (validated 2026-06-29, all read-only against prod):
+- Remote keeps its **134** rows unchanged — no `migration repair`, no `db pull`, no prod write.
+- **133** markers; their version set == the 133 historical remote versions. Cross-checked by
+  MD5 of `version|name` (pre-repair backup **==** live query): `md5_all=8c3d9caa…`,
+  `md5_hist=4b2a4406…`. Zero executable SQL in any marker.
+- Active migrations = **133 markers + 1 baseline + 2 Caso E = 136** `.sql` files.
+- `db reset --no-seed`: applies the 133 markers (no-op) → baseline → guard
+  `20260629115919` → RLS `20260629115920`; final schema and
+  `tests/sql/owner_portal_isolation.test.sql` (10/10) remain identical.
+- `supabase migration list --linked`: **134** aligned Local|Remote, only `20260629115919` and
+  `20260629115920` Local-only, **0** remote-only.
+- `supabase db push --linked --dry-run`: announces **exactly** those two, in order. A marker /
+  baseline / legacy is never pushed (its version already exists remotely).
+
+Do **not** add executable SQL to a marker file. New schema changes remain new 14-digit
+migrations on top of the baseline (Phase 4). The real `db push` of the two Caso E migrations
+requires a **separate explicit authorization**.
+
+---
+
 ## Diagnosis (verified read-only, 2026-06-26)
 
 - **Base schema was never in `migrations/`.** The first historical migration
