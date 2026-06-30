@@ -6,6 +6,7 @@ import { useSidebar } from '../../hooks/useSidebar';
 import { usePermissions } from '../../hooks/usePermissions';
 import { useSubscription } from '../../hooks/useSubscription';
 import { useSystemOwner } from '../../hooks/useSystemOwner';
+import { useWholesalePermissions } from '../../hooks/useWholesalePermissions';
 import { PermissionKey } from '../../config/permissions';
 import { supabase } from '../../lib/supabase';
 import logoSvg from '../../assets/logo.svg';
@@ -198,6 +199,10 @@ type NavItem = {
   permission?: PermissionKey;
   /** If true, this item is hidden unless wholesale_portal_enabled=true */
   portalAdmin?: boolean;
+  /** If true, gated by canViewWholesale (los 7 roles + feature mayorista + acceso). */
+  wholesaleView?: boolean;
+  /** If true, gated by canManageClicPortal (owner REAL del negocio + portal habilitado). */
+  clicPortalManage?: boolean;
   /** If set, this item is hidden unless the active plan has this feature */
   planFeature?: import('../../config/planFeatures').PlanFeature;
   /** If true, this item is only visible to System Owners (system_admins.user_id = auth.uid()) */
@@ -226,8 +231,8 @@ const menuSections: NavSection[] = [
       { path: '/customers',  label: 'Clientes',      icon: <ClientesIcon />,    permission: 'customers' },
       { path: '/cuentas',    label: 'Cuentas Ctes.', icon: <CuentasIcon />,     permission: 'customers', planFeature: 'currentAccounts' },
       { path: '/inventory',  label: 'Inventario',    icon: <InventarioIcon />,  permission: 'inventory' },
-      { path: '/mayorista',  label: 'Mayorista',     icon: <MayoristaIcon />,   permission: 'inventory', planFeature: 'mayorista' },
-      { path: '/portal-clic',label: 'Portal Clic',   icon: <PortalAdminIcon />, permission: 'inventory', portalAdmin: true },
+      { path: '/mayorista',  label: 'Mayorista',     icon: <MayoristaIcon />,   wholesaleView: true },
+      { path: '/portal-clic',label: 'Portal Clic',   icon: <PortalAdminIcon />, clicPortalManage: true },
       { path: '/suppliers',  label: 'Proveedores',   icon: <ProveedoresIcon />, permission: 'inventory' },
       { path: '/offers',     label: 'Ofertas',       icon: <OfertasIcon />,     permission: 'inventory' },
     ],
@@ -271,15 +276,13 @@ export function Sidebar() {
   const { can } = usePermissions();
   const { hasFeature } = useSubscription();
   const { isSystemOwner } = useSystemOwner();
+  const wholesale = useWholesalePermissions();
   const [mayoristaEnabled, setMayoristaEnabled] = useState(true);
-  const [portalEnabled,    setPortalEnabled]    = useState(false);
 
   useEffect(() => {
     if (!businessId) return;
     supabase.from('business_settings').select('mayorista_enabled').eq('business_id', businessId).maybeSingle()
       .then(({ data }) => setMayoristaEnabled(data?.mayorista_enabled !== false));
-    supabase.from('businesses').select('wholesale_portal_enabled').eq('id', businessId).maybeSingle()
-      .then(({ data }) => setPortalEnabled(data?.wholesale_portal_enabled === true));
   }, [businessId]);
   const {
     isCollapsed,
@@ -293,9 +296,12 @@ export function Sidebar() {
     .map(section => ({
       ...section,
       items: section.items.filter(item => {
+        // Mayorista: visible para los 7 roles con feature + acceso (canViewWholesale)
+        // y el toggle de negocio mayorista_enabled. NO depende de la permission 'inventory'.
+        if (item.wholesaleView) return wholesale.canView && mayoristaEnabled;
+        // Portal Clic: SOLO el owner real con el portal habilitado.
+        if (item.clicPortalManage) return wholesale.canManageClicPortal;
         if (!item.permission || !can(item.permission)) return !item.permission;
-        if (item.path === '/mayorista'   && !mayoristaEnabled) return false;
-        if (item.portalAdmin             && !portalEnabled)    return false;
         if (item.planFeature             && !hasFeature(item.planFeature)) return false;
         if (item.systemOwnerOnly         && !isSystemOwner) return false;
         return true;
