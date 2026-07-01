@@ -8,6 +8,10 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { useWholesalePermissions } from '../hooks/useWholesalePermissions'
+import { permissionErrorMessage } from '../lib/permissions/rlsError'
+import { WholesaleRestrictedAccess } from '../components/wholesale/WholesaleRestrictedAccess'
+import { UpgradeRequired } from '../components/subscription/UpgradeRequired'
 import { ComprobanteProModal as ModalCrearComprobante } from '../components/comprobantes/ComprobanteProModal'
 import { TabCatalogoPortal } from './mayorista/TabCatalogoPortal'
 import {
@@ -248,9 +252,10 @@ interface InlineEditorProps {
   product: WholesaleProduct
   exchangeRate: number
   onSave: (id: string, price: number | null) => Promise<void>
+  readOnly?: boolean
 }
 
-function InlineEditor({ product, exchangeRate, onSave }: InlineEditorProps) {
+function InlineEditor({ product, exchangeRate, onSave, readOnly = false }: InlineEditorProps) {
   const [editing, setEditing] = useState(false)
   const [currency, setCurrency] = useState<'ARS' | 'USD'>('ARS')
   const [val, setVal] = useState('')
@@ -331,6 +336,19 @@ function InlineEditor({ product, exchangeRate, onSave }: InlineEditorProps) {
     )
   }
 
+  if (readOnly) {
+    return (
+      <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '0.25rem 0', gap: '0.1rem' }}>
+        <span style={{ fontFamily: 'monospace', fontSize: '0.875rem', fontWeight: product.precio_mayorista ? 600 : 400, color: product.precio_mayorista ? '#c7d2fe' : '#475569' }}>
+          {product.precio_mayorista ? fmt(product.precio_mayorista) : '—'}
+        </span>
+        {usdRef && (
+          <span style={{ fontSize: '0.65rem', color: '#60a5fa', fontFamily: 'monospace' }}>≈ USD {usdRef}</span>
+        )}
+      </span>
+    )
+  }
+
   return (
     <button onClick={openEditor}
       style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem 0', gap: '0.1rem' }}>
@@ -351,6 +369,8 @@ function InlineEditor({ product, exchangeRate, onSave }: InlineEditorProps) {
 
 export function Mayorista() {
   const { businessId } = useAuth()
+  const wholesale = useWholesalePermissions()
+  const canManage = wholesale.canManage
   const [products, setProducts] = useState<WholesaleProduct[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -442,7 +462,7 @@ export function Mayorista() {
       })
       .eq('id', businessId)
     setConfigSaving(false)
-    if (err) { setConfigError(err.message); return }
+    if (err) { setConfigError(permissionErrorMessage(err) ?? err.message); return }
     setPortalConfig(p => ({ ...p, wholesale_whatsapp: wa, wholesale_portal_slug: portalConfig.wholesale_portal_slug.toLowerCase().replace(/[^a-z0-9-]/g, '') }))
     setConfigSaved(true)
     setTimeout(() => setConfigSaved(false), 2500)
@@ -464,6 +484,11 @@ export function Mayorista() {
     if (activeTab === 'clientes' || activeTab === 'pedidos') loadPortalData()
     if (activeTab === 'config') loadPortalConfig()
   }, [activeTab, loadPortalData, loadPortalConfig])
+
+  // Si pierde el permiso de gestión estando en Configuración, volver a una pestaña válida.
+  useEffect(() => {
+    if (activeTab === 'config' && !canManage) setActiveTab('precios')
+  }, [activeTab, canManage])
 
   const load = useCallback(async () => {
     if (!businessId) return
@@ -568,6 +593,23 @@ export function Mayorista() {
     return sortDir === 'asc' ? <ChevronUp size={12} style={{ color: '#818cf8' }} /> : <ChevronDown size={12} style={{ color: '#818cf8' }} />
   }
 
+  // ── Guard de acceso al módulo (Rules of Hooks: después de todos los hooks) ──
+  // Orden: 1) permisos cargando → loader · 2) sin feature → paywall ·
+  // 3) con feature pero sin acceso válido / rol inválido → acceso restringido ·
+  // 4) carga de datos → loader · 5) módulo (read-only o gestión).
+  if (wholesale.loading) return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
+      <Loader2 size={28} style={{ animation: 'tr-spin 1s linear infinite', color: '#6366f1' }} />
+    </div>
+  )
+  if (!wholesale.hasMayoristaFeature) return <UpgradeRequired feature="mayorista" />
+  if (!wholesale.canView) return (
+    <WholesaleRestrictedAccess
+      title="Acceso restringido"
+      description="No tenés permisos para acceder al módulo Mayorista."
+    />
+  )
+
   if (loading) return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
       <Loader2 size={28} style={{ animation: 'tr-spin 1s linear infinite', color: '#6366f1' }} />
@@ -582,14 +624,25 @@ export function Mayorista() {
         <div className="page-hdr-left">
           <div className="page-hdr-icon"><Store size={22} /></div>
           <div>
-            <h1 className="page-hdr-title">Mayorista</h1>
+            <h1 className="page-hdr-title">
+              Mayorista
+              {wholesale.isReadOnly && (
+                <span
+                  title="Tu rol permite consultar Mayorista, pero no modificar información."
+                  aria-label="Solo lectura"
+                  style={{ marginLeft: '0.625rem', verticalAlign: 'middle', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.15rem 0.5rem', fontSize: '0.68rem', fontWeight: 700, color: '#94a3b8', background: 'rgba(148,163,184,0.12)', border: '1px solid rgba(148,163,184,0.25)', borderRadius: '99px' }}
+                >
+                  <Eye size={11} /> Solo lectura
+                </span>
+              )}
+            </h1>
             <p className="page-hdr-subtitle">Precios especiales para revendedores y clientes mayoristas</p>
           </div>
         </div>
         <div className="page-hdr-right">
           <button onClick={load} className="btn btn-ghost btn-sm"><RefreshCw size={13} /> Actualizar</button>
-          <button onClick={() => setShowComprobante(true)} className="btn btn-success btn-sm btn-lift"><FileText size={13} /> Nuevo Comprobante</button>
-          <button onClick={() => setShowBulk(true)} className="btn btn-primary btn-sm btn-lift"><Zap size={13} /> Generar precios masivos</button>
+          {canManage && <button onClick={() => setShowComprobante(true)} className="btn btn-success btn-sm btn-lift"><FileText size={13} /> Nuevo Comprobante</button>}
+          {canManage && <button onClick={() => setShowBulk(true)} className="btn btn-primary btn-sm btn-lift"><Zap size={13} /> Generar precios masivos</button>}
         </div>
       </div>
 
@@ -602,7 +655,7 @@ export function Mayorista() {
             { id: 'portal',   label: 'Visibilidad',     icon: Globe       },
             { id: 'clientes', label: 'Clientes',        icon: Users       },
             { id: 'pedidos',  label: 'Pedidos Web',     icon: ShoppingBag },
-            { id: 'config',   label: 'Configuración',   icon: Settings    },
+            ...(canManage ? [{ id: 'config', label: 'Configuración', icon: Settings }] : []),
           ] : []),
         ] as const).map(({ id, label, icon: Icon }) => (
           <button key={id} onClick={() => setActiveTab(id as any)}
@@ -750,7 +803,7 @@ export function Mayorista() {
                     </td>
                     {/* Mayorista (editable) */}
                     <td style={{ padding: '0.5rem 1rem' }}>
-                      <InlineEditor product={p} exchangeRate={exchangeRate} onSave={savePrecioMayorista} />
+                      <InlineEditor product={p} exchangeRate={exchangeRate} onSave={savePrecioMayorista} readOnly={!canManage} />
                       {isRetailLoss && p.precio_mayorista != null && (
                         <div style={{ fontSize: '0.65rem', color: '#f59e0b', marginTop: '0.1rem' }}>≥ minorista</div>
                       )}
@@ -789,10 +842,12 @@ export function Mayorista() {
             <span style={{ fontSize: '0.72rem', color: '#475569' }}>{cfg.label}</span>
           </div>
         ))}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-          <Pencil size={10} style={{ color: '#475569' }} />
-          <span style={{ fontSize: '0.72rem', color: '#475569' }}>Click en el precio para editar</span>
-        </div>
+        {canManage && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+            <Pencil size={10} style={{ color: '#475569' }} />
+            <span style={{ fontSize: '0.72rem', color: '#475569' }}>Click en el precio para editar</span>
+          </div>
+        )}
       </div>
 
       {showBulk && businessId && (
@@ -811,6 +866,7 @@ export function Mayorista() {
         <TabCatalogoPortal
           businessId={businessId}
           portalSlug={portalConfig.wholesale_portal_slug || 'clic'}
+          readOnly={!canManage}
         />
       )}
 
@@ -876,12 +932,18 @@ export function Mayorista() {
                         {p.precio_mayorista ? fmt(p.precio_mayorista) : <span style={{ color: '#334155', fontSize: '0.75rem' }}>Sin precio</span>}
                       </td>
                       <td style={{ padding: '0.75rem 0.875rem' }}>
-                        <button
-                          onClick={() => toggleVisibility(p.id, !p.visible_in_wholesale)}
-                          style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.35rem 0.75rem', borderRadius: '0.375rem', border: `1px solid ${p.visible_in_wholesale ? 'rgba(34,197,94,0.35)' : 'rgba(255,255,255,0.1)'}`, background: p.visible_in_wholesale ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)', color: p.visible_in_wholesale ? '#22c55e' : '#475569', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s' }}
-                        >
-                          {p.visible_in_wholesale ? <><Eye size={12} /> Visible</> : <><EyeOff size={12} /> Oculto</>}
-                        </button>
+                        {canManage ? (
+                          <button
+                            onClick={() => toggleVisibility(p.id, !p.visible_in_wholesale)}
+                            style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.35rem 0.75rem', borderRadius: '0.375rem', border: `1px solid ${p.visible_in_wholesale ? 'rgba(34,197,94,0.35)' : 'rgba(255,255,255,0.1)'}`, background: p.visible_in_wholesale ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.03)', color: p.visible_in_wholesale ? '#22c55e' : '#475569', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s' }}
+                          >
+                            {p.visible_in_wholesale ? <><Eye size={12} /> Visible</> : <><EyeOff size={12} /> Oculto</>}
+                          </button>
+                        ) : (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.35rem 0.75rem', color: p.visible_in_wholesale ? '#22c55e' : '#475569', fontSize: '0.75rem', fontWeight: 700 }}>
+                            {p.visible_in_wholesale ? <><Eye size={12} /> Visible</> : <><EyeOff size={12} /> Oculto</>}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -955,7 +1017,7 @@ export function Mayorista() {
                       </td>
                       <td style={{ padding: '0.75rem 0.875rem' }}>
                         <div style={{ display: 'flex', gap: '0.375rem' }}>
-                          {!c.approved && !c.suspended && (
+                          {canManage && !c.approved && !c.suspended && (
                             <button
                               onClick={async () => {
                                 await updateCustomerStatus(c.id, { approved: true })
@@ -966,7 +1028,7 @@ export function Mayorista() {
                               <UserCheck size={12} /> Aprobar
                             </button>
                           )}
-                          {c.approved && !c.suspended && (
+                          {canManage && c.approved && !c.suspended && (
                             <button
                               onClick={async () => {
                                 await updateCustomerStatus(c.id, { suspended: true })
@@ -977,7 +1039,7 @@ export function Mayorista() {
                               <UserX size={12} /> Suspender
                             </button>
                           )}
-                          {c.suspended && (
+                          {canManage && c.suspended && (
                             <button
                               onClick={async () => {
                                 await updateCustomerStatus(c.id, { suspended: false })
@@ -1114,7 +1176,7 @@ export function Mayorista() {
 
                       {/* Actions */}
                       <div style={{ padding: '0.625rem 1rem', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                        {nextStatuses[order.status].map(s => (
+                        {canManage && nextStatuses[order.status].map(s => (
                           <button key={s}
                             onClick={async () => {
                               await updateOrderStatus(order.id, s)
@@ -1134,7 +1196,7 @@ export function Mayorista() {
                             <MessageSquare size={11} /> Notificar por WhatsApp
                           </a>
                         )}
-                        {order.status !== 'invoiced' && order.status !== 'cancelled' && order.status !== 'rejected' && (
+                        {canManage && order.status !== 'invoiced' && order.status !== 'cancelled' && order.status !== 'rejected' && (
                           <button
                             onClick={() => handleConvertirComprobante(order)}
                             disabled={converting}
@@ -1154,7 +1216,7 @@ export function Mayorista() {
       })()}
 
       {/* ══════ TAB: CONFIGURACIÓN PORTAL ══════ */}
-      {activeTab === 'config' && (
+      {activeTab === 'config' && canManage && (
         <div style={{ maxWidth: 540 }}>
           <div style={{ background: '#111827', border: '1px solid rgba(255,255,255,0.07)', borderRadius: '0.875rem', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {/* Enable/disable */}
