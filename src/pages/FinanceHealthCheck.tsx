@@ -274,7 +274,7 @@ export function FinanceHealthCheck() {
           </h3>
           <p style={{ color: 'var(--text-secondary)', maxWidth: 460, margin: '0 auto 1.5rem' }}>
             Detecta inconsistencias en comprobantes, caja, finanzas y estado fiscal ARCA
-            antes de que afecten reportes o AFIP.
+            antes de que afecten reportes o la información declarada ante ARCA.
           </p>
           <button onClick={runCheck} className="btn btn-primary">
             <RefreshCw size={15} /> Ejecutar auditoría

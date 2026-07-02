@@ -658,7 +658,7 @@ function DocFooter({ comprobante, profile }: { comprobante: Comprobante; profile
           ID: {comprobante.id}
         </span>
         <span style={{ color: 'var(--text-subtle)', fontSize: '0.65rem' }}>
-          TechRepair{comprobante.cae ? ' · Autorizado AFIP' : ''}
+          TechRepair{comprobante.cae ? ' · Autorizado ARCA' : ''}
         </span>
       </div>
     </div>

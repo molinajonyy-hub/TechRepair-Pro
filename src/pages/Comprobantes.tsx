@@ -386,7 +386,7 @@ export default function ComprobantesPage() {
                   <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.875rem' }}>Emitir en ARCA ahora</span>
                   <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--text-subtle)' }}>
                     {ncEmitirArca
-                      ? 'Se solicitará CAE a AFIP. Si ARCA falla, la NC queda como borrador para reintentar.'
+                      ? 'Se solicitará CAE a ARCA. Si falla, la NC queda como borrador para reintentar.'
                       : 'Se guardará como borrador. Podés emitirla en ARCA desde el detalle de la NC.'}
                   </p>
                 </div>

@@ -14,6 +14,7 @@ import {
   comprobanteService, MedioPago, type Comprobante,
   isArcaConnectionError, ARCA_CONNECTION_ERROR_TITLE, ARCA_CONNECTION_ERROR_MESSAGE,
   ARCA_PENDING_RECONCILIATION_TITLE, ARCA_PENDING_RECONCILIATION_MESSAGE,
+  splitArcaRejectionMessage,
 } from '../services/comprobanteService';
 import { buildComprobanteFilename } from '../lib/printFilename';
 import { logger } from '../lib/logger';
@@ -159,7 +160,7 @@ export default function ComprobantePage() {
     try {
       const result = await comprobanteService.emitir(comprobanteActual.id, businessId, user.id, true);
       if (result.success) {
-        setShowSuccess('Comprobante emitido correctamente en AFIP');
+        setShowSuccess('Comprobante emitido correctamente en ARCA');
         setTimeout(() => setShowSuccess(null), 5000);
         await cargarComprobante(comprobanteActual.id);
       } else if (result.pendingReconciliation) {
@@ -177,10 +178,10 @@ export default function ComprobantePage() {
         logger.error('FINANCE', 'Reintento de emisión ARCA falló (conectividad)', result.error);
         setError(`${ARCA_CONNECTION_ERROR_TITLE}. ${ARCA_CONNECTION_ERROR_MESSAGE}`);
       } else {
-        setError(result.error || 'Error al emitir en AFIP');
+        setError(result.error || 'Error al emitir en ARCA');
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Error al emitir en AFIP');
+      setError(err instanceof Error ? err.message : 'Error al emitir en ARCA');
     } finally {
       setEmitiendo(false);
     }
@@ -461,15 +462,29 @@ export default function ComprobantePage() {
       </div>
 
       {/* Alerts */}
-      {error && (
-        <div className="alert-inline alert-error" style={{ marginBottom: '1rem' }}>
-          <AlertCircle size={16} style={{ flexShrink: 0 }} />
-          <span style={{ flex: 1 }}>{formatDisplayMessage(error)}</span>
-          <button onClick={limpiarError} style={{ background: 'none', border: 'none', color: 'inherit', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline' }}>
-            Cerrar
-          </button>
-        </div>
-      )}
+      {error && (() => {
+        // Rechazo ARCA: mostrar prominente solo el motivo accionable; los
+        // avisos informativos que AFIP concatena ("IMPORTANTE: ...") quedan
+        // en un detalle expandible — visibles, pero sin tapar el error real.
+        const { principal, detalle } = splitArcaRejectionMessage(formatDisplayMessage(error));
+        return (
+          <div className="alert-inline alert-error" style={{ marginBottom: '1rem' }}>
+            <AlertCircle size={16} style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1 }}>
+              {principal}
+              {detalle && (
+                <details style={{ marginTop: '0.375rem' }}>
+                  <summary style={{ cursor: 'pointer', fontSize: '0.78rem', opacity: 0.8 }}>Ver aviso completo de ARCA</summary>
+                  <span style={{ fontSize: '0.78rem', opacity: 0.85 }}>{detalle}</span>
+                </details>
+              )}
+            </span>
+            <button onClick={limpiarError} style={{ background: 'none', border: 'none', color: 'inherit', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline' }}>
+              Cerrar
+            </button>
+          </div>
+        );
+      })()}
       {showSuccess && (
         <div className="alert-inline alert-success" style={{ marginBottom: '1rem' }}>
           <CheckCircle size={16} style={{ flexShrink: 0 }} />
@@ -755,7 +770,7 @@ export default function ComprobantePage() {
                 <span>
                   Se creará una Nota de Crédito en borrador vinculada al comprobante{' '}
                   <strong>#{comprobanteActual.numero}</strong> por ${(comprobanteActual.total || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}.
-                  Deberás emitirla manualmente en AFIP desde el detalle de la nota.
+                  Deberás emitirla manualmente en ARCA desde el detalle de la nota.
                 </span>
               </div>
 

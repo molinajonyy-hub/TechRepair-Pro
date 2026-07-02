@@ -33,6 +33,7 @@ import {
   ComprobantePago, CrearComprobanteInput, Comprobante,
   isArcaConnectionError, ARCA_CONNECTION_ERROR_TITLE, ARCA_CONNECTION_ERROR_MESSAGE,
   ARCA_PENDING_RECONCILIATION_TITLE, ARCA_PENDING_RECONCILIATION_MESSAGE,
+  splitArcaRejectionMessage,
 } from '../../services/comprobanteService'
 import { WhatsAppPreviewModal } from '../whatsapp/WhatsAppPreviewModal'
 import { usePaymentCommissions, type FlatPaymentMethod } from '../../hooks/usePaymentCommissions'
@@ -1913,7 +1914,9 @@ export function ComprobanteProModal({
             {/* ARCA error/pendiente — prominent block, not just a footnote.
                 El detalle técnico (DNS, timeouts, faults SOAP) solo va a logs (posLogger.error
                 arriba); acá mostramos un mensaje amigable. Los rechazos fiscales legítimos de
-                AFIP (ej. "AFIP rechazó el comprobante: ...") sí son accionables y se muestran.
+                ARCA (ej. "ARCA rechazó el comprobante: ...") sí son accionables: se muestra
+                prominente el motivo del rechazo, y los avisos informativos que AFIP concatena
+                ("IMPORTANTE: ...") quedan en un detalle expandible.
                 pending_reconciliation es un caso aparte: NUNCA reintentar manualmente, el
                 sistema reconcilia solo en el próximo intento desde Comprobantes. */}
             {arcaWarning && (
@@ -1930,8 +1933,16 @@ export function ComprobanteProModal({
                 <div style={{ color: 'var(--pos-text-secondary)', fontSize: '0.75rem', lineHeight: 1.4 }}>
                   {arcaPending
                     ? ARCA_PENDING_RECONCILIATION_MESSAGE
-                    : isArcaConnectionError(arcaWarning) ? ARCA_CONNECTION_ERROR_MESSAGE : arcaWarning}
+                    : isArcaConnectionError(arcaWarning) ? ARCA_CONNECTION_ERROR_MESSAGE : splitArcaRejectionMessage(arcaWarning).principal}
                 </div>
+                {!arcaPending && !isArcaConnectionError(arcaWarning) && splitArcaRejectionMessage(arcaWarning).detalle && (
+                  <details style={{ marginTop: '0.375rem' }}>
+                    <summary style={{ color: 'var(--pos-text-muted)', fontSize: '0.7rem', cursor: 'pointer' }}>Ver aviso completo de ARCA</summary>
+                    <div style={{ color: 'var(--pos-text-muted)', fontSize: '0.7rem', lineHeight: 1.4, marginTop: '0.25rem' }}>
+                      {splitArcaRejectionMessage(arcaWarning).detalle}
+                    </div>
+                  </details>
+                )}
                 {!arcaPending && !isArcaConnectionError(arcaWarning) && (
                   <div style={{ color: 'var(--pos-text-muted)', fontSize: '0.7rem', marginTop: '0.375rem' }}>
                     El comprobante quedó como borrador. Podés reintentarlo desde la vista del comprobante.

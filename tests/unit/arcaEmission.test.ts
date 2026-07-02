@@ -31,6 +31,8 @@ import {
   consultarComprobante,
   solicitarCAEConReconciliacion,
   decidirTrasAmbiguo,
+  buildFECAESolicitarSOAP,
+  esComprobanteClaseC,
   RETRY_DELAYS_MS,
 } from '../../supabase/functions/afip-cae/logic.ts'
 import {
@@ -106,9 +108,9 @@ test('timeout/connection reset → ambiguous (no reintentar FECAESolicitar a cie
 })
 
 test('rechazos fiscales y errores de validación se clasifican como fatales (no reintentar, no reconciliar)', () => {
-  assert.equal(classifyFetchError(new Error('AFIP rechazó el comprobante: DocNro inválido')), 'fatal')
+  assert.equal(classifyFetchError(new Error('ARCA rechazó el comprobante: DocNro inválido')), 'fatal')
   assert.equal(classifyFetchError(new Error('WSFEv1 SOAP fault: punto de venta no habilitado')), 'fatal')
-  assert.equal(classifyFetchError(new Error('No se obtuvo CAE en la respuesta de AFIP')), 'fatal')
+  assert.equal(classifyFetchError(new Error('No se obtuvo CAE en la respuesta de ARCA')), 'fatal')
 })
 
 test('backoff documentado: 3 intentos máximo, [0, 500, 1500]ms', () => {
@@ -175,7 +177,7 @@ test('fetchWithRetry: 502/503/504 con retryAmbiguous=true se reintenta y se recu
 // ─────────────────────────────────────────────────────────────────────────
 
 test('parseFECAEResponse: rechazo (Resultado=R) lanza — nunca pasa por retry', () => {
-  assert.throws(() => parseFECAEResponse(`<Resultado>R</Resultado><Msg>Punto de venta no habilitado</Msg>`), /AFIP rechazó el comprobante/)
+  assert.throws(() => parseFECAEResponse(`<Resultado>R</Resultado><Msg>Punto de venta no habilitado</Msg>`), /ARCA rechazó el comprobante/)
 })
 
 test('parseFECAEResponse: SOAP fault lanza', () => {
@@ -782,4 +784,156 @@ test('auditoría: parseArgs soporta los flags documentados', () => {
   assert.equal(args.businessId, 'abc')
   assert.equal(args.from, '2026-01-01')
   assert.equal(args.dryRun, true)
+})
+
+// ─────────────────────────────────────────────────────────────────────────
+// SOAP FECAESolicitar — comprobantes clase C no informan el objeto IVA
+// (rechazo real en producción 2026-07-02: "Para comprobantes tipo C el
+//  objeto IVA no debe informarse.")
+// ─────────────────────────────────────────────────────────────────────────
+
+// Caso real de producción: Factura C, neto 25000, sin IVA, total 25000.
+const SOAP_C_BASE = {
+  token: 'tok', sign: 'sig', cuit: '20111111112',
+  puntoVenta: 1, tipoComprobante: 11,
+  cbteDesde: 759058, cbteHasta: 759058,
+  tipoDocReceptor: 99, nroDocReceptor: '0',
+  concepto: 1, fechaCbte: '20260702',
+  importeNeto: 25000, importeIva: 0, alicuotaIva: 0, importeTotal: 25000,
+  moneda: 'PES', cotizacion: 1,
+}
+
+test('Factura C (tipo 11): ImpIVA=0 y NO incluye el nodo <Iva>/<AlicIva> (causa del rechazo de ARCA en producción)', () => {
+  const xml = buildFECAESolicitarSOAP(SOAP_C_BASE)
+  assert.match(xml, /<ar:ImpIVA>0\.00<\/ar:ImpIVA>/)
+  assert.doesNotMatch(xml, /<ar:Iva>/, 'Factura C no debe informar el objeto IVA')
+  assert.doesNotMatch(xml, /<ar:AlicIva>/, 'Factura C no debe informar AlicIva')
+  assert.match(xml, /<ar:ImpNeto>25000\.00<\/ar:ImpNeto>/)
+  assert.match(xml, /<ar:ImpTotal>25000\.00<\/ar:ImpTotal>/)
+})
+
+test('Factura C defensivo: aunque el caller mande importeIva > 0, ImpIVA se fuerza a 0 y el objeto Iva sigue omitido', () => {
+  // Un caller buggy que mandara IVA para una C no debe producir un XML con
+  // objeto Iva: se fuerza ImpIVA=0.00 y se omite el nodo. El descalce de
+  // importes resultante (neto+0 != total) lo rechaza ARCA visiblemente —
+  // nunca se acepta silenciosamente un comprobante C con IVA discriminado.
+  const xml = buildFECAESolicitarSOAP({ ...SOAP_C_BASE, importeIva: 5250, alicuotaIva: 21 })
+  assert.match(xml, /<ar:ImpIVA>0\.00<\/ar:ImpIVA>/)
+  assert.doesNotMatch(xml, /<ar:Iva>/)
+  assert.doesNotMatch(xml, /<ar:AlicIva>/)
+})
+
+test('Nota de Crédito C (tipo 13): sin objeto IVA, conserva el comprobante asociado (CbtesAsoc) e importes correctos', () => {
+  const xml = buildFECAESolicitarSOAP({
+    ...SOAP_C_BASE,
+    tipoComprobante: 13,
+    cbteAsocTipo: 11, cbteAsocPtoVta: 1, cbteAsocNro: 759057,
+  })
+  assert.doesNotMatch(xml, /<ar:Iva>/, 'NC C no debe informar el objeto IVA')
+  assert.doesNotMatch(xml, /<ar:AlicIva>/)
+  assert.match(xml, /<ar:ImpIVA>0\.00<\/ar:ImpIVA>/)
+  assert.match(xml, /<ar:CbtesAsoc>/, 'NC debe conservar la referencia al comprobante original')
+  assert.match(xml, /<ar:Tipo>11<\/ar:Tipo>/)
+  assert.match(xml, /<ar:PtoVta>1<\/ar:PtoVta>/)
+  assert.match(xml, /<ar:Nro>759057<\/ar:Nro>/)
+  assert.match(xml, /<ar:ImpNeto>25000\.00<\/ar:ImpNeto>/)
+  assert.match(xml, /<ar:ImpTotal>25000\.00<\/ar:ImpTotal>/)
+})
+
+test('Nota de Débito C (tipo 12): misma omisión del objeto IVA (clase C completa)', () => {
+  const xml = buildFECAESolicitarSOAP({ ...SOAP_C_BASE, tipoComprobante: 12 })
+  assert.doesNotMatch(xml, /<ar:Iva>/)
+  assert.match(xml, /<ar:ImpIVA>0\.00<\/ar:ImpIVA>/)
+})
+
+test('Factura A (tipo 1): MANTIENE el bloque IVA requerido (Id 5 = 21%, BaseImp, Importe)', () => {
+  const xml = buildFECAESolicitarSOAP({
+    ...SOAP_C_BASE,
+    tipoComprobante: 1, tipoDocReceptor: 80, nroDocReceptor: '30111111118',
+    importeNeto: 25000, importeIva: 5250, alicuotaIva: 21, importeTotal: 30250,
+  })
+  assert.match(xml, /<ar:Iva>/, 'Factura A debe seguir informando el objeto IVA')
+  assert.match(xml, /<ar:AlicIva>/)
+  assert.match(xml, /<ar:Id>5<\/ar:Id>/, 'alícuota 21% → Id 5')
+  assert.match(xml, /<ar:BaseImp>25000\.00<\/ar:BaseImp>/)
+  assert.match(xml, /<ar:Importe>5250\.00<\/ar:Importe>/)
+  assert.match(xml, /<ar:ImpIVA>5250\.00<\/ar:ImpIVA>/)
+  assert.match(xml, /<ar:ImpTotal>30250\.00<\/ar:ImpTotal>/)
+})
+
+test('Factura B (tipo 6): mantiene el comportamiento vigente (bloque IVA presente)', () => {
+  const xml = buildFECAESolicitarSOAP({
+    ...SOAP_C_BASE,
+    tipoComprobante: 6,
+    importeNeto: 20661.16, importeIva: 4338.84, alicuotaIva: 21, importeTotal: 25000,
+  })
+  assert.match(xml, /<ar:Iva>/, 'Factura B no es clase C: conserva el objeto IVA')
+  assert.match(xml, /<ar:ImpIVA>4338\.84<\/ar:ImpIVA>/)
+})
+
+test('Factura C — regla de importes: ImpTotal = ImpNeto + ImpTrib (sin tributos: ImpTotal = ImpNeto, ImpTrib = 0)', () => {
+  // El sistema no modela tributos (ImpTrib siempre 0.00) — la regla
+  // ImpTotal = ImpNeto + ImpTrib se cumple con ImpTrib = 0. Si algún día se
+  // agregan tributos, este test obliga a revisar el contrato.
+  const xml = buildFECAESolicitarSOAP(SOAP_C_BASE)
+  assert.match(xml, /<ar:ImpTrib>0\.00<\/ar:ImpTrib>/)
+  assert.match(xml, /<ar:ImpTotConc>0\.00<\/ar:ImpTotConc>/)
+  assert.match(xml, /<ar:ImpOpEx>0\.00<\/ar:ImpOpEx>/)
+  const neto  = xml.match(/<ar:ImpNeto>([\d.]+)<\/ar:ImpNeto>/)![1]
+  const total = xml.match(/<ar:ImpTotal>([\d.]+)<\/ar:ImpTotal>/)![1]
+  assert.equal(neto, total, 'para C sin tributos, ImpTotal debe ser igual a ImpNeto')
+})
+
+test('CondicionIVAReceptorId: se envía como nodo propio (no es el objeto Iva) y funciona para C y para A', () => {
+  // Factura C (Consumidor Final = 5): el nodo aparece AUNQUE el objeto Iva se omita.
+  const xmlC = buildFECAESolicitarSOAP({ ...SOAP_C_BASE, condicionIVAReceptorId: 5 })
+  assert.match(xmlC, /<ar:CondicionIVAReceptorId>5<\/ar:CondicionIVAReceptorId>/)
+  assert.doesNotMatch(xmlC, /<ar:Iva>/, 'CondicionIVAReceptorId no debe reintroducir el objeto Iva en una C')
+
+  // Factura A: conviven el nodo CondicionIVAReceptorId y el bloque Iva, separados.
+  const xmlA = buildFECAESolicitarSOAP({
+    ...SOAP_C_BASE, tipoComprobante: 1, condicionIVAReceptorId: 1,
+    importeIva: 5250, alicuotaIva: 21, importeTotal: 30250,
+  })
+  assert.match(xmlA, /<ar:CondicionIVAReceptorId>1<\/ar:CondicionIVAReceptorId>/)
+  assert.match(xmlA, /<ar:Iva>/)
+  // El nodo NUNCA va adentro del bloque <Iva>.
+  const ivaBlock = xmlA.match(/<ar:Iva>[\s\S]*?<\/ar:Iva>/)![0]
+  assert.doesNotMatch(ivaBlock, /CondicionIVAReceptorId/)
+
+  // Retrocompatibilidad: sin el campo, el nodo no aparece.
+  const xmlSin = buildFECAESolicitarSOAP(SOAP_C_BASE)
+  assert.doesNotMatch(xmlSin, /CondicionIVAReceptorId/)
+})
+
+test('estático: NINGÚN comprobante clase C (11, 12, 13) puede generar el objeto <Iva>', () => {
+  for (const tipo of [11, 12, 13]) {
+    assert.equal(esComprobanteClaseC(tipo), true, `tipo ${tipo} es clase C`)
+    const xml = buildFECAESolicitarSOAP({ ...SOAP_C_BASE, tipoComprobante: tipo, importeIva: 999, alicuotaIva: 21 })
+    assert.doesNotMatch(xml, /<ar:Iva>/, `tipo ${tipo} (clase C) nunca debe informar el objeto IVA`)
+  }
+  for (const tipo of [1, 2, 3, 6, 7, 8]) {
+    assert.equal(esComprobanteClaseC(tipo), false, `tipo ${tipo} NO es clase C`)
+  }
+})
+
+test('afip-cae/index.ts conserva condicion_iva_receptor_id y cbte_asoc_* (antes se descartaban y nunca llegaban al SOAP)', () => {
+  const index = read('../../supabase/functions/afip-cae/index.ts')
+  assert.match(index, /condicion_iva_receptor_id,/)
+  assert.match(index, /cbte_asoc_tipo,/)
+  assert.match(index, /condicionIVAReceptorId: condicion_iva_receptor_id/)
+  assert.match(index, /cbteAsocTipo:\s+cbte_asoc_tipo/)
+})
+
+test('UI: los rechazos ARCA muestran el motivo accionable prominente y el aviso informativo como detalle expandible', () => {
+  const service = read('../../src/services/comprobanteService.ts')
+  assert.match(service, /export function splitArcaRejectionMessage/)
+
+  const detalle = read('../../src/pages/Comprobante.tsx')
+  assert.match(detalle, /splitArcaRejectionMessage/)
+  assert.match(detalle, /Ver aviso completo de ARCA/)
+
+  const modal = read('../../src/components/comprobantes/ComprobanteProModal.tsx')
+  assert.match(modal, /splitArcaRejectionMessage\(arcaWarning\)\.principal/)
+  assert.match(modal, /Ver aviso completo de ARCA/)
 })

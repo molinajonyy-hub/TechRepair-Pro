@@ -212,6 +212,23 @@ export const ARCA_CONNECTION_ERROR_TITLE = 'No se pudo conectar con ARCA';
 export const ARCA_CONNECTION_ERROR_MESSAGE =
   'El cobro quedó registrado y el comprobante quedó pendiente de emisión. Podés reintentarlo desde Comprobantes.';
 
+/**
+ * Un rechazo fiscal de ARCA puede traer varios mensajes concatenados con ' | '
+ * (ver afip-cae/logic.ts::parseFECAEResponse): el primero es el motivo
+ * accionable del rechazo; los siguientes suelen ser avisos informativos
+ * genéricos (p.ej. "IMPORTANTE: ... Condicion Frente al IVA del receptor...").
+ * Separa el principal del detalle para que la UI muestre el accionable
+ * prominente y el resto como detalle expandible — nunca se descarta nada.
+ * Cualquier mensaje que no sea un rechazo ARCA se devuelve intacto.
+ */
+export function splitArcaRejectionMessage(message?: string | null): { principal: string; detalle: string | null } {
+  if (!message) return { principal: '', detalle: null };
+  if (!message.includes('rechazó el comprobante')) return { principal: message, detalle: null };
+  const idx = message.indexOf(' | ');
+  if (idx === -1) return { principal: message, detalle: null };
+  return { principal: message.slice(0, idx).trim(), detalle: message.slice(idx + 3).trim() };
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function calcularLinea(item: CrearComprobanteInput['items'][0], globalRate: number) {

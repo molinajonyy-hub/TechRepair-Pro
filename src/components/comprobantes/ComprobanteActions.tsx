@@ -63,12 +63,12 @@ export function ComprobanteActions({
   const statusSub = esAnulado
     ? 'Sin validez fiscal'
     : esEmitido
-    ? comprobante.cae ? `CAE: ${comprobante.cae.slice(0, 12)}…` : 'Autorizado por AFIP'
+    ? comprobante.cae ? `CAE: ${comprobante.cae.slice(0, 12)}…` : 'Autorizado por ARCA'
     : esPendienteConciliacion
     ? 'ARCA podría haberlo recibido — no reintentar manualmente'
     : esCobradoPendienteArca
     ? 'Cobro registrado · sin emisión fiscal'
-    : 'Debe emitirse en AFIP';
+    : 'Debe emitirse en ARCA';
   const StatusIcon = esAnulado ? Ban : esEmitido ? Shield : esPendienteConciliacion ? AlertTriangle : esCobradoPendienteArca ? CheckCircle : Clock;
 
   return (
@@ -100,7 +100,7 @@ export function ComprobanteActions({
         {/* Action buttons */}
         <div style={{ padding: '0.875rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
 
-          {/* Emitir AFIP */}
+          {/* Emitir ARCA */}
           {esBorrador && (
             <button
               onClick={handleEmitirClick}
@@ -119,7 +119,7 @@ export function ComprobanteActions({
               ) : emitirConfirm ? (
                 <><CheckCircle size={15} /> Confirmar emisión</>
               ) : (
-                <><Send size={15} /> Emitir en AFIP</>
+                <><Send size={15} /> Emitir en ARCA</>
               )}
             </button>
           )}
@@ -176,7 +176,7 @@ export function ComprobanteActions({
             }}>
               <AlertTriangle size={13} style={{ color: 'var(--warning)', flexShrink: 0, marginTop: 2 }} />
               <p style={{ color: 'var(--warning)', fontSize: '0.72rem', lineHeight: 1.4, margin: 0 }}>
-                El comprobante en borrador no tiene validez fiscal hasta ser emitido en AFIP.
+                El comprobante en borrador no tiene validez fiscal hasta ser emitido en ARCA.
               </p>
             </div>
           </div>
@@ -191,7 +191,7 @@ export function ComprobanteActions({
             }}>
               <Shield size={13} style={{ color: 'var(--success)', flexShrink: 0, marginTop: 2 }} />
               <div>
-                <p style={{ color: 'var(--success)', fontSize: '0.72rem', fontWeight: 600, margin: 0 }}>Validado por AFIP</p>
+                <p style={{ color: 'var(--success)', fontSize: '0.72rem', fontWeight: 600, margin: 0 }}>Validado por ARCA</p>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.68rem', fontFamily: 'monospace', wordBreak: 'break-all', margin: '0.125rem 0 0' }}>
                   {comprobante.cae}
                 </p>
@@ -262,7 +262,7 @@ export function ComprobanteActions({
               marginBottom: '1.25rem',
             }}>
               <p style={{ color: 'var(--warning)', fontSize: '0.75rem', margin: 0, lineHeight: 1.5 }}>
-                <strong>Nota:</strong> Si el comprobante tiene CAE, deberás generar una Nota de Crédito en AFIP para compensarlo.
+                <strong>Nota:</strong> Si el comprobante tiene CAE, deberás generar una Nota de Crédito en ARCA para compensarlo.
               </p>
             </div>
 

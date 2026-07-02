@@ -190,6 +190,12 @@ export interface FacturaData {
   cotizacion_moneda: number // 1 para pesos
   fecha_cbte?:       string // YYYYMMDD, default hoy
   ambiente:          'homologacion' | 'produccion'
+  // Condición IVA del receptor (RG 5616) — campo propio, NO es el objeto Iva.
+  condicion_iva_receptor_id?: number
+  // Nota de Crédito/Débito: referencia al comprobante original (CbtesAsoc).
+  cbte_asoc_tipo?:    number
+  cbte_asoc_pto_vta?: number
+  cbte_asoc_nro?:     number
 }
 
 // ──────────────────────────────────────────────
@@ -263,6 +269,21 @@ export async function getUltimoComprobante(
 // Construir SOAP de FECAESolicitar
 // ──────────────────────────────────────────────
 
+// Comprobantes CLASE C (emisor monotributista): 11=Factura C, 12=Nota de
+// Débito C, 13=Nota de Crédito C. Para clase C, WSFEv1 exige ImpIVA=0 y que
+// el objeto <Iva>/<AlicIva> NO se informe en absoluto (rechazo real en
+// producción 2026-07-02: "Para comprobantes tipo C el objeto IVA no debe
+// informarse."). No confundir con <CondicionIVAReceptorId>, que es un campo
+// independiente y sí se envía para cualquier clase. El sistema hoy solo
+// alcanza 11 y 13 (claim_comprobante_arca_emission: factura_c→11;
+// create_credit_note_from_comprobante→13 cuando la original es C); 12 se
+// incluye por completitud de la clase.
+const CLASE_C_TIPOS = new Set([11, 12, 13])
+
+export function esComprobanteClaseC(tipoComprobante: number): boolean {
+  return CLASE_C_TIPOS.has(tipoComprobante)
+}
+
 export function buildFECAESolicitarSOAP(params: {
   token: string
   sign: string
@@ -284,7 +305,16 @@ export function buildFECAESolicitarSOAP(params: {
   fechaServDesde?: string
   fechaServHasta?: string
   fechaVtoPago?: string
+  /** RG 5616 — condición frente al IVA del receptor (5=Consumidor Final, etc.).
+   *  Campo propio de FECAEDetRequest, independiente del objeto Iva/AlicIva. */
+  condicionIVAReceptorId?: number
+  /** CbtesAsoc — referencia al comprobante original (Notas de Crédito/Débito). */
+  cbteAsocTipo?: number
+  cbteAsocPtoVta?: number
+  cbteAsocNro?: number
 }): string {
+  const claseC = esComprobanteClaseC(params.tipoComprobante)
+
   const ivaId = params.alicuotaIva === 21 ? 5
     : params.alicuotaIva === 10.5 ? 4
     : params.alicuotaIva === 27   ? 6
@@ -300,6 +330,37 @@ export function buildFECAESolicitarSOAP(params: {
   const nroDoc = (params.tipoDocReceptor === 99 || !params.nroDocReceptor)
     ? '0'
     : params.nroDocReceptor.replace(/\D/g, '')
+
+  // Clase C: ImpIVA SIEMPRE 0 (el precio ya es final, sin discriminar) y el
+  // objeto Iva no se informa. Si el caller mandara importeIva>0 para una C,
+  // se fuerza 0 igual — ARCA rechazaría por importes inconsistentes (neto+iva
+  // != total), que es un fallo visible, en vez de aceptar silenciosamente un
+  // XML inválido.
+  const impIva = claseC ? 0 : params.importeIva
+
+  const condicionIvaReceptor = params.condicionIVAReceptorId != null
+    ? `<ar:CondicionIVAReceptorId>${params.condicionIVAReceptorId}</ar:CondicionIVAReceptorId>`
+    : ''
+
+  const cbtesAsoc = (params.cbteAsocTipo != null && params.cbteAsocPtoVta != null && params.cbteAsocNro != null)
+    ? `<ar:CbtesAsoc>
+              <ar:CbteAsoc>
+                <ar:Tipo>${params.cbteAsocTipo}</ar:Tipo>
+                <ar:PtoVta>${params.cbteAsocPtoVta}</ar:PtoVta>
+                <ar:Nro>${params.cbteAsocNro}</ar:Nro>
+              </ar:CbteAsoc>
+            </ar:CbtesAsoc>`
+    : ''
+
+  const ivaBlock = claseC
+    ? ''
+    : `<ar:Iva>
+              <ar:AlicIva>
+                <ar:Id>${ivaId}</ar:Id>
+                <ar:BaseImp>${params.importeNeto.toFixed(2)}</ar:BaseImp>
+                <ar:Importe>${params.importeIva.toFixed(2)}</ar:Importe>
+              </ar:AlicIva>
+            </ar:Iva>`
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
@@ -330,18 +391,14 @@ export function buildFECAESolicitarSOAP(params: {
             <ar:ImpTotConc>0.00</ar:ImpTotConc>
             <ar:ImpNeto>${params.importeNeto.toFixed(2)}</ar:ImpNeto>
             <ar:ImpOpEx>0.00</ar:ImpOpEx>
-            <ar:ImpIVA>${params.importeIva.toFixed(2)}</ar:ImpIVA>
+            <ar:ImpIVA>${impIva.toFixed(2)}</ar:ImpIVA>
             <ar:ImpTrib>0.00</ar:ImpTrib>
             ${serviciosDates}
             <ar:MonId>${params.moneda}</ar:MonId>
             <ar:MonCotiz>${params.cotizacion.toFixed(2)}</ar:MonCotiz>
-            <ar:Iva>
-              <ar:AlicIva>
-                <ar:Id>${ivaId}</ar:Id>
-                <ar:BaseImp>${params.importeNeto.toFixed(2)}</ar:BaseImp>
-                <ar:Importe>${params.importeIva.toFixed(2)}</ar:Importe>
-              </ar:AlicIva>
-            </ar:Iva>
+            ${condicionIvaReceptor}
+            ${cbtesAsoc}
+            ${ivaBlock}
           </ar:FECAEDetRequest>
         </ar:FeDetReq>
       </ar:FeCAEReq>
@@ -374,15 +431,15 @@ export function parseFECAEResponse(soapXml: string): CAEResult {
   if (resultado === 'R') {
     const obs = soapXml.match(/<Msg>([\s\S]*?)<\/Msg>/gi)
       ?.map(m => m.replace(/<\/?Msg>/gi, ''))
-      .join(' | ') || 'Rechazado por AFIP'
-    throw new Error(`AFIP rechazó el comprobante: ${obs}`)
+      .join(' | ') || 'Rechazado por ARCA'
+    throw new Error(`ARCA rechazó el comprobante: ${obs}`)
   }
 
   const cae = soapXml.match(/<CAE>([\s\S]*?)<\/CAE>/i)?.[1]?.trim()
   if (!cae) {
     // Buscar error en obs
     const errMsg = soapXml.match(/<Msg>([\s\S]*?)<\/Msg>/i)?.[1]?.trim()
-    throw new Error(errMsg || 'No se obtuvo CAE en la respuesta de AFIP')
+    throw new Error(errMsg || 'No se obtuvo CAE en la respuesta de ARCA')
   }
 
   const caeVto   = soapXml.match(/<CAEFchVto>([\s\S]*?)<\/CAEFchVto>/i)?.[1]?.trim() || ''
@@ -501,7 +558,7 @@ export function parseFECompConsultarResponse(soapXml: string): ConsultaResult {
   if (errCode) {
     // Un código de error distinto de 602 no es "no encontrado" — no lo tratamos
     // como tal para no arriesgar una re-emisión sobre un número que sí existe.
-    return { status: 'query_failed', motivo: `AFIP error ${errCode}: ${errMsg || 'sin detalle'}` }
+    return { status: 'query_failed', motivo: `ARCA error ${errCode}: ${errMsg || 'sin detalle'}` }
   }
 
   // Ni CAE ni <Errors> reconocible: respuesta incompleta/inesperada.
@@ -679,6 +736,8 @@ export async function solicitarCAEConReconciliacion(
     importeNeto: number; importeIva: number; alicuotaIva: number; importeTotal: number
     moneda: string; cotizacion: number
     ambiente: string
+    condicionIVAReceptorId?: number
+    cbteAsocTipo?: number; cbteAsocPtoVta?: number; cbteAsocNro?: number
   },
   ctx: { correlationId: string; businessId: string },
   fetchImpl: typeof fetch = fetch

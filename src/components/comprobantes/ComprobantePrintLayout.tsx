@@ -431,7 +431,7 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
           </p>
         )}
         {comprobante.cae && (
-          <p className="cpl-footer-id">Comprobante electrónico autorizado por AFIP</p>
+          <p className="cpl-footer-id">Comprobante electrónico autorizado por ARCA</p>
         )}
       </div>
     </div>

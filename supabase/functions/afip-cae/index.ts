@@ -250,6 +250,10 @@ serve(async (req: Request) => {
       moneda       = 'PES',
       cotizacion_moneda = 1,
       fecha_cbte,
+      condicion_iva_receptor_id,
+      cbte_asoc_tipo,
+      cbte_asoc_pto_vta,
+      cbte_asoc_nro,
     } = body
 
     if (!comprobante_id || !attempt_id) {
@@ -371,6 +375,14 @@ serve(async (req: Request) => {
       moneda,
       cotizacion: cotizacion_moneda,
       ambiente,
+      // Condición IVA del receptor (RG 5616) y comprobante asociado (NC/ND):
+      // el cliente ya los enviaba, pero se descartaban acá — sin esto,
+      // CondicionIVAReceptorId nunca llegaba al SOAP (obligatorio desde
+      // 01/09/2026) y las NC salían sin CbtesAsoc.
+      condicionIVAReceptorId: condicion_iva_receptor_id,
+      cbteAsocTipo:   cbte_asoc_tipo,
+      cbteAsocPtoVta: cbte_asoc_pto_vta,
+      cbteAsocNro:    cbte_asoc_nro,
     }, logCtx)
 
     // 7. Persistir el resultado terminal vía RPC (única escritora del CAE en

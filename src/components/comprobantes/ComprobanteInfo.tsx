@@ -152,7 +152,7 @@ export function ComprobanteInfo({ fecha, cliente, orden, cae, caeVencimiento, co
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                 <FileCheck size={13} style={{ color: 'var(--success)' }} />
                 <span style={{ color: 'var(--success)', fontSize: '0.75rem', fontWeight: 600 }}>
-                  Comprobante electrónico AFIP
+                  Comprobante electrónico ARCA
                 </span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
@@ -175,7 +175,7 @@ export function ComprobanteInfo({ fecha, cliente, orden, cae, caeVencimiento, co
               textAlign: 'center',
             }}>
               <span style={{ color: 'var(--warning)', fontSize: '0.75rem' }}>
-                Pendiente de emisión en AFIP
+                Pendiente de emisión en ARCA
               </span>
             </div>
           )}
