@@ -1,6 +1,14 @@
 // =====================================================
 // SERVICIO MOCK - FUNCIONA SIN SUPABASE
 // Usar esto hasta que se resuelvan los problemas de RLS
+//
+// ⚠️ HUÉRFANO / SIN USO (auditoría ARCA 2026-07-01): nada en src/ importa este
+// módulo. Es un fixture en memoria, no toca Supabase, así que no puede corromper
+// datos reales aunque se invoque. Igual `emitirComprobante()` está bloqueado
+// explícitamente más abajo: NUNCA debe fabricar un CAE, ni siquiera en memoria,
+// para que si algo lo vuelve a importar accidentalmente falle ruidosamente en
+// vez de simular una emisión fiscal. Para emisión real usar comprobanteService
+// (src/services/comprobanteService.ts) → ArcaService → Edge Function afip-cae.
 // =====================================================
 
 import { TipoComprobante, Comprobante, ComprobanteItem } from './facturacionService';
@@ -134,18 +142,16 @@ export const facturacionServiceMock = {
     );
   },
 
-  // Emitir comprobante (mock)
-  async emitirComprobante(id: string) {
-    const comprobante = storage.comprobantes.find(c => c.id === id);
-    if (!comprobante) {
-      return { success: false, error: 'Comprobante no encontrado' };
-    }
-
-    comprobante.estado = 'emitido';
-    comprobante.cae = `7${Date.now().toString().slice(-10)}${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
-    comprobante.cae_vencimiento = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString();
-    
-    return { success: true, comprobante };
+  // BLOQUEADO — nunca fabricar un CAE, ni en memoria. Ver auditoría ARCA
+  // 2026-07-01: este era el origen del bug de "reintentar emite CAE falso".
+  // La emisión real vive en comprobanteService.emitir() → ArcaService → afip-cae.
+  // (Tipo de retorno conservado para no romper el contrato del hook legacy;
+  // en runtime esta función siempre lanza.)
+  async emitirComprobante(_id: string): Promise<{ success: boolean; comprobante?: Comprobante; error?: string }> {
+    throw new Error(
+      'facturacionServiceMock.emitirComprobante() está deshabilitado: nunca debe fabricar un CAE. ' +
+      'Usá comprobanteService.emitir() para emisión fiscal real.'
+    );
   },
 
   // Anular comprobante

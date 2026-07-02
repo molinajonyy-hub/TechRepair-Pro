@@ -1,11 +1,50 @@
 /**
  * Edge Function: afip-cae
  * Solicita CAE (Código de Autorización Electrónica) ante WSFEv1 de AFIP/ARCA.
- * Primero obtiene token+sign via afip-wsaa (con caché), luego llama a FECAESolicitar.
+ * Primero obtiene token+sign via afip-wsaa (con caché), luego llama a FECAESolicitar
+ * con reconciliación idempotente (FECompConsultar + FECompUltimoAutorizado) ante
+ * resultados ambiguos.
+ *
+ * La lógica pura (resolución de endpoint, reintentos, reconciliación, armado/parseo
+ * de SOAP) vive en ./logic.ts para poder testearla con `node --test` sin depender
+ * de Deno.serve.
+ *
+ * IDEMPOTENCIA CROSS-INVOCACIÓN Y POR SERIE FISCAL (fases 3 y 4, auditoría ARCA
+ * 2026-07-01):
+ * `comprobante_id` y `attempt_id` son OBLIGATORIOS. El caller (comprobanteService.ts)
+ * debe reclamar el derecho a emitir vía la RPC atómica `claim_comprobante_arca_emission`
+ * ANTES de invocar esta función — DOS índices únicos parciales en
+ * `arca_emission_attempts` son el mecanismo real de exclusión mutua:
+ *   - uno por comprobante_id (dos intentos del MISMO comprobante no pueden coexistir)
+ *   - uno por SERIE FISCAL (ambiente + CUIT + punto de venta + tipo de comprobante):
+ *     dos comprobantes DISTINTOS de la misma serie tampoco pueden tener ambos un
+ *     intento vivo, lo que evita que ambos consulten FECompUltimoAutorizado y
+ *     calculen el mismo próximo número en paralelo.
+ * (ver supabase/migrations/20260701150000_arca_atomic_claim.sql).
+ *
+ * Esta función NUNCA decide si puede emitir ni construye la identidad fiscal:
+ * TODO (ambiente, cuit_emisor, punto_venta, tipo_comprobante) se lee de la fila
+ * `arca_emission_attempts` (ya resuelta y validada server-side por el claim),
+ * nunca del body de la request — un cliente no puede spoofear punto_venta/cuit/
+ * ambiente/tipo_comprobante aunque los incluya en el body.
+ *
+ * Es la única escritora del resultado fiscal terminal (vía las RPCs
+ * `reserve_arca_number` / `mark_arca_attempt_sent` / `complete_arca_attempt`,
+ * nunca UPDATEs directos a `comprobantes`).
+ *
+ * Si el intento reclamado ya trae un `numero_intentado` (porque claim reutilizó
+ * una fila `pending_reconciliation` del mismo comprobante), se reconcilia ESE
+ * número primero — nunca se pide uno nuevo mientras exista una ambigüedad
+ * previa sin resolver para esa fila.
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import {
+  logStructured, todayYYYYMMDD, solicitarCAEConReconciliacion, consultarComprobante,
+  getUltimoComprobante,
+  type FacturaData, type EmissionOutcome,
+} from './logic.ts'
 
 // ─────────────────────────────────────────────────────────────────
 // CORS — single source of truth (buildCorsHeaders + jsonResponse)
@@ -95,235 +134,85 @@ function jsonResponse(req: Request, body: unknown, status = 200): Response {
 }
 
 // ──────────────────────────────────────────────
-// Tipos
+// Fila del intento — identidad fiscal AUTORITATIVA (nunca el body del cliente).
 // ──────────────────────────────────────────────
 
-interface FacturaData {
+interface AttemptRow {
+  id: string
+  comprobante_id: string
   business_id: string
-  cuit:              string // CUIT del emisor (sin guiones)
-  punto_venta:       number
-  tipo_comprobante:  number // 1=Factura A, 6=Factura B, 11=Factura C, etc.
-  tipo_doc_receptor: number // 80=CUIT, 96=DNI, 99=consumidor final
-  nro_doc_receptor:  string
-  concepto:          number // 1=Productos, 2=Servicios, 3=Productos y Servicios
-  importe_neto:      number
-  importe_iva:       number
-  alicuota_iva:      number // 21, 10.5, 27, 0
-  importe_total:     number
-  moneda:            string // 'PES', 'DOL', etc.
-  cotizacion_moneda: number // 1 para pesos
-  fecha_cbte?:       string // YYYYMMDD, default hoy
-  ambiente:          'homologacion' | 'produccion'
-}
-
-// ──────────────────────────────────────────────
-// Helpers de fecha
-// ──────────────────────────────────────────────
-
-function todayYYYYMMDD(): string {
-  const d = new Date()
-  return [
-    d.getFullYear(),
-    String(d.getMonth() + 1).padStart(2, '0'),
-    String(d.getDate()).padStart(2, '0'),
-  ].join('')
-}
-
-function tenDaysLaterYYYYMMDD(): string {
-  const d = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000)
-  return [
-    d.getFullYear(),
-    String(d.getMonth() + 1).padStart(2, '0'),
-    String(d.getDate()).padStart(2, '0'),
-  ].join('')
-}
-
-// ──────────────────────────────────────────────
-// Obtener el último número de comprobante autorizado
-// ──────────────────────────────────────────────
-
-async function getUltimoComprobante(
-  token: string,
-  sign: string,
-  cuit: string,
-  puntoVenta: number,
-  tipoComprobante: number,
   ambiente: string
-): Promise<number> {
-  const wsfeUrl = ambiente === 'produccion'
-    ? 'https://wsfe.afip.gov.ar/wsfev1/service.asmx'
-    : 'https://wswhomo.afip.gov.ar/wsfev1/service.asmx'
+  cuit_emisor: string
+  punto_venta: number
+  tipo_comprobante: number
+  numero_intentado: number | null
+  status: string
+}
 
-  const soap = `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-                  xmlns:ar="http://ar.gov.afip.dif.FEV1/">
-  <soapenv:Header/>
-  <soapenv:Body>
-    <ar:FECompUltimoAutorizado>
-      <ar:Auth>
-        <ar:Token>${token}</ar:Token>
-        <ar:Sign>${sign}</ar:Sign>
-        <ar:Cuit>${cuit}</ar:Cuit>
-      </ar:Auth>
-      <ar:PtoVta>${puntoVenta}</ar:PtoVta>
-      <ar:CbteTipo>${tipoComprobante}</ar:CbteTipo>
-    </ar:FECompUltimoAutorizado>
-  </soapenv:Body>
-</soapenv:Envelope>`
-
-  const res = await fetch(wsfeUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/xml;charset=UTF-8', 'SOAPAction': '"http://ar.gov.afip.dif.FEV1/FECompUltimoAutorizado"' },
-    body: soap,
-  })
-
-  const text = await res.text()
-  const match = text.match(/<CbteNro>(\d+)<\/CbteNro>/i)
-  return match ? parseInt(match[1], 10) : 0
+async function fetchAttempt(supabase: any, attemptId: string): Promise<AttemptRow | null> {
+  const { data } = await supabase
+    .from('arca_emission_attempts')
+    .select('id, comprobante_id, business_id, ambiente, cuit_emisor, punto_venta, tipo_comprobante, numero_intentado, status')
+    .eq('id', attemptId)
+    .maybeSingle()
+  return data ?? null
 }
 
 // ──────────────────────────────────────────────
-// Construir SOAP de FECAESolicitar
+// RPCs atómicas (supabase/migrations/20260701150000_arca_atomic_claim.sql).
+// Única vía de escritura del resultado fiscal terminal — nunca UPDATEs
+// directos a `comprobantes` desde acá. Best-effort en el sentido de que un
+// fallo de estas llamadas se loguea pero no debe ocultar el resultado real de
+// ARCA al caller (que ya reclamó el attempt_id y espera una respuesta).
 // ──────────────────────────────────────────────
 
-function buildFECAESolicitarSOAP(params: {
-  token: string
-  sign: string
-  cuit: string
-  puntoVenta: number
-  tipoComprobante: number
-  cbteDesde: number
-  cbteHasta: number
-  tipoDocReceptor: number
-  nroDocReceptor: string
-  concepto: number
-  fechaCbte: string
-  importeNeto: number
-  importeIva: number
-  alicuotaIva: number
-  importeTotal: number
-  moneda: string
-  cotizacion: number
-  fechaServDesde?: string
-  fechaServHasta?: string
-  fechaVtoPago?: string
-}): string {
-  const ivaId = params.alicuotaIva === 21 ? 5
-    : params.alicuotaIva === 10.5 ? 4
-    : params.alicuotaIva === 27   ? 6
-    : 3 // 0% exento
-
-  const serviciosDates = (params.concepto === 2 || params.concepto === 3)
-    ? `<FchServDesde>${params.fechaServDesde || params.fechaCbte}</FchServDesde>
-      <FchServHasta>${params.fechaServHasta  || params.fechaCbte}</FchServHasta>
-      <FchVtoPago>${params.fechaVtoPago      || tenDaysLaterYYYYMMDD()}</FchVtoPago>`
-    : ''
-
-  // Si es consumidor final (tipo_doc=99) o B/C, el nro doc puede ser 0
-  const nroDoc = (params.tipoDocReceptor === 99 || !params.nroDocReceptor)
-    ? '0'
-    : params.nroDocReceptor.replace(/\D/g, '')
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-                  xmlns:ar="http://ar.gov.afip.dif.FEV1/">
-  <soapenv:Header/>
-  <soapenv:Body>
-    <ar:FECAESolicitar>
-      <ar:Auth>
-        <ar:Token>${params.token}</ar:Token>
-        <ar:Sign>${params.sign}</ar:Sign>
-        <ar:Cuit>${params.cuit}</ar:Cuit>
-      </ar:Auth>
-      <ar:FeCAEReq>
-        <ar:FeCabReq>
-          <ar:CantReg>1</ar:CantReg>
-          <ar:PtoVta>${params.puntoVenta}</ar:PtoVta>
-          <ar:CbteTipo>${params.tipoComprobante}</ar:CbteTipo>
-        </ar:FeCabReq>
-        <ar:FeDetReq>
-          <ar:FECAEDetRequest>
-            <ar:Concepto>${params.concepto}</ar:Concepto>
-            <ar:DocTipo>${params.tipoDocReceptor}</ar:DocTipo>
-            <ar:DocNro>${nroDoc}</ar:DocNro>
-            <ar:CbteDesde>${params.cbteDesde}</ar:CbteDesde>
-            <ar:CbteHasta>${params.cbteHasta}</ar:CbteHasta>
-            <ar:CbteFch>${params.fechaCbte}</ar:CbteFch>
-            <ar:ImpTotal>${params.importeTotal.toFixed(2)}</ar:ImpTotal>
-            <ar:ImpTotConc>0.00</ar:ImpTotConc>
-            <ar:ImpNeto>${params.importeNeto.toFixed(2)}</ar:ImpNeto>
-            <ar:ImpOpEx>0.00</ar:ImpOpEx>
-            <ar:ImpIVA>${params.importeIva.toFixed(2)}</ar:ImpIVA>
-            <ar:ImpTrib>0.00</ar:ImpTrib>
-            ${serviciosDates}
-            <ar:MonId>${params.moneda}</ar:MonId>
-            <ar:MonCotiz>${params.cotizacion.toFixed(2)}</ar:MonCotiz>
-            <ar:Iva>
-              <ar:AlicIva>
-                <ar:Id>${ivaId}</ar:Id>
-                <ar:BaseImp>${params.importeNeto.toFixed(2)}</ar:BaseImp>
-                <ar:Importe>${params.importeIva.toFixed(2)}</ar:Importe>
-              </ar:AlicIva>
-            </ar:Iva>
-          </ar:FECAEDetRequest>
-        </ar:FeDetReq>
-      </ar:FeCAEReq>
-    </ar:FECAESolicitar>
-  </soapenv:Body>
-</soapenv:Envelope>`
+async function reserveNumber(supabase: any, attemptId: string, numero: number, ctx: Record<string, unknown>): Promise<void> {
+  try {
+    const { data, error } = await supabase.rpc('reserve_arca_number', {
+      p_attempt_id: attemptId,
+      p_numero: numero,
+    })
+    if (error || !data?.success) {
+      logStructured({ ...ctx, stage: 'persistencia', classification: 'reserve_number_failed', error: error?.message ?? data?.error })
+    }
+  } catch (e) {
+    logStructured({ ...ctx, stage: 'persistencia', classification: 'reserve_number_failed', error: String((e as any)?.message ?? e) })
+  }
 }
 
-// ──────────────────────────────────────────────
-// Parser de la respuesta de FECAESolicitar
-// ──────────────────────────────────────────────
-
-interface CAEResult {
-  cae: string
-  cae_vencimiento: string
-  numero_cbte: number
-  resultado: string
-  observaciones?: string
+async function markAttemptSent(supabase: any, attemptId: string, ctx: Record<string, unknown>): Promise<void> {
+  try {
+    const { data, error } = await supabase.rpc('mark_arca_attempt_sent', { p_attempt_id: attemptId })
+    if (error || !data?.success) {
+      logStructured({ ...ctx, stage: 'persistencia', classification: 'mark_sent_failed', error: error?.message ?? data?.error })
+    }
+  } catch (e) {
+    logStructured({ ...ctx, stage: 'persistencia', classification: 'mark_sent_failed', error: String((e as any)?.message ?? e) })
+  }
 }
 
-function parseFECAEResponse(soapXml: string): CAEResult {
-  // Buscar errores SOAP primero
-  if (soapXml.includes('<faultstring>') || soapXml.includes('<faultcode>')) {
-    const fault = soapXml.match(/<faultstring>([\s\S]*?)<\/faultstring>/i)?.[1] || 'Error SOAP'
-    throw new Error(`WSFEv1 SOAP fault: ${fault}`)
-  }
-
-  // Resultado general (A = Aprobado, R = Rechazado, P = Parcial)
-  const resultado = soapXml.match(/<Resultado>([\s\S]*?)<\/Resultado>/i)?.[1]?.trim() || ''
-  if (resultado === 'R') {
-    const obs = soapXml.match(/<Msg>([\s\S]*?)<\/Msg>/gi)
-      ?.map(m => m.replace(/<\/?Msg>/gi, ''))
-      .join(' | ') || 'Rechazado por AFIP'
-    throw new Error(`AFIP rechazó el comprobante: ${obs}`)
-  }
-
-  const cae = soapXml.match(/<CAE>([\s\S]*?)<\/CAE>/i)?.[1]?.trim()
-  if (!cae) {
-    // Buscar error en obs
-    const errMsg = soapXml.match(/<Msg>([\s\S]*?)<\/Msg>/i)?.[1]?.trim()
-    throw new Error(errMsg || 'No se obtuvo CAE en la respuesta de AFIP')
-  }
-
-  const caeVto   = soapXml.match(/<CAEFchVto>([\s\S]*?)<\/CAEFchVto>/i)?.[1]?.trim() || ''
-  const cbteDesde = soapXml.match(/<CbteDesde>([\s\S]*?)<\/CbteDesde>/i)?.[1]?.trim() || '0'
-  const obsMatch  = soapXml.match(/<Msg>([\s\S]*?)<\/Msg>/gi)
-  const obs = obsMatch?.map(m => m.replace(/<\/?Msg>/gi, '')).join(' | ')
-
-  // Formatear vencimiento YYYYMMDD → YYYY-MM-DD
-  const vtoFmt = caeVto.length === 8
-    ? `${caeVto.slice(0,4)}-${caeVto.slice(4,6)}-${caeVto.slice(6,8)}`
-    : caeVto
-
-  return {
-    cae,
-    cae_vencimiento: vtoFmt,
-    numero_cbte: parseInt(cbteDesde, 10),
-    resultado,
-    observaciones: obs,
+async function completeAttempt(
+  supabase: any,
+  attemptId: string,
+  status: 'authorized' | 'authorized_reconciled' | 'rejected' | 'pending_reconciliation',
+  fields: { cae?: string; cae_vencimiento?: string; resultado?: string; observaciones?: string; error_mensaje?: string },
+  ctx: Record<string, unknown>
+): Promise<void> {
+  try {
+    const { data, error } = await supabase.rpc('complete_arca_attempt', {
+      p_attempt_id: attemptId,
+      p_status: status,
+      p_cae: fields.cae ?? null,
+      p_cae_vencimiento: fields.cae_vencimiento ?? null,
+      p_resultado: fields.resultado ?? null,
+      p_observaciones: fields.observaciones ?? null,
+      p_error_mensaje: fields.error_mensaje ?? null,
+    })
+    if (error || !data?.success) {
+      logStructured({ ...ctx, stage: 'persistencia', classification: 'complete_attempt_failed', error: error?.message ?? data?.error })
+    }
+  } catch (e) {
+    logStructured({ ...ctx, stage: 'persistencia', classification: 'complete_attempt_failed', error: String((e as any)?.message ?? e) })
   }
 }
 
@@ -341,13 +230,16 @@ serve(async (req: Request) => {
   const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   const supabase    = createClient(supabaseUrl, supabaseKey)
 
+  // Declarado antes del try para poder correlacionar también los errores tempranos
+  // (body inválido, excepciones no clasificadas) en el catch de abajo.
+  const correlationId = crypto.randomUUID()
+  let businessIdForLog: string | undefined
+
   try {
-    const body: FacturaData = await req.json()
+    const body: FacturaData & { attempt_id?: string } = await req.json()
     const {
-      business_id,
-      cuit,
-      punto_venta,
-      tipo_comprobante,
+      comprobante_id,
+      attempt_id,
       tipo_doc_receptor,
       nro_doc_receptor,
       concepto,
@@ -358,38 +250,111 @@ serve(async (req: Request) => {
       moneda       = 'PES',
       cotizacion_moneda = 1,
       fecha_cbte,
-      ambiente     = 'homologacion',
     } = body
 
-    if (!business_id || !cuit || !punto_venta || !tipo_comprobante) {
-      return jsonResponse(req, { success: false, error: 'Faltan datos requeridos: business_id, cuit, punto_venta, tipo_comprobante' }, 400)
+    if (!comprobante_id || !attempt_id) {
+      // No se emite fiscalmente sin una identidad local persistente y un claim
+      // atómico ya reclamado — ver claim_comprobante_arca_emission.
+      return jsonResponse(req, { success: false, error: 'Faltan comprobante_id / attempt_id: debe reclamarse el intento antes de invocar afip-cae' }, 400)
     }
 
+    // ── Identidad fiscal AUTORITATIVA: se lee del intento ya reclamado, NUNCA
+    //    del body. Un cliente no puede spoofear punto_venta/cuit/ambiente/
+    //    tipo_comprobante aunque los incluya en la request. ──────────────────
+    const attempt = await fetchAttempt(supabase, attempt_id)
+    if (!attempt || attempt.comprobante_id !== comprobante_id) {
+      return jsonResponse(req, { success: false, error: 'attempt_id inválido o no corresponde a comprobante_id' }, 400)
+    }
+    if (!['claimed', 'number_reserved', 'sent'].includes(attempt.status)) {
+      return jsonResponse(req, { success: false, error: `El intento ya no está activo (status=${attempt.status})` }, 409)
+    }
+
+    const business_id = attempt.business_id
+    const cuit         = attempt.cuit_emisor
+    const punto_venta  = attempt.punto_venta
+    const tipo_comprobante = attempt.tipo_comprobante
+    const ambiente     = attempt.ambiente
+
+    businessIdForLog = business_id
+    const logCtx = { correlationId, businessId: business_id, ambiente, comprobanteId: comprobante_id, attemptId: attempt_id }
+    logStructured({ ...logCtx, stage: 'start' })
+
     // 1. Obtener token+sign (llama internamente a afip-wsaa)
+    logStructured({ ...logCtx, stage: 'auth' })
     const wsaaRes = await supabase.functions.invoke('afip-wsaa', {
       body: { business_id, service: 'wsfe' },
     })
 
     if (wsaaRes.error || !wsaaRes.data?.success) {
       const errMsg = wsaaRes.data?.error || wsaaRes.error?.message || 'Error al autenticar con WSAA'
-      return jsonResponse(req, { success: false, error: `WSAA: ${errMsg}` }, 502)
+      logStructured({ ...logCtx, stage: 'auth', classification: 'fatal', error: errMsg })
+      return jsonResponse(req, { success: false, error: `WSAA: ${errMsg}`, correlation_id: correlationId }, 502)
     }
 
     const { token, sign } = wsaaRes.data as { token: string; sign: string }
 
-    const wsfeUrl = ambiente === 'produccion'
-      ? 'https://wsfe.afip.gov.ar/wsfev1/service.asmx'
-      : 'https://wswhomo.afip.gov.ar/wsfev1/service.asmx'
+    // 2. Si el intento YA trae un número (claim reutilizó una fila
+    //    pending_reconciliation del MISMO comprobante), reconciliar ESE número
+    //    primero — nunca pedir uno nuevo mientras exista una ambigüedad previa
+    //    sin resolver para esta fila.
+    if (attempt.numero_intentado != null) {
+      logStructured({ ...logCtx, stage: 'reconciliacion', classification: 'intento_previo_con_numero', cbteNro: attempt.numero_intentado })
+      const consulta = await consultarComprobante(
+        token, sign, cuit, punto_venta, tipo_comprobante, attempt.numero_intentado,
+        ambiente, logCtx
+      )
 
-    // 2. Obtener último número de comprobante
-    const ultimoNro = await getUltimoComprobante(
-      token, sign, cuit, punto_venta, tipo_comprobante, ambiente
-    )
+      if (consulta.status === 'found') {
+        const outcome: EmissionOutcome = {
+          kind: 'authorized_reconciled', reconciled: true,
+          cae: consulta.cae!, cae_vencimiento: consulta.cae_vencimiento || '',
+          numero_cbte: consulta.numero_cbte ?? attempt.numero_intentado,
+          resultado: consulta.resultado || '', observaciones: consulta.observaciones,
+        }
+        await completeAttempt(supabase, attempt_id, 'authorized_reconciled', outcome, logCtx)
+        const nroCbteFormateado = `${String(punto_venta).padStart(4, '0')}-${String(outcome.numero_cbte).padStart(8, '0')}`
+        return jsonResponse(req, {
+          success: true, cae: outcome.cae, cae_vencimiento: outcome.cae_vencimiento,
+          numero_comprobante: nroCbteFormateado, numero_cbte_raw: outcome.numero_cbte,
+          resultado: outcome.resultado, observaciones: outcome.observaciones || null,
+          reconciled: true, outcome: 'authorized_reconciled', correlation_id: correlationId,
+        })
+      }
+
+      if (consulta.status === 'query_failed') {
+        // Ya había una ambigüedad previa Y esta reconciliación tampoco pudo
+        // confirmar nada: no avanzamos, no pedimos número nuevo, no inventamos CAE.
+        const message = consulta.motivo || 'No se pudo confirmar el estado del comprobante en ARCA'
+        await completeAttempt(supabase, attempt_id, 'pending_reconciliation', { error_mensaje: message }, logCtx)
+        return jsonResponse(req, {
+          success: false, error: message, outcome: 'pending_reconciliation',
+          pending_reconciliation: true, correlation_id: correlationId,
+        }, 200)
+      }
+
+      // not_found confirmado: seguro pedir un número nuevo — se procede normal.
+      logStructured({ ...logCtx, stage: 'reconciliacion', classification: 'intento_previo_not_found', cbteNroAnterior: attempt.numero_intentado })
+    }
+
+    // 3. Obtener último número autorizado y determinar el próximo.
+    const ultimoNro = await getUltimoComprobante(token, sign, cuit, punto_venta, tipo_comprobante, ambiente, logCtx)
     const proximoNro = ultimoNro + 1
 
-    // 3. Armar y enviar SOAP FECAESolicitar
+    // 4. Reservar el número (claimed → number_reserved) ANTES de considerar
+    //    enviar nada — trazado incluso si el proceso cae antes de llegar a
+    //    marcar 'sent'. No se infiere que fue ENVIADO solo porque se reservó.
+    await reserveNumber(supabase, attempt_id, proximoNro, logCtx)
+
+    // 5. Recién ahora, confirmar que se va a invocar FECAESolicitar
+    //    (number_reserved → sent) — si la respuesta a ESTE cliente se pierde
+    //    después de este punto, una invocación futura reconcilia este número.
+    await markAttemptSent(supabase, attempt_id, logCtx)
+
+    // 6. Armar y enviar SOAP FECAESolicitar, con reconciliación idempotente
+    //    (matriz de 5 casos: ver logic.ts::decidirTrasAmbiguo) si el resultado
+    //    es ambiguo (timeout/reset/502/503/504).
     const fechaCbte = fecha_cbte || todayYYYYMMDD()
-    const soapBody  = buildFECAESolicitarSOAP({
+    const outcome = await solicitarCAEConReconciliacion({
       token, sign, cuit,
       puntoVenta: punto_venta,
       tipoComprobante: tipo_comprobante,
@@ -405,40 +370,81 @@ serve(async (req: Request) => {
       importeTotal: importe_total,
       moneda,
       cotizacion: cotizacion_moneda,
-    })
+      ambiente,
+    }, logCtx)
 
-    const wsfeRes = await fetch(wsfeUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/xml;charset=UTF-8',
-        'SOAPAction': '"http://ar.gov.afip.dif.FEV1/FECAESolicitar"',
-      },
-      body: soapBody,
-    })
-
-    if (!wsfeRes.ok) {
-      const text = await wsfeRes.text()
-      throw new Error(`WSFEv1 HTTP ${wsfeRes.status}: ${text.slice(0, 400)}`)
+    // 7. Persistir el resultado terminal vía RPC (única escritora del CAE en
+    //    `comprobantes`) y traducir a la respuesta HTTP. Se mantiene el
+    //    contrato existente (success/error/cae/...) y se agregan campos
+    //    ADITIVOS (outcome, reconciled, pending_reconciliation) sin romper
+    //    consumidores existentes.
+    switch (outcome.kind) {
+      case 'authorized':
+      case 'authorized_reconciled': {
+        await completeAttempt(supabase, attempt_id, outcome.kind, outcome, logCtx)
+        const nroCbteFormateado = `${String(punto_venta).padStart(4, '0')}-${String(outcome.numero_cbte).padStart(8, '0')}`
+        return jsonResponse(req, {
+          success: true,
+          cae:                outcome.cae,
+          cae_vencimiento:    outcome.cae_vencimiento,
+          numero_comprobante: nroCbteFormateado,
+          numero_cbte_raw:    outcome.numero_cbte,
+          resultado:          outcome.resultado,
+          observaciones:      outcome.observaciones || null,
+          reconciled:         outcome.reconciled,
+          outcome:            outcome.kind,
+          correlation_id:     correlationId,
+        })
+      }
+      case 'pending_reconciliation':
+        await completeAttempt(supabase, attempt_id, 'pending_reconciliation', { error_mensaje: outcome.message }, logCtx)
+        // success:false a propósito — mantiene el contrato "no marcar como
+        // emitido" para clientes viejos, mientras que clientes nuevos pueden
+        // leer `pending_reconciliation`/`outcome` para mostrar el mensaje
+        // específico en vez del genérico de conectividad.
+        return jsonResponse(req, {
+          success: false,
+          error: outcome.message,
+          outcome: 'pending_reconciliation',
+          pending_reconciliation: true,
+          correlation_id: correlationId,
+        }, 200)
+      case 'not_sent':
+        // Nunca se llegó a enviar nada a ARCA — el intento queda 'sent' (por
+        // mark_arca_attempt_sent) sin resultado; se completa como
+        // pending_reconciliation para que la serie/comprobante sigan
+        // bloqueados hasta una reconciliación explícita, en vez de cerrar la
+        // puerta con un 'rejected' definitivo (podría haber llegado por otra
+        // vía de red que sí alcanzó a AFIP).
+        await completeAttempt(supabase, attempt_id, 'pending_reconciliation', { error_mensaje: outcome.message }, logCtx)
+        return jsonResponse(req, {
+          success: false,
+          error: outcome.message,
+          outcome: 'not_sent',
+          correlation_id: correlationId,
+        }, 502)
+      case 'rejected':
+      default:
+        await completeAttempt(supabase, attempt_id, 'rejected', { error_mensaje: outcome.message }, logCtx)
+        return jsonResponse(req, {
+          success: false,
+          error: outcome.message,
+          outcome: 'rejected',
+          correlation_id: correlationId,
+        }, 200)
     }
 
-    const wsfeXml = await wsfeRes.text()
-    const result  = parseFECAEResponse(wsfeXml)
-
-    // 4. Formatear número de comprobante
-    const nroCbteFormateado = `${String(punto_venta).padStart(4, '0')}-${String(result.numero_cbte).padStart(8, '0')}`
-
-    return jsonResponse(req, {
-      success: true,
-      cae:                result.cae,
-      cae_vencimiento:    result.cae_vencimiento,
-      numero_comprobante: nroCbteFormateado,
-      numero_cbte_raw:    result.numero_cbte,
-      resultado:          result.resultado,
-      observaciones:      result.observaciones || null,
-    })
-
   } catch (err: any) {
-    console.error('afip-cae error:', err)
-    return jsonResponse(req, { success: false, error: err?.message || 'Error interno en CAE' }, 500)
+    logStructured({
+      correlationId,
+      businessId: businessIdForLog,
+      stage: 'unhandled',
+      error: String(err?.message ?? err),
+    })
+    return jsonResponse(req, {
+      success: false,
+      error: err?.message || 'Error interno en CAE',
+      correlation_id: correlationId,
+    }, 500)
   }
 })

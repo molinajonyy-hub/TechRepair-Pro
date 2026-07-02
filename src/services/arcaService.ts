@@ -114,20 +114,11 @@ export class ArcaService {
   static async getPuntosVenta(businessId: string): Promise<number[]> {
     try {
       const config = await this.getArcaConfig(businessId)
-      const { token, sign } = await this.getWSAAToken(businessId)
 
-      const wsfeUrl = config.ambiente === 'produccion'
-        ? 'https://wsfe.afip.gov.ar/wsfev1/service.asmx'
-        : 'https://wswhomo.afip.gov.ar/wsfev1/service.asmx'
-
-      // Esta llamada la hacemos directo desde el cliente ya que no requiere certificados
-      // (solo token+sign que ya tenemos)
-      // Sin embargo AFIP tiene CORS restrictivo, así que hacemos el fallback con el punto_venta configurado
-      void token
-      void sign
-      void wsfeUrl
-
-      // Devolver punto de venta configurado como fallback
+      // AFIP tiene CORS restrictivo: la consulta real de puntos de venta (FEParamGetPtosVenta)
+      // requiere una llamada SOAP server-side. El frontend no construye URLs de ARCA
+      // (ver afip-cae/index.ts::resolveWsfeUrl, única fuente de verdad).
+      // Por ahora devolvemos el punto de venta configurado como fallback.
       return config.punto_venta ? [config.punto_venta] : [1]
     } catch {
       return [1]
@@ -139,28 +130,15 @@ export class ArcaService {
   // ──────────────────────────────────────────────
 
   static async getUltimoComprobante(
-    businessId: string,
-    puntoVenta: number,
-    tipoComprobante: number
+    _businessId: string,
+    _puntoVenta: number,
+    _tipoComprobante: number
   ): Promise<number> {
-    try {
-      const config = await this.getArcaConfig(businessId)
-      const { token, sign } = await this.getWSAAToken(businessId)
-
-      void token
-      void sign
-      void config
-      void puntoVenta
-      void tipoComprobante
-
-      // FECompUltimoAutorizado requiere llamada SOAP directa desde el server
-      // (sin CORS en el cliente). En producción esto lo hace la Edge Function afip-cae.
-      // Aquí devolvemos 0 para que afip-cae calcule el siguiente número.
-      return 0
-    } catch (error) {
-      console.error('Error getting last invoice:', error)
-      return 0
-    }
+    // FECompUltimoAutorizado requiere llamada SOAP directa desde el server
+    // (sin CORS en el cliente, y sin que el frontend decida la URL de ARCA).
+    // La Edge Function afip-cae ya la consulta internamente antes de pedir el CAE.
+    // Este método devuelve 0 para no duplicar esa lógica en el cliente.
+    return 0
   }
 
   // ──────────────────────────────────────────────
@@ -187,6 +165,15 @@ export class ArcaService {
       cbte_asoc_nro?:     number
       // Condición IVA del receptor (RG AFIP — será obligatorio)
       condicion_iva_receptor_id?: number
+      // ID del comprobante local y del intento ya reclamado atómicamente vía
+      // la RPC claim_comprobante_arca_emission. OBLIGATORIOS: afip-cae rechaza
+      // la solicitud si faltan (nunca emite fiscalmente sin una identidad
+      // local persistente y sin un claim ya adquirido — ver
+      // supabase/migrations/20260701150000_arca_atomic_claim.sql). No llamar
+      // a este método directamente: usar comprobanteService (que reclama el
+      // attempt_id por vos).
+      comprobante_id: string
+      attempt_id: string
     }
   ): Promise<{
     success: boolean
@@ -195,13 +182,23 @@ export class ArcaService {
     numeroComprobante?: string
     observaciones?: string
     error?: string
+    /** Discriminante fino del resultado — ver EmissionOutcome en afip-cae/logic.ts. */
+    outcome?: 'authorized' | 'authorized_reconciled' | 'rejected' | 'not_sent' | 'pending_reconciliation'
+    /** true si el CAE se recuperó vía FECompConsultar en vez de una respuesta directa. */
+    reconciled?: boolean
+    /** true si ARCA no pudo confirmar el resultado — no reintentar automáticamente. */
+    pendingReconciliation?: boolean
   }> {
     try {
       const config = await this.getArcaConfig(businessId)
 
-      // Timeout de 20 s: si ARCA no responde, el comprobante se guarda como borrador
+      // Timeout generoso: la Edge Function puede reconciliar (FECompConsultar)
+      // ante un resultado ambiguo antes de responder, lo que puede tardar más
+      // que una sola llamada SOAP. Si igual se agota, el comprobante queda
+      // pendiente de conciliación y se resuelve solo en el próximo reintento
+      // (afip-cae detecta el intento previo server-side).
       const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('ARCA no respondió en 20 segundos. El comprobante se guardó como borrador.')), 20_000)
+        setTimeout(() => reject(new Error('ARCA no respondió a tiempo. El comprobante quedó pendiente de emisión.')), 45_000)
       )
 
       const invokeResult = await Promise.race([
@@ -223,15 +220,29 @@ export class ArcaService {
         // Supabase discards the response body for non-2xx and returns a generic
         // message. Try to extract the real error from the response context.
         let msg = error.message || 'Error al conectar con afip-cae'
+        let body: any
         try {
           if (error.context?.json) {
-            const body = await error.context.json()
+            body = await error.context.json()
             if (body?.error) msg = body.error
           }
         } catch {/* context not readable — use generic message */}
+
+        // `not_sent` (502) y `pending_reconciliation` (200 con success:false) llegan
+        // acá también según el status HTTP; propagamos el detalle si lo tenemos.
+        if (body?.pending_reconciliation) {
+          return { success: false, error: msg, outcome: 'pending_reconciliation', pendingReconciliation: true }
+        }
         throw new Error(msg)
       }
-      if (!data?.success) throw new Error(data?.error || 'Error al solicitar CAE')
+      if (!data?.success) {
+        return {
+          success: false,
+          error: data?.error || 'Error al solicitar CAE',
+          outcome: data?.outcome,
+          pendingReconciliation: !!data?.pending_reconciliation,
+        }
+      }
 
       return {
         success:           true,
@@ -239,6 +250,8 @@ export class ArcaService {
         caeVencimiento:    data.cae_vencimiento,
         numeroComprobante: data.numero_comprobante,
         observaciones:     data.observaciones,
+        outcome:           data.outcome,
+        reconciled:        !!data.reconciled,
       }
     } catch (error: any) {
       console.error('Error emitting invoice:', error)

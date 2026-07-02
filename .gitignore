@@ -38,6 +38,10 @@ Thumbs.db
 supabase/.branches
 supabase/.temp
 
+# Deno — el repo no fija versiones de imports remotos vía deno.json; el
+# lockfile se autogenera al correr `deno check` localmente y no debe versionarse.
+deno.lock
+
 # Build-time generated files (no commitear — se regeneran en cada build)
 public/version.json
 

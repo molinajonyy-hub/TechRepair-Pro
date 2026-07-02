@@ -1,5 +1,20 @@
 # Módulo de Comprobantes y Facturación
 
+> ⚠️ **DOCUMENTO DESACTUALIZADO (auditoría ARCA 2026-07-01).** Todo lo que este
+> archivo describe como `afipService`/`facturacionService` (mock) es legacy
+> **bloqueado deliberadamente** — fue la causa raíz de un incidente donde
+> "reintentar emisión" generaba un CAE falso sin llamar a ARCA. La integración
+> fiscal real, única fuente de verdad, es:
+>
+> `src/services/comprobanteService.ts` (`crear()` / `emitir()` / `anular()` /
+> `crearNotaCredito()`) → `src/services/arcaService.ts` → Edge Function
+> `supabase/functions/afip-cae` → WSFEv1 real de AFIP/ARCA.
+>
+> No uses `afipService.solicitarCAE()` ni `facturacionService.emitirComprobante()`
+> — ambos lanzan un error explícito a propósito. Este README queda como
+> referencia histórica de la estructura de tablas/items; no lo sigas para
+> emisión fiscal.
+
 Módulo completo de comprobantes y facturación preparado para integración con AFIP (ARCA).
 
 ## 📦 Estructura Creada

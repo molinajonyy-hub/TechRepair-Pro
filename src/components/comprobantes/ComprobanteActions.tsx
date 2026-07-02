@@ -42,7 +42,8 @@ export function ComprobanteActions({
   const esBorrador = comprobante.estado === 'borrador';
   const esEmitido = comprobante.estado === 'emitido' || !!comprobante.cae;
   const esAnulado = comprobante.estado === 'anulado';
-  const esCobradoPendienteArca = esBorrador && (comprobante.total_cobrado || 0) > 0 && !comprobante.cae && comprobante.estado_fiscal !== 'emitido';
+  const esPendienteConciliacion = esBorrador && comprobante.estado_fiscal === 'pendiente_conciliacion';
+  const esCobradoPendienteArca = esBorrador && !esPendienteConciliacion && (comprobante.total_cobrado || 0) > 0 && !comprobante.cae && comprobante.estado_fiscal !== 'emitido';
 
   const handleEmitirClick = () => {
     if (!emitirConfirm) {
@@ -55,18 +56,20 @@ export function ComprobanteActions({
   };
 
   // Status colors
-  const statusColor = esAnulado ? 'var(--error)' : esEmitido ? 'var(--success)' : esCobradoPendienteArca ? '#60a5fa' : 'var(--warning)';
-  const statusBg = esAnulado ? 'var(--error-subtle)' : esEmitido ? 'var(--success-subtle)' : esCobradoPendienteArca ? 'rgba(96,165,250,0.1)' : 'var(--warning-light)';
-  const statusBorder = esAnulado ? 'var(--error)' : esEmitido ? 'var(--success)' : esCobradoPendienteArca ? 'rgba(96,165,250,0.4)' : 'var(--warning)';
-  const statusLabel = esAnulado ? 'Comprobante anulado' : esEmitido ? 'Emitido y válido' : esCobradoPendienteArca ? 'Cobrado / Pendiente ARCA' : 'Pendiente de emisión';
+  const statusColor = esAnulado ? 'var(--error)' : esEmitido ? 'var(--success)' : esPendienteConciliacion ? '#a78bfa' : esCobradoPendienteArca ? '#60a5fa' : 'var(--warning)';
+  const statusBg = esAnulado ? 'var(--error-subtle)' : esEmitido ? 'var(--success-subtle)' : esPendienteConciliacion ? 'rgba(167,139,250,0.1)' : esCobradoPendienteArca ? 'rgba(96,165,250,0.1)' : 'var(--warning-light)';
+  const statusBorder = esAnulado ? 'var(--error)' : esEmitido ? 'var(--success)' : esPendienteConciliacion ? 'rgba(167,139,250,0.4)' : esCobradoPendienteArca ? 'rgba(96,165,250,0.4)' : 'var(--warning)';
+  const statusLabel = esAnulado ? 'Comprobante anulado' : esEmitido ? 'Emitido y válido' : esPendienteConciliacion ? 'Pendiente de verificación' : esCobradoPendienteArca ? 'Cobrado / Pendiente ARCA' : 'Pendiente de emisión';
   const statusSub = esAnulado
     ? 'Sin validez fiscal'
     : esEmitido
     ? comprobante.cae ? `CAE: ${comprobante.cae.slice(0, 12)}…` : 'Autorizado por AFIP'
+    : esPendienteConciliacion
+    ? 'ARCA podría haberlo recibido — no reintentar manualmente'
     : esCobradoPendienteArca
     ? 'Cobro registrado · sin emisión fiscal'
     : 'Debe emitirse en AFIP';
-  const StatusIcon = esAnulado ? Ban : esEmitido ? Shield : esCobradoPendienteArca ? CheckCircle : Clock;
+  const StatusIcon = esAnulado ? Ban : esEmitido ? Shield : esPendienteConciliacion ? AlertTriangle : esCobradoPendienteArca ? CheckCircle : Clock;
 
   return (
     <>
@@ -145,8 +148,10 @@ export function ComprobanteActions({
             </button>
           )}
 
-          {/* Anular */}
-          {esEmitido && (
+          {/* Anular — solo si NUNCA fue autorizado por ARCA. Un comprobante con
+              CAE no puede anularse cambiando estado local (regla fiscal); para
+              eso está el botón "Nota de crédito" de arriba. */}
+          {esEmitido && !comprobante.cae && (
             <button
               onClick={() => setShowAnularModal(true)}
               className="btn"

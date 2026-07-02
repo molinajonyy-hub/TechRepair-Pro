@@ -1,7 +1,18 @@
 /**
  * saleTransactionService — Orquestador central de ventas
  *
- * RESPONSABILIDAD:
+ * ⚠ NO ALCANZABLE (auditoría entry points, 2026-07-01): ningún componente,
+ * página ni test importa este módulo — verificado por grep en toda la base
+ * (src/, tests/). No está wireado a ningún flujo productivo real; los entry
+ * points reales (ComprobanteProModal, ModalCobro, ModalCrearComprobante)
+ * llaman a comprobanteService.crear() directamente, con su propia
+ * idempotency key (ver useCheckoutIdempotency). Se conserva el archivo (no
+ * se borra sin pedido explícito) mantenido inerte deliberadamente — ver
+ * tests/unit/checkoutIdempotency.test.ts, test "saleTransactionService
+ * permanece no importado" — que falla si alguien vuelve a importarlo sin
+ * wirearlo con idempotencia server-side.
+ *
+ * RESPONSABILIDAD (documentada, no en uso):
  *   Valida stock, detecta tipo de venta y delega a comprobanteService.crear().
  *   El servicio de comprobante ya maneja internamente:
  *     - decremento de stock (step 6 / _descontarStock)

@@ -1,17 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, AlertCircle, CheckCircle, Loader2, ExternalLink, TrendingUp, Wallet, Edit2, X, FileText } from 'lucide-react';
 import { WhatsAppActionButton } from '../components/whatsapp/WhatsAppActionButton';
 import { supabase } from '../lib/supabase';
-import { useComprobantes } from '../hooks/useComprobantes';
+import { facturacionService } from '../services/facturacionService';
 import { useOrderPrintSettings } from '../hooks/useOrderPrintSettings';
 import { useAuth } from '../contexts/AuthContext';
 import { ComprobanteDocumento } from '../components/comprobantes/ComprobanteDocumento';
 import { formatDisplayMessage } from '../utils/formatMessage';
 import { ComprobanteActions } from '../components/comprobantes/ComprobanteActions';
 import { ComprobantePrintLayout } from '../components/comprobantes/ComprobantePrintLayout';
-import { comprobanteService, MedioPago } from '../services/comprobanteService';
+import {
+  comprobanteService, MedioPago, type Comprobante,
+  isArcaConnectionError, ARCA_CONNECTION_ERROR_TITLE, ARCA_CONNECTION_ERROR_MESSAGE,
+  ARCA_PENDING_RECONCILIATION_TITLE, ARCA_PENDING_RECONCILIATION_MESSAGE,
+} from '../services/comprobanteService';
 import { buildComprobanteFilename } from '../lib/printFilename';
+import { logger } from '../lib/logger';
 
 const TIPO_LABELS: Record<string, string> = {
   factura_a: 'Factura A',
@@ -25,19 +30,55 @@ export default function ComprobantePage() {
   const navigate = useNavigate();
   const { businessId, user } = useAuth();
 
-  const {
-    comprobanteActual,
-    loading,
-    emitiendo,
-    error,
-    cargarComprobante,
-    emitirComprobante,
-    anularComprobante,
-    agregarItem,
-    actualizarItem,
-    eliminarItem,
-    limpiarError,
-  } = useComprobantes(id);
+  // Carga y mutaciones vía comprobanteService — la misma fuente única que usa el
+  // POS (ComprobanteProModal). Antes esta página usaba el hook legacy useComprobantes
+  // (facturacionService/afipService), que emitía un CAE simulado sin llamar a ARCA.
+  const [comprobanteActual, setComprobanteActual] = useState<Comprobante | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [emitiendo, setEmitiendo] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const cargarComprobante = useCallback(async (compId: string) => {
+    if (!businessId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const comp = await comprobanteService.getById(compId, businessId);
+      setComprobanteActual(comp);
+      if (!comp) setError('Comprobante no encontrado');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error al cargar el comprobante');
+    } finally {
+      setLoading(false);
+    }
+  }, [businessId]);
+
+  const limpiarError = useCallback(() => setError(null), []);
+
+  // Item CRUD: comprobanteService todavía no expone estas operaciones (solo aplica a
+  // borradores no fiscales), así que se mantienen sobre facturacionService, que opera
+  // sobre la misma tabla comprobante_items. No afecta CAE, numeración ni stock.
+  const agregarItem = useCallback(async (item: { descripcion: string; cantidad: number; precio_unitario: number; inventory_id?: string }) => {
+    if (!comprobanteActual || !businessId) return false;
+    const result = await facturacionService.agregarItem(comprobanteActual.id, item, businessId, user?.id);
+    if (result.success) { await cargarComprobante(comprobanteActual.id); return true; }
+    setError(result.error || 'Error al agregar item');
+    return false;
+  }, [comprobanteActual, businessId, user?.id, cargarComprobante]);
+
+  const actualizarItem = useCallback(async (itemId: string, updates: Record<string, unknown>) => {
+    const result = await facturacionService.actualizarItem(itemId, updates);
+    if (result.success) { if (comprobanteActual) await cargarComprobante(comprobanteActual.id); return true; }
+    setError(result.error || 'Error al actualizar item');
+    return false;
+  }, [comprobanteActual, cargarComprobante]);
+
+  const eliminarItem = useCallback(async (itemId: string) => {
+    const result = await facturacionService.eliminarItem(itemId);
+    if (result.success) { if (comprobanteActual) await cargarComprobante(comprobanteActual.id); return true; }
+    setError(result.error || 'Error al eliminar item');
+    return false;
+  }, [comprobanteActual, cargarComprobante]);
 
   // Business profile for the template
   const { settings: profile, loading: loadingProfile } = useOrderPrintSettings(businessId);
@@ -112,18 +153,58 @@ export default function ComprobantePage() {
   }, [comprobanteActual]);
 
   const handleEmitir = async () => {
-    const success = await emitirComprobante();
-    if (success) {
-      setShowSuccess('Comprobante emitido correctamente en AFIP');
-      setTimeout(() => setShowSuccess(null), 5000);
+    if (!comprobanteActual || !businessId || !user) return;
+    setEmitiendo(true);
+    setError(null);
+    try {
+      const result = await comprobanteService.emitir(comprobanteActual.id, businessId, user.id, true);
+      if (result.success) {
+        setShowSuccess('Comprobante emitido correctamente en AFIP');
+        setTimeout(() => setShowSuccess(null), 5000);
+        await cargarComprobante(comprobanteActual.id);
+      } else if (result.pendingReconciliation) {
+        logger.error('FINANCE', 'Emisión ARCA ambigua — pendiente de conciliación', result.error);
+        setError(`${ARCA_PENDING_RECONCILIATION_TITLE}. ${ARCA_PENDING_RECONCILIATION_MESSAGE}`);
+        await cargarComprobante(comprobanteActual.id); // refleja estado_fiscal='pendiente_conciliacion'
+      } else if (result.alreadyInProgress) {
+        // Claim atómico (DB) detectó un intento vivo — o de este MISMO
+        // comprobante (otra pestaña/usuario ya lo está emitiendo) o de OTRO
+        // comprobante de la MISMA serie fiscal (result.serieOcupada). Nunca se
+        // dispara una segunda emisión: solo se informa y se recarga el estado.
+        setError(result.error || 'La emisión ya está siendo procesada. Esperá unos segundos y volvé a revisar el comprobante.');
+        await cargarComprobante(comprobanteActual.id);
+      } else if (isArcaConnectionError(result.error)) {
+        logger.error('FINANCE', 'Reintento de emisión ARCA falló (conectividad)', result.error);
+        setError(`${ARCA_CONNECTION_ERROR_TITLE}. ${ARCA_CONNECTION_ERROR_MESSAGE}`);
+      } else {
+        setError(result.error || 'Error al emitir en AFIP');
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error al emitir en AFIP');
+    } finally {
+      setEmitiendo(false);
     }
   };
 
   const handleAnular = async (motivo: string) => {
-    const success = await anularComprobante(undefined, motivo);
-    if (success) {
-      setShowSuccess('Comprobante anulado');
-      setTimeout(() => setShowSuccess(null), 5000);
+    if (!comprobanteActual || !businessId || !user) return;
+    try {
+      const result = await comprobanteService.anular(comprobanteActual.id, businessId, user.id, motivo);
+      if (result.success) {
+        setShowSuccess('Comprobante anulado');
+        setTimeout(() => setShowSuccess(null), 5000);
+        await cargarComprobante(comprobanteActual.id);
+      } else if (result.requiereNotaCredito) {
+        // Red de seguridad: la UI ya oculta "Anular" para comprobantes con CAE
+        // (ver ComprobanteActions), pero si de todos modos se llega acá,
+        // dirigimos directo al flujo fiscal correcto en vez de solo mostrar error.
+        setError(result.error || 'Este comprobante requiere una Nota de Crédito para anularse.');
+        setShowNotaCredito(true);
+      } else {
+        setError(result.error || 'Error al anular el comprobante');
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error al anular el comprobante');
     }
   };
 
@@ -308,8 +389,10 @@ export default function ComprobantePage() {
     );
   }
 
-  const orden  = (comprobanteActual as any)?.orden  ?? null;
-  const cliente = (comprobanteActual as any)?.cliente ?? null;
+  // comprobanteService.getById() trae la relación como `customer` (no `cliente`) y no
+  // incluye la orden completa — solo necesitamos el id para el link "Orden vinculada".
+  const orden: any = comprobanteActual?.order_id ? { id: comprobanteActual.order_id } : null;
+  const cliente = (comprobanteActual as any)?.customer ?? null;
   const items  = (comprobanteActual as any)?.items  ?? [];
 
   // ── Page ──────────────────────────────────────────────────────────────────
@@ -357,7 +440,15 @@ export default function ComprobantePage() {
                 customerId: cliente?.id ?? comprobanteActual.customer_id ?? undefined,
                 orderId: comprobanteActual.order_id ?? undefined,
               }}
-              disabledReason={!cliente?.phone && !((orden?.customer as any)?.phone) ? 'El cliente no tiene teléfono registrado' : undefined}
+              disabledReason={
+                !cliente?.phone && !((orden?.customer as any)?.phone)
+                  ? 'El cliente no tiene teléfono registrado'
+                  // Nunca compartir un comprobante fiscal como "emitido" sin CAE real
+                  // (remitos no son fiscales y siempre pueden compartirse).
+                  : (comprobanteActual.tipo !== 'remito' && !comprobanteActual.cae)
+                    ? 'El comprobante todavía no fue autorizado por ARCA'
+                    : undefined
+              }
             />
           )}
           <Link

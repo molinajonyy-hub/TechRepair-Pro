@@ -1,14 +1,17 @@
 import { supabase } from '../lib/supabase';
 import ArcaService from './arcaService';
-import { cuentasService } from './cuentasService';
 import { requireFeature } from '../utils/requireFeature';
+import { computeCheckoutRequestHash } from '../lib/checkoutIdempotency';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type TipoComprobante = 'remito' | 'factura_a' | 'factura_c' | 'nota_credito';
 export type TipoLinea       = 'producto' | 'servicio' | 'repuesto' | 'otro';
 export type EstadoComercial = 'pendiente' | 'parcial' | 'pagado' | 'anulado';
-export type EstadoFiscal    = 'no_fiscal' | 'pendiente_emision' | 'emitido' | 'error_emision' | 'anulado_fiscal';
+// pendiente_conciliacion: FECAESolicitar tuvo un resultado ambiguo (timeout/502/503/504)
+// y ni siquiera FECompConsultar pudo confirmarlo. Requiere el nuevo CHECK constraint de
+// supabase/migrations/20260701140000_arca_pending_reconciliation_state.sql (no aplicada aún).
+export type EstadoFiscal    = 'no_fiscal' | 'pendiente_emision' | 'pendiente_conciliacion' | 'emitido' | 'error_emision' | 'anulado_fiscal';
 export type MedioPago       = 'efectivo' | 'transferencia' | 'tarjeta_debito' | 'tarjeta_credito' | 'qr' | 'mixto' | 'otro' | 'cuenta_corriente';
 
 export interface ComprobanteItem {
@@ -119,6 +122,19 @@ export interface CrearComprobanteInput {
   /** Cuando es true, omite crear entradas en business_finance_entries y financial_movements.
    *  Usar cuando el comprobante se genera desde ModalCobro, que ya registró el movimiento. */
   skip_finance_entry?: boolean;
+  /**
+   * Identifica el INTENTO COMERCIAL (no la request HTTP) ante la RPC atómica
+   * create_comprobante_checkout_atomic. Generarla UNA vez en el cliente
+   * (crypto.randomUUID()) y conservarla durante doble click/timeout/retry —
+   * ver src/lib/checkoutIdempotency.ts. Si no se provee, crear() genera una
+   * de un solo uso (protege esa llamada puntual, pero no sobrevive un
+   * refresh/retry manual del caller) — los callers nuevos deberían siempre
+   * pasarla explícitamente. El request_hash NUNCA se recibe por parámetro —
+   * crear() lo calcula siempre internamente a partir del carrito ya
+   * validado, así dos llamadas con el mismo input SIEMPRE producen el mismo
+   * hash (sin depender de que dos implementaciones independientes coincidan).
+   */
+  idempotency_key?: string;
 }
 
 // Tasas de comisión por proveedor (estimadas) — sin Mercado Pago en flujo POS
@@ -168,6 +184,33 @@ function condicionIvaId(condicionFiscal?: string | null): number {
   if (!condicionFiscal) return 5; // default: Consumidor Final
   return CONDICION_IVA_RECEPTOR[condicionFiscal] ?? 5;
 }
+
+// ─── Errores ARCA — clasificación para UI ──────────────────────────────────────
+// Mismos marcadores que supabase/functions/afip-cae/index.ts::classifyFetchError.
+// Distingue errores de conectividad (DNS, timeout, conexión) — donde el motivo
+// técnico no debe mostrarse al usuario — de rechazos fiscales legítimos de AFIP
+// (validación, punto de venta, numeración), que sí son información accionable.
+const ARCA_TRANSIENT_MARKERS = [
+  'dns error', 'name or service not known', 'failed to lookup address',
+  'connection reset', 'econnreset',
+  'connection refused', 'econnrefused',
+  'timed out', 'timeout',
+];
+
+export function isArcaConnectionError(message?: string | null): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return ARCA_TRANSIENT_MARKERS.some(m => lower.includes(m));
+}
+
+export const ARCA_PENDING_RECONCILIATION_TITLE = 'Emisión pendiente de verificación';
+export const ARCA_PENDING_RECONCILIATION_MESSAGE =
+  'ARCA podría haber recibido la solicitud, pero no se pudo confirmar la respuesta. ' +
+  'No vuelvas a emitir el comprobante hasta completar la verificación automática.';
+
+export const ARCA_CONNECTION_ERROR_TITLE = 'No se pudo conectar con ARCA';
+export const ARCA_CONNECTION_ERROR_MESSAGE =
+  'El cobro quedó registrado y el comprobante quedó pendiente de emisión. Podés reintentarlo desde Comprobantes.';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -231,6 +274,39 @@ export const comprobanteService = {
     return data as Comprobante;
   },
 
+  // ── Recuperación de checkout incierto (fase 9 — timeout/refresh/cierre) ────
+  /**
+   * Consulta el estado de un intento de checkout por business_id+idempotency_key
+   * (get_checkout_request_status, read-only). Permite a la UI resolver un
+   * timeout, un refresh del navegador, o el cierre accidental del modal sin
+   * arriesgarse a crear una segunda venta: si ya existe un comprobante para
+   * esa key, se recupera y se continúa (o se muestra) en vez de reintentar
+   * la creación desde cero.
+   */
+  async getCheckoutStatus(businessId: string, idempotencyKey: string): Promise<{
+    found: boolean;
+    checkoutStatus?: string;
+    comprobanteId?: string;
+    estadoFiscal?: string;
+    cae?: string;
+    error?: string;
+  }> {
+    const { data, error } = await supabase.rpc('get_checkout_request_status', {
+      p_business_id: businessId,
+      p_idempotency_key: idempotencyKey,
+    });
+    if (error) return { found: false, error: error.message };
+    if (!data?.found) return { found: false };
+    return {
+      found: true,
+      checkoutStatus: data.checkout_status,
+      comprobanteId: data.comprobante_id ?? undefined,
+      estadoFiscal: data.estado_fiscal ?? undefined,
+      cae: data.cae ?? undefined,
+      error: data.error ?? undefined,
+    };
+  },
+
   // ── Generar número ──────────────────────────────────────────────────────────
 
   async generarNumero(tipo: string, businessId: string, puntoVenta = '0001'): Promise<string> {
@@ -243,29 +319,147 @@ export const comprobanteService = {
     return data as string;
   },
 
+  // ── Claim atómico + emisión ARCA ─────────────────────────────────────────────
+  /**
+   * Única puerta de entrada a ARCA desde el cliente. Reclama el derecho a
+   * emitir vía la RPC atómica `claim_comprobante_arca_emission` — DOS índices
+   * únicos parciales en `arca_emission_attempts` son el mecanismo real de
+   * exclusión mutua (no un guard en memoria): uno por comprobante_id y uno por
+   * SERIE FISCAL (ambiente+CUIT+punto de venta+tipo), este último resuelto y
+   * validado 100% server-side dentro de la RPC — nunca se le pasan por
+   * parámetro desde acá. Solo si el resultado es 'acquired' se llama a la Edge
+   * Function. El resultado terminal (CAE, rechazo o pendiente de conciliación)
+   * lo escribe `afip-cae` server-side vía `complete_arca_attempt` — este
+   * helper NUNCA escribe campos fiscales directamente en `comprobantes`.
+   *
+   * Usada por crear(), emitir() y crearNotaCredito() — mismo mecanismo para
+   * comprobantes normales y notas de crédito (cada una con su propia serie).
+   */
+  async _claimYEmitirArca(
+    businessId: string,
+    comprobanteId: string,
+    datosFactura: Omit<Parameters<typeof ArcaService.emitirFactura>[1], 'comprobante_id' | 'attempt_id'>
+  ): Promise<{
+    success: boolean;
+    cae?: string;
+    caeVencimiento?: string;
+    numeroComprobante?: string;
+    observaciones?: string;
+    reconciled?: boolean;
+    error?: string;
+    pendingReconciliation?: boolean;
+    alreadyInProgress?: boolean;
+    serieOcupada?: boolean;
+  }> {
+    const correlationId = crypto.randomUUID();
+
+    // La identidad de serie (ambiente/CUIT/punto de venta/tipo de comprobante)
+    // se resuelve y valida 100% SERVER-SIDE dentro de la RPC (arca_config +
+    // comprobantes.tipo/tipo_comprobante_fiscal) — nunca se envía por parámetro
+    // desde acá. Esto es lo que permite bloquear por SERIE FISCAL, no solo por
+    // comprobante_id (ver supabase/migrations/20260701150000_arca_atomic_claim.sql).
+    const { data: claimData, error: claimError } = await supabase.rpc('claim_comprobante_arca_emission', {
+      p_comprobante_id: comprobanteId,
+      p_correlation_id: correlationId,
+    });
+
+    if (claimError) {
+      return { success: false, error: claimError.message || 'Error al reclamar la emisión' };
+    }
+
+    const result = claimData?.result as string | undefined;
+
+    if (result === 'already_authorized') {
+      // Otra pestaña/proceso ya lo emitió — idempotente, tratamos como éxito.
+      return { success: true, cae: claimData?.cae ?? undefined };
+    }
+    if (result === 'already_in_progress') {
+      return { success: false, error: 'La emisión ya está siendo procesada.', alreadyInProgress: true };
+    }
+    if (result === 'serie_ocupada') {
+      // Otro comprobante de la MISMA serie fiscal (ambiente+CUIT+punto de venta+
+      // tipo) tiene un intento vivo — nunca se arranca una emisión propia en
+      // paralelo para la misma serie (evitaría dos FECAESolicitar con el mismo
+      // próximo número).
+      return {
+        success: false,
+        error: 'Ya hay otra emisión en curso para el mismo punto de venta y tipo de comprobante. Esperá a que termine.',
+        alreadyInProgress: true,
+        serieOcupada: true,
+      };
+    }
+    if (result === 'pending_reconciliation') {
+      return {
+        success: false,
+        error: 'ARCA podría haber recibido una solicitud anterior; estamos verificando antes de continuar.',
+        pendingReconciliation: true,
+      };
+    }
+    if (result === 'not_eligible' || result === 'not_found') {
+      return { success: false, error: 'El comprobante no es elegible para emitirse en ARCA.' };
+    }
+    if (result !== 'acquired' || !claimData?.attempt_id) {
+      return { success: false, error: 'Resultado inesperado al reclamar la emisión en ARCA.' };
+    }
+
+    const arcaResult = await ArcaService.emitirFactura(businessId, {
+      ...datosFactura,
+      comprobante_id: comprobanteId,
+      attempt_id: claimData.attempt_id as string,
+    });
+
+    return {
+      success: arcaResult.success,
+      cae: arcaResult.cae,
+      caeVencimiento: arcaResult.caeVencimiento,
+      numeroComprobante: arcaResult.numeroComprobante,
+      observaciones: arcaResult.observaciones,
+      reconciled: arcaResult.reconciled,
+      error: arcaResult.error,
+      pendingReconciliation: arcaResult.pendingReconciliation,
+    };
+  },
+
   // ── Crear comprobante ───────────────────────────────────────────────────────
   /**
-   * Flujo:
-   * - Remito / no fiscal: guarda directamente como 'issued'
-   * - Fiscal + emitir_en_arca=true:
-   *     1. Llama ARCA
-   *     2. Si OK → guarda con CAE y estado_fiscal='emitido'
-   *     3. Si error → guarda como borrador con estado_fiscal='error_emision'
-   * - Fiscal + emitir_en_arca=false: guarda como borrador
+   * Flujo (reordenado — auditoría ARCA fase 3, 2026-07-01):
+   *   1. Validar venta y pagos.
+   *   2. Generar número local y crear el comprobante YA (estado fiscal pendiente,
+   *      cae=null) — recién acá existe un comprobante_id real.
+   *   3. Insertar ítems, descontar stock, registrar pagos de caja (no dependen
+   *      de ARCA — un fallo de ARCA nunca los revierte).
+   *   4. Si es fiscal y se pidió emitir: reclamar atómicamente (_claimYEmitirArca)
+   *      y llamar a afip-cae pasando comprobante_id + attempt_id. El resultado
+   *      terminal (CAE / rechazo / pendiente de conciliación) lo escribe
+   *      afip-cae server-side.
+   *   5. Registrar movimientos financieros según el resultado (issued vs draft).
+   *   6. Releer el comprobante completo (recoge lo que escribió el paso 4) y
+   *      devolver.
+   *
+   * No emite fiscalmente antes de tener una identidad local persistente
+   * (comprobante_id). No reimplementa reglas financieras: solo cambia CUÁNDO
+   * se llama a ARCA respecto del insert, preservando exactamente el mismo
+   * comportamiento funcional (finanzas/stock/CC) que antes.
    */
   async crear(input: CrearComprobanteInput): Promise<{
     success: boolean;
     comprobante?: Comprobante;
     arcaError?: string;
     error?: string;
+    arcaPendingReconciliation?: boolean;
+    /** created|existing|already_processing|idempotency_conflict|failed_retryable|failed_final — ver create_comprobante_checkout_atomic. */
+    checkoutStatus?: string;
+    idempotencyConflict?: boolean;
+    alreadyProcessing?: boolean;
   }> {
     const {
       tipo, punto_venta = '0001', condicion_fiscal = 'Consumidor Final',
       customer_id, order_id, observaciones, exchange_rate: globalRate = 1,
       es_fiscal = false, emitir_en_arca = false,
-      items, pagos = [], business_id, created_by,
+      items, pagos = [], business_id,
       caja_id = null,
       skip_finance_entry = false,
+      idempotency_key,
     } = input;
 
     const esFiscal = es_fiscal || emitir_en_arca;
@@ -334,272 +528,179 @@ export const comprobanteService = {
       const totalNeto   = total - totalComisiones;
       const totalBruto  = total;
 
-      // ── 2. Si es fiscal y emitir_en_arca, llamar ARCA PRIMERO ───────────
-      let cae: string | null = null;
-      let caeVencimiento: string | null = null;
-      let numeroFiscal: string | null = null;
-      let estadoFiscal: EstadoFiscal = esFiscal ? 'pendiente_emision' : 'no_fiscal';
-      let arcaError: string | undefined;
-      let arcaResponse: any = null;
+      const emitirArcaAhora = emitir_en_arca && esFiscal && AFIP_TIPO_CODE[tipo] !== undefined;
 
-      if (emitir_en_arca && esFiscal && AFIP_TIPO_CODE[tipo] !== undefined) {
-        // Validación: Factura A requiere receptor identificado (no Consumidor Final)
-        if (tipo === 'factura_a' && condicionIvaId(condicion_fiscal) === 5) {
-          return {
-            success: false,
-            error: 'Factura A requiere un receptor con CUIT y condición IVA (Responsable Inscripto / Monotributo). No se puede emitir como Consumidor Final.',
-          };
-        }
-
-        try {
-          const arcaResult = await ArcaService.emitirFactura(business_id, {
-            tipo_comprobante:         AFIP_TIPO_CODE[tipo]!,
-            tipo_doc_receptor:        99,   // Consumidor Final por defecto (futuro: cargar de cliente)
-            nro_doc_receptor:         '0',
-            concepto:                 1,
-            importe_neto:             subtotalARS,
-            importe_iva:              tax,
-            alicuota_iva:             tipo === 'factura_a' ? 21 : 0,
-            importe_total:            total,
-            moneda:                   'PES',
-            cotizacion_moneda:        1,
-            fecha_cbte:               new Date().toISOString().split('T')[0].replace(/-/g, ''),
-            condicion_iva_receptor_id: condicionIvaId(condicion_fiscal),
-          });
-
-          if (arcaResult.success) {
-            cae            = arcaResult.cae ?? null;
-            caeVencimiento = arcaResult.caeVencimiento ?? null;
-            numeroFiscal   = arcaResult.numeroComprobante ?? null;
-            estadoFiscal   = 'emitido';
-            arcaResponse   = arcaResult;
-          } else {
-            estadoFiscal = 'error_emision';
-            arcaError    = arcaResult.error ?? 'Error desconocido en ARCA';
-            arcaResponse = arcaResult;
-          }
-        } catch (e: any) {
-          estadoFiscal = 'error_emision';
-          arcaError    = e?.message ?? 'Error al conectar con ARCA';
-          arcaResponse = { error: arcaError };
-        }
+      // Validación: Factura A requiere receptor identificado (no Consumidor Final).
+      // Se valida ANTES de crear nada — no tiene sentido insertar un comprobante
+      // que sabemos que ARCA va a rechazar por este motivo.
+      if (emitirArcaAhora && tipo === 'factura_a' && condicionIvaId(condicion_fiscal) === 5) {
+        return {
+          success: false,
+          error: 'Factura A requiere un receptor con CUIT y condición IVA (Responsable Inscripto / Monotributo). No se puede emitir como Consumidor Final.',
+        };
       }
 
-      // Si ARCA falló y el usuario quería emitir, guardar como borrador
-      const estadoDefinitivo: string = estadoFiscal === 'emitido'
-        ? 'issued'
-        : (emitir_en_arca && arcaError)
-          ? 'draft'
-          : (esFiscal ? 'draft' : 'issued');
+      // ── 2-9. Creación local ATÓMICA (comprobante+ítems+stock+pagos+finanzas+CC)
+      //      vía create_comprobante_checkout_atomic — UNA transacción
+      //      PostgreSQL, protegida por UNIQUE(business_id, idempotency_key)
+      //      (auditoría idempotencia checkout, 2026-07-01). Reemplaza los ~8
+      //      inserts directos separados que existían antes: dos solicitudes
+      //      con la MISMA key nunca producen dos comprobantes/pagos/
+      //      descuentos de stock/movimientos financieros — la RPC devuelve
+      //      el mismo comprobante_id para ambas. El número local se sigue
+      //      generando con generar_numero_comprobante (sin reinventar), y
+      //      total_cobrado/saldo_pendiente los sigue calculando el trigger
+      //      trig_comprobante_payment_sync existente al insertar los pagos.
+      const key = idempotency_key || crypto.randomUUID();
 
-      // ── 3. Generar número de comprobante ────────────────────────────────
-      const numero = await this.generarNumero(tipo, business_id, punto_venta);
+      const pagosPayload = pagosConComision.map(p => ({
+        payment_method:    p.payment_method,
+        payment_provider:  p.payment_provider || null,
+        amount:            p.amount,
+        currency:          p.currency,
+        amount_ars:        p.amtARS,
+        exchange_rate:     p.exchange_rate || globalRate,
+        commission_rate:   p.commission_rate || 0,
+        commission_amount: p.commAmt,
+        net_amount:        p.netAmt,
+      }));
 
-      // ── 4. Insertar comprobante ─────────────────────────────────────────
-      const compData: Record<string, any> = {
-        business_id,
-        created_by:       created_by || null,
-        customer_id:      customer_id || null,
-        order_id:         order_id || null,
-        tipo,
-        type:             tipo,
-        punto_venta,
-        numero,
-        number:           numero,
-        fecha:            new Date().toISOString(),
-        date:             new Date().toISOString(),
-        condicion_fiscal,
-        observaciones:    observaciones || null,
-        currency:         'ARS',
-        exchange_rate:    globalRate,
-        subtotal:         subtotalARS,
-        impuestos:        tax,
-        tax,
-        total:            total,
-        total_ars:        total,
-        total_usd:        totalUSD,
-        descuento_total:  descuentoTotal,
-        recargo_total:    0,
-        total_bruto:      totalBruto,
-        // total_cobrado y saldo_pendiente los actualiza el trigger trig_comprobante_payment_sync
-        // al insertar comprobante_payments. Arrancamos en estado honesto (sin pago registrado)
-        // para evitar total_cobrado huérfano si el insert de pagos falla.
-        total_cobrado:    0,
-        saldo_pendiente:  totalBruto,
-        total_comisiones: totalComisiones,
-        total_neto:       totalNeto,
-        estado:           estadoDefinitivo === 'issued' ? 'emitido' : 'borrador',
-        status:           estadoDefinitivo,
-        estado_comercial: (() => {
-          const cashCobrado = pagosConComision.reduce((s, p) => s + p.amtARS, 0);
-          if (cashCobrado >= totalBruto - 1) return 'pagado';
-          if (cashCobrado > 0 || ccTotal > 0) return 'parcial';
-          return 'pendiente';
-        })(),
-        estado_fiscal:    estadoFiscal,
-        es_fiscal:        esFiscal,
-        emitir_en_arca,
-        cae,
-        cae_vencimiento:  caeVencimiento,
-        numero_fiscal:    numeroFiscal,
-        afip_response:    arcaResponse,
-      };
-
-      const { data: comp, error: compErr } = await supabase
-        .from('comprobantes')
-        .insert(compData)
-        .select()
-        .single();
-
-      if (compErr || !comp) throw new Error(compErr?.message || 'Error al crear comprobante');
-
-      // ── 5. Insertar ítems ────────────────────────────────────────────────
-      const itemsToInsert = items.map((item, idx) => {
+      const itemsPayload = items.map((item, idx) => {
         const disc      = Math.min(item.descuento_linea || 0, 100) / 100;
-        const qty       = item.cantidad;
-        const price     = item.precio_unitario;
-        const lineTotal = qty * price * (1 - disc);
+        const lineTotal = item.cantidad * item.precio_unitario * (1 - disc);
         const costUnit  = item.costo_unitario || 0;
         return {
-          comprobante_id:  comp.id,
-          business_id,
-          created_by:      created_by || null,
-          descripcion:     item.descripcion,
-          tipo_linea:      item.tipo_linea || 'producto',
-          cantidad:        qty,
-          precio_unitario: price,
-          descuento_linea: item.descuento_linea || 0,
-          subtotal:        lineTotal,
-          costo_unitario:  costUnit,
-          costo_total:     costUnit * qty,
-          currency:        item.currency || 'ARS',
-          exchange_rate:       item.exchange_rate || globalRate,
-          inventory_id:        item.inventory_id || null,
-          applied_price_type:  item.applied_price_type || null,
-          orden:               idx,
+          descripcion:        item.descripcion,
+          tipo_linea:         item.tipo_linea || 'producto',
+          cantidad:           item.cantidad,
+          precio_unitario:    item.precio_unitario,
+          descuento_linea:    item.descuento_linea || 0,
+          subtotal:           lineTotal,
+          costo_unitario:     costUnit,
+          costo_total:        costUnit * item.cantidad,
+          currency:           item.currency || 'ARS',
+          exchange_rate:      item.exchange_rate || globalRate,
+          inventory_id:       item.inventory_id || null,
+          applied_price_type: item.applied_price_type || null,
+          orden:              idx,
         };
       });
 
-      const { error: itemsErr } = await supabase
-        .from('comprobante_items')
-        .insert(itemsToInsert);
+      // Hash determinista del contenido comercial — calculado SIEMPRE acá
+      // (nunca confiado del caller), para que dos llamadas con el mismo
+      // input produzcan siempre el mismo hash.
+      const requestHash = await computeCheckoutRequestHash({
+        business_id,
+        tipo,
+        customer_id: customer_id || null,
+        condicion_fiscal,
+        currency: 'ARS',
+        items: itemsPayload,
+        pagos: pagosPayload,
+        subtotal: subtotalARS,
+        tax,
+        total,
+        cc_total: ccTotal,
+      });
 
-      if (itemsErr) throw new Error('Error al crear ítems: ' + itemsErr.message);
+      const { data: rpcData, error: rpcError } = await supabase.rpc('create_comprobante_checkout_atomic', {
+        p_business_id:     business_id,
+        p_idempotency_key: key,
+        p_request_hash:    requestHash,
+        p_payload: {
+          tipo, punto_venta, condicion_fiscal,
+          customer_id: customer_id || null,
+          order_id: order_id || null,
+          observaciones: observaciones || null,
+          exchange_rate: globalRate,
+          es_fiscal: esFiscal,
+          emitir_en_arca,
+          caja_id: caja_id || null,
+          skip_finance_entry,
+          subtotal_ars: subtotalARS,
+          tax,
+          total,
+          total_usd: totalUSD,
+          descuento_total: descuentoTotal,
+          costo_total_ars: costoTotalARS,
+          total_comisiones: totalComisiones,
+          total_neto: totalNeto,
+          total_bruto: totalBruto,
+          cc_total: ccTotal,
+          items: itemsPayload,
+          pagos: pagosPayload,
+        },
+      });
 
-      // ── 6. Descontar stock para ítems de producto/repuesto ──────────────
-      // El stock se descuenta siempre que se confirma una venta comercial,
-      // sin importar si está emitida fiscalmente en ARCA o no.
-      // La idempotencia (stock_processed) previene doble descuento.
-      await this._descontarStock(itemsToInsert, comp.id, business_id, created_by);
+      if (rpcError) throw new Error('Error al crear el comprobante: ' + rpcError.message);
 
-      // ── 7. Registrar pagos de caja (NO cuenta corriente) ────────────────
-      if (pagosCash.length > 0) {
-        const pagosToInsert = pagosConComision.map(p => ({
-          comprobante_id:    comp.id,
-          business_id,
-          amount:            p.amount,
-          currency:          p.currency,
-          amount_ars:        p.amtARS,
-          exchange_rate:     p.exchange_rate || globalRate,
-          payment_method:    p.payment_method,
-          payment_provider:  p.payment_provider || null,
-          commission_rate:   p.commission_rate || 0,
-          commission_amount: p.commAmt,
-          net_amount:        p.netAmt,
-          date:              new Date().toISOString().split('T')[0],
-          created_by:        created_by || null,
-        }));
+      const checkoutStatus = rpcData?.status as string | undefined;
 
-        const { error: pagErr } = await supabase
-          .from('comprobante_payments')
-          .insert(pagosToInsert);
+      if (checkoutStatus === 'idempotency_conflict') {
+        return {
+          success: false,
+          error: 'Esta venta fue modificada después de iniciar el cobro. Revisá los datos antes de volver a intentarlo.',
+          checkoutStatus,
+          idempotencyConflict: true,
+        };
+      }
+      if (checkoutStatus === 'already_processing') {
+        return {
+          success: false,
+          error: 'Estamos confirmando el comprobante. No vuelvas a cobrarlo.',
+          checkoutStatus,
+          alreadyProcessing: true,
+        };
+      }
+      if (checkoutStatus === 'failed_retryable' || checkoutStatus === 'failed_final') {
+        return { success: false, error: rpcData?.error || 'Error al crear el comprobante', checkoutStatus };
+      }
+      if (checkoutStatus !== 'created' && checkoutStatus !== 'existing') {
+        throw new Error('Respuesta inesperada de create_comprobante_checkout_atomic: ' + JSON.stringify(rpcData));
+      }
 
-        if (pagErr) {
-          // Rollback: eliminar items y comprobante para no dejar estado inconsistente
-          await supabase.from('comprobante_items').delete().eq('comprobante_id', comp.id);
-          await supabase.from('comprobantes').delete().eq('id', comp.id).eq('business_id', business_id);
-          throw new Error(`Error al registrar los pagos del comprobante: ${pagErr.message}`);
+      const compId: string = rpcData.comprobante_id;
+
+      // ── ARCA (si corresponde) — llamado DESPUÉS de que la creación local ya
+      //    está confirmada, exactamente igual que antes. NUNCA dentro de la
+      //    transacción de la RPC de arriba. Si checkoutStatus === 'existing'
+      //    (retry con la misma key), reclamamos igual — _claimYEmitirArca ya
+      //    es idempotente por sí solo (already_authorized si ya tiene CAE).
+      let arcaError: string | undefined;
+      let arcaPendingReconciliation = false;
+
+      if (emitirArcaAhora) {
+        const arcaResult = await this._claimYEmitirArca(business_id, compId, {
+          tipo_comprobante:         AFIP_TIPO_CODE[tipo]!,
+          tipo_doc_receptor:        99,   // Consumidor Final por defecto (futuro: cargar de cliente)
+          nro_doc_receptor:         '0',
+          concepto:                 1,
+          importe_neto:             subtotalARS,
+          importe_iva:              tax,
+          alicuota_iva:             tipo === 'factura_a' ? 21 : 0,
+          importe_total:            total,
+          moneda:                   'PES',
+          cotizacion_moneda:        1,
+          fecha_cbte:               new Date().toISOString().split('T')[0].replace(/-/g, ''),
+          condicion_iva_receptor_id: condicionIvaId(condicion_fiscal),
+        });
+
+        if (!arcaResult.success) {
+          arcaError = arcaResult.error ?? 'Error desconocido en ARCA';
+          arcaPendingReconciliation = !!arcaResult.pendingReconciliation;
         }
       }
 
-      // ── 8. Registrar costo de productos en finanzas ──────────────────────
-      if (estadoDefinitivo === 'issued' && costoTotalARS > 0 && !skip_finance_entry) {
-        await supabase.from('business_finance_entries').insert({
-          business_id,
-          date:        new Date().toISOString().split('T')[0],
-          type:        'variable_cost',
-          category:    'mercaderia',
-          description: `Costo de productos · Comprobante #${numero}`,
-          amount:      costoTotalARS,
-          currency:    'ARS',
-          amount_ars:  costoTotalARS,
-          exchange_rate: 1,
-          created_by:  created_by || null,
-        });
-      }
-
-      // ── 9. Registrar ingreso en finanzas (solo si no hay pagos de caja ni CC; con pagos de caja lo maneja el trigger)
-      if (estadoDefinitivo === 'issued' && !skip_finance_entry && pagosCash.length === 0 && ccTotal === 0) {
-        const today = new Date().toISOString().split('T')[0];
-        const desc  = `Comprobante #${numero}`;
-
-        await supabase.from('business_finance_entries').insert({
-          business_id,
-          date:        today,
-          type:        'income',
-          category:    'ventas_productos',
-          description: desc,
-          amount:      total,
-          currency:    'ARS',
-          amount_ars:  total,
-          exchange_rate: globalRate,
-          created_by:  created_by || null,
-        });
-
-        await supabase.from('financial_movements').insert({
-          business_id,
-          date:        today,
-          type:        'income',
-          currency:    'ARS',
-          amount:      total,
-          amount_ars:  total,
-          exchange_rate: globalRate,
-          source:      'comprobante',
-          description: desc,
-          created_by:  created_by || null,
-          caja_id:     caja_id || null,
-        });
-      }
-
-      // ── 10. Cuenta corriente: registrar deuda si hay saldo sin efectivo ───
-      if (estadoDefinitivo === 'issued' && ccTotal > 0 && customer_id) {
-        try {
-          const { data: custData } = await supabase
-            .from('customers').select('name, phone').eq('id', customer_id).maybeSingle();
-          const account = await cuentasService.getOrCreate(
-            business_id, 'cliente', customer_id,
-            (custData as any)?.name || 'Cliente',
-            (custData as any)?.phone || null,
-          );
-          await cuentasService.registerSale(
-            business_id, account.id,
-            totalBruto,
-            totalBruto - ccTotal,
-            `Comprobante #${numero}`,
-            comp.id,
-            created_by,
-          );
-        } catch (e: any) {
-          console.warn('[comprobanteService] CC account movement failed:', e.message);
-        }
-      }
-
-      const fullComp = await this.getById(comp.id, business_id);
+      // Releer el comprobante completo — recoge lo que complete_arca_attempt
+      // haya escrito server-side (cae, estado_fiscal, etc.) si ARCA autorizó.
+      const fullComp = await this.getById(compId, business_id);
 
       return {
         success: true,
-        comprobante: fullComp || (comp as Comprobante),
+        comprobante: fullComp ?? undefined,
         arcaError,
+        arcaPendingReconciliation,
+        checkoutStatus,
       };
 
     } catch (err: any) {
@@ -613,7 +714,7 @@ export const comprobanteService = {
     businessId: string,
     userId: string,
     emitirArcaAhora = false
-  ): Promise<{ success: boolean; cae?: string; error?: string }> {
+  ): Promise<{ success: boolean; cae?: string; error?: string; pendingReconciliation?: boolean; alreadyInProgress?: boolean; serieOcupada?: boolean }> {
     // Validar plan antes de emitir en ARCA
     if (emitirArcaAhora) {
       try {
@@ -626,50 +727,64 @@ export const comprobanteService = {
     const comp = await this.getById(comprobanteId, businessId);
     if (!comp) return { success: false, error: 'Comprobante no encontrado' };
 
-    let cae: string | null = null;
-    let estadoFiscal: EstadoFiscal = 'no_fiscal';
-    let arcaResponse: any = null;
-
-    const tipo = (comp.type || comp.tipo) as TipoComprobante;
-
-    if (emitirArcaAhora && AFIP_TIPO_CODE[tipo] !== undefined) {
-      try {
-        const arcaResult = await ArcaService.emitirFactura(businessId, {
-          tipo_comprobante:          AFIP_TIPO_CODE[tipo]!,
-          tipo_doc_receptor:         99,
-          nro_doc_receptor:          '0',
-          concepto:                  1,
-          importe_neto:              comp.subtotal || 0,
-          importe_iva:               comp.impuestos || comp.tax || 0,
-          alicuota_iva:              tipo === 'factura_a' ? 21 : 0,
-          importe_total:             comp.total || 0,
-          condicion_iva_receptor_id: condicionIvaId(comp.condicion_fiscal),
-        });
-
-        if (arcaResult.success) {
-          cae          = arcaResult.cae ?? null;
-          estadoFiscal = 'emitido';
-          arcaResponse = arcaResult;
-        } else {
-          estadoFiscal = 'error_emision';
-          arcaResponse = arcaResult;
-          return { success: false, error: arcaResult.error || 'Error en ARCA' };
-        }
-      } catch (e: any) {
-        return { success: false, error: e.message || 'Error ARCA' };
-      }
-    } else {
-      estadoFiscal = 'no_fiscal';
+    // Atajo rápido (evita un round-trip de RPC): la atomicidad REAL la da
+    // claim_comprobante_arca_emission (mismo chequeo, pero atómico en DB) más
+    // abajo — este guard en JS por sí solo NO evita carreras entre pestañas.
+    if (comp.cae || comp.estado_fiscal === 'emitido') {
+      return { success: true, cae: comp.cae ?? undefined };
+    }
+    if (comp.estado === 'anulado' || comp.status === 'cancelled') {
+      return { success: false, error: 'El comprobante ya está anulado' };
     }
 
+    const tipo = (comp.type || comp.tipo) as TipoComprobante;
+    const emitirArcaEfectivo = emitirArcaAhora && AFIP_TIPO_CODE[tipo] !== undefined;
+
+    if (emitirArcaEfectivo) {
+      const arcaResult = await this._claimYEmitirArca(businessId, comprobanteId, {
+        tipo_comprobante:          AFIP_TIPO_CODE[tipo]!,
+        tipo_doc_receptor:         99,
+        nro_doc_receptor:          '0',
+        concepto:                  1,
+        importe_neto:              comp.subtotal || 0,
+        importe_iva:               comp.impuestos || comp.tax || 0,
+        alicuota_iva:              tipo === 'factura_a' ? 21 : 0,
+        importe_total:             comp.total || 0,
+        condicion_iva_receptor_id: condicionIvaId(comp.condicion_fiscal),
+      });
+
+      if (arcaResult.success) {
+        // complete_arca_attempt (server-side) ya escribió cae/estado_fiscal=
+        // 'emitido'/estado='emitido'/status='issued' — no se reescribe acá.
+        if (comp.items) {
+          const stockItems = comp.items
+            .filter(i => i.inventory_id && ['producto','repuesto'].includes(i.tipo_linea || 'producto'));
+          await this._descontarStock(stockItems, comprobanteId, businessId, userId);
+        }
+        return { success: true, cae: arcaResult.cae };
+      }
+
+      if (arcaResult.alreadyInProgress) {
+        return {
+          success: false,
+          error: arcaResult.error || 'La emisión ya está siendo procesada.',
+          alreadyInProgress: true,
+          serieOcupada: arcaResult.serieOcupada,
+        };
+      }
+      if (arcaResult.pendingReconciliation) {
+        return { success: false, error: arcaResult.error || 'Emisión pendiente de verificación', pendingReconciliation: true };
+      }
+      return { success: false, error: arcaResult.error || 'Error en ARCA' };
+    }
+
+    // No fiscal / sin ARCA: marcar como emitido localmente (comportamiento preexistente).
     const { error } = await supabase
       .from('comprobantes')
       .update({
         estado:        'emitido',
         status:        'issued',
-        estado_fiscal: estadoFiscal,
-        cae,
-        afip_response: arcaResponse,
+        estado_fiscal: 'no_fiscal',
         updated_at:    new Date().toISOString(),
       })
       .eq('id', comprobanteId)
@@ -677,14 +792,13 @@ export const comprobanteService = {
 
     if (error) return { success: false, error: error.message };
 
-    // Descontar stock al emitir
     if (comp.items) {
       const stockItems = comp.items
         .filter(i => i.inventory_id && ['producto','repuesto'].includes(i.tipo_linea || 'producto'));
       await this._descontarStock(stockItems, comprobanteId, businessId, userId);
     }
 
-    return { success: true, cae: cae || undefined };
+    return { success: true };
   },
 
   // ── Anular comprobante ────────────────────────────────────────────────────────
@@ -693,13 +807,28 @@ export const comprobanteService = {
     businessId: string,
     userId: string,
     motivo?: string
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ success: boolean; error?: string; requiereNotaCredito?: boolean }> {
     const comp = await this.getById(comprobanteId, businessId);
     if (!comp) return { success: false, error: 'Comprobante no encontrado' };
 
     const currentStatus = comp.status || comp.estado;
     if (['cancelled', 'anulado'].includes(currentStatus || '')) {
       return { success: false, error: 'El comprobante ya está anulado' };
+    }
+
+    // ── Regla fiscal (auditoría ARCA 2026-07-01) ────────────────────────────
+    // Un comprobante con CAE ya fue autorizado por ARCA: no se puede "anular"
+    // cambiando estado local, porque fiscalmente sigue existiendo. Para
+    // reversarlo hay que emitir una Nota de Crédito asociada (que sí llama a
+    // ARCA y solo entonces marca el original como anulado_fiscal — ver
+    // crearNotaCredito()). Esto evita comprobantes con estado local
+    // "anulado" pero sin ningún respaldo fiscal de la anulación.
+    if (comp.cae) {
+      return {
+        success: false,
+        error: 'Este comprobante ya fue autorizado por ARCA (tiene CAE). No se puede anular localmente: generá una Nota de Crédito desde el detalle del comprobante.',
+        requiereNotaCredito: true,
+      };
     }
 
     // Revertir stock
@@ -887,6 +1016,7 @@ export const comprobanteService = {
     cae?: string
     arca_error?: string
     error?: string
+    pendingReconciliation?: boolean
   }> {
     // ── 1. Crear draft NC + copiar ítems (RPC atómica) ───────────────────────
     const { data: rpcData, error: rpcError } = await supabase.rpc(
@@ -915,14 +1045,13 @@ export const comprobanteService = {
     const cbteAsocNro     = nroParts[1] ? parseInt(nroParts[1], 10) : 0
 
     let cae: string | undefined
-    let caeVencimiento: string | undefined
-    let numeroFiscal: string | undefined
     let arcaError: string | undefined
     let estadoFiscalNc: EstadoFiscal = 'pendiente_emision'
+    let pendingReconciliation = false
 
-    // ── 3. Emitir en ARCA (opcional) ─────────────────────────────────────────
+    // ── 3. Emitir en ARCA (opcional) — mismo claim atómico que emitir()/crear() ──
     if (params.emitirEnArca) {
-      const arcaResult = await ArcaService.emitirFactura(params.businessId, {
+      const arcaResult = await this._claimYEmitirArca(params.businessId, ncId, {
         tipo_comprobante:          ncTipoFiscal,
         tipo_doc_receptor:         99,
         nro_doc_receptor:          '0',
@@ -942,29 +1071,27 @@ export const comprobanteService = {
       })
 
       if (arcaResult.success) {
+        // complete_arca_attempt (server-side) ya escribió cae/estado_fiscal=
+        // 'emitido'/estado='emitido'/status='issued' en la fila de la NC.
         cae            = arcaResult.cae
-        caeVencimiento = arcaResult.caeVencimiento
-        numeroFiscal   = arcaResult.numeroComprobante
         estadoFiscalNc = 'emitido'
+      } else if (arcaResult.pendingReconciliation) {
+        // Ambiguo — NUNCA marcar como rechazado ni anular el original todavía.
+        // afip-cae ya dejó el intento persistido para reconciliar en el próximo intento.
+        arcaError            = arcaResult.error
+        estadoFiscalNc       = 'pendiente_conciliacion'
+        pendingReconciliation = true
       } else {
         arcaError      = arcaResult.error
-        estadoFiscalNc = 'error_emision'
+        estadoFiscalNc = arcaResult.alreadyInProgress ? 'pendiente_emision' : 'error_emision'
       }
 
-      // Actualizar NC con resultado ARCA — incluye numero/number para display en tabla
+      // Las observaciones descriptivas no las escribe complete_arca_attempt —
+      // se agregan siempre, sin pisar los campos fiscales que ya haya escrito.
       await supabase.from('comprobantes')
         .update({
-          cae,
-          cae_vencimiento:  caeVencimiento ?? null,
-          numero_fiscal:    numeroFiscal   ?? null,
-          numero:           estadoFiscalNc === 'emitido' ? (numeroFiscal ?? null) : null,
-          number:           estadoFiscalNc === 'emitido' ? (numeroFiscal ?? null) : null,
-          estado_fiscal:    estadoFiscalNc,
-          estado:           estadoFiscalNc === 'emitido' ? 'emitido' : 'borrador',
-          status:           estadoFiscalNc === 'emitido' ? 'issued'  : 'draft',
-          afip_response:    arcaResult,
-          observaciones:    `Nota de Crédito — anula ${originalNumero}${params.motivo ? ` · ${params.motivo}` : ''}`,
-          updated_at:       new Date().toISOString(),
+          observaciones: `Nota de Crédito — anula ${originalNumero}${params.motivo ? ` · ${params.motivo}` : ''}`,
+          updated_at:    new Date().toISOString(),
         })
         .eq('id', ncId)
         .eq('business_id', params.businessId)
@@ -988,7 +1115,7 @@ export const comprobanteService = {
     }
 
     const nc = await this.getById(ncId, params.businessId)
-    return { success: true, nc: nc ?? undefined, cae, arca_error: arcaError }
+    return { success: true, nc: nc ?? undefined, cae, arca_error: arcaError, pendingReconciliation }
   },
 
   // ── Eliminar comprobante local (no fiscal) ────────────────────────────────────

@@ -26,6 +26,7 @@ import {
   ComprobantePago, CrearComprobanteInput,
 } from '../../services/comprobanteService';
 import { usePaymentCommissions, type FlatPaymentMethod } from '../../hooks/usePaymentCommissions';
+import { useCheckoutIdempotency } from '../../hooks/useCheckoutIdempotency';
 
 // ─── Sub-types ────────────────────────────────────────────────────────────────
 
@@ -147,6 +148,7 @@ export function ModalCrearComprobante({
 }: Props) {
   const { businessId, user } = useAuth();
   const { isOpen: cajaIsOpen, cajaId } = useCaja();
+  const { resolveIdempotencyKey, clearPending } = useCheckoutIdempotency(businessId);
   const navigate = useNavigate();
   const [step, setStep] = useState<'config' | 'items' | 'emitir'>('config');
 
@@ -511,6 +513,43 @@ export function ModalCrearComprobante({
     setSubmitError(null);
     setArcaWarning(null);
 
+    const itemsPayload = validLines.map(l => ({
+      descripcion:        l.descripcion,
+      tipo_linea:         l.tipo_linea,
+      cantidad:           l.cantidad,
+      precio_unitario:    l.precio_unitario,
+      descuento_linea:    l.descuento_linea || 0,
+      costo_unitario:     l.costo_unitario || 0,
+      currency:           l.currency,
+      exchange_rate:      l.currency === 'USD' ? exchangeRate : 1,
+      inventory_id:       l.inventory_id || null,
+      applied_price_type: l.applied_price_type || null,
+    }));
+    const pagosPayload = pagos
+      .filter(p => parseFloat(p.amount) > 0)
+      .map(p => ({
+        payment_method:   p.payment_method,
+        payment_provider: p.payment_provider || undefined,
+        amount:           parseFloat(p.amount) || 0,
+        currency:         'ARS',
+        commission_rate:  p.commission_rate,
+      }) as ComprobantePago);
+
+    // Idempotencia server-side (auditoría entry points, 2026-07-01) — misma
+    // clave ante doble click/timeout/retry, ver useCheckoutIdempotency.
+    const idempotencyKey = await resolveIdempotencyKey({
+      business_id: businessId!,
+      tipo,
+      customer_id: clienteId || null,
+      condicion_fiscal: condicion,
+      items: itemsPayload,
+      pagos: pagosPayload,
+      subtotal: totales.subtotal,
+      tax: totales.iva,
+      total: totales.total,
+      cc_total: 0,
+    });
+
     const input: CrearComprobanteInput = {
       tipo,
       punto_venta:      puntoVenta,
@@ -520,34 +559,17 @@ export function ModalCrearComprobante({
       exchange_rate:    exchangeRate,
       es_fiscal:        TIPO_CONFIG[tipo].fiscal,
       emitir_en_arca:   emitirEnArca,
-      items: validLines.map(l => ({
-        descripcion:        l.descripcion,
-        tipo_linea:         l.tipo_linea,
-        cantidad:           l.cantidad,
-        precio_unitario:    l.precio_unitario,
-        descuento_linea:    l.descuento_linea || 0,
-        costo_unitario:     l.costo_unitario || 0,
-        currency:           l.currency,
-        exchange_rate:      l.currency === 'USD' ? exchangeRate : 1,
-        inventory_id:       l.inventory_id || null,
-        applied_price_type: l.applied_price_type || null,
-      })),
-      pagos: pagos
-        .filter(p => parseFloat(p.amount) > 0)
-        .map(p => ({
-          payment_method:   p.payment_method,
-          payment_provider: p.payment_provider || undefined,
-          amount:           parseFloat(p.amount) || 0,
-          currency:         'ARS',
-          commission_rate:  p.commission_rate,
-        }) as ComprobantePago),
+      items:            itemsPayload,
+      pagos:            pagosPayload,
       business_id:         businessId,
       created_by:          user?.id,
       caja_id:             cajaId || null,
       skip_finance_entry:  skipFinanceEntry,
+      idempotency_key:     idempotencyKey,
     };
 
     const result = await comprobanteService.crear(input);
+    if (result.success) clearPending();
 
     if (!result.success) {
       setSubmitError(result.error || 'Error al crear el comprobante');

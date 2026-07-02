@@ -11,6 +11,7 @@ import { invalidateStatsCache } from '../../hooks/useDashboardStats'
 import { formatDisplayMessage } from '../../utils/formatMessage'
 import { useCommissionRates, COMMISSION_KEYS } from '../../hooks/useCommissionRates'
 import comprobanteService from '../../services/comprobanteService'
+import { useCheckoutIdempotency } from '../../hooks/useCheckoutIdempotency'
 import { buildSupabaseQuery, smartSearch } from '../../utils/searchUtils'
 import { getActiveOfferForProduct } from '../../pages/Offers'
 
@@ -134,6 +135,7 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
   const { businessId, user } = useAuth()
   const { rates } = useCommissionRates()
   const navigate = useNavigate()
+  const { resolveIdempotencyKey, clearPending } = useCheckoutIdempotency(businessId)
 
   // ── State principal ──
   const [step, setStep]       = useState<Step>('items')
@@ -413,27 +415,45 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
               }))
           : [{ payment_method: pagoMedio as any, amount: totalCobrado, currency: 'ARS' as const, commission_rate: commissionRate }]
 
+        const itemsComp = items.map(i => ({
+          descripcion:      i.nombre,
+          cantidad:         i.cantidad,
+          precio_unitario:  i.precio,
+          tipo_linea:       (origen === 'orden' ? 'servicio' : 'producto') as any,
+          inventory_id:     i.inventory_id || null,
+          costo_unitario:   i.costo_unitario || 0,
+        }))
+
+        // Idempotencia server-side (auditoría entry points, 2026-07-01):
+        // misma clave para doble click/timeout/retry — ver useCheckoutIdempotency.
+        const idempotencyKey = await resolveIdempotencyKey({
+          business_id: businessId!,
+          tipo: 'factura_c',
+          customer_id: clienteSelec?.id || null,
+          items: itemsComp,
+          pagos: pagosComp,
+          subtotal: totalCobrado,
+          tax: 0,
+          total: totalCobrado,
+          cc_total: 0,
+        })
+
         const compResult = await comprobanteService.crear({
           tipo:               'factura_c',
           customer_id:        clienteSelec?.id || null,
           order_id:           origen === 'orden' && ordenSelec?.id ? ordenSelec.id : null,
-          items:              items.map(i => ({
-            descripcion:      i.nombre,
-            cantidad:         i.cantidad,
-            precio_unitario:  i.precio,
-            tipo_linea:       origen === 'orden' ? 'servicio' : 'producto',
-            inventory_id:     i.inventory_id || null,
-            costo_unitario:   i.costo_unitario || 0,
-          })),
+          items:              itemsComp,
           pagos:              pagosComp,
           business_id:        businessId!,
           created_by:         user?.id,
           skip_finance_entry: true,
+          idempotency_key:    idempotencyKey,
         })
 
         if (compResult.success && compResult.comprobante) {
           setAutoComprobanteId(compResult.comprobante.id)
           setAutoComprobanteNumero((compResult.comprobante as any).numero || null)
+          clearPending()
         }
       } catch (e) {
         console.warn('[ModalCobro] auto-comprobante:', e)

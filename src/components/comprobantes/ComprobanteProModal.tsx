@@ -20,6 +20,7 @@ import {
   Volume2, VolumeX,
 } from 'lucide-react'
 import { soundSystem } from '../../lib/sounds'
+import { posLogger } from '../../lib/logger'
 import { currencyService } from '../../services/currencyService'
 import { smartSearch, buildSupabaseQuery } from '../../utils/searchUtils'
 import { supabase } from '../../lib/supabase'
@@ -30,10 +31,15 @@ import {
   comprobanteService,
   TipoComprobante, TipoLinea, MedioPago,
   ComprobantePago, CrearComprobanteInput, Comprobante,
+  isArcaConnectionError, ARCA_CONNECTION_ERROR_TITLE, ARCA_CONNECTION_ERROR_MESSAGE,
+  ARCA_PENDING_RECONCILIATION_TITLE, ARCA_PENDING_RECONCILIATION_MESSAGE,
 } from '../../services/comprobanteService'
 import { WhatsAppPreviewModal } from '../whatsapp/WhatsAppPreviewModal'
 import { usePaymentCommissions, type FlatPaymentMethod } from '../../hooks/usePaymentCommissions'
 import { useKeyboardAwareBottomOffset } from '../../hooks/useKeyboardAwareBottomOffset'
+import {
+  computeCheckoutRequestHash, getOrCreateIdempotencyKey, clearPendingCheckout, readPendingCheckout,
+} from '../../lib/checkoutIdempotency'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -381,6 +387,12 @@ export function ComprobanteProModal({
   const [comprobanteCreado, setComprobanteCreado] = useState<Comprobante | null>(null)
   const [showWaModal, setShowWaModal] = useState(false)
   const [arcaWarning, setArcaWarning] = useState<string | null>(null)
+  const [arcaPending, setArcaPending] = useState(false)
+  // Idempotencia de checkout (auditoría 2026-07-01): already_processing / idempotency_conflict
+  // son estados explícitos del contrato de create_comprobante_checkout_atomic — nunca se
+  // muestran como error genérico (ver Fase 6/10 del informe).
+  const [checkoutBlockedTitle,   setCheckoutBlockedTitle]   = useState<string | null>(null)
+  const [checkoutBlockedMessage, setCheckoutBlockedMessage] = useState<string | null>(null)
 
   // ── Draft ────────────────────────────────────────────────────────────────
   const DRAFT_KEY = useMemo(() => `draft_comp_${businessId ?? 'x'}_${user?.id ?? 'x'}`, [businessId, user?.id])
@@ -458,28 +470,80 @@ export function ComprobanteProModal({
     if (pagos.length > 0 && pagosConMonto.length === 0) { setSubmitError('Ingresá el monto del cobro'); setErrorShakeKey(k => k + 1); return }
 
     isSubmittingRef.current = true
-    setSubmitting(true); setSubmitError(null); setArcaWarning(null)
+    setSubmitting(true); setSubmitError(null); setArcaWarning(null); setArcaPending(false)
+    setCheckoutBlockedTitle(null); setCheckoutBlockedMessage(null)
+
+    const itemsPayload = validLines.map(l => ({
+      descripcion: l.descripcion, tipo_linea: l.tipo_linea, cantidad: l.cantidad,
+      precio_unitario: l.precio_unitario, descuento_linea: l.descuento_linea || 0,
+      costo_unitario: l.costo_unitario || 0, currency: l.currency,
+      exchange_rate: l.currency === 'USD' ? exchangeRate : 1,
+      inventory_id: l.inventory_id || null, applied_price_type: l.applied_price_type || null,
+    }))
+    const pagosPayload = pagosConMonto.map(p => ({
+      payment_method: p.payment_method, payment_provider: p.payment_provider || undefined,
+      amount: parseFloat(p.amount) || 0, currency: 'ARS' as const, commission_rate: p.commission_rate,
+    }) as ComprobantePago)
+
+    // Clave de idempotencia del INTENTO COMERCIAL — se genera una sola vez y
+    // se conserva en sessionStorage durante doble click/timeout/retry/refresh.
+    // Nunca se regenera automáticamente ante un timeout o un already_processing;
+    // solo cambia si el hash del carrito cambió (venta distinta) — ver
+    // src/lib/checkoutIdempotency.ts.
+    const ccTotalForHash = pagos.filter(p => p.payment_method === 'cuenta_corriente')
+      .reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+    const requestHash = await computeCheckoutRequestHash({
+      business_id: businessId,
+      tipo,
+      customer_id: clienteId || null,
+      condicion_fiscal: condicion,
+      currency: 'ARS',
+      items: itemsPayload,
+      pagos: pagosPayload,
+      subtotal: totales.subtotal,
+      tax: totales.iva,
+      total: totales.total,
+      cc_total: ccTotalForHash,
+    })
+    const { idempotencyKey } = getOrCreateIdempotencyKey(businessId, requestHash)
 
     const input: CrearComprobanteInput = {
       tipo, punto_venta: puntoVenta, condicion_fiscal: condicion,
       customer_id: clienteId || null, observaciones, exchange_rate: exchangeRate,
       es_fiscal: TIPO_CONFIG[tipo].fiscal, emitir_en_arca: emitirEnArca,
-      items: validLines.map(l => ({
-        descripcion: l.descripcion, tipo_linea: l.tipo_linea, cantidad: l.cantidad,
-        precio_unitario: l.precio_unitario, descuento_linea: l.descuento_linea || 0,
-        costo_unitario: l.costo_unitario || 0, currency: l.currency,
-        exchange_rate: l.currency === 'USD' ? exchangeRate : 1,
-        inventory_id: l.inventory_id || null, applied_price_type: l.applied_price_type || null,
-      })),
-      pagos: pagosConMonto.map(p => ({
-        payment_method: p.payment_method, payment_provider: p.payment_provider || undefined,
-        amount: parseFloat(p.amount) || 0, currency: 'ARS', commission_rate: p.commission_rate,
-      }) as ComprobantePago),
+      items: itemsPayload,
+      pagos: pagosPayload,
       business_id: businessId, created_by: user?.id, caja_id: cajaId || null,
       skip_finance_entry: skipFinanceEntry,
+      idempotency_key: idempotencyKey,
     }
 
     const result = await comprobanteService.crear(input)
+
+    if (result.idempotencyConflict) {
+      // Nunca seguir silenciosamente con datos distintos, y nunca generar una
+      // key nueva automáticamente para esquivar el conflicto — se descarta el
+      // pendiente (para que el PRÓXIMO submit explícito arranque de cero) y se
+      // exige revisión manual.
+      clearPendingCheckout(businessId)
+      setCheckoutBlockedTitle('La operación cambió')
+      setCheckoutBlockedMessage('Esta venta fue modificada después de iniciar el cobro. Revisá los datos antes de volver a intentarlo.')
+      setErrorShakeKey(k => k + 1)
+      soundSystem.play('payment_fail')
+      setSubmitting(false)
+      isSubmittingRef.current = false
+      return
+    }
+    if (result.alreadyProcessing) {
+      // Otra transacción con la MISMA key está confirmándose — nunca se
+      // genera otra key ni se reintenta la creación; se conserva el
+      // pendiente para que un reintento manual recupere el mismo resultado.
+      setCheckoutBlockedTitle('La venta ya se está procesando')
+      setCheckoutBlockedMessage('Estamos confirmando el comprobante. No vuelvas a cobrarlo.')
+      setSubmitting(false)
+      isSubmittingRef.current = false
+      return
+    }
     if (!result.success) {
       setSubmitError(result.error || 'Error al crear el comprobante')
       setErrorShakeKey(k => k + 1)
@@ -488,7 +552,18 @@ export function ComprobanteProModal({
       isSubmittingRef.current = false
       return
     }
-    if (result.arcaError) setArcaWarning(result.arcaError)
+
+    // Creación local resuelta de forma definitiva (created o existing — un
+    // retry que recuperó la misma venta) — el checkout ya no está pendiente.
+    clearPendingCheckout(businessId)
+
+    if (result.arcaError) {
+      // El detalle técnico (DNS, timeouts, faults SOAP) queda solo en logs;
+      // la UI muestra un mensaje amigable — ver ARCA_CONNECTION_ERROR_* más abajo.
+      posLogger.error('Emisión ARCA falló al crear comprobante', result.arcaError)
+      setArcaWarning(result.arcaError)
+      setArcaPending(!!result.arcaPendingReconciliation)
+    }
 
     // Sonido + vibración de éxito
     soundSystem.play('payment_success')
@@ -501,7 +576,7 @@ export function ComprobanteProModal({
     setShowSuccess(true)
     // Vibración táctil
     if ('vibrate' in navigator) navigator.vibrate(80)
-  }, [lineas, businessId, cajaIsOpen, skipFinanceEntry, pagos, tipo, puntoVenta, condicion, clienteId, observaciones, exchangeRate, emitirEnArca, user, cajaId, DRAFT_KEY])
+  }, [lineas, businessId, cajaIsOpen, skipFinanceEntry, pagos, tipo, puntoVenta, condicion, clienteId, observaciones, exchangeRate, emitirEnArca, user, cajaId, DRAFT_KEY, totales])
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
@@ -539,6 +614,48 @@ export function ComprobanteProModal({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
+
+  // ── Recuperación de checkout incierto (fase 9 — timeout/refresh/cierre) ────
+  // Al abrir el modal, si hay un intento comercial pendiente en sessionStorage
+  // para este negocio, se consulta su estado real server-side ANTES de
+  // permitir un cobro nuevo — nunca se crea una segunda venta mientras la
+  // anterior siga sin resolverse.
+  useEffect(() => {
+    if (!isOpen || !businessId) return
+    const pending = readPendingCheckout(businessId)
+    if (!pending) return
+
+    let cancelled = false
+    ;(async () => {
+      const status = await comprobanteService.getCheckoutStatus(businessId, pending.idempotencyKey)
+      if (cancelled) return
+
+      if (!status.found || status.checkoutStatus === 'failed_final') {
+        // Nunca se comiteó nada (o falló de forma definitiva) — no hay nada
+        // que recuperar, se descarta el pendiente.
+        clearPendingCheckout(businessId)
+        return
+      }
+      if (status.checkoutStatus === 'completed' && status.comprobanteId) {
+        // La venta local SÍ se creó (posiblemente ARCA sigue pendiente) —
+        // se recupera como éxito, nunca se dispara una creación nueva.
+        const comp = await comprobanteService.getById(status.comprobanteId, businessId)
+        if (cancelled) return
+        clearPendingCheckout(businessId)
+        setComprobanteCreado(comp)
+        setShowSuccess(true)
+        if (status.estadoFiscal === 'pendiente_conciliacion') {
+          setArcaWarning(ARCA_PENDING_RECONCILIATION_MESSAGE)
+          setArcaPending(true)
+        }
+      }
+      // 'processing' / 'failed_retryable': se conserva el pendiente tal cual —
+      // el próximo submit manual reutiliza la MISMA key (mismo hash) y la RPC
+      // decide (already_processing / retry limpio), nunca se crea otra venta.
+    })()
+
+    return () => { cancelled = true }
+  }, [isOpen, businessId])
 
   useEffect(() => {
     if (!isOpen || !businessId || puntoVentaInicial) return
@@ -1707,6 +1824,12 @@ export function ComprobanteProModal({
                   </div>
                 )
               })()}
+              {checkoutBlockedTitle && (
+                <div data-testid="comprobante-checkout-blocked-message" key={errorShakeKey} style={{ marginBottom: '0.5rem', padding: '0.5rem 0.625rem', background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.28)', borderRadius: '0.5rem', animation: errorShakeKey > 0 ? 'shake 0.32s ease' : undefined }}>
+                  <div style={{ color: '#eab308', fontSize: '0.74rem', fontWeight: 700, marginBottom: '0.125rem' }}>{checkoutBlockedTitle}</div>
+                  <span style={{ color: 'var(--pos-text-secondary)', fontSize: '0.72rem' }}>{checkoutBlockedMessage}</span>
+                </div>
+              )}
               {submitError && (
                 <div data-testid="comprobante-error-message" key={errorShakeKey} style={{ marginBottom: '0.5rem', padding: '0.5rem 0.625rem', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '0.5rem', animation: errorShakeKey > 0 ? 'shake 0.32s ease' : undefined }}>
                   <span style={{ color: '#f87171', fontSize: '0.72rem' }}>{formatDisplayMessage(submitError)}</span>
@@ -1787,18 +1910,33 @@ export function ComprobanteProModal({
               )}
             </div>
 
-            {/* ARCA error — prominent block, not just a footnote */}
+            {/* ARCA error/pendiente — prominent block, not just a footnote.
+                El detalle técnico (DNS, timeouts, faults SOAP) solo va a logs (posLogger.error
+                arriba); acá mostramos un mensaje amigable. Los rechazos fiscales legítimos de
+                AFIP (ej. "AFIP rechazó el comprobante: ...") sí son accionables y se muestran.
+                pending_reconciliation es un caso aparte: NUNCA reintentar manualmente, el
+                sistema reconcilia solo en el próximo intento desde Comprobantes. */}
             {arcaWarning && (
-              <div style={{ width: '100%', padding: '0.75rem 0.875rem', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '0.75rem', marginBottom: '1rem' }}>
-                <div style={{ color: '#f59e0b', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.25rem' }}>
-                  Error al emitir en ARCA
+              <div style={{
+                width: '100%', padding: '0.75rem 0.875rem', borderRadius: '0.75rem', marginBottom: '1rem',
+                background: arcaPending ? 'rgba(167,139,250,0.1)' : 'rgba(245,158,11,0.1)',
+                border: `1px solid ${arcaPending ? 'rgba(167,139,250,0.3)' : 'rgba(245,158,11,0.3)'}`,
+              }}>
+                <div style={{ color: arcaPending ? '#a78bfa' : '#f59e0b', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.25rem' }}>
+                  {arcaPending
+                    ? ARCA_PENDING_RECONCILIATION_TITLE
+                    : isArcaConnectionError(arcaWarning) ? ARCA_CONNECTION_ERROR_TITLE : 'ARCA rechazó el comprobante'}
                 </div>
                 <div style={{ color: 'var(--pos-text-secondary)', fontSize: '0.75rem', lineHeight: 1.4 }}>
-                  {arcaWarning}
+                  {arcaPending
+                    ? ARCA_PENDING_RECONCILIATION_MESSAGE
+                    : isArcaConnectionError(arcaWarning) ? ARCA_CONNECTION_ERROR_MESSAGE : arcaWarning}
                 </div>
-                <div style={{ color: 'var(--pos-text-muted)', fontSize: '0.7rem', marginTop: '0.375rem' }}>
-                  El comprobante quedó como borrador. Podés reintentarlo desde la vista del comprobante.
-                </div>
+                {!arcaPending && !isArcaConnectionError(arcaWarning) && (
+                  <div style={{ color: 'var(--pos-text-muted)', fontSize: '0.7rem', marginTop: '0.375rem' }}>
+                    El comprobante quedó como borrador. Podés reintentarlo desde la vista del comprobante.
+                  </div>
+                )}
               </div>
             )}
 

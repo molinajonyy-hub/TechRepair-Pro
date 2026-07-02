@@ -62,14 +62,27 @@ export interface CrearComprobanteDTO {
 }
 
 // ============================================
-// MOCK SERVICE AFIP (ARCA)
+// ⚠️ SERVICIO LEGACY BLOQUEADO (auditoría ARCA 2026-07-01)
+//
+// Este objeto simulaba AFIP/ARCA con un CAE aleatorio y estado "emitido" sin
+// llamar nunca al servicio real — fue la causa raíz de que "reintentar emisión"
+// desde Comprobantes pareciera funcionar mientras el POS fallaba por DNS.
+// `solicitarCAE()` está BLOQUEADO deliberadamente: nunca debe fabricar un CAE,
+// ni para testing. La única fuente de verdad para emisión fiscal es
+// comprobanteService.crear()/emitir() → ArcaService → Edge Function afip-cae
+// → WSFEv1 real (ver src/services/comprobanteService.ts).
+//
+// facturacionService.emitirComprobante() (más abajo) es la única llamadora de
+// solicitarCAE() y no tiene callers en la UI (confirmado por auditoría); queda
+// así por compatibilidad de tipos pero ahora falla en vez de simular éxito.
 // ============================================
 export const afipService = {
   /**
-   * Solicitar CAE a AFIP (MOCK)
-   * En producción, esto llamaría a la API real de AFIP
+   * BLOQUEADO — nunca debe fabricar un CAE. Ver comprobanteService.crear/emitir.
+   * (El tipo de retorno se conserva igual al original para no romper el
+   * contrato de los callers legacy; en runtime esta función siempre lanza.)
    */
-  async solicitarCAE(comprobante: Partial<Comprobante>): Promise<{
+  async solicitarCAE(_comprobante: Partial<Comprobante>): Promise<{
     success: boolean;
     cae: string;
     caeVencimiento: string;
@@ -77,45 +90,17 @@ export const afipService = {
     response: any;
     error?: string;
   }> {
-    // Simular delay de red
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    // Mock de respuesta AFIP
-    const mockResponse = {
-      success: true,
-      cae: this.generarCAEFake(),
-      caeVencimiento: this.calcularVencimientoCAE(),
-      numero: await this.generarNumeroAFIP(comprobante.tipo!, comprobante.punto_venta!),
-      response: {
-        Codigo: 0,
-        Mensaje: 'OK',
-        CAE: this.generarCAEFake(),
-        CAEFchVto: this.calcularVencimientoCAE(),
-        NroComprobante: Math.floor(Math.random() * 1000000).toString().padStart(8, '0'),
-        PtoVta: comprobante.punto_venta,
-        CbteTipo: this.getCodigoTipoComprobante(comprobante.tipo!),
-      }
-    };
-    
-    // Simular error aleatorio (10% chance) para testing
-    if (Math.random() < 0.1) {
-      return {
-        ...mockResponse,
-        success: false,
-        error: 'Error simulado de AFIP: Servicio no disponible'
-      };
-    }
-    
-    return mockResponse;
+    throw new Error(
+      'afipService.solicitarCAE() está deshabilitado: nunca debe fabricar un CAE. ' +
+      'Usá comprobanteService (crear/emitir) para emisión fiscal real vía ARCA.'
+    );
   },
 
   /**
-   * Generar CAE fake para testing
+   * BLOQUEADO — ver solicitarCAE(). No debe usarse para generar un CAE real ni de prueba.
    */
   generarCAEFake(): string {
-    const timestamp = Date.now().toString().slice(-10);
-    const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-    return `7${timestamp}${random}`;
+    throw new Error('afipService.generarCAEFake() está deshabilitado: no se deben fabricar CAE.');
   },
 
   /**
@@ -648,7 +633,11 @@ export const facturacionService = {
   },
 
   /**
-   * Emitir comprobante (llamar a AFIP mock)
+   * ⚠️ LEGACY / SIN CALLERS EN LA UI (auditoría ARCA 2026-07-01).
+   * Delega en afipService.solicitarCAE(), que está deliberadamente bloqueado
+   * (nunca fabrica un CAE) — esta función ahora siempre falla de forma
+   * explícita en vez de simular una emisión. Para emisión fiscal real usar
+   * comprobanteService.crear() / comprobanteService.emitir().
    */
   async emitirComprobante(id: string): Promise<{
     success: boolean;
