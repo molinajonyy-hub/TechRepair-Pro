@@ -477,9 +477,24 @@ export function CajaPage() {
     finally { setClosing(false) }
   }
 
-  const handleDeleteMovement = async (movId: string) => {
-    if (!confirm('¿Eliminás este movimiento?')) return
-    await supabase.from('financial_movements').delete().eq('id', movId)
+  // Corrección controlada (Etapa 0): solo movimientos MANUALES de la caja
+  // abierta, vía RPC reverse_manual_cash_movement — nunca se borra el asiento,
+  // se inserta la reversa compensatoria con motivo. Los movimientos de
+  // comprobantes/proveedores/retiros/órdenes se revierten desde su módulo.
+  const handleCorrectMovement = async (mov: CajaMovement) => {
+    const reason = prompt('Motivo de la corrección (se registra la reversa, no se borra el movimiento):')
+    if (reason === null) return
+    if (!reason.trim()) { showToast('El motivo es obligatorio', 'error'); return }
+    const { data, error: rpcError } = await supabase.rpc('reverse_manual_cash_movement', {
+      p_movement_id: mov.id,
+      p_reason:      reason.trim(),
+    })
+    const result = data as { ok: boolean; error?: string } | null
+    if (rpcError || !result?.ok) {
+      showToast(result?.error || rpcError?.message || 'No se pudo corregir el movimiento', 'error')
+      return
+    }
+    showToast('Movimiento corregido (reversa registrada)', 'success')
     await loadCaja()
   }
 
@@ -694,11 +709,17 @@ export function CajaPage() {
                             {amtUSD !== null ? `${fmtUSD(amtUSD)} (${fmtARS(amtARS)})` : fmtARS(amtARS)}
                           </td>
                           <td style={{ padding: '0.625rem 0.75rem' }}>
-                            <button onClick={() => handleDeleteMovement(mov.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1e3a5f', padding: '0.2rem', display: 'flex', alignItems: 'center' }}
-                              onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
-                              onMouseLeave={e => (e.currentTarget.style.color = '#1e3a5f')}>
-                              <Trash2 size={13} />
-                            </button>
+                            {/* Solo movimientos MANUALES admiten corrección (reversa con motivo).
+                                Los automáticos (comprobante, proveedor, retiro, orden) se
+                                revierten desde su módulo de origen. */}
+                            {mov.source === 'manual' && (
+                              <button onClick={() => handleCorrectMovement(mov)} title="Corregir (registra la reversa)"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1e3a5f', padding: '0.2rem', display: 'flex', alignItems: 'center' }}
+                                onMouseEnter={e => (e.currentTarget.style.color = '#f87171')}
+                                onMouseLeave={e => (e.currentTarget.style.color = '#1e3a5f')}>
+                                <Trash2 size={13} />
+                              </button>
+                            )}
                           </td>
                         </tr>
                       )

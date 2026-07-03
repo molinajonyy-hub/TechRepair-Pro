@@ -681,19 +681,22 @@ test('no queda ningún Math.random() usado para generar un CAE en código produc
 // ANULACIÓN — un comprobante con CAE no se anula localmente
 // ─────────────────────────────────────────────────────────────────────────
 
-test('anular() bloquea comprobantes con CAE y exige Nota de Crédito', () => {
+test('anular() bloquea comprobantes con CAE y exige Nota de Crédito (vía RPC server-side)', () => {
+  // Etapa 0: el guard de CAE vive DENTRO de annul_comprobante_atomic (con el
+  // comprobante bloqueado FOR UPDATE, antes de cualquier efecto — ver test SQL
+  // A9 en supabase/tests/etapa0_annulment_ledger_test.sql). El servicio solo
+  // propaga el flag requiere_nota_credito.
   const service = read('../../src/services/comprobanteService.ts')
-  assert.match(service, /if \(comp\.cae\) \{\s*\n\s*return \{\s*\n\s*success: false,/)
-  assert.match(service, /requiereNotaCredito: true/)
+  assert.match(service, /supabase\.rpc\('annul_comprobante_atomic'/)
+  assert.match(service, /requiereNotaCredito: result\?\.requiere_nota_credito === true/)
 });
 
-test('anular() sigue permitiendo cancelar un borrador sin CAE (no rompe el flujo normal)', () => {
+test('anular() no ejecuta NINGUNA escritura financiera ni de stock client-side', () => {
   const service = read('../../src/services/comprobanteService.ts')
-  // El guard de CAE debe estar ANTES del bloque de reversión de stock/finanzas,
-  // que sigue existiendo para el caso sin CAE.
-  const idxGuard = service.indexOf('requiereNotaCredito: true');
-  const idxRevertirStock = service.indexOf('_revertirStock(');
-  assert.ok(idxGuard > 0 && idxRevertirStock > idxGuard, 'el guard de CAE debe evaluarse antes de revertir stock');
+  // La secuencia client-side vieja (revertir stock + update comprobante +
+  // insert FM/BFE) fue eliminada: la anulación es atómica en la RPC.
+  assert.ok(!service.includes('_revertirStock'), 'no debe quedar reversión de stock client-side')
+  assert.ok(!/ANULACIÓN Comprobante #\$\{numero\}/.test(service), 'no deben quedar inserts manuales de reverso')
 });
 
 test('UI: el botón "Anular" se oculta cuando el comprobante ya tiene CAE (dirige a Nota de Crédito)', () => {

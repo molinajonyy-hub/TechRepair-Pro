@@ -34,17 +34,36 @@ export default function ComprobantesPage() {
   const limpiarError = () => setError(null);
   const handleEdit   = (comp: Comprobante) => navigate(`/comprobantes/${comp.id}`);
 
-  // ── Anular (legacy — mantenido para comprobantes no-ARCA) ───────────────────
+  // ── Anular (server-side vía annul_comprobante_atomic — no ARCA) ─────────────
   const [anulando, setAnulando]           = useState<Comprobante | null>(null);
   const [anulandoMotivo, setAnulandoMotivo] = useState('');
+  const [anulandoReponeStock, setAnulandoReponeStock]       = useState(true);
+  const [anulandoDevuelveDinero, setAnulandoDevuelveDinero] = useState(true);
+  // Key de idempotencia estable mientras el diálogo esté abierto: un reintento
+  // (timeout, doble click) recupera la MISMA anulación en vez de duplicarla.
+  const [anulandoKey, setAnulandoKey]       = useState('');
   const [actionLoading, setActionLoading]   = useState<string | null>(null);
   const [actionError, setActionError]       = useState<string | null>(null);
 
+  const abrirAnular = (comp: Comprobante) => {
+    setActionError(null);
+    setAnulandoMotivo('');
+    setAnulandoReponeStock(true);
+    setAnulandoDevuelveDinero(true);
+    setAnulandoKey(crypto.randomUUID());
+    setAnulando(comp);
+  };
+
   const confirmarAnular = async () => {
     if (!anulando || !businessId) return;
+    if (!anulandoMotivo.trim()) { setActionError('Ingresá el motivo de la anulación'); return; }
     setActionLoading(anulando.id); setActionError(null);
     try {
-      const r = await comprobanteService.anular(anulando.id, businessId, user?.id || '', anulandoMotivo || undefined);
+      const r = await comprobanteService.anular(anulando.id, businessId, user?.id || '', anulandoMotivo, {
+        devolverDinero: (anulando.total_cobrado ?? 0) > 0 ? anulandoDevuelveDinero : false,
+        reponerStock:   anulandoReponeStock,
+        idempotencyKey: anulandoKey,
+      });
       if (!r.success) throw new Error(r.error);
       setAnulando(null); setAnulandoMotivo('');
       await cargarComprobantes();
@@ -267,7 +286,7 @@ export default function ComprobantesPage() {
         <ComprobantesTable
           comprobantes={filtered}
           onEdit={handleEdit}
-          onAnular={comp => { setActionError(null); setAnulandoMotivo(''); setAnulando(comp); }}
+          onAnular={abrirAnular}
           onNotaCredito={comp => { setNcError(null); setNcEmitirArca(true); setNcComprobante(comp); }}
           onEliminar={comp => { setDeleteError(null); setEliminando(comp); }}
           actionLoading={ncLoading ? (ncComprobante?.id ?? null) : actionLoading}
@@ -295,17 +314,53 @@ export default function ComprobantesPage() {
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
               <p style={{ color: 'var(--text-secondary)' }}>
                 Vas a anular <strong>{anulando.numero || `#${anulando.id.slice(0,8)}`}</strong> por{' '}
-                <strong>${anulando.total.toLocaleString('es-AR')}</strong>. Esto revertirá stock y finanzas.
+                <strong>${anulando.total.toLocaleString('es-AR')}</strong>. Se revierte exactamente lo
+                registrado (cobros, finanzas y cuenta corriente); la caja original no se modifica.
               </p>
               <div>
-                <label className="form-label">Motivo (opcional)</label>
+                <label className="form-label">Motivo *</label>
                 <input className="form-control" type="text" placeholder="Ej: Error en precio..." value={anulandoMotivo} onChange={e => setAnulandoMotivo(e.target.value)} />
               </div>
+
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', cursor: 'pointer', padding: '0.625rem 0.75rem', background: 'var(--bg-surface)', borderRadius: '0.5rem', border: '1px solid var(--border-color)' }}>
+                <input
+                  type="checkbox"
+                  checked={anulandoReponeStock}
+                  onChange={e => setAnulandoReponeStock(e.target.checked)}
+                  style={{ marginTop: '0.1rem', accentColor: 'var(--accent-primary)', cursor: 'pointer' }}
+                />
+                <div>
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.875rem' }}>La mercadería volvió al local</span>
+                  <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--text-subtle)' }}>
+                    {anulandoReponeStock ? 'Se repone el stock de los productos del comprobante.' : 'El stock NO se modifica (sin devolución física).'}
+                  </p>
+                </div>
+              </label>
+
+              {(anulando.total_cobrado ?? 0) > 0 && (
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', cursor: 'pointer', padding: '0.625rem 0.75rem', background: 'var(--bg-surface)', borderRadius: '0.5rem', border: '1px solid var(--border-color)' }}>
+                  <input
+                    type="checkbox"
+                    checked={anulandoDevuelveDinero}
+                    onChange={e => setAnulandoDevuelveDinero(e.target.checked)}
+                    style={{ marginTop: '0.1rem', accentColor: 'var(--accent-primary)', cursor: 'pointer' }}
+                  />
+                  <div>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.875rem' }}>
+                      Se devolvió el dinero al cliente (${(anulando.total_cobrado ?? 0).toLocaleString('es-AR')})
+                    </span>
+                    <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: 'var(--text-subtle)' }}>
+                      El egreso de devolución se registra en la caja abierta actual.
+                    </p>
+                  </div>
+                </label>
+              )}
+
               {actionError && <p style={{ color: 'var(--color-error)', fontSize: '0.85rem' }}>{actionError}</p>}
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setAnulando(null)} disabled={!!actionLoading}>Cancelar</button>
-              <button className="btn btn-amber" onClick={confirmarAnular} disabled={!!actionLoading}>
+              <button className="btn btn-amber" onClick={confirmarAnular} disabled={!!actionLoading || !anulandoMotivo.trim()}>
                 {actionLoading ? <><Loader2 size={14} className="animate-spin" /> Anulando...</> : 'Confirmar Anulación'}
               </button>
             </div>

@@ -15,7 +15,6 @@ import {
   MinusCircle
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { useAuth } from '../../contexts/AuthContext'
 import { currencyService } from '../../services/currencyService'
 
 // Estados de repuestos
@@ -64,7 +63,6 @@ interface OrderCostManagementProps {
 }
 
 export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataChange }: OrderCostManagementProps) {
-  const { businessId, user } = useAuth()
   const exchangeRateRef = useRef<number>(1)
   const [parts, setParts] = useState<OrderPart[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
@@ -201,7 +199,10 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
     
     try {
       const paymentAmount = parseFloat(paymentForm.amount) || 0
-      const { data: paymentData, error: insertError } = await supabase
+      // Etapa 0: NO insertar financial_movements acá. El trigger
+      // trig_payment_movements (order_payments BEFORE INSERT) ya crea el
+      // movimiento de caja + BFE; el insert manual duplicaba el ingreso (P0-4).
+      const { error: insertError } = await supabase
         .from('order_payments')
         .insert({
           order_id: orderId,
@@ -214,29 +215,9 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
           payment_status: 'completed',
           payment_date: new Date().toISOString()
         })
-        .select('id')
-        .single()
 
       if (insertError) throw insertError
 
-      // Registrar en financial_movements para Caja / Tesorería
-      if (businessId) {
-        const rate = exchangeRateRef.current
-        await supabase.from('financial_movements').insert({
-          business_id: businessId,
-          type: 'income',
-          currency: 'ARS',
-          amount: paymentAmount,
-          exchange_rate: rate,
-          amount_ars: paymentAmount,
-          source: 'payment',
-          source_id: paymentData?.id ?? null,
-          description: `Pago orden`,
-          date: new Date().toISOString().split('T')[0],
-          created_by: user?.id ?? null
-        })
-      }
-      
       setShowAddPayment(false)
       setPaymentForm({
         amount: '',

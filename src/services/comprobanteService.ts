@@ -819,114 +819,77 @@ export const comprobanteService = {
   },
 
   // ── Anular comprobante ────────────────────────────────────────────────────────
+  /**
+   * Anulación 100% server-side vía RPC `annul_comprobante_atomic` (Etapa 0,
+   * migración 20260702120000). Reemplaza la secuencia client-side anterior
+   * (reposición manual de stock + update del comprobante + FM/BFE manuales
+   * por total_bruto) que no era atómica, caía en la caja de hoy vía trigger
+   * y nunca revertía cuenta corriente.
+   *
+   * La RPC revierte EXACTAMENTE lo registrado (pagos reales, un FM
+   * compensatorio por cada FM original, BFE de ingreso/comisiones/COGS,
+   * deuda de CC) y repone stock solo si `reponerStock` es true — todo en una
+   * transacción, idempotente por `idempotencyKey`.
+   *
+   * Modos (resueltos acá a partir de `devolverDinero`):
+   *  - refund_current_session: hubo cobros y se devuelve el dinero → egreso
+   *    en la caja abierta actual (la sesión original, abierta o cerrada, no
+   *    se modifica jamás).
+   *  - commercial_annulment: no hubo cobros (venta CC/pendiente) → revierte
+   *    deuda/COGS/stock sin movimiento de caja.
+   *  (void_same_session existe en la RPC para uso programático/tests; la UI
+   *   usa refund, que cubre el caso misma-caja con idéntico efecto neto.)
+   */
   async anular(
     comprobanteId: string,
     businessId: string,
-    userId: string,
-    motivo?: string
+    _userId: string,
+    motivo?: string,
+    opts?: {
+      /** ¿Se le devolvió el dinero al cliente? (aplica solo si hubo cobros) */
+      devolverDinero?: boolean;
+      /** ¿La mercadería volvió físicamente al stock? (default true) */
+      reponerStock?: boolean;
+      /** Clave estable ante reintentos (default: una por llamada) */
+      idempotencyKey?: string;
+    }
   ): Promise<{ success: boolean; error?: string; requiereNotaCredito?: boolean }> {
+    const motivoFinal = (motivo || '').trim();
+    if (!motivoFinal) {
+      return { success: false, error: 'El motivo de la anulación es obligatorio' };
+    }
+
+    // Solo para decidir el modo por defecto — la validación real (estado,
+    // CAE, cobros, concurrencia) vive en la RPC con el comprobante bloqueado.
     const comp = await this.getById(comprobanteId, businessId);
     if (!comp) return { success: false, error: 'Comprobante no encontrado' };
 
-    const currentStatus = comp.status || comp.estado;
-    if (['cancelled', 'anulado'].includes(currentStatus || '')) {
-      return { success: false, error: 'El comprobante ya está anulado' };
-    }
+    const cobrado = comp.total_cobrado ?? 0;
+    const devolverDinero = opts?.devolverDinero ?? cobrado > 0;
+    const mode = devolverDinero && cobrado > 0 ? 'refund_current_session' : 'commercial_annulment';
 
-    // ── Regla fiscal (auditoría ARCA 2026-07-01) ────────────────────────────
-    // Un comprobante con CAE ya fue autorizado por ARCA: no se puede "anular"
-    // cambiando estado local, porque fiscalmente sigue existiendo. Para
-    // reversarlo hay que emitir una Nota de Crédito asociada (que sí llama a
-    // ARCA y solo entonces marca el original como anulado_fiscal — ver
-    // crearNotaCredito()). Esto evita comprobantes con estado local
-    // "anulado" pero sin ningún respaldo fiscal de la anulación.
-    if (comp.cae) {
-      return {
-        success: false,
-        error: 'Este comprobante ya fue autorizado por ARCA (tiene CAE). No se puede anular localmente: generá una Nota de Crédito desde el detalle del comprobante.',
-        requiereNotaCredito: true,
-      };
-    }
-
-    // Revertir stock
-    if (comp.items) {
-      await this._revertirStock(
-        comp.items.filter(i => i.inventory_id && ['producto','repuesto'].includes(i.tipo_linea || 'producto')),
-        comprobanteId,
-        businessId,
-        userId
-      );
-    }
-
-    const { error } = await supabase
-      .from('comprobantes')
-      .update({
-        estado:          'anulado',
-        status:          'cancelled',
-        estado_comercial:'anulado',
-        estado_fiscal:   'anulado_fiscal',
-        afip_response:   { ...(comp.afip_response || {}), anulacion: { motivo, fecha: new Date().toISOString() } },
-        updated_at:      new Date().toISOString(),
-      })
-      .eq('id', comprobanteId)
-      .eq('business_id', businessId);
+    const { data, error } = await supabase.rpc('annul_comprobante_atomic', {
+      p_comprobante_id:  comprobanteId,
+      p_mode:            mode,
+      p_motivo:          motivoFinal,
+      p_restore_stock:   opts?.reponerStock ?? true,
+      p_idempotency_key: opts?.idempotencyKey || crypto.randomUUID(),
+    });
 
     if (error) return { success: false, error: error.message };
 
-    // Reverso en finanzas — idempotente
-    // FM: sign=-1 en financial_movements (impacta caja)
-    // BFE: amount negativo en business_finance_entries (impacta reportes)
-    const numero  = comp.number || comp.numero || comprobanteId.slice(0, 8);
-    const total   = comp.total_bruto || comp.total || 0;
-    const today   = new Date().toISOString().split('T')[0];
-    const desc    = `ANULACIÓN Comprobante #${numero}${motivo ? ` — ${motivo}` : ''}`;
+    const result = data as {
+      ok: boolean;
+      error?: string;
+      requiere_nota_credito?: boolean;
+    } | null;
 
-    const { data: existingFm } = await supabase
-      .from('financial_movements')
-      .select('id')
-      .eq('comprobante_id', comprobanteId)
-      .eq('sign', -1)
-      .maybeSingle();
-
-    if (!existingFm) {
-      await supabase.from('financial_movements').insert({
-        business_id:   businessId,
-        date:          today,
-        type:          'expense',
-        currency:      comp.currency || 'ARS',
-        amount:        total,
-        exchange_rate: comp.exchange_rate || 1,
-        amount_ars:    total,
-        source:        'comprobante',
-        comprobante_id: comprobanteId,
-        description:   desc,
-        created_by:    userId,
-        sign:          -1,
-      });
-    }
-
-    const { data: existingBfe } = await supabase
-      .from('business_finance_entries')
-      .select('id')
-      .eq('reference_comprobante_id', comprobanteId)
-      .lt('amount_ars', 0)
-      .maybeSingle();
-
-    if (!existingBfe) {
-      await supabase.from('business_finance_entries').insert({
-        business_id:              businessId,
-        date:                     today,
-        type:                     'income',
-        category:                 'ventas_productos',
-        description:              desc,
-        amount:                   -total,
-        currency:                 comp.currency || 'ARS',
-        amount_ars:               -total,
-        exchange_rate:            comp.exchange_rate || 1,
-        reference_comprobante_id: comprobanteId,
-        source:                   'comprobante',
-        created_by:               userId,
-      });
+    if (!result?.ok) {
+      return {
+        success: false,
+        error: result?.error || 'Error al anular el comprobante',
+        requiereNotaCredito: result?.requiere_nota_credito === true,
+      };
     }
 
     return { success: true };
@@ -1253,63 +1216,9 @@ export const comprobanteService = {
     }
   },
 
-  async _revertirStock(
-    items: { id?: string; inventory_id?: string | null; cantidad: number }[],
-    comprobanteId: string,
-    businessId: string,
-    userId?: string
-  ) {
-    for (const item of items) {
-      if (!item.inventory_id) continue;
-
-      // Idempotencia: solo revertir si el item tiene stock_processed = true
-      if (item.id) {
-        const { data: ciRow } = await supabase
-          .from('comprobante_items')
-          .select('stock_processed')
-          .eq('id', item.id)
-          .maybeSingle();
-        if (!ciRow?.stock_processed) continue; // Nunca fue descontado, nada que revertir
-      }
-
-      const { data: inv } = await supabase
-        .from('inventory')
-        .select('stock_quantity')
-        .eq('id', item.inventory_id)
-        .eq('business_id', businessId)
-        .single();
-
-      if (!inv) continue;
-
-      const prevStock = inv.stock_quantity ?? 0;
-      const newStock  = prevStock + item.cantidad;
-
-      await supabase.from('inventory')
-        .update({ stock_quantity: newStock, updated_at: new Date().toISOString() })
-        .eq('id', item.inventory_id)
-        .eq('business_id', businessId);
-
-      await supabase.from('inventory_movements').insert({
-        business_id:       businessId,
-        inventory_item_id: item.inventory_id,
-        movement_type:     'return',
-        quantity:          item.cantidad,
-        previous_stock:    prevStock,
-        new_stock:         newStock,
-        reference_type:    'comprobante',
-        reference_id:      comprobanteId,
-        note:              'Devolución por anulación de comprobante',
-        created_by:        userId || null,
-      });
-
-      // Desmarcar item
-      if (item.id) {
-        await supabase.from('comprobante_items')
-          .update({ stock_processed: false, stock_processed_at: null, stock_movement_id: null })
-          .eq('id', item.id);
-      }
-    }
-  },
+  // La reposición de stock por anulación vive dentro de la RPC
+  // annul_comprobante_atomic (server-side, FOR UPDATE + marcador
+  // stock_processed = exactamente una vez) — Etapa 0.
 };
 
 export default comprobanteService;

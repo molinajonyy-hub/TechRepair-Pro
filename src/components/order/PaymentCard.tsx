@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { DollarSign, Plus, Trash2, Loader2, AlertCircle, CheckCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { useAuth } from '../../contexts/AuthContext'
 
 type Currency = 'ARS' | 'USD'
 
@@ -37,7 +36,6 @@ const fmtUSD = (v: number) =>
   `USD ${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 export function PaymentCard({ orderId, payments, totalCost, exchangeRate = 1, onPaymentsChange }: PaymentCardProps) {
-  const { businessId, user } = useAuth()
   const [isAdding, setIsAdding] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -75,7 +73,10 @@ export function PaymentCard({ orderId, payments, totalCost, exchangeRate = 1, on
         throw new Error('El monto debe ser mayor a 0')
       }
 
-      const { data: paymentData, error: insertError } = await supabase
+      // Etapa 0: NO insertar financial_movements acá. El trigger
+      // trig_payment_movements (order_payments BEFORE INSERT) ya crea el
+      // movimiento de caja + BFE; el insert manual duplicaba el ingreso (P0-4).
+      const { error: insertError } = await supabase
         .from('order_payments')
         .insert({
           order_id: orderId,
@@ -86,28 +87,8 @@ export function PaymentCard({ orderId, payments, totalCost, exchangeRate = 1, on
           notes: formData.notes || null,
           payment_date: new Date().toISOString()
         })
-        .select('id')
-        .single()
 
       if (insertError) throw insertError
-
-      // Registrar en financial_movements para Caja / Tesorería
-      if (businessId) {
-        const amountARS = formData.currency === 'USD' ? amount * exchangeRate : amount
-        await supabase.from('financial_movements').insert({
-          business_id: businessId,
-          type: 'income',
-          currency: formData.currency,
-          amount,
-          exchange_rate: exchangeRate,
-          amount_ars: amountARS,
-          source: 'payment',
-          source_id: paymentData?.id ?? null,
-          description: `Pago orden`,
-          date: new Date().toISOString().split('T')[0],
-          created_by: user?.id ?? null
-        })
-      }
 
       setSuccess('Pago registrado correctamente')
       setFormData({ amount: '', currency: 'ARS', payment_method: 'cash', reference_number: '', notes: '' })
