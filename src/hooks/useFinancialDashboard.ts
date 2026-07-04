@@ -110,7 +110,7 @@ export function useFinancialDashboard(businessId: string | null | undefined, ope
       const monthAgoISO = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
 
       // Queries que siempre se ejecutan
-      const [cpSemana, cpMes, ccClientes, ccProveedores, stockBajo, fmCaja] = await Promise.all([
+      const [cpSemana, cpMes, positionRes, _unused, stockBajo, fmCaja] = await Promise.all([
 
         // 1. Ventas semana
         supabase
@@ -128,21 +128,18 @@ export function useFinancialDashboard(businessId: string | null | undefined, ope
           .gte('date', monthAgoISO)
           .neq('payment_method', 'cuenta_corriente'),
 
-        // 3. CC clientes deuda
+        // 3+4. Deuda de clientes (CxC) y proveedores (CxP) desde la fuente
+        // canónica v_finance_position (Etapa 1). Antes se leía `accounts`
+        // (vacía → mostraba $0 de deuda de proveedores cuando el negocio
+        // debía millones). payables sale del ledger real de proveedores.
         supabase
-          .from('accounts')
-          .select('balance')
+          .from('v_finance_position')
+          .select('receivables, payables')
           .eq('business_id', businessId)
-          .eq('type', 'cliente')
-          .gt('balance', 0),
+          .maybeSingle(),
 
-        // 4. CC proveedores deuda
-        supabase
-          .from('accounts')
-          .select('balance')
-          .eq('business_id', businessId)
-          .eq('type', 'proveedor')
-          .gt('balance', 0),
+        // (placeholder para mantener la forma del Promise.all)
+        Promise.resolve({ data: null, error: null }),
 
         // 5. Stock bajo (count)
         supabase
@@ -170,9 +167,10 @@ export function useFinancialDashboard(businessId: string | null | undefined, ope
       const ventasSemana = (cpSemana.data || []).reduce((s, r) => s + (r.amount_ars || 0), 0)
       const ventasMes    = (cpMes.data    || []).reduce((s, r) => s + (r.amount_ars || 0), 0)
 
-      // ── CC ────────────────────────────────────────────────────────────
-      const ccClientesDeuda    = (ccClientes.data   || []).reduce((s, a) => s + Number(a.balance || 0), 0)
-      const ccProveedoresDeuda = (ccProveedores.data || []).reduce((s, a) => s + Number(a.balance || 0), 0)
+      // ── Deuda (fuente canónica v_finance_position) ────────────────────
+      const pos = (positionRes.data as { receivables?: number; payables?: number } | null) || null
+      const ccClientesDeuda    = Number(pos?.receivables || 0)
+      const ccProveedoresDeuda = Number(pos?.payables || 0)
 
       // ── Stock bajo ────────────────────────────────────────────────────
       const stockBajoCount = stockBajo.count ?? 0

@@ -103,40 +103,40 @@ export const ENTRY_TYPES: TypeDef[] = [
       { value: 'otros_fijos_local', label: 'Otros costos fijos' },
     ],
   },
-  {
-    value: 'fixed_cost_personal',
-    label: 'Costos fijos personales',
-    color: '#c084fc',
-    bgColor: 'rgba(192,132,252,0.12)',
-    borderColor: 'rgba(192,132,252,0.3)',
-    categories: [
-      { value: 'vivienda', label: 'Vivienda' },
-      { value: 'alimentacion', label: 'Alimentación' },
-      { value: 'transporte', label: 'Transporte' },
-      { value: 'servicios_personales', label: 'Servicios personales' },
-      { value: 'salud', label: 'Salud' },
-      { value: 'educacion', label: 'Educación' },
-      { value: 'cuotas', label: 'Cuotas / deudas' },
-      { value: 'familia', label: 'Familia' },
-      { value: 'otros_fijos_personal', label: 'Otros gastos personales' },
-    ],
-  },
+  // Etapa 1 (M4): el tipo 'fixed_cost_personal' se retira del catálogo de gasto
+  // manual — los gastos personales del dueño NO son gasto operativo del negocio.
+  // Se registran como retiro desde Mi Guita (owner_withdrawals).
   {
     value: 'salary',
-    label: 'Sueldos y retiros',
+    label: 'Sueldos de empleados',
     color: '#60a5fa',
     bgColor: 'rgba(96,165,250,0.12)',
     borderColor: 'rgba(96,165,250,0.3)',
+    // M4: se remueven 'sueldo_dueno' y 'retiros'. El retiro/sueldo del dueño es
+    // un movimiento de CAPITAL, no un gasto: se registra por el flujo de retiro
+    // (Mi Guita → owner_withdrawals), nunca como gasto operativo manual.
     categories: [
-      { value: 'sueldo_dueno', label: 'Sueldo del dueño' },
       { value: 'sueldo_empleados', label: 'Sueldo de empleados' },
       { value: 'adelantos', label: 'Adelantos' },
       { value: 'bonos', label: 'Bonos' },
       { value: 'comisiones', label: 'Comisiones' },
-      { value: 'retiros', label: 'Retiros personales' },
     ],
   },
 ]
+
+/**
+ * M4 — categorías/tipos que YA NO se pueden crear como gasto operativo manual
+ * (son movimientos de capital del propietario). La UI redirige al flujo de
+ * retiro. Guard de defensa por si un caller intenta pasarlas.
+ */
+export const OWNER_CAPITAL_BLOCKED = {
+  types: ['fixed_cost_personal'] as const,
+  categories: ['sueldo_dueno', 'retiros'] as const,
+}
+export function isOwnerCapitalEntry(type: string, category?: string): boolean {
+  return (OWNER_CAPITAL_BLOCKED.types as readonly string[]).includes(type)
+    || (!!category && (OWNER_CAPITAL_BLOCKED.categories as readonly string[]).includes(category))
+}
 
 export const PAYMENT_METHODS: CategoryDef[] = [
   { value: 'efectivo', label: 'Efectivo' },
@@ -321,6 +321,11 @@ export const financeService = {
   },
 
   async createEntry(entry: NewFinanceEntry): Promise<FinanceEntry> {
+    // M4 guard: un retiro/sueldo del dueño/gasto personal NO es gasto operativo.
+    // Se registra por el flujo de retiro (Mi Guita → owner_withdrawals).
+    if (isOwnerCapitalEntry(entry.type, entry.category)) {
+      throw new Error('Los retiros y gastos personales del dueño se registran desde el flujo de retiro (Mi Guita), no como gasto del negocio.')
+    }
     const { data, error } = await supabase
       .from(TABLE)
       .insert(entry)

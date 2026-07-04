@@ -264,6 +264,15 @@ export function FinanceDashboard() {
   // ── Movements filter ──
   const [mvFilter, setMvFilter] = useState<'all' | 'income' | 'expense' | 'reversal'>('all')
 
+  // ── Aviso de cambio de cálculo (Etapa 1) ──
+  const [calcNoticeDismissed, setCalcNoticeDismissed] = useState<boolean>(() => {
+    try { return localStorage.getItem('finance_calc_notice_v2_dismissed') === '1' } catch { return false }
+  })
+  const dismissCalcNotice = () => {
+    try { localStorage.setItem('finance_calc_notice_v2_dismissed', '1') } catch { /* noop */ }
+    setCalcNoticeDismissed(true)
+  }
+
   const { from, to } = preset === 'custom'
     ? { from: customFrom, to: customTo }
     : getDateRange(preset)
@@ -273,7 +282,11 @@ export function FinanceDashboard() {
     if (!businessId || !from || !to) return
     setLoading(true); setError(null)
     try {
-      const [{ data: rpcData, error: rpcErr }, { data: mvmts }, { data: debt }] = await Promise.all([
+      // Etapa 1: la RPC v2 devuelve secciones canónicas (profitability/cashflow/
+      // position/data_quality). Se ADAPTAN a la forma DashboardData que consume
+      // esta pantalla, sin sumar dinero en JS: rentabilidad y caja salen de las
+      // vistas v_finance_*; la serie diaria de v_finance_pnl (≤31 filas).
+      const [rpcRes, { data: mvmts }, { data: debt }, { data: pnlDaily }] = await Promise.all([
         supabase.rpc('finance_dashboard_summary', { p_business_id: businessId, p_date_from: from, p_date_to: to }),
         supabase
           .from('financial_movements')
@@ -286,10 +299,60 @@ export function FinanceDashboard() {
           .select('pending_amount')
           .eq('business_id', businessId)
           .neq('payment_status', 'paid'),
+        supabase
+          .from('v_finance_pnl')
+          .select('period_date,net_sales,cogs,payment_fees,operating_expenses,employee_salaries')
+          .eq('business_id', businessId)
+          .gte('period_date', from).lte('period_date', to)
+          .order('period_date', { ascending: true }),
       ])
-      if (rpcErr) throw new Error(rpcErr.message)
-      if (!rpcData?.ok) throw new Error(rpcData?.error || 'Error en RPC')
-      setData(rpcData as DashboardData)
+      const v2 = rpcRes.data as any
+      if (rpcRes.error) throw new Error(rpcRes.error.message)
+      if (!v2?.ok) throw new Error(v2?.error || 'Error en RPC')
+
+      const prof = v2.profitability || {}
+      const cash = v2.cashflow || {}
+      const byMethod = (cash.by_method || {}) as Record<string, number>
+      const byClass  = (cash.by_class  || {}) as Record<string, number>
+      const dq = v2.data_quality || {}
+      const num = (x: any) => Number(x) || 0
+
+      const dailySeries: DailySeries[] = (pnlDaily || []).map((r: any) => {
+        const income = num(r.net_sales)
+        const expense = num(r.cogs) + num(r.payment_fees) + num(r.operating_expenses) + num(r.employee_salaries)
+        return { date: r.period_date, income, expense, net: income - expense }
+      })
+
+      const adapted: DashboardData = {
+        period: v2.period,
+        summary: {
+          gross_income:         num(prof.net_sales),              // ventas netas devengadas
+          expenses:             num(prof.cogs) + num(prof.payment_fees) + num(prof.operating_expenses) + num(prof.employee_salaries),
+          net_result:           num(prof.operating_result),        // resultado operativo (rentabilidad)
+          sales_total:          num(prof.net_sales),
+          credit_notes_total:   num(prof.sales_returns),
+          supplier_payments:    Math.abs(num(byClass.supplier)),
+          operational_expenses: num(prof.operating_expenses),
+        },
+        cash_by_method: byMethod,
+        sales: {
+          count: 0, nc_count: 0, local_count: 0, arca_count: 0,
+          total_collected: num(cash.income_ars),
+          pending_total:   num((v2.position || {}).receivables),
+        },
+        expenses_by_category: [],
+        top_payment_methods: Object.entries(byMethod)
+          .map(([method, total]) => ({ method, total: Number(total) }))
+          .filter(m => m.total > 0).sort((a, b) => b.total - a.total).slice(0, 5),
+        daily_series: dailySeries,
+        alerts: {
+          critical: num(dq.comprobantes_desincronizados) > 0 ? 1 : 0,
+          warning:  num(dq.unclassified_count) > 0 || num(dq.fm_sin_caja) > 0 ? 1 : 0,
+          low: 0,
+        },
+      }
+
+      setData(adapted)
       setMovements((mvmts || []) as LatestMovement[])
       setSupplierDebt((debt || []).reduce((s: number, r: { pending_amount: number }) => s + (r.pending_amount || 0), 0))
     } catch (e: unknown) {
@@ -436,6 +499,16 @@ export function FinanceDashboard() {
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'resumen' && (
         <>
+          {!calcNoticeDismissed && (
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.75rem 1rem', marginBottom: '1rem', borderRadius: 'var(--radius-md)', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)' }}>
+              <Info size={16} style={{ color: '#818cf8', flexShrink: 0, marginTop: '0.1rem' }} />
+              <span style={{ flex: 1, fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                Actualizamos el cálculo financiero para separar rentabilidad, caja, compras de inventario y retiros del dueño.
+                Los montos históricos no fueron modificados; cambió su clasificación contable.
+              </span>
+              <button onClick={dismissCalcNotice} className="btn btn-ghost btn-sm" style={{ flexShrink: 0, color: 'var(--text-muted)' }}>Entendido</button>
+            </div>
+          )}
           {PeriodFilter}
 
           {data && (

@@ -113,15 +113,18 @@ export function useInventoryFinance(businessId?: string | null) {
 
       const rotationMap: Record<string, number> = {}
       if (itemIds.length > 0) {
+        // Etapa 1 fix: la columna real es inventory_item_id / movement_type
+        // (antes 'inventory_id'/'type' → la query no matcheaba y la rotación
+        // daba siempre 0).
         const { data: movementsData } = await supabase
           .from('inventory_movements')
-          .select('inventory_id, quantity')
-          .in('inventory_id', itemIds)
+          .select('inventory_item_id, quantity')
+          .in('inventory_item_id', itemIds)
           .gte('created_at', thirtyDaysAgo)
-          .in('type', ['sale', 'out', 'order_usage'])
+          .in('movement_type', ['sale', 'out', 'order_usage'])
 
         movementsData?.forEach(m => {
-          rotationMap[m.inventory_id] = (rotationMap[m.inventory_id] || 0) + Math.abs(m.quantity)
+          rotationMap[m.inventory_item_id] = (rotationMap[m.inventory_item_id] || 0) + Math.abs(m.quantity)
         })
       }
 
