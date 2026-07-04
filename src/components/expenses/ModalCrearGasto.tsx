@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { ProductFormModalSafe as ProductFormModal } from '../products/ProductFormModal'
 import type { InventoryItem as InventoryItemHook } from '../../hooks/useInventory'
 import { productService } from '../../services/productService'
-import { inventoryMovementsService } from '../../services/inventoryMovementsService'
 import {
   DollarSign, Calendar, Tag, Building2, Loader2, Plus, Trash2,
   Search, Package, ChevronDown, AlertCircle, CheckCircle2, ShoppingCart,
@@ -11,6 +10,19 @@ import {
 import { CloseButton } from '../ui/CloseButton'
 import { supabase } from '../../lib/supabase'
 import { parseUnitQuantity } from '../../utils/quantityUtils'
+import { useCaja } from '../../contexts/CajaContext'
+import { invalidateStatsCache } from '../../hooks/useDashboardStats'
+import { invalidateFinancialDashboardCache } from '../../hooks/useFinancialDashboard'
+
+// Traduce el error de la RPC a un mensaje funcional (nunca SQL crudo).
+function friendlyPurchaseError(raw?: string | null): string {
+  const generic = 'No se pudo registrar la compra. Revisá los datos e intentá de nuevo.'
+  if (!raw) return generic
+  const known = ['No autenticado', 'Sin acceso', 'total debe ser mayor', 'idempotency_key requerida', 'Cuenta', 'no activa']
+  if (known.some(k => raw.includes(k))) return raw
+  if (/(SQLSTATE|violates|null value|relation|column|syntax|permission denied|duplicate key)/i.test(raw)) return generic
+  return raw
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -421,6 +433,12 @@ export function ModalCrearGasto({
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitSuccess, setSubmitSuccess] = useState(false)
 
+  const { isOpen: cajaIsOpen } = useCaja()
+  // Idempotency key estable por INTENTO de compra: se genera una vez y se
+  // conserva ante un reintento (timeout/doble click); se limpia sólo al
+  // completar con éxito o al resetear el formulario (nueva operación → otra key).
+  const purchaseKeyRef = useRef<string | null>(null)
+
   const supplierWrapperRef = useRef<HTMLDivElement>(null)
 
   // Load suppliers
@@ -477,6 +495,7 @@ export function ModalCrearGasto({
     setItems([emptyItem()])
     setSubmitError(null)
     setSubmitSuccess(false)
+    purchaseKeyRef.current = null   // form limpio = nueva operación
   }
 
   const handleClose = () => {
@@ -498,37 +517,42 @@ export function ModalCrearGasto({
     onCrear({ descripcion, categoria, monto: parseFloat(monto), fecha, proveedor, metodoPago })
   }
 
-  // ─── Inventory purchase submit ──────────────────────────────────────────────
+  // ─── Inventory purchase submit (Etapa 1) ────────────────────────────────────
+  // Una ÚNICA llamada a create_quick_inventory_purchase_atomic reemplaza las 6
+  // escrituras client-side (stock, inventory_movements, purchases, purchase_items,
+  // BFE, expenses). La RPC hace compra + ítems + entrada de inventario + salida
+  // de caja + UNA BFE técnica clasificada inventory_purchase (excluida del P&L),
+  // en una transacción e idempotente por p_idempotency_key. La creación de
+  // productos nuevos (no es escritura financiera) se resuelve antes para que
+  // cada ítem tenga inventory_id.
   const handlePurchaseSubmit = async () => {
     setSubmitError(null)
 
-    // Validate
     const validItems = items.filter(it => it.nombre.trim() && it.cantidad > 0 && it.costoUnitario >= 0)
     if (validItems.length === 0) {
       setSubmitError('Agregá al menos un producto con cantidad y costo válidos')
       return
     }
-    for (const it of validItems) {
-      if (!it.inventoryId && !it.nombre.trim()) {
-        setSubmitError('Todos los ítems deben tener un producto seleccionado o nombre ingresado')
-        return
-      }
-    }
+    if (!businessId) { setSubmitError('Negocio no identificado. Iniciá sesión de nuevo.'); return }
 
-    const rate = currency === 'USD' ? parseFloat(exchangeRate) || 1 : 1
-    const totalARS = validItems.reduce((s, it) => s + it.cantidad * it.costoUnitario * rate, 0)
+    const rate = currency === 'USD' ? parseFloat(exchangeRate) || 0 : 1
+    if (currency === 'USD' && rate <= 0) { setSubmitError('Ingresá el tipo de cambio USD para la compra.'); return }
+
+    // Compra rápida = al contado → requiere caja abierta (evita movimientos de
+    // caja sin sesión). Si no hay caja, se informa claramente.
+    if (!cajaIsOpen) {
+      setSubmitError('No hay caja abierta. Abrí una caja para registrar la compra al contado.')
+      return
+    }
 
     setSubmitting(true)
     try {
-      // 1. Ensure each new inventory item exists
-      const resolvedItems: (CompraItem & { resolvedId: string })[] = []
-
+      // 1. Resolver/crear productos → cada ítem con inventory_id (ARS).
+      const resolved: { inventory_id: string; product_name: string; quantity: number; unit_cost_ars: number }[] = []
       for (const it of validItems) {
-        if (it.inventoryId) {
-          resolvedItems.push({ ...it, resolvedId: it.inventoryId })
-        } else if (it.nombre.trim() && businessId && userId) {
-          // Fallback: crear producto completo via productService (no debería llegar aquí
-          // si ProductFormModal está correctamente integrado, pero lo mantenemos como red de seguridad)
+        let invId = it.inventoryId
+        if (!invId) {
+          if (!userId) throw new Error('Usuario no identificado para crear el producto')
           const product = await productService.createProduct({
             business_id:  businessId,
             created_by:   userId,
@@ -540,106 +564,55 @@ export function ModalCrearGasto({
             base_price:   it.costoUnitario,
             cost_price:   it.costoUnitario * rate,
             sale_price:   it.precioVenta || 0,
-            stock_quantity: 0,  // stock sube en el paso siguiente
+            stock_quantity: 0,   // el stock sube dentro de la RPC
             is_active:    true,
           })
-          resolvedItems.push({ ...it, resolvedId: product.id, inventoryId: product.id })
+          invId = product.id
         }
+        resolved.push({
+          inventory_id: invId,
+          product_name: it.nombre.trim(),
+          quantity:     it.cantidad,
+          unit_cost_ars: it.costoUnitario * rate,   // costo del usuario convertido con el TC explícito
+        })
       }
 
-      // 2. Sumar stock via inventoryMovementsService (maneja previous_stock, new_stock, audit)
-      for (const it of resolvedItems) {
-        await inventoryMovementsService.registerMovement(
-          it.resolvedId,
-          'purchase',
-          it.cantidad,
-          'purchase',
-          undefined,   // referenceId se asigna en paso 3 cuando tengamos el purchaseId
-          `Compra: ${supplierQuery || 'Proveedor'}${invoiceNumber ? ` - Factura ${invoiceNumber}` : ''}`,
-          businessId ?? undefined,
-          userId ?? undefined
-        )
-        // Actualizar también el costo unitario
-        if (it.costoUnitario > 0) {
-          await supabase
-            .from('inventory')
-            .update({ cost_price: it.costoUnitario * rate, updated_at: new Date().toISOString() })
-            .eq('id', it.resolvedId)
-        }
+      const totalARS = resolved.reduce((s, r) => s + r.quantity * r.unit_cost_ars, 0)
+
+      // 2. Idempotency key estable por intento (no se regenera en el reintento).
+      if (!purchaseKeyRef.current) purchaseKeyRef.current = crypto.randomUUID()
+
+      // 3. UNA sola llamada atómica.
+      const { data, error } = await supabase.rpc('create_quick_inventory_purchase_atomic', {
+        p_business_id:     businessId,
+        p_idempotency_key: purchaseKeyRef.current,
+        p_supplier_id:     selectedSupplierId || null,
+        p_supplier_name:   supplierQuery.trim() || null,
+        p_invoice:         invoiceNumber.trim() || null,
+        p_date:            fecha,
+        p_payment_method:  metodoPago,
+        p_total_ars:       totalARS,
+        p_paid_ars:        totalARS,   // compra rápida al contado
+        p_items:           resolved,
+      })
+
+      const result = data as { ok: boolean; error?: string; purchase_id?: string; replay?: boolean } | null
+      if (error || !result?.ok) {
+        setSubmitError(friendlyPurchaseError(result?.error || error?.message))
+        return
       }
 
-      // 3. Create purchase record
-      const { data: purchaseRecord, error: purchaseErr } = await supabase
-        .from('purchases')
-        .insert({
-          business_id: businessId,
-          supplier_id: selectedSupplierId || null,
-          invoice_number: invoiceNumber.trim() || null,
-          purchase_date: fecha,
-          subtotal: totalARS,
-          taxes: 0,
-          total: totalARS,
-          notes: purchaseNote.trim() || null,
-          status: 'confirmed',
-          created_by: userId || null,
-        })
-        .select('id')
-        .single()
-
-      if (purchaseErr) throw new Error(`Error creando compra: ${purchaseErr.message}`)
-
-      // 4. Create purchase items
-      await supabase
-        .from('purchase_items')
-        .insert(
-          resolvedItems.map(it => ({
-            purchase_id: purchaseRecord.id,
-            inventory_item_id: it.resolvedId,
-            description: it.nombre,
-            quantity: it.cantidad,
-            unit_cost: it.costoUnitario * rate,
-            subtotal: it.cantidad * it.costoUnitario * rate,
-          }))
-        )
-
-      // 5. Record in business_finance_entries
-      await supabase
-        .from('business_finance_entries')
-        .insert({
-          business_id: businessId,
-          date: fecha,
-          type: 'variable_cost',
-          category: 'repuestos',
-          subcategory: 'compra_proveedor',
-          description: `Compra a ${supplierQuery || 'Proveedor'}${invoiceNumber ? ` - ${invoiceNumber}` : ''} (${validItems.length} ítem${validItems.length > 1 ? 's' : ''})`,
-          amount: totalARS,
-          currency: 'ARS',
-          amount_ars: totalARS,
-          exchange_rate: rate,
-          payment_method: 'transferencia',
-          notes: purchaseNote.trim() || null,
-          reference_order_id: null,
-          created_by: userId || null,
-        })
-
-      // 6. Record in expenses (for existing expenses view)
-      await supabase
-        .from('expenses')
-        .insert({
-          description: `Compra a ${supplierQuery || 'Proveedor'}${invoiceNumber ? ` (${invoiceNumber})` : ''}`,
-          category: 'Inventario',
-          amount: totalARS,
-          date: fecha,
-          business_id: businessId,
-        })
-
+      // Éxito (created o replay idempotente): la próxima compra usa otra key.
+      purchaseKeyRef.current = null
+      invalidateStatsCache()
+      invalidateFinancialDashboardCache()
       setSubmitSuccess(true)
       setTimeout(() => {
         onSuccess?.()
         handleClose()
       }, 1500)
     } catch (err: unknown) {
-      setSubmitError(err instanceof Error ? err.message : 'Error al guardar la compra')
+      setSubmitError(friendlyPurchaseError(err instanceof Error ? err.message : undefined))
     } finally {
       setSubmitting(false)
     }
