@@ -31,12 +31,50 @@ test('el modal ya NO realiza escrituras directas de stock ni finanzas', () => {
   assert.ok(!/\.from\('inventory'\)[\s\S]{0,60}\.update/.test(modal), 'no debe actualizar stock/cost directo')
 })
 
-test('idempotency key estable por intento (ref), se limpia en éxito y reset', () => {
+test('idempotency key ligada al payload: ref + hash local determinístico', () => {
   assert.match(modal, /purchaseKeyRef\s*=\s*useRef/)
-  assert.match(modal, /if\s*\(!purchaseKeyRef\.current\)\s*purchaseKeyRef\.current\s*=\s*crypto\.randomUUID\(\)/)
-  // se limpia en éxito (nueva operación → otra key) y en resetAll
-  const clears = modal.match(/purchaseKeyRef\.current\s*=\s*null/g) || []
-  assert.ok(clears.length >= 2, 'debe limpiarse en éxito y en resetAll')
+  assert.match(modal, /payloadHashRef\s*=\s*useRef/)
+  // helper de hash local canónico (sólo decide en UI si renovar la key)
+  assert.match(modal, /function localPurchaseHash\(/)
+  // decisión determinística: renovar key si no hay key O si el payload cambió
+  assert.match(modal, /if\s*\(!purchaseKeyRef\.current\s*\|\|\s*payloadHashRef\.current\s*!==\s*localHash\)/)
+  assert.match(modal, /payloadHashRef\.current\s*=\s*localHash/)
+})
+
+test('retry sin cambios conserva la key; cambio de payload la renueva (Gate 5/6)', () => {
+  // La key sólo se regenera cuando el hash local difiere del último intento.
+  // Si el payload es idéntico (retry/doble click), la condición es falsa → misma key.
+  assert.match(modal, /if\s*\(!purchaseKeyRef\.current\s*\|\|\s*payloadHashRef\.current\s*!==\s*localHash\)\s*\{\s*purchaseKeyRef\.current\s*=\s*crypto\.randomUUID\(\)/)
+  // el hash local cubre todos los campos económicos (incluye items + paid)
+  assert.match(modal, /localPurchaseHash\(\{[\s\S]{0,400}items:\s*resolved/)
+})
+
+test('conflicto de idempotencia: NO muestra éxito, no cierra, prepara nueva operación (Gate 4)', () => {
+  assert.match(modal, /result\?\.error === 'IDEMPOTENCY_CONFLICT'/)
+  // el bloque de conflicto invalida la key y muestra el mensaje, sin setSubmitSuccess ni handleClose
+  const conflictBlock = modal.match(/if \(result\?\.error === 'IDEMPOTENCY_CONFLICT'\) \{[\s\S]*?\n      \}/)?.[0] || ''
+  assert.ok(conflictBlock.length > 0, 'debe existir el bloque de conflicto')
+  assert.match(conflictBlock, /purchaseKeyRef\.current\s*=\s*null/)
+  assert.match(conflictBlock, /setSubmitError\(/)
+  assert.ok(!/setSubmitSuccess\(true\)/.test(conflictBlock), 'el conflicto NO debe marcar éxito')
+  assert.ok(!/handleClose\(\)/.test(conflictBlock), 'el conflicto NO debe cerrar el modal')
+  assert.match(conflictBlock, /return/)
+})
+
+test('replay/éxito limpia la key y el hash; reset manual = nueva operación', () => {
+  // en éxito (created o replay) se limpian ambas refs → la próxima compra usa otra key
+  const successClears = modal.match(/purchaseKeyRef\.current\s*=\s*null[\s\S]{0,80}payloadHashRef\.current\s*=\s*null/g) || []
+  assert.ok(successClears.length >= 1, 'éxito debe limpiar key y hash')
+  // resetAll limpia la key (form limpio = nueva operación)
+  const resetBlock = modal.match(/const resetAll = \(\) => \{[\s\S]*?\n  \}/)?.[0] || ''
+  assert.match(resetBlock, /purchaseKeyRef\.current\s*=\s*null/)
+})
+
+test('producto creado antes de la RPC se persiste al ítem (no se recrea en retry — Gate 7)', () => {
+  // tras createProduct, el inventory_id se guarda en el estado del ítem para que
+  // un reintento del mismo formulario no vuelva a crear el producto.
+  assert.match(modal, /invId\s*=\s*product\.id/)
+  assert.match(modal, /updateItem\(it\._key,\s*\{\s*inventoryId:\s*invId,\s*esNuevo:\s*false\s*\}\)/)
 })
 
 test('compra al contado requiere caja abierta y convierte USD con TC explícito', () => {

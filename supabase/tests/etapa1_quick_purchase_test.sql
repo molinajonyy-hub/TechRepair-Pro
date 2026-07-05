@@ -73,7 +73,11 @@ SELECT pg_temp.assert(COALESCE((SELECT SUM(operating_result) FROM v_finance_pnl 
 SELECT pg_temp.assert((SELECT inventory_at_cost FROM v_finance_position WHERE business_id=:'bizA')=15000, 'QP1o posición: inventario a costo = 15*1000');
 
 -- ════════════════════════════════════════════════════════════
--- QP2: idempotencia — misma key → replay, sin duplicar
+-- QP2: idempotencia LIGADA AL PAYLOAD (contrato correcto)
+--   Caso A: misma key + mismo payload    → replay de la operación original
+--   Caso B: misma key + payload distinto → IDEMPOTENCY_CONFLICT (no éxito)
+-- El hash se reconstruye server-side desde los argumentos; una key reusada
+-- con datos diferentes NO puede recibir la compra anterior como éxito.
 -- ════════════════════════════════════════════════════════════
 DO $$
 DECLARE r jsonb; v_first uuid;
@@ -81,18 +85,61 @@ BEGIN
   SELECT purchase_id INTO v_first FROM quick_purchase_requests WHERE idempotency_key='qp1-key';
   SET LOCAL ROLE authenticated;
   SET LOCAL "request.jwt.claim.sub" = '00000000-0000-0000-0000-0000000e2a09';
-  -- misma key, mismo payload
+
+  -- ── Caso A: misma key + MISMO payload → replay del mismo purchase_id ──
   r := create_quick_inventory_purchase_atomic('00000000-0000-0000-0000-0000000e2a01'::uuid,'qp1-key',
     '00000000-0000-0000-0000-0000000e2501'::uuid,'Prov QP','FC-1','2026-06-20','efectivo',5000,5000, pg_temp.item(5,1000));
-  PERFORM pg_temp.assert((r->>'replay')::boolean AND (r->>'purchase_id')::uuid=v_first, 'QP2a misma key -> replay del mismo purchase_id');
-  -- misma key, PAYLOAD distinto → igual devuelve la compra original (no crea otra)
+  PERFORM pg_temp.assert((r->>'ok')::boolean AND (r->>'replay')::boolean AND (r->>'purchase_id')::uuid=v_first,
+    'QP2a caso A: misma key + mismo payload -> replay del mismo purchase_id');
+
+  -- ── Caso B: misma key + PAYLOAD distinto → IDEMPOTENCY_CONFLICT ──
   r := create_quick_inventory_purchase_atomic('00000000-0000-0000-0000-0000000e2a01'::uuid,'qp1-key',
     NULL,NULL,NULL,'2026-06-21','transferencia',9999,9999, pg_temp.item(50,200));
-  PERFORM pg_temp.assert((r->>'replay')::boolean AND (r->>'purchase_id')::uuid=v_first, 'QP2b misma key + payload distinto -> misma compra (no duplica)');
+  PERFORM pg_temp.assert((r->>'ok')::boolean IS NOT TRUE AND r->>'error'='IDEMPOTENCY_CONFLICT',
+    'QP2b caso B: misma key + payload distinto -> IDEMPOTENCY_CONFLICT (no exito)');
+  PERFORM pg_temp.assert(r->>'message' ILIKE '%datos diferentes%' AND r->>'message' NOT ILIKE '%SQLSTATE%',
+    'QP2b2 conflicto: mensaje funcional claro, sin SQL crudo');
+  PERFORM pg_temp.assert(r->>'purchase_id' IS NULL,
+    'QP2b3 conflicto: NO devuelve la compra anterior como purchase_id');
+
+  -- ── Variantes: cambia UN SOLO campo económico → cada una debe conflictuar ──
+  -- cantidad
+  r := create_quick_inventory_purchase_atomic('00000000-0000-0000-0000-0000000e2a01'::uuid,'qp1-key',
+    '00000000-0000-0000-0000-0000000e2501'::uuid,'Prov QP','FC-1','2026-06-20','efectivo',5000,5000, pg_temp.item(6,1000));
+  PERFORM pg_temp.assert(r->>'error'='IDEMPOTENCY_CONFLICT', 'QP2v1 solo cambia cantidad -> conflicto');
+  -- costo unitario
+  r := create_quick_inventory_purchase_atomic('00000000-0000-0000-0000-0000000e2a01'::uuid,'qp1-key',
+    '00000000-0000-0000-0000-0000000e2501'::uuid,'Prov QP','FC-1','2026-06-20','efectivo',5000,5000, pg_temp.item(5,1100));
+  PERFORM pg_temp.assert(r->>'error'='IDEMPOTENCY_CONFLICT', 'QP2v2 solo cambia costo -> conflicto');
+  -- paid_ars (total igual, cambia lo pagado)
+  r := create_quick_inventory_purchase_atomic('00000000-0000-0000-0000-0000000e2a01'::uuid,'qp1-key',
+    '00000000-0000-0000-0000-0000000e2501'::uuid,'Prov QP','FC-1','2026-06-20','efectivo',5000,4000, pg_temp.item(5,1000));
+  PERFORM pg_temp.assert(r->>'error'='IDEMPOTENCY_CONFLICT', 'QP2v3 solo cambia paid_ars -> conflicto');
+  -- proveedor (nombre)
+  r := create_quick_inventory_purchase_atomic('00000000-0000-0000-0000-0000000e2a01'::uuid,'qp1-key',
+    '00000000-0000-0000-0000-0000000e2501'::uuid,'Prov CAMBIADO','FC-1','2026-06-20','efectivo',5000,5000, pg_temp.item(5,1000));
+  PERFORM pg_temp.assert(r->>'error'='IDEMPOTENCY_CONFLICT', 'QP2v4 solo cambia proveedor -> conflicto');
+  -- método de pago
+  r := create_quick_inventory_purchase_atomic('00000000-0000-0000-0000-0000000e2a01'::uuid,'qp1-key',
+    '00000000-0000-0000-0000-0000000e2501'::uuid,'Prov QP','FC-1','2026-06-20','transferencia',5000,5000, pg_temp.item(5,1000));
+  PERFORM pg_temp.assert(r->>'error'='IDEMPOTENCY_CONFLICT', 'QP2v5 solo cambia metodo de pago -> conflicto');
+  -- fecha
+  r := create_quick_inventory_purchase_atomic('00000000-0000-0000-0000-0000000e2a01'::uuid,'qp1-key',
+    '00000000-0000-0000-0000-0000000e2501'::uuid,'Prov QP','FC-1','2026-06-25','efectivo',5000,5000, pg_temp.item(5,1000));
+  PERFORM pg_temp.assert(r->>'error'='IDEMPOTENCY_CONFLICT', 'QP2v6 solo cambia fecha -> conflicto');
+  -- inventario (otro inventory_id en el ítem)
+  r := create_quick_inventory_purchase_atomic('00000000-0000-0000-0000-0000000e2a01'::uuid,'qp1-key',
+    '00000000-0000-0000-0000-0000000e2501'::uuid,'Prov QP','FC-1','2026-06-20','efectivo',5000,5000,
+    jsonb_build_array(jsonb_build_object('inventory_id','00000000-0000-0000-0000-0000000e2d99','product_name','Prod QP','quantity',5,'unit_cost_ars',1000)));
+  PERFORM pg_temp.assert(r->>'error'='IDEMPOTENCY_CONFLICT', 'QP2v7 solo cambia inventario -> conflicto');
+
   RESET ROLE;
 END $$;
-SELECT pg_temp.assert((SELECT count(*) FROM supplier_purchases WHERE business_id=:'bizA')=1, 'QP2c sigue habiendo UNA sola compra');
-SELECT pg_temp.assert((SELECT stock_quantity FROM inventory WHERE id=:'prod')=15, 'QP2d el replay NO volvió a subir stock');
+SELECT pg_temp.assert((SELECT count(*) FROM supplier_purchases WHERE business_id=:'bizA')=1, 'QP2c ningun conflicto creo compra: sigue habiendo UNA sola');
+SELECT pg_temp.assert((SELECT stock_quantity FROM inventory WHERE id=:'prod')=15, 'QP2d ningun conflicto/replay volvio a subir stock');
+SELECT pg_temp.assert((SELECT count(*) FROM inventory_movements WHERE business_id=:'bizA' AND movement_type='purchase')=1, 'QP2e ningun conflicto/replay creo movimiento de inventario');
+SELECT pg_temp.assert((SELECT count(*) FROM business_finance_entries WHERE business_id=:'bizA')=1, 'QP2f ningun conflicto/replay creo BFE');
+SELECT pg_temp.assert((SELECT ROUND(SUM(debit-credit)) FROM supplier_account_movements WHERE business_id=:'bizA')=0, 'QP2g ledger proveedor intacto tras conflictos/replays');
 
 -- ════════════════════════════════════════════════════════════
 -- QP3: monto inválido

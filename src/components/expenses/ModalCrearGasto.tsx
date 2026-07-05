@@ -24,6 +24,25 @@ function friendlyPurchaseError(raw?: string | null): string {
   return raw
 }
 
+// Hash canónico LOCAL del payload económico — SÓLO para decidir en la UI si
+// renovar la idempotency key (si el usuario cambió datos tras un intento).
+// La validación autoritativa es server-side (request_hash de la RPC).
+const money2 = (n: number) => (Math.round((Number(n) + Number.EPSILON) * 100) / 100).toFixed(2)
+const qty4   = (n: number) => (Math.round((Number(n) + Number.EPSILON) * 10000) / 10000).toFixed(4)
+const norm   = (s?: string | null) => (s || '').trim() || '∅'
+function localPurchaseHash(p: {
+  businessId: string; supplierId: string | null; supplierName: string; invoice: string;
+  date: string; paymentMethod: string; totalArs: number; paidArs: number;
+  items: { inventory_id: string; product_name: string; quantity: number; unit_cost_ars: number }[]
+}): string {
+  const items = p.items
+    .map(it => `${it.inventory_id || '∅'}:${norm(it.product_name)}:${qty4(it.quantity)}:${money2(it.unit_cost_ars)}`)
+    .sort()
+    .join('|')
+  return [p.businessId, p.supplierId || '∅', norm(p.supplierName), norm(p.invoice),
+    p.date, norm(p.paymentMethod), money2(p.totalArs), money2(p.paidArs), items].join('§')
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Supplier {
@@ -437,7 +456,10 @@ export function ModalCrearGasto({
   // Idempotency key estable por INTENTO de compra: se genera una vez y se
   // conserva ante un reintento (timeout/doble click); se limpia sólo al
   // completar con éxito o al resetear el formulario (nueva operación → otra key).
+  // payloadHashRef guarda el hash local del último intento: si el usuario cambia
+  // un dato económico antes de reintentar, se invalida la key (nueva operación).
   const purchaseKeyRef = useRef<string | null>(null)
+  const payloadHashRef = useRef<string | null>(null)
 
   const supplierWrapperRef = useRef<HTMLDivElement>(null)
 
@@ -548,6 +570,9 @@ export function ModalCrearGasto({
     setSubmitting(true)
     try {
       // 1. Resolver/crear productos → cada ítem con inventory_id (ARS).
+      //    El inventory_id creado se PERSISTE en el estado del ítem para que un
+      //    reintento del mismo formulario NO vuelva a crear el producto (evita
+      //    producto huérfano/duplicado — Fase 5).
       const resolved: { inventory_id: string; product_name: string; quantity: number; unit_cost_ars: number }[] = []
       for (const it of validItems) {
         let invId = it.inventoryId
@@ -568,6 +593,7 @@ export function ModalCrearGasto({
             is_active:    true,
           })
           invId = product.id
+          updateItem(it._key, { inventoryId: invId, esNuevo: false })   // persistir para el retry
         }
         resolved.push({
           inventory_id: invId,
@@ -579,8 +605,20 @@ export function ModalCrearGasto({
 
       const totalARS = resolved.reduce((s, r) => s + r.quantity * r.unit_cost_ars, 0)
 
-      // 2. Idempotency key estable por intento (no se regenera en el reintento).
-      if (!purchaseKeyRef.current) purchaseKeyRef.current = crypto.randomUUID()
+      // 2. Idempotency key ligada al payload: si el usuario cambió un dato
+      //    económico desde el último intento, es OTRA operación → key nueva.
+      //    Si el payload es idéntico (reintento tras timeout/doble click), se
+      //    conserva la key para recuperar/repetir de forma segura. Decisión
+      //    determinística por hash local; nunca un bucle automático de retry.
+      const localHash = localPurchaseHash({
+        businessId, supplierId: selectedSupplierId || null, supplierName: supplierQuery,
+        invoice: invoiceNumber, date: fecha, paymentMethod: metodoPago,
+        totalArs: totalARS, paidArs: totalARS, items: resolved,
+      })
+      if (!purchaseKeyRef.current || payloadHashRef.current !== localHash) {
+        purchaseKeyRef.current = crypto.randomUUID()
+      }
+      payloadHashRef.current = localHash
 
       // 3. UNA sola llamada atómica.
       const { data, error } = await supabase.rpc('create_quick_inventory_purchase_atomic', {
@@ -596,7 +634,17 @@ export function ModalCrearGasto({
         p_items:           resolved,
       })
 
-      const result = data as { ok: boolean; error?: string; purchase_id?: string; replay?: boolean } | null
+      const result = data as { ok: boolean; error?: string; message?: string; purchase_id?: string; replay?: boolean } | null
+
+      // Conflicto de idempotencia: la key ya se usó con OTROS datos. No es éxito.
+      // No cerramos ni limpiamos; sólo invalidamos la key para que un próximo
+      // envío EXPLÍCITO del usuario arranque una operación nueva (sin auto-retry).
+      if (result?.error === 'IDEMPOTENCY_CONFLICT') {
+        purchaseKeyRef.current = null
+        payloadHashRef.current = null
+        setSubmitError(result.message || 'Esta solicitud ya fue utilizada con datos diferentes. Volvé a iniciar la operación.')
+        return
+      }
       if (error || !result?.ok) {
         setSubmitError(friendlyPurchaseError(result?.error || error?.message))
         return
@@ -604,6 +652,7 @@ export function ModalCrearGasto({
 
       // Éxito (created o replay idempotente): la próxima compra usa otra key.
       purchaseKeyRef.current = null
+      payloadHashRef.current = null
       invalidateStatsCache()
       invalidateFinancialDashboardCache()
       setSubmitSuccess(true)

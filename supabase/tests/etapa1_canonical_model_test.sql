@@ -207,12 +207,19 @@ BEGIN
     5000, 5000,
     jsonb_build_array(jsonb_build_object('inventory_id','00000000-0000-0000-0000-0000000e1d01','product_name','Prod E1','quantity',5,'unit_cost_ars',1000)));
   PERFORM pg_temp.assert((r->>'ok')::boolean, 'C10a compra rápida atómica -> ok (' || COALESCE(r->>'error','') || ')');
-  -- replay idempotente
+  -- replay idempotente: MISMA key + MISMO payload → replay (contrato ligado al payload)
+  r := create_quick_inventory_purchase_atomic(
+    '00000000-0000-0000-0000-0000000e1a01'::uuid, 'qp-key-1',
+    '00000000-0000-0000-0000-0000000e1501'::uuid, 'Prov E1', 'FC-1', '2026-06-20', 'efectivo',
+    5000, 5000,
+    jsonb_build_array(jsonb_build_object('inventory_id','00000000-0000-0000-0000-0000000e1d01','product_name','Prod E1','quantity',5,'unit_cost_ars',1000)));
+  PERFORM pg_temp.assert((r->>'replay')::boolean, 'C10b reintento con misma key + mismo payload -> replay (no duplica)');
+  -- misma key + payload DISTINTO → IDEMPOTENCY_CONFLICT (no replay silencioso de otros datos)
   r := create_quick_inventory_purchase_atomic(
     '00000000-0000-0000-0000-0000000e1a01'::uuid, 'qp-key-1',
     '00000000-0000-0000-0000-0000000e1501'::uuid, 'Prov E1', 'FC-1', '2026-06-20', 'efectivo',
     5000, 5000, '[]'::jsonb);
-  PERFORM pg_temp.assert((r->>'replay')::boolean, 'C10b reintento con misma key -> replay (no duplica)');
+  PERFORM pg_temp.assert((r->>'ok')::boolean IS NOT TRUE AND r->>'error'='IDEMPOTENCY_CONFLICT', 'C10b2 misma key + payload distinto -> IDEMPOTENCY_CONFLICT');
   RESET ROLE;
 END $$;
 SELECT pg_temp.assert(
