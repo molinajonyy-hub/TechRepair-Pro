@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { formatDisplayMessage } from '../utils/formatMessage'
 import {
   Plus, Receipt, AlertTriangle, Calendar,
@@ -18,6 +18,7 @@ import {
   RefreshIcon, AlertIcon,
 } from '../ui/icons'
 import { suppliersService, type CreatePurchaseInput } from '../services/suppliersService'
+import { purchasePayloadHash, resolvePurchaseKey } from '../utils/purchaseIdempotency'
 import { ProductFormModalSafe as ProductFormModal } from '../components/products/ProductFormModal'
 import type { InventoryItem } from '../hooks/useInventory'
 
@@ -264,6 +265,13 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
   const { isOpen: cajaIsOpen, cajaId } = useCaja()
   const [tipo, setTipo] = useState<'general' | 'factura'>('general')
 
+  // Idempotency key estable por INTENTO de compra: se genera una vez y se
+  // conserva ante reintentos (doble-click / timeout); se renueva sólo si el
+  // usuario cambia un dato económico (hash local distinto) y se limpia al
+  // completar con éxito. La validación autoritativa es server-side.
+  const purchaseKeyRef = useRef<string | null>(null)
+  const payloadHashRef = useRef<string | null>(null)
+
   // ── General state ──
   const [monto, setMonto]             = useState('')
   const [categoria, setCategoria]     = useState(categories[0]?.name || '')
@@ -371,6 +379,24 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
     setSaving(true); setError('')
     try {
       const supplierName = suppliers.find(s => s.id === supplierId)?.name || 'Proveedor'
+      const itemsPayload = validItems.map(it => ({
+        inventory_id: it.inventory_id || null,
+        product_name: it.product_name,
+        quantity:     parseFloat(it.cantidad) || 1,
+        unit_cost:    parseFloat(it.costo_unitario) || 0,
+      }))
+      // Idempotency key ligada al payload: si cambió cualquier dato económico
+      // desde el último intento → key nueva; si es idéntico (reintento/doble
+      // click) → conserva la key para replay seguro. Decisión determinística.
+      const localHash = purchasePayloadHash({
+        businessId, supplierId, supplierName, invoice: numFactura || '',
+        date: facFecha, paymentMethod: facMetodo, totalArs: totalFactura, paidArs: facPaidAmount,
+        items: itemsPayload,
+      })
+      const resolved = resolvePurchaseKey(purchaseKeyRef.current, payloadHashRef.current, localHash, () => crypto.randomUUID())
+      purchaseKeyRef.current = resolved.key
+      payloadHashRef.current = resolved.hash
+
       const input: CreatePurchaseInput = {
         supplier_id: supplierId,
         purchase_date: facFecha,
@@ -386,17 +412,33 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
           unit_cost: parseFloat(it.costo_unitario) || 0,
         })),
       }
-      const purchase = await suppliersService.createPurchase(input, businessId, userId, supplierName)
-      const desc = facDescripcion.trim() || `Factura ${supplierName}${numFactura ? ' #' + numFactura : ''}`
-      await supabase.from('expenses').insert({
-        description: desc, category: 'Proveedores', amount: totalFactura, amount_ars: totalFactura,
-        date: facFecha, business_id: businessId, payment_method: facMetodo, currency: 'ARS',
-        exchange_rate: 1, notes: facNotas || null, created_by: userId,
-        tipo: 'factura', proveedor_id: supplierId,
-        supplier_purchase_id: purchase.id, invoice_number: numFactura || null,
-      })
+      const purchase = await suppliersService.createPurchase(input, businessId, userId, supplierName, purchaseKeyRef.current)
+      // Registro documental en expenses (tipo='factura' → el trigger NO genera
+      // FM/BFE). En un replay, la compra ya existe y el registro documental
+      // también → NO lo insertamos de nuevo (evita duplicar la fila documental).
+      if (!purchase.replay) {
+        const desc = facDescripcion.trim() || `Factura ${supplierName}${numFactura ? ' #' + numFactura : ''}`
+        await supabase.from('expenses').insert({
+          description: desc, category: 'Proveedores', amount: totalFactura, amount_ars: totalFactura,
+          date: facFecha, business_id: businessId, payment_method: facMetodo, currency: 'ARS',
+          exchange_rate: 1, notes: facNotas || null, created_by: userId,
+          tipo: 'factura', proveedor_id: supplierId,
+          supplier_purchase_id: purchase.id, invoice_number: numFactura || null,
+        })
+      }
+      purchaseKeyRef.current = null   // éxito → la próxima compra usa otra key
+      payloadHashRef.current = null
       onSaved()
-    } catch (e: any) { setError(e.message || 'Error al guardar') } finally { setSaving(false) }
+    } catch (e: any) {
+      // Conflicto de idempotencia: la key ya se usó con OTROS datos. No es éxito,
+      // no cerramos ni limpiamos; invalidamos la key para que un próximo envío
+      // EXPLÍCITO del usuario arranque una operación nueva (sin auto-retry).
+      if ((e as { code?: string })?.code === 'IDEMPOTENCY_CONFLICT') {
+        purchaseKeyRef.current = null
+        payloadHashRef.current = null
+      }
+      setError(e.message || 'Error al guardar')
+    } finally { setSaving(false) }
   }
 
   const facPaidAmount = facPayState === 'paid' ? totalFactura : facPayState === 'cc' ? 0 : (parseFloat(facPartialAmt) || 0)

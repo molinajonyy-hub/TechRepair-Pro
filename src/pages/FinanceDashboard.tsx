@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { AccountingChangeBanner } from '../components/finance/AccountingChangeBanner'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -445,6 +446,8 @@ export function FinanceDashboard() {
 
   return (
     <div className="page-shell" data-testid="finance-dashboard-page">
+
+      <AccountingChangeBanner businessId={businessId} />
 
       {/* ── Header ── */}
       <div className="page-top">

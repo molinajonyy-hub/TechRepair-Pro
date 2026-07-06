@@ -244,7 +244,12 @@ export const suppliersService = {
     return data as SupplierPurchase | null;
   },
 
-  async createPurchase(input: CreatePurchaseInput, businessId: string, userId: string, supplierName: string): Promise<SupplierPurchase> {
+  // idempotencyKey (opcional): liga la compra al payload server-side. Misma key +
+  // mismo payload → replay de la compra original; misma key + payload distinto →
+  // IDEMPOTENCY_CONFLICT (se lanza como Error con .code). Si se omite, la RPC crea
+  // siempre (compat legacy). El flag `replay` permite al llamador NO duplicar
+  // efectos client-side (p.ej. el registro documental en expenses).
+  async createPurchase(input: CreatePurchaseInput, businessId: string, userId: string, supplierName: string, idempotencyKey?: string): Promise<SupplierPurchase & { replay: boolean }> {
     const { supplier_id, purchase_date, invoice_number, total_amount, paid_amount, payment_method, notes, items } = input;
 
     const { data, error } = await supabase.rpc('create_supplier_purchase_atomic', {
@@ -264,9 +269,15 @@ export const suppliersService = {
         quantity:     i.quantity,
         unit_cost:    i.unit_cost,
       })),
+      p_idempotency_key: idempotencyKey || null,
     });
 
     if (error) throw new Error(error.message);
+    if (data?.error === 'IDEMPOTENCY_CONFLICT') {
+      const conflict = new Error(data.message || 'Esta solicitud ya fue utilizada con datos diferentes. Volvé a iniciar la operación.');
+      (conflict as Error & { code?: string }).code = 'IDEMPOTENCY_CONFLICT';
+      throw conflict;
+    }
     if (!data?.ok) throw new Error(data?.error || 'Error al crear compra');
 
     const purchase = await supabase
@@ -275,7 +286,7 @@ export const suppliersService = {
       .eq('id', data.purchase_id)
       .single();
 
-    return (purchase.data || { id: data.purchase_id }) as SupplierPurchase;
+    return { ...(purchase.data || { id: data.purchase_id }), replay: data.replay === true } as SupplierPurchase & { replay: boolean };
   },
 
   async updatePurchase(id: string, updates: Partial<SupplierPurchase>, businessId: string): Promise<SupplierPurchase> {
