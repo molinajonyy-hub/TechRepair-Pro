@@ -57,7 +57,7 @@ const CustomerPortal = lazy(() => import('./pages/CustomerPortal').then(m => ({ 
 const Customers = lazy(() => import('./pages/Customers').then(m => ({ default: m.Customers })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
 const Expenses = lazy(() => import('./pages/Expenses').then(m => ({ default: m.Expenses })))
-const Finance             = lazy(() => import('./pages/Finance').then(m => ({ default: m.Finance })))
+const FinanceReportsNotice = lazy(() => import('./pages/FinanceReportsNotice').then(m => ({ default: m.FinanceReportsNotice })))
 const FinanceDashboard    = lazy(() => import('./pages/FinanceDashboard').then(m => ({ default: m.FinanceDashboard })))
 const FinanceHealthCheck  = lazy(() => import('./pages/FinanceHealthCheck').then(m => ({ default: m.FinanceHealthCheck })))
 const Inventory = lazy(() => import('./pages/Inventory').then(m => ({ default: m.Inventory })))
@@ -176,7 +176,8 @@ function AppContent() {
               {/* ── Rutas PRO — advancedFinance ── */}
               <Route element={<ProtectedRouteByFeature feature="advancedFinance" />}>
                 <Route path="/finance"         element={<FinanceDashboard />} />
-                <Route path="/finance/reports" element={<Finance />} />
+                {/* /finance/reports DEPRECADA: el Panel Financiero legacy calculaba P&L desde BFE crudo (modelo viejo). Se conserva la ruta para bookmarks con un aviso + CTA a /finance (modelo canónico). */}
+                <Route path="/finance/reports" element={<FinanceReportsNotice />} />
                 <Route path="/finance/health"  element={<FinanceHealthCheck />} />
                 {/* Backward compat redirect */}
                 <Route path="/finance/dashboard" element={<Navigate to="/finance" replace />} />

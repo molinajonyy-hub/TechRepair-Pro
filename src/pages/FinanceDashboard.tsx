@@ -5,7 +5,7 @@ import {
   AlertCircle, AlertTriangle, ArrowUpRight, ArrowDownRight,
   CreditCard, Banknote, Wallet, RotateCcw, Truck, Receipt,
   Calendar, ChevronRight, CheckCircle2, Info,
-  ShoppingCart, FileText, Settings, Activity,
+  ShoppingCart, FileText, Activity,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -464,9 +464,6 @@ export function FinanceDashboard() {
             </p>
           </div>
         </div>
-        <Link to="/finance/reports" className="btn btn-ghost btn-sm" style={{ color: 'var(--text-muted)' }}>
-          <Settings size={13} /> Análisis P&L
-        </Link>
       </div>
 
       {/* ── Tab bar ── */}
@@ -714,7 +711,6 @@ export function FinanceDashboard() {
               <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                 <Link to="/suppliers" className="btn btn-ghost btn-sm"><Truck size={13} /> Ver proveedores</Link>
                 <Link to="/expenses" className="btn btn-ghost btn-sm">Ver gastos</Link>
-                <Link to="/finance/reports" className="btn btn-ghost btn-sm">Análisis P&L completo <ChevronRight size={12} /></Link>
               </div>
 
               <div style={{ background: 'var(--bg-card-solid)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', marginTop: '1.25rem' }}>
