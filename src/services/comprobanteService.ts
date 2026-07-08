@@ -945,32 +945,36 @@ export const comprobanteService = {
       currency?: 'ARS' | 'USD';
       exchange_rate?: number;
       notes?: string;
+      commission_amount?: number;
+      payment_provider?: string;
+      idempotencyKey?: string;
     }
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ success: boolean; error?: string; conflict?: boolean }> {
     const rate   = params.exchange_rate || 1;
     const amtARS = (params.currency || 'ARS') === 'USD' ? params.amount * rate : params.amount;
 
-    // Usa la RPC atómica replace_comprobante_payment que:
-    // 1. Borra TODOS los pagos existentes del comprobante (sin dejar rows viejos).
-    // 2. Borra los financial_movements + BFE de ingresos del comprobante.
-    // 3. Inserta el nuevo pago único.
-    // 4. Los triggers recalculan total_cobrado y crean movimientos financieros frescos.
-    // Esto corrige el bug donde pagos mixtos dejaban rows extra que inflaban total_cobrado.
+    // RPC atómica replace_comprobante_payment (M6): compensa append-only los
+    // FM/BFE del pago anterior (incluida la COMISIÓN → sin huérfanas), nunca toca
+    // caja cerrada, y crea el nuevo pago (con su comisión) una sola vez. Idempotente.
     const { data, error } = await supabase.rpc('replace_comprobante_payment', {
-      p_comprobante_id:  comprobanteId,
-      p_business_id:     businessId,
-      p_payment_method:  params.payment_method,
-      p_amount:          params.amount,
-      p_amount_ars:      amtARS,
-      p_currency:        params.currency || 'ARS',
-      p_exchange_rate:   rate,
-      p_notes:           params.notes || null,
-      p_user_id:         userId,
+      p_comprobante_id:   comprobanteId,
+      p_business_id:      businessId,
+      p_payment_method:   params.payment_method,
+      p_amount:           params.amount,
+      p_amount_ars:       amtARS,
+      p_currency:         params.currency || 'ARS',
+      p_exchange_rate:    rate,
+      p_notes:            params.notes || null,
+      p_user_id:          userId,
+      p_commission_amount: params.commission_amount ?? 0,
+      p_payment_provider:  params.payment_provider ?? null,
+      p_idempotency_key:   params.idempotencyKey ?? null,
     });
 
     if (error) return { success: false, error: error.message };
 
-    const result = data as { ok: boolean; error?: string } | null;
+    const result = data as { ok: boolean; error?: string; message?: string } | null;
+    if (result?.error === 'IDEMPOTENCY_CONFLICT') return { success: false, conflict: true, error: result.message || 'La solicitud ya fue utilizada con datos diferentes.' };
     if (!result?.ok) return { success: false, error: result?.error || 'Error al actualizar cobro' };
 
     return { success: true };

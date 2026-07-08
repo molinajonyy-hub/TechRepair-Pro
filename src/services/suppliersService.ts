@@ -336,14 +336,26 @@ export const suppliersService = {
     const { supplier_id, purchase_id, payment_date, amount, payment_method, notes } = input;
 
     if (!purchase_id) {
-      // Pago libre sin factura vinculada — mantener flujo directo
-      const { data: payment, error } = await supabase
+      // Pago libre sin factura vinculada — RPC atómica (M6 Fase 9): crea
+      // supplier_payment + account_movement + BFE + FM en una sola transacción.
+      const { data, error } = await supabase.rpc('pay_supplier_free_atomic', {
+        p_business_id:    businessId,
+        p_supplier_id:    supplier_id,
+        p_user_id:        userId,
+        p_supplier_name:  supplierName,
+        p_payment_date:   payment_date,
+        p_amount:         amount,
+        p_payment_method: payment_method || '',
+        p_notes:          notes || '',
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.ok) throw new Error(data?.error || 'Error al registrar pago');
+      const { data: payment } = await supabase
         .from('supplier_payments')
-        .insert({ business_id: businessId, supplier_id, purchase_id: null, payment_date, amount, payment_method, notes: notes || null, created_by: userId })
-        .select().single();
-      if (error || !payment) throw new Error(error?.message || 'Error al registrar pago');
-      await this._recordPaymentInternal(businessId, supplier_id, null, payment_date, amount, payment_method, `Pago a ${supplierName}${notes ? ' — ' + notes : ''}`, userId, supplierName, payment.id);
-      return payment as SupplierPayment;
+        .select('*')
+        .eq('id', data.payment_id)
+        .single();
+      return (payment || { id: data.payment_id }) as SupplierPayment;
     }
 
     const { data, error } = await supabase.rpc('pay_supplier_purchase_atomic', {
@@ -381,60 +393,6 @@ export const suppliersService = {
       .order('created_at', { ascending: true });
     if (error) throw new Error(error.message);
     return computeRunningBalance((data || []) as AccountMovement[]);
-  },
-
-  // ── Internos ────────────────────────────────────────────────────────────────
-
-  async _addAccountMovement(
-    businessId: string, supplierId: string,
-    purchaseId: string | null, paymentId: string | null,
-    date: string, type: AccountMovement['type'],
-    description: string, debit: number, credit: number
-  ) {
-    // balance_after is computed server-side by trig_supplier_account_movement_balance
-    // (BEFORE INSERT with pg_advisory_xact_lock). Omitting it here lets the DB DEFAULT=0
-    // act as the placeholder; the trigger always overrides it.
-    // debit/credit are coerced to 0 to prevent null arithmetic inside the trigger
-    // (JS runtime can pass NaN/null despite TypeScript number types).
-    const safeDebit  = (typeof debit  === 'number' && isFinite(debit))  ? debit  : 0;
-    const safeCredit = (typeof credit === 'number' && isFinite(credit)) ? credit : 0;
-    const { error } = await supabase.from('supplier_account_movements').insert({
-      business_id:   businessId,
-      supplier_id:   supplierId,
-      purchase_id:   purchaseId,
-      payment_id:    paymentId,
-      movement_date: date,
-      type,
-      description,
-      debit:         safeDebit,
-      credit:        safeCredit,
-    });
-    if (error) throw new Error(error.message);
-  },
-
-  async _recordPaymentInternal(
-    businessId: string, supplierId: string, purchaseId: string | null,
-    date: string, amount: number, method: string, description: string,
-    userId: string, supplierName: string, paymentId?: string
-  ) {
-    await this._addAccountMovement(businessId, supplierId, purchaseId, paymentId || null, date, 'payment', description, 0, amount);
-
-    await supabase.from('business_finance_entries').insert({
-      business_id: businessId, date, type: 'variable_cost',
-      category: 'compras_proveedor',
-      description: `${description} (${supplierName})`,
-      amount, currency: 'ARS', amount_ars: amount, exchange_rate: 1,
-      created_by: userId,
-    });
-
-    if (['efectivo', 'transferencia', 'tarjeta'].includes(method)) {
-      await supabase.from('financial_movements').insert({
-        business_id: businessId, date, type: 'expense',
-        currency: 'ARS', amount, amount_ars: amount, exchange_rate: 1,
-        source: 'pago_proveedor', description,
-        created_by: userId,
-      });
-    }
   },
 };
 

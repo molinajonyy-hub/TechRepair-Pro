@@ -1101,11 +1101,25 @@ export function Expenses() {
                     </td>
                     <td>
                       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                        <AppIconButton icon={<DeleteIcon size={13} />} label="Eliminar gasto" size="xs" variant="danger"
+                        <AppIconButton icon={<DeleteIcon size={13} />} label={isFactura ? 'Factura — revertir desde Proveedores' : 'Reversar gasto'} size="xs" variant="danger"
                           onClick={async () => {
-                            if (!confirm('¿Eliminar este gasto?')) return
-                            await supabase.from('expenses').delete().eq('id', e.id)
-                            loadExpenses()
+                            // Facturas de proveedor: bloqueadas acá (append-only en su módulo).
+                            if (isFactura) { alert('Esta factura pertenece a una compra/proveedor. Corregila desde Proveedores o mediante un reverso específico.'); return }
+                            // Reverso append-only vía RPC: NO se borra la fila, se crean asientos
+                            // compensatorios (BFE + FM) que dejan P&L y caja en cero.
+                            const motivo = window.prompt('Motivo del reverso del gasto (obligatorio):')
+                            if (!motivo || !motivo.trim()) return
+                            try {
+                              const { data, error } = await supabase.rpc('reverse_operating_expense_atomic', {
+                                p_business_id: businessId, p_expense_id: e.id, p_reason: motivo.trim(),
+                                p_user_id: user?.id, p_idempotency_key: crypto.randomUUID(),
+                              })
+                              if (error) throw error
+                              const res = data as { ok: boolean; error?: string; message?: string } | null
+                              if (res?.error === 'IDEMPOTENCY_CONFLICT') { alert(res.message || 'La solicitud ya fue utilizada con datos diferentes.'); return }
+                              if (!res?.ok) throw new Error(res?.error || 'No se pudo reversar el gasto')
+                              loadExpenses()
+                            } catch (err: any) { alert(err.message || 'Error al reversar el gasto') }
                           }}
                         />
                       </div>

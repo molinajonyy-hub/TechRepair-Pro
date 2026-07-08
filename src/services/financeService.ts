@@ -320,36 +320,11 @@ export const financeService = {
     return (data ?? []) as FinanceEntry[]
   },
 
-  async createEntry(entry: NewFinanceEntry): Promise<FinanceEntry> {
-    // M4 guard: un retiro/sueldo del dueño/gasto personal NO es gasto operativo.
-    // Se registra por el flujo de retiro (Mi Guita → owner_withdrawals).
-    if (isOwnerCapitalEntry(entry.type, entry.category)) {
-      throw new Error('Los retiros y gastos personales del dueño se registran desde el flujo de retiro (Mi Guita), no como gasto del negocio.')
-    }
-    const { data, error } = await supabase
-      .from(TABLE)
-      .insert(entry)
-      .select()
-      .single()
-    if (error) throw error
-    return data as FinanceEntry
-  },
-
-  async updateEntry(id: string, updates: Partial<NewFinanceEntry>): Promise<FinanceEntry> {
-    const { data, error } = await supabase
-      .from(TABLE)
-      .update({ ...updates, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .single()
-    if (error) throw error
-    return data as FinanceEntry
-  },
-
-  async deleteEntry(id: string): Promise<void> {
-    const { error } = await supabase.from(TABLE).delete().eq('id', id)
-    if (error) throw error
-  },
+  // M6 Fase 9 — createEntry/updateEntry/deleteEntry eliminados: eran writes
+  // directos client-side a business_finance_entries del ex-Finance.tsx (ya borrado).
+  // La tabla quedó en lockdown (SELECT-only; INSERT/UPDATE/DELETE sólo triggers/RPCs).
+  // Los tipos exportados (MonthPoint, DistributionSlice, FinanceEntry) siguen en uso
+  // por los gráficos; isOwnerCapitalEntry sigue como guard reutilizable.
 
   // For monthly evolution: load last 12 months regardless of period filter
   async getLastMonths(businessId: string, months = 6): Promise<FinanceEntry[]> {

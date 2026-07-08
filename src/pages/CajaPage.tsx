@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { resolvePurchaseKey } from '../utils/purchaseIdempotency'
 import {
   Wallet, Plus, Loader2, AlertCircle,
   Lock, Unlock, RefreshCw, Trash2, Calendar, ChevronRight, ChevronDown,
@@ -299,6 +300,13 @@ export function CajaPage() {
   })
   const [closingNotes, setClosingNotes] = useState('')
   const [closing, setClosing]         = useState(false)
+  // Idempotency keys (apertura/cierre) — estables por intento, renovadas por payload.
+  const openKeyRef  = useRef<string | null>(null)
+  const openHashRef = useRef<string | null>(null)
+  const closeKeyRef  = useRef<string | null>(null)
+  const closeHashRef = useRef<string | null>(null)
+  const movKeyRef  = useRef<string | null>(null)
+  const movHashRef = useRef<string | null>(null)
 
   // ── Loaders ──────────────────────────────────────────────────────────────────
 
@@ -385,19 +393,29 @@ export function CajaPage() {
   const handleOpenCaja = async () => {
     if (!businessId || !user) return
     setOpening(true); setError(null)
+    // key ligada al payload (renovación por cambio de montos; conserva ante doble-click)
+    const localHash = `${openForm.efectivo}|${openForm.transferencia}|${openForm.tarjeta}|${openForm.usd}`
+    const rk = resolvePurchaseKey(openKeyRef.current, openHashRef.current, localHash, () => crypto.randomUUID())
+    openKeyRef.current = rk.key; openHashRef.current = rk.hash
     try {
-      const { data, error: err } = await supabase.from('cajas').insert({
-        business_id: businessId,
-        efectivo_inicial:        parseFloat(openForm.efectivo)      || 0,
-        transferencia_inicial:   parseFloat(openForm.transferencia) || 0,
-        tarjeta_inicial:         parseFloat(openForm.tarjeta)       || 0,
-        usd_inicial:             parseFloat(openForm.usd)           || 0,
-        usd_cotizacion_apertura: exchangeRate,
-        opened_by: user.id,
-        status: 'abierta',
-      }).select().single()
+      const { data, error: err } = await supabase.rpc('open_cash_session_atomic', {
+        p_business_id:     businessId,
+        p_user_id:         user.id,
+        p_efectivo:        parseFloat(openForm.efectivo)      || 0,
+        p_transferencia:   parseFloat(openForm.transferencia) || 0,
+        p_tarjeta:         parseFloat(openForm.tarjeta)       || 0,
+        p_usd:             parseFloat(openForm.usd)           || 0,
+        p_usd_rate:        exchangeRate,
+        p_idempotency_key: openKeyRef.current,
+      })
       if (err) throw err
-      setActiveCaja(data as Caja)
+      const res = data as { ok: boolean; error?: string; message?: string; caja_id?: string } | null
+      if (res?.error === 'IDEMPOTENCY_CONFLICT') { openKeyRef.current = null; openHashRef.current = null; throw new Error(res.message) }
+      if (!res?.ok) throw new Error(res?.error || 'Error al abrir caja')
+      // La RPC devuelve caja_id: traer la fila para el estado (no calcular en cliente).
+      const { data: caja } = await supabase.from('cajas').select('*').eq('id', res.caja_id!).single()
+      openKeyRef.current = null; openHashRef.current = null
+      if (caja) setActiveCaja(caja as Caja)
       setMovements([])
       setOpenForm({ efectivo: '', transferencia: '', tarjeta: '', usd: '' })
       void refreshCajaContext()
@@ -411,24 +429,30 @@ export function CajaPage() {
     e.preventDefault()
     const amount = parseFloat(movForm.amount)
     if (!amount || amount <= 0) { setMovError('El monto debe ser mayor a 0'); return }
-    if (!activeCaja) return
+    if (!activeCaja || !user) return
     setSavingMov(true); setMovError('')
+    // key ligada al contenido (conserva ante doble-click; renueva si cambia)
+    const localHash = `${activeCaja.id}|${movForm.type}|${movForm.method}|${amount}`
+    const rk = resolvePurchaseKey(movKeyRef.current, movHashRef.current, localHash, () => crypto.randomUUID())
+    movKeyRef.current = rk.key; movHashRef.current = rk.hash
     try {
-      const isUsd    = movForm.method === 'usd'
-      const currency = isUsd ? 'USD' : 'ARS'
-      const amountARS = isUsd ? amount * exchangeRate : amount
-      await supabase.from('financial_movements').insert({
-        business_id: businessId,
-        caja_id: activeCaja.id,
-        type: movForm.type, currency,
-        amount, exchange_rate: isUsd ? exchangeRate : 1,
-        amount_ars: amountARS,
-        source: 'manual',
-        description: movForm.description || null,
-        date: new Date().toISOString().split('T')[0],
-        created_by: user?.id,
-        metodo_pago: movForm.method,
+      // El movimiento manual entra por RPC atómica: resuelve la caja abierta
+      // server-side y rechaza si no hay caja abierta o si está cerrada.
+      const { data, error: rpcError } = await supabase.rpc('create_manual_cash_movement_atomic', {
+        p_business_id:     businessId,
+        p_type:            movForm.type,
+        p_method:          movForm.method,
+        p_amount:          amount,
+        p_description:     movForm.description || null,
+        p_user_id:         user.id,
+        p_exchange_rate:   movForm.method === 'usd' ? exchangeRate : 1,
+        p_idempotency_key: movKeyRef.current,
       })
+      if (rpcError) throw new Error(rpcError.message)
+      const res = data as { ok?: boolean; error?: string; message?: string }
+      if (res?.error === 'IDEMPOTENCY_CONFLICT') { movKeyRef.current = null; movHashRef.current = null; throw new Error(res.message) }
+      if (!res?.ok) throw new Error(res?.error || 'Error al registrar movimiento')
+      movKeyRef.current = null; movHashRef.current = null
       setShowAddMov(false)
       setMovForm({ type: 'income', method: 'efectivo', amount: '', description: '' })
       await loadCaja()
@@ -437,34 +461,35 @@ export function CajaPage() {
   }
 
   const handleCloseCaja = async () => {
-    if (!activeCaja || !user || !totals) return
+    if (!activeCaja || !user) return
     setClosing(true)
+    // Conteos declarados: vacío → null (el servidor usa su esperado, diferencia 0).
+    const parseCount = (v: string) => v !== '' ? (parseFloat(v) || 0) : null
+    // key ligada al conteo + caja (conserva ante doble-click; renueva si cambia)
+    const localHash = `${activeCaja.id}|${closeForm.efectivo}|${closeForm.transferencia}|${closeForm.tarjeta}|${closeForm.usd}`
+    const rk = resolvePurchaseKey(closeKeyRef.current, closeHashRef.current, localHash, () => crypto.randomUUID())
+    closeKeyRef.current = rk.key; closeHashRef.current = rk.hash
     try {
-      // Usar lo que escribió el usuario; si dejó vacío, usar el total calculado del sistema
-      // (garantiza que *_cierre nunca quede en null y el historial muestre datos reales)
-      const efCierre = closeForm.efectivo      !== '' ? (parseFloat(closeForm.efectivo)      || 0) : totals.efectivo.balance
-      const trCierre = closeForm.transferencia !== '' ? (parseFloat(closeForm.transferencia) || 0) : totals.transferencia.balance
-      const taCierre = closeForm.tarjeta       !== '' ? (parseFloat(closeForm.tarjeta)       || 0) : totals.tarjeta.balance
-      const usCierre = closeForm.usd           !== '' ? (parseFloat(closeForm.usd)           || 0) : totals.usd.balance
-
-      // difference = lo contado vs lo esperado (0 si no se hizo conteo manual)
-      const efDiff = (parseFloat(closeForm.efectivo)      || 0) !== 0 || closeForm.efectivo      !== '' ? efCierre - totals.efectivo.balance      : 0
-      const trDiff = (parseFloat(closeForm.transferencia) || 0) !== 0 || closeForm.transferencia !== '' ? trCierre - totals.transferencia.balance : 0
-      const taDiff = (parseFloat(closeForm.tarjeta)       || 0) !== 0 || closeForm.tarjeta       !== '' ? taCierre - totals.tarjeta.balance       : 0
-      const usDiff = (parseFloat(closeForm.usd)           || 0) !== 0 || closeForm.usd           !== '' ? (usCierre - totals.usd.balance) * exchangeRate : 0
-      const difference = efDiff + trDiff + taDiff + usDiff
-
-      await supabase.from('cajas').update({
-        status: 'cerrada',
-        closed_at: new Date().toISOString(),
-        closed_by: user.id,
-        efectivo_cierre:      efCierre > 0 ? efCierre : null,
-        transferencia_cierre: trCierre > 0 ? trCierre : null,
-        tarjeta_cierre:       taCierre > 0 ? taCierre : null,
-        usd_cierre:           usCierre > 0 ? usCierre : null,
-        notas: closingNotes || null,
-        difference,
-      }).eq('id', activeCaja.id)
+      // El CIERRE DEFINITIVO lo calcula la RPC (esperados y diferencias server-side).
+      // El cálculo local de `totals` queda solo como PREVISUALIZACIÓN.
+      const { data, error: err } = await supabase.rpc('close_cash_session_atomic', {
+        p_business_id:         businessId,
+        p_user_id:             user.id,
+        p_caja_id:             activeCaja.id,
+        p_count_efectivo:      parseCount(closeForm.efectivo),
+        p_count_transferencia: parseCount(closeForm.transferencia),
+        p_count_tarjeta:       parseCount(closeForm.tarjeta),
+        p_count_usd:           parseCount(closeForm.usd),
+        p_usd_rate:            exchangeRate,
+        p_notes:               closingNotes || null,
+        p_idempotency_key:     closeKeyRef.current,
+      })
+      if (err) throw err
+      const res = data as { ok: boolean; error?: string; message?: string; total_difference?: number } | null
+      if (res?.error === 'IDEMPOTENCY_CONFLICT') { closeKeyRef.current = null; closeHashRef.current = null; throw new Error(res.message) }
+      if (!res?.ok) throw new Error(res?.error || 'Error al cerrar caja')
+      closeKeyRef.current = null; closeHashRef.current = null
+      const diff = res.total_difference ?? 0
       setShowClose(false)
       setCloseForm({ efectivo: '', transferencia: '', tarjeta: '', usd: '' })
       setClosingNotes('')
@@ -472,7 +497,8 @@ export function CajaPage() {
       await loadHistorial()
       void refreshCajaContext()
       window.dispatchEvent(new Event('cash-session-updated'))
-      showToast('Caja cerrada correctamente', 'info')
+      // Diferencia devuelta por el SERVIDOR (no el cálculo local).
+      showToast(Math.abs(diff) < 0.01 ? 'Caja cerrada sin diferencias' : `Caja cerrada · diferencia ${fmtARS(diff)}`, 'info')
     } catch (e: any) { setError(e.message || 'Error al cerrar caja') }
     finally { setClosing(false) }
   }

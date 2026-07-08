@@ -241,8 +241,13 @@ export const cuentasService = {
   },
 
   /**
-   * Registra el cobro de una deuda de cuenta corriente.
-   * Acredita el ledger (reduce la deuda) Y crea un BFE income (impacto real en caja).
+   * Registra el cobro de una deuda de cuenta corriente vía RPC atómica.
+   * En UNA transacción: acredita el ledger (baja la deuda), crea el
+   * financial_movement income (SUBE la caja) y el BFE espejo
+   * (revenue_collection_mirror, EXCLUIDO del P&L — no reconoce venta nueva).
+   * Idempotente: misma key + mismo payload → replay; payload distinto →
+   * IDEMPOTENCY_CONFLICT (Error con .code). NO se escribe ledger/FM/BFE
+   * client-side.
    */
   async registrarPagoCC(
     businessId: string,
@@ -251,26 +256,27 @@ export const cuentasService = {
     description: string,
     userId: string,
     cajaId?: string | null,
-  ): Promise<AccountMovement> {
-    const today = new Date().toISOString().split('T')[0]
-    const movement = await this.addMovement(businessId, accountId, {
-      type: 'pago', description,
-      debit: 0, credit: amount,
-      created_by: userId,
+    method: string = 'efectivo',
+    idempotencyKey?: string,
+  ): Promise<{ ok: boolean; replay?: boolean; account_movement_id?: string; financial_movement_id?: string }> {
+    const { data, error } = await supabase.rpc('record_customer_account_payment_atomic', {
+      p_business_id:     businessId,
+      p_account_id:      accountId,
+      p_amount:          amount,
+      p_description:     description,
+      p_user_id:         userId,
+      p_payment_method:  method,
+      p_date:            null,           // el server usa ar_today()
+      p_caja_id:         cajaId || null,
+      p_idempotency_key: idempotencyKey || null,
     })
-    await supabase.from('business_finance_entries').insert({
-      business_id:  businessId,
-      date:         today,
-      type:         'income',
-      category:     'cobro_cuenta_corriente',
-      description,
-      amount:       amount,
-      currency:     'ARS',
-      amount_ars:   amount,
-      exchange_rate: 1,
-      created_by:   userId || null,
-      caja_id:      cajaId || null,
-    })
-    return movement
+    if (error) throw new Error(error.message)
+    if (data?.error === 'IDEMPOTENCY_CONFLICT') {
+      const conflict = new Error(data.message || 'Esta solicitud ya fue utilizada con datos diferentes. Volvé a iniciar la operación.')
+      ;(conflict as Error & { code?: string }).code = 'IDEMPOTENCY_CONFLICT'
+      throw conflict
+    }
+    if (!data?.ok) throw new Error(data?.error || 'Error al registrar el cobro')
+    return data
   },
 }

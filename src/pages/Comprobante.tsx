@@ -316,7 +316,8 @@ export default function ComprobantePage() {
     try {
       const result = await comprobanteService.actualizarPago(
         comprobanteActual.id, businessId, user.id,
-        { payment_method: editPagoMethod, amount: editPagoAmount, currency: 'ARS', notes: editPagoNotes }
+        { payment_method: editPagoMethod, amount: editPagoAmount, currency: 'ARS', notes: editPagoNotes,
+          idempotencyKey: crypto.randomUUID() }
       );
       if (result.success) {
         setShowSuccess('Cobro actualizado correctamente');

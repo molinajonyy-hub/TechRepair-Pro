@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { X, CreditCard, CheckCircle2, AlertCircle } from 'lucide-react'
 import { cuentasService, type Account } from '../../services/cuentasService'
+import { resolvePurchaseKey } from '../../utils/purchaseIdempotency'
 import { formatDisplayMessage } from '../../utils/formatMessage'
 import { useCaja } from '../../contexts/CajaContext'
 
@@ -28,6 +29,10 @@ export function ModalPagarCC({ isOpen, onClose, onPagado, account, businessId, u
   const [saving,  setSaving]  = useState(false)
   const [success, setSuccess] = useState(false)
   const [err,     setErr]     = useState('')
+  // Idempotency key estable por intento: se renueva sólo si cambia el payload
+  // (monto/método/descripción); conserva ante doble-click; server valida.
+  const keyRef  = useRef<string | null>(null)
+  const hashRef = useRef<string | null>(null)
 
   if (!isOpen) return null
 
@@ -40,11 +45,18 @@ export function ModalPagarCC({ isOpen, onClose, onPagado, account, businessId, u
     if (amt > maxAmount + 0.01) { setErr(`El monto no puede superar la deuda (${fmtARS(maxAmount)})`); return }
     if (!desc.trim()) { setErr('La descripción es obligatoria'); return }
     setSaving(true); setErr('')
+    // key ligada al payload: cambia si cambia monto/método/descripción.
+    const localHash = `${amt}|${method}|${desc.trim()}`
+    const resolved = resolvePurchaseKey(keyRef.current, hashRef.current, localHash, () => crypto.randomUUID())
+    keyRef.current = resolved.key; hashRef.current = resolved.hash
     try {
-      await cuentasService.registrarPagoCC(businessId, account.id, amt, desc.trim(), userId, cajaId)
+      await cuentasService.registrarPagoCC(businessId, account.id, amt, desc.trim(), userId, cajaId, method, keyRef.current)
+      keyRef.current = null; hashRef.current = null   // éxito → próxima cobro, otra key
       setSuccess(true)
       setTimeout(() => { onPagado(); onClose() }, 1400)
     } catch (e: any) {
+      // Conflicto de idempotencia: invalidar la key para un próximo intento explícito.
+      if ((e as { code?: string })?.code === 'IDEMPOTENCY_CONFLICT') { keyRef.current = null; hashRef.current = null }
       setErr(e.message || 'Error al registrar el pago')
     } finally {
       setSaving(false)

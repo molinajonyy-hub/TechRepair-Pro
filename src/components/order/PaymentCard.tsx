@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { DollarSign, Plus, Trash2, Loader2, AlertCircle, CheckCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../contexts/AuthContext'
 
 type Currency = 'ARS' | 'USD'
 
@@ -36,6 +37,7 @@ const fmtUSD = (v: number) =>
   `USD ${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 export function PaymentCard({ orderId, payments, totalCost, exchangeRate = 1, onPaymentsChange }: PaymentCardProps) {
+  const { businessId, user } = useAuth()
   const [isAdding, setIsAdding] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -72,23 +74,28 @@ export function PaymentCard({ orderId, payments, totalCost, exchangeRate = 1, on
       if (isNaN(amount) || amount <= 0) {
         throw new Error('El monto debe ser mayor a 0')
       }
+      if (formData.currency === 'USD' && (!exchangeRate || exchangeRate <= 1)) {
+        throw new Error('No hay tipo de cambio disponible para pagos en USD')
+      }
 
-      // Etapa 0: NO insertar financial_movements acá. El trigger
-      // trig_payment_movements (order_payments BEFORE INSERT) ya crea el
-      // movimiento de caja + BFE; el insert manual duplicaba el ingreso (P0-4).
-      const { error: insertError } = await supabase
-        .from('order_payments')
-        .insert({
-          order_id: orderId,
-          amount,
-          currency: formData.currency,
-          payment_method: formData.payment_method,
-          reference_number: formData.reference_number || null,
-          notes: formData.notes || null,
-          payment_date: new Date().toISOString()
-        })
-
-      if (insertError) throw insertError
+      // M6: pago de orden por RPC atómica e idempotente (crea order_payments;
+      // el trigger crea 1 FM + 1 BFE mirror con USD correcto). Sin insert directo.
+      const { data, error: rpcError } = await supabase.rpc('create_order_payment_atomic', {
+        p_business_id:     businessId,
+        p_order_id:        orderId,
+        p_amount:          amount,
+        p_payment_method:  formData.payment_method,
+        p_currency:        formData.currency,
+        p_exchange_rate:   formData.currency === 'USD' ? exchangeRate : 1,
+        p_user_id:         user?.id,
+        p_notes:           formData.notes || null,
+        p_date:            null,
+        p_idempotency_key: crypto.randomUUID(),
+      })
+      if (rpcError) throw rpcError
+      const res = data as { ok: boolean; error?: string; message?: string } | null
+      if (res?.error === 'IDEMPOTENCY_CONFLICT') { setError(res.message || 'Solicitud en conflicto'); setIsSubmitting(false); return }
+      if (!res?.ok) throw new Error(res?.error || 'Error al registrar el pago')
 
       setSuccess('Pago registrado correctamente')
       setFormData({ amount: '', currency: 'ARS', payment_method: 'cash', reference_number: '', notes: '' })
@@ -102,17 +109,26 @@ export function PaymentCard({ orderId, payments, totalCost, exchangeRate = 1, on
     }
   }
 
-  const handleDelete = async (paymentId: string) => {
-    if (!confirm('¿Eliminar este pago?')) return
+  // M6: reverso append-only (nunca DELETE). Crea FM/BFE compensatorios en la
+  // caja abierta actual; pide motivo; maneja IDEMPOTENCY_CONFLICT.
+  const handleReverse = async (paymentId: string) => {
+    const motivo = window.prompt('Motivo del reverso del pago (obligatorio):')
+    if (!motivo || !motivo.trim()) return
     try {
-      const { error: deleteError } = await supabase
-        .from('order_payments')
-        .delete()
-        .eq('id', paymentId)
-      if (deleteError) throw deleteError
+      const { data, error: rpcError } = await supabase.rpc('reverse_order_payment_atomic', {
+        p_business_id:     businessId,
+        p_order_payment_id: paymentId,
+        p_reason:          motivo.trim(),
+        p_user_id:         user?.id,
+        p_idempotency_key: crypto.randomUUID(),
+      })
+      if (rpcError) throw rpcError
+      const res = data as { ok: boolean; error?: string; message?: string } | null
+      if (res?.error === 'IDEMPOTENCY_CONFLICT') { setError(res.message || 'Solicitud en conflicto'); return }
+      if (!res?.ok) throw new Error(res?.error || 'No se pudo reversar el pago')
       onPaymentsChange()
     } catch (err: any) {
-      setError(err.message || 'Error al eliminar pago')
+      setError(err.message || 'Error al reversar el pago')
     }
   }
 
@@ -372,10 +388,10 @@ export function PaymentCard({ orderId, payments, totalCost, exchangeRate = 1, on
                     </p>
                   </div>
                   <button
-                    onClick={() => handleDelete(payment.id)}
+                    onClick={() => handleReverse(payment.id)}
                     className="btn btn-sm btn-outline"
                     style={{ color: '#dc2626' }}
-                    title="Eliminar pago"
+                    title="Reversar/anular pago"
                   >
                     <Trash2 size={16} />
                   </button>

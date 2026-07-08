@@ -383,16 +383,33 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
     try {
       const description = items.map(i => `${i.cantidad}x ${i.nombre}`).join(', ')
 
-      // Orden: registrar pago en order_payments (trigger maneja finanzas)
+      // Orden: registrar pago(s) por RPC atómica (crea order_payments; el trigger
+      // crea FM + BFE mirror). Sin insert directo. Mapea el método al contrato de
+      // order_payments; cuenta_corriente NO es cobro de caja → se omite acá.
       if (origen === 'orden' && ordenSelec?.id) {
+        const toMethod = (m: string): string | null => (
+          m === 'efectivo' ? 'cash' : m === 'transferencia' ? 'transfer' :
+          m === 'debito' ? 'debit_card' : m === 'cuenta_corriente' ? null : 'other'
+        )
+        const registrarPagoOrden = async (monto: number, metodo: string) => {
+          const method = toMethod(metodo)
+          if (!method || monto <= 0) return
+          const { data, error: rpcErr } = await supabase.rpc('create_order_payment_atomic', {
+            p_business_id: businessId, p_order_id: ordenSelec.id, p_amount: monto,
+            p_payment_method: method, p_currency: 'ARS', p_exchange_rate: 1,
+            p_user_id: user?.id, p_notes: description, p_date: null, p_idempotency_key: crypto.randomUUID(),
+          })
+          if (rpcErr) throw rpcErr
+          const res = data as { ok: boolean; error?: string } | null
+          if (!res?.ok) throw new Error(res?.error || 'Error al registrar el pago de la orden')
+        }
         if (mixto) {
           for (const pago of pagos) {
             const monto = pago.montoARS + (pago.usaUSD && dolar > 0 ? pago.montoUSD * dolar : 0)
-            if (monto <= 0) continue
-            await supabase.from('order_payments').insert({ order_id: ordenSelec.id, business_id: businessId, amount: monto, payment_method: pago.metodo, notes: description, payment_date: new Date().toISOString().split('T')[0] })
+            await registrarPagoOrden(monto, pago.metodo)
           }
         } else {
-          await supabase.from('order_payments').insert({ order_id: ordenSelec.id, business_id: businessId, amount: totalCobrado, payment_method: activeMetodo, notes: description, payment_date: new Date().toISOString().split('T')[0] })
+          await registrarPagoOrden(totalCobrado, activeMetodo)
         }
       }
       // Para venta_rapida y personalizado: las finanzas las registra el trigger

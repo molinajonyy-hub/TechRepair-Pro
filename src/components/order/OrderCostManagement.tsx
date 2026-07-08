@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { currencyService } from '../../services/currencyService'
+import { useAuth } from '../../contexts/AuthContext'
 
 // Estados de repuestos
 const PART_STATUSES = {
@@ -63,6 +64,7 @@ interface OrderCostManagementProps {
 }
 
 export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataChange }: OrderCostManagementProps) {
+  const { businessId, user } = useAuth()
   const exchangeRateRef = useRef<number>(1)
   const [parts, setParts] = useState<OrderPart[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
@@ -199,24 +201,24 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
     
     try {
       const paymentAmount = parseFloat(paymentForm.amount) || 0
-      // Etapa 0: NO insertar financial_movements acá. El trigger
-      // trig_payment_movements (order_payments BEFORE INSERT) ya crea el
-      // movimiento de caja + BFE; el insert manual duplicaba el ingreso (P0-4).
-      const { error: insertError } = await supabase
-        .from('order_payments')
-        .insert({
-          order_id: orderId,
-          amount: paymentAmount,
-          payment_method: paymentForm.payment_method,
-          is_down_payment: paymentForm.is_down_payment,
-          receipt_number: paymentForm.receipt_number || null,
-          due_date: paymentForm.due_date || null,
-          notes: paymentForm.notes || null,
-          payment_status: 'completed',
-          payment_date: new Date().toISOString()
-        })
-
-      if (insertError) throw insertError
+      // M6: pago de orden por RPC atómica e idempotente (crea order_payments;
+      // el trigger crea 1 FM + 1 BFE mirror). Sin insert directo.
+      const { data, error: rpcError } = await supabase.rpc('create_order_payment_atomic', {
+        p_business_id:     businessId,
+        p_order_id:        orderId,
+        p_amount:          paymentAmount,
+        p_payment_method:  paymentForm.payment_method,
+        p_currency:        'ARS',
+        p_exchange_rate:   1,
+        p_user_id:         user?.id,
+        p_notes:           paymentForm.notes || null,
+        p_date:            null,
+        p_idempotency_key: crypto.randomUUID(),
+      })
+      if (rpcError) throw rpcError
+      const res = data as { ok: boolean; error?: string; message?: string } | null
+      if (res?.error === 'IDEMPOTENCY_CONFLICT') { setError(res.message || 'Solicitud en conflicto'); setIsSubmitting(false); return }
+      if (!res?.ok) throw new Error(res?.error || 'Error al registrar el pago')
 
       setShowAddPayment(false)
       setPaymentForm({
@@ -268,16 +270,22 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
     }
   }
 
+  // M6: reverso append-only (nunca DELETE). Pide motivo; maneja conflicto.
   const deletePayment = async (paymentId: string) => {
-    if (!confirm('¿Eliminar este pago?')) return
-    
+    const motivo = window.prompt('Motivo del reverso del pago (obligatorio):')
+    if (!motivo || !motivo.trim()) return
     try {
-      const { error } = await supabase
-        .from('order_payments')
-        .delete()
-        .eq('id', paymentId)
-      
+      const { data, error } = await supabase.rpc('reverse_order_payment_atomic', {
+        p_business_id:      businessId,
+        p_order_payment_id: paymentId,
+        p_reason:           motivo.trim(),
+        p_user_id:          user?.id,
+        p_idempotency_key:  crypto.randomUUID(),
+      })
       if (error) throw error
+      const res = data as { ok: boolean; error?: string; message?: string } | null
+      if (res?.error === 'IDEMPOTENCY_CONFLICT') { setError(res.message || 'Solicitud en conflicto'); return }
+      if (!res?.ok) throw new Error(res?.error || 'No se pudo reversar el pago')
       await loadData()
       onDataChange()
     } catch (err: any) {

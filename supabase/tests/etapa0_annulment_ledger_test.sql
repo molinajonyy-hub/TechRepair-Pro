@@ -147,11 +147,12 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN v_denied := true; END;
   PERFORM pg_temp.assert(v_denied, 'L4b DELETE directo de account_movements -> permission denied');
 
-  -- L5: BFE — manual editable, automático inmutable (policy, no error: 0 filas)
+  -- L5: BFE inmutable directo. (M6 Fase 9 lockdown: se dropearon bfe_update_manual/
+  -- bfe_delete_manual — el ex-Finance.tsx ya no existe; toda corrección va por RPC append-only.)
   UPDATE business_finance_entries SET notes = 'corregido'
     WHERE id = '00000000-0000-0000-0000-0000000a0be1';
   GET DIAGNOSTICS v_rows = ROW_COUNT;
-  PERFORM pg_temp.assert(v_rows = 1, 'L5a BFE MANUAL sigue siendo corregible (1 fila)');
+  PERFORM pg_temp.assert(v_rows = 0, 'L5a BFE MANUAL ya NO es editable directo (M6 Fase 9 lockdown, 0 filas)');
 
   UPDATE business_finance_entries SET amount_ars = 1
     WHERE reference_comprobante_id = v_comp AND type = 'income';

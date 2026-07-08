@@ -825,37 +825,10 @@ export const expensesService = {
     return data as (Expense & { supplier: Supplier | null })[]
   },
 
-  async create(expense: Omit<Expense, 'id' | 'created_at'>) {
-    const { data, error } = await supabase
-      .from('expenses')
-      .insert(expense)
-      .select()
-      .single()
-    
-    if (error) throw error
-    return data as Expense
-  },
-
-  async update(id: string, expense: Partial<Expense>) {
-    const { data, error } = await supabase
-      .from('expenses')
-      .update(expense)
-      .eq('id', id)
-      .select()
-      .single()
-    
-    if (error) throw error
-    return data as Expense
-  },
-
-  async delete(id: string) {
-    const { error } = await supabase
-      .from('expenses')
-      .delete()
-      .eq('id', id)
-    
-    if (error) throw error
-  }
+  // create()/update()/delete() eliminados (M6 Fase 9): eran writes directos
+  // client-side sin callers vivos. Alta por RPC create_expense_with_finance o
+  // factura documental (Expenses.tsx); UPDATE/DELETE en lockdown (sin policy).
+  // El reverso económico va por reverse_operating_expense_atomic (append-only).
 }
 
 // ============================================
