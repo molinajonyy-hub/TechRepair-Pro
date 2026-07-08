@@ -1062,6 +1062,23 @@ export function Suppliers() {
     } catch (e: any) { alert('No se puede eliminar: ' + e.message) }
   }
 
+  // Productos tab: aggregate items across all purchases.
+  // IMPORTANTE: este hook debe declararse ANTES de cualquier return condicional
+  // (RENDER: LIST / detalle cargando). Si queda debajo, el render de detalle
+  // ejecuta un hook de más que el de lista -> React #310 "Rendered more hooks
+  // than during the previous render" (crash al entrar al detalle).
+  const productosMap = useMemo(() => {
+    const map: Record<string, { name: string; qty: number; totalCost: number; purchases: number; inventoryId?: string | null }> = {}
+    purchases.forEach(p => (p.items || []).forEach(i => {
+      const key = i.inventory_id || i.product_name
+      if (!map[key]) map[key] = { name: i.product_name, qty: 0, totalCost: 0, purchases: 0, inventoryId: i.inventory_id }
+      map[key].qty       += i.quantity
+      map[key].totalCost += i.subtotal
+      map[key].purchases += 1
+    }))
+    return Object.values(map).sort((a, b) => b.qty - a.qty)
+  }, [purchases])
+
   // ─────────────────────────────────────────────────────────────────────────────
   // RENDER: LIST
   // ─────────────────────────────────────────────────────────────────────────────
@@ -1080,7 +1097,14 @@ export function Suppliers() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button className="btn btn-ghost" data-testid="supplier-new-invoice-button" onClick={() => { /* shortcut: open purchase modal without a supplier — handled from detail */ }}>
+          <button className="btn btn-ghost" data-testid="supplier-new-invoice-button" onClick={() => {
+            // La carga de factura necesita un proveedor. Si hay uno solo, abrimos su
+            // detalle directo; si hay varios, guiamos a elegir (el modal de compra vive
+            // en el detalle del proveedor). Antes este onClick estaba vacío (botón muerto).
+            const activos = suppliers.filter(s => s.active)
+            if (activos.length === 1) { openDetail(activos[0].id); setShowModalPurchase(true) }
+            else alert('Elegí un proveedor de la lista (botón "Ver detalle") y usá "Nueva factura" desde ahí.')
+          }}>
             <FileText size={15} /> Nueva factura
           </button>
           <button className="btn btn-primary btn-lift" onClick={() => { setEditingSupplier(null); setShowModalSupplier(true) }}>
@@ -1270,19 +1294,6 @@ export function Suppliers() {
     { key: 'datos',     label: 'Datos',             icon: <Settings2 size={14} /> },
     { key: 'notas',     label: 'Notas',             icon: <FileText size={14} /> },
   ]
-
-  // Productos tab: aggregate items across all purchases
-  const productosMap = useMemo(() => {
-    const map: Record<string, { name: string; qty: number; totalCost: number; purchases: number; inventoryId?: string | null }> = {}
-    purchases.forEach(p => (p.items || []).forEach(i => {
-      const key = i.inventory_id || i.product_name
-      if (!map[key]) map[key] = { name: i.product_name, qty: 0, totalCost: 0, purchases: 0, inventoryId: i.inventory_id }
-      map[key].qty       += i.quantity
-      map[key].totalCost += i.subtotal
-      map[key].purchases += 1
-    }))
-    return Object.values(map).sort((a, b) => b.qty - a.qty)
-  }, [purchases])
 
   return (
     <div className="page-shell" data-testid="supplier-detail">
