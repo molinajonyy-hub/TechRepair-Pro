@@ -71,9 +71,11 @@ export function PersonalBottomSheet({
         onClick={closeOnOverlayClick ? onClose : undefined}
       />
 
-      {/* ── Sheet — centered vertically, floating card feel ── */}
+      {/* ── Sheet — centered vertically, floating card feel ──
+          data-theme="dark": portal fuera de la isla dark de Mi Guita. */}
       <div
         data-testid={testId}
+        data-theme="dark"
         style={{
           position: 'fixed',
           left: 12,

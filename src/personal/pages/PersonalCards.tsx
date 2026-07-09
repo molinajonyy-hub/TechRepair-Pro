@@ -452,7 +452,9 @@ function CardDetailSheet({ card, purchases, cardIdx, cardPayments, viewMonth, hi
   }, [])
 
   return createPortal(
-    <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+    // data-theme="dark": el portal escapa del subtree de Mi Guita (isla dark);
+    // se re-ancla al tema oscuro para que las variables no resuelvan en light.
+    <div data-theme="dark" style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <div style={{ width: '100%', maxWidth: 480, background: '#0a1628', borderRadius: '1.5rem 1.5rem 0 0', border: '1px solid rgba(255,255,255,0.08)', borderBottom: 'none', maxHeight: 'calc(100dvh - env(safe-area-inset-top, 20px) - 12px)', display: 'flex', flexDirection: 'column', boxShadow: '0 -8px 40px rgba(0,0,0,0.5)' }}>

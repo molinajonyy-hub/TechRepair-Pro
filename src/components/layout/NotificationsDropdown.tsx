@@ -27,7 +27,7 @@ export function NotificationsDropdown() {
       case 'payment_received':
         return <Check size={16} color="#10b981" />
       default:
-        return <Bell size={16} color="#a0aec0" />
+        return <Bell size={16} color="var(--text-tertiary)" />
     }
   }
 
@@ -57,7 +57,7 @@ export function NotificationsDropdown() {
           backgroundColor: 'transparent',
           border: 'none',
           cursor: 'pointer',
-          color: '#a0aec0',
+          color: 'var(--text-tertiary)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center'
@@ -98,10 +98,10 @@ export function NotificationsDropdown() {
             right: '0',
             width: '380px',
             maxHeight: '480px',
-            backgroundColor: '#1e293b',
-            border: '1px solid #374151',
+            backgroundColor: 'var(--bg-card-raised)',
+            border: '1px solid var(--border-strong)',
             borderRadius: '0.75rem',
-            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3)',
+            boxShadow: 'var(--shadow-lg)',
             zIndex: 1000,
             overflow: 'hidden'
           }}
@@ -113,10 +113,10 @@ export function NotificationsDropdown() {
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '1rem',
-              borderBottom: '1px solid #374151'
+              borderBottom: '1px solid var(--border-color)'
             }}
           >
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: '#f8fafc' }}>
+            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)' }}>
               Notificaciones
             </h3>
             {unreadCount > 0 && (
@@ -142,7 +142,7 @@ export function NotificationsDropdown() {
                 <Loader2 size={24} color="#6366f1" style={{ animation: 'tr-spin 1s linear infinite' }} />
               </div>
             ) : notifications.length === 0 ? (
-              <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
                 <Bell size={32} style={{ marginBottom: '0.5rem', opacity: 0.5 }} />
                 <p style={{ margin: 0 }}>No hay notificaciones</p>
               </div>
@@ -160,7 +160,7 @@ export function NotificationsDropdown() {
                     alignItems: 'flex-start',
                     gap: '0.75rem',
                     padding: '1rem',
-                    borderBottom: '1px solid #374151',
+                    borderBottom: '1px solid var(--border-color)',
                     backgroundColor: notification.is_read ? 'transparent' : 'rgba(99, 102, 241, 0.1)',
                     cursor: 'pointer',
                     transition: 'background-color 0.2s'
@@ -172,7 +172,7 @@ export function NotificationsDropdown() {
                       width: '32px',
                       height: '32px',
                       borderRadius: '50%',
-                      backgroundColor: notification.is_read ? '#1e293b' : '#6366f120',
+                      backgroundColor: notification.is_read ? 'var(--bg-tertiary)' : 'var(--accent-primary-light)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -189,7 +189,7 @@ export function NotificationsDropdown() {
                         style={{
                           margin: 0,
                           fontWeight: notification.is_read ? 400 : 600,
-                          color: '#f8fafc',
+                          color: 'var(--text-primary)',
                           fontSize: '0.875rem',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
@@ -216,7 +216,7 @@ export function NotificationsDropdown() {
                         style={{
                           margin: '0.25rem 0 0 0',
                           fontSize: '0.75rem',
-                          color: '#a0aec0',
+                          color: 'var(--text-secondary)',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           display: '-webkit-box',
@@ -249,7 +249,7 @@ export function NotificationsDropdown() {
                       </span>
                     )}
 
-                    <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.625rem', color: '#64748b' }}>
+                    <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.625rem', color: 'var(--text-muted)' }}>
                       {formatTime(notification.created_at)}
                     </p>
                   </div>
@@ -261,7 +261,7 @@ export function NotificationsDropdown() {
                       onClick={(e) => e.stopPropagation()}
                       style={{
                         padding: '0.25rem',
-                        color: '#64748b',
+                        color: 'var(--text-muted)',
                         borderRadius: '0.25rem',
                         flexShrink: 0
                       }}
@@ -279,7 +279,7 @@ export function NotificationsDropdown() {
           <div
             style={{
               padding: '0.75rem',
-              borderTop: '1px solid #374151',
+              borderTop: '1px solid var(--border-color)',
               textAlign: 'center'
             }}
           >

@@ -10,7 +10,7 @@ const S = {
   // Fondo global
   page: {
     minHeight: '100dvh',
-    background: '#09090b',
+    background: 'var(--auth-bg)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -59,13 +59,13 @@ const S = {
 
   // Card de glass
   card: {
-    background: 'rgba(255,255,255,0.025)',
+    background: 'var(--auth-card-bg)',
     backdropFilter: 'blur(24px)',
     WebkitBackdropFilter: 'blur(24px)',
-    border: '1px solid rgba(255,255,255,0.08)',
+    border: '1px solid var(--border-color)',
     borderRadius: '1.5rem',
     padding: 'clamp(1.75rem, 5vw, 2.5rem)',
-    boxShadow: '0 32px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05)',
+    boxShadow: 'var(--shadow-xl)',
     position: 'relative' as const,
     overflow: 'hidden',
   },
@@ -97,15 +97,15 @@ const S = {
   input: (hasError: boolean, disabled: boolean): React.CSSProperties => ({
     width: '100%',
     padding: '0.875rem 1rem 0.875rem 3rem',
-    background: 'rgba(255,255,255,0.04)',
-    border: `1px solid ${hasError ? 'rgba(248,113,113,0.6)' : 'rgba(255,255,255,0.1)'}`,
+    background: 'var(--input-bg)',
+    border: `1px solid ${hasError ? 'rgba(248,113,113,0.6)' : 'var(--input-border)'}`,
     borderRadius: '0.875rem',
-    color: '#f1f5f9',
+    color: 'var(--text-primary)',
     fontSize: '0.9375rem',
     outline: 'none',
     transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
     opacity: disabled ? 0.55 : 1,
-    caretColor: '#818cf8',
+    caretColor: 'var(--accent-primary)',
     boxSizing: 'border-box',
   }),
 
@@ -113,15 +113,15 @@ const S = {
   inputWithRight: (hasError: boolean, disabled: boolean): React.CSSProperties => ({
     width: '100%',
     padding: '0.875rem 3rem 0.875rem 3rem',
-    background: 'rgba(255,255,255,0.04)',
-    border: `1px solid ${hasError ? 'rgba(248,113,113,0.6)' : 'rgba(255,255,255,0.1)'}`,
+    background: 'var(--input-bg)',
+    border: `1px solid ${hasError ? 'rgba(248,113,113,0.6)' : 'var(--input-border)'}`,
     borderRadius: '0.875rem',
-    color: '#f1f5f9',
+    color: 'var(--text-primary)',
     fontSize: '0.9375rem',
     outline: 'none',
     transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
     opacity: disabled ? 0.55 : 1,
-    caretColor: '#818cf8',
+    caretColor: 'var(--accent-primary)',
     boxSizing: 'border-box',
   }),
 
@@ -137,13 +137,13 @@ const S = {
     display: 'block',
     fontSize: '0.8125rem',
     fontWeight: 600,
-    color: '#94a3b8',
+    color: 'var(--text-muted)',
     marginBottom: '0.5rem',
     letterSpacing: '0.01em',
   },
 
   errorText: {
-    color: '#f87171',
+    color: 'var(--error)',
     fontSize: '0.75rem',
     marginTop: '0.375rem',
     marginLeft: '0.25rem',
@@ -174,10 +174,10 @@ const S = {
   btnGoogle: (disabled: boolean): React.CSSProperties => ({
     width: '100%',
     padding: '0.875rem',
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.1)',
+    background: 'var(--input-bg)',
+    border: '1px solid var(--input-border)',
     borderRadius: '0.875rem',
-    color: '#e2e8f0',
+    color: 'var(--text-secondary)',
     fontWeight: 600,
     fontSize: '0.9375rem',
     cursor: disabled ? 'not-allowed' : 'pointer',
@@ -192,8 +192,8 @@ const S = {
   // Toggle tabs
   tabTrack: {
     display: 'flex',
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.08)',
+    background: 'var(--input-bg)',
+    border: '1px solid var(--border-color)',
     borderRadius: '0.875rem',
     padding: '0.25rem',
     marginBottom: '1.75rem',
@@ -208,7 +208,7 @@ const S = {
       : 'transparent',
     border: 'none',
     borderRadius: '0.625rem',
-    color: active ? '#fff' : '#64748b',
+    color: active ? '#fff' : 'var(--text-muted)',
     fontWeight: 600,
     fontSize: '0.875rem',
     cursor: disabled ? 'not-allowed' : 'pointer',
@@ -227,11 +227,11 @@ const S = {
   dividerLine: {
     flex: 1,
     height: '1px',
-    background: 'rgba(255,255,255,0.07)',
+    background: 'var(--border-color)',
   },
 
   dividerText: {
-    color: '#334155',
+    color: 'var(--text-subtle)',
     fontSize: '0.78rem',
     fontWeight: 500,
     whiteSpace: 'nowrap' as const,
@@ -241,14 +241,14 @@ const S = {
 // ── Helpers de foco ──────────────────────────────────────────────────
 
 function focusOn(e: React.FocusEvent<HTMLInputElement>, hasError: boolean) {
-  e.target.style.borderColor = hasError ? 'rgba(248,113,113,0.8)' : 'rgba(99,102,241,0.7)'
+  e.target.style.borderColor = hasError ? 'rgba(248,113,113,0.8)' : 'var(--input-focus-border)'
   e.target.style.boxShadow = hasError
     ? '0 0 0 3px rgba(248,113,113,0.12)'
-    : '0 0 0 3px rgba(99,102,241,0.15)'
+    : 'var(--input-focus-shadow)'
 }
 
 function blurOn(e: React.FocusEvent<HTMLInputElement>, hasError: boolean) {
-  e.target.style.borderColor = hasError ? 'rgba(248,113,113,0.6)' : 'rgba(255,255,255,0.1)'
+  e.target.style.borderColor = hasError ? 'rgba(248,113,113,0.6)' : 'var(--input-border)'
   e.target.style.boxShadow = 'none'
 }
 
@@ -427,12 +427,12 @@ export function Login() {
           style={{
             display: 'flex', alignItems: 'center', gap: '0.375rem',
             background: 'none', border: 'none', cursor: 'pointer',
-            color: '#475569', fontSize: '0.8125rem', fontWeight: 500,
+            color: 'var(--text-muted)', fontSize: '0.8125rem', fontWeight: 500,
             marginBottom: '1.5rem', transition: 'color 0.15s ease',
             padding: 0,
           }}
-          onMouseEnter={e => (e.currentTarget.style.color = '#818cf8')}
-          onMouseLeave={e => (e.currentTarget.style.color = '#475569')}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-primary-light)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="15 18 9 12 15 6"/>
@@ -465,7 +465,7 @@ export function Login() {
             </div>
             <h1 style={{
               fontSize: '1.625rem', fontWeight: 900, letterSpacing: '-0.04em',
-              color: '#f8fafc', margin: '0 0 0.3rem',
+              color: 'var(--text-primary)', margin: '0 0 0.3rem',
             }}>
               TechRepair
               <span style={{
@@ -475,7 +475,7 @@ export function Login() {
                 backgroundClip: 'text',
               }}>Pro</span>
             </h1>
-            <p style={{ color: '#334155', fontSize: '0.875rem', margin: 0 }}>
+            <p style={{ color: 'var(--text-subtle)', fontSize: '0.875rem', margin: 0 }}>
               {mode === 'login' ? 'Ingresá a tu panel de gestión' : mode === 'register' ? 'Creá tu cuenta gratuita' : 'Te enviamos un enlace por email'}
             </p>
           </div>
@@ -705,15 +705,15 @@ export function Login() {
                 onMouseEnter={e => {
                   if (!disabled) {
                     const el = e.currentTarget as HTMLElement
-                    el.style.background = 'rgba(255,255,255,0.07)'
-                    el.style.borderColor = 'rgba(255,255,255,0.18)'
+                    el.style.background = 'var(--bg-hover)'
+                    el.style.borderColor = 'var(--input-hover-border)'
                     el.style.transform = 'translateY(-1px)'
                   }
                 }}
                 onMouseLeave={e => {
                   const el = e.currentTarget as HTMLElement
-                  el.style.background = 'rgba(255,255,255,0.04)'
-                  el.style.borderColor = 'rgba(255,255,255,0.1)'
+                  el.style.background = 'var(--input-bg)'
+                  el.style.borderColor = 'var(--input-border)'
                   el.style.transform = 'translateY(0)'
                 }}
               >
@@ -757,7 +757,7 @@ export function Login() {
 
           {/* Pie */}
           <p style={{
-            textAlign: 'center', color: '#1e293b',
+            textAlign: 'center', color: 'var(--text-subtle)',
             fontSize: '0.75rem', marginTop: '1.5rem', lineHeight: 1.6,
           }}>
             Al continuar aceptás los{' '}
@@ -771,7 +771,7 @@ export function Login() {
         {mode === 'login' && (
           <div style={{
             textAlign: 'center', marginTop: '1.25rem',
-            color: '#1e293b', fontSize: '0.78rem',
+            color: 'var(--text-subtle)', fontSize: '0.78rem',
           }}>
             ¿No tenés cuenta?{' '}
             <button

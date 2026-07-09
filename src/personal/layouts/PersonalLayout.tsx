@@ -156,6 +156,10 @@ export function PersonalLayout() {
   return (
     <div
       data-testid="personal-layout"
+      // Isla dark: Mi Guita no comparte la estructura visual global (todo su UI
+      // es inline dark). Se fija data-theme="dark" para que las variables del
+      // subtree resuelvan siempre a la paleta oscura aunque el tema global sea light.
+      data-theme="dark"
       style={{
         display: 'flex', flexDirection: 'column',
         minHeight: '100dvh', maxWidth: 480,

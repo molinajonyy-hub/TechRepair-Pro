@@ -1,6 +1,7 @@
 import { Outlet, useNavigate } from 'react-router-dom'
 import { Sidebar } from '../components/layout/Sidebar'
 import { TopHeader } from '../components/layout/TopHeader'
+import { ThemeToggle } from '../components/ui/ThemeToggle'
 import { CommandPalette } from '../components/ui/CommandPalette'
 import { useAuth } from '../contexts/AuthContext'
 import { useSidebar } from '../hooks/useSidebar'
@@ -22,8 +23,8 @@ function MobileTopBar() {
       alignItems: 'center',
       gap: '0.75rem',
       padding: '0.75rem 1rem',
-      background: 'rgba(11,18,32,0.98)',
-      borderBottom: '1px solid rgba(255,255,255,0.07)',
+      background: 'var(--bg-sidebar-overlay)',
+      borderBottom: '1px solid var(--border-color)',
       position: 'sticky',
       top: 0,
       zIndex: 50,
@@ -33,10 +34,10 @@ function MobileTopBar() {
         aria-label="Abrir menú"
         style={{
           width: '38px', height: '38px',
-          background: 'rgba(255,255,255,0.05)',
-          border: '1px solid rgba(255,255,255,0.08)',
+          background: 'var(--nav-hover-bg)',
+          border: '1px solid var(--border-color)',
           borderRadius: '0.6rem',
-          color: '#f8fafc',
+          color: 'var(--text-primary)',
           cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexShrink: 0,
@@ -49,7 +50,7 @@ function MobileTopBar() {
 
       <div
         onClick={() => navigate('/dashboard')}
-        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}
+        style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', flex: 1 }}
       >
         <img
           src={logoSvg}
@@ -60,10 +61,12 @@ function MobileTopBar() {
             flexShrink: 0,
           }}
         />
-        <span style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#f8fafc', letterSpacing: '-0.025em' }}>
-          TechRepair<span style={{ color: '#818cf8' }}>Pro</span>
+        <span style={{ fontSize: '0.9375rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.025em' }}>
+          TechRepair<span style={{ color: 'var(--color-primary-light)' }}>Pro</span>
         </span>
       </div>
+
+      <ThemeToggle variant="icon" />
     </div>
   )
 }

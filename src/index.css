@@ -27,7 +27,7 @@
   --bg-card-solid:  #0d1a30;
   --bg-card-raised: #112240;   /* cards con mayor elevación */
   --bg-sidebar:     #070f1f;   /* sidebar más oscuro */
-  --bg-sidebar-overlay: rgba(7, 15, 31, 0.98);
+  --bg-sidebar-overlay: rgba(11, 18, 32, 0.98);   /* fondo real del sidebar/topbar */
   --bg-header:      rgba(6, 13, 26, 0.85);
   --bg-elevated:    #112240;
   --bg-hover:       rgba(99, 102, 241, 0.08);
@@ -77,10 +77,15 @@
   --gradient-surface:   linear-gradient(135deg, rgba(99,102,241,0.08), rgba(6,182,212,0.05));
 
   /* ── Nav ── */
-  --nav-active-bg:     linear-gradient(135deg, rgba(99,102,241,0.22) 0%, rgba(6,182,212,0.12) 100%);
-  --nav-active-text:   #f8fafc;
-  --nav-active-border: rgba(99, 102, 241, 0.50);
-  --nav-hover-bg:      rgba(99, 102, 241, 0.08);
+  --nav-active-bg:     linear-gradient(135deg, rgba(99,102,241,0.28) 0%, rgba(139,92,246,0.24) 100%);
+  --nav-active-text:   #ffffff;
+  --nav-active-border: rgba(99, 102, 241, 0.35);
+  --nav-hover-bg:      rgba(255, 255, 255, 0.04);
+  --nav-item-text:        #64748b;
+  --nav-item-text-hover:  #94a3b8;
+  --nav-section-label:    #334155;
+  --nav-whatsapp:         #4ade80;
+  --nav-whatsapp-bg:      rgba(37, 211, 102, 0.07);
 
   /* ── Colores funcionales ── */
   --success:         #34d399;
@@ -224,10 +229,15 @@
   --gradient-indigo:    linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
   --gradient-surface:   linear-gradient(135deg, rgba(79,70,229,0.06), rgba(8,145,178,0.04));
 
-  --nav-active-bg:     linear-gradient(135deg, rgba(79,70,229,0.12) 0%, rgba(8,145,178,0.08) 100%);
-  --nav-active-text:   #312e81;
-  --nav-active-border: rgba(79, 70, 229, 0.35);
-  --nav-hover-bg:      rgba(79, 70, 229, 0.06);
+  --nav-active-bg:     linear-gradient(135deg, rgba(79,70,229,0.12) 0%, rgba(139,92,246,0.10) 100%);
+  --nav-active-text:   #3730a3;
+  --nav-active-border: rgba(79, 70, 229, 0.30);
+  --nav-hover-bg:      rgba(15, 23, 42, 0.045);
+  --nav-item-text:        #5a6579;
+  --nav-item-text-hover:  #1e293b;
+  --nav-section-label:    #93a0b4;
+  --nav-whatsapp:         #16a34a;
+  --nav-whatsapp-bg:      rgba(22, 163, 74, 0.08);
 
   --success:         #059669;
   --success-soft:    #047857;
@@ -2113,51 +2123,91 @@ tbody tr:hover td {
 
 /* ══════════════════════════════════════════════════════════════════════════
    LIGHT MODE — overrides para inline styles heredados
+   Todo el bloque vive dentro de un :is() con guard :not() para NO afectar a
+   las "islas dark" (POS .cpm-root y Mi Guita) que fijan data-theme="dark"
+   en su raíz y deben verse idénticas en ambos temas.
    ══════════════════════════════════════════════════════════════════════════ */
 
-[data-theme="light"] [style*="background-color: #020617"],
-[data-theme="light"] [style*="background-color: #04070f"],
-[data-theme="light"] [style*="background-color: #060d1a"],
-[data-theme="light"] [style*="background-color: #0a0e1a"],
-[data-theme="light"] [style*="background-color: #0a1628"],
-[data-theme="light"] [style*="background: linear-gradient(135deg, #0a"] {
+/* Los estilos inline de React se serializan con hex normalizado a rgb()
+   — p. ej. style={{color:'#e2e8f0'}} rinde style="color: rgb(226, 232, 240)".
+   Por eso los patrones usan la forma rgb(), no hex. */
+[data-theme="light"] :is(
+  [style*="background-color: rgb(2, 6, 23)"],
+  [style*="background-color: rgb(4, 7, 15)"],
+  [style*="background-color: rgb(6, 13, 26)"],
+  [style*="background-color: rgb(10, 14, 26)"],
+  [style*="background-color: rgb(10, 22, 40)"],
+  [style*="background: linear-gradient(135deg, rgb(10,"]
+):not([data-theme="dark"], [data-theme="dark"] *) {
   background: var(--bg-card-solid) !important;
 }
 
-[data-theme="light"] [style*="background-color: #0b1120"],
-[data-theme="light"] [style*="background-color: #0f1829"],
-[data-theme="light"] [style*="background-color: #111827"] {
+[data-theme="light"] :is(
+  [style*="background-color: rgb(11, 17, 32)"],
+  [style*="background-color: rgb(15, 24, 41)"],
+  [style*="background-color: rgb(17, 24, 39)"],
+  [style*="background-color: rgb(30, 41, 59)"]
+):not([data-theme="dark"], [data-theme="dark"] *) {
   background-color: var(--bg-card-solid) !important;
   border-color: var(--border-color) !important;
 }
 
-[data-theme="light"] input[style],
-[data-theme="light"] select[style],
-[data-theme="light"] textarea[style] {
+/* Nota: el browser serializa el atributo style con espacios tras las comas
+   (rgba(255, 255, 255, 0.04)), por eso los patrones llevan espacios. */
+[data-theme="light"] :is(
+  [style*="background: rgba(11, 18, 32"],
+  [style*="background: rgba(7, 15, 31"],
+  [style*="background: rgba(10, 16, 32"]
+):not([data-theme="dark"], [data-theme="dark"] *) {
+  background: var(--bg-header) !important;
+}
+
+[data-theme="light"] :is(
+  [style*="background: rgba(255, 255, 255, 0.02"],
+  [style*="background: rgba(255, 255, 255, 0.03"],
+  [style*="background: rgba(255, 255, 255, 0.04"],
+  [style*="background: rgba(255, 255, 255, 0.05"],
+  [style*="background: rgba(255, 255, 255, 0.06"],
+  [style*="background-color: rgba(255, 255, 255, 0.02"],
+  [style*="background-color: rgba(255, 255, 255, 0.03"],
+  [style*="background-color: rgba(255, 255, 255, 0.04"],
+  [style*="background-color: rgba(255, 255, 255, 0.05"]
+):not([data-theme="dark"], [data-theme="dark"] *) {
+  background-color: var(--bg-tertiary) !important;
+}
+
+[data-theme="light"] :is(input[style], select[style], textarea[style]):not([data-theme="dark"], [data-theme="dark"] *) {
   color: var(--text-primary) !important;
   background-color: var(--input-bg) !important;
   border-color: var(--input-border) !important;
 }
 
-[data-theme="light"] [style*="color: #f8fafc"],
-[data-theme="light"] [style*="color: #f1f5f9"],
-[data-theme="light"] [style*="color: #f0f4ff"],
-[data-theme="light"] [style*="color: #ffffff"],
-[data-theme="light"] [style*="color: rgb(255, 255, 255)"],
-[data-theme="light"] [style*="color: rgb(248, 250, 252)"] {
+[data-theme="light"] :is(
+  [style*="color: rgb(248, 250, 252)"],
+  [style*="color: rgb(241, 245, 249)"],
+  [style*="color: rgb(240, 244, 255)"],
+  [style*="color: rgb(226, 232, 240)"],
+  [style*="color: rgb(255, 255, 255)"]
+):not([data-theme="dark"], [data-theme="dark"] *) {
   color: var(--text-primary) !important;
 }
 
-[data-theme="light"] [style*="color: #94a3b8"],
-[data-theme="light"] [style*="color: #8896b3"],
-[data-theme="light"] [style*="color: #64748b"],
-[data-theme="light"] [style*="color: rgb(148, 163, 184)"] {
+[data-theme="light"] :is(
+  [style*="color: rgb(148, 163, 184)"],
+  [style*="color: rgb(136, 150, 179)"],
+  [style*="color: rgb(100, 116, 139)"],
+  [style*="color: rgb(203, 213, 225)"],
+  [style*="color: rgb(160, 174, 192)"]
+):not([data-theme="dark"], [data-theme="dark"] *) {
   color: var(--text-secondary) !important;
 }
 
-[data-theme="light"] [style*="border: 1px solid rgba(255, 255, 255, 0.0"],
-[data-theme="light"] [style*="border: 1px solid rgba(255, 255, 255, 0.1"],
-[data-theme="light"] [style*="border-bottom: 1px solid rgba(255, 255, 255"] {
+[data-theme="light"] :is(
+  [style*="border: 1px solid rgba(255, 255, 255, 0.0"],
+  [style*="border: 1px solid rgba(255, 255, 255, 0.1"],
+  [style*="border-bottom: 1px solid rgba(255, 255, 255"],
+  [style*="border-top: 1px solid rgba(255, 255, 255"]
+):not([data-theme="dark"], [data-theme="dark"] *) {
   border-color: var(--border-color) !important;
 }
 

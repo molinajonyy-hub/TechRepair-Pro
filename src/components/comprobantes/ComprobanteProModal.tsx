@@ -1102,6 +1102,9 @@ export function ComprobanteProModal({
     <>
     <div
       className={`cpm-root${sheetOpen ? ' cpm-sheet-open' : ''}`}
+      // Isla dark: el POS conserva su paleta oscura scopeada (--pos-*) aunque el
+      // tema global sea light. Migrarlo a tokens temables es una capa posterior.
+      data-theme="dark"
       onClick={e => { if (e.target === e.currentTarget) tryClose() }}
       style={{
         position: 'fixed', inset: 0, zIndex: 9999,

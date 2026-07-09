@@ -4,11 +4,34 @@ import {
   Menu, X, ArrowRight, Check, ChevronDown, HelpCircle,
   ClipboardList, Search, Wrench, MessageCircle, CreditCard, BarChart3,
   Receipt, Package, Users, User, Wallet, Building2,
-  DollarSign, FileText, ShieldCheck, Smartphone, Zap,
+  DollarSign, FileText, ShieldCheck, Smartphone, Zap, Sun, Moon,
 } from 'lucide-react'
 import { PLANS, type SubscriptionPlan } from '../types/subscription'
 import { initLandingAnalytics, track } from '../lib/analytics'
+import { useTheme } from '../hooks/useTheme'
 import '../css/landing.css'
+
+// ─── Acentos temables del mockup ──────────────────────────────────────────────
+// Los acentos se guardan como hex de 6 dígitos porque se componen con sufijos
+// de alpha ("55", "1a"). En light se sustituyen por variantes más oscuras para
+// mantener contraste sobre superficies claras; en dark quedan idénticos.
+const LIGHT_ACCENT: Record<string, string> = {
+  '#818cf8': '#4f46e5',
+  '#60a5fa': '#2563eb',
+  '#a78bfa': '#7c3aed',
+  '#34d399': '#059669',
+  '#fbbf24': '#b45309',
+  '#22d3ee': '#0e7490',
+  '#f87171': '#dc2626',
+}
+
+function useThemedAccent() {
+  const { resolvedTheme } = useTheme()
+  return useCallback(
+    (hex: string) => (resolvedTheme === 'dark' ? hex : LIGHT_ACCENT[hex] ?? hex),
+    [resolvedTheme],
+  )
+}
 
 // ─── Contacto ─────────────────────────────────────────────────────────────────
 // Se leen de variables de entorno (ver .env.example). NO hay valores por defecto:
@@ -141,6 +164,8 @@ function Header({ onTrial }: { onTrial: (source: string) => void }) {
   const navigate = useNavigate()
   const [scrolled, setScrolled] = useState(false)
   const [open, setOpen] = useState(false)
+  const { resolvedTheme, setTheme } = useTheme()
+  const isDark = resolvedTheme === 'dark'
 
   useEffect(() => {
     const fn = () => setScrolled(window.scrollY > 16)
@@ -173,6 +198,15 @@ function Header({ onTrial }: { onTrial: (source: string) => void }) {
         </nav>
 
         <div className="lp-header-actions">
+          <button
+            className="lp-btn lp-btn-ghost lp-btn-sm"
+            onClick={() => setTheme(isDark ? 'light' : 'dark')}
+            aria-label={isDark ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
+            title={isDark ? 'Tema claro' : 'Tema oscuro'}
+            style={{ paddingLeft: '0.7rem', paddingRight: '0.7rem' }}
+          >
+            {isDark ? <Sun size={16} aria-hidden="true" /> : <Moon size={16} aria-hidden="true" />}
+          </button>
           <button className="lp-btn lp-btn-ghost lp-btn-sm lp-hide-mobile" onClick={() => navigate('/login')}>
             Ingresar
           </button>
@@ -263,12 +297,14 @@ function Hero({ onTrial, onDemo }: { onTrial: (s: string) => void; onDemo: () =>
 
 // ─── Ventana del sistema (visual reutilizable del recorrido) ──────────────────
 function SystemWindow({ stage, floating = false }: { stage: Stage; floating?: boolean }) {
+  const accent = useThemedAccent()
+  const a = accent(stage.accent)
   return (
     <div className={`lp-window${floating ? ' is-floating' : ''}`}>
       <div className="lp-window-bar">
         <span className="lp-window-dots"><i /><i /><i /></span>
         <span className="lp-window-title">Orden #00042 · iPhone 14 Pro</span>
-        <span className="lp-window-status" style={{ color: stage.accent, borderColor: `${stage.accent}55`, background: `${stage.accent}1a` }}>
+        <span className="lp-window-status" style={{ color: a, borderColor: `${a}55`, background: `${a}1a` }}>
           {stage.status}
         </span>
       </div>
@@ -278,7 +314,7 @@ function SystemWindow({ stage, floating = false }: { stage: Stage; floating?: bo
           const active = stage.rail.includes(key)
           const { label, Icon } = RAIL_META[key]
           return (
-            <span key={key} className={`lp-rail-chip${active ? ' is-active' : ''}`} style={active ? { color: stage.accent, borderColor: `${stage.accent}55`, background: `${stage.accent}14` } : undefined}>
+            <span key={key} className={`lp-rail-chip${active ? ' is-active' : ''}`} style={active ? { color: a, borderColor: `${a}55`, background: `${a}14` } : undefined}>
               <Icon size={14} aria-hidden="true" /> {label}
             </span>
           )
@@ -287,7 +323,7 @@ function SystemWindow({ stage, floating = false }: { stage: Stage; floating?: bo
 
       <div className="lp-window-body" key={stage.id}>
         <div className="lp-window-headline">
-          <span className="lp-window-step-icon" style={{ color: stage.accent, background: `${stage.accent}18` }}>
+          <span className="lp-window-step-icon" style={{ color: a, background: `${a}18` }}>
             <stage.Icon size={18} aria-hidden="true" />
           </span>
           <span>{stage.title}</span>
@@ -300,7 +336,7 @@ function SystemWindow({ stage, floating = false }: { stage: Stage; floating?: bo
             </div>
           ))}
           <div className="lp-window-progress">
-            <span className="lp-window-progress-fill" style={{ width: `${((STAGES.indexOf(stage) + 1) / STAGES.length) * 100}%`, background: stage.accent }} />
+            <span className="lp-window-progress-fill" style={{ width: `${((STAGES.indexOf(stage) + 1) / STAGES.length) * 100}%`, background: a }} />
           </div>
         </div>
       </div>
@@ -540,6 +576,7 @@ function LocalSection() {
 
 // ─── VISTA DEL NEGOCIO ────────────────────────────────────────────────────────
 function BusinessViewSection() {
+  const accent = useThemedAccent()
   const rows = [
     { label: 'Ingresos del mes', value: '$1.840.000', pct: 88, color: '#34d399' },
     { label: 'Gastos', value: '$520.000', pct: 28, color: '#f87171' },
@@ -559,22 +596,22 @@ function BusinessViewSection() {
             <div className="lp-window-bar">
               <span className="lp-window-dots"><i /><i /><i /></span>
               <span className="lp-window-title">Finanzas · Mes actual</span>
-              <span className="lp-window-status" style={{ color: '#34d399', borderColor: '#34d39955', background: '#34d3991a' }}>En vivo</span>
+              <span className="lp-window-status" style={{ color: accent('#34d399'), borderColor: `${accent('#34d399')}55`, background: `${accent('#34d399')}1a` }}>En vivo</span>
             </div>
             <div className="lp-fin-body">
               {rows.map(r => (
                 <div key={r.label} className="lp-fin-row">
                   <div className="lp-fin-row-top">
                     <span>{r.label}</span>
-                    <strong style={{ color: r.color }}>{r.value}</strong>
+                    <strong style={{ color: accent(r.color) }}>{r.value}</strong>
                   </div>
-                  <div className="lp-fin-track"><span className="lp-fin-fill" style={{ width: `${r.pct}%`, background: r.color }} /></div>
+                  <div className="lp-fin-track"><span className="lp-fin-fill" style={{ width: `${r.pct}%`, background: accent(r.color) }} /></div>
                 </div>
               ))}
               <div className="lp-fin-kpis">
-                <div><strong style={{ color: '#fbbf24' }}>3</strong><span>Alertas</span></div>
-                <div><strong style={{ color: '#60a5fa' }}>18</strong><span>Ventas hoy</span></div>
-                <div><strong style={{ color: '#34d399' }}><Check size={18} /></strong><span>Caja abierta</span></div>
+                <div><strong style={{ color: accent('#fbbf24') }}>3</strong><span>Alertas</span></div>
+                <div><strong style={{ color: accent('#60a5fa') }}>18</strong><span>Ventas hoy</span></div>
+                <div><strong style={{ color: accent('#34d399') }}><Check size={18} /></strong><span>Caja abierta</span></div>
               </div>
             </div>
           </div>
@@ -684,7 +721,7 @@ function PricingSection({ onSelect }: { onSelect: (plan: SubscriptionPlan) => vo
                 <ul className="lp-plan-features">
                   {plan.features.map(f => (
                     <li key={f}>
-                      <span className="lp-check" style={featured ? { color: '#818cf8' } : undefined}><Check size={14} aria-hidden="true" /></span>
+                      <span className="lp-check" style={featured ? { color: 'var(--lp-accent-2)' } : undefined}><Check size={14} aria-hidden="true" /></span>
                       {f}
                     </li>
                   ))}

@@ -9,7 +9,10 @@ export function UpdateBanner() {
   if (!updateAvailable || dismissed) return null
 
   return (
-    <div style={{
+    // Isla dark: el banner es deliberadamente oscuro sobre ambos temas.
+    // data-theme="dark" evita que los overrides light de index.css re-mapeen
+    // sus colores inline (texto claro → oscuro sobre fondo oscuro = ilegible).
+    <div data-testid="update-banner" data-theme="dark" style={{
       position: 'fixed', bottom: '1.25rem', left: '50%', transform: 'translateX(-50%)',
       zIndex: 99999,
       display: 'flex', alignItems: 'center', gap: '0.75rem',
@@ -25,7 +28,7 @@ export function UpdateBanner() {
     }}>
       <style>{`@keyframes slideUp { from { opacity:0; transform:translateX(-50%) translateY(12px) } to { opacity:1; transform:translateX(-50%) translateY(0) } }`}</style>
 
-      <span style={{ fontSize: '0.8125rem', color: '#94a3b8' }}>
+      <span data-testid="update-banner-message" style={{ fontSize: '0.8125rem', color: '#e2e8f0' }}>
         Hay una nueva versión disponible
       </span>
 
@@ -45,7 +48,8 @@ export function UpdateBanner() {
 
       <button
         onClick={() => setDismissed(true)}
-        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#475569', padding: '0.25rem', display: 'flex', alignItems: 'center' }}
+        aria-label="Cerrar"
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '0.25rem', display: 'flex', alignItems: 'center' }}
         title="Cerrar"
       >
         <X size={14} />

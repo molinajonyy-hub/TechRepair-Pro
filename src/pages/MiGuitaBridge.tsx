@@ -53,6 +53,8 @@ export function MiGuitaBridge() {
   return (
     <div
       data-testid="miguita-bridge-page"
+      // data-theme="dark": pantalla standalone de Mi Guita (isla dark)
+      data-theme="dark"
       style={{
         minHeight: '100dvh',
         background: '#071018',

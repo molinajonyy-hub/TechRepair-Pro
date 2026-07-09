@@ -29,8 +29,8 @@ export function GlobalSearchTrigger() {
           alignItems: 'center',
           gap: '0.625rem',
           padding: '0.45rem 0.875rem',
-          background: 'rgba(255,255,255,0.04)',
-          border: '1px solid rgba(255,255,255,0.08)',
+          background: 'var(--nav-hover-bg)',
+          border: '1px solid var(--border-color)',
           borderRadius: '0.625rem',
           cursor: 'pointer',
           color: 'var(--text-subtle)',
@@ -39,13 +39,13 @@ export function GlobalSearchTrigger() {
           transition: 'all 0.12s',
         }}
         onMouseEnter={e => {
-          e.currentTarget.style.background  = 'rgba(99,102,241,0.07)'
-          e.currentTarget.style.borderColor = 'rgba(99,102,241,0.28)'
-          e.currentTarget.style.color       = 'var(--indigo-400)'
+          e.currentTarget.style.background  = 'var(--accent-primary-subtle)'
+          e.currentTarget.style.borderColor = 'var(--border-accent)'
+          e.currentTarget.style.color       = 'var(--color-primary-light)'
         }}
         onMouseLeave={e => {
-          e.currentTarget.style.background  = 'rgba(255,255,255,0.04)'
-          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'
+          e.currentTarget.style.background  = 'var(--nav-hover-bg)'
+          e.currentTarget.style.borderColor = 'var(--border-color)'
           e.currentTarget.style.color       = 'var(--text-subtle)'
         }}
       >
@@ -55,8 +55,8 @@ export function GlobalSearchTrigger() {
         </span>
         <kbd style={{
           fontSize: '0.6rem',
-          background: 'rgba(255,255,255,0.06)',
-          border: '1px solid rgba(255,255,255,0.1)',
+          background: 'var(--bg-hover)',
+          border: '1px solid var(--border-strong)',
           borderRadius: '0.25rem',
           padding: '0.05rem 0.375rem',
           fontFamily: 'monospace',
@@ -78,8 +78,8 @@ export function GlobalSearchTrigger() {
           display: 'none',          // shown via CSS on small screens
           alignItems: 'center',
           justifyContent: 'center',
-          background: 'rgba(255,255,255,0.04)',
-          border: '1px solid rgba(255,255,255,0.08)',
+          background: 'var(--nav-hover-bg)',
+          border: '1px solid var(--border-color)',
           borderRadius: '0.625rem',
           cursor: 'pointer',
           color: 'var(--text-subtle)',

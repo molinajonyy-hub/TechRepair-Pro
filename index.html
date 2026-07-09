@@ -108,6 +108,26 @@
     <meta name="apple-mobile-web-app-title" content="Mi Guita" />
     <meta name="theme-color" content="#071018" />
 
+    <!-- Tema pre-paint: aplica data-theme antes de que React monte para evitar
+         flash de tema incorrecto. Debe mantener la misma lógica que ThemeContext:
+         preferencia guardada (techrepair_theme) > default "light". -->
+    <script>
+      (function () {
+        var theme = 'light';
+        try {
+          var stored = localStorage.getItem('techrepair_theme') || localStorage.getItem('theme');
+          if (stored === 'light' || stored === 'dark' || stored === 'system') theme = stored;
+        } catch (e) { /* storage bloqueado: default light */ }
+        if (theme === 'system') {
+          theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+        var root = document.documentElement;
+        root.setAttribute('data-theme', theme);
+        root.classList.add(theme);
+        root.style.colorScheme = theme;
+      })();
+    </script>
+
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   </head>

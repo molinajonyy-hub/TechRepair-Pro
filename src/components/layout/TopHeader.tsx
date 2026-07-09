@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { GlobalSearchTrigger } from './GlobalSearchTrigger'
 import { NotificationsDropdown } from './NotificationsDropdown'
+import { ThemeToggle } from '../ui/ThemeToggle'
 import { useSystemStatus } from '../../contexts/SystemStatusContext'
 import type { AppStatus } from '../../hooks/useAppWakeUp'
 
@@ -51,8 +52,8 @@ function ReconnectButton() {
       style={{
         display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
         padding: '0.3rem 0.625rem', borderRadius: '0.5rem',
-        background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-        color: '#94a3b8', fontSize: '0.72rem', fontWeight: 600, cursor: isActive ? 'default' : 'pointer',
+        background: 'var(--nav-hover-bg)', border: '1px solid var(--border-strong)',
+        color: 'var(--text-tertiary)', fontSize: '0.72rem', fontWeight: 600, cursor: isActive ? 'default' : 'pointer',
         opacity: isActive ? 0.6 : 1, transition: 'opacity 0.2s',
       }}
     >
@@ -86,6 +87,7 @@ export function TopHeader() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
           {showDot && <SystemStatusDot status={status} />}
           <ReconnectButton />
+          <ThemeToggle variant="icon" />
           <NotificationsDropdown />
         </div>
       </div>

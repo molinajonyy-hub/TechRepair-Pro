@@ -7,7 +7,8 @@ import { useRef } from 'react'
 /** Mi Guita loading screen — shown while auth resolves on PWA cold-start. */
 function PersonalLoadingScreen() {
   return (
-    <div style={{
+    // data-theme="dark": pantalla standalone de Mi Guita (isla dark, fuera de PersonalLayout)
+    <div data-theme="dark" style={{
       minHeight: '100dvh',
       background: '#071018',
       display: 'flex',
@@ -36,7 +37,8 @@ function PersonalLoadingScreen() {
 function MiGuitaPaywall() {
   const navigate = useNavigate()
   return (
-    <div style={{
+    // data-theme="dark": pantalla standalone de Mi Guita (isla dark, fuera de PersonalLayout)
+    <div data-theme="dark" style={{
       minHeight: '100dvh',
       background: '#071018',
       display: 'flex', alignItems: 'center', justifyContent: 'center',

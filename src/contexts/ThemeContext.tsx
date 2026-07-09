@@ -24,9 +24,19 @@ const getSystemTheme = (): ResolvedTheme => {
   return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
 };
 
+const isTheme = (value: unknown): value is Theme => (
+  value === 'light' || value === 'dark' || value === 'system'
+);
+
 const getInitialTheme = (): Theme => {
-  // Siempre usar modo dark
-  return 'dark';
+  // Preferencia guardada (si existe) > default light para usuarios nuevos.
+  try {
+    const stored = window.localStorage.getItem(THEME_KEY) ?? window.localStorage.getItem(LEGACY_THEME_KEY);
+    if (isTheme(stored)) return stored;
+  } catch {
+    // Storage bloqueado (Safari private, etc.): usar el default.
+  }
+  return 'light';
 };
 
 const resolveTheme = (theme: Theme): ResolvedTheme => (

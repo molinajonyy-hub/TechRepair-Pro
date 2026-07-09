@@ -2,7 +2,8 @@
  * tokens — design system tokens globales de TechRepair Pro.
  *
  * Usar estas constantes en lugar de hardcodear valores visuales.
- * Paleta dark-first, diseñada para densidad de información alta (POS/ERP).
+ * Los colores referencian las CSS custom properties de index.css, por lo que
+ * responden automáticamente al tema activo (light/dark vía data-theme).
  *
  * Uso:
  *   import { colors, radius, transitions } from '../lib/tokens'
@@ -15,54 +16,54 @@ export const colors = {
 
   // Superficies
   bg: {
-    app:        '#071018',             // fondo global del shell
-    surface:    '#0a1628',             // modales, cards primarias
-    surfaceAlt: '#07101f',             // panel derecho, paneles secundarios
-    card:       'rgba(255,255,255,0.025)',
-    cardHover:  'rgba(255,255,255,0.04)',
-    input:      'rgba(255,255,255,0.04)',
-    overlay:    'rgba(0,0,0,0.85)',
+    app:        'var(--bg-primary)',      // fondo global del shell
+    surface:    'var(--bg-modal)',        // modales, cards primarias
+    surfaceAlt: 'var(--bg-sidebar)',      // panel derecho, paneles secundarios
+    card:       'var(--bg-hover)',
+    cardHover:  'var(--bg-tertiary)',
+    input:      'var(--input-bg)',
+    overlay:    'rgba(0,0,0,0.85)',       // overlays siempre oscuros
     overlayStrong: 'rgba(0,0,0,0.96)',
   },
 
   // Bordes
   border: {
-    subtle:   'rgba(255,255,255,0.05)',
-    default:  'rgba(255,255,255,0.08)',
-    medium:   'rgba(255,255,255,0.12)',
-    focused:  'rgba(99,102,241,0.35)',
+    subtle:   'var(--border-subtle)',
+    default:  'var(--border-color)',
+    medium:   'var(--border-strong)',
+    focused:  'var(--border-focus)',
   },
 
   // Texto
   text: {
-    primary:   '#f0f4ff',
-    secondary: '#94a3b8',
-    subtle:    '#475569',
-    muted:     '#334155',
-    disabled:  '#1e3a5f',
+    primary:   'var(--text-primary)',
+    secondary: 'var(--text-secondary)',
+    subtle:    'var(--text-tertiary)',
+    muted:     'var(--text-subtle)',
+    disabled:  'var(--text-disabled)',
   },
 
   // Semántico
-  success:   '#34d399',
-  successBg: 'rgba(52,211,153,0.10)',
-  successBorder: 'rgba(52,211,153,0.25)',
+  success:   'var(--success)',
+  successBg: 'var(--success-subtle)',
+  successBorder: 'var(--success-border)',
 
-  warning:   '#f59e0b',
-  warningBg: 'rgba(245,158,11,0.10)',
-  warningBorder: 'rgba(245,158,11,0.25)',
+  warning:   'var(--warning-soft)',
+  warningBg: 'var(--warning-subtle)',
+  warningBorder: 'var(--warning-border)',
 
-  error:     '#f87171',
-  errorBg:   'rgba(248,113,113,0.10)',
-  errorBorder: 'rgba(248,113,113,0.25)',
+  error:     'var(--error)',
+  errorBg:   'var(--error-subtle)',
+  errorBorder: 'var(--error-border)',
 
-  info:      '#60a5fa',
-  infoBg:    'rgba(96,165,250,0.10)',
+  info:      'var(--info)',
+  infoBg:    'var(--info-subtle)',
 
   // Acento principal (indigo)
-  indigo:        '#818cf8',
-  indigoBright:  '#6366f1',
-  indigoBg:      'rgba(99,102,241,0.12)',
-  indigoBorder:  'rgba(99,102,241,0.30)',
+  indigo:        'var(--color-primary-light)',
+  indigoBright:  'var(--accent-primary)',
+  indigoBg:      'var(--accent-primary-subtle)',
+  indigoBorder:  'var(--border-accent)',
 
   // Stock
   stock: {
@@ -109,9 +110,9 @@ export const radius = {
 // ─── Sombras ──────────────────────────────────────────────────────────────────
 
 export const shadows = {
-  card:    '0 4px 20px rgba(0,0,0,0.4)',
-  modal:   '0 40px 120px rgba(0,0,0,0.95), 0 0 0 1px rgba(255,255,255,0.04)',
-  dropdown:'0 12px 40px rgba(0,0,0,0.6)',
+  card:    'var(--shadow-card)',
+  modal:   'var(--shadow-xl)',
+  dropdown:'var(--shadow-lg)',
   glow: {
     indigo: '0 0 16px rgba(99,102,241,0.4)',
     green:  '0 0 12px rgba(34,197,94,0.3)',

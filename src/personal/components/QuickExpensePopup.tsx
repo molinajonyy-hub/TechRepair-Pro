@@ -169,9 +169,11 @@ export function QuickExpensePopup({ open, onClose }: QuickExpensePopupProps) {
         }}
       />
 
-      {/* Panel flotante inferior — liquid glass */}
+      {/* Panel flotante inferior — liquid glass.
+          data-theme="dark": portal fuera de la isla dark de Mi Guita. */}
       <div
         data-testid="quick-expense-popup"
+        data-theme="dark"
         style={{
           position: 'fixed',
           left: '12px',

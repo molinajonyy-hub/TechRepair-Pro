@@ -324,7 +324,7 @@ export function Sidebar() {
     <div
       style={{
         padding: framed ? (collapsed ? '1.25rem 0.5rem' : '1.25rem 1rem') : 0,
-        borderBottom: framed ? '1px solid rgba(255,255,255,0.07)' : 'none',
+        borderBottom: framed ? '1px solid var(--border-color)' : 'none',
         display: 'flex',
         alignItems: 'center',
         justifyContent: collapsed ? 'center' : 'flex-start',
@@ -354,17 +354,17 @@ export function Sidebar() {
               fontSize: '1rem',
               fontWeight: 800,
               letterSpacing: '-0.025em',
-              color: '#f8fafc',
+              color: 'var(--text-primary)',
               margin: 0,
               lineHeight: 1.1,
             }}
           >
-            TechRepair<span style={{ color: '#818cf8' }}>Pro</span>
+            TechRepair<span style={{ color: 'var(--color-primary-light)' }}>Pro</span>
           </h2>
           <p
             style={{
               fontSize: '0.68rem',
-              color: '#475569',
+              color: 'var(--nav-section-label)',
               margin: '0.1rem 0 0',
               fontWeight: 400,
               whiteSpace: 'nowrap',
@@ -401,7 +401,7 @@ export function Sidebar() {
                   fontWeight: 700,
                   letterSpacing: '0.1em',
                   textTransform: 'uppercase',
-                  color: '#334155',
+                  color: 'var(--nav-section-label)',
                   padding: '0.5rem 0.5rem 0.25rem',
                   marginTop: '0.25rem',
                 }}
@@ -427,15 +427,15 @@ export function Sidebar() {
                   marginBottom: '2px',
                   borderRadius: '0.5rem',
                   color: isActive
-                    ? '#fff'
+                    ? 'var(--nav-active-text)'
                     : item.isWhatsApp
-                    ? '#4ade80'
-                    : '#64748b',
+                    ? 'var(--nav-whatsapp)'
+                    : 'var(--nav-item-text)',
                   background: isActive
-                    ? 'linear-gradient(135deg, rgba(99,102,241,0.28) 0%, rgba(139,92,246,0.24) 100%)'
+                    ? 'var(--nav-active-bg)'
                     : 'transparent',
                   border: isActive
-                    ? '1px solid rgba(99,102,241,0.35)'
+                    ? '1px solid var(--nav-active-border)'
                     : '1px solid transparent',
                   textDecoration: 'none',
                   transition: 'all 0.15s ease',
@@ -475,7 +475,7 @@ export function Sidebar() {
       <div
         style={{
           padding: collapsed ? '0.625rem 0.5rem' : '0.625rem',
-          borderTop: '1px solid rgba(255,255,255,0.06)',
+          borderTop: '1px solid var(--border-color)',
         }}
       >
         <button
@@ -490,9 +490,9 @@ export function Sidebar() {
             width: '100%',
             padding: collapsed ? '0.5rem' : variant === 'mobile' ? '0.625rem 0.75rem' : '0.5rem 0.75rem',
             borderRadius: '0.5rem',
-            color: '#475569',
+            color: 'var(--nav-item-text)',
             backgroundColor: 'transparent',
-            border: '1px solid rgba(255,255,255,0.07)',
+            border: '1px solid var(--border-color)',
             cursor: 'pointer',
             transition: 'all 0.15s ease',
             fontWeight: 500,
@@ -501,14 +501,14 @@ export function Sidebar() {
             overflow: 'hidden',
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.04)';
-            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
-            e.currentTarget.style.color = '#94a3b8';
+            e.currentTarget.style.backgroundColor = 'var(--nav-hover-bg)';
+            e.currentTarget.style.borderColor = 'var(--border-strong)';
+            e.currentTarget.style.color = 'var(--nav-item-text-hover)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.backgroundColor = 'transparent';
-            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)';
-            e.currentTarget.style.color = '#475569';
+            e.currentTarget.style.borderColor = 'var(--border-color)';
+            e.currentTarget.style.color = 'var(--nav-item-text)';
           }}
         >
           <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
@@ -530,9 +530,9 @@ export function Sidebar() {
           left: 0,
           width: `${sidebarWidth}px`,
           height: '100vh',
-          backgroundColor: 'rgba(11, 18, 32, 0.98)',
+          backgroundColor: 'var(--bg-sidebar-overlay)',
           backdropFilter: 'blur(20px)',
-          borderRight: '1px solid rgba(255,255,255,0.08)',
+          borderRight: '1px solid var(--border-color)',
           zIndex: 1000,
           display: 'flex',
           flexDirection: 'column',
@@ -548,7 +548,7 @@ export function Sidebar() {
         <div
           style={{
             padding: isCollapsed ? '0.625rem 0.5rem' : '0.625rem 0.75rem',
-            borderBottom: '1px solid rgba(255,255,255,0.05)',
+            borderBottom: '1px solid var(--border-subtle)',
           }}
         >
           <button
@@ -557,10 +557,10 @@ export function Sidebar() {
             style={{
               width: '100%',
               padding: '0.4375rem 0.75rem',
-              backgroundColor: 'rgba(99,102,241,0.12)',
-              border: '1px solid rgba(99,102,241,0.25)',
+              backgroundColor: 'var(--accent-primary-subtle)',
+              border: '1px solid var(--border-accent)',
               borderRadius: '0.5rem',
-              color: '#818cf8',
+              color: 'var(--color-primary-light)',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -572,10 +572,10 @@ export function Sidebar() {
               boxSizing: 'border-box',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'rgba(99,102,241,0.18)';
+              e.currentTarget.style.backgroundColor = 'var(--accent-primary-light)';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'rgba(99,102,241,0.12)';
+              e.currentTarget.style.backgroundColor = 'var(--accent-primary-subtle)';
             }}
           >
             {!isCollapsed && <span>Menú</span>}
@@ -618,9 +618,9 @@ export function Sidebar() {
           width: `${mobileWidth}px`,
           maxWidth: 'calc(100vw - 24px)',
           height: '100vh',
-          backgroundColor: 'rgba(11, 18, 32, 0.98)',
+          backgroundColor: 'var(--bg-sidebar-overlay)',
           backdropFilter: 'blur(20px)',
-          borderRight: '1px solid rgba(255,255,255,0.08)',
+          borderRight: '1px solid var(--border-color)',
           zIndex: 1000,
           display: 'flex',
           flexDirection: 'column',
@@ -633,7 +633,7 @@ export function Sidebar() {
         <div
           style={{
             padding: '1.25rem 1rem',
-            borderBottom: '1px solid rgba(255,255,255,0.07)',
+            borderBottom: '1px solid var(--border-color)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -647,10 +647,10 @@ export function Sidebar() {
             style={{
               width: '36px',
               height: '36px',
-              backgroundColor: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.08)',
+              backgroundColor: 'var(--nav-hover-bg)',
+              border: '1px solid var(--border-color)',
               borderRadius: '0.5rem',
-              color: '#475569',
+              color: 'var(--nav-item-text)',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -677,13 +677,13 @@ export function Sidebar() {
 
         .sidebar nav a:not(.active):hover,
         .sidebar-mobile nav a:not(.active):hover {
-          background: rgba(255,255,255,0.04) !important;
-          color: #94a3b8 !important;
+          background: var(--nav-hover-bg) !important;
+          color: var(--nav-item-text-hover) !important;
         }
         .sidebar nav a.nav-whatsapp-item:not(.active):hover,
         .sidebar-mobile nav a.nav-whatsapp-item:not(.active):hover {
-          background: rgba(37,211,102,0.07) !important;
-          color: #4ade80 !important;
+          background: var(--nav-whatsapp-bg) !important;
+          color: var(--nav-whatsapp) !important;
         }
 
         @media (max-width: 1023px) {

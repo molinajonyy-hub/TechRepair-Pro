@@ -64,8 +64,8 @@ const TOTAL_STEPS = 7
 const OB_INPUT_STYLE: React.CSSProperties = {
   width: '100%', boxSizing: 'border-box',
   padding: '12px 15px', fontSize: '0.95rem',
-  background: 'rgba(255,255,255,0.05)', border: '1.5px solid rgba(255,255,255,0.1)',
-  borderRadius: 12, color: '#f1f5f9',
+  background: 'var(--input-bg)', border: '1.5px solid var(--input-border)',
+  borderRadius: 12, color: 'var(--text-primary)',
 }
 
 const OB_BTN_PRIMARY_STYLE: React.CSSProperties = {
@@ -110,7 +110,7 @@ export function Onboarding() {
 
   if (!guardDone) {
     return (
-      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0f1e' }}>
+      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--auth-bg)' }}>
         <div style={{ width: 36, height: 36, borderRadius: '50%', border: '3px solid rgba(99,102,241,0.2)', borderTop: '3px solid #6366f1', animation: 'tr-spin 0.8s linear infinite' }} />
       </div>
     )
@@ -278,11 +278,7 @@ export function Onboarding() {
       minHeight: '100dvh',
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       padding: '2rem 1.25rem',
-      background: `
-        radial-gradient(ellipse 70% 50% at 20% 10%, rgba(99,102,241,0.06) 0%, transparent 60%),
-        radial-gradient(ellipse 60% 50% at 80% 90%, rgba(139,92,246,0.05) 0%, transparent 60%),
-        #0a0f1e
-      `,
+      background: 'var(--auth-bg)',
     }}>
       <style>{`
         @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
@@ -299,18 +295,18 @@ export function Onboarding() {
         {Array.from({ length: TOTAL_STEPS }, (_, i) => (
           <div key={i} style={{
             width: i + 1 === step ? 24 : 8, height: 8, borderRadius: 4,
-            background: i + 1 <= step ? '#6366f1' : 'rgba(255,255,255,0.1)',
+            background: i + 1 <= step ? 'var(--accent-primary)' : 'var(--border-strong)',
             transition: 'width 0.3s, background 0.3s',
           }} />
         ))}
-        <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: '#475569' }}>
+        <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--text-subtle)' }}>
           {stepLabel}
         </span>
       </div>
 
       <div className="ob-card" key={step} style={{
         width: '100%', maxWidth: 480,
-        background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+        background: 'var(--auth-card-bg)', border: '1px solid var(--border-color)',
         borderRadius: 22, backdropFilter: 'blur(20px)', padding: '2.25rem',
         boxShadow: '0 4px 6px rgba(0,0,0,0.1), 0 24px 48px rgba(0,0,0,0.2)',
       }}>
@@ -320,22 +316,22 @@ export function Onboarding() {
           <>
             <div style={{ marginBottom: '1.75rem' }}>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.5rem' }}>Bienvenido</div>
-              <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.5rem', fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.03em' }}>Creá tu negocio</h1>
-              <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem', lineHeight: 1.6 }}>En menos de 2 minutos vas a tener tu sistema listo.</p>
+              <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Creá tu negocio</h1>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem', lineHeight: 1.6 }}>En menos de 2 minutos vas a tener tu sistema listo.</p>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.125rem' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Nombre del negocio</label>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Nombre del negocio</label>
                 <input className="ob-input" autoFocus value={businessName} onChange={e => setBusinessName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleStep1()} placeholder="Ej: Tecno Reparaciones" style={OB_INPUT_STYLE} />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Rubro principal</label>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Rubro principal</label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                   {RUBROS.map(r => (
                     <button key={r.id} className="rubro-btn" onClick={() => setRubro(r.id)} style={{
                       padding: '0.625rem 0.75rem',
-                      background: rubro === r.id ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.03)',
-                      border: `1.5px solid ${rubro === r.id ? '#6366f1' : 'rgba(255,255,255,0.08)'}`,
+                      background: rubro === r.id ? 'rgba(99,102,241,0.15)' : 'var(--bg-hover)',
+                      border: `1.5px solid ${rubro === r.id ? '#6366f1' : 'var(--border-color)'}`,
                       borderRadius: 10, color: rubro === r.id ? '#818cf8' : '#64748b',
                       fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
                     }}>{r.label}</button>
@@ -355,8 +351,8 @@ export function Onboarding() {
           <>
             <div style={{ marginBottom: '1.75rem' }}>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.5rem' }}>Identidad visual</div>
-              <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.4rem', fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.03em' }}>Logo de tu negocio</h2>
-              <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem' }}>Opcional — podés cargarlo después desde Ajustes.</p>
+              <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Logo de tu negocio</h2>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem' }}>Opcional — podés cargarlo después desde Ajustes.</p>
             </div>
             <label style={{ cursor: 'pointer', display: 'block' }}>
               <div style={{
@@ -371,20 +367,20 @@ export function Onboarding() {
                 ) : (
                   <div style={{ textAlign: 'center' }}>
                     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-                    <p style={{ margin: '0.375rem 0 0', fontSize: '0.72rem', color: '#475569' }}>Subir logo</p>
+                    <p style={{ margin: '0.375rem 0 0', fontSize: '0.72rem', color: 'var(--text-subtle)' }}>Subir logo</p>
                   </div>
                 )}
               </div>
               <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleLogoChange} />
             </label>
             {logoPreview && (
-              <button onClick={() => { setLogoFile(null); setLogoPreview(null) }} style={{ display: 'block', margin: '0 auto 1.25rem', background: 'none', border: 'none', color: '#64748b', fontSize: '0.78rem', cursor: 'pointer' }}>
+              <button onClick={() => { setLogoFile(null); setLogoPreview(null) }} style={{ display: 'block', margin: '0 auto 1.25rem', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.78rem', cursor: 'pointer' }}>
                 Quitar logo
               </button>
             )}
             {error && <p style={{ margin: '0 0 0.75rem', color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>}
             <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <button onClick={() => setStep(3)} style={{ flex: 1, padding: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, color: '#64748b', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>Omitir</button>
+              <button onClick={() => setStep(3)} style={{ flex: 1, padding: '12px', background: 'var(--input-bg)', border: '1px solid var(--border-color)', borderRadius: 12, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>Omitir</button>
               <button className="ob-btn-primary" onClick={handleStep2} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
                 {saving ? 'Guardando...' : logoFile ? 'Guardar logo →' : 'Continuar →'}
               </button>
@@ -397,8 +393,8 @@ export function Onboarding() {
           <>
             <div style={{ marginBottom: '1.75rem' }}>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.5rem' }}>Contacto</div>
-              <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.4rem', fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.03em' }}>Datos de contacto</h2>
-              <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem' }}>Para WhatsApp y el encabezado de tus comprobantes.</p>
+              <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Datos de contacto</h2>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem' }}>Para WhatsApp y el encabezado de tus comprobantes.</p>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {[
@@ -406,13 +402,13 @@ export function Onboarding() {
                 { label: 'Ciudad / Localidad',   value: ciudad,   set: setCiudad,   placeholder: 'Ej: Córdoba',  type: 'text' },
               ].map(({ label, value, set, placeholder, type }) => (
                 <div key={label}>
-                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>{label}</label>
+                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>{label}</label>
                   <input className="ob-input" type={type} value={value} onChange={e => set(e.target.value)} placeholder={placeholder} style={OB_INPUT_STYLE} />
                 </div>
               ))}
               {error && <p style={{ margin: 0, color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>}
               <div style={{ display: 'flex', gap: '0.75rem' }}>
-                <button onClick={() => setStep(4)} style={{ flex: 1, padding: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, color: '#64748b', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>Omitir</button>
+                <button onClick={() => setStep(4)} style={{ flex: 1, padding: '12px', background: 'var(--input-bg)', border: '1px solid var(--border-color)', borderRadius: 12, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>Omitir</button>
                 <button className="ob-btn-primary" onClick={handleStep3} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
                   {saving ? 'Guardando...' : 'Continuar →'}
                 </button>
@@ -426,18 +422,18 @@ export function Onboarding() {
           <>
             <div style={{ marginBottom: '1.75rem' }}>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.5rem' }}>Configuración fiscal</div>
-              <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.4rem', fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.03em' }}>Datos impositivos</h2>
-              <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem' }}>Opcional. Podés configurar ARCA / facturación electrónica después.</p>
+              <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Datos impositivos</h2>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem' }}>Opcional. Podés configurar ARCA / facturación electrónica después.</p>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Condición fiscal</label>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Condición fiscal</label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                   {CONDICIONES_FISCALES.map(c => (
                     <button key={c.id} className="rubro-btn" onClick={() => setCondicionFiscal(c.id)} style={{
                       padding: '0.6rem 0.75rem',
-                      background: condicionFiscal === c.id ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.03)',
-                      border: `1.5px solid ${condicionFiscal === c.id ? '#6366f1' : 'rgba(255,255,255,0.08)'}`,
+                      background: condicionFiscal === c.id ? 'rgba(99,102,241,0.15)' : 'var(--bg-hover)',
+                      border: `1.5px solid ${condicionFiscal === c.id ? '#6366f1' : 'var(--border-color)'}`,
                       borderRadius: 10, color: condicionFiscal === c.id ? '#818cf8' : '#64748b',
                       fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
                     }}>{c.label}</button>
@@ -445,17 +441,17 @@ export function Onboarding() {
                 </div>
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>CUIT <span style={{ fontWeight: 400, textTransform: 'none' }}>(sin guiones)</span></label>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>CUIT <span style={{ fontWeight: 400, textTransform: 'none' }}>(sin guiones)</span></label>
                 <input className="ob-input" type="text" value={cuit} onChange={e => setCuit(e.target.value.replace(/\D/g, ''))} placeholder="20123456789" maxLength={11} style={OB_INPUT_STYLE} />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>ARCA / Facturación electrónica</label>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>ARCA / Facturación electrónica</label>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   {[{ id: 'now' as const, label: 'Configurar ahora' }, { id: 'later' as const, label: 'Configurar después' }].map(({ id, label }) => (
                     <button key={id} onClick={() => setActivarArca(id)} style={{
                       flex: 1, padding: '0.6rem 0.75rem',
-                      background: activarArca === id ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.03)',
-                      border: `1.5px solid ${activarArca === id ? '#6366f1' : 'rgba(255,255,255,0.08)'}`,
+                      background: activarArca === id ? 'rgba(99,102,241,0.15)' : 'var(--bg-hover)',
+                      border: `1.5px solid ${activarArca === id ? '#6366f1' : 'var(--border-color)'}`,
                       borderRadius: 10, color: activarArca === id ? '#818cf8' : '#64748b',
                       fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
                     }}>{label}</button>
@@ -468,7 +464,7 @@ export function Onboarding() {
                 )}
               </div>
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem' }}>
-                <button onClick={() => setStep(5)} style={{ flex: 1, padding: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, color: '#64748b', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>Omitir</button>
+                <button onClick={() => setStep(5)} style={{ flex: 1, padding: '12px', background: 'var(--input-bg)', border: '1px solid var(--border-color)', borderRadius: 12, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>Omitir</button>
                 <button className="ob-btn-primary" onClick={handleStep4} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
                   {saving ? 'Guardando...' : 'Continuar →'}
                 </button>
@@ -482,22 +478,22 @@ export function Onboarding() {
           <>
             <div style={{ marginBottom: '1.75rem' }}>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.5rem' }}>Cobranza</div>
-              <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.4rem', fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.03em' }}>Métodos de pago</h2>
-              <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem' }}>¿Cómo aceptás pagos? Podés cambiarlo desde Configuración.</p>
+              <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Métodos de pago</h2>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem' }}>¿Cómo aceptás pagos? Podés cambiarlo desde Configuración.</p>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>
               {PAYMENT_METHODS.map(pm => (
                 <button key={pm.id} className="pay-btn" onClick={() => togglePayment(pm.id)} style={{
                   display: 'flex', alignItems: 'center', gap: '0.75rem',
                   padding: '0.75rem 1rem',
-                  background: selectedPayments.includes(pm.id) ? 'rgba(99,102,241,0.12)' : 'rgba(255,255,255,0.03)',
-                  border: `1.5px solid ${selectedPayments.includes(pm.id) ? '#6366f1' : 'rgba(255,255,255,0.08)'}`,
+                  background: selectedPayments.includes(pm.id) ? 'rgba(99,102,241,0.12)' : 'var(--bg-hover)',
+                  border: `1.5px solid ${selectedPayments.includes(pm.id) ? '#6366f1' : 'var(--border-color)'}`,
                   borderRadius: 12, color: selectedPayments.includes(pm.id) ? '#818cf8' : '#64748b',
                   fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
                 }}>
                   <div style={{
                     width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
-                    border: `2px solid ${selectedPayments.includes(pm.id) ? '#6366f1' : 'rgba(255,255,255,0.15)'}`,
+                    border: `2px solid ${selectedPayments.includes(pm.id) ? '#6366f1' : 'var(--border-strong)'}`,
                     background: selectedPayments.includes(pm.id) ? '#6366f1' : 'transparent',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
@@ -510,7 +506,7 @@ export function Onboarding() {
               ))}
             </div>
             <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <button onClick={() => setStep(6)} style={{ flex: 1, padding: '12px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, color: '#64748b', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>Omitir</button>
+              <button onClick={() => setStep(6)} style={{ flex: 1, padding: '12px', background: 'var(--input-bg)', border: '1px solid var(--border-color)', borderRadius: 12, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>Omitir</button>
               <button className="ob-btn-primary" onClick={handleStep5} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
                 {saving ? 'Guardando...' : 'Continuar →'}
               </button>
@@ -523,8 +519,8 @@ export function Onboarding() {
           <>
             <div style={{ marginBottom: '1.5rem', textAlign: 'center' }}>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.5rem' }}>Tu plan</div>
-              <h2 style={{ margin: '0 0 0.375rem', fontSize: '1.4rem', fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.03em' }}>Trial Pro — 14 días gratis</h2>
-              <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem', lineHeight: 1.6 }}>
+              <h2 style={{ margin: '0 0 0.375rem', fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Trial Pro — 14 días gratis</h2>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem', lineHeight: 1.6 }}>
                 Acceso completo durante el período de prueba. Sin tarjeta requerida.
               </p>
               {originPlan && (
@@ -541,7 +537,7 @@ export function Onboarding() {
                 {TRIAL_FEATURES_LIST.map(f => (
                   <div key={f} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                    <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>{f}</span>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{f}</span>
                   </div>
                 ))}
               </div>
@@ -566,8 +562,8 @@ export function Onboarding() {
               }}>
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
               </div>
-              <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.5rem', fontWeight: 800, color: '#f1f5f9', letterSpacing: '-0.03em' }}>¡Tu negocio está listo!</h2>
-              <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem', lineHeight: 1.6 }}>
+              <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>¡Tu negocio está listo!</h2>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem', lineHeight: 1.6 }}>
                 Tenés <strong style={{ color: '#60a5fa' }}>14 días de acceso gratuito</strong> con todas las funciones del Plan Pro.
               </p>
             </div>
@@ -577,7 +573,7 @@ export function Onboarding() {
                 {CHECKLIST_INITIAL.map((item, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
                     <div style={{ width: 18, height: 18, borderRadius: '50%', border: '1.5px solid rgba(99,102,241,0.4)', flexShrink: 0 }} />
-                    <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>{item}</span>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{item}</span>
                   </div>
                 ))}
               </div>

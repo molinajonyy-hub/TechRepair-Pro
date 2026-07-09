@@ -431,7 +431,7 @@ export function GlobalSearch() {
                 padding: '0.625rem 0.75rem',
                 borderRadius: '0.6rem',
                 border: 'none',
-                background: idx === activeIndex ? 'rgba(255,255,255,0.07)' : 'transparent',
+                background: idx === activeIndex ? 'var(--bg-hover)' : 'transparent',
                 cursor: 'pointer',
                 textAlign: 'left',
                 transition: 'background 0.12s',

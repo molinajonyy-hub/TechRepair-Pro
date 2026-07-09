@@ -21,6 +21,7 @@ import {
   Printer,
 
 } from 'lucide-react'
+import { ThemeToggle } from '../components/ui/ThemeToggle'
 import { OrderPrintSettings } from '../components/settings/OrderPrintSettings'
 import { ComprobantePrintSettings } from '../components/settings/ComprobantePrintSettings'
 import { PaymentMethodSettings } from '../components/payments/PaymentMethodSettings'
@@ -202,9 +203,6 @@ export default function Settings() {
   const [syncingParameters, setSyncingParameters] = useState(false)
   const [generandoCSR, setGenerandoCSR] = useState(false)
 
-  // Preferencias
-  const [darkMode, setDarkMode] = useState(false)
-  
   // Logo upload
   const [uploadingLogo, setUploadingLogo] = useState(false)
 
@@ -673,10 +671,10 @@ export default function Settings() {
 
             {/* Sección de Logo */}
             <div style={{ marginBottom: '2rem', padding: '1.5rem', backgroundColor: '#0b1120', borderRadius: '0.5rem', border: '1px solid rgba(255,255,255,0.06)' }}>
-              <h3 style={{ color: '#ffffff', fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <h3 style={{ color: 'var(--text-primary)', fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 Logo del Negocio
               </h3>
-              <p style={{ color: '#94a3b8', fontSize: '0.875rem', marginBottom: '1rem' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '1rem' }}>
                 El logo aparecerá en las órdenes de servicio y comprobantes impresos. Formatos aceptados: PNG, JPG, WEBP.
               </p>
               
@@ -707,7 +705,7 @@ export default function Settings() {
                         borderRadius: '50%',
                         backgroundColor: '#ef4444',
                         border: '2px solid #0f1829',
-                        color: '#ffffff',
+                        color: 'var(--text-primary)',
                         cursor: uploadingLogo ? 'not-allowed' : 'pointer',
                         display: 'flex',
                         alignItems: 'center',
@@ -902,7 +900,7 @@ export default function Settings() {
         {activeTab === 'puntos' && (
           <div className="surface-raised" style={{ padding: '2rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-              <h2 style={{ color: '#ffffff', fontSize: '1.25rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.75rem', margin: 0 }}>
+              <h2 style={{ color: 'var(--text-primary)', fontSize: '1.25rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.75rem', margin: 0 }}>
                 <MapPin size={24} style={{ color: '#6366f1' }} />
                 Puntos de Venta
               </h2>
@@ -915,7 +913,7 @@ export default function Settings() {
                   padding: '0.625rem 1.25rem',
                   background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
                   border: 'none',
-                  color: '#ffffff',
+                  color: 'var(--text-primary)',
                   borderRadius: '0.625rem',
                   cursor: 'pointer',
                   fontWeight: 600,
@@ -928,7 +926,7 @@ export default function Settings() {
             </div>
 
             {salesPoints.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
+              <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
                 <MapPin size={48} style={{ marginBottom: '1rem', opacity: 0.5 }} />
                 <p>No hay puntos de venta configurados</p>
                 <p style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>Agrega tu primer punto de venta para comenzar</p>
@@ -947,7 +945,7 @@ export default function Settings() {
                   }}>
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-                        <span style={{ color: '#ffffff', fontWeight: 600, fontSize: '1rem' }}>{point.nombre}</span>
+                        <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '1rem' }}>{point.nombre}</span>
                         <span style={{ 
                           padding: '0.25rem 0.75rem', 
                           backgroundColor: point.activo ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
@@ -971,7 +969,7 @@ export default function Settings() {
                           </span>
                         )}
                       </div>
-                      <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: 0 }}>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: 0 }}>
                         Punto de Venta: {point.numero} · Sucursal: {point.sucursal}
                       </p>
                       <p style={{ color: '#64748b', fontSize: '0.875rem', margin: '0.25rem 0 0 0' }}>
@@ -1015,7 +1013,7 @@ export default function Settings() {
 
         {activeTab === 'arca' && (
           <div className="surface-raised" style={{ padding: '2rem' }}>
-            <h2 style={{ color: '#ffffff', fontSize: '1.25rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <h2 style={{ color: 'var(--text-primary)', fontSize: '1.25rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <Server size={24} style={{ color: '#6366f1' }} />
               Integración ARCA / AFIP
             </h2>
@@ -1067,11 +1065,11 @@ export default function Settings() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem' }}>
               {/* Panel izquierdo - Estado */}
               <div style={{ backgroundColor: '#0b1120', borderRadius: '0.5rem', padding: '1.5rem', border: '1px solid rgba(255,255,255,0.06)' }}>
-                <h3 style={{ color: '#ffffff', fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Estado de Conexión</h3>
+                <h3 style={{ color: 'var(--text-primary)', fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Estado de Conexión</h3>
                 
                 <div style={{ marginBottom: '1rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-                    <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Estado:</span>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Estado:</span>
                     <span style={{ 
                       color: arcaConfig.estado_conexion === 'conectado' ? '#10b981' : '#ef4444',
                       fontWeight: 500,
@@ -1085,30 +1083,30 @@ export default function Settings() {
                 </div>
 
                 <div style={{ marginBottom: '1rem' }}>
-                  <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Ambiente:</span>
-                  <span style={{ color: '#ffffff', fontWeight: 500, fontSize: '0.875rem', marginLeft: '0.5rem' }}>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Ambiente:</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 500, fontSize: '0.875rem', marginLeft: '0.5rem' }}>
                     {arcaConfig.ambiente === 'homologacion' ? 'Homologación' : 'Producción'}
                   </span>
                 </div>
 
                 <div style={{ marginBottom: '1rem' }}>
-                  <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Punto de Venta:</span>
-                  <span style={{ color: '#ffffff', fontWeight: 500, fontSize: '0.875rem', marginLeft: '0.5rem' }}>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Punto de Venta:</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 500, fontSize: '0.875rem', marginLeft: '0.5rem' }}>
                     {arcaConfig.punto_venta}
                   </span>
                 </div>
 
                 <div style={{ marginBottom: '1rem' }}>
-                  <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Certificado:</span>
-                  <span style={{ color: '#ffffff', fontWeight: 500, fontSize: '0.875rem', marginLeft: '0.5rem' }}>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Certificado:</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 500, fontSize: '0.875rem', marginLeft: '0.5rem' }}>
                     {arcaConfig.cert_file ? '✓ Cargado' : 'No cargado'}
                   </span>
                 </div>
 
                 {arcaConfig.expires_at && (
                   <div style={{ marginBottom: '1rem' }}>
-                    <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Vencimiento:</span>
-                    <span style={{ color: '#ffffff', fontWeight: 500, fontSize: '0.875rem', marginLeft: '0.5rem' }}>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Vencimiento:</span>
+                    <span style={{ color: 'var(--text-primary)', fontWeight: 500, fontSize: '0.875rem', marginLeft: '0.5rem' }}>
                       {new Date(arcaConfig.expires_at).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', year: 'numeric' })}
                     </span>
                   </div>
@@ -1131,7 +1129,7 @@ export default function Settings() {
                     padding: '0.75rem',
                     backgroundColor: (!arcaConfig.cert_file && !arcaConfig.pfx_file) ? '#374151' : testingConnection ? '#059669' : '#10b981',
                     border: 'none',
-                    color: '#ffffff',
+                    color: 'var(--text-primary)',
                     borderRadius: '0.5rem',
                     cursor: (testingConnection || (!arcaConfig.cert_file && !arcaConfig.pfx_file)) ? 'not-allowed' : 'pointer',
                     fontWeight: 500,
@@ -1146,7 +1144,7 @@ export default function Settings() {
 
               {/* Panel derecho - Configuración */}
               <div style={{ backgroundColor: '#0b1120', borderRadius: '0.5rem', padding: '1.5rem', border: '1px solid rgba(255,255,255,0.06)' }}>
-                <h3 style={{ color: '#ffffff', fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Configuración</h3>
+                <h3 style={{ color: 'var(--text-primary)', fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Configuración</h3>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
                   <div>
@@ -1211,7 +1209,7 @@ export default function Settings() {
                     <AlertTriangle size={16} style={{ color: '#f59e0b' }} />
                     <span style={{ color: '#f59e0b', fontWeight: 500, fontSize: '0.875rem' }}>Certificado Digital</span>
                   </div>
-                  <p style={{ color: '#94a3b8', fontSize: '0.875rem', margin: '0 0 0.5rem 0' }}>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0 0 0.5rem 0' }}>
                     Generá un CSR (Certificate Signing Request) y presentalo ante AFIP para obtener tu certificado. Luego pegá el .crt en el campo de abajo.
                   </p>
                   {arcaConfig.cert_file && (
@@ -1289,7 +1287,7 @@ export default function Settings() {
                       padding: '0.75rem',
                       background: saving ? 'rgba(99,102,241,0.5)' : 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
                       border: 'none',
-                      color: '#ffffff',
+                      color: 'var(--text-primary)',
                       borderRadius: '0.625rem',
                       cursor: saving ? 'not-allowed' : 'pointer',
                       fontWeight: 600,
@@ -1311,7 +1309,7 @@ export default function Settings() {
                       padding: '0.75rem',
                       backgroundColor: syncingParameters ? '#059669' : '#10b981',
                       border: 'none',
-                      color: '#ffffff',
+                      color: 'var(--text-primary)',
                       borderRadius: '0.5rem',
                       cursor: syncingParameters ? 'not-allowed' : 'pointer',
                       fontWeight: 500,
@@ -1336,7 +1334,7 @@ export default function Settings() {
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '2rem' }}>
               <div>
-                <h3 style={{ color: '#ffffff', fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Opciones Globales</h3>
+                <h3 style={{ color: 'var(--text-primary)', fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Opciones Globales</h3>
                 
                 <div style={{ marginBottom: '1rem' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
@@ -1346,9 +1344,9 @@ export default function Settings() {
                       onChange={(e) => setBusinessSettings({ ...businessSettings, stock_negativo: e.target.checked })}
                       style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                     />
-                    <span style={{ fontSize: '0.875rem', color: '#e2e8f0', fontWeight: 500 }}>Permitir Stock Negativo</span>
+                    <span style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500 }}>Permitir Stock Negativo</span>
                   </label>
-                  <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: '0.5rem 0 0 0', marginLeft: '2.5rem' }}>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0.5rem 0 0 0', marginLeft: '2.5rem' }}>
                     Permite vender productos incluso cuando no hay stock disponible
                   </p>
                 </div>
@@ -1361,31 +1359,26 @@ export default function Settings() {
                       onChange={(e) => setBusinessSettings({ ...businessSettings, alertas_bajo_stock: e.target.checked })}
                       style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                     />
-                    <span style={{ fontSize: '0.875rem', color: '#e2e8f0', fontWeight: 500 }}>Activar Alertas de Bajo Stock</span>
+                    <span style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500 }}>Activar Alertas de Bajo Stock</span>
                   </label>
-                  <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: '0.5rem 0 0 0', marginLeft: '2.5rem' }}>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0.5rem 0 0 0', marginLeft: '2.5rem' }}>
                     Muestra notificaciones cuando el stock de un producto es bajo
                   </p>
                 </div>
 
                 <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={darkMode}
-                      onChange={(e) => setDarkMode(e.target.checked)}
-                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                    />
-                    <span style={{ fontSize: '0.875rem', color: '#e2e8f0', fontWeight: 500 }}>Modo Oscuro</span>
-                  </label>
-                  <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: '0.5rem 0 0 0', marginLeft: '2.5rem' }}>
-                    Activa el tema oscuro en toda la aplicación
+                  <span style={{ display: 'block', fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500, marginBottom: '0.6rem' }}>
+                    Tema de la interfaz
+                  </span>
+                  <ThemeToggle />
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0.5rem 0 0 0' }}>
+                    Elegí entre tema claro, oscuro o el que use tu sistema. El cambio se aplica al instante y se recuerda en este dispositivo.
                   </p>
                 </div>
               </div>
 
               <div>
-                <h3 style={{ color: '#ffffff', fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Valores por Defecto</h3>
+                <h3 style={{ color: 'var(--text-primary)', fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Valores por Defecto</h3>
 
                 <div style={{ marginBottom: '1rem' }}>
                   <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Moneda Predeterminada</label>
@@ -1448,9 +1441,9 @@ export default function Settings() {
             <div style={{ padding: '1.5rem', backgroundColor: '#0b1120', borderRadius: '0.5rem', border: '1px solid rgba(255,255,255,0.06)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
                 <Shield size={20} style={{ color: '#6366f1' }} />
-                <span style={{ color: '#ffffff', fontWeight: 600, fontSize: '1rem' }}>Cifrado de Datos Sensibles</span>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '1rem' }}>Cifrado de Datos Sensibles</span>
               </div>
-              <p style={{ color: '#94a3b8', fontSize: '0.875rem', marginBottom: '1rem' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '1rem' }}>
                 Los certificados digitales, claves privadas y contraseñas se almacenan cifrados en la base de datos.
               </p>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
@@ -1466,9 +1459,9 @@ export default function Settings() {
             <div style={{ marginTop: '1.5rem', padding: '1.5rem', backgroundColor: '#0b1120', borderRadius: '0.5rem', border: '1px solid rgba(255,255,255,0.06)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
                 <Bell size={20} style={{ color: '#f59e0b' }} />
-                <span style={{ color: '#ffffff', fontWeight: 600, fontSize: '1rem' }}>Alertas de Vencimiento</span>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '1rem' }}>Alertas de Vencimiento</span>
               </div>
-              <p style={{ color: '#94a3b8', fontSize: '0.875rem', marginBottom: '1rem' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '1rem' }}>
                 El sistema te notificará cuando un certificado digital esté por vencer.
               </p>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -1480,9 +1473,9 @@ export default function Settings() {
             <div style={{ marginTop: '1.5rem', padding: '1.5rem', backgroundColor: '#0b1120', borderRadius: '0.5rem', border: '1px solid rgba(255,255,255,0.06)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
                 <FileText size={20} style={{ color: '#6366f1' }} />
-                <span style={{ color: '#ffffff', fontWeight: 600, fontSize: '1rem' }}>Auditoría</span>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '1rem' }}>Auditoría</span>
               </div>
-              <p style={{ color: '#94a3b8', fontSize: '0.875rem', marginBottom: '1rem' }}>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '1rem' }}>
                 Todas las acciones de configuración se registran en el log de auditoría.
               </p>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -1553,10 +1546,10 @@ export default function Settings() {
               border: '1px solid rgba(255,255,255,0.06)'
             }}>
               <div style={{ padding: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 style={{ color: '#ffffff', margin: 0, fontSize: '1.125rem', fontWeight: 600 }}>
+                <h3 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.125rem', fontWeight: 600 }}>
                   {editingSalesPoint ? 'Editar Punto de Venta' : 'Nuevo Punto de Venta'}
                 </h3>
-                <button onClick={handleCloseSalesPointModal} style={{ backgroundColor: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: '0.5rem' }}>
+                <button onClick={handleCloseSalesPointModal} style={{ backgroundColor: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '0.5rem' }}>
                   <X size={24} />
                 </button>
               </div>
@@ -1641,7 +1634,7 @@ export default function Settings() {
                       onChange={(e) => setSalesPointForm({ ...salesPointForm, activo: e.target.checked })}
                       style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                     />
-                    <span style={{ fontSize: '0.875rem', color: '#e2e8f0', fontWeight: 500 }}>Activo</span>
+                    <span style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500 }}>Activo</span>
                   </label>
 
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer' }}>
@@ -1651,7 +1644,7 @@ export default function Settings() {
                       onChange={(e) => setSalesPointForm({ ...salesPointForm, predeterminado: e.target.checked })}
                       style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                     />
-                    <span style={{ fontSize: '0.875rem', color: '#e2e8f0', fontWeight: 500 }}>Predeterminado</span>
+                    <span style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 500 }}>Predeterminado</span>
                   </label>
                 </div>
 
@@ -1662,7 +1655,7 @@ export default function Settings() {
                       padding: '0.75rem 1.5rem',
                       backgroundColor: 'rgba(255,255,255,0.05)',
                       border: '1px solid rgba(255,255,255,0.08)',
-                      color: '#94a3b8',
+                      color: 'var(--text-secondary)',
                       borderRadius: '0.5rem',
                       cursor: 'pointer',
                       fontWeight: 500
@@ -1676,7 +1669,7 @@ export default function Settings() {
                       padding: '0.75rem 1.5rem',
                       background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
                       border: 'none',
-                      color: '#ffffff',
+                      color: 'var(--text-primary)',
                       borderRadius: '0.625rem',
                       cursor: 'pointer',
                       fontWeight: 600,
