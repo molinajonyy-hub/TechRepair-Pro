@@ -22,8 +22,8 @@ const PAGES = [
   '/settings?tab=preferencias',
 ]
 
-async function auditContrast(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
+async function auditContrast(page: Page, scope = 'main *, .main-layout-content *'): Promise<string[]> {
+  return page.evaluate((scopeSel) => {
     const lum = (rgb: number[]) => {
       const [r, g, b] = rgb.map(v => {
         const s = v / 255
@@ -42,7 +42,7 @@ async function auditContrast(page: Page): Promise<string[]> {
       return null
     }
     const issues: string[] = []
-    const els = Array.from(document.querySelectorAll('main *, .main-layout-content *'))
+    const els = Array.from(document.querySelectorAll(scopeSel))
       .filter(el => {
         const t = (el as HTMLElement).innerText
         return t && t.trim().length > 1 && el.children.length === 0
@@ -62,7 +62,27 @@ async function auditContrast(page: Page): Promise<string[]> {
       }
     }
     return issues.slice(0, 20)
-  })
+  }, scope)
+}
+
+/** Abre el POS (ComprobanteProModal) desde /comprobantes y audita su contraste. */
+async function auditPos(page: Page): Promise<{ opened: boolean; issues: string[]; shellBg: string | null }> {
+  await page.goto('/comprobantes')
+  const btn = page.locator('[data-testid="comprobantes-new-button"]')
+  try {
+    await btn.waitFor({ state: 'visible', timeout: 15_000 })
+    // El botón queda disabled mientras carga la lista — click espera enabled.
+    await btn.click({ timeout: 20_000 })
+    await page.locator('.cpm-root').waitFor({ state: 'visible', timeout: 8_000 })
+  } catch {
+    return { opened: false, issues: [], shellBg: null }
+  }
+  const issues = await auditContrast(page, '.cpm-root *')
+  const shellBg = await page.evaluate(() =>
+    getComputedStyle(document.querySelector('.cpm-shell, .cpm-shell-full')!).backgroundColor)
+  // Cerrar sin depender del botón (carrito vacío → recargar la ruta desmonta el modal).
+  await page.goto('/comprobantes')
+  return { opened: true, issues, shellBg }
 }
 
 const AUDIT_THEME = process.env.AUDIT_THEME === 'dark' ? 'dark' : 'light'
@@ -80,6 +100,24 @@ test(`audit: páginas autenticadas legibles en ${AUDIT_THEME} + islas dark intac
     await page.waitForTimeout(2500)
     report[path] = await auditContrast(page)
   }
+
+  // POS (Fase 2A: theme-aware) — abrir el modal y auditar en desktop y mobile.
+  const posDesktop = await auditPos(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  const posMobile = await auditPos(page)
+  // En mobile, abrir además el bottom sheet de cobro y re-auditar.
+  let posSheetIssues: string[] = []
+  if (posMobile.opened) {
+    const btn = page.locator('[data-testid="comprobantes-new-button"]')
+    await btn.waitFor({ state: 'visible', timeout: 15_000 })
+    await btn.click({ timeout: 20_000 })
+    await page.locator('.cpm-root').waitFor({ state: 'visible', timeout: 8_000 })
+    await page.locator('[data-testid="comprobante-mobile-checkout-open"]').click()
+    await page.waitForTimeout(400)
+    posSheetIssues = await auditContrast(page, '.cpm-right *')
+    await page.goto('/comprobantes')
+  }
+  await page.setViewportSize({ width: 1280, height: 800 })
 
   // Mi Guita: isla dark — el layout personal fija data-theme="dark".
   await page.goto('/personal')
@@ -99,7 +137,20 @@ test(`audit: páginas autenticadas legibles en ${AUDIT_THEME} + islas dark intac
     console.log(`\n${p}: ${issues.length} issues`)
     for (const i of issues) console.log('  - ' + i)
   }
+  console.log(`\nPOS desktop: opened=${posDesktop.opened} shellBg=${posDesktop.shellBg} issues=${posDesktop.issues.length}`)
+  for (const i of posDesktop.issues) console.log('  - ' + i)
+  console.log(`POS mobile: opened=${posMobile.opened} issues=${posMobile.issues.length}`)
+  for (const i of posMobile.issues) console.log('  - ' + i)
+  console.log(`POS sheet mobile: issues=${posSheetIssues.length}`)
+  for (const i of posSheetIssues) console.log('  - ' + i)
   console.log('\nMi Guita island:', JSON.stringify(island))
+
+  // POS theme-aware: el fondo del shell debe seguir al tema global.
+  if (posDesktop.opened && posDesktop.shellBg) {
+    const r = Number(posDesktop.shellBg.match(/\d+/)?.[0] ?? -1)
+    if (AUDIT_THEME === 'light') expect(r, 'POS shell debe ser claro en light').toBeGreaterThan(200)
+    else expect(r, 'POS shell debe ser oscuro en dark').toBeLessThan(40)
+  }
 
   if (island.present) {
     expect(island.theme).toBe('dark')

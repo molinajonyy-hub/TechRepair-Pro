@@ -1759,25 +1759,91 @@ tbody tr:hover td {
    Las variables --pos-* viven SOLO bajo .cpm-root: no afectan otras pantallas.
    ══════════════════════════════════════════════════════════════════════════ */
 
+/* Tokens del POS — theme-aware desde Fase 2A.
+   Default = LIGHT (tema global inicial); el dark original vive intacto
+   abajo bajo [data-theme="dark"] .cpm-root. */
 .cpm-root {
+  --pos-bg:               #edf1f8;
+  --pos-bg-glass:         rgba(244, 247, 252, 0.97);
+  --pos-surface:          #f7f9fc;
+  --pos-surface-elevated: #ffffff;
+
+  --pos-text-primary:     #101828;
+  --pos-text-secondary:   #37445c;
+  --pos-text-muted:       #5d6b82;
+  --pos-text-faint:       #8794a8;
+  --pos-text-disabled:    #a9b5c6;
+
+  --pos-border:           #d3dce9;
+  --pos-border-hover:     #b2c0d6;
+  --pos-border-subtle:    rgba(15, 23, 42, 0.10);
+
+  --pos-soft-bg:          rgba(15, 23, 42, 0.045);
+  --pos-soft-bg-hover:    rgba(15, 23, 42, 0.08);
+  --pos-faint-bg:         rgba(15, 23, 42, 0.025);
+  --pos-inset-bg:         rgba(15, 23, 42, 0.055);
+  --pos-inset-bg-strong:  rgba(15, 23, 42, 0.09);
+  --pos-shadow-modal:     0 40px 120px rgba(23, 32, 60, 0.28), 0 0 0 1px rgba(15, 23, 42, 0.05);
+  --pos-shadow-pop:       0 16px 48px rgba(23, 32, 60, 0.18);
+  /* Texto sobre rellenos sólidos (indigo/verde/rojo) — blanco en ambos temas.
+     Como var, además evita que los overrides light de inline styles lo re-mapeen. */
+  --pos-on-accent:        #ffffff;
+
+  --pos-accent:           #4f46e5;
+  --pos-accent-hover:     #4338ca;
+  --pos-accent-2:         #4f46e5;
+  --pos-accent-3:         #4338ca;
+  --pos-accent-soft:      rgba(79, 70, 229, 0.10);
+  --pos-violet:           #7c3aed;
+
+  --pos-success:          #059669;
+  --pos-green:            #16a34a;
+  --pos-warning:          #b45309;
+  --pos-amber:            #b45309;
+  --pos-danger:           #dc2626;
+  --pos-red:              #dc2626;
+}
+
+/* Dark original del POS: valores previos exactos + los nuevos tokens con los
+   literales que estaban hardcodeados en el TSX. */
+[data-theme="dark"] .cpm-root {
   --pos-bg:               #07111f;
+  --pos-bg-glass:         rgba(7, 17, 31, 0.97);
   --pos-surface:          #0c1829;
   --pos-surface-elevated: #111f33;
 
   --pos-text-primary:     #f8fafc;
   --pos-text-secondary:   #b8c4d6;
   --pos-text-muted:       #8494aa;
+  --pos-text-faint:       #475569;
+  --pos-text-disabled:    #334155;
 
   --pos-border:           #263750;
   --pos-border-hover:     #3a4f70;
+  --pos-border-subtle:    rgba(255, 255, 255, 0.06);
+
+  --pos-soft-bg:          rgba(255, 255, 255, 0.04);
+  --pos-soft-bg-hover:    rgba(255, 255, 255, 0.07);
+  --pos-faint-bg:         rgba(255, 255, 255, 0.025);
+  --pos-inset-bg:         rgba(0, 0, 0, 0.22);
+  --pos-inset-bg-strong:  rgba(0, 0, 0, 0.35);
+  --pos-shadow-modal:     0 40px 120px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --pos-shadow-pop:       0 16px 48px rgba(0, 0, 0, 0.7);
+  --pos-on-accent:        #ffffff;
 
   --pos-accent:           #6366f1;
   --pos-accent-hover:     #7477ff;
+  --pos-accent-2:         #818cf8;
+  --pos-accent-3:         #a5b4fc;
   --pos-accent-soft:      rgba(99, 102, 241, 0.14);
+  --pos-violet:           #a78bfa;
 
   --pos-success:          #34d399;
+  --pos-green:            #22c55e;
   --pos-warning:          #fbbf24;
+  --pos-amber:            #f59e0b;
   --pos-danger:           #f87171;
+  --pos-red:              #ef4444;
 }
 
 /* Placeholders legibles dentro del modal (el global usa #64748b !important;
@@ -1870,8 +1936,8 @@ tbody tr:hover td {
     padding: 0.625rem 0.875rem;
     /* No queda bajo el home indicator. */
     padding-bottom: max(0.625rem, env(safe-area-inset-bottom, 0px));
-    background: #07101f;
-    border-top: 1px solid #263750;
+    background: var(--pos-bg);
+    border-top: 1px solid var(--pos-border);
   }
 
   /* Overlay entre el carrito y el sheet (cierra el sheet, no el modal). */
@@ -1893,7 +1959,7 @@ tbody tr:hover td {
     max-height: 90dvh;
     flex-shrink: 0 !important;
     z-index: 50;
-    border-top: 1px solid #263750;
+    border-top: 1px solid var(--pos-border);
     border-radius: 1rem 1rem 0 0;
     box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.6);
     transform: translateY(110%);
@@ -1914,7 +1980,7 @@ tbody tr:hover td {
     gap: 0.75rem;
     flex-shrink: 0;
     padding: 0.75rem 0.875rem;
-    border-bottom: 1px solid #263750;
+    border-bottom: 1px solid var(--pos-border);
   }
 
   /* Con el sheet abierto, se bloquea el scroll del carrito de fondo
@@ -2123,9 +2189,11 @@ tbody tr:hover td {
 
 /* ══════════════════════════════════════════════════════════════════════════
    LIGHT MODE — overrides para inline styles heredados
-   Todo el bloque vive dentro de un :is() con guard :not() para NO afectar a
-   las "islas dark" (POS .cpm-root y Mi Guita) que fijan data-theme="dark"
-   en su raíz y deben verse idénticas en ambos temas.
+   Todo el bloque vive dentro de un :is() con guard :not() para NO afectar:
+   - las "islas dark" (Mi Guita) que fijan data-theme="dark" en su raíz y
+     deben verse idénticas en ambos temas;
+   - el POS (.cpm-root), que desde Fase 2A está 100% tokenizado con --pos-*
+     y no necesita estos parches legacy (le pisarían inputs transparentes).
    ══════════════════════════════════════════════════════════════════════════ */
 
 /* Los estilos inline de React se serializan con hex normalizado a rgb()
@@ -2138,7 +2206,7 @@ tbody tr:hover td {
   [style*="background-color: rgb(10, 14, 26)"],
   [style*="background-color: rgb(10, 22, 40)"],
   [style*="background: linear-gradient(135deg, rgb(10,"]
-):not([data-theme="dark"], [data-theme="dark"] *) {
+):not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
   background: var(--bg-card-solid) !important;
 }
 
@@ -2147,7 +2215,7 @@ tbody tr:hover td {
   [style*="background-color: rgb(15, 24, 41)"],
   [style*="background-color: rgb(17, 24, 39)"],
   [style*="background-color: rgb(30, 41, 59)"]
-):not([data-theme="dark"], [data-theme="dark"] *) {
+):not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
   background-color: var(--bg-card-solid) !important;
   border-color: var(--border-color) !important;
 }
@@ -2158,7 +2226,7 @@ tbody tr:hover td {
   [style*="background: rgba(11, 18, 32"],
   [style*="background: rgba(7, 15, 31"],
   [style*="background: rgba(10, 16, 32"]
-):not([data-theme="dark"], [data-theme="dark"] *) {
+):not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
   background: var(--bg-header) !important;
 }
 
@@ -2172,11 +2240,11 @@ tbody tr:hover td {
   [style*="background-color: rgba(255, 255, 255, 0.03"],
   [style*="background-color: rgba(255, 255, 255, 0.04"],
   [style*="background-color: rgba(255, 255, 255, 0.05"]
-):not([data-theme="dark"], [data-theme="dark"] *) {
+):not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
   background-color: var(--bg-tertiary) !important;
 }
 
-[data-theme="light"] :is(input[style], select[style], textarea[style]):not([data-theme="dark"], [data-theme="dark"] *) {
+[data-theme="light"] :is(input[style], select[style], textarea[style]):not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
   color: var(--text-primary) !important;
   background-color: var(--input-bg) !important;
   border-color: var(--input-border) !important;
@@ -2188,7 +2256,7 @@ tbody tr:hover td {
   [style*="color: rgb(240, 244, 255)"],
   [style*="color: rgb(226, 232, 240)"],
   [style*="color: rgb(255, 255, 255)"]
-):not([data-theme="dark"], [data-theme="dark"] *) {
+):not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
   color: var(--text-primary) !important;
 }
 
@@ -2198,7 +2266,7 @@ tbody tr:hover td {
   [style*="color: rgb(100, 116, 139)"],
   [style*="color: rgb(203, 213, 225)"],
   [style*="color: rgb(160, 174, 192)"]
-):not([data-theme="dark"], [data-theme="dark"] *) {
+):not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
   color: var(--text-secondary) !important;
 }
 
@@ -2207,7 +2275,7 @@ tbody tr:hover td {
   [style*="border: 1px solid rgba(255, 255, 255, 0.1"],
   [style*="border-bottom: 1px solid rgba(255, 255, 255"],
   [style*="border-top: 1px solid rgba(255, 255, 255"]
-):not([data-theme="dark"], [data-theme="dark"] *) {
+):not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
   border-color: var(--border-color) !important;
 }
 
