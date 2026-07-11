@@ -2217,14 +2217,37 @@ tbody tr:hover td {
   [style*="background-color: rgb(15, 23, 42)"],
   [style*="background-color: rgb(15, 24, 41)"],
   [style*="background-color: rgb(17, 24, 39)"],
+  [style*="background-color: rgb(28, 25, 23)"],
   [style*="background-color: rgb(30, 41, 59)"],
-  [style*="background-color: rgb(55, 65, 81)"],
-  [style*="background-color: rgba(11, 18, 32, 0.6)"],
-  [style*="background-color: rgba(11, 18, 32, 0.8)"],
-  [style*="background-color: rgba(15, 23, 42, 0.5)"],
-  [style*="background-color: rgba(15, 23, 42, 0.6)"]
+  [style*="background-color: rgb(51, 65, 85)"],
+  [style*="background-color: rgb(55, 65, 81)"]
 ):not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
   background-color: var(--bg-card-solid) !important;
+  border-color: var(--border-color) !important;
+}
+
+/* Slate/navy TRANSLÚCIDO usado como FONDO (paneles, overlays, filas
+   destacadas — p. ej. variantes de inventario rgba(15,23,42,0.55)). Los
+   ternarios los serializan con el mismo literal, así que un prefijo de alpha
+   por décima cubre todo el rango 0.40-0.98 sin enumerar cada centésima.
+   Solo alpha ALTO (>= 0.4): los tints suaves (<0.4) se ven bien en claro. */
+[data-theme="light"] :is(
+  [style*="background-color: rgba(15, 23, 42, 0.4"], [style*="background: rgba(15, 23, 42, 0.4"],
+  [style*="background-color: rgba(15, 23, 42, 0.5"], [style*="background: rgba(15, 23, 42, 0.5"],
+  [style*="background-color: rgba(15, 23, 42, 0.6"], [style*="background: rgba(15, 23, 42, 0.6"],
+  [style*="background-color: rgba(15, 23, 42, 0.7"], [style*="background: rgba(15, 23, 42, 0.7"],
+  [style*="background-color: rgba(15, 23, 42, 0.8"], [style*="background: rgba(15, 23, 42, 0.8"],
+  [style*="background-color: rgba(15, 23, 42, 0.9"], [style*="background: rgba(15, 23, 42, 0.9"],
+  [style*="background-color: rgba(30, 41, 59, 0.7"], [style*="background: rgba(30, 41, 59, 0.7"],
+  [style*="background-color: rgba(30, 41, 59, 0.8"], [style*="background: rgba(30, 41, 59, 0.8"],
+  [style*="background-color: rgba(30, 41, 59, 0.9"], [style*="background: rgba(30, 41, 59, 0.9"],
+  [style*="background-color: rgba(11, 18, 32, 0.5"], [style*="background: rgba(11, 18, 32, 0.5"],
+  [style*="background-color: rgba(11, 18, 32, 0.6"], [style*="background: rgba(11, 18, 32, 0.6"],
+  [style*="background-color: rgba(11, 18, 32, 0.7"], [style*="background: rgba(11, 18, 32, 0.7"],
+  [style*="background-color: rgba(11, 18, 32, 0.8"], [style*="background: rgba(11, 18, 32, 0.8"],
+  [style*="background-color: rgba(11, 18, 32, 0.9"], [style*="background: rgba(11, 18, 32, 0.9"]
+):not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
+  background-color: var(--bg-tertiary) !important;
   border-color: var(--border-color) !important;
 }
 
@@ -2247,7 +2270,10 @@ tbody tr:hover td {
   [style*="background: rgb(15, 24, 41)"],
   [style*="background: rgb(15, 31, 61)"],
   [style*="background: rgb(17, 24, 39)"],
+  [style*="background: rgb(28, 25, 23)"],
   [style*="background: rgb(30, 41, 59)"],
+  [style*="background: rgb(51, 65, 85)"],
+  [style*="background: rgb(55, 65, 81)"],
   [style*="background: rgba(8, 16, 32, 0.98)"],
   [style*="background: rgba(13, 21, 38, 0.95)"],
   [style*="background: rgba(15, 23, 42, 0.5)"],
