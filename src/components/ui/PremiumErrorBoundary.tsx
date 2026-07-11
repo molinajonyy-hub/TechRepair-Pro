@@ -146,7 +146,9 @@ function FullFallback({ error, errorInfo, context, retryCount, onRetry }: FullFa
   const isDev = import.meta.env.DEV
 
   return (
-    <div style={{
+    // data-theme="dark": pantalla de error de marca, deliberadamente oscura en
+    // ambos temas (isla dark) — evita que los overrides light mezclen colores.
+    <div data-theme="dark" style={{
       position: 'fixed', inset: 0, display: 'flex', alignItems: 'center',
       justifyContent: 'center', background: '#071018', fontFamily: "'Inter',-apple-system,sans-serif",
       padding: '1.5rem', zIndex: 99999,

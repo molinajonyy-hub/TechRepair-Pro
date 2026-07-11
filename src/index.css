@@ -2212,12 +2212,59 @@ tbody tr:hover td {
 
 [data-theme="light"] :is(
   [style*="background-color: rgb(11, 17, 32)"],
+  [style*="background-color: rgb(11, 18, 32)"],
+  [style*="background-color: rgb(13, 26, 48)"],
+  [style*="background-color: rgb(15, 23, 42)"],
   [style*="background-color: rgb(15, 24, 41)"],
   [style*="background-color: rgb(17, 24, 39)"],
-  [style*="background-color: rgb(30, 41, 59)"]
+  [style*="background-color: rgb(30, 41, 59)"],
+  [style*="background-color: rgb(55, 65, 81)"],
+  [style*="background-color: rgba(11, 18, 32, 0.6)"],
+  [style*="background-color: rgba(11, 18, 32, 0.8)"],
+  [style*="background-color: rgba(15, 23, 42, 0.5)"],
+  [style*="background-color: rgba(15, 23, 42, 0.6)"]
 ):not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
   background-color: var(--bg-card-solid) !important;
   border-color: var(--border-color) !important;
+}
+
+/* Mismos fondos dark pero seteados con el SHORTHAND background: (React lo
+   serializa como "background: rgb(...)", que los patrones background-color:
+   de arriba NO matchean) + la card translúcida de NewOrder. */
+[data-theme="light"] :is(
+  [style*="background: rgb(2, 6, 23)"],
+  [style*="background: rgb(4, 7, 15)"],
+  [style*="background: rgb(6, 13, 26)"],
+  [style*="background: rgb(7, 16, 31)"],
+  [style*="background: rgb(9, 9, 11)"],
+  [style*="background: rgb(10, 14, 26)"],
+  [style*="background: rgb(10, 22, 40)"],
+  [style*="background: rgb(11, 17, 32)"],
+  [style*="background: rgb(11, 18, 32)"],
+  [style*="background: rgb(12, 26, 46)"],
+  [style*="background: rgb(13, 26, 48)"],
+  [style*="background: rgb(15, 23, 42)"],
+  [style*="background: rgb(15, 24, 41)"],
+  [style*="background: rgb(15, 31, 61)"],
+  [style*="background: rgb(17, 24, 39)"],
+  [style*="background: rgb(30, 41, 59)"],
+  [style*="background: rgba(8, 16, 32, 0.98)"],
+  [style*="background: rgba(13, 21, 38, 0.95)"],
+  [style*="background: rgba(15, 23, 42, 0.5)"],
+  [style*="background: rgba(15, 23, 42, 0.6)"],
+  [style*="background: rgba(15, 23, 42, 0.7)"],
+  [style*="background: rgba(15, 23, 42, 0.8)"],
+  [style*="background-color: rgba(15, 23, 42, 0.8)"],
+  [style*="background: linear-gradient(160deg, rgb(13, 21, 38)"],
+  [style*="background: linear-gradient(180deg, rgb(15, 31, 61)"]
+):not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
+  background: var(--bg-card-solid) !important;
+  border-color: var(--border-color) !important;
+}
+
+/* Acento índigo claro (indigo-200) como texto: ilegible sobre claro. */
+[data-theme="light"] [style*="color: rgb(199, 210, 254)"]:not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
+  color: var(--accent-primary) !important;
 }
 
 /* Nota: el browser serializa el atributo style con espacios tras las comas
@@ -2236,10 +2283,19 @@ tbody tr:hover td {
   [style*="background: rgba(255, 255, 255, 0.04"],
   [style*="background: rgba(255, 255, 255, 0.05"],
   [style*="background: rgba(255, 255, 255, 0.06"],
+  [style*="background: rgba(255, 255, 255, 0.07"],
+  [style*="background: rgba(255, 255, 255, 0.08"],
+  [style*="background: rgba(255, 255, 255, 0.1)"],
+  [style*="background: rgba(255, 255, 255, 0.12"],
   [style*="background-color: rgba(255, 255, 255, 0.02"],
   [style*="background-color: rgba(255, 255, 255, 0.03"],
   [style*="background-color: rgba(255, 255, 255, 0.04"],
-  [style*="background-color: rgba(255, 255, 255, 0.05"]
+  [style*="background-color: rgba(255, 255, 255, 0.05"],
+  [style*="background-color: rgba(255, 255, 255, 0.06"],
+  [style*="background-color: rgba(255, 255, 255, 0.07"],
+  [style*="background-color: rgba(255, 255, 255, 0.08"],
+  [style*="background-color: rgba(255, 255, 255, 0.1)"],
+  [style*="background-color: rgba(255, 255, 255, 0.12"]
 ):not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
   background-color: var(--bg-tertiary) !important;
 }
@@ -2255,6 +2311,7 @@ tbody tr:hover td {
   [style*="color: rgb(241, 245, 249)"],
   [style*="color: rgb(240, 244, 255)"],
   [style*="color: rgb(226, 232, 240)"],
+  [style*="color: rgb(229, 231, 235)"],
   [style*="color: rgb(255, 255, 255)"]
 ):not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
   color: var(--text-primary) !important;
@@ -2270,13 +2327,14 @@ tbody tr:hover td {
   color: var(--text-secondary) !important;
 }
 
-[data-theme="light"] :is(
-  [style*="border: 1px solid rgba(255, 255, 255, 0.0"],
-  [style*="border: 1px solid rgba(255, 255, 255, 0.1"],
-  [style*="border-bottom: 1px solid rgba(255, 255, 255"],
-  [style*="border-top: 1px solid rgba(255, 255, 255"]
-):not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
+/* Bordes blancos translúcidos en CUALQUIER lado/grosor (1px/1.5px/2px,
+   border/border-top/right/bottom/left): "solid rgba(255, 255, 255, 0." los
+   captura a todos en la forma serializada. */
+[data-theme="light"] [style*="solid rgba(255, 255, 255, 0."]:not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
   border-color: var(--border-color) !important;
+}
+[data-theme="light"] [style*="dashed rgba(255, 255, 255, 0."]:not([data-theme="dark"], [data-theme="dark"] *, .cpm-root, .cpm-root *) {
+  border-color: var(--border-strong) !important;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

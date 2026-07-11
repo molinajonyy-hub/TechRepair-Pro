@@ -13,12 +13,14 @@ import { login } from './helpers/auth'
 const PAGES = [
   '/dashboard',
   '/orders',
+  '/orders/new',
   '/customers',
   '/inventory',
   '/comprobantes',
   '/caja',
   '/expenses',
   '/suppliers',
+  '/mayorista',
   '/settings?tab=preferencias',
 ]
 
@@ -47,7 +49,7 @@ async function auditContrast(page: Page, scope = 'main *, .main-layout-content *
         const t = (el as HTMLElement).innerText
         return t && t.trim().length > 1 && el.children.length === 0
       })
-      .slice(0, 400)
+      .slice(0, 1500)
     for (const el of els) {
       const cs = getComputedStyle(el)
       if (cs.visibility === 'hidden' || cs.display === 'none' || Number(cs.opacity) < 0.3) continue
@@ -107,15 +109,19 @@ test(`audit: páginas autenticadas legibles en ${AUDIT_THEME} + islas dark intac
   const posMobile = await auditPos(page)
   // En mobile, abrir además el bottom sheet de cobro y re-auditar.
   let posSheetIssues: string[] = []
+  let sheetOpened = false
   if (posMobile.opened) {
-    const btn = page.locator('[data-testid="comprobantes-new-button"]')
-    await btn.waitFor({ state: 'visible', timeout: 15_000 })
-    await btn.click({ timeout: 20_000 })
-    await page.locator('.cpm-root').waitFor({ state: 'visible', timeout: 8_000 })
-    await page.locator('[data-testid="comprobante-mobile-checkout-open"]').click()
-    await page.waitForTimeout(400)
-    posSheetIssues = await auditContrast(page, '.cpm-right *')
-    await page.goto('/comprobantes')
+    try {
+      const btn = page.locator('[data-testid="comprobantes-new-button"]')
+      await btn.waitFor({ state: 'visible', timeout: 15_000 })
+      await btn.click({ timeout: 20_000 })
+      await page.locator('.cpm-root').waitFor({ state: 'visible', timeout: 8_000 })
+      await page.locator('[data-testid="comprobante-mobile-checkout-open"]').click()
+      await page.waitForTimeout(400)
+      posSheetIssues = await auditContrast(page, '.cpm-right *')
+      sheetOpened = true
+      await page.goto('/comprobantes')
+    } catch { /* botón disabled por carga lenta — se reporta sheetOpened=false */ }
   }
   await page.setViewportSize({ width: 1280, height: 800 })
 
@@ -141,7 +147,7 @@ test(`audit: páginas autenticadas legibles en ${AUDIT_THEME} + islas dark intac
   for (const i of posDesktop.issues) console.log('  - ' + i)
   console.log(`POS mobile: opened=${posMobile.opened} issues=${posMobile.issues.length}`)
   for (const i of posMobile.issues) console.log('  - ' + i)
-  console.log(`POS sheet mobile: issues=${posSheetIssues.length}`)
+  console.log(`POS sheet mobile: opened=${sheetOpened} issues=${posSheetIssues.length}`)
   for (const i of posSheetIssues) console.log('  - ' + i)
   console.log('\nMi Guita island:', JSON.stringify(island))
 

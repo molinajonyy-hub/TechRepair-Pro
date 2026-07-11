@@ -16,24 +16,25 @@ import {
 
 // ─── Design tokens (iOS / TechRepair Pro) ─────────────────────────────────────
 
+// Paleta local mapeada a los tokens del tema global (theme-aware light/dark).
 const S = {
-  bg:       '#0a0f1e',
-  surface:  '#0f1829',
-  card:     '#111827',
-  border:   'rgba(255,255,255,0.07)',
-  borderActive: 'rgba(99,102,241,0.5)',
-  text:     '#f1f5f9',
-  textSub:  '#64748b',
-  textMuted:'#334155',
-  primary:  '#6366f1',
-  primaryBg:'rgba(99,102,241,0.12)',
-  success:  '#22c55e',
-  warning:  '#f59e0b',
-  danger:   '#ef4444',
+  bg:       'var(--bg-primary)',
+  surface:  'var(--bg-card-solid)',
+  card:     'var(--bg-elevated)',
+  border:   'var(--border-color)',
+  borderActive: 'var(--border-focus)',
+  text:     'var(--text-primary)',
+  textSub:  'var(--text-muted)',
+  textMuted:'var(--text-subtle)',
+  primary:  'var(--accent-primary)',
+  primaryBg:'var(--accent-primary-light)',
+  success:  'var(--success)',
+  warning:  'var(--warning-soft)',
+  danger:   'var(--error-soft)',
   radius:   '14px',
   radiusSm: '8px',
-  shadow:   '0 4px 24px rgba(0,0,0,0.35)',
-  shadowSm: '0 2px 8px rgba(0,0,0,0.2)',
+  shadow:   'var(--shadow-md)',
+  shadowSm: 'var(--shadow-sm)',
 }
 
 const fmtARS = (n: number) =>
