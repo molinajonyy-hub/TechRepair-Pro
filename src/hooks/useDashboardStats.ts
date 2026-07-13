@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { getFinancialSummary } from '../services/financialMetricsService'
+import { todayAR, daysAgoAR } from '../utils/dateUtils'
 
 export interface RecentOrder {
   id: string
@@ -26,7 +27,8 @@ export interface DashboardStats {
   revenueThisMonth: number
   pendingPayments: number
 
-  // Ganancia real (de order_parts usados/vendidos — últimos 90 días)
+  // Ganancia real (margen devengado de comprobantes efectivos, vía
+  // finance_dashboard_summary → v_finance_pnl — NO de órdenes abiertas)
   realProfitToday: number
   realProfitThisWeek: number
   realProfitThisMonth: number
@@ -193,7 +195,7 @@ export function useDashboardStats() {
         recentOrdersResult,
         pendingResult,
         completedOrdersResult,
-        partsResult,
+        productMarginResult,
         totalCustomers,
         newCustomersThisMonth,
         financeResult,
@@ -251,13 +253,13 @@ export function useDashboardStats() {
           .eq('status', 'completed')
           .limit(100),
 
-        // 8. Parts últimos 90 días para margen por item
+        // 8. Margen por producto DEVENGADO (v_finance_product_margin) para el top
+        //    de items. Fuente canónica: solo comprobantes efectivos. NUNCA
+        //    order_parts, que reconocería el margen al agregar el repuesto.
         supabase
-          .from('order_parts')
-          .select('internal_cost, sale_price, quantity, name, added_at')
-          .eq('business_id', businessId)
-          .in('status', ['used', 'sold'])
-          .gte('added_at', ninetyDaysAgo),
+          .from('v_finance_product_margin')
+          .select('product_name, gross_profit, margin_pct, operations')
+          .eq('business_id', businessId),
 
         // 9. Total clientes
         loadCustomerCount(),
@@ -363,50 +365,53 @@ export function useDashboardStats() {
         onTimeDeliveryRate = (onTimeCount / completedOrders.length) * 100
       }
 
-      // Ganancia real: usa el servicio unificado (misma fuente que Finance.tsx)
-      // → evita discrepancia entre Dashboard y Finanzas
+      // ── Ganancia real — FUENTE ÚNICA canónica ────────────────────────────
+      // El margen se reconoce SOLO desde comprobantes comercialmente efectivos
+      // (emitidos / con pagos / con stock procesado / con deuda de venta en CC),
+      // vía getFinancialSummary → RPC finance_dashboard_summary → v_finance_pnl.
+      // Una orden ABIERTA (creada, en diagnóstico, en reparación, o terminada
+      // sin comprobante) NO aporta ganancia: todavía no hay comprobante efectivo.
+      //
+      // Antes hoy/semana se calculaban en el cliente desde order_parts filtrando
+      // por status IN ('used','sold') y added_at. Como orderPartsService inserta
+      // el repuesto con status='used' al AGREGARLO al presupuesto, el margen se
+      // reconocía prematuramente (bug "Ganancia Real Hoy" con órdenes sin cobrar).
+      // Ahora hoy/semana/mes salen del MISMO origen devengado. Corte diario en AR.
       const popularDeviceTypes: { type: string; count: number }[] = []
       let realProfitToday    = 0
       let realProfitThisWeek = 0
       let realProfitThisMonth = 0
       let averageMarginPct   = 0
       let profitPerOperation = 0
-      let topProfitableItems: { name: string; profit: number; margin: number; count: number }[] = []
 
       try {
-        const firstOfMonth = todayDate.slice(0, 7) + '-01'
-        const [monthSummary] = await Promise.all([
-          getFinancialSummary(businessId!, firstOfMonth, todayDate),
+        const todayStr     = todayAR()
+        const firstOfMonth = todayStr.slice(0, 7) + '-01'
+        const weekStart    = daysAgoAR(6)   // últimos 7 días AR (hoy + 6 previos)
+        const [todaySummary, weekSummary, monthSummary] = await Promise.all([
+          getFinancialSummary(businessId!, todayStr,     todayStr),
+          getFinancialSummary(businessId!, weekStart,    todayStr),
+          getFinancialSummary(businessId!, firstOfMonth, todayStr),
         ])
+        realProfitToday     = todaySummary.opProfit
+        realProfitThisWeek  = weekSummary.opProfit
         realProfitThisMonth = monthSummary.opProfit
         averageMarginPct    = monthSummary.opMarginPct
         profitPerOperation  = totalOrders > 0 ? realProfitThisMonth / totalOrders : 0
       } catch { /* leave at 0 */ }
 
-      // Today + Week: cálculo rápido desde order_parts (menor latencia que llamar al servicio)
-      const itemMap: Record<string, { profit: number; rev: number; count: number }> = {}
-      if (!partsResult.error && partsResult.data) {
-        const parts = partsResult.data
-        realProfitToday    = parts.filter(p => p.added_at?.slice(0, 10) >= todayDate)
-          .reduce((s, p) => s + Math.max(0, (p.sale_price - p.internal_cost)) * p.quantity, 0)
-        realProfitThisWeek = parts.filter(p => p.added_at?.slice(0, 10) >= weekAgoDate)
-          .reduce((s, p) => s + Math.max(0, (p.sale_price - p.internal_cost)) * p.quantity, 0)
-        parts.forEach(p => {
-          const key    = (p.name || 'Sin nombre').slice(0, 40)
-          const profit = Math.max(0, (p.sale_price - p.internal_cost)) * p.quantity
-          const rev    = p.sale_price * p.quantity
-          if (!itemMap[key]) itemMap[key] = { profit: 0, rev: 0, count: 0 }
-          itemMap[key].profit += profit; itemMap[key].rev += rev; itemMap[key].count += 1
-        })
-      }
-
-      topProfitableItems = Object.entries(itemMap)
-        .map(([name, { profit, rev, count }]) => ({
-          name, profit, count,
-          margin: rev > 0 ? (profit / rev) * 100 : 0,
-        }))
-        .sort((a, b) => b.profit - a.profit)
-        .slice(0, 5)
+      // Top items rentables — margen por producto DEVENGADO (v_finance_product_margin),
+      // consistente con el P&L. Nunca desde order_parts (reconocería al agregar).
+      const topProfitableItems: DashboardStats['topProfitableItems'] =
+        ((productMarginResult.data as { product_name: string; gross_profit: number; margin_pct: number; operations: number }[] | null) || [])
+          .map(r => ({
+            name:   String(r.product_name || 'Sin nombre').slice(0, 40),
+            profit: Number(r.gross_profit) || 0,
+            margin: Number(r.margin_pct)   || 0,
+            count:  Number(r.operations)   || 0,
+          }))
+          .sort((a, b) => b.profit - a.profit)
+          .slice(0, 5)
 
       const newStats: DashboardStats = {
         totalOrders,
