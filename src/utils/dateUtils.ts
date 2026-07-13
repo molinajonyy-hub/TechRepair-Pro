@@ -92,3 +92,18 @@ export const todayAR = (): string => {
   const [day, month, year] = s.split('/')
   return `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`
 }
+
+/**
+ * Devuelve "YYYY-MM-DD" del día en Argentina hace `n` días (n=0 → hoy AR).
+ * Se ancla al mediodía AR (offset fijo -03:00, sin horario de verano) y se
+ * reformatea en TZ_AR, por lo que el corte diario es siempre el calendario
+ * argentino, no UTC. Útil para ventanas "hoy/últimos 7 días" en queries de DB.
+ */
+export const daysAgoAR = (n: number): string => {
+  const anchor = new Date(todayAR() + 'T12:00:00-03:00').getTime() - n * 86400000
+  const s = new Date(anchor).toLocaleDateString('es-AR', {
+    timeZone: TZ_AR, year: 'numeric', month: '2-digit', day: '2-digit',
+  })
+  const [day, month, year] = s.split('/')
+  return `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`
+}
