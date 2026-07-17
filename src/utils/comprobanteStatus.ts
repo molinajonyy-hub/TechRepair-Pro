@@ -2,10 +2,35 @@ export type DisplayStatusKey = 'borrador' | 'cobrado_pendiente_arca' | 'emitido_
 
 export interface ComprobanteForDisplay {
   estado?: string | null
+  status?: string | null
+  estado_comercial?: string | null
   estado_fiscal?: string | null
   cae?: string | null
   numero_fiscal?: string | null
   total_cobrado?: number | null
+}
+
+/**
+ * Señal canónica de anulación, leída de las columnas que `annul_comprobante_atomic`
+ * setea atómicamente al anular (ver migración 20260702120000, tanto el guard de
+ * la línea 192 como el UPDATE de la 411): `estado='anulado'`, `status='cancelled'`,
+ * `estado_comercial='anulado'`. Consultamos las tres (más `anulado_fiscal`) para
+ * que la UI no dependa de una sola columna: si un flujo futuro deja de tocar
+ * `estado` pero marca la anulación por otra vía comercial/fiscal, el detalle deja
+ * de ofrecer afordancias de cobro igual.
+ */
+export function isComprobanteAnnulled(c: {
+  estado?: string | null
+  status?: string | null
+  estado_comercial?: string | null
+  estado_fiscal?: string | null
+} | null | undefined): boolean {
+  if (!c) return false
+  return c.estado === 'anulado'
+    || c.estado === 'cancelled'
+    || c.status === 'cancelled'
+    || c.estado_comercial === 'anulado'
+    || c.estado_fiscal === 'anulado_fiscal'
 }
 
 export interface ComprobanteDisplayStatus {
@@ -16,7 +41,7 @@ export interface ComprobanteDisplayStatus {
 }
 
 export function getComprobanteDisplayStatus(c: ComprobanteForDisplay): ComprobanteDisplayStatus {
-  if (c.estado === 'anulado' || c.estado_fiscal === 'anulado_fiscal') {
+  if (isComprobanteAnnulled(c)) {
     return { key: 'anulado', label: 'Anulado', color: '#f87171', bgColor: 'rgba(239,68,68,0.1)' }
   }
   if (c.cae || c.estado_fiscal === 'emitido' || c.estado === 'emitido') {

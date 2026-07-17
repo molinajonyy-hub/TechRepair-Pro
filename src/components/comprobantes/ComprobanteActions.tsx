@@ -13,6 +13,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { Comprobante } from '../../hooks/useComprobantes';
+import { isComprobanteAnnulled } from '../../utils/comprobanteStatus';
 
 interface ComprobanteActionsProps {
   comprobante: Comprobante;
@@ -39,9 +40,9 @@ export function ComprobanteActions({
   const [motivoAnulacion, setMotivoAnulacion] = useState('');
   const [emitirConfirm, setEmitirConfirm] = useState(false);
 
-  const esBorrador = comprobante.estado === 'borrador';
-  const esEmitido = comprobante.estado === 'emitido' || !!comprobante.cae;
-  const esAnulado = comprobante.estado === 'anulado';
+  const esAnulado = isComprobanteAnnulled(comprobante);
+  const esBorrador = !esAnulado && comprobante.estado === 'borrador';
+  const esEmitido = !esAnulado && (comprobante.estado === 'emitido' || !!comprobante.cae);
   const esPendienteConciliacion = esBorrador && comprobante.estado_fiscal === 'pendiente_conciliacion';
   const esCobradoPendienteArca = esBorrador && !esPendienteConciliacion && (comprobante.total_cobrado || 0) > 0 && !comprobante.cae && comprobante.estado_fiscal !== 'emitido';
 
