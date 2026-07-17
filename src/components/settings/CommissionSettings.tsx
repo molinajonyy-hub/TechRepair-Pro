@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Plus, Trash2, ChevronDown, ChevronUp, Check, X, Percent, Loader2, RefreshCw, Power } from 'lucide-react'
+import { Plus, Trash2, ChevronDown, ChevronUp, Check, X, Percent, Loader2, RefreshCw, Power, AlertTriangle } from 'lucide-react'
 import { usePaymentCommissions, type CommissionGroup, type CommissionOption } from '../../hooks/usePaymentCommissions'
+import { isSuppressedSinglePaymentSurcharge } from '../../lib/paymentSurcharge'
 
 const inputS: React.CSSProperties = {
   padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.05)',
@@ -58,6 +59,13 @@ function OptionRow({ option, onUpdate, onDelete }: {
       ) : (
         <>
           <span style={{ flex: 1, fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)', minWidth: 80 }}>{option.name}</span>
+          {isSuppressedSinglePaymentSurcharge(option) && (
+            <span data-testid="commission-single-payment-warning"
+              title="En un solo pago (débito o 1 cuota) este porcentaje no se traslada al cliente: paga el precio de lista. Un recargo al cliente no se registra como comisión del comercio; si el costo lo absorbe el negocio, debe configurarse como tal."
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.66rem', fontWeight: 700, color: '#f59e0b', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '0.4rem', padding: '0.1rem 0.35rem' }}>
+              <AlertTriangle size={11} /> No se traslada en un pago
+            </span>
+          )}
           <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#f59e0b', fontFamily: 'monospace', minWidth: 44, textAlign: 'right' }}>
             {option.percentage > 0 ? `+${option.percentage}%` : 'Sin recargo'}
           </span>
@@ -229,7 +237,7 @@ export function CommissionSettings() {
             Medios de cobro y comisiones
           </h3>
           <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-subtle)', lineHeight: 1.5 }}>
-            Configurá los porcentajes de recargo por método de cobro. Se suman automáticamente al total y se trasladan al cliente.
+            Configurá los porcentajes por método de cobro. El recargo se traslada al cliente solo en cuotas (2 o más). En un solo pago —débito o 1 cuota— el cliente paga el precio de lista y el porcentaje queda como costo del comercio.
           </p>
         </div>
         <button onClick={reload} className="btn btn-sm btn-ghost" title="Recargar"><RefreshCw size={13} /></button>
