@@ -17,6 +17,7 @@ import {
   splitArcaRejectionMessage,
 } from '../services/comprobanteService';
 import { buildComprobanteFilename } from '../lib/printFilename';
+import { isComprobanteAnnulled } from '../utils/comprobanteStatus';
 import { logger } from '../lib/logger';
 
 const TIPO_LABELS: Record<string, string> = {
@@ -628,7 +629,7 @@ export default function ComprobantePage() {
             )}
 
             {/* Estado de cobro */}
-            {comprobanteActual && !['anulado','cancelled'].includes(comprobanteActual.estado || '') && (
+            {comprobanteActual && !isComprobanteAnnulled(comprobanteActual) && (
               <EstadoCobroWidget
                 comprobante={comprobanteActual}
                 onEditarCobro={openEditPago}
