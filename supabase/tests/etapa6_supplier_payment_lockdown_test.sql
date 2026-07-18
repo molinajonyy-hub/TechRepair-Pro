@@ -22,6 +22,8 @@ INSERT INTO profiles(business_id,user_id,role,is_active) VALUES (:'biz',:'owner'
 INSERT INTO inventory(id,business_id,name,code,category,stock_quantity,stock,cost_price,sale_price,base_currency,is_active)
   VALUES (:'prod',:'biz','Prod SPL','SPL-1','Rep',10,10,600,1000,'ARS',true);
 INSERT INTO suppliers(id,business_id,name,active) VALUES (:'sup',:'biz','Prov SPL',true);
+-- M7 6D.1a: un pago en efectivo exige caja abierta -> se abre una para el contado de SPL5.
+INSERT INTO cajas(business_id,opened_by,status) VALUES (:'biz',:'owner','abierta');
 SET LOCAL session_replication_role='origin';
 
 -- Compra pagada (contado) → crea supplier_payment + supplier_account_movements

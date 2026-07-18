@@ -21,6 +21,7 @@ BEGIN IF cond IS NOT TRUE THEN RAISE EXCEPTION 'FAIL: %', label; ELSE RAISE NOTI
 \set ownerA '00000000-0000-0000-0000-0000000e2a09'
 \set ownerB '00000000-0000-0000-0000-0000000e2b09'
 \set prod   '00000000-0000-0000-0000-0000000e2d01'
+\set prod2  '00000000-0000-0000-0000-0000000e2d02'
 \set sup    '00000000-0000-0000-0000-0000000e2501'
 
 SET LOCAL session_replication_role = 'replica';
@@ -28,8 +29,11 @@ INSERT INTO auth.users(id) VALUES (:'ownerA'), (:'ownerB');
 INSERT INTO businesses(id, name, owner_user_id) VALUES (:'bizA','QP A',:'ownerA'), (:'bizB','QP B',:'ownerB');
 INSERT INTO profiles(business_id, user_id, role, is_active) VALUES (:'bizA',:'ownerA','owner',true), (:'bizB',:'ownerB','owner',true);
 INSERT INTO inventory(id, business_id, name, code, category, stock_quantity, stock, cost_price, sale_price, base_currency, is_active)
-  VALUES (:'prod',:'bizA','Prod QP','QP-001','Rep',10,10,600,1000,'ARS',true);
+  VALUES (:'prod',:'bizA','Prod QP','QP-001','Rep',10,10,600,1000,'ARS',true),
+         (:'prod2',:'bizA','Prod QP 2','QP-002','Rep',0,0,600,1000,'ARS',true);  -- stock 0: no altera inventory_at_cost de QP1o
 INSERT INTO suppliers(id, business_id, name, active) VALUES (:'sup',:'bizA','Prov QP',true);
+-- M7 6E.1: un pago en efectivo en compra rápida exige caja abierta -> se abre una para bizA.
+INSERT INTO cajas(business_id, opened_by, status) VALUES (:'bizA', :'ownerA', 'abierta');
 SET LOCAL session_replication_role = 'origin';
 
 -- Helper: item jsonb
@@ -127,11 +131,11 @@ BEGIN
   r := create_quick_inventory_purchase_atomic('00000000-0000-0000-0000-0000000e2a01'::uuid,'qp1-key',
     '00000000-0000-0000-0000-0000000e2501'::uuid,'Prov QP','FC-1','2026-06-25','efectivo',5000,5000, pg_temp.item(5,1000));
   PERFORM pg_temp.assert(r->>'error'='IDEMPOTENCY_CONFLICT', 'QP2v6 solo cambia fecha -> conflicto');
-  -- inventario (otro inventory_id en el ítem)
+  -- inventario (otro inventory_id VALIDO del mismo negocio -> hash distinto -> conflicto)
   r := create_quick_inventory_purchase_atomic('00000000-0000-0000-0000-0000000e2a01'::uuid,'qp1-key',
     '00000000-0000-0000-0000-0000000e2501'::uuid,'Prov QP','FC-1','2026-06-20','efectivo',5000,5000,
-    jsonb_build_array(jsonb_build_object('inventory_id','00000000-0000-0000-0000-0000000e2d99','product_name','Prod QP','quantity',5,'unit_cost_ars',1000)));
-  PERFORM pg_temp.assert(r->>'error'='IDEMPOTENCY_CONFLICT', 'QP2v7 solo cambia inventario -> conflicto');
+    jsonb_build_array(jsonb_build_object('inventory_id','00000000-0000-0000-0000-0000000e2d02','product_name','Prod QP 2','quantity',5,'unit_cost_ars',1000)));
+  PERFORM pg_temp.assert(r->>'error'='IDEMPOTENCY_CONFLICT', 'QP2v7 solo cambia inventario (producto valido) -> conflicto');
 
   RESET ROLE;
 END $$;

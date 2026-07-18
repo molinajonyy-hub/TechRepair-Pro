@@ -123,11 +123,28 @@ SELECT pg_temp.assert(
   (SELECT gross_profit FROM v_finance_pnl WHERE business_id=:'biz' AND period_date='2026-06-15')=25000,
   'D5 agregar order_parts a la orden abierta NO cambia el margen devengado (sigue 25000)');
 
--- ── D6: anular el comprobante revierte el reconocimiento (vuelve a 0) ───────
-UPDATE comprobantes SET estado='anulado', estado_comercial='anulado' WHERE id=:'comp1';
+-- ── D6: anular el comprobante revierte el reconocimiento (acumulado vuelve a 0) ─
+-- M7 6F.4: la anulacion pasa por la RPC canonica (un UPDATE directo lo rechaza el
+-- guard trg_comprobante_annulment_transition) y la reversion es APPEND-ONLY: junio
+-- CONSERVA su margen y la compensacion se registra en el periodo de la anulacion.
+-- El acumulado sigue dando 0, que es lo que este caso siempre quiso comprobar.
+DO $$
+DECLARE r jsonb;
+BEGIN
+  SET LOCAL ROLE authenticated;
+  SET LOCAL "request.jwt.claim.sub" = '00000000-0000-0000-0000-0000000da109';
+  -- sin cobros registrados -> anulacion comercial (no hay dinero que devolver)
+  r := annul_comprobante_atomic('00000000-0000-0000-0000-0000000da401'::uuid,
+       'commercial_annulment', 'anulacion de prueba', false, 'D6KEY');
+  RESET ROLE;
+  PERFORM pg_temp.assert(r->>'ok'='true', 'D6a la anulacion via RPC canonica funciona');
+END $$;
+SELECT pg_temp.assert(
+  (SELECT gross_profit FROM v_finance_pnl WHERE business_id=:'biz' AND period_date='2026-06-15')=25000,
+  'D6b el periodo ORIGINAL conserva su margen devengado (append-only)');
 SELECT pg_temp.assert(
   COALESCE((SELECT SUM(gross_profit) FROM v_finance_pnl WHERE business_id=:'biz'),0)=0,
-  'D6 tras anular, v_finance_pnl.gross_profit = 0 (reversión consistente)');
+  'D6 tras anular, el gross_profit ACUMULADO = 0 (reversión consistente)');
 
 -- ── D7: aislamiento — el dueño del OTRO negocio no accede al P&L de biz1 ────
 DO $$

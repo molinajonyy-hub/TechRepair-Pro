@@ -29,6 +29,8 @@ SET LOCAL session_replication_role = 'replica';
 INSERT INTO auth.users(id) VALUES (:'ownerA'), (:'ownerB');
 INSERT INTO businesses(id, name, owner_user_id) VALUES (:'bizA','Etapa1 A',:'ownerA'), (:'bizB','Etapa1 B',:'ownerB');
 INSERT INTO profiles(business_id, user_id, role, is_active) VALUES (:'bizA',:'ownerA','owner',true), (:'bizB',:'ownerB','owner',true);
+-- M7 6E.1: la compra rápida en efectivo (C10) exige caja abierta -> se abre una para bizA.
+INSERT INTO cajas(business_id, opened_by, status) VALUES (:'bizA', :'ownerA', 'abierta');
 INSERT INTO customers(id, business_id, name, phone) VALUES (:'custA',:'bizA','Cliente A','+540000000009');
 INSERT INTO inventory(id, business_id, name, code, category, stock_quantity, stock, cost_price, sale_price, base_currency, is_active)
   VALUES (:'prod',:'bizA','Prod E1','E1-001','Rep',100,100,600,1000,'ARS',true);
