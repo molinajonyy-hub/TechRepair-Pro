@@ -82,12 +82,20 @@ Se extrajeron las **64 RPC** que llama el frontend de `a1791e1` (de su código, 
 de memoria) y se comparó, para cada una, contra los parámetros **sin DEFAULT**
 que la función M7 exige hoy.
 
-**Resultado: 63/63 compatibles, 0 incompatibles.** El despliegue DB-primero es
-seguro y no requiere ventana de mantenimiento.
+**Resultado: 64 RPC = 63 compatibles + 1 exclusión explícita, 0 incompatibles.**
+El despliegue DB-primero es seguro y no requiere ventana de mantenimiento.
 
-> `increment_wholesale_customer_stats` no existe en ninguna migración del repo y
-> M7 no la toca: es **drift preexistente** (la llama el frontend, no está
-> versionada). No es una regresión de este release, pero conviene registrarla.
+> **Corrección (7E.3 §0.1).** La versión anterior de este informe decía "63/63",
+> que no cuadraba con las 64 extraídas. El denominador correcto es 64 y la
+> diferencia es una exclusión, no un olvido:
+>
+> **`increment_wholesale_customer_stats`** — `src/portal/services/portalService.ts`.
+> Se llama con `as any`, el resultado se descarta (`.then(() => {})`) y el propio
+> código lo comenta: *"no-op if RPC not deployed yet"*. Verificado read-only:
+> **no existe en producción** ni en ninguna migración del repo. O sea, esa llamada
+> **ya falla hoy** contra la base actual y ya se ignora. M7 no la toca, así que no
+> puede romper con la DB M7: no hay nada que romper que no esté roto y absorbido.
+> Es drift preexistente del portal mayorista, no una regresión de este release.
 
 ---
 
@@ -124,6 +132,51 @@ PUBLIC les quitaría también el USAGE y rompería la aplicación entera.
 | 2 | `factura_c` | 13.050,00 | 2026-05 | 13.050,00 | 1 | 1 |
 
 Siguen siendo **exactamente 2**, las mismas, con los mismos importes.
+
+### Matriz por anomalía (7E.3 §0.2) — por qué 2 anomalías pero 1 sola fila
+
+| | **#1 `…f7fbe1`** | **#2 `…123a62`** |
+|---|---|---|
+| Tipo | `remito` | `factura_c` |
+| Importe bruto | 1.235.580,00 | 13.050,00 |
+| COGS | 1.097.006,00 | 2.186,00 |
+| CAE | no | **sí** |
+| Registro de anulación | 0 | 0 |
+| Nota de crédito | 0 | **1** |
+| FM propios | **0** | 1 (+13.050) |
+| FM de la NC | 0 | **−13.050** |
+| Neto financiero | **sin rastro** | **0 — ya compensado** |
+| Stock restaurado | 3 | 0 |
+| Severidad | **BLOCKER** | WARN |
+| Acción de 7B | **INSERT 1 fila canónica** | **ninguna** |
+
+**Por qué el apply inserta una sola fila.** Sólo #1 necesita el registro
+canónico: se anuló por la vía client-side legacy, que repuso stock y marcó el
+estado pero **no dejó ningún movimiento financiero**. Sin registro, el ledger de
+6F.4 no tiene de dónde derivar la compensación y la venta reaparece en su
+período. La fila canónica, fechada 2026-05-08 (mismo día que la venta,
+reconstruido de los `inventory_movements` de restauración), hace que el
+restatement netee a cero.
+
+#2 **no es un caso pendiente**: se revirtió por la vía fiscal legítima. La NC ya
+emitió su contrapartida (−13.050) y el neto es 0. `create_credit_note_from_
+comprobante` **exige CAE y nunca crea un registro de anulación** — por diseño.
+Insertarle uno sería una **doble reversión**.
+
+**Consecuencia operativa que hay que saber de antemano:** después del apply, el
+selector "anulado sin `comprobante_annulments`" seguirá devolviendo **1**, no 0.
+Ese 1 es #2, y es correcto que siga ahí: su reversa vive en la NC, no en un
+registro de anulación. **No hay que "arreglarlo".** El indicador que sí debe
+quedar en cero es el de blockers 7A (comprobantes anulados **sin ningún rastro
+financiero**), que es exactamente #1.
+
+**Residuo conocido y deliberado:** los 2.186 de COGS de #2 no los revierte la vía
+NC (el CTE `returns` nunca revierte COGS). 6F.4 §5 lo dejó explícitamente fuera de
+alcance; no lo toca este release.
+
+**Aritmética verificada contra 7A:** 1.235.580 + 13.050 = **1.248.630** (Δ ventas);
+1.097.006 + 2.186 = **1.099.192** (Δ COGS); diferencia = **149.438** (Δ resultado).
+Las tres cifras coinciden con el informe original.
 
 **Aclaración de una cifra que parecía haber cambiado:** el preflight arroja
 **1.248.630** y el informe 7A hablaba de **149.438**. No hay contradicción y no
