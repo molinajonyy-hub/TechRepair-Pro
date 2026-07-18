@@ -275,7 +275,18 @@ BEGIN
   PERFORM pg_temp.assert(e LIKE '%permission denied%',
     'SC1 authenticated NO puede crear schemas: el vector de anteponer un schema propio esta cerrado');
 END $$;
--- ni shadowear un objeto que ya existe en public
+-- ni crear NADA dentro de public
+--
+-- M7 7E.1 — ESTE ASSERT SE ENDURECIO. Antes esperaba 'already exists': el
+-- atacante quedaba frenado por una COLISION DE NOMBRE, que es una defensa
+-- incidental, no una decisión. Y sólo cubría el caso de un objeto que YA
+-- existe: no decía nada del vector que de verdad importa —plantar un objeto
+-- NUEVO (p. ej. un overload más específico) para secuestrar la resolución de
+-- nombres dentro de una SECURITY DEFINER con `public` en el search_path—.
+--
+-- La migración 20260714100000 le sacó CREATE sobre public a los roles de
+-- cliente, así que ahora el rechazo es 'permission denied' y cubre los dos
+-- casos: los nombres ocupados y los libres.
 DO $$
 DECLARE e text;
 BEGIN
@@ -283,8 +294,15 @@ BEGIN
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000009e1009',true);
   e:=''; BEGIN EXECUTE 'CREATE TABLE public.businesses (id uuid)'; EXCEPTION WHEN OTHERS THEN e:=SQLERRM; END;
   RESET ROLE;
-  PERFORM pg_temp.assert(e LIKE '%already exists%',
-    'SC2 no se puede shadowear en public un objeto que ya existe (colision de nombre)');
+  PERFORM pg_temp.assert(e LIKE '%permission denied%',
+    'SC2 authenticated no puede crear en public NI con un nombre ocupado (obtuvo: '||COALESCE(NULLIF(e,''),'SIN ERROR')||')');
+
+  -- El caso que el assert viejo no cubria: un nombre LIBRE.
+  SET LOCAL ROLE authenticated;
+  e:=''; BEGIN EXECUTE 'CREATE TABLE public.zz_nombre_libre_7e1 (id uuid)'; EXCEPTION WHEN OTHERS THEN e:=SQLERRM; END;
+  RESET ROLE;
+  PERFORM pg_temp.assert(e LIKE '%permission denied%',
+    'SC2b tampoco puede crear con un nombre LIBRE (era el vector real de plantado)');
 END $$;
 
 -- ============ 7C.1a: el search_path de la SESION no altera el resultado ====
@@ -316,9 +334,23 @@ BEGIN
   PERFORM pg_temp.assert(c IS NOT NULL, 'HC2 existe el check de schema no confiable en el path');
   PERFORM pg_temp.assert(c->>'severity_level'='critical', 'HC3 severidad critical');
   PERFORM pg_temp.assert(c->'details'->>'pg_temp' IS NOT NULL, 'HC4 documenta la regla de pg_temp');
-  -- reporta la deuda REAL: las que conservan public en el path
-  PERFORM pg_temp.assert((c->>'count')::int > 0,
-    'HC5 reporta las funciones que aun tienen public (schema escribible) en su path: deuda declarada');
+  -- M7 7E.1 — ESTE ASSERT SE INVIRTIO, Y ES UNA BUENA NOTICIA.
+  --
+  -- Antes exigia count > 0: codificaba la DEUDA como expectativa. El check mide
+  -- "funciones SECURITY DEFINER con un schema ESCRIBIBLE POR ROLES NO
+  -- CONFIABLES en su search_path", y `public` lo era, asi que reportaba 128
+  -- funciones en critical.
+  --
+  -- La migracion 20260714100000 le saco CREATE sobre public a los roles de
+  -- cliente. `public` dejo de ser escribible por ellos y el check pasa a 0 sin
+  -- haber tocado ni una de esas 128 funciones: lo que estaba mal no era el path
+  -- de cada funcion, era el permiso del schema.
+  --
+  -- Medido en local: antes fail/128, despues pass/0.
+  PERFORM pg_temp.assert((c->>'count')::int = 0,
+    'HC5 ninguna SECDEF depende ya de un schema escribible por roles no confiables (obtuvo count='||COALESCE(c->>'count','?')||')');
+  PERFORM pg_temp.assert(c->>'result'='pass',
+    'HC5b el check de seguridad queda en pass');
 END $$;
 
 SELECT pg_temp.assert(true, '=== etapa7_7c1_security_definer_hardening_test: TODOS LOS CASOS PASARON ===');
