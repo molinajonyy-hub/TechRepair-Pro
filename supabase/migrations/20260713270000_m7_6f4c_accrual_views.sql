@@ -183,4 +183,3 @@ SELECT l.business_id, l.inventory_id,
 FROM v_finance_sales_ledger l
 WHERE l.is_credit_note = false AND l.inventory_id IS NOT NULL
 GROUP BY l.business_id, l.inventory_id;
-

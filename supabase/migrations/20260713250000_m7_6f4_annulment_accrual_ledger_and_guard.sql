@@ -647,4 +647,3 @@ GRANT EXECUTE ON FUNCTION "public"."annul_comprobante_atomic"(uuid, text, text, 
 --   Recrear bfe_economic_class sin la rama p_source='annulment';
 --   Recrear annul_comprobante_atomic de 20260702120000.
 -- ============================================================================
-
