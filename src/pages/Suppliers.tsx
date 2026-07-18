@@ -14,6 +14,7 @@ import { smartSearch, buildSupabaseQuery } from '../utils/searchUtils'
 import { ProductFormModalSafe as ProductFormModal } from '../components/products/ProductFormModal'
 import type { InventoryItem } from '../hooks/useInventory'
 import type { ProductVariant } from '../services/productService'
+import { resolvePurchaseKey } from '../utils/purchaseIdempotency'
 import suppliersService, {
   type SupplierWithStats,
   type SupplierPurchase,
@@ -716,19 +717,57 @@ function ModalRegistrarPago({ onClose, onSaved, supplier, purchases, businessId,
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // M7 7D.3: key durable por INTENCIÓN de pago a proveedor (no por clic).
+  const payKeyRef  = useRef<string | null>(null)
+  const payHashRef = useRef<string | null>(null)
 
   const pendingPurchases = purchases.filter(p => p.payment_status !== 'paid')
 
   const handleSave = async () => {
+    if (saving) return   // M7 7D.3: guard de doble submit
     if (amount <= 0) { setError('El monto debe ser mayor a 0'); return }
     setSaving(true); setError('')
     try {
+      // M7 7D.3 — La key la genera la UI, que es la que conoce el límite de la
+      // intención; el service sólo la propaga. El hash cubre TODO lo que entra
+      // en el request_hash server-side de las dos RPC posibles
+      // (pay_supplier_free_atomic / pay_supplier_purchase_atomic), incluido
+      // `purchase_id`: cambiar de factura destino es otra operación económica y
+      // tiene que rotar la key, no reusarla.
+      const intent = [
+        purchaseId ? 'supplier_payment' : 'supplier_free_payment',
+        businessId,
+        supplier.id,
+        (supplier.name || '').trim() || '∅',
+        purchaseId || '∅',
+        amount.toFixed(2),
+        'ARS', (1).toFixed(6),
+        paymentDate,
+        method,
+        (notes || '').trim(),
+      ].join('§')
+      const { key } = resolvePurchaseKey(
+        payKeyRef.current, payHashRef.current, intent, () => crypto.randomUUID(),
+      )
+      payKeyRef.current  = key
+      payHashRef.current = intent
+
       await suppliersService.createPayment(
         { supplier_id: supplier.id, purchase_id: purchaseId || null, payment_date: paymentDate, amount, payment_method: method, notes },
-        businessId, userId, supplier.name
+        businessId, userId, supplier.name, key
       )
+      // Éxito terminal (incluido un replay reconocido): la intención terminó.
+      payKeyRef.current  = null
+      payHashRef.current = null
       onSaved()
     } catch (e: any) {
+      // Conflicto: la key quedó ligada a otro payload server-side. Se descarta
+      // para que el próximo intento sea una intención nueva y explícita. NO se
+      // reintenta solo.
+      if ((e as { code?: string })?.code === 'IDEMPOTENCY_CONFLICT') {
+        payKeyRef.current  = null
+        payHashRef.current = null
+      }
       setError(e.message || 'Error al registrar pago')
     } finally {
       setSaving(false)

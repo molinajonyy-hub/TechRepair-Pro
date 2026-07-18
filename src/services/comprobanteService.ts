@@ -853,7 +853,7 @@ export const comprobanteService = {
       /** Clave estable ante reintentos (default: una por llamada) */
       idempotencyKey?: string;
     }
-  ): Promise<{ success: boolean; error?: string; requiereNotaCredito?: boolean }> {
+  ): Promise<{ success: boolean; error?: string; errorCode?: string; replay?: boolean; requiereNotaCredito?: boolean }> {
     const motivoFinal = (motivo || '').trim();
     if (!motivoFinal) {
       return { success: false, error: 'El motivo de la anulación es obligatorio' };
@@ -881,18 +881,27 @@ export const comprobanteService = {
     const result = data as {
       ok: boolean;
       error?: string;
+      error_code?: string;
+      message?: string;
+      replay?: boolean;
       requiere_nota_credito?: boolean;
     } | null;
 
     if (!result?.ok) {
+      // M7 7D.3 — `error_code` se propaga tal cual (ALREADY_ANNULLED,
+      // IDEMPOTENCY_CONFLICT, PERIOD_CLOSED, AUDIT_FAILED…) para que la UI
+      // decida con un código y no parseando texto. `error` se conserva por
+      // compatibilidad con los llamadores que aún lo leen.
       return {
         success: false,
-        error: result?.error || 'Error al anular el comprobante',
+        errorCode: result?.error_code,
+        error: result?.message || result?.error || 'Error al anular el comprobante',
         requiereNotaCredito: result?.requiere_nota_credito === true,
       };
     }
 
-    return { success: true };
+    // `replay` distingue "recién anulado" de "esta key ya se había ejecutado".
+    return { success: true, replay: result?.replay === true };
   },
 
   // ── Registrar pago sobre comprobante ──────────────────────────────────────────

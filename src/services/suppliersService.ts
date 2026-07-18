@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { financeErrorMessage } from '../lib/financeErrors';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -332,8 +333,36 @@ export const suppliersService = {
     return (data || []) as SupplierPayment[];
   },
 
-  async createPayment(input: CreatePaymentInput, businessId: string, userId: string, supplierName: string): Promise<SupplierPayment> {
+  // M7 7D.3 — idempotencyKey la GENERA LA UI, no este service.
+  //
+  // El dueño de la key tiene que ser quien conoce el límite de la intención del
+  // usuario. Si la generara acá, cada llamada (incluido un reintento del mismo
+  // intento) traería una key nueva y la protección no existiría: sería una key
+  // por request HTTP, que es exactamente lo que NO sirve. El service sólo la
+  // propaga; los reintentos internos reusan la misma.
+  //
+  // Devuelve `replay: true` cuando la RPC reconoció una key ya ejecutada, para
+  // que el llamador no duplique efectos client-side.
+  async createPayment(input: CreatePaymentInput, businessId: string, userId: string, supplierName: string, idempotencyKey?: string): Promise<SupplierPayment & { replay: boolean }> {
     const { supplier_id, purchase_id, payment_date, amount, payment_method, notes } = input;
+
+    // Misma forma de resultado para los dos caminos (libre / contra factura):
+    // el llamador no tiene por qué saber cuál se tomó.
+    const fetchPayment = async (paymentId: string, replay: boolean) => {
+      const { data: payment } = await supabase
+        .from('supplier_payments')
+        .select('*')
+        .eq('id', paymentId)
+        .single();
+      return { ...(payment || { id: paymentId }), replay } as SupplierPayment & { replay: boolean };
+    };
+
+    const failed = (data: { error_code?: string; error?: string; message?: string } | null) => {
+      const code = data?.error_code || data?.error;
+      const err = new Error(financeErrorMessage(code, data?.message, 'SUPPLIERS')) as Error & { code?: string };
+      err.code = code;
+      return err;
+    };
 
     if (!purchase_id) {
       // Pago libre sin factura vinculada — RPC atómica (M6 Fase 9): crea
@@ -347,15 +376,11 @@ export const suppliersService = {
         p_amount:         amount,
         p_payment_method: payment_method || '',
         p_notes:          notes || '',
+        p_idempotency_key: idempotencyKey || null,
       });
       if (error) throw new Error(error.message);
-      if (!data?.ok) throw new Error(data?.error || 'Error al registrar pago');
-      const { data: payment } = await supabase
-        .from('supplier_payments')
-        .select('*')
-        .eq('id', data.payment_id)
-        .single();
-      return (payment || { id: data.payment_id }) as SupplierPayment;
+      if (!data?.ok) throw failed(data);
+      return fetchPayment(data.payment_id, !!data.replay);
     }
 
     const { data, error } = await supabase.rpc('pay_supplier_purchase_atomic', {
@@ -368,18 +393,13 @@ export const suppliersService = {
       p_amount:         amount,
       p_payment_method: payment_method || '',
       p_notes:          notes || '',
+      p_idempotency_key: idempotencyKey || null,
     });
 
     if (error) throw new Error(error.message);
-    if (!data?.ok) throw new Error(data?.error || 'Error al registrar pago');
+    if (!data?.ok) throw failed(data);
 
-    const { data: payment } = await supabase
-      .from('supplier_payments')
-      .select('*')
-      .eq('id', data.payment_id)
-      .single();
-
-    return (payment || { id: data.payment_id }) as SupplierPayment;
+    return fetchPayment(data.payment_id, !!data.replay);
   },
 
   // ── Cuenta corriente ────────────────────────────────────────────────────────

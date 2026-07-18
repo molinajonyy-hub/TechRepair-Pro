@@ -3,6 +3,7 @@ import { DollarSign, Plus, Trash2, Loader2, AlertCircle, CheckCircle } from 'luc
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { resolvePurchaseKey } from '../../utils/purchaseIdempotency'
+import { financeErrorMessage } from '../../lib/financeErrors'
 
 type Currency = 'ARS' | 'USD'
 
@@ -113,9 +114,16 @@ export function PaymentCard({ orderId, payments, totalCost, exchangeRate = 1, on
         p_idempotency_key: key,
       })
       if (rpcError) throw rpcError
-      const res = data as { ok: boolean; error?: string; message?: string } | null
-      if (res?.error === 'IDEMPOTENCY_CONFLICT') { setError(res.message || 'Solicitud en conflicto'); setIsSubmitting(false); return }
-      if (!res?.ok) throw new Error(res?.error || 'Error al registrar el pago')
+      const res = data as { ok: boolean; error?: string; error_code?: string; message?: string } | null
+      if (!res?.ok) {
+        // La key quedó ligada a otro payload server-side: se descarta para que
+        // el próximo intento sea una intención nueva y explícita, sin auto-retry.
+        if ((res?.error_code || res?.error) === 'IDEMPOTENCY_CONFLICT') {
+          payKeyRef.current = null
+          payHashRef.current = null
+        }
+        throw new Error(financeErrorMessage(res?.error_code || res?.error, res?.message, 'FINANCE'))
+      }
 
       // Éxito confirmado: la intención terminó, la key se descarta.
       payKeyRef.current = null
@@ -158,9 +166,14 @@ export function PaymentCard({ orderId, payments, totalCost, exchangeRate = 1, on
         p_idempotency_key: key,
       })
       if (rpcError) throw rpcError
-      const res = data as { ok: boolean; error?: string; message?: string } | null
-      if (res?.error === 'IDEMPOTENCY_CONFLICT') { setError(res.message || 'Solicitud en conflicto'); return }
-      if (!res?.ok) throw new Error(res?.error || 'No se pudo reversar el pago')
+      const res = data as { ok: boolean; error?: string; error_code?: string; message?: string } | null
+      if (!res?.ok) {
+        if ((res?.error_code || res?.error) === 'IDEMPOTENCY_CONFLICT') {
+          reverseKeyRef.current = null
+          reverseHashRef.current = null
+        }
+        throw new Error(financeErrorMessage(res?.error_code || res?.error, res?.message, 'FINANCE'))
+      }
       // Éxito terminal: se descarta la key para que un reverso futuro use una nueva.
       reverseKeyRef.current = null
       reverseHashRef.current = null

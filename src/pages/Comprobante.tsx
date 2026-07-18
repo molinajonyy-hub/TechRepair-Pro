@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { resolvePurchaseKey } from '../utils/purchaseIdempotency';
+import { financeErrorMessage } from '../lib/financeErrors';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, AlertCircle, CheckCircle, Loader2, ExternalLink, TrendingUp, Wallet, Edit2, X, FileText } from 'lucide-react';
 import { WhatsAppActionButton } from '../components/whatsapp/WhatsAppActionButton';
@@ -225,7 +226,13 @@ export default function ComprobantePage() {
         setError(result.error || 'Este comprobante requiere una Nota de Crédito para anularse.');
         setShowNotaCredito(true);
       } else {
-        setError(result.error || 'Error al anular el comprobante');
+        // Conflicto: la key quedó ligada a otro payload. Se descarta para que el
+        // próximo intento sea una intención nueva y no un callejón sin salida.
+        if (result.errorCode === 'IDEMPOTENCY_CONFLICT') {
+          anularKeyRef.current = null;
+          anularHashRef.current = null;
+        }
+        setError(financeErrorMessage(result.errorCode, result.error, 'FINANCE'));
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error al anular el comprobante');
@@ -400,7 +407,7 @@ export default function ComprobantePage() {
         replaceKeyRef.current = null;
         replaceHashRef.current = null;
         if (id) await cargarComprobante(id);
-        window.alert(result.error || 'El cobro cambió mientras se procesaba. Actualizá el comprobante e intentá nuevamente.');
+        window.alert(financeErrorMessage('PAYMENT_SET_CHANGED', result.error, 'FINANCE'));
         return;
       }
 
@@ -408,14 +415,14 @@ export default function ComprobantePage() {
         // Misma key con otro payload. NO se genera otra key ni se reintenta
         // solo: lo revisa el usuario.
         if (id) await cargarComprobante(id);
-        window.alert(result.error || 'La solicitud ya fue utilizada con datos diferentes.');
+        window.alert(financeErrorMessage('IDEMPOTENCY_CONFLICT', result.error, 'FINANCE'));
         return;
       }
 
       // Validación u otro error definitivo: la key se CONSERVA. Si el usuario
       // corrige el payload, el hash cambia y rota sola; si reintenta igual, es
       // el mismo intento.
-      window.alert(result.error || 'Error al actualizar el cobro');
+      window.alert(financeErrorMessage(result.errorCode, result.error, 'FINANCE'));
     } finally {
       setEditPagoLoading(false);
     }
