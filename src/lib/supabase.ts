@@ -18,6 +18,15 @@ export const supabase = createClient(supabaseUrl as string, supabaseAnonKey as s
   }
 })
 
+// M7 7D.2 — Publica la URL horneada en el bundle para que el globalSetup de E2E
+// pueda PROBAR contra qué backend se construyó la app (leer .env.e2e no alcanza:
+// el build podría haber tomado otro archivo). `import.meta.env.MODE` se resuelve
+// en build-time, así que en cualquier modo que no sea `e2e` esta rama se elimina
+// del bundle y la variable nunca existe.
+if (import.meta.env.MODE === 'e2e') {
+  ;(window as unknown as { __E2E_SUPABASE_URL__?: string }).__E2E_SUPABASE_URL__ = supabaseUrl
+}
+
 // Types
 export type Order = {
   id: string

@@ -13,6 +13,11 @@ build/
 .env.local
 .env.*.local
 .env.test
+# E2E local (7D.2): lleva la anon key y la service_role del stack local.
+# El .example sí se versiona.
+.env.e2e
+# storageState de Playwright: sesión autenticada del usuario E2E sembrado.
+/tests/e2e/.auth/
 
 # Logs
 npm-debug.log*
