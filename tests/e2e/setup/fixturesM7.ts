@@ -42,8 +42,18 @@ export function resetComprobanteConPago(opts: {
   ejecutarSQL(`
 BEGIN;
 -- 1. Limpieza total del namespace (append-only: hay que barrer todo lo derivado).
+--    'replica' apaga los triggers, incluidos los de append-only: es la única
+--    forma de que un fixture sea reproducible contra tablas inmutables. Vale
+--    SOLO acá, en el stack local; ningún guard de producción se toca.
 SET LOCAL session_replication_role = 'replica';
 DELETE FROM public.comprobante_payment_replace_requests WHERE comprobante_id = '${opts.comprobanteId}';
+-- 7D.3: faltaba barrer las anulaciones. Como son append-only, un registro de
+-- una corrida ANTERIOR sobrevivía y quedaba re-vinculado al comprobante nuevo.
+-- Si las dos corridas caían en días distintos, el resultado era una anulación
+-- fechada ANTES de su venta, y el preflight 7B (PF5) lo cazaba —con razón—.
+-- El bug era del fixture, no del modelo: pasaba desapercibido sólo porque
+-- normalmente se corría todo el mismo día.
+DELETE FROM public.comprobante_annulments    WHERE comprobante_id = '${opts.comprobanteId}';
 DELETE FROM public.financial_movements       WHERE comprobante_id = '${opts.comprobanteId}';
 DELETE FROM public.business_finance_entries  WHERE reference_comprobante_id = '${opts.comprobanteId}';
 DELETE FROM public.comprobante_payments      WHERE comprobante_id = '${opts.comprobanteId}';
@@ -204,4 +214,65 @@ export function keysDeReemplazo(comprobanteId: string): string[] {
       FROM public.comprobante_payment_replace_requests
      WHERE comprobante_id='${comprobanteId}'`)
   return r.keys ?? []
+}
+
+// ═══ 7D.3 · Gasto general (create_expense_with_finance) ══════════════════════
+// El consumidor de esta RPC no mandaba idempotency key hasta este lote. Los
+// helpers de abajo miden el efecto ECONOMICO completo, no sólo la fila de
+// `expenses`: un doble submit que crease un solo expense pero dos FM seguiría
+// siendo un bug, y mirando una sola tabla no se vería.
+
+export interface EstadoGasto {
+  expenses: number
+  bfe: number
+  fm: number
+  requests: number
+  keys: number
+  auditorias: number
+}
+
+/**
+ * Borra el gasto de prueba para que el spec sea reproducible.
+ *
+ * NO toca finance_audit_log ni expense_requests: las DOS son append-only por
+ * diseño (M7 6A/6B) y un DELETE ahí revienta con "es append-only" —el fixture
+ * fallaba en la segunda corrida, no en la primera, que es la peor forma de
+ * fallar—. Tampoco hace falta limpiarlas: `estadoGasto` cuenta ambas haciendo
+ * JOIN contra `expenses`, así que al borrar el gasto las filas viejas quedan
+ * huérfanas y salen solas del conteo.
+ *
+ * Que este reset choque contra los guards es, en sí, una señal de que los
+ * guards de append-only están puestos.
+ */
+export function resetGasto(descripcion: string): void {
+  ejecutarSQL(`
+    DELETE FROM public.financial_movements
+     WHERE business_id='${E2E.business}' AND description='${descripcion}';
+    DELETE FROM public.expenses
+     WHERE business_id='${E2E.business}' AND description='${descripcion}';
+    DELETE FROM public.business_finance_entries
+     WHERE business_id='${E2E.business}' AND description='${descripcion}';
+  `)
+}
+
+/** Efecto económico del gasto, por tabla. Todo debe valer 1 tras una operación. */
+export function estadoGasto(descripcion: string): EstadoGasto {
+  return consultarJSON<EstadoGasto>(`
+    SELECT
+      (SELECT count(*) FROM public.expenses
+        WHERE business_id='${E2E.business}' AND description='${descripcion}')::int AS expenses,
+      (SELECT count(*) FROM public.business_finance_entries
+        WHERE business_id='${E2E.business}' AND description='${descripcion}')::int AS bfe,
+      (SELECT count(*) FROM public.financial_movements
+        WHERE business_id='${E2E.business}' AND description='${descripcion}')::int AS fm,
+      (SELECT count(*) FROM public.expense_requests r
+         JOIN public.expenses e ON e.id = r.expense_id
+        WHERE e.description='${descripcion}')::int AS requests,
+      (SELECT count(DISTINCT r.idempotency_key) FROM public.expense_requests r
+         JOIN public.expenses e ON e.id = r.expense_id
+        WHERE e.description='${descripcion}')::int AS keys,
+      (SELECT count(*) FROM public.finance_audit_log a
+         JOIN public.expenses e ON e.id = a.entity_id
+        WHERE e.description='${descripcion}' AND a.action='operating_expense_create')::int AS auditorias
+  `)
 }

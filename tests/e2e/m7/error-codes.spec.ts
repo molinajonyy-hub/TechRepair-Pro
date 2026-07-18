@@ -118,19 +118,29 @@ test.describe('@m7 ALREADY_ANNULLED', () => {
     // Señal canónica de anulación (autoridad de negocio).
     expect(esAnulado(FIX.anulado), 'el comprobante quedó anulado según is_comprobante_annulled').toBe(true)
 
-    // NOTA (riesgo reportado): el backend es fail-safe — un reintento tras el
-    // refresh vuelve a recibir ALREADY_ANNULLED y NO aplica nada. Pero el widget
-    // de cobro se oculta según el `estado` legacy ('emitido'), no según la señal
-    // canónica, así que la afordancia de "Editar cobro" SIGUE visible tras el
-    // refresh. No hay éxito falso posible, pero la UI no refleja la anulación.
+    // ─── 7D.3 §5.7 — Tras el refresh la UI refleja la anulación ───────────────
+    //
+    // CORRECCION DE UNA NOTA ERRONEA: hasta 7E.0 este test afirmaba que el
+    // widget de cobro SEGUIA visible tras el refresh, y se reportó como riesgo
+    // ("la UI no refleja la anulación"). Era un ARTEFACTO DEL FIXTURE, no un bug
+    // del producto: `resetComprobanteConPago` no barría comprobante_annulments
+    // (append-only), así que sobrevivía el registro de una corrida anterior. Como
+    // la key del fixture es determinista (`annul-<id>`), la RPC reconocía esa key
+    // y devolvía un REPLAY sin tocar el comprobante recién recreado: `estado`
+    // quedaba en 'emitido' y por eso el widget seguía a la vista.
+    //
+    // Con el fixture arreglado, la anulación se aplica de verdad y el helper
+    // central del PR #6 (isComprobanteAnnulled) oculta la afordancia como
+    // corresponde. Lo que sigue prueba el comportamiento REAL.
     await page.reload()
-    await expect(page.getByTestId('estado-cobro-widget')).toBeVisible()
-    // Un segundo intento por esa afordancia vuelve a ser rechazado (sin falso éxito).
-    await page.getByTestId('edit-payment-button').click()
-    await page.getByTestId('edit-payment-method-select').selectOption('qr')
-    await page.getByTestId('edit-payment-save-button').click()
-    await expect.poll(() => grabador.de('replace_comprobante_payment').length).toBe(2)
-    expect(grabador.de('replace_comprobante_payment')[1].errorCode).toBe('ALREADY_ANNULLED')
+    await expect(page.getByTestId('estado-cobro-widget'),
+      'anulado: el widget de cobro no debe ofrecerse').toBeHidden()
+    await expect(page.getByTestId('edit-payment-button'),
+      'anulado: "Editar cobro" no debe estar disponible').toBeHidden()
+
+    // El backend sigue siendo fail-safe aunque la UI ya no ofrezca el camino:
+    // forzando la RPC directamente, responde ALREADY_ANNULLED y no aplica nada.
     expect(estadoReemplazo(FIX.anulado).pagos_reemplazados, 'sigue sin aplicarse nada').toBe(0)
+    expect(esAnulado(FIX.anulado), 'la señal canónica se mantiene tras el refresh').toBe(true)
   })
 })
