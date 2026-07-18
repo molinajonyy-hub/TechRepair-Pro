@@ -21,6 +21,7 @@
     "guard:readonly-healthcheck": "node scripts/finance/guard-readonly-healthcheck.mjs",
     "guard:visual-evidence": "node scripts/finance/guard-visual-evidence.mjs",
     "guard:visual-evidence:self-test": "node scripts/finance/guard-visual-evidence.mjs --self-test",
+    "test:concurrency": "node scripts/finance/concurrency-harness.mjs",
     "guard:public-create": "node scripts/finance/guard-public-create-grant.mjs",
     "guard:public-create:self-test": "node scripts/finance/guard-public-create-grant.mjs --self-test",
     "guards": "npm run guard:finance-writes:self-test && npm run guard:finance-writes && npm run guard:secdef:self-test && npm run guard:secdef && npm run guard:readonly-sql && npm run guard:readonly-healthcheck && npm run guard:visual-evidence:self-test && npm run guard:public-create:self-test && npm run guard:public-create",
