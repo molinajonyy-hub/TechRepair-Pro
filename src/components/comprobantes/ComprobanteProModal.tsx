@@ -37,6 +37,8 @@ import {
 } from '../../services/comprobanteService'
 import { WhatsAppPreviewModal } from '../whatsapp/WhatsAppPreviewModal'
 import { usePaymentCommissions, type FlatPaymentMethod } from '../../hooks/usePaymentCommissions'
+import { customerSurchargeRate, effectiveMerchantCommissionRate } from '../../lib/paymentSurcharge'
+import { computeSettlement, type PosPayMethod } from '../../lib/posSettlement'
 import { useKeyboardAwareBottomOffset } from '../../hooks/useKeyboardAwareBottomOffset'
 import {
   computeCheckoutRequestHash, getOrCreateIdempotencyKey, clearPendingCheckout, readPendingCheckout,
@@ -450,16 +452,31 @@ export function ComprobanteProModal({
     iva = tipo === 'factura_a' ? subtotal * 0.21 : 0
     const total        = subtotal + iva
     const totalPagado  = pagos.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
-    const totalOriginal = pagos.reduce((s, p) => s + (parseFloat((p as any)._original_amount ?? p.amount) || 0), 0)
-    const saldo        = Math.max(0, total - totalOriginal)
-    const totalRecargo = Math.max(0, totalPagado - totalOriginal)
     const ganancia     = total - costo
     const margenPct    = total > 0 ? (ganancia / total) * 100 : 0
-    const vuelto       = totalPagado > total ? totalPagado - total : 0
+
+    // Liquidación canónica: el recargo trasladado (ya decidido por línea en
+    // toggleMetodo, guardado en `_customer_surcharge`) se suma al total EXIGIBLE;
+    // el vuelto sale SOLO del efectivo; el excedente en tarjeta/transferencia/CC
+    // es sobrepago inválido, nunca vuelto. Ver src/lib/posSettlement.ts.
+    const settlement = computeSettlement({
+      totalBase: total,
+      payments: pagos.map(p => ({
+        method: (p.payment_method === 'efectivo' || p.payment_method === 'transferencia' || p.payment_method === 'cuenta_corriente'
+          ? p.payment_method : 'otro') as PosPayMethod,
+        amount: parseFloat(p.amount) || 0,
+        surcharge: parseFloat((p as any)._customer_surcharge ?? '0') || 0,
+      })),
+    })
+    const totalExigible = settlement.totalExigible
+    const totalRecargo  = settlement.totalRecargo
+    const saldo         = Math.max(0, settlement.diferencia)
+    const vuelto        = settlement.vuelto
+    const sobrepago     = settlement.sobrepagoNoEfectivo
     // Desglose CC vs caja
     const pagadoCC   = pagos.filter(p => p.payment_method === 'cuenta_corriente').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
     const pagadoCaja = pagos.filter(p => p.payment_method !== 'cuenta_corriente').reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
-    return { subtotal, iva, total, descuento, costo, ganancia, margenPct, totalPagado, saldo, totalRecargo, vuelto, pagadoCC, pagadoCaja }
+    return { subtotal, iva, total, totalExigible, descuento, costo, ganancia, margenPct, totalPagado, saldo, totalRecargo, vuelto, sobrepago, pagadoCC, pagadoCaja }
   }, [lineas, tipo, exchangeRate, pagos])
 
   // ── refocusInput — función central, SIEMPRE usar en lugar de setTimeout directo
@@ -476,6 +493,13 @@ export function ComprobanteProModal({
     if (!cajaIsOpen && !skipFinanceEntry) { setSubmitError('No hay caja abierta. Abrí caja antes de emitir.'); setErrorShakeKey(k => k + 1); return }
     const pagosConMonto = pagos.filter(p => parseFloat(p.amount) > 0)
     if (pagos.length > 0 && pagosConMonto.length === 0) { setSubmitError('Ingresá el monto del cobro'); setErrorShakeKey(k => k + 1); return }
+    // Sobrepago en un medio no-efectivo: nunca es vuelto. No dejamos completar
+    // el checkout (mismo criterio que el guard server-side, pero con aritmética
+    // ya corregida: se compara contra el total EXIGIBLE, no contra la base).
+    if (totales.sobrepago > 1) {
+      setSubmitError(`Sobrepago en tarjeta/transferencia por ${fmtARS(totales.sobrepago)}. Un pago no efectivo no genera vuelto: ajustá el importe al total exigible (${fmtARS(totales.totalExigible)}).`)
+      setErrorShakeKey(k => k + 1); return
+    }
 
     isSubmittingRef.current = true
     setSubmitting(true); setSubmitError(null); setArcaWarning(null); setArcaPending(false)
@@ -1020,13 +1044,22 @@ export function ComprobanteProModal({
     } else {
       const saldo = totales.total - pagos.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
       const base = Math.round(Math.max(0, saldo))
-      const withSurcharge = metodo.charge_mode === 'customer' && metodo.percentage > 0 ? Math.round(base * (1 + metodo.percentage / 100)) : base
+      // Dos decisiones SEPARADAS (ver src/lib/paymentSurcharge.ts):
+      //  1) cuánto paga el cliente → customerSurchargeRate (recargo SOLO en
+      //     cuotas reales con charge_mode 'customer'); en un pago paga la lista.
+      //  2) qué costo absorbe el comercio → effectiveMerchantCommissionRate
+      //     (comisión SOLO con charge_mode 'business'). Un % 'customer' NUNCA
+      //     se reinterpreta como comisión ⇒ sin costo financiero ficticio.
+      // Nunca se copia `percentage` crudo en ambos conceptos.
+      const custRate = customerSurchargeRate(metodo)
+      const commRate = effectiveMerchantCommissionRate(metodo)
+      const withSurcharge = custRate > 0 ? Math.round(base * (1 + custRate)) : base
       setPagos(prev => [...prev, {
         _key: Math.random().toString(36).slice(2), payment_method: pmKey,
         payment_provider: (metodo.group_name !== 'Efectivo' && metodo.group_name !== 'Transferencia') ? metodo.group_name : '',
-        amount: String(withSurcharge), commission_rate: metodo.percentage / 100,
+        amount: String(withSurcharge), commission_rate: commRate,
         _option_id: optionId, _option_label: metodo.label, _color: metodo.color,
-        _original_amount: String(base),
+        _original_amount: String(base), _customer_surcharge: String(withSurcharge - base),
       } as any])
       // Persistir último método usado
       try { localStorage.setItem('pos_last_method', metodo.id) } catch {}
@@ -1708,7 +1741,7 @@ export function ComprobanteProModal({
                             _key: Math.random().toString(36).slice(2), payment_method: 'cuenta_corriente' as MedioPago,
                             payment_provider: '', amount: String(amt), commission_rate: 0,
                             // _color: hex obligatorio — se compone con sufijos de alpha (`${color}12`)
-                            _option_label: 'Cta. Corriente', _color: '#818cf8', _original_amount: String(amt),
+                            _option_label: 'Cta. Corriente', _color: '#818cf8', _original_amount: String(amt), _customer_surcharge: '0',
                           } as any])
                         }
                       }}
@@ -1820,6 +1853,15 @@ export function ComprobanteProModal({
                 <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center', marginBottom: '0.5rem', padding: '0.5rem 0.625rem', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.18)', borderRadius: '0.5rem' }}>
                   <AlertCircle size={13} color="var(--pos-danger)" style={{ flexShrink: 0 }} />
                   <span style={{ color: 'var(--pos-danger)', fontSize: '0.72rem', fontWeight: 600 }}>Caja cerrada — no se pueden emitir comprobantes</span>
+                </div>
+              )}
+              {/* Sobrepago en medio no-efectivo: aviso proactivo. No es vuelto. */}
+              {!submitError && totales.sobrepago > 1 && (
+                <div data-testid="comprobante-sobrepago-warning" style={{ display: 'flex', gap: '0.375rem', alignItems: 'flex-start', marginBottom: '0.5rem', padding: '0.5rem 0.625rem', background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '0.5rem' }}>
+                  <AlertCircle size={13} color="var(--pos-danger)" style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span style={{ color: 'var(--pos-danger)', fontSize: '0.72rem' }}>
+                    Sobrepago no efectivo de {fmtARS(totales.sobrepago)}. Un pago con tarjeta o transferencia no genera vuelto: ajustá el importe al total exigible ({fmtARS(totales.totalExigible)}).
+                  </span>
                 </div>
               )}
               {/* Hint proactivo: por qué todavía no se puede cobrar (sin deshabilitar el botón) */}
