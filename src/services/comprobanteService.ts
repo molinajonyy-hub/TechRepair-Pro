@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import ArcaService from './arcaService';
 import { requireFeature } from '../utils/requireFeature';
 import { computeCheckoutRequestHash } from '../lib/checkoutIdempotency';
+import { logger } from '../lib/logger';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1123,8 +1124,26 @@ export const comprobanteService = {
           .eq('id', params.originalComprobanteId)
           .eq('business_id', params.businessId)
 
-        // RPC SECURITY DEFINER: crea FM (sign=-1) + BFE negativo, idempotente
-        await supabase.rpc('create_credit_note_finance_reversal', { p_nc_id: ncId })
+        // RPC SECURITY DEFINER: crea FM (sign=-1) + BFE negativo.
+        //
+        // M7 7E.1b — La idempotencia es por IDENTIDAD NATURAL (el id de la NC),
+        // no por idempotency key: "revertir ESTA NC" sólo puede pasar una vez, y
+        // lo garantizan dos índices únicos parciales (uniq_fm_comprobante_reversal
+        // y uniq_bfe_comprobante_reversal), no un chequeo previo. Una key acá
+        // sería decorativa: no agrega ninguna garantía que los índices no den ya.
+        //
+        // El resultado ANTES SE DESCARTABA por completo: un fallo de la reversa
+        // pasaba inadvertido y la NC quedaba emitida sin su contrapartida
+        // financiera. Ahora se registra. No se lanza: la NC ya se emitió en ARCA
+        // y abortar acá dejaría al usuario sin comprobante y sin explicación.
+        const { data: revData, error: revErr } = await supabase
+          .rpc('create_credit_note_finance_reversal', { p_nc_id: ncId })
+        const rev = revData as { ok?: boolean; replay?: boolean; error_code?: string; error?: string } | null
+        if (revErr || rev?.ok === false) {
+          logger.error('FINANCE', 'La reversa financiera de la NC no se registró', {
+            ncId, errorCode: rev?.error_code ?? null, transport: revErr?.message ?? null,
+          })
+        }
       }
     }
 

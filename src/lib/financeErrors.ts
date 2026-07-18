@@ -34,6 +34,12 @@ export type FinanceErrorCode =
   | 'CASH_REGISTER_NOT_OPEN'
   | 'VALIDATION_ERROR'
   | 'FORBIDDEN'
+  // M7 7E.1b — mutadores restantes
+  | 'ALREADY_PAID'
+  | 'ALREADY_DELETED'
+  | 'BLOCKED_PAID'
+  | 'NOT_FOUND'
+  | 'INTERNAL_ERROR'
 
 // Cada mensaje dice QUE pasó y QUE hacer. Sin nombres de tabla, sin SQL, sin
 // jerga de idempotencia: el usuario no sabe lo que es una "key".
@@ -58,6 +64,20 @@ const MESSAGES: Record<FinanceErrorCode, string> = {
   // manda al usuario a reintentar algo que nunca va a funcionar.
   FORBIDDEN:
     'Tu usuario no tiene permiso para esta operación financiera.',
+
+  // ── M7 7E.1b ───────────────────────────────────────────────────────────────
+  ALREADY_PAID:
+    'Ese período ya tiene un pago registrado. Actualizá la pantalla para verlo; no se registró un segundo pago.',
+  // No es un fallo: la operación ya se había completado. El texto lo dice así
+  // para que nadie salga a "arreglar" algo que salió bien.
+  ALREADY_DELETED:
+    'La compra ya había sido eliminada. No se hizo nada nuevo.',
+  BLOCKED_PAID:
+    'La compra tiene pagos registrados, así que no se puede eliminar. Revertí primero los pagos.',
+  NOT_FOUND:
+    'No se encontró el registro. Puede haberlo eliminado otra persona: actualizá la pantalla.',
+  INTERNAL_ERROR:
+    'La operación no se pudo completar y no quedó nada a medias. Volvé a intentar; si sigue fallando, avisá a soporte.',
 }
 
 const KNOWN = new Set(Object.keys(MESSAGES))
