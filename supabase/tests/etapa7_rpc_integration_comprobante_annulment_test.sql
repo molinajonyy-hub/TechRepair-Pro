@@ -546,7 +546,11 @@ BEGIN
   PERFORM pg_temp.assert(e LIKE '%inmutable%', 'RT9 request_hash inmutable');
   e:=''; BEGIN UPDATE comprobante_annulments SET annulment_date='2020-01-01' WHERE id=v_id; EXCEPTION WHEN OTHERS THEN e:=SQLERRM; END;
   PERFORM pg_temp.assert(e LIKE '%inmutable%', 'RT10 annulment_date inmutable (no se puede mover el periodo compensatorio)');
-  e:=''; BEGIN UPDATE comprobante_annulments SET reverted_cash_ars=0 WHERE id=v_id; EXCEPTION WHEN OTHERS THEN e:=SQLERRM; END;
+  -- El valor NUEVO debe diferir del guardado SI o SI. Con un literal (0) el test
+  -- era data-dependiente: si la fila elegida ya tenia reverted_cash_ars=0, el
+  -- UPDATE no cambiaba nada, el trigger no disparaba (correctamente) y el assert
+  -- leia esa no-operacion como guard ausente. `+1` siempre es DISTINCT.
+  e:=''; BEGIN UPDATE comprobante_annulments SET reverted_cash_ars=reverted_cash_ars+1 WHERE id=v_id; EXCEPTION WHEN OTHERS THEN e:=SQLERRM; END;
   PERFORM pg_temp.assert(e LIKE '%inmutable%', 'RT11 importes revertidos inmutables');
 END $$;
 
