@@ -8,6 +8,26 @@
 // El tema de este proyecto tiene una trampa conocida: los tokens se serializan a
 // rgb() y hay islas dark dentro de light. Verificar "hay dark mode" mirando una
 // clase no prueba nada — hay que leer el color computado.
+//
+// ┌── M7 7D.3 · POR QUE LA ESCRITURA ESTA GATEADA ───────────────────────────┐
+// │ Estas capturas se escriben en docs/, que está TRACKEADO. Escribirlas en  │
+// │ cada corrida ensuciaba el árbol con PNGs de bytes distintos y contenido  │
+// │ equivalente: `git status` dejaba de ser señal y un cambio visual real se │
+// │ perdía entre el ruido.                                                   │
+// │                                                                          │
+// │ Ahora la corrida normal es READ-ONLY respecto del repo: valida y adjunta │
+// │ la captura al reporte de Playwright. Para regrabar la evidencia hay que  │
+// │ pedirlo explícitamente con el mecanismo propio de Playwright:            │
+// │                                                                          │
+// │     npm run e2e:m7:evidencia     (= playwright test --update-snapshots)  │
+// │                                                                          │
+// │ NO se usa toHaveScreenshot acá a propósito: el resto de la suite escribe │
+// │ comprobantes y pagos, así que el contenido de esta página cambia entre   │
+// │ corridas por diseño. Una comparación por píxeles sería flaky y se        │
+// │ terminaría desactivando — que es peor que no tenerla. La regresión       │
+// │ visual real la cazan las aserciones de tema/contraste/desborde de abajo, │
+// │ que sí son deterministas.                                                │
+// └──────────────────────────────────────────────────────────────────────────┘
 // ============================================================================
 import { test, expect } from './fixtures'
 import type { Page } from '@playwright/test'
@@ -64,6 +84,22 @@ for (const ctx of CONTEXTOS) {
       document.documentElement.scrollWidth - document.documentElement.clientWidth)
     expect(desborde, 'la página no debe scrollear en horizontal').toBeLessThanOrEqual(1)
 
-    await page.screenshot({ path: `${DIR}/health-check-${ctx.nombre}.png`, fullPage: true })
+    // Escritura gateada por el flag ESTANDAR de Playwright. Por defecto
+    // `updateSnapshots` es 'missing'; con --update-snapshots pasa a 'all' o
+    // 'changed'. Sin homegrown flags: el mismo interruptor que ya conoce
+    // cualquiera que use Playwright.
+    const captura = await page.screenshot({ fullPage: true })
+    const regrabar = test.info().config.updateSnapshots !== 'missing'
+
+    if (regrabar) {
+      await test.info().attach(`evidencia-${ctx.nombre}`, { body: captura, contentType: 'image/png' })
+      // eslint-disable-next-line no-console
+      console.log(`[evidencia] regrabando ${DIR}/health-check-${ctx.nombre}.png`)
+      const { writeFile } = await import('fs/promises')
+      await writeFile(`${DIR}/health-check-${ctx.nombre}.png`, captura)
+    } else {
+      // Corrida normal: la evidencia vive en el reporte, no en el repo.
+      await test.info().attach(`health-check-${ctx.nombre}`, { body: captura, contentType: 'image/png' })
+    }
   })
 }
