@@ -886,6 +886,9 @@ export function Expenses() {
   const [loading, setLoading]       = useState(true)
   const [showModal, setShowModal]   = useState(false)
   const [showCategories, setShowCategories] = useState(false)
+  // M7 7D: key durable por INTENCIÓN de reverso de gasto (no por clic).
+  const reverseKeyRef  = useRef<string | null>(null)
+  const reverseHashRef = useRef<string | null>(null)
 
   const [searchTerm, setSearchTerm]     = useState('')
   const [filterCat, setFilterCat]       = useState('all')
@@ -1110,14 +1113,26 @@ export function Expenses() {
                             const motivo = window.prompt('Motivo del reverso del gasto (obligatorio):')
                             if (!motivo || !motivo.trim()) return
                             try {
+                              // M7 7D: una key por INTENCIÓN. Si la respuesta se pierde y el
+                              // usuario reintenta el mismo reverso, la misma key devuelve replay
+                              // en vez de una segunda reversa. Rota sola si cambia gasto o motivo.
+                              const intent = `reverse_expense§${businessId}§${e.id}§${motivo.trim()}`
+                              const { key } = resolvePurchaseKey(
+                                reverseKeyRef.current, reverseHashRef.current, intent, () => crypto.randomUUID(),
+                              )
+                              reverseKeyRef.current = key
+                              reverseHashRef.current = intent
+
                               const { data, error } = await supabase.rpc('reverse_operating_expense_atomic', {
                                 p_business_id: businessId, p_expense_id: e.id, p_reason: motivo.trim(),
-                                p_user_id: user?.id, p_idempotency_key: crypto.randomUUID(),
+                                p_user_id: user?.id, p_idempotency_key: key,
                               })
                               if (error) throw error
                               const res = data as { ok: boolean; error?: string; message?: string } | null
                               if (res?.error === 'IDEMPOTENCY_CONFLICT') { alert(res.message || 'La solicitud ya fue utilizada con datos diferentes.'); return }
                               if (!res?.ok) throw new Error(res?.error || 'No se pudo reversar el gasto')
+                              reverseKeyRef.current = null   // éxito terminal: se descarta
+                              reverseHashRef.current = null
                               loadExpenses()
                             } catch (err: any) { alert(err.message || 'Error al reversar el gasto') }
                           }}

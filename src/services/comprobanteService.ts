@@ -947,9 +947,19 @@ export const comprobanteService = {
       notes?: string;
       commission_amount?: number;
       payment_provider?: string;
-      idempotencyKey?: string;
+      /**
+       * M7 7D.1: OBLIGATORIA. Antes era opcional y se mandaba `?? null`: un
+       * caller que se olvidaba de pasarla dejaba a la RPC sin registro de
+       * idempotencia (el bloque `IF v_key IS NOT NULL` se saltea entero) y la
+       * operación quedaba SIN replay posible ante una respuesta perdida — en
+       * silencio. Ahora es un error de compilación.
+       *
+       * La key representa la INTENCIÓN "reemplazar el cobro de este comprobante
+       * por este": la crea y la rota el flujo de UI, no este servicio.
+       */
+      idempotencyKey: string;
     }
-  ): Promise<{ success: boolean; error?: string; conflict?: boolean }> {
+  ): Promise<{ success: boolean; error?: string; errorCode?: string; conflict?: boolean }> {
     const rate   = params.exchange_rate || 1;
     const amtARS = (params.currency || 'ARS') === 'USD' ? params.amount * rate : params.amount;
 
@@ -968,14 +978,25 @@ export const comprobanteService = {
       p_user_id:          userId,
       p_commission_amount: params.commission_amount ?? 0,
       p_payment_provider:  params.payment_provider ?? null,
-      p_idempotency_key:   params.idempotencyKey ?? null,
+      p_idempotency_key:   params.idempotencyKey,
     });
 
+    // Error de transporte (red/timeout): NO se sabe si el server lo aplicó. El
+    // caller debe conservar la key y permitir retry con el mismo payload.
     if (error) return { success: false, error: error.message };
 
-    const result = data as { ok: boolean; error?: string; message?: string } | null;
-    if (result?.error === 'IDEMPOTENCY_CONFLICT') return { success: false, conflict: true, error: result.message || 'La solicitud ya fue utilizada con datos diferentes.' };
-    if (!result?.ok) return { success: false, error: result?.error || 'Error al actualizar cobro' };
+    const result = data as { ok: boolean; error?: string; error_code?: string; message?: string } | null;
+    if (result?.error === 'IDEMPOTENCY_CONFLICT') {
+      return { success: false, conflict: true, errorCode: 'IDEMPOTENCY_CONFLICT',
+        error: result.message || 'La solicitud ya fue utilizada con datos diferentes.' };
+    }
+    // error_code se propaga tal cual (PAYMENT_SET_CHANGED, PERIOD_CLOSED,
+    // ALREADY_ANNULLED, AUDIT_FAILED…) para que la UI decida el lifecycle de la
+    // key sin reinterpretar el mensaje.
+    if (!result?.ok) {
+      return { success: false, errorCode: result?.error_code,
+        error: result?.error || 'Error al actualizar cobro' };
+    }
 
     return { success: true };
   },

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { resolvePurchaseKey } from '../utils/purchaseIdempotency';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, AlertCircle, CheckCircle, Loader2, ExternalLink, TrendingUp, Wallet, Edit2, X, FileText } from 'lucide-react';
 import { WhatsAppActionButton } from '../components/whatsapp/WhatsAppActionButton';
@@ -37,6 +38,12 @@ export default function ComprobantePage() {
   const [comprobanteActual, setComprobanteActual] = useState<Comprobante | null>(null);
   const [loading, setLoading] = useState(true);
   const [emitiendo, setEmitiendo] = useState(false);
+  // M7 7D: key durable por INTENCIÓN de anulación (no por clic). Ver handleAnular.
+  const anularKeyRef  = useRef<string | null>(null);
+  const anularHashRef = useRef<string | null>(null);
+  // M7 7D.1: ídem para el reemplazo de cobro. Ver handleSaveEditPago.
+  const replaceKeyRef  = useRef<string | null>(null);
+  const replaceHashRef = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const cargarComprobante = useCallback(async (compId: string) => {
@@ -190,8 +197,23 @@ export default function ComprobantePage() {
   const handleAnular = async (motivo: string) => {
     if (!comprobanteActual || !businessId || !user) return;
     try {
-      const result = await comprobanteService.anular(comprobanteActual.id, businessId, user.id, motivo);
+      // M7 7D: una key por INTENCIÓN de anulación, no por clic. Si la respuesta
+      // se pierde (timeout) y el usuario reintenta la MISMA anulación, la key
+      // hace que el server devuelva replay en vez de rechazar con
+      // ALREADY_ANNULLED. Rota sola si cambia el comprobante o el motivo.
+      const intent = `annul§${businessId}§${comprobanteActual.id}§${motivo.trim()}`;
+      const { key } = resolvePurchaseKey(
+        anularKeyRef.current, anularHashRef.current, intent, () => crypto.randomUUID(),
+      );
+      anularKeyRef.current = key;
+      anularHashRef.current = intent;
+
+      const result = await comprobanteService.anular(
+        comprobanteActual.id, businessId, user.id, motivo, { idempotencyKey: key },
+      );
       if (result.success) {
+        anularKeyRef.current = null;   // éxito terminal: se descarta la key
+        anularHashRef.current = null;
         setShowSuccess('Comprobante anulado');
         setTimeout(() => setShowSuccess(null), 5000);
         await cargarComprobante(comprobanteActual.id);
@@ -307,26 +329,92 @@ export default function ComprobantePage() {
     setEditPagoMethod((primero?.payment_method as MedioPago) || 'efectivo');
     setEditPagoAmount(comprobanteActual.total || 0);
     setEditPagoNotes(primero?.notes || '');
+    // M7 7D.1: abrir una edición NUEVA descarta cualquier key anterior. Sin
+    // esto, reabrir el modal tras un resultado terminal podría reusar la key de
+    // la intención pasada.
+    replaceKeyRef.current = null;
+    replaceHashRef.current = null;
     setShowEditPago(true);
+  };
+
+  const closeEditPago = () => {
+    // Cancelación deliberada: la intención se abandona, la key se descarta.
+    replaceKeyRef.current = null;
+    replaceHashRef.current = null;
+    setShowEditPago(false);
   };
 
   const handleSaveEditPago = async () => {
     if (!comprobanteActual || !businessId || !user) return;
     setEditPagoLoading(true);
     try {
+      // M7 7D.1 — BOUNDARY DE LA INTENCIÓN: "reemplazar el cobro de ESTE
+      // comprobante por ESTE". El hash lleva TODOS los campos económicos que
+      // viajan a la RPC, no sólo los que el modal edita hoy: si mañana el
+      // formulario expone provider o comisión, la rotación ya funciona.
+      const currency = 'ARS' as const;
+      const rate = 1;
+      const amountArs = editPagoAmount;   // ARS: amount_ars == amount
+      const intent = [
+        'replace_payment',
+        comprobanteActual.id,           // rota al cambiar de comprobante
+        editPagoMethod,
+        editPagoAmount.toFixed(2),
+        amountArs.toFixed(2),
+        currency,
+        rate.toFixed(6),
+        '∅',                            // provider (el modal no lo expone aún)
+        (0).toFixed(2),                 // comisión (idem)
+        (editPagoNotes || '').trim(),
+      ].join('§');
+
+      const { key } = resolvePurchaseKey(
+        replaceKeyRef.current, replaceHashRef.current, intent, () => crypto.randomUUID(),
+      );
+      replaceKeyRef.current = key;
+      replaceHashRef.current = intent;
+
       const result = await comprobanteService.actualizarPago(
         comprobanteActual.id, businessId, user.id,
-        { payment_method: editPagoMethod, amount: editPagoAmount, currency: 'ARS', notes: editPagoNotes,
-          idempotencyKey: crypto.randomUUID() }
+        { payment_method: editPagoMethod, amount: editPagoAmount, currency, notes: editPagoNotes,
+          idempotencyKey: key }
       );
+
       if (result.success) {
+        // Éxito confirmado: la intención terminó, la key se descarta.
+        replaceKeyRef.current = null;
+        replaceHashRef.current = null;
         setShowSuccess('Cobro actualizado correctamente');
         setTimeout(() => setShowSuccess(null), 4000);
         setShowEditPago(false);
         if (id) cargarComprobante(id);
-      } else {
-        window.alert(result.error || 'Error al actualizar el cobro');
+        return;
       }
+
+      if (result.errorCode === 'PAYMENT_SET_CHANGED') {
+        // El conjunto de cobros cambió mientras se procesaba. La key quedó
+        // STALE server-side: reintentarla devolvería PAYMENT_SET_CHANGED para
+        // siempre. Se descarta, se refresca el comprobante y se exige una
+        // intención nueva. NO se reenvía automáticamente.
+        replaceKeyRef.current = null;
+        replaceHashRef.current = null;
+        if (id) await cargarComprobante(id);
+        window.alert(result.error || 'El cobro cambió mientras se procesaba. Actualizá el comprobante e intentá nuevamente.');
+        return;
+      }
+
+      if (result.conflict) {
+        // Misma key con otro payload. NO se genera otra key ni se reintenta
+        // solo: lo revisa el usuario.
+        if (id) await cargarComprobante(id);
+        window.alert(result.error || 'La solicitud ya fue utilizada con datos diferentes.');
+        return;
+      }
+
+      // Validación u otro error definitivo: la key se CONSERVA. Si el usuario
+      // corrige el payload, el hash cambia y rota sola; si reintenta igual, es
+      // el mismo intento.
+      window.alert(result.error || 'Error al actualizar el cobro');
     } finally {
       setEditPagoLoading(false);
     }
@@ -671,7 +759,7 @@ export default function ComprobantePage() {
                   Editar cobro
                 </h2>
               </div>
-              <button onClick={() => setShowEditPago(false)} className="icon-btn" aria-label="Cerrar">
+              <button onClick={closeEditPago} className="icon-btn" aria-label="Cerrar">
                 <X size={16} />
               </button>
             </div>
@@ -733,7 +821,7 @@ export default function ComprobantePage() {
             </div>
 
             <div className="modal-ftr" style={{ justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowEditPago(false)} className="btn btn-ghost" disabled={editPagoLoading}>
+              <button onClick={closeEditPago} className="btn btn-ghost" disabled={editPagoLoading}>
                 Cancelar
               </button>
               <button

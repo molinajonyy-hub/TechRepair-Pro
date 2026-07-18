@@ -17,6 +17,7 @@ import {
 import { supabase } from '../../lib/supabase'
 import { currencyService } from '../../services/currencyService'
 import { useAuth } from '../../contexts/AuthContext'
+import { resolvePurchaseKey } from '../../utils/purchaseIdempotency'
 
 // Estados de repuestos
 const PART_STATUSES = {
@@ -66,6 +67,9 @@ interface OrderCostManagementProps {
 export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataChange }: OrderCostManagementProps) {
   const { businessId, user } = useAuth()
   const exchangeRateRef = useRef<number>(1)
+  // M7 7D.1: key durable por INTENCIÓN de cobro de orden (no por clic).
+  const payKeyRef  = useRef<string | null>(null)
+  const payHashRef = useRef<string | null>(null)
   const [parts, setParts] = useState<OrderPart[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
   const [loading, setLoading] = useState(true)
@@ -203,6 +207,17 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
       const paymentAmount = parseFloat(paymentForm.amount) || 0
       // M6: pago de orden por RPC atómica e idempotente (crea order_payments;
       // el trigger crea 1 FM + 1 BFE mirror). Sin insert directo.
+      //
+      // M7 7D.1: una key por INTENCIÓN de cobro, no por clic. Rota con negocio,
+      // orden, monto, moneda, método, TC y notas.
+      const intent = ['order_payment', businessId, orderId, paymentAmount.toFixed(2),
+        'ARS', paymentForm.payment_method, '1', (paymentForm.notes || '').trim()].join('§')
+      const { key } = resolvePurchaseKey(
+        payKeyRef.current, payHashRef.current, intent, () => crypto.randomUUID(),
+      )
+      payKeyRef.current = key
+      payHashRef.current = intent
+
       const { data, error: rpcError } = await supabase.rpc('create_order_payment_atomic', {
         p_business_id:     businessId,
         p_order_id:        orderId,
@@ -213,13 +228,16 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
         p_user_id:         user?.id,
         p_notes:           paymentForm.notes || null,
         p_date:            null,
-        p_idempotency_key: crypto.randomUUID(),
+        p_idempotency_key: key,
       })
       if (rpcError) throw rpcError
       const res = data as { ok: boolean; error?: string; message?: string } | null
       if (res?.error === 'IDEMPOTENCY_CONFLICT') { setError(res.message || 'Solicitud en conflicto'); setIsSubmitting(false); return }
       if (!res?.ok) throw new Error(res?.error || 'Error al registrar el pago')
 
+      // Éxito confirmado: la intención terminó, la key se descarta.
+      payKeyRef.current = null
+      payHashRef.current = null
       setShowAddPayment(false)
       setPaymentForm({
         amount: '',
