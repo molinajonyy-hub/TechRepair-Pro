@@ -1,4 +1,6 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { resolvePurchaseKey } from '../utils/purchaseIdempotency';
+import { financeErrorMessage } from '../lib/financeErrors';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Plus, RefreshCw, FileText, TrendingUp, Receipt, Loader2, AlertTriangle, Search } from 'lucide-react';
 import { CloseButton } from '../components/ui/CloseButton';
@@ -39,9 +41,20 @@ export default function ComprobantesPage() {
   const [anulandoMotivo, setAnulandoMotivo] = useState('');
   const [anulandoReponeStock, setAnulandoReponeStock]       = useState(true);
   const [anulandoDevuelveDinero, setAnulandoDevuelveDinero] = useState(true);
-  // Key de idempotencia estable mientras el diálogo esté abierto: un reintento
-  // (timeout, doble click) recupera la MISMA anulación en vez de duplicarla.
-  const [anulandoKey, setAnulandoKey]       = useState('');
+  // M7 7D.3 — Key durable por INTENCIÓN de anulación.
+  //
+  // Antes se generaba una sola vez al abrir el diálogo. Eso protegía el doble
+  // clic, pero el `reason` INTEGRA el request_hash server-side
+  // (annul_comprobante_atomic: op, business_id, comprobante_id, mode,
+  // restore_stock, reason). Entonces corregir el motivo y reenviar mandaba la
+  // MISMA key con otro payload → IDEMPOTENCY_CONFLICT: seguro, pero un callejón
+  // sin salida para el usuario, que ya no podía anular sin recargar.
+  //
+  // Ahora la key rota con el payload. El hash se calcula en el submit, con los
+  // valores de ese instante: editar el motivo mientras hay una request en vuelo
+  // no puede cambiar el payload ya asociado a la key enviada.
+  const anularKeyRef  = useRef<string | null>(null);
+  const anularHashRef = useRef<string | null>(null);
   const [actionLoading, setActionLoading]   = useState<string | null>(null);
   const [actionError, setActionError]       = useState<string | null>(null);
 
@@ -50,21 +63,42 @@ export default function ComprobantesPage() {
     setAnulandoMotivo('');
     setAnulandoReponeStock(true);
     setAnulandoDevuelveDinero(true);
-    setAnulandoKey(crypto.randomUUID());
+    // Abrir un diálogo nuevo descarta cualquier intención anterior.
+    anularKeyRef.current  = null;
+    anularHashRef.current = null;
     setAnulando(comp);
   };
 
   const confirmarAnular = async () => {
     if (!anulando || !businessId) return;
+    if (actionLoading) return;   // M7 7D.3: guard de doble submit
     if (!anulandoMotivo.trim()) { setActionError('Ingresá el motivo de la anulación'); return; }
     setActionLoading(anulando.id); setActionError(null);
     try {
+      const devolverDinero = (anulando.total_cobrado ?? 0) > 0 ? anulandoDevuelveDinero : false;
+      // Superconjunto del request_hash: motivo + las dos opciones que definen
+      // `mode` y `restore_stock`. Cambiar cualquiera es otra intención.
+      const intent = [
+        'comprobante_annulment', businessId, anulando.id,
+        anulandoMotivo.trim(),
+        devolverDinero ? 'refund' : 'void',
+        anulandoReponeStock ? 'stock:1' : 'stock:0',
+      ].join('§');
+      const { key } = resolvePurchaseKey(
+        anularKeyRef.current, anularHashRef.current, intent, () => crypto.randomUUID(),
+      );
+      anularKeyRef.current  = key;
+      anularHashRef.current = intent;
+
       const r = await comprobanteService.anular(anulando.id, businessId, user?.id || '', anulandoMotivo, {
-        devolverDinero: (anulando.total_cobrado ?? 0) > 0 ? anulandoDevuelveDinero : false,
+        devolverDinero,
         reponerStock:   anulandoReponeStock,
-        idempotencyKey: anulandoKey,
+        idempotencyKey: key,
       });
-      if (!r.success) throw new Error(r.error);
+      if (!r.success) throw new Error(financeErrorMessage(r.errorCode, r.error));
+      // Éxito terminal: la próxima anulación arranca una intención nueva.
+      anularKeyRef.current  = null;
+      anularHashRef.current = null;
       setAnulando(null); setAnulandoMotivo('');
       await cargarComprobantes();
     } catch (e: any) { setActionError(e.message || 'Error al anular'); }

@@ -17,6 +17,8 @@ import {
 import { supabase } from '../../lib/supabase'
 import { currencyService } from '../../services/currencyService'
 import { useAuth } from '../../contexts/AuthContext'
+import { resolvePurchaseKey } from '../../utils/purchaseIdempotency'
+import { financeErrorMessage } from '../../lib/financeErrors'
 
 // Estados de repuestos
 const PART_STATUSES = {
@@ -66,6 +68,12 @@ interface OrderCostManagementProps {
 export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataChange }: OrderCostManagementProps) {
   const { businessId, user } = useAuth()
   const exchangeRateRef = useRef<number>(1)
+  // M7 7D.1: key durable por INTENCIÓN de cobro de orden (no por clic).
+  const payKeyRef  = useRef<string | null>(null)
+  const payHashRef = useRef<string | null>(null)
+  // M7 7D.3: ídem para el reverso de pago de orden.
+  const reverseKeyRef  = useRef<string | null>(null)
+  const reverseHashRef = useRef<string | null>(null)
   const [parts, setParts] = useState<OrderPart[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
   const [loading, setLoading] = useState(true)
@@ -203,6 +211,17 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
       const paymentAmount = parseFloat(paymentForm.amount) || 0
       // M6: pago de orden por RPC atómica e idempotente (crea order_payments;
       // el trigger crea 1 FM + 1 BFE mirror). Sin insert directo.
+      //
+      // M7 7D.1: una key por INTENCIÓN de cobro, no por clic. Rota con negocio,
+      // orden, monto, moneda, método, TC y notas.
+      const intent = ['order_payment', businessId, orderId, paymentAmount.toFixed(2),
+        'ARS', paymentForm.payment_method, '1', (paymentForm.notes || '').trim()].join('§')
+      const { key } = resolvePurchaseKey(
+        payKeyRef.current, payHashRef.current, intent, () => crypto.randomUUID(),
+      )
+      payKeyRef.current = key
+      payHashRef.current = intent
+
       const { data, error: rpcError } = await supabase.rpc('create_order_payment_atomic', {
         p_business_id:     businessId,
         p_order_id:        orderId,
@@ -213,13 +232,21 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
         p_user_id:         user?.id,
         p_notes:           paymentForm.notes || null,
         p_date:            null,
-        p_idempotency_key: crypto.randomUUID(),
+        p_idempotency_key: key,
       })
       if (rpcError) throw rpcError
-      const res = data as { ok: boolean; error?: string; message?: string } | null
-      if (res?.error === 'IDEMPOTENCY_CONFLICT') { setError(res.message || 'Solicitud en conflicto'); setIsSubmitting(false); return }
-      if (!res?.ok) throw new Error(res?.error || 'Error al registrar el pago')
+      const res = data as { ok: boolean; error?: string; error_code?: string; message?: string } | null
+      if (!res?.ok) {
+        if ((res?.error_code || res?.error) === 'IDEMPOTENCY_CONFLICT') {
+          payKeyRef.current = null
+          payHashRef.current = null
+        }
+        throw new Error(financeErrorMessage(res?.error_code || res?.error, res?.message, 'FINANCE'))
+      }
 
+      // Éxito confirmado: la intención terminó, la key se descarta.
+      payKeyRef.current = null
+      payHashRef.current = null
       setShowAddPayment(false)
       setPaymentForm({
         amount: '',
@@ -271,21 +298,42 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
   }
 
   // M6: reverso append-only (nunca DELETE). Pide motivo; maneja conflicto.
+  //
+  // M7 7D.3 — Este flujo generaba `crypto.randomUUID()` INLINE en la llamada,
+  // o sea una key nueva por request. Con eso la idempotencia era decorativa: si
+  // la respuesta se perdía y el usuario reintentaba, la key distinta hacía que
+  // el server lo viera como un reverso NUEVO y compensara dos veces. Ahora la
+  // key es durable por intención (pago + motivo), igual que en PaymentCard.
   const deletePayment = async (paymentId: string) => {
     const motivo = window.prompt('Motivo del reverso del pago (obligatorio):')
     if (!motivo || !motivo.trim()) return
     try {
+      const intent = `reverse_order_payment§${businessId}§${paymentId}§${motivo.trim()}`
+      const { key } = resolvePurchaseKey(
+        reverseKeyRef.current, reverseHashRef.current, intent, () => crypto.randomUUID(),
+      )
+      reverseKeyRef.current = key
+      reverseHashRef.current = intent
+
       const { data, error } = await supabase.rpc('reverse_order_payment_atomic', {
         p_business_id:      businessId,
         p_order_payment_id: paymentId,
         p_reason:           motivo.trim(),
         p_user_id:          user?.id,
-        p_idempotency_key:  crypto.randomUUID(),
+        p_idempotency_key:  key,
       })
       if (error) throw error
-      const res = data as { ok: boolean; error?: string; message?: string } | null
-      if (res?.error === 'IDEMPOTENCY_CONFLICT') { setError(res.message || 'Solicitud en conflicto'); return }
-      if (!res?.ok) throw new Error(res?.error || 'No se pudo reversar el pago')
+      const res = data as { ok: boolean; error?: string; error_code?: string; message?: string } | null
+      if (!res?.ok) {
+        if ((res?.error_code || res?.error) === 'IDEMPOTENCY_CONFLICT') {
+          reverseKeyRef.current = null
+          reverseHashRef.current = null
+        }
+        throw new Error(financeErrorMessage(res?.error_code || res?.error, res?.message, 'FINANCE'))
+      }
+      // Éxito terminal: la próxima reversa usa una key nueva.
+      reverseKeyRef.current = null
+      reverseHashRef.current = null
       await loadData()
       onDataChange()
     } catch (err: any) {

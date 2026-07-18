@@ -136,6 +136,9 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
   const { rates } = useCommissionRates()
   const navigate = useNavigate()
   const { resolveIdempotencyKey, clearPending } = useCheckoutIdempotency(businessId)
+  // M7 7D.1: keys durables de los pagos de orden. Una por pago del conjunto,
+  // invalidadas juntas cuando cambia el conjunto. Ver registrarPagoOrden.
+  const ordenPayKeysRef = useRef<{ hash: string; keys: Map<number, string> }>({ hash: '', keys: new Map() })
 
   // ── State principal ──
   const [step, setStep]       = useState<Step>('items')
@@ -391,26 +394,49 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
           m === 'efectivo' ? 'cash' : m === 'transferencia' ? 'transfer' :
           m === 'debito' ? 'debit_card' : m === 'cuenta_corriente' ? null : 'other'
         )
-        const registrarPagoOrden = async (monto: number, metodo: string) => {
+        // M7 7D.1: un cobro mixto son N pagos en un loop. Cada uno necesita SU
+        // key, pero estable ante un retry del MISMO conjunto. El hash del
+        // conjunto entero decide: si cambia cualquier pago (monto, método,
+        // orden, notas), se descartan todas y se generan nuevas.
+        const setHash = ['order_payment_set', businessId, ordenSelec.id,
+          (description || '').trim(),
+          mixto
+            ? pagos.map(p => `${p.metodo}:${(p.montoARS + (p.usaUSD && dolar > 0 ? p.montoUSD * dolar : 0)).toFixed(2)}`).join('|')
+            : `${activeMetodo}:${totalCobrado.toFixed(2)}`,
+        ].join('§')
+        if (ordenPayKeysRef.current.hash !== setHash) {
+          ordenPayKeysRef.current = { hash: setHash, keys: new Map() }
+        }
+        const keyDePago = (idx: number): string => {
+          const cache = ordenPayKeysRef.current.keys
+          let k = cache.get(idx)
+          if (!k) { k = crypto.randomUUID(); cache.set(idx, k) }
+          return k
+        }
+
+        const registrarPagoOrden = async (monto: number, metodo: string, idx: number) => {
           const method = toMethod(metodo)
           if (!method || monto <= 0) return
           const { data, error: rpcErr } = await supabase.rpc('create_order_payment_atomic', {
             p_business_id: businessId, p_order_id: ordenSelec.id, p_amount: monto,
             p_payment_method: method, p_currency: 'ARS', p_exchange_rate: 1,
-            p_user_id: user?.id, p_notes: description, p_date: null, p_idempotency_key: crypto.randomUUID(),
+            p_user_id: user?.id, p_notes: description, p_date: null,
+            p_idempotency_key: keyDePago(idx),
           })
           if (rpcErr) throw rpcErr
           const res = data as { ok: boolean; error?: string } | null
           if (!res?.ok) throw new Error(res?.error || 'Error al registrar el pago de la orden')
         }
         if (mixto) {
-          for (const pago of pagos) {
+          for (const [idx, pago] of pagos.entries()) {
             const monto = pago.montoARS + (pago.usaUSD && dolar > 0 ? pago.montoUSD * dolar : 0)
-            await registrarPagoOrden(monto, pago.metodo)
+            await registrarPagoOrden(monto, pago.metodo, idx)
           }
         } else {
-          await registrarPagoOrden(totalCobrado, activeMetodo)
+          await registrarPagoOrden(totalCobrado, activeMetodo, 0)
         }
+        // Éxito confirmado del conjunto: se descartan las keys.
+        ordenPayKeysRef.current = { hash: '', keys: new Map() }
       }
       // Para venta_rapida y personalizado: las finanzas las registra el trigger
       // trig_comprobante_payment_finance al insertar los pagos del comprobante.

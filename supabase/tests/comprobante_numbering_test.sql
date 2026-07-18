@@ -70,7 +70,9 @@ BEGIN
 END $$;
 
 -- ════════════════════════════════════════════════════════════
--- N3: payload conflictivo (misma key, hash distinto) NO consume número.
+-- N3: payload conflictivo (misma key, PAYLOAD distinto) NO consume número.
+-- 6E.2a: el conflicto lo decide el server_request_hash del payload economico
+-- (punto_venta distinto -> hash distinto -> conflicto), no el client hash.
 -- ════════════════════════════════════════════════════════════
 DO $$
 DECLARE r jsonb; v_seq_before integer; v_seq_after integer;
@@ -81,9 +83,9 @@ BEGIN
   SET LOCAL "request.jwt.claim.sub" = '00000000-0000-0000-0000-00000000ea09';
   r := create_comprobante_checkout_atomic(
     '00000000-0000-0000-0000-00000000ea01'::uuid, 'key-n2', 'hash-DISTINTO-n3',
-    '{"tipo":"factura_c","punto_venta":"0001","es_fiscal":true,"emitir_en_arca":false,"skip_finance_entry":true,"items":[],"pagos":[],"cc_total":0}'::jsonb
+    '{"tipo":"factura_c","punto_venta":"0002","es_fiscal":true,"emitir_en_arca":false,"skip_finance_entry":true,"items":[],"pagos":[],"cc_total":0}'::jsonb
   );
-  PERFORM pg_temp.assert(r->>'status' = 'idempotency_conflict', 'N3a key-n2 con hash distinto -> idempotency_conflict');
+  PERFORM pg_temp.assert(r->>'status' = 'idempotency_conflict', 'N3a key-n2 con payload distinto -> idempotency_conflict');
 
   SELECT last_number INTO v_seq_after FROM comprobante_number_sequences WHERE business_id = '00000000-0000-0000-0000-00000000ea01' AND tipo = 'factura_c';
   PERFORM pg_temp.assert(v_seq_after = v_seq_before, 'N3b el conflicto NO consumió número');

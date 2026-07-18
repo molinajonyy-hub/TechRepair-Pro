@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { DollarSign, Plus, Trash2, Loader2, AlertCircle, CheckCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { resolvePurchaseKey } from '../../utils/purchaseIdempotency'
+import { financeErrorMessage } from '../../lib/financeErrors'
 
 type Currency = 'ARS' | 'USD'
 
@@ -40,6 +42,12 @@ export function PaymentCard({ orderId, payments, totalCost, exchangeRate = 1, on
   const { businessId, user } = useAuth()
   const [isAdding, setIsAdding] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  // M7 7D: key durable por INTENCIÓN de reverso (no por clic). Ver handleReverse.
+  const reverseKeyRef  = useRef<string | null>(null)
+  const reverseHashRef = useRef<string | null>(null)
+  // M7 7D.1: ídem para el alta de pago de orden.
+  const payKeyRef  = useRef<string | null>(null)
+  const payHashRef = useRef<string | null>(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -80,23 +88,46 @@ export function PaymentCard({ orderId, payments, totalCost, exchangeRate = 1, on
 
       // M6: pago de orden por RPC atómica e idempotente (crea order_payments;
       // el trigger crea 1 FM + 1 BFE mirror con USD correcto). Sin insert directo.
+      //
+      // M7 7D.1: una key por INTENCIÓN de cobro, no por clic. Rota con negocio,
+      // orden, monto, moneda, método, TC y notas.
+      const rate = formData.currency === 'USD' ? exchangeRate : 1
+      const intent = ['order_payment', businessId, orderId, amount.toFixed(2),
+        formData.currency, formData.payment_method, String(rate),
+        (formData.notes || '').trim()].join('§')
+      const { key } = resolvePurchaseKey(
+        payKeyRef.current, payHashRef.current, intent, () => crypto.randomUUID(),
+      )
+      payKeyRef.current = key
+      payHashRef.current = intent
+
       const { data, error: rpcError } = await supabase.rpc('create_order_payment_atomic', {
         p_business_id:     businessId,
         p_order_id:        orderId,
         p_amount:          amount,
         p_payment_method:  formData.payment_method,
         p_currency:        formData.currency,
-        p_exchange_rate:   formData.currency === 'USD' ? exchangeRate : 1,
+        p_exchange_rate:   rate,
         p_user_id:         user?.id,
         p_notes:           formData.notes || null,
         p_date:            null,
-        p_idempotency_key: crypto.randomUUID(),
+        p_idempotency_key: key,
       })
       if (rpcError) throw rpcError
-      const res = data as { ok: boolean; error?: string; message?: string } | null
-      if (res?.error === 'IDEMPOTENCY_CONFLICT') { setError(res.message || 'Solicitud en conflicto'); setIsSubmitting(false); return }
-      if (!res?.ok) throw new Error(res?.error || 'Error al registrar el pago')
+      const res = data as { ok: boolean; error?: string; error_code?: string; message?: string } | null
+      if (!res?.ok) {
+        // La key quedó ligada a otro payload server-side: se descarta para que
+        // el próximo intento sea una intención nueva y explícita, sin auto-retry.
+        if ((res?.error_code || res?.error) === 'IDEMPOTENCY_CONFLICT') {
+          payKeyRef.current = null
+          payHashRef.current = null
+        }
+        throw new Error(financeErrorMessage(res?.error_code || res?.error, res?.message, 'FINANCE'))
+      }
 
+      // Éxito confirmado: la intención terminó, la key se descarta.
+      payKeyRef.current = null
+      payHashRef.current = null
       setSuccess('Pago registrado correctamente')
       setFormData({ amount: '', currency: 'ARS', payment_method: 'cash', reference_number: '', notes: '' })
       setIsAdding(false)
@@ -111,21 +142,41 @@ export function PaymentCard({ orderId, payments, totalCost, exchangeRate = 1, on
 
   // M6: reverso append-only (nunca DELETE). Crea FM/BFE compensatorios en la
   // caja abierta actual; pide motivo; maneja IDEMPOTENCY_CONFLICT.
+  //
+  // M7 7D: la key es UNA POR INTENCIÓN, no por clic. Si la respuesta se pierde
+  // (timeout de red) y el usuario reintenta el MISMO reverso, la misma key hace
+  // que el server devuelva replay en vez de intentar una segunda reversa. Si
+  // cambia el motivo o el pago, `resolvePurchaseKey` rota la key sola.
   const handleReverse = async (paymentId: string) => {
     const motivo = window.prompt('Motivo del reverso del pago (obligatorio):')
     if (!motivo || !motivo.trim()) return
     try {
+      const intent = `reverse_order_payment§${businessId}§${paymentId}§${motivo.trim()}`
+      const { key } = resolvePurchaseKey(
+        reverseKeyRef.current, reverseHashRef.current, intent, () => crypto.randomUUID(),
+      )
+      reverseKeyRef.current = key
+      reverseHashRef.current = intent
+
       const { data, error: rpcError } = await supabase.rpc('reverse_order_payment_atomic', {
         p_business_id:     businessId,
         p_order_payment_id: paymentId,
         p_reason:          motivo.trim(),
         p_user_id:         user?.id,
-        p_idempotency_key: crypto.randomUUID(),
+        p_idempotency_key: key,
       })
       if (rpcError) throw rpcError
-      const res = data as { ok: boolean; error?: string; message?: string } | null
-      if (res?.error === 'IDEMPOTENCY_CONFLICT') { setError(res.message || 'Solicitud en conflicto'); return }
-      if (!res?.ok) throw new Error(res?.error || 'No se pudo reversar el pago')
+      const res = data as { ok: boolean; error?: string; error_code?: string; message?: string } | null
+      if (!res?.ok) {
+        if ((res?.error_code || res?.error) === 'IDEMPOTENCY_CONFLICT') {
+          reverseKeyRef.current = null
+          reverseHashRef.current = null
+        }
+        throw new Error(financeErrorMessage(res?.error_code || res?.error, res?.message, 'FINANCE'))
+      }
+      // Éxito terminal: se descarta la key para que un reverso futuro use una nueva.
+      reverseKeyRef.current = null
+      reverseHashRef.current = null
       onPaymentsChange()
     } catch (err: any) {
       setError(err.message || 'Error al reversar el pago')

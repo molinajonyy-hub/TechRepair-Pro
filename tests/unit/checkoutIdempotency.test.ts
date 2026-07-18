@@ -300,7 +300,7 @@ test('saleTransactionService permanece NO importado — es código muerto confir
   assert.deepEqual(importers, [],
     'Si este test falla, alguien volvió a importar saleTransactionService.ts SIN wirearlo con ' +
     'idempotencia server-side (useCheckoutIdempotency) — antes de reintroducirlo, agregar el mismo ' +
-    'resolveIdempotencyKey/clearPending que tienen ComprobanteProModal/ModalCobro/ModalCrearComprobante.')
+    'resolveIdempotencyKey/clearPending que tienen ComprobanteProModal y ModalCobro.')
 })
 
 test('ModalCobro usa useCheckoutIdempotency (entry point productivo — Mayorista.tsx/OrderDetail.tsx)', () => {
@@ -311,19 +311,38 @@ test('ModalCobro usa useCheckoutIdempotency (entry point productivo — Mayorist
   assert.match(modal, /clearPending\(\)/)
 })
 
-test('ModalCrearComprobante usa useCheckoutIdempotency (entry point productivo — Comprobantes.tsx)', () => {
-  const modal = read('../../src/components/comprobantes/ModalCrearComprobante.tsx')
-  assert.match(modal, /import \{ useCheckoutIdempotency \} from '\.\.\/\.\.\/hooks\/useCheckoutIdempotency'/)
-  assert.match(modal, /resolveIdempotencyKey\(\{/)
-  assert.match(modal, /idempotency_key:\s*idempotencyKey/)
-  assert.match(modal, /clearPending\(\)/)
+// M7 7D.3 — CORRECCION DE UN TEST QUE MENTIA.
+//
+// Este bloque afirmaba que ModalCrearComprobante.tsx era "entry point
+// productivo — Comprobantes.tsx". No lo es, y no lo era: Comprobantes.tsx,
+// Mayorista.tsx y OrderDetail.tsx importan ComprobanteProModal y le ponen el
+// ALIAS `ModalCrearComprobante`. El alias hacía que el archivo pareciera vivo.
+//
+// ModalCrearComprobante.tsx sólo se referencia desde el barrel
+// components/comprobantes/index.ts, y NADIE importa ese barrel. O sea: el test
+// verificaba idempotencia sobre código inalcanzable y daba verde. Una garantía
+// falsa es peor que ninguna, porque nadie va a mirar dos veces.
+//
+// Los tests de abajo ahora apuntan a los entry points REALES.
+test('ModalCrearComprobante.tsx NO es alcanzable: sólo lo re-exporta un barrel que nadie importa', () => {
+  const barrel = read('../../src/components/comprobantes/index.ts')
+  assert.match(barrel, /ModalCrearComprobante/,
+    'si esto falla, el barrel ya no lo re-exporta: revisar si el archivo se puede borrar')
+
+  // Los entry points reales importan ComprobanteProModal, con o sin alias.
+  for (const f of ['../../src/pages/Comprobantes.tsx', '../../src/pages/Mayorista.tsx', '../../src/pages/OrderDetail.tsx']) {
+    const content = read(f)
+    assert.match(content, /from '\.\.\/components\/comprobantes\/ComprobanteProModal'/,
+      `${f} debe importar el modal REAL (ComprobanteProModal), no el archivo muerto`)
+    assert.doesNotMatch(content, /from '\.\.\/components\/comprobantes\/ModalCrearComprobante'/,
+      `${f} NO debe importar ModalCrearComprobante.tsx: es código muerto`)
+  }
 })
 
-test('los 3 entry points productivos (ComprobanteProModal/ModalCobro/ModalCrearComprobante) llaman a comprobanteService.crear() con idempotency_key — nunca sin ella', () => {
+test('los 2 entry points productivos REALES (ComprobanteProModal/ModalCobro) llaman a comprobanteService.crear() con idempotency_key — nunca sin ella', () => {
   const files = [
     '../../src/components/comprobantes/ComprobanteProModal.tsx',
     '../../src/components/cobro/ModalCobro.tsx',
-    '../../src/components/comprobantes/ModalCrearComprobante.tsx',
   ]
   for (const f of files) {
     const content = read(f)

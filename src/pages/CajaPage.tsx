@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { resolvePurchaseKey } from '../utils/purchaseIdempotency'
+import { financeErrorMessage } from '../lib/financeErrors'
 import {
   Wallet, Plus, Loader2, AlertCircle,
   Lock, Unlock, RefreshCw, Trash2, Calendar, ChevronRight, ChevronDown,
@@ -409,9 +410,11 @@ export function CajaPage() {
         p_idempotency_key: openKeyRef.current,
       })
       if (err) throw err
-      const res = data as { ok: boolean; error?: string; message?: string; caja_id?: string } | null
-      if (res?.error === 'IDEMPOTENCY_CONFLICT') { openKeyRef.current = null; openHashRef.current = null; throw new Error(res.message) }
-      if (!res?.ok) throw new Error(res?.error || 'Error al abrir caja')
+      const res = data as { ok: boolean; error?: string; error_code?: string; message?: string; caja_id?: string } | null
+      if (!res?.ok) {
+        if ((res?.error_code || res?.error) === 'IDEMPOTENCY_CONFLICT') { openKeyRef.current = null; openHashRef.current = null }
+        throw new Error(financeErrorMessage(res?.error_code || res?.error, res?.message, 'FINANCE'))
+      }
       // La RPC devuelve caja_id: traer la fila para el estado (no calcular en cliente).
       const { data: caja } = await supabase.from('cajas').select('*').eq('id', res.caja_id!).single()
       openKeyRef.current = null; openHashRef.current = null
@@ -449,9 +452,11 @@ export function CajaPage() {
         p_idempotency_key: movKeyRef.current,
       })
       if (rpcError) throw new Error(rpcError.message)
-      const res = data as { ok?: boolean; error?: string; message?: string }
-      if (res?.error === 'IDEMPOTENCY_CONFLICT') { movKeyRef.current = null; movHashRef.current = null; throw new Error(res.message) }
-      if (!res?.ok) throw new Error(res?.error || 'Error al registrar movimiento')
+      const res = data as { ok?: boolean; error?: string; error_code?: string; message?: string }
+      if (!res?.ok) {
+        if ((res?.error_code || res?.error) === 'IDEMPOTENCY_CONFLICT') { movKeyRef.current = null; movHashRef.current = null }
+        throw new Error(financeErrorMessage(res?.error_code || res?.error, res?.message, 'FINANCE'))
+      }
       movKeyRef.current = null; movHashRef.current = null
       setShowAddMov(false)
       setMovForm({ type: 'income', method: 'efectivo', amount: '', description: '' })
@@ -485,9 +490,11 @@ export function CajaPage() {
         p_idempotency_key:     closeKeyRef.current,
       })
       if (err) throw err
-      const res = data as { ok: boolean; error?: string; message?: string; total_difference?: number } | null
-      if (res?.error === 'IDEMPOTENCY_CONFLICT') { closeKeyRef.current = null; closeHashRef.current = null; throw new Error(res.message) }
-      if (!res?.ok) throw new Error(res?.error || 'Error al cerrar caja')
+      const res = data as { ok: boolean; error?: string; error_code?: string; message?: string; total_difference?: number } | null
+      if (!res?.ok) {
+        if ((res?.error_code || res?.error) === 'IDEMPOTENCY_CONFLICT') { closeKeyRef.current = null; closeHashRef.current = null }
+        throw new Error(financeErrorMessage(res?.error_code || res?.error, res?.message, 'FINANCE'))
+      }
       closeKeyRef.current = null; closeHashRef.current = null
       const diff = res.total_difference ?? 0
       setShowClose(false)

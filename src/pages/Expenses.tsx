@@ -19,6 +19,7 @@ import {
 } from '../ui/icons'
 import { suppliersService, type CreatePurchaseInput } from '../services/suppliersService'
 import { purchasePayloadHash, resolvePurchaseKey } from '../utils/purchaseIdempotency'
+import { financeErrorMessage } from '../lib/financeErrors'
 import { ProductFormModalSafe as ProductFormModal } from '../components/products/ProductFormModal'
 import type { InventoryItem } from '../hooks/useInventory'
 
@@ -271,6 +272,9 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
   // completar con éxito. La validación autoritativa es server-side.
   const purchaseKeyRef = useRef<string | null>(null)
   const payloadHashRef = useRef<string | null>(null)
+  // M7 7D.3: ídem para el gasto general (create_expense_with_finance).
+  const gastoKeyRef  = useRef<string | null>(null)
+  const gastoHashRef = useRef<string | null>(null)
 
   // ── General state ──
   const [monto, setMonto]             = useState('')
@@ -334,6 +338,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
 
   // ── Save: General ──
   const handleSaveGeneral = async () => {
+    if (saving) return   // M7 7D.3: guard de doble submit (faltaba en este flujo)
     const montoNum = parseFloat(monto.replace(',', '.'))
     if (!montoNum || montoNum <= 0) { setError('El monto es obligatorio'); return }
     if (!descripcion.trim()) { setError('La descripción es obligatoria'); return }
@@ -343,6 +348,36 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
       const catKey = categoria.toLowerCase().split(' ')[0]
       const financeTypeMap: Record<string, string> = { inventario: 'variable_cost', sueldos: 'salary', impuestos: 'taxes' }
       const financeType = financeTypeMap[catKey] || 'fixed_cost_local'
+
+      // M7 7D.3 — Key durable por INTENCIÓN de gasto, no por clic.
+      //
+      // El request_hash server-side (create_expense_with_finance) cubre:
+      //   business_id, amount, currency, category_key, caja_id, economic_date,
+      //   description.
+      // Acá rotamos por un SUPERCONJUNTO de esos campos: agregamos método,
+      // notas, finance_type y recurrencia. Rotar de más siempre es seguro (a lo
+      // sumo se pierde un replay legítimo); rotar de menos NO lo es. En concreto:
+      // el método NO entra en el hash del server, así que reusar la key tras
+      // cambiar sólo el método devolvería un replay del gasto viejo —con el
+      // método anterior— en vez de un conflicto visible. Incluirlo acá lo evita.
+      const intent = [
+        'operating_expense', businessId,
+        montoNum.toFixed(2), 'ARS',
+        (catKey || '').trim() || '∅',
+        cajaId || '∅',
+        fecha,
+        (descripcion || '').trim(),
+        metodo,                                   // no está en el hash del server
+        financeType,
+        (notas || '').trim(),
+        recurrente ? `rec:${frecuencia}` : 'rec:∅',
+      ].join('§')
+      const { key } = resolvePurchaseKey(
+        gastoKeyRef.current, gastoHashRef.current, intent, () => crypto.randomUUID(),
+      )
+      gastoKeyRef.current  = key
+      gastoHashRef.current = intent
+
       // RPC atómica: crea BFE + expense + FM en una sola transacción.
       // Si cualquier insert falla, los 3 hacen rollback automático.
       const { data: rpcResult, error: rpcErr } = await supabase.rpc('create_expense_with_finance', {
@@ -359,10 +394,18 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
         p_frequency:      recurrente ? frecuencia : null,
         p_notes:          notas || null,
         p_caja_id:        cajaId || null,
+        p_idempotency_key: key,
       })
       if (rpcErr) throw rpcErr
-      const result = rpcResult as { ok: boolean; error?: string } | null
-      if (!result?.ok) throw new Error(result?.error || 'Error al guardar el gasto')
+      const result = rpcResult as { ok: boolean; error_code?: string; error?: string; message?: string } | null
+      if (!result?.ok) {
+        // Error tipado: se conserva la key salvo que la intención haya muerto.
+        // Si el usuario corrige el payload, el hash cambia y la key rota sola.
+        throw new Error(financeErrorMessage(result?.error_code, result?.message || result?.error))
+      }
+      // Éxito terminal: la intención terminó, la key se descarta.
+      gastoKeyRef.current  = null
+      gastoHashRef.current = null
       onSaved()
     } catch (e: any) { setError(e.message || 'Error al guardar') } finally { setSaving(false) }
   }
@@ -886,6 +929,9 @@ export function Expenses() {
   const [loading, setLoading]       = useState(true)
   const [showModal, setShowModal]   = useState(false)
   const [showCategories, setShowCategories] = useState(false)
+  // M7 7D: key durable por INTENCIÓN de reverso de gasto (no por clic).
+  const reverseKeyRef  = useRef<string | null>(null)
+  const reverseHashRef = useRef<string | null>(null)
 
   const [searchTerm, setSearchTerm]     = useState('')
   const [filterCat, setFilterCat]       = useState('all')
@@ -1110,14 +1156,26 @@ export function Expenses() {
                             const motivo = window.prompt('Motivo del reverso del gasto (obligatorio):')
                             if (!motivo || !motivo.trim()) return
                             try {
+                              // M7 7D: una key por INTENCIÓN. Si la respuesta se pierde y el
+                              // usuario reintenta el mismo reverso, la misma key devuelve replay
+                              // en vez de una segunda reversa. Rota sola si cambia gasto o motivo.
+                              const intent = `reverse_expense§${businessId}§${e.id}§${motivo.trim()}`
+                              const { key } = resolvePurchaseKey(
+                                reverseKeyRef.current, reverseHashRef.current, intent, () => crypto.randomUUID(),
+                              )
+                              reverseKeyRef.current = key
+                              reverseHashRef.current = intent
+
                               const { data, error } = await supabase.rpc('reverse_operating_expense_atomic', {
                                 p_business_id: businessId, p_expense_id: e.id, p_reason: motivo.trim(),
-                                p_user_id: user?.id, p_idempotency_key: crypto.randomUUID(),
+                                p_user_id: user?.id, p_idempotency_key: key,
                               })
                               if (error) throw error
                               const res = data as { ok: boolean; error?: string; message?: string } | null
                               if (res?.error === 'IDEMPOTENCY_CONFLICT') { alert(res.message || 'La solicitud ya fue utilizada con datos diferentes.'); return }
                               if (!res?.ok) throw new Error(res?.error || 'No se pudo reversar el gasto')
+                              reverseKeyRef.current = null   // éxito terminal: se descarta
+                              reverseHashRef.current = null
                               loadExpenses()
                             } catch (err: any) { alert(err.message || 'Error al reversar el gasto') }
                           }}

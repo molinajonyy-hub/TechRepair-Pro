@@ -41,8 +41,12 @@ BEGIN
   PERFORM pg_temp.assert((r->>'ok')::boolean, 'RC1 reemplazar efectivo->transferencia -> ok ('||COALESCE(r->>'error','')||')');
   RESET ROLE;
 END $$;
-SELECT pg_temp.assert((SELECT count(*) FROM comprobante_payments WHERE comprobante_id=:'c1')=1, 'RC1b un solo pago vigente (transferencia)');
-SELECT pg_temp.assert((SELECT payment_method FROM comprobante_payments WHERE comprobante_id=:'c1')='transferencia', 'RC1c pago vigente = transferencia');
+-- M7 6F.3 (append-only): la fila original YA NO se borra -> se conserva marcada
+-- como reemplazada. Solo cuenta el conjunto VIVO (replaced_at IS NULL).
+SELECT pg_temp.assert((SELECT count(*) FROM comprobante_payments WHERE comprobante_id=:'c1' AND replaced_at IS NULL)=1, 'RC1b un solo pago vigente (transferencia)');
+SELECT pg_temp.assert((SELECT payment_method FROM comprobante_payments WHERE comprobante_id=:'c1' AND replaced_at IS NULL)='transferencia', 'RC1c pago vigente = transferencia');
+SELECT pg_temp.assert((SELECT count(*) FROM comprobante_payments WHERE comprobante_id=:'c1')=2, 'RC1b2 append-only: el pago original se conserva (2 filas: 1 reemplazada + 1 viva)');
+SELECT pg_temp.assert((SELECT payment_method FROM comprobante_payments WHERE comprobante_id=:'c1' AND replaced_at IS NOT NULL)='efectivo', 'RC1b3 la fila reemplazada conserva su metodo original (efectivo)');
 SELECT pg_temp.assert((SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount_ars ELSE -amount_ars END),0) FROM financial_movements WHERE comprobante_id=:'c1')=10000, 'RC1d caja neta C1 = 10000 (reverso + nuevo)');
 SELECT pg_temp.assert((SELECT COALESCE(SUM(amount_ars),0) FROM business_finance_entries WHERE reference_comprobante_id=:'c1' AND economic_class='revenue_collection_mirror')=10000, 'RC1e income-mirror neto = 10000');
 
@@ -89,7 +93,7 @@ BEGIN
   PERFORM pg_temp.assert(r->>'error' ILIKE '%Sin acceso%', 'RC17 cross-tenant -> rechazo');
   RESET ROLE;
 END $$;
-SELECT pg_temp.assert((SELECT count(*) FROM comprobante_payments WHERE comprobante_id=:'c1')=1, 'RC15b replay no duplicó pagos de C1');
+SELECT pg_temp.assert((SELECT count(*) FROM comprobante_payments WHERE comprobante_id=:'c1' AND replaced_at IS NULL)=1, 'RC15b replay no duplicó pagos vigentes de C1');
 
 -- ── RC caja cerrada: C3 efectivo, cerrar caja, abrir nueva, reemplazar ──
 INSERT INTO comprobante_payments(comprobante_id,business_id,amount,currency,amount_ars,exchange_rate,payment_method,commission_amount,date,created_by)
