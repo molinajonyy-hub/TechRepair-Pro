@@ -124,85 +124,794 @@ CREATE TRIGGER "trg_finance_period_guard_cp_upd"
   BEFORE UPDATE ON "public"."comprobante_payments"
   FOR EACH ROW EXECUTE FUNCTION "public"."finance_period_guard_cp_update"();
 
--- ── Part D/E/F — barrido de dependencias: filtrar SOLO estado actual ────────
--- Parche quirurgico sobre la definicion viva (evita transcribir cuerpos de 4-16 KB
--- y el riesgo de divergencia). Cada parche ASSERTA que se aplico.
--- Cada parche es IDEMPOTENTE (si ya contiene el filtro, se omite) y ASSERTA que
--- se aplico (si el fragmento original cambiara, falla ruidosamente).
-DO $$
-DECLARE v_def text; v_new text;
-  PROCEDURE_MARKER constant text := 'replaced_at IS NULL';
+
+-- ── Part D/E/F — REPARACIÓN DE REPRODUCIBILIDAD (6F.3, historia) ─────────────
+-- El bloque original aplicaba el filtro `AND replaced_at IS NULL` con
+-- replace(pg_get_functiondef(...)) contra un fragmento hardcodeado. Ese texto
+-- dependía del formato EXACTO (incl. indentación) que pg_get_functiondef/prosrc
+-- preserva del cuerpo definido por la migración previa. En un `db reset` limpio
+-- el cuerpo vivo tenía distinta indentación → replace() no-op → `v_new=v_def`
+-- → RAISE P0001, y el reset abortaba en esta migración.
+--
+-- Reparación (misma intención, determinista): CREATE OR REPLACE explícito de la
+-- definición CANÓNICA de cada objeto (idéntica al contrato productivo post-6F.3).
+-- Sin replace(), sin pg_get_functiondef, sin coincidencia textual frágil. Los 5
+-- objetos que 6F.3 dejaba en su estado final se fijan a esa forma; annul recibe
+-- el filtro mínimo de la "excepción de alcance" (el Lote 6F.4, migración
+-- inmediata siguiente, lo redefine por completo). CREATE OR REPLACE preserva
+-- owner, ACL y comentarios. La vista no tiene reloptions (no reintroduce ningún
+-- security_invoker). NO cambia datos ni el resultado lógico pretendido.
+--
+-- NOTA de reproducibilidad histórica: esta migración YA está aplicada en
+-- producción; producción no la reejecuta. Sólo cambia CÓMO se alcanza el mismo
+-- estado en un reset limpio.
+
+-- D. trigger_comprobante_payment_sync (total_cobrado solo de pagos VIVOS)
+CREATE OR REPLACE FUNCTION "public"."trigger_comprobante_payment_sync"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET search_path TO public, pg_temp
+    AS $$
+DECLARE
+  v_comp_id      UUID;
+  v_total        NUMERIC;
+  v_total_cobrado NUMERIC;
+  v_saldo        NUMERIC;
+  v_estado_com   TEXT;
 BEGIN
-  -- D. trigger_comprobante_payment_sync -> total_cobrado solo de pagos VIVOS
-  v_def := pg_get_functiondef('public.trigger_comprobante_payment_sync'::regproc);
-  IF position(PROCEDURE_MARKER in v_def) = 0 THEN
-    v_new := replace(v_def,
-      'SELECT SUM(amount_ars) FROM public.comprobante_payments
-       WHERE comprobante_id = v_comp_id)',
-      'SELECT SUM(amount_ars) FROM public.comprobante_payments
-       WHERE comprobante_id = v_comp_id AND replaced_at IS NULL)');
-    IF v_new = v_def THEN RAISE EXCEPTION '6F.3: no se pudo parchear trigger_comprobante_payment_sync'; END IF;
-    EXECUTE v_new;
+  v_comp_id := COALESCE(NEW.comprobante_id, OLD.comprobante_id);
+
+  SELECT
+    COALESCE(total_bruto, total_ars, total, 0),
+    COALESCE(
+      (SELECT SUM(amount_ars) FROM public.comprobante_payments
+       WHERE comprobante_id = v_comp_id AND replaced_at IS NULL), 0)
+  INTO v_total, v_total_cobrado
+  FROM public.comprobantes
+  WHERE id = v_comp_id;
+
+  v_saldo := GREATEST(0, v_total - v_total_cobrado);
+
+  v_estado_com := CASE
+    WHEN v_total_cobrado <= 0             THEN 'pendiente'
+    WHEN v_saldo <= 0.01                  THEN 'pagado'
+    ELSE 'parcial'
+  END;
+
+  UPDATE public.comprobantes
+  SET total_cobrado    = v_total_cobrado,
+      saldo_pendiente  = v_saldo,
+      estado_comercial = v_estado_com,
+      updated_at       = NOW()
+  WHERE id = v_comp_id;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$$;
+
+-- F2. finance_dashboard_summary (desync sin falso positivo)
+CREATE OR REPLACE FUNCTION "public"."finance_dashboard_summary"("p_business_id" "uuid", "p_date_from" "date", "p_date_to" "date") RETURNS "jsonb"
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET search_path TO public, pg_temp
+    AS $$
+DECLARE
+  v_has_access boolean := false;
+  v_prev_from  date;
+  v_prev_to    date;
+  v_span       integer;
+  v_prof       jsonb;
+  v_prof_prev  jsonb;
+  v_cash       jsonb;
+  v_pos        jsonb;
+  v_quality    jsonb;
+BEGIN
+  SELECT (
+    EXISTS (SELECT 1 FROM businesses WHERE id=p_business_id AND owner_user_id=auth.uid())
+    OR EXISTS (SELECT 1 FROM profiles WHERE business_id=p_business_id AND user_id=auth.uid())
+  ) INTO v_has_access;
+  IF NOT v_has_access THEN RETURN jsonb_build_object('ok', false, 'error', 'Sin acceso al negocio'); END IF;
+
+  v_span    := GREATEST(1, (p_date_to - p_date_from) + 1);
+  v_prev_to := p_date_from - 1;
+  v_prev_from := v_prev_to - (v_span - 1);
+
+  -- ── Rentabilidad (devengado) ────────────────────────────────────────────
+  SELECT jsonb_build_object(
+    'gross_sales', COALESCE(SUM(gross_sales),0),
+    'discounts', COALESCE(SUM(discounts),0),
+    'sales_returns', COALESCE(SUM(sales_returns),0),
+    'net_sales', COALESCE(SUM(net_sales),0),
+    'cogs', COALESCE(SUM(cogs),0),
+    'gross_profit', COALESCE(SUM(gross_profit),0),
+    'gross_margin_pct', CASE WHEN COALESCE(SUM(net_sales),0)>0 THEN ROUND(SUM(gross_profit)/SUM(net_sales)*100,2) ELSE 0 END,
+    'payment_fees', COALESCE(SUM(payment_fees),0),
+    'operating_expenses', COALESCE(SUM(operating_expenses),0),
+    'employee_salaries', COALESCE(SUM(employee_salaries),0),
+    'operating_result', COALESCE(SUM(operating_result),0)
+  ) INTO v_prof
+  FROM v_finance_pnl WHERE business_id=p_business_id AND period_date BETWEEN p_date_from AND p_date_to;
+
+  SELECT jsonb_build_object(
+    'net_sales', COALESCE(SUM(net_sales),0),
+    'gross_profit', COALESCE(SUM(gross_profit),0),
+    'operating_result', COALESCE(SUM(operating_result),0)
+  ) INTO v_prof_prev
+  FROM v_finance_pnl WHERE business_id=p_business_id AND period_date BETWEEN v_prev_from AND v_prev_to;
+
+  -- ── Flujo de caja (percibido) por clase ─────────────────────────────────
+  SELECT jsonb_build_object(
+    'net_ars', COALESCE(SUM(net_ars),0),
+    'income_ars', COALESCE(SUM(income_ars),0),
+    'expense_ars', COALESCE(SUM(expense_ars),0),
+    'by_class', COALESCE((
+      SELECT jsonb_object_agg(cashflow_class, cls_net) FROM (
+        SELECT cashflow_class, ROUND(SUM(net_ars),2) cls_net FROM v_finance_cashflow
+        WHERE business_id=p_business_id AND movement_date_ar BETWEEN p_date_from AND p_date_to GROUP BY 1
+      ) x
+    ), '{}'::jsonb),
+    'by_method', COALESCE((
+      SELECT jsonb_object_agg(COALESCE(payment_method,'otro'), m_net) FROM (
+        SELECT payment_method, ROUND(SUM(net_ars),2) m_net FROM v_finance_cashflow
+        WHERE business_id=p_business_id AND movement_date_ar BETWEEN p_date_from AND p_date_to GROUP BY 1
+      ) y
+    ), '{}'::jsonb)
+  ) INTO v_cash
+  FROM v_finance_cashflow WHERE business_id=p_business_id AND movement_date_ar BETWEEN p_date_from AND p_date_to;
+
+  -- ── Posición (snapshot actual, no depende del período) ──────────────────
+  SELECT to_jsonb(p) INTO v_pos FROM (
+    SELECT cash_total, cash_by_method, inventory_at_cost, receivables, payables,
+           owner_withdrawals_total, owner_contributions_total, owner_net_capital
+    FROM v_finance_position WHERE business_id=p_business_id
+  ) p;
+
+  -- ── Calidad de datos ────────────────────────────────────────────────────
+  SELECT jsonb_build_object(
+    'unclassified_amount', COALESCE((SELECT (data_quality_flags->>'unclassified_amount')::numeric FROM v_finance_position WHERE business_id=p_business_id),0),
+    'unclassified_count', COALESCE((SELECT (data_quality_flags->>'unclassified_count')::int FROM v_finance_position WHERE business_id=p_business_id),0),
+    'missing_cost_items', COALESCE((SELECT SUM((data_quality_flags->>'missing_cost_items')::int) FROM v_finance_pnl WHERE business_id=p_business_id AND period_date BETWEEN p_date_from AND p_date_to),0),
+    'fm_sin_caja', COALESCE((SELECT count(*) FROM financial_movements WHERE business_id=p_business_id AND caja_id IS NULL),0),
+    'comprobantes_desincronizados', COALESCE((SELECT count(*) FROM comprobantes c WHERE c.business_id=p_business_id AND abs(COALESCE(c.total_cobrado,0)-(SELECT COALESCE(SUM(amount_ars),0) FROM comprobante_payments p WHERE p.comprobante_id=c.id AND p.replaced_at IS NULL))>1),0)
+  ) INTO v_quality;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'finance_model_version', 2,
+    'generated_at', now(),
+    'timezone', 'America/Argentina/Cordoba',
+    'period', jsonb_build_object('from', p_date_from, 'to', p_date_to),
+    'profitability', v_prof,
+    'cashflow', v_cash,
+    'position', COALESCE(v_pos, '{}'::jsonb),
+    'data_quality', v_quality,
+    'comparison', jsonb_build_object('previous_period', jsonb_build_object('from', v_prev_from, 'to', v_prev_to), 'profitability', v_prof_prev)
+  );
+EXCEPTION WHEN OTHERS THEN
+  RETURN jsonb_build_object('ok', false, 'error', SQLERRM);
+END;
+$$;
+
+-- F3. finance_pending_historicals (mismo desync check)
+CREATE OR REPLACE FUNCTION "public"."finance_pending_historicals"("p_business_id" "uuid") RETURNS "jsonb"
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET search_path TO public, pg_temp
+    AS $$
+DECLARE
+  c_invariant_cutoff constant timestamptz := '2026-07-06 00:00:00-03';  -- deploy M6 cash sessions
+  v_access boolean := false;
+  v_fm_total int; v_fm_pending int;
+  v_desync_total int; v_desync_pending int;
+  v_fm_rows jsonb; v_desync_rows jsonb;
+BEGIN
+  SELECT (EXISTS (SELECT 1 FROM businesses WHERE id=p_business_id AND owner_user_id=auth.uid())
+       OR EXISTS (SELECT 1 FROM profiles WHERE business_id=p_business_id AND user_id=auth.uid()
+                  AND COALESCE(is_active,true) AND role IN ('owner','admin'))) INTO v_access;
+  IF NOT v_access THEN RETURN jsonb_build_object('ok', false, 'error', 'Sin acceso al negocio'); END IF;
+
+  -- ── Issue 1: FM sin caja ──────────────────────────────────────────────────
+  SELECT count(*) INTO v_fm_total
+    FROM financial_movements fm WHERE fm.business_id=p_business_id AND fm.caja_id IS NULL;
+  SELECT count(*) INTO v_fm_pending
+    FROM financial_movements fm WHERE fm.business_id=p_business_id AND fm.caja_id IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM finance_ledger_reconciliation r
+        WHERE r.business_id=p_business_id AND r.entity_table='financial_movements' AND r.entity_id=fm.id
+      );
+  SELECT COALESCE(jsonb_agg(row_to_json(x)),'[]') INTO v_fm_rows FROM (
+    SELECT fm.id AS entity_id, fm.date AS economic_date, fm.type, fm.metodo_pago, fm.amount_ars, fm.source,
+      CASE WHEN fm.created_at < c_invariant_cutoff THEN 'legacy_accepted' ELSE 'active_inconsistency' END AS proposed_status,
+      (fm.created_at < c_invariant_cutoff) AS legacy
+    FROM financial_movements fm
+    WHERE fm.business_id=p_business_id AND fm.caja_id IS NULL
+      AND NOT EXISTS (SELECT 1 FROM finance_ledger_reconciliation r
+        WHERE r.business_id=p_business_id AND r.entity_table='financial_movements' AND r.entity_id=fm.id)
+    ORDER BY fm.created_at LIMIT 50
+  ) x;
+
+  -- ── Issue 2: comprobantes desincronizados (total_cobrado != Σ pagos) ──────
+  SELECT count(*) INTO v_desync_total FROM comprobantes c
+    WHERE c.business_id=p_business_id AND c.estado NOT IN ('anulado','cancelled') AND c.total_cobrado IS NOT NULL
+      AND abs(COALESCE(c.total_cobrado,0) - (SELECT COALESCE(SUM(amount_ars),0) FROM comprobante_payments p WHERE p.comprobante_id=c.id AND p.replaced_at IS NULL)) > 1;
+  SELECT count(*) INTO v_desync_pending FROM comprobantes c
+    WHERE c.business_id=p_business_id AND c.estado NOT IN ('anulado','cancelled') AND c.total_cobrado IS NOT NULL
+      AND abs(COALESCE(c.total_cobrado,0) - (SELECT COALESCE(SUM(amount_ars),0) FROM comprobante_payments p WHERE p.comprobante_id=c.id AND p.replaced_at IS NULL)) > 1
+      AND NOT EXISTS (SELECT 1 FROM finance_ledger_reconciliation r
+        WHERE r.business_id=p_business_id AND r.entity_table='comprobantes' AND r.entity_id=c.id);
+  SELECT COALESCE(jsonb_agg(row_to_json(x)),'[]') INTO v_desync_rows FROM (
+    SELECT c.id AS entity_id, COALESCE(c.fecha,c.date,c.created_at::date) AS economic_date,
+      c.total_cobrado, (SELECT COALESCE(SUM(amount_ars),0) FROM comprobante_payments p WHERE p.comprobante_id=c.id AND p.replaced_at IS NULL) AS sum_payments,
+      'indeterminate' AS proposed_status
+    FROM comprobantes c
+    WHERE c.business_id=p_business_id AND c.estado NOT IN ('anulado','cancelled') AND c.total_cobrado IS NOT NULL
+      AND abs(COALESCE(c.total_cobrado,0) - (SELECT COALESCE(SUM(amount_ars),0) FROM comprobante_payments p WHERE p.comprobante_id=c.id AND p.replaced_at IS NULL)) > 1
+      AND NOT EXISTS (SELECT 1 FROM finance_ledger_reconciliation r
+        WHERE r.business_id=p_business_id AND r.entity_table='comprobantes' AND r.entity_id=c.id)
+    ORDER BY c.created_at DESC LIMIT 50
+  ) x;
+
+  RETURN jsonb_build_object(
+    'ok', true, 'dry_run', true, 'business_id', p_business_id, 'generated_at', now(),
+    'issues', jsonb_build_array(
+      jsonb_build_object('issue_type','fm_sin_caja','total',v_fm_total,'pending',v_fm_pending,
+        'classified', v_fm_total - v_fm_pending, 'sample', v_fm_rows),
+      jsonb_build_object('issue_type','comprobante_desync','total',v_desync_total,'pending',v_desync_pending,
+        'classified', v_desync_total - v_desync_pending, 'sample', v_desync_rows)
+    )
+  );
+END;
+$$;
+
+-- F4. customer_purchase_history (métodos VIGENTES por compra)
+CREATE OR REPLACE FUNCTION "public"."customer_purchase_history"("p_customer_id" "uuid", "p_business_id" "uuid") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET search_path TO public, pg_temp
+    AS $$
+DECLARE
+  v_has_access  BOOLEAN := FALSE;
+  v_customer    JSONB;
+  v_summary     JSONB;
+  v_purchases   JSONB;
+BEGIN
+  -- ── 1. Validar acceso al negocio ────────────────────────────────────────────
+  SELECT (
+    EXISTS (SELECT 1 FROM businesses WHERE id = p_business_id AND owner_user_id = auth.uid())
+    OR EXISTS (SELECT 1 FROM profiles WHERE business_id = p_business_id AND user_id = auth.uid())
+  ) INTO v_has_access;
+  IF NOT v_has_access THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Sin acceso al negocio');
   END IF;
 
-  -- F1. annul_comprobante_atomic -> "lo REALMENTE registrado" = pagos VIVOS
-  --     (EXCEPCION DE ALCANCE informada: filtro minimo, no es la integracion M7)
-  v_def := pg_get_functiondef('public.annul_comprobante_atomic'::regproc);
-  IF position(PROCEDURE_MARKER in v_def) = 0 THEN
-    v_new := replace(v_def,
-      'FROM comprobante_payments
-    WHERE comprobante_id = v_comp.id AND business_id = v_comp.business_id;',
-      'FROM comprobante_payments
-    WHERE comprobante_id = v_comp.id AND business_id = v_comp.business_id AND replaced_at IS NULL;');
-    IF v_new = v_def THEN RAISE EXCEPTION '6F.3: no se pudo parchear annul_comprobante_atomic'; END IF;
-    EXECUTE v_new;
+  -- ── 2. Validar que el cliente pertenece al negocio ──────────────────────────
+  IF NOT EXISTS (
+    SELECT 1 FROM customers WHERE id = p_customer_id AND business_id = p_business_id
+  ) THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Cliente no encontrado en este negocio');
   END IF;
 
-  -- F2. finance_dashboard_summary -> comprobantes_desincronizados sin falso positivo
-  v_def := pg_get_functiondef('public.finance_dashboard_summary'::regproc);
-  IF position(PROCEDURE_MARKER in v_def) = 0 THEN
-    v_new := replace(v_def,
-      'FROM comprobante_payments p WHERE p.comprobante_id=c.id',
-      'FROM comprobante_payments p WHERE p.comprobante_id=c.id AND p.replaced_at IS NULL');
-    IF v_new = v_def THEN RAISE EXCEPTION '6F.3: no se pudo parchear finance_dashboard_summary'; END IF;
-    EXECUTE v_new;
+  -- ── 3. Datos del cliente ────────────────────────────────────────────────────
+  SELECT jsonb_build_object(
+    'id',    id,
+    'name',  name,
+    'phone', phone,
+    'email', email
+  ) INTO v_customer
+  FROM customers
+  WHERE id = p_customer_id AND business_id = p_business_id;
+
+  -- ── 4. Resumen financiero ────────────────────────────────────────────────────
+  SELECT jsonb_build_object(
+    'total_purchases',    COUNT(*) FILTER (WHERE tipo != 'nota_credito'),
+    'total_spent',        COALESCE(SUM(total) FILTER (WHERE tipo != 'nota_credito'), 0),
+    'total_refunded',     COALESCE(SUM(total) FILTER (WHERE tipo = 'nota_credito'), 0),
+    'net_spent',          COALESCE(SUM(total) FILTER (WHERE tipo != 'nota_credito'), 0)
+                          - COALESCE(SUM(total) FILTER (WHERE tipo = 'nota_credito'), 0),
+    'pending_balance',    COALESCE(SUM(saldo_pendiente) FILTER (WHERE tipo != 'nota_credito' AND estado NOT IN ('anulado')), 0),
+    'last_purchase_at',   MAX(COALESCE(fecha, created_at)::date) FILTER (WHERE tipo != 'nota_credito')
+  ) INTO v_summary
+  FROM comprobantes
+  WHERE customer_id = p_customer_id
+    AND business_id = p_business_id
+    AND estado NOT IN ('anulado', 'cancelled')
+    AND COALESCE(estado_comercial, '') != 'anulado';
+
+  -- ── 5. Lista de compras con ítems y métodos de pago ─────────────────────────
+  SELECT COALESCE(jsonb_agg(purchase ORDER BY purchase_date DESC), '[]'::JSONB)
+  INTO v_purchases
+  FROM (
+    SELECT jsonb_build_object(
+      'id',                      c.id,
+      'date',                    COALESCE(c.fecha, c.date, c.created_at)::date,
+      'created_at',              c.created_at,
+      'tipo',                    c.tipo,
+      'numero',                  COALESCE(c.numero_fiscal, c.numero, c.number),
+      'numero_local',            COALESCE(c.numero, c.number),
+      'numero_fiscal',           c.numero_fiscal,
+      'cae',                     c.cae,
+      'estado',                  COALESCE(c.estado, c.status),
+      'estado_fiscal',           c.estado_fiscal,
+      'estado_comercial',        COALESCE(c.estado_comercial, 'pendiente'),
+      'emitido_arca',            (c.cae IS NOT NULL AND c.estado_fiscal = 'emitido'),
+      'total',                   c.total,
+      'total_cobrado',           COALESCE(c.total_cobrado, 0),
+      'saldo_pendiente',         COALESCE(c.saldo_pendiente, 0),
+      'order_id',                c.order_id,
+      'comprobante_original_id', c.comprobante_original_id,
+      'is_credit_note',          (c.tipo = 'nota_credito'),
+      'observaciones',           c.observaciones,
+      -- Métodos de pago como array (hasta 3)
+      'payment_methods',         COALESCE((
+        SELECT jsonb_agg(DISTINCT cp.payment_method)
+        FROM comprobante_payments cp
+        WHERE cp.comprobante_id = c.id AND cp.replaced_at IS NULL
+        LIMIT 3
+      ), '[]'::JSONB),
+      -- Ítems resumidos (hasta 20 por comprobante)
+      'items', COALESCE((
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'id',             ci.id,
+            'descripcion',    ci.descripcion,
+            'tipo_linea',     ci.tipo_linea,
+            'cantidad',       ci.cantidad,
+            'precio_unitario',ci.precio_unitario,
+            'subtotal',       ci.subtotal
+          )
+          ORDER BY ci.orden NULLS LAST
+        )
+        FROM (
+          SELECT * FROM comprobante_items
+          WHERE comprobante_id = c.id
+          ORDER BY COALESCE(orden, 0)
+          LIMIT 20
+        ) ci
+      ), '[]'::JSONB)
+    ) AS purchase,
+    COALESCE(c.fecha, c.date, c.created_at) AS purchase_date
+    FROM comprobantes c
+    WHERE c.customer_id  = p_customer_id
+      AND c.business_id  = p_business_id
+      AND c.estado       NOT IN ('anulado', 'cancelled')
+      AND COALESCE(c.estado_comercial, '') != 'anulado'
+    ORDER BY COALESCE(c.fecha, c.date, c.created_at) DESC
+    LIMIT 300
+  ) t;
+
+  RETURN jsonb_build_object(
+    'ok',        true,
+    'customer',  v_customer,
+    'summary',   v_summary,
+    'purchases', v_purchases
+  );
+
+EXCEPTION WHEN OTHERS THEN
+  RETURN jsonb_build_object('ok', false, 'error', SQLERRM);
+END;
+$$;
+
+-- E. v_comprobantes_full (medios_de_pago / total_pagado_calc solo de pagos VIVOS)
+CREATE OR REPLACE VIEW "public"."v_comprobantes_full" AS
+ SELECT "c"."id",
+    "c"."order_id",
+    "c"."customer_id",
+    "c"."tipo",
+    "c"."numero",
+    "c"."punto_venta",
+    "c"."fecha",
+    "c"."subtotal",
+    "c"."impuestos",
+    "c"."total",
+    "c"."estado",
+    "c"."cae",
+    "c"."cae_vencimiento",
+    "c"."afip_response",
+    "c"."condicion_fiscal",
+    "c"."created_at",
+    "c"."updated_at",
+    "c"."business_id",
+    "c"."created_by",
+    "c"."estado_fiscal",
+    "c"."tipo_comprobante_fiscal",
+    "c"."numero_comprobante",
+    "c"."resultado_fiscal",
+    "c"."observaciones_fiscales",
+    "c"."error_codigo",
+    "c"."error_mensaje",
+    "c"."request_data",
+    "c"."response_data",
+    "c"."fecha_emision_fiscal",
+    "c"."currency",
+    "c"."total_ars",
+    "c"."total_usd",
+    "c"."exchange_rate",
+    "c"."type",
+    "c"."number",
+    "c"."date",
+    "c"."tax",
+    "c"."status",
+    "c"."estado_comercial",
+    "c"."es_fiscal",
+    "c"."emitir_en_arca",
+    "c"."numero_fiscal",
+    "c"."observaciones",
+    "c"."descuento_total",
+    "c"."recargo_total",
+    "c"."total_bruto",
+    "c"."total_cobrado",
+    "c"."saldo_pendiente",
+    "c"."total_comisiones",
+    "c"."total_neto",
+    "cust"."name" AS "customer_name",
+    "cust"."phone" AS "customer_phone",
+    "cust"."email" AS "customer_email",
+    COALESCE("pay"."total_pagado", (0)::numeric) AS "total_pagado_calc",
+    GREATEST((0)::numeric, (COALESCE("c"."total_bruto", "c"."total_ars", "c"."total", (0)::numeric) - COALESCE("pay"."total_pagado", (0)::numeric))) AS "saldo_calc",
+    "pay"."medios_de_pago"
+   FROM (("public"."comprobantes" "c"
+     LEFT JOIN "public"."customers" "cust" ON (("c"."customer_id" = "cust"."id")))
+     LEFT JOIN ( SELECT "comprobante_payments"."comprobante_id",
+            "sum"("comprobante_payments"."amount_ars") AS "total_pagado",
+            "string_agg"(DISTINCT "comprobante_payments"."payment_method", ', '::"text") AS "medios_de_pago"
+           FROM "public"."comprobante_payments"
+          WHERE ("comprobante_payments"."replaced_at" IS NULL)
+          GROUP BY "comprobante_payments"."comprobante_id") "pay" ON (("c"."id" = "pay"."comprobante_id")));
+
+-- F1. annul_comprobante_atomic — EXCEPCIÓN DE ALCANCE (filtro mínimo). Cuerpo
+--     pre-6F.3 + `AND replaced_at IS NULL` en la medición de lo cobrado. El Lote
+--     6F.4 (20260713250000) lo redefine íntegro con este filtro ya incorporado.
+CREATE OR REPLACE FUNCTION public.annul_comprobante_atomic(p_comprobante_id uuid, p_mode text, p_motivo text, p_restore_stock boolean, p_idempotency_key text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO public, pg_temp
+AS $function$
+DECLARE
+  c_tolerance_ars   constant numeric := 1.00;  -- misma tolerancia que el checkout
+  v_user_id         uuid := auth.uid();
+  v_comp            comprobantes%ROWTYPE;
+  v_has_access      boolean := false;
+  v_request_hash    text;
+  v_prev            comprobante_annulments%ROWTYPE;
+  v_numero          text;
+  v_open_caja_id    uuid;
+  v_cobrado         numeric := 0;
+  v_commissions     numeric := 0;
+  v_cc_net          numeric := 0;
+  v_fm_income_total numeric := 0;
+  v_account_id      uuid;
+  v_fm              record;
+  v_item            record;
+  v_bfe             record;
+  v_new_fm_id       uuid;
+  v_new_bfe_id      uuid;
+  v_cc_mov_id       uuid;
+  v_prev_stock      integer;
+  v_new_stock       integer;
+  v_mov_id          uuid;
+  v_original_fm_ids uuid[] := '{}';
+  v_original_cajas  uuid[] := '{}';
+  v_fm_reversals    uuid[] := '{}';
+  v_bfe_reversals   uuid[] := '{}';
+  v_stock_count     integer := 0;
+  v_reverted_cogs   numeric := 0;
+  v_annulment_id    uuid;
+BEGIN
+  -- ── Validaciones de entrada ────────────────────────────────────────────────
+  IF v_user_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'No autenticado');
+  END IF;
+  IF p_mode IS NULL OR p_mode NOT IN ('void_same_session', 'refund_current_session', 'commercial_annulment') THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Modo de anulación inválido: ' || COALESCE(p_mode, '(null)'));
+  END IF;
+  IF p_motivo IS NULL OR length(trim(p_motivo)) = 0 THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'El motivo de la anulación es obligatorio');
+  END IF;
+  IF p_idempotency_key IS NULL OR length(trim(p_idempotency_key)) = 0 THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'idempotency_key requerida');
   END IF;
 
-  -- F3. finance_pending_historicals -> mismo desync check
-  v_def := pg_get_functiondef('public.finance_pending_historicals'::regproc);
-  IF position(PROCEDURE_MARKER in v_def) = 0 THEN
-    v_new := replace(v_def,
-      'FROM comprobante_payments p WHERE p.comprobante_id=c.id',
-      'FROM comprobante_payments p WHERE p.comprobante_id=c.id AND p.replaced_at IS NULL');
-    IF v_new = v_def THEN RAISE EXCEPTION '6F.3: no se pudo parchear finance_pending_historicals'; END IF;
-    EXECUTE v_new;
+  -- ── Lock del comprobante ANTES de cualquier verificación de estado ─────────
+  -- Dos anulaciones concurrentes se serializan acá: la segunda espera y luego
+  -- ve el estado/auditoría que dejó la primera (replay o rechazo, nunca doble).
+  SELECT * INTO v_comp FROM comprobantes WHERE id = p_comprobante_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Comprobante no encontrado');
   END IF;
 
-  -- F4. customer_purchase_history -> metodos VIGENTES de cada compra
-  v_def := pg_get_functiondef('public.customer_purchase_history'::regproc);
-  IF position(PROCEDURE_MARKER in v_def) = 0 THEN
-    v_new := replace(v_def,
-      'FROM comprobante_payments cp
-        WHERE cp.comprobante_id = c.id',
-      'FROM comprobante_payments cp
-        WHERE cp.comprobante_id = c.id AND cp.replaced_at IS NULL');
-    IF v_new = v_def THEN RAISE EXCEPTION '6F.3: no se pudo parchear customer_purchase_history'; END IF;
-    EXECUTE v_new;
+  -- ── Ownership (resuelto desde el comprobante, nunca desde un parámetro) ────
+  SELECT (
+    EXISTS (SELECT 1 FROM businesses WHERE id = v_comp.business_id AND owner_user_id = v_user_id)
+    OR EXISTS (SELECT 1 FROM profiles WHERE business_id = v_comp.business_id AND user_id = v_user_id AND COALESCE(is_active, true) = true)
+  ) INTO v_has_access;
+  IF NOT v_has_access THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Sin acceso a este negocio');
   END IF;
 
-  -- E. v_comprobantes_full -> medios_de_pago / total_pagado_calc solo de pagos VIVOS
-  v_def := pg_get_viewdef('public.v_comprobantes_full'::regclass);
-  IF position(PROCEDURE_MARKER in v_def) = 0 THEN
-    v_new := replace(v_def,
-      'FROM comprobante_payments
-          GROUP BY comprobante_payments.comprobante_id) pay',
-      'FROM comprobante_payments
-          WHERE comprobante_payments.replaced_at IS NULL
-          GROUP BY comprobante_payments.comprobante_id) pay');
-    IF v_new = v_def THEN RAISE EXCEPTION '6F.3: no se pudo parchear v_comprobantes_full'; END IF;
-    EXECUTE 'CREATE OR REPLACE VIEW public.v_comprobantes_full AS ' || v_new;
+  v_request_hash := md5(p_comprobante_id::text || '|' || p_mode || '|' || p_restore_stock::text);
+
+  -- ── Idempotencia: reintento con la misma key devuelve el resultado previo ──
+  SELECT * INTO v_prev FROM comprobante_annulments
+    WHERE business_id = v_comp.business_id AND idempotency_key = p_idempotency_key;
+  IF FOUND THEN
+    IF v_prev.request_hash IS DISTINCT FROM v_request_hash THEN
+      RETURN jsonb_build_object('ok', false,
+        'error', 'La idempotency_key ya fue usada con parámetros distintos. Generá una key nueva.');
+    END IF;
+    RETURN jsonb_build_object(
+      'ok', true, 'replay', true,
+      'annulment_id', v_prev.id, 'mode', v_prev.mode,
+      'reverted_cash_ars', v_prev.reverted_cash_ars,
+      'reverted_cc_ars', v_prev.reverted_cc_ars,
+      'reverted_commissions_ars', v_prev.reverted_commissions_ars,
+      'reverted_cogs_ars', v_prev.reverted_cogs_ars,
+      'stock_restored_count', v_prev.stock_restored_count
+    );
   END IF;
-END $$;
+
+  -- ── Estado ─────────────────────────────────────────────────────────────────
+  IF v_comp.estado = 'anulado' OR v_comp.status = 'cancelled' OR v_comp.estado_comercial = 'anulado' THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'El comprobante ya está anulado');
+  END IF;
+  IF COALESCE(v_comp.tipo, v_comp.type) = 'nota_credito' THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Una nota de crédito no se anula por este flujo');
+  END IF;
+  -- Fiscal: con CAE (o número fiscal, o estado emitido en ARCA) corresponde
+  -- Nota de Crédito fiscal, nunca anulación comercial local.
+  IF v_comp.cae IS NOT NULL OR v_comp.numero_fiscal IS NOT NULL OR v_comp.estado_fiscal = 'emitido' THEN
+    RETURN jsonb_build_object('ok', false,
+      'error', 'Este comprobante fue autorizado por ARCA. Generá una Nota de Crédito desde el detalle del comprobante.',
+      'requiere_nota_credito', true);
+  END IF;
+
+  v_numero := COALESCE(v_comp.numero_fiscal, v_comp.number, v_comp.numero, left(v_comp.id::text, 8));
+
+  -- ── Medir lo REALMENTE registrado (nunca total_bruto) ─────────────────────
+  SELECT COALESCE(SUM(amount_ars), 0), COALESCE(SUM(commission_amount), 0)
+    INTO v_cobrado, v_commissions
+    FROM comprobante_payments
+    WHERE comprobante_id = v_comp.id AND business_id = v_comp.business_id AND replaced_at IS NULL;
+
+  SELECT COALESCE(SUM(debit - credit), 0) INTO v_cc_net
+    FROM account_movements
+    WHERE business_id = v_comp.business_id
+      AND reference_type = 'comprobante' AND reference_id = v_comp.id;
+
+  SELECT COALESCE(SUM(amount_ars), 0),
+         COALESCE(array_agg(id), '{}'),
+         COALESCE(array_agg(DISTINCT caja_id) FILTER (WHERE caja_id IS NOT NULL), '{}')
+    INTO v_fm_income_total, v_original_fm_ids, v_original_cajas
+    FROM financial_movements
+    WHERE comprobante_id = v_comp.id AND business_id = v_comp.business_id
+      AND type = 'income' AND COALESCE(sign, 1) = 1;
+
+  -- Caja abierta actual (a lo sumo una, por idx_cajas_unica_abierta_por_negocio)
+  SELECT id INTO v_open_caja_id FROM cajas
+    WHERE business_id = v_comp.business_id AND status = 'abierta'
+    ORDER BY opened_at DESC LIMIT 1;
+
+  -- ── Validaciones por modo ──────────────────────────────────────────────────
+  IF p_mode = 'commercial_annulment' THEN
+    IF v_cobrado > c_tolerance_ars THEN
+      RETURN jsonb_build_object('ok', false,
+        'error', format('Este comprobante tiene $%s cobrados. Si devolviste el dinero usá el modo devolución; si no, no corresponde anulación comercial.', round(v_cobrado, 2)));
+    END IF;
+  ELSE
+    IF v_cobrado <= c_tolerance_ars AND v_fm_income_total <= c_tolerance_ars THEN
+      RETURN jsonb_build_object('ok', false,
+        'error', 'No hay cobros registrados para devolver — usá la anulación comercial (sin devolución de dinero).');
+    END IF;
+    IF v_open_caja_id IS NULL THEN
+      RETURN jsonb_build_object('ok', false,
+        'error', 'No hay caja abierta. Abrí una caja para registrar la devolución.');
+    END IF;
+    IF p_mode = 'void_same_session' THEN
+      -- TODOS los ingresos originales deben pertenecer a la caja abierta actual.
+      IF EXISTS (
+        SELECT 1 FROM financial_movements
+        WHERE comprobante_id = v_comp.id AND business_id = v_comp.business_id
+          AND type = 'income' AND COALESCE(sign, 1) = 1
+          AND (caja_id IS DISTINCT FROM v_open_caja_id)
+      ) THEN
+        RETURN jsonb_build_object('ok', false,
+          'error', 'La venta no pertenece a la caja abierta actual — usá el modo devolución (el egreso se registra en la caja de hoy sin tocar la sesión original).');
+      END IF;
+    END IF;
+  END IF;
+
+  -- ── 1. Compensación de caja: UN egreso espejo por CADA ingreso original ───
+  -- (misma moneda/método/importe; la caja original — abierta o cerrada — no
+  -- se modifica jamás: la compensación vive en la caja abierta actual).
+  FOR v_fm IN
+    SELECT * FROM financial_movements
+    WHERE comprobante_id = v_comp.id AND business_id = v_comp.business_id
+      AND type = 'income' AND COALESCE(sign, 1) = 1
+    ORDER BY created_at
+  LOOP
+    INSERT INTO financial_movements (
+      business_id, date, type, currency, amount, amount_ars, exchange_rate,
+      source, source_id, comprobante_id, description, created_by, sign,
+      metodo_pago, caja_id, reference_type, reference_id, movement_type
+    ) VALUES (
+      v_comp.business_id, public.ar_today(), 'expense',
+      v_fm.currency, v_fm.amount, v_fm.amount_ars, COALESCE(v_fm.exchange_rate, 1),
+      'comprobante', v_fm.source_id, v_comp.id,
+      'ANULACIÓN Comprobante #' || v_numero || ' — reversa de mov. ' || v_fm.id
+        || CASE WHEN trim(p_motivo) <> '' THEN ' · ' || trim(p_motivo) ELSE '' END,
+      v_user_id, -1,
+      -- movement_type 'refund': único valor del CHECK de la columna que
+      -- describe una devolución (income/fee/refund/chargeback/adjustment).
+      v_fm.metodo_pago, v_open_caja_id, 'annulment_reversal', v_fm.id, 'refund'
+    ) RETURNING id INTO v_new_fm_id;
+    v_fm_reversals := v_fm_reversals || v_new_fm_id;
+  END LOOP;
+
+  -- ── 2. Espejos negativos de BFE (ingresos, comisiones, COGS) ──────────────
+  FOR v_bfe IN
+    SELECT * FROM business_finance_entries
+    WHERE business_id = v_comp.business_id
+      AND reference_comprobante_id = v_comp.id
+      AND amount_ars > 0
+      AND (
+        type = 'income'
+        OR (type = 'variable_cost' AND category IN ('comisiones_cobro', 'mercaderia'))
+      )
+    ORDER BY created_at
+  LOOP
+    -- source='annulment' (no 'comprobante'): el índice legacy
+    -- uniq_bfe_comprobante_reversal permite UNA sola BFE negativa por
+    -- comprobante con source='comprobante' (guard del flujo de NC, que se
+    -- conserva intacto). La anulación espeja VARIOS asientos por comprobante;
+    -- su idempotencia real es comprobante_annulments + el lock del
+    -- comprobante. La policy de BFE deja 'annulment' igual de inmutable.
+    INSERT INTO business_finance_entries (
+      business_id, date, type, category, description,
+      amount, currency, amount_ars, exchange_rate,
+      payment_method, reference_comprobante_id, source, created_by
+    ) VALUES (
+      v_comp.business_id, public.ar_today(), v_bfe.type, v_bfe.category,
+      'ANULACIÓN Comprobante #' || v_numero || ' — reversa de asiento ' || v_bfe.id,
+      -v_bfe.amount, v_bfe.currency, -v_bfe.amount_ars, COALESCE(v_bfe.exchange_rate, 1),
+      v_bfe.payment_method, v_comp.id, 'annulment', v_user_id
+    ) RETURNING id INTO v_new_bfe_id;
+    v_bfe_reversals := v_bfe_reversals || v_new_bfe_id;
+    IF v_bfe.type = 'variable_cost' AND v_bfe.category = 'mercaderia' THEN
+      v_reverted_cogs := v_reverted_cogs + v_bfe.amount_ars;
+    END IF;
+  END LOOP;
+
+  -- COGS histórico sin referencia (BFE creados por la RPC de checkout ANTES de
+  -- 20260702110000: source default 'manual', sin reference_comprobante_id).
+  -- Se identifican por la descripción determinista que esa RPC siempre usó.
+  FOR v_bfe IN
+    SELECT * FROM business_finance_entries
+    WHERE business_id = v_comp.business_id
+      AND reference_comprobante_id IS NULL
+      AND type = 'variable_cost' AND category = 'mercaderia'
+      AND amount_ars > 0
+      AND description = 'Costo de productos - Comprobante #' || v_numero
+  LOOP
+    INSERT INTO business_finance_entries (
+      business_id, date, type, category, description,
+      amount, currency, amount_ars, exchange_rate,
+      reference_comprobante_id, source, created_by
+    ) VALUES (
+      v_comp.business_id, public.ar_today(), 'variable_cost', 'mercaderia',
+      'ANULACIÓN Comprobante #' || v_numero || ' — reversa de asiento ' || v_bfe.id,
+      -v_bfe.amount, v_bfe.currency, -v_bfe.amount_ars, COALESCE(v_bfe.exchange_rate, 1),
+      v_comp.id, 'annulment', v_user_id
+    ) RETURNING id INTO v_new_bfe_id;
+    v_bfe_reversals := v_bfe_reversals || v_new_bfe_id;
+    v_reverted_cogs := v_reverted_cogs + v_bfe.amount_ars;
+  END LOOP;
+
+  -- ── 3. Cuenta corriente: movimiento compensatorio (histórico intacto) ─────
+  IF v_cc_net > 0.01 THEN
+    SELECT account_id INTO v_account_id
+      FROM account_movements
+      WHERE business_id = v_comp.business_id
+        AND reference_type = 'comprobante' AND reference_id = v_comp.id
+      ORDER BY created_at LIMIT 1;
+
+    IF v_account_id IS NOT NULL THEN
+      -- balance_after y accounts.balance los mantiene el trigger existente
+      -- (BEFORE INSERT con SELECT ... FOR UPDATE sobre accounts).
+      INSERT INTO account_movements (
+        business_id, account_id, date, type, description, debit, credit,
+        reference_type, reference_id, created_by
+      ) VALUES (
+        v_comp.business_id, v_account_id, public.ar_today(), 'ajuste',
+        'ANULACIÓN Comprobante #' || v_numero || ' · ' || trim(p_motivo),
+        0, v_cc_net,
+        'comprobante', v_comp.id, v_user_id
+      ) RETURNING id INTO v_cc_mov_id;
+    END IF;
+  END IF;
+
+  -- ── 4. Stock: solo con devolución física explícita, exactamente una vez ───
+  IF p_restore_stock THEN
+    FOR v_item IN
+      SELECT * FROM comprobante_items
+      WHERE comprobante_id = v_comp.id
+        AND stock_processed = true
+        AND inventory_id IS NOT NULL
+        AND COALESCE(tipo_linea, 'producto') IN ('producto', 'repuesto')
+    LOOP
+      SELECT stock_quantity INTO v_prev_stock FROM inventory
+        WHERE id = v_item.inventory_id AND business_id = v_comp.business_id
+        FOR UPDATE;
+
+      IF FOUND THEN
+        v_prev_stock := COALESCE(v_prev_stock, 0);
+        v_new_stock  := v_prev_stock + v_item.cantidad::integer;
+
+        UPDATE inventory SET stock_quantity = v_new_stock, updated_at = now()
+          WHERE id = v_item.inventory_id AND business_id = v_comp.business_id;
+
+        INSERT INTO inventory_movements (
+          business_id, inventory_item_id, movement_type, quantity, previous_stock,
+          new_stock, reference_type, reference_id, note, created_by
+        ) VALUES (
+          v_comp.business_id, v_item.inventory_id, 'return',
+          v_item.cantidad::integer, v_prev_stock, v_new_stock,
+          'comprobante', v_comp.id,
+          'Devolución por anulación de comprobante #' || v_numero, v_user_id
+        ) RETURNING id INTO v_mov_id;
+
+        -- Marcador de exactamente-una-vez: un reintento no vuelve a restaurar.
+        UPDATE comprobante_items
+          SET stock_processed = false, stock_processed_at = NULL, stock_movement_id = NULL
+          WHERE id = v_item.id;
+
+        v_stock_count := v_stock_count + 1;
+      END IF;
+    END LOOP;
+  END IF;
+
+  -- ── 5. Estado del comprobante ──────────────────────────────────────────────
+  UPDATE comprobantes SET
+    estado           = 'anulado',
+    status           = 'cancelled',
+    estado_comercial = 'anulado',
+    estado_fiscal    = CASE WHEN estado_fiscal = 'no_fiscal' THEN 'no_fiscal' ELSE 'anulado_fiscal' END,
+    afip_response    = COALESCE(afip_response, '{}'::jsonb) || jsonb_build_object(
+                         'anulacion', jsonb_build_object(
+                           'motivo', trim(p_motivo), 'modo', p_mode,
+                           'restore_stock', p_restore_stock, 'fecha', now())),
+    updated_at       = now()
+  WHERE id = v_comp.id;
+
+  -- ── 6. Auditoría (también es el registro de idempotencia) ─────────────────
+  INSERT INTO comprobante_annulments (
+    business_id, comprobante_id, user_id, idempotency_key, request_hash,
+    mode, motivo, restore_stock, stock_restored_count,
+    original_caja_ids, refund_caja_id,
+    reverted_cash_ars, reverted_cc_ars, reverted_commissions_ars, reverted_cogs_ars,
+    original_fm_ids, fm_reversal_ids, bfe_reversal_ids, cc_reversal_movement_id
+  ) VALUES (
+    v_comp.business_id, v_comp.id, v_user_id, p_idempotency_key, v_request_hash,
+    p_mode, trim(p_motivo), p_restore_stock, v_stock_count,
+    v_original_cajas, v_open_caja_id,
+    GREATEST(v_cobrado, v_fm_income_total), v_cc_net, v_commissions, v_reverted_cogs,
+    v_original_fm_ids, v_fm_reversals, v_bfe_reversals, v_cc_mov_id
+  ) RETURNING id INTO v_annulment_id;
+
+  RETURN jsonb_build_object(
+    'ok', true, 'replay', false,
+    'annulment_id', v_annulment_id, 'mode', p_mode,
+    'reverted_cash_ars', GREATEST(v_cobrado, v_fm_income_total),
+    'reverted_cc_ars', v_cc_net,
+    'reverted_commissions_ars', v_commissions,
+    'reverted_cogs_ars', v_reverted_cogs,
+    'stock_restored_count', v_stock_count,
+    'refund_caja_id', v_open_caja_id
+  );
+
+EXCEPTION WHEN OTHERS THEN
+  -- Transacción completa revertida por Postgres: nunca queda una anulación a
+  -- medias. El registro de auditoría también se revierte, así el reintento
+  -- con la misma key arranca limpio.
+  RETURN jsonb_build_object('ok', false, 'error', SQLERRM);
+END;
+$function$;
+
 -- NOTA (decisiones "historia/ledger", SIN filtro): v_finance_effective_comprobantes
 -- (EXISTS de liveness: evidencia de venta real), finance_health_check CHECK 5
 -- (payments huerfanos: cuenta, no suma), delete_comprobante_with_finance (EXISTS
@@ -517,3 +1226,4 @@ $function$;
 -- ALTER comprobante_payment_replace_requests DROP COLUMN op/source_payment_set_hash/
 -- new_payment_id; restaurar policy/GRANT SELECT a authenticated.
 -- ============================================================================
+
