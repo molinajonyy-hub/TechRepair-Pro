@@ -11,11 +11,12 @@ export class ArcaService {
   // ──────────────────────────────────────────────
 
   static async getArcaConfig(businessId: string) {
-    const { data, error } = await supabase
-      .from('arca_config')
-      .select('*')
-      .eq('business_id', businessId)
-      .single()
+    // AFIP-S1A: contrato de lectura SEGURO. Nunca trae private_key, cert PEM,
+    // pfx, passwords, wsaa token/sign ni secret_id al navegador. Devuelve solo
+    // columnas no secretas + indicadores (has_certificate, has_private_key_configured).
+    const { data, error } = await supabase.rpc('get_arca_config_safe', {
+      p_business_id: businessId,
+    })
 
     if (error) throw new Error('Error al obtener configuración ARCA')
     return data
@@ -68,10 +69,11 @@ export class ArcaService {
     try {
       const config = await this.getArcaConfig(businessId)
 
-      if (!config.cert_file && !config.pfx_file) {
+      // AFIP-S1A: presencia por indicadores del contrato seguro (nunca el PEM).
+      if (!config?.has_certificate) {
         return { success: false, message: 'No hay certificado digital cargado' }
       }
-      if (!config.pfx_file && !config.private_key) {
+      if (!config?.has_private_key_configured) {
         return { success: false, message: 'No hay clave privada cargada' }
       }
       if (config.expires_at && new Date(config.expires_at) < new Date()) {
