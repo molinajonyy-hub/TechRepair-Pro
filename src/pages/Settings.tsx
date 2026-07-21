@@ -79,8 +79,10 @@ interface ArcaConfig {
   ambiente: 'homologacion' | 'produccion'
   punto_venta: number
   web_service: string
+  // AFIP-S1A: `private_key` NO existe en el contrato del frontend. `cert_file`/`pfx_file`
+  // son SOLO campos de ENTRADA locales para subir una credencial nueva (nunca se leen
+  // desde el servidor). La presencia de credenciales se lee por los flags de abajo.
   cert_file?: string
-  private_key?: string
   pfx_file?: string
   pfx_password?: string
   alias?: string
@@ -88,6 +90,11 @@ interface ArcaConfig {
   estado_conexion: string
   ultima_sincronizacion?: string
   ultimo_error?: string
+  // Indicadores del contrato seguro get_arca_config_safe (presencia, no contenido):
+  has_certificate?: boolean
+  has_private_key_configured?: boolean
+  wsaa_token_valid?: boolean
+  configured?: boolean
 }
 
 // ─── Mayorista Toggle ─────────────────────────────────────────────────────────
@@ -241,16 +248,15 @@ export default function Settings() {
         // tabla no disponible aún
       }
 
-      // Cargar configuración ARCA (ignorar errores de permisos/tabla)
+      // Cargar configuración ARCA por el contrato SEGURO (AFIP-S1A): nunca trae
+      // private_key ni cert PEM al navegador, solo columnas no secretas + flags.
       try {
-        const { data: arcaData, error: arcaError } = await supabase
-          .from('arca_config')
-          .select('*')
-          .eq('business_id', businessId)
-          .single()
+        const { data: arcaData, error: arcaError } = await supabase.rpc('get_arca_config_safe', {
+          p_business_id: businessId,
+        })
 
         if (!arcaError && arcaData) {
-          setArcaConfig(arcaData)
+          setArcaConfig((prev) => ({ ...prev, ...(arcaData as Partial<ArcaConfig>) }))
         }
       } catch {
         // tabla no disponible aún
@@ -434,15 +440,13 @@ export default function Settings() {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
 
-      // Recargar arcaConfig desde DB para que la nueva clave privada quede en el estado
-      // (si no se hace esto, "Guardar Configuración" pisa la nueva clave con la vieja)
+      // AFIP-S1A: recargar por el contrato seguro (flags de presencia, sin secretos).
+      // La clave privada ya NO vive en el estado del frontend.
       try {
-        const { data: freshConfig } = await supabase
-          .from('arca_config')
-          .select('*')
-          .eq('business_id', businessId)
-          .single()
-        if (freshConfig) setArcaConfig(freshConfig)
+        const { data: freshConfig } = await supabase.rpc('get_arca_config_safe', {
+          p_business_id: businessId,
+        })
+        if (freshConfig) setArcaConfig((prev) => ({ ...prev, ...(freshConfig as Partial<ArcaConfig>) }))
       } catch { /* ignorar */ }
 
       alert(
@@ -1019,7 +1023,7 @@ export default function Settings() {
             </h2>
 
             {/* Banner de estado por etapa */}
-            {arcaConfig.estado_conexion === 'csr_generado' && !arcaConfig.cert_file && (
+            {arcaConfig.estado_conexion === 'csr_generado' && !arcaConfig.has_certificate && (
               <div style={{ marginBottom: '1.5rem', padding: '1rem 1.25rem', backgroundColor: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.35)', borderRadius: '0.625rem' }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
                   <AlertTriangle size={18} style={{ color: '#fbbf24', flexShrink: 0, marginTop: 2 }} />
@@ -1099,7 +1103,7 @@ export default function Settings() {
                 <div style={{ marginBottom: '1rem' }}>
                   <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Certificado:</span>
                   <span style={{ color: 'var(--text-primary)', fontWeight: 500, fontSize: '0.875rem', marginLeft: '0.5rem' }}>
-                    {arcaConfig.cert_file ? '✓ Cargado' : 'No cargado'}
+                    {arcaConfig.has_certificate ? '✓ Cargado' : 'No cargado'}
                   </span>
                 </div>
 
@@ -1112,14 +1116,14 @@ export default function Settings() {
                   </div>
                 )}
 
-                {!arcaConfig.cert_file && !arcaConfig.pfx_file && (
+                {!arcaConfig.has_certificate && (
                   <p style={{ fontSize: '0.75rem', color: '#f59e0b', margin: '0.5rem 0 0 0' }}>
                     ⚠️ Cargá un certificado .crt para probar la conexión
                   </p>
                 )}
                 <button
                   onClick={handleTestArcaConnection}
-                  disabled={testingConnection || (!arcaConfig.cert_file && !arcaConfig.pfx_file)}
+                  disabled={testingConnection || (!arcaConfig.has_certificate)}
                   style={{
                     width: '100%',
                     display: 'flex',
@@ -1127,14 +1131,14 @@ export default function Settings() {
                     justifyContent: 'center',
                     gap: '0.5rem',
                     padding: '0.75rem',
-                    backgroundColor: (!arcaConfig.cert_file && !arcaConfig.pfx_file) ? '#374151' : testingConnection ? '#059669' : '#10b981',
+                    backgroundColor: (!arcaConfig.has_certificate) ? '#374151' : testingConnection ? '#059669' : '#10b981',
                     border: 'none',
                     color: 'var(--text-primary)',
                     borderRadius: '0.5rem',
-                    cursor: (testingConnection || (!arcaConfig.cert_file && !arcaConfig.pfx_file)) ? 'not-allowed' : 'pointer',
+                    cursor: (testingConnection || (!arcaConfig.has_certificate)) ? 'not-allowed' : 'pointer',
                     fontWeight: 500,
                     marginTop: '0.5rem',
-                    opacity: (!arcaConfig.cert_file && !arcaConfig.pfx_file) ? 0.5 : testingConnection ? 0.8 : 1
+                    opacity: (!arcaConfig.has_certificate) ? 0.5 : testingConnection ? 0.8 : 1
                   }}
                 >
                   {testingConnection ? <Loader2 size={18} className="spin" /> : <CheckCircle size={18} />}
@@ -1212,12 +1216,12 @@ export default function Settings() {
                   <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0 0 0.5rem 0' }}>
                     Generá un CSR (Certificate Signing Request) y presentalo ante AFIP para obtener tu certificado. Luego pegá el .crt en el campo de abajo.
                   </p>
-                  {arcaConfig.cert_file && (
+                  {arcaConfig.has_certificate && (
                     <p style={{ color: '#f87171', fontSize: '0.78rem', margin: '0 0 0.75rem 0', lineHeight: 1.5 }}>
                       ⚠️ <strong>Ya tenés un certificado cargado.</strong> Si generás un nuevo CSR, la clave privada cambia y el certificado actual queda inválido — tendrás que pedir uno nuevo a AFIP.
                     </p>
                   )}
-                  {!arcaConfig.cert_file && (
+                  {!arcaConfig.has_certificate && (
                     <p style={{ color: '#64748b', fontSize: '0.78rem', margin: '0 0 0.75rem 0', lineHeight: 1.5 }}>
                       Una vez generado el CSR, <strong style={{ color: '#fbbf24' }}>no vuelvas a hacer clic aquí</strong> hasta haber completado todo el proceso con AFIP y guardado el .crt.
                     </p>
