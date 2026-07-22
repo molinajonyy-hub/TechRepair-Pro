@@ -63,13 +63,20 @@ function grants(sql, fn) {
 
 export function findings(sql) {
   const out = []
-  if (!/save_arca_config_legacy/.test(sql)) return out   // no es la migración S1B-A1
   const clean = stripComments(sql)
+  // Gate: solo aplica a archivos que DEFINEN alguna de las RPC del contrato
+  // (mencionarlas — p.ej. en pre/post-condiciones de lotes posteriores como
+  // S1B-B — no activa el guard; redefinirlas en cualquier migración SÍ).
+  const defined = WRITE_FNS.filter(fn =>
+    new RegExp(`CREATE\\s+(?:OR\\s+REPLACE\\s+)?FUNCTION\\s+(?:public\\.)?${fn}\\s*\\(`, 'i').test(clean))
+  if (defined.length === 0) return out
 
-  if (!/ADD\s+CONSTRAINT\s+arca_config_business_id_key\s+UNIQUE\s*\(\s*business_id\s*\)/i.test(clean)) {
+  // La migración que define la RPC de config debe traer la unique canónica.
+  if (defined.includes(CONFIG_FN) &&
+      !/ADD\s+CONSTRAINT\s+arca_config_business_id_key\s+UNIQUE\s*\(\s*business_id\s*\)/i.test(clean)) {
     out.push('falta ADD CONSTRAINT UNIQUE(business_id)')
   }
-  for (const fn of WRITE_FNS) {
+  for (const fn of defined) {
     const args = fnArgs(clean, fn); const body = fnBlock(clean, fn)
     if (args === null) { out.push(`${fn}: no está definida`); continue }
     const g = grants(clean, fn)
