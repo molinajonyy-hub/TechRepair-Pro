@@ -9,6 +9,7 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 // @ts-ignore: node-forge en Deno via npm
 import forge from 'npm:node-forge@1.3.1'
+import { resolveArcaPrivateKey, WsaaKeyError, type KeySource } from './keyResolver.ts'
 
 // ─────────────────────────────────────────────────────────────────
 // CORS — single source of truth (buildCorsHeaders + jsonResponse)
@@ -316,6 +317,30 @@ async function decryptField(supabase: any, encrypted: string): Promise<string> {
 }
 
 // ──────────────────────────────────────────────
+// AFIP-S2 — auditoría de origen de la clave (sanitizada, best-effort)
+// ──────────────────────────────────────────────
+// Nunca lleva PEM/token/sign/secret_id/CUIT: solo business_id, evento, source y
+// un código de error sanitizado. Un fallo de auditoría NO interrumpe la firma.
+async function auditWsaaKeySource(
+  supabase: any,
+  businessId: string,
+  event: 'wsaa_private_key_resolved_vault' | 'wsaa_private_key_resolved_legacy' | 'wsaa_private_key_resolution_failed',
+  source: KeySource | null,
+  errorCode: string | null,
+): Promise<void> {
+  try {
+    await supabase.rpc('arca_wsaa_audit', {
+      p_business_id: businessId,
+      p_event: event,
+      p_source: source,
+      p_error_code: errorCode,
+    })
+  } catch (_) {
+    // La auditoría es best-effort; no debe romper la emisión.
+  }
+}
+
+// ──────────────────────────────────────────────
 // Handler principal
 // ──────────────────────────────────────────────
 
@@ -376,12 +401,48 @@ serve(async (req: Request) => {
     let signedCms: string
 
     if (config.pfx_file) {
+      // PFX: la clave viaja dentro del propio PFX (no usa arca_config.private_key
+      // ni el contrato Vault, que es PEM). Fuera del alcance de S2.
       const pfxData   = await decryptField(supabase, config.pfx_file)
       const pfxPass   = config.pfx_password ? await decryptField(supabase, config.pfx_password) : ''
       signedCms = signTRAWithPFX(traXml, pfxData, pfxPass)
     } else {
       const certPem = await decryptField(supabase, config.cert_file)
-      const keyPem  = await decryptField(supabase, config.private_key)
+
+      // AFIP-S2: la clave privada se resuelve desde Vault (contrato S1A) con
+      // fallback temporal a la plaintext de arca_config SOLO si Vault todavía no
+      // fue provisionado. Vault provisionado-pero-roto FALLA de forma visible.
+      let keyPem: string
+      let keySource: KeySource
+      try {
+        const resolved = await resolveArcaPrivateKey({
+          getVaultCredential: async () => {
+            const { data, error } = await supabase.rpc('arca_get_credential_for_signing', { p_business_id: business_id })
+            if (error) throw new Error('vault_rpc_error') // sin detalle crudo
+            return data
+          },
+          legacyPrivateKey: config.private_key,
+        })
+        keyPem = resolved.privateKey
+        keySource = resolved.source
+      } catch (keyErr) {
+        if (keyErr instanceof WsaaKeyError) {
+          await auditWsaaKeySource(supabase, business_id, 'wsaa_private_key_resolution_failed', null, keyErr.state)
+          return jsonResponse(req, { success: false, error: keyErr.publicMessage }, 422)
+        }
+        throw keyErr
+      }
+
+      if (keySource === 'legacy_plaintext') {
+        // Señal para detectar negocios aún sin migrar (S3). Sin PEM/secreto.
+        console.warn(`afip-wsaa: business_id=${business_id} firmó con clave LEGACY plaintext (pendiente de migrar a Vault en S3)`)
+      }
+      await auditWsaaKeySource(
+        supabase, business_id,
+        keySource === 'vault' ? 'wsaa_private_key_resolved_vault' : 'wsaa_private_key_resolved_legacy',
+        keySource, null,
+      )
+
       signedCms = signTRAWithPEM(traXml, certPem, keyPem)
     }
 
