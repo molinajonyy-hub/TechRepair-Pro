@@ -353,46 +353,65 @@ export default function Settings() {
     }
   }
 
+  // AFIP-S1B-A2: relee la config por el contrato SEGURO y limpia el input de cert
+  // (get_arca_config_safe nunca devuelve el PEM, así que el textarea queda vacío).
+  const refreshArcaConfig = async () => {
+    if (!businessId) return
+    const { data } = await supabase.rpc('get_arca_config_safe', { p_business_id: businessId })
+    if (data) {
+      setArcaConfig((prev) => ({ ...prev, ...(data as Partial<ArcaConfig>), cert_file: '' }))
+    }
+  }
+
   const handleSaveArcaConfig = async () => {
     if (!businessId) return
     setSaving(true)
     try {
-      const { data: existing } = await supabase
-        .from('arca_config')
-        .select('id')
-        .eq('business_id', businessId)
-        .maybeSingle()
+      // Validar de entrada un certificado nuevo (si lo hay) ANTES de escribir nada.
+      const nuevoCert = arcaConfig.cert_file?.trim() || ''
+      if (nuevoCert) {
+        if (/PRIVATE KEY/i.test(nuevoCert)) {
+          alert('❌ El campo Certificado solo admite el certificado PÚBLICO (.crt), no la clave privada.')
+          setSaving(false)
+          return
+        }
+        if (!nuevoCert.startsWith('-----BEGIN CERTIFICATE-----')) {
+          alert('❌ El certificado no tiene el formato esperado (-----BEGIN CERTIFICATE-----).')
+          setSaving(false)
+          return
+        }
+      }
 
-      const payload: Record<string, any> = {
-        business_id: businessId,
-        cuit: arcaConfig.cuit || null,
-        razon_social: arcaConfig.razon_social || null,
+      // 1. Configuración NO secreta vía RPC (sin DML directo, sin cert/clave).
+      //    NUNCA se envía cert_file=null: el certificado se preserva salvo reemplazo explícito.
+      await ArcaService.saveArcaConfig(businessId, {
+        cuit: arcaConfig.cuit,
+        razon_social: arcaConfig.razon_social,
         ambiente: arcaConfig.ambiente,
         punto_venta: arcaConfig.punto_venta,
         web_service: arcaConfig.web_service || 'wsfev1',
-        alias: arcaConfig.alias || null,
-        cert_file: arcaConfig.cert_file?.trim() || null,
-        // NO incluir private_key en el payload de guardar config:
-        // la clave privada solo se actualiza al generar el CSR (generate-csr edge function).
-        // Si se incluyera aquí, el estado stale de React pisaría la clave correcta en DB.
-        expires_at: arcaConfig.expires_at || null,
-        updated_at: new Date().toISOString(),
+        alias: arcaConfig.alias,
+        expires_at: arcaConfig.expires_at,
+      })
+
+      // 2. Certificado PÚBLICO nuevo SOLO si el usuario pegó uno explícito.
+      //    Si falla, la config ya quedó guardada y el certificado anterior queda intacto
+      //    (no hay DML compensatorio ni cert_file=null).
+      if (nuevoCert) {
+        try {
+          await ArcaService.saveCertificate(businessId, nuevoCert)
+        } catch (certErr: any) {
+          await refreshArcaConfig()
+          alert('⚠️ Configuración guardada, pero el certificado NO se reemplazó: ' +
+                (certErr?.message || 'error') + '\nEl certificado anterior sigue intacto. Podés reintentar solo el certificado.')
+          return
+        }
       }
 
-      if (existing) {
-        const { error } = await supabase
-          .from('arca_config')
-          .update(payload)
-          .eq('business_id', businessId)
-        if (error) throw error
-      } else {
-        const { error } = await supabase
-          .from('arca_config')
-          .insert({ ...payload, estado_conexion: 'desconectado' })
-        if (error) throw error
-      }
-
-      alert('✅ Configuración ARCA guardada correctamente.')
+      await refreshArcaConfig()
+      alert(nuevoCert
+        ? '✅ Configuración y certificado guardados correctamente.'
+        : '✅ Configuración ARCA guardada correctamente.')
     } catch (e: any) {
       alert('❌ Error al guardar: ' + (e.message || 'Error desconocido'))
     } finally {
@@ -1250,13 +1269,20 @@ export default function Settings() {
 
                 {/* Campo certificado .crt */}
                 <div style={{ marginTop: '1.25rem' }}>
-                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>
+                  <label className="label-caps" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                     Certificado (.crt) emitido por AFIP
+                    {/* AFIP-S1B-A2: indicador de presencia por el contrato seguro (has_certificate),
+                        NO por el contenido del textarea (que arranca vacío y es solo para reemplazar). */}
+                    {arcaConfig.has_certificate && (
+                      <span style={{ color: '#34d399', fontSize: '0.7rem', fontWeight: 600 }}>✓ Certificado configurado</span>
+                    )}
                   </label>
                   <textarea
                     value={arcaConfig.cert_file || ''}
                     onChange={(e) => setArcaConfig({ ...arcaConfig, cert_file: e.target.value })}
-                    placeholder={'-----BEGIN CERTIFICATE-----\nMIID...\n-----END CERTIFICATE-----'}
+                    placeholder={arcaConfig.has_certificate
+                      ? 'Dejalo vacío para conservar el certificado actual. Pegá uno nuevo solo para reemplazarlo.'
+                      : '-----BEGIN CERTIFICATE-----\nMIID...\n-----END CERTIFICATE-----'}
                     rows={5}
                     style={{
                       width: '100%',
@@ -1274,7 +1300,11 @@ export default function Settings() {
                   />
                   <p style={{ margin: '0.3rem 0 0', fontSize: '0.75rem', color: '#64748b' }}>
                     Abrí el archivo .crt con el Bloc de Notas, seleccioná todo (Ctrl+A) y pegalo acá.
-                    {arcaConfig.cert_file && <span style={{ color: '#34d399', marginLeft: '0.5rem' }}>✓ Certificado cargado</span>}
+                    {arcaConfig.cert_file?.trim()
+                      ? <span style={{ color: '#fbbf24', marginLeft: '0.5rem' }}>Se reemplazará el certificado al guardar.</span>
+                      : arcaConfig.has_certificate
+                        ? <span style={{ color: '#64748b', marginLeft: '0.5rem' }}>Vacío = se conserva el certificado actual.</span>
+                        : null}
                   </p>
                 </div>
 
