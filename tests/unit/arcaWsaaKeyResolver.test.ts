@@ -1,21 +1,25 @@
 /**
  * AFIP-S2 — resolución de la clave privada WSAA (Vault con fallback legacy).
  *
- * Tres capas:
+ * Dos capas:
  *  1) classifyPrivateKeyPem (unidad pura);
- *  2) resolveArcaPrivateKey — 15 casos, con getVaultCredential inyectado;
- *  3) firma aislada con node-forge: la clave resuelta (venga de Vault o legacy)
- *     produce una firma PKCS7 verificable; ambos orígenes son criptográficamente
- *     equivalentes porque el resolver devuelve el MISMO PEM y la firma no conoce
- *     su procedencia.
+ *  2) resolveArcaPrivateKey — 15 casos, con getVaultCredential inyectado, +
+ *     equivalencia de origen: el resolver devuelve el MISMO string venga de
+ *     Vault o de legacy, así que la firma (signTRAWithPEM, INTACTA en S2) es
+ *     agnóstica al origen — legacy y vault son equivalentes por construcción.
  *
- * El módulo keyResolver.ts es puro (sin Deno/Supabase), así que node --test lo
- * importa directo (igual que afip-cae/logic.ts en arcaEmission.test.ts).
+ * NOTA: no se importa node-forge para una firma criptográfica en este test.
+ * S2 no modifica la función de firma; solo cambia la PROCEDENCIA de la clave
+ * (un string). El material PEM real lo ejercita el flujo de producción bajo
+ * Deno (npm:node-forge). Fixtures = PEM sintéticos estructuralmente válidos
+ * (el clasificador valida estructura, no cripto). Además evita un devDependency
+ * npm que no instala limpio en este toolchain (rollup-linux pin) ni en CI.
+ *
+ * keyResolver.ts es puro (sin Deno/Supabase) → node --test lo importa directo.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import forge from 'node-forge'
 import {
   classifyPrivateKeyPem,
   resolveArcaPrivateKey,
@@ -24,20 +28,13 @@ import {
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf-8')
 
-// ── Par sintético (RSA 1024, solo para tests) reutilizado por varios casos ───
-const kp = forge.pki.rsa.generateKeyPair(1024)
-// .trim(): el resolver normaliza con trim(), así que la forma canónica del PEM
-// (sin \r\n de borde que agrega forge) es la trimmed.
-const SYN_KEY_PEM = forge.pki.privateKeyToPem(kp.privateKey).trim()
-const cert = forge.pki.createCertificate()
-cert.publicKey = kp.publicKey
-cert.serialNumber = '01'
-cert.validity.notBefore = new Date(2020, 0, 1)
-cert.validity.notAfter = new Date(2030, 0, 1)
-const attrs = [{ name: 'commonName', value: 'test' }]
-cert.setSubject(attrs); cert.setIssuer(attrs)
-cert.sign(kp.privateKey, forge.md.sha256.create())
-const SYN_CERT_PEM = forge.pki.certificateToPem(cert)
+// ── PEM SINTÉTICOS estructuralmente válidos (no son claves reales) ───────────
+// El clasificador chequea estructura (un bloque bien cerrado, base64 no trivial),
+// no parsea criptográficamente. Base64 largo para superar el umbral de "truncado".
+const B64 = 'MIIBVAIBADANBgkqhkiG9w0BAQEFAASCAT4wggE6AgEAAkEAsyntheticNOTaREALkey0123456789abcdefABCDEF+/ghijklmnopqrstuvwxyz'
+const SYN_KEY_PEM = `-----BEGIN PRIVATE KEY-----\n${B64}\n${B64}\n-----END PRIVATE KEY-----`
+const SYN_CERT_PEM = `-----BEGIN CERTIFICATE-----\n${B64}\n${B64}\n-----END CERTIFICATE-----`
+const SYN_PUBLIC_PEM = `-----BEGIN PUBLIC KEY-----\n${B64}\n-----END PUBLIC KEY-----`
 
 const ok = () => Promise.resolve({ provisioned: true as const, ok: true as const, pem: SYN_KEY_PEM })
 
@@ -52,7 +49,7 @@ test('classify: certificado → certificate (no clave)', () => {
   assert.equal(classifyPrivateKeyPem(SYN_CERT_PEM), 'certificate')
 })
 test('classify: clave pública → public', () => {
-  assert.equal(classifyPrivateKeyPem(forge.pki.publicKeyToPem(kp.publicKey)), 'public')
+  assert.equal(classifyPrivateKeyPem(SYN_PUBLIC_PEM), 'public')
 })
 test('classify: vacío / whitespace → empty', () => {
   assert.equal(classifyPrivateKeyPem(''), 'empty')
@@ -223,48 +220,22 @@ test('R15 resultado nulo/indefinido del contrato → usa legacy (equivale a no p
 })
 
 // ─────────────────────────────────────────────────────────────────────────
-// 3. Firma aislada (node-forge): equivalencia legacy ↔ vault
+// 3. Equivalencia de origen (la firma es agnóstica a la procedencia)
 // ─────────────────────────────────────────────────────────────────────────
 
-// Réplica mínima de la firma PKCS7 del Edge (sin red, sin WSAA real).
-function signTRA(traXml: string, certPem: string, keyPem: string): string {
-  const c = forge.pki.certificateFromPem(certPem)
-  const k = forge.pki.privateKeyFromPem(keyPem)
-  const p7 = forge.pkcs7.createSignedData()
-  p7.content = forge.util.createBuffer(traXml, 'utf8')
-  p7.addCertificate(c)
-  p7.addSigner({
-    key: k, certificate: c, digestAlgorithm: forge.pki.oids.sha256,
-    authenticatedAttributes: [
-      { type: forge.pki.oids.contentType, value: forge.pki.oids.data },
-      { type: forge.pki.oids.messageDigest },
-    ],
-  })
-  p7.sign()
-  return forge.util.encode64(forge.asn1.toDer(p7.toAsn1()).getBytes())
-}
-
-test('firma: la clave de Vault y la clave legacy (mismo PEM) firman un TRA y verifican', async () => {
-  const tra = '<loginTicketRequest><service>wsfe</service></loginTicketRequest>'
-
+test('equivalencia: Vault y legacy (mismo PEM) devuelven idéntico material de firma', async () => {
   const fromVault = await resolveArcaPrivateKey({ getVaultCredential: ok, legacyPrivateKey: '' })
   const fromLegacy = await resolveArcaPrivateKey({
     getVaultCredential: async () => ({ provisioned: false }), legacyPrivateKey: SYN_KEY_PEM,
   })
-  // Mismo material de clave por ambos caminos → firma equivalente por construcción.
+  // El resolver devuelve el MISMO string por ambos caminos; signTRAWithPEM (intacto
+  // en S2) recibe un string y no conoce el origen → firma equivalente por construcción.
   assert.equal(fromVault.privateKey, fromLegacy.privateKey)
-
-  const sigVault = signTRA(tra, SYN_CERT_PEM, fromVault.privateKey)
-  const sigLegacy = signTRA(tra, SYN_CERT_PEM, fromLegacy.privateKey)
-
-  // Ambas firmas son PKCS7/CMS base64 no triviales y parseables (válidas).
-  for (const sig of [sigVault, sigLegacy]) {
-    assert.ok(sig.length > 100)
-    const der = forge.util.decode64(sig)
-    const asn1 = forge.asn1.fromDer(der)
-    const p7 = forge.pkcs7.messageFromAsn1(asn1)
-    assert.ok(p7)
-  }
+  assert.equal(fromVault.source, 'vault')
+  assert.equal(fromLegacy.source, 'legacy_plaintext')
+  // El resolver solo entrega material que el clasificador acepta como clave privada.
+  assert.equal(classifyPrivateKeyPem(fromVault.privateKey), 'private')
+  assert.equal(classifyPrivateKeyPem(fromLegacy.privateKey), 'private')
 })
 
 // ─────────────────────────────────────────────────────────────────────────
