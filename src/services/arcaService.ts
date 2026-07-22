@@ -1,4 +1,59 @@
 import { supabase } from '../lib/supabase'
+import { sanitizeArcaError } from './arcaSanitize'
+
+// ────────────────────────────────────────────────────────────────────────────
+// AFIP-S1B-A2: contratos tipados del frontend. NINGUNO expone `private_key`.
+//   · ArcaConfigSafe          → lo que devuelve get_arca_config_safe (no secretos)
+//   · ArcaConfigEditable      → lo editable por save_arca_config_legacy
+//   · ArcaCertificateReplacement → solo el certificado PÚBLICO (save_arca_certificate_legacy)
+// El frontend NO hace SELECT/DML directo sobre arca_config: todo pasa por RPC.
+// ────────────────────────────────────────────────────────────────────────────
+
+export type ArcaAmbiente = 'homologacion' | 'produccion'
+/** Estados permitidos por set_arca_estado_conexion (validados server-side). */
+export type ArcaEstadoConexion =
+  | 'conectado' | 'desconectado' | 'error' | 'csr_generado' | 'no_configurado'
+
+/** Campos NO secretos que devuelve get_arca_config_safe. Nunca incluye PEM/clave. */
+export interface ArcaConfigSafe {
+  cuit?: string
+  razon_social?: string
+  ambiente?: ArcaAmbiente
+  punto_venta?: number
+  web_service?: string
+  alias?: string
+  expires_at?: string
+  estado_conexion?: string
+  ultima_sincronizacion?: string
+  ultimo_error?: string
+  // Indicadores de presencia (nunca el contenido del secreto):
+  has_certificate?: boolean
+  has_private_key_configured?: boolean
+  wsaa_token_valid?: boolean
+  configured?: boolean
+}
+
+/** Campos editables por save_arca_config_legacy. Sin cert/clave/token/estado. */
+export interface ArcaConfigEditable {
+  cuit?: string | null
+  razon_social?: string | null
+  ambiente?: ArcaAmbiente | null
+  punto_venta?: number | null
+  web_service?: string | null
+  alias?: string | null
+  expires_at?: string | null
+}
+
+/** Reemplazo del certificado PÚBLICO. Jamás lleva la clave privada. */
+export interface ArcaCertificateReplacement {
+  business_id: string
+  cert_file: string
+}
+
+export interface ArcaSaveResult { success: boolean; updated_at?: string }
+
+/** Forma mínima que devuelven las RPC de escritura (jsonb {success, updated_at}). */
+type RpcSavePayload = { success?: boolean; updated_at?: string } | null
 
 /**
  * Servicio para integración con ARCA/AFIP.
@@ -22,11 +77,63 @@ export class ArcaService {
     return data
   }
 
-  static async saveArcaConfig(businessId: string, fields: Record<string, any>) {
-    const { error } = await supabase
-      .from('arca_config')
-      .upsert({ ...fields, business_id: businessId }, { onConflict: 'business_id' })
+  /**
+   * Guarda la configuración NO secreta vía save_arca_config_legacy (AFIP-S1B-A2).
+   * Mapea cada parámetro explícitamente — NUNCA hace spread ni envía secretos
+   * (cert/clave/token/estado). NULL = preservar el valor existente (server-side).
+   */
+  static async saveArcaConfig(
+    businessId: string,
+    editable: ArcaConfigEditable
+  ): Promise<ArcaSaveResult> {
+    const { data, error } = await supabase.rpc('save_arca_config_legacy', {
+      p_business_id: businessId,
+      p_cuit:         editable.cuit ?? null,
+      p_razon_social: editable.razon_social ?? null,
+      p_ambiente:     editable.ambiente ?? null,
+      p_punto_venta:  editable.punto_venta ?? null,
+      p_web_service:  editable.web_service ?? null,
+      p_alias:        editable.alias ?? null,
+      p_expires_at:   editable.expires_at ?? null,
+    })
     if (error) throw new Error(error.message)
+    const res = data as RpcSavePayload
+    return { success: res?.success ?? false, updated_at: res?.updated_at }
+  }
+
+  /**
+   * Reemplaza el certificado PÚBLICO vía save_arca_certificate_legacy.
+   * Solo se llama cuando el usuario pegó un certificado nuevo y no vacío.
+   * Rechaza claves privadas (defensa cliente; el server también valida el header).
+   */
+  static async saveCertificate(businessId: string, certFile: string): Promise<ArcaSaveResult> {
+    const cert = (certFile ?? '').trim()
+    if (!cert) throw new Error('El certificado está vacío')
+    if (/PRIVATE KEY/i.test(cert)) throw new Error('El campo certificado no admite claves privadas')
+    if (!cert.startsWith('-----BEGIN CERTIFICATE-----')) {
+      throw new Error('El certificado no tiene el formato PEM público esperado')
+    }
+    const { data, error } = await supabase.rpc('save_arca_certificate_legacy', {
+      p_business_id: businessId,
+      p_cert_file: cert,
+    })
+    if (error) throw new Error(error.message)
+    const res = data as RpcSavePayload
+    return { success: res?.success ?? false, updated_at: res?.updated_at }
+  }
+
+  /** Actualiza el estado de conexión vía set_arca_estado_conexion (sin DML directo). */
+  static async setEstadoConexion(
+    businessId: string,
+    estado: ArcaEstadoConexion,
+    error?: unknown
+  ): Promise<void> {
+    const { error: rpcError } = await supabase.rpc('set_arca_estado_conexion', {
+      p_business_id: businessId,
+      p_estado: estado,
+      p_error: estado === 'error' ? sanitizeArcaError(error) : null,
+    })
+    if (rpcError) throw new Error(rpcError.message)
   }
 
   // ──────────────────────────────────────────────
@@ -100,10 +207,13 @@ export class ArcaService {
     } catch (error: any) {
       console.error('Error testing ARCA connection:', error)
 
-      await supabase
-        .from('arca_config')
-        .update({ estado_conexion: 'error', ultimo_error: error.message })
-        .eq('business_id', businessId)
+      // AFIP-S1B-A2: estado por RPC (sin DML directo). El mensaje va sanitizado
+      // (sin PEM/XML/token); el server además lo trunca a 500.
+      try {
+        await this.setEstadoConexion(businessId, 'error', error)
+      } catch (persistErr) {
+        console.error('No se pudo registrar el estado de conexión ARCA:', persistErr)
+      }
 
       return { success: false, message: error.message || 'Error al conectar con ARCA' }
     }
@@ -412,45 +522,12 @@ export class ArcaService {
   }
 
   // ──────────────────────────────────────────────
-  // Upload de certificados
+  // Certificados
   // ──────────────────────────────────────────────
-
-  /**
-   * Sube un certificado PEM, clave privada PEM o PFX al perfil ARCA.
-   * Encripta el contenido antes de guardarlo (si la RPC encrypt_data existe).
-   */
-  static async uploadCertificate(
-    businessId: string,
-    type: 'cert_file' | 'private_key' | 'pfx_file',
-    content: string,   // Base64 o texto PEM
-    expiresAt?: string,
-    pfxPassword?: string
-  ) {
-    try {
-      let encrypted = content
-      try {
-        const { data } = await supabase.rpc('encrypt_data', { plain_text: content })
-        if (data) encrypted = data
-      } catch {
-        // encrypt_data RPC no existe — guardar como texto plano
-      }
-
-      const fields: Record<string, any> = { [type]: encrypted }
-      if (expiresAt) fields.expires_at = expiresAt
-      if (pfxPassword && type === 'pfx_file') {
-        try {
-          const { data } = await supabase.rpc('encrypt_data', { plain_text: pfxPassword })
-          fields.pfx_password = data || pfxPassword
-        } catch {
-          fields.pfx_password = pfxPassword
-        }
-      }
-
-      await this.saveArcaConfig(businessId, fields)
-    } catch (error: any) {
-      throw new Error('Error al guardar el certificado: ' + error.message)
-    }
-  }
+  // AFIP-S1B-A2: `uploadCertificate` fue ELIMINADO. Aceptaba `private_key` en el
+  // frontend y escribía secretos vía DML directo — vector prohibido. La carga del
+  // certificado PÚBLICO ahora pasa por `saveCertificate` (RPC, solo cert_file). La
+  // clave privada la genera server-side `generate-csr` y NUNCA la toca el cliente.
 }
 
 export default ArcaService
