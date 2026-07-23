@@ -41,6 +41,16 @@ jobs:
           VITE_SUPABASE_URL: https://placeholder.supabase.co
           VITE_SUPABASE_ANON_KEY: placeholder-anon-key
 
+      # AFIP-S3A: prueba criptográfica en el MISMO runtime que las Edge Functions.
+      # Deno resuelve npm:node-forge por su cuenta (--node-modules-dir=auto), así
+      # que no toca package.json ni package-lock.json.
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Deno crypto test (AFIP key/cert correspondence + PKCS7 signing)
+        run: npm run test:deno
+
   # ── E2E smoke tests ───────────────────────────────────────────────────────
   # Runs only on push to main (PRs don't have access to repo secrets)
   e2e-smoke:
