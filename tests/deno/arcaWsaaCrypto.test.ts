@@ -45,11 +45,28 @@ function makePair(cn: string) {
 const A = makePair('s3a-A')
 const B = makePair('s3a-B')
 
-/** Misma invariante que afip-wsaa::verifyCertKeyMatch y que la función SQL. */
+/**
+ * Correspondencia clave↔certificado: compara (n, e) del SubjectPublicKeyInfo
+ * del certificado contra los de la clave privada. Misma invariante que
+ * afip-wsaa::verifyCertKeyMatch y que private.arca_key_matches_certificate.
+ */
 function certMatchesKey(certPem: string, keyPem: string): boolean {
   const c = forge.pki.certificateFromPem(certPem)
   const k = forge.pki.privateKeyFromPem(keyPem)
-  return c.publicKey.n.toString(16) === k.n.toString(16)
+  return c.publicKey.n.toString(16) === k.n.toString(16) &&
+         c.publicKey.e.toString(16) === k.e.toString(16)
+}
+
+/**
+ * Fingerprint canónico de la clave pública RSA = SHA-256 del SubjectPublicKeyInfo
+ * DER (incluye modulus Y publicExponent). Debe coincidir EXACTAMENTE con
+ * private.arca_rsa_public_key_fingerprint_sha256 en SQL.
+ */
+async function rsaPublicKeyFingerprintSha256(pub: any): Promise<string> {
+  const der = forge.asn1.toDer(forge.pki.publicKeyToAsn1(pub)).getBytes()
+  const bytes = Uint8Array.from(der, (ch: string) => ch.charCodeAt(0))
+  const d = await crypto.subtle.digest('SHA-256', bytes)
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 /** Réplica mínima de la firma PKCS7 del Edge (sin red, sin WSAA real). */
@@ -88,17 +105,44 @@ Deno.test('correspondencia clave↔certificado: el par A corresponde; la clave B
   assert(!certMatchesKey(A.certPem, B.keyPem), 'B NO debe corresponder al cert A')
 })
 
-Deno.test('el módulo del par A aparece en el DER del certificado (misma prueba que hace SQL)', () => {
-  // private.arca_key_matches_certificate busca el INTEGER modulus dentro del DER
-  // del certificado. Acá se replica el criterio para validar que es correcto.
-  const certDer = forge.util.createBuffer(forge.pki.pemToDer(A.certPem).getBytes()).toHex()
-  let modHex = A.priv.n.toString(16)
-  if (modHex.length % 2) modHex = '0' + modHex
-  if (parseInt(modHex.slice(0, 2), 16) >= 0x80) modHex = '00' + modHex
-  assert(certDer.includes(modHex), 'el módulo debe estar contenido en el DER del certificado')
+Deno.test('el SPKI del certificado es la fuente de verdad, no la presencia de bytes', () => {
+  // La correspondencia se decide por (n,e) del SubjectPublicKeyInfo, NO por que
+  // el módulo aparezca en algún lugar del DER (ver el caso "trampa" en la suite
+  // SQL: un cert con el módulo de A dentro de una extensión pero SPKI = B).
+  const certA = forge.pki.certificateFromPem(A.certPem)
+  assertEquals(certA.publicKey.n.toString(16), A.priv.n.toString(16))
+  assertEquals(certA.publicKey.e.toString(16), A.priv.e.toString(16))
+  const certB = forge.pki.certificateFromPem(B.certPem)
+  assertNotEquals(certB.publicKey.n.toString(16), A.priv.n.toString(16))
+})
 
-  const certDerB = forge.util.createBuffer(forge.pki.pemToDer(B.certPem).getBytes()).toHex()
-  assert(!certDerB.includes(modHex), 'el módulo de A no debe estar en el cert de B')
+Deno.test('fingerprint canónico: incluye el exponente y distingue claves', async () => {
+  const fpA = await rsaPublicKeyFingerprintSha256(A.priv)   // forge acepta la privada como fuente de n/e
+  const fpB = await rsaPublicKeyFingerprintSha256(B.priv)
+  assertNotEquals(fpA, fpB, 'claves distintas → fingerprints distintos')
+  assertEquals(fpA.length, 64)
+
+  // Mismo modulus, exponente distinto → fingerprint DISTINTO (no es sha256(n)).
+  const pubE17 = forge.pki.setRsaPublicKey(A.priv.n, new forge.jsbn.BigInteger('17'))
+  const fpE17 = await rsaPublicKeyFingerprintSha256(pubE17)
+  assertNotEquals(fpE17, fpA, 'el exponente debe participar del fingerprint')
+
+  // El fingerprint del certificado (su SPKI) coincide con el de la clave.
+  const certA = forge.pki.certificateFromPem(A.certPem)
+  assertEquals(await rsaPublicKeyFingerprintSha256(certA.publicKey), fpA)
+})
+
+Deno.test('el fingerprint es el SHA-256 del SPKI DER estándar (interoperable)', async () => {
+  // publicKeyToAsn1 emite SubjectPublicKeyInfo: SEQUENCE{AlgorithmIdentifier,
+  // BIT STRING{RSAPublicKey}} — lo mismo que `openssl rsa -pubout -outform DER`.
+  const der = forge.asn1.toDer(forge.pki.publicKeyToAsn1(A.priv)).getBytes()
+  const bytes = Uint8Array.from(der, (ch: string) => ch.charCodeAt(0))
+  assertEquals(bytes[0], 0x30, 'SPKI arranca con SEQUENCE')
+  // OID rsaEncryption 1.2.840.113549.1.1.1
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')
+  assert(hex.includes('06092a864886f70d010101'), 'debe llevar el OID rsaEncryption')
+  assertEquals(await rsaPublicKeyFingerprintSha256(A.priv),
+    [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join(''))
 })
 
 Deno.test('firma PKCS7/CMS: la clave desde Vault y desde legacy producen firmas válidas', async () => {

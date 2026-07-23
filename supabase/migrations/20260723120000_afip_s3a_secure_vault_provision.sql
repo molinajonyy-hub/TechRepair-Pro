@@ -13,14 +13,18 @@
 -- y NO contiene DML productivo. Reutiliza íntegro el contrato S1A (no crea una
 -- arquitectura paralela).
 --
--- FINGERPRINT CANÓNICO: SHA-256 del *módulo RSA* (no del texto PEM). Es estable
--- ante CRLF/LF/espacios y ante re-codificación PKCS#1 ↔ PKCS#8, e identifica la
--- clave pública (equivalente en propósito a un fingerprint SPKI).
+-- FINGERPRINT CANÓNICO (S3A.1): SHA-256 del SubjectPublicKeyInfo DER completo,
+-- que incluye modulus Y publicExponent — el mismo DER que emite
+-- `openssl rsa -pubout -outform DER`. Es un identificador estándar de la CLAVE
+-- PÚBLICA, estable ante CRLF/LF/espacios y ante re-codificación PKCS#1 ↔ PKCS#8.
+-- NO es un hash del módulo suelto ni del texto PEM.
 --
--- CORRESPONDENCIA CLAVE↔CERTIFICADO: criptográfica, no textual. Se extrae el
--- módulo del RSAPrivateKey y se exige que aparezca en el DER del certificado
--- (el SPKI del cert contiene ese mismo INTEGER). Es la misma igualdad de módulo
--- que verifica afip-wsaa (verifyCertKeyMatch: cert.publicKey.n === privateKey.n).
+-- CORRESPONDENCIA CLAVE↔CERTIFICADO (S3A.1): criptográfica y ESTRUCTURAL. Se
+-- extraen (n,e) del RSAPrivateKey y (n,e) del SubjectPublicKeyInfo del
+-- certificado navegando tags/longitudes DER (validando OID rsaEncryption y el
+-- BIT STRING con unused bits = 0), y se comparan ambos valores. NO se busca el
+-- módulo como subcadena del DER: un módulo colocado en una extensión NO produce
+-- match. Es la misma igualdad (n,e) que verifica afip-wsaa (verifyCertKeyMatch).
 -- ============================================================================
 
 -- ── 1. Auditoría: allowlist de eventos de provisión ─────────────────────────
@@ -71,77 +75,253 @@ ALTER FUNCTION private.arca_der_len(bytea,integer) OWNER TO postgres;
 REVOKE ALL ON FUNCTION private.arca_der_len(bytea,integer) FROM PUBLIC, anon, authenticated, service_role;
 
 -- PEM → DER canónico (ignora encabezados, saltos de línea y espacios).
+-- FAIL-CLOSED: si el contenido no es base64 válido devuelve NULL en vez de lanzar.
 CREATE OR REPLACE FUNCTION private.arca_pem_to_der(p_pem text) RETURNS bytea
-LANGUAGE sql IMMUTABLE
-SET search_path = pg_catalog, pg_temp
-AS $$
-  SELECT decode(regexp_replace(regexp_replace(coalesce(p_pem,''), '-----(BEGIN|END)[^-]*-----', '', 'g'), '\s', '', 'g'), 'base64');
-$$;
-ALTER FUNCTION private.arca_pem_to_der(text) OWNER TO postgres;
-REVOKE ALL ON FUNCTION private.arca_pem_to_der(text) FROM PUBLIC, anon, authenticated, service_role;
-
--- Módulo RSA desde un DER de clave privada (PKCS#1 RSAPrivateKey o PKCS#8).
--- Devuelve NULL si no puede parsearse (fail-closed aguas arriba).
-CREATE OR REPLACE FUNCTION private.arca_rsa_modulus(p_der bytea) RETURNS bytea
 LANGUAGE plpgsql IMMUTABLE
 SET search_path = pg_catalog, pg_temp
 AS $$
-DECLARE c0 integer; l0 integer; i integer; ml integer; ms integer; inner_der bytea;
+DECLARE b text;
 BEGIN
-  IF p_der IS NULL OR length(p_der) < 16 THEN RETURN NULL; END IF;
-  IF get_byte(p_der,0) <> 48 THEN RETURN NULL; END IF;                 -- SEQUENCE
-  SELECT len, content_start INTO l0, c0 FROM private.arca_der_len(p_der, 0);
-  IF get_byte(p_der,c0) <> 2 THEN RETURN NULL; END IF;                 -- INTEGER version
-  i := c0 + 2 + get_byte(p_der, c0+1);                                 -- saltar version
+  b := regexp_replace(regexp_replace(coalesce(p_pem,''), '-----(BEGIN|END)[^-]*-----', '', 'g'), '\s', '', 'g');
+  IF b = '' THEN RETURN NULL; END IF;
+  BEGIN
+    RETURN decode(b, 'base64');
+  EXCEPTION WHEN others THEN
+    RETURN NULL;
+  END;
+END $$;
+ALTER FUNCTION private.arca_pem_to_der(text) OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.arca_pem_to_der(text) FROM PUBLIC, anon, authenticated, service_role;
 
-  -- PKCS#8: tras version viene AlgorithmIdentifier (SEQUENCE) y luego el
-  -- OCTET STRING con el PKCS#1 embebido → desenvolver y recursar.
+-- Offset del elemento SIGUIENTE (salta tag+longitud+contenido).
+CREATE OR REPLACE FUNCTION private.arca_der_next(p bytea, i integer) RETURNS integer
+LANGUAGE plpgsql IMMUTABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE l integer; c integer;
+BEGIN
+  SELECT len, content_start INTO l, c FROM private.arca_der_len(p, i);
+  RETURN c + l;
+END $$;
+ALTER FUNCTION private.arca_der_next(bytea,integer) OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.arca_der_next(bytea,integer) FROM PUBLIC, anon, authenticated, service_role;
+
+-- Entero sin signo canónico: quita los 0x00 de relleno a la izquierda.
+CREATE OR REPLACE FUNCTION private.arca_uint_canon(v bytea) RETURNS bytea
+LANGUAGE plpgsql IMMUTABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE i integer := 0;
+BEGIN
+  IF v IS NULL OR length(v) = 0 THEN RETURN NULL; END IF;
+  WHILE i < length(v) - 1 AND get_byte(v, i) = 0 LOOP i := i + 1; END LOOP;
+  RETURN substring(v from i+1 for length(v)-i);
+END $$;
+ALTER FUNCTION private.arca_uint_canon(bytea) OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.arca_uint_canon(bytea) FROM PUBLIC, anon, authenticated, service_role;
+
+-- Codificación DER de una longitud (corta / larga 1-2 bytes).
+CREATE OR REPLACE FUNCTION private.arca_der_enc_len(n integer) RETURNS bytea
+LANGUAGE plpgsql IMMUTABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+  IF n < 0 THEN RAISE EXCEPTION 'longitud negativa'; END IF;
+  IF n < 128 THEN RETURN decode(lpad(to_hex(n),2,'0'),'hex'); END IF;
+  IF n < 256 THEN RETURN '\x81'::bytea || decode(lpad(to_hex(n),2,'0'),'hex'); END IF;
+  IF n < 65536 THEN
+    RETURN '\x82'::bytea || decode(lpad(to_hex(n/256),2,'0'),'hex') || decode(lpad(to_hex(n%256),2,'0'),'hex');
+  END IF;
+  RAISE EXCEPTION 'longitud DER no soportada';
+END $$;
+ALTER FUNCTION private.arca_der_enc_len(integer) OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.arca_der_enc_len(integer) FROM PUBLIC, anon, authenticated, service_role;
+
+-- INTEGER DER a partir de un unsigned canónico (agrega 0x00 si el bit alto está en 1).
+CREATE OR REPLACE FUNCTION private.arca_der_enc_int(v bytea) RETURNS bytea
+LANGUAGE plpgsql IMMUTABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE b bytea;
+BEGIN
+  b := private.arca_uint_canon(v);
+  IF get_byte(b,0) >= 128 THEN b := '\x00'::bytea || b; END IF;
+  RETURN '\x02'::bytea || private.arca_der_enc_len(length(b)) || b;
+END $$;
+ALTER FUNCTION private.arca_der_enc_int(bytea) OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.arca_der_enc_int(bytea) FROM PUBLIC, anon, authenticated, service_role;
+
+-- ── Identidad canónica de la clave pública RSA ──────────────────────────────
+-- SubjectPublicKeyInfo DER a partir de (n, e):
+--   SEQUENCE { SEQUENCE { OID rsaEncryption, NULL }, BIT STRING { SEQUENCE { INTEGER n, INTEGER e } } }
+-- Es el MISMO DER que produce `openssl rsa -pubout -outform DER`, así que el
+-- fingerprint identifica la CLAVE PÚBLICA (modulus Y exponent) de forma estándar.
+CREATE OR REPLACE FUNCTION private.arca_rsa_spki_der(p_n bytea, p_e bytea) RETURNS bytea
+LANGUAGE plpgsql IMMUTABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE v_rsa bytea; v_bits bytea; v_alg bytea; v_body bytea;
+BEGIN
+  IF p_n IS NULL OR p_e IS NULL THEN RETURN NULL; END IF;
+  v_rsa := private.arca_der_enc_int(p_n) || private.arca_der_enc_int(p_e);
+  v_rsa := '\x30'::bytea || private.arca_der_enc_len(length(v_rsa)) || v_rsa;
+  v_bits := '\x00'::bytea || v_rsa;                                   -- unused bits = 0
+  v_bits := '\x03'::bytea || private.arca_der_enc_len(length(v_bits)) || v_bits;
+  v_alg := '\x300d06092a864886f70d0101010500'::bytea;                 -- rsaEncryption + NULL
+  v_body := v_alg || v_bits;
+  RETURN '\x30'::bytea || private.arca_der_enc_len(length(v_body)) || v_body;
+END $$;
+ALTER FUNCTION private.arca_rsa_spki_der(bytea,bytea) OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.arca_rsa_spki_der(bytea,bytea) FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION private.arca_rsa_public_key_fingerprint_sha256(p_n bytea, p_e bytea) RETURNS text
+LANGUAGE plpgsql IMMUTABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE d bytea;
+BEGIN
+  d := private.arca_rsa_spki_der(p_n, p_e);
+  IF d IS NULL THEN RETURN NULL; END IF;
+  RETURN encode(extensions.digest(d, 'sha256'), 'hex');
+END $$;
+ALTER FUNCTION private.arca_rsa_public_key_fingerprint_sha256(bytea,bytea) OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.arca_rsa_public_key_fingerprint_sha256(bytea,bytea) FROM PUBLIC, anon, authenticated, service_role;
+
+-- ── Extracción ESTRUCTURADA de (n,e) desde la clave privada ─────────────────
+CREATE OR REPLACE FUNCTION private.arca_rsa_pubkey_from_private(
+  p_der bytea, OUT n bytea, OUT e bytea)
+LANGUAGE plpgsql IMMUTABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE l0 integer; c0 integer; i integer; ln integer; cn integer; le integer; ce integer;
+        al integer; ac integer; ol integer; oc integer;
+BEGIN
+  n := NULL; e := NULL;
+  IF p_der IS NULL OR length(p_der) < 32 THEN RETURN; END IF;
+  IF get_byte(p_der,0) <> 48 THEN RETURN; END IF;
+  SELECT len, content_start INTO l0, c0 FROM private.arca_der_len(p_der, 0);
+  IF c0 + l0 <> length(p_der) THEN RETURN; END IF;                     -- datos sobrantes
+  IF get_byte(p_der,c0) <> 2 THEN RETURN; END IF;                      -- INTEGER version
+  i := private.arca_der_next(p_der, c0);
+
+  -- PKCS#8: version, AlgorithmIdentifier(SEQUENCE), OCTET STRING{PKCS#1}
   IF get_byte(p_der, i) = 48 THEN
-    DECLARE al integer; asx integer; ol integer; os2 integer;
-    BEGIN
-      SELECT len, content_start INTO al, asx FROM private.arca_der_len(p_der, i);
-      i := asx + al;                                                   -- fin del AlgorithmIdentifier
-      IF get_byte(p_der, i) <> 4 THEN RETURN NULL; END IF;             -- OCTET STRING
-      SELECT len, content_start INTO ol, os2 FROM private.arca_der_len(p_der, i);
-      inner_der := substring(p_der from os2+1 for ol);
-      RETURN private.arca_rsa_modulus(inner_der);
-    END;
+    SELECT len, content_start INTO al, ac FROM private.arca_der_len(p_der, i);
+    IF substring(p_der from ac+1 for 11) <> '\x06092a864886f70d010101'::bytea THEN RETURN; END IF;
+    i := ac + al;
+    IF get_byte(p_der, i) <> 4 THEN RETURN; END IF;
+    SELECT len, content_start INTO ol, oc FROM private.arca_der_len(p_der, i);
+    SELECT (r).n, (r).e INTO n, e FROM (SELECT private.arca_rsa_pubkey_from_private(substring(p_der from oc+1 for ol)) AS r) s;
+    RETURN;
   END IF;
 
-  IF get_byte(p_der, i) <> 2 THEN RETURN NULL; END IF;                 -- INTEGER modulus
-  SELECT len, content_start INTO ml, ms FROM private.arca_der_len(p_der, i);
-  IF ml IS NULL OR ml < 64 THEN RETURN NULL; END IF;                   -- < 512 bits: inaceptable
-  RETURN substring(p_der from ms+1 for ml);
-END $$;
-ALTER FUNCTION private.arca_rsa_modulus(bytea) OWNER TO postgres;
-REVOKE ALL ON FUNCTION private.arca_rsa_modulus(bytea) FROM PUBLIC, anon, authenticated, service_role;
+  -- PKCS#1: version, modulus, publicExponent, ...
+  IF get_byte(p_der, i) <> 2 THEN RETURN; END IF;
+  SELECT len, content_start INTO ln, cn FROM private.arca_der_len(p_der, i);
+  IF get_byte(p_der, cn) >= 128 THEN RETURN; END IF;                   -- INTEGER negativo
+  i := cn + ln;
+  IF get_byte(p_der, i) <> 2 THEN RETURN; END IF;
+  SELECT len, content_start INTO le, ce FROM private.arca_der_len(p_der, i);
+  IF get_byte(p_der, ce) >= 128 THEN RETURN; END IF;
 
--- Fingerprint canónico de la clave: SHA-256 del módulo RSA (hex).
+  n := private.arca_uint_canon(substring(p_der from cn+1 for ln));
+  e := private.arca_uint_canon(substring(p_der from ce+1 for le));
+  IF length(n) < 128 THEN n := NULL; e := NULL; RETURN; END IF;        -- < 1024 bits
+  IF length(e) = 0 OR (get_byte(e, length(e)-1) % 2) = 0 THEN n := NULL; e := NULL; RETURN; END IF;
+  IF length(e) = 1 AND get_byte(e,0) <= 1 THEN n := NULL; e := NULL; RETURN; END IF;
+END $$;
+ALTER FUNCTION private.arca_rsa_pubkey_from_private(bytea) OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.arca_rsa_pubkey_from_private(bytea) FROM PUBLIC, anon, authenticated, service_role;
+
+-- ── Extracción ESTRUCTURADA de (n,e) desde el SubjectPublicKeyInfo del cert ──
+-- Certificate → tbsCertificate → [0] version? → serial → sigAlg → issuer →
+-- validity → subject → SPKI → alg(OID rsaEncryption) → BIT STRING(unused=0) →
+-- RSAPublicKey → (modulus, publicExponent). Navega tags/longitudes; NO busca bytes.
+CREATE OR REPLACE FUNCTION private.arca_rsa_pubkey_from_cert(
+  p_der bytea, OUT n bytea, OUT e bytea)
+LANGUAGE plpgsql IMMUTABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE l0 integer; c0 integer; lt integer; ct integer; i integer;
+        ls integer; cs integer; la integer; ca integer; lb integer; cb integer;
+        lr integer; cr integer; ln integer; cn integer; le integer; ce integer;
+BEGIN
+  n := NULL; e := NULL;
+  IF p_der IS NULL OR length(p_der) < 64 THEN RETURN; END IF;
+  IF get_byte(p_der,0) <> 48 THEN RETURN; END IF;                      -- Certificate
+  SELECT len, content_start INTO l0, c0 FROM private.arca_der_len(p_der, 0);
+  IF c0 + l0 <> length(p_der) THEN RETURN; END IF;                     -- truncado/sobrante
+  IF get_byte(p_der,c0) <> 48 THEN RETURN; END IF;                     -- tbsCertificate
+  SELECT len, content_start INTO lt, ct FROM private.arca_der_len(p_der, c0);
+  IF ct + lt > length(p_der) THEN RETURN; END IF;
+
+  i := ct;
+  IF get_byte(p_der, i) = 160 THEN i := private.arca_der_next(p_der, i); END IF;  -- [0] version
+  i := private.arca_der_next(p_der, i);   -- serialNumber
+  i := private.arca_der_next(p_der, i);   -- signature
+  i := private.arca_der_next(p_der, i);   -- issuer
+  i := private.arca_der_next(p_der, i);   -- validity
+  i := private.arca_der_next(p_der, i);   -- subject
+  IF i >= ct + lt THEN RETURN; END IF;
+  IF get_byte(p_der, i) <> 48 THEN RETURN; END IF;                     -- SubjectPublicKeyInfo
+  SELECT len, content_start INTO ls, cs FROM private.arca_der_len(p_der, i);
+  IF cs + ls > ct + lt THEN RETURN; END IF;
+
+  IF get_byte(p_der, cs) <> 48 THEN RETURN; END IF;                    -- AlgorithmIdentifier
+  SELECT len, content_start INTO la, ca FROM private.arca_der_len(p_der, cs);
+  IF substring(p_der from ca+1 for 11) <> '\x06092a864886f70d010101'::bytea THEN RETURN; END IF;
+
+  i := ca + la;
+  IF get_byte(p_der, i) <> 3 THEN RETURN; END IF;                      -- BIT STRING
+  SELECT len, content_start INTO lb, cb FROM private.arca_der_len(p_der, i);
+  IF lb < 2 OR get_byte(p_der, cb) <> 0 THEN RETURN; END IF;           -- unused bits != 0
+
+  i := cb + 1;
+  IF get_byte(p_der, i) <> 48 THEN RETURN; END IF;                     -- RSAPublicKey
+  SELECT len, content_start INTO lr, cr FROM private.arca_der_len(p_der, i);
+  IF cr + lr > cb + lb THEN RETURN; END IF;
+  IF get_byte(p_der, cr) <> 2 THEN RETURN; END IF;
+  SELECT len, content_start INTO ln, cn FROM private.arca_der_len(p_der, cr);
+  IF get_byte(p_der, cn) >= 128 THEN RETURN; END IF;
+  i := cn + ln;
+  IF get_byte(p_der, i) <> 2 THEN RETURN; END IF;
+  SELECT len, content_start INTO le, ce FROM private.arca_der_len(p_der, i);
+  IF get_byte(p_der, ce) >= 128 THEN RETURN; END IF;
+
+  n := private.arca_uint_canon(substring(p_der from cn+1 for ln));
+  e := private.arca_uint_canon(substring(p_der from ce+1 for le));
+  IF length(n) < 128 THEN n := NULL; e := NULL; END IF;
+END $$;
+ALTER FUNCTION private.arca_rsa_pubkey_from_cert(bytea) OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.arca_rsa_pubkey_from_cert(bytea) FROM PUBLIC, anon, authenticated, service_role;
+
+-- Fingerprint canónico de la clave privada (identidad de su clave pública).
 CREATE OR REPLACE FUNCTION private.arca_key_fingerprint(p_pem text) RETURNS text
 LANGUAGE plpgsql IMMUTABLE
 SET search_path = pg_catalog, pg_temp
 AS $$
-DECLARE m bytea;
+DECLARE k record;
 BEGIN
-  m := private.arca_rsa_modulus(private.arca_pem_to_der(p_pem));
-  IF m IS NULL THEN RETURN NULL; END IF;
-  RETURN encode(extensions.digest(m, 'sha256'), 'hex');
+  SELECT * INTO k FROM private.arca_rsa_pubkey_from_private(private.arca_pem_to_der(p_pem));
+  IF k.n IS NULL OR k.e IS NULL THEN RETURN NULL; END IF;
+  RETURN private.arca_rsa_public_key_fingerprint_sha256(k.n, k.e);
 END $$;
 ALTER FUNCTION private.arca_key_fingerprint(text) OWNER TO postgres;
 REVOKE ALL ON FUNCTION private.arca_key_fingerprint(text) FROM PUBLIC, anon, authenticated, service_role;
 
--- ¿El certificado contiene el módulo de esta clave? (correspondencia criptográfica)
+-- Correspondencia clave↔certificado: compara (n,e) extraídos ESTRUCTURALMENTE
+-- del RSAPrivateKey y del SubjectPublicKeyInfo. Un módulo que aparezca en otra
+-- parte del certificado (p.ej. una extensión) NO produce match.
 CREATE OR REPLACE FUNCTION private.arca_key_matches_certificate(p_key_pem text, p_cert_pem text) RETURNS boolean
 LANGUAGE plpgsql IMMUTABLE
 SET search_path = pg_catalog, pg_temp
 AS $$
-DECLARE m bytea; c bytea;
+DECLARE k record; c record;
 BEGIN
-  m := private.arca_rsa_modulus(private.arca_pem_to_der(p_key_pem));
-  c := private.arca_pem_to_der(p_cert_pem);
-  IF m IS NULL OR c IS NULL OR length(c) = 0 THEN RETURN false; END IF;
-  -- El SPKI del certificado contiene el mismo INTEGER modulus (misma codificación DER).
-  RETURN position(m in c) > 0;
+  SELECT * INTO k FROM private.arca_rsa_pubkey_from_private(private.arca_pem_to_der(p_key_pem));
+  SELECT * INTO c FROM private.arca_rsa_pubkey_from_cert(private.arca_pem_to_der(p_cert_pem));
+  IF k.n IS NULL OR k.e IS NULL OR c.n IS NULL OR c.e IS NULL THEN RETURN false; END IF;
+  RETURN k.n = c.n AND k.e = c.e;
 END $$;
 ALTER FUNCTION private.arca_key_matches_certificate(text,text) OWNER TO postgres;
 REVOKE ALL ON FUNCTION private.arca_key_matches_certificate(text,text) FROM PUBLIC, anon, authenticated, service_role;
@@ -156,7 +336,7 @@ SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE
-  v_key_pem text; v_cert_pem text; v_fp text; v_cert_fp text; v_modulus bytea;
+  v_key_pem text; v_cert_pem text; v_fp text; v_cert_fp text; v_pub record;
   v_req_hash text; v_prev record; v_existing record; v_readback text; v_readback_fp text;
   v_result jsonb; v_bits integer;
 BEGIN
@@ -210,12 +390,14 @@ BEGIN
     RETURN private.arca_provision_record(p_business_id, p_idempotency_key, v_req_hash, 'LEGACY_KEY_INVALID');
   END IF;
 
-  v_modulus := private.arca_rsa_modulus(private.arca_pem_to_der(v_key_pem));
-  IF v_modulus IS NULL THEN
+  -- Extracción ESTRUCTURADA de (n,e) + fingerprint canónico de la clave pública
+  -- (SPKI DER completo: incluye modulus Y publicExponent).
+  SELECT * INTO v_pub FROM private.arca_rsa_pubkey_from_private(private.arca_pem_to_der(v_key_pem));
+  IF v_pub.n IS NULL OR v_pub.e IS NULL THEN
     RETURN private.arca_provision_record(p_business_id, p_idempotency_key, v_req_hash, 'LEGACY_KEY_INVALID');
   END IF;
-  v_bits := (length(v_modulus) - 1) * 8;
-  v_fp := encode(extensions.digest(v_modulus, 'sha256'), 'hex');
+  v_bits := length(v_pub.n) * 8;
+  v_fp := private.arca_rsa_public_key_fingerprint_sha256(v_pub.n, v_pub.e);
 
   -- Fingerprint esperado (fail-closed ante clave inesperada)
   IF lower(btrim(p_expected_fingerprint)) IS DISTINCT FROM v_fp THEN

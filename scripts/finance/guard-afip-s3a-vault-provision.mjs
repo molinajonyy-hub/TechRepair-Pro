@@ -102,6 +102,35 @@ export function migrationFindings(raw) {
   if (/arca_audit\s*\([^)]*\b(v_key_pem|v_cert_pem|v_readback)\b/i.test(sql)) out.push('audita material de clave')
   if (/arca_audit\s*\([^)]*\.(private_key|cert_file)\b/i.test(sql)) out.push('audita una columna con material')
 
+  // ── S3A.1: identidad canónica de la clave pública ────────────────────────
+  // 9. El fingerprint debe derivarse de (n,e), no solo del módulo.
+  if (!/arca_rsa_public_key_fingerprint_sha256/i.test(sql)) out.push('sin fingerprint canónico de clave pública (n+e)')
+  if (/arca_rsa_modulus\s*\(/i.test(sql)) out.push('usa el fingerprint viejo basado solo en el módulo')
+  if (!/arca_rsa_spki_der/i.test(sql)) out.push('el fingerprint no se construye sobre el SubjectPublicKeyInfo')
+  // El SPKI debe incluir el exponente: la construcción codifica DOS enteros.
+  if (!/arca_der_enc_int\s*\(\s*p_n\s*\)\s*\|\|\s*private\.arca_der_enc_int\s*\(\s*p_e\s*\)/i.test(sql)) {
+    out.push('el SPKI no codifica modulus Y publicExponent')
+  }
+
+  // 10. La correspondencia NO puede resolverse por búsqueda de bytes.
+  const matchFn = /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+private\.arca_key_matches_certificate[\s\S]*?\$\$([\s\S]*?)\$\$/i.exec(sql)
+  const matchBody = matchFn ? matchFn[1] : ''
+  if (/\b(position|strpos)\s*\(/i.test(matchBody) || /\bLIKE\b/i.test(matchBody)) {
+    out.push('la correspondencia clave↔cert usa búsqueda de bytes (position/strpos/LIKE)')
+  }
+  if (!/arca_rsa_pubkey_from_cert/i.test(matchBody)) out.push('la correspondencia no extrae el SPKI del certificado')
+  if (!/\.e\s*=\s*c\.e|k\.e\s*=\s*c\.e/i.test(matchBody)) out.push('la correspondencia no compara el publicExponent')
+
+  // 11. El parser del certificado debe validar OID RSA y BIT STRING.
+  const certFn = /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+private\.arca_rsa_pubkey_from_cert[\s\S]*?\$\$([\s\S]*?)\$\$/i.exec(sql)
+  const certBody = certFn ? certFn[1] : ''
+  if (!certBody) out.push('falta el parser estructurado del certificado')
+  else {
+    if (!/2a864886f70d010101/i.test(certBody)) out.push('el parser del cert no verifica el OID rsaEncryption')
+    if (!/unused bits|<>\s*3\b|get_byte\(p_der,\s*cb\)\s*<>\s*0/i.test(certBody)) out.push('el parser del cert no valida el BIT STRING')
+    if (/\b(position|strpos)\s*\(/i.test(certBody)) out.push('el parser del cert usa búsqueda de bytes')
+  }
+
   return out
 }
 
@@ -121,6 +150,22 @@ export function repoFindings() {
     if (!/npm:node-forge/.test(corpus)) bad.push('la prueba Deno no usa npm:node-forge (mismo runtime que producción)')
     if (!/pkcs7|signedData/i.test(corpus)) bad.push('la prueba Deno no ejercita la firma PKCS7/CMS')
     if (!/certMatchesKey|publicKey\.n/.test(corpus)) bad.push('la prueba Deno no verifica correspondencia clave↔certificado')
+    // S3A.1: Deno debe calcular el MISMO fingerprint canónico que SQL.
+    if (!/publicKeyToAsn1/.test(corpus)) bad.push('la prueba Deno no construye el SPKI para cross-validar el fingerprint')
+    if (!/rsaPublicKeyFingerprintSha256/.test(corpus)) bad.push('la prueba Deno no calcula el fingerprint canónico')
+    if (!/publicKey\.e|BigInteger\('17'\)/.test(corpus)) bad.push('la prueba Deno no verifica que el exponente participa')
+  }
+
+  // El caso "modulus fuera del SPKI" es obligatorio: demuestra que ya no hay
+  // búsqueda libre de bytes.
+  const sqlTest = 'supabase/tests/security_afip_s3a_vault_provision_test.sql'
+  if (!existsSync(sqlTest)) bad.push('falta la suite SQL de S3A')
+  else {
+    const t = readFileSync(sqlTest, 'utf8')
+    if (!/cert_trap/.test(t)) bad.push('falta el fixture de certificado trampa (modulus fuera del SPKI)')
+    if (!/EXTENSI[ÓO]N del cert|modulus de A presente en una EXTENSI/i.test(t)) {
+      bad.push('falta el test de modulus presente fuera del SubjectPublicKeyInfo')
+    }
   }
 
   // node-forge NO debe volver a package.json (no reproducible en este toolchain)
@@ -146,6 +191,15 @@ function selfTest() {
     { n: '7 borra private_key → falla', min: 1, sql: OK + "\nUPDATE public.arca_config SET private_key = NULL WHERE business_id IS NOT NULL;" },
     { n: '8 usa archivo temporal → falla', min: 1, sql: OK + "\nCOPY x FROM PROGRAM 'cat /tmp/k';" },
     { n: '9 sin idempotencia → falla', min: 1, sql: OK.replace(/arca_credential_provision_requests/g, 'otra_tabla').replace(/idempotency_key/g, 'k') },
+    // ── S3A.1 ──
+    { n: '10 fingerprint solo del módulo → falla', min: 1, sql: OK.replace(/arca_rsa_public_key_fingerprint_sha256/g, 'arca_rsa_modulus') },
+    { n: '11 SPKI sin exponente → falla', min: 1, sql: OK.replace(
+        'private.arca_der_enc_int(p_n) || private.arca_der_enc_int(p_e)', 'private.arca_der_enc_int(p_n)') },
+    { n: '12 correspondencia por position() → falla', min: 1, sql: OK.replace(
+        /(CREATE OR REPLACE FUNCTION private\.arca_key_matches_certificate[\s\S]*?)RETURN k\.n = c\.n AND k\.e = c\.e;/,
+        '$1RETURN position(k.n in private.arca_pem_to_der(p_cert_pem)) > 0;') },
+    { n: '13 sin comparar exponent → falla', min: 1, sql: OK.replace('RETURN k.n = c.n AND k.e = c.e;', 'RETURN k.n = c.n;') },
+    { n: '14 parser sin OID rsaEncryption → falla', min: 1, sql: OK.replace(/2a864886f70d010101/g, 'deadbeefdeadbeef') },
   ]
   let fail = 0
   for (const c of cases) {
