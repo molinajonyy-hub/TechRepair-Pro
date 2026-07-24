@@ -21,10 +21,40 @@ import path from 'node:path'
 const ROOT = process.cwd()
 const MIG = 'supabase/migrations/20260724120000_afip_s4a_certificate_rotation_prepare.sql'
 const EDGE = 'supabase/functions/arca-rotate-prepare/index.ts'
+const SQLTEST = 'supabase/tests/security_afip_s4a_rotation_prepare_test.sql'
+const HARNESS = 'scripts/finance/arca-s4a-rotation-concurrency.mjs'
 
-function analyze(migSql, edgeTs) {
+function analyze(migSql, edgeTs, sqlTest = '', harness = '') {
   const fails = []
   const req = (cond, msg) => { if (!cond) fails.push(msg) }
+
+  // ── S4A.1: idempotencia end-to-end ─────────────────────────────────────────
+  // El request_hash debe ser SEMÁNTICO: se computa desde v_canon, que NO puede
+  // contener el fingerprint ni la clave (así el replay con otra clave coincide).
+  const canonM = migSql.match(/v_canon\s*:=\s*([\s\S]*?);/i)
+  req(!!canonM, 'debe existir un v_canon para el request_hash semántico')
+  if (canonM) {
+    const canon = canonM[1]
+    req(!/fingerprint|p_key_pem|v_fp\b/i.test(canon),
+      'el request_hash (v_canon) NO puede incluir fingerprint ni la clave')
+    req(/subject/i.test(canon) && /business_id/i.test(canon),
+      'el request_hash debe incluir la intención (subject + business_id)')
+  }
+  req(/v_req_hash\s*:=\s*encode\(extensions\.digest\(\s*v_canon/i.test(migSql),
+    'v_req_hash debe derivar de v_canon (no del fingerprint)')
+  // El replay (ALREADY_PREPARED) devuelve el CSR YA almacenado, no crea secreto.
+  req(/ROTATION_ALREADY_PREPARED'[\s\S]{0,200}v_prev\.csr_pem/i.test(migSql),
+    'ROTATION_ALREADY_PREPARED debe devolver el CSR almacenado (v_prev.csr_pem)')
+  req(migSql.indexOf('ROTATION_ALREADY_PREPARED') < migSql.indexOf('vault.create_secret'),
+    'el replay debe cortar ANTES de vault.create_secret (no crea secreto)')
+  // Validación CSR↔pedido server-side.
+  req(/arca_csr_subject/.test(migSql) && /arca_canonical_subject\(v_csr_subj\)\s+IS\s+DISTINCT\s+FROM\s+private\.arca_canonical_subject\(p_subject\)/i.test(migSql),
+    'la DB debe validar el subject del CSR contra el declarado')
+  // Tests obligatorios presentes.
+  if (sqlTest) req(/respuesta perdida/i.test(sqlTest) && /A2/.test(sqlTest),
+    'falta el test de respuesta perdida (retry con otra clave, misma idem)')
+  if (harness) req(/race-same/.test(harness) && /ALREADY_PREPARED/.test(harness),
+    'falta la carrera con misma idempotency_key y claves distintas')
 
   // ── Migración ──────────────────────────────────────────────────────────────
   // No toca arca_config (ni escritura ni update).
@@ -111,7 +141,9 @@ function analyze(migSql, edgeTs) {
 function run() {
   const migSql = fs.readFileSync(path.join(ROOT, MIG), 'utf8')
   const edgeTs = fs.readFileSync(path.join(ROOT, EDGE), 'utf8')
-  const fails = analyze(migSql, edgeTs)
+  const sqlTest = fs.readFileSync(path.join(ROOT, SQLTEST), 'utf8')
+  const harness = fs.readFileSync(path.join(ROOT, HARNESS), 'utf8')
+  const fails = analyze(migSql, edgeTs, sqlTest, harness)
   if (fails.length) {
     console.error('❌ Guard AFIP-S4A FALLÓ:')
     for (const f of fails) console.error('  - ' + f)
@@ -123,8 +155,10 @@ function run() {
 function selfTest() {
   const migSql = fs.readFileSync(path.join(ROOT, MIG), 'utf8')
   const edgeTs = fs.readFileSync(path.join(ROOT, EDGE), 'utf8')
+  const sqlTest = fs.readFileSync(path.join(ROOT, SQLTEST), 'utf8')
+  const harness = fs.readFileSync(path.join(ROOT, HARNESS), 'utf8')
   // La versión real NO debe tener fallas.
-  const clean = analyze(migSql, edgeTs)
+  const clean = analyze(migSql, edgeTs, sqlTest, harness)
   if (clean.length) { console.error('SELF-TEST: la versión real tiene fallas:', clean); process.exit(1) }
 
   // Inyecciones maliciosas que el guard DEBE detectar.
@@ -142,6 +176,9 @@ function selfTest() {
       edgeTs.replace(/return jsonResponse\(req, \{\s*\n\s*ok: true,\s*\n\s*state,/,
         'return jsonResponse(req, {\n      ok: true,\n      keyPem,\n      state,')],
     ['Edge invoca WSAA', migSql, edgeTs + "\nawait admin.functions.invoke('afip-wsaa')"],
+    ['request_hash incluye fingerprint', migSql.replace(/v_canon\s*:=\s*'arca_prepare_certificate_rotation\|'/,
+      "v_canon := lower(btrim(p_fingerprint)) || 'arca_prepare_certificate_rotation|'"), edgeTs],
+    ['replay no devuelve el CSR almacenado', migSql.replace(/'csr_pem', v_prev\.csr_pem/, "'csr_pem', p_csr_pem"), edgeTs],
   ]
   let ok = true
   for (const [label, m, e] of bad) {

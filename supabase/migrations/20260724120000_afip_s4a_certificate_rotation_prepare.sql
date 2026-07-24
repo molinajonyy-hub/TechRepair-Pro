@@ -131,6 +131,67 @@ BEGIN
   RETURN private.arca_rsa_public_key_fingerprint_sha256(v.n, v.e);
 END $function$;
 
+-- ── S4A.1: extracción ESTRUCTURADA del subject del CSR (Name PKCS#10) ─────────
+-- Navega CSR→CRI→subject (SEQUENCE OF RDN(SET) OF AttributeTypeAndValue{OID,value})
+-- y mapea los OID X.500 admitidos a un jsonb canónico (claves minúsculas, valores
+-- trim). Fail-closed: ante desvío estructural devuelve lo acumulado (o '{}').
+-- Es la fuente AUTORITATIVA del subject: no se confía en lo que declara el Edge.
+CREATE OR REPLACE FUNCTION private.arca_csr_subject(p_der bytea)
+RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SET search_path = pg_catalog, pg_temp AS $function$
+DECLARE l0 int; c0 int; li int; ci int; i int; ls int; cs int;
+        lset int; cset int; latv int; catv int; loid int; coid int;
+        lval int; cval int; oid bytea; val text; fld text; subj jsonb := '{}'::jsonb;
+BEGIN
+  IF p_der IS NULL OR length(p_der) < 32 THEN RETURN subj; END IF;
+  IF get_byte(p_der,0) <> 48 THEN RETURN subj; END IF;
+  SELECT len, content_start INTO l0, c0 FROM private.arca_der_len(p_der, 0);
+  IF get_byte(p_der,c0) <> 48 THEN RETURN subj; END IF;                 -- CertificationRequestInfo
+  SELECT len, content_start INTO li, ci FROM private.arca_der_len(p_der, c0);
+  i := ci;
+  IF get_byte(p_der,i) <> 2 THEN RETURN subj; END IF;                   -- version
+  i := private.arca_der_next(p_der, i);
+  IF get_byte(p_der,i) <> 48 THEN RETURN subj; END IF;                  -- subject SEQUENCE
+  SELECT len, content_start INTO ls, cs FROM private.arca_der_len(p_der, i);
+  IF cs + ls > ci + li THEN RETURN subj; END IF;
+  i := cs;
+  WHILE i < cs + ls LOOP
+    IF get_byte(p_der,i) <> 49 THEN EXIT; END IF;                       -- RelativeDistinguishedName (SET)
+    SELECT len, content_start INTO lset, cset FROM private.arca_der_len(p_der, i);
+    catv := cset;
+    WHILE catv < cset + lset LOOP
+      IF get_byte(p_der,catv) <> 48 THEN EXIT; END IF;                  -- AttributeTypeAndValue (SEQ)
+      SELECT len, content_start INTO latv, coid FROM private.arca_der_len(p_der, catv);
+      IF get_byte(p_der,coid) <> 6 THEN catv := private.arca_der_next(p_der, catv); CONTINUE; END IF;  -- OID
+      SELECT len, content_start INTO loid, cval FROM private.arca_der_len(p_der, coid);  -- reuse loid/cval for OID
+      oid := substring(p_der from cval+1 for loid);
+      -- valor: TLV inmediatamente después del OID
+      SELECT len, content_start INTO lval, cval FROM private.arca_der_len(p_der, cval + loid);
+      BEGIN val := convert_from(substring(p_der from cval+1 for lval), 'UTF8');
+      EXCEPTION WHEN others THEN val := NULL; END;
+      fld := CASE oid
+        WHEN '\x550403'::bytea THEN 'cn'   WHEN '\x550405'::bytea THEN 'serialnumber'
+        WHEN '\x55040a'::bytea THEN 'o'    WHEN '\x55040b'::bytea THEN 'ou'
+        WHEN '\x550406'::bytea THEN 'c'    WHEN '\x550408'::bytea THEN 'st'
+        WHEN '\x550407'::bytea THEN 'l'    WHEN '\x2a864886f70d010901'::bytea THEN 'email'
+        ELSE NULL END;
+      IF fld IS NOT NULL AND val IS NOT NULL THEN
+        subj := subj || jsonb_build_object(fld, btrim(val));
+      END IF;
+      catv := private.arca_der_next(p_der, catv);
+    END LOOP;
+    i := private.arca_der_next(p_der, i);
+  END LOOP;
+  RETURN subj;
+END $function$;
+
+-- Representación canónica e inequívoca de un subject (para el request_hash y la
+-- comparación declarado↔CSR): claves minúsculas, valores trim, orden fijo por clave.
+CREATE OR REPLACE FUNCTION private.arca_canonical_subject(p_subject jsonb)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, pg_temp AS $function$
+  SELECT coalesce(string_agg(lower(key) || '=' || btrim(value), '|' ORDER BY lower(key)), '')
+  FROM jsonb_each_text(coalesce(p_subject, '{}'::jsonb));
+$function$;
+
 -- ── 4. Helper de retorno sanitizado + registro de estado ──────────────────────
 CREATE OR REPLACE FUNCTION private.arca_rotation_record(
   p_business_id uuid, p_idempotency_key text, p_request_hash text, p_state text,
@@ -154,7 +215,8 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
-  v_pub record; v_fp text; v_csr_fp text; v_bits integer; v_req_hash text;
+  v_key_pub record; v_csr_pub record; v_fp text; v_csr_fp text; v_bits integer;
+  v_exp bigint; v_csr_bits integer; v_csr_subj jsonb; v_canon text; v_req_hash text;
   v_prev record; v_secret_id uuid; v_readback text; v_readback_fp text; v_rot_id uuid;
 BEGIN
   -- Compuerta de rol (igual que S3A): solo service_role puede invocar.
@@ -174,9 +236,67 @@ BEGIN
   END IF;
 
   PERFORM pg_advisory_xact_lock(hashtext('arca_rotation:' || p_business_id::text));
-  v_req_hash := encode(extensions.digest(p_business_id::text || '|' || lower(btrim(p_fingerprint)), 'sha256'), 'hex');
 
-  -- Idempotencia
+  -- ── La clave debe ser exactamente UN bloque de clave privada (ni cert ni pública).
+  IF p_key_pem ~ '-----BEGIN CERTIFICATE-----'
+     OR p_key_pem ~ '-----BEGIN (RSA |EC )?PUBLIC KEY-----'
+     OR (SELECT count(*) FROM regexp_matches(p_key_pem, '-----BEGIN (RSA |EC )?PRIVATE KEY-----', 'g')) <> 1 THEN
+    PERFORM private.arca_audit('arca_certificate_rotation_prepare_failed', p_business_id, p_actor, NULL, NULL, 'KEY_GENERATION_FAILED', 'KEY_GENERATION_FAILED');
+    RETURN jsonb_build_object('ok', false, 'state', 'KEY_GENERATION_FAILED');
+  END IF;
+
+  -- (n,e) estructural de la clave + fingerprint canónico; debe coincidir con lo declarado.
+  SELECT * INTO v_key_pub FROM private.arca_rsa_pubkey_from_private(private.arca_pem_to_der(p_key_pem));
+  IF v_key_pub.n IS NULL OR v_key_pub.e IS NULL THEN
+    PERFORM private.arca_audit('arca_certificate_rotation_prepare_failed', p_business_id, p_actor, NULL, NULL, 'KEY_GENERATION_FAILED', 'KEY_GENERATION_FAILED');
+    RETURN jsonb_build_object('ok', false, 'state', 'KEY_GENERATION_FAILED');
+  END IF;
+  v_bits := length(v_key_pub.n) * 8;
+  v_exp  := ('x'||lpad(encode(v_key_pub.e,'hex'),16,'0'))::bit(64)::bigint;
+  v_fp   := private.arca_rsa_public_key_fingerprint_sha256(v_key_pub.n, v_key_pub.e);
+  IF lower(btrim(p_fingerprint)) IS DISTINCT FROM v_fp THEN
+    PERFORM private.arca_audit('arca_certificate_rotation_prepare_failed', p_business_id, p_actor, NULL, NULL, 'KEY_GENERATION_FAILED', 'KEY_GENERATION_FAILED');
+    RETURN jsonb_build_object('ok', false, 'state', 'KEY_GENERATION_FAILED');
+  END IF;
+
+  -- ── CSR AUTORITATIVO: (n,e) + fingerprint + subject extraídos por la DB. No se
+  --    confía en los valores calculados por el Edge. (Sección 2)
+  SELECT * INTO v_csr_pub FROM private.arca_rsa_pubkey_from_csr(private.arca_pem_to_der(p_csr_pem));
+  IF v_csr_pub.n IS NULL OR v_csr_pub.e IS NULL THEN
+    PERFORM private.arca_audit('arca_certificate_rotation_prepare_failed', p_business_id, p_actor, NULL, NULL, 'CSR_GENERATION_FAILED', 'CSR_GENERATION_FAILED');
+    RETURN jsonb_build_object('ok', false, 'state', 'CSR_GENERATION_FAILED');
+  END IF;
+  v_csr_fp   := private.arca_rsa_public_key_fingerprint_sha256(v_csr_pub.n, v_csr_pub.e);
+  v_csr_bits := length(v_csr_pub.n) * 8;
+  v_csr_subj := private.arca_csr_subject(private.arca_pem_to_der(p_csr_pem));
+
+  -- fp(SPKI del CSR) == fp(clave). (Sección 4)
+  IF v_csr_fp IS DISTINCT FROM v_fp THEN
+    PERFORM private.arca_audit('arca_certificate_rotation_prepare_failed', p_business_id, p_actor, NULL, NULL, 'CSR_KEY_MISMATCH', 'CSR_KEY_MISMATCH');
+    RETURN jsonb_build_object('ok', false, 'state', 'CSR_KEY_MISMATCH');
+  END IF;
+
+  -- El CSR debe contener EXACTAMENTE los parámetros y el subject DECLARADOS. Si el
+  -- Edge declara algo distinto de lo que realmente lleva el CSR → CSR_KEY_MISMATCH.
+  IF (p_key_size IS NOT NULL AND p_key_size <> v_csr_bits)
+     OR (p_public_exponent IS NOT NULL AND p_public_exponent <> v_exp)
+     OR v_csr_bits <> v_bits
+     OR private.arca_canonical_subject(v_csr_subj) IS DISTINCT FROM private.arca_canonical_subject(p_subject) THEN
+    PERFORM private.arca_audit('arca_certificate_rotation_prepare_failed', p_business_id, p_actor, NULL, NULL, 'CSR_KEY_MISMATCH', 'CSR_KEY_MISMATCH');
+    RETURN jsonb_build_object('ok', false, 'state', 'CSR_KEY_MISMATCH');
+  END IF;
+
+  -- ── request_hash SEMÁNTICO: SOLO la intención del pedido (operación, negocio,
+  --    subject canónico del CSR, algoritmo, tamaño, exponente). NO incluye la
+  --    clave, el fingerprint, el CSR crudo, el secret_id, el rotation id ni fechas.
+  --    Así un retry que regenera OTRA clave con el mismo pedido produce el MISMO
+  --    hash → replay correcto. (Sección 1)
+  v_canon := 'arca_prepare_certificate_rotation|' || p_business_id::text || '|'
+             || private.arca_canonical_subject(v_csr_subj) || '|RSA|'
+             || v_csr_bits::text || '|' || v_exp::text;
+  v_req_hash := encode(extensions.digest(v_canon, 'sha256'), 'hex');
+
+  -- ── Idempotencia (end-to-end: mismo pedido semántico → misma rotación) ──
   SELECT * INTO v_prev FROM private.arca_credential_rotations r
     WHERE r.business_id = p_business_id AND r.idempotency_key = p_idempotency_key;
   IF FOUND THEN
@@ -185,7 +305,10 @@ BEGIN
       RETURN jsonb_build_object('ok', false, 'state', 'IDEMPOTENCY_CONFLICT');
     END IF;
     IF v_prev.state IN ('pending_rotation','activated') THEN
-      PERFORM private.arca_audit('arca_certificate_rotation_replayed', p_business_id, p_actor, NULL, left(lower(btrim(p_fingerprint)),16), 'replayed', NULL);
+      -- Replay: NO se escribe la clave nueva, NO se crea secreto, NO se crea otra
+      -- rotación. Se devuelve el CSR/fingerprint YA almacenados. La clave del retry
+      -- queda descartada en memoria por el Edge.
+      PERFORM private.arca_audit('arca_certificate_rotation_replayed', p_business_id, p_actor, NULL, left(v_prev.private_key_fingerprint,16), 'replayed', NULL);
       RETURN jsonb_build_object('ok', true, 'state', 'ROTATION_ALREADY_PREPARED',
         'csr_pem', v_prev.csr_pem, 'fingerprint_trunc', left(v_prev.private_key_fingerprint,16),
         'algorithm', v_prev.key_algorithm, 'key_size', v_prev.key_size,
@@ -200,38 +323,6 @@ BEGIN
                AND r.idempotency_key <> p_idempotency_key) THEN
     PERFORM private.arca_audit('arca_certificate_rotation_prepare_failed', p_business_id, p_actor, NULL, NULL, 'ROTATION_PENDING_CONFLICT', 'ROTATION_PENDING_CONFLICT');
     RETURN jsonb_build_object('ok', false, 'state', 'ROTATION_PENDING_CONFLICT');
-  END IF;
-
-  -- La clave debe ser exactamente UN bloque de clave privada (ni cert ni pública).
-  IF p_key_pem ~ '-----BEGIN CERTIFICATE-----'
-     OR p_key_pem ~ '-----BEGIN (RSA |EC )?PUBLIC KEY-----'
-     OR (SELECT count(*) FROM regexp_matches(p_key_pem, '-----BEGIN (RSA |EC )?PRIVATE KEY-----', 'g')) <> 1 THEN
-    PERFORM private.arca_audit('arca_certificate_rotation_prepare_failed', p_business_id, p_actor, NULL, NULL, 'KEY_GENERATION_FAILED', 'KEY_GENERATION_FAILED');
-    RETURN jsonb_build_object('ok', false, 'state', 'KEY_GENERATION_FAILED');
-  END IF;
-
-  -- (n,e) estructural de la clave + fingerprint canónico; debe coincidir con lo declarado.
-  SELECT * INTO v_pub FROM private.arca_rsa_pubkey_from_private(private.arca_pem_to_der(p_key_pem));
-  IF v_pub.n IS NULL OR v_pub.e IS NULL THEN
-    PERFORM private.arca_audit('arca_certificate_rotation_prepare_failed', p_business_id, p_actor, NULL, NULL, 'KEY_GENERATION_FAILED', 'KEY_GENERATION_FAILED');
-    RETURN jsonb_build_object('ok', false, 'state', 'KEY_GENERATION_FAILED');
-  END IF;
-  v_bits := length(v_pub.n) * 8;
-  v_fp := private.arca_rsa_public_key_fingerprint_sha256(v_pub.n, v_pub.e);
-  IF lower(btrim(p_fingerprint)) IS DISTINCT FROM v_fp THEN
-    PERFORM private.arca_audit('arca_certificate_rotation_prepare_failed', p_business_id, p_actor, NULL, NULL, 'KEY_GENERATION_FAILED', 'KEY_GENERATION_FAILED');
-    RETURN jsonb_build_object('ok', false, 'state', 'KEY_GENERATION_FAILED');
-  END IF;
-
-  -- Correspondencia CSR ↔ clave: fp(SPKI del CSR) == fp(clave). (Sección 4)
-  v_csr_fp := private.arca_csr_public_key_fingerprint(p_csr_pem);
-  IF v_csr_fp IS NULL THEN
-    PERFORM private.arca_audit('arca_certificate_rotation_prepare_failed', p_business_id, p_actor, NULL, NULL, 'CSR_GENERATION_FAILED', 'CSR_GENERATION_FAILED');
-    RETURN jsonb_build_object('ok', false, 'state', 'CSR_GENERATION_FAILED');
-  END IF;
-  IF v_csr_fp IS DISTINCT FROM v_fp THEN
-    PERFORM private.arca_audit('arca_certificate_rotation_prepare_failed', p_business_id, p_actor, NULL, NULL, 'CSR_KEY_MISMATCH', 'CSR_KEY_MISMATCH');
-    RETURN jsonb_build_object('ok', false, 'state', 'CSR_KEY_MISMATCH');
   END IF;
 
   v_rot_id := gen_random_uuid();
@@ -262,7 +353,7 @@ BEGIN
     id, business_id, private_key_secret_id, private_key_fingerprint, csr_fingerprint, csr_pem,
     key_algorithm, key_size, public_exponent, subject, state, idempotency_key, request_hash, created_by)
   VALUES (v_rot_id, p_business_id, v_secret_id, v_fp, v_csr_fp, p_csr_pem,
-    coalesce(p_algorithm,'RSA'), v_bits, p_public_exponent, coalesce(p_subject,'{}'::jsonb),
+    coalesce(p_algorithm,'RSA'), v_bits, v_exp, v_csr_subj,
     'pending_rotation', p_idempotency_key, v_req_hash, p_actor);
 
   PERFORM private.arca_audit('arca_certificate_rotation_prepared', p_business_id, p_actor, NULL, left(v_fp,16), 'ROTATION_PREPARED', NULL);

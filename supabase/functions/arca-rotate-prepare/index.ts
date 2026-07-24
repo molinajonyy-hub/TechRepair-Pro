@@ -116,11 +116,22 @@ serve(async (req: Request) => {
 
     const fingerprint = await spkiFingerprint(keys.publicKey)
     const cuitNorm = cuit.replace(/\D/g, '')
-    const subject = {
-      cn: razonSocial, o: razonSocial, serialNumber: `CUIT ${cuitNorm}`,
-      c: body?.pais || 'AR', st: body?.provincia || 'Buenos Aires',
+    // El subject declarado DEBE reflejar EXACTAMENTE lo que se puso en el CSR
+    // (mismos campos que buildSubjectAttrs). La DB lo re-extrae del CSR y exige
+    // que coincidan (canónicamente). Claves en minúscula = las que emite el parser SQL.
+    const subject: Record<string, string> = {
+      c: body?.pais || 'AR',
+      st: body?.provincia || 'Buenos Aires',
+      l: body?.localidad || body?.provincia || 'Buenos Aires',
+      o: razonSocial,
+      serialnumber: `CUIT ${cuitNorm}`,
+      cn: razonSocial,
     }
-    // idempotency key: del cliente si viene, si no una nueva (retry seguro si se reusa).
+    if (body?.email) subject.email = body.email
+    // Idempotency key ESTABLE: si el caller la provee, se reusa en el retry (esa es
+    // la clave para que una respuesta perdida devuelva la MISMA rotación). El Edge
+    // NO reintenta por su cuenta ni genera una key nueva en un retry: eso lo maneja
+    // el caller (documentado para S4B). Si no viene, se genera una sola por request.
     const idempotencyKey = String(body?.idempotency_key ?? `afip-s4a-rot-${crypto.randomUUID()}`)
 
     // 4. Delegar en la RPC service_role: Vault + readback + validación fp(CSR)==fp(clave).
