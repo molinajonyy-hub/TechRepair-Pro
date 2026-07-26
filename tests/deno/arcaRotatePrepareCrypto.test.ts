@@ -118,6 +118,60 @@ Deno.test('el CSR PEM NO contiene la clave privada', () => {
   assert(!A.csrPem.includes('PRIVATE'))
 })
 
+// ── AFIP-S4B-1b: subject MÍNIMO y fiel ──────────────────────────────────────
+const ALIAS = 'fixture.alias'
+const SERIAL = 'CUIT 20111111112'
+
+/** Par clave+CSR con el subject mínimo autorizado (CN + serialNumber, nada más). */
+function makeMinimal() {
+  const keys = forge.pki.rsa.generateKeyPair({ bits: 1024, e: 0x10001 })
+  const csr = forge.pki.createCertificationRequest()
+  csr.publicKey = keys.publicKey
+  csr.setSubject([
+    { name: 'commonName', value: ALIAS },
+    { name: 'serialNumber', value: SERIAL },
+  ])
+  csr.sign(keys.privateKey, forge.md.sha256.create())
+  return { csrPem: forge.pki.certificationRequestToPem(csr).trim(), keys }
+}
+
+Deno.test('S4B-1b: el CSR mínimo lleva SOLO CN + serialNumber y su firma es válida', () => {
+  const { csrPem } = makeMinimal()
+  const csr = forge.pki.certificationRequestFromPem(csrPem)
+  assertEquals(csr.verify(), true, 'la firma PKCS#10 del subject mínimo debe validar')
+  const names = csr.subject.attributes.map((a: any) => a.name ?? a.shortName).sort()
+  assertEquals(names.join(','), 'commonName,serialNumber')
+  const get = (n: string) => csr.subject.attributes.find((a: any) => a.name === n)?.value
+  assertEquals(get('commonName'), ALIAS)
+  assertEquals(get('serialNumber'), SERIAL)
+})
+
+Deno.test('S4B-1b: no se agregan C/ST/L/O/OU/email por default', () => {
+  const { csrPem } = makeMinimal()
+  const csr = forge.pki.certificationRequestFromPem(csrPem)
+  for (const extra of ['countryName', 'stateOrProvinceName', 'localityName',
+                       'organizationName', 'organizationalUnitName', 'emailAddress']) {
+    assertEquals(csr.subject.attributes.find((a: any) => a.name === extra), undefined,
+      `el CSR mínimo NO debe llevar ${extra}`)
+  }
+})
+
+Deno.test('S4B-1b: un CSR con atributos extra es distinguible del mínimo', () => {
+  const keys = forge.pki.rsa.generateKeyPair({ bits: 1024, e: 0x10001 })
+  const csr = forge.pki.createCertificationRequest()
+  csr.publicKey = keys.publicKey
+  csr.setSubject([
+    { name: 'commonName', value: ALIAS },
+    { name: 'serialNumber', value: SERIAL },
+    { name: 'countryName', value: 'AR' },
+  ])
+  csr.sign(keys.privateKey, forge.md.sha256.create())
+  const parsed = forge.pki.certificationRequestFromPem(forge.pki.certificationRequestToPem(csr))
+  assertEquals(parsed.subject.attributes.length, 3)
+  assert(parsed.subject.attributes.some((a: any) => a.name === 'countryName'),
+    'el atributo extra debe ser detectable (la DB lo rechaza con CSR_SUBJECT_MISMATCH)')
+})
+
 Deno.test('el fingerprint es estable ante CRLF/espacios en el CSR PEM', async () => {
   const base = await spkiFp(forge.pki.certificationRequestFromPem(A.csrPem).publicKey)
   const crlf = await spkiFp(forge.pki.certificationRequestFromPem(A.csrPem.replace(/\n/g, '\r\n')).publicKey)
