@@ -1,19 +1,28 @@
 /**
- * Edge Function: arca-rotate-prepare  (AFIP-S4A — DORMIDA: sin consumidor productivo)
+ * Edge Function: arca-rotate-prepare  (AFIP-S4A · subject mínimo por S4B-1b)
  *
  * Prepara una rotación de certificado de forma SEGURA:
  *   1. valida identidad (JWT) + membresía owner/admin del negocio;
- *   2. genera una NUEVA clave RSA en memoria (node-forge);
- *   3. genera el CSR (PKCS#10, SHA-256) con el subject provisto;
- *   4. calcula el fingerprint SPKI canónico de la clave pública;
- *   5. delega en la RPC service_role `arca_prepare_certificate_rotation`, que
- *      almacena la clave en Vault (pending_rotation), hace readback y valida
- *      fp(clave)==fp(SPKI del CSR);
- *   6. devuelve SOLO el CSR público + metadata sanitizada.
+ *   2. resuelve el subject AUTORIZADO server-side (`arca_get_rotation_subject_safe`),
+ *      derivado del CERTIFICADO VIGENTE y validado contra alias/CUIT;
+ *   3. genera una NUEVA clave RSA en memoria (node-forge);
+ *   4. genera el CSR (PKCS#10, SHA-256) con EXACTAMENTE ese subject;
+ *   5. calcula el fingerprint SPKI canónico de la clave pública;
+ *   6. delega en la RPC service_role `arca_prepare_certificate_rotation`, que
+ *      almacena la clave en Vault (pending_rotation), hace readback y revalida
+ *      fp(clave)==fp(SPKI del CSR) y subject(CSR)==subject autorizado;
+ *   7. devuelve SOLO el CSR público + metadata sanitizada.
  *
- * La clave privada NUNCA se devuelve, ni se escribe en arca_config, ni se loguea,
- * ni se pasa por el navegador/operador. La credencial `active` vigente NO se toca.
- * No invoca WSAA ni afip-cae.
+ * AFIP-S4B-1b — identidad fiel:
+ *   - NO exige `razon_social`;
+ *   - NO agrega C=AR, ST ni L por default;
+ *   - NO convierte el alias en organización;
+ *   - NO usa business_settings como fallback;
+ *   - el navegador solo aporta `business_id` y (opcional) `idempotency_key`:
+ *     la identidad fiscal viene de la base y del certificado vigente.
+ *
+ * La clave privada NUNCA se devuelve, ni se escribe en arca_config, ni se loguea.
+ * La credencial `active` vigente NO se toca. No invoca WSAA ni afip-cae.
  */
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -49,20 +58,28 @@ async function spkiFingerprint(pub: any): Promise<string> {
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-/** Construye el subject del CSR con los datos públicos que exige AFIP. */
-function buildSubjectAttrs(input: {
-  razon_social: string; cuit: string; pais?: string; provincia?: string; localidad?: string; email?: string
-}): any[] {
-  const cuit = String(input.cuit).replace(/\D/g, '')
-  const attrs: any[] = [
-    { name: 'countryName', value: input.pais || 'AR' },
-    { name: 'stateOrProvinceName', value: input.provincia || 'Buenos Aires' },
-    { name: 'localityName', value: input.localidad || input.provincia || 'Buenos Aires' },
-    { name: 'organizationName', value: input.razon_social },
-    { name: 'serialNumber', value: `CUIT ${cuit}` },
-    { name: 'commonName', value: input.razon_social },
-  ]
-  if (input.email) attrs.push({ name: 'emailAddress', value: input.email })
+/**
+ * Traduce el subject AUTORIZADO (claves canónicas del parser SQL) a atributos
+ * node-forge. Solo se emiten los atributos realmente presentes: si el certificado
+ * vigente tiene únicamente CN + serialNumber, el CSR lleva únicamente esos dos.
+ */
+const OID_NAME: Record<string, string> = {
+  cn: 'commonName',
+  serialnumber: 'serialNumber',
+  o: 'organizationName',
+  ou: 'organizationalUnitName',
+  c: 'countryName',
+  st: 'stateOrProvinceName',
+  l: 'localityName',
+  email: 'emailAddress',
+}
+function toForgeAttrs(subject: Record<string, string>): any[] {
+  const attrs: any[] = []
+  for (const [key, value] of Object.entries(subject)) {
+    const name = OID_NAME[key.toLowerCase()]
+    if (!name || value == null || String(value).trim() === '') continue
+    attrs.push({ name, value: String(value) })
+  }
   return attrs
 }
 
@@ -84,10 +101,8 @@ serve(async (req: Request) => {
   let body: any
   try { body = await req.json() } catch { return jsonResponse(req, { ok: false, error: 'BAD_REQUEST' }, 400) }
   const businessId = String(body?.business_id ?? '')
-  const razonSocial = String(body?.razon_social ?? '')
-  const cuit = String(body?.cuit ?? '')
-  if (!businessId || !razonSocial || !cuit) {
-    return jsonResponse(req, { ok: false, error: 'MISSING_FIELDS', detail: 'business_id, razon_social, cuit' }, 400)
+  if (!businessId) {
+    return jsonResponse(req, { ok: false, error: 'MISSING_FIELDS', detail: 'business_id' }, 400)
   }
 
   const admin = createClient(url, serviceKey)
@@ -98,43 +113,44 @@ serve(async (req: Request) => {
   })
   if (isAdmin !== true) return jsonResponse(req, { ok: false, error: 'FORBIDDEN' }, 403)
 
+  // 3. Subject AUTORIZADO desde el certificado vigente. No se acepta identidad
+  //    fiscal enviada por el navegador.
+  const { data: subjRes, error: subjErr } = await admin.rpc('arca_get_rotation_subject_safe', {
+    p_business_id: businessId,
+  })
+  if (subjErr) return jsonResponse(req, { ok: false, error: 'ROTATION_SUBJECT_FAILED' }, 500)
+  if (!subjRes || subjRes.ok !== true) {
+    return jsonResponse(req, { ok: false, state: subjRes?.state ?? 'ROTATION_SUBJECT_FAILED' }, 409)
+  }
+  const subject: Record<string, string> = subjRes.subject ?? {}
+  const attrs = toForgeAttrs(subject)
+  if (attrs.length === 0) {
+    return jsonResponse(req, { ok: false, state: 'CURRENT_CERTIFICATE_SUBJECT_INVALID' }, 409)
+  }
+
   let keyPem: string | null = null
   try {
-    // 3. Generar clave RSA 2048 + CSR (node-forge). RSA 2048/e=65537: compatibilidad
-    //    demostrada con ARCA y con el signer PKCS7 de afip-wsaa (mismo runtime).
+    // 4. Generar clave RSA 2048 + CSR con EXACTAMENTE el subject autorizado.
+    //    RSA 2048/e=65537: compatibilidad demostrada con ARCA y con el signer
+    //    PKCS7 de afip-wsaa (mismo runtime).
     const keys = forge.pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 })
     keyPem = forge.pki.privateKeyToPem(keys.privateKey)
 
     const csr = forge.pki.createCertificationRequest()
     csr.publicKey = keys.publicKey
-    csr.setSubject(buildSubjectAttrs({
-      razon_social: razonSocial, cuit,
-      pais: body?.pais, provincia: body?.provincia, localidad: body?.localidad, email: body?.email,
-    }))
+    csr.setSubject(attrs)
     csr.sign(keys.privateKey, forge.md.sha256.create())
     const csrPem: string = forge.pki.certificationRequestToPem(csr).trim()
 
     const fingerprint = await spkiFingerprint(keys.publicKey)
-    const cuitNorm = cuit.replace(/\D/g, '')
-    // El subject declarado DEBE reflejar EXACTAMENTE lo que se puso en el CSR
-    // (mismos campos que buildSubjectAttrs). La DB lo re-extrae del CSR y exige
-    // que coincidan (canónicamente). Claves en minúscula = las que emite el parser SQL.
-    const subject: Record<string, string> = {
-      c: body?.pais || 'AR',
-      st: body?.provincia || 'Buenos Aires',
-      l: body?.localidad || body?.provincia || 'Buenos Aires',
-      o: razonSocial,
-      serialnumber: `CUIT ${cuitNorm}`,
-      cn: razonSocial,
-    }
-    if (body?.email) subject.email = body.email
     // Idempotency key ESTABLE: si el caller la provee, se reusa en el retry (esa es
     // la clave para que una respuesta perdida devuelva la MISMA rotación). El Edge
     // NO reintenta por su cuenta ni genera una key nueva en un retry: eso lo maneja
     // el caller (documentado para S4B). Si no viene, se genera una sola por request.
     const idempotencyKey = String(body?.idempotency_key ?? `afip-s4a-rot-${crypto.randomUUID()}`)
 
-    // 4. Delegar en la RPC service_role: Vault + readback + validación fp(CSR)==fp(clave).
+    // 5. Delegar en la RPC service_role: Vault + readback + revalidación de
+    //    fp(CSR)==fp(clave) y subject(CSR)==subject autorizado.
     const { data, error } = await admin.rpc('arca_prepare_certificate_rotation', {
       p_business_id: businessId,
       p_key_pem: keyPem,
@@ -151,11 +167,11 @@ serve(async (req: Request) => {
 
     const state = (data && data.state) || null
     if (state !== 'ROTATION_PREPARED' && state !== 'ROTATION_ALREADY_PREPARED') {
-      // estados de negocio (conflicto/validación) → 409/422 sanitizado, sin la clave
+      // estados de negocio (conflicto/validación) → 409 sanitizado, sin la clave
       return jsonResponse(req, { ok: false, state }, 409)
     }
 
-    // 5. Devolver SOLO el CSR público + metadata. Nunca la clave.
+    // 6. Devolver SOLO el CSR público + metadata. Nunca la clave.
     return jsonResponse(req, {
       ok: true,
       state,
@@ -164,6 +180,7 @@ serve(async (req: Request) => {
       algorithm: 'RSA',
       key_size: (data && data.key_size) || 2048,
       rotation_ref: data && data.rotation_ref,
+      subject_attributes: attrs.length,
       info: {
         firma: 'SHA-256',
         instrucciones: [

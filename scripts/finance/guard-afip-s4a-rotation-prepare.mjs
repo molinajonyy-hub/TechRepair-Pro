@@ -19,14 +19,31 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const ROOT = process.cwd()
-const MIG = 'supabase/migrations/20260724120000_afip_s4a_certificate_rotation_prepare.sql'
+// El contrato de rotación vive en dos migraciones: S4A (mecanismo) y S4B-1b
+// (subject mínimo y fiel). Se analizan como una sola unidad.
+const MIG_FILES = [
+  'supabase/migrations/20260724120000_afip_s4a_certificate_rotation_prepare.sql',
+  'supabase/migrations/20260726130000_afip_s4b1b_minimal_csr_subject.sql',
+]
 const EDGE = 'supabase/functions/arca-rotate-prepare/index.ts'
 const SQLTEST = 'supabase/tests/security_afip_s4a_rotation_prepare_test.sql'
 const HARNESS = 'scripts/finance/arca-s4a-rotation-concurrency.mjs'
 
-function analyze(migSql, edgeTs, sqlTest = '', harness = '') {
+const readMig = () =>
+  MIG_FILES.map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n')
+
+/** Quita comentarios TS: la cabecera documenta justamente qué cosas ya NO se hacen. */
+function stripTsComments(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/^[ \t]*\/\/.*$/gm, ' ')
+    .replace(/([^:])\/\/.*$/gm, '$1 ')
+}
+
+function analyze(migSql, rawEdgeTs, sqlTest = '', harness = '') {
   const fails = []
   const req = (cond, msg) => { if (!cond) fails.push(msg) }
+  const edgeTs = stripTsComments(rawEdgeTs)
 
   // ── S4A.1: idempotencia end-to-end ─────────────────────────────────────────
   // El request_hash debe ser SEMÁNTICO: se computa desde v_canon, que NO puede
@@ -48,13 +65,52 @@ function analyze(migSql, edgeTs, sqlTest = '', harness = '') {
   req(migSql.indexOf('ROTATION_ALREADY_PREPARED') < migSql.indexOf('vault.create_secret'),
     'el replay debe cortar ANTES de vault.create_secret (no crea secreto)')
   // Validación CSR↔pedido server-side.
-  req(/arca_csr_subject/.test(migSql) && /arca_canonical_subject\(v_csr_subj\)\s+IS\s+DISTINCT\s+FROM\s+private\.arca_canonical_subject\(p_subject\)/i.test(migSql),
-    'la DB debe validar el subject del CSR contra el declarado')
+  req(/arca_csr_subject/.test(migSql) &&
+      /arca_canonical_subject\(v_csr_subj\)\s+IS\s+DISTINCT\s+FROM\s+private\.arca_canonical_subject\(v_auth_subj\)/i.test(migSql),
+    'la DB debe validar el subject del CSR contra el AUTORIZADO (derivado del certificado vigente)')
   // Tests obligatorios presentes.
   if (sqlTest) req(/respuesta perdida/i.test(sqlTest) && /A2/.test(sqlTest),
     'falta el test de respuesta perdida (retry con otra clave, misma idem)')
   if (harness) req(/race-same/.test(harness) && /ALREADY_PREPARED/.test(harness),
     'falta la carrera con misma idempotency_key y claves distintas')
+
+  // ── S4B-1b: identidad fiscal mínima y fiel ─────────────────────────────────
+  // El Edge NO puede exigir razon_social ni inventar atributos del subject.
+  req(!/razonSocial|razon_social/.test(edgeTs),
+    'el Edge NO debe exigir ni usar razon_social')
+  req(!/countryName|stateOrProvinceName|localityName/.test(edgeTs) ||
+      !/'AR'|"AR"|Buenos Aires/.test(edgeTs),
+    'el Edge NO debe agregar C=AR ni ST/L por default')
+  req(!/organizationName['"]?\s*[,:]\s*value/.test(edgeTs) && !/name: 'organizationName', value: razon/.test(edgeTs),
+    'el Edge NO debe convertir el alias/razón social en organización')
+  req(!/business_settings/.test(edgeTs),
+    'el Edge NO debe usar business_settings como fallback')
+  // La identidad viene del contrato server-side, no del navegador.
+  req(/arca_get_rotation_subject_safe/.test(edgeTs),
+    'el Edge debe resolver el subject por arca_get_rotation_subject_safe')
+  req(!/body\?\.(cuit|razon_social|provincia|localidad|pais|email)/.test(edgeTs),
+    'el Edge NO debe aceptar identidad fiscal enviada por el navegador')
+
+  // La DB compara el certificado vigente con alias/CUIT y rechaza extras.
+  req(/arca_cert_subject/.test(migSql) && /arca_get_rotation_subject_safe/.test(migSql),
+    'debe existir el resolver de subject derivado del certificado vigente')
+  req(/CURRENT_CERTIFICATE_IDENTITY_MISMATCH/.test(migSql),
+    'debe comparar CN/serialNumber del certificado vigente con alias/CUIT')
+  req(/CSR_SUBJECT_MISMATCH/.test(migSql) &&
+      /arca_canonical_subject\(v_csr_subj\)\s+IS\s+DISTINCT\s+FROM\s+private\.arca_canonical_subject\(v_auth_subj\)/i.test(migSql),
+    'debe rechazar cualquier CSR cuyo subject no sea EXACTAMENTE el autorizado')
+  req(/FISCAL_ALIAS_MISSING/.test(migSql) && /FISCAL_CUIT_MISSING/.test(migSql),
+    'deben existir los estados FISCAL_ALIAS_MISSING / FISCAL_CUIT_MISSING')
+  // No duplicar parsers DER: el walker X.500 es compartido.
+  req(/arca_x500_name/.test(migSql),
+    'el walker X.500 debe estar extraído y compartido (sin duplicar parsers DER)')
+  // Tests obligatorios del subject mínimo y de los defaults silenciosos.
+  if (sqlTest) {
+    req(/CSR_SUBJECT_MISMATCH/.test(sqlTest) && /C=AR/.test(sqlTest),
+      'falta el test de CSR con C=AR no solicitado')
+    req(/optional_attributes_count/.test(sqlTest) && /razon_social NULL/.test(sqlTest),
+      'falta el test de subject mínimo / razon_social NULL')
+  }
 
   // ── Migración ──────────────────────────────────────────────────────────────
   // No toca arca_config (ni escritura ni update).
@@ -139,7 +195,7 @@ function analyze(migSql, edgeTs, sqlTest = '', harness = '') {
 }
 
 function run() {
-  const migSql = fs.readFileSync(path.join(ROOT, MIG), 'utf8')
+  const migSql = readMig()
   const edgeTs = fs.readFileSync(path.join(ROOT, EDGE), 'utf8')
   const sqlTest = fs.readFileSync(path.join(ROOT, SQLTEST), 'utf8')
   const harness = fs.readFileSync(path.join(ROOT, HARNESS), 'utf8')
@@ -153,7 +209,7 @@ function run() {
 }
 
 function selfTest() {
-  const migSql = fs.readFileSync(path.join(ROOT, MIG), 'utf8')
+  const migSql = readMig()
   const edgeTs = fs.readFileSync(path.join(ROOT, EDGE), 'utf8')
   const sqlTest = fs.readFileSync(path.join(ROOT, SQLTEST), 'utf8')
   const harness = fs.readFileSync(path.join(ROOT, HARNESS), 'utf8')
@@ -163,22 +219,35 @@ function selfTest() {
 
   // Inyecciones maliciosas que el guard DEBE detectar.
   const bad = [
-    ['clave en RETURN', migSql.replace(/RETURN jsonb_build_object\('ok', true, 'state', 'ROTATION_PREPARED',/,
+    // Nota: las inyecciones son GLOBALES — el contrato vive en DOS migraciones y
+    // reemplazar solo la primera dejaría la copia buena de la segunda.
+    ['clave en RETURN', migSql.replace(/RETURN jsonb_build_object\('ok', true, 'state', 'ROTATION_PREPARED',/g,
       "RETURN jsonb_build_object('ok', true, 'state', 'ROTATION_PREPARED', 'leak', p_key_pem,"), edgeTs],
     ['escribe arca_config', migSql + "\nUPDATE public.arca_config SET private_key = 'x';", edgeTs],
     ['toca credencial active', migSql + "\nUPDATE private.arca_private_key_credentials SET credential_status='x';", edgeTs],
     ['sin advisory lock', migSql.replace(/pg_advisory_xact_lock/g, 'noop_lock'), edgeTs],
     ['sin readback', migSql.replace(/vault\.decrypted_secrets/g, 'vault.nope'), edgeTs],
-    ['sin comparación CSR', migSql.replace(/v_csr_fp\s+IS\s+DISTINCT\s+FROM\s+v_fp/i, 'false'), edgeTs],
+    ['sin comparación CSR', migSql.replace(/v_csr_fp\s+IS\s+DISTINCT\s+FROM\s+v_fp/gi, 'false'), edgeTs],
     ['Edge toca arca_config', migSql, edgeTs + "\nawait admin.from('arca_config').update({})"],
     ['Edge no limpia la clave', migSql, edgeTs.replace(/keyPem\s*=\s*null/, 'noop')],
     ['Edge filtra la clave en la respuesta', migSql,
       edgeTs.replace(/return jsonResponse\(req, \{\s*\n\s*ok: true,\s*\n\s*state,/,
         'return jsonResponse(req, {\n      ok: true,\n      keyPem,\n      state,')],
     ['Edge invoca WSAA', migSql, edgeTs + "\nawait admin.functions.invoke('afip-wsaa')"],
-    ['request_hash incluye fingerprint', migSql.replace(/v_canon\s*:=\s*'arca_prepare_certificate_rotation\|'/,
+    ['request_hash incluye fingerprint', migSql.replace(/v_canon\s*:=\s*'arca_prepare_certificate_rotation\|'/g,
       "v_canon := lower(btrim(p_fingerprint)) || 'arca_prepare_certificate_rotation|'"), edgeTs],
-    ['replay no devuelve el CSR almacenado', migSql.replace(/'csr_pem', v_prev\.csr_pem/, "'csr_pem', p_csr_pem"), edgeTs],
+    ['replay no devuelve el CSR almacenado', migSql.replace(/'csr_pem', v_prev\.csr_pem/g, "'csr_pem', p_csr_pem"), edgeTs],
+    // ── S4B-1b ──
+    ['Edge exige razon_social', migSql, edgeTs.replace(/const businessId = String\(body\?\.business_id \?\? ''\)/,
+      "const razonSocial = String(body?.razon_social ?? '')\n  const businessId = String(body?.business_id ?? '')")],
+    ['Edge agrega C=AR por default', migSql,
+      edgeTs.replace(/csr\.setSubject\(attrs\)/, "csr.setSubject([...attrs, { name: 'countryName', value: 'AR' }])")],
+    ['sin resolver de subject del certificado', migSql.replace(/arca_get_rotation_subject_safe/g, 'noop_resolver'),
+      edgeTs.replace(/arca_get_rotation_subject_safe/g, 'noop_resolver')],
+    ['sin comparación de identidad del certificado', migSql.replace(/CURRENT_CERTIFICATE_IDENTITY_MISMATCH/g, 'OTRO'), edgeTs],
+    ['acepta subject arbitrario del CSR', migSql.replace(
+      /private\.arca_canonical_subject\(v_csr_subj\) IS DISTINCT FROM private\.arca_canonical_subject\(v_auth_subj\)/g, 'false'), edgeTs],
+    ['walker X.500 duplicado (no compartido)', migSql.replace(/arca_x500_name/g, 'inline_walker_copy'), edgeTs],
   ]
   let ok = true
   for (const [label, m, e] of bad) {
