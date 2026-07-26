@@ -208,7 +208,7 @@ export default function Settings() {
   })
   const [testingConnection, setTestingConnection] = useState(false)
   const [syncingParameters, setSyncingParameters] = useState(false)
-  const [generandoCSR, setGenerandoCSR] = useState(false)
+  // AFIP-S4B-1: sin estado de carga — el flujo legacy de CSR ya no hace red.
 
   // Logo upload
   const [uploadingLogo, setUploadingLogo] = useState(false)
@@ -419,68 +419,22 @@ export default function Settings() {
     }
   }
 
-  const handleGenerarCSR = async () => {
-    if (!businessId) return alert('No hay negocio seleccionado')
-    const cuit = arcaConfig.cuit || businessSettings.cuit
-    if (!cuit) return alert('Completá el CUIT emisor en la configuración de ARCA antes de generar el CSR.')
-    const razon = businessSettings.razon_social || businessSettings.nombre_comercial
-    if (!razon) return alert('Completá la Razón Social en los datos del negocio.')
-
-    setGenerandoCSR(true)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) throw new Error('Sin sesión activa')
-
-      const res = await supabase.functions.invoke('generate-csr', {
-        body: {
-          business_id: businessId,
-          razon_social: razon,
-          cuit,
-          provincia: businessSettings.provincia || 'Buenos Aires',
-          localidad: businessSettings.localidad || '',
-          email: businessSettings.email || '',
-        },
-      })
-
-      if (res.error || !res.data?.success) {
-        throw new Error(res.data?.error || res.error?.message || 'Error al generar CSR')
-      }
-
-      const csrPem: string = res.data.csr_pem
-
-      // Descargar automáticamente
-      const blob = new Blob([csrPem], { type: 'application/x-pem-file' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `csr_${cuit.replace(/\D/g, '')}_${new Date().toISOString().split('T')[0]}.csr`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-
-      // AFIP-S1A: recargar por el contrato seguro (flags de presencia, sin secretos).
-      // La clave privada ya NO vive en el estado del frontend.
-      try {
-        const { data: freshConfig } = await supabase.rpc('get_arca_config_safe', {
-          p_business_id: businessId,
-        })
-        if (freshConfig) setArcaConfig((prev) => ({ ...prev, ...(freshConfig as Partial<ArcaConfig>) }))
-      } catch { /* ignorar */ }
-
-      alert(
-        '✅ CSR generado y descargado.\n\n' +
-        'Pasos siguientes:\n' +
-        '1. Ingresá a https://auth.afip.gob.ar/contribuyente con tu clave fiscal nivel 3.\n' +
-        '2. Administrador de Relaciones → Crear Alias → Cargar el archivo .csr descargado.\n' +
-        '3. AFIP te emitirá un certificado .crt — descargalo.\n' +
-        '4. Volvé aquí y subí el certificado .crt en el campo "Certificado".'
-      )
-    } catch (e: any) {
-      alert('❌ Error: ' + (e.message || 'Error desconocido al generar CSR'))
-    } finally {
-      setGenerandoCSR(false)
-    }
+  // AFIP-S4B-1: el flujo legacy de generación de CSR fue RETIRADO. Escribía la
+  // clave privada en arca_config, que es exactamente el patrón que la remediación
+  // AFIP eliminó (la clave vive en Vault). El endpoint `generate-csr` es hoy un
+  // stub fail-closed que responde 410, así que este handler ya NO lo invoca: no
+  // hace ninguna llamada de red y solo informa el estado al usuario.
+  // La rotación segura se opera por `arca-rotate-prepare` bajo procedimiento
+  // controlado; el frontend NO se conecta a ese contrato en este lote.
+  const handleGenerarCSR = () => {
+    alert(
+      'ℹ️ La generación de CSR desde esta pantalla fue retirada.\n\n' +
+      'El flujo anterior almacenaba la clave privada junto a la configuración. ' +
+      'Ahora la clave se genera y se guarda de forma segura del lado del servidor, ' +
+      'y solo se entrega el CSR público.\n\n' +
+      'Pedí la rotación del certificado por el procedimiento seguro para obtener ' +
+      'el CSR que hay que cargar en AFIP.'
+    )
   }
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1232,38 +1186,35 @@ export default function Settings() {
                     <AlertTriangle size={16} style={{ color: '#f59e0b' }} />
                     <span style={{ color: '#f59e0b', fontWeight: 500, fontSize: '0.875rem' }}>Certificado Digital</span>
                   </div>
+                  {/* AFIP-S4B-1: generación de CSR desde el navegador RETIRADA.
+                      El flujo anterior guardaba la clave privada junto a la configuración;
+                      ahora la clave se genera y queda resguardada del lado del servidor y
+                      solo se entrega el CSR público. */}
                   <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0 0 0.5rem 0' }}>
-                    Generá un CSR (Certificate Signing Request) y presentalo ante AFIP para obtener tu certificado. Luego pegá el .crt en el campo de abajo.
+                    Para operar con AFIP necesitás un certificado digital. El CSR (Certificate Signing Request)
+                    que se presenta ante AFIP ahora se genera por el procedimiento seguro de rotación. Cuando
+                    tengas el .crt emitido por AFIP, pegalo en el campo de abajo.
                   </p>
-                  {arcaConfig.has_certificate && (
-                    <p style={{ color: '#f87171', fontSize: '0.78rem', margin: '0 0 0.75rem 0', lineHeight: 1.5 }}>
-                      ⚠️ <strong>Ya tenés un certificado cargado.</strong> Si generás un nuevo CSR, la clave privada cambia y el certificado actual queda inválido — tendrás que pedir uno nuevo a AFIP.
-                    </p>
-                  )}
-                  {!arcaConfig.has_certificate && (
-                    <p style={{ color: '#64748b', fontSize: '0.78rem', margin: '0 0 0.75rem 0', lineHeight: 1.5 }}>
-                      Una vez generado el CSR, <strong style={{ color: '#fbbf24' }}>no vuelvas a hacer clic aquí</strong> hasta haber completado todo el proceso con AFIP y guardado el .crt.
-                    </p>
-                  )}
+                  <p style={{ color: '#64748b', fontSize: '0.78rem', margin: '0 0 0.75rem 0', lineHeight: 1.5 }}>
+                    La generación de CSR desde esta pantalla fue <strong style={{ color: '#fbbf24' }}>retirada</strong>:
+                    guardaba la clave privada junto a la configuración. Pedí la rotación del certificado por el
+                    procedimiento seguro para obtener el CSR.
+                  </p>
                   <button
                     onClick={handleGenerarCSR}
-                    disabled={generandoCSR}
                     style={{
                       display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
                       padding: '0.5rem 1rem',
-                      backgroundColor: generandoCSR ? 'rgba(99,102,241,0.5)' : 'rgba(99,102,241,0.15)',
-                      border: '1px solid rgba(99,102,241,0.4)',
+                      backgroundColor: 'rgba(100,116,139,0.15)',
+                      border: '1px solid rgba(100,116,139,0.4)',
                       borderRadius: '0.5rem',
-                      color: '#818cf8',
-                      cursor: generandoCSR ? 'not-allowed' : 'pointer',
+                      color: '#94a3b8',
+                      cursor: 'pointer',
                       fontSize: '0.8rem',
                       fontWeight: 600,
                     }}
                   >
-                    {generandoCSR
-                      ? <><Loader2 size={15} style={{ animation: 'tr-spin 1s linear infinite' }} /> Generando CSR...</>
-                      : <><FileText size={15} /> Generar CSR para AFIP</>
-                    }
+                    <FileText size={15} /> Generación de CSR retirada
                   </button>
                 </div>
 

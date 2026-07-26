@@ -14,7 +14,8 @@ contract they must satisfy. Supabase project ref: `vrdxxmjzxhfgqlnxmbwx`.
 |----------------|--------------|-----|
 | `afip-cae`     | **true**     | No in-function user auth; the gateway enforces a valid JWT. Called from the authenticated frontend (electronic invoicing, Pro feature). |
 | `afip-wsaa`    | **false**    | Called server-to-server by `afip-cae` (`supabase.functions.invoke`). No in-function user auth. |
-| `generate-csr` | **false**    | Does in-function JWT auth (`Authorization: Bearer` + `auth.getUser()` + business membership check), same pattern as `mp-subscription`. The gateway is left open so the CORS preflight reaches the function. |
+| `generate-csr` | **false**    | **RETIRED (AFIP-S4B-1).** Fail-closed stub: every operational call returns `410 LEGACY_CSR_FLOW_RETIRED`. It generates no key, writes nothing, and touches no fiscal data. `verify_jwt` stays `false` so the browser preflight still reaches the function and the client gets a clear message instead of an opaque gateway error. Replaced by `arca-rotate-prepare`. |
+| `arca-rotate-prepare` | **true** | Secure certificate-rotation preparation (AFIP-S4A). Generates the new RSA key server-side, stores it in Vault as `pending_rotation`, and returns only the public CSR. Also does in-function JWT auth + owner/admin membership check; the gateway flag is an extra layer. |
 
 OPTIONS preflight is exempt from gateway JWT verification regardless of the flag,
 so CORS works with both `true` and `false`.
@@ -30,8 +31,11 @@ supabase functions deploy afip-cae --project-ref vrdxxmjzxhfgqlnxmbwx
 # afip-wsaa — keep verify_jwt=false
 supabase functions deploy afip-wsaa --no-verify-jwt --project-ref vrdxxmjzxhfgqlnxmbwx
 
-# generate-csr — keep verify_jwt=false
+# generate-csr — RETIRED stub, keep verify_jwt=false
 supabase functions deploy generate-csr --no-verify-jwt --project-ref vrdxxmjzxhfgqlnxmbwx
+
+# arca-rotate-prepare — keep verify_jwt=true → NO --no-verify-jwt flag
+supabase functions deploy arca-rotate-prepare --project-ref vrdxxmjzxhfgqlnxmbwx
 ```
 
 After deploying, confirm the flags stuck:
