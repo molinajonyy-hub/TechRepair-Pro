@@ -37,7 +37,19 @@ export type ActivateInput = {
 export type Validated =
   | { ok: true; action: 'activate'; businessId: string; idempotencyKey: string; rotationRef: string | null; certPem: string; expectedFp: string }
   | { ok: true; action: 'rollback'; businessId: string; idempotencyKey: string; rotationRef: string | null }
+  | { ok: true; action: 'finalize'; businessId: string; idempotencyKey: string; rotationRef: string | null; expectedFp: string }
   | { ok: false; status: number; body: Record<string, unknown> }
+
+/**
+ * Campos que `finalize` NUNCA debe recibir (AFIP-S4B-2C). La finalización sólo
+ * confirma lo que ya está en la base: no transporta material, y el vencimiento
+ * se deriva server-side del X.509 activo, jamás de lo que mande el cliente.
+ */
+const FINALIZE_FORBIDDEN = [
+  'certificate_pem', 'private_key', 'private_key_pem', 'key_pem', 'pem',
+  'expires_at', 'not_after', 'wsaa_token', 'wsaa_sign', 'token', 'sign',
+  'secret_id', 'vault_secret_id', 'subject',
+]
 
 /**
  * Fail-closed: rechaza cualquier pedido incompleto o que traiga una CLAVE
@@ -52,11 +64,25 @@ export function validateInput(body: ActivateInput): Validated {
   if (!businessId || !idempotencyKey) {
     return { ok: false, status: 400, body: { ok: false, error: 'MISSING_FIELDS', detail: 'business_id, idempotency_key' } }
   }
-  if (action !== 'activate' && action !== 'rollback') {
+  if (action !== 'activate' && action !== 'rollback' && action !== 'finalize') {
     return { ok: false, status: 400, body: { ok: false, error: 'BAD_REQUEST', detail: 'action' } }
   }
   if (action === 'rollback') {
     return { ok: true, action: 'rollback', businessId, idempotencyKey, rotationRef }
+  }
+  if (action === 'finalize') {
+    const intruso = FINALIZE_FORBIDDEN.find((k) => (body as Record<string, unknown>)?.[k] !== undefined)
+    if (intruso) {
+      return { ok: false, status: 400, body: { ok: false, error: 'BAD_REQUEST', detail: 'campo no aceptado' } }
+    }
+    const fp = String(body?.expected_fingerprint ?? '').trim().toLowerCase()
+    if (!fp) {
+      return { ok: false, status: 400, body: { ok: false, error: 'MISSING_FIELDS', detail: 'expected_fingerprint' } }
+    }
+    if (!/^[0-9a-f]{64}$/.test(fp)) {
+      return { ok: false, status: 400, body: { ok: false, error: 'BAD_REQUEST', detail: 'expected_fingerprint' } }
+    }
+    return { ok: true, action: 'finalize', businessId, idempotencyKey, rotationRef, expectedFp: fp }
   }
 
   const certPem = String(body?.certificate_pem ?? '')
@@ -95,6 +121,25 @@ export function buildActivationResponse(state: string, data: Record<string, unkn
     rotation_state: data?.rotation_state ?? null,
     info: {
       siguiente_paso: 'Verificar con un refresh WSAA controlado (S4B-2B). Si algo falla, usar action="rollback".',
+    },
+  }
+}
+
+/** Respuesta sanitizada de finalización: nunca certificado, clave, secret_id ni token. */
+export function buildFinalizeResponse(state: string, data: Record<string, unknown> | null) {
+  return {
+    ok: true,
+    state,
+    rotation_ref: data?.rotation_ref ?? null,
+    previous_state: data?.previous_state ?? null,
+    current_state: data?.current_state ?? null,
+    active_fingerprint_trunc: data?.active_fingerprint_trunc ?? null,
+    expires_at: data?.expires_at ?? null,
+    previous_expires_at: data?.previous_expires_at ?? null,
+    wsaa_verified_at: data?.wsaa_verified_at ?? null,
+    rollback_available: data?.rollback_available ?? null,
+    info: {
+      siguiente_paso: 'Rotación cerrada. El par anterior sigue disponible para rollback hasta AFIP-S4C.',
     },
   }
 }
