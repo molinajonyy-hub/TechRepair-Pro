@@ -22,7 +22,7 @@
  */
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { buildCorsHeaders, validateInput, buildActivationResponse } from './validate.ts'
+import { buildCorsHeaders, validateInput, buildActivationResponse, buildFinalizeResponse } from './validate.ts'
 
 function jsonResponse(req: Request, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -74,6 +74,20 @@ serve(async (req: Request) => {
       restored_fingerprint_trunc: data && data.restored_fingerprint_trunc,
       wsaa_cache_invalidated: data && data.wsaa_cache_invalidated,
     }, ok ? 200 : 409)
+  }
+
+  // ── Finalización (AFIP-S4B-2C) ─────────────────────────────────────────────
+  if (v.action === 'finalize') {
+    const { data, error } = await admin.rpc('arca_finalize_certificate_rotation', {
+      p_business_id: v.businessId, p_rotation_ref: v.rotationRef,
+      p_expected_fingerprint: v.expectedFp, p_idempotency_key: v.idempotencyKey, p_actor: actor,
+    })
+    if (error) return jsonResponse(req, { ok: false, error: 'FINALIZATION_RPC_FAILED' }, 500)
+    const st = (data && data.state) || null
+    if (st !== 'ROTATION_COMPLETED' && st !== 'ROTATION_ALREADY_COMPLETED') {
+      return jsonResponse(req, { ok: false, state: st }, 409)
+    }
+    return jsonResponse(req, buildFinalizeResponse(st, data), 200)
   }
 
   // ── Activación ─────────────────────────────────────────────────────────────
