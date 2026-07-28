@@ -1,19 +1,21 @@
 /**
- * AFIP-S2 — resolución de la clave privada WSAA (Vault con fallback legacy).
+ * AFIP-S2/S4C — resolución de la clave privada WSAA (VAULT-ONLY).
  *
  * Dos capas:
  *  1) classifyPrivateKeyPem (unidad pura);
- *  2) resolveArcaPrivateKey — 15 casos, con getVaultCredential inyectado, +
- *     equivalencia de origen: el resolver devuelve el MISMO string venga de
- *     Vault o de legacy, así que la firma (signTRAWithPEM, INTACTA en S2) es
- *     agnóstica al origen — legacy y vault son equivalentes por construcción.
+ *  2) resolveArcaPrivateKey — con getVaultCredential inyectado.
+ *
+ * AFIP-S4C retiró el fallback a `arca_config.private_key`: esa columna ya no
+ * existe. Vault es la única fuente posible, y CUALQUIER problema (no
+ * provisionado, secreto ausente, no activo, ilegible, inválido) falla de forma
+ * visible en vez de buscar una segunda fuente. Los casos que antes verificaban
+ * el fallback ahora verifican que NO exista.
  *
  * NOTA: no se importa node-forge para una firma criptográfica en este test.
- * S2 no modifica la función de firma; solo cambia la PROCEDENCIA de la clave
- * (un string). El material PEM real lo ejercita el flujo de producción bajo
- * Deno (npm:node-forge). Fixtures = PEM sintéticos estructuralmente válidos
- * (el clasificador valida estructura, no cripto). Además evita un devDependency
- * npm que no instala limpio en este toolchain (rollup-linux pin) ni en CI.
+ * El resolver solo cambia la PROCEDENCIA de la clave (un string); el material
+ * PEM real lo ejercita el flujo de producción bajo Deno (npm:node-forge).
+ * Fixtures = PEM sintéticos estructuralmente válidos (el clasificador valida
+ * estructura, no cripto).
  *
  * keyResolver.ts es puro (sin Deno/Supabase) → node --test lo importa directo.
  */
@@ -67,193 +69,145 @@ test('classify: no PEM → invalid', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────
-// 2. resolveArcaPrivateKey — 15 casos
+// 2. resolveArcaPrivateKey — VAULT-ONLY
 // ─────────────────────────────────────────────────────────────────────────
 
 test('R1 Vault provisionado y válido → usa Vault', async () => {
-  const r = await resolveArcaPrivateKey({ getVaultCredential: ok, legacyPrivateKey: 'ignorame' })
+  const r = await resolveArcaPrivateKey({ getVaultCredential: ok })
   assert.equal(r.source, 'vault')
   assert.equal(r.state, 'VAULT_CREDENTIAL_ACTIVE')
   assert.equal(r.privateKey, SYN_KEY_PEM)
 })
 
-test('R2 Vault no provisionado → usa legacy', async () => {
-  const r = await resolveArcaPrivateKey({
-    getVaultCredential: async () => ({ provisioned: false }),
-    legacyPrivateKey: SYN_KEY_PEM,
-  })
-  assert.equal(r.source, 'legacy_plaintext')
-  assert.equal(r.state, 'VAULT_CREDENTIAL_NOT_PROVISIONED')
-  assert.equal(r.privateKey, SYN_KEY_PEM)
+test('R2 Vault NO provisionado → FALLA (antes caía a legacy; S4C lo cerró)', async () => {
+  await assert.rejects(
+    () => resolveArcaPrivateKey({ getVaultCredential: async () => ({ provisioned: false }) }),
+    (e: unknown) => e instanceof WsaaKeyError && e.state === 'VAULT_CREDENTIAL_NOT_PROVISIONED',
+  )
 })
 
-test('R3 vínculo Vault existe pero secreto ausente → falla (no legacy)', async () => {
+test('R3 vínculo Vault existe pero secreto ausente → VAULT_SECRET_MISSING', async () => {
   await assert.rejects(
     () => resolveArcaPrivateKey({
       getVaultCredential: async () => ({ provisioned: true, ok: false, reason: 'secret_missing' }),
-      legacyPrivateKey: SYN_KEY_PEM, // legacy VÁLIDO y presente: NO debe usarse
     }),
     (e: unknown) => e instanceof WsaaKeyError && e.state === 'VAULT_SECRET_MISSING',
   )
 })
 
-test('R4 Vault no-activo (rotating/revoked) → falla (no legacy)', async () => {
+test('R4 Vault no-activo (rotating/revoked) → VAULT_SECRET_UNREADABLE', async () => {
   await assert.rejects(
     () => resolveArcaPrivateKey({
       getVaultCredential: async () => ({ provisioned: true, ok: false, reason: 'not_active' }),
-      legacyPrivateKey: SYN_KEY_PEM,
     }),
     (e: unknown) => e instanceof WsaaKeyError && e.state === 'VAULT_SECRET_UNREADABLE',
   )
 })
 
-test('R5 RPC de Vault falla → VAULT_SECRET_UNREADABLE (no legacy)', async () => {
+test('R5 RPC de Vault falla → VAULT_SECRET_UNREADABLE', async () => {
   await assert.rejects(
-    () => resolveArcaPrivateKey({
-      getVaultCredential: async () => { throw new Error('rpc down') },
-      legacyPrivateKey: SYN_KEY_PEM,
-    }),
+    () => resolveArcaPrivateKey({ getVaultCredential: async () => { throw new Error('rpc down') } }),
     (e: unknown) => e instanceof WsaaKeyError && e.state === 'VAULT_SECRET_UNREADABLE',
   )
 })
 
 test('R6 Vault provisionado y activo pero PEM inválido → VAULT_SECRET_INVALID', async () => {
   await assert.rejects(
-    () => resolveArcaPrivateKey({
-      getVaultCredential: async () => ({ provisioned: true, ok: true, pem: 'no-es-pem' }),
-      legacyPrivateKey: SYN_KEY_PEM,
-    }),
+    () => resolveArcaPrivateKey({ getVaultCredential: async () => ({ provisioned: true, ok: true, pem: 'no-es-pem' }) }),
     (e: unknown) => e instanceof WsaaKeyError && e.state === 'VAULT_SECRET_INVALID',
   )
 })
 
 test('R7 Vault activo pero PEM es un CERTIFICADO → VAULT_SECRET_INVALID (no confunde cert con clave)', async () => {
   await assert.rejects(
-    () => resolveArcaPrivateKey({
-      getVaultCredential: async () => ({ provisioned: true, ok: true, pem: SYN_CERT_PEM }),
-      legacyPrivateKey: SYN_KEY_PEM,
-    }),
+    () => resolveArcaPrivateKey({ getVaultCredential: async () => ({ provisioned: true, ok: true, pem: SYN_CERT_PEM }) }),
     (e: unknown) => e instanceof WsaaKeyError && e.state === 'VAULT_SECRET_INVALID',
   )
 })
 
-test('R8 legacy ausente (Vault no provisionado) → LEGACY_PRIVATE_KEY_MISSING', async () => {
+test('R8 una clave alternativa inyectada NUNCA se usa (el resolver la ignora por completo)', async () => {
+  // Aunque alguien vuelva a pasar el campo retirado, no existe camino que lo lea.
+  const conIntruso = { getVaultCredential: async () => ({ provisioned: false }), legacyPrivateKey: SYN_KEY_PEM }
   await assert.rejects(
-    () => resolveArcaPrivateKey({ getVaultCredential: async () => ({ provisioned: false }), legacyPrivateKey: '' }),
-    (e: unknown) => e instanceof WsaaKeyError && e.state === 'LEGACY_PRIVATE_KEY_MISSING',
-  )
-  await assert.rejects(
-    () => resolveArcaPrivateKey({ getVaultCredential: async () => ({ provisioned: false }), legacyPrivateKey: null }),
-    (e: unknown) => e instanceof WsaaKeyError && e.state === 'LEGACY_PRIVATE_KEY_MISSING',
+    () => resolveArcaPrivateKey(conIntruso as Parameters<typeof resolveArcaPrivateKey>[0]),
+    (e: unknown) => e instanceof WsaaKeyError && e.state === 'VAULT_CREDENTIAL_NOT_PROVISIONED',
   )
 })
 
-test('R9 legacy inválido (Vault no provisionado) → LEGACY_PRIVATE_KEY_INVALID', async () => {
-  await assert.rejects(
-    () => resolveArcaPrivateKey({ getVaultCredential: async () => ({ provisioned: false }), legacyPrivateKey: 'basura' }),
-    (e: unknown) => e instanceof WsaaKeyError && e.state === 'LEGACY_PRIVATE_KEY_INVALID',
-  )
-})
-
-test('R10 legacy que en realidad es un certificado → LEGACY_PRIVATE_KEY_INVALID', async () => {
-  await assert.rejects(
-    () => resolveArcaPrivateKey({ getVaultCredential: async () => ({ provisioned: false }), legacyPrivateKey: SYN_CERT_PEM }),
-    (e: unknown) => e instanceof WsaaKeyError && e.state === 'LEGACY_PRIVATE_KEY_INVALID',
-  )
-})
-
-test('R11 NUNCA hay fallback silencioso desde un Vault roto hacia legacy', async () => {
-  // Legacy es válido y presente; aún así, un Vault provisionado-roto debe FALLAR.
-  for (const reason of ['secret_missing', 'not_active', 'otro'] as const) {
-    let usedLegacy = false
+test('R9 ningún estado roto devuelve una clave: siempre lanza', async () => {
+  const rotos = [
+    { provisioned: false },
+    { provisioned: true, ok: false, reason: 'secret_missing' },
+    { provisioned: true, ok: false, reason: 'not_active' },
+    { provisioned: true, ok: false, reason: 'otro' },
+    { provisioned: true },                       // sin ok explícito
+    { provisioned: true, ok: true, pem: '' },
+    { provisioned: true, ok: true, pem: SYN_CERT_PEM },
+  ]
+  for (const cred of rotos) {
+    let devolvio = false
     try {
-      await resolveArcaPrivateKey({
-        getVaultCredential: async () => ({ provisioned: true, ok: false, reason }),
-        legacyPrivateKey: SYN_KEY_PEM,
-      })
-      usedLegacy = true
+      await resolveArcaPrivateKey({ getVaultCredential: async () => (cred as any) })
+      devolvio = true
+    } catch (e) {
+      assert.ok(e instanceof WsaaKeyError, `estado ${JSON.stringify(cred)} debe lanzar WsaaKeyError`)
+    }
+    assert.equal(devolvio, false, `${JSON.stringify(cred)} no debe devolver una clave`)
+  }
+})
+
+test('R10 el error público está sanitizado: nunca contiene PEM ni material crudo', async () => {
+  for (const cred of [{ provisioned: false }, { provisioned: true, ok: true, pem: SYN_CERT_PEM }]) {
+    try {
+      await resolveArcaPrivateKey({ getVaultCredential: async () => (cred as any) })
+      assert.fail('debía lanzar')
     } catch (e) {
       assert.ok(e instanceof WsaaKeyError)
-      assert.notEqual((e as WsaaKeyError).state, 'VAULT_CREDENTIAL_NOT_PROVISIONED')
+      assert.doesNotMatch((e as WsaaKeyError).publicMessage, /BEGIN|PRIVATE|CERTIFICATE|MII/)
     }
-    assert.equal(usedLegacy, false, `reason=${reason} no debe caer a legacy`)
   }
 })
 
-test('R12 el error público está sanitizado: nunca contiene PEM ni el estado interno crudo con secreto', async () => {
-  try {
-    await resolveArcaPrivateKey({
-      getVaultCredential: async () => ({ provisioned: true, ok: true, pem: SYN_CERT_PEM }),
-      legacyPrivateKey: SYN_KEY_PEM,
-    })
-    assert.fail('debía lanzar')
-  } catch (e) {
-    assert.ok(e instanceof WsaaKeyError)
-    assert.doesNotMatch((e as WsaaKeyError).publicMessage, /BEGIN|PRIVATE|CERTIFICATE|MII/)
-  }
-})
-
-test('R13 la clave resuelta se devuelve trim() (sin espacios de borde)', async () => {
+test('R11 la clave resuelta se devuelve trim() (sin espacios de borde)', async () => {
   const r = await resolveArcaPrivateKey({
     getVaultCredential: async () => ({ provisioned: true, ok: true, pem: `\n  ${SYN_KEY_PEM}  \n` }),
-    legacyPrivateKey: '',
   })
   assert.equal(r.privateKey, SYN_KEY_PEM)
 })
 
-test('R14 Vault provisionado sin ok explícito → tratado como roto (fail-closed)', async () => {
-  await assert.rejects(
-    () => resolveArcaPrivateKey({
-      getVaultCredential: async () => ({ provisioned: true }),
-      legacyPrivateKey: SYN_KEY_PEM,
-    }),
-    (e: unknown) => e instanceof WsaaKeyError,
-  )
+test('R12 resultado nulo/indefinido del contrato → FALLA (no hay segunda fuente)', async () => {
+  for (const nulo of [null, undefined]) {
+    await assert.rejects(
+      () => resolveArcaPrivateKey({ getVaultCredential: async () => (nulo as any) }),
+      (e: unknown) => e instanceof WsaaKeyError && e.state === 'VAULT_CREDENTIAL_NOT_PROVISIONED',
+    )
+  }
 })
 
-test('R15 resultado nulo/indefinido del contrato → usa legacy (equivale a no provisionado)', async () => {
-  const r = await resolveArcaPrivateKey({
-    getVaultCredential: async () => (null as any),
-    legacyPrivateKey: SYN_KEY_PEM,
-  })
-  assert.equal(r.source, 'legacy_plaintext')
+test('R13 el único origen posible es vault', async () => {
+  const r = await resolveArcaPrivateKey({ getVaultCredential: ok })
+  assert.equal(r.source, 'vault')
 })
 
 // ─────────────────────────────────────────────────────────────────────────
-// 3. Equivalencia de origen (la firma es agnóstica a la procedencia)
+// 3. El código desplegado no conserva rastros del camino legacy
 // ─────────────────────────────────────────────────────────────────────────
 
-test('equivalencia: Vault y legacy (mismo PEM) devuelven idéntico material de firma', async () => {
-  const fromVault = await resolveArcaPrivateKey({ getVaultCredential: ok, legacyPrivateKey: '' })
-  const fromLegacy = await resolveArcaPrivateKey({
-    getVaultCredential: async () => ({ provisioned: false }), legacyPrivateKey: SYN_KEY_PEM,
-  })
-  // El resolver devuelve el MISMO string por ambos caminos; signTRAWithPEM (intacto
-  // en S2) recibe un string y no conoce el origen → firma equivalente por construcción.
-  assert.equal(fromVault.privateKey, fromLegacy.privateKey)
-  assert.equal(fromVault.source, 'vault')
-  assert.equal(fromLegacy.source, 'legacy_plaintext')
-  // El resolver solo entrega material que el clasificador acepta como clave privada.
-  assert.equal(classifyPrivateKeyPem(fromVault.privateKey), 'private')
-  assert.equal(classifyPrivateKeyPem(fromLegacy.privateKey), 'private')
+test('el resolver no menciona ninguna clave alternativa', () => {
+  const src = read('../../supabase/functions/afip-wsaa/keyResolver.ts')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, ' ')
+  assert.doesNotMatch(src, /legacyPrivateKey/)
+  assert.doesNotMatch(src, /legacy_plaintext/)
+  assert.doesNotMatch(src, /LEGACY_PRIVATE_KEY/)
 })
 
-// ─────────────────────────────────────────────────────────────────────────
-// 4. Contrato de fuente — afip-wsaa usa el resolver, no lee private_key directo
-// ─────────────────────────────────────────────────────────────────────────
-
-test('afip-wsaa: la rama PEM usa resolveArcaPrivateKey (no lee config.private_key directo para firmar)', () => {
+test('afip-wsaa no lee arca_config.private_key ni audita resoluciones legacy', () => {
   const idx = read('../../supabase/functions/afip-wsaa/index.ts')
-  assert.match(idx, /resolveArcaPrivateKey\(/)
-  assert.match(idx, /arca_get_credential_for_signing/)
-  // No debe quedar el patrón viejo de leer la clave por decryptField para firmar.
-  assert.doesNotMatch(idx, /decryptField\(supabase,\s*config\.private_key\)/)
-})
-
-test('afip-wsaa: audita el origen y jamás loguea/retorna el PEM', () => {
-  const idx = read('../../supabase/functions/afip-wsaa/index.ts')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, ' ')
+  assert.doesNotMatch(idx, /config\.private_key/)
+  assert.doesNotMatch(idx, /legacyPrivateKey/)
+  assert.doesNotMatch(idx, /wsaa_private_key_resolved_legacy/)
   assert.match(idx, /wsaa_private_key_resolved_vault/)
-  assert.match(idx, /wsaa_private_key_resolved_legacy/)
   assert.match(idx, /wsaa_private_key_resolution_failed/)
   assert.doesNotMatch(idx, /console\.(log|warn|error)\([^)]*keyPem/)
   assert.doesNotMatch(idx, /keyPem[^)]*:\s*keyPem/) // no keyPem en objetos retornados

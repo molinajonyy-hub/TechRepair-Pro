@@ -145,31 +145,35 @@ Deno.test('el fingerprint es el SHA-256 del SPKI DER estándar (interoperable)',
     [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join(''))
 })
 
-Deno.test('firma PKCS7/CMS: la clave desde Vault y desde legacy producen firmas válidas', async () => {
-  const fromVault = await resolveArcaPrivateKey({
+Deno.test('firma PKCS7/CMS: la clave resuelta desde Vault produce una firma válida', async () => {
+  // AFIP-S4C: Vault es el único origen posible; ya no hay una segunda fuente
+  // con la que comparar. La firma sigue siendo agnóstica: recibe un string.
+  const resolved = await resolveArcaPrivateKey({
     getVaultCredential: () => Promise.resolve({ provisioned: true, ok: true, pem: A.keyPem }),
-    legacyPrivateKey: '',
   })
-  const fromLegacy = await resolveArcaPrivateKey({
-    getVaultCredential: () => Promise.resolve({ provisioned: false }),
-    legacyPrivateKey: A.keyPem,
-  })
-  assertEquals(fromVault.source, 'vault')
-  assertEquals(fromLegacy.source, 'legacy_plaintext')
-  assertEquals(fromVault.privateKey, fromLegacy.privateKey)
+  assertEquals(resolved.source, 'vault')
+  assertEquals(resolved.privateKey, A.keyPem)
 
-  for (const resolved of [fromVault, fromLegacy]) {
-    const sig = signTRA(TRA, A.certPem, resolved.privateKey)
-    assert(sig.length > 100, 'la firma debe ser no trivial')
-    // Debe ser un CMS/PKCS7 parseable
-    const p7 = forge.pkcs7.messageFromAsn1(forge.asn1.fromDer(forge.util.decode64(sig)))
-    assert(p7, 'el CMS debe ser parseable')
-    assertEquals(p7.type, forge.pki.oids.signedData, 'debe ser un CMS signedData')
-    assertEquals(p7.certificates.length, 1, 'debe incluir el certificado del firmante')
-    // El certificado embebido debe ser el mismo par que firmó.
-    assert(certMatchesKey(forge.pki.certificateToPem(p7.certificates[0]), resolved.privateKey),
-      'el certificado del CMS debe corresponder a la clave que firmó')
-  }
+  const sig = signTRA(TRA, A.certPem, resolved.privateKey)
+  assert(sig.length > 100, 'la firma debe ser no trivial')
+  // Debe ser un CMS/PKCS7 parseable
+  const p7 = forge.pkcs7.messageFromAsn1(forge.asn1.fromDer(forge.util.decode64(sig)))
+  assert(p7, 'el CMS debe ser parseable')
+  assertEquals(p7.type, forge.pki.oids.signedData, 'debe ser un CMS signedData')
+  assertEquals(p7.certificates.length, 1, 'debe incluir el certificado del firmante')
+  // El certificado embebido debe ser el mismo par que firmó.
+  assert(certMatchesKey(forge.pki.certificateToPem(p7.certificates[0]), resolved.privateKey),
+    'el certificado del CMS debe corresponder a la clave que firmó')
+})
+
+Deno.test('sin credencial en Vault no hay firma posible (fail-closed real)', async () => {
+  let firmo = false
+  try {
+    const r = await resolveArcaPrivateKey({ getVaultCredential: () => Promise.resolve({ provisioned: false }) })
+    signTRA(TRA, A.certPem, r.privateKey)
+    firmo = true
+  } catch (_) { /* esperado */ }
+  assert(!firmo, 'sin Vault no debe poder firmarse nada')
 })
 
 Deno.test('firmar con una clave que NO corresponde al certificado es detectable', () => {

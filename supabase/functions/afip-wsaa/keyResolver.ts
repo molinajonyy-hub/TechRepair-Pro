@@ -1,15 +1,17 @@
 /**
  * AFIP-S2 — Resolución de la clave privada de firma WSAA.
+ * AFIP-S4C — VAULT-ONLY: el fallback a la clave plaintext fue RETIRADO.
  *
  * Módulo PURO e inyectable (sin Deno/Supabase/node-forge) para poder testearlo
  * bajo `node --test`, igual que afip-cae/logic.ts. El Edge inyecta la lectura
  * real de Vault (public.arca_get_credential_for_signing vía service_role).
  *
- * Regla crítica (S2): fallback a la clave plaintext de arca_config SOLO cuando la
- * credencial Vault todavía NO fue provisionada. Una credencial Vault configurada
- * pero rota (secreto ausente/ilegible/inválido/no-activa) FALLA de forma visible;
- * nunca cae en silencio a legacy (eso ocultaría corrupción o una migración a
- * medias). La clave nunca se loguea, ni se audita, ni se devuelve al cliente.
+ * Regla crítica (S4C): la clave SIEMPRE sale de Vault. No hay segunda fuente.
+ * Si la credencial no está provisionada, o está provisionada pero rota (secreto
+ * ausente/ilegible/inválido/no-activa), la firma FALLA de forma visible. Antes
+ * existía un fallback temporal a `arca_config.private_key` para los negocios que
+ * todavía no habían migrado; esa columna ya no existe y el camino se cerró.
+ * La clave nunca se loguea, ni se audita, ni se devuelve al cliente.
  */
 
 /** Estados de resolución (internos; se mapean a error fiscal sanitizado). */
@@ -19,15 +21,14 @@ export type KeyResolutionState =
   | 'VAULT_SECRET_MISSING'
   | 'VAULT_SECRET_UNREADABLE'
   | 'VAULT_SECRET_INVALID'
-  | 'LEGACY_PRIVATE_KEY_MISSING'
-  | 'LEGACY_PRIVATE_KEY_INVALID'
 
-export type KeySource = 'vault' | 'legacy_plaintext'
+/** AFIP-S4C: única fuente posible. Se mantiene el tipo por claridad en la auditoría. */
+export type KeySource = 'vault'
 
 export interface ResolvedKey {
   privateKey: string
   source: KeySource
-  state: 'VAULT_CREDENTIAL_ACTIVE' | 'VAULT_CREDENTIAL_NOT_PROVISIONED'
+  state: 'VAULT_CREDENTIAL_ACTIVE'
 }
 
 /** Forma que devuelve public.arca_get_credential_for_signing (jsonb). */
@@ -72,31 +73,27 @@ export function classifyPrivateKeyPem(input: unknown): 'private' | 'certificate'
 }
 
 /**
- * Resuelve la clave privada de firma. `getVaultCredential` lee el contrato Vault
- * (puede lanzar si la RPC falla → VAULT_SECRET_UNREADABLE). `legacyPrivateKey` es
- * arca_config.private_key (plaintext temporal), usado SOLO si Vault no está
- * provisionado.
+ * Resuelve la clave privada de firma. ÚNICA fuente: Vault. `getVaultCredential`
+ * lee el contrato Vault (puede lanzar si la RPC falla → VAULT_SECRET_UNREADABLE).
+ *
+ * AFIP-S4C: no acepta ninguna clave alternativa. La firma nunca ocurre con
+ * material que no venga del almacén seguro.
  */
 export async function resolveArcaPrivateKey(opts: {
   getVaultCredential: () => Promise<VaultCredentialResult>
-  legacyPrivateKey: string | null | undefined
 }): Promise<ResolvedKey> {
   let cred: VaultCredentialResult
   try {
     cred = await opts.getVaultCredential()
   } catch {
-    // La RPC/almacén no respondió: NO caemos a legacy (podría ocultar Vault roto).
+    // La RPC/almacén no respondió: falla visible, nunca una segunda fuente.
     throw new WsaaKeyError('VAULT_SECRET_UNREADABLE', 'No se pudo acceder al almacén seguro de la credencial.')
   }
 
   if (!cred || cred.provisioned !== true) {
-    // ── Fallback legacy: solo cuando la credencial Vault NO fue provisionada ──
-    const legacy = (opts.legacyPrivateKey ?? '').trim()
-    if (!legacy) throw new WsaaKeyError('LEGACY_PRIVATE_KEY_MISSING', 'No hay clave privada configurada para este negocio.')
-    if (classifyPrivateKeyPem(legacy) !== 'private') {
-      throw new WsaaKeyError('LEGACY_PRIVATE_KEY_INVALID', 'La clave privada configurada no tiene un formato válido.')
-    }
-    return { privateKey: legacy, source: 'legacy_plaintext', state: 'VAULT_CREDENTIAL_NOT_PROVISIONED' }
+    // Sin credencial en Vault no hay firma posible: fail-closed.
+    throw new WsaaKeyError('VAULT_CREDENTIAL_NOT_PROVISIONED',
+      'No hay una credencial fiscal segura configurada para este negocio.')
   }
 
   // ── Credencial Vault provisionada ──

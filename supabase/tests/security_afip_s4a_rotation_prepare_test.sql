@@ -21,8 +21,9 @@ ON CONFLICT (id) DO UPDATE SET owner_user_id = EXCLUDED.owner_user_id;
 
 -- arca_config REALISTA: certificado vigente con subject mínimo, alias, CUIT CON
 -- GUIONES (para probar la normalización) y razon_social NULL (no debe bloquear).
+-- AFIP-S4C: `private_key` ya no existe; la clave vive sólo en Vault.
 INSERT INTO public.arca_config (business_id, cuit, razon_social, alias, ambiente, punto_venta,
-        web_service, cert_file, private_key, wsaa_token, wsaa_sign, estado_conexion)
+        web_service, cert_file, wsaa_token, wsaa_sign, estado_conexion)
 VALUES ('00000000-0000-4000-8000-0000000054a1', '20-11111111-2', NULL, 'fixture.alias', 'homologacion', 1, 'wsfe',
         $p$-----BEGIN CERTIFICATE-----
 MIIB2jCCAUOgAwIBAgIBATANBgkqhkiG9w0BAQsFADAzMRYwFAYDVQQDEw1maXh0
@@ -36,7 +37,6 @@ hkiG9w0BAQsFAAOBgQA7O44tjiUuaeQUab/wNcnkWh4sJqeNt70CGwTTNA2nyrSO
 ic/msgA0P9de8+1gtJkDGQEvb4szJfoPWID5Klm8Sbu7c1qrDfyt8giukUpT9g5a
 sZFjQHoaJUGB3BH4CSpmjX2ibQO22a31o9wDJGsgAdJlDYi+yHeehPIEzmONiw==
 -----END CERTIFICATE-----$p$,
-        '-----BEGIN RSA PRIVATE KEY-----\nDUMMYLEGACYKEY\n-----END RSA PRIVATE KEY-----',
         'DUMMYTOKEN', 'DUMMYSIGN', 'conectado') ON CONFLICT (business_id) DO NOTHING;
 -- NOTA: NO se inserta fila en business_settings → queda vacío a propósito.
 
@@ -59,7 +59,8 @@ rGItQ1mhrrCUgjsdc/OmSRGqeK6QafsVFbFOKBdbRqQ=
 CREATE TEMP TABLE s4a_pre AS
 SELECT (SELECT count(*) FROM private.arca_private_key_credentials WHERE business_id='00000000-0000-4000-8000-0000000054a1') AS active_cnt,
        (SELECT private_key_fingerprint FROM private.arca_private_key_credentials WHERE business_id='00000000-0000-4000-8000-0000000054a1') AS active_fp,
-       (SELECT md5(cert_file||coalesce(wsaa_token,'')||coalesce(wsaa_sign,'')||private_key) FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-0000000054a1') AS cfg;
+       -- AFIP-S4C: la huella de configuración ya no incluye la clave en claro.
+       (SELECT md5(cert_file||coalesce(wsaa_token,'')||coalesce(wsaa_sign,'')) FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-0000000054a1') AS cfg;
 
 CREATE TEMP TABLE s4a_results (n serial, label text, ok boolean);
 CREATE OR REPLACE FUNCTION pg_temp.chk(l text, ok boolean) RETURNS void
@@ -516,8 +517,12 @@ END $t3$;
 SELECT pg_temp.chk('credencial active intacta',
   (SELECT active_cnt FROM s4a_pre) = (SELECT count(*) FROM private.arca_private_key_credentials WHERE business_id='00000000-0000-4000-8000-0000000054a1')
   AND (SELECT active_fp FROM s4a_pre) = (SELECT private_key_fingerprint FROM private.arca_private_key_credentials WHERE business_id='00000000-0000-4000-8000-0000000054a1'));
-SELECT pg_temp.chk('arca_config intacto (cert/token/sign/private_key)',
-  (SELECT cfg FROM s4a_pre) = (SELECT md5(cert_file||coalesce(wsaa_token,'')||coalesce(wsaa_sign,'')||private_key) FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-0000000054a1'));
+SELECT pg_temp.chk('arca_config intacto (cert/token/sign)',
+  (SELECT cfg FROM s4a_pre) = (SELECT md5(cert_file||coalesce(wsaa_token,'')||coalesce(wsaa_sign,'')) FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-0000000054a1'));
+-- AFIP-S4C: preparar una rotación tampoco puede reintroducir clave en claro.
+SELECT pg_temp.chk('preparar la rotación no crea almacenamiento plaintext',
+  (SELECT count(*) FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='arca_config' AND column_name='private_key') = 0);
 SELECT pg_temp.chk('cero secretos de rotación huérfanos',
   (SELECT count(*) FROM vault.secrets WHERE name LIKE 'arca-private-key-rotation:%')
    = (SELECT count(*) FROM private.arca_credential_rotations WHERE state='pending_rotation'));

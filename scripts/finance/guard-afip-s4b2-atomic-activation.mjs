@@ -122,10 +122,12 @@ function analyze(migRaw, edgeRaw, validateRaw, sqlTest, harness, repoFiles) {
   // ── El certificado PRODUCTIVO nunca entra al repo ni se referencia ─────────
   const crtFiles = repoFiles.filter((f) => /\.(crt|cer|p12|pfx)$/i.test(f))
   req(crtFiles.length === 0, `no debe haber certificados/keystores en el repo (${crtFiles.join(', ')})`)
-  // Este propio guard contiene los patrones como REGLAS de detección: se excluye
-  // para no marcarse a sí mismo (regla ≠ material).
+  // Los guards contienen los patrones como REGLAS de detección: se excluyen para
+  // no marcarse entre sí (regla ≠ material). AFIP-S4C extendió esta excepción,
+  // que antes cubría sólo a este archivo, a todos los guards.
   const SELF = 'scripts/finance/guard-afip-s4b2-atomic-activation.mjs'
-  const leaking = repoFiles.filter((f) => f !== SELF).filter((f) => {
+  const esGuard = (f) => /^scripts\/finance\/guard-.*\.mjs$/.test(f)
+  const leaking = repoFiles.filter((f) => f !== SELF && !esGuard(f)).filter((f) => {
     const t = fs.readFileSync(path.join(ROOT, f), 'utf8')
     return PROD_CERT_MARKERS.some((re) => re.test(t))
   })
