@@ -24,9 +24,10 @@ INSERT INTO public.profiles (id, user_id, business_id, role, is_active) VALUES
   ('00000000-0000-4000-8000-0000000b0003','00000000-0000-4000-8000-0000000b0003','00000000-0000-4000-8000-0000000bbb02','owner',true)
 ON CONFLICT (id) DO UPDATE SET business_id=EXCLUDED.business_id, role=EXCLUDED.role, is_active=true;
 
-INSERT INTO public.arca_config (business_id, cuit, cuit_emisor, ambiente, punto_venta, web_service, alias, cert_file, private_key, wsaa_token, wsaa_sign, estado_conexion)
+-- AFIP-S4C: `private_key` ya no existe; la clave vive sólo en Vault.
+INSERT INTO public.arca_config (business_id, cuit, cuit_emisor, ambiente, punto_venta, web_service, alias, cert_file, wsaa_token, wsaa_sign, estado_conexion)
 VALUES ('00000000-0000-4000-8000-0000000bbb01','20111111112','20111111112','homologacion',1,'wsfe','b1',
-        '-----BEGIN CERTIFICATE-----SYNCERTB-----END CERTIFICATE-----','-----BEGIN PRIVATE KEY-----SYNKEYB-----END PRIVATE KEY-----','tokB','sigB','conectado')
+        '-----BEGIN CERTIFICATE-----SYNCERTB-----END CERTIFICATE-----','tokB','sigB','conectado')
 ON CONFLICT (business_id) DO NOTHING;
 
 -- ══ Estado del catálogo ═════════════════════════════════════════════════════
@@ -126,9 +127,20 @@ END $$;
 RESET ROLE;
 
 -- ══ Integridad de datos tras toda la operativa ══════════════════════════════
--- C17. la clave privada quedó preservada (ninguna RPC la toca)
-SELECT pg_temp.assert((SELECT private_key LIKE '%SYNKEYB%' FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-0000000bbb01'),
-  'C17 private_key preservada');
+-- C17 (AFIP-S4C). Reemplaza a 'C17 private_key preservada': esa columna ya no
+-- existe, así que la invariante vigente es que ninguna RPC de configuración
+-- reintroduzca una ruta de almacenamiento en claro ni la referencie en runtime.
+SELECT pg_temp.assert(
+  (SELECT count(*) FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='arca_config' AND column_name='private_key') = 0,
+  'C17 ninguna RPC recreó la columna private_key');
+SELECT pg_temp.assert(
+  NOT EXISTS (
+    SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='public' AND p.prokind='f'
+      AND p.proname IN ('save_arca_config_legacy','save_arca_certificate_legacy','set_arca_estado_conexion')
+      AND regexp_replace(p.prosrc, '--[^\n]*', '', 'g') ~ '\mprivate_key\M'),
+  'C17b los RPC de configuración no referencian private_key en runtime');
 -- C18. el cert solo cambió por el reemplazo EXPLÍCITO de C14
 SELECT pg_temp.assert((SELECT cert_file LIKE '%NUEVOB%' FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-0000000bbb01'),
   'C18 cert_file = el reemplazo explícito (sin borrados implícitos)');

@@ -46,8 +46,9 @@ mvNVCWyyxwRiE5vLiq/hlkuulMhrQNclZw==
 INSERT INTO public.businesses (id, name, owner_user_id, subscription_plan, subscription_status)
 VALUES ('00000000-0000-4000-8000-0000000c0a01','S3A-conc', NULL,'pro','active')
 ON CONFLICT (id) DO UPDATE SET subscription_plan='pro';
-INSERT INTO public.arca_config (business_id, cuit, ambiente, punto_venta, web_service, alias, cert_file, private_key, estado_conexion)
-VALUES ('00000000-0000-4000-8000-0000000c0a01','20111111112','homologacion',1,'wsfe','x', pg_temp.cert_a(), pg_temp.key_a(),'conectado')
+-- AFIP-S4C: `private_key` ya no existe; la clave vive sólo en Vault.
+INSERT INTO public.arca_config (business_id, cuit, ambiente, punto_venta, web_service, alias, cert_file, estado_conexion)
+VALUES ('00000000-0000-4000-8000-0000000c0a01','20111111112','homologacion',1,'wsfe','x', pg_temp.cert_a(),'conectado')
 ON CONFLICT (business_id) DO NOTHING;
 
 SET LOCAL request.jwt.claims = '{"role":"service_role"}';
@@ -64,38 +65,35 @@ SELECT pg_temp.assert(EXISTS (
   WHERE n.nspname='private' AND t.relname='arca_credential_provision_requests' AND c.contype='u'
     AND pg_get_constraintdef(c.oid) ILIKE '%business_id%idempotency_key%'),
   'C2 UNIQUE(business_id, idempotency_key) en las solicitudes');
-SELECT pg_temp.assert(
-  (SELECT prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-    WHERE n.nspname='public' AND p.proname='arca_migrate_legacy_private_key_to_vault') ~ 'pg_advisory_xact_lock',
-  'C3 la RPC serializa por negocio con advisory lock transaccional');
+-- ══ AFIP-S4C — el contrato retirado es INERTE bajo repetición ══════════════
+-- Reemplaza a C3-C6, que probaban el advisory lock y la idempotencia
+-- (MIGRATED / ALREADY_MIGRATED / conflictos) de una migración que ya no existe.
+-- Serializar una operación que no hace nada no tiene sentido; lo que hay que
+-- proteger es que repetirla siga sin efectos y con resultado determinista.
+CREATE TEMP TABLE c0a_pre AS
+SELECT (SELECT count(*) FROM vault.secrets) AS secretos,
+       (SELECT count(*) FROM private.arca_private_key_credentials) AS credenciales,
+       (SELECT count(*) FROM private.arca_credential_provision_requests) AS solicitudes,
+       (SELECT md5(coalesce(cert_file,'')||coalesce(alias,'')||coalesce(estado_conexion,''))
+          FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-0000000c0a01') AS cfg_md5;
 
--- ══ C4. Misma idempotency_key + mismo payload ══════════════════════════════
 SELECT pg_temp.assert(
-  (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-0000000c0a01', :'fpa', 'k1')->>'state')='MIGRATED',
-  'C4a primera invocación → MIGRATED');
+  (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-0000000c0a01', :'fpa', 'k1')->>'state')='LEGACY_MIGRATION_RETIRED',
+  'C3 el contrato retirado responde LEGACY_MIGRATION_RETIRED');
 SELECT pg_temp.assert(
-  (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-0000000c0a01', :'fpa', 'k1')->>'state') IN ('MIGRATED','ALREADY_MIGRATED'),
-  'C4b reintento con misma key → idempotente');
-SELECT pg_temp.assert((SELECT count(*) FROM private.arca_private_key_credentials WHERE business_id='00000000-0000-4000-8000-0000000c0a01')=1,
-  'C4c exactamente UNA credencial activa');
-SELECT pg_temp.assert((SELECT count(*) FROM vault.secrets WHERE name LIKE 'arca-private-key:00000000-0000-4000-8000-0000000c0a01%')=1,
-  'C4d exactamente UN secreto Vault');
-
--- ══ C5. Distinta key + mismo fingerprint → ALREADY_MIGRATED ════════════════
+  (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-0000000c0a01', :'fpa', 'k1')->>'state')
+  = (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-0000000c0a01','95025c22ec2d37789679747b956e5ce4c397158c50657d27cba3a07125db13c5','k3')->>'state'),
+  'C4 resultado determinista con cualquier key y cualquier fingerprint');
+SELECT pg_temp.assert((SELECT count(*) FROM vault.secrets) = (SELECT secretos FROM c0a_pre),
+  'C5 cero secretos creados por invocaciones repetidas');
+SELECT pg_temp.assert((SELECT count(*) FROM private.arca_private_key_credentials) = (SELECT credenciales FROM c0a_pre),
+  'C6a cero credenciales creadas o modificadas');
+SELECT pg_temp.assert((SELECT count(*) FROM private.arca_credential_provision_requests) = (SELECT solicitudes FROM c0a_pre),
+  'C6b cero estados parciales de provisión');
 SELECT pg_temp.assert(
-  (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-0000000c0a01', :'fpa', 'k2')->>'state')='ALREADY_MIGRATED',
-  'C5a otra key + mismo fingerprint → ALREADY_MIGRATED');
-SELECT pg_temp.assert((SELECT count(*) FROM private.arca_private_key_credentials WHERE business_id='00000000-0000-4000-8000-0000000c0a01')=1
-  AND (SELECT count(*) FROM vault.secrets WHERE name LIKE 'arca-private-key:00000000-0000-4000-8000-0000000c0a01%')=1,
-  'C5b sigue habiendo UNA credencial y UN secreto');
-
--- ══ C6. Distinta key + fingerprint distinto → conflicto ════════════════════
-SELECT pg_temp.assert(
-  (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-0000000c0a01','95025c22ec2d37789679747b956e5ce4c397158c50657d27cba3a07125db13c5','k3')->>'state')
-    IN ('FINGERPRINT_MISMATCH','ACTIVE_CREDENTIAL_CONFLICT'),
-  'C6a otra key + otro fingerprint → conflicto explícito');
-SELECT pg_temp.assert((SELECT count(*) FROM vault.secrets WHERE name LIKE 'arca-private-key:00000000-0000-4000-8000-0000000c0a01%')=1,
-  'C6b NO se creó un segundo secreto');
+  (SELECT md5(coalesce(cert_file,'')||coalesce(alias,'')||coalesce(estado_conexion,''))
+     FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-0000000c0a01') = (SELECT cfg_md5 FROM c0a_pre),
+  'C6c cero cambios en arca_config');
 
 -- ══ C7. Sin huérfanos ══════════════════════════════════════════════════════
 SELECT pg_temp.assert(

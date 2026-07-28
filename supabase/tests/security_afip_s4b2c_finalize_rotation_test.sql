@@ -171,11 +171,11 @@ tQ2XgLEBmGqOaQyAT7O+fm7jFD1tCaScIJI3sCNl7h9sa0JkghdEK7Vxgx2AwDgk
 SELECT private.arca_store_private_key_secret(:'BIZ', (SELECT pem FROM fx WHERE name='key_old'),
        :'FP_OLD', NULL, 'RSA', 2048, :'OWNER', false) AS setup_store;
 
+-- AFIP-S4C: `private_key` ya no existe; la clave vive sólo en Vault.
 INSERT INTO public.arca_config (business_id, cuit, alias, ambiente, punto_venta, web_service,
-        cert_file, private_key, wsaa_token, wsaa_sign, wsaa_token_expires, estado_conexion, expires_at)
+        cert_file, wsaa_token, wsaa_sign, wsaa_token_expires, estado_conexion, expires_at)
 SELECT :'BIZ', '20111111112', 'fixture.alias', 'homologacion', 1, 'wsfe',
        (SELECT pem FROM fx WHERE name='cert_old'),
-       '-----BEGIN RSA PRIVATE KEY-----' || chr(10) || 'DUMMYLEGACYKEY' || chr(10) || '-----END RSA PRIVATE KEY-----',
        'TOKEN_VIEJO', 'SIGN_VIEJO', now() + interval '6 hours', 'conectado',
        timestamptz '2030-01-01 00:00:00+00'
 ON CONFLICT (business_id) DO NOTHING;
@@ -194,7 +194,9 @@ SELECT (SELECT private_key_fingerprint FROM private.arca_private_key_credentials
        (SELECT prev_secret_id   FROM private.arca_credential_rotations WHERE business_id=:'BIZ')           AS prev_secret,
        (SELECT prev_fingerprint FROM private.arca_credential_rotations WHERE business_id=:'BIZ')           AS prev_fp,
        (SELECT md5(cert_file)   FROM public.arca_config WHERE business_id=:'BIZ')                          AS cert_md5,
-       (SELECT md5(private_key) FROM public.arca_config WHERE business_id=:'BIZ')                          AS legacy_md5,
+       -- AFIP-S4C: no hay plaintext; la invariante vigente es que no reaparezca.
+       (SELECT count(*) FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='arca_config' AND column_name='private_key') AS cols_plaintext,
        (SELECT expires_at       FROM public.arca_config WHERE business_id=:'BIZ')                          AS expires_at,
        (SELECT activated_at     FROM private.arca_credential_rotations WHERE business_id=:'BIZ')           AS activated_at;
 
@@ -213,7 +215,8 @@ CREATE OR REPLACE FUNCTION pg_temp.intacto() RETURNS boolean LANGUAGE sql AS $f$
      AND (SELECT active_secret FROM pre) = (SELECT private_key_secret_id   FROM private.arca_private_key_credentials WHERE business_id='00000000-0000-4000-8000-0000000054c1')
      AND (SELECT prev_secret FROM pre)   = (SELECT prev_secret_id FROM private.arca_credential_rotations WHERE business_id='00000000-0000-4000-8000-0000000054c1')
      AND (SELECT cert_md5 FROM pre)      = (SELECT md5(cert_file)   FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-0000000054c1')
-     AND (SELECT legacy_md5 FROM pre)    = (SELECT md5(private_key) FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-0000000054c1');
+     AND (SELECT cols_plaintext FROM pre) = (SELECT count(*) FROM information_schema.columns
+           WHERE table_schema='public' AND table_name='arca_config' AND column_name='private_key');
 $f$;
 -- Invariante: la rotación no avanzó ni se corrigió el vencimiento.
 CREATE OR REPLACE FUNCTION pg_temp.sin_finalizar() RETURNS boolean LANGUAGE sql AS $f$
@@ -384,8 +387,11 @@ BEGIN
   PERFORM pg_temp.chk('23 checkpoint completo permanece',
     (SELECT prev_fingerprint IS NOT NULL AND prev_certificate_pem IS NOT NULL AND prev_status='rollback_candidate'
        FROM private.arca_credential_rotations WHERE id=v_rot));
-  PERFORM pg_temp.chk('24 private_key legacy idéntica',
-    (SELECT md5(private_key) FROM public.arca_config WHERE business_id=k_biz) = (SELECT legacy_md5 FROM pre));
+  -- AFIP-S4C: reemplaza a '24 private_key legacy idéntica' (esa columna ya no
+  -- existe). La invariante vigente: finalizar no recrea almacenamiento en claro.
+  PERFORM pg_temp.chk('24 la finalización no crea ninguna columna de clave en claro',
+    (SELECT count(*) FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='arca_config' AND column_name='private_key') = 0);
   PERFORM pg_temp.chk('24 token y sign intactos',
     (SELECT wsaa_token='TOKEN_NUEVO' AND wsaa_sign='SIGN_NUEVO' AND estado_conexion='conectado'
        FROM public.arca_config WHERE business_id=k_biz));

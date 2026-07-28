@@ -169,9 +169,9 @@ async function reset() {
     ON CONFLICT (id) DO NOTHING;
     INSERT INTO public.businesses (id,name,owner_user_id,subscription_plan,subscription_status)
     VALUES ('${BIZ}','S4B2C-race','${USR}','pro','active') ON CONFLICT (id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id;
-    INSERT INTO public.arca_config (business_id,cuit,alias,ambiente,punto_venta,web_service,cert_file,private_key,estado_conexion,expires_at)
+    INSERT INTO public.arca_config (business_id,cuit,alias,ambiente,punto_venta,web_service,cert_file,estado_conexion,expires_at)
     VALUES ('${BIZ}','${CUIT}','${ALIAS}','homologacion',1,'wsfe',$cert$${ACTIVE_CERT}$cert$,
-            '-----BEGIN RSA PRIVATE KEY-----\nDUMMY\n-----END RSA PRIVATE KEY-----','conectado', timestamptz '2030-01-01 00:00:00+00');`)
+            'conectado', timestamptz '2030-01-01 00:00:00+00');`)
   await psql(`${SR}
     SELECT private.arca_store_private_key_secret('${BIZ}', $k$${ACTIVE_KEY}$k$, '${ACTIVE_FP}', NULL, 'RSA', 2048, '${USR}', false);
     SELECT public.arca_prepare_certificate_rotation('${BIZ}', $k$${PENDING_KEY}$k$, $c$${PENDING_CSR}$c$,

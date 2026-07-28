@@ -25,9 +25,10 @@ INSERT INTO public.profiles (id, user_id, business_id, role, is_active) VALUES
 ON CONFLICT (id) DO UPDATE SET business_id=EXCLUDED.business_id, role=EXCLUDED.role, is_active=true;
 
 -- Fila existente con SECRETOS sintéticos (para probar preservación).
-INSERT INTO public.arca_config (business_id, cuit, cuit_emisor, ambiente, punto_venta, web_service, alias, cert_file, private_key, wsaa_token, wsaa_sign, estado_conexion)
+-- AFIP-S4C: `private_key` ya no existe; la clave vive sólo en Vault.
+INSERT INTO public.arca_config (business_id, cuit, cuit_emisor, ambiente, punto_venta, web_service, alias, cert_file, wsaa_token, wsaa_sign, estado_conexion)
 VALUES ('00000000-0000-4000-8000-00000000bb01','20111111112','20111111112','homologacion',1,'wsfe','a',
-        '-----BEGIN CERTIFICATE-----SYNCERT-----END CERTIFICATE-----','-----BEGIN PRIVATE KEY-----SYNKEY-----END PRIVATE KEY-----','tok','sig','conectado')
+        '-----BEGIN CERTIFICATE-----SYNCERT-----END CERTIFICATE-----','tok','sig','conectado')
 ON CONFLICT (business_id) DO NOTHING;
 
 \set uid_owner '00000000-0000-4000-8000-00000000ee01'
@@ -40,8 +41,8 @@ SELECT pg_temp.assert((public.save_arca_config_legacy('00000000-0000-4000-8000-0
 RESET ROLE;
 SELECT pg_temp.assert((SELECT punto_venta FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-00000000bb01')=7, 'A2 punto_venta actualizado');
 -- PRESERVACIÓN: secretos y cache intactos
-SELECT pg_temp.assert((SELECT cert_file IS NOT NULL AND private_key IS NOT NULL AND wsaa_token='tok' AND wsaa_sign='sig' AND estado_conexion='conectado'
-                        FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-00000000bb01'), 'A3 cert/clave/wsaa/estado PRESERVADOS');
+SELECT pg_temp.assert((SELECT cert_file IS NOT NULL AND wsaa_token='tok' AND wsaa_sign='sig' AND estado_conexion='conectado'
+                        FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-00000000bb01'), 'A3 cert/wsaa/estado PRESERVADOS');
 
 -- ══ 2. Autorización negativa ════════════════════════════════════════════════
 SET LOCAL request.jwt.claims = '{"sub":"00000000-0000-4000-8000-00000000ee02","role":"authenticated"}';
@@ -82,7 +83,18 @@ SET LOCAL ROLE authenticated;
 SELECT pg_temp.assert((public.save_arca_certificate_legacy('00000000-0000-4000-8000-00000000bb01','-----BEGIN CERTIFICATE-----NEW-----END CERTIFICATE-----')->>'success')='true','A9 cert RPC ok');
 SELECT pg_temp.assert((public.set_arca_estado_conexion('00000000-0000-4000-8000-00000000bb01','error','boom')->>'success')='true','A10 estado RPC ok');
 RESET ROLE;
-SELECT pg_temp.assert((SELECT private_key LIKE '%SYNKEY%' FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-00000000bb01'),'A11 cert/estado RPC no tocaron private_key');
+-- AFIP-S4C: reemplaza al viejo 'A11 cert/estado RPC no tocaron private_key'.
+-- Esa columna ya no existe, así que la invariante vigente es que guardar el
+-- certificado o el estado NO cree ninguna ruta de almacenamiento en claro.
+SELECT pg_temp.assert(
+  (SELECT count(*) FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='arca_config' AND column_name='private_key') = 0,
+  'A11 cert/estado RPC no crean almacenamiento plaintext (la columna no existe)');
+SELECT pg_temp.assert(
+  NOT EXISTS (SELECT 1 FROM information_schema.columns c
+    WHERE c.table_schema='public' AND c.table_name='arca_config'
+      AND c.column_name ~ '(private|secret).*key|key.*(pem|plain)'),
+  'A11b no se agregó ninguna columna sustituta de clave en claro');
 
 -- ══ 5. Retornos sin secretos + contrato tipado (no mass-assignment) ═════════
 SELECT pg_temp.assert(pg_get_function_result('public.save_arca_config_legacy(uuid,text,text,text,integer,text,text,timestamptz)'::regprocedure)='jsonb'
@@ -110,8 +122,13 @@ SELECT public.save_arca_config_legacy('00000000-0000-4000-8000-00000000bb01', p_
 RESET ROLE;
 SELECT pg_temp.assert((SELECT alias FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-00000000bb01')='',
   'A15 alias='''' (no-null) se aplica: vaciado vía string vacío');
--- El vaciado de alias NO tocó secretos.
-SELECT pg_temp.assert((SELECT private_key LIKE '%SYNKEY%' AND cert_file IS NOT NULL FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-00000000bb01'),
-  'A16 vaciar alias no afecta secretos');
+-- El vaciado de alias NO tocó secretos. AFIP-S4C: el material privado ya no está
+-- en la tabla, así que se comprueba el certificado y la credencial Vault.
+SELECT pg_temp.assert((SELECT cert_file IS NOT NULL FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-00000000bb01'),
+  'A16 vaciar alias no afecta el certificado');
+SELECT pg_temp.assert(
+  (SELECT count(*) FROM private.arca_private_key_credentials WHERE business_id='00000000-0000-4000-8000-00000000bb01')
+  = (SELECT count(*) FROM private.arca_private_key_credentials WHERE business_id='00000000-0000-4000-8000-00000000bb01' AND credential_status IS NOT NULL),
+  'A16b vaciar alias no afecta la credencial Vault');
 
 ROLLBACK;

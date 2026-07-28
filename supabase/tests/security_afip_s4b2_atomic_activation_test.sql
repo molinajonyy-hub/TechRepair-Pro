@@ -17,8 +17,9 @@ VALUES ('00000000-0000-4000-8000-0000000054e1', 'S4B2-test', '00000000-0000-4000
 ON CONFLICT (id) DO UPDATE SET owner_user_id = EXCLUDED.owner_user_id;
 
 -- Config con el par VIGENTE (certificado + alias + CUIT) y cache WSAA poblado.
+-- AFIP-S4C: `private_key` ya no existe; la clave vive sólo en Vault.
 INSERT INTO public.arca_config (business_id, cuit, alias, ambiente, punto_venta, web_service,
-        cert_file, private_key, wsaa_token, wsaa_sign, wsaa_token_expires, estado_conexion)
+        cert_file, wsaa_token, wsaa_sign, wsaa_token_expires, estado_conexion)
 VALUES ('00000000-0000-4000-8000-0000000054e1', '20111111112', 'fixture.alias', 'homologacion', 1, 'wsfe',
         $p$-----BEGIN CERTIFICATE-----
 MIIC3zCCAcegAwIBAgIBATANBgkqhkiG9w0BAQsFADAzMRYwFAYDVQQDEw1maXh0
@@ -38,7 +39,6 @@ iRINXRIlaL9Ps8PNrtZ2UxegPGmb0IwnK4XhrlRyj8EInaLPnS/w/Gv0sGQqLSKV
 umg23sHBXkwxZDP9dmDfuiJI4duR6DGi1fkksrc+n/9UKdlqQz546WWf9btVC77S
 Q2Ik8rRYIrxdCTu1leoP98kHQw==
 -----END CERTIFICATE-----$p$,
-        '-----BEGIN RSA PRIVATE KEY-----\nDUMMYLEGACYKEY\n-----END RSA PRIVATE KEY-----',
         'TOKEN_VIEJO', 'SIGN_VIEJO', now() + interval '6 hours', 'conectado')
 ON CONFLICT (business_id) DO NOTHING;
 
@@ -122,7 +122,10 @@ CREATE TEMP TABLE s4b2_pre AS
 SELECT (SELECT private_key_fingerprint FROM private.arca_private_key_credentials WHERE business_id='00000000-0000-4000-8000-0000000054e1') AS active_fp,
        (SELECT private_key_secret_id   FROM private.arca_private_key_credentials WHERE business_id='00000000-0000-4000-8000-0000000054e1') AS active_secret,
        (SELECT md5(cert_file) FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-0000000054e1')            AS cert_md5,
-       (SELECT md5(private_key) FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-0000000054e1')          AS legacy_md5,
+       -- AFIP-S4C: ya no hay plaintext que fotografiar; el equivalente vigente es
+       -- que la activación no reintroduzca ninguna columna de clave en claro.
+       (SELECT count(*) FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='arca_config' AND column_name='private_key') AS cols_plaintext,
        (SELECT wsaa_token FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-0000000054e1')                AS token,
        (SELECT estado_conexion FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-0000000054e1')           AS estado;
 
@@ -455,9 +458,13 @@ bOnlnhsrzf9hczdN1LYK+Qsx8U6vyulkNFcnEn9X8FH1SE6csN5qw2r6l0BzXrMT
 iz2Ex9UCSexFjMpkRhjsqVaD+Q==
 -----END CERTIFICATE-----$p$));
 
-  -- ── 20: private_key legacy intacta ──
-  PERFORM pg_temp.chk('20 private_key legacy intacta',
-    (SELECT md5(private_key) FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-0000000054e1') = (SELECT legacy_md5 FROM s4b2_pre));
+  -- ── 20 (AFIP-S4C): la activación NO reintroduce almacenamiento en claro ──
+  -- Reemplaza al viejo '20 private_key legacy intacta': esa columna ya no existe,
+  -- así que la invariante vigente es que nadie la recree al activar.
+  PERFORM pg_temp.chk('20 la activación no crea ninguna columna de clave en claro',
+    (SELECT count(*) FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='arca_config' AND column_name='private_key') = 0
+    AND (SELECT cols_plaintext FROM s4b2_pre) = 0);
 
   -- ── 11: replay idempotente ──
   r := public.arca_activate_certificate_rotation('00000000-0000-4000-8000-0000000054e1', NULL, $p$-----BEGIN CERTIFICATE-----

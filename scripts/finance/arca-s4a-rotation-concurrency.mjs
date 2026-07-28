@@ -50,8 +50,14 @@ async function cleanup() {
 }
 async function invariants() {
   const pending = Number(await psql(`SELECT count(*) FROM private.arca_credential_rotations WHERE business_id='${BIZ}' AND state='pending_rotation';`))
-  const secrets = Number(await psql(`SELECT count(*) FROM vault.secrets WHERE name LIKE 'arca-private-key-rotation:%';`))
-  const orphans = Number(await psql(`SELECT (SELECT count(*) FROM vault.secrets WHERE name LIKE 'arca-private-key-rotation:%') - (SELECT count(*) FROM private.arca_credential_rotations WHERE state='pending_rotation');`))
+  // AFIP-S4C: los conteos se filtran por NEGOCIO. Antes eran globales y cualquier
+  // otro harness que dejara datos de prueba los contaminaba (y hacía fallar éste
+  // según el orden de ejecución, sin que hubiera ningún bug real).
+  const secrets = Number(await psql(`SELECT count(*) FROM vault.secrets s
+    WHERE s.id IN (SELECT private_key_secret_id FROM private.arca_credential_rotations WHERE business_id='${BIZ}');`))
+  const orphans = Number(await psql(`SELECT count(*) FROM private.arca_credential_rotations r
+    WHERE r.business_id='${BIZ}' AND r.private_key_secret_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM vault.secrets s WHERE s.id = r.private_key_secret_id);`))
   return { pending, secrets, orphans }
 }
 
@@ -66,9 +72,8 @@ async function main() {
     ON CONFLICT (id) DO NOTHING;
     INSERT INTO public.businesses (id,name,owner_user_id,subscription_plan,subscription_status)
     VALUES ('${BIZ}','S4A-race','${USR}','pro','active') ON CONFLICT (id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id;
-    INSERT INTO public.arca_config (business_id,cuit,alias,ambiente,punto_venta,web_service,cert_file,private_key,estado_conexion)
-    VALUES ('${BIZ}','${CUIT}','${ALIAS}','homologacion',1,'wsfe',$cert$${CERT}$cert$,
-            '-----BEGIN RSA PRIVATE KEY-----\nDUMMY\n-----END RSA PRIVATE KEY-----','conectado')
+    INSERT INTO public.arca_config (business_id,cuit,alias,ambiente,punto_venta,web_service,cert_file,estado_conexion)
+    VALUES ('${BIZ}','${CUIT}','${ALIAS}','homologacion',1,'wsfe',$cert$${CERT}$cert$,'conectado')
     ON CONFLICT (business_id) DO UPDATE SET cert_file=EXCLUDED.cert_file, alias=EXCLUDED.alias, cuit=EXCLUDED.cuit;`)
 
   // ── Escenario A: misma idempotency_key, claves distintas ──

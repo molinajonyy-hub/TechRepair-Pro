@@ -160,9 +160,9 @@ async function reset() {
     ON CONFLICT (id) DO NOTHING;
     INSERT INTO public.businesses (id,name,owner_user_id,subscription_plan,subscription_status)
     VALUES ('${BIZ}','S4B2-race','${USR}','pro','active') ON CONFLICT (id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id;
-    INSERT INTO public.arca_config (business_id,cuit,alias,ambiente,punto_venta,web_service,cert_file,private_key,wsaa_token,wsaa_sign,estado_conexion)
+    INSERT INTO public.arca_config (business_id,cuit,alias,ambiente,punto_venta,web_service,cert_file,wsaa_token,wsaa_sign,estado_conexion)
     VALUES ('${BIZ}','${CUIT}','${ALIAS}','homologacion',1,'wsfe',$cert$${ACTIVE_CERT}$cert$,
-            '-----BEGIN RSA PRIVATE KEY-----\nDUMMY\n-----END RSA PRIVATE KEY-----','TOK','SGN','conectado');`)
+            'TOK','SGN','conectado');`)
   await psql(`${SR}
     SELECT private.arca_store_private_key_secret('${BIZ}', $k$${ACTIVE_KEY}$k$, '${ACTIVE_FP}', NULL, 'RSA', 2048, '${USR}', false);
     SELECT public.arca_prepare_certificate_rotation('${BIZ}', $k$${PENDING_KEY}$k$, $c$${PENDING_CSR}$c$,
@@ -180,9 +180,14 @@ async function parCoherente() {
 async function estado() {
   const fp = last(await psql(`SELECT private_key_fingerprint FROM private.arca_private_key_credentials WHERE business_id='${BIZ}';`))
   const st = last(await psql(`SELECT state FROM private.arca_credential_rotations WHERE business_id='${BIZ}';`))
+  // AFIP-S4C: filtrado por NEGOCIO. El conteo global se contaminaba con los datos
+  // de cualquier otro harness y hacía fallar éste según el orden de ejecución.
   const orph = Number(last(await psql(
-    `SELECT (SELECT count(*) FROM vault.secrets WHERE name LIKE 'arca-private-key-rotation:%')
-            - (SELECT count(*) FROM private.arca_credential_rotations WHERE private_key_secret_id IN (SELECT id FROM vault.secrets));`)))
+    `SELECT count(*) FROM (
+        SELECT private_key_secret_id AS sid FROM private.arca_credential_rotations WHERE business_id='${BIZ}'
+        UNION ALL SELECT prev_secret_id FROM private.arca_credential_rotations WHERE business_id='${BIZ}'
+        UNION ALL SELECT private_key_secret_id FROM private.arca_private_key_credentials WHERE business_id='${BIZ}') q
+      WHERE q.sid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM vault.secrets s WHERE s.id = q.sid);`)))
   const creds = Number(last(await psql(`SELECT count(*) FROM private.arca_private_key_credentials WHERE business_id='${BIZ}';`)))
   return { fp, st, orph, creds }
 }
@@ -206,7 +211,7 @@ async function main() {
   check(s.creds === 1 && s.orph === 0, 'A: una sola credencial, cero huérfanos')
   check(await parCoherente(), 'A: par clave/certificado coherente')
   check(Number(last(await psql(`SELECT count(*) FROM private.arca_credential_audit
-    WHERE event='arca_certificate_rotation_activated';`))) === 1, 'A: una sola promoción auditada')
+    WHERE business_id='${BIZ}' AND event='arca_certificate_rotation_activated';`))) === 1, 'A: una sola promoción auditada')
 
   // ── B: idempotency keys distintas ──
   await reset()

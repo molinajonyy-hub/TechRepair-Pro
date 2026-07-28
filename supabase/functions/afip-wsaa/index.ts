@@ -318,13 +318,14 @@ async function decryptField(supabase: any, encrypted: string): Promise<string> {
 
 // ──────────────────────────────────────────────
 // AFIP-S2 — auditoría de origen de la clave (sanitizada, best-effort)
+// AFIP-S4C — el evento `..._resolved_legacy` ya no puede emitirse: no hay legacy.
 // ──────────────────────────────────────────────
 // Nunca lleva PEM/token/sign/secret_id/CUIT: solo business_id, evento, source y
 // un código de error sanitizado. Un fallo de auditoría NO interrumpe la firma.
 async function auditWsaaKeySource(
   supabase: any,
   businessId: string,
-  event: 'wsaa_private_key_resolved_vault' | 'wsaa_private_key_resolved_legacy' | 'wsaa_private_key_resolution_failed',
+  event: 'wsaa_private_key_resolved_vault' | 'wsaa_private_key_resolution_failed',
   source: KeySource | null,
   errorCode: string | null,
 ): Promise<void> {
@@ -409,9 +410,9 @@ serve(async (req: Request) => {
     } else {
       const certPem = await decryptField(supabase, config.cert_file)
 
-      // AFIP-S2: la clave privada se resuelve desde Vault (contrato S1A) con
-      // fallback temporal a la plaintext de arca_config SOLO si Vault todavía no
-      // fue provisionado. Vault provisionado-pero-roto FALLA de forma visible.
+      // AFIP-S4C: la clave privada se resuelve EXCLUSIVAMENTE desde Vault
+      // (contrato S1A). El fallback a la plaintext de arca_config fue retirado y
+      // esa columna ya no existe: cualquier problema de Vault falla visible.
       let keyPem: string
       let keySource: KeySource
       try {
@@ -421,7 +422,6 @@ serve(async (req: Request) => {
             if (error) throw new Error('vault_rpc_error') // sin detalle crudo
             return data
           },
-          legacyPrivateKey: config.private_key,
         })
         keyPem = resolved.privateKey
         keySource = resolved.source
@@ -433,15 +433,7 @@ serve(async (req: Request) => {
         throw keyErr
       }
 
-      if (keySource === 'legacy_plaintext') {
-        // Señal para detectar negocios aún sin migrar (S3). Sin PEM/secreto.
-        console.warn(`afip-wsaa: business_id=${business_id} firmó con clave LEGACY plaintext (pendiente de migrar a Vault en S3)`)
-      }
-      await auditWsaaKeySource(
-        supabase, business_id,
-        keySource === 'vault' ? 'wsaa_private_key_resolved_vault' : 'wsaa_private_key_resolved_legacy',
-        keySource, null,
-      )
+      await auditWsaaKeySource(supabase, business_id, 'wsaa_private_key_resolved_vault', keySource, null)
 
       signedCms = signTRAWithPEM(traXml, certPem, keyPem)
     }

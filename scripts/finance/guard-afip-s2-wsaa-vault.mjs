@@ -50,8 +50,13 @@ export function wsaaFindings(idxRaw) {
     if (/console\.(log|warn|error)/.test(line) && /\bkeyPem\b/.test(line)) out.push('afip-wsaa loguea keyPem')
     if (/jsonResponse\s*\(/.test(line) && /\bkeyPem\b/.test(line)) out.push('afip-wsaa retorna keyPem en la respuesta')
   }
-  // warning legacy debe existir (para detectar negocios sin migrar en S3)
-  if (!/legacy/i.test(idx) || !/console\.warn/.test(idx)) out.push('afip-wsaa sin warning legacy (necesario para S3)')
+  // AFIP-S4C: el fallback legacy fue RETIRADO. Antes este guard exigía que el
+  // warning existiera (servía para detectar negocios sin migrar); ahora exige lo
+  // contrario, porque `arca_config.private_key` ya no existe.
+  if (/config\.private_key/.test(idx)) out.push('afip-wsaa todavía referencia config.private_key (retirado en S4C)')
+  if (/legacyPrivateKey/.test(idx)) out.push('afip-wsaa todavía pasa una clave legacy al resolver (retirado en S4C)')
+  if (/legacy_plaintext/.test(idx)) out.push('afip-wsaa todavía contempla el origen legacy_plaintext (retirado en S4C)')
+  if (/wsaa_private_key_resolved_legacy/.test(idx)) out.push('afip-wsaa todavía puede auditar una resolución legacy (retirado en S4C)')
   return out
 }
 
@@ -59,9 +64,15 @@ export function wsaaFindings(idxRaw) {
 export function resolverFindings(resRaw) {
   const out = []
   const res = stripComments(resRaw)
-  // El fallback a legacy debe estar guardado por provisioned !== true.
+  // AFIP-S4C: Vault es la ÚNICA fuente. El resolver no debe aceptar ni devolver
+  // ninguna clave alternativa, y sin credencial provisionada debe fallar.
+  if (/legacyPrivateKey/.test(res)) out.push('resolver: todavía acepta una clave legacy (retirado en S4C)')
+  if (/legacy_plaintext/.test(res)) out.push('resolver: todavía puede devolver source legacy_plaintext (retirado en S4C)')
   if (!/provisioned\s*!==\s*true|provisioned\s*===\s*false|!cred\b/.test(res)) {
-    out.push('resolver: fallback legacy no guardado por provisioned')
+    out.push('resolver: no distingue credencial no provisionada')
+  }
+  if (!/VAULT_CREDENTIAL_NOT_PROVISIONED[^]*throw|throw[^]*VAULT_CREDENTIAL_NOT_PROVISIONED/.test(res)) {
+    out.push('resolver: sin credencial en Vault debe FALLAR (fail-closed), no continuar')
   }
   // No debe loguear.
   if (/console\.(log|warn|error)/.test(res)) out.push('resolver: no debe loguear (deja eso al Edge)')
@@ -144,5 +155,5 @@ if (isCLI) {
     for (const b of bad) console.error('  · ' + b)
     process.exit(1)
   }
-  console.log('✅ Guard AFIP-S2 OK: afip-wsaa resuelve por Vault (fallback legacy solo si no provisionado), sin filtrar la clave; RPC service_role-only; frontend sin vault/private_key.')
+  console.log('✅ Guard AFIP-S2/S4C OK: afip-wsaa resuelve EXCLUSIVAMENTE por Vault (sin fallback legacy), sin filtrar la clave; RPC service_role-only; frontend sin vault/private_key.')
 }

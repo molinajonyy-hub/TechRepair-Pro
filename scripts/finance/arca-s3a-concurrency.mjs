@@ -59,11 +59,18 @@ async function main() {
   await psql(`
     INSERT INTO public.businesses (id,name,owner_user_id,subscription_plan,subscription_status)
     VALUES ('${BIZ}','S3A-race',NULL,'pro','active') ON CONFLICT (id) DO UPDATE SET subscription_plan='pro';
-    INSERT INTO public.arca_config (business_id,cuit,ambiente,punto_venta,web_service,alias,cert_file,private_key,estado_conexion)
-    VALUES ('${BIZ}','20111111112','homologacion',1,'wsfe','r',$cert$${CERT_A}$cert$,$key$${KEY_A}$key$,'conectado')
+    INSERT INTO public.arca_config (business_id,cuit,ambiente,punto_venta,web_service,alias,cert_file,estado_conexion)
+    VALUES ('${BIZ}','20111111112','homologacion',1,'wsfe','r',$cert$${CERT_A}$cert$,'conectado')
     ON CONFLICT (business_id) DO NOTHING;`)
 
-  // ── Carrera: N invocaciones simultáneas, distinta idempotency_key ──
+  // Foto del estado ANTES: el contrato retirado no debe moverlo ni un poco.
+  const antes = {
+    creds: Number(await psql(`SELECT count(*) FROM private.arca_private_key_credentials WHERE business_id='${BIZ}';`)),
+    secrets: Number(await psql(`SELECT count(*) FROM vault.secrets;`)),
+    cfg: (await psql(`SELECT md5(coalesce(cert_file,'')||coalesce(estado_conexion,'')||coalesce(alias,'')) FROM public.arca_config WHERE business_id='${BIZ}';`)).trim(),
+  }
+
+  // ── Carrera: N invocaciones simultáneas del contrato RETIRADO ──
   const calls = Array.from({ length: N }, (_, i) => psql(
     `SET request.jwt.claims = '{"role":"service_role"}';
      SELECT public.arca_migrate_legacy_private_key_to_vault('${BIZ}','${FP}','race-${i}')->>'state';`
@@ -72,22 +79,28 @@ async function main() {
   const states = await Promise.all(calls)
   console.log('estados devueltos:', JSON.stringify(states))
 
-  // ── Invariantes ──
-  const creds = Number(await psql(`SELECT count(*) FROM private.arca_private_key_credentials WHERE business_id='${BIZ}';`))
-  const secrets = Number(await psql(`SELECT count(*) FROM vault.secrets WHERE name LIKE 'arca-private-key:${BIZ}%';`))
+  // ── Invariantes: el contrato retirado es inerte y determinista ──
+  const despues = {
+    creds: Number(await psql(`SELECT count(*) FROM private.arca_private_key_credentials WHERE business_id='${BIZ}';`)),
+    secrets: Number(await psql(`SELECT count(*) FROM vault.secrets;`)),
+    cfg: (await psql(`SELECT md5(coalesce(cert_file,'')||coalesce(estado_conexion,'')||coalesce(alias,'')) FROM public.arca_config WHERE business_id='${BIZ}';`)).trim(),
+  }
   const orphans = Number(await psql(
-    `SELECT (SELECT count(*) FROM vault.secrets WHERE name LIKE 'arca-private-key:%') - (SELECT count(*) FROM private.arca_private_key_credentials);`))
-  const migrated = states.filter(s => s === 'MIGRATED').length
-  const ok = states.filter(s => s === 'MIGRATED' || s === 'ALREADY_MIGRATED').length
+    `SELECT count(*) FROM private.arca_private_key_credentials c
+      WHERE c.private_key_secret_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM vault.secrets s WHERE s.id = c.private_key_secret_id);`))
+  const retirados = states.filter(s => s === 'LEGACY_MIGRATION_RETIRED').length
 
   let fail = 0
   const check = (cond, label) => { cond ? console.log('PASS: ' + label) : (fail++, console.log('FAIL: ' + label)) }
-  check(creds === 1, `exactamente UNA credencial (obtenido ${creds})`)
-  check(secrets === 1, `exactamente UN secreto Vault (obtenido ${secrets})`)
-  check(orphans === 0, `sin secretos huérfanos (delta ${orphans})`)
-  check(migrated === 1, `exactamente UNA invocación migró (obtenido ${migrated})`)
-  check(ok === N, `las ${N} invocaciones terminaron en éxito idempotente (obtenido ${ok})`)
+  check(retirados === N, `las ${N} invocaciones responden LEGACY_MIGRATION_RETIRED (obtenido ${retirados})`)
+  check(new Set(states).size === 1, 'resultado determinista: todas devuelven lo mismo')
+  check(despues.secrets === antes.secrets, `cero secretos creados (${antes.secrets} → ${despues.secrets})`)
+  check(despues.creds === antes.creds, `cero credenciales modificadas (${antes.creds} → ${despues.creds})`)
+  check(despues.cfg === antes.cfg, 'cero cambios en arca_config')
+  check(orphans === 0, `sin referencias a secretos inexistentes (${orphans})`)
   check(!states.some(s => String(s).startsWith('EXC:')), 'ninguna invocación lanzó excepción')
+  check(!states.some(s => /MIGRATED|ALREADY_MIGRATED/.test(String(s))), 'ninguna invocación reactiva el flujo legacy')
 
   // ── Cleanup ──
   await psql(`

@@ -104,12 +104,14 @@ INSERT INTO public.businesses (id, name, owner_user_id, subscription_plan, subsc
   ('00000000-0000-4000-8000-000000053a05','S3A-trap', NULL,'pro','active')
 ON CONFLICT (id) DO UPDATE SET subscription_plan='pro';
 
-INSERT INTO public.arca_config (business_id, cuit, ambiente, punto_venta, web_service, alias, cert_file, private_key, wsaa_token, wsaa_sign, estado_conexion) VALUES
-  ('00000000-0000-4000-8000-000000053a01','20111111112','homologacion',1,'wsfe','a', pg_temp.cert_a(), pg_temp.key_a(), 'tokA','sigA','conectado'),
-  ('00000000-0000-4000-8000-000000053a02','20111111112','homologacion',1,'wsfe','b', pg_temp.cert_a(), pg_temp.key_b(), 'tokB','sigB','conectado'),
-  ('00000000-0000-4000-8000-000000053a03','20111111112','homologacion',1,'wsfe','c', pg_temp.cert_a(), NULL,            'tokC','sigC','conectado'),
-  ('00000000-0000-4000-8000-000000053a04','20111111112','homologacion',1,'wsfe','d', pg_temp.cert_a(), 'no-es-una-clave','tokD','sigD','conectado'),
-  ('00000000-0000-4000-8000-000000053a05','20111111112','homologacion',1,'wsfe','e', pg_temp.cert_trap(), pg_temp.key_a(),'tokE','sigE','conectado')
+-- AFIP-S4C: `private_key` ya no existe. Los fixtures conservan el certificado y
+-- el cache; la clave, cuando hace falta, va a Vault por el contrato vigente.
+INSERT INTO public.arca_config (business_id, cuit, ambiente, punto_venta, web_service, alias, cert_file, wsaa_token, wsaa_sign, estado_conexion) VALUES
+  ('00000000-0000-4000-8000-000000053a01','20111111112','homologacion',1,'wsfe','a', pg_temp.cert_a(), 'tokA','sigA','conectado'),
+  ('00000000-0000-4000-8000-000000053a02','20111111112','homologacion',1,'wsfe','b', pg_temp.cert_a(), 'tokB','sigB','conectado'),
+  ('00000000-0000-4000-8000-000000053a03','20111111112','homologacion',1,'wsfe','c', pg_temp.cert_a(), 'tokC','sigC','conectado'),
+  ('00000000-0000-4000-8000-000000053a04','20111111112','homologacion',1,'wsfe','d', pg_temp.cert_a(), 'tokD','sigD','conectado'),
+  ('00000000-0000-4000-8000-000000053a05','20111111112','homologacion',1,'wsfe','e', pg_temp.cert_trap(),'tokE','sigE','conectado')
 ON CONFLICT (business_id) DO NOTHING;
 
 SET LOCAL request.jwt.claims = '{"role":"service_role"}';
@@ -192,76 +194,98 @@ SELECT pg_temp.assert(private.arca_key_fingerprint('no-es-pem') IS NULL
   AND private.arca_key_fingerprint(pg_temp.cert_a()) IS NULL,
   'N14 basura o certificado como "clave privada" → sin fingerprint');
 
--- ══ Flujo de provisión con la identidad nueva ══════════════════════════════
+-- ══ AFIP-S4C — el flujo de migración legacy→Vault está RETIRADO ════════════
+-- Reemplaza al bloque T1/T3-T10/T16-T18/N15-N18, que probaba MIGRATED,
+-- ALREADY_MIGRATED, idempotencia y conflictos de una migración que ya no existe:
+-- la clave en claro fue eliminada, así que no hay nada que migrar. Lo que se
+-- protege ahora es que el contrato quede INERTE y no reabra el camino legacy.
+--
+-- La provisión canónica vigente (arca_store_credential / contrato Vault) se
+-- prueba más abajo, en su propio bloque.
+
+CREATE TEMP TABLE s3a_pre_retiro AS
+SELECT (SELECT count(*) FROM vault.secrets) AS secretos,
+       (SELECT count(*) FROM private.arca_private_key_credentials) AS credenciales,
+       (SELECT md5(string_agg(coalesce(cert_file,'')||coalesce(alias,'')||coalesce(estado_conexion,''), '|' ORDER BY business_id))
+          FROM public.arca_config) AS cfg_md5;
+
+-- Llamadas repetidas, con distintos negocios, fingerprints y keys: todas inertes.
+DO $t$
+DECLARE r jsonb; v_estados text[] := '{}';
+BEGIN
+  FOREACH r IN ARRAY ARRAY[
+    public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a01', pg_temp.fp_a(), 'idem-ok-1'),
+    public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a01', pg_temp.fp_a(), 'idem-ok-1'),
+    public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a01', pg_temp.fp_b(), 'idem-ok-1'),
+    public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a02', pg_temp.fp_a(), 'idem-fp'),
+    public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a05', pg_temp.fp_a(), 'idem-trap'),
+    public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a03', 'deadbeef', 'idem-nokey')
+  ] LOOP
+    v_estados := v_estados || (r->>'state');
+    PERFORM pg_temp.assert(NOT (r::text ~* 'BEGIN|PRIVATE KEY|MII'), 'T17 el retorno no contiene PEM');
+    PERFORM pg_temp.assert(NOT (r ? 'secret_id'), 'T16 el retorno no contiene secret_id');
+  END LOOP;
+
+  PERFORM pg_temp.assert(v_estados = ARRAY['LEGACY_MIGRATION_RETIRED','LEGACY_MIGRATION_RETIRED','LEGACY_MIGRATION_RETIRED',
+                                           'LEGACY_MIGRATION_RETIRED','LEGACY_MIGRATION_RETIRED','LEGACY_MIGRATION_RETIRED'],
+    'T1 toda invocación responde LEGACY_MIGRATION_RETIRED (determinista)');
+  PERFORM pg_temp.assert(NOT (array_to_string(v_estados,',') ~ 'MIGRATED|ALREADY_MIGRATED'),
+    'T1b el contrato retirado NO reactiva el flujo legacy');
+END $t$;
+
+SELECT pg_temp.assert((SELECT count(*) FROM vault.secrets) = (SELECT secretos FROM s3a_pre_retiro),
+  'T2 cero secretos creados por el contrato retirado');
+SELECT pg_temp.assert((SELECT count(*) FROM private.arca_private_key_credentials) = (SELECT credenciales FROM s3a_pre_retiro),
+  'T3 cero credenciales modificadas');
 SELECT pg_temp.assert(
-  (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a01', pg_temp.fp_a(), 'idem-ok-1')->>'state')='MIGRATED',
-  'T1 migración correcta → MIGRATED (con fingerprint SPKI)');
+  (SELECT md5(string_agg(coalesce(cert_file,'')||coalesce(alias,'')||coalesce(estado_conexion,''), '|' ORDER BY business_id))
+     FROM public.arca_config) = (SELECT cfg_md5 FROM s3a_pre_retiro),
+  'T4 cero cambios en arca_config');
+SELECT pg_temp.assert(NOT EXISTS (SELECT 1 FROM private.arca_credential_provision_requests WHERE idempotency_key IN ('idem-ok-1','idem-fp','idem-trap','idem-nokey')),
+  'T5 no deja estados parciales de provisión');
+SELECT pg_temp.assert(
+  NOT EXISTS (SELECT 1 FROM private.arca_private_key_credentials c
+    WHERE c.private_key_secret_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM vault.secrets s WHERE s.id = c.private_key_secret_id)),
+  'T6 no deja secretos huérfanos');
+SELECT pg_temp.assert(
+  regexp_replace((SELECT prosrc FROM pg_proc WHERE oid='public.arca_migrate_legacy_private_key_to_vault(uuid,text,text)'::regprocedure),
+                 '--[^\n]*','','g') !~ '\marca_config\M',
+  'T7 el stub retirado ni siquiera lee arca_config');
+
+-- ══ Provisión CANÓNICA vigente (reemplaza la cobertura perdida) ════════════
+-- El camino real de provisión hoy es el contrato Vault, no la migración legacy.
+-- Devuelve la referencia del secreto: se comprueba que provisionó, sin imprimirla.
+SELECT pg_temp.assert(
+  public.arca_store_credential('00000000-0000-4000-8000-000000053a01', pg_temp.key_a(), pg_temp.fp_a(), NULL,
+     'RSA', 2048, NULL, false, false) IS NOT NULL,
+  'T8 la provisión canónica vigente pasa por arca_store_credential');
 SELECT pg_temp.assert((SELECT count(*) FROM private.arca_private_key_credentials WHERE business_id='00000000-0000-4000-8000-000000053a01')=1,
-  'T10a credencial vinculada');
+  'T8b la provisión canónica vincula exactamente una credencial');
 SELECT pg_temp.assert(private.arca_key_fingerprint(private.arca_get_private_key_for_signing('00000000-0000-4000-8000-000000053a01')) = pg_temp.fp_a(),
-  'T10b readback coincide con el fingerprint canónico');
-SELECT pg_temp.assert((SELECT private_key_fingerprint = pg_temp.fp_a() FROM private.arca_private_key_credentials WHERE business_id='00000000-0000-4000-8000-000000053a01'),
-  'N15 la credencial guarda el fingerprint canónico nuevo');
-SELECT pg_temp.assert(
-  (SELECT request_hash = encode(extensions.digest('00000000-0000-4000-8000-000000053a01|' || pg_temp.fp_a(), 'sha256'),'hex')
-     FROM private.arca_credential_provision_requests WHERE idempotency_key='idem-ok-1'),
-  'N16 el hash de idempotencia usa el fingerprint nuevo');
+  'T8c readback: la clave provisionada es la esperada (fingerprint canónico)');
 
--- ⭐ El negocio trampa NO puede provisionarse (SPKI del cert es otra clave)
-SELECT pg_temp.assert(
-  (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a05', pg_temp.fp_a(), 'idem-trap')->>'state')='CERTIFICATE_KEY_MISMATCH',
-  'N17 ⭐ cert con modulus en extensión pero SPKI distinto → CERTIFICATE_KEY_MISMATCH');
-SELECT pg_temp.assert((SELECT count(*) FROM private.arca_private_key_credentials WHERE business_id='00000000-0000-4000-8000-000000053a05')=0
-  AND (SELECT count(*) FROM vault.secrets WHERE name LIKE 'arca-private-key:00000000-0000-4000-8000-000000053a05%')=0,
-  'N18 ningún secreto creado ante mismatch');
-
--- ══ Retorno sanitizado / idempotencia / conflictos ═════════════════════════
-SELECT pg_temp.assert(
-  NOT (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a01', pg_temp.fp_a(), 'idem-ok-1')::text ~* 'BEGIN|PRIVATE KEY|MII'),
-  'T17 el retorno no contiene PEM');
-SELECT pg_temp.assert(
-  NOT (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a01', pg_temp.fp_a(), 'idem-ok-1') ? 'secret_id'),
-  'T16 el retorno no contiene secret_id');
-SELECT pg_temp.assert(
-  (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a01', pg_temp.fp_a(), 'idem-ok-1')->>'state') IN ('MIGRATED','ALREADY_MIGRATED'),
-  'T8 replay con misma key+payload → mismo resultado');
-SELECT pg_temp.assert((SELECT count(*) FROM vault.secrets WHERE name LIKE 'arca-private-key:00000000-0000-4000-8000-000000053a01%')=1,
-  'T8b el replay NO creó un segundo secreto');
-SELECT pg_temp.assert(
-  (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a01', pg_temp.fp_b(), 'idem-ok-1')->>'state')='IDEMPOTENCY_CONFLICT',
-  'T9 misma key + payload distinto → IDEMPOTENCY_CONFLICT');
-SELECT pg_temp.assert(
-  (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a01', pg_temp.fp_b(), 'idem-otra')->>'state')
-    IN ('ACTIVE_CREDENTIAL_CONFLICT','FINGERPRINT_MISMATCH'),
-  'T7 credencial activa con otro fingerprint → conflicto');
-SELECT pg_temp.assert(
-  (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a02', pg_temp.fp_a(), 'idem-fp')->>'state')='FINGERPRINT_MISMATCH',
-  'T3 fingerprint incorrecto → FINGERPRINT_MISMATCH');
-SELECT pg_temp.assert((SELECT count(*) FROM private.arca_private_key_credentials WHERE business_id='00000000-0000-4000-8000-000000053a02')=0,
-  'T3b sin credencial tras el fallo');
-SELECT pg_temp.assert(
-  (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a02', pg_temp.fp_b(), 'idem-cert')->>'state')='CERTIFICATE_KEY_MISMATCH',
-  'T6 clave que no corresponde al certificado → CERTIFICATE_KEY_MISMATCH');
-SELECT pg_temp.assert(
-  (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a03','deadbeef','idem-nokey')->>'state')='LEGACY_KEY_MISSING',
-  'T4 clave faltante → LEGACY_KEY_MISSING');
-SELECT pg_temp.assert(
-  (public.arca_migrate_legacy_private_key_to_vault('00000000-0000-4000-8000-000000053a04','deadbeef','idem-bad')->>'state')='LEGACY_KEY_INVALID',
-  'T5 clave inválida → LEGACY_KEY_INVALID');
-
--- ══ Sin huérfanos / datos legacy intactos / auditoría ══════════════════════
+-- ══ Sin huérfanos ══════════════════════════════════════════════════════════
 SELECT pg_temp.assert(
   (SELECT count(*) FROM vault.secrets s WHERE s.name LIKE 'arca-private-key:%')
   = (SELECT count(*) FROM private.arca_private_key_credentials),
   'T11 sin secretos huérfanos (secretos == vínculos)');
-SELECT pg_temp.assert((SELECT private_key = pg_temp.key_a() FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-000000053a01'),
-  'T18 private_key legacy INTACTA tras migrar');
+-- AFIP-S4C: reemplaza a 'T18 private_key legacy INTACTA tras migrar' — ya no hay
+-- columna legacy que preservar; lo que se exige es que nadie la reintroduzca.
+SELECT pg_temp.assert(
+  (SELECT count(*) FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='arca_config' AND column_name='private_key') = 0,
+  'T18 la provisión no reintroduce almacenamiento de clave en claro');
 SELECT pg_temp.assert((SELECT cert_file = pg_temp.cert_a() FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-000000053a01'),
   'T19 cert_file intacto');
 SELECT pg_temp.assert((SELECT wsaa_token='tokA' AND wsaa_sign='sigA' FROM public.arca_config WHERE business_id='00000000-0000-4000-8000-000000053a01'),
   'T20 token/sign intactos');
-SELECT pg_temp.assert((SELECT count(*) FROM private.arca_credential_audit WHERE event LIKE 'arca_private_key_vault_%')>=2,
-  'T21a se auditaron eventos de provisión');
+-- AFIP-S4C: los eventos `arca_private_key_vault_*` eran de la migración legacy,
+-- ya retirada. La provisión canónica audita `credential_store_success`.
+SELECT pg_temp.assert((SELECT count(*) FROM private.arca_credential_audit WHERE event = 'credential_store_success')>=1,
+  'T21a se auditó la provisión canónica (credential_store_success)');
+SELECT pg_temp.assert((SELECT count(*) FROM private.arca_credential_audit WHERE event LIKE 'arca_private_key_vault_%')=0,
+  'T21a2 el contrato retirado no emite eventos de migración');
 SELECT pg_temp.assert(NOT EXISTS (
   SELECT 1 FROM private.arca_credential_audit
    WHERE coalesce(fingerprint_trunc,'')||coalesce(status,'')||coalesce(error_code,'') ~* 'BEGIN|PRIVATE KEY|MII'),
