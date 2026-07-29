@@ -59,7 +59,7 @@ export function Dashboard() {
 
   const { businessId } = useAuth()
   const { stats, loading: statsLoading, error: statsError, refresh: refreshStats } = useDashboardStats()
-  const { data: finData, loading: finLoading } = useFinancialDashboard(businessId, cajaId)
+  const { data: finData, loading: finLoading, cajaError: finCajaError } = useFinancialDashboard(businessId, cajaId)
   const { comprobantes, listarComprobantes } = useComprobantes()
   const navigate = useNavigate()
 
@@ -269,22 +269,32 @@ export function Dashboard() {
       {/* ── 5. Snapshot financiero del día ────────────────────────────────────── */}
       {(finData || finLoading) && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.875rem', marginBottom: '1.5rem' }}>
+          {/* Si la consulta de caja falla NO se muestra $0: un cero creíble es
+              peor que un "no disponible" honesto. El resto del Dashboard sigue. */}
           <div className="stat-card">
             <div className="stat-card-label">Cobrado en caja</div>
-            <div className="stat-card-value" style={{ color: 'var(--success)' }}>
-              {finLoading && !finData ? '…' : fmtARS(finData?.ventasHoy ?? 0)}
+            <div
+              className="stat-card-value"
+              style={{ color: finCajaError ? 'var(--text-subtle)' : 'var(--success)' }}
+              title={finCajaError ? finCajaError.message : undefined}
+            >
+              {finLoading && !finData ? '…' : finCajaError ? 'No disponible' : fmtARS(finData?.ventasHoy ?? 0)}
             </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', marginTop: '0.125rem' }}>
-              {finLoading ? '' : (finData?.cajaAbierta ? 'Caja abierta actual' : 'Caja cerrada')}
+            <div style={{ fontSize: '0.75rem', color: finCajaError ? 'var(--error)' : 'var(--text-subtle)', marginTop: '0.125rem' }}>
+              {finLoading ? '' : finCajaError ? '⚠ No se pudo cargar' : (finData?.cajaAbierta ? 'Caja abierta actual' : 'Caja cerrada')}
             </div>
           </div>
           <div className="stat-card">
             <div className="stat-card-label">Caja neta</div>
-            <div className="stat-card-value" style={{ color: (finData ? finData.caja.income - finData.caja.expense : 0) >= 0 ? 'var(--success)' : 'var(--error)' }}>
-              {finLoading && !finData ? '…' : fmtARS(finData ? finData.caja.income - finData.caja.expense : 0)}
+            <div
+              className="stat-card-value"
+              style={{ color: finCajaError ? 'var(--text-subtle)' : (finData?.caja ? finData.caja.net : 0) >= 0 ? 'var(--success)' : 'var(--error)' }}
+              title={finCajaError ? finCajaError.message : undefined}
+            >
+              {finLoading && !finData ? '…' : finCajaError ? 'No disponible' : fmtARS(finData?.caja ? finData.caja.net : 0)}
             </div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', marginTop: '0.125rem' }}>
-              {finLoading ? '' : (finData?.cajaAbierta ? 'Caja abierta actual' : 'Caja cerrada')}
+            <div style={{ fontSize: '0.75rem', color: finCajaError ? 'var(--error)' : 'var(--text-subtle)', marginTop: '0.125rem' }}>
+              {finLoading ? '' : finCajaError ? '⚠ No se pudo cargar' : (finData?.cajaAbierta ? 'Caja abierta actual' : 'Caja cerrada')}
             </div>
           </div>
           <Link to="/finance" style={{ textDecoration: 'none' }}>
