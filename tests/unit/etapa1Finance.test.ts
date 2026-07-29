@@ -27,11 +27,25 @@ test('financialMetricsService: sueldosRetiros mapea a employee_salaries (retiros
   assert.match(s, /costosFijosPersonales\s*=\s*0/)
 })
 
-test('useFinancialDashboard lee la deuda de proveedores del ledger canónico, no de accounts', () => {
+// La deuda YA NO vive en useFinancialDashboard. `FinancialSummarySection` —su
+// único consumidor— se eliminó en 3f9f904 ("lighten Dashboard"), y la consulta a
+// v_finance_position quedó huérfana: alimentaba campos que ningún componente
+// renderizaba. Se quitó en el lote P0 Dashboard Resilience.
+//
+// La intención original de este guard se conserva y se mueve a donde la deuda se
+// muestra de verdad: NUNCA debe salir de `accounts` (la fuente vieja que daba $0
+// cuando el negocio debía millones), sino de la fuente canónica.
+test('useFinancialDashboard ya no expone deuda (y no la lee de accounts)', () => {
   const s = read('src/hooks/useFinancialDashboard.ts')
-  assert.match(s, /from\('v_finance_position'\)/)
-  assert.match(s, /payables/)
-  // No debe quedar la lectura vieja de accounts type='proveedor' para la deuda
+  assert.ok(!/\.eq\('type',\s*'proveedor'\)/.test(s), 'no debe leer accounts type=proveedor para la deuda')
+  assert.ok(!/ccProveedoresDeuda|ccClientesDeuda/.test(s), 'los campos de deuda huérfanos se eliminaron')
+})
+
+test('la deuda que SÍ se muestra sale de la fuente canónica, no de accounts', () => {
+  const s = read('src/pages/FinanceDashboard.tsx')
+  // finance_dashboard_summary es SECURITY DEFINER y lee v_finance_position adentro.
+  assert.match(s, /\.rpc\('finance_dashboard_summary'/)
+  assert.match(s, /position\s*\|\|\s*\{\}\)\.receivables/)
   assert.ok(!/\.eq\('type',\s*'proveedor'\)/.test(s), 'no debe leer accounts type=proveedor para la deuda')
 })
 
