@@ -31,6 +31,7 @@ import { useOrderSimple } from '../hooks/useOrderSimple'
 import { useComprobantes } from '../hooks/useComprobantes'
 import { Loader } from '../components/ui/Loader'
 import { ComprobanteProModal as ModalCrearComprobante } from '../components/comprobantes/ComprobanteProModal'
+import { buildOrderComprobanteItems } from '../lib/orderBilling'
 import { OrderPrintPreviewModal } from '../components/print/OrderPrintPreviewModal'
 import { STATUS_CONFIG } from '../types/orderStatus'
 import { DeviceLockCard } from '../components/order/DeviceLockCard'
@@ -511,63 +512,23 @@ export function OrderDetail() {
 
         {/* Modal Crear Comprobante */}
         {order && (() => {
-          // ── Build billable comprobante items from order.orderItems ──────────
-          // order.orderItems is the authoritative source: it always has the
-          // correct cliente_paga_repuesto value (set at insertion time) and the
-          // real precio_unitario (no async race conditions).
-          //
-          // Rule: include servicio items always + repuesto items only when
-          // cliente_paga_repuesto !== false.
-          //
-          // Fallback path: parts that live only in order_parts (added via
-          // orderPartsService without inventory link — no order_items record).
-          // These are always billable because orderPartsService has no
-          // "not charged" option for non-inventory parts.
-
-          const orderItemsDescriptions = new Set(
-            (order.orderItems ?? [])
-              .filter(i => i.tipo === 'repuesto')
-              .map(i => i.descripcion)
-          )
-
-          const billableFromOrderItems = (order.orderItems ?? [])
-            .filter(i =>
-              i.tipo === 'servicio' ||
-              (i.tipo === 'repuesto' && i.cliente_paga_repuesto !== false)
-            )
-            .map(i => ({
-              descripcion:     i.descripcion,
-              cantidad:        i.cantidad,
-              precio_unitario: i.precio_unitario,
-              currency:        'ARS' as const,
-              tipo_linea:      (i.tipo === 'servicio' ? 'servicio' : 'repuesto') as 'servicio' | 'repuesto',
-              costo_unitario:  i.costo_unitario ?? 0,
-              inventory_id:    i.product_id ?? undefined,
-            }))
-
-          // Parts in order_parts with no corresponding order_items entry
-          const billableFromPartsOnly = (order.parts ?? [])
-            .filter(p =>
-              p.sale_price > 0 &&
-              !orderItemsDescriptions.has(p.name)
-            )
-            .map(p => ({
-              descripcion:     p.name,
-              cantidad:        p.quantity,
-              precio_unitario: p.sale_price,
-              currency:        'ARS' as const,
-              tipo_linea:      'repuesto' as const,
-              costo_unitario:  p.internal_cost ?? 0,
-            }))
-
-          const computedItems = [...billableFromOrderItems, ...billableFromPartsOnly]
+          // ── P0-A: armado canónico de los ítems del comprobante ──────────────
+          // Toda la lógica vive en src/lib/orderBilling.ts (función pura, con
+          // tests en tests/unit/orderCogsAbsorbed.test.ts). Garantiza que el
+          // costo de TODO repuesto consumido llegue al comprobante —incluidos
+          // los absorbidos por el precio del servicio— sin alterar el total
+          // cotizado al cliente y sin volver a descontar stock.
+          const billing = buildOrderComprobanteItems(order.orderItems, order.parts)
 
           return (
             <ModalCrearComprobante
               isOpen={showModalCrearComprobante}
               onClose={() => setShowModalCrearComprobante(false)}
               initialClienteId={order.customer_id || order.customer?.id || ''}
-              initialItems={computedItems}
+              initialItems={billing.items}
+              // Vínculo canónico orden ↔ comprobante: sin esto no hay
+              // reconciliación posible (antes quedaba en NULL siempre).
+              orderId={order.id}
               onCreado={() => {
                 setShowModalCrearComprobante(false)
                 refresh()
