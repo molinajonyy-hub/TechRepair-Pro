@@ -264,7 +264,8 @@ No altera tablas, ni funciones, ni datos. Rollback documentado en el archivo (`D
 
 ## 14. Commit
 
-Rama `fix/p0a-order-cogs-absorbed` (no `main`), **sin push**. Ver §18.
+`fefa816` en la rama **`fix/p0a-order-cogs-absorbed`** (no `main`), **sin push, sin PR**.
+9 archivos, +1931 / −86.
 
 ## 15. Dry-run histórico (P0-B) — solo lectura, no ejecutado
 
