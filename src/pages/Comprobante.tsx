@@ -4,7 +4,6 @@ import { financeErrorMessage } from '../lib/financeErrors';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, AlertCircle, CheckCircle, Loader2, ExternalLink, TrendingUp, Wallet, Edit2, X, FileText } from 'lucide-react';
 import { WhatsAppActionButton } from '../components/whatsapp/WhatsAppActionButton';
-import { supabase } from '../lib/supabase';
 import { facturacionService } from '../services/facturacionService';
 import { useOrderPrintSettings } from '../hooks/useOrderPrintSettings';
 import { useAuth } from '../contexts/AuthContext';
@@ -122,44 +121,31 @@ export default function ComprobantePage() {
     if (id) cargarComprobante(id);
   }, [id, cargarComprobante]);
 
-  // Calcular ganancia real cuando carga el comprobante
+  // ── Ganancia del comprobante ───────────────────────────────────────────────
+  // P0-A: el costo sale del SNAPSHOT persistido en comprobante_items.costo_total
+  // — la misma columna que alimenta v_finance_sales_ledger → v_finance_pnl → el
+  // Dashboard. Antes se releía `inventory.cost_price` VIVO y se ignoraba el
+  // snapshot, lo que producía dos defectos: (1) un costo distinto del devengado
+  // si el producto cambiaba de precio después de la venta, y (2) margen 100 % en
+  // toda línea sin inventory_id — justo el caso de las órdenes, cuyo costo de
+  // repuestos absorbidos viaja plegado en la línea de servicio. Ahora esta
+  // tarjeta muestra exactamente lo mismo que Finanzas: sin motor paralelo.
   useEffect(() => {
     if (!comprobanteActual) { setProfitInfo(null); return; }
     const items: any[] = (comprobanteActual as any)?.items ?? [];
     if (!items.length) { setProfitInfo(null); return; }
 
     const totalRevenue = items.reduce((s: number, i: any) => s + (i.subtotal || i.precio_unitario * i.cantidad || 0), 0);
-    const inventoryIds = items.filter((i: any) => i.inventory_id).map((i: any) => i.inventory_id);
+    const totalCost = items.reduce(
+      (s: number, i: any) => s + (Number(i.costo_total) || Number(i.costo_unitario || 0) * (i.cantidad || 1)),
+      0,
+    );
+    // Ítems con costo conocido: el resto se informa como "sin costo registrado".
+    const withCost = items.filter((i: any) => (Number(i.costo_total) || Number(i.costo_unitario) || 0) > 0).length;
 
-    if (!inventoryIds.length) {
-      // Servicios puros sin costo de inventario
-      setProfitInfo({ totalCost: 0, totalRevenue, profit: totalRevenue, margin: 100, inventoryItemsCount: 0, totalItemsCount: items.length });
-      return;
-    }
-
-    supabase
-      .from('inventory')
-      .select('id, cost_price')
-      .in('id', inventoryIds)
-      .then(({ data: invItems }) => {
-        const costMap: Record<string, number> = {};
-        (invItems || []).forEach((inv: any) => { costMap[inv.id] = inv.cost_price || 0; });
-
-        let totalCost = 0;
-        let inventoryItemsCount = 0;
-        items.forEach((item: any) => {
-          if (item.inventory_id && costMap[item.inventory_id] !== undefined) {
-            totalCost += costMap[item.inventory_id] * (item.cantidad || 1);
-            inventoryItemsCount++;
-          }
-        });
-
-        const profit = totalRevenue - totalCost;
-        const margin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
-        setProfitInfo({ totalCost, totalRevenue, profit, margin, inventoryItemsCount, totalItemsCount: items.length });
-      },
-      () => setProfitInfo(null)
-      );
+    const profit = totalRevenue - totalCost;
+    const margin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
+    setProfitInfo({ totalCost, totalRevenue, profit, margin, inventoryItemsCount: withCost, totalItemsCount: items.length });
   }, [comprobanteActual]);
 
   const handleEmitir = async () => {
@@ -690,7 +676,7 @@ export default function ComprobantePage() {
 
                   {profitInfo.inventoryItemsCount < profitInfo.totalItemsCount && (
                     <p style={{ margin: '0.25rem 0 0', fontSize: '0.65rem', color: '#334155', fontStyle: 'italic' }}>
-                      {profitInfo.totalItemsCount - profitInfo.inventoryItemsCount} ítem(s) sin costo registrado (servicios)
+                      {profitInfo.totalItemsCount - profitInfo.inventoryItemsCount} ítem(s) sin costo registrado
                     </p>
                   )}
                 </div>

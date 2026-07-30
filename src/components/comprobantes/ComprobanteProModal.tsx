@@ -134,6 +134,13 @@ export interface ComprobanteProModalProps {
   tipoInicial?: TipoComprobante; puntoVentaInicial?: string; condicionFiscalInicial?: string
   initialItems?: { descripcion: string; cantidad: number; precio_unitario: number; currency?: 'ARS'|'USD'; inventory_id?: string; costo_unitario?: number; tipo_linea?: TipoLinea }[]
   initialClienteId?: string; usarPrecioMayorista?: boolean; skipFinanceEntry?: boolean
+  /**
+   * P0-A — Orden de origen. Se persiste en `comprobantes.order_id` y es el
+   * vínculo canónico orden ↔ comprobante: sin él no hay reconciliación del COGS
+   * de repuestos consumidos ni health check posible. La RPC valida que la orden
+   * pertenezca al negocio (ORDER_NOT_FOUND).
+   */
+  orderId?: string
 }
 
 // ─── LineaCard (memoized) ─────────────────────────────────────────────────────
@@ -307,6 +314,7 @@ export function ComprobanteProModal({
   tipoInicial, puntoVentaInicial, condicionFiscalInicial,
   initialItems, initialClienteId,
   usarPrecioMayorista = false, skipFinanceEntry = false,
+  orderId,
 }: ComprobanteProModalProps) {
   const { businessId, user } = useAuth()
   const { isOpen: cajaIsOpen, cajaId } = useCaja()
@@ -541,7 +549,8 @@ export function ComprobanteProModal({
 
     const input: CrearComprobanteInput = {
       tipo, punto_venta: puntoVenta, condicion_fiscal: condicion,
-      customer_id: clienteId || null, observaciones, exchange_rate: exchangeRate,
+      customer_id: clienteId || null, order_id: orderId ?? null,
+      observaciones, exchange_rate: exchangeRate,
       es_fiscal: TIPO_CONFIG[tipo].fiscal, emitir_en_arca: emitirEnArca,
       items: itemsPayload,
       pagos: pagosPayload,
@@ -608,7 +617,7 @@ export function ComprobanteProModal({
     setShowSuccess(true)
     // Vibración táctil
     if ('vibrate' in navigator) navigator.vibrate(80)
-  }, [lineas, businessId, cajaIsOpen, skipFinanceEntry, pagos, tipo, puntoVenta, condicion, clienteId, observaciones, exchangeRate, emitirEnArca, user, cajaId, DRAFT_KEY, totales])
+  }, [lineas, businessId, cajaIsOpen, skipFinanceEntry, pagos, tipo, puntoVenta, condicion, clienteId, orderId, observaciones, exchangeRate, emitirEnArca, user, cajaId, DRAFT_KEY, totales])
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
