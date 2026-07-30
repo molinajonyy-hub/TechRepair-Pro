@@ -32,6 +32,7 @@ import { useComprobantes } from '../hooks/useComprobantes'
 import { Loader } from '../components/ui/Loader'
 import { ComprobanteProModal as ModalCrearComprobante } from '../components/comprobantes/ComprobanteProModal'
 import { buildOrderComprobanteItems } from '../lib/orderBilling'
+import { OrderFinancialSummary } from '../components/orders/OrderFinancialSummary'
 import { OrderPrintPreviewModal } from '../components/print/OrderPrintPreviewModal'
 import { STATUS_CONFIG } from '../types/orderStatus'
 import { DeviceLockCard } from '../components/order/DeviceLockCard'
@@ -427,6 +428,15 @@ export function OrderDetail() {
             {/* Order Items */}
             <div style={{ gridColumn: 'span 2' }}>
               <OrderItemsCard orderId={order.id} onTotalsChange={refresh} />
+            </div>
+
+            {/* P0-A.1U1 — Estado financiero (solo lectura). Todo llega de
+                v_order_financial_status: acá no se calcula ningún importe. */}
+            <div style={{ gridColumn: 'span 2' }}>
+              <OrderFinancialSummary
+                orderId={order.id}
+                customerId={order.customer_id || order.customer?.id || null}
+              />
             </div>
 
           </>

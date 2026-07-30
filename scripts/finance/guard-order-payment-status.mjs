@@ -52,6 +52,13 @@ const BASELINE_AMOUNT_PAID = new Set([
   'src/hooks/useDashboardStats.ts',
   'src/pages/Customers.tsx',
 ])
+// Deuda preexistente registrada: dos componentes de orden derivan el saldo
+// restando importes en React. No los introdujo este lote; su refactor va con la
+// UI de cobro (U2). El guard bloquea cualquier caso NUEVO fuera de esta lista.
+const BASELINE_SALDO_EN_REACT = new Set([
+  'src/components/order/OrderCostManagement.tsx',
+  'src/components/order/PaymentCard.tsx',
+])
 const norm = (p) => p.replace(/\\/g, '/')
 
 // ── Reglas sobre el frontend ────────────────────────────────────────────────
@@ -89,6 +96,43 @@ export function revisarFrontend(archivos) {
     }
     if (/comprobante[^\n]{0,40}\.payment_status\b/.test(t)) {
       h.push(`${ruta}: usa comprobantes.payment_status, que está muerto (220 filas incoherentes en prod)`)
+    }
+    // NOTA: no se vigila `orders.comprobante_id` por texto. Sin un parser real
+    // la regla confunde la columna homónima de v_order_financial_status —que SÍ
+    // es canónica— con la vía paralela de orders, y marcaba useOrders.ts y
+    // facturacionService.ts, ambos correctos. Un guard que grita en falso se
+    // termina ignorando. La prohibición sigue documentada y cubierta por
+    // revisión: el campo tiene 3 filas en producción y ningún consumidor nuevo.
+
+    // U1: el saldo NUNCA se deriva restando en React.
+    if (/(saldo|balance)\w*\s*=\s*[^=\n]*\b(total|comprobado)\w*\s*-\s*\w*(pagad|cobrad|paid)/i.test(t)
+        && !BASELINE_SALDO_EN_REACT.has(norm(ruta))) {
+      h.push(`${ruta}: deriva el saldo restando importes en React; debe venir de v_order_financial_status`)
+    }
+    // U1: "Cobrado" no puede decidirse por la existencia de un comprobante.
+    if (/comprobantes?\.length\s*>\s*0\s*\?\s*['"]?(Cobrado|paid)/i.test(t)) {
+      h.push(`${ruta}: marca "Cobrado" por existir un comprobante; el estado lo decide el server`)
+    }
+    // U1: el filtro financiero no puede aplicarse después de descargar la página.
+    if (/\.filter\(\s*\w+\s*=>\s*\w+\.payment_status\s*===/.test(t) && !BASELINE_SALDO_EN_REACT.has(norm(ruta))) {
+      h.push(`${ruta}: filtra por estado financiero en React; el filtro debe ir en la consulta server-side`)
+    }
+  }
+  return h
+}
+
+/** U1: los tests de componentes no pueden tocar datos ni credenciales reales. */
+export function revisarTestsComponentes(archivos) {
+  const h = []
+  for (const { ruta, texto } of archivos) {
+    // Texto CRUDO a propósito: quitar los comentarios de línea se comía la URL
+    // a partir del `//` de `https://`, que es justo lo que hay que detectar.
+    const t = texto
+    if (/[a-z0-9]+\.supabase\.co/i.test(t)) {
+      h.push(`${ruta}: apunta a un Supabase real; los tests de componentes deben usar fixtures`)
+    }
+    if (/eyJ[A-Za-z0-9_-]{20,}/.test(t)) {
+      h.push(`${ruta}: contiene lo que parece un JWT real`)
     }
   }
   return h
@@ -157,6 +201,16 @@ function selfTest() {
       `GRANT EXECUTE ON FUNCTION recompute_order_payment_status(uuid) TO "authenticated";`).length > 0],
     ['revoke correcto no dispara', () => revisarRecompute(
       `REVOKE EXECUTE ON FUNCTION recompute_order_payment_status(uuid) FROM "authenticated";`).length === 0],
+    ['saldo derivado en React', () => revisarFrontend([{ ruta: 'x.tsx',
+      texto: `const saldo = totalComprobado - totalPagado` }]).length > 0],
+    ['Cobrado por existir comprobante', () => revisarFrontend([{ ruta: 'x.tsx',
+      texto: `const label = comprobantes.length > 0 ? 'Cobrado' : 'Pendiente'` }]).length > 0],
+    ['filtro financiero en React', () => revisarFrontend([{ ruta: 'x.tsx',
+      texto: `const r = orders.filter(o => o.payment_status === 'paid')` }]).length > 0],
+    ['test de componentes con Supabase real', () => revisarTestsComponentes([{ ruta: 't.tsx',
+      texto: `const url = 'https://abcdef.supabase.co'` }]).length > 0],
+    ['test de componentes con fixtures no dispara', () => revisarTestsComponentes([{ ruta: 't.tsx',
+      texto: `const estado = { payment_status: 'paid' }` }]).length === 0],
   ]
   let ok = 0
   for (const [nombre, fn] of casos) {
@@ -177,6 +231,14 @@ const archivosSrc = walk(SRC)
   .filter(p => /\.(ts|tsx)$/.test(p))
   .map(p => ({ ruta: p, texto: read(p) }))
 hallazgos.push(...revisarFrontend(archivosSrc))
+
+// Tests de componentes: fixtures, nunca datos ni credenciales productivas.
+try {
+  const testsComp = walk('tests/components')
+    .filter(p => /\.(ts|tsx)$/.test(p))
+    .map(p => ({ ruta: p, texto: read(p) }))
+  hallazgos.push(...revisarTestsComponentes(testsComp))
+} catch { /* el directorio puede no existir todavía */ }
 
 const sqlP0A1 = readdirSync(MIGRATIONS)
   .filter(f => /p0a1/i.test(f))
