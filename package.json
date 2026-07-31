@@ -4,7 +4,7 @@
   "version": "3.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev/preflight-local.mjs development && vite --mode development",
     "build": "vite build",
     "vercel-build": "vite build",
     "preview": "vite preview",
@@ -66,7 +66,7 @@
     "test:components": "vitest run --config vitest.config.ts",
     "test:components:watch": "vitest --config vitest.config.ts",
     "test:unit": "node --test \"tests/unit/**/*.test.ts\"",
-    "dev:e2e": "vite --mode e2e --port 5174 --strictPort",
+    "dev:e2e": "node scripts/dev/preflight-local.mjs e2e && vite --mode e2e --port 5174 --strictPort",
     "e2e:prepare": "node scripts/e2e/prepare-local.mjs",
     "e2e:m7": "playwright test --project=m7-local",
     "e2e:m7:ui": "playwright test --project=m7-local --ui",

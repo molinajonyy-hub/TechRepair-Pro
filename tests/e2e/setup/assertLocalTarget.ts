@@ -20,8 +20,14 @@
 // ============================================================================
 import { loadEnv } from 'vite'
 
-/** Puertos locales permitidos para el API de Supabase. */
-const PUERTOS_PERMITIDOS = new Set(['54321', '54421', '8000', '54322'])
+/**
+ * Puertos locales permitidos para el API de Supabase.
+ * 55421 es el puerto REAL que expone el Kong de este repo (`docker ps` sobre
+ * supabase_kong_techrepair-vite). Se agrega A PROPÓSITO y auditado: sin él, el
+ * preflight de `npm run dev` rechazaba el stack local legítimo, y un guard que
+ * rechaza lo correcto termina desactivado.
+ */
+const PUERTOS_PERMITIDOS = new Set(['54321', '54421', '55421', '8000', '54322'])
 const HOSTS_LOCALES = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
 
 export const MENSAJE_ABORTO = 'E2E ABORTADO: el destino Supabase no es local y seguro'
