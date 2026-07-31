@@ -21,11 +21,51 @@
 //
 //   node scripts/dev/preflight-local.mjs [modo]     (modo por defecto: development)
 // ============================================================================
+import { readFileSync } from 'node:fs'
 import { loadEnv } from 'vite'
 import { motivoDeRechazo, enmascarar } from '../../tests/e2e/setup/assertLocalTarget.ts'
 
 const MODO = process.argv[2] || 'development'
 const RAIZ = process.cwd()
+
+/**
+ * Archivo local que DEBE declarar el destino, por modo.
+ * Vite resuelve variable por variable: una URL local en el archivo local puede
+ * convivir con una anon key heredada de `.env` (productivo). No hay fuga —manda
+ * la URL— pero es una mezcla que no debe existir, así que se exige que AMBAS
+ * variables estén declaradas en el mismo archivo local.
+ */
+const ARCHIVO_LOCAL = { development: '.env.development.local', e2e: '.env.e2e' }
+const OBLIGATORIAS = ['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY']
+
+/** Devuelve el conjunto de claves declaradas en un archivo .env, sin sus valores. */
+export function clavesDeclaradas(contenido) {
+  const claves = new Set()
+  for (const linea of String(contenido).split('\n')) {
+    const t = linea.trim()
+    if (!t || t.startsWith('#')) continue
+    const i = t.indexOf('=')
+    if (i <= 0) continue
+    claves.add(t.slice(0, i).trim())
+  }
+  return claves
+}
+
+/** Motivo de rechazo si el archivo local no declara TODAS las obligatorias. */
+export function motivoPorHerencia(contenido, archivo) {
+  if (contenido === null) {
+    return `Falta ${archivo}. Fail-closed: sin archivo local no se puede distinguir un ` +
+      'destino local de la configuración productiva heredada de `.env`.'
+  }
+  const claves = clavesDeclaradas(contenido)
+  const faltantes = OBLIGATORIAS.filter(k => !claves.has(k))
+  if (faltantes.length) {
+    return `${archivo} no declara ${faltantes.join(' ni ')}. ` +
+      'Vite completaría esas variables desde `.env`, que apunta a producción. ' +
+      'Declaralas explícitamente en el archivo local.'
+  }
+  return null
+}
 
 function abortar(motivo, sugerencia) {
   console.error('\n' + '═'.repeat(72))
@@ -49,14 +89,23 @@ const AYUDA =
 // Semántica idéntica a la de Vite: prefijo '' trae también las no-VITE_*.
 const env = loadEnv(MODO, RAIZ, '')
 
-// ── 1. Destino ──────────────────────────────────────────────────────────────
+// ── 1. Ninguna variable obligatoria puede venir heredada de `.env` ─────────
+// Se valida ANTES del destino: si la configuración local está incompleta, el
+// resultado de loadEnv es una mezcla y no representa una intención clara.
+const archivo = ARCHIVO_LOCAL[MODO] ?? `.env.${MODO}.local`
+let contenido = null
+try { contenido = readFileSync(archivo, 'utf-8') } catch { contenido = null }
+const motivoHerencia = motivoPorHerencia(contenido, archivo)
+if (motivoHerencia) abortar(motivoHerencia, AYUDA)
+
+// ── 2. Destino ──────────────────────────────────────────────────────────────
 const motivo = motivoDeRechazo(env.VITE_SUPABASE_URL)
 if (motivo) abortar(motivo, AYUDA)
 
-// ── 2. Clave anónima presente (no se valida su valor, sólo su existencia) ──
+// ── 3. Clave anónima presente (no se valida su valor, sólo su existencia) ──
 if (!String(env.VITE_SUPABASE_ANON_KEY || '').trim()) {
   abortar(
-    'Falta VITE_SUPABASE_ANON_KEY en el modo "' + MODO + '". ' +
+    'VITE_SUPABASE_ANON_KEY está declarada pero vacía en ' + archivo + '. ' +
     'Fail-closed: no se levanta la app sin saber contra qué backend habla.',
     AYUDA,
   )

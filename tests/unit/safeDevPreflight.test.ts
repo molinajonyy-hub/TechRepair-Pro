@@ -142,6 +142,43 @@ test('el preflight usa la MISMA autoridad que 7D.2 y carga el entorno como Vite'
   assert.ok(!/SERVICE_ROLE/.test(src), 'el preflight no toca el service role')
 })
 
+// ── Herencia parcial de variables (cierre del hallazgo de SAFEDEV) ──────────
+
+test('regresión: archivo local con SOLO la URL se rechaza (la key vendría de .env)', async () => {
+  const { motivoPorHerencia } = await import('../../scripts/dev/preflight-local.mjs')
+  const motivo = motivoPorHerencia('VITE_SUPABASE_URL=http://127.0.0.1:55421\n', '.env.development.local')
+  assert.ok(motivo, 'debe rechazar: la anon key se heredaría del .env productivo')
+  assert.match(String(motivo), /VITE_SUPABASE_ANON_KEY/)
+  assert.match(String(motivo), /producci/i)
+})
+
+test('el archivo local completo se acepta', async () => {
+  const { motivoPorHerencia } = await import('../../scripts/dev/preflight-local.mjs')
+  assert.equal(
+    motivoPorHerencia('VITE_SUPABASE_URL=http://127.0.0.1:55421\nVITE_SUPABASE_ANON_KEY=fake\n', 'x'),
+    null,
+  )
+})
+
+test('un archivo local ausente también se rechaza (fail-closed)', async () => {
+  const { motivoPorHerencia } = await import('../../scripts/dev/preflight-local.mjs')
+  assert.ok(motivoPorHerencia(null, '.env.development.local'))
+})
+
+test('los comentarios y líneas vacías no cuentan como declaración', async () => {
+  const { motivoPorHerencia, clavesDeclaradas } = await import('../../scripts/dev/preflight-local.mjs')
+  const contenido = '# VITE_SUPABASE_ANON_KEY=comentada\n\nVITE_SUPABASE_URL=http://localhost:54321\n'
+  assert.ok(!clavesDeclaradas(contenido).has('VITE_SUPABASE_ANON_KEY'))
+  assert.ok(motivoPorHerencia(contenido, 'x'), 'una clave comentada no está declarada')
+})
+
+test('el mensaje de herencia no imprime ningún valor', async () => {
+  const { motivoPorHerencia } = await import('../../scripts/dev/preflight-local.mjs')
+  const m = String(motivoPorHerencia('VITE_SUPABASE_URL=http://127.0.0.1:55421\n', 'x'))
+  assert.ok(!m.includes('127.0.0.1:55421'), 'no debe filtrar el valor de la URL')
+  assert.ok(!/eyJ/.test(m))
+})
+
 test('los archivos de entorno reales siguen fuera del repo', () => {
   const gi = read('.gitignore')
   for (const patron of ['.env', '.env.local', '.env.*.local']) {
