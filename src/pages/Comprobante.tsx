@@ -5,6 +5,8 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, AlertCircle, CheckCircle, Loader2, ExternalLink, TrendingUp, Wallet, Edit2, X, FileText } from 'lucide-react';
 import { WhatsAppActionButton } from '../components/whatsapp/WhatsAppActionButton';
 import { facturacionService } from '../services/facturacionService';
+import { AllocationModal } from '../components/finance/AllocationModal';
+import { AllocationHistory } from '../components/finance/AllocationHistory';
 import { useOrderPrintSettings } from '../hooks/useOrderPrintSettings';
 import { useAuth } from '../contexts/AuthContext';
 import { ComprobanteDocumento } from '../components/comprobantes/ComprobanteDocumento';
@@ -46,6 +48,8 @@ export default function ComprobantePage() {
   const replaceKeyRef  = useRef<string | null>(null);
   const replaceHashRef = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // P0-A.1U2 — Punto de entrada B: imputar crédito de cuenta corriente.
+  const [imputando, setImputando] = useState(false);
 
   const cargarComprobante = useCallback(async (compId: string) => {
     if (!businessId) return;
@@ -681,6 +685,42 @@ export default function ComprobantePage() {
                   )}
                 </div>
               </div>
+            )}
+
+            {/* P0-A.1U2 — Punto de entrada B: imputar un cobro de cuenta
+                corriente a ESTE comprobante, y su historial de imputaciones. */}
+            {businessId && comprobanteActual.customer_id && (
+              <div className="card" style={{ marginTop: '1rem', padding: '1rem' }}>
+                <p style={{ fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--text-subtle)', marginBottom: '0.75rem', marginTop: 0 }}>
+                  Imputaciones de cuenta corriente
+                </p>
+                {Number(comprobanteActual.saldo_pendiente ?? 0) > 0 && (
+                  <button
+                    data-testid="comprobante-allocate-button"
+                    className="btn btn-primary btn-sm"
+                    style={{ marginBottom: '0.75rem' }}
+                    onClick={() => setImputando(true)}
+                  >
+                    Aplicar crédito del cliente
+                  </button>
+                )}
+                <AllocationHistory
+                  businessId={businessId}
+                  comprobanteId={comprobanteActual.id}
+                  onReversed={() => cargarComprobante(comprobanteActual.id)}
+                />
+              </div>
+            )}
+
+            {imputando && businessId && comprobanteActual.customer_id && (
+              <AllocationModal
+                isOpen={imputando}
+                businessId={businessId}
+                customerId={comprobanteActual.customer_id}
+                comprobanteId={comprobanteActual.id}
+                onClose={() => setImputando(false)}
+                onAllocated={() => cargarComprobante(comprobanteActual.id)}
+              />
             )}
 
             {/* Order link */}

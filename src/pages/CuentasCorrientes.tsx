@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Plus, X, ChevronRight, TrendingUp,
   TrendingDown, User, Building2, RefreshCw,
-  CreditCard, ArrowUpRight, ArrowDownRight, Edit2,
+  CreditCard, ArrowUpRight, ArrowDownRight, Edit2, Link2,
 } from 'lucide-react'
 import { TimelineView } from '../components/shared/TimelineView'
 import { useEntityTimeline } from '../hooks/useEntityTimeline'
@@ -14,6 +14,7 @@ import {
   AppEmptyState, AppLoadingState,
 } from '../ui'
 import { AddIcon } from '../ui/icons'
+import { AllocationModal } from '../components/finance/AllocationModal'
 import {
   cuentasService,
   getAccountStatus,
@@ -243,6 +244,7 @@ function AccountDetail({ account, businessId, userId, onClose, onRefreshList }: 
   const [movements, setMovements] = useState<AccountMovement[]>([])
   const [localBalance, setLocalBalance] = useState(account.balance)
   const [modal, setModal]         = useState<ModalMode | null>(null)
+  const [imputando, setImputando] = useState(false)
 
   const status = getAccountStatus(localBalance)
   const sm     = STATUS_META[status]
@@ -303,9 +305,29 @@ function AccountDetail({ account, businessId, userId, onClose, onRefreshList }: 
           <AppButton data-testid="cc-register-payment-button" variant="indigo" size="sm" leftIcon={<ArrowDownRight size={13} />} onClick={() => setModal('pago')}>Registrar pago</AppButton>
           <AppButton variant="red" size="sm" leftIcon={<ArrowUpRight size={13} />} onClick={() => setModal('deuda')}>Registrar deuda</AppButton>
           <AppButton variant="ghost" size="sm" leftIcon={<Edit2 size={13} />} onClick={() => setModal('ajuste')}>Ajuste</AppButton>
+          {/* P0-A.1U2 — Punto de entrada A: imputar un cobro existente a los
+              comprobantes abiertos del cliente. Sólo para cuentas de cliente:
+              la imputación es contra comprobantes de venta. */}
+          {account.type === 'cliente' && account.entity_id && (
+            <AppButton data-testid="cc-allocate-button" variant="ghost" size="sm"
+                       leftIcon={<Link2 size={13} />} onClick={() => setImputando(true)}>
+              Imputar pago
+            </AppButton>
+          )}
           <AppButton variant="ghost" size="sm" leftIcon={<RefreshCw size={13} />} onClick={loadMovements}>Actualizar</AppButton>
         </div>
       </div>
+
+      {imputando && account.entity_id && (
+        <AllocationModal
+          isOpen={imputando}
+          businessId={businessId}
+          customerId={account.entity_id}
+          customerName={account.entity_name}
+          onClose={() => setImputando(false)}
+          onAllocated={async () => { await loadMovements(); onRefreshList() }}
+        />
+      )}
 
       {/* Extracto — Timeline premium */}
       <div style={{ flex: 1, overflowY: 'auto' }}>

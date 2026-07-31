@@ -22,10 +22,12 @@ import { loadEnv } from 'vite'
 
 /**
  * Puertos locales permitidos para el API de Supabase.
- * 55421 es el puerto REAL que expone el Kong de este repo (`docker ps` sobre
- * supabase_kong_techrepair-vite). Se agrega A PROPÓSITO y auditado: sin él, el
- * preflight de `npm run dev` rechazaba el stack local legítimo, y un guard que
- * rechaza lo correcto termina desactivado.
+ *
+ * El canónico de este repo es 54421 (`[api] port` en supabase/config.toml).
+ * 55421 quedó en la lista porque un stack local con el puerto ocupado publica
+ * Kong en el siguiente libre y `docker ps` lo muestra ahí; rechazarlo hacía que
+ * el preflight bloqueara un stack local legítimo, y un guard que rechaza lo
+ * correcto termina desactivado. Ampliar esta lista es siempre un acto explícito.
  */
 const PUERTOS_PERMITIDOS = new Set(['54321', '54421', '55421', '8000', '54322'])
 const HOSTS_LOCALES = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])

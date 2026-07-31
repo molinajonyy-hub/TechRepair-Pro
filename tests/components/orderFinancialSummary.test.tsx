@@ -36,8 +36,15 @@ vi.mock('../../src/lib/supabase', () => ({
       q.maybeSingle = () => Promise.resolve(respEstado)
       return q
     },
-    rpc: (nombre: string) =>
-      Promise.resolve(nombre === 'get_customer_unallocated_credit' ? respCredito : respMontos),
+    rpc: (nombre: string) => {
+      if (nombre === 'get_customer_unallocated_credit') return Promise.resolve(respCredito)
+      // El resumen monta el historial de imputaciones: sin permiso no renderiza
+      // nada, que es lo que estos tests necesitan para aislar el resumen.
+      if (nombre === 'get_payment_allocations') {
+        return Promise.resolve({ data: { ok: true, authorized: false }, error: null })
+      }
+      return Promise.resolve(respMontos)
+    },
   },
 }))
 

@@ -19,6 +19,7 @@ import { currencyService } from '../../services/currencyService'
 import { useAuth } from '../../contexts/AuthContext'
 import { resolvePurchaseKey } from '../../utils/purchaseIdempotency'
 import { financeErrorMessage } from '../../lib/financeErrors'
+import { useOrderCanonicalBalance } from '../../hooks/useOrderCanonicalBalance'
 
 // Estados de repuestos
 const PART_STATUSES = {
@@ -155,7 +156,13 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
   const totalPaid = payments
     .filter(p => p.payment_status === 'completed')
     .reduce((sum, p) => sum + p.amount, 0)
-  const balancePending = totalQuoted - totalPaid
+
+  // P0-A.1U2 — El saldo NO se deriva en React. Cuando la orden está facturada,
+  // el saldo canónico es el de v_order_financial_status: contempla la parte
+  // enviada a cuenta corriente y las imputaciones, que `payments` no conoce.
+  // La resta local queda sólo como respaldo para órdenes sin comprobante.
+  const { saldo: saldoCanonico, disponible: saldoDisponible } = useOrderCanonicalBalance(orderId)
+  const balancePending = saldoDisponible ? saldoCanonico : totalQuoted - totalPaid
   const grossProfit = totalQuoted - totalCost
   const profitMargin = totalQuoted > 0 ? ((grossProfit / totalQuoted) * 100).toFixed(1) : '0'
 

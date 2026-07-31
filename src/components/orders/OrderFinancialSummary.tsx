@@ -14,6 +14,8 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { colors } from '../../lib/tokens'
 import { OrderFinancialBadge } from './OrderFinancialBadge'
+import { AllocationModal } from '../finance/AllocationModal'
+import { AllocationHistory } from '../finance/AllocationHistory'
 import type { OrderFinancialStatus } from '../../hooks/useOrders'
 
 interface Props {
@@ -35,6 +37,10 @@ export function OrderFinancialSummary({ orderId, businessId: bizProp, customerId
   const [credito, setCredito] = useState<number | null>(null)
   /** true = con permiso · false = rol restringido · null = error/desconocido. */
   const [authorized, setAuthorized] = useState<boolean | null>(null)
+  const [imputando, setImputando] = useState(false)
+  /** Fuerza una recarga tras imputar o revertir. */
+  const [version, setVersion] = useState(0)
+  const recargar = () => setVersion(v => v + 1)
 
   useEffect(() => {
     let vivo = true
@@ -79,7 +85,7 @@ export function OrderFinancialSummary({ orderId, businessId: bizProp, customerId
     }
     cargar()
     return () => { vivo = false }
-  }, [orderId, businessId, customerId])
+  }, [orderId, businessId, customerId, version])
 
   const noDisponible = failed || (!loading && !data)
 
@@ -152,26 +158,52 @@ export function OrderFinancialSummary({ orderId, businessId: bizProp, customerId
             )}
 
             {/* Crédito sin imputar: se informa, no se descuenta. La orden NO
-                queda cobrada por tener el cliente saldo a favor. */}
+                queda cobrada por tener el cliente saldo a favor: hay que
+                imputarlo explícitamente. */}
             {credito != null && credito > 0 && (
               <div data-testid="order-unallocated-credit"
                    style={{ marginTop: '0.75rem', padding: '0.6rem 0.75rem', borderRadius: '0.5rem',
                             background: colors.warningBg, border: `1px solid ${colors.warningBorder}` }}>
                 <p className="body-sm" style={{ margin: 0, color: colors.text.secondary }}>
-                  Este cliente tiene <strong>{money(credito)}</strong> de crédito sin imputar. La asignación a
-                  comprobantes estará disponible desde el flujo de cuenta corriente.
+                  Este cliente tiene <strong>{money(credito)}</strong> de crédito sin imputar.
                 </p>
-                {customerId && (
-                  <Link to={`/customers/${customerId}`} className="body-sm"
-                        style={{ color: colors.text.primary, fontWeight: 600 }}>
-                    Ir a la cuenta corriente →
-                  </Link>
+                {customerId && data!.saldo_pendiente > 0 && (
+                  <button data-testid="order-allocate-button" className="btn btn-primary btn-sm"
+                          style={{ marginTop: '0.5rem' }} onClick={() => setImputando(true)}>
+                    Imputar crédito
+                  </button>
                 )}
+              </div>
+            )}
+
+            {/* Historial de imputaciones de este comprobante. */}
+            {data!.comprobante_id && businessId && (
+              <div style={{ marginTop: '1rem' }}>
+                <h4 className="body-sm" style={{ margin: '0 0 0.4rem', fontWeight: 700, color: colors.text.subtle }}>
+                  Imputaciones
+                </h4>
+                <AllocationHistory
+                  businessId={businessId}
+                  comprobanteId={data!.comprobante_id}
+                  onReversed={recargar}
+                />
               </div>
             )}
           </>
         )}
       </div>
+
+      {/* Punto de entrada C: imputar crédito desde la orden. */}
+      {imputando && businessId && customerId && (
+        <AllocationModal
+          isOpen={imputando}
+          businessId={businessId}
+          customerId={customerId}
+          comprobanteId={data?.comprobante_id ?? null}
+          onClose={() => setImputando(false)}
+          onAllocated={recargar}
+        />
+      )}
     </div>
   )
 }

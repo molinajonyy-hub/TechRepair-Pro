@@ -46,6 +46,14 @@ INSERT INTO auth.identities (id, user_id, identity_data, provider, provider_id, 
 VALUES (gen_random_uuid(), '00000000-0000-0000-0000-00000000d009',
   '{"sub":"00000000-0000-0000-0000-00000000d009","email":"visual@local.test"}',
   'email', '00000000-0000-0000-0000-00000000d009', now(), now());
+-- GoTrue falla con "Database error querying schema" si estas columnas quedan en
+-- NULL: su modelo las espera como texto vacío. Un INSERT a mano tiene que
+-- setearlas explícitamente o el login no funciona nunca.
+UPDATE auth.users SET
+  confirmation_token = '', recovery_token = '', email_change_token_new = '',
+  email_change = '', email_change_token_current = '', phone_change = '',
+  phone_change_token = '', reauthentication_token = ''
+WHERE id = '00000000-0000-0000-0000-00000000d009';
 
 SET session_replication_role = 'replica';
 INSERT INTO businesses(id,name,owner_user_id) VALUES
