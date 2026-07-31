@@ -61,7 +61,7 @@ export function Orders() {
   // P0-A.1U1 — El filtro FINANCIERO viaja al server (v_order_financial_status);
   // el técnico también, para que la combinación de ambos se resuelva en la DB.
   const [paymentFilter, setPaymentFilter] = useState<'' | OrderPaymentStatus>('')
-  const { orders, error, financial, financialError, refresh: refetch } =
+  const { orders, error, financial, financialError, amountsAuthorized, refresh: refetch } =
     useOrders({ status: statusFilter, payment: paymentFilter })
   const navigate = useNavigate()
   const [printingOrder, setPrintingOrder] = useState<any>(null)
@@ -332,9 +332,19 @@ export function Orders() {
                           unavailable={financialError || !financial[order.id]}
                           size="sm"
                         />
-                        {!financialError && (financial[order.id]?.saldo_pendiente ?? 0) > 0 && (
+                        {/* El saldo sólo existe si el servidor lo entregó. Sin
+                            permiso no se muestra un cero: se dice que está restringido. */}
+                        {!financialError && amountsAuthorized === true
+                          && (financial[order.id]?.saldo_pendiente ?? 0) > 0 && (
                           <span className="body-sm" style={{ fontSize: '0.68rem', color: 'var(--text-subtle)', whiteSpace: 'nowrap' }}>
                             Saldo ${financial[order.id].saldo_pendiente.toLocaleString('es-AR')}
+                          </span>
+                        )}
+                        {!financialError && amountsAuthorized === false && (
+                          <span data-testid="order-amounts-restricted" className="body-sm"
+                                title="Tu rol no tiene acceso a los importes."
+                                style={{ fontSize: '0.62rem', color: 'var(--text-subtle)', whiteSpace: 'nowrap' }}>
+                            Importes restringidos
                           </span>
                         )}
                       </div>

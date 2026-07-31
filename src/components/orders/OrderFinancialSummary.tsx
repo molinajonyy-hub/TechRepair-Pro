@@ -33,33 +33,47 @@ export function OrderFinancialSummary({ orderId, businessId: bizProp, customerId
   const [loading, setLoading] = useState(true)
   const [failed, setFailed]   = useState(false)
   const [credito, setCredito] = useState<number | null>(null)
+  /** true = con permiso · false = rol restringido · null = error/desconocido. */
+  const [authorized, setAuthorized] = useState<boolean | null>(null)
 
   useEffect(() => {
     let vivo = true
     const cargar = async () => {
       if (!businessId) return
       setLoading(true); setFailed(false)
+      // 1) Estado (sin importes): accesible para cualquier rol del negocio.
       const { data: row, error } = await supabase
-        .from('v_order_financial_status')
-        .select('*')
+        .from('v_order_payment_state')
+        .select('order_id, payment_status, comprobantes_vigentes, comprobante_id, comprobante_numero')
         .eq('business_id', businessId)
         .eq('order_id', orderId)
         .maybeSingle()
       if (!vivo) return
-      if (error) { setFailed(true); setData(null) } else { setData(row as OrderFinancialStatus | null) }
+      if (error) { setFailed(true); setData(null); setLoading(false); return }
+      if (!row)  { setData(null); setLoading(false); return }
 
-      // Crédito del cliente aún sin imputar (informativo, no accionable acá).
+      // 2) Importes: el servidor decide si corresponden. Sin permiso no llegan
+      //    y la UI dice "restringidos", nunca cero.
+      const { data: amt, error: amtErr } = await supabase.rpc('get_order_financial_amounts', {
+        p_business_id: businessId, p_order_ids: [orderId],
+      })
+      if (!vivo) return
+      const res = amt as { ok?: boolean; authorized?: boolean; rows?: OrderFinancialStatus[] } | null
+      if (amtErr || res?.ok === false) {
+        setAuthorized(null)
+        setData(row as unknown as OrderFinancialStatus)
+      } else {
+        setAuthorized(!!res?.authorized)
+        setData({ ...(row as unknown as OrderFinancialStatus), ...(res?.rows?.[0] ?? {}) })
+      }
+
+      // 3) Crédito del cliente sin imputar: también es un importe.
       if (customerId) {
-        const { data: cr, error: crErr } = await supabase
-          .from('v_customer_unallocated_credit')
-          .select('unallocated_amount')
-          .eq('business_id', businessId)
-          .eq('customer_id', customerId)
-        if (vivo && !crErr) {
-          const total = (cr ?? []).reduce(
-            (s: number, r: { unallocated_amount: number }) => s + (Number(r.unallocated_amount) || 0), 0)
-          setCredito(total)
-        }
+        const { data: cr, error: crErr } = await supabase.rpc('get_customer_unallocated_credit', {
+          p_business_id: businessId, p_customer_id: customerId,
+        })
+        const cres = cr as { ok?: boolean; authorized?: boolean; unallocated_amount?: number } | null
+        if (vivo && !crErr && cres?.authorized) setCredito(Number(cres.unallocated_amount) || 0)
       }
       setLoading(false)
     }
@@ -106,6 +120,12 @@ export function OrderFinancialSummary({ orderId, businessId: bizProp, customerId
               para no informar un saldo incorrecto.
             </p>
           </div>
+        ) : authorized === false ? (
+          // Rol sin capacidad financiera: el badge sí, los importes no. No se
+          // muestran ceros — el servidor directamente no los envió.
+          <p data-testid="order-amounts-restricted" className="body-sm" style={{ margin: 0, color: colors.text.subtle }}>
+            Importes restringidos. Tu rol puede ver el estado de cobro, pero no los montos de la orden.
+          </p>
         ) : (
           <>
             {fila('Total comprobado', money(data!.total_comprobado))}

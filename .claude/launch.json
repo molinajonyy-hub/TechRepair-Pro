@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm.cmd",
       "runtimeArgs": ["run", "dev"],
       "port": 5173
+    },
+    {
+      "name": "techrepair-local",
+      "runtimeExecutable": "npm.cmd",
+      "runtimeArgs": ["run", "dev:e2e"],
+      "port": 5174
     }
   ]
 }

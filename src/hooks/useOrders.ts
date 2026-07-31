@@ -77,6 +77,14 @@ export function useOrders(filters: UseOrdersFilters = {}) {
    * Nunca se degrada a 0 ni a un estado inventado.
    */
   const [financialError, setFinancialError] = useState(false)
+  /**
+   * ¿El servidor autorizó a este usuario a ver IMPORTES?
+   *   true  → hay montos;
+   *   false → rol sin capacidad: se muestran "Importes restringidos", no ceros;
+   *   null  → todavía no se sabe o hubo error: "No disponible".
+   * La decisión la toma la DB (user_can_view_order_amounts); acá sólo se refleja.
+   */
+  const [amountsAuthorized, setAmountsAuthorized] = useState<boolean | null>(null)
 
   const fetchOrders = async () => {
     if (!businessId) return
@@ -96,8 +104,10 @@ export function useOrders(filters: UseOrdersFilters = {}) {
       // pagina: nunca se descargan todas las órdenes para filtrarlas en React.
       let idsFiltrados: string[] | null = null
       if (paymentFilter) {
+        // v_order_payment_state NO tiene importes: el filtro y el badge
+        // funcionan para cualquier rol, incluidos los que no ven montos.
         let q = supabase
-          .from('v_order_financial_status')
+          .from('v_order_payment_state')
           .select('order_id')
           .eq('business_id', businessId)
           .eq('payment_status', paymentFilter)
@@ -130,25 +140,43 @@ export function useOrders(filters: UseOrdersFilters = {}) {
       const lista = (data as unknown as OrderListItem[]) ?? []
       setOrders(lista)
 
-      // ── Estado financiero: UNA sola consulta para toda la página ──────────
-      // Nunca una consulta por fila (N+1).
+      // ── Estado + importes: DOS consultas por página, nunca una por fila ───
       if (lista.length > 0) {
-        const { data: fs, error: fsErr } = await supabase
-          .from('v_order_financial_status')
-          .select('*')
+        const ids = lista.map(o => o.id)
+
+        // 1) Estado de cobro (sin importes): lo ve cualquier rol del negocio.
+        const { data: st, error: stErr } = await supabase
+          .from('v_order_payment_state')
+          .select('order_id, payment_status, comprobantes_vigentes, comprobante_id, comprobante_numero')
           .eq('business_id', businessId)
-          .in('order_id', lista.map(o => o.id))
-        if (fsErr) {
+          .in('order_id', ids)
+        if (stErr) {
           // El error financiero NO tumba la lista, pero tampoco se disfraza.
-          setFinancialError(true)
-          setFinancial({})
+          setFinancialError(true); setFinancial({}); setAmountsAuthorized(null)
         } else {
           const mapa: Record<string, OrderFinancialStatus> = {}
-          for (const row of (fs ?? []) as OrderFinancialStatus[]) mapa[row.order_id] = row
+          for (const row of (st ?? []) as Partial<OrderFinancialStatus>[]) {
+            mapa[row.order_id as string] = row as OrderFinancialStatus
+          }
+
+          // 2) Importes: sólo si el rol tiene la capacidad. El servidor decide;
+          //    sin permiso no devuelve filas y acá no se inventa ningún cero.
+          const { data: amt, error: amtErr } = await supabase.rpc('get_order_financial_amounts', {
+            p_business_id: businessId, p_order_ids: ids,
+          })
+          const res = amt as { ok?: boolean; authorized?: boolean; rows?: OrderFinancialStatus[] } | null
+          if (amtErr || res?.ok === false) {
+            setAmountsAuthorized(null)   // error: "No disponible", no "$0"
+          } else {
+            setAmountsAuthorized(!!res?.authorized)
+            for (const row of (res?.rows ?? [])) {
+              mapa[row.order_id] = { ...(mapa[row.order_id] ?? {}), ...row } as OrderFinancialStatus
+            }
+          }
           setFinancial(mapa)
         }
       } else {
-        setFinancial({})
+        setFinancial({}); setAmountsAuthorized(null)
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error al cargar órdenes'
@@ -165,5 +193,5 @@ export function useOrders(filters: UseOrdersFilters = {}) {
 
   useRefreshOnWakeUp(fetchOrders)
 
-  return { orders, loading, error, total, financial, financialError, refresh: fetchOrders }
+  return { orders, loading, error, total, financial, financialError, amountsAuthorized, refresh: fetchOrders }
 }
