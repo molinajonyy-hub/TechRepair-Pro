@@ -150,7 +150,7 @@ export function AllocationHistory({ businessId, comprobanteId = null, paymentMov
             </div>
             <span data-testid={`allocation-status-${r.id}`} className="badge"
                   style={{ fontSize: '0.66rem', fontWeight: 700, padding: '0.1rem 0.45rem', borderRadius: '9999px',
-                           color: r.status === 'active' ? colors.success : colors.text.muted,
+                           color: r.status === 'active' ? colors.orderBadge.paid : colors.orderBadge.neutral,
                            background: r.status === 'active' ? colors.successBg : 'transparent',
                            border: `1px solid ${r.status === 'active' ? colors.successBorder : colors.border.subtle}` }}>
               {r.status === 'active' ? 'Activa' : 'Revertida'}
@@ -172,7 +172,7 @@ export function AllocationHistory({ businessId, comprobanteId = null, paymentMov
              style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(0,0,0,0.6)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
              onClick={e => { if (e.target === e.currentTarget) setRevirtiendo(null) }}>
-          <div style={{ background: 'var(--surface)', borderRadius: '0.85rem', padding: '1.25rem',
+          <div style={{ background: colors.bg.surface, borderRadius: '0.85rem', padding: '1.25rem',
                         width: '100%', maxWidth: 420, border: `1px solid ${colors.border.subtle}` }}>
             <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', color: colors.text.primary }}>
               Revertir imputación

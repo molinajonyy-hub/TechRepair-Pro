@@ -153,7 +153,7 @@ export function AllocationModal({
     display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem',
   }
   const panel: React.CSSProperties = {
-    background: 'var(--surface)', border: `1px solid ${colors.border.subtle}`,
+    background: colors.bg.surface, border: `1px solid ${colors.border.subtle}`,
     borderRadius: '1rem', width: '100%', maxWidth: 640, maxHeight: '90vh',
     overflowY: 'auto', boxShadow: 'var(--pos-shadow-pop, 0 24px 48px rgba(0,0,0,0.4))',
   }
@@ -249,8 +249,9 @@ export function AllocationModal({
                         ['Disponible', disponible],
                       ].map(([label, val]) => (
                         <div key={label as string} style={{ padding: '0.55rem 0.65rem', borderRadius: '0.5rem',
-                                     background: 'var(--surface-subtle, rgba(255,255,255,0.03))' }}>
-                          <div className="body-sm" style={{ fontSize: '0.68rem', color: colors.text.subtle }}>{label}</div>
+                                     background: colors.bg.card }}>
+                          {/* secondary, no subtle: sobre bg.card en light, --text-tertiary da 4.42. */}
+                          <div className="body-sm" style={{ fontSize: '0.68rem', color: colors.text.secondary }}>{label}</div>
                           <div style={{ fontWeight: 700, color: colors.text.primary, fontVariantNumeric: 'tabular-nums' }}>
                             {fmtCentavos(val as number)}
                           </div>
@@ -310,15 +311,15 @@ export function AllocationModal({
 
                   {/* ── Resumen ── */}
                   <div style={{ marginTop: '1rem', padding: '0.75rem 0.85rem', borderRadius: '0.5rem',
-                                background: 'var(--surface-subtle, rgba(255,255,255,0.03))' }}>
+                                background: colors.bg.card }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span className="body-sm" style={{ color: colors.text.subtle }}>Total a imputar</span>
+                      <span className="body-sm" style={{ color: colors.text.secondary }}>Total a imputar</span>
                       <strong data-testid="allocation-total" style={{ color: colors.text.primary }}>
                         {fmtCentavos(validacion.totalAsignado)}
                       </strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.25rem' }}>
-                      <span className="body-sm" style={{ color: colors.text.subtle }}>Quedará sin imputar</span>
+                      <span className="body-sm" style={{ color: colors.text.secondary }}>Quedará sin imputar</span>
                       <strong data-testid="allocation-remainder" style={{ color: colors.text.secondary }}>
                         {fmtCentavos(validacion.remanente)}
                       </strong>

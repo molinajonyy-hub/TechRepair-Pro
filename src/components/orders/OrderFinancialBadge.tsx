@@ -27,22 +27,22 @@ const CONFIG: Record<OrderPaymentStatus, { label: string; help: string; fg: stri
   paid: {
     label: 'Cobrado',
     help: 'El comprobante no tiene saldo pendiente.',
-    fg: colors.success, bg: colors.successBg, border: colors.successBorder,
+    fg: colors.orderBadge.paid, bg: colors.successBg, border: colors.successBorder,
   },
   partial: {
     label: 'Parcial',
     help: 'Se cobró o imputó una parte y queda saldo pendiente.',
-    fg: colors.warning, bg: colors.warningBg, border: colors.warningBorder,
+    fg: colors.orderBadge.partial, bg: colors.warningBg, border: colors.warningBorder,
   },
   pending: {
     label: 'Pendiente',
     help: 'El comprobante mantiene su saldo completo pendiente.',
-    fg: colors.error, bg: colors.errorBg, border: colors.errorBorder,
+    fg: colors.orderBadge.pending, bg: colors.errorBg, border: colors.errorBorder,
   },
   sin_facturar: {
     label: 'Sin facturar',
     help: 'La orden no tiene un comprobante vigente vinculado.',
-    fg: colors.text.muted, bg: 'transparent', border: colors.border.subtle,
+    fg: colors.orderBadge.neutral, bg: 'transparent', border: colors.border.subtle,
   },
 }
 
@@ -59,7 +59,7 @@ export function OrderFinancialBadge({ status, unavailable = false, size = 'md' }
           display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
           padding: size === 'sm' ? '0.1rem 0.4rem' : '0.15rem 0.5rem',
           borderRadius: radius.full, border: `1px dashed ${colors.border.subtle}`,
-          background: 'transparent', color: colors.text.muted,
+          background: 'transparent', color: colors.orderBadge.neutral,
           fontSize: size === 'sm' ? '0.68rem' : '0.72rem', fontWeight: 600, whiteSpace: 'nowrap',
         }}
       >
