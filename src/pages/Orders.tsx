@@ -1,6 +1,7 @@
 import { useState, useRef, useMemo, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Plus, Search, Eye, Edit, Trash2, ClipboardList, Printer, Loader2, X } from 'lucide-react'
+import { OrderFinancialBadge, type OrderPaymentStatus } from '../components/orders/OrderFinancialBadge'
 import { smartSearch } from '../utils/searchUtils'
 import { CloseButton } from '../components/ui/CloseButton'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -57,7 +58,11 @@ export function Orders() {
   const [priorityFilter, setPriorityFilter] = useState('')
   const searchTimer = useRef<ReturnType<typeof setTimeout>>()
 
-  const { orders, error, refresh: refetch } = useOrders()
+  // P0-A.1U1 — El filtro FINANCIERO viaja al server (v_order_financial_status);
+  // el técnico también, para que la combinación de ambos se resuelva en la DB.
+  const [paymentFilter, setPaymentFilter] = useState<'' | OrderPaymentStatus>('')
+  const { orders, error, financial, financialError, amountsAuthorized, refresh: refetch } =
+    useOrders({ status: statusFilter, payment: paymentFilter })
   const navigate = useNavigate()
   const [printingOrder, setPrintingOrder] = useState<any>(null)
   const printRef = useRef<HTMLDivElement>(null)
@@ -89,10 +94,11 @@ export function Orders() {
       { getValue: o => (o as any).diagnosis,          weight: 1 },
       { getValue: o => STATUS_CONFIG[o.status as keyof typeof STATUS_CONFIG]?.label, weight: 1 },
     ])
-    if (statusFilter) result = result.filter(o => o.status === statusFilter)
+    // El estado técnico y el financiero YA vinieron filtrados por el server
+    // (useOrders). Acá sólo queda la prioridad, que no es financiera.
     if (priorityFilter) result = result.filter(o => o.priority === priorityFilter)
     return result
-  }, [orders, debouncedSearch, statusFilter, priorityFilter])
+  }, [orders, debouncedSearch, priorityFilter])
 
   // Delete state
   const [deletingOrder, setDeletingOrder] = useState<OrderListItem | null>(null)
@@ -231,6 +237,21 @@ export function Orders() {
           <option value="completed">Completada</option>
           <option value="cancelled">Cancelada</option>
         </select>
+        {/* Estado de COBRO — eje independiente del estado técnico. */}
+        <select
+          value={paymentFilter}
+          onChange={e => setPaymentFilter(e.target.value as '' | OrderPaymentStatus)}
+          className="form-select"
+          aria-label="Filtrar por estado de cobro"
+          data-testid="orders-payment-filter"
+          style={{ minWidth: 160 }}
+        >
+          <option value="">Todos los cobros</option>
+          <option value="sin_facturar">Sin facturar</option>
+          <option value="pending">Pendientes</option>
+          <option value="partial">Parciales</option>
+          <option value="paid">Cobradas</option>
+        </select>
         <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="form-select" style={{ minWidth: 130 }}>
           <option value="">Todas las prioridades</option>
           <option value="urgent">Urgente</option>
@@ -238,8 +259,8 @@ export function Orders() {
           <option value="medium">Media</option>
           <option value="low">Baja</option>
         </select>
-        {(searchTerm || statusFilter || priorityFilter) && (
-          <button onClick={() => { setSearchTerm(''); setStatusFilter(''); setPriorityFilter('') }} className="btn btn-ghost btn-sm">
+        {(searchTerm || statusFilter || priorityFilter || paymentFilter) && (
+          <button onClick={() => { setSearchTerm(''); setStatusFilter(''); setPriorityFilter(''); setPaymentFilter('') }} className="btn btn-ghost btn-sm">
             Limpiar filtros
           </button>
         )}
@@ -259,6 +280,7 @@ export function Orders() {
                 <th>Cliente</th>
                 <th>Dispositivo</th>
                 <th>Estado</th>
+                <th>Cobro</th>
                 <th>Prioridad</th>
                 <th style={{ textAlign: 'right' }}>Total</th>
                 <th>Fecha</th>
@@ -268,7 +290,7 @@ export function Orders() {
             <tbody>
               {filteredOrders.length === 0 ? (
                 <tr className="empty-row">
-                  <td colSpan={8}>
+                  <td colSpan={9}>
                     {debouncedSearch || statusFilter || priorityFilter ? (
                       <EmptyState
                         icon={Search}
@@ -300,6 +322,32 @@ export function Orders() {
                       <span className="badge" style={getStatusStyle(order.status)}>
                         {STATUS_CONFIG[order.status as keyof typeof STATUS_CONFIG]?.label || order.status}
                       </span>
+                    </td>
+                    {/* Estado de COBRO: eje separado del técnico. El valor y el
+                        saldo llegan de v_order_financial_status; acá no se calcula nada. */}
+                    <td data-testid="order-financial-cell">
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', alignItems: 'flex-start' }}>
+                        <OrderFinancialBadge
+                          status={financialError ? null : (financial[order.id]?.payment_status ?? null)}
+                          unavailable={financialError || !financial[order.id]}
+                          size="sm"
+                        />
+                        {/* El saldo sólo existe si el servidor lo entregó. Sin
+                            permiso no se muestra un cero: se dice que está restringido. */}
+                        {!financialError && amountsAuthorized === true
+                          && (financial[order.id]?.saldo_pendiente ?? 0) > 0 && (
+                          <span className="body-sm" style={{ fontSize: '0.68rem', color: 'var(--text-subtle)', whiteSpace: 'nowrap' }}>
+                            Saldo ${financial[order.id].saldo_pendiente.toLocaleString('es-AR')}
+                          </span>
+                        )}
+                        {!financialError && amountsAuthorized === false && (
+                          <span data-testid="order-amounts-restricted" className="body-sm"
+                                title="Tu rol no tiene acceso a los importes."
+                                style={{ fontSize: '0.62rem', color: 'var(--text-subtle)', whiteSpace: 'nowrap' }}>
+                            Importes restringidos
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <span className="badge" style={getPriorityStyle(order.priority)}>

@@ -72,6 +72,19 @@ export const colors = {
     out:  '#ef4444',
   },
 
+  /**
+   * Badges de estado financiero de órdenes (P0-A.1). Foreground propio en vez
+   * de success/error/warning: esos se calibraron para fondo oscuro y en light
+   * bajan de 4.5:1 sobre su `*-subtle`. Estos llevan un valor por tema.
+   * Los fondos y bordes siguen siendo los semánticos.
+   */
+  orderBadge: {
+    paid:    'var(--order-badge-paid-fg)',
+    pending: 'var(--order-badge-pending-fg)',
+    partial: 'var(--order-badge-partial-fg)',
+    neutral: 'var(--order-badge-neutral-fg)',
+  },
+
   // Métodos de pago
   payment: {
     cash:     '#22c55e',

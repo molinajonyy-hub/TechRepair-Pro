@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { useOrderCanonicalBalance } from '../../hooks/useOrderCanonicalBalance'
 import { DollarSign, Plus, Trash2, Loader2, AlertCircle, CheckCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -69,7 +70,14 @@ export function PaymentCard({ orderId, payments, totalCost, exchangeRate = 1, on
 
   // Equivalent total paid in ARS
   const totalPaidEquivARS = totalPaidARS + totalPaidUSD * exchangeRate
-  const balancePending = totalCost - totalPaidEquivARS
+
+  // P0-A.1U2 — El saldo NO se deriva en React. Cuando la orden tiene un
+  // comprobante vinculado, el saldo canónico es el de v_order_financial_status
+  // (incluye las imputaciones de cuenta corriente, que este componente no ve).
+  // El cálculo local sólo sobrevive como respaldo para órdenes sin facturar,
+  // donde no existe documento y por lo tanto no hay saldo canónico.
+  const { saldo: saldoCanonico, disponible: saldoDisponible } = useOrderCanonicalBalance(orderId)
+  const balancePending = saldoDisponible ? saldoCanonico : totalCost - totalPaidEquivARS
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
