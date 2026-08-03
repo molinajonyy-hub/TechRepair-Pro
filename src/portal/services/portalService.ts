@@ -1,5 +1,8 @@
 import { supabase } from '../../lib/supabase'
 import { requireFeature } from '../../utils/requireFeature'
+import {
+  PORTAL_PUBLIC_RPC, PORTAL_PUBLIC_COLUMNS, isMissingObject,
+} from '../portalPublicContract'
 import type {
   PortalBusiness, WholesaleCustomer, PortalProduct,
   WholesaleOrder, WholesaleOrderItem, CartItem,
@@ -7,14 +10,39 @@ import type {
 
 // ─── Business ────────────────────────────────────────────────────────────────
 
+/**
+ * Lee la configuración pública del portal a partir del slug.
+ *
+ * Llama a la RPC `get_wholesale_portal_public` y NO lee la tabla `businesses`:
+ * la tabla tiene 34 columnas, entre ellas la facturación de Mercado Pago
+ * (mp_preapproval_id, mp_payer_email, …), que el portal público nunca debe ver.
+ * La RPC devuelve únicamente las 7 columnas de `PortalBusiness`, y sólo del
+ * negocio cuyo slug coincide.
+ *
+ * Corre en cada carga del portal, con sesión y sin ella (PortalContext la llama
+ * en el mount), así que el lector puede ser `anon` o `authenticated`.
+ */
 export async function getPortalBusiness(slug: string): Promise<PortalBusiness | null> {
-  const { data } = await supabase
-    .from('businesses')
-    .select('id, name, logo_url, wholesale_portal_enabled, wholesale_portal_slug, wholesale_whatsapp, wholesale_portal_theme')
-    .eq('wholesale_portal_slug', slug)
-    .maybeSingle()
-  if (!data || !data.wholesale_portal_enabled) return null
-  return data as PortalBusiness
+  const { data, error } = await supabase.rpc(PORTAL_PUBLIC_RPC, { p_slug: slug })
+
+  // Fallback transitorio: entornos donde la migración 20260803120000 (que crea
+  // la RPC) todavía no se aplicó. Hace que cualquier orden de despliegue
+  // —frontend primero o base primero— sea seguro. Se puede borrar, junto con
+  // isMissingObject, una vez aplicada la FASE 2 en todos los entornos.
+  if (isMissingObject(error)) {
+    const { data: legacy } = await supabase
+      .from('businesses')
+      .select(PORTAL_PUBLIC_COLUMNS)
+      .eq('wholesale_portal_slug', slug)
+      .maybeSingle()
+    if (!legacy || !legacy.wholesale_portal_enabled) return null
+    return legacy as PortalBusiness
+  }
+
+  // La RPC devuelve un set: 0 o 1 fila.
+  const row = Array.isArray(data) ? data[0] : data
+  if (!row || !row.wholesale_portal_enabled) return null
+  return row as PortalBusiness
 }
 
 // ─── Auth / Customer ──────────────────────────────────────────────────────────
