@@ -346,4 +346,201 @@ BEGIN
 END;
 $$;
 
+-- ── CASO 11 · La postcondicion detecta el INTERCAMBIO, no sólo el conteo ────
+-- Cierra dos funciones inocuas y abre una sensible: el total BAJA y aun asi
+-- tiene que fallar. Es la prueba de que comparar por conteo no alcanza.
+DO $$
+DECLARE
+  v_ini int; v_fin int;
+  v_nuevas CONSTANT text[] := ARRAY[
+    'get_wholesale_portal_features(text)',
+    '_require_business_member(uuid,text[])'
+  ];
+  v_detectadas text;
+BEGIN
+  DROP TABLE IF EXISTS _trampa_baseline;
+  CREATE TEMP TABLE _trampa_baseline AS
+  SELECT p.oid, has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authn
+  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+  WHERE p.prosecdef AND n.nspname = 'public';
+
+  SELECT count(*) FILTER (WHERE authn) INTO v_ini FROM _trampa_baseline;
+
+  -- El intercambio: -2 inocuas, +1 sensible. Neto -1.
+  REVOKE ALL ON FUNCTION public.get_or_create_brand(text, uuid)  FROM authenticated;
+  REVOKE ALL ON FUNCTION public.generar_numero_garantia(uuid)    FROM authenticated;
+  GRANT EXECUTE ON FUNCTION public.arca_get_credential_for_signing(uuid) TO authenticated;
+
+  SELECT count(*) INTO v_fin
+  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+  WHERE p.prosecdef AND n.nspname = 'public'
+    AND has_function_privilege('authenticated', p.oid, 'EXECUTE');
+
+  IF v_fin >= v_ini THEN
+    RAISE EXCEPTION 'CASO 11: la trampa no bajo el total (% -> %), el test no prueba nada', v_ini, v_fin;
+  END IF;
+
+  -- La regla por CONTEO deja pasar el intercambio...
+  IF v_fin > v_ini + array_length(v_nuevas, 1) THEN
+    RAISE EXCEPTION 'CASO 11: se esperaba que el conteo NO detectara la trampa';
+  END IF;
+
+  -- ...y la regla por FIRMA EXACTA lo caza.
+  SELECT string_agg(x.sig, ', ') INTO v_detectadas
+  FROM (
+    SELECT p.oid::regprocedure::text AS sig
+    FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+    LEFT JOIN _trampa_baseline b ON b.oid = p.oid
+    WHERE n.nspname = 'public' AND p.prosecdef
+      AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
+      AND COALESCE(b.authn, false) = false
+      AND p.oid <> ALL (SELECT ('public.' || a)::regprocedure::oid FROM unnest(v_nuevas) a)
+  ) x;
+
+  IF v_detectadas IS NULL OR v_detectadas NOT LIKE '%arca_get_credential_for_signing%' THEN
+    RAISE EXCEPTION 'CASO 11: la postcondicion por firma NO detecto la apertura sensible (detecto: %)',
+      COALESCE(v_detectadas, '<nada>');
+  END IF;
+
+  RAISE NOTICE 'CASO 11 OK · conteo % -> % (baja) pero la regla por firma detecta: %',
+    v_ini, v_fin, v_detectadas;
+
+  -- Se deshace el intercambio dentro del mismo test.
+  REVOKE ALL ON FUNCTION public.arca_get_credential_for_signing(uuid) FROM authenticated;
+  GRANT EXECUTE ON FUNCTION public.get_or_create_brand(text, uuid) TO authenticated;
+  GRANT EXECUTE ON FUNCTION public.generar_numero_garantia(uuid)   TO authenticated;
+  DROP TABLE IF EXISTS _trampa_baseline;
+END;
+$$;
+
+-- ── CASOS 12-19 · Aislamiento cross-tenant con dos negocios y dos usuarios ──
+-- auth.uid() se simula con set_config('request.jwt.claims', ...), que es como
+-- lo resuelve Supabase. NO se usa SET LOCAL ROLE dentro de DO (SIGSEGV local).
+DO $$
+DECLARE
+  v_user_a uuid := gen_random_uuid();
+  v_user_b uuid := gen_random_uuid();
+  v_biz_a  uuid := gen_random_uuid();
+  v_biz_b  uuid := gen_random_uuid();
+  v_comp_b uuid := gen_random_uuid();
+  v_brand_b uuid := gen_random_uuid();
+  v_total_antes numeric;
+  v_ok bool;
+  v_num text;
+  v_id  uuid;
+BEGIN
+  -- Fixtures: A es owner del negocio A; B es owner del negocio B.
+  INSERT INTO auth.users (id, email) VALUES
+    (v_user_a, 'xt_a@example.invalid'), (v_user_b, 'xt_b@example.invalid')
+  ON CONFLICT DO NOTHING;
+  INSERT INTO public.businesses (id, name, owner_user_id, subscription_status) VALUES
+    (v_biz_a, 'XT NEGOCIO A', v_user_a, 'active'),
+    (v_biz_b, 'XT NEGOCIO B', v_user_b, 'active');
+  INSERT INTO public.profiles (id, user_id, business_id, role, is_active, email) VALUES
+    (v_user_a, v_user_a, v_biz_a, 'owner', true, 'xt_a@example.invalid'),
+    (v_user_b, v_user_b, v_biz_b, 'owner', true, 'xt_b@example.invalid');
+
+  -- Datos del negocio B, que A no debe poder tocar.
+  -- estado_fiscal tiene un default ('borrador') que NO pasa su propio CHECK:
+  -- hay que darle un valor valido explicito.
+  INSERT INTO public.comprobantes (id, business_id, tipo, subtotal, impuestos, total, estado_fiscal)
+  VALUES (v_comp_b, v_biz_b, 'factura_a', 1000, 210, 1210, 'no_fiscal');
+  INSERT INTO public.comprobante_items (business_id, comprobante_id, descripcion, subtotal)
+  VALUES (v_biz_b, v_comp_b, 'item de B', 7777);
+  INSERT INTO public.brands (id, business_id, name, normalized_name)
+  VALUES (v_brand_b, v_biz_b, 'MarcaB', 'marcab');
+  INSERT INTO public.warranties (business_id, customer_name, number, phone_model)
+  VALUES (v_biz_b, 'Cliente B', 'GAR-000042', 'Modelo B');
+
+  SELECT total INTO v_total_antes FROM public.comprobantes WHERE id = v_comp_b;
+
+  -- ── Actuamos como el usuario A ──────────────────────────────────────────
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_user_a)::text, true);
+
+  -- CASO 12 · A no recalcula un comprobante de B (y no cambia nada)
+  v_ok := false;
+  BEGIN
+    PERFORM public.recalcular_totales_comprobante(v_comp_b);
+  EXCEPTION WHEN insufficient_privilege THEN v_ok := true;
+  END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'CASO 12: A recalculo un comprobante de B'; END IF;
+  IF (SELECT total FROM public.comprobantes WHERE id = v_comp_b) <> v_total_antes THEN
+    RAISE EXCEPTION 'CASO 12: el rechazo modifico los totales de B';
+  END IF;
+  RAISE NOTICE 'CASO 12 OK · A no recalcula comprobante de B; total intacto (%)', v_total_antes;
+
+  -- CASO 13 · A no consulta la numeracion de B
+  v_ok := false;
+  BEGIN
+    PERFORM public.generar_numero_comprobante('factura_a', v_biz_b, '0001');
+  EXCEPTION WHEN insufficient_privilege THEN v_ok := true;
+  END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'CASO 13: A leyo la numeracion de comprobantes de B'; END IF;
+  RAISE NOTICE 'CASO 13 OK · A no consulta numeracion de comprobantes de B';
+
+  -- CASO 14 · A no consulta la numeracion de garantias de B
+  v_ok := false;
+  BEGIN
+    PERFORM public.generar_numero_garantia(v_biz_b);
+  EXCEPTION WHEN insufficient_privilege THEN v_ok := true;
+  END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'CASO 14: A leyo la numeracion de garantias de B'; END IF;
+  RAISE NOTICE 'CASO 14 OK · A no consulta numeracion de garantias de B';
+
+  -- CASO 15 · A no escribe en el catalogo de B (y no queda basura)
+  v_ok := false;
+  BEGIN
+    PERFORM public.get_or_create_brand('MarcaInyectada', v_biz_b);
+  EXCEPTION WHEN insufficient_privilege THEN v_ok := true;
+  END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'CASO 15: A creo una marca en el negocio B'; END IF;
+  IF EXISTS (SELECT 1 FROM public.brands WHERE business_id = v_biz_b
+               AND normalized_name = 'marcainyectada') THEN
+    RAISE EXCEPTION 'CASO 15: el rechazo dejo la marca escrita en B';
+  END IF;
+  RAISE NOTICE 'CASO 15 OK · A no escribe marcas en B; cero cambios';
+
+  -- CASO 16 · A no cuelga un modelo propio de una marca ajena
+  v_ok := false;
+  BEGIN
+    PERFORM public.get_or_create_model('ModeloCruzado', v_brand_b, v_biz_a);
+  EXCEPTION WHEN insufficient_privilege THEN v_ok := true;
+  END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'CASO 16: A colgo un modelo de una marca de B'; END IF;
+  RAISE NOTICE 'CASO 16 OK · marca ajena rechazada aunque el business_id sea el propio';
+
+  -- CASO 17 · is_platform_admin no es oraculo sobre terceros
+  IF public.is_platform_admin(v_user_b) IS NOT FALSE THEN
+    RAISE EXCEPTION 'CASO 17: is_platform_admin respondio sobre un tercero';
+  END IF;
+  RAISE NOTICE 'CASO 17 OK · is_platform_admin(tercero) = false sin consultar';
+
+  -- CASO 18 · el flujo legitimo de A sigue funcionando (no rompimos el frontend)
+  v_num := public.generar_numero_comprobante('factura_a', v_biz_a, '0001');
+  IF v_num IS NULL THEN RAISE EXCEPTION 'CASO 18: A no puede numerar en su propio negocio'; END IF;
+  v_id := public.get_or_create_brand('MarcaPropia', v_biz_a);
+  IF v_id IS NULL THEN RAISE EXCEPTION 'CASO 18: A no puede crear marcas en su negocio'; END IF;
+  IF (public.ensure_brand_and_model('MarcaPropia', 'ModeloPropio', v_biz_a)->>'model_id') IS NULL THEN
+    RAISE EXCEPTION 'CASO 18: ensure_brand_and_model fallo para el negocio propio';
+  END IF;
+  IF public.generar_numero_garantia(v_biz_a) IS NULL THEN
+    RAISE EXCEPTION 'CASO 18: A no puede numerar garantias en su negocio';
+  END IF;
+  RAISE NOTICE 'CASO 18 OK · flujos legitimos de A intactos (numero=%)', v_num;
+
+  -- CASO 19 · un rol insuficiente del PROPIO negocio tampoco pasa
+  UPDATE public.profiles SET role = 'viewer' WHERE id = v_user_a;
+  v_ok := false;
+  BEGIN
+    PERFORM public.generar_numero_comprobante('factura_a', v_biz_a, '0001');
+  EXCEPTION WHEN insufficient_privilege THEN v_ok := true;
+  END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'CASO 19: un viewer pudo numerar comprobantes'; END IF;
+  RAISE NOTICE 'CASO 19 OK · rol insuficiente bloqueado dentro del propio negocio';
+
+  PERFORM set_config('request.jwt.claims', '', true);
+END;
+$$;
+
 ROLLBACK;

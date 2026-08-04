@@ -270,6 +270,104 @@ la app no se ve afectada. Si esa ventana no es aceptable, invertir el orden
 todavía, `portalFeatureAllowsOrders` devuelve `false` y el efecto es el mismo.
 La opción sin ventana es desplegar ambos a la vez.
 
+---
+
+# DELTA — Gate final: aislamiento `authenticated` de las funciones retenidas
+
+Reducir la superficie `anon` no demostraba aislamiento cross-tenant. Nueve
+firmas seguían siendo invocables por cualquier usuario logueado y aceptaban un
+id de entidad **sin verificar que fuera de su negocio**.
+
+## D1. Matriz por función
+
+| Firma | Consumidor | Params del cliente | business_id | Cross-tenant antes | Acción | Grant final |
+|---|---|---|---|---|---|---|
+| `recalcular_totales_comprobante(uuid)` | `facturacionService` (activo) | `comprobante_id` | **derivado de `comprobantes`** | **sí** — reescribía totales ajenos | guard + derivación | `authenticated` |
+| `generar_numero_comprobante(text,uuid,text)` | `comprobanteService` (activo) | `tipo`, `business_id`, `pto` | param, validado | **sí** — leía numeración ajena | guard sobre id efectivo | `authenticated` |
+| `generar_numero_garantia(uuid)` | `useWarranties` (activo) | `business_id` | param, validado | **sí** | guard | `authenticated` |
+| `get_or_create_brand(text,uuid)` | `api`, `deviceCatalogService` | `name`, `business_id` | param, validado | **sí** — escribía catálogo ajeno | guard | `authenticated` |
+| `get_or_create_model(text,uuid,uuid)` | `api`, `deviceCatalogService` | `name`, `brand_id`, `business_id` | param, validado | **sí** + cruce de marca | guard + marca del mismo negocio | `authenticated` |
+| `ensure_brand_and_model(text,text,uuid)` | `deviceCatalogService` | `brand`, `model`, `business_id` | param, validado | **sí** | guard propio | `authenticated` |
+| `is_comprobante_annulled(uuid)` | **ninguno** | `comprobante_id` | n/a | oráculo | **cerrada** | — |
+| `is_platform_admin(uuid,text)` | policy `saa_select_admin` | `user_id` | n/a | oráculo de admins | sólo `auth.uid()` | `authenticated` |
+| `is_owner_or_admin()` | 4 policies `{authenticated}` | **ninguno** | n/a | **no** (deriva de `auth.uid()`) | sin cambio | `authenticated` |
+
+**Catálogo (caso D): es POR NEGOCIO, no global.** `brands` y `device_models`
+tienen `business_id` y su unicidad lo incluye → guard de membresía obligatorio.
+
+## D2. Guards agregados
+
+Criterio: derivar el `business_id` de la entidad cuando la función recibe un id
+de entidad; si el parámetro *es* el `business_id`, validarlo contra el actor;
+recién después exigir rol. Rechazo = `42501` **antes** de escribir.
+Mensajes genéricos: no distinguen "no existe" de "no es tuyo".
+
+- Financiero/POS: `owner, admin, manager, sales, cashier`.
+- Catálogo y garantías: agrega `tech`.
+- `get_or_create_model` verifica además que `p_brand_id` sea del mismo negocio.
+
+**Hallazgo del gate:** `trg_recalcular_totales_comprobante_items` llama a
+`recalcular_totales_comprobante`, y ese camino **no siempre tiene JWT**
+(service_role, webhooks, seeds). El guard tal cual rompía toda escritura de
+`comprobante_items` — lo detectó el test, no el review. Se acotó con
+`pg_trigger_depth() = 0`: el guard corre sólo en la invocación directa; dentro
+del trigger la autorización ya la resolvió RLS. Una RPC por PostgREST siempre
+entra con profundidad 0, así que no es falsificable.
+
+## D3. Cerradas por falta de consumidor
+
+`is_comprobante_annulled(uuid)` — sin frontend, sin vista, sin policy; sus
+llamadores (`comprobante_payments_annulled_guard`, `replace_comprobante_payment`)
+son SECDEF y corren como owner. Se cierra en vez de conservarla.
+
+## D4. `authenticated` antes/después — por firma
+
+**135 → 127.** La postcondición ya no compara conteos: compara **conjuntos por
+firma**. Sólo dos altas permitidas, por firma exacta:
+`get_wholesale_portal_features(text)` y `_require_business_member(uuid,text[])`.
+Cualquier otra firma nueva aborta **aunque el total haya bajado**.
+
+Probado en CASO 11: se cierran dos inocuas y se abre
+`arca_get_credential_for_signing` → el total baja de **127 a 126** (la regla por
+conteo la deja pasar) y la regla por firma **la detecta**. Es la demostración de
+que el conteo no alcanzaba.
+
+## D5. Tests cross-tenant
+
+`tests/sql/secdef_public_execute_lockdown.test.sql` → **19 casos**. Los usuarios
+se simulan con `set_config('request.jwt.claims', …)`, que es como resuelve
+`auth.uid()`; **no** se usa `SET LOCAL ROLE` dentro de `DO` (SIGSEGV local).
+
+`npm run verify:secdef-cross-tenant` → HTTP/PostgREST con **JWT real** de un
+usuario A del negocio A: 10 intentos contra el negocio B dan **403**, 5 flujos
+legítimos dan **200**, y tras los rechazos el total de B y su catálogo quedan
+**sin cambios**. El script aborta si la API no es local.
+
+## D6. Validación repetida
+
+| Paso | Resultado |
+|---|---|
+| `db reset` ×2 | OK — `135 → 127`, allowlist 8 |
+| Suite SECDEF | **19/19** |
+| Suites existentes (4) | **4/4** |
+| HTTP `anon` (16 RPC) | todas bloqueadas |
+| HTTP `authenticated` cross-tenant | **15/15** + 2 aserciones de cero cambios |
+| `tsc` · `lint:errors` | 0 · 0 |
+| `test:unit` · `test:components` · `build` | 604/604 · 56/56 · OK |
+| `guards` (cadena completa) | OK |
+| Secret scan · diff check | sin hallazgos · sólo los 4 archivos previstos |
+
+## D7. Riesgo residual del delta
+
+`recalcular_totales_comprobante` confía en RLS de `comprobante_items` cuando
+corre dentro del trigger. Es correcto —ahí la fila ya pasó por RLS— pero implica
+que la protección de ese camino es la policy de `comprobante_items`, no el guard.
+Queda documentado en el cuerpo de la función.
+
+Los riesgos 1–5 de §15 siguen vigentes; en particular **FASE 2 sigue sin hacerse**.
+
+---
+
 ## 17. Recomendación
 
 **GO para hotfix**, con la salvedad del §16: coordinar DB y frontend para no

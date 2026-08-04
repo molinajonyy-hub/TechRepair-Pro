@@ -18,6 +18,7 @@
     "guard:secdef": "node scripts/finance/guard-security-definer.mjs",
     "guard:secdef:self-test": "node scripts/finance/guard-security-definer.mjs --self-test",
     "guard:secdef-exposure": "node scripts/finance/guard-secdef-exposure.mjs",
+    "verify:secdef-cross-tenant": "node scripts/finance/verify-secdef-cross-tenant.mjs",
     "guard:secdef-exposure:self-test": "node scripts/finance/guard-secdef-exposure.mjs --self-test",
     "guard:readonly-sql": "node scripts/finance/guard-readonly-sql.mjs docs/auditoria-finanzas/m7/m7-preflight-productivo-conjunto.sql docs/auditoria-finanzas/m7/6f4-preflight-anulaciones.sql",
     "guard:readonly-healthcheck": "node scripts/finance/guard-readonly-healthcheck.mjs",

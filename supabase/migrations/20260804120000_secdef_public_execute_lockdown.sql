@@ -413,6 +413,348 @@ COMMENT ON FUNCTION "public"."get_wholesale_portal_features"("text") IS
 
 
 -- ============================================================================
+-- 4.d Funciones RETENIDAS para authenticated — aislamiento cross-tenant
+-- ============================================================================
+-- Cerrarle la puerta a `anon` no alcanza: estas seis siguen siendo invocables
+-- por cualquier usuario logueado y aceptaban un id de entidad SIN comprobar que
+-- pertenezca al negocio del actor. Un usuario del negocio A podia tocar datos
+-- del negocio B. Bajar el conteo total de privilegios de `authenticated` no
+-- demuestra aislamiento; el contrato se demuestra funcion por funcion.
+--
+-- Criterio, en este orden:
+--   1) DERIVAR el business_id desde la entidad cuando la funcion recibe un id
+--      de entidad (comprobante). Nunca confiar en el parametro.
+--   2) Cuando el parametro ES el business_id, validar pertenencia contra el
+--      actor y usar el valor validado.
+--   3) Recien despues, exigir rol/capacidad.
+--   4) El rechazo es 42501 ANTES de cualquier escritura => cero cambios.
+--
+-- Los mensajes de rechazo son genericos a proposito: no distinguen "no existe"
+-- de "no es tuyo", asi la funcion no queda como oraculo de existencia.
+
+-- ── A · recalcular_totales_comprobante: business_id DERIVADO ────────────────
+-- Solo recibia p_comprobante_id y actualizaba `comprobantes` por id, sin ningun
+-- filtro de negocio: reescribia subtotal/impuestos/total de un comprobante
+-- ajeno. Ahora el negocio sale de la propia fila.
+CREATE OR REPLACE FUNCTION "public"."recalcular_totales_comprobante"("p_comprobante_id" "uuid")
+RETURNS void
+LANGUAGE "plpgsql" SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_subtotal    numeric := 0;
+  v_impuestos   numeric := 0;
+  v_total       numeric := 0;
+  v_tipo        text;
+  v_business_id uuid;
+BEGIN
+  SELECT c."business_id", c."tipo"
+    INTO v_business_id, v_tipo
+  FROM "public"."comprobantes" c
+  WHERE c."id" = "p_comprobante_id";
+
+  -- Inexistente y ajeno colapsan en la misma respuesta: sin oraculo.
+  IF v_business_id IS NULL THEN
+    RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+  END IF;
+
+  -- El guard corre SOLO en la invocacion directa. `trg_recalcular_totales_
+  -- comprobante_items` (sobre comprobante_items) llama a esta funcion, y ese
+  -- camino no siempre tiene JWT: service_role, webhooks y seeds escriben items
+  -- sin auth.uid(), y exigir pertenencia ahi romperia toda escritura de items.
+  -- Dentro del trigger la autorizacion ya la resolvio RLS sobre
+  -- comprobante_items. pg_trigger_depth() > 0 no es falsificable desde una RPC:
+  -- una llamada por PostgREST siempre entra con profundidad 0.
+  IF pg_trigger_depth() = 0 THEN
+    PERFORM "public"."_require_business_member"(
+      v_business_id, ARRAY['owner', 'admin', 'manager', 'sales', 'cashier']);
+  END IF;
+
+  SELECT COALESCE(sum(ci."subtotal"), 0) INTO v_subtotal
+  FROM "public"."comprobante_items" ci
+  WHERE ci."comprobante_id" = "p_comprobante_id";
+
+  IF v_tipo = 'factura_a' THEN
+    v_impuestos := round(v_subtotal * 0.21, 2);
+  ELSE
+    v_impuestos := 0;
+  END IF;
+
+  v_total := v_subtotal + v_impuestos;
+
+  UPDATE "public"."comprobantes"
+  SET "subtotal"   = v_subtotal,
+      "impuestos"  = v_impuestos,
+      "total"      = v_total,
+      "updated_at" = NOW()
+  WHERE "id" = "p_comprobante_id";
+END;
+$$;
+
+ALTER FUNCTION "public"."recalcular_totales_comprobante"("uuid") OWNER TO "postgres";
+COMMENT ON FUNCTION "public"."recalcular_totales_comprobante"("uuid") IS
+  'Recalcula totales de un comprobante. El business_id se DERIVA de la fila, '
+  'nunca se recibe: antes reescribia totales de comprobantes ajenos. '
+  'La llama tambien trig_recalcular_totales (SECDEF, corre como owner).';
+
+-- ── B · generar_numero_comprobante: pertenencia sobre el id efectivo ────────
+-- El COALESCE ya caia en current_user_business_id() cuando el parametro venia
+-- NULL, pero mandar un business_id explicito salteaba ese default y filtraba la
+-- proxima numeracion de otro negocio. Se valida el id EFECTIVO.
+-- No hay cambio de concurrencia ni de idempotencia: no toca secuencias, sigue
+-- siendo un MAX()+1 de solo lectura, con el mismo cuerpo.
+CREATE OR REPLACE FUNCTION "public"."generar_numero_comprobante"(
+  "p_tipo"        "text",
+  "p_business_id" "uuid" DEFAULT NULL::"uuid",
+  "p_punto_venta" "text" DEFAULT '0001'::"text"
+) RETURNS "text"
+LANGUAGE "plpgsql" SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  ultimo_numero bigint;
+  nuevo_numero  text;
+  v_biz_id      uuid;
+BEGIN
+  v_biz_id := COALESCE("p_business_id", "public"."current_user_business_id"());
+
+  PERFORM "public"."_require_business_member"(
+    v_biz_id, ARRAY['owner', 'admin', 'manager', 'sales', 'cashier']);
+
+  SELECT COALESCE(
+    MAX(
+      CASE
+        WHEN COALESCE(c."number", c."numero") ~ '^[0-9]+$'
+          THEN CAST(COALESCE(c."number", c."numero") AS bigint)
+        WHEN COALESCE(c."number", c."numero") ~ '^[0-9]{4}-[0-9]{8}$'
+          THEN CAST(split_part(COALESCE(c."number", c."numero"), '-', 2) AS bigint)
+        ELSE 0
+      END
+    ), 0)
+  INTO ultimo_numero
+  FROM "public"."comprobantes" c
+  WHERE c."business_id" = v_biz_id
+    AND COALESCE(c."type", c."tipo") = "p_tipo";
+
+  ultimo_numero := ultimo_numero + 1;
+
+  IF "p_punto_venta" IS NULL OR btrim("p_punto_venta") = '' THEN
+    nuevo_numero := lpad(ultimo_numero::text, 8, '0');
+  ELSE
+    nuevo_numero := lpad("p_punto_venta", 4, '0') || '-' || lpad(ultimo_numero::text, 8, '0');
+  END IF;
+
+  RETURN nuevo_numero;
+END;
+$$;
+
+ALTER FUNCTION "public"."generar_numero_comprobante"("text", "uuid", "text") OWNER TO "postgres";
+COMMENT ON FUNCTION "public"."generar_numero_comprobante"("text", "uuid", "text") IS
+  'Proxima numeracion de comprobante del negocio del actor. Valida pertenencia '
+  'sobre el business_id EFECTIVO (parametro o current_user_business_id): antes '
+  'un business_id explicito filtraba la numeracion de otro negocio. Solo lectura.';
+
+-- ── C · generar_numero_garantia: pertenencia sobre el parametro ─────────────
+CREATE OR REPLACE FUNCTION "public"."generar_numero_garantia"("p_business_id" "uuid")
+RETURNS "text"
+LANGUAGE "plpgsql" SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  ultimo_numero bigint;
+  nuevo_numero  text;
+BEGIN
+  PERFORM "public"."_require_business_member"(
+    "p_business_id", ARRAY['owner', 'admin', 'manager', 'sales', 'cashier', 'tech']);
+
+  SELECT COALESCE(
+    MAX(
+      CASE
+        WHEN w."number" ~ '^GAR-[0-9]+$' THEN substring(w."number" FROM 5)::bigint
+        WHEN w."number" ~ '^[0-9]+$'     THEN w."number"::bigint
+        ELSE NULL
+      END
+    ), 0)
+  INTO ultimo_numero
+  FROM "public"."warranties" w
+  WHERE w."business_id" = "p_business_id";
+
+  ultimo_numero := ultimo_numero + 1;
+  nuevo_numero  := 'GAR-' || lpad(ultimo_numero::text, 6, '0');
+  RETURN nuevo_numero;
+END;
+$$;
+
+ALTER FUNCTION "public"."generar_numero_garantia"("uuid") OWNER TO "postgres";
+COMMENT ON FUNCTION "public"."generar_numero_garantia"("uuid") IS
+  'Proxima numeracion de garantia. Exige pertenencia: antes revelaba la '
+  'numeracion de garantias de cualquier negocio.';
+
+-- ── D · Catalogo de marcas/modelos: es POR NEGOCIO, no global ───────────────
+-- Se verifico en el esquema: `brands` y `device_models` tienen business_id y su
+-- unicidad es (business_id, normalized_name[, brand_id]). O sea que NO es un
+-- catalogo global compartido: es por negocio y exige guard de pertenencia.
+-- Sin el, cualquier usuario logueado escribia filas en el catalogo ajeno.
+CREATE OR REPLACE FUNCTION "public"."get_or_create_brand"(
+  "p_name" "text", "p_business_id" "uuid"
+) RETURNS "uuid"
+LANGUAGE "plpgsql" SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_normalized text;
+  v_id         uuid;
+BEGIN
+  PERFORM "public"."_require_business_member"(
+    "p_business_id", ARRAY['owner', 'admin', 'manager', 'sales', 'cashier', 'tech']);
+
+  v_normalized := lower(btrim("p_name"));
+  IF v_normalized = '' THEN
+    RAISE EXCEPTION 'Brand name cannot be empty' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT b."id" INTO v_id
+  FROM "public"."brands" b
+  WHERE b."business_id" = "p_business_id" AND b."normalized_name" = v_normalized
+  LIMIT 1;
+  IF FOUND THEN RETURN v_id; END IF;
+
+  INSERT INTO "public"."brands" ("business_id", "name", "normalized_name")
+  VALUES ("p_business_id", btrim("p_name"), v_normalized)
+  ON CONFLICT ("business_id", "normalized_name") DO NOTHING
+  RETURNING "id" INTO v_id;
+
+  IF v_id IS NULL THEN
+    SELECT b."id" INTO v_id
+    FROM "public"."brands" b
+    WHERE b."business_id" = "p_business_id" AND b."normalized_name" = v_normalized
+    LIMIT 1;
+  END IF;
+
+  RETURN v_id;
+END;
+$$;
+
+ALTER FUNCTION "public"."get_or_create_brand"("text", "uuid") OWNER TO "postgres";
+
+CREATE OR REPLACE FUNCTION "public"."get_or_create_model"(
+  "p_name" "text", "p_brand_id" "uuid", "p_business_id" "uuid"
+) RETURNS "uuid"
+LANGUAGE "plpgsql" SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_normalized text;
+  v_id         uuid;
+BEGIN
+  PERFORM "public"."_require_business_member"(
+    "p_business_id", ARRAY['owner', 'admin', 'manager', 'sales', 'cashier', 'tech']);
+
+  -- La marca tambien tiene que ser del negocio: si no, se podria colgar un
+  -- modelo propio de una marca ajena y cruzar los catalogos.
+  IF NOT EXISTS (
+    SELECT 1 FROM "public"."brands" b
+    WHERE b."id" = "p_brand_id" AND b."business_id" = "p_business_id"
+  ) THEN
+    RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+  END IF;
+
+  v_normalized := lower(btrim("p_name"));
+  IF v_normalized = '' THEN
+    RAISE EXCEPTION 'Model name cannot be empty' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT m."id" INTO v_id
+  FROM "public"."device_models" m
+  WHERE m."business_id" = "p_business_id"
+    AND m."brand_id"    = "p_brand_id"
+    AND m."normalized_name" = v_normalized
+  LIMIT 1;
+  IF FOUND THEN RETURN v_id; END IF;
+
+  INSERT INTO "public"."device_models" ("business_id", "brand_id", "name", "normalized_name")
+  VALUES ("p_business_id", "p_brand_id", btrim("p_name"), v_normalized)
+  ON CONFLICT ("business_id", "brand_id", "normalized_name") DO NOTHING
+  RETURNING "id" INTO v_id;
+
+  IF v_id IS NULL THEN
+    SELECT m."id" INTO v_id
+    FROM "public"."device_models" m
+    WHERE m."business_id" = "p_business_id"
+      AND m."brand_id"    = "p_brand_id"
+      AND m."normalized_name" = v_normalized
+    LIMIT 1;
+  END IF;
+
+  RETURN v_id;
+END;
+$$;
+
+ALTER FUNCTION "public"."get_or_create_model"("text", "uuid", "uuid") OWNER TO "postgres";
+
+CREATE OR REPLACE FUNCTION "public"."ensure_brand_and_model"(
+  "p_brand_name" "text", "p_model_name" "text", "p_business_id" "uuid"
+) RETURNS "jsonb"
+LANGUAGE "plpgsql" SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_brand_id uuid;
+  v_model_id uuid;
+BEGIN
+  -- Guard explicito aca ademas del de las dos internas: falla antes de escribir
+  -- nada y no depende de que las delegadas conserven el suyo.
+  PERFORM "public"."_require_business_member"(
+    "p_business_id", ARRAY['owner', 'admin', 'manager', 'sales', 'cashier', 'tech']);
+
+  v_brand_id := "public"."get_or_create_brand"("p_brand_name", "p_business_id");
+  v_model_id := "public"."get_or_create_model"("p_model_name", v_brand_id, "p_business_id");
+  RETURN "jsonb_build_object"('brand_id', v_brand_id, 'model_id', v_model_id);
+END;
+$$;
+
+ALTER FUNCTION "public"."ensure_brand_and_model"("text", "text", "uuid") OWNER TO "postgres";
+
+COMMENT ON FUNCTION "public"."get_or_create_brand"("text", "uuid") IS
+  'Catalogo de marcas POR NEGOCIO (brands.business_id): exige pertenencia. '
+  'No es un catalogo global.';
+COMMENT ON FUNCTION "public"."get_or_create_model"("text", "uuid", "uuid") IS
+  'Catalogo de modelos POR NEGOCIO: exige pertenencia y ademas que p_brand_id '
+  'sea del mismo negocio, para no cruzar catalogos.';
+
+-- ── F · is_platform_admin: deja de ser oraculo de roles de plataforma ───────
+-- Aceptaba cualquier p_user_id: un usuario logueado podia preguntar si un
+-- tercero es admin de plataforma. Los DOS consumidores reales pasan auth.uid()
+--   · public._require_platform_admin  -> is_platform_admin(v_actor)
+--   · policy saa_select_admin         -> is_platform_admin(auth.uid())
+-- asi que restringirlo al propio actor no rompe nada.
+-- Devuelve FALSE (no lanza) para terceros: se evalua dentro de una policy
+-- USING, donde una excepcion romperia la query en vez de filtrar filas.
+CREATE OR REPLACE FUNCTION "public"."is_platform_admin"(
+  "p_user_id" "uuid", "p_min_role" "text" DEFAULT NULL::"text"
+) RETURNS boolean
+LANGUAGE "sql" STABLE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+  SELECT "p_user_id" IS NOT NULL
+     AND "p_user_id" = "auth"."uid"()
+     AND EXISTS (
+       SELECT 1 FROM "public"."system_admins" sa
+       WHERE sa."user_id" = "p_user_id"
+         AND sa."is_active" = TRUE
+         AND "public"."_admin_role_weight"(sa."role")
+             >= "public"."_admin_role_weight"(COALESCE("p_min_role", 'support_readonly'))
+     );
+$$;
+
+ALTER FUNCTION "public"."is_platform_admin"("uuid", "text") OWNER TO "postgres";
+COMMENT ON FUNCTION "public"."is_platform_admin"("uuid", "text") IS
+  'TRUE solo si p_user_id ES el actor (auth.uid()) y tiene el rol de plataforma '
+  'pedido. Para un tercero devuelve FALSE sin consultar: antes era un oraculo '
+  'de quien es admin de la plataforma.';
+
+
+-- ============================================================================
 -- 5. Privilegios — enumerados por firma exacta, sin loops
 -- ============================================================================
 -- REVOKE ... FROM PUBLIC es lo que efectivamente cierra: mientras exista el
@@ -481,10 +823,18 @@ REVOKE ALL ON FUNCTION "public"."ensure_brand_and_model"("text", "text", "uuid")
 REVOKE ALL ON FUNCTION "public"."ensure_brand_and_model"("text", "text", "uuid") FROM "anon";
 GRANT EXECUTE ON FUNCTION "public"."ensure_brand_and_model"("text", "text", "uuid") TO "authenticated";
 
+-- is_comprobante_annulled: oraculo booleano sobre un comprobante_id arbitrario
+-- y SIN consumidor. Se verifico que no la usa el frontend, ni una vista, ni una
+-- policy: sus unicos llamadores son comprobante_payments_annulled_guard
+-- (trigger) y replace_comprobante_payment, ambos SECDEF -> corren como owner y
+-- no necesitan el grant. Se cierra en vez de conservarla "por compatibilidad".
 REVOKE ALL ON FUNCTION "public"."is_comprobante_annulled"("uuid") FROM PUBLIC;
 REVOKE ALL ON FUNCTION "public"."is_comprobante_annulled"("uuid") FROM "anon";
-GRANT EXECUTE ON FUNCTION "public"."is_comprobante_annulled"("uuid") TO "authenticated";
+REVOKE ALL ON FUNCTION "public"."is_comprobante_annulled"("uuid") FROM "authenticated";
 
+-- is_platform_admin conserva `authenticated` porque la policy saa_select_admin
+-- sobre subscription_admin_actions la evalua; el oraculo se cerro en el cuerpo
+-- (4.d.F), no con el grant.
 REVOKE ALL ON FUNCTION "public"."is_platform_admin"("uuid", "text") FROM PUBLIC;
 REVOKE ALL ON FUNCTION "public"."is_platform_admin"("uuid", "text") FROM "anon";
 GRANT EXECUTE ON FUNCTION "public"."is_platform_admin"("uuid", "text") TO "authenticated";
@@ -630,6 +980,12 @@ DECLARE
     'is_staff()',
     'can_manage()'
   ];
+  -- Unicas firmas que `authenticated` puede GANAR en esta migracion. Cerrada y
+  -- por firma exacta: cualquier otra alta aborta, aunque el total haya bajado.
+  v_authn_nuevas CONSTANT text[] := ARRAY[
+    'get_wholesale_portal_features(text)',
+    '_require_business_member(uuid,text[])'
+  ];
   v_bad         text;
   v_authn_ini   int;
   v_authn_fin   int;
@@ -659,16 +1015,43 @@ BEGIN
     RAISE EXCEPTION 'POSTCONDICION 2: la allowlist perdio EXECUTE para anon: %', v_bad;
   END IF;
 
-  -- [3] authenticated no crece (salvo la excepcion documentada de 4.c).
+  -- [3] authenticated: comparacion POR FIRMA EXACTA, no por conteo.
+  -- Un conteo final menor NO demuestra nada: se puede cerrar una funcion inocua
+  -- y abrir una sensible en la misma migracion y el total baja igual. Lo que se
+  -- exige es que el CONJUNTO final no incorpore ninguna firma que antes no
+  -- estuviera, salvo las dos nuevas allowlisted.
+  --
+  -- CREATE OR REPLACE conserva el OID, asi que las funciones endurecidas siguen
+  -- teniendo su fila de baseline; solo las creadas por esta migracion no la
+  -- tienen, y son justamente las que la allowlist tiene que cubrir.
+  SELECT string_agg(x.sig, ', ' ORDER BY x.sig) INTO v_bad
+  FROM (
+    SELECT p.oid::regprocedure::text AS sig
+    FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+    LEFT JOIN _secdef_baseline b ON b.oid = p.oid
+    WHERE n.nspname = 'public' AND p.prosecdef
+      AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
+      AND COALESCE(b.authn, false) = false          -- no lo tenia antes
+      AND p.oid <> ALL (SELECT ('public.' || a)::regprocedure::oid
+                        FROM unnest(v_authn_nuevas) a)
+  ) x;
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION 'POSTCONDICION 3: authenticated GANA firmas no allowlisted: %', v_bad;
+  END IF;
+
+  -- Y ademas el conteo no puede subir. Las dos condiciones son independientes:
+  -- esta sola no detecta el intercambio; la de arriba sola no detecta un alta
+  -- masiva de firmas que ya estaban permitidas.
   SELECT count(*) FILTER (WHERE authn) INTO v_authn_ini FROM _secdef_baseline;
   SELECT count(*) INTO v_authn_fin
   FROM pg_catalog.pg_proc p
   JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND p.prosecdef
     AND has_function_privilege('authenticated', p.oid, 'EXECUTE');
-  IF v_authn_fin > v_authn_ini + 1 THEN
-    RAISE EXCEPTION 'POSTCONDICION 3: authenticated paso de % a % (max permitido %)',
-      v_authn_ini, v_authn_fin, v_authn_ini + 1;
+  IF v_authn_fin > v_authn_ini + array_length(v_authn_nuevas, 1) THEN
+    RAISE EXCEPTION 'POSTCONDICION 3b: authenticated paso de % a % (max %)',
+      v_authn_ini, v_authn_fin, v_authn_ini + array_length(v_authn_nuevas, 1);
   END IF;
 
   -- [4] Las funciones de secretos/credenciales siguen cerradas.
