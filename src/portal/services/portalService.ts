@@ -1,7 +1,8 @@
 import { supabase } from '../../lib/supabase'
 import {
   PORTAL_PUBLIC_RPC, PORTAL_PUBLIC_COLUMNS, isMissingObject,
-  PORTAL_FEATURES_RPC, portalCanOrder, type PortalFeatures,
+  PORTAL_FEATURES_RPC, portalCanOrder, classifyPortalError,
+  type PortalFeatures, type PortalLoadResult,
 } from '../portalPublicContract'
 import type {
   PortalBusiness, WholesaleCustomer, PortalProduct,
@@ -21,28 +22,56 @@ import type {
  *
  * Corre en cada carga del portal, con sesión y sin ella (PortalContext la llama
  * en el mount), así que el lector puede ser `anon` o `authenticated`.
+ *
+ * NUNCA lanza y NUNCA devuelve una promesa que quede pendiente: el llamador
+ * apaga el spinner con el resultado, así que un throw acá sería exactamente el
+ * spinner infinito que la FASE 2 tiene que evitar.
+ *
+ * Los tres estados son excluyentes y significan cosas distintas:
+ *   ok          → renderizar el portal;
+ *   unavailable → slug inexistente o portal apagado («Portal no disponible»);
+ *   error       → fallo TERMINAL, con pantalla propia y acción de reintento.
  */
-export async function getPortalBusiness(slug: string): Promise<PortalBusiness | null> {
-  const { data, error } = await supabase.rpc(PORTAL_PUBLIC_RPC, { p_slug: slug })
+export async function getPortalBusiness(slug: string): Promise<PortalLoadResult<PortalBusiness>> {
+  try {
+    const { data, error, status } = await supabase.rpc(PORTAL_PUBLIC_RPC, { p_slug: slug })
 
-  // Fallback transitorio: entornos donde la migración 20260803120000 (que crea
-  // la RPC) todavía no se aplicó. Hace que cualquier orden de despliegue
-  // —frontend primero o base primero— sea seguro. Se puede borrar, junto con
-  // isMissingObject, una vez aplicada la FASE 2 en todos los entornos.
-  if (isMissingObject(error)) {
-    const { data: legacy } = await supabase
-      .from('businesses')
-      .select(PORTAL_PUBLIC_COLUMNS)
-      .eq('wholesale_portal_slug', slug)
-      .maybeSingle()
-    if (!legacy || !legacy.wholesale_portal_enabled) return null
-    return legacy as PortalBusiness
+    if (error) {
+      // Fallback transitorio: entornos donde la migración 20260803120000 (que
+      // crea la RPC) todavía no se aplicó. Hace que cualquier orden de
+      // despliegue —frontend primero o base primero— sea seguro.
+      //
+      // Es el ÚNICO camino que vuelve a tocar la tabla, y está deliberadamente
+      // acotado a "el objeto no existe". Un 42501 NO entra acá: con el lockdown
+      // aplicado, tratarlo como "todavía no migrado" mandaría al portal a
+      // golpear una tabla que acabamos de cerrar, convirtiendo un error claro
+      // en un segundo 403 y en una pantalla que miente.
+      if (isMissingObject(error)) {
+        const { data: legacy, error: legacyError, status: legacyStatus } = await supabase
+          .from('businesses')
+          .select(PORTAL_PUBLIC_COLUMNS)
+          .eq('wholesale_portal_slug', slug)
+          .maybeSingle()
+        if (legacyError) {
+          return { status: 'error', reason: classifyPortalError(legacyError, legacyStatus) }
+        }
+        if (!legacy || !legacy.wholesale_portal_enabled) return { status: 'unavailable' }
+        return { status: 'ok', business: legacy as PortalBusiness }
+      }
+
+      return { status: 'error', reason: classifyPortalError(error, status) }
+    }
+
+    // La RPC devuelve un set: 0 o 1 fila.
+    const row = Array.isArray(data) ? data[0] : data
+    if (!row || !row.wholesale_portal_enabled) return { status: 'unavailable' }
+    return { status: 'ok', business: row as PortalBusiness }
+  } catch {
+    // supabase-js normalmente devuelve el fallo de red como `error`, pero un
+    // throw (fetch ausente, abort, interceptor de terceros) no puede propagarse:
+    // dejaría el spinner colgado para siempre.
+    return { status: 'error', reason: 'network' }
   }
-
-  // La RPC devuelve un set: 0 o 1 fila.
-  const row = Array.isArray(data) ? data[0] : data
-  if (!row || !row.wholesale_portal_enabled) return null
-  return row as PortalBusiness
 }
 
 // ─── Auth / Customer ──────────────────────────────────────────────────────────

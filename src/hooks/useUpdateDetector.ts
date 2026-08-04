@@ -3,6 +3,26 @@ import { useState, useEffect, useRef } from 'react'
 const CURRENT_BUILD = __BUILD_TIME__
 const POLL_INTERVAL = 5 * 60 * 1000 // 5 minutos
 
+/**
+ * Recarga dura: desregistra el service worker (si lo hubiera) y recarga.
+ *
+ * Exportada aparte del hook para que la pantalla de error del portal mayorista
+ * pueda ofrecer «Actualizar» sin montar un segundo detector de versión —el
+ * portal ya monta `UpdateBanner`, que es el único poller—. Es siempre
+ * disparada por el usuario: no hay recarga automática, así que no puede entrar
+ * en un loop de reload.
+ */
+export function hardReload() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(regs => {
+      regs.forEach(r => r.unregister())
+      window.location.reload()
+    })
+  } else {
+    window.location.reload()
+  }
+}
+
 export function useUpdateDetector() {
   const [updateAvailable, setUpdateAvailable] = useState(false)
   const checkedRef = useRef(false)
@@ -36,17 +56,5 @@ export function useUpdateDetector() {
     }
   }, [])
 
-  const reload = () => {
-    // Limpiar caché de fetch/service worker si hubiera uno, luego recargar
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(regs => {
-        regs.forEach(r => r.unregister())
-        window.location.reload()
-      })
-    } else {
-      window.location.reload()
-    }
-  }
-
-  return { updateAvailable, reload }
+  return { updateAvailable, reload: hardReload }
 }

@@ -14,6 +14,15 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  // Los mismos globals que inyecta vite.config.ts. Sin esto, cualquier test que
+  // monte el shell del portal explota con ReferenceError: __BUILD_TIME__ is not
+  // defined, porque el detector de versión (useUpdateDetector) lo lee en el
+  // scope del módulo. Valores fijos: los tests no comparan builds, sólo
+  // necesitan que el símbolo exista.
+  define: {
+    __BUILD_TIME__: JSON.stringify('test-build-time'),
+    __BUILD_COMMIT__: JSON.stringify('testsha'),
+  },
   test: {
     include: ['tests/components/**/*.test.tsx'],
     exclude: ['tests/unit/**', 'tests/e2e/**', 'node_modules/**'],
