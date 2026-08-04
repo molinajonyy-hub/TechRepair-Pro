@@ -1,7 +1,7 @@
 import { supabase } from '../../lib/supabase'
-import { requireFeature } from '../../utils/requireFeature'
 import {
   PORTAL_PUBLIC_RPC, PORTAL_PUBLIC_COLUMNS, isMissingObject,
+  PORTAL_FEATURES_RPC, portalCanOrder, type PortalFeatures,
 } from '../portalPublicContract'
 import type {
   PortalBusiness, WholesaleCustomer, PortalProduct,
@@ -178,16 +178,32 @@ export async function getCatalog(businessId: string): Promise<PortalProduct[]> {
 
 // ─── Orders ───────────────────────────────────────────────────────────────────
 
+/**
+ * Valida contra la DB que el portal de `slug` puede tomar pedidos.
+ *
+ * Usa la superficie del portal, NO el paywall del comercio: el cliente del
+ * portal es `authenticated` pero no es miembro del negocio (ver
+ * PORTAL_FEATURES_RPC). Fail-closed ante cualquier error.
+ */
+export async function portalFeatureAllowsOrders(slug: string): Promise<boolean> {
+  if (!slug) return false
+  const { data, error } = await supabase.rpc(PORTAL_FEATURES_RPC, { p_slug: slug })
+  if (error) return false
+  return portalCanOrder(data as PortalFeatures | null)
+}
+
 export async function createOrder(input: {
   businessId: string
+  portalSlug: string
   customerId: string
   items: CartItem[]
   notes?: string
 }): Promise<{ order: WholesaleOrder | null; error: string | null }> {
-  try {
-    await requireFeature(input.businessId, 'mayorista', 'create_wholesale_order')
-  } catch (e: any) {
-    return { order: null, error: e.message }
+  if (!(await portalFeatureAllowsOrders(input.portalSlug))) {
+    return {
+      order: null,
+      error: 'Este portal mayorista no está disponible en este momento.',
+    }
   }
   const total = input.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0)
   const orderNumber = `PW-${Date.now().toString(36).toUpperCase()}`

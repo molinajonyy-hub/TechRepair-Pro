@@ -11,6 +11,42 @@
 export const PORTAL_PUBLIC_RPC = 'get_wholesale_portal_public'
 
 /**
+ * RPC de features del portal — superficie SEPARADA del paywall del comercio.
+ *
+ * El portal NO puede usar `get_business_subscription_features(p_business_id)`:
+ * un cliente del portal es `authenticated` (se registra con supabase.auth) pero
+ * NO es miembro del negocio, así que esa RPC —que ahora exige pertenencia— le
+ * daría 42501. Y dejarla sin pertenencia tampoco servía: cualquier usuario
+ * registrado de cualquier tenant podría consultar el plan de otro negocio
+ * pasando un business_id arbitrario.
+ *
+ * Esta RPC resuelve por SLUG exacto, sólo responde por portales encendidos y
+ * devuelve exactamente dos booleanos. Nada de plan, estado crudo, fechas ni
+ * access_source.
+ */
+export const PORTAL_FEATURES_RPC = 'get_wholesale_portal_features'
+
+/** Forma del payload de PORTAL_FEATURES_RPC. */
+export interface PortalFeatures {
+  /** El negocio tiene el plan que habilita el portal mayorista. */
+  mayorista: boolean
+  /** La suscripción no está suspendida ni cancelada. */
+  active: boolean
+}
+
+/**
+ * ¿El portal puede tomar un pedido?
+ *
+ * Fail-closed a propósito: sin payload (RPC caída, slug inexistente, portal
+ * apagado) la respuesta es NO. Mismo criterio que `requireFeature`, que nunca
+ * ejecuta una acción premium sin confirmación del plan.
+ */
+export function portalCanOrder(features: PortalFeatures | null | undefined): boolean {
+  if (!features) return false
+  return features.mayorista === true && features.active === true
+}
+
+/**
  * Allowlist de columnas públicas: exactamente las de `PortalBusiness`, las
  * mismas que declara el `RETURNS TABLE` de la RPC. Sólo la usa el fallback
  * transitorio que lee la tabla; nunca pedir más que éstas, y nunca `*` — la
