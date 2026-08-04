@@ -15,6 +15,10 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import {
   isMissingObject,
+  isPermissionDenied,
+  classifyPortalError,
+  suggestsHardReload,
+  PORTAL_ERROR_MESSAGE,
   PORTAL_PUBLIC_COLUMNS,
   PORTAL_PUBLIC_RPC,
   PORTAL_FEATURES_RPC,
@@ -159,6 +163,115 @@ test('portalCanOrder es fail-closed ante ausencia de payload', () => {
   // Ninguno de esos casos puede interpretarse como "sí, tomá el pedido".
   assert.equal(portalCanOrder(null), false)
   assert.equal(portalCanOrder(undefined), false)
+})
+
+// ─── FASE 2 · clasificación de fallos de carga ───────────────────────────────
+
+test('42501 es —y es lo único que es— permiso denegado', () => {
+  assert.equal(isPermissionDenied({ code: '42501' }), true)
+  assert.equal(isPermissionDenied({ code: 'PGRST301' }), false, 'JWT vencido no es 42501')
+  assert.equal(isPermissionDenied({ code: '42883' }), false)
+  assert.equal(isPermissionDenied(null), false)
+  assert.equal(isPermissionDenied(undefined), false)
+})
+
+test('42501 y "objeto ausente" son conjuntos DISJUNTOS', () => {
+  // Si se solaparan, un lockdown correcto se leería como "todavía no migrado"
+  // y el portal volvería a golpear la tabla recién cerrada.
+  for (const code of ['PGRST202', '42883', 'PGRST205', '42P01']) {
+    assert.equal(isMissingObject({ code }), true)
+    assert.equal(isPermissionDenied({ code }), false)
+  }
+  assert.equal(isMissingObject({ code: '42501' }), false)
+  assert.equal(isPermissionDenied({ code: '42501' }), true)
+})
+
+test('classifyPortalError distingue permisos, 5xx, red y desconocido', () => {
+  assert.equal(classifyPortalError({ code: '42501' }, 403), 'permission-denied')
+  // El 42501 gana incluso si el status viniera raro: el código es más específico.
+  assert.equal(classifyPortalError({ code: '42501' }, 500), 'permission-denied')
+
+  assert.equal(classifyPortalError({ code: '', message: 'boom' }, 500), 'server')
+  assert.equal(classifyPortalError({ code: '', message: 'boom' }, 503), 'server')
+  assert.equal(classifyPortalError({ code: '502' }), 'server')
+
+  // supabase-js marca el fetch que nunca completó con status 0.
+  assert.equal(classifyPortalError({ code: '', message: 'Failed to fetch' }, 0), 'network')
+  assert.equal(classifyPortalError({ code: '', message: 'Failed to fetch' }), 'network')
+
+  assert.equal(classifyPortalError({ code: 'PGRST301', message: 'JWT expired' }, 401), 'unknown')
+})
+
+test('classifyPortalError nunca devuelve un motivo fuera del enum', () => {
+  const validos = ['permission-denied', 'network', 'server', 'unknown']
+  const entradas: Array<[{ code?: string; message?: string } | null, number | undefined]> = [
+    [null, undefined], [{}, undefined], [{ code: 'X' }, 200], [{ code: '' }, 404],
+    [{ code: '42501' }, undefined], [{ code: '599' }, undefined], [{}, 500],
+  ]
+  for (const [err, status] of entradas) {
+    assert.ok(validos.includes(classifyPortalError(err, status)),
+      `motivo fuera del enum para ${JSON.stringify(err)}/${status}`)
+  }
+})
+
+test('sólo el 42501 sugiere recarga dura', () => {
+  // Con la red caída, recargar da pantalla en blanco: la acción útil es reintentar.
+  assert.equal(suggestsHardReload('permission-denied'), true)
+  assert.equal(suggestsHardReload('network'), false)
+  assert.equal(suggestsHardReload('server'), false)
+  assert.equal(suggestsHardReload('unknown'), false)
+})
+
+test('los mensajes de error son fijos y no pueden filtrar SQL', () => {
+  const motivos = ['permission-denied', 'network', 'server', 'unknown'] as const
+  for (const m of motivos) {
+    const texto = PORTAL_ERROR_MESSAGE[m]
+    assert.ok(texto && texto.length > 0, `falta mensaje para ${m}`)
+    // Mapa cerrado: nada de placeholders ni de vocabulario de base de datos.
+    for (const prohibido of [
+      '${', '%s', 'SELECT', 'GRANT', 'businesses', 'permission denied',
+      'pg_', 'relation', 'column', '42501',
+    ]) {
+      assert.ok(!texto.includes(prohibido),
+        `el mensaje de ${m} contiene "${prohibido}": ${texto}`)
+    }
+  }
+  assert.equal(Object.keys(PORTAL_ERROR_MESSAGE).length, motivos.length,
+    'el mapa de mensajes tiene que ser exhaustivo y cerrado')
+})
+
+// ─── FASE 2 · el servicio no puede reintroducir el agujero ───────────────────
+
+test('getPortalBusiness devuelve un resultado discriminado, no `null`', () => {
+  // El `PortalBusiness | null` anterior colapsaba "no existe", "sin permiso" y
+  // "se cayó la red" en el mismo valor, y por eso un 42501 se mostraba como
+  // «Portal no disponible».
+  assert.match(src, /Promise<PortalLoadResult<PortalBusiness>>/)
+  for (const estado of ["status: 'ok'", "status: 'unavailable'", "status: 'error'"]) {
+    assert.ok(src.includes(estado), `getPortalBusiness no produce ${estado}`)
+  }
+})
+
+test('el fallback a la tabla vive DENTRO de la rama isMissingObject', () => {
+  // Recorte del fuente entre `if (isMissingObject(` y el cierre de esa rama:
+  // la única lectura de `businesses` tiene que caer ahí adentro.
+  const iMissing = src.indexOf('if (isMissingObject(')
+  assert.ok(iMissing > 0, 'no se encontró la guarda isMissingObject')
+  const iFrom = src.indexOf(".from('businesses')")
+  assert.ok(iFrom > iMissing,
+    "la lectura de businesses tiene que estar después de la guarda isMissingObject")
+  // Y no puede haber ninguna otra lectura de businesses fuera de esa rama.
+  const lecturas = [...src.matchAll(/\.from\(\s*['"`]businesses['"`]\s*\)/g)]
+  assert.equal(lecturas.length, 1,
+    'el portal sólo puede leer `businesses` en el fallback transitorio')
+})
+
+test('getPortalBusiness no puede propagar un throw (spinner infinito)', () => {
+  const i = src.indexOf('export async function getPortalBusiness')
+  const cuerpo = src.slice(i, src.indexOf('\n}', i))
+  assert.match(cuerpo, /try\s*\{/, 'falta el try que impide propagar un rechazo')
+  assert.match(cuerpo, /catch\s*\{[\s\S]*?reason:\s*'network'/,
+    'el catch debe resolver a un error de red, no relanzar')
 })
 
 test('createOrder exige el slug del portal, no sólo el businessId', () => {

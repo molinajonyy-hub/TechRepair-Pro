@@ -22,20 +22,10 @@ export function PortalEntry() {
     }
   }, [business, customer, authLoading, bizLoading, notFound, basePath, navigate])
 
-  if (notFound) {
-    return (
-      <div style={{
-        minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: PT.bg, fontFamily: PT.font, flexDirection: 'column', gap: '1rem', padding: '2rem',
-        textAlign: 'center',
-      }}>
-        <div style={{ fontSize: '3rem' }}>🔒</div>
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: PT.text, margin: 0 }}>Portal no disponible</h1>
-        <p style={{ color: PT.textSub, margin: 0 }}>Este portal no existe o no está habilitado.</p>
-      </div>
-    )
-  }
-
+  // «Portal no disponible» y el error terminal los resuelve <PortalGate/> en el
+  // shell, antes de montar ninguna ruta: así valen también para /catalogo,
+  // /login y el resto, no sólo para la ruta índice. Acá sólo queda el spinner
+  // mientras se resuelve el negocio y la sesión.
   return (
     <div style={{
       minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center',

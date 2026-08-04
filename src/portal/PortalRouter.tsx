@@ -1,5 +1,7 @@
 import { Routes, Route, useParams } from 'react-router-dom'
 import { PortalProvider } from './contexts/PortalContext'
+import { PortalGate }     from './components/PortalGate'
+import { UpdateBanner }   from '../components/UpdateBanner'
 import { PortalEntry }    from './pages/PortalEntry'
 import { PortalLogin }    from './pages/PortalLogin'
 import { PortalRegister } from './pages/PortalRegister'
@@ -39,16 +41,27 @@ export function PortalRouter({ forcedSlug }: Props) {
 
   return (
     <PortalProvider slug={slug} basePath={basePath}>
-      <Routes>
-        <Route index           element={<PortalEntry />}    />
-        <Route path="login"    element={<PortalLogin />}    />
-        <Route path="registro" element={<PortalRegister />} />
-        <Route path="pendiente" element={<PortalPending />} />
-        <Route path="catalogo" element={<PortalCatalog />}  />
-        <Route path="carrito"  element={<PortalCart />}     />
-        <Route path="pedidos"     element={<PortalOrders />}     />
-        <Route path="suspendido"  element={<PortalSuspendido />} />
-      </Routes>
+      {/* Detector de versión: se REUSA el existente (useUpdateDetector +
+          /version.json), no se crea un segundo sistema de actualización.
+          Sólo en el dominio dedicado del portal: en el dominio principal
+          App.tsx ya monta <UpdateBanner/>, y montarlo dos veces duplicaría el
+          poller y el banner. Es el caso que faltaba: la rama de PORTAL_DOMAINS
+          en App.tsx devuelve el router del portal SIN el banner, así que un
+          bundle viejo en clicmayorista.com.ar no tenía forma de enterarse de
+          que hay una versión nueva. */}
+      {forcedSlug && <UpdateBanner />}
+      <PortalGate>
+        <Routes>
+          <Route index           element={<PortalEntry />}    />
+          <Route path="login"    element={<PortalLogin />}    />
+          <Route path="registro" element={<PortalRegister />} />
+          <Route path="pendiente" element={<PortalPending />} />
+          <Route path="catalogo" element={<PortalCatalog />}  />
+          <Route path="carrito"  element={<PortalCart />}     />
+          <Route path="pedidos"     element={<PortalOrders />}     />
+          <Route path="suspendido"  element={<PortalSuspendido />} />
+        </Routes>
+      </PortalGate>
     </PortalProvider>
   )
 }
