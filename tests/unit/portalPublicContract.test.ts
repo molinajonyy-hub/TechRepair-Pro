@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Contrato de la superficie pública del portal mayorista.
  *
  * Cierra el P0 de `businesses_portal_public_read`: la tabla `businesses` tiene
@@ -17,6 +17,8 @@ import {
   isMissingObject,
   PORTAL_PUBLIC_COLUMNS,
   PORTAL_PUBLIC_RPC,
+  PORTAL_FEATURES_RPC,
+  portalCanOrder,
 } from '../../src/portal/portalPublicContract.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -132,4 +134,40 @@ test('el fallback NO se activa para permisos, auth ni 5xx', () => {
   assert.equal(isMissingObject({ code: '', message: 'relation does not exist' }), false,
     'sin código conocido no se asume ausencia: el mensaje solo no alcanza')
   assert.equal(isMissingObject(null), false)
+})
+
+// ─── Superficie de features del portal ───────────────────────────────────────
+
+test('el portal usa su propia RPC de features, no el paywall del comercio', () => {
+  assert.equal(PORTAL_FEATURES_RPC, 'get_wholesale_portal_features')
+  assert.notEqual(PORTAL_FEATURES_RPC, 'get_business_subscription_features',
+    'get_business_subscription_features exige pertenencia al negocio y el ' +
+    'cliente del portal NO es miembro: usarla daría 42501')
+})
+
+test('portalCanOrder exige plan mayorista Y suscripción activa', () => {
+  assert.equal(portalCanOrder({ mayorista: true,  active: true  }), true)
+  assert.equal(portalCanOrder({ mayorista: false, active: true  }), false,
+    'sin plan mayorista no se toman pedidos aunque la suscripción esté al día')
+  assert.equal(portalCanOrder({ mayorista: true,  active: false }), false,
+    'suspendida o cancelada no toma pedidos aunque el plan los habilite')
+  assert.equal(portalCanOrder({ mayorista: false, active: false }), false)
+})
+
+test('portalCanOrder es fail-closed ante ausencia de payload', () => {
+  // La RPC devuelve NULL para slug inexistente, portal apagado o error de red.
+  // Ninguno de esos casos puede interpretarse como "sí, tomá el pedido".
+  assert.equal(portalCanOrder(null), false)
+  assert.equal(portalCanOrder(undefined), false)
+})
+
+test('createOrder exige el slug del portal, no sólo el businessId', () => {
+  // Regresión: si createOrder volviera a decidir por business_id, cualquier
+  // usuario registrado podría consultar features de otro tenant. El contrato
+  // seguro se resuelve por slug exacto.
+  const svc = readFileSync(join(here, '../../src/portal/services/portalService.ts'), 'utf8')
+  assert.match(svc, /portalSlug:\s*string/,
+    'createOrder debe recibir el slug del portal')
+  assert.doesNotMatch(svc, /requireFeature\s*\(/,
+    'portalService no debe usar requireFeature: ése es el paywall del comercio')
 })

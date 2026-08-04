@@ -59,6 +59,7 @@ export function PortalCart() {
 
     const { order, error: err } = await createOrder({
       businessId: business.id,
+      portalSlug: business.wholesale_portal_slug,
       customerId: customer.id,
       items,
       notes,
