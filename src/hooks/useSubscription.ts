@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../lib/supabase'
+import { subscribeShared } from '../lib/realtimeChannel'
+import { logger } from '../lib/logger'
 import { getSubscription, getPayments } from '../services/subscriptionService'
 
 // ─── Cache de suscripción (TTL 45s, stale-while-revalidate) ──────────────────
@@ -104,7 +105,8 @@ export function useSubscription(): UseSubscriptionReturn {
       setSubscription(sub)
       setPayments(pays ?? [])
     } catch (err: any) {
-      console.error('[useSubscription] Load error:', err)
+      // Sanitizado: sólo el mensaje, nunca el objeto de respuesta completo.
+      logger.error('AUTH', 'useSubscription: fallo cargando suscripción', err?.message ?? err)
       setError(err?.message ?? 'Error cargando suscripción')
     } finally {
       if (!background) setLoading(false)
@@ -116,47 +118,52 @@ export function useSubscription(): UseSubscriptionReturn {
     await load()
   }, [businessId, load])
 
+  // `load` cambia sólo con businessId, pero la guardamos en un ref para que el
+  // efecto de realtime dependa ÚNICAMENTE de businessId: así el canal no se
+  // recrea por una identidad nueva del callback.
+  const loadRef = useRef(load)
+  useEffect(() => { loadRef.current = load }, [load])
+
   useEffect(() => {
     load()
+  }, [load])
 
+  useEffect(() => {
     if (!businessId) return
 
-    // Real-time: react to webhook-triggered DB changes
-    let channel: ReturnType<typeof supabase.channel> | null = null
-    try {
-      channel = supabase
-        .channel(`subscription:${businessId}`)
-        .on(
-          'postgres_changes',
-          {
-            event:  'UPDATE',
-            schema: 'public',
-            table:  'businesses',
-            filter: `id=eq.${businessId}`,
-          },
-          () => { load() }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event:  'INSERT',
-            schema: 'public',
-            table:  'payments',
-            filter: `business_id=eq.${businessId}`,
-          },
-          () => { load() }
-        )
-        .subscribe()
-    } catch (e) {
-      console.warn('[useSubscription] Could not set up realtime channel:', e)
-    }
+    // Real-time: react to webhook-triggered DB changes.
+    // El canal es compartido por refcount entre TODOS los consumidores de este
+    // hook (en /orders hay 5 montados a la vez). subscribeShared garantiza un
+    // único canal por contrato, con todos los `.on()` antes del `subscribe()`.
+    //
+    // Nota: hoy ni `businesses` ni `payments` están en la publicación
+    // `supabase_realtime`, así que estos bindings no reciben eventos. Se
+    // mantienen porque el fallback ya cubre el caso: `load()` corre en cada
+    // montaje y la caché de 45s revalida en background. Publicar esas tablas
+    // NO forma parte de este lote (§11).
+    let vivo = true
+    const baja = subscribeShared(
+      {
+        key: `subscription:${businessId}`,
+        bindings: [
+          { event: 'UPDATE', table: 'businesses', filter: `id=eq.${businessId}` },
+          { event: 'INSERT', table: 'payments',   filter: `business_id=eq.${businessId}` },
+        ],
+      },
+      {
+        onEvent: () => {
+          // Un evento tardío no debe tocar un componente desmontado.
+          if (!vivo) return
+          loadRef.current()
+        },
+      },
+    )
 
     return () => {
-      try {
-        if (channel) supabase.removeChannel(channel)
-      } catch { /* ignore */ }
+      vivo = false
+      baja()
     }
-  }, [businessId, load])
+  }, [businessId])
 
   // ── Entitlement resolution (centralizado en lib/entitlements) ────────────
   // Sin datos confirmados → default optimista 'trialing' (no bloquear la app).

@@ -107,14 +107,24 @@ export function useOrderPrintSettings(businessId?: string | null) {
       setLoading(true)
       setError(null)
 
+      // `maybeSingle()` y no `single()`: un negocio sin fila en business_settings
+      // es un estado LEGÍTIMO (la tabla no se puebla al crear el negocio, no hay
+      // trigger que la cree) y el hook ya tiene DEFAULT_PRINT_SETTINGS para ese
+      // caso. Con `single()` PostgREST respondía 406 PGRST116 ("The result
+      // contains 0 rows") en cada carga de /orders, y el `if (data)` de abajo
+      // era inalcanzable porque el throw ocurría antes.
+      //
+      // Ojo: esto NO tapa errores. Un 42501 (permiso denegado) o un 5xx siguen
+      // llegando por `dbError` y se propagan al catch: ausencia ≠ fallo.
       const { data, error: dbError } = await supabase
         .from('business_settings')
         .select('*')
         .eq('business_id', businessId)
-        .single()
+        .maybeSingle()
 
       if (dbError) throw dbError
 
+      // data === null → sin configuración guardada: quedan los defaults.
       if (data) {
         setSettings({
           nombre_comercial: data.nombre_comercial || '',

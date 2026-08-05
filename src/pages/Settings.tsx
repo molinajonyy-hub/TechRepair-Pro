@@ -223,12 +223,15 @@ export default function Settings() {
     try {
       setLoading(true)
 
-      // Cargar datos generales del negocio
+      // Cargar datos generales del negocio.
+      // `maybeSingle()`: un negocio sin fila en business_settings es legítimo
+      // (no hay trigger que la cree) y más abajo el `if (businessData)` ya
+      // contempla la ausencia. Con `single()` esto devolvía 406 PGRST116.
       const { data: businessData } = await supabase
         .from('business_settings')
         .select('*')
         .eq('business_id', businessId)
-        .single()
+        .maybeSingle()
 
       if (businessData) {
         setBusinessSettings(businessData)

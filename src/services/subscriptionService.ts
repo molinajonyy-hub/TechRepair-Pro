@@ -80,7 +80,24 @@ export async function getSubscription(businessId: string): Promise<BusinessSubsc
     .eq('id', businessId)
     .single()
 
-  if (error) { console.error('getSubscription error:', error); return null }
+  // Se mantiene `.single()` A PROPÓSITO: si hay un businessId activo, la fila
+  // del negocio TIENE que existir y ser visible. Cero filas no es un estado
+  // legítimo acá — es una inconsistencia de datos o una RLS que oculta el
+  // negocio propio, y taparla con `.maybeSingle()` la volvería invisible.
+  if (error) {
+    // PGRST116 = 0 filas (o varias) con Accept: application/vnd.pgrst.object+json.
+    // Lo distinguimos de un fallo de permiso/red para no confundir
+    // "sin permiso" con "sin dato".
+    const sinFila = error.code === 'PGRST116'
+    logger.error(
+      'AUTH',
+      sinFila
+        ? 'getSubscription: el negocio activo no es visible (0 filas). Revisar RLS o consistencia de datos.'
+        : 'getSubscription: fallo consultando la suscripción',
+      { code: error.code, message: error.message },
+    )
+    return null
+  }
   return data as BusinessSubscription
 }
 
