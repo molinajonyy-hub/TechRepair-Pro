@@ -343,6 +343,130 @@ describe('regresion: el lifecycle ANTERIOR rompe contra el mismo fake', () => {
   })
 })
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Recuperacion ACOTADA tras un corte. Medido en el smoke local: al detener el
+// contenedor de realtime, el canal cae en timed_out y NO vuelve solo a
+// subscribed — los eventos se cortan hasta recargar la pagina.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('recuperacion tras channel_error / timed_out', () => {
+  it('recrea el canal con backoff y vuelve a quedar operativo', () => {
+    vi.useFakeTimers()
+    try {
+      const estados: RealtimeStatus[] = []
+      subscribeShared(specSub(BIZ_A), { onStatus: s => estados.push(s) })
+      const topicInicial = activeSharedChannelTopics()[0]
+
+      estado.fake.historial[0].emitirEstado('CHANNEL_ERROR')
+      expect(estados).toContain('channel_error')
+
+      // Antes del backoff no se toca nada.
+      vi.advanceTimersByTime(1_000)
+      expect(activeSharedChannelTopics()[0]).toBe(topicInicial)
+
+      // Al cumplirse, se crea un canal NUEVO (nunca se reusa el errado).
+      vi.advanceTimersByTime(1_500)
+      const topicNuevo = activeSharedChannelTopics()[0]
+      expect(topicNuevo).not.toBe(topicInicial)
+      expect(estados).toContain('subscribed')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('el canal recreado registra sus `on` ANTES del subscribe', () => {
+    vi.useFakeTimers()
+    try {
+      subscribeShared(specSub(BIZ_A), {})
+      estado.fake.historial[0].emitirEstado('TIMED_OUT')
+      vi.advanceTimersByTime(2_000)
+
+      const yaSuscripto = new Set<string>()
+      for (const t of estado.fake.traza) {
+        if (t.tipo === 'subscribe') yaSuscripto.add(t.topic)
+        if (t.tipo === 'on' && yaSuscripto.has(t.topic)) {
+          throw new Error('`on` despues de subscribe en ' + t.topic)
+        }
+      }
+      for (const ch of estado.fake.historial) expect(ch.subscribeCount).toBeLessThanOrEqual(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('los reintentos son FINITOS: no hay retry infinito', () => {
+    vi.useFakeTimers()
+    try {
+      // El fake falla al crear, asi que cada reintento vuelve a fallar.
+      const original = estado.fake.channel.bind(estado.fake)
+      estado.fake.channel = () => { throw new Error('realtime caido') }
+
+      subscribeShared(specSub(BIZ_A), {})
+      // Muy por encima de la suma del backoff (2+5+15+30 = 52s).
+      vi.advanceTimersByTime(600_000)
+
+      // 1 alta + 4 reintentos como maximo. Sin tope esto seria ilimitado.
+      const intentos = estado.fake.traza.filter(t => t.tipo === 'channel').length
+      expect(intentos).toBeLessThanOrEqual(5)
+      estado.fake.channel = original
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('una reconexion exitosa renueva el presupuesto de reintentos', () => {
+    vi.useFakeTimers()
+    try {
+      subscribeShared(specSub(BIZ_A), {})
+      // Primer corte -> se recupera.
+      estado.fake.historial[0].emitirEstado('CHANNEL_ERROR')
+      vi.advanceTimersByTime(2_000)
+      const trasPrimera = estado.fake.traza.filter(t => t.tipo === 'channel').length
+
+      // Segundo corte: si el contador no se hubiera reseteado, el backoff
+      // arrancaria en 5s y no en 2s.
+      estado.fake.historial[estado.fake.historial.length - 1].emitirEstado('CHANNEL_ERROR')
+      vi.advanceTimersByTime(2_000)
+      expect(estado.fake.traza.filter(t => t.tipo === 'channel').length).toBe(trasPrimera + 1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('el cleanup CANCELA el reintento pendiente (no revive un canal muerto)', () => {
+    vi.useFakeTimers()
+    try {
+      const baja = subscribeShared(specSub(BIZ_A), {})
+      estado.fake.historial[0].emitirEstado('CHANNEL_ERROR')
+      baja()
+      expect(activeSharedChannelCount()).toBe(0)
+
+      vi.advanceTimersByTime(600_000)
+      // Ningun canal nuevo despues de la baja.
+      expect(activeSharedChannelCount()).toBe(0)
+      expect(estado.fake.traza.filter(t => t.tipo === 'channel')).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('tras recuperarse, los eventos vuelven a llegar a los consumidores', () => {
+    vi.useFakeTimers()
+    try {
+      const recibidos: unknown[] = []
+      subscribeShared(specSub(BIZ_A), { onEvent: p => recibidos.push(p) })
+
+      estado.fake.historial[0].emitirEstado('CHANNEL_ERROR')
+      vi.advanceTimersByTime(2_000)
+
+      const vivo = estado.fake.historial[estado.fake.historial.length - 1]
+      vivo.emitir({ new: { id: 'post-recuperacion' } })
+      expect(recibidos).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('resiliencia', () => {
   it('un fallo creando el canal NO rompe al consumidor', () => {
     // El cliente explota (realtime caido, cliente sin inicializar…).

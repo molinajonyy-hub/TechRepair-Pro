@@ -101,6 +101,11 @@ export function useNotifications() {
     setUnreadCount(notifications.filter(n => !n.is_read).length)
   }, [notifications])
 
+  // Ref para poder recargar desde el callback de estado sin que el efecto del
+  // canal dependa de la identidad de `loadNotifications`.
+  const recargarRef = useRef(loadNotifications)
+  useEffect(() => { recargarRef.current = loadNotifications }, [loadNotifications])
+
   useEffect(() => {
     vivoRef.current = true
     if (!businessId) {
@@ -129,7 +134,16 @@ export function useNotifications() {
         },
         onStatus: (status) => {
           if (!vivoRef.current) return
-          setRealtimeStatus(status)
+          setRealtimeStatus(prev => {
+            // Al recuperarse de un corte hay un hueco: los INSERT ocurridos
+            // mientras el canal estaba caído no llegaron por Realtime y no
+            // volverán. Se recarga por HTTP, que es la fuente de verdad; el
+            // dedup por id evita duplicar lo que sí llegó.
+            if (status === 'subscribed' && (prev === 'channel_error' || prev === 'timed_out')) {
+              void recargarRef.current()
+            }
+            return status
+          })
         },
       },
     )

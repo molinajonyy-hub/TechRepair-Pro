@@ -34,6 +34,11 @@
  *    llega durante la baja arranca una instancia nueva y limpia.
  * 7. Un fallo creando el canal NO rompe al consumidor: degrada a `channel_error`
  *    y la carga HTTP inicial sigue funcionando.
+ * 8. Recuperacion ACOTADA: un canal que cae en `channel_error`/`timed_out` NO
+ *    vuelve solo a `subscribed` (medido: se cortan los eventos hasta recargar la
+ *    pagina). Se recrea con backoff y un tope de intentos — nunca un retry
+ *    infinito — y al recuperarse avisa `subscribed` para que el consumidor
+ *    recargue por HTTP lo que se haya perdido durante el corte.
  */
 
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js'
@@ -87,9 +92,21 @@ interface Entry {
   disposed: boolean
   /** Última condición de error logueada, para no repetir ruido por render. */
   loggedFailure: RealtimeStatus | null
+  /** Reintentos de recuperación ya consumidos. Se resetea al reconectar. */
+  intentos: number
+  /** Timer del reintento pendiente, para poder cancelarlo en el cleanup. */
+  timer: ReturnType<typeof setTimeout> | null
 }
 
 const entries = new Map<string, Entry>()
+
+/**
+ * Backoff de recuperación. Longitud finita A PROPÓSITO: después del último
+ * intento el canal se queda en su estado de fallo y el consumidor sigue con la
+ * carga HTTP y el refresh manual. Un retry infinito castigaría al servidor
+ * justo cuando está caído.
+ */
+const BACKOFF_MS = [2_000, 5_000, 15_000, 30_000] as const
 
 /**
  * Contador monótono para el topic físico. A propósito NO usamos `Date.now()`:
@@ -137,6 +154,46 @@ function normalizeStatus(raw: string): RealtimeStatus {
   }
 }
 
+/**
+ * Programa la recreación del canal tras un fallo. Acotada por BACKOFF_MS: al
+ * agotarse, deja de intentar y el consumidor se queda con HTTP + refresh manual.
+ */
+function programarRecuperacion(entry: Entry): void {
+  if (entry.disposed || entry.timer) return
+  if (entry.subscribers.size === 0) return
+  const espera = BACKOFF_MS[entry.intentos]
+  if (espera === undefined) {
+    if (isDev) {
+      logger.debug('REALTIME', `"${describeKey(entry.key)}" agotó los reintentos; queda en ${entry.status}`)
+    }
+    return
+  }
+  entry.intentos += 1
+  entry.timer = setTimeout(() => {
+    entry.timer = null
+    if (entry.disposed || entry.subscribers.size === 0) return
+    recrearCanal(entry)
+  }, espera)
+}
+
+/**
+ * Reemplaza el canal por uno NUEVO. Nunca se reusa el viejo ni se le agregan
+ * callbacks: un canal que ya pasó por subscribe() no admite `.on()`.
+ */
+function recrearCanal(entry: Entry): void {
+  const viejo = entry.channel
+  entry.channel = null
+  if (viejo) {
+    try {
+      void Promise.resolve(supabase.removeChannel(viejo)).catch(() => { /* ignorado */ })
+    } catch { /* ignorado */ }
+  }
+  topicSeq += 1
+  entry.topic = `${entry.key}#${topicSeq}`
+  if (isDev) logger.debug('REALTIME', `reintento ${entry.intentos} de "${describeKey(entry.key)}"`)
+  armarCanal(entry)
+}
+
 function setStatus(entry: Entry, status: RealtimeStatus): void {
   if (entry.status === status) return
   entry.status = status
@@ -152,34 +209,54 @@ function setStatus(entry: Entry, status: RealtimeStatus): void {
       subscribers: entry.subscribers.size,
     })
   }
-  if (status === 'subscribed') entry.loggedFailure = null
+  if (status === 'subscribed') {
+    entry.loggedFailure = null
+    entry.intentos = 0          // reconectado: el presupuesto se renueva
+  }
 
   for (const sub of [...entry.subscribers]) {
     try { sub.onStatus?.(status) } catch { /* un consumidor roto no tumba al resto */ }
   }
+
+  // Después de avisar, no antes: el consumidor ve el fallo aunque el reintento
+  // arranque en el mismo tick.
+  if (isFailure) programarRecuperacion(entry)
 }
 
 function createEntry(dedupeKey: string, spec: SharedChannelSpec): Entry {
   topicSeq += 1
-  const topic = `${spec.key}#${topicSeq}`
 
   const entry: Entry = {
     dedupeKey,
     key: spec.key,
-    topic,
+    topic: `${spec.key}#${topicSeq}`,
     channel: null,
     bindings: spec.bindings,
     subscribers: new Set(),
     status: 'connecting',
     disposed: false,
     loggedFailure: null,
+    intentos: 0,
+    timer: null,
   }
+
+  armarCanal(entry)
+  return entry
+}
+
+/**
+ * Construye el canal físico de una entrada: registra TODOS los `.on()` y recién
+ * después ejecuta el único `subscribe()`. Se usa tanto en el alta como en cada
+ * recuperación, siempre sobre un canal recién creado.
+ */
+function armarCanal(entry: Entry): void {
+  const topic = entry.topic
 
   try {
     const channel = supabase.channel(topic)
 
     // (3) TODOS los .on() antes del subscribe().
-    for (const binding of spec.bindings) {
+    for (const binding of entry.bindings) {
       const filtro: Record<string, string> = {
         event:  binding.event,
         schema: binding.schema ?? 'public',
@@ -211,25 +288,29 @@ function createEntry(dedupeKey: string, spec: SharedChannelSpec): Entry {
     })
 
     entry.channel = channel
-    if (isDev) logger.debug('REALTIME', `canal creado "${describeKey(spec.key)}"`, describeBindings(spec.bindings))
+    if (isDev) logger.debug('REALTIME', `canal creado "${describeKey(entry.key)}"`, describeBindings(entry.bindings))
   } catch (err) {
     // (7) Realtime caído no puede romper el render ni la carga HTTP: la entrada
     // queda sin canal y en channel_error. Los consumidores siguen su camino.
     entry.channel = null
     entry.status = 'channel_error'
     entry.loggedFailure = 'channel_error'
-    logger.warn('REALTIME', `no se pudo crear el canal "${describeKey(spec.key)}"`, {
-      bindings: describeBindings(spec.bindings),
+    logger.warn('REALTIME', `no se pudo crear el canal "${describeKey(entry.key)}"`, {
+      bindings: describeBindings(entry.bindings),
       message: (err as { message?: string })?.message ?? String(err),
     })
+    // (8) También acá corresponde reintentar: el cliente puede estar caído
+    // justo en el montaje y recuperarse un segundo después.
+    programarRecuperacion(entry)
   }
-
-  return entry
 }
 
 function disposeEntry(entry: Entry): void {
   if (entry.disposed) return
   entry.disposed = true
+
+  // Un reintento pendiente no puede sobrevivir al cleanup.
+  if (entry.timer) { clearTimeout(entry.timer); entry.timer = null }
 
   // (6) Baja SÍNCRONA del registro: `removeChannel` es async, así que si no
   // borráramos acá, un consumidor que llega en el mismo tick reutilizaría una
