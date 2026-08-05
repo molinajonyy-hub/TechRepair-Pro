@@ -8,6 +8,7 @@ import {
   recordStatusChange,
 } from '../../types/orderStatus'
 import { whatsappService } from '../../services/whatsappService'
+import { logger } from '../../lib/logger'
 import { useAuth } from '../../contexts/AuthContext'
 
 interface StatusChangeProps {
@@ -64,17 +65,37 @@ export function StatusChange({ orderId, currentStatus, order, onStatusChange }: 
         business_id: businessId!,
       })
 
-      try {
-        await supabase.from('notifications').insert({
+      // Notificación in-app. Sólo columnas que existen en `public.notifications`
+      // según el contrato de 20260805120000: `customer_id` y `read_at` NO son
+      // columnas (no las lee nadie) y mandarlas hacía fallar el INSERT completo
+      // con 400 PGRST204.
+      //
+      // `business_id` es NOT NULL y además lo exige el WITH CHECK de la policy
+      // notifications_insert: sin él era 400/42501. La DB también lo deriva por
+      // DEFAULT, pero se manda explícito para que el fallo sea claro si la
+      // sesión perdió el negocio.
+      //
+      // supabase-js NO lanza excepción en errores de PostgREST: devuelve
+      // { error }. El try/catch anterior no atrapaba nada y por eso este insert
+      // estuvo roto desde siempre sin que se notara (0 filas en producción).
+      if (businessId) {
+        const { error: notifError } = await supabase.from('notifications').insert({
+          business_id: businessId,
           type: 'status_change',
           title: 'Estado de orden actualizado',
           message: `${STATUS_CONFIG[currentStatus].label} → ${STATUS_CONFIG[selectedStatus].label}${notes ? `: ${notes}` : ''}`,
           order_id: orderId,
-          customer_id: order.customer_id || order.customer?.id || null,
           is_read: false,
+          created_by: user?.id ?? null,
           metadata: { from_status: currentStatus, to_status: selectedStatus, changed_by: user?.id },
         })
-      } catch { /* silencioso */ }
+        // La notificación es SECUNDARIA respecto del cambio de estado: si falla,
+        // no revierte la operación principal, pero deja rastro sanitizado.
+        if (notifError) {
+          logger.warn('SUPABASE', 'StatusChange: no se pudo crear la notificación',
+            notifError.message)
+        }
+      }
 
       setSuccess(true)
       setSelectedStatus('')
