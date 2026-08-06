@@ -266,15 +266,6 @@ export function FinanceDashboard() {
   // ── Movements filter ──
   const [mvFilter, setMvFilter] = useState<'all' | 'income' | 'expense' | 'reversal'>('all')
 
-  // ── Aviso de cambio de cálculo (Etapa 1) ──
-  const [calcNoticeDismissed, setCalcNoticeDismissed] = useState<boolean>(() => {
-    try { return localStorage.getItem('finance_calc_notice_v2_dismissed') === '1' } catch { return false }
-  })
-  const dismissCalcNotice = () => {
-    try { localStorage.setItem('finance_calc_notice_v2_dismissed', '1') } catch { /* noop */ }
-    setCalcNoticeDismissed(true)
-  }
-
   const { from, to } = preset === 'custom'
     ? { from: customFrom, to: customTo }
     : getDateRange(preset)
@@ -500,16 +491,11 @@ export function FinanceDashboard() {
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'resumen' && (
         <>
-          {!calcNoticeDismissed && (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', padding: '0.75rem 1rem', marginBottom: '1rem', borderRadius: 'var(--radius-md)', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)' }}>
-              <Info size={16} style={{ color: '#818cf8', flexShrink: 0, marginTop: '0.1rem' }} />
-              <span style={{ flex: 1, fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                Actualizamos el cálculo financiero para separar rentabilidad, caja, compras de inventario y retiros del dueño.
-                Los montos históricos no fueron modificados; cambió su clasificación contable.
-              </span>
-              <button onClick={dismissCalcNotice} className="btn btn-ghost btn-sm" style={{ flexShrink: 0, color: 'var(--text-muted)' }}>Entendido</button>
-            </div>
-          )}
+          {/* El aviso del cambio de cálculo contable vive UNA sola vez, en
+              <AccountingChangeBanner> arriba del header. Acá había un segundo
+              aviso inline que decía lo mismo con otras palabras: se retiró.
+              El componente es el que queda porque además despliega la fórmula
+              ("Ver cómo se calcula") y recuerda el descarte por negocio. */}
           {PeriodFilter}
 
           {/* M8 — motor determinista de insights. Reemplaza el bloque binario de
