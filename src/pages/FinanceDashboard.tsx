@@ -10,6 +10,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { AccountingChangeBanner } from '../components/finance/AccountingChangeBanner'
+import { FinanceInsightsPanel } from '../components/finance/FinanceInsightsPanel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -511,27 +512,23 @@ export function FinanceDashboard() {
           )}
           {PeriodFilter}
 
+          {/* M8 — motor determinista de insights. Reemplaza el bloque binario de
+              alertas de abajo: explica QUÉ pasó y con qué números, en vez de
+              contar problemas. Se monta fuera del `data &&` a propósito: si el
+              resumen falla, el análisis igual debe poder decir lo que sabe. */}
+          {businessId && from && to && (
+            <FinanceInsightsPanel businessId={businessId} periodStart={from} periodEnd={to} />
+          )}
+
           {data && (
             <>
-              {/* Alerts */}
-              {hasAlerts && (
-                <div data-testid="finance-dashboard-health-alert" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>
-                  {(data.alerts.critical > 0) && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
-                      <AlertCircle size={15} style={{ color: '#ef4444', flexShrink: 0 }} />
-                      <span style={{ flex: 1, color: '#fca5a5', fontSize: '0.875rem' }}><strong>{data.alerts.critical}</strong> problema{data.alerts.critical > 1 ? 's' : ''} crítico{data.alerts.critical > 1 ? 's' : ''} de integridad detectado{data.alerts.critical > 1 ? 's' : ''}.</span>
-                      <button onClick={() => setActiveTab('auditoria')} className="btn btn-ghost btn-sm" style={{ flexShrink: 0, color: '#ef4444' }}>Ver <ChevronRight size={12} /></button>
-                    </div>
-                  )}
-                  {(data.alerts.warning > 0) && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', padding: '0.75rem 1rem', borderRadius: 'var(--radius-md)', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
-                      <AlertTriangle size={15} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                      <span style={{ flex: 1, color: '#fcd34d', fontSize: '0.875rem' }}>Hay facturas de proveedores pendientes de pago.</span>
-                      <Link to="/suppliers" className="btn btn-ghost btn-sm" style={{ flexShrink: 0, color: '#f59e0b' }}>Proveedores <ChevronRight size={12} /></Link>
-                    </div>
-                  )}
-                </div>
-              )}
+              {/* M8 — el banner binario de alertas se retiró de acá: sus dos casos
+                  (integridad crítica / facturas de proveedor pendientes) los cubre
+                  ahora FinanceInsightsPanel con evidencia y umbral explícitos vía
+                  las reglas `data_quality` y `supplier_crunch`. Mantener ambos
+                  sistemas mostraría el mismo problema dos veces con criterios
+                  distintos. El contador sigue vivo en la tarjeta "Alertas activas"
+                  y en la pestaña Auditoría, que no son banners. */}
 
               {/* Summary cards */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.875rem', marginBottom: '0.875rem' }}>
