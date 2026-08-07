@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { financeErrorMessage } from '../lib/financeErrors';
+import { logger } from '../lib/logger';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,8 @@ export interface SupplierPurchase {
   business_id: string;
   supplier_id: string;
   purchase_date: string;
+  /** M8 - fecha de pago acordada. null = sin fecha acordada (no es "vencida"). */
+  due_date?: string | null;
   invoice_number?: string;
   total_amount: number;
   paid_amount: number;
@@ -103,6 +106,8 @@ export interface AccountMovement {
 export interface CreatePurchaseInput {
   supplier_id: string;
   purchase_date: string;
+  /** Fecha de pago acordada (M8). Vacio = no se acordo fecha; NO significa "vence ya". */
+  due_date?: string | null;
   invoice_number?: string;
   total_amount: number;
   paid_amount: number;
@@ -251,7 +256,7 @@ export const suppliersService = {
   // siempre (compat legacy). El flag `replay` permite al llamador NO duplicar
   // efectos client-side (p.ej. el registro documental en expenses).
   async createPurchase(input: CreatePurchaseInput, businessId: string, userId: string, supplierName: string, idempotencyKey?: string): Promise<SupplierPurchase & { replay: boolean }> {
-    const { supplier_id, purchase_date, invoice_number, total_amount, paid_amount, payment_method, notes, items } = input;
+    const { supplier_id, purchase_date, due_date, invoice_number, total_amount, paid_amount, payment_method, notes, items } = input;
 
     const { data, error } = await supabase.rpc('create_supplier_purchase_atomic', {
       p_business_id:    businessId,
@@ -280,6 +285,23 @@ export const suppliersService = {
       throw conflict;
     }
     if (!data?.ok) throw new Error(data?.error || 'Error al crear compra');
+
+    // M8 - la fecha de vencimiento va por UPDATE separado a proposito: no se toca
+    // la firma de la RPC atomica (idempotente, con efectos financieros) por un
+    // dato opcional que no altera importes ni genera movimientos. En un replay la
+    // fecha ya quedo escrita por la llamada original.
+    if (due_date && data.replay !== true) {
+      const { error: dueErr } = await supabase
+        .from('supplier_purchases')
+        .update({ due_date })
+        .eq('id', data.purchase_id).eq('business_id', businessId);
+      if (dueErr) {
+        // La compra SI se creo con sus importes correctos. No se silencia: el
+        // usuario tiene que saber que la fecha no quedo guardada.
+        logger.error('SUPPLIERS', 'No se pudo guardar la fecha de vencimiento', dueErr);
+        throw new Error('La compra se registro, pero no se pudo guardar la fecha de vencimiento. Editala desde el detalle de la compra.');
+      }
+    }
 
     const purchase = await supabase
       .from('supplier_purchases')
