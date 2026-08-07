@@ -143,8 +143,10 @@ describe('FinanceInsightsPanel — contenido', () => {
 
     const dlg = await screen.findByRole('dialog')
     expect(dlg.textContent).toMatch(/Ver cálculo/)
-    expect(dlg.textContent).toMatch(/v_finance_pnl/)     // fuente visible
-    expect(dlg.textContent).toMatch(/dead_product_count/) // los numeros crudos
+    expect(dlg.textContent).toMatch(/v_finance_pnl/)   // fuente visible
+    // Las cifras se muestran rotuladas, no como claves crudas de evidence.
+    expect(dlg.textContent).toMatch(/Productos sin movimiento/)
+    expect(dlg.textContent).not.toMatch(/dead_product_count/)
   })
 
   it('8/9. accion valida se linkea; ruta inexistente NO se renderiza', async () => {
@@ -190,14 +192,21 @@ describe('FinanceInsightsPanel — contenido', () => {
   it('20. no filtra datos privados del contrato', async () => {
     estado.read = async () => ({
       kind: 'ok', generatedAt: new Date().toISOString(),
-      insights: [insight({ evidence: EV({ top_debtor_count: 2, top_debtor_share: 0.6 }) })],
+      insights: [insight({
+        rule_id: 'cc_aging',
+        evidence: EV({
+          overdue_30plus: 25100, receivables_total: 59761, current_value: 0.42,
+          bucket_31_60: 10000, bucket_60plus: 15100,
+          top_debtor_count: 2, days_threshold: 30,
+        }),
+      })],
     })
     const { container } = montar()
-    await waitFor(() => expect(screen.getByTestId('insight-calc-dead_stock')).toBeTruthy())
-    fireEvent.click(screen.getByTestId('insight-calc-dead_stock'))
+    await waitFor(() => expect(screen.getByTestId('insight-calc-cc_aging')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('insight-calc-cc_aging'))
     const dlg = await screen.findByRole('dialog')
-    // concentracion sin nombres: solo conteo y proporcion
-    expect(dlg.textContent).toMatch(/top_debtor_count/)
+    // Concentración sin nombres: sólo conteo, rotulado.
+    expect(dlg.textContent).toMatch(/Deudores concentrados/)
     expect(container.textContent).not.toMatch(/@|\+54|DNI|CUIT/)
   })
 })

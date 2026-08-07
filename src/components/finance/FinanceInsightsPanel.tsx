@@ -7,6 +7,7 @@ import {
   insightsService, isActionNavigable,
   type FinanceInsight, type InsightsResult, type InsightSeverity,
 } from '../../services/insightsService'
+import { presentInsight, formatDate } from '../../lib/finance/financeInsightPresentation'
 import { colors, radius, transitions } from '../../lib/tokens'
 
 // ─── M8 — panel de insights financieros ──────────────────────────────────────
@@ -30,12 +31,9 @@ const SEVERITY_CFG: Record<InsightSeverity, { bg: string; border: string; fg: st
   info:     { bg: colors.infoBg,    border: colors.indigoBorder,  fg: colors.info,    Icon: Info,          label: 'Información' },
 }
 
-function fmtDate(d: string): string {
-  // Fechas 'YYYY-MM-DD' se anclan al mediodía para que el offset AR no las corra un día.
-  const iso = d.length === 10 ? `${d}T12:00:00` : d
-  const parsed = new Date(iso)
-  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString('es-AR')
-}
+// El formateo de fechas y montos vive en el presentador canónico: card y drawer
+// DEBEN usar el mismo, o el mismo número se ve distinto en cada superficie.
+const fmtDate = formatDate
 
 function fmtAgo(iso: string | null): string {
   if (!iso) return 'nunca'
@@ -49,48 +47,13 @@ function fmtAgo(iso: string | null): string {
   return `hace ${Math.floor(hrs / 24)} d`
 }
 
-/** Formatea sólo si es un número real. Nunca produce `$NaN` ni `undefined`. */
-function fmtValue(v: unknown, currency = 'ARS'): string {
-  if (typeof v === 'number' && Number.isFinite(v)) {
-    return new Intl.NumberFormat('es-AR', {
-      style: 'currency', currency, maximumFractionDigits: 2,
-    }).format(v)
-  }
-  if (typeof v === 'string' && v.length > 0) return v
-  return '—'
-}
-
-function fmtPlain(v: unknown): string {
-  if (typeof v === 'number' && Number.isFinite(v)) {
-    return new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 }).format(v)
-  }
-  if (typeof v === 'string' && v.length > 0) return v
-  if (typeof v === 'boolean') return v ? 'sí' : 'no'
-  return '—'
-}
-
-/** Claves de evidence que son montos en pesos. El resto se muestra plano: un
- *  porcentaje formateado como moneda sería una mentira visual. */
-const MONEY_KEYS = new Set([
-  'dead_value', 'inventory_at_cost', 'net_sales_current', 'net_sales_previous',
-  'accrued_revenue', 'accrued_revenue_previous', 'collected_cash', 'accounts_receivable_delta',
-  'withdrawals_total', 'operating_result', 'cash_total', 'fixed_monthly',
-  'breakeven_sales', 'daily_avg_sales', 'month_to_date_sales',
-  'overdue_amount', 'due_next_14_days', 'total_near_term_commitments',
-  'available_liquidity', 'dated_pending_amount', 'undated_pending_amount',
-  'overdue_30plus', 'receivables_total', 'bucket_31_60', 'bucket_60plus',
-  'amount_at_risk',
-])
-
-/** Claves internas que no aportan al lector. */
-const HIDDEN_KEYS = new Set(['metric', 'threshold', 'calculation_version', 'source', 'currency'])
-
 // ─────────────────────────────────────────────────────────────────────────────
 
 function CalculationDrawer({ insight, onClose }: { insight: FinanceInsight; onClose: () => void }) {
   const ev = insight.evidence
-  const rows = Object.entries(ev).filter(([k, v]) =>
-    !HIDDEN_KEYS.has(k) && v !== null && v !== undefined && typeof v !== 'object')
+  // Card y drawer comparten el MISMO presentador: el mismo número no puede
+  // verse de dos formas distintas en la misma tarjeta.
+  const p = presentInsight(insight)
 
   return (
     <div
@@ -127,7 +90,7 @@ function CalculationDrawer({ insight, onClose }: { insight: FinanceInsight; onCl
         <div style={{ overflow: 'auto', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <section>
             <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: colors.text.subtle }}>Qué se midió</h4>
-            <p style={{ margin: 0, fontSize: '0.85rem', lineHeight: 1.55, color: colors.text.secondary }}>{insight.message}</p>
+            <p style={{ margin: 0, fontSize: '0.85rem', lineHeight: 1.55, color: colors.text.secondary }}>{p.message}</p>
           </section>
 
           <section>
@@ -144,15 +107,18 @@ function CalculationDrawer({ insight, onClose }: { insight: FinanceInsight; onCl
 
           <section>
             <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: colors.text.subtle }}>Los números</h4>
-            <dl style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-              {rows.map(([k, v]) => (
-                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.8rem' }}>
-                  <dt style={{ color: colors.text.muted }}>{k}</dt>
+            <dl data-testid="insight-facts" style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              {p.facts.map(({ label, value }) => (
+                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.8rem' }}>
+                  <dt style={{ color: colors.text.muted }}>{label}</dt>
                   <dd style={{ margin: 0, fontFamily: 'monospace', fontWeight: 600, color: colors.text.primary, textAlign: 'right', wordBreak: 'break-word' }}>
-                    {MONEY_KEYS.has(k) ? fmtValue(v, String(ev.currency || 'ARS')) : fmtPlain(v)}
+                    {value}
                   </dd>
                 </div>
               ))}
+              {p.facts.length === 0 && (
+                <span style={{ fontSize: '0.8rem', color: colors.text.muted }}>Sin detalle disponible para esta regla.</span>
+              )}
             </dl>
           </section>
 
@@ -184,6 +150,9 @@ function InsightCard({ insight, onOpenCalc }: { insight: FinanceInsight; onOpenC
   const { Icon } = cfg
   const navigable = isActionNavigable(insight.action)
   const isRoute = navigable && insight.action.target_type === 'route'
+  // Mismo presentador que el drawer. El `message` del server queda como
+  // fallback para una regla desconocida, nunca como fuente de números.
+  const p = presentInsight(insight)
 
   return (
     <article
@@ -203,11 +172,11 @@ function InsightCard({ insight, onOpenCalc }: { insight: FinanceInsight; onOpenC
             {cfg.label}
           </span>
           <h3 style={{ margin: 0, fontSize: '0.875rem', fontWeight: 700, color: colors.text.primary }}>
-            {insight.title}
+            {p.title}
           </h3>
         </div>
-        <p style={{ margin: 0, fontSize: '0.82rem', lineHeight: 1.5, color: colors.text.secondary, overflowWrap: 'anywhere' }}>
-          {insight.message}
+        <p data-testid={`insight-message-${insight.rule_id}`} style={{ margin: 0, fontSize: '0.82rem', lineHeight: 1.5, color: colors.text.secondary, overflowWrap: 'anywhere' }}>
+          {p.message}
         </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
           <button

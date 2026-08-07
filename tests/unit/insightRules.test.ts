@@ -507,22 +507,37 @@ test('cc_aging: nada vencido no dispara', () => {
 // ════════════════════════════════════════════════════════════════════════════
 // Textos: contrato de redacción verificable sobre el SQL
 // ════════════════════════════════════════════════════════════════════════════
+// El motor VIGENTE es 217: 216 quedó como historia aplicada e inmutable, así que
+// los contratos de redacción se verifican contra el cuerpo que corre hoy.
+const SQL_MOTOR = readFileSync(
+  'supabase/migrations/20260807120000_finance_insight_locale_safe_messages.sql', 'utf8')
+
 test('cc_aging no usa la palabra "vencido" en su texto (no hay due_date de CxC)', () => {
-  const bloque = SQL.slice(SQL.indexOf("'rule_id','cc_aging'"), SQL.indexOf("'rule_id','cc_aging'") + 2500)
+  const i = SQL_MOTOR.indexOf("'rule_id','cc_aging'")
+  assert.ok(i > 0)
+  const bloque = SQL_MOTOR.slice(i, i + 2500)
   assert.ok(!/vencid/i.test(bloque), 'el texto de cc_aging no puede hablar de vencimiento')
   assert.ok(/antigüedad/i.test(bloque), 'debe hablar de antigüedad')
 })
 
 test('breakeven_day se rotula siempre como estimación', () => {
-  const i = SQL.indexOf("'rule_id','breakeven_day'")
+  const i = SQL_MOTOR.indexOf("'rule_id','breakeven_day'")
   assert.ok(i > 0)
-  assert.ok(/Estimación/i.test(SQL.slice(i, i + 2000)))
+  assert.ok(/Estimación/i.test(SQL_MOTOR.slice(i, i + 2000)))
 })
 
 test('supplier_crunch no afirma que la deuda sin fecha vence pronto', () => {
-  const i = SQL.indexOf("'rule_id','supplier_crunch'")
-  const bloque = SQL.slice(i, i + 2500)
-  // el mensaje habla de "vencidos o próximos a vencer" sólo sobre lo datado
+  const i = SQL_MOTOR.indexOf("'rule_id','supplier_crunch'")
+  const bloque = SQL_MOTOR.slice(i, i + 2500)
   assert.ok(/undated_pending_amount/.test(bloque), 'lo sin fecha viaja como contexto separado')
   assert.ok(!/toda la deuda/i.test(bloque))
+  assert.ok(/sin fecha acordada no se cuenta/i.test(bloque),
+    'debe decir explicitamente que lo sin fecha no es compromiso proximo')
+})
+
+test('el motor vigente no formatea ningun numero (los formatea el frontend)', () => {
+  const cuerpo = SQL_MOTOR.split('$fn$')[1] || ''
+  assert.ok(cuerpo.length > 1000)
+  assert.ok(!/to_char/i.test(cuerpo), 'to_char depende de lc_numeric del servidor')
+  assert.ok(!/'message',\s*format\(/.test(cuerpo), 'message no puede interpolar valores')
 })

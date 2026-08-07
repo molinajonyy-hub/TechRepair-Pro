@@ -24,11 +24,18 @@
 //   R11. una ruta de `action` en SQL o en el service no existe en el router.
 //   R12. la migracion hace backfill / DML historico.
 //   R13. la migracion toca importes financieros.
+//   R14. el motor formatea numeros con to_char (locale del servidor -> en-US).
+//   R15. `message` interpola valores con format() en vez de dejarlos en evidence.
+//   R16. React parsea numeros desde `message`, o lo usa como fuente de verdad.
+//   R17. se modifica una migracion M8 YA APLICADA a produccion.
+//   R18. aparece un formatter de moneda ad-hoc dentro del alcance M8 en vez de
+//        usar el presentador canonico.
 //
 //   node scripts/finance/guard-m8-insights.mjs [archivo|dir ...]
 //   node scripts/finance/guard-m8-insights.mjs --self-test
 // ============================================================================
 import { readFileSync, readdirSync, writeFileSync, mkdtempSync, existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join, basename, extname } from 'node:path'
 
@@ -36,11 +43,26 @@ import { join, basename, extname } from 'node:path'
 const M8_SQL = [
   'supabase/migrations/20260806120000_supplier_purchase_due_date.sql',
   'supabase/migrations/20260806130000_finance_insights.sql',
+  'supabase/migrations/20260807120000_finance_insight_locale_safe_messages.sql',
 ]
+
+// R17 — migraciones M8 ya aplicadas a produccion. Editarlas hace que un db reset
+// futuro construya otro esquema mientras produccion conserva el cuerpo viejo:
+// repo y produccion divergen en semantica sin que nada falle. Forward-only.
+const APLICADAS = {
+  'supabase/migrations/20260806120000_supplier_purchase_due_date.sql':
+    'b5bdcd392b4564eeed1703ea3306d9a778be0b418e716f8733d41fc09d493fe7',
+  'supabase/migrations/20260806130000_finance_insights.sql':
+    '6591d3a150557fa08c085f5d8c97bfa24fcb1b2e85ca72dfee38925b4825f7b6',
+}
+
 const M8_TS = [
   'src/services/insightsService.ts',
   'src/components/finance/FinanceInsightsPanel.tsx',
+  'src/lib/finance/financeInsightPresentation.ts',
 ]
+// El presentador es el UNICO lugar donde se permite Intl.NumberFormat en M8.
+const PRESENTADOR = 'src/lib/finance/financeInsightPresentation.ts'
 const ROUTER = 'src/App.tsx'
 
 const REGLAS_ESPERADAS = [
@@ -68,10 +90,26 @@ function listar(dir, exts) {
 }
 
 // ─── Reglas SQL ─────────────────────────────────────────────────────────────
-function revisarSql(archivo, sql) {
+// `esMotorVigente`: sólo la migración MÁS RECIENTE que define
+// generate_finance_insights se audita por formato de textos. Las anteriores ya
+// están aplicadas y son historia inmutable.
+function revisarSql(archivo, sql, esMotorVigente = false) {
   const h = []
   const f = basename(archivo)
   const esMotor = /finance_insights\.sql$/.test(archivo) || /CREATE TABLE[^;]*finance_insights/i.test(sql)
+
+  // R14/R15 — el motor vigente no puede formatear números: la DB manda el
+  // valor crudo en `evidence` y el frontend lo formatea en es-AR. to_char
+  // depende de lc_numeric del servidor (en produccion, en_US).
+  if (esMotorVigente) {
+    const cuerpo = sql.split('$fn$')[1] || ''
+    if (/to_char/i.test(cuerpo)) {
+      h.push(`${f}: R14 el motor usa to_char — el formato depende de lc_numeric del servidor`)
+    }
+    if (/'message',\s*format\(/.test(cuerpo)) {
+      h.push(`${f}: R15 'message' interpola valores con format(); los números van en evidence`)
+    }
+  }
 
   if (esMotor) {
     // R1/R5 — catalogo cerrado y columnas de identidad de regla.
@@ -198,6 +236,37 @@ function revisarTs(archivo, src, rutasRouter) {
     h.push(`${f}: R9 scheduler client-side para generar insights`)
   }
 
+  // R16 — `message` es un fallback cualitativo, NO una fuente de números.
+  // Parsearlo devolvería el mismo bug por otra puerta.
+  if (/\.message[^\n]*\.(match|replace|split|parse)\(/.test(src)
+   || /(parseFloat|parseInt|Number)\s*\([^)]*\.message/.test(src)) {
+    h.push(`${f}: R16 se parsean números desde insight.message; usar evidence`)
+  }
+
+  // R18 — un único formatter de moneda en el alcance M8: el presentador.
+  if (extname(archivo) !== '.mjs' && !f.endsWith(PRESENTADOR.split('/').pop())) {
+    if (/Intl\.NumberFormat\([^)]*currency/.test(src)) {
+      h.push(`${f}: R18 formatter de moneda ad-hoc; usar financeInsightPresentation`)
+    }
+  }
+
+  return h
+}
+
+// ─── R17 — las migraciones ya aplicadas son inmutables ──────────────────────
+function revisarInmutables() {
+  const h = []
+  for (const [ruta, esperado] of Object.entries(APLICADAS)) {
+    const src = leer(ruta)
+    if (src === null) { h.push(`${ruta}: R17 falta una migracion ya aplicada a produccion`); continue }
+    // Normaliza saltos de linea: un checkout Windows no es una modificacion.
+    const real = createHash('sha256').update(src.replace(/\r\n/g, '\n'), 'utf8').digest('hex')
+    if (real !== esperado) {
+      h.push(`${ruta}: R17 se modifico una migracion YA APLICADA a produccion `
+        + `(sha256 ${real.slice(0, 16)}… != ${esperado.slice(0, 16)}…). `
+        + `Editarla divergiria repo vs produccion: hace falta una migracion forward-only.`)
+    }
+  }
   return h
 }
 
@@ -301,6 +370,43 @@ CREATE TABLE public.finance_insights (
   chk('r4 detecta calculo financiero en React',
     revisarTs('x.tsx', calculoEnReact, rutas).some(x => /R4/.test(x)))
 
+  // R14 — to_char en el motor vigente
+  const motorConToChar = `CREATE OR REPLACE FUNCTION public.generate_finance_insights(a uuid) AS $fn$
+    BEGIN v := jsonb_build_object('message', to_char(x,'FM999G999D00')); END $fn$;`
+  chk('r14 detecta to_char en el motor vigente',
+    revisarSql(escribir('m1.sql', motorConToChar), motorConToChar, true).some(x => /R14/.test(x)))
+  const motorSinToChar = `CREATE OR REPLACE FUNCTION public.generate_finance_insights(a uuid) AS $fn$
+    BEGIN v := jsonb_build_object('message', 'texto cualitativo'); END $fn$;`
+  chk('r14 acepta un motor sin to_char',
+    !revisarSql(escribir('m2.sql', motorSinToChar), motorSinToChar, true).some(x => /R14/.test(x)))
+  chk('r14 NO audita una migracion vieja ya aplicada',
+    !revisarSql(escribir('m3.sql', motorConToChar), motorConToChar, false).some(x => /R14/.test(x)))
+
+  // R15 — message con format()
+  const msgConFormat = `CREATE OR REPLACE FUNCTION public.generate_finance_insights(a uuid) AS $fn$
+    BEGIN v := jsonb_build_object('message', format('Tenes %s', x)); END $fn$;`
+  chk('r15 detecta message interpolado con format()',
+    revisarSql(escribir('m4.sql', msgConFormat), msgConFormat, true).some(x => /R15/.test(x)))
+
+  // R16 — parsear numeros desde message
+  const parseaMessage = `const n = parseFloat(insight.message.replace(/[^0-9.]/g, ''))`
+  chk('r16 detecta parseo de numeros desde message',
+    revisarTs('x.ts', parseaMessage, rutas).some(x => /R16/.test(x)))
+  const usaEvidence = `const n = insight.evidence.dead_value`
+  chk('r16 acepta leer desde evidence',
+    !revisarTs('x.ts', usaEvidence, rutas).some(x => /R16/.test(x)))
+
+  // R18 — formatter de moneda duplicado
+  const formatterAdHoc = `const f = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' })`
+  chk('r18 detecta un formatter de moneda ad-hoc',
+    revisarTs('OtroArchivo.tsx', formatterAdHoc, rutas).some(x => /R18/.test(x)))
+  chk('r18 permite el formatter dentro del presentador canonico',
+    !revisarTs('financeInsightPresentation.ts', formatterAdHoc, rutas).some(x => /R18/.test(x)))
+
+  // R17 — migraciones aplicadas inmutables
+  chk('r17 valida el hash de las migraciones ya aplicadas',
+    revisarInmutables().length === 0)
+
   console.log(fallas === 0 ? '\nself-test OK' : `\nself-test con ${fallas} fallas`)
   process.exit(fallas === 0 ? 0 : 1)
 }
@@ -319,11 +425,16 @@ const tsObjetivo = args.length
   ? args.filter(a => ['.ts', '.tsx'].includes(extname(a)))
   : M8_TS.filter(existsSync)
 
+// El motor VIGENTE es la migración más reciente que redefine la función.
+const defineMotor = a => (leer(a) || '').includes('FUNCTION public.generate_finance_insights')
+const motorVigente = [...sqlObjetivo].filter(defineMotor).sort().pop()
+
 for (const a of sqlObjetivo) {
   const sql = leer(a)
   if (sql === null) { hallazgos.push(`${a}: no se pudo leer`); continue }
-  hallazgos.push(...revisarSql(a, sql))
+  hallazgos.push(...revisarSql(a, sql, a === motorVigente))
 }
+if (!args.length) hallazgos.push(...revisarInmutables())
 for (const a of tsObjetivo) {
   const src = leer(a)
   if (src === null) { hallazgos.push(`${a}: no se pudo leer`); continue }
