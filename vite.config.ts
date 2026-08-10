@@ -56,6 +56,9 @@ export default defineConfig({
           'pdf': ['jspdf', 'jspdf-autotable', 'html2canvas'],
           // Excel
           'excel': ['xlsx'],
+          // Gráficos (Charts L1). Chunk propio para que sólo lo baje quien
+          // abre Finanzas: el bloque se monta con React.lazy.
+          'charts': ['recharts'],
         },
       },
     },

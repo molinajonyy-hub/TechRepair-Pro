@@ -205,9 +205,18 @@ export interface FinanceInsightsPanelProps {
   businessId: string
   periodStart: string
   periodEnd: string
+  /**
+   * Charts L1 (§18): permite que el bloque "Capital en stock" muestre qué parte
+   * del inventario está inmovilizada SIN volver a pedir los insights ni
+   * recalcular la regla `dead_stock` en el frontend. Aditivo y opcional: el
+   * panel se comporta igual si nadie lo pasa.
+   */
+  onInsightsLoaded?: (insights: FinanceInsight[]) => void
 }
 
-export function FinanceInsightsPanel({ businessId, periodStart, periodEnd }: FinanceInsightsPanelProps) {
+export function FinanceInsightsPanel({
+  businessId, periodStart, periodEnd, onInsightsLoaded,
+}: FinanceInsightsPanelProps) {
   const [state, setState] = useState<PanelState>({ s: 'loading' })
   const [busy, setBusy] = useState(false)
   const [calcFor, setCalcFor] = useState<FinanceInsight | null>(null)
@@ -224,7 +233,8 @@ export function FinanceInsightsPanel({ businessId, periodStart, periodEnd }: Fin
     setState(res.insights.length === 0
       ? { s: 'empty', generatedAt: res.generatedAt }
       : { s: 'available', insights: res.insights, generatedAt: res.generatedAt })
-  }, [])
+    onInsightsLoaded?.(res.insights)
+  }, [onInsightsLoaded])
 
   const load = useCallback(async () => {
     if (!businessId || !periodStart || !periodEnd) return
