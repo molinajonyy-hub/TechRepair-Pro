@@ -5,6 +5,7 @@ import {
   type FinanceChartsL1,
 } from '../services/financeChartsService'
 import { logger } from '../lib/logger'
+import { mensajeUsuario } from '../lib/finance/chartsL1Presentation'
 
 // ─── Charts L1 — ciclo de vida del request (§29) ─────────────────────────────
 //
@@ -106,8 +107,11 @@ export function useFinanceChartsL1({
       .then(payload => {
         if (cancelled || myId !== requestId.current) return   // respuesta obsoleta
         if (!payload.ok) {
+          logger.error('FINANCE', 'Charts L1: contrato rechazó los parámetros', { error: payload.error })
           setStatus('unavailable')
-          setError(payload.error)
+          // Sólo se muestra lo que la RPC declara como error de contrato; el
+          // código crudo no es texto de interfaz.
+          setError(mensajeUsuario(payload.error))
           return
         }
         setData(payload)
@@ -118,9 +122,12 @@ export function useFinanceChartsL1({
         if (cancelled || myId !== requestId.current) return
         if (controller.signal.aborted) return                  // cambio de período
         const msg = e instanceof Error ? e.message : 'Error al cargar los gráficos'
+        // El detalle técnico se registra, no se pinta. Un mensaje de PostgREST
+        // ("Could not find the function public.… in the schema cache") no le
+        // dice nada al usuario y filtra internals.
         logger.error('FINANCE', 'Charts L1: carga fallida', { message: msg })
         setStatus(isRestricted(msg) ? 'restricted' : 'unavailable')
-        setError(msg)
+        setError(null)
       })
       .finally(() => {
         if (cancelled || myId !== requestId.current) return

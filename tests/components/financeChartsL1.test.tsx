@@ -193,6 +193,42 @@ describe('Charts L1 — estados (§28)', () => {
     expect(screen.queryByTestId('kpi-net-sales')).toBeNull()
   })
 
+  it('5b. el mensaje CRUDO del backend nunca llega a pantalla', async () => {
+    // String textual devuelto por producción (DB 217, sin la migración 218):
+    // HTTP 404 / PGRST202. Sin sanitizar, cada tarjeta mostraba la firma
+    // interna de la función al usuario.
+    estado.fetch = async () => {
+      throw new Error(
+        'Could not find the function public.get_finance_charts_l1(p_business_id, p_period_end, p_period_start) in the schema cache')
+    }
+    montar()
+    await waitFor(() => {
+      expect(screen.getByTestId('card-result').getAttribute('data-state')).toBe('unavailable')
+    })
+    const t = textoVisible()
+    expect(t).toContain('No pudimos cargar este gráfico')
+    // Nada de internals en la interfaz.
+    expect(t).not.toContain('get_finance_charts_l1')
+    expect(t).not.toContain('schema cache')
+    expect(t).not.toContain('public.')
+    expect(t).not.toContain('PGRST')
+    expect(t).not.toContain('p_business_id')
+    // Y sigue habiendo forma de reintentar.
+    expect(within(screen.getByTestId('card-result')).getByText('Reintentar')).toBeTruthy()
+  })
+
+  it('5c. un error de contrato SÍ se explica, en castellano', async () => {
+    estado.fetch = async () => ({ ok: false as const, error: 'invalid_period' })
+    montar()
+    await waitFor(() => {
+      expect(screen.getByTestId('card-result').getAttribute('data-state')).toBe('unavailable')
+    })
+    const t = textoVisible()
+    expect(t).toContain('El período seleccionado no es válido')
+    // Nunca el código crudo.
+    expect(t).not.toContain('invalid_period')
+  })
+
   it('6. estado restricted ante falta de permisos', async () => {
     estado.fetch = async () => { throw new Error('permission denied for view') }
     montar()

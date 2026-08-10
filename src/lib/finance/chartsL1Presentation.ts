@@ -13,6 +13,28 @@ import type {
 
 export { formatARS, formatNumber, formatPercent, AUSENTE }
 
+// ─── Mensajes de error para el usuario ───────────────────────────────────────
+//
+// El mensaje crudo del backend NUNCA llega a pantalla. PostgREST devuelve cosas
+// como "Could not find the function public.get_finance_charts_l1(...) in the
+// schema cache": no significa nada para el dueño de un taller y expone la firma
+// interna de una función. El detalle técnico va al logger; acá sólo se traduce
+// lo que la propia RPC declara como error de contrato.
+
+const ERRORES_CONTRATO: Record<string, string> = {
+  missing_params: 'Faltan datos para calcular el período.',
+  invalid_period: 'El período seleccionado no es válido: la fecha de inicio es posterior a la de fin.',
+}
+
+/**
+ * Texto mostrable para un error, o `null` si no hay nada seguro que decir —en
+ * cuyo caso la tarjeta muestra sólo su mensaje genérico.
+ */
+export function mensajeUsuario(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  return ERRORES_CONTRATO[raw] ?? null
+}
+
 // ─── Semántica de variación (§6) ─────────────────────────────────────────────
 //
 // Un número que sube NO es verde por defecto. Cada métrica declara qué
