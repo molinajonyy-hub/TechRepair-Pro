@@ -284,6 +284,7 @@ interface ModalNuevaCompraProps {
 
 function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: ModalNuevaCompraProps) {
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0])
+  const [dueDate, setDueDate] = useState('')
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('efectivo')
   const [paidAmount, setPaidAmount] = useState(0)
@@ -342,10 +343,11 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
     const validRows = rows.filter(r => r.product_name.trim() && r.quantity > 0)
     if (validRows.length === 0) { setError('Agregá al menos un producto'); return }
     if (totalAmount <= 0) { setError('El total debe ser mayor a 0'); return }
+    if (dueDate && dueDate < purchaseDate) { setError('El vencimiento no puede ser anterior a la fecha de compra'); return }
     setSaving(true); setError('')
     try {
       await suppliersService.createPurchase(
-        { supplier_id: supplier.id, purchase_date: purchaseDate, invoice_number: invoiceNumber, total_amount: totalAmount, paid_amount: paidAmount, payment_method: paymentMethod, notes, items: validRows.map(r => ({ inventory_id: r.inventory_id, product_name: r.product_name, quantity: r.quantity, unit_cost: r.unit_cost })) },
+        { supplier_id: supplier.id, purchase_date: purchaseDate, due_date: dueDate || null, invoice_number: invoiceNumber, total_amount: totalAmount, paid_amount: paidAmount, payment_method: paymentMethod, notes, items: validRows.map(r => ({ inventory_id: r.inventory_id, product_name: r.product_name, quantity: r.quantity, unit_cost: r.unit_cost })) },
         businessId, userId, supplier.name
       )
       onSaved()
@@ -398,6 +400,24 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
               <div>
                 <label style={lS}>N° Factura / remito</label>
                 <input style={iS} value={invoiceNumber} onChange={e => setInvoiceNumber(e.target.value)} placeholder="A-0001-00123" />
+              </div>
+              {/* M8 — fecha de pago acordada. Opcional a propósito: vacío significa
+                  "no se acordó fecha", que es distinto de "vence ya". Se permiten
+                  fechas pasadas (deuda ya vencida) pero nunca antes de la compra. */}
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={lS} htmlFor="purchase-due-date">Fecha de vencimiento</label>
+                <input
+                  id="purchase-due-date"
+                  data-testid="purchase-due-date"
+                  style={iS}
+                  type="date"
+                  value={dueDate}
+                  min={purchaseDate}
+                  onChange={e => setDueDate(e.target.value)}
+                />
+                <span style={{ display: 'block', marginTop: '0.3rem', fontSize: '0.68rem', color: 'var(--text-subtle)' }}>
+                  Dejalo vacío si no acordaste una fecha de pago
+                </span>
               </div>
             </div>
 
@@ -843,6 +863,15 @@ function ModalVerCompra({ purchase, onClose }: { purchase: SupplierPurchase; onC
       <ModalHeader title={`Compra${purchase.invoice_number ? ' #' + purchase.invoice_number : ''}`} subtitle={fmtDate(purchase.purchase_date)} icon={<FileText size={18} style={{ color: '#818cf8' }} />} onClose={onClose} />
 
       <ModalBody>
+        {/* M8 — vencimiento. "Sin fecha acordada" es un estado real y se muestra
+            como tal: no se infiere ni se presenta como deuda vencida. */}
+        <div data-testid="purchase-due-date-detail" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.875rem' }}>
+          <span className="label-caps">Vencimiento</span>
+          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: purchase.due_date ? 'var(--text-primary)' : 'var(--text-subtle)' }}>
+            {purchase.due_date ? fmtDate(purchase.due_date) : 'Sin fecha acordada'}
+          </span>
+        </div>
+
         {/* Items */}
         <div>
           <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Productos</label>

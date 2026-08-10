@@ -70,8 +70,18 @@ test('FinanceDashboard adapta la RPC v2 y muestra el aviso de cambio de cálculo
   const s = read('src/pages/FinanceDashboard.tsx')
   assert.match(s, /v2\.profitability/)
   assert.match(s, /v_finance_pnl/)
-  assert.match(s, /Actualizamos el cálculo financiero/)
-  assert.match(s, /finance_calc_notice_v2_dismissed/)
+
+  // M8: el aviso ya no está inline en la página. Convivían DOS avisos casi
+  // idénticos y el gate visual exigió dejar uno solo; quedó el componente,
+  // que además despliega la fórmula y recuerda el descarte por negocio.
+  // La intención del test no cambia: el aviso se sigue mostrando en /finance.
+  assert.match(s, /<AccountingChangeBanner\b/, 'el dashboard debe montar el banner')
+  assert.ok(!/Actualizamos el cálculo financiero/.test(s.replace(/\/\*[\s\S]*?\*\//g, '')),
+    'el aviso no puede volver a estar inline en la página (duplicaría el banner)')
+
+  const banner = read('src/components/finance/AccountingChangeBanner.tsx')
+  assert.match(banner, /Actualizamos el cálculo financiero/)
+  assert.match(banner, /Ver cómo se calcula/)
 })
 
 test('las migraciones canónicas existen con el orden esperado', () => {
