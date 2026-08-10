@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, lazy, Suspense } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  RefreshCw, TrendingUp, TrendingDown, DollarSign, ShieldCheck,
-  AlertCircle, AlertTriangle, ArrowUpRight, ArrowDownRight,
-  CreditCard, Banknote, Wallet, RotateCcw, Truck, Receipt,
+  RefreshCw, TrendingUp, ShieldCheck,
+  AlertCircle, AlertTriangle, ArrowUpRight,
+  CreditCard, Banknote, Wallet, RotateCcw, Truck,
   Calendar, ChevronRight, CheckCircle2, Info,
   ShoppingCart, FileText, Activity,
 } from 'lucide-react'
@@ -11,13 +11,17 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { AccountingChangeBanner } from '../components/finance/AccountingChangeBanner'
 import { FinanceInsightsPanel } from '../components/finance/FinanceInsightsPanel'
+import type { FinanceInsight } from '../services/insightsService'
+
+// Charts L1 — Recharts pesa lo suyo, así que el bloque entero se carga bajo
+// demanda: sólo lo baja quien abre Finanzas, y en su propio chunk.
+const FinanceChartsL1 = lazy(() => import('../components/finance/charts/FinanceChartsL1'))
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type FinanceTab = 'resumen' | 'caja' | 'ventas' | 'gastos' | 'movimientos' | 'auditoria'
 type PeriodPreset = 'today' | 'yesterday' | 'week' | 'month' | 'last_month' | 'custom'
 
-interface DailySeries { date: string; income: number; expense: number; net: number }
 interface ExpenseCat  { category: string; total: number }
 interface TopMethod   { method: string; total: number }
 
@@ -35,7 +39,6 @@ interface DashboardData {
   }
   expenses_by_category: ExpenseCat[]
   top_payment_methods:  TopMethod[]
-  daily_series:         DailySeries[]
   alerts: { critical: number; warning: number; low: number }
 }
 
@@ -124,67 +127,9 @@ const HEALTH_CFG: Record<CheckStatus, { color: string; bg: string; label: string
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function DailyChart({ data }: { data: DailySeries[] }) {
-  if (!data.length) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 160 }}>
-      <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-subtle)' }}>Sin movimientos en el período seleccionado</p>
-    </div>
-  )
-  const maxVal = Math.max(...data.flatMap(d => [d.income, d.expense]), 1)
-  const W = 600; const H = 160; const pL = 52; const pR = 12; const pT = 12; const pB = 32
-  const chartW = W - pL - pR; const chartH = H - pT - pB
-  const slotW = chartW / data.length; const barW = Math.max(3, Math.min(18, slotW * 0.35))
-  const gap = Math.max(1, slotW * 0.08)
-  const yScale = (v: number) => chartH - (v / maxVal) * chartH
-  const labelStep = Math.max(1, Math.ceil(data.length / 8))
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }} data-testid="finance-dashboard-daily-chart">
-      {[0, 0.25, 0.5, 0.75, 1].map((f, i) => {
-        const y = pT + yScale(maxVal * f)
-        return <g key={i}>
-          <line x1={pL} x2={W - pR} y1={y} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" strokeDasharray="3 3" />
-          {i > 0 && <text x={pL - 4} y={y + 4} textAnchor="end" style={{ fontSize: 9, fill: 'var(--text-subtle)', fontFamily: 'monospace' }}>{fmtShort(maxVal * f)}</text>}
-        </g>
-      })}
-      {data.map((d, i) => {
-        const cx = pL + i * slotW + slotW / 2
-        return <g key={d.date}>
-          <rect x={cx - barW - gap / 2} y={pT + yScale(d.income)} width={barW} height={Math.max(1, (d.income / maxVal) * chartH)} fill="rgba(34,197,94,0.7)" rx="2" />
-          <rect x={cx + gap / 2} y={pT + yScale(d.expense)} width={barW} height={Math.max(1, (d.expense / maxVal) * chartH)} fill="rgba(239,68,68,0.65)" rx="2" />
-          {i % labelStep === 0 && <text x={cx} y={H - 4} textAnchor="middle" style={{ fontSize: 8, fill: 'var(--text-subtle)', fontFamily: 'monospace' }}>{fmtDate(d.date)}</text>}
-        </g>
-      })}
-      <g>
-        <rect x={pL} y={2} width={8} height={8} fill="rgba(34,197,94,0.7)" rx="1" />
-        <text x={pL + 11} y={10} style={{ fontSize: 9, fill: 'var(--text-muted)' }}>Ingresos</text>
-        <rect x={pL + 68} y={2} width={8} height={8} fill="rgba(239,68,68,0.65)" rx="1" />
-        <text x={pL + 79} y={10} style={{ fontSize: 9, fill: 'var(--text-muted)' }}>Egresos</text>
-      </g>
-    </svg>
-  )
-}
-
-function SummaryCard({ label, value, color, icon, sub, testId }: {
-  label: string; value: string; color: string
-  icon: React.ReactNode; sub?: string; testId?: string
-}) {
-  return (
-    <div data-testid={testId || 'finance-dashboard-summary-card'} style={{
-      background: 'var(--bg-card-solid)', border: '1px solid var(--border-color)',
-      borderRadius: 'var(--radius-lg)', padding: '1rem 1.1rem',
-      display: 'flex', alignItems: 'center', gap: '0.875rem',
-    }}>
-      <div style={{ width: 38, height: 38, borderRadius: 'var(--radius-md)', flexShrink: 0, background: color + '1a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <span style={{ color }}>{icon}</span>
-      </div>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.15rem' }}>{label}</div>
-        <div style={{ fontSize: '1.15rem', fontWeight: 800, color, fontFamily: 'monospace', lineHeight: 1 }}>{value}</div>
-        {sub && <div style={{ fontSize: '0.68rem', color: 'var(--text-subtle)', marginTop: '0.15rem' }}>{sub}</div>}
-      </div>
-    </div>
-  )
-}
+// SummaryCard se retiró junto con la fila legacy de KPI del Resumen: su único
+// consumidor eran esas tarjetas. La banda KPI canónica vive en
+// components/finance/charts/KpiBand.tsx.
 
 function CashCard({ method, amount }: { method: string; amount: number }) {
   const color = METHOD_COLORS[method] || METHOD_COLORS.otro
@@ -266,6 +211,17 @@ export function FinanceDashboard() {
   // ── Movements filter ──
   const [mvFilter, setMvFilter] = useState<'all' | 'income' | 'expense' | 'reversal'>('all')
 
+  // ── Charts L1 (§18) ──
+  // Valor inmovilizado según la regla `dead_stock` de M8. Se toma del panel de
+  // insights que ya está montado: no se vuelve a pedir ni se recalcula la regla
+  // en el frontend. null = la regla no disparó, y entonces no se afirma nada.
+  const [deadStockValue, setDeadStockValue] = useState<number | null>(null)
+  const handleInsights = useCallback((insights: FinanceInsight[]) => {
+    const ds = insights.find(i => i.rule_id === 'dead_stock')
+    const v = ds?.evidence?.dead_value
+    setDeadStockValue(typeof v === 'number' && Number.isFinite(v) ? v : null)
+  }, [])
+
   const { from, to } = preset === 'custom'
     ? { from: customFrom, to: customTo }
     : getDateRange(preset)
@@ -277,9 +233,14 @@ export function FinanceDashboard() {
     try {
       // Etapa 1: la RPC v2 devuelve secciones canónicas (profitability/cashflow/
       // position/data_quality). Se ADAPTAN a la forma DashboardData que consume
-      // esta pantalla, sin sumar dinero en JS: rentabilidad y caja salen de las
-      // vistas v_finance_*; la serie diaria de v_finance_pnl (≤31 filas).
-      const [rpcRes, { data: mvmts }, { data: debt }, { data: pnlDaily }] = await Promise.all([
+      // esta pantalla, sin sumar dinero en JS.
+      //
+      // Charts L1: acá había una cuarta consulta a v_finance_pnl cuya serie
+      // diaria se armaba sumando cogs + payment_fees + operating_expenses +
+      // employee_salaries EN JAVASCRIPT. Eso es reconstruir el P&L en el
+      // cliente. La serie ahora la entrega get_finance_charts_l1 ya calculada,
+      // así que la consulta se retiró junto con el gráfico que la consumía.
+      const [rpcRes, { data: mvmts }, { data: debt }] = await Promise.all([
         supabase.rpc('finance_dashboard_summary', { p_business_id: businessId, p_date_from: from, p_date_to: to }),
         supabase
           .from('financial_movements')
@@ -292,12 +253,6 @@ export function FinanceDashboard() {
           .select('pending_amount')
           .eq('business_id', businessId)
           .neq('payment_status', 'paid'),
-        supabase
-          .from('v_finance_pnl')
-          .select('period_date,net_sales,cogs,payment_fees,operating_expenses,employee_salaries')
-          .eq('business_id', businessId)
-          .gte('period_date', from).lte('period_date', to)
-          .order('period_date', { ascending: true }),
       ])
       const v2 = rpcRes.data as any
       if (rpcRes.error) throw new Error(rpcRes.error.message)
@@ -309,12 +264,6 @@ export function FinanceDashboard() {
       const byClass  = (cash.by_class  || {}) as Record<string, number>
       const dq = v2.data_quality || {}
       const num = (x: any) => Number(x) || 0
-
-      const dailySeries: DailySeries[] = (pnlDaily || []).map((r: any) => {
-        const income = num(r.net_sales)
-        const expense = num(r.cogs) + num(r.payment_fees) + num(r.operating_expenses) + num(r.employee_salaries)
-        return { date: r.period_date, income, expense, net: income - expense }
-      })
 
       const adapted: DashboardData = {
         period: v2.period,
@@ -337,7 +286,6 @@ export function FinanceDashboard() {
         top_payment_methods: Object.entries(byMethod)
           .map(([method, total]) => ({ method, total: Number(total) }))
           .filter(m => m.total > 0).sort((a, b) => b.total - a.total).slice(0, 5),
-        daily_series: dailySeries,
         alerts: {
           critical: num(dq.comprobantes_desincronizados) > 0 ? 1 : 0,
           warning:  num(dq.unclassified_count) > 0 || num(dq.fm_sin_caja) > 0 ? 1 : 0,
@@ -503,65 +451,82 @@ export function FinanceDashboard() {
               contar problemas. Se monta fuera del `data &&` a propósito: si el
               resumen falla, el análisis igual debe poder decir lo que sabe. */}
           {businessId && from && to && (
-            <FinanceInsightsPanel businessId={businessId} periodStart={from} periodEnd={to} />
+            <FinanceInsightsPanel
+              businessId={businessId}
+              periodStart={from}
+              periodEnd={to}
+              onInsightsLoaded={handleInsights}
+            />
           )}
 
           {data && (
             <>
-              {/* M8 — el banner binario de alertas se retiró de acá: sus dos casos
-                  (integridad crítica / facturas de proveedor pendientes) los cubre
-                  ahora FinanceInsightsPanel con evidencia y umbral explícitos vía
-                  las reglas `data_quality` y `supplier_crunch`. Mantener ambos
-                  sistemas mostraría el mismo problema dos veces con criterios
-                  distintos. El contador sigue vivo en la tarjeta "Alertas activas"
-                  y en la pestaña Auditoría, que no son banners. */}
+              {/* ── La fila legacy de KPI se retiró acá ──────────────────────
+                  La banda KPI de Charts L1 es ahora la superficie canónica del
+                  Resumen. Convivían mostrando el MISMO `net_sales` bajo dos
+                  nombres ("Ingresos brutos" vs "Ingresos netos"), y el legacy
+                  además estaba mal etiquetado: leía `prof.net_sales` y lo
+                  llamaba bruto.
 
-              {/* Summary cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.875rem', marginBottom: '0.875rem' }}>
-                <SummaryCard testId="finance-dashboard-income-card" label="Ingresos brutos" value={fmtShort(data.summary.gross_income)} color="#22c55e" icon={<TrendingUp size={17} />} sub={data.top_payment_methods[0] ? (METHOD_LABELS[data.top_payment_methods[0].method] || data.top_payment_methods[0].method) + ' principal' : undefined} />
-                <SummaryCard testId="finance-dashboard-expense-card" label="Egresos" value={fmtShort(data.summary.expenses)} color="#ef4444" icon={<TrendingDown size={17} />} sub={`Proveedores: ${fmtShort(data.summary.supplier_payments)}`} />
-                <SummaryCard testId="finance-dashboard-net-card" label="Resultado neto" value={fmtShort(data.summary.net_result)} color={data.summary.net_result >= 0 ? '#34d399' : '#ef4444'} icon={data.summary.net_result >= 0 ? <ArrowUpRight size={17} /> : <ArrowDownRight size={17} />} sub={data.summary.net_result >= 0 ? 'Superávit' : 'Déficit'} />
-                <SummaryCard label="Ventas cobradas" value={fmtShort(data.sales.total_collected)} color="#818cf8" icon={<Receipt size={17} />} sub={`${data.sales.count} comprobante${data.sales.count !== 1 ? 's' : ''}`} />
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.875rem', marginBottom: '1.5rem' }}>
-                {data.summary.credit_notes_total > 0 && <SummaryCard label="NC / Reversas" value={fmtShort(data.summary.credit_notes_total)} color="#f59e0b" icon={<RotateCcw size={17} />} sub={`${data.sales.nc_count} nota${data.sales.nc_count !== 1 ? 's' : ''}`} />}
-                <SummaryCard label="Pendiente ventas" value={fmtShort(data.sales.pending_total)} color={data.sales.pending_total > 0 ? '#f87171' : '#34d399'} icon={<DollarSign size={17} />} sub="Saldo por cobrar" />
-                {supplierDebt > 0 && <SummaryCard label="Deuda proveedores" value={fmtShort(supplierDebt)} color="#fb923c" icon={<Truck size={17} />} sub="Pendiente total" />}
-                <SummaryCard label={hasAlerts ? 'Alertas activas' : 'Auditoría'} value={hasAlerts ? String(data.alerts.critical + data.alerts.warning) : 'OK'} color={data.alerts.critical > 0 ? '#ef4444' : data.alerts.warning > 0 ? '#f59e0b' : '#34d399'} icon={<ShieldCheck size={17} />} sub={hasAlerts ? 'Ver auditoría' : 'Sin problemas'} />
-              </div>
+                  Ninguna métrica se perdió. Dónde vive ahora cada una:
 
-              {/* Cash by method */}
-              <div data-testid="finance-dashboard-cash-methods" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.875rem', marginBottom: '1.5rem' }}>
+                    Ingresos brutos    → KPI "Ingresos netos" (L1)
+                    Resultado neto     → KPI "Resultado operativo" (L1)
+                    Ventas cobradas    → KPI "Cobros" (L1, definición canónica:
+                                         cobros de ventas, no caja total) y
+                                         pestaña Caja
+                    Egresos            → waterfall "Cómo se construyó tu
+                                         resultado" (COGS + gastos) y pestaña
+                                         Gastos
+                    · sub Proveedores  → pestaña Gastos, "Pagos a proveedores"
+                    Pendiente ventas   → tarjeta "Cuentas por cobrar" (L1)
+                    Deuda proveedores  → tarjeta "Deuda con proveedores" (L1)
+                    NC / Reversas      → pestaña Ventas (contador + aviso)
+                    Alertas / Auditoría→ badge en la pestaña Auditoría, que ya
+                                         muestra el mismo contador
+
+                  Los contratos y las consultas NO se tocaron: `data` sigue
+                  alimentando Caja, Ventas y Gastos. */}
+
+              {/* Cash by method — caja por medio de pago. NO lo cubre L1
+                  ("Cómo cobraste" son cobros de ventas, no saldos de caja),
+                  así que se mantiene.
+
+                  `repeat(4, 1fr)` fijo se comía dos de las cuatro tarjetas en
+                  390px: `1fr` no baja del min-content de la tarjeta, el grid
+                  quedaba en ~600px y `body { overflow-x: hidden }` recortaba el
+                  resto SIN scrollbar — o sea, plata que desaparecía de la
+                  pantalla sin ninguna señal. Con auto-fit envuelve a 2x2. */}
+              <div data-testid="finance-dashboard-cash-methods" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.875rem', marginBottom: '1.5rem' }}>
                 {cashMethods.map(({ method, amount }) => <CashCard key={method} method={method} amount={amount} />)}
               </div>
 
-              {/* Charts */}
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-                <div style={{ background: 'var(--bg-card-solid)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', padding: '1.25rem' }}>
-                  <h3 style={{ margin: '0 0 0.875rem', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Ingresos vs Egresos diarios</h3>
-                  <DailyChart data={data.daily_series} />
-                </div>
-                <div style={{ background: 'var(--bg-card-solid)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-lg)', padding: '1.25rem' }}>
-                  <h3 style={{ margin: '0 0 0.875rem', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Egresos por categoría</h3>
-                  {data.expenses_by_category.length === 0
-                    ? <p style={{ color: 'var(--text-subtle)', fontSize: '0.8rem', margin: 0 }}>Sin egresos registrados.</p>
-                    : <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-                        {data.expenses_by_category.map(({ category, total }) => (
-                          <div key={category}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.15rem' }}>
-                              <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 600 }}>{category}</span>
-                              <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{fmtShort(total)}</span>
-                            </div>
-                            <div style={{ height: 5, borderRadius: 9999, background: 'var(--bg-hover)', overflow: 'hidden' }}>
-                              <div style={{ height: '100%', borderRadius: 9999, width: `${(total / expMaxTotal) * 100}%`, background: 'linear-gradient(90deg,#f59e0b,#ef4444)' }} />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                  }
-                </div>
-              </div>
             </>
+          )}
+
+          {/* ── Charts L1 ──
+              Se monta fuera del `data &&` a propósito, igual que el panel M8:
+              tiene su propia fuente canónica y sus propios estados, así que si
+              el resumen de arriba falla, los gráficos igual pueden mostrar lo
+              que saben. */}
+          {businessId && from && to && (
+            <div style={{ marginTop: '1.5rem' }}>
+              <Suspense
+                fallback={
+                  <div className="es" style={{ minHeight: 200 }}>
+                    <RefreshCw size={22} className="animate-spin es-icon" style={{ opacity: 1, color: '#818cf8' }} />
+                    <p className="es-text" style={{ margin: 0 }}>Cargando gráficos…</p>
+                  </div>
+                }
+              >
+                <FinanceChartsL1
+                  businessId={businessId}
+                  periodStart={from}
+                  periodEnd={to}
+                  deadStockValue={deadStockValue}
+                />
+              </Suspense>
+            </div>
           )}
         </>
       )}

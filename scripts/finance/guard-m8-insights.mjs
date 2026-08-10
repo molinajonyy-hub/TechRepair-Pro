@@ -73,6 +73,12 @@ const REGLAS_ESPERADAS = [
 
 const LIBS_GRAFICOS = ['recharts', 'chart.js', 'victory', 'nivo', 'echarts', 'plotly', 'd3-sankey', 'apexcharts']
 
+// Charts L1 eligio UNA libreria de graficos para todo el repo. R10 sigue
+// prohibiendo que los ARCHIVOS de M8 la importen (M8 no dibuja nada), pero ya no
+// puede prohibir que exista en package.json: eso ahora lo gobierna
+// guard-charts-l1.mjs R16, que exige que sea exactamente una.
+const LIB_GRAFICOS_L1 = 'recharts'
+
 const leer = p => { try { return readFileSync(p, 'utf8') } catch { return null } }
 
 function listar(dir, exts) {
@@ -441,11 +447,15 @@ for (const a of tsObjetivo) {
   hallazgos.push(...revisarTs(a, src, rutas))
 }
 
-// R10 global: la libreria de graficos tampoco puede entrar por package.json.
+// R10 global: ninguna libreria de graficos AJENA a la elegida por Charts L1
+// puede entrar por package.json. La elegida se permite (y guard-charts-l1 R16
+// verifica que siga siendo la unica); los archivos de M8 igual no pueden
+// importarla, cosa que revisa revisarTs() mas arriba.
 const pkg = leer('package.json')
 if (pkg) {
   const deps = { ...(JSON.parse(pkg).dependencies || {}), ...(JSON.parse(pkg).devDependencies || {}) }
   for (const lib of LIBS_GRAFICOS) {
+    if (lib === LIB_GRAFICOS_L1) continue
     if (deps[lib]) hallazgos.push(`package.json: R10 se instalo la libreria de graficos "${lib}"; M8 no implementa graficos`)
   }
 }
