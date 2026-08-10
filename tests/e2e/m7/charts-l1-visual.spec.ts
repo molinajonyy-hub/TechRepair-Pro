@@ -123,6 +123,43 @@ test.describe('@visual-l1 Charts L1 — gate visual', () => {
           document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)
         expect(desborda, `hay scroll horizontal en ${vp.width}px`).toBe(false)
 
+        // ── Y sin contenido INALCANZABLE ──
+        // La ausencia de scroll horizontal no alcanza como prueba: `body` tiene
+        // overflow-x:hidden, así que un grid de columnas fijas no genera scroll
+        // pero igual se come lo que no entra. Acá se busca contenido que quede
+        // fuera del viewport Y no sea recuperable por ningún ancestro con
+        // scroll horizontal propio (la barra de pestañas, por ejemplo, es
+        // deliberadamente scrolleable y no cuenta como defecto).
+        const clipeados = await page.evaluate(() => {
+          const limite = document.documentElement.clientWidth + 1
+          const raiz = document.querySelector('[data-testid="finance-dashboard-page"]')
+          if (!raiz) return ['no se encontró finance-dashboard-page']
+
+          const alcanzablePorScroll = (el: Element): boolean => {
+            let p: Element | null = el.parentElement
+            while (p && p !== document.documentElement) {
+              const ox = getComputedStyle(p).overflowX
+              if ((ox === 'auto' || ox === 'scroll') && p.scrollWidth > p.clientWidth + 1) return true
+              p = p.parentElement
+            }
+            return false
+          }
+
+          const out: string[] = []
+          for (const el of Array.from(raiz.querySelectorAll('*'))) {
+            const r = el.getBoundingClientRect()
+            if (r.width <= 0 || r.height <= 0) continue
+            if (getComputedStyle(el).position === 'fixed') continue
+            if (r.right <= limite) continue
+            if (alcanzablePorScroll(el)) continue
+            const id = el.getAttribute('data-testid')
+            const desc = id ?? `${el.tagName.toLowerCase()}"${(el.textContent ?? '').trim().slice(0, 24)}"`
+            out.push(`${desc} (right=${Math.round(r.right)} > ${Math.round(limite)})`)
+          }
+          return [...new Set(out)].slice(0, 8)
+        })
+        expect(clipeados, `bloques cortados en ${vp.width}px: ${clipeados.join(' · ')}`).toEqual([])
+
         // ── Evidencia ──
         await page.screenshot({
           path: `tests/e2e/evidencia/charts-l1/${vp.nombre}-${tema}.png`,
@@ -137,11 +174,29 @@ test.describe('@visual-l1 Charts L1 — gate visual', () => {
     }
   }
 
-  test('el bloque no rompe el panel M8 ni el resumen legacy', async ({ page }) => {
+  test('una sola banda KPI, sin la fila legacy duplicada, y M8 intacto', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await irAFinanzas(page, 'light')
+
     // M8 sigue montado por encima de los gráficos.
-    await expect(page.getByTestId('finance-dashboard-income-card')).toBeVisible()
+    await expect(page.getByTestId('finance-insights-panel')).toBeVisible()
     await expect(page.getByTestId('finance-charts-l1')).toBeVisible()
+
+    // Exactamente UNA banda de KPI: la de Charts L1.
+    await expect(page.getByTestId('charts-l1-kpi-band')).toHaveCount(1)
+    await expect(page.getByTestId('finance-dashboard-income-card')).toHaveCount(0)
+    await expect(page.getByTestId('finance-dashboard-summary-card')).toHaveCount(0)
+    await expect(page.getByText('Ingresos brutos', { exact: false })).toHaveCount(0)
+
+    // La caja por medio de pago NO es un KPI duplicado: se mantiene.
+    await expect(page.getByTestId('finance-dashboard-cash-methods')).toBeVisible()
+
+    // Semántica endurecida de Capital en stock.
+    const capital = await page.getByTestId('card-inventory-capital').innerText()
+    expect(capital).toContain('según los costos registrados actualmente')
+    expect(capital).not.toMatch(/valor\s+(actual\s+)?de\s+reposición/i)
+    expect(capital).not.toMatch(/costo\s+de\s+reposición/i)
+    expect(capital).not.toMatch(/ajustad[oa]s?\s+al\s+dólar/i)
+    expect(capital).not.toContain('costo vigente')
   })
 })

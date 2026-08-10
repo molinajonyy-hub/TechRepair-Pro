@@ -368,8 +368,9 @@ describe('Charts L1 — números y semántica', () => {
     montar()
     await waitFor(() => expect(screen.getByTestId('kpi-inventory-capital')).toBeTruthy())
     const kpi = within(screen.getByTestId('kpi-inventory-capital'))
-    // Sin flecha de tendencia: sólo la aclaración neutral.
-    expect(kpi.getByText(/Mercadería valuada a costo vigente/)).toBeTruthy()
+    // Sin flecha de tendencia: sólo la aclaración neutral sobre el origen del
+    // dato, que además no promete reposición.
+    expect(kpi.getByText(/Según los costos registrados actualmente/)).toBeTruthy()
     expect(kpi.queryByText(/vs período anterior/)).toBeNull()
   })
 
@@ -397,20 +398,34 @@ describe('Charts L1 — inventario (§13, §15, §16, §21)', () => {
     expect(capitalCoverage(cap).incomplete).toBe(false)
   })
 
-  it('24. con productos en dólares se explica que el valor puede cambiar sin movimientos', async () => {
+  it('24. con costos dolarizados se avisa que pueden variar, sin alarmismo', async () => {
     montar()
     await waitFor(() => expect(screen.getByTestId('inventory-capital-block')).toBeTruthy())
-    expect(textoVisible()).toContain('actualización de costos o tipo de cambio')
+    expect(textoVisible()).toContain('Algunos costos pueden variar al actualizarse su cotización')
   })
 
-  it('24b. sin productos dolarizados NO aparece la nota de FX', async () => {
+  it('24b. sin productos dolarizados NO aparece la nota de cotización', async () => {
     estado.fetch = async () => ({
       ...PAYLOAD(),
       inventory_capital: { ...PAYLOAD().inventory_capital, usd_based_products: 0 },
     })
     montar()
     await waitFor(() => expect(screen.getByTestId('inventory-capital-block')).toBeTruthy())
-    expect(textoVisible()).not.toContain('tipo de cambio')
+    expect(textoVisible()).not.toContain('cotización')
+  })
+
+  it('24c. la descripción canónica no promete valor de reposición ni ajuste al dólar', async () => {
+    montar()
+    await waitFor(() => expect(screen.getByTestId('inventory-capital-block')).toBeTruthy())
+    const t = textoVisible()
+    // Lo que SÍ se afirma: costos registrados en el sistema.
+    expect(t).toContain('Valor de la mercadería disponible según los costos registrados actualmente')
+    // Lo que NUNCA se afirma: el servidor no puede demostrar ninguna de estas.
+    expect(t).not.toMatch(/valor\s+(actual\s+)?de\s+reposición/i)
+    expect(t).not.toMatch(/costo\s+de\s+reposición/i)
+    expect(t).not.toMatch(/ajustad[oa]s?\s+al\s+dólar/i)
+    expect(t).not.toMatch(/cotización\s+de\s+hoy/i)
+    expect(t).not.toContain('costo vigente')
   })
 
   it('25. reposición sin consumo: sin Infinity y con motivo', async () => {

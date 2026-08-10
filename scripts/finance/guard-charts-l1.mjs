@@ -32,6 +32,10 @@
 //   R17. se modifica una migración M8 ya aplicada a producción.
 //   R18. se formatean importes con to_char/format en SQL (el locale del server
 //        es en_US: el formato es responsabilidad del frontend).
+//   R19. se le promete al usuario que "Capital en stock" es valor/costo de
+//        REPOSICIÓN o que está ajustado al dólar de hoy. La métrica es
+//        stock x costo REGISTRADO, y no hay fuente FX server-side que pueda
+//        respaldar esa afirmación.
 //
 //   node scripts/finance/guard-charts-l1.mjs [archivo|dir ...]
 //   node scripts/finance/guard-charts-l1.mjs --self-test
@@ -126,6 +130,39 @@ function denominacionProhibida(texto) {
   return hits
 }
 
+/**
+ * R19 — frases que prometen reposición o revaluación FX.
+ *
+ * "Capital en stock" es `stock_quantity × cost_price`: el valor según los costos
+ * REGISTRADOS. Llamarlo valor/costo de reposición, o decir que está ajustado al
+ * dólar, promete algo que el servidor no puede demostrar — no existe fuente de
+ * cotización server-side.
+ *
+ * Se busca sólo en el entorno de la métrica (mercadería / stock / inventario /
+ * capital) para no acusar a un texto de compras, que sí habla de reposición
+ * legítimamente ("las compras repusieron menos inventario del que salió").
+ */
+const PROMESAS_REPOSICION = [
+  /valor\s+(actual\s+)?de\s+reposici[oó]n/gi,
+  /costo\s+de\s+reposici[oó]n(\s+vigente)?/gi,
+  /reposici[oó]n\s+vigente/gi,
+  /ajustad[oa]s?\s+al\s+d[oó]lar/gi,
+  /valuad[oa]s?\s+al\s+d[oó]lar/gi,
+  /cotizaci[oó]n\s+(de\s+)?hoy/gi,
+  /al\s+d[oó]lar\s+de\s+hoy/gi,
+  /precio\s+de\s+reposici[oó]n/gi,
+]
+
+function promesaDeReposicion(texto) {
+  const hits = []
+  for (const re of PROMESAS_REPOSICION) {
+    re.lastIndex = 0
+    let m
+    while ((m = re.exec(texto)) !== null) hits.push(m[0].replace(/\s+/g, ' '))
+  }
+  return hits
+}
+
 function listarArchivos(ruta) {
   if (!existsSync(ruta)) return []
   if (statSync(ruta).isFile()) return [ruta]
@@ -176,6 +213,14 @@ export function revisarSql(ruta, src) {
   // R18 — formato monetario en SQL
   if (/to_char\s*\([^)]*(FM)?9{1,3}[G,]/i.test(c)) {
     f.push(`R18 ${nombre}: formatea importes con to_char (el formato es-AR vive en el frontend)`)
+  }
+
+  // R19 — promesa de reposición / revaluación FX en comentarios de contrato
+  for (const t of promesaDeReposicion(c)) {
+    const idx = c.toLowerCase().indexOf(t.toLowerCase())
+    const antes = c.slice(Math.max(0, idx - 80), idx)
+    if (NEGACION.test(antes)) continue
+    f.push(`R19 ${nombre}: promete "${t}"; el contrato valua a costo REGISTRADO, no de reposición`)
   }
 
   // R5 — FX aplicado en SQL sobre historia
@@ -278,6 +323,14 @@ export function revisarTs(ruta, src) {
   // R12 — denominación prohibida (menciones negadas no cuentan)
   for (const t of denominacionProhibida(c)) {
     f.push(`R12 ${nombre}: llama "${t}" a lo que es sólo inventario`)
+  }
+
+  // R19 — promesa de reposición / revaluación FX (menciones negadas no cuentan)
+  for (const t of promesaDeReposicion(c)) {
+    const idx = c.toLowerCase().indexOf(t.toLowerCase())
+    const antes = c.slice(Math.max(0, idx - 80), idx)
+    if (NEGACION.test(antes)) continue
+    f.push(`R19 ${nombre}: promete "${t}"; Capital en stock es stock x costo REGISTRADO, no reposición`)
   }
 
   // R13 — Realtime agregado por el bloque de gráficos
@@ -472,6 +525,33 @@ function selfTest() {
     revisarSql('m.sql', `SELECT to_char(total,'FM999G999D00') FROM v;`).some(x => /R18/.test(x)))
   chk('r18 acepta SQL que devuelve numeros',
     !revisarSql('m.sql', `SELECT round(total,2) AS total FROM v;`).some(x => /R18/.test(x)))
+
+  // R19
+  chk('r19 detecta "valor de reposicion"',
+    revisarTs('x.tsx', `const d = 'Valor de reposición de la mercadería'`).some(x => /R19/.test(x)))
+  chk('r19 detecta "costo de reposicion vigente"',
+    revisarTs('x.tsx', `const d = 'Stock al costo de reposición vigente'`).some(x => /R19/.test(x)))
+  chk('r19 detecta "ajustado al dolar"',
+    revisarTs('x.tsx', `const d = 'Inventario ajustado al dólar'`).some(x => /R19/.test(x)))
+  chk('r19 detecta "cotizacion de hoy"',
+    revisarTs('x.tsx', `const d = 'Valuado a la cotización de hoy'`).some(x => /R19/.test(x)))
+  chk('r19 detecta la promesa en un COMMENT de SQL',
+    revisarSql('m.sql',
+      `COMMENT ON VIEW v IS 'inventario a valor de reposicion';`).some(x => /R19/.test(x)))
+  chk('r19 acepta la descripcion canonica',
+    !revisarTs('x.tsx',
+      `const d = 'Valor de la mercadería disponible según los costos registrados actualmente en TechRepair Pro.'`)
+      .some(x => /R19/.test(x)))
+  chk('r19 acepta la nota de cotizacion no alarmista',
+    !revisarTs('x.tsx',
+      `const n = 'Algunos costos pueden variar al actualizarse su cotización.'`).some(x => /R19/.test(x)))
+  chk('r19 NO acusa al texto de reposicion de INVENTARIO (compras vs consumo)',
+    !revisarTs('x.tsx',
+      `const t = 'las compras repusieron menos inventario del que salió por operación'`)
+      .some(x => /R19/.test(x)))
+  chk('r19 acepta la mencion NEGADA',
+    !revisarSql('m.sql',
+      `COMMENT ON VIEW v IS 'Costo registrado. NO es valor de reposicion.';`).some(x => /R19/.test(x)))
 
   // Un comentario que menciona lo prohibido NO puede hacer fallar al guard.
   chk('los comentarios no disparan falsos positivos',

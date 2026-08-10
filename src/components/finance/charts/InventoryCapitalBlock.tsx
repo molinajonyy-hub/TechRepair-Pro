@@ -3,7 +3,7 @@ import { Package, Info } from 'lucide-react'
 import { colors, radius, fontSize } from '../../../lib/tokens'
 import {
   CHART_COLORS, formatARS, formatNumber, formatPercent, formatAxisARS,
-  replenishmentText, fxNote, capitalCoverage,
+  replenishmentText, fxNote, capitalCoverage, CAPITAL_DESCRIPCION,
 } from '../../../lib/finance/chartsL1Presentation'
 import { FinanceTooltip } from './FinanceTooltip'
 import type { InventoryCapital, InventoryFlows } from '../../../services/financeChartsService'
@@ -49,7 +49,7 @@ export function InventoryCapitalBlock({ capital, flows }: InventoryCapitalBlockP
             {formatARS(capital.inventory_at_cost)}
           </div>
           <p style={{ margin: '0.2rem 0 0', fontSize: fontSize.sm, color: colors.text.muted, lineHeight: 1.45 }}>
-            Mercadería disponible valuada a costo vigente.
+            {CAPITAL_DESCRIPCION}
           </p>
         </div>
       </div>
@@ -200,8 +200,9 @@ function ReplenishmentBars({ flows }: { flows: InventoryFlows }) {
 /** Resumen textual accesible (§31). */
 export function inventorySummaryText(capital: InventoryCapital, flows: InventoryFlows): string {
   const base =
-    `Actualmente hay ${formatARS(capital.inventory_at_cost)} de mercadería valuada a costo vigente, ` +
-    `sobre ${formatNumber(capital.products_valued, 0)} de ${formatNumber(capital.products_total, 0)} ` +
+    `Actualmente hay ${formatARS(capital.inventory_at_cost)} en mercadería disponible, ` +
+    `valuada según los costos registrados en el sistema, sobre ` +
+    `${formatNumber(capital.products_valued, 0)} de ${formatNumber(capital.products_total, 0)} ` +
     `productos con costo cargado.`
   if (flows.replenishment_pct === null) {
     return `${base} En el período no hubo consumo comparable para calcular la reposición.`

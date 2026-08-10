@@ -220,10 +220,32 @@ export function replenishmentText(flows: InventoryFlows | null | undefined): str
   return 'Las compras del período superaron el consumo de inventario.'
 }
 
-/** Nota de FX (§21): sólo cuando hay productos dolarizados que la justifiquen. */
+// ─── Semántica de Capital en stock ───────────────────────────────────────────
+//
+// La métrica es `stock_quantity × cost_price`: el valor de la mercadería según
+// los costos que HOY están cargados en cada producto. No es —y no puede
+// afirmarse como— valor de reposición, costo de reposición vigente ni valuación
+// ajustada al dólar del día: no existe una fuente de cotización server-side que
+// pueda respaldar esa promesa. Ver
+// docs/auditoria-finanzas/charts-l1/24-inventario-source-of-truth.md §7.
+//
+// Estas dos constantes son el texto canónico. Cualquier variante que insinúe
+// reposición o revaluación FX está prohibida por guard-charts-l1 R19.
+
+export const CAPITAL_DESCRIPCION =
+  'Valor de la mercadería disponible según los costos registrados actualmente en TechRepair Pro.'
+
+/** Versión corta para la banda KPI, donde no entra la frase completa. */
+export const CAPITAL_DESCRIPCION_CORTA = 'Según los costos registrados actualmente'
+
+/**
+ * Nota de costos dolarizados (§21). Sólo aparece cuando hay productos con base
+ * USD que la justifiquen. Deliberadamente no alarmista: informa que el número
+ * puede moverse, sin prometer que ya refleja la cotización de hoy.
+ */
 export function fxNote(cap: InventoryCapital | null | undefined): string | null {
   if (!cap || cap.usd_based_products <= 0) return null
-  return 'El valor actual también puede cambiar por actualización de costos o tipo de cambio, sin que se haya movido mercadería.'
+  return 'Algunos costos pueden variar al actualizarse su cotización.'
 }
 
 // ─── Medios de cobro ─────────────────────────────────────────────────────────

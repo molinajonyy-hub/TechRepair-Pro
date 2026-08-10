@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect, useMemo, lazy, Suspense } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  RefreshCw, TrendingUp, TrendingDown, DollarSign, ShieldCheck,
-  AlertCircle, AlertTriangle, ArrowUpRight, ArrowDownRight,
-  CreditCard, Banknote, Wallet, RotateCcw, Truck, Receipt,
+  RefreshCw, TrendingUp, ShieldCheck,
+  AlertCircle, AlertTriangle, ArrowUpRight,
+  CreditCard, Banknote, Wallet, RotateCcw, Truck,
   Calendar, ChevronRight, CheckCircle2, Info,
   ShoppingCart, FileText, Activity,
 } from 'lucide-react'
@@ -127,27 +127,9 @@ const HEALTH_CFG: Record<CheckStatus, { color: string; bg: string; label: string
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function SummaryCard({ label, value, color, icon, sub, testId }: {
-  label: string; value: string; color: string
-  icon: React.ReactNode; sub?: string; testId?: string
-}) {
-  return (
-    <div data-testid={testId || 'finance-dashboard-summary-card'} style={{
-      background: 'var(--bg-card-solid)', border: '1px solid var(--border-color)',
-      borderRadius: 'var(--radius-lg)', padding: '1rem 1.1rem',
-      display: 'flex', alignItems: 'center', gap: '0.875rem',
-    }}>
-      <div style={{ width: 38, height: 38, borderRadius: 'var(--radius-md)', flexShrink: 0, background: color + '1a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <span style={{ color }}>{icon}</span>
-      </div>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.15rem' }}>{label}</div>
-        <div style={{ fontSize: '1.15rem', fontWeight: 800, color, fontFamily: 'monospace', lineHeight: 1 }}>{value}</div>
-        {sub && <div style={{ fontSize: '0.68rem', color: 'var(--text-subtle)', marginTop: '0.15rem' }}>{sub}</div>}
-      </div>
-    </div>
-  )
-}
+// SummaryCard se retiró junto con la fila legacy de KPI del Resumen: su único
+// consumidor eran esas tarjetas. La banda KPI canónica vive en
+// components/finance/charts/KpiBand.tsx.
 
 function CashCard({ method, amount }: { method: string; amount: number }) {
   const color = METHOD_COLORS[method] || METHOD_COLORS.otro
@@ -479,30 +461,43 @@ export function FinanceDashboard() {
 
           {data && (
             <>
-              {/* M8 — el banner binario de alertas se retiró de acá: sus dos casos
-                  (integridad crítica / facturas de proveedor pendientes) los cubre
-                  ahora FinanceInsightsPanel con evidencia y umbral explícitos vía
-                  las reglas `data_quality` y `supplier_crunch`. Mantener ambos
-                  sistemas mostraría el mismo problema dos veces con criterios
-                  distintos. El contador sigue vivo en la tarjeta "Alertas activas"
-                  y en la pestaña Auditoría, que no son banners. */}
+              {/* ── La fila legacy de KPI se retiró acá ──────────────────────
+                  La banda KPI de Charts L1 es ahora la superficie canónica del
+                  Resumen. Convivían mostrando el MISMO `net_sales` bajo dos
+                  nombres ("Ingresos brutos" vs "Ingresos netos"), y el legacy
+                  además estaba mal etiquetado: leía `prof.net_sales` y lo
+                  llamaba bruto.
 
-              {/* Summary cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '0.875rem', marginBottom: '0.875rem' }}>
-                <SummaryCard testId="finance-dashboard-income-card" label="Ingresos brutos" value={fmtShort(data.summary.gross_income)} color="#22c55e" icon={<TrendingUp size={17} />} sub={data.top_payment_methods[0] ? (METHOD_LABELS[data.top_payment_methods[0].method] || data.top_payment_methods[0].method) + ' principal' : undefined} />
-                <SummaryCard testId="finance-dashboard-expense-card" label="Egresos" value={fmtShort(data.summary.expenses)} color="#ef4444" icon={<TrendingDown size={17} />} sub={`Proveedores: ${fmtShort(data.summary.supplier_payments)}`} />
-                <SummaryCard testId="finance-dashboard-net-card" label="Resultado neto" value={fmtShort(data.summary.net_result)} color={data.summary.net_result >= 0 ? '#34d399' : '#ef4444'} icon={data.summary.net_result >= 0 ? <ArrowUpRight size={17} /> : <ArrowDownRight size={17} />} sub={data.summary.net_result >= 0 ? 'Superávit' : 'Déficit'} />
-                <SummaryCard label="Ventas cobradas" value={fmtShort(data.sales.total_collected)} color="#818cf8" icon={<Receipt size={17} />} sub={`${data.sales.count} comprobante${data.sales.count !== 1 ? 's' : ''}`} />
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.875rem', marginBottom: '1.5rem' }}>
-                {data.summary.credit_notes_total > 0 && <SummaryCard label="NC / Reversas" value={fmtShort(data.summary.credit_notes_total)} color="#f59e0b" icon={<RotateCcw size={17} />} sub={`${data.sales.nc_count} nota${data.sales.nc_count !== 1 ? 's' : ''}`} />}
-                <SummaryCard label="Pendiente ventas" value={fmtShort(data.sales.pending_total)} color={data.sales.pending_total > 0 ? '#f87171' : '#34d399'} icon={<DollarSign size={17} />} sub="Saldo por cobrar" />
-                {supplierDebt > 0 && <SummaryCard label="Deuda proveedores" value={fmtShort(supplierDebt)} color="#fb923c" icon={<Truck size={17} />} sub="Pendiente total" />}
-                <SummaryCard label={hasAlerts ? 'Alertas activas' : 'Auditoría'} value={hasAlerts ? String(data.alerts.critical + data.alerts.warning) : 'OK'} color={data.alerts.critical > 0 ? '#ef4444' : data.alerts.warning > 0 ? '#f59e0b' : '#34d399'} icon={<ShieldCheck size={17} />} sub={hasAlerts ? 'Ver auditoría' : 'Sin problemas'} />
-              </div>
+                  Ninguna métrica se perdió. Dónde vive ahora cada una:
 
-              {/* Cash by method */}
-              <div data-testid="finance-dashboard-cash-methods" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.875rem', marginBottom: '1.5rem' }}>
+                    Ingresos brutos    → KPI "Ingresos netos" (L1)
+                    Resultado neto     → KPI "Resultado operativo" (L1)
+                    Ventas cobradas    → KPI "Cobros" (L1, definición canónica:
+                                         cobros de ventas, no caja total) y
+                                         pestaña Caja
+                    Egresos            → waterfall "Cómo se construyó tu
+                                         resultado" (COGS + gastos) y pestaña
+                                         Gastos
+                    · sub Proveedores  → pestaña Gastos, "Pagos a proveedores"
+                    Pendiente ventas   → tarjeta "Cuentas por cobrar" (L1)
+                    Deuda proveedores  → tarjeta "Deuda con proveedores" (L1)
+                    NC / Reversas      → pestaña Ventas (contador + aviso)
+                    Alertas / Auditoría→ badge en la pestaña Auditoría, que ya
+                                         muestra el mismo contador
+
+                  Los contratos y las consultas NO se tocaron: `data` sigue
+                  alimentando Caja, Ventas y Gastos. */}
+
+              {/* Cash by method — caja por medio de pago. NO lo cubre L1
+                  ("Cómo cobraste" son cobros de ventas, no saldos de caja),
+                  así que se mantiene.
+
+                  `repeat(4, 1fr)` fijo se comía dos de las cuatro tarjetas en
+                  390px: `1fr` no baja del min-content de la tarjeta, el grid
+                  quedaba en ~600px y `body { overflow-x: hidden }` recortaba el
+                  resto SIN scrollbar — o sea, plata que desaparecía de la
+                  pantalla sin ninguna señal. Con auto-fit envuelve a 2x2. */}
+              <div data-testid="finance-dashboard-cash-methods" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.875rem', marginBottom: '1.5rem' }}>
                 {cashMethods.map(({ method, amount }) => <CashCard key={method} method={method} amount={amount} />)}
               </div>
 

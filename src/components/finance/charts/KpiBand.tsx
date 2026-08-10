@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { TrendingUp, Wallet, Percent, Banknote, Package } from 'lucide-react'
 import { colors, radius, fontSize } from '../../../lib/tokens'
 import {
-  buildDelta, formatARS, formatPercent, AUSENTE,
+  buildDelta, formatARS, formatPercent, AUSENTE, CAPITAL_DESCRIPCION_CORTA,
   type DeltaInfo, type DeltaSemantics,
 } from '../../../lib/finance/chartsL1Presentation'
 import type { FinanceChartsL1 } from '../../../services/financeChartsService'
@@ -157,7 +157,7 @@ export function KpiBand({ data, loading }: KpiBandProps) {
         value={formatARS(cap.inventory_at_cost)}
         icon={<Package size={15} />}
         accent="#a78bfa"
-        note="Mercadería valuada a costo vigente"
+        note={CAPITAL_DESCRIPCION_CORTA}
       />
     </div>
   )

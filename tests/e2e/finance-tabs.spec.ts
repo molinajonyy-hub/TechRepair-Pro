@@ -95,7 +95,7 @@ test.describe('@finance @smoke Finanzas — tabs unificados', () => {
     await expect(auditBtn).toBeVisible({ timeout: 10_000 })
   })
 
-  test('tab Resumen muestra cards de resumen', async ({ page }) => {
+  test('tab Resumen muestra la banda KPI canonica de Charts L1', async ({ page }) => {
     await login(page)
     await nav.finance(page)
     await page.waitForLoadState('networkidle')
@@ -104,8 +104,18 @@ test.describe('@finance @smoke Finanzas — tabs unificados', () => {
     await resumenTab.click()
     await page.waitForLoadState('networkidle')
 
-    // At least income card should be present
+    // Charts L1 — la banda KPI es ahora la superficie canonica del Resumen.
+    // Este test verificaba `finance-dashboard-income-card`, la tarjeta legacy
+    // que mostraba el MISMO net_sales bajo la etiqueta "Ingresos brutos".
+    // Se apunta a la superficie nueva en vez de aflojar la verificacion.
+    await expect(page.locator('[data-testid="charts-l1-kpi-band"]'))
+      .toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('[data-testid="kpi-net-sales"]'))
+      .toBeVisible({ timeout: 20_000 })
+
+    // Y la fila legacy duplicada ya no puede volver sin que este test lo note.
     await expect(page.locator('[data-testid="finance-dashboard-income-card"]'))
-      .toBeVisible({ timeout: 15_000 })
+      .toHaveCount(0)
+    await expect(page.getByText('Ingresos brutos', { exact: false })).toHaveCount(0)
   })
 })
