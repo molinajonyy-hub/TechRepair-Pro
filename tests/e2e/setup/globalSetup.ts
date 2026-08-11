@@ -19,9 +19,11 @@ import type { FullConfig } from '@playwright/test'
 import { chromium } from '@playwright/test'
 import { mkdirSync, existsSync, rmSync } from 'fs'
 import { dirname } from 'path'
+import { readFileSync } from 'fs'
 import { assertDestinoLocalSeguro, motivoDeRechazo, enmascarar, MENSAJE_ABORTO, type DestinoE2E }
   from './assertLocalTarget'
 import { sembrarE2E, verificarAislamiento } from './seedE2E'
+import { ejecutarSQL } from './sqlLocal'
 
 export const STORAGE_STATE = 'tests/e2e/.auth/owner.json'
 
@@ -152,6 +154,27 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
   // 3. Seed + aislamiento
   await sembrarE2E(destino)
   console.log('  ✓ Seed idempotente aplicado.')
+
+  // 3b. Fixtures del gate visual.
+  //
+  // Se aplicaban A MANO desde el lote que las creó, así que las máquinas donde
+  // ya se habían corrido pasaban el gate y una base limpia no. Lo destapó el
+  // primer runner de CI: `charts-l1-visual` (6 combinaciones) y el "0 %
+  // contextual" de `finance-caja-visual` fallaban con "No hay movimientos
+  // suficientes en este período". La suite dependía de estado acumulado.
+  //
+  // Van DESPUÉS del paso 3 y no en `e2e:prepare`: insertan en
+  // `owner_withdrawals`, que tiene FK real a `auth.users`, y ese usuario lo crea
+  // `sembrarE2E` recién acá. En `e2e:prepare` el FK explota — pero sólo en una
+  // base limpia, porque en una máquina con corridas previas el usuario ya está.
+  //
+  // Al vivir en el globalSetup aplica a los dos caminos: `npm run e2e:m7` y
+  // `npm run e2e:ci-local`. El script es idempotente (borra lo suyo del negocio
+  // E2E y reinserta) y fail-closed por su cuenta: aborta si no encuentra el
+  // marker de entorno.
+  ejecutarSQL(readFileSync('scripts/finance/charts-l1-visual-fixtures.sql', 'utf-8'))
+  console.log('  ✓ Fixtures del gate visual aplicadas.')
+
   await verificarAislamiento(destino)
   console.log('  ✓ Control multi-tenant: el usuario E2E no ve el negocio ajeno.')
 
