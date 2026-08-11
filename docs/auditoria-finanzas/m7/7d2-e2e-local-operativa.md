@@ -66,6 +66,16 @@ Tres consecuencias que conviene no perder:
 - **`supabase stop --no-backup` con `if: always()`.** Si la suite falla, los
   contenedores igual se van.
 
+`npm run guard:ci-e2e` valida estructuralmente que todo eso siga siendo cierto:
+que exista el bootstrap, que el job no consuma secrets, que no se mencione el
+project ref productivo ni un `service_role` del repo, y que la limpieza sea
+incondicional. Su `--self-test` rompe el workflow de diez maneras distintas y
+exige que el guard cace las diez.
+
+> El arreglo "obvio" cuando este job se ponga rojo va a ser *completá los
+> secrets*. Ese camino devuelve la suite —que escribe datos— a un proyecto
+> gestionado. El guard existe para que no compile.
+
 ## Las cuatro barreras
 
 Son independientes a propósito: cada una tapa lo que las otras no ven.

@@ -56,6 +56,13 @@ jobs:
       - name: Deno crypto test (AFIP key/cert correspondence + PKCS7 signing)
         run: npm run test:deno
 
+      # El gate estructural del entorno E2E: prueba que el job de abajo levanta
+      # su propio Supabase local y que ningún workflow puede apuntar a un
+      # backend gestionado. Corre en `quality` a propósito — es barato y falla
+      # antes de gastar varios minutos levantando Docker.
+      - name: Guard — E2E CI is local-only
+        run: npm run guard:ci-e2e:self-test && npm run guard:ci-e2e
+
   # ── E2E contra un Supabase LOCAL y descartable ────────────────────────────
   # Antes este job recibía `secrets.VITE_SUPABASE_URL` y abortaba en el guard de
   # M7 7D.2 antes del primer test ("E2E ABORTADO: el destino Supabase no es local
