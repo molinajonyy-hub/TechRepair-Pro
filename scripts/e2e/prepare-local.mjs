@@ -114,6 +114,9 @@ console.log(`  DB         : ${db.hostname}:${db.port}`)
 console.log(`  Contenedor : ${contenedor}`)
 
 // ─── 2. Marker  +  3. Datos, en un solo psql dentro del contenedor ──────────
+//
+// Las fixtures del gate visual NO van acá: dependen del usuario de Auth, que
+// crea el globalSetup más tarde. Ver tests/e2e/setup/globalSetup.ts, paso 3b.
 const sql = readFileSync('tests/e2e/setup/e2eMarker.sql', 'utf-8') + '\n' + sqlDeDatos()
 
 try {

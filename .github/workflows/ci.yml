@@ -20,6 +20,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 20 sin cambios: este gate ya funcionaba y nada de lo que corre acá
+      # necesita otra cosa. El bump a 22 vive sólo en el job E2E, que es el
+      # único que lo necesita (ver el comentario allá).
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -51,40 +54,81 @@ jobs:
       - name: Deno crypto test (AFIP key/cert correspondence + PKCS7 signing)
         run: npm run test:deno
 
-  # ── E2E smoke tests ───────────────────────────────────────────────────────
-  # Runs only on push to main (PRs don't have access to repo secrets)
-  e2e-smoke:
+  # ── E2E contra un Supabase LOCAL y descartable ────────────────────────────
+  # Antes este job recibía `secrets.VITE_SUPABASE_URL` y abortaba en el guard de
+  # M7 7D.2 antes del primer test ("E2E ABORTADO: el destino Supabase no es local
+  # y seguro"): 0 tests ejecutados. El guard estaba bien; faltaba el ENTORNO.
+  #
+  # Ahora el job levanta su propio stack con la CLI y toma URL y claves de
+  # `supabase status`. Consecuencia: NO usa un solo secret del repo, así que
+  # puede correr también en pull_request —incluidos forks, que no tienen acceso
+  # a secrets— y dar señal ANTES del merge en vez de después.
+  e2e-local:
+    # El `name:` visible se conserva EXACTAMENTE como estaba ("E2E Smoke Tests").
+    # Es la cadena con la que GitHub resuelve un required status check, así que
+    # cambiarla rompería cualquier branch protection que lo exija. Hoy `main` no
+    # tiene protección ni rulesets (verificado por API), así que no rompe nada
+    # ahora mismo; se mantiene igual porque el rename no aporta nada y sí
+    # convierte "activar protección" en un paso con trampa.
+    # El nombre quedó heredado: hoy este job gatea `m7-local`, no `@smoke`.
     name: E2E Smoke Tests
     runs-on: ubuntu-latest
     needs: quality
-    if: |
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      vars.E2E_ENABLED != 'false'
+    if: vars.E2E_ENABLED != 'false'
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
 
+      # Node 22 SÓLO acá: `scripts/e2e/*.mjs` y el guard de abajo importan
+      # `assertLocalTarget.ts` para no duplicar el guard de destino, y eso
+      # necesita el type stripping nativo (sin flag desde 22.18). En Node 20
+      # mueren con ERR_UNKNOWN_FILE_EXTENSION antes de llegar a los tests.
+      # `quality` se queda en 20: ya funcionaba y no lo necesita.
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
+      # Primero de todo: es estático, tarda segundos y falla ANTES de gastar
+      # minutos instalando browsers y levantando Docker. Vive en este job —y no
+      # en `quality`— porque importa `assertLocalTarget.ts` y necesita Node 22.
+      - name: Guard — E2E CI is local-only
+        run: npm run guard:ci-e2e:self-test && npm run guard:ci-e2e
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: Run smoke tests
-        run: npm run test:e2e:smoke
+      # Versión fija: un stack local reproducible es todo el punto de este job.
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.109.1
+
+      # Bootstrap + suite en un solo script, el MISMO que se corre en local
+      # (`npm run e2e:ci-local`). Levanta el stack, valida que el destino sea
+      # local con `motivoDeRechazo` (la misma autoridad que el globalSetup),
+      # genera `.env.e2e` desde `supabase status`, aplica el marker y los datos,
+      # y recién ahí corre Playwright.
+      #
+      # En un runner limpio `supabase start` aplica las migraciones desde cero,
+      # así que el esquema arranca en estado reproducible sin un reset extra.
+      #
+      # Se gatea sobre `m7-local` —46 tests: idempotencia transaccional, códigos
+      # de error reales, aislamiento multi-tenant por RLS y los gates visuales—
+      # y NO sobre las suites legacy `@smoke`. Motivo medido en este mismo lote,
+      # con el entorno ya funcionando: `@smoke` ejecuta 250 de 289 tests en
+      # 9,6 min y falla 24. Ninguna de esas 24 fallas es por falta de entorno
+      # (son aserciones de "cero errores de consola" y fixtures que el seed E2E
+      # no siembra: garantías, cuentas de Mi Guita). Es deuda real y acotada,
+      # pero arreglarla es producto — otro lote. Gatear sobre ella hoy dejaría
+      # el CI rojo de forma permanente, que es de donde venimos.
+      - name: Run E2E against local Supabase
+        run: npm run e2e:ci-local -- --project=m7-local
         env:
           CI: 'true'
-          E2E_BASE_URL: http://localhost:5173
-          E2E_EMAIL: ${{ secrets.E2E_EMAIL }}
-          E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Upload Playwright report (on failure)
         uses: actions/upload-artifact@v4
@@ -101,3 +145,9 @@ jobs:
           name: test-results
           path: test-results/
           retention-days: 7
+
+      # Incondicional: si la suite falla, los contenedores igual tienen que
+      # irse. `--no-backup` descarta los volúmenes — el stack es desechable.
+      - name: Tear down local Supabase
+        if: always()
+        run: supabase stop --no-backup || true

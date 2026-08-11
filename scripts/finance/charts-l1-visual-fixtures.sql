@@ -62,7 +62,14 @@ BEGIN
   -- debe hacer en producción. Acá se lo desactiva por la duración de esta
   -- transacción para poder reconstruir el fixture; el marker de entorno de más
   -- arriba garantiza que esto sólo ocurre contra el stack local descartable.
+  -- `comprobante_payments` necesita el mismo trato desde que este script corre
+  -- dentro de `e2e:prepare`: comprobante_payments_replacement_guard() rechaza
+  -- borrar un pago REEMPLAZADO, y los specs `replace-*` dejan varios. Sin esto,
+  -- preparar el entorno falla en cualquier maquina donde la suite ya corrio
+  -- (en un runner limpio no hay pagos reemplazados y el problema no se ve).
+  ALTER TABLE public.comprobante_payments DISABLE TRIGGER USER;
   DELETE FROM public.comprobante_payments WHERE business_id = v_biz;
+  ALTER TABLE public.comprobante_payments ENABLE TRIGGER USER;
   ALTER TABLE public.comprobante_annulments DISABLE TRIGGER USER;
   DELETE FROM public.comprobante_annulments WHERE business_id = v_biz;
   ALTER TABLE public.comprobante_annulments ENABLE TRIGGER USER;
