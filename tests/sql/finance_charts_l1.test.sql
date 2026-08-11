@@ -177,8 +177,10 @@ BEGIN
   VALUES (v_cust, v_a, 'L1 Cliente', '0000000000');
 
   -- ── A: comprobantes ──────────────────────────────────────────────────────
-  -- OJO: comprobantes.estado_fiscal tiene DEFAULT 'borrador', que su propio
-  -- CHECK rechaza. Hay que setearlo explicitamente en todo INSERT directo.
+  -- estado_fiscal va explicito a proposito: el estado inicial de un comprobante
+  -- depende de si es fiscal, y un fixture no debe delegar esa decision en el
+  -- DEFAULT. (El DEFAULT invalido 'borrador' que obligaba a esto se corrigio en
+  -- 20260810140000; ver tests/sql/prebeta_p1_closure.test.sql C01..C08.)
   -- `fecha` es timestamptz: se fija al mediodia AR para que el dia economico
   -- (AT TIME ZONE Cordoba) sea el esperado y no el anterior.
   -- `total_bruto` se setea igual a `total`: trig_comprobante_payment_sync

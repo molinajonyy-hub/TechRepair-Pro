@@ -139,12 +139,16 @@ function CashCard({ method, amount }: { method: string; amount: number }) {
     : method === 'tarjeta' ? <CreditCard size={16} />
     : <Wallet size={16} />
   return (
-    <div style={{ background: 'var(--bg-card-solid)', border: `1px solid ${color}30`, borderLeft: `3px solid ${color}`, borderRadius: 'var(--radius-md)', padding: '0.875rem 1rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-        <span style={{ color }}>{icon}</span>
-        <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{label}</span>
+    // `minWidth: 0` + `overflowWrap` — sin esto el min-content de la tarjeta es
+    // el ancho del importe completo, y un número largo ensancha la pista del
+    // grid por encima de su parte: la fila se desborda aunque las columnas sean
+    // flexibles. Con esto la tarjeta puede achicarse y el importe envuelve.
+    <div style={{ background: 'var(--bg-card-solid)', border: `1px solid ${color}30`, borderLeft: `3px solid ${color}`, borderRadius: 'var(--radius-md)', padding: '0.875rem 1rem', minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem', minWidth: 0 }}>
+        <span style={{ color, flexShrink: 0, display: 'flex' }}>{icon}</span>
+        <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', minWidth: 0, overflowWrap: 'anywhere' }}>{label}</span>
       </div>
-      <div style={{ fontSize: '1.2rem', fontWeight: 800, fontFamily: 'monospace', color: amount >= 0 ? color : '#ef4444' }}>{fmt(amount)}</div>
+      <div style={{ fontSize: '1.2rem', fontWeight: 800, fontFamily: 'monospace', color: amount >= 0 ? color : '#ef4444', overflowWrap: 'anywhere' }}>{fmt(amount)}</div>
     </div>
   )
 }
@@ -539,18 +543,25 @@ export function FinanceDashboard() {
           {PeriodFilter}
           {data && (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+              {/* P1-A — La pestaña Caja arrastraba `repeat(4, 1fr)` y
+                  `repeat(3, 1fr)` fijos. En 390px el ancho mínimo de las
+                  tarjetas superaba el viewport y, con `body { overflow-x:
+                  hidden }`, lo que sobraba se recortaba SIN scrollbar: saldos de
+                  caja que existen pero no se pueden leer ni alcanzar.
+                  Mismo patrón que ya usa el Resumen: auto-fit + minmax envuelve
+                  a 2x2 y a 1 columna sin ocultar ninguna tarjeta. */}
+              <div data-testid="finance-caja-cash-methods" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
                 {cashMethods.map(({ method, amount }) => <CashCard key={method} method={method} amount={amount} />)}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+              <div data-testid="finance-caja-totals" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
                 {[
                   { label: 'Total ingresos', value: fmtShort(data.summary.gross_income), color: '#22c55e' },
                   { label: 'Total egresos',  value: fmtShort(data.summary.expenses),     color: '#ef4444' },
                   { label: 'Resultado neto', value: fmtShort(data.summary.net_result),   color: data.summary.net_result >= 0 ? '#34d399' : '#ef4444' },
                 ].map(c => (
-                  <div key={c.label} style={{ background: 'var(--bg-card-solid)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '1rem' }}>
-                    <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.3rem' }}>{c.label}</div>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 800, fontFamily: 'monospace', color: c.color }}>{c.value}</div>
+                  <div key={c.label} style={{ background: 'var(--bg-card-solid)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '1rem', minWidth: 0 }}>
+                    <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.3rem', overflowWrap: 'anywhere' }}>{c.label}</div>
+                    <div style={{ fontSize: '1.4rem', fontWeight: 800, fontFamily: 'monospace', color: c.color, overflowWrap: 'anywhere' }}>{c.value}</div>
                   </div>
                 ))}
               </div>
@@ -791,19 +802,27 @@ function MovimientosTable({ movements }: { movements: LatestMovement[] }) {
   if (movements.length === 0) return (
     <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>Sin movimientos en el período.</div>
   )
+  // P1-A — Seis columnas tabulares no entran en 390px y no pueden colapsarse sin
+  // esconder datos. La carcasa de la tarjeta tiene `overflow: hidden` (para el
+  // redondeo), así que sin este scroller la columna Monto quedaba recortada y sin
+  // barra: plata visible en desktop e inalcanzable en el teléfono. El scroll
+  // horizontal PROPIO de la tabla mantiene todo alcanzable sin generar scroll
+  // horizontal en el body.
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-      <thead>
-        <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-          {['Fecha', 'Descripción', 'Fuente', 'Método', 'Tipo', 'Monto'].map(h => (
-            <th key={h} style={{ padding: '0.5rem 1rem', fontSize: '0.62rem', fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: h === 'Monto' ? 'right' : 'left', borderBottom: '1px solid var(--border-subtle)' }}>{h}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {movements.map(m => <MovRow key={m.id} m={m} />)}
-      </tbody>
-    </table>
+    <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }} data-testid="finance-movements-scroller">
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+            {['Fecha', 'Descripción', 'Fuente', 'Método', 'Tipo', 'Monto'].map(h => (
+              <th key={h} style={{ padding: '0.5rem 1rem', fontSize: '0.62rem', fontWeight: 700, color: 'var(--text-subtle)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: h === 'Monto' ? 'right' : 'left', borderBottom: '1px solid var(--border-subtle)', whiteSpace: 'nowrap' }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {movements.map(m => <MovRow key={m.id} m={m} />)}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

@@ -3,7 +3,8 @@ import { Package, Info } from 'lucide-react'
 import { colors, radius, fontSize } from '../../../lib/tokens'
 import {
   CHART_COLORS, formatARS, formatNumber, formatPercent, formatAxisARS,
-  replenishmentText, fxNote, capitalCoverage, CAPITAL_DESCRIPCION,
+  replenishmentCopy, fxNote, capitalCoverage, CAPITAL_DESCRIPCION,
+  REPLENISHMENT_LABEL,
 } from '../../../lib/finance/chartsL1Presentation'
 import { FinanceTooltip } from './FinanceTooltip'
 import type { InventoryCapital, InventoryFlows } from '../../../services/financeChartsService'
@@ -30,6 +31,7 @@ export interface InventoryCapitalBlockProps {
 export function InventoryCapitalBlock({ capital, flows }: InventoryCapitalBlockProps) {
   const cobertura = capitalCoverage(capital)
   const fx = fxNote(capital)
+  const reposicion = replenishmentCopy(flows)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }} data-testid="inventory-capital-block">
@@ -80,10 +82,12 @@ export function InventoryCapitalBlock({ capital, flows }: InventoryCapitalBlockP
           display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
           gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.55rem',
         }}>
+          {/* P1-D — "Reposición registrada", no "Reposición del período": el
+              numerador sólo cuenta entradas de inventario REGISTRADAS. */}
           <span style={{
             fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.04em',
             textTransform: 'uppercase', color: colors.text.muted,
-          }}>Reposición del período</span>
+          }} data-testid="replenishment-label">{REPLENISHMENT_LABEL}</span>
           <span style={{
             fontSize: fontSize.xl, fontWeight: 800, color: colors.text.primary,
             fontVariantNumeric: 'tabular-nums',
@@ -99,8 +103,25 @@ export function InventoryCapitalBlock({ capital, flows }: InventoryCapitalBlockP
         <p style={{
           margin: '0.6rem 0 0', fontSize: fontSize.sm, color: colors.text.secondary, lineHeight: 1.45,
         }} data-testid="replenishment-text">
-          {replenishmentText(flows)}
+          {reposicion.text}
         </p>
+
+        {/* Aviso de contexto, NO una alerta: informa que hay compras cargadas y
+            deja la conclusión en manos del usuario. Deliberadamente con el mismo
+            peso visual que una nota, sin color de severidad. */}
+        {reposicion.supplierNote && (
+          <div role="note" style={{
+            display: 'flex', gap: '0.5rem', alignItems: 'flex-start',
+            marginTop: '0.55rem', padding: '0.5rem 0.65rem', borderRadius: radius.sm,
+            background: colors.bg.card,
+            border: `1px solid ${colors.border.subtle}`,
+          }} data-testid="replenishment-supplier-note">
+            <Info size={13} style={{ color: colors.text.muted, flexShrink: 0, marginTop: 2 }} />
+            <span style={{ fontSize: fontSize.xs, color: colors.text.secondary, lineHeight: 1.4 }}>
+              {reposicion.supplierNote}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* ── Otros flujos: nunca mezclados con compras ── */}
@@ -207,10 +228,17 @@ export function inventorySummaryText(capital: InventoryCapital, flows: Inventory
   if (flows.replenishment_pct === null) {
     return `${base} En el período no hubo consumo comparable para calcular la reposición.`
   }
+  // P1-D — Sin entradas registradas, "las compras fueron $0" afirma algo sobre
+  // las compras del negocio que este dato no puede sostener. Se nombra lo que
+  // efectivamente se midió: el inventario.
+  if (flows.purchases_movements === 0 && flows.purchases_cost === 0) {
+    const copy = replenishmentCopy(flows)
+    return `${base} ${copy.text}${copy.supplierNote ? ` ${copy.supplierNote}` : ''}`
+  }
   return (
-    `${base} En el período las compras fueron ${formatARS(flows.purchases_cost)} y el consumo ` +
-    `${formatARS(flows.consumption_cost)}, una reposición del ` +
-    `${formatPercent(flows.replenishment_pct, { ya100: true })}.`
+    `${base} En el período las entradas de inventario registradas fueron ` +
+    `${formatARS(flows.purchases_cost)} y el consumo ${formatARS(flows.consumption_cost)}, ` +
+    `una reposición registrada del ${formatPercent(flows.replenishment_pct, { ya100: true })}.`
   )
 }
 

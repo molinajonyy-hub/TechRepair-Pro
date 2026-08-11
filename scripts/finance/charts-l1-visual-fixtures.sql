@@ -79,7 +79,9 @@ BEGIN
   ON CONFLICT (id) DO NOTHING;
 
   -- ── Comprobantes del periodo (ultimos 10 dias) ───────────────────────────
-  -- estado_fiscal explicito: su DEFAULT ('borrador') viola su propio CHECK.
+  -- estado_fiscal explicito: un fixture no delega en el DEFAULT el estado inicial,
+  -- que depende de si el comprobante es fiscal. (El DEFAULT invalido 'borrador'
+  -- que ANTES obligaba a esto se corrigio en 20260810140000.)
   INSERT INTO public.comprobantes
     (id, business_id, tipo, status, estado, estado_fiscal, fecha, total, total_bruto, saldo_pendiente, customer_id)
   VALUES

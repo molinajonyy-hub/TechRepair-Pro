@@ -49,6 +49,9 @@ import { join, basename, extname } from 'node:path'
 
 const L1_SQL = [
   'supabase/migrations/20260810120000_finance_charts_l1_contracts.sql',
+  // P1-D extendio el contrato: las mismas reglas (FX, denominacion, backfill,
+  // formato monetario, promesas de reposicion) tienen que alcanzarlo.
+  'supabase/migrations/20260810150000_finance_charts_l1_supplier_purchase_context.sql',
 ]
 
 /** Módulos que forman el bloque de gráficos. */

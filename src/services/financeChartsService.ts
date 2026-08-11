@@ -123,6 +123,22 @@ export interface InventoryFlows {
   replenishment_basis: 'comparable' | 'no_comparable_consumption'
   consumption_source: string
   purchases_source: string
+  /**
+   * P1-D — CONTEXTO, no reposición. Compras a proveedores REGISTRADAS en el
+   * período: el comprobante de compra cargado, que puede corresponder a
+   * mercadería, a un servicio o a un gasto. El sistema no lo distingue, así que
+   * nada de esto puede afirmarse como mercadería recibida.
+   *
+   * No entra —ni puede entrar— en el numerador ni en el denominador de
+   * `replenishment_pct`. Sirve sólo para explicar un 0 % sin acusar al usuario
+   * de no haber comprado.
+   *
+   * Opcionales: un backend anterior a la migración 20260810150000 no las envía,
+   * y la UI debe seguir funcionando sin ellas.
+   */
+  supplier_purchases_count?: number
+  supplier_purchases_amount?: number
+  supplier_purchases_source?: string
   /** Siempre false en L1: las bases de costo no son homogéneas. */
   bridge_available: boolean
   bridge_blocked_reason: string
