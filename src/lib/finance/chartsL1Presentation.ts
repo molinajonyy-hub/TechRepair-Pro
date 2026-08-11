@@ -227,19 +227,82 @@ export function capitalCoverage(cap: InventoryCapital | null | undefined): Capit
 // Sin lenguaje alarmista. Menos compras que consumo NO significa
 // "descapitalización": reducir inventario puede ser una decisión correcta.
 
-export function replenishmentText(flows: InventoryFlows | null | undefined): string {
-  if (!flows) return AUSENTE
+/**
+ * Denominación canónica de la métrica (P1-D).
+ *
+ * El numerador SIEMPRE fue "entradas de inventario registradas": nunca midió
+ * todo lo que el negocio compró. Llamarla "Reposición del período" prometía más
+ * de lo que el número puede sostener — un 0 % se leía como "no compré
+ * mercadería" cuando significa "no hay entradas de inventario registradas".
+ * El nombre ahora dice exactamente qué se midió.
+ */
+export const REPLENISHMENT_LABEL = 'Reposición registrada'
+
+/**
+ * Aviso de contexto. Se muestra SÓLO cuando el período no tiene entradas de
+ * inventario Y sí hay compras a proveedores cargadas.
+ *
+ * Está redactado en condicional a propósito: una compra a proveedor puede ser
+ * mercadería, un servicio o un gasto, y el sistema no lo distingue. Afirmar que
+ * hubo mercadería recibida sería inventar un dato.
+ */
+export const REPLENISHMENT_SUPPLIER_NOTE =
+  'Hay compras a proveedores registradas. Si corresponden a mercadería recibida, ' +
+  'revisá que se haya ingresado al inventario.'
+
+export interface ReplenishmentCopy {
+  /** Frase principal. */
+  text: string
+  /** Aviso adicional, o null. Nunca es una alerta ni un diagnóstico. */
+  supplierNote: string | null
+}
+
+/**
+ * Semántica de la reposición registrada (§16 + P1-D).
+ *
+ * NO recalcula nada: `replenishment_pct` viene del servidor y esta función sólo
+ * decide qué se puede afirmar con honestidad para cada caso.
+ *
+ * Casos:
+ *   · sin datos                      → texto ausente, sin diagnóstico.
+ *   · sin consumo comparable         → se dice eso, sin porcentaje.
+ *   · CERO entradas de inventario    → se nombra el hecho, no la conclusión;
+ *     + compras a proveedores        → se agrega el aviso condicional.
+ *   · con entradas registradas       → los tres tramos de siempre.
+ */
+export function replenishmentCopy(flows: InventoryFlows | null | undefined): ReplenishmentCopy {
+  if (!flows) return { text: AUSENTE, supplierNote: null }
   if (flows.replenishment_pct === null) {
-    return 'Sin consumo comparable en el período.'
+    return { text: 'Sin consumo comparable en el período.', supplierNote: null }
   }
+
+  // Cero entradas de mercadería registradas. Se exigen las DOS condiciones: un
+  // movimiento de entrada sin costo cargado sí es una entrada, y decir que no
+  // hubo ninguna sería falso.
+  if (flows.purchases_movements === 0 && flows.purchases_cost === 0) {
+    const hayCompras = (flows.supplier_purchases_count ?? 0) > 0
+    return {
+      text: 'No se registraron entradas de mercadería en inventario durante este período.',
+      supplierNote: hayCompras ? REPLENISHMENT_SUPPLIER_NOTE : null,
+    }
+  }
+
   const pct = flows.replenishment_pct
   if (pct < 95) {
-    return 'En este período las compras repusieron menos inventario del que salió por operación.'
+    return {
+      text: 'En este período las compras repusieron menos inventario del que salió por operación.',
+      supplierNote: null,
+    }
   }
   if (pct <= 105) {
-    return 'La reposición acompañó aproximadamente el consumo del período.'
+    return { text: 'La reposición acompañó aproximadamente el consumo del período.', supplierNote: null }
   }
-  return 'Las compras del período superaron el consumo de inventario.'
+  return { text: 'Las compras del período superaron el consumo de inventario.', supplierNote: null }
+}
+
+/** Sólo la frase principal. Conserva la firma previa a P1-D. */
+export function replenishmentText(flows: InventoryFlows | null | undefined): string {
+  return replenishmentCopy(flows).text
 }
 
 // ─── Semántica de Capital en stock ───────────────────────────────────────────
