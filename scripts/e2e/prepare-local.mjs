@@ -113,8 +113,25 @@ console.log(`  API        : ${enmascarar(env.VITE_SUPABASE_URL)}`)
 console.log(`  DB         : ${db.hostname}:${db.port}`)
 console.log(`  Contenedor : ${contenedor}`)
 
-// ─── 2. Marker  +  3. Datos, en un solo psql dentro del contenedor ──────────
-const sql = readFileSync('tests/e2e/setup/e2eMarker.sql', 'utf-8') + '\n' + sqlDeDatos()
+// ─── 2. Marker  +  3. Datos  +  4. Fixtures del gate visual ─────────────────
+//
+// Las fixtures de Charts L1 se aplicaban A MANO desde el lote que las creó, así
+// que las máquinas donde ya se habían corrido pasaban el gate y una base limpia
+// no. Se descubrió en el primer runner de CI: las 6 combinaciones de viewport ×
+// tema de `charts-l1-visual` y el "0 % contextual" de `finance-caja-visual`
+// fallaban con "No hay movimientos suficientes en este período" — la suite
+// dependía de estado acumulado, no de su propio seed.
+//
+// Van acá y no en `ci-local.mjs` para que el camino manual documentado
+// (`supabase start` → `e2e:prepare` → `e2e:m7`) también funcione desde cero.
+//
+// El script es idempotente por construcción (borra lo suyo del negocio E2E y
+// vuelve a insertar) y fail-closed por su cuenta: aborta si no encuentra el
+// marker, que es lo que se acaba de crear arriba. El orden importa — resuelve
+// el usuario desde `public.profiles`, que lo siembra `sqlDeDatos()`.
+const sql = readFileSync('tests/e2e/setup/e2eMarker.sql', 'utf-8')
+  + '\n' + sqlDeDatos()
+  + '\n' + readFileSync('scripts/finance/charts-l1-visual-fixtures.sql', 'utf-8')
 
 try {
   const salida = execFileSync(
@@ -128,6 +145,6 @@ try {
   abortar('El SQL de preparación falló. Ver el error de psql arriba.')
 }
 
-console.log('\n  ✓ Marker de entorno y datos de negocio aplicados.')
+console.log('\n  ✓ Marker, datos de negocio y fixtures del gate visual aplicados.')
 console.log('  El usuario de Auth lo crea el globalSetup (necesita la API de Auth, no la DB).')
 console.log('─'.repeat(72) + '\n')
