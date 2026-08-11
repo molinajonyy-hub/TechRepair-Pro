@@ -53,14 +53,22 @@ const P1_TS_FILES = [
  * esquema mientras produccion conserva el cuerpo viejo: repo y produccion
  * divergen sin que nada falle. Forward-only.
  *
- * 218 esta en produccion desde el merge de Charts L1. Las tres de este lote se
- * agregan a esta lista cuando se apliquen (hoy todavia no estan en produccion,
- * asi que se las deja fuera a proposito: sellarlas antes de desplegarlas
- * impediria corregirlas si el gate encuentra algo).
+ * 218 esta en produccion desde el merge de Charts L1.
+ *
+ * 219, 220 y 221 se sellan DESPUES de aplicarlas (2026-08-11, `db push` a
+ * produccion: 221/221, pending 0, drift 0). Antes del deploy quedaron fuera a
+ * proposito: sellar una migracion que todavia se puede tener que corregir
+ * convierte al guard en un obstaculo en vez de una red.
  */
 const MIGRACIONES_SELLADAS = {
   'supabase/migrations/20260810120000_finance_charts_l1_contracts.sql':
     '97e92cd7637ddfdb97e342989e03f796736e3451c057b4d62435537da995940c',
+  'supabase/migrations/20260810130000_finance_position_variant_parent_alignment.sql':
+    'dc87f20c27ddd51931e56f72bbc41e93f783c8c047925047b9fbbcaa4ce0dee9',
+  'supabase/migrations/20260810140000_comprobantes_estado_fiscal_default_contract.sql':
+    '0ee9a46490819cb9dc433a524bcaf14d694e455385a20409e5d1fa89d1d7270d',
+  'supabase/migrations/20260810150000_finance_charts_l1_supplier_purchase_context.sql':
+    '4013cf9683cc666d22c14e06d90892ebfa8cbbb19bd4b52b1d165b8e8abf10bd',
 }
 
 /** La superficie movil corregida por P1-A. */
@@ -468,6 +476,22 @@ function selfTest() {
     revisarLenguaje('x.tsx',
       `const t = 'No se registraron entradas de mercadería en inventario durante este período.'`)
       .filter(x => /^P10 /.test(x)).length === 0)
+
+  // ── P6 — sellado de migraciones desplegadas ──
+  chk('p6 detecta una migracion sellada modificada',
+    revisarMigracionesSelladas(() => 'contenido alterado').some(x => /^P6 /.test(x)))
+  chk('p6 acepta las migraciones selladas intactas',
+    revisarMigracionesSelladas().length === 0)
+  chk('p6 sella las 4 migraciones ya aplicadas a produccion (218 + 219 + 220 + 221)',
+    Object.keys(MIGRACIONES_SELLADAS).length === 4 &&
+    ['20260810120000', '20260810130000', '20260810140000', '20260810150000']
+      .every(ts => Object.keys(MIGRACIONES_SELLADAS).some(k => k.includes(ts))))
+  chk('p6 el sello es insensible al fin de linea (checkout Windows no es un cambio)',
+    (() => {
+      const [ruta] = Object.keys(MIGRACIONES_SELLADAS)
+      const src = readFileSync(ruta, 'utf8')
+      return revisarMigracionesSelladas((p) => p === ruta ? src.replace(/\n/g, '\r\n') : readFileSync(p, 'utf8')).length === 0
+    })())
 
   // Un comentario que menciona lo prohibido NO puede hacer fallar al guard.
   chk('los comentarios de codigo no disparan falsos positivos en P3/P4',
