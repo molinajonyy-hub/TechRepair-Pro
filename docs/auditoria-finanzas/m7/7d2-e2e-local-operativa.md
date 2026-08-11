@@ -59,14 +59,23 @@ Tres consecuencias que conviene no perder:
   que la CLI genera igual en cualquier máquina. Por eso el job puede correr
   también en `pull_request` —incluidos forks, que no tienen acceso a secrets— y
   dar señal **antes** del merge en vez de después.
-- **Node 22, no 20.** `scripts/e2e/*.mjs` importan `assertLocalTarget.ts` para no
-  duplicar el guard de destino, y eso necesita el type stripping nativo (sin flag
-  desde 22.18). En Node 20 el bootstrap muere con `ERR_UNKNOWN_FILE_EXTENSION`
-  antes de llegar a los tests.
+- **Node 22 en el job E2E, 20 en `quality`.** `scripts/e2e/*.mjs` importan
+  `assertLocalTarget.ts` para no duplicar el guard de destino, y eso necesita el
+  type stripping nativo (sin flag desde 22.18); en Node 20 el bootstrap muere con
+  `ERR_UNKNOWN_FILE_EXTENSION` antes de llegar a los tests. El gate de
+  TypeScript/Lint/Build no necesita nada de eso y se queda en 20.
+- **El `name:` visible sigue siendo `E2E Smoke Tests`.** Cambió el id del job
+  (`e2e-smoke` → `e2e-local`) y todo el mecanismo, pero no el nombre con el que
+  GitHub resuelve un required status check. Hoy `main` no tiene branch protection
+  ni rulesets, así que no rompería nada renombrarlo — se mantiene porque el
+  rename no aporta y sí convertiría "activar protección" en un paso con trampa.
+  El nombre quedó heredado: hoy este job gatea `m7-local`.
 - **`supabase stop --no-backup` con `if: always()`.** Si la suite falla, los
   contenedores igual se van.
 
-`npm run guard:ci-e2e` valida estructuralmente que todo eso siga siendo cierto:
+`npm run guard:ci-e2e` corre como primer paso del job E2E —es estático y tarda
+segundos, así que falla antes de gastar minutos instalando browsers y levantando
+Docker— y valida estructuralmente que todo eso siga siendo cierto:
 que exista el bootstrap, que el job no consuma secrets, que no se mencione el
 project ref productivo ni un `service_role` del repo, y que la limpieza sea
 incondicional. Su `--self-test` rompe el workflow de diez maneras distintas y

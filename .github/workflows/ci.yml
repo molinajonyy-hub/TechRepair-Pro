@@ -20,14 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Node 22 (LTS) en ambos jobs: los scripts de `scripts/e2e/` y el guard de
-      # abajo importan `assertLocalTarget.ts` para no duplicar el guard de
-      # destino, y eso necesita el type stripping nativo (sin flag desde 22.18).
-      # En Node 20 —además, fuera de soporte desde 2026-04— mueren con
-      # ERR_UNKNOWN_FILE_EXTENSION.
+      # Node 20 sin cambios: este gate ya funcionaba y nada de lo que corre acá
+      # necesita otra cosa. El bump a 22 vive sólo en el job E2E, que es el
+      # único que lo necesita (ver el comentario allá).
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
@@ -56,13 +54,6 @@ jobs:
       - name: Deno crypto test (AFIP key/cert correspondence + PKCS7 signing)
         run: npm run test:deno
 
-      # El gate estructural del entorno E2E: prueba que el job de abajo levanta
-      # su propio Supabase local y que ningún workflow puede apuntar a un
-      # backend gestionado. Corre en `quality` a propósito — es barato y falla
-      # antes de gastar varios minutos levantando Docker.
-      - name: Guard — E2E CI is local-only
-        run: npm run guard:ci-e2e:self-test && npm run guard:ci-e2e
-
   # ── E2E contra un Supabase LOCAL y descartable ────────────────────────────
   # Antes este job recibía `secrets.VITE_SUPABASE_URL` y abortaba en el guard de
   # M7 7D.2 antes del primer test ("E2E ABORTADO: el destino Supabase no es local
@@ -73,7 +64,14 @@ jobs:
   # puede correr también en pull_request —incluidos forks, que no tienen acceso
   # a secrets— y dar señal ANTES del merge en vez de después.
   e2e-local:
-    name: E2E (local Supabase)
+    # El `name:` visible se conserva EXACTAMENTE como estaba ("E2E Smoke Tests").
+    # Es la cadena con la que GitHub resuelve un required status check, así que
+    # cambiarla rompería cualquier branch protection que lo exija. Hoy `main` no
+    # tiene protección ni rulesets (verificado por API), así que no rompe nada
+    # ahora mismo; se mantiene igual porque el rename no aporta nada y sí
+    # convierte "activar protección" en un paso con trampa.
+    # El nombre quedó heredado: hoy este job gatea `m7-local`, no `@smoke`.
+    name: E2E Smoke Tests
     runs-on: ubuntu-latest
     needs: quality
     if: vars.E2E_ENABLED != 'false'
@@ -82,7 +80,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Node 22 por lo mismo que el job `quality` (ver el comentario de arriba).
+      # Node 22 SÓLO acá: `scripts/e2e/*.mjs` y el guard de abajo importan
+      # `assertLocalTarget.ts` para no duplicar el guard de destino, y eso
+      # necesita el type stripping nativo (sin flag desde 22.18). En Node 20
+      # mueren con ERR_UNKNOWN_FILE_EXTENSION antes de llegar a los tests.
+      # `quality` se queda en 20: ya funcionaba y no lo necesita.
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -90,6 +92,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # Primero de todo: es estático, tarda segundos y falla ANTES de gastar
+      # minutos instalando browsers y levantando Docker. Vive en este job —y no
+      # en `quality`— porque importa `assertLocalTarget.ts` y necesita Node 22.
+      - name: Guard — E2E CI is local-only
+        run: npm run guard:ci-e2e:self-test && npm run guard:ci-e2e
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
