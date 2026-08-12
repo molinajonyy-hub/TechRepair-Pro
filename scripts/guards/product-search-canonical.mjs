@@ -90,6 +90,17 @@ export function haceAndMultiToken(fuente) {
   return /for\s*\(\s*const\s+\w+\s+of\s+tokens\s*\)/.test(fuente)
 }
 
+/**
+ * Si no se puede validar la estructura padre/hijo, la búsqueda falla CERRADA.
+ *
+ * Devolver los candidatos sin filtrar sería fail-open justo cuando no se puede
+ * confirmar quién es padre: un padre con has_variants=false y stock 0 volvería
+ * a ser seleccionable. Es el invariante central del lote.
+ */
+export function fallaCerradoAlNoValidarEstructura(fuente) {
+  return /reason:\s*['"]variant_check['"]/.test(fuente)
+}
+
 /** Nombra alguno de los prefijos de vínculo padre→hijo. */
 export function nombraPrefijoDeVariante(fuente) {
   return /['"]variant_parent:['"]|['"]VPREF-['"]/.test(fuente)
@@ -142,6 +153,9 @@ function validarRepo() {
   }
   if (!haceAndMultiToken(servicio)) {
     fallas.push(`${SERVICIO}: el AND multi-token dejó de resolverse en el servidor. Ése es exactamente el limit-before-filter que causó el P0.`)
+  }
+  if (!fallaCerradoAlNoValidarEstructura(servicio)) {
+    fallas.push(`${SERVICIO}: dejó de fallar CERRADO cuando no puede validar la estructura padre/hijo. Devolver los candidatos sin filtrar vuelve seleccionable a un padre con has_variants=false y stock 0.`)
   }
 
   // 3. Las superficies no vuelven a escribir su propia búsqueda.
@@ -227,6 +241,11 @@ function selfTest() {
 
   chequear('caza la pérdida del AND multi-token', haceAndMultiToken('q.or(filtro)'), false)
   chequear('reconoce el AND multi-token', haceAndMultiToken('for (const token of tokens) { q = q.or(f(token)) }'), true)
+
+  chequear('caza el fail-OPEN al no validar estructura',
+    fallaCerradoAlNoValidarEstructura('const filas = estructura.ok ? estructura.items : candidatos'), false)
+  chequear('reconoce el fail-CLOSED',
+    fallaCerradoAlNoValidarEstructura(`return { status: 'error', items: [], reason: 'variant_check' }`), true)
 
   chequear('caza el prefijo duplicado', nombraPrefijoDeVariante(`const P = 'variant_parent:'`), true)
   chequear('caza el prefijo legacy duplicado', nombraPrefijoDeVariante(`if (sc.startsWith('VPREF-'))`), true)

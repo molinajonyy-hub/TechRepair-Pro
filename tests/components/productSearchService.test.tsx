@@ -244,14 +244,45 @@ describe('searchSellableProducts — resultado', () => {
     expect(res.items).toEqual([])
   })
 
-  it('si la consulta de padres falla, no deja la caja sin resultados', async () => {
-    // Preferimos mostrar de más antes que vaciar la caja por un problema de
-    // red: el flag sigue cubriendo el caso normal y el padre tiene stock 0.
-    estado.filas = [producto({ id: HIJO, name: 'Cargador Rapido iPhone 20W' })]
+  it('FAIL-CLOSED: si no se puede validar la estructura, no se ofrece NADA vendible', async () => {
+    // Devolver los candidatos sin filtrar sería fail-open justo cuando no se
+    // puede confirmar quién es padre: un padre inconsistente volvería a ser
+    // seleccionable. Un padre agrupador nunca debe poder venderse, tampoco en
+    // el camino de error.
+    estado.filas = [
+      producto({ id: PADRE, name: 'Cargador Rapido iPhone 20W', has_variants: false, stock_quantity: 0 }),
+      producto({ id: HIJO,  name: 'Cargador Rapido iPhone 20W', variant_name: 'Blanco', parent_id: PADRE }),
+    ]
     estado.errorPadres = { message: 'network down' }
 
     const res = await searchSellableProducts({ businessId: NEGOCIO, query: 'cargador rapido' })
+
+    // Estado de error explícito, distinguible del fallo de la query principal.
+    expect(res.status).toBe('error')
+    expect(res.reason).toBe('variant_check')
+    // Ningún resultado ambiguo tratado como vendible — ni el padre ni el hijo.
+    expect(res.items).toEqual([])
+    expect(res.items.map(i => i.id)).not.toContain(PADRE)
+    // Y NO es un "0 resultados" falso: el consumidor puede distinguirlo.
+    expect(res.status).not.toBe('ok')
+  })
+
+  it('el fallo de la query principal se distingue del fallo de validación', async () => {
+    estado.error = { message: 'network down' }
+    const res = await searchSellableProducts({ businessId: NEGOCIO, query: 'cargador rapido' })
+
+    expect(res.status).toBe('error')
+    expect(res.reason).toBe('query')
+  })
+
+  it('con la validación estructural OK el comportamiento no cambia', async () => {
+    estado.filas = [producto({ id: HIJO, name: 'Cargador Rapido iPhone 20W' })]
+    estado.hijosDePadres = []
+    estado.errorPadres = null
+
+    const res = await searchSellableProducts({ businessId: NEGOCIO, query: 'cargador rapido' })
     expect(res.status).toBe('ok')
+    expect(res.reason).toBeUndefined()
     expect(res.items.map(i => i.id)).toEqual([HIJO])
   })
 

@@ -164,6 +164,46 @@ test.describe('@visual-search P0 — buscador de productos del POS', () => {
     }
   }
 
+  test('FAIL-CLOSED: si no se puede validar la estructura, no queda nada seleccionable', async ({ page }) => {
+    // La validación estructural es lo único que impide ofrecer un padre con
+    // has_variants=false y stock 0. Si esa consulta falla y mostráramos los
+    // candidatos igual, el padre volvería a ser seleccionable.
+    await page.setViewportSize({ width: 1440, height: 900 })
+
+    await page.goto('/comprobantes')
+    const nuevo = page.locator('[data-testid="comprobantes-new-button"]')
+    await expect(nuevo).toBeVisible({ timeout: 30_000 })
+    await nuevo.click()
+
+    // Se rompe SOLO la 2ª consulta (la que pide parent_id,supplier_code).
+    // La búsqueda principal sigue funcionando: es exactamente el escenario
+    // en que el fail-open sería invisible.
+    await page.route('**/rest/v1/inventory*', route => {
+      const url = route.request().url()
+      const esValidacionEstructural =
+        /select=parent_id/.test(url) && !/sale_price/.test(url)
+      if (esValidacionEstructural) return route.abort('failed')
+      return route.fallback()
+    })
+
+    const input = page.locator('[data-testid="comprobante-product-search"]')
+    await expect(input).toBeVisible({ timeout: 15_000 })
+    // Búsqueda que SÍ devuelve candidatos, incluido el padre inconsistente.
+    await input.fill('Cargador Rapido iPhone 20W')
+
+    // Error explícito y accionable...
+    const error = page.locator('[data-testid="comprobante-product-search-error"]')
+    await expect(error).toBeVisible({ timeout: 15_000 })
+    await expect(error).toContainText(/no pudimos validar las variantes/i)
+    await expect(error.getByRole('button', { name: /reintentar/i })).toBeVisible()
+
+    // ...y CERO opciones seleccionables. Ni el padre ni los hijos.
+    await expect(page.locator('[data-testid="comprobante-product-option"]')).toHaveCount(0)
+    await expect(page.locator('[data-testid="comprobante-product-results"]')).toHaveCount(0)
+
+    await page.screenshot({ path: `${EVIDENCIA}/pos-fail-closed-desktop-1440.png` })
+  })
+
   test('el estado de error del buscador se distingue de "sin resultados"', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
 

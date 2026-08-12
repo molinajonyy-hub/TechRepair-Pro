@@ -186,6 +186,8 @@ export function CommandPalette() {
   const [query,    setQuery]    = useState('')
   const [results,  setResults]  = useState<PaletteItem[]>([])
   const [loading,  setLoading]  = useState(false)
+  // Fallo al buscar productos. No puede confundirse con "no hay productos".
+  const [productError, setProductError] = useState<'query' | 'variant_check' | null>(null)
   const [activeIdx,setActiveIdx]= useState(0)
 
   const inputRef   = useRef<HTMLInputElement>(null)
@@ -332,6 +334,15 @@ export function CommandPalette() {
           label: c.name, sublabel: c.phone || undefined,
           path: `/customers/${c.id}` })
       }
+      // Misma semántica segura que el POS: si no se pudo validar qué productos
+      // son padres agrupadores, NO se lista ninguno. Mostrarlos igual dejaría un
+      // padre inconsistente navegable como si fuera un producto vendible, y un
+      // silencio acá se lee como "no hay productos".
+      if (inventoryRes.status === 'error') {
+        setProductError(inventoryRes.reason === 'variant_check' ? 'variant_check' : 'query')
+      } else {
+        setProductError(null)
+      }
       for (const p of inventoryRes.items ?? []) {
         // Precio vigente minorista, dolarizado si el producto es USD-auto.
         // Mismo motor que Inventario y POS → siempre el mismo precio.
@@ -452,7 +463,15 @@ export function CommandPalette() {
 
         {/* ── Results ── */}
         <div ref={listRef} style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-          {displayItems.length === 0 && query.length >= 2 && !loading && (
+          {productError && !loading && (
+            <div data-testid="palette-product-search-error" role="alert"
+              style={{ padding: '0.75rem 1rem', color: colors.text.subtle, fontSize: '0.8125rem', borderBottom: `1px solid ${colors.border.subtle}` }}>
+              {productError === 'variant_check'
+                ? 'No pudimos validar las variantes: los productos no se listan. Reintentá la búsqueda.'
+                : 'No se pudieron buscar productos. Reintentá la búsqueda.'}
+            </div>
+          )}
+          {displayItems.length === 0 && query.length >= 2 && !loading && !productError && (
             <div style={{ padding: '2rem', textAlign: 'center', color: colors.text.muted, fontSize: '0.875rem' }}>
               Sin resultados para "<strong style={{ color: colors.text.subtle }}>{query}</strong>"
             </div>

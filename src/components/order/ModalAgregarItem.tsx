@@ -38,7 +38,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
   const [isSearching, setIsSearching] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
   // Un fallo del backend no puede verse igual que "no hay repuestos".
-  const [searchError, setSearchError] = useState(false)
+  const [searchError, setSearchError] = useState<'query' | 'variant_check' | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<InventoryProduct | null>(null)
   const PREF_KEY = 'techrepair_pref_cliente_paga_repuesto'
   const [clientePagaRepuesto, setClientePagaRepuesto] = useState(() => {
@@ -147,17 +147,19 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
         if (seq !== searchSeq.current) return
 
         if (res.status === 'error') {
-          setSearchError(true)
+          // Fail-closed igual que el POS: sin poder validar qué productos son
+          // padres agrupadores no se ofrece ninguno.
+          setSearchError(res.reason === 'variant_check' ? 'variant_check' : 'query')
           setSearchResults([])
           setShowDropdown(true)
           return
         }
-        setSearchError(false)
+        setSearchError(null)
         setSearchResults(res.items as unknown as InventoryProduct[])
         setShowDropdown(res.items.length > 0)
       } catch {
         if (seq !== searchSeq.current) return
-        setSearchError(true)
+        setSearchError('query')
         setSearchResults([])
         setShowDropdown(true)
       } finally {
@@ -457,7 +459,10 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
                   }}>
                     {searchError && !isSearching && (
                       <p data-testid="agregar-item-search-error" role="alert" style={{ margin: 0, padding: '0.625rem 1rem', color: '#fca5a5', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                        <AlertCircle size={13} style={{ flexShrink: 0 }} /> No se pudo buscar. Revisá la conexión.
+                        <AlertCircle size={13} style={{ flexShrink: 0 }} />
+                        {searchError === 'variant_check'
+                          ? 'No pudimos validar las variantes. Reintentá la búsqueda.'
+                          : 'No se pudo buscar. Revisá la conexión.'}
                       </p>
                     )}
                     {!searchError && searchResults.length === 0 && searchQuery.trim().length >= 2 && !isSearching && (

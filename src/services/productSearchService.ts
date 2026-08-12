@@ -72,6 +72,16 @@ export interface SellableProduct {
 
 export type ProductSearchStatus = 'ok' | 'error'
 
+/**
+ * Qué falló. La copia al usuario cambia según el caso:
+ *  - `query`         — no se pudo consultar el catálogo.
+ *  - `variant_check` — el catálogo respondió, pero no se pudo validar qué
+ *                      productos son padres agrupadores. Fail-closed: no se
+ *                      devuelve nada, porque un padre inconsistente sería
+ *                      seleccionable.
+ */
+export type ProductSearchErrorReason = 'query' | 'variant_check'
+
 export interface ProductSearchResult {
   status: ProductSearchStatus
   items: SellableProduct[]
@@ -79,6 +89,8 @@ export interface ProductSearchResult {
   truncated: boolean
   /** Mensaje crudo del backend. Sólo con status 'error'. */
   error?: string
+  /** Sólo con status 'error'. */
+  reason?: ProductSearchErrorReason
 }
 
 export interface ProductSearchOptions {
@@ -102,20 +114,29 @@ const COLUMNS =
  * Saca del conjunto los productos que, aunque tengan `has_variants` en false,
  * son padres de verdad porque alguna fila los referencia como tal.
  *
- * Una sola consulta indexada sobre los ids ya devueltos. Ante un fallo de esa
- * consulta se devuelve el conjunto SIN filtrar por estructura: el flag sigue
- * cubriendo el caso normal, y preferimos mostrar de más a dejar la caja sin
- * resultados por un problema de red. La venta del padre igual está acotada
- * porque su stock es 0.
+ * ── FAIL-CLOSED ───────────────────────────────────────────────────────────
+ * Si la consulta falla NO se devuelven los candidatos sin filtrar. Hacerlo
+ * sería fail-open justo cuando no se puede confirmar la estructura: un padre
+ * inconsistente (has_variants=false con hijos reales) volvería a ser
+ * seleccionable, que es exactamente el invariante que este lote cierra.
+ *
+ * Un padre agrupador nunca debe poder venderse accidentalmente, ni siquiera
+ * en el camino de error. Se propaga el fallo para que la superficie ofrezca
+ * reintentar, en vez de decidir por su cuenta con datos que no pudo validar.
  */
+type ResultadoEstructural =
+  | { ok: true; items: SellableProduct[] }
+  | { ok: false; error: string }
+
 async function descartarPadresEstructurales(
   businessId: string,
   candidatos: SellableProduct[],
-): Promise<SellableProduct[]> {
-  if (candidatos.length === 0) return candidatos
+): Promise<ResultadoEstructural> {
+  if (candidatos.length === 0) return { ok: true, items: candidatos }
 
   const filtro = buildParentReferenceFilter(candidatos.map(c => c.id))
-  if (!filtro) return candidatos
+  // Sin ids válidos no hay nada que validar: no es un fallo.
+  if (!filtro) return { ok: true, items: candidatos }
 
   const { data, error } = await supabase
     .from('inventory')
@@ -123,12 +144,12 @@ async function descartarPadresEstructurales(
     .eq('business_id', businessId)
     .or(filtro)
 
-  if (error) return candidatos
+  if (error) return { ok: false, error: error.message }
 
   const padres = extractParentIds(data ?? [])
-  if (padres.size === 0) return candidatos
+  if (padres.size === 0) return { ok: true, items: candidatos }
 
-  return candidatos.filter(c => !padres.has(c.id))
+  return { ok: true, items: candidatos.filter(c => !padres.has(c.id)) }
 }
 
 // ─── Búsqueda canónica ───────────────────────────────────────────────────────
@@ -188,7 +209,7 @@ export async function searchSellableProducts(
   if (error) {
     // Un fallo del backend NO es "no hay resultados". La superficie decide cómo
     // mostrarlo, pero jamás puede confundirse con un catálogo vacío.
-    return { status: 'error', items: [], truncated: false, error: error.message }
+    return { status: 'error', items: [], truncated: false, error: error.message, reason: 'query' }
   }
 
   const candidatos = (data ?? []) as unknown as SellableProduct[]
@@ -200,7 +221,22 @@ export async function searchSellableProducts(
   // en false tiene stock 0 y se ofrecería como producto fantasma.
   // Se consulta sobre los ids ya devueltos (a lo sumo limit+1), no sobre el
   // catálogo entero.
-  const filas = await descartarPadresEstructurales(businessId, candidatos)
+  const estructura = await descartarPadresEstructurales(businessId, candidatos)
+
+  // Fail-closed: sin poder validar la estructura, ningún candidato es seguro.
+  // No se devuelve nada vendible ni se finge "sin resultados": la superficie
+  // tiene que poder distinguirlo y ofrecer reintentar.
+  if (!estructura.ok) {
+    return {
+      status: 'error',
+      items: [],
+      truncated: false,
+      error: estructura.error,
+      reason: 'variant_check',
+    }
+  }
+
+  const filas = estructura.items
   const truncated = candidatos.length > limit
 
   // Ranking local sobre un conjunto YA relevante: acá el orden no decide qué se

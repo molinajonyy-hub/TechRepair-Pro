@@ -23,7 +23,7 @@ import { soundSystem } from '../../lib/sounds'
 import { posLogger } from '../../lib/logger'
 import { currencyService } from '../../services/currencyService'
 import { smartSearch } from '../../utils/searchUtils'
-import { searchSellableProducts, isSellableProduct } from '../../services/productSearchService'
+import { searchSellableProducts, isSellableProduct, type ProductSearchErrorReason } from '../../services/productSearchService'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { useCaja } from '../../contexts/CajaContext'
@@ -150,7 +150,7 @@ interface LineaCardProps {
   linea: LineaItem; idx: number; canDelete: boolean; esClienteMayorista: boolean
   exchangeRate: number
   isSearchActive: boolean; lineResults: InventoryResult[]; lineSearchLoading: boolean
-  lineSearchError: string | null
+  lineSearchError: ProductSearchErrorReason | null
   onDescChange: (idx: number, val: string) => void
   onUpdate: (updates: Partial<LineaItem>) => void
   onDelete: () => void
@@ -227,7 +227,10 @@ const LineaCard = memo(function LineaCard({
                   <div style={{ padding: '0.625rem 0.875rem', color: 'var(--pos-text-disabled)', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}><Loader2 size={12} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> Buscando...</div>
                 ) : lineSearchError ? (
                   <div data-testid="linea-product-search-error" role="alert" style={{ padding: '0.625rem 0.875rem', color: 'var(--pos-text-primary)', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                    <AlertTriangle size={12} color="#ef4444" style={{ flexShrink: 0 }} /> No se pudo buscar productos. Revisá la conexión.
+                    <AlertTriangle size={12} color="#ef4444" style={{ flexShrink: 0 }} />
+                    {lineSearchError === 'variant_check'
+                      ? 'No pudimos validar las variantes. Reintentá la búsqueda.'
+                      : 'No se pudo buscar productos. Revisá la conexión.'}
                   </div>
                 ) : lineResults.slice(0, 8).map(inv => (
                   <button key={inv.id} onMouseDown={() => onSelectInv(inv)}
@@ -347,7 +350,7 @@ export function ComprobanteProModal({
   const [spotLoading, setSpotLoading] = useState(false)
   // Error del backend. Distinto de "0 resultados": un catálogo vacío y una
   // consulta caída no pueden verse igual en la caja.
-  const [spotError, setSpotError] = useState<string | null>(null)
+  const [spotError, setSpotError] = useState<ProductSearchErrorReason | null>(null)
   const [spotKeyIdx, setSpotKeyIdx] = useState(-1)
   const [spotlightMode, setSpotlightMode] = useState(false)  // overlay abierto
   const [recentProducts, setRecentProducts] = useState<InventoryResult[]>([])
@@ -381,7 +384,7 @@ export function ComprobanteProModal({
   const [activeSearchIdx, setActiveSearchIdx] = useState<number | null>(null)
   const [lineResults, setLineResults]         = useState<InventoryResult[]>([])
   const [lineSearchLoading, setLineSearchLoading] = useState(false)
-  const [lineSearchError, setLineSearchError] = useState<string | null>(null)
+  const [lineSearchError, setLineSearchError] = useState<ProductSearchErrorReason | null>(null)
   const lineTimer      = useRef<ReturnType<typeof setTimeout>>()
   const dropdownRefs   = useRef<(HTMLDivElement | null)[]>([])
 
@@ -859,7 +862,7 @@ export function ComprobanteProModal({
     q: string,
     onResult: (r: InventoryResult[]) => void,
     setLoad: (v: boolean) => void,
-    onError?: (msg: string | null) => void,
+    onError?: (reason: ProductSearchErrorReason | null) => void,
   ) => {
     if (q.length < 2) { onResult([]); onError?.(null); return }
     const seq = ++searchSeqRef.current
@@ -872,7 +875,11 @@ export function ComprobanteProModal({
       if (res.status === 'error') {
         posLogger.error('Búsqueda de productos falló', res.error)
         onResult([])
-        onError?.(res.error ?? 'Error de conexión')
+        // `variant_check`: el catálogo respondió pero no se pudo validar qué
+        // productos son padres agrupadores. No se muestra NADA (fail-closed):
+        // un padre inconsistente sería seleccionable, y eso es justo lo que no
+        // puede pasar. La copia lo dice tal cual, sin culpar a la conexión.
+        onError?.(res.reason === 'variant_check' ? 'variant_check' : 'query')
         return
       }
       onError?.(null)
@@ -1502,10 +1509,14 @@ export function ComprobanteProModal({
                   <AlertTriangle size={15} color="#ef4444" style={{ flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ color: 'var(--pos-text-primary)', fontSize: '0.8rem', fontWeight: 700 }}>
-                      No se pudo buscar productos
+                      {spotError === 'variant_check'
+                        ? 'No pudimos validar las variantes'
+                        : 'No se pudo buscar productos'}
                     </div>
                     <div style={{ color: 'var(--pos-text-muted)', fontSize: '0.68rem' }}>
-                      Revisá la conexión y volvé a intentar. El catálogo no se consultó.
+                      {spotError === 'variant_check'
+                        ? 'Para no cobrar un producto equivocado no mostramos resultados. Reintentá la búsqueda.'
+                        : 'Revisá la conexión y volvé a intentar. El catálogo no se consultó.'}
                     </div>
                   </div>
                   <button onClick={() => { void runSearch(spotQ, setSpotResults, setSpotLoading, setSpotError) }}
@@ -2181,8 +2192,14 @@ export function ComprobanteProModal({
                 <div data-testid="spotlight-product-search-error" role="alert" style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <AlertTriangle size={17} color="#ef4444" style={{ flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: 'var(--pos-text-primary)', fontSize: '0.875rem', fontWeight: 700 }}>No se pudo buscar productos</div>
-                    <div style={{ color: 'var(--pos-text-muted)', fontSize: '0.75rem' }}>Revisá la conexión y volvé a intentar. El catálogo no se consultó.</div>
+                    <div style={{ color: 'var(--pos-text-primary)', fontSize: '0.875rem', fontWeight: 700 }}>
+                      {spotError === 'variant_check' ? 'No pudimos validar las variantes' : 'No se pudo buscar productos'}
+                    </div>
+                    <div style={{ color: 'var(--pos-text-muted)', fontSize: '0.75rem' }}>
+                      {spotError === 'variant_check'
+                        ? 'Para no cobrar un producto equivocado no mostramos resultados. Reintentá la búsqueda.'
+                        : 'Revisá la conexión y volvé a intentar. El catálogo no se consultó.'}
+                    </div>
                   </div>
                   <button onClick={() => { void runSearch(spotQ, setSpotResults, setSpotLoading, setSpotError) }}
                     style={{ flexShrink: 0, background: 'var(--pos-soft-bg-hover)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem', padding: '0.35rem 0.875rem', color: 'var(--pos-text-primary)', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
