@@ -22,7 +22,8 @@ import {
 import { soundSystem } from '../../lib/sounds'
 import { posLogger } from '../../lib/logger'
 import { currencyService } from '../../services/currencyService'
-import { smartSearch, buildSupabaseQuery } from '../../utils/searchUtils'
+import { smartSearch } from '../../utils/searchUtils'
+import { searchSellableProducts, isSellableProduct, type ProductSearchErrorReason } from '../../services/productSearchService'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { useCaja } from '../../contexts/CajaContext'
@@ -149,6 +150,7 @@ interface LineaCardProps {
   linea: LineaItem; idx: number; canDelete: boolean; esClienteMayorista: boolean
   exchangeRate: number
   isSearchActive: boolean; lineResults: InventoryResult[]; lineSearchLoading: boolean
+  lineSearchError: ProductSearchErrorReason | null
   onDescChange: (idx: number, val: string) => void
   onUpdate: (updates: Partial<LineaItem>) => void
   onDelete: () => void
@@ -160,7 +162,7 @@ interface LineaCardProps {
 
 const LineaCard = memo(function LineaCard({
   linea, idx, canDelete, esClienteMayorista, exchangeRate,
-  isSearchActive, lineResults, lineSearchLoading,
+  isSearchActive, lineResults, lineSearchLoading, lineSearchError,
   onDescChange, onUpdate, onDelete, onSelectInv, onCreateProduct, onSearchFocus, dropdownRef,
 }: LineaCardProps) {
   const subtotal = linea.cantidad * linea.precio_unitario * (1 - (linea.descuento_linea || 0) / 100) * (linea.currency === 'USD' ? exchangeRate : 1)
@@ -223,6 +225,13 @@ const LineaCard = memo(function LineaCard({
               <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 300, background: 'var(--pos-surface)', border: '1px solid var(--pos-soft-bg-hover)', borderRadius: '0.625rem', boxShadow: 'var(--pos-shadow-pop)', overflow: 'hidden', maxHeight: 200, overflowY: 'auto' }}>
                 {lineSearchLoading ? (
                   <div style={{ padding: '0.625rem 0.875rem', color: 'var(--pos-text-disabled)', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}><Loader2 size={12} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> Buscando...</div>
+                ) : lineSearchError ? (
+                  <div data-testid="linea-product-search-error" role="alert" style={{ padding: '0.625rem 0.875rem', color: 'var(--pos-text-primary)', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                    <AlertTriangle size={12} color="#ef4444" style={{ flexShrink: 0 }} />
+                    {lineSearchError === 'variant_check'
+                      ? 'No pudimos validar las variantes. Reintentá la búsqueda.'
+                      : 'No se pudo buscar productos. Revisá la conexión.'}
+                  </div>
                 ) : lineResults.slice(0, 8).map(inv => (
                   <button key={inv.id} onMouseDown={() => onSelectInv(inv)}
                     style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '0.5rem 0.875rem', background: 'none', border: 'none', cursor: 'pointer', borderBottom: '1px solid var(--pos-border-subtle)', textAlign: 'left', fontFamily: F, gap: '0.5rem' }}
@@ -339,6 +348,9 @@ export function ComprobanteProModal({
   const [spotQ, setSpotQ]           = useState('')
   const [spotResults, setSpotResults] = useState<InventoryResult[]>([])
   const [spotLoading, setSpotLoading] = useState(false)
+  // Error del backend. Distinto de "0 resultados": un catálogo vacío y una
+  // consulta caída no pueden verse igual en la caja.
+  const [spotError, setSpotError] = useState<ProductSearchErrorReason | null>(null)
   const [spotKeyIdx, setSpotKeyIdx] = useState(-1)
   const [spotlightMode, setSpotlightMode] = useState(false)  // overlay abierto
   const [recentProducts, setRecentProducts] = useState<InventoryResult[]>([])
@@ -372,6 +384,7 @@ export function ComprobanteProModal({
   const [activeSearchIdx, setActiveSearchIdx] = useState<number | null>(null)
   const [lineResults, setLineResults]         = useState<InventoryResult[]>([])
   const [lineSearchLoading, setLineSearchLoading] = useState(false)
+  const [lineSearchError, setLineSearchError] = useState<ProductSearchErrorReason | null>(null)
   const lineTimer      = useRef<ReturnType<typeof setTimeout>>()
   const dropdownRefs   = useRef<(HTMLDivElement | null)[]>([])
 
@@ -727,7 +740,9 @@ export function ComprobanteProModal({
         const recent: InventoryResult[] = []
         for (const item of data) {
           const inv = (item as any).inventory
-          if (inv && !seen.has(inv.id) && inv.is_active && !inv.has_variants) {
+          // Misma definición de vendible que la búsqueda: un padre agrupador
+          // no puede colarse en "recientes" y terminar en el carrito.
+          if (inv && !seen.has(inv.id) && isSellableProduct(inv)) {
             seen.add(inv.id); recent.push(inv as InventoryResult)
             if (recent.length >= 10) break
           }
@@ -839,41 +854,61 @@ export function ComprobanteProModal({
 
   // ── Search helpers ────────────────────────────────────────────────────────
 
-  const runSearch = useCallback(async (q: string, onResult: (r: InventoryResult[]) => void, setLoad: (v: boolean) => void) => {
-    if (q.length < 2) { onResult([]); return }
+  // Secuencia de búsqueda: descarta respuestas de queries ya superadas.
+  // Sin esto, la respuesta lenta de "iphone" puede pisar la de "iphone 15".
+  const searchSeqRef = useRef(0)
+
+  const runSearch = useCallback(async (
+    q: string,
+    onResult: (r: InventoryResult[]) => void,
+    setLoad: (v: boolean) => void,
+    onError?: (reason: ProductSearchErrorReason | null) => void,
+  ) => {
+    if (q.length < 2) { onResult([]); onError?.(null); return }
+    const seq = ++searchSeqRef.current
     setLoad(true)
     try {
-      const dbQ = buildSupabaseQuery(q)
-      const { data, error: searchErr } = await supabase.from('inventory')
-        .select('id,code,name,variant_name,category,stock_quantity,cost_price,cost_price_usd,sale_price,precio_mayorista,base_price,base_currency,auto_update_price,exchange_rate_used,has_variants')
-        .eq('business_id', businessId).eq('is_active', true).not('has_variants', 'is', true)
-        .or(`name.ilike.${dbQ},variant_name.ilike.${dbQ},code.ilike.${dbQ},category.ilike.${dbQ}`).limit(40)
-      if (searchErr) {
-        console.warn('[ComprobanteProModal.runSearch] DB error:', searchErr.message)
+      const res = await searchSellableProducts({ businessId, query: q, limit: 10 })
+      // Llegó tarde: ya hay una búsqueda más nueva en curso. Se descarta.
+      if (seq !== searchSeqRef.current) return
+
+      if (res.status === 'error') {
+        posLogger.error('Búsqueda de productos falló', res.error)
         onResult([])
+        // `variant_check`: el catálogo respondió pero no se pudo validar qué
+        // productos son padres agrupadores. No se muestra NADA (fail-closed):
+        // un padre inconsistente sería seleccionable, y eso es justo lo que no
+        // puede pasar. La copia lo dice tal cual, sin culpar a la conexión.
+        onError?.(res.reason === 'variant_check' ? 'variant_check' : 'query')
         return
       }
-      const sorted = smartSearch((data || []) as InventoryResult[], q, [
-        { getValue: (inv) => inv.name, weight: 2 },
-        { getValue: (inv) => inv.variant_name ?? '', weight: 1.5 },
-        { getValue: (inv) => inv.code, weight: 1.5 },
-      ])
-      onResult(sorted.slice(0, 10))
-    } finally { setLoad(false) }
+      onError?.(null)
+      onResult(res.items as unknown as InventoryResult[])
+    } finally {
+      if (seq === searchSeqRef.current) setLoad(false)
+    }
   }, [businessId])
 
   const handleSpotChange = useCallback((q: string) => {
     setSpotQ(q); setSpotKeyIdx(-1)
     clearTimeout(spotTimer.current)
-    if (q.length < 2) { setSpotResults([]); return }
+    if (q.length < 2) { setSpotResults([]); setSpotError(null); return }
     spotTimer.current = setTimeout(() => {
-      void runSearch(q, setSpotResults, setSpotLoading)
+      void runSearch(q, setSpotResults, setSpotLoading, setSpotError)
     }, 150)
   }, [runSearch])
 
   const closeSpotlight = useCallback(() => {
     setSpotlightMode(false); setSpotQ(''); setSpotResults([]); setSpotKeyIdx(-1)
   }, [])
+
+  // El error de búsqueda pertenece a una query concreta: si la query se vacía
+  // (por reset, Escape, cierre del overlay o haber agregado el producto), el
+  // error deja de aplicar. Centralizado acá para no depender de que cada uno de
+  // los puntos de limpieza se acuerde de borrarlo.
+  useEffect(() => {
+    if (spotQ.length < 2) setSpotError(null)
+  }, [spotQ])
 
   // ── showToast (debe ir ANTES de addOrIncrement) ───────────────────────────
 
@@ -948,14 +983,34 @@ export function ComprobanteProModal({
     // Parsear formatos de cantidad: "3*CODE", "CODEx3", "CODE*3"
     const { code, qty } = parseQtyCode(raw)
 
-    const { data } = await supabase
+    // El código escaneado se incrusta en un filtro `or=(...)`: una coma o un
+    // paréntesis en el barcode romperían la sintaxis del filtro. Los códigos
+    // válidos no los usan, así que descartarlos es seguro.
+    const safeCode = code.replace(/[(),."\\]/g, '')
+    if (!safeCode) {
+      showToast('Código no encontrado en inventario', false)
+      soundSystem.play('scan_error')
+      return
+    }
+
+    const { data, error: scanErr } = await supabase
       .from('inventory')
       .select('id,code,name,variant_name,category,stock_quantity,cost_price,cost_price_usd,sale_price,precio_mayorista,base_price,base_currency,auto_update_price,exchange_rate_used,has_variants')
       .eq('business_id', businessId)
       .eq('is_active', true)
       .not('has_variants', 'is', true)
-      .or(`code.eq.${code},barcode.eq.${code}`)
+      .or(`code.eq.${safeCode},barcode.eq.${safeCode}`)
       .limit(1)
+
+    // Un fallo de red NO es "no existe": decirle al cajero que el código no
+    // está lo empuja a cargarlo a mano y a vender un producto duplicado.
+    if (scanErr) {
+      posLogger.error('Scan de código falló', scanErr.message)
+      setSpotQ(''); setSpotResults([])
+      showToast('No se pudo consultar el inventario. Revisá la conexión.', false)
+      soundSystem.play('scan_error')
+      return
+    }
 
     const found = data?.[0] as InventoryResult | undefined
     setSpotQ(''); setSpotResults([])
@@ -1018,7 +1073,7 @@ export function ComprobanteProModal({
     setActiveSearchIdx(idx)
     clearTimeout(lineTimer.current)
     lineTimer.current = setTimeout(() => {
-      void runSearch(val, setLineResults, setLineSearchLoading)
+      void runSearch(val, setLineResults, setLineSearchLoading, setLineSearchError)
     }, 250)
   }, [runSearch])
 
@@ -1441,8 +1496,38 @@ export function ComprobanteProModal({
                 </div>
               )}
 
+              {/* Fallo de backend — NUNCA se muestra como "sin resultados": el
+                  cajero tiene que poder distinguir "no existe" de "no se pudo
+                  consultar", porque la acción correcta es distinta. */}
+              {spotError && !spotLoading && (
+                <div data-testid="comprobante-product-search-error" role="alert" style={{
+                  position: 'absolute' as const, top: 'calc(100% + 0.375rem)', left: 0, right: 0, zIndex: 200,
+                  background: 'var(--pos-surface)', border: '1px solid rgba(239,68,68,0.45)',
+                  borderRadius: '0.875rem', boxShadow: 'var(--pos-shadow-pop)', padding: '0.75rem 1rem',
+                  display: 'flex', alignItems: 'center', gap: '0.625rem',
+                }}>
+                  <AlertTriangle size={15} color="#ef4444" style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: 'var(--pos-text-primary)', fontSize: '0.8rem', fontWeight: 700 }}>
+                      {spotError === 'variant_check'
+                        ? 'No pudimos validar las variantes'
+                        : 'No se pudo buscar productos'}
+                    </div>
+                    <div style={{ color: 'var(--pos-text-muted)', fontSize: '0.68rem' }}>
+                      {spotError === 'variant_check'
+                        ? 'Para no cobrar un producto equivocado no mostramos resultados. Reintentá la búsqueda.'
+                        : 'Revisá la conexión y volvé a intentar. El catálogo no se consultó.'}
+                    </div>
+                  </div>
+                  <button onClick={() => { void runSearch(spotQ, setSpotResults, setSpotLoading, setSpotError) }}
+                    style={{ flexShrink: 0, background: 'var(--pos-soft-bg-hover)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem', padding: '0.3rem 0.7rem', color: 'var(--pos-text-primary)', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+                    Reintentar
+                  </button>
+                </div>
+              )}
+
               {/* Inline dropdown resultados */}
-              {spotResults.length > 0 && (
+              {!spotError && spotResults.length > 0 && (
                 <div data-testid="comprobante-product-results" style={{
                   position: 'absolute' as const, top: 'calc(100% + 0.375rem)', left: 0, right: 0, zIndex: 200,
                   background: 'var(--pos-surface)', border: '1px solid var(--pos-border)',
@@ -1454,7 +1539,9 @@ export function ComprobanteProModal({
                     const isHL     = i === spotKeyIdx || (spotKeyIdx === -1 && i === 0)
                     const prShow   = effPrice(r)
                     return (
-                      <button data-testid="comprobante-product-option" key={r.id}
+                      // data-product-id: los E2E comparan identidad, no texto
+                      // renderizado — ver tests/e2e/m7/search-variantes.spec.ts
+                      <button data-testid="comprobante-product-option" data-product-id={r.id} key={r.id}
                         onMouseDown={() => addOrIncrement(r)}
                         onMouseEnter={() => setSpotKeyIdx(i)}
                         style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', width: '100%', padding: '0.625rem 1rem', background: isHL ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', borderBottom: '1px solid var(--pos-border-subtle)', cursor: 'pointer', textAlign: 'left' as const, fontFamily: F, transition: 'background 0.08s' }}>
@@ -1545,6 +1632,7 @@ export function ComprobanteProModal({
                     exchangeRate={exchangeRate}
                     isSearchActive={activeSearchIdx === idx}
                     lineResults={lineResults}
+                    lineSearchError={lineSearchError}
                     lineSearchLoading={lineSearchLoading}
                     onDescChange={handleLineDescChange}
                     onUpdate={(updates) => setLineas(prev => prev.map((r, i) => i === idx ? { ...r, ...updates } : r))}
@@ -2100,7 +2188,26 @@ export function ComprobanteProModal({
           {/* Results */}
           {spotQ.length >= 2 && (
             <div style={{ maxHeight: 340, overflowY: 'auto' }}>
-              {spotResults.length === 0 && !spotLoading && (
+              {spotError && !spotLoading && (
+                <div data-testid="spotlight-product-search-error" role="alert" style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <AlertTriangle size={17} color="#ef4444" style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: 'var(--pos-text-primary)', fontSize: '0.875rem', fontWeight: 700 }}>
+                      {spotError === 'variant_check' ? 'No pudimos validar las variantes' : 'No se pudo buscar productos'}
+                    </div>
+                    <div style={{ color: 'var(--pos-text-muted)', fontSize: '0.75rem' }}>
+                      {spotError === 'variant_check'
+                        ? 'Para no cobrar un producto equivocado no mostramos resultados. Reintentá la búsqueda.'
+                        : 'Revisá la conexión y volvé a intentar. El catálogo no se consultó.'}
+                    </div>
+                  </div>
+                  <button onClick={() => { void runSearch(spotQ, setSpotResults, setSpotLoading, setSpotError) }}
+                    style={{ flexShrink: 0, background: 'var(--pos-soft-bg-hover)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem', padding: '0.35rem 0.875rem', color: 'var(--pos-text-primary)', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
+                    Reintentar
+                  </button>
+                </div>
+              )}
+              {!spotError && spotResults.length === 0 && !spotLoading && (
                 <div style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--pos-text-disabled)', fontSize: '0.875rem' }}>Sin resultados para "{spotQ}"</span>
                   <button onClick={() => { setPfmInitialName(spotQ); setShowPFM(true); closeSpotlight() }}

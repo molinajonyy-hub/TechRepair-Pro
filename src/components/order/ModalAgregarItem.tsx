@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { currencyService } from '../../services/currencyService'
 import { ProductFormModalSafe as ProductFormModal } from '../products/ProductFormModal'
 import { productService } from '../../services/productService'
+import { searchSellableProducts } from '../../services/productSearchService'
 import type { InventoryItem } from '../../hooks/useInventory'
 
 interface InventoryProduct {
@@ -36,6 +37,8 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
   const [searchResults, setSearchResults] = useState<InventoryProduct[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
+  // Un fallo del backend no puede verse igual que "no hay repuestos".
+  const [searchError, setSearchError] = useState<'query' | 'variant_check' | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<InventoryProduct | null>(null)
   const PREF_KEY = 'techrepair_pref_cliente_paga_repuesto'
   const [clientePagaRepuesto, setClientePagaRepuesto] = useState(() => {
@@ -58,6 +61,8 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
   const [showProductForm, setShowProductForm] = useState(false)
   const searchRef = useRef<HTMLDivElement>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Descarta respuestas de búsquedas ya superadas (la lenta no pisa a la nueva).
+  const searchSeq = useRef(0)
 
   // Reset form when modal opens or tipo changes
   useEffect(() => {
@@ -126,34 +131,39 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
     if (searchTimer.current) clearTimeout(searchTimer.current)
     searchTimer.current = setTimeout(async () => {
       if (!businessId || searchQuery.trim().length < 2) return
+      const seq = ++searchSeq.current
       setIsSearching(true)
       try {
-        let query = supabase
-          .from('inventory')
-          .select('id, name, code, category, stock_quantity, sale_price, cost_price, tipo')
-          .eq('business_id', businessId)
-          .eq('is_active', true)
-          .or(`name.ilike.%${searchQuery}%,code.ilike.%${searchQuery}%`)
-          .order('name')
-          .limit(8)
+        // Mismo contrato que el POS: un padre agrupador nunca es seleccionable
+        // como repuesto, y el AND multi-token se resuelve en el servidor (antes
+        // se mandaba la query cruda como un único substring y se truncaba a 8).
+        const res = await searchSellableProducts({
+          businessId,
+          query: searchQuery,
+          limit: 8,
+          tipo: tipo === 'repuesto' ? 'product' : 'service',
+        })
+        // Respuesta de una búsqueda ya superada: se descarta.
+        if (seq !== searchSeq.current) return
 
-        // Filter by tipo: repuesto → products, servicio → services
-        if (tipo === 'repuesto') {
-          query = query.eq('tipo', 'product')
-        } else {
-          query = query.eq('tipo', 'service')
+        if (res.status === 'error') {
+          // Fail-closed igual que el POS: sin poder validar qué productos son
+          // padres agrupadores no se ofrece ninguno.
+          setSearchError(res.reason === 'variant_check' ? 'variant_check' : 'query')
+          setSearchResults([])
+          setShowDropdown(true)
+          return
         }
-
-        const { data, error } = await query
-
-        if (!error && data) {
-          setSearchResults(data)
-          setShowDropdown(data.length > 0)
-        }
+        setSearchError(null)
+        setSearchResults(res.items as unknown as InventoryProduct[])
+        setShowDropdown(res.items.length > 0)
       } catch {
-        // silent
+        if (seq !== searchSeq.current) return
+        setSearchError('query')
+        setSearchResults([])
+        setShowDropdown(true)
       } finally {
-        setIsSearching(false)
+        if (seq === searchSeq.current) setIsSearching(false)
       }
     }, 300)
   }, [searchQuery, businessId, selectedProduct, tipo])
@@ -447,7 +457,15 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
                     boxShadow: '0 10px 25px rgba(0,0,0,0.4)',
                     overflow: 'hidden'
                   }}>
-                    {searchResults.length === 0 && searchQuery.trim().length >= 2 && !isSearching && (
+                    {searchError && !isSearching && (
+                      <p data-testid="agregar-item-search-error" role="alert" style={{ margin: 0, padding: '0.625rem 1rem', color: '#fca5a5', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                        <AlertCircle size={13} style={{ flexShrink: 0 }} />
+                        {searchError === 'variant_check'
+                          ? 'No pudimos validar las variantes. Reintentá la búsqueda.'
+                          : 'No se pudo buscar. Revisá la conexión.'}
+                      </p>
+                    )}
+                    {!searchError && searchResults.length === 0 && searchQuery.trim().length >= 2 && !isSearching && (
                       <p style={{ margin: 0, padding: '0.625rem 1rem', color: '#475569', fontSize: '0.82rem' }}>
                         No se encontró "{searchQuery.trim()}"
                       </p>
