@@ -74,6 +74,17 @@ BEGIN
   DELETE FROM public.comprobante_annulments WHERE business_id = v_biz;
   ALTER TABLE public.comprobante_annulments ENABLE TRIGGER USER;
   DELETE FROM public.comprobante_items WHERE business_id = v_biz;
+  -- `comprobante_checkout_requests` tiene que irse ANTES que los comprobantes y
+  -- también es APPEND-ONLY, así que va con el mismo trato que las dos de arriba.
+  -- Su FK a comprobantes es ON DELETE SET NULL y el trigger rechaza que un
+  -- comprobante_id ya fijado cambie: borrar el comprobante primero aborta la
+  -- transacción entera con "comprobante_id ya fijado es inmutable".
+  -- No se veía hasta ahora porque ningún spec cobraba por el POS real — los
+  -- fixtures insertan comprobantes por SQL, y esos no crean checkout request.
+  -- El primero que cobra de verdad es tests/e2e/m7/search-variantes.spec.ts.
+  ALTER TABLE public.comprobante_checkout_requests DISABLE TRIGGER USER;
+  DELETE FROM public.comprobante_checkout_requests WHERE business_id = v_biz;
+  ALTER TABLE public.comprobante_checkout_requests ENABLE TRIGGER USER;
   DELETE FROM public.comprobantes WHERE business_id = v_biz;
   DELETE FROM public.inventory_movements WHERE business_id = v_biz;
   DELETE FROM public.business_finance_entries WHERE business_id = v_biz;

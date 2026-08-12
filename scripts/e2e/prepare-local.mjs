@@ -25,6 +25,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { motivoDeRechazo, enmascarar, MENSAJE_ABORTO } from '../../tests/e2e/setup/assertLocalTarget.ts'
 import { sqlDeDatos } from '../../tests/e2e/setup/seedE2E.ts'
+import { sqlDeFixtureBusqueda } from '../../tests/e2e/setup/seedSearchFixture.ts'
 
 const HOSTS_LOCALES = ['localhost', '127.0.0.1', '::1', '[::1]']
 
@@ -117,7 +118,9 @@ console.log(`  Contenedor : ${contenedor}`)
 //
 // Las fixtures del gate visual NO van acá: dependen del usuario de Auth, que
 // crea el globalSetup más tarde. Ver tests/e2e/setup/globalSetup.ts, paso 3b.
-const sql = readFileSync('tests/e2e/setup/e2eMarker.sql', 'utf-8') + '\n' + sqlDeDatos()
+const sql = readFileSync('tests/e2e/setup/e2eMarker.sql', 'utf-8')
+  + '\n' + sqlDeDatos()
+  + '\n' + sqlDeFixtureBusqueda()
 
 try {
   const salida = execFileSync(
