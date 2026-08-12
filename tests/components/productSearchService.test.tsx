@@ -25,6 +25,10 @@ const estado = vi.hoisted(() => ({
   filas: [] as Array<Record<string, unknown>>,
   error: null as { message: string } | null,
   queries: [] as QueryRegistrada[],
+  /** Filas que devuelve la consulta de padres estructurales (2da query). */
+  hijosDePadres: [] as Array<Record<string, unknown>>,
+  /** Fuerza un error SOLO en la consulta de padres estructurales. */
+  errorPadres: null as { message: string } | null,
 }))
 
 vi.mock('../../src/lib/supabase', () => {
@@ -33,6 +37,13 @@ vi.mock('../../src/lib/supabase', () => {
       tabla, select: '', eq: [], not: [], or: [], order: [], limit: null,
     }
     estado.queries.push(registro)
+
+    // La consulta de padres estructurales no lleva .limit(): resuelve con el
+    // await sobre el propio builder, así que se le da un `then`.
+    const resolverPadres = () =>
+      estado.errorPadres
+        ? { data: null, error: estado.errorPadres }
+        : { data: estado.hijosDePadres, error: null }
 
     const q: Record<string, unknown> = {
       select: (cols: string) => { registro.select = cols; return q },
@@ -50,6 +61,7 @@ vi.mock('../../src/lib/supabase', () => {
             : { data: estado.filas, error: null },
         )
       },
+      then: (onOk: (v: unknown) => unknown) => Promise.resolve(resolverPadres()).then(onOk),
     }
     return q
   }
@@ -59,6 +71,10 @@ vi.mock('../../src/lib/supabase', () => {
 const { searchSellableProducts } = await import('../../src/services/productSearchService')
 
 const NEGOCIO = '00000000-0000-0000-0000-00000e2eb001'
+// UUIDs reales: buildParentReferenceFilter descarta cualquier id que no lo sea,
+// para no incrustar texto arbitrario en la query.
+const PADRE = '00000000-0000-0000-0000-00000e2ef00a'
+const HIJO  = '00000000-0000-0000-0000-00000e2ef00b'
 
 function producto(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -74,6 +90,8 @@ beforeEach(() => {
   estado.filas = []
   estado.error = null
   estado.queries = []
+  estado.hijosDePadres = []
+  estado.errorPadres = null
 })
 
 describe('searchSellableProducts — forma de la query', () => {
@@ -193,6 +211,48 @@ describe('searchSellableProducts — resultado', () => {
     const res = await searchSellableProducts({ businessId: NEGOCIO, query: 'vidrio templado iphone 14' })
 
     expect(res.items.map(i => i.id).sort()).toEqual(['v1', 'v2'])
+  })
+
+  it('REGRESIÓN: descarta al padre detectado por ESTRUCTURA aunque el flag diga false', async () => {
+    // `has_variants` no lo mantiene ningún trigger y createProductWithVariants
+    // lo setea con un UPDATE separado sin chequear. Un padre con el flag en
+    // false tiene stock 0: ofrecerlo es vender un producto fantasma.
+    estado.filas = [
+      producto({ id: PADRE, name: 'Cargador Rapido iPhone 20W', has_variants: false, stock_quantity: 0 }),
+      producto({ id: HIJO,  name: 'Cargador Rapido iPhone 20W', variant_name: 'Blanco', parent_id: PADRE }),
+    ]
+    estado.hijosDePadres = [{ parent_id: PADRE, supplier_code: null }]
+
+    const res = await searchSellableProducts({ businessId: NEGOCIO, query: 'cargador rapido' })
+
+    expect(res.items.map(i => i.id)).toEqual([HIJO])
+  })
+
+  it('detecta al padre estructural también por supplier_code', async () => {
+    estado.filas = [producto({ id: PADRE, name: 'Cargador Rapido iPhone 20W', has_variants: false })]
+    estado.hijosDePadres = [{ parent_id: null, supplier_code: `variant_parent:${PADRE}` }]
+
+    const res = await searchSellableProducts({ businessId: NEGOCIO, query: 'cargador rapido' })
+    expect(res.items).toEqual([])
+  })
+
+  it('reconoce el prefijo legacy VPREF- para detectar al padre', async () => {
+    estado.filas = [producto({ id: PADRE, name: 'Cargador Rapido iPhone 20W', has_variants: false })]
+    estado.hijosDePadres = [{ parent_id: null, supplier_code: `VPREF-${PADRE}` }]
+
+    const res = await searchSellableProducts({ businessId: NEGOCIO, query: 'cargador rapido' })
+    expect(res.items).toEqual([])
+  })
+
+  it('si la consulta de padres falla, no deja la caja sin resultados', async () => {
+    // Preferimos mostrar de más antes que vaciar la caja por un problema de
+    // red: el flag sigue cubriendo el caso normal y el padre tiene stock 0.
+    estado.filas = [producto({ id: HIJO, name: 'Cargador Rapido iPhone 20W' })]
+    estado.errorPadres = { message: 'network down' }
+
+    const res = await searchSellableProducts({ businessId: NEGOCIO, query: 'cargador rapido' })
+    expect(res.status).toBe('ok')
+    expect(res.items.map(i => i.id)).toEqual([HIJO])
   })
 
   it('prioriza la coincidencia exacta de código sobre el resto', async () => {

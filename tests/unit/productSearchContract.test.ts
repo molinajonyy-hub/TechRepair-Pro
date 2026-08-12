@@ -23,6 +23,8 @@ import {
   sanitizeToken,
   phraseRelevanceBonus,
   sortByPhraseRelevance,
+  buildParentReferenceFilter,
+  extractParentIds,
   PRODUCT_MATCH_COLUMNS,
   MIN_QUERY_LENGTH,
 } from '../../src/lib/productSearchQuery.ts'
@@ -200,6 +202,48 @@ test('el filtro busca en variant_name y en code, no sólo en name', () => {
 
 test('MIN_QUERY_LENGTH es 2: una sola letra no dispara consulta', () => {
   assert.equal(MIN_QUERY_LENGTH, 2)
+})
+
+// ─── Detección estructural de padre ─────────────────────────────────────────
+
+test('el filtro de padres cubre parent_id y los dos prefijos de supplier_code', () => {
+  const filtro = buildParentReferenceFilter([PADRE_ID])
+  assert.ok(filtro)
+  assert.ok(filtro.includes(`parent_id.in.(${PADRE_ID})`))
+  assert.ok(filtro.includes(`"variant_parent:${PADRE_ID}"`))
+  assert.ok(filtro.includes(`"VPREF-${PADRE_ID}"`))
+})
+
+test('el filtro descarta ids que no son UUID', () => {
+  // Los ids vienen de la base, pero el filtro no debe poder incrustar
+  // cualquier cosa en la query.
+  assert.equal(buildParentReferenceFilter(['no-es-uuid', '']), null)
+  assert.equal(buildParentReferenceFilter([]), null)
+})
+
+test('extractParentIds reconoce las tres representaciones', () => {
+  const padres = extractParentIds([
+    { parent_id: 'p1' },
+    { supplier_code: 'variant_parent:p2' },
+    { supplier_code: 'VPREF-p3' },
+    { supplier_code: 'PROV-ACME' },
+    { parent_id: null, supplier_code: null },
+  ])
+  assert.deepEqual([...padres].sort(), ['p1', 'p2', 'p3'])
+})
+
+test('REGRESIÓN: un padre con has_variants=false pero con hijos NO es vendible', () => {
+  // has_variants lo escribe el cliente y ningún trigger lo mantiene; en
+  // createProductWithVariants se setea con un UPDATE separado sin chequear.
+  // Por eso la estructura tiene que mandar sobre el flag.
+  const padreRoto = { id: 'p1', is_active: true, has_variants: false }
+
+  // El flag solo lo daría por vendible...
+  assert.equal(isSellableProduct(padreRoto), true)
+
+  // ...pero la estructura lo desmiente.
+  const padres = extractParentIds([{ parent_id: 'p1' }])
+  assert.ok(padres.has('p1'), 'debe detectarse como padre por estructura')
 })
 
 // ─── Ranking por frase ──────────────────────────────────────────────────────

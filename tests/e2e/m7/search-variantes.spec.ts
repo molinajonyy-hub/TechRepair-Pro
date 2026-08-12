@@ -140,6 +140,33 @@ test('@m7 la variante creada con parent_id también se encuentra por el nombre d
   expect(ids).not.toContain(SEARCH_FIXTURE.padreVidrio)
 })
 
+// ─── Padre detectable sólo por ESTRUCTURA ───────────────────────────────────
+
+test('@m7 un padre con has_variants=false pero con hijos reales NO es seleccionable', async ({ page }) => {
+  // `has_variants` lo escribe el cliente y ningún trigger lo mantiene:
+  // createProductWithVariants lo setea con un UPDATE separado cuyo error no se
+  // chequea. Si ese UPDATE falla, quedan las variantes creadas y el padre con
+  // el flag en false. Con stock 0, ofrecerlo es vender un producto fantasma.
+  await openComprobanteModal(page)
+  await buscarEnPos(page, 'Cargador Rapido iPhone 20W')
+
+  const ids = await idsOfrecidos(page)
+
+  expect(ids, 'el padre estructural no puede ofrecerse aunque el flag diga que no lo es')
+    .not.toContain(SEARCH_FIXTURE.padreRoto)
+  // Y sus hijos sí, por las dos representaciones de vínculo.
+  expect(ids).toContain(SEARCH_FIXTURE.rotoPorParent)
+  expect(ids).toContain(SEARCH_FIXTURE.rotoPorPrefijo)
+})
+
+test('@m7 el padre estructural tampoco aparece buscando su SKU exacto', async ({ page }) => {
+  await openComprobanteModal(page)
+  await buscarEnPos(page, 'SRCH-CAR-IP20')
+
+  const ids = await idsOfrecidos(page)
+  expect(ids).not.toContain(SEARCH_FIXTURE.padreRoto)
+})
+
 // ─── Multi-tenant ───────────────────────────────────────────────────────────
 
 test('@m7 el producto del negocio ajeno nunca aparece en el POS', async ({ page }) => {

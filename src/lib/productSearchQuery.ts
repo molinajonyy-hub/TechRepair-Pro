@@ -15,6 +15,7 @@
  */
 // Extensión explícita: ver la nota en productSellability.ts.
 import { tokenize, normalizeText } from '../utils/searchUtils.ts'
+import { VARIANT_PARENT_PREFIXES, getVariantParentId } from './productSellability.ts'
 
 /** Campos donde puede caer un token. Un solo lugar para todas las superficies. */
 export const PRODUCT_MATCH_COLUMNS = [
@@ -55,6 +56,55 @@ export function buildSearchTokens(query: string): string[] {
  */
 export function buildTokenOrFilter(token: string): string {
   return PRODUCT_MATCH_COLUMNS.map(col => `${col}.ilike.%${token}%`).join(',')
+}
+
+// ─── Detección estructural de padre ─────────────────────────────────────────
+
+/**
+ * Filtro para saber cuáles de `ids` son referenciados como PADRE por alguna
+ * fila del negocio, por cualquiera de las tres representaciones.
+ *
+ * ── POR QUÉ NO ALCANZA `has_variants` ─────────────────────────────────────
+ * Ese flag lo escribe el cliente y NO hay trigger que lo mantenga. En
+ * `createProductWithVariants` se setea con un UPDATE separado cuyo error nunca
+ * se chequea: si falla, las variantes se crean igual con `parent_id` apuntando
+ * a un padre que quedó en `has_variants = false`. Ese padre tiene stock 0 y
+ * sería vendible — un ítem fantasma en la caja.
+ *
+ * Por eso la vendibilidad se decide con las DOS señales: el flag y la
+ * estructura real. La estructura manda.
+ *
+ * Los ids vienen de filas ya devueltas por el servidor (son UUIDs de la propia
+ * base), así que no hay texto de usuario acá; aun así se filtra a hexadecimal
+ * y guiones antes de incrustarlos.
+ */
+export function buildParentReferenceFilter(ids: string[]): string | null {
+  const limpios = ids.filter(id => /^[0-9a-fA-F-]{36}$/.test(id))
+  if (limpios.length === 0) return null
+
+  // `supplier_code` guarda el vínculo como '<prefijo><uuid>'. Los valores se
+  // citan porque contienen ':' y '-', que la lista `in.()` interpreta.
+  const referencias = limpios.flatMap(id =>
+    VARIANT_PARENT_PREFIXES.map(p => `"${p}${id}"`),
+  )
+
+  return `parent_id.in.(${limpios.join(',')}),supplier_code.in.(${referencias.join(',')})`
+}
+
+/**
+ * A partir de las filas hijas encontradas, devuelve el conjunto de ids que
+ * están actuando como padre. Reusa `getVariantParentId` para no tener un
+ * segundo criterio de vínculo padre→hijo dando vueltas.
+ */
+export function extractParentIds(
+  hijos: Array<{ parent_id?: string | null; supplier_code?: string | null }>,
+): Set<string> {
+  const padres = new Set<string>()
+  for (const hijo of hijos) {
+    const padre = getVariantParentId(hijo)
+    if (padre) padres.add(padre)
+  }
+  return padres
 }
 
 // ─── Relevancia ─────────────────────────────────────────────────────────────

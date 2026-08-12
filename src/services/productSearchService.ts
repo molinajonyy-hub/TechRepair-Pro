@@ -28,6 +28,8 @@ import {
   MIN_QUERY_LENGTH,
   buildSearchTokens,
   buildTokenOrFilter,
+  buildParentReferenceFilter,
+  extractParentIds,
   sortByPhraseRelevance,
 } from '../lib/productSearchQuery'
 
@@ -96,6 +98,39 @@ const COLUMNS =
   'sale_price,precio_mayorista,base_price,base_currency,auto_update_price,exchange_rate_used,' +
   'has_variants,parent_id,supplier_code,tipo'
 
+/**
+ * Saca del conjunto los productos que, aunque tengan `has_variants` en false,
+ * son padres de verdad porque alguna fila los referencia como tal.
+ *
+ * Una sola consulta indexada sobre los ids ya devueltos. Ante un fallo de esa
+ * consulta se devuelve el conjunto SIN filtrar por estructura: el flag sigue
+ * cubriendo el caso normal, y preferimos mostrar de más a dejar la caja sin
+ * resultados por un problema de red. La venta del padre igual está acotada
+ * porque su stock es 0.
+ */
+async function descartarPadresEstructurales(
+  businessId: string,
+  candidatos: SellableProduct[],
+): Promise<SellableProduct[]> {
+  if (candidatos.length === 0) return candidatos
+
+  const filtro = buildParentReferenceFilter(candidatos.map(c => c.id))
+  if (!filtro) return candidatos
+
+  const { data, error } = await supabase
+    .from('inventory')
+    .select('parent_id,supplier_code')
+    .eq('business_id', businessId)
+    .or(filtro)
+
+  if (error) return candidatos
+
+  const padres = extractParentIds(data ?? [])
+  if (padres.size === 0) return candidatos
+
+  return candidatos.filter(c => !padres.has(c.id))
+}
+
 // ─── Búsqueda canónica ───────────────────────────────────────────────────────
 
 /**
@@ -156,8 +191,17 @@ export async function searchSellableProducts(
     return { status: 'error', items: [], truncated: false, error: error.message }
   }
 
-  const filas = (data ?? []) as unknown as SellableProduct[]
-  const truncated = filas.length > limit
+  const candidatos = (data ?? []) as unknown as SellableProduct[]
+
+  // ── Segundo filtro: padres detectados por ESTRUCTURA ────────────────────
+  // `has_variants` no es confiable por sí solo: lo escribe el cliente, no hay
+  // trigger que lo mantenga, y en createProductWithVariants se setea con un
+  // UPDATE separado cuyo error no se chequea. Un padre que quedó con el flag
+  // en false tiene stock 0 y se ofrecería como producto fantasma.
+  // Se consulta sobre los ids ya devueltos (a lo sumo limit+1), no sobre el
+  // catálogo entero.
+  const filas = await descartarPadresEstructurales(businessId, candidatos)
+  const truncated = candidatos.length > limit
 
   // Ranking local sobre un conjunto YA relevante: acá el orden no decide qué se
   // pierde, pero SÍ decide qué queda primero — y la primera opción viene

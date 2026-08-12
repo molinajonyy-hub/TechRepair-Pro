@@ -32,6 +32,13 @@ export const SEARCH_FIXTURE = {
   bateria:      '00000000-0000-0000-0000-00000e2ef008',
   // Producto del negocio ajeno (control multi-tenant).
   ajeno:        '00000000-0000-0000-0000-00000e2ef009',
+  // DATO INCONSISTENTE: padre real (tiene hijos) pero con has_variants = FALSE.
+  // Es el estado que deja createProductWithVariants si su UPDATE del flag
+  // falla, y el que pueden tener filas legacy. Sin deteccion estructural este
+  // padre se ofreceria en la caja con stock 0.
+  padreRoto:    '00000000-0000-0000-0000-00000e2ef00a',
+  rotoPorParent:'00000000-0000-0000-0000-00000e2ef00b',
+  rotoPorPrefijo:'00000000-0000-0000-0000-00000e2ef00c',
   /** Cantidad de productos de relleno que empujan a las variantes fuera del LIMIT. */
   relleno: 150,
 } as const
@@ -134,6 +141,36 @@ INSERT INTO public.inventory
 VALUES
   ('${F.bateria}', '${E2E.business}', 'Bateria iPhone 11', 'SRCH-BAT-IP11',
    'Repuestos', 12, 12, 4000, 9000, 9000, 'ARS', false, 1, true, 'product', false);
+
+-- ── 4b. Padre INCONSISTENTE: tiene hijos pero has_variants = false ───────
+-- El flag lo escribe el cliente y ningún trigger lo mantiene. En
+-- createProductWithVariants se setea con un UPDATE separado cuyo error no se
+-- chequea, así que este estado es alcanzable en datos reales. Se cubren las
+-- dos formas de vínculo para que la detección estructural no dependa de una.
+INSERT INTO public.inventory
+  (id, business_id, name, code, category, stock_quantity, stock, cost_price, sale_price,
+   base_price, base_currency, auto_update_price, exchange_rate_used, is_active, tipo, has_variants)
+VALUES
+  ('${F.padreRoto}', '${E2E.business}', 'Cargador Rapido iPhone 20W', 'SRCH-CAR-IP20',
+   'Cargadores', 0, 0, 0, 0, 0, 'ARS', false, 1, true, 'product', false);
+
+INSERT INTO public.inventory
+  (id, business_id, name, variant_name, parent_id, code, category,
+   stock_quantity, stock, cost_price, sale_price, base_price, base_currency,
+   auto_update_price, exchange_rate_used, is_active, tipo, has_variants)
+VALUES
+  ('${F.rotoPorParent}', '${E2E.business}', 'Cargador Rapido iPhone 20W', 'Blanco',
+   '${F.padreRoto}', 'SRCH-CAR-IP20-V1', 'Cargadores',
+   6, 6, 2000, 5000, 5000, 'ARS', false, 1, true, 'product', false);
+
+INSERT INTO public.inventory
+  (id, business_id, name, code, category, subcategory, supplier_code,
+   stock_quantity, stock, cost_price, sale_price, base_price, base_currency,
+   auto_update_price, exchange_rate_used, is_active, tipo, has_variants)
+VALUES
+  ('${F.rotoPorPrefijo}', '${E2E.business}', 'Cargador Rapido iPhone 20W - Negro',
+   'SRCH-CAR-IP20-V2', 'Cargadores', 'Negro', 'variant_parent:${F.padreRoto}',
+   4, 4, 2000, 5000, 5000, 'ARS', false, 1, true, 'product', false);
 
 -- ── 5. Control multi-tenant: producto del negocio ajeno ──────────────────
 INSERT INTO public.inventory
