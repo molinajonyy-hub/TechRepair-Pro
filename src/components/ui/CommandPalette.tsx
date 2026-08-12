@@ -32,6 +32,7 @@ import { animate, transition, duration } from '../../lib/motion'
 import { colors } from '../../lib/tokens'
 import { currencyService } from '../../services/currencyService'
 import { resolveProductPricing } from '../../lib/pricing/productPricing'
+import { searchSellableProducts, productDisplayName } from '../../services/productSearchService'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -301,12 +302,10 @@ export function CommandPalette() {
           .eq('business_id', businessId)
           .or(`name.ilike.${term},phone.ilike.${term},email.ilike.${term}`)
           .limit(4),
-        // Trae los campos de pricing para resolver el precio vigente con el mismo
-        // motor que Inventario y POS (resolveProductPricing) — sin cálculo duplicado.
-        supabase.from('inventory').select('id,name,code,stock_quantity,category,sale_price,precio_mayorista,cost_price,cost_price_usd,base_price,base_currency,auto_update_price,exchange_rate_used')
-          .eq('business_id', businessId).eq('is_active', true)
-          .or(`name.ilike.${term},code.ilike.${term},description.ilike.${term}`)
-          .limit(4),
+        // Mismo contrato de vendibilidad y mismos campos buscables que el POS:
+        // un producto que la caja encuentra tiene que aparecer también acá, y un
+        // padre agrupador no debe listarse como si fuera un producto vendible.
+        searchSellableProducts({ businessId, query: q, limit: 4 }),
         supabase.from('orders').select('id,status,customer:customers(name)')
           .eq('business_id', businessId).ilike('id', term).limit(3),
         supabase.from('comprobantes').select('id,numero,numero_fiscal,tipo,total_ars,estado')
@@ -316,8 +315,12 @@ export function CommandPalette() {
         supabase.from('suppliers').select('id,name,phone')
           .eq('business_id', businessId).eq('active', true)
           .ilike('name', term).limit(3),
-        // Devices: search by IMEI, brand, model — no business_id (linked via order)
+        // Devices: por IMEI, marca, modelo. El aislamiento lo garantiza la RLS
+        // (devices_select exige business_id = current_business_id() AND is_staff),
+        // pero el filtro explícito va igual: que el scope multi-tenant dependa de
+        // una sola capa es lo que hace caros los errores de esa capa.
         supabase.from('devices').select('id,brand,model,imei,order_id')
+          .eq('business_id', businessId)
           .or(`imei.ilike.${term},brand.ilike.${term},model.ilike.${term}`)
           .limit(4),
       ])
@@ -329,12 +332,12 @@ export function CommandPalette() {
           label: c.name, sublabel: c.phone || undefined,
           path: `/customers/${c.id}` })
       }
-      for (const p of inventoryRes.data ?? []) {
+      for (const p of inventoryRes.items ?? []) {
         // Precio vigente minorista, dolarizado si el producto es USD-auto.
         // Mismo motor que Inventario y POS → siempre el mismo precio.
         const saleArs = resolveProductPricing(p, rateRef.current).saleArs
         items.push({ id: p.id, type: 'inventory', group: 'Productos', icon: Package,
-          label: p.name, sublabel: `${p.code} · stock: ${p.stock_quantity}`,
+          label: productDisplayName(p), sublabel: `${p.code} · stock: ${p.stock_quantity}`,
           price: saleArs > 0 ? '$' + Math.round(saleArs).toLocaleString('es-AR') : undefined,
           path: '/inventory' })
       }
