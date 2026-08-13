@@ -7,6 +7,7 @@
 
 import type { Comprobante, ComprobanteItem } from '../../hooks/useComprobantes'
 import type { OrderPrintSettings } from '../../hooks/useOrderPrintSettings'
+import { identidadVisible } from '../../lib/comprobanteFiscalIdentity'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,13 +34,9 @@ const fmt = (v: number, currency: 'ARS' | 'USD' = 'ARS') =>
 const fmtFecha = (s: string) =>
   new Date(s).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
-function padPV(pv: string) { return pv.replace(/\D/g, '').padStart(4, '0') }
-
-function formatNumero(numero: string | null, puntoVenta: string) {
-  const pv = padPV(puntoVenta)
-  if (!numero) return `${pv}---------`
-  return `${pv}-${numero.replace(/\D/g, '').padStart(8, '0')}`
-}
+// El número y el punto de venta a imprimir los resuelve identidadVisible():
+// numero_fiscal manda sobre el local. Los helpers que armaban el número
+// concatenando el PV local se retiraron a propósito.
 
 const TIPO_LABEL: Record<string, string> = {
   factura_a: 'FACTURA A',
@@ -55,6 +52,8 @@ const TIPO_LETRA: Record<string, string> = {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ComprobantePrintLayout({ comprobante, items, cliente, orden, profile }: Props) {
+  // numero_fiscal manda cuando existe: es la única identidad que reconoce AFIP.
+  const identidad  = identidadVisible(comprobante)
   const tipoLetra  = TIPO_LETRA[comprobante.tipo]  ?? '?'
   const nombre     = profile.nombre_comercial || 'Mi Negocio'
   const esRemito   = comprobante.tipo === 'remito'
@@ -233,10 +232,16 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
 
         {/* Right: number, date, status */}
         <div className="cpl-doc-meta">
-          <p className="cpl-label">Comprobante N°</p>
-          <p className="cpl-doc-num">{formatNumero(comprobante.numero, comprobante.punto_venta)}</p>
+          <p className="cpl-label">{identidad.esFiscalEmitido ? 'Comprobante N°' : 'N° interno'}</p>
+          <p className="cpl-doc-num">{identidad.texto}</p>
           <p className="cpl-doc-date">{fmtFecha(comprobante.fecha)}</p>
-          <p className="cpl-muted">Pto. Venta {padPV(comprobante.punto_venta)}</p>
+          {/* El PV impreso tiene que ser el que autorizó AFIP. Un tipo fiscal sin
+              CAE no tiene punto de venta que mostrar: imprimir el local hacía
+              pasar por fiscal un número que en AFIP no existe. */}
+          {identidad.puntoVenta && <p className="cpl-muted">Pto. Venta {identidad.puntoVenta}</p>}
+          {identidad.pendienteDeEmision && (
+            <p className="cpl-muted">Pendiente de emisión</p>
+          )}
           {(comprobante.estado === 'emitido' || comprobante.estado === 'anulado') && (
             <span
               className="cpl-estado"

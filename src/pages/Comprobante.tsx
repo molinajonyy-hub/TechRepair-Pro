@@ -21,6 +21,7 @@ import {
 } from '../services/comprobanteService';
 import { buildComprobanteFilename } from '../lib/printFilename';
 import { isComprobanteAnnulled } from '../utils/comprobanteStatus';
+import { identidadVisible } from '../lib/comprobanteFiscalIdentity';
 import { logger } from '../lib/logger';
 
 const TIPO_LABELS: Record<string, string> = {
@@ -766,7 +767,11 @@ export default function ComprobantePage() {
                 {[
                   ['Tipo', TIPO_LABELS[comprobanteActual.tipo]],
                   ['Fecha', new Date(comprobanteActual.fecha).toLocaleDateString('es-AR')],
-                  ['Pto. Venta', String(comprobanteActual.punto_venta).padStart(4, '0')],
+                  // Sólo se muestra el PV cuando es el que autorizó AFIP (o el
+                  // local de un no fiscal). Un fiscal sin CAE no tiene PV.
+                  ...(identidadVisible(comprobanteActual).puntoVenta
+                    ? [['Pto. Venta', identidadVisible(comprobanteActual).puntoVenta as string]]
+                    : []),
                   ...(comprobanteActual.cae_vencimiento
                     ? [['Venc. CAE', new Date(comprobanteActual.cae_vencimiento).toLocaleDateString('es-AR')]]
                     : []),

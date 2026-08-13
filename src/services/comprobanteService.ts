@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { parseNumeroFiscal } from '../lib/comprobanteFiscalIdentity';
 import ArcaService from './arcaService';
 import { requireFeature } from '../utils/requireFeature';
 import { computeCheckoutRequestHash } from '../lib/checkoutIdempotency';
@@ -1033,6 +1034,29 @@ export const comprobanteService = {
     error?: string
     pendingReconciliation?: boolean
   }> {
+    // ── 0. Identidad fiscal del original — FAIL-CLOSED antes de crear nada ───
+    // El CbtesAsoc que se manda a AFIP referencia al comprobante original por
+    // punto de venta + número. Ese dato sólo puede salir de `numero_fiscal`, que
+    // es lo que AFIP autorizó. El código anterior caía a `original.punto_venta`
+    // (el PV LOCAL) cuando faltaba: con sales_points.numero=7 y
+    // arca_config.punto_venta=3 eso mandaba a AFIP un CbtesAsoc apuntando al PV
+    // 7, que allá no existe.
+    //
+    // Se valida ANTES de crear el borrador para no dejar una NC huérfana.
+    if (params.emitirEnArca) {
+      const originalPrevio = await this.getById(params.originalComprobanteId, params.businessId)
+      if (!originalPrevio) {
+        return { success: false, error: 'Comprobante original no encontrado' }
+      }
+      if (!parseNumeroFiscal(originalPrevio.numero_fiscal)) {
+        return {
+          success: false,
+          error: 'El comprobante original todavía no tiene número fiscal de ARCA. '
+               + 'Emitilo o reconciliá su CAE antes de generar la Nota de Crédito.',
+        }
+      }
+    }
+
     // ── 1. Crear draft NC + copiar ítems (RPC atómica) ───────────────────────
     const { data: rpcData, error: rpcError } = await supabase.rpc(
       'create_credit_note_from_comprobante',
@@ -1054,10 +1078,20 @@ export const comprobanteService = {
     const cbteAsocTipo   = original.tipo_comprobante_fiscal
       ? parseInt(original.tipo_comprobante_fiscal as unknown as string, 10)
       : 11
-    // numero_fiscal = "0001-00000001"
-    const nroParts        = (original.numero_fiscal || '').split('-')
-    const cbteAsocPtoVta  = nroParts[0] ? parseInt(nroParts[0], 10) : (parseInt(original.punto_venta || '1', 10))
-    const cbteAsocNro     = nroParts[1] ? parseInt(nroParts[1], 10) : 0
+    // numero_fiscal = "0003-00000001" — ÚNICA fuente del CbtesAsoc.
+    // Sin fallback a punto_venta: el PV local puede no existir en AFIP. Si acá
+    // no hay identidad fiscal es un invariante roto (el paso 0 ya lo filtró y
+    // create_credit_note_from_comprobante exige estado_fiscal='emitido' + CAE),
+    // así que se corta en vez de inferir.
+    const identidadOriginal = parseNumeroFiscal(original.numero_fiscal)
+    if (!identidadOriginal) {
+      return {
+        success: false,
+        error: 'El comprobante original no tiene número fiscal de ARCA: no se puede referenciar en la Nota de Crédito.',
+      }
+    }
+    const cbteAsocPtoVta  = parseInt(identidadOriginal.puntoVenta, 10)
+    const cbteAsocNro     = parseInt(identidadOriginal.numero, 10)
 
     let cae: string | undefined
     let arcaError: string | undefined

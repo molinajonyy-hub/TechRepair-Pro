@@ -12,6 +12,7 @@ import {
   Phone, Instagram, Mail, MapPin,
 } from 'lucide-react'
 import { TipoComprobante, Comprobante, ComprobanteItem } from '../../hooks/useComprobantes'
+import { identidadVisible } from '../../lib/comprobanteFiscalIdentity'
 import { OrderPrintSettings } from '../../hooks/useOrderPrintSettings'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -63,13 +64,9 @@ const fmt = (v: number, currency: 'ARS' | 'USD' = 'ARS') =>
 const fmtFecha = (s: string) =>
   new Date(s).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
-function padPV(pv: string) { return pv.replace(/\D/g, '').padStart(4, '0') }
-
-function formatNumero(numero: string | null, puntoVenta: string) {
-  const pv = padPV(puntoVenta)
-  if (!numero) return `${pv}---------`
-  return `${pv}-${numero.replace(/\D/g, '').padStart(8, '0')}`
-}
+// El número y el punto de venta a mostrar los resuelve identidadVisible():
+// numero_fiscal manda sobre el local. Los helpers que armaban el número
+// concatenando el PV local se retiraron a propósito.
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -94,6 +91,8 @@ function SectionLabel({ children }: { children: ReactNode }) {
 function DocHeader({ comprobante, profile }: { comprobante: Comprobante; profile: OrderPrintSettings }) {
   const tipo = TIPO_CONFIG[comprobante.tipo] ?? TIPO_CONFIG.factura_c
   const est  = ESTADO_CONFIG[comprobante.estado] ?? ESTADO_CONFIG.borrador
+  // numero_fiscal manda cuando existe: es la única identidad que reconoce AFIP.
+  const identidad = identidadVisible(comprobante)
   const name = profile.nombre_comercial || 'Mi Negocio'
   const addr = profile.domicilio_fiscal
   const wa   = profile.orden_whatsapp
@@ -214,8 +213,15 @@ function DocHeader({ comprobante, profile }: { comprobante: Comprobante; profile
           Comprobante N°
         </p>
         <p style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '1.2rem', color: tipo.color, margin: 0, letterSpacing: '0.04em' }}>
-          {formatNumero(comprobante.numero, comprobante.punto_venta)}
+          {identidad.texto}
         </p>
+        {/* Un tipo fiscal sin CAE no tiene número fiscal: se rotula el interno
+            en vez de presentarlo como un comprobante emitido. */}
+        {identidad.pendienteDeEmision && (
+          <p style={{ color: 'var(--text-subtle)', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', margin: '0.15rem 0 0' }}>
+            N° interno · pendiente de emisión
+          </p>
+        )}
         <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', margin: '0.25rem 0' }}>
           {fmtFecha(comprobante.fecha)}
         </p>
