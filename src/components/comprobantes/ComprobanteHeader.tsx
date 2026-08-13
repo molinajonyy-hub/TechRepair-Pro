@@ -1,9 +1,12 @@
 import { TipoComprobante } from '../../hooks/useComprobantes';
 import { getComprobanteDisplayStatus } from '../../utils/comprobanteStatus';
+import { identidadVisible } from '../../lib/comprobanteFiscalIdentity';
 
 interface ComprobanteHeaderProps {
   tipo: TipoComprobante;
   numero: string | null;
+  /** Número autorizado por AFIP. Si está, es la identidad canónica. */
+  numeroFiscal?: string | null;
   estado: 'borrador' | 'emitido' | 'anulado';
   puntoVenta: string;
   estadoFiscal?: string | null;
@@ -104,19 +107,11 @@ const ESTADO_CONFIG: Record<string, { label: string; dotColor: string; badgeBg: 
   },
 };
 
-function padPV(pv: string) {
-  return pv.replace(/\D/g, '').padStart(4, '0');
-}
-
-function formatNumero(numero: string | null, puntoVenta: string) {
-  const pv = padPV(puntoVenta);
-  if (!numero) return `${pv}---------`;
-  const num = numero.replace(/\D/g, '').padStart(8, '0');
-  return `${pv}-${num}`;
-}
-
-export function ComprobanteHeader({ tipo, numero, estado, puntoVenta, estadoFiscal, cae, totalCobrado }: ComprobanteHeaderProps) {
+export function ComprobanteHeader({ tipo, numero, numeroFiscal, estado, puntoVenta, estadoFiscal, cae, totalCobrado }: ComprobanteHeaderProps) {
   const cfg = TIPO_CONFIG[tipo] ?? TIPO_CONFIG.factura_c;
+  const identidad = identidadVisible({
+    tipo, numero, numero_fiscal: numeroFiscal, punto_venta: puntoVenta,
+  });
   const displayStatus = getComprobanteDisplayStatus({ estado, estado_fiscal: estadoFiscal, cae, total_cobrado: totalCobrado })
   const est = ESTADO_CONFIG[displayStatus.key] ?? ESTADO_CONFIG.borrador;
 
@@ -184,11 +179,21 @@ export function ComprobanteHeader({ tipo, numero, estado, puntoVenta, estadoFisc
           Comprobante N°
         </p>
         <p style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '1.25rem', color: cfg.color, margin: 0, letterSpacing: '0.05em' }}>
-          {formatNumero(numero, puntoVenta)}
+          {identidad.texto}
         </p>
-        <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0.25rem 0 0.75rem' }}>
-          Pto. Venta {padPV(puntoVenta)}
-        </p>
+        {/* Igual que el resto de las superficies: numero_fiscal es la identidad
+            canónica, y un tipo fiscal sin CAE no tiene punto de venta que
+            mostrar. */}
+        {identidad.puntoVenta && (
+          <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0.25rem 0 0.75rem' }}>
+            Pto. Venta {identidad.puntoVenta}
+          </p>
+        )}
+        {identidad.pendienteDeEmision && (
+          <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0.25rem 0 0.75rem' }}>
+            N° interno · pendiente de emisión
+          </p>
+        )}
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
           padding: '0.25rem 0.75rem', borderRadius: 9999,

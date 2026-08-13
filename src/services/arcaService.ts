@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase'
 import { sanitizeArcaError } from './arcaSanitize'
+import { logger } from '../lib/logger'
 
 // ────────────────────────────────────────────────────────────────────────────
 // AFIP-S1B-A2: contratos tipados del frontend. NINGUNO expone `private_key`.
@@ -75,6 +76,27 @@ export class ArcaService {
 
     if (error) throw new Error('Error al obtener configuración ARCA')
     return data
+  }
+
+  /**
+   * Punto de venta FISCAL del negocio, formateado a 4 dígitos, o null si el
+   * negocio todavía no configuró ARCA.
+   *
+   * Es lo único que el POS necesita saber de ARCA para mostrar la identidad
+   * fiscal correcta: va por el mismo contrato seguro (get_arca_config_safe),
+   * así que no expone certificado, clave ni token. No lanza — un fallo de
+   * lectura se registra y se trata como "sin configurar" a efectos de UI; la
+   * autoridad real sigue siendo el servidor en el checkout.
+   */
+  static async getPuntoVentaFiscal(businessId: string): Promise<string | null> {
+    try {
+      const cfg = (await this.getArcaConfig(businessId)) as ArcaConfigSafe | null
+      const pv = cfg?.punto_venta
+      return typeof pv === 'number' && pv > 0 ? String(pv).padStart(4, '0') : null
+    } catch (err) {
+      logger.error('POS', 'No se pudo leer el punto de venta fiscal de ARCA', err)
+      return null
+    }
   }
 
   /**

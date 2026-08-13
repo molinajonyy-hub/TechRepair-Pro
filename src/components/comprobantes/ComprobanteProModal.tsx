@@ -25,6 +25,7 @@ import { currencyService } from '../../services/currencyService'
 import { smartSearch } from '../../utils/searchUtils'
 import { searchSellableProducts, isSellableProduct, type ProductSearchErrorReason } from '../../services/productSearchService'
 import { salesPointService } from '../../services/salesPointService'
+import { ArcaService } from '../../services/arcaService'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { useCaja } from '../../contexts/CajaContext'
@@ -333,6 +334,8 @@ export function ComprobanteProModal({
   // ── Encabezado ───────────────────────────────────────────────────────────
   const [tipo, setTipo]             = useState<TipoComprobante>(tipoInicial ?? 'factura_c')
   const [puntoVenta, setPuntoVenta] = useState(puntoVentaInicial ?? '0001')
+  /** PV fiscal leído de arca_config. Sólo informativo: manda el servidor. */
+  const [pvFiscal, setPvFiscal] = useState<string | null>(null)
   const [condicion, setCondicion]   = useState(condicionFiscalInicial ?? 'Consumidor Final')
   const [clienteId, setClienteId]   = useState(initialClienteId ?? '')
   const [clienteQuery, setClienteQuery] = useState('')
@@ -717,9 +720,17 @@ export function ComprobanteProModal({
     // Si falla o no hay PV configurado se conserva el default del estado: el
     // servicio ya registró el error. Ver salesPointService (contrato real de
     // la tabla: numero/activo/predeterminado, no punto_venta/is_active).
+    // Esto alimenta SOLO al comprobante no fiscal: en un fiscal el PV lo
+    // resuelve el servidor desde arca_config.
     salesPointService.getActiveNumeroFormateado(businessId)
       .then(numero => { if (numero) setPuntoVenta(numero) })
   }, [isOpen, businessId, puntoVentaInicial])
+
+  // PV fiscal (arca_config) — sólo para MOSTRARLO. La autoridad es el servidor.
+  useEffect(() => {
+    if (!isOpen || !businessId) return
+    ArcaService.getPuntoVentaFiscal(businessId).then(setPvFiscal)
+  }, [isOpen, businessId])
 
   useEffect(() => {
     if (!isOpen || !businessId) return
@@ -1168,6 +1179,8 @@ export function ComprobanteProModal({
   if (!isOpen) return null
 
   const tc = TIPO_CONFIG[tipo]
+  /** Un tipo fiscal toma su PV de ARCA, no del punto de venta local. */
+  const tipoEsFiscal = tc.fiscal
   const filledLineas = lineas.filter(l => l.descripcion.trim())
 
   // ── Shared icon-button style ─────────────────────────────────────────────
@@ -1253,10 +1266,27 @@ export function ComprobanteProModal({
 
           {/* Centro: PV + dólar */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '0.375rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'var(--pos-inset-bg)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem', padding: '0.25rem 0.625rem' }}>
-              <span style={{ fontSize: '0.68rem', color: 'var(--pos-text-muted)', fontWeight: 700 }}>PV</span>
-              <input value={puntoVenta} onChange={e => setPuntoVenta(e.target.value)} style={{ width: '3.5rem', background: 'none', border: 'none', outline: 'none', color: 'var(--pos-text-secondary)', fontSize: '0.82rem', textAlign: 'center', fontFamily: F }} />
-            </div>
+            {/* PUNTO DE VENTA.
+                En un comprobante FISCAL el PV lo resuelve el servidor desde la
+                configuración de ARCA (create_comprobante_checkout_atomic), así
+                que acá se muestra ESE valor y en modo lectura: dejar editable el
+                PV local hacía creer que definía la identidad fiscal cuando el
+                CAE se pide siempre con el de ARCA.
+                En un remito el PV local sigue siendo legítimo y editable. */}
+            {tipoEsFiscal ? (
+              <div data-testid="comprobante-pv-fiscal" title="Lo define la configuración de ARCA"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'var(--pos-inset-bg)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem', padding: '0.25rem 0.625rem' }}>
+                <span style={{ fontSize: '0.68rem', color: 'var(--pos-text-muted)', fontWeight: 700 }}>PV fiscal</span>
+                <span style={{ minWidth: '3.5rem', textAlign: 'center', color: pvFiscal ? 'var(--pos-text-secondary)' : 'var(--pos-warning)', fontSize: '0.82rem', fontFamily: F }}>
+                  {pvFiscal ?? 'sin configurar'}
+                </span>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'var(--pos-inset-bg)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem', padding: '0.25rem 0.625rem' }}>
+                <span style={{ fontSize: '0.68rem', color: 'var(--pos-text-muted)', fontWeight: 700 }}>PV</span>
+                <input data-testid="comprobante-pv-local" value={puntoVenta} onChange={e => setPuntoVenta(e.target.value)} style={{ width: '3.5rem', background: 'none', border: 'none', outline: 'none', color: 'var(--pos-text-secondary)', fontSize: '0.82rem', textAlign: 'center', fontFamily: F }} />
+              </div>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'var(--pos-inset-bg)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem', padding: '0.25rem 0.625rem' }}>
               <DollarSign size={11} color="var(--pos-text-muted)" />
               <input type="number" value={exchangeRate} onChange={e => setExchangeRate(parseFloat(e.target.value) || 1)} style={{ width: '4.5rem', background: 'none', border: 'none', outline: 'none', color: 'var(--pos-text-secondary)', fontSize: '0.82rem', textAlign: 'right', fontFamily: F }} />
