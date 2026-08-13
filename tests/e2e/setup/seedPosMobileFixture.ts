@@ -38,6 +38,9 @@ export const POS_MOBILE_FIXTURE = {
   salesPointPredeterminado: '00000000-0000-0000-0000-00000e2e5001',
   salesPointSeñuelo:        '00000000-0000-0000-0000-00000e2e5002',
   comprobanteRecientes:     '00000000-0000-0000-0000-00000e2e5003',
+  /** PV FISCAL (arca_config). Distinto del local a propósito: 3 vs 7. */
+  puntoVentaFiscal:           3,
+  puntoVentaFiscalFormateado: '0003',
 } as const
 
 const P = POS_MOBILE_FIXTURE
@@ -64,6 +67,13 @@ VALUES
   ('${P.salesPointPredeterminado}', '${E2E.business}', ${P.puntoVentaNumero},
    'Casa Central', 'Casa Central', 'Av. Siempreviva 742', 'Monotributo',
    true, true, 'manual', now() - interval '1 day');
+
+-- ── 1b. Configuracion ARCA — la fuente FISCAL, distinta de la local ──────
+-- 3 (fiscal) vs 7 (local) es el caso adversarial del lote: prueba que el POS
+-- muestre el fiscal y que el checkout persista el fiscal, no el local.
+DELETE FROM public.arca_config WHERE business_id = '${E2E.business}';
+INSERT INTO public.arca_config (business_id, cuit_emisor, ambiente, punto_venta)
+VALUES ('${E2E.business}', '20111111112', 'homologacion', ${P.puntoVentaFiscal});
 
 -- ── 2. Historial de ventas para la franja "Recientes" ────────────────────
 -- Los nombres de las variantes son largos a propósito: el chip recorta con
