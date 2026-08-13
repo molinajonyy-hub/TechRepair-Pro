@@ -26,63 +26,45 @@
   const TIPO_FACTURA_C = 11              // mapping canónico del sistema
   const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
-  // ── Familia CAE-15: los 53 candidatos, con su número DECLARADO ────────────
-  // id abreviado · fecha · total · numero declarado · estado_fiscal · tiene numero_fiscal
+  // ── Familia CAE-15: los 53 candidatos ─────────────────────────────────────
+  // MINIMO IMPRESCINDIBLE, a proposito: identificador interno sanitizado
+  // (prefijo de UUID, 8 chars) + numero DECLARADO, que ya lleva adentro el
+  // punto de venta. El tipo es constante (Factura C = 11).
+  //
+  // NO van importes, fechas, estados, nombres, documentos, telefonos ni mails:
+  // para preguntarle a ARCA si un numero existe alcanza con el numero, y todo
+  // lo demas es dato productivo viajando sin necesidad. La correlacion con
+  // fecha/importe/estado se hace despues, del lado del analisis, contra la
+  // base — por el identificador.
   const CANDIDATOS = [
-    ['9488be82','2026-04-21',139690,'0001-00758894','emitido',true],
-    ['3719f704','2026-04-21',7500,'0001-00597022','emitido',true],
-    ['3e22e6d3','2026-04-22',15500,'0001-00371622','emitido',true],
-    ['683bf3a9','2026-04-22',35000,'0001-00219063','emitido',true],
-    ['8f5520b9','2026-04-22',18000,'0001-00265375','emitido',true],
-    ['aa9d3513','2026-04-22',17500,'0001-00695484','emitido',true],
-    ['def266d0','2026-04-24',292000,'0001-00637388','emitido',true],
-    ['42900f13','2026-04-27',223570,'0001-00220537','emitido',true],
-    ['9827b2a2','2026-04-28',93960,'0001-00216580','emitido',true],
-    ['31df8719','2026-04-28',37000,'0001-00937040','emitido',true],
-    ['90d73b2c','2026-04-30',32880,'0001-00420529','emitido',true],
-    ['22381a16','2026-04-30',72000,'0001-00191743','emitido',true],
-    ['335a127c','2026-05-04',95000,'0001-00255604','emitido',true],
-    ['c3b6b4f7','2026-05-04',63000,'0001-00886065','emitido',true],
-    ['056f876d','2026-05-04',21150,'0001-00474886','emitido',true],
-    ['c19f04a0','2026-05-04',17000,'0001-00252030','emitido',true],
-    ['d77d62ad','2026-05-05',85000,'0001-00868419','emitido',true],
-    ['c820352d','2026-05-05',125000,'0001-00817253','emitido',true],
-    ['01545f69','2026-05-06',12700,'0001-00407067','emitido',true],
-    ['5e63db6a','2026-05-06',10000,'0001-00852866','emitido',true],
-    ['0b19312a','2026-05-07',135700,'0001-00113740','emitido',true],
-    ['9daaafa6','2026-05-07',17000,'0001-00353263','emitido',true],
-    ['9ed5f382','2026-05-07',28000,'0001-00652390','emitido',true],
-    ['ff0feed6','2026-05-08',48065,'0001-00442733','emitido',true],
-    ['c819d5c3','2026-05-09',185000,'0001-00807617','emitido',true],
-    ['9d5b4c7c','2026-05-09',15500,'0001-00412354','emitido',true],
-    ['df7e6adf','2026-05-12',17700,'0001-00353088','emitido',true],
-    ['95151a03','2026-05-12',85750,'0001-00332705','emitido',true],
-    ['344d42b6','2026-05-12',25000,'0001-00940909','emitido',true],
-    ['4a918380','2026-05-13',167700,'0001-00691187','emitido',true],
-    ['8ba1161f','2026-05-13',64390,'0001-00050637','emitido',true],
-    ['bc3ef032','2026-05-13',36660,'0001-00637162','emitido',true],
-    ['2a9604e5','2026-05-14',38000,'0001-00098643','emitido',true],
-    ['14c5470f','2026-05-14',34000,'0001-00725807','emitido',true],
-    ['871d2001','2026-05-14',28000,'0001-00714171','emitido',true],
-    ['e92d9f5f','2026-05-14',70750,'0001-00927185','emitido',true],
-    ['fc8356b9','2026-05-16',54700,'0001-00051679','emitido',true],
-    ['f69ed145','2026-05-21',237500,'0001-00470585','emitido',true],
+    ['9488be82','0001-00758894'], ['3719f704','0001-00597022'],
+    ['3e22e6d3','0001-00371622'], ['683bf3a9','0001-00219063'],
+    ['8f5520b9','0001-00265375'], ['aa9d3513','0001-00695484'],
+    ['def266d0','0001-00637388'], ['42900f13','0001-00220537'],
+    ['9827b2a2','0001-00216580'], ['31df8719','0001-00937040'],
+    ['90d73b2c','0001-00420529'], ['22381a16','0001-00191743'],
+    ['335a127c','0001-00255604'], ['c3b6b4f7','0001-00886065'],
+    ['056f876d','0001-00474886'], ['c19f04a0','0001-00252030'],
+    ['d77d62ad','0001-00868419'], ['c820352d','0001-00817253'],
+    ['01545f69','0001-00407067'], ['5e63db6a','0001-00852866'],
+    ['0b19312a','0001-00113740'], ['9daaafa6','0001-00353263'],
+    ['9ed5f382','0001-00652390'], ['ff0feed6','0001-00442733'],
+    ['c819d5c3','0001-00807617'], ['9d5b4c7c','0001-00412354'],
+    ['df7e6adf','0001-00353088'], ['95151a03','0001-00332705'],
+    ['344d42b6','0001-00940909'], ['4a918380','0001-00691187'],
+    ['8ba1161f','0001-00050637'], ['bc3ef032','0001-00637162'],
+    ['2a9604e5','0001-00098643'], ['14c5470f','0001-00725807'],
+    ['871d2001','0001-00714171'], ['e92d9f5f','0001-00927185'],
+    ['fc8356b9','0001-00051679'], ['f69ed145','0001-00470585'],
     // ── FISC-01..15: los que NO tienen numero_fiscal ──
-    ['1f2956ec','2026-05-21',30000,'0001-00167260','pendiente_emision',false],
-    ['ff5204f4','2026-05-22',28000,'0001-00036453','pendiente_emision',false],
-    ['641c8257','2026-06-08',15000,'0001-00530061','pendiente_emision',false],
-    ['5b9089ad','2026-06-26',35000,'0001-00206654','error_emision',false],
-    ['d86713c9','2026-06-27',64000,'0001-00082427','error_emision',false],
-    ['7ee6ffd8','2026-06-27',23000,'0001-00449776','error_emision',false],
-    ['b69d7ac2','2026-06-27',10700,'0001-00796325','error_emision',false],
-    ['61fb8f8d','2026-06-29',110000,'0001-00560522','error_emision',false],
-    ['33ee3b08','2026-06-29',100000,'0001-00468500','pendiente_emision',false],
-    ['cbc1b1b8','2026-06-29',13800,'0001-00282498','error_emision',false],
-    ['25025d77','2026-06-29',78000,'0001-00039691','error_emision',false],
-    ['dc99098c','2026-06-30',38300,'0001-00988729','error_emision',false],
-    ['9e05444d','2026-06-30',13700,'0001-00345550','error_emision',false],
-    ['1eedc52d','2026-06-30',22500,'0001-00391953','pendiente_emision',false],
-    ['ff3dc175','2026-06-30',244960.8,'0001-00672017','pendiente_emision',false],
+    ['1f2956ec','0001-00167260'], ['ff5204f4','0001-00036453'],
+    ['641c8257','0001-00530061'], ['5b9089ad','0001-00206654'],
+    ['d86713c9','0001-00082427'], ['7ee6ffd8','0001-00449776'],
+    ['b69d7ac2','0001-00796325'], ['61fb8f8d','0001-00560522'],
+    ['33ee3b08','0001-00468500'], ['cbc1b1b8','0001-00282498'],
+    ['25025d77','0001-00039691'], ['dc99098c','0001-00988729'],
+    ['9e05444d','0001-00345550'], ['1eedc52d','0001-00391953'],
+    ['ff3dc175','0001-00672017'],
   ]
 
   // ── 1. Token de la sesión existente ───────────────────────────────────────
@@ -140,10 +122,10 @@
 
   // ── 4. Los 53 candidatos ──────────────────────────────────────────────────
   const u1 = Number(salida.ultimo_autorizado.pv1?.ultimo)
-  for (const [id, fecha, total, declarado, ef, tieneNf] of CANDIDATOS) {
+  for (const [id, declarado] of CANDIDATOS) {
     const m = /^(\d{1,5})-(\d{1,12})$/.exec(declarado)
     const pv = parseInt(m[1], 10), nro = parseInt(m[2], 10)
-    const fila = { id, fecha, total, declarado, pv, numero: nro, estado_fiscal: ef, tiene_numero_fiscal: tieneNf }
+    const fila = { id, declarado, pv, numero: nro }
 
     // Si el número supera el último autorizado oficial de esa serie, ARCA no
     // pudo haberlo autorizado: se resuelve SIN consultar.
