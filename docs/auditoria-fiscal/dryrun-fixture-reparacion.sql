@@ -1,6 +1,16 @@
 -- Fixture SANITIZADO para el dry-run local de la reparacion historica.
 -- Replica la FORMA de los casos productivos (ids reales, importes/fechas
 -- reales de la evidencia ARCA) sin arrastrar clientes ni items.
+--
+-- ⚠ CORRERLO DEJA LA BASE INSERVIBLE PARA LOS E2E.
+-- Inserta el usuario E2E directo en auth.users, sin los campos que crea la API
+-- de Auth, y despues el globalSetup de Playwright falla con "Database error
+-- creating new user". Secuencia correcta:
+--
+--   npx supabase db reset      <- antes y DESPUES de usar este fixture
+--   npm run e2e:prepare
+--   (fixture + migracion)      <- el dry-run
+--   npx supabase db reset      <- para volver a correr E2E
 BEGIN;
 SET LOCAL session_replication_role = 'replica';
 
