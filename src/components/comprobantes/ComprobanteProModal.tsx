@@ -24,6 +24,7 @@ import { posLogger } from '../../lib/logger'
 import { currencyService } from '../../services/currencyService'
 import { smartSearch } from '../../utils/searchUtils'
 import { searchSellableProducts, isSellableProduct, type ProductSearchErrorReason } from '../../services/productSearchService'
+import { salesPointService } from '../../services/salesPointService'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { useCaja } from '../../contexts/CajaContext'
@@ -713,9 +714,11 @@ export function ComprobanteProModal({
 
   useEffect(() => {
     if (!isOpen || !businessId || puntoVentaInicial) return
-    supabase.from('sales_points').select('punto_venta').eq('business_id', businessId)
-      .eq('is_active', true).order('created_at', { ascending: true }).limit(1).maybeSingle()
-      .then(({ data }) => { if (data?.punto_venta) setPuntoVenta(String(data.punto_venta).padStart(4, '0')) })
+    // Si falla o no hay PV configurado se conserva el default del estado: el
+    // servicio ya registró el error. Ver salesPointService (contrato real de
+    // la tabla: numero/activo/predeterminado, no punto_venta/is_active).
+    salesPointService.getActiveNumeroFormateado(businessId)
+      .then(numero => { if (numero) setPuntoVenta(numero) })
   }, [isOpen, businessId, puntoVentaInicial])
 
   useEffect(() => {
