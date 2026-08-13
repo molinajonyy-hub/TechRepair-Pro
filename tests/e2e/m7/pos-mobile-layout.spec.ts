@@ -129,17 +129,32 @@ test.describe('@pos-mobile POS — layout responsive y punto de venta', () => {
         expect(await page.evaluate(() => document.documentElement.getAttribute('data-theme')),
           'el tema debe estar aplicado en <html>').toBe(tema)
 
-        // ── E · sales_points: el PV configurado llega a la pantalla ──────────
-        // '0007' no es el default '0001' del estado inicial, así que sólo puede
-        // venir de haber leído la tabla con las columnas correctas. Y como el
-        // señuelo (numero 3) es MÁS VIEJO pero no predeterminado, ver 0007
-        // prueba también el criterio de desempate.
-        const pv = page.locator('.cpm-header input').first()
-        await expect(pv, 'el POS debe mostrar el punto de venta configurado')
-          .toHaveValue(POS_MOBILE_FIXTURE.puntoVentaFormateado, { timeout: 10_000 })
-        expect(await pv.inputValue(),
-          'gana el predeterminado, no el más antiguo')
-          .not.toBe(POS_MOBILE_FIXTURE.puntoVentaSeñueloFormateado)
+        // ── E · PUNTO DE VENTA: fiscal vs local ──────────────────────────────
+        // El tipo por defecto es fiscal (factura_c), así que el POS debe mostrar
+        // el PV de ARCA (0003) en modo lectura — nunca el local (0007), que es
+        // lo que se persistía y se imprimía como identidad fiscal.
+        const pvFiscal = page.locator('[data-testid="comprobante-pv-fiscal"]')
+        await expect(pvFiscal, 'un comprobante fiscal muestra el PV de ARCA')
+          .toBeVisible({ timeout: 10_000 })
+        await expect(pvFiscal).toContainText(POS_MOBILE_FIXTURE.puntoVentaFiscalFormateado)
+        await expect(pvFiscal,
+          'el PV local no puede presentarse como fiscal')
+          .not.toContainText(POS_MOBILE_FIXTURE.puntoVentaFormateado)
+        await expect(page.locator('[data-testid="comprobante-pv-local"]'),
+          'en un fiscal el PV local no debe ser editable').toHaveCount(0)
+
+        // Al pasar a Remito (no fiscal) el PV local vuelve, y es el que
+        // salesPointService leyó con las columnas correctas: 0007, no el
+        // señuelo 0003 más antiguo ni el default 0001.
+        await page.getByRole('button', { name: 'Remito' }).click()
+        const pvLocal = page.locator('[data-testid="comprobante-pv-local"]')
+        await expect(pvLocal, 'un remito usa el PV local').toBeVisible()
+        await expect(pvLocal).toHaveValue(POS_MOBILE_FIXTURE.puntoVentaFormateado)
+        await expect(page.locator('[data-testid="comprobante-pv-fiscal"]')).toHaveCount(0)
+
+        // Se vuelve al tipo fiscal para el resto del gate.
+        await page.getByRole('button', { name: 'Factura C' }).click()
+        await expect(pvFiscal).toBeVisible()
 
         // ── HEADER · nada recortado (el defecto del owner) ───────────────────
         const header = page.locator('.cpm-header')

@@ -27,6 +27,8 @@ import { fileURLToPath } from 'node:url'
 const RAIZ = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..')
 
 const SERVICIO = 'src/services/salesPointService.ts'
+/** Parte pura del contrato (testeable sin Supabase). */
+const FORMATO = 'src/lib/salesPointFormat.ts'
 
 /**
  * Únicos archivos que pueden tocar la tabla directamente.
@@ -41,6 +43,10 @@ const CONSUMIDORES_DIRECTOS_PERMITIDOS = new Set([
 
 /** Columnas que NO existen en public.sales_points y rompen la query. */
 const COLUMNAS_INEXISTENTES = ['punto_venta', 'is_active']
+
+/** Migración que fija el contrato fiscal server-side. */
+const MIGRACION_FISCAL =
+  'supabase/migrations/20260813120000_fiscal_sales_point_canonical_contract.sql'
 
 // ─── Comprobaciones puras (testeables) ──────────────────────────────────────
 
@@ -111,6 +117,35 @@ export function registraElError(fuente) {
   return /logger\.(error|warn)\(/.test(fuente)
 }
 
+// ─── Contrato FISCAL (P0) ───────────────────────────────────────────────────
+
+/**
+ * El CbtesAsoc de una NC no puede inferirse del punto de venta LOCAL.
+ *
+ * El fallback `nroParts[0] ? ... : parseInt(original.punto_venta)` mandaba a
+ * AFIP una referencia al PV local, que alla no existe.
+ */
+export function infiereCbtesAsocDelPvLocal(fuente) {
+  return /parseInt\(\s*original\.punto_venta/.test(fuente)
+}
+
+/** Una superficie que arma el numero pegando el PV local al numero. */
+export function armaNumeroConPvLocal(fuente) {
+  return /function formatNumero\s*\(\s*numero[^)]*puntoVenta/.test(fuente)
+}
+
+/** `numero || numero_fiscal` esconde el fiscal: el local nunca es nulo. */
+export function priorizaNumeroLocalSobreFiscal(fuente) {
+  return /\bnumero\s*\|\|\s*[\w.]*numero_fiscal/.test(fuente)
+}
+
+/** La migracion resuelve el PV fiscal server-side desde arca_config. */
+export function resuelvePvFiscalServerSide(sql) {
+  return /SELECT punto_venta INTO v_arca_pv/.test(sql)
+    && /ARCA_NOT_CONFIGURED/.test(sql)
+    && /v_tipo_es_fiscal := \(v_tipo IN/.test(sql)
+}
+
 // ─── Recorrido del repo ─────────────────────────────────────────────────────
 
 function archivosDe(dir, ext = ['.ts', '.tsx']) {
@@ -127,6 +162,29 @@ function rel(p) {
   return p.slice(RAIZ.length + 1).split('\\').join('/')
 }
 
+/**
+ * Quita comentarios para asertar sobre CÓDIGO.
+ *
+ * Los archivos migrados documentan a propósito la forma vieja ("antes se hacía
+ * `numero || numero_fiscal`"), y sin esto el guard se dispararía con su propia
+ * explicación. Mismo criterio que guard-no-fragile-functiondef-patch.
+ */
+export function stripComments(src) {
+  let out = '', i = 0
+  while (i < src.length) {
+    if (src.slice(i, i + 2) === '//') {
+      const f = src.indexOf('\n', i); const e = f === -1 ? src.length : f
+      out += ' '.repeat(e - i); i = e; continue
+    }
+    if (src.slice(i, i + 2) === '/*') {
+      const f = src.indexOf('*/', i + 2); const e = f === -1 ? src.length : f + 2
+      out += ' '.repeat(e - i); i = e; continue
+    }
+    out += src[i]; i++
+  }
+  return out
+}
+
 function validarRepo() {
   const fallas = []
 
@@ -134,7 +192,7 @@ function validarRepo() {
     return [`Falta ${SERVICIO}: desapareció la fuente única de lectura del punto de venta.`]
   }
 
-  const servicio = readFileSync(join(RAIZ, SERVICIO), 'utf-8')
+  const servicio = stripComments(readFileSync(join(RAIZ, SERVICIO), 'utf-8'))
 
   if (!seleccionaNumero(servicio)) {
     fallas.push(`${SERVICIO}: dejó de pedir la columna 'numero'. Es el número real del punto de venta; 'punto_venta' no existe en esta tabla.`)
@@ -145,8 +203,12 @@ function validarRepo() {
   if (!priorizaPredeterminado(servicio)) {
     fallas.push(`${SERVICIO}: perdió el desempate por 'predeterminado'. Sin él gana el PV más antiguo y se ignora el que eligió el comercio.`)
   }
-  if (!distingueErrorDeAusencia(servicio)) {
-    fallas.push(`${SERVICIO}: ya no distingue un fallo de la consulta de "no hay punto de venta configurado". Ése es el bug original: un 400 leído como ausencia.`)
+  // La distinción error/ausencia vive en el módulo puro (para poder testearla
+  // sin Supabase); el servicio sólo la compone.
+  if (!existsSync(join(RAIZ, FORMATO))) {
+    fallas.push(`Falta ${FORMATO}: desapareció la parte pura del contrato del punto de venta.`)
+  } else if (!distingueErrorDeAusencia(stripComments(readFileSync(join(RAIZ, FORMATO), 'utf-8')))) {
+    fallas.push(`${FORMATO}: ya no distingue un fallo de la consulta de "no hay punto de venta configurado". Ése es el bug original: un 400 leído como ausencia.`)
   }
   if (!registraElError(servicio)) {
     fallas.push(`${SERVICIO}: dejó de registrar el error con el logger central. Un fallo mudo es indistinguible del caso normal.`)
@@ -155,7 +217,7 @@ function validarRepo() {
   // Nadie más consulta la tabla, y nadie usa los nombres viejos.
   for (const abs of archivosDe(join(RAIZ, 'src'))) {
     const p = rel(abs)
-    const fuente = readFileSync(abs, 'utf-8')
+    const fuente = stripComments(readFileSync(abs, 'utf-8'))
 
     const malas = columnasInexistentesEnSalesPoints(fuente)
     if (malas.length) {
@@ -165,6 +227,24 @@ function validarRepo() {
     if (tocaSalesPointsDirecto(fuente) && !CONSUMIDORES_DIRECTOS_PERMITIDOS.has(p)) {
       fallas.push(`${p}: consulta sales_points directo. Usá salesPointService: la consulta duplicada es lo que dejó tres copias con las columnas equivocadas.`)
     }
+
+    // ── Contrato fiscal ──
+    if (infiereCbtesAsocDelPvLocal(fuente)) {
+      fallas.push(`${p}: infiere el CbtesAsoc desde punto_venta LOCAL. Ese PV puede no existir en AFIP; el CbtesAsoc sale sólo de numero_fiscal (parseNumeroFiscal) y si falta, la NC no se emite.`)
+    }
+    if (armaNumeroConPvLocal(fuente)) {
+      fallas.push(`${p}: volvió el helper que arma el número pegando el punto de venta LOCAL. La identidad la resuelve identidadVisible: manda numero_fiscal.`)
+    }
+    if (priorizaNumeroLocalSobreFiscal(fuente)) {
+      fallas.push(`${p}: usa \`numero || numero_fiscal\`. El número local nunca es nulo, así que el fiscal no se mostraría jamás.`)
+    }
+  }
+
+  // ── La migración del contrato fiscal sigue en pie ──
+  if (!existsSync(join(RAIZ, MIGRACION_FISCAL))) {
+    fallas.push(`Falta ${MIGRACION_FISCAL}: desapareció la migración que resuelve el punto de venta fiscal server-side.`)
+  } else if (!resuelvePvFiscalServerSide(readFileSync(join(RAIZ, MIGRACION_FISCAL), 'utf-8'))) {
+    fallas.push(`${MIGRACION_FISCAL}: perdió la resolución server-side del PV fiscal (arca_config + ARCA_NOT_CONFIGURED + fiscalidad derivada del tipo).`)
   }
 
   return fallas
@@ -239,6 +319,35 @@ function selfTest() {
     registraElError(`if (error) return { salesPoint: null, fallo: true }`), false)
   chequear('reconoce el logueo',
     registraElError(`logger.error('POS', 'no se pudo leer el PV', error)`), true)
+
+  // ── Contrato fiscal ──
+  chequear('caza el CbtesAsoc inferido del PV local',
+    infiereCbtesAsocDelPvLocal(
+      `const pv = nroParts[0] ? parseInt(nroParts[0],10) : (parseInt(original.punto_venta || '1', 10))`), true)
+  chequear('no marca el CbtesAsoc canonico',
+    infiereCbtesAsocDelPvLocal(
+      `const pv = parseInt(identidadOriginal.puntoVenta, 10)`), false)
+
+  chequear('caza el numero armado con el PV local',
+    armaNumeroConPvLocal(
+      `function formatNumero(numero: string | null, puntoVenta: string) { return pv }`), true)
+  chequear('no marca la superficie migrada',
+    armaNumeroConPvLocal(`const identidad = identidadVisible(comprobante)`), false)
+
+  chequear('caza el listado que esconde el numero fiscal',
+    priorizaNumeroLocalSobreFiscal(`{comp.numero || comp.numero_fiscal || '-'}`), true)
+  chequear('no marca el listado migrado',
+    priorizaNumeroLocalSobreFiscal(`{identidadVisible(comp).texto}`), false)
+
+  chequear('reconoce la migracion fiscal completa',
+    resuelvePvFiscalServerSide(`
+      v_tipo_es_fiscal := (v_tipo IN ('factura_a','factura_c','nota_credito'));
+      SELECT punto_venta INTO v_arca_pv FROM arca_config WHERE business_id = p_business_id;
+      RAISE EXCEPTION 'ARCA_NOT_CONFIGURED: falta el PV';`), true)
+  chequear('caza la migracion sin fail-closed',
+    resuelvePvFiscalServerSide(`
+      v_tipo_es_fiscal := (v_tipo IN ('factura_a'));
+      SELECT punto_venta INTO v_arca_pv FROM arca_config;`), false)
 
   const fallidos = casos.filter(c => !c.ok)
   for (const c of casos) {
