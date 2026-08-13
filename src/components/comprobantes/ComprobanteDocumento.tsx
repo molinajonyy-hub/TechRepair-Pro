@@ -51,6 +51,26 @@ const ESTADO_CONFIG: Record<string, { label: string; dot: string; text: string; 
   borrador: { label: 'Borrador',  dot: 'var(--text-subtle)',  text: 'var(--text-secondary)',  bg: 'var(--bg-surface)'      },
   emitido:  { label: 'Emitido',   dot: 'var(--success)',      text: 'var(--success)',          bg: 'var(--success-subtle)'  },
   anulado:  { label: 'Anulado',   dot: 'var(--error)',        text: 'var(--error)',            bg: 'var(--error-subtle)'    },
+  sin_autorizacion_fiscal: {
+    label: 'Sin autorización fiscal',
+    dot:  '#f59e0b', text: '#f59e0b', bg: 'rgba(245,158,11,0.1)',
+  },
+}
+
+/**
+ * Estado a mostrar en el documento.
+ *
+ * Este badge se indexaba por `comprobante.estado`, que es el estado COMERCIAL e
+ * ignora por completo el fiscal. Los registros historicos sin autorizacion en
+ * ARCA conservan estado='emitido' — la venta ocurrio y se cobro — asi que se
+ * mostraban como "Emitido", que es justo lo contrario de la verdad fiscal.
+ *
+ * El estado fiscal terminal tiene prioridad; para el resto se conserva el
+ * comportamiento anterior.
+ */
+function claveDeEstado(c: { estado?: string | null; estado_fiscal?: string | null }): string {
+  if (c.estado_fiscal === 'sin_autorizacion_fiscal') return 'sin_autorizacion_fiscal'
+  return c.estado ?? 'borrador'
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -93,7 +113,7 @@ function SectionLabel({ children }: { children: ReactNode }) {
 
 function DocHeader({ comprobante, profile }: { comprobante: Comprobante; profile: OrderPrintSettings }) {
   const tipo = TIPO_CONFIG[comprobante.tipo] ?? TIPO_CONFIG.factura_c
-  const est  = ESTADO_CONFIG[comprobante.estado] ?? ESTADO_CONFIG.borrador
+  const est  = ESTADO_CONFIG[claveDeEstado(comprobante)] ?? ESTADO_CONFIG.borrador
   const name = profile.nombre_comercial || 'Mi Negocio'
   const addr = profile.domicilio_fiscal
   const wa   = profile.orden_whatsapp

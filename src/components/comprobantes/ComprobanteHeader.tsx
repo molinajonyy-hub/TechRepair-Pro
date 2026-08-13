@@ -82,6 +82,19 @@ const ESTADO_CONFIG: Record<string, { label: string; dotColor: string; badgeBg: 
     badgeColor: 'var(--error)',
     badgeBorder: 'var(--error)',
   },
+  // Registro historico sin autorizacion fiscal en ARCA. Sin esta entrada el
+  // `?? ESTADO_CONFIG.borrador` de abajo lo mostraria como "Borrador", pese a
+  // que la venta ocurrio y se cobro.
+  // Registro historico sin autorizacion fiscal en ARCA. Sin esta entrada el
+  // `?? ESTADO_CONFIG.borrador` de abajo lo mostraria como "Borrador", pese a
+  // que la venta ocurrio y se cobro.
+  sin_autorizacion_fiscal: {
+    label: 'Sin autorización fiscal',
+    dotColor: '#f59e0b',
+    badgeBg: 'rgba(245,158,11,0.1)',
+    badgeColor: '#f59e0b',
+    badgeBorder: 'rgba(245,158,11,0.4)',
+  },
   anulado: {
     label: 'Anulado',
     dotColor: 'var(--error)',
