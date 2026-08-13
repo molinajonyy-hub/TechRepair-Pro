@@ -3,7 +3,7 @@ import { ArrowRight, Loader2, ChevronLeft } from 'lucide-react';
 import { CloseButton } from '../ui/CloseButton';
 import { AppleEmoji } from '../ui/AppleEmoji';
 import { TipoComprobante } from '../../hooks/useComprobantes';
-import { supabase } from '../../lib/supabase';
+import { salesPointService } from '../../services/salesPointService';
 import { useAuth } from '../../contexts/AuthContext';
 
 const ComprobantesIcon = ({ size = 20, color = '#ffffff' }: { size?: number; color?: string }) => (
@@ -140,22 +140,13 @@ export function ModalGenerarComprobante({
   const [condicionFiscal, setCondicionFiscal] = useState('Consumidor Final');
   const [cuit, setCuit] = useState('');
 
-  // Cargar punto de venta configurado en Settings > ARCA
+  // Cargar punto de venta configurado en Settings > Puntos de Venta.
+  // Contrato real de sales_points en salesPointService; si falla o no hay PV
+  // configurado se conserva el default del estado (el servicio ya loguea).
   useEffect(() => {
     if (!isOpen || !businessId) return;
-    supabase
-      .from('sales_points')
-      .select('punto_venta')
-      .eq('business_id', businessId)
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.punto_venta) {
-          setPuntoVenta(String(data.punto_venta).padStart(4, '0'));
-        }
-      });
+    salesPointService.getActiveNumeroFormateado(businessId)
+      .then(numero => { if (numero) setPuntoVenta(numero); });
   }, [isOpen, businessId]);
 
   // Resetear al cerrar

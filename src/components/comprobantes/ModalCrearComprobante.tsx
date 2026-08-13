@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { CloseButton } from '../ui/CloseButton';
 import { currencyService } from '../../services/currencyService';
+import { salesPointService } from '../../services/salesPointService';
 import { smartSearch, buildSupabaseQuery, highlightParts } from '../../utils/searchUtils';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -265,17 +266,10 @@ export function ModalCrearComprobante({
   // ── Auto-cargar punto de venta si no se pasó uno explícito ──────────────────
   useEffect(() => {
     if (!isOpen || !businessId || puntoVentaInicial) return
-    supabase
-      .from('sales_points')
-      .select('punto_venta')
-      .eq('business_id', businessId)
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.punto_venta) setPuntoVenta(String(data.punto_venta).padStart(4, '0'))
-      })
+    // Contrato real de sales_points en salesPointService; si falla o no hay PV
+    // configurado se conserva el default del estado (el servicio ya loguea).
+    salesPointService.getActiveNumeroFormateado(businessId)
+      .then(numero => { if (numero) setPuntoVenta(numero) })
   }, [isOpen, businessId, puntoVentaInicial])
 
   // ── Cargar clientes ───────────────────────────────────────────────────────────
