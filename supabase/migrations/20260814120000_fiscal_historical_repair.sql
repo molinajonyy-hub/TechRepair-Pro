@@ -124,6 +124,17 @@ UNION ALL SELECT 'comprobantes_cobrado',     count(*), COALESCE(sum(total_cobrad
 UNION ALL SELECT 'orders',                   count(*), 0 FROM public.orders;
 
 -- ── 4. Precondiciones ───────────────────────────────────────────────────────
+--
+-- ALCANCE POR ENTORNO. Esta migracion repara datos que existen SOLO en
+-- produccion. En una base limpia (db reset, CI, alta nueva) esas filas no
+-- estan, y abortar ahi convertiria un no-op legitimo en un reset roto.
+--
+-- La distincion importa: NINGUNA de las 53 presentes = entorno sin los datos,
+-- se saltea. TODAS presentes = produccion, se repara con precondiciones
+-- estrictas. ALGUNAS = estado inesperado que nadie reconcilio contra ARCA:
+-- ahi si se aborta.
+CREATE TEMP TABLE _repair_scope (aplica boolean NOT NULL) ON COMMIT DROP;
+
 DO $$
 DECLARE
   v_n int; v_con_nf int; v_sin_nf int; v_no_15 int;
@@ -132,7 +143,18 @@ BEGIN
   IF v_n <> 53 THEN RAISE EXCEPTION 'PRE: la lista cerrada tiene % ids (esperado 53)', v_n; END IF;
 
   SELECT count(*) INTO v_n FROM public.comprobantes c JOIN _legacy_53 l ON l.id = c.id;
-  IF v_n <> 53 THEN RAISE EXCEPTION 'PRE: solo % de los 53 ids existen en comprobantes', v_n; END IF;
+
+  IF v_n = 0 THEN
+    INSERT INTO _repair_scope VALUES (false);
+    RAISE NOTICE 'Entorno sin los comprobantes historicos: la reparacion es un no-op (solo se amplia el CHECK).';
+    RETURN;
+  END IF;
+
+  IF v_n <> 53 THEN
+    RAISE EXCEPTION 'PRE: hay % de los 53 ids (ni 0 ni 53). Estado inesperado: no se repara a ciegas.', v_n;
+  END IF;
+
+  INSERT INTO _repair_scope VALUES (true);
 
   -- Todos deben seguir teniendo el CAE simulado de 15 digitos. Si alguno ya
   -- fue tocado, la evidencia del 2026-08-13 ya no lo describe.
@@ -163,6 +185,8 @@ DECLARE
   v      public.comprobantes%ROWTYPE;
   v_prev jsonb;
 BEGIN
+  IF NOT (SELECT aplica FROM _repair_scope) THEN RETURN; END IF;
+
   SELECT id INTO v_id FROM public.comprobantes
    WHERE id::text LIKE '67a4245d-%';
   IF v_id IS NULL THEN RAISE EXCEPTION 'PRE #45: no se encontro la fila 67a4245d-*'; END IF;
@@ -244,6 +268,8 @@ WHERE l.id = c.id;
 DO $$
 DECLARE v_n int; v45 public.comprobantes%ROWTYPE;
 BEGIN
+  IF NOT (SELECT aplica FROM _repair_scope) THEN RETURN; END IF;
+
   SELECT count(*) INTO v_n
   FROM public.comprobantes c JOIN _legacy_53 l ON l.id = c.id
   WHERE c.estado_fiscal = 'sin_autorizacion_fiscal' AND c.cae IS NULL AND c.numero_fiscal IS NULL;
