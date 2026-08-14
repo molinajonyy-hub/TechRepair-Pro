@@ -200,6 +200,50 @@ test('NEG · AFIP_TIPO_CODE no vuelve a mapear nota_credito', () => {
   assert.match(bloque, /factura_c:\s*11/)
 })
 
+test('NEG · las tres superficies derivan el significado del contrato compartido', () => {
+  // Los componentes tienen defensa en profundidad: aunque se rompa la variable
+  // semantica, una rama explicita todavia salva el label. Eso hace que el test
+  // de render NO detecte la regresion, asi que se fija la derivacion en fuente.
+  const actions = stripComments(read('../../src/components/comprobantes/ComprobanteActions.tsx'))
+  assert.match(actions, /getComprobanteDisplayStatus\(comprobante\)/,
+    'Actions debe consumir la resolucion canonica')
+  assert.match(actions, /esEmitido\s*=\s*estadoFiscalCanonico\.fiscalmenteEmitido/,
+    'la emision fiscal no puede volver a definirse como estado===emitido || !!cae')
+  assert.doesNotMatch(actions, /esEmitido\s*=\s*!esAnulado\s*&&\s*\(comprobante\.estado/,
+    'volvio la definicion que ignoraba el estado fiscal')
+  assert.match(actions, /permiteEmision\s*&&/,
+    'el boton de emitir debe gatearse por permiteEmision, no por no-ser-borrador')
+
+  const doc = stripComments(read('../../src/components/comprobantes/ComprobanteDocumento.tsx'))
+  assert.match(doc, /getComprobanteDisplayStatus\(c\)/,
+    'Documento debe consumir la resolucion canonica, no reimplementar reglas')
+
+  const header = stripComments(read('../../src/components/comprobantes/ComprobanteHeader.tsx'))
+  assert.match(header, /getComprobanteDisplayStatus\(/)
+})
+
+test('NEG · facturacionService tampoco vuelve a mapear nota_credito a 3', () => {
+  // Segunda copia de la trampa, encontrada por el bundle gate: viajaba a
+  // produccion aunque no tuviera llamadores.
+  const src = stripComments(read('../../src/services/facturacionService.ts'))
+  const bloque = /getCodigoTipoComprobante[\s\S]{0,400}?\n  \},/.exec(src)?.[0] ?? ''
+  assert.ok(bloque.length > 0, 'no se encontro getCodigoTipoComprobante')
+  assert.doesNotMatch(bloque, /nota_credito/,
+    'una NC no tiene CbteTipo fijo: 3 es NC-A y la real es NC-C (13)')
+})
+
+test('NEG · el simulador legacy sigue sin poder fabricar un CAE', () => {
+  // Origen de los 53: solicitarCAE() inventaba un CAE y marcaba emitido sin
+  // llamar a ARCA. Quedo bloqueado en la auditoria 2026-07-01 y no puede
+  // reabrirse en silencio.
+  const src = stripComments(read('../../src/services/facturacionService.ts'))
+  for (const fn of ['solicitarCAE', 'generarCAEFake']) {
+    const bloque = new RegExp(`${fn}\\([\\s\\S]{0,900}?\\n  \\},`).exec(src)?.[0] ?? ''
+    assert.ok(bloque.length > 0, `no se encontro ${fn}`)
+    assert.match(bloque, /throw new Error/, `${fn} debe seguir lanzando, no fabricar`)
+  }
+})
+
 test('NEG · el CbtesAsoc no vuelve a inferir tipo ni punto de venta', () => {
   const src = stripComments(read('../../src/services/comprobanteService.ts'))
   assert.doesNotMatch(src, /tipo_comprobante_fiscal[\s\S]{0,60}:\s*11/,

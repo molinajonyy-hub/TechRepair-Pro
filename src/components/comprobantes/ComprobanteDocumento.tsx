@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { TipoComprobante, Comprobante, ComprobanteItem } from '../../hooks/useComprobantes'
 import { OrderPrintSettings } from '../../hooks/useOrderPrintSettings'
+import { getComprobanteDisplayStatus } from '../../utils/comprobanteStatus'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -58,18 +59,20 @@ const ESTADO_CONFIG: Record<string, { label: string; dot: string; text: string; 
 }
 
 /**
- * Estado a mostrar en el documento.
+ * Clave de PRESENTACION del badge del documento.
  *
- * Este badge se indexaba por `comprobante.estado`, que es el estado COMERCIAL e
- * ignora por completo el fiscal. Los registros historicos sin autorizacion en
- * ARCA conservan estado='emitido' — la venta ocurrio y se cobro — asi que se
- * mostraban como "Emitido", que es justo lo contrario de la verdad fiscal.
+ * Este badge se indexaba por `comprobante.estado`, el estado COMERCIAL, e
+ * ignoraba el fiscal: los registros historicos sin autorizacion en ARCA
+ * conservan estado='emitido' y se mostraban como "Emitido".
  *
- * El estado fiscal terminal tiene prioridad; para el resto se conserva el
- * comportamiento anterior.
+ * El SIGNIFICADO ya no se decide aca: lo resuelve getComprobanteDisplayStatus.
+ * Esta funcion solo traduce esa decision al mapa visual propio del documento,
+ * que es mas chico (borrador / emitido / anulado) y no se rediseña en este lote.
  */
-function claveDeEstado(c: { estado?: string | null; estado_fiscal?: string | null }): string {
-  if (c.estado_fiscal === 'sin_autorizacion_fiscal') return 'sin_autorizacion_fiscal'
+function claveDeEstado(c: { estado?: string | null; estado_fiscal?: string | null; cae?: string | null }): string {
+  const canonico = getComprobanteDisplayStatus(c)
+  if (canonico.key === 'sin_autorizacion_fiscal') return 'sin_autorizacion_fiscal'
+  if (canonico.key === 'anulado') return 'anulado'
   return c.estado ?? 'borrador'
 }
 

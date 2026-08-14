@@ -13,7 +13,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { Comprobante } from '../../hooks/useComprobantes';
-import { isComprobanteAnnulled } from '../../utils/comprobanteStatus';
+import { isComprobanteAnnulled, getComprobanteDisplayStatus } from '../../utils/comprobanteStatus';
 
 interface ComprobanteActionsProps {
   comprobante: Comprobante;
@@ -40,9 +40,17 @@ export function ComprobanteActions({
   const [motivoAnulacion, setMotivoAnulacion] = useState('');
   const [emitirConfirm, setEmitirConfirm] = useState(false);
 
+  // El SIGNIFICADO del estado lo decide el contrato compartido; acá sólo se
+  // elige cómo se ve. Antes este componente definía "emitido" como
+  // `estado === 'emitido' || !!cae`, sin mirar el estado FISCAL: un registro
+  // histórico sin autorización en ARCA se anunciaba como "Emitido y válido /
+  // Autorizado por ARCA", que es lo más grave que podía decir esta pantalla.
+  const estadoFiscalCanonico = getComprobanteDisplayStatus(comprobante);
+  const sinAutorizacionFiscal = estadoFiscalCanonico.key === 'sin_autorizacion_fiscal';
+
   const esAnulado = isComprobanteAnnulled(comprobante);
-  const esBorrador = !esAnulado && comprobante.estado === 'borrador';
-  const esEmitido = !esAnulado && (comprobante.estado === 'emitido' || !!comprobante.cae);
+  const esBorrador = !esAnulado && !sinAutorizacionFiscal && comprobante.estado === 'borrador';
+  const esEmitido = estadoFiscalCanonico.fiscalmenteEmitido;
   const esPendienteConciliacion = esBorrador && comprobante.estado_fiscal === 'pendiente_conciliacion';
   const esCobradoPendienteArca = esBorrador && !esPendienteConciliacion && (comprobante.total_cobrado || 0) > 0 && !comprobante.cae && comprobante.estado_fiscal !== 'emitido';
 
@@ -57,12 +65,14 @@ export function ComprobanteActions({
   };
 
   // Status colors
-  const statusColor = esAnulado ? 'var(--error)' : esEmitido ? 'var(--success)' : esPendienteConciliacion ? '#a78bfa' : esCobradoPendienteArca ? '#60a5fa' : 'var(--warning)';
-  const statusBg = esAnulado ? 'var(--error-subtle)' : esEmitido ? 'var(--success-subtle)' : esPendienteConciliacion ? 'rgba(167,139,250,0.1)' : esCobradoPendienteArca ? 'rgba(96,165,250,0.1)' : 'var(--warning-light)';
-  const statusBorder = esAnulado ? 'var(--error)' : esEmitido ? 'var(--success)' : esPendienteConciliacion ? 'rgba(167,139,250,0.4)' : esCobradoPendienteArca ? 'rgba(96,165,250,0.4)' : 'var(--warning)';
-  const statusLabel = esAnulado ? 'Comprobante anulado' : esEmitido ? 'Emitido y válido' : esPendienteConciliacion ? 'Pendiente de verificación' : esCobradoPendienteArca ? 'Cobrado / Pendiente ARCA' : 'Pendiente de emisión';
+  const statusColor = esAnulado ? 'var(--error)' : sinAutorizacionFiscal ? 'var(--warning)' : esEmitido ? 'var(--success)' : esPendienteConciliacion ? '#a78bfa' : esCobradoPendienteArca ? '#60a5fa' : 'var(--warning)';
+  const statusBg = esAnulado ? 'var(--error-subtle)' : sinAutorizacionFiscal ? 'var(--warning-light)' : esEmitido ? 'var(--success-subtle)' : esPendienteConciliacion ? 'rgba(167,139,250,0.1)' : esCobradoPendienteArca ? 'rgba(96,165,250,0.1)' : 'var(--warning-light)';
+  const statusBorder = esAnulado ? 'var(--error)' : sinAutorizacionFiscal ? 'var(--warning)' : esEmitido ? 'var(--success)' : esPendienteConciliacion ? 'rgba(167,139,250,0.4)' : esCobradoPendienteArca ? 'rgba(96,165,250,0.4)' : 'var(--warning)';
+  const statusLabel = esAnulado ? 'Comprobante anulado' : sinAutorizacionFiscal ? estadoFiscalCanonico.label : esEmitido ? 'Emitido y válido' : esPendienteConciliacion ? 'Pendiente de verificación' : esCobradoPendienteArca ? 'Cobrado / Pendiente ARCA' : 'Pendiente de emisión';
   const statusSub = esAnulado
     ? 'Sin validez fiscal'
+    : sinAutorizacionFiscal
+    ? (estadoFiscalCanonico.detail ?? '')
     : esEmitido
     ? comprobante.cae ? `CAE: ${comprobante.cae.slice(0, 12)}…` : 'Autorizado por ARCA'
     : esPendienteConciliacion
@@ -70,7 +80,7 @@ export function ComprobanteActions({
     : esCobradoPendienteArca
     ? 'Cobro registrado · sin emisión fiscal'
     : 'Debe emitirse en ARCA';
-  const StatusIcon = esAnulado ? Ban : esEmitido ? Shield : esPendienteConciliacion ? AlertTriangle : esCobradoPendienteArca ? CheckCircle : Clock;
+  const StatusIcon = esAnulado ? Ban : sinAutorizacionFiscal ? AlertTriangle : esEmitido ? Shield : esPendienteConciliacion ? AlertTriangle : esCobradoPendienteArca ? CheckCircle : Clock;
 
   return (
     <>
@@ -101,8 +111,11 @@ export function ComprobanteActions({
         {/* Action buttons */}
         <div style={{ padding: '0.875rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
 
-          {/* Emitir ARCA */}
-          {esBorrador && (
+          {/* Emitir ARCA.
+              El gate es `permiteEmision`, no la ausencia de otro estado: que
+              hoy `sin_autorizacion_fiscal` no llegue acá por no ser borrador es
+              una coincidencia, y las coincidencias se rompen solas. */}
+          {esBorrador && estadoFiscalCanonico.permiteEmision && (
             <button
               onClick={handleEmitirClick}
               disabled={emitiendo}
