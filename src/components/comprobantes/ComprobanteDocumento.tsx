@@ -13,7 +13,9 @@ import {
 } from 'lucide-react'
 import { TipoComprobante, Comprobante, ComprobanteItem } from '../../hooks/useComprobantes'
 import { OrderPrintSettings } from '../../hooks/useOrderPrintSettings'
-import { getComprobanteDisplayStatus } from '../../utils/comprobanteStatus'
+import { getComprobanteDisplayStatus, type DisplayStatusKey } from '../../utils/comprobanteStatus'
+import { formatearNumeroComprobante } from '../../lib/fiscalDisplay'
+import { formatearFechaCalendario } from '../../lib/fechaCalendario'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -59,21 +61,32 @@ const ESTADO_CONFIG: Record<string, { label: string; dot: string; text: string; 
 }
 
 /**
- * Clave de PRESENTACION del badge del documento.
+ * Traduccion del estado canonico al mapa visual del documento.
  *
- * Este badge se indexaba por `comprobante.estado`, el estado COMERCIAL, e
- * ignoraba el fiscal: los registros historicos sin autorizacion en ARCA
- * conservan estado='emitido' y se mostraban como "Emitido".
+ * Este badge se indexaba por `comprobante.estado`, el estado COMERCIAL. Se
+ * arreglo a medias: se interceptaban `sin_autorizacion_fiscal` y `anulado`, y
+ * TODO lo demas seguia cayendo al estado comercial. Eso dejo vivo el error
+ * simetrico, que aparecio en produccion sobre el 0010-00000045: autorizado por
+ * ARCA, con CAE impreso en el mismo documento, y el badge decia "Borrador"
+ * porque su estado comercial nunca dejo de serlo.
  *
- * El SIGNIFICADO ya no se decide aca: lo resuelve getComprobanteDisplayStatus.
- * Esta funcion solo traduce esa decision al mapa visual propio del documento,
- * que es mas chico (borrador / emitido / anulado) y no se rediseña en este lote.
+ * Ahora la traduccion es TOTAL: un `Record` sobre `DisplayStatusKey`, sin
+ * fallback al estado comercial. Si mañana aparece una clave nueva, TypeScript
+ * obliga a decidir como se ve — no la resuelve el azar.
  */
+const CLAVE_VISUAL: Record<DisplayStatusKey, string> = {
+  anulado:                 'anulado',
+  sin_autorizacion_fiscal: 'sin_autorizacion_fiscal',
+  emitido_arca:            'emitido',
+  // Ninguno de estos tres esta autorizado por ARCA: el documento los muestra
+  // como borrador, que es lo que son a los ojos del fisco.
+  error_arca:              'borrador',
+  cobrado_pendiente_arca:  'borrador',
+  borrador:                'borrador',
+}
+
 function claveDeEstado(c: { estado?: string | null; estado_fiscal?: string | null; cae?: string | null }): string {
-  const canonico = getComprobanteDisplayStatus(c)
-  if (canonico.key === 'sin_autorizacion_fiscal') return 'sin_autorizacion_fiscal'
-  if (canonico.key === 'anulado') return 'anulado'
-  return c.estado ?? 'borrador'
+  return CLAVE_VISUAL[getComprobanteDisplayStatus(c).key]
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -86,13 +99,8 @@ const fmt = (v: number, currency: 'ARS' | 'USD' = 'ARS') =>
 const fmtFecha = (s: string) =>
   new Date(s).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
-function padPV(pv: string) { return pv.replace(/\D/g, '').padStart(4, '0') }
-
-function formatNumero(numero: string | null, puntoVenta: string) {
-  const pv = padPV(puntoVenta)
-  if (!numero) return `${pv}---------`
-  return `${pv}-${numero.replace(/\D/g, '').padStart(8, '0')}`
-}
+// El numero que se muestra lo decide `formatearNumeroComprobante`: si hay
+// identidad fiscal, gana. Ver src/lib/fiscalDisplay.ts.
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -237,7 +245,7 @@ function DocHeader({ comprobante, profile }: { comprobante: Comprobante; profile
           Comprobante N°
         </p>
         <p style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '1.2rem', color: tipo.color, margin: 0, letterSpacing: '0.04em' }}>
-          {formatNumero(comprobante.numero, comprobante.punto_venta)}
+          {formatearNumeroComprobante(comprobante)}
         </p>
         <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', margin: '0.25rem 0' }}>
           {fmtFecha(comprobante.fecha)}
@@ -310,8 +318,10 @@ function DocInfo({ comprobante, cliente, orden }: {
             ['Fecha de emisión', fmtFecha(comprobante.fecha)],
             orden ? ['Orden relacionada', `#${orden.order_number}`] : null,
             comprobante.cae ? ['CAE', comprobante.cae] : null,
+            // `cae_vencimiento` es un DATE: se formatea sin pasar por Date,
+            // que le restaria un dia en AR. Ver src/lib/fechaCalendario.ts.
             comprobante.cae && comprobante.cae_vencimiento
-              ? ['Venc. CAE', fmtFecha(comprobante.cae_vencimiento)]
+              ? ['Venc. CAE', formatearFechaCalendario(comprobante.cae_vencimiento)]
               : null,
           ].filter((row): row is string[] => row !== null).map(([label, value]) => (
             <div key={label as string} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>

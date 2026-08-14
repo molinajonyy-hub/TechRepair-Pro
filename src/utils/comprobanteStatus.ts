@@ -78,9 +78,27 @@ export function comprobanteStatusDetalle(key: DisplayStatusKey): string | null {
   return null
 }
 
-/** ¿La UI puede ofrecer emitir / reintentar / reconciliar en este estado? */
+/**
+ * ¿La UI puede ofrecer emitir / reintentar / reconciliar en este estado?
+ *
+ * Los tres que dicen que NO son estados donde ya no hay nada que emitir:
+ *
+ *   · `emitido_arca` — ARCA ya lo autorizo. Ofrecer "Emitir en ARCA" sobre un
+ *     comprobante con CAE es pedir un segundo CAE para la misma venta. Hoy el
+ *     servidor corta antes (`comprobanteService.emitir` devuelve el CAE que ya
+ *     existe), pero la UI igual anunciaba "Comprobante emitido correctamente"
+ *     para un no-op. Se vio en produccion sobre el 0010-00000045, que quedo con
+ *     estado comercial 'borrador' y CAE real despues de la reconciliacion.
+ *   · `sin_autorizacion_fiscal` — TERMINAL. No es un error reintentable.
+ *   · `anulado` — se compensa con una NC, no reemitiendo.
+ *
+ * `error_arca` y `cobrado_pendiente_arca` SI admiten emision: son justamente
+ * los estados que esperan un reintento.
+ */
 export function permiteAccionesDeEmision(key: DisplayStatusKey): boolean {
-  return key !== 'sin_autorizacion_fiscal' && key !== 'anulado'
+  return key !== 'sin_autorizacion_fiscal'
+    && key !== 'anulado'
+    && key !== 'emitido_arca'
 }
 
 /** Arma el contrato completo a partir de la clave. */

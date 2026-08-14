@@ -21,6 +21,8 @@ import {
 } from '../services/comprobanteService';
 import { buildComprobanteFilename } from '../lib/printFilename';
 import { isComprobanteAnnulled } from '../utils/comprobanteStatus';
+import { formatearNumeroComprobante, padPuntoVenta } from '../lib/fiscalDisplay';
+import { formatearFechaCalendario } from '../lib/fechaCalendario';
 import { logger } from '../lib/logger';
 
 const TIPO_LABELS: Record<string, string> = {
@@ -254,14 +256,14 @@ export default function ComprobantePage() {
       };
       doc.text(tipoLabels[comprobanteActual.tipo] || comprobanteActual.tipo, 14, 45);
       doc.setFontSize(12);
-      doc.text(`N° ${comprobanteActual.numero || '---'}`, 14, 52);
+      doc.text(`N° ${formatearNumeroComprobante(comprobanteActual)}`, 14, 52);
       doc.setFontSize(10);
       doc.text(`Fecha: ${new Date(comprobanteActual.fecha).toLocaleDateString('es-AR')}`, 14, 58);
       if (comprobanteActual.cae) {
         doc.setTextColor(0, 128, 0);
         doc.text(`CAE: ${comprobanteActual.cae}`, 14, 68);
         if (comprobanteActual.cae_vencimiento) {
-          doc.text(`Venc.: ${new Date(comprobanteActual.cae_vencimiento).toLocaleDateString('es-AR')}`, 14, 73);
+          doc.text(`Venc.: ${formatearFechaCalendario(comprobanteActual.cae_vencimiento)}`, 14, 73);
         }
       }
       const items = (comprobanteActual as any).items || [];
@@ -296,7 +298,7 @@ export default function ComprobantePage() {
         doc.text(profile.comp_mensaje_agradecimiento, 14, finalY + 28);
       }
       const bizName = profile.nombre_comercial || profile.razon_social || null;
-      doc.save(buildComprobanteFilename(bizName, comprobanteActual.tipo, comprobanteActual.numero, comprobanteActual.id));
+      doc.save(buildComprobanteFilename(bizName, comprobanteActual.tipo, formatearNumeroComprobante(comprobanteActual), comprobanteActual.id));
     } catch (err) {
       console.error('Error generando PDF:', err);
     } finally {
@@ -309,7 +311,7 @@ export default function ComprobantePage() {
     // El browser usa document.title como nombre sugerido al "Guardar como PDF".
     // Lo actualizamos temporalmente para que coincida con el filename correcto.
     const bizName = profile.nombre_comercial || profile.razon_social || null;
-    const filename = buildComprobanteFilename(bizName, comprobanteActual.tipo, comprobanteActual.numero, comprobanteActual.id);
+    const filename = buildComprobanteFilename(bizName, comprobanteActual.tipo, formatearNumeroComprobante(comprobanteActual), comprobanteActual.id);
     const prevTitle = document.title;
     document.title = filename.replace(/\.pdf$/i, '');
     document.body.classList.add('printing-comprobante');
@@ -499,9 +501,9 @@ export default function ComprobantePage() {
             </nav>
             <h1 className="page-hdr-title">
               {comprobanteActual && TIPO_LABELS[comprobanteActual.tipo]}
-              {comprobanteActual?.numero && (
+              {comprobanteActual && (comprobanteActual.numero || comprobanteActual.numero_fiscal) && (
                 <span style={{ fontFamily: 'monospace', fontWeight: 500, color: 'var(--text-muted)', fontSize: '1rem', marginLeft: '0.5rem' }}>
-                  #{String(comprobanteActual.numero).padStart(8, '0')}
+                  #{formatearNumeroComprobante(comprobanteActual)}
                 </span>
               )}
             </h1>
@@ -766,9 +768,14 @@ export default function ComprobantePage() {
                 {[
                   ['Tipo', TIPO_LABELS[comprobanteActual.tipo]],
                   ['Fecha', new Date(comprobanteActual.fecha).toLocaleDateString('es-AR')],
-                  ['Pto. Venta', String(comprobanteActual.punto_venta).padStart(4, '0')],
-                  ...(comprobanteActual.cae_vencimiento
-                    ? [['Venc. CAE', new Date(comprobanteActual.cae_vencimiento).toLocaleDateString('es-AR')]]
+                  ['Pto. Venta', padPuntoVenta(comprobanteActual.punto_venta)],
+                  // Sin CAE no hay vencimiento que mostrar. Los 53 registros
+                  // historicos conservaron `cae_vencimiento` del CAE simulado
+                  // despues de que la reparacion les anulara el CAE, y este
+                  // panel —a diferencia del documento— no lo miraba: anunciaba
+                  // "Venc. CAE" para un comprobante sin autorizacion.
+                  ...(comprobanteActual.cae && comprobanteActual.cae_vencimiento
+                    ? [['Venc. CAE', formatearFechaCalendario(comprobanteActual.cae_vencimiento)]]
                     : []),
                 ].map(([label, value]) => (
                   <div key={label} style={{ display: 'flex', justifyContent: 'space-between' }}>
