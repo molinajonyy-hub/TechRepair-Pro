@@ -7,6 +7,9 @@
 
 import type { Comprobante, ComprobanteItem } from '../../hooks/useComprobantes'
 import type { OrderPrintSettings } from '../../hooks/useOrderPrintSettings'
+import { getComprobanteDisplayStatus, type DisplayStatusKey } from '../../utils/comprobanteStatus'
+import { formatearNumeroComprobante, padPuntoVenta } from '../../lib/fiscalDisplay'
+import { formatearFechaCalendario } from '../../lib/fechaCalendario'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,12 +36,28 @@ const fmt = (v: number, currency: 'ARS' | 'USD' = 'ARS') =>
 const fmtFecha = (s: string) =>
   new Date(s).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 
-function padPV(pv: string) { return pv.replace(/\D/g, '').padStart(4, '0') }
-
-function formatNumero(numero: string | null, puntoVenta: string) {
-  const pv = padPV(puntoVenta)
-  if (!numero) return `${pv}---------`
-  return `${pv}-${numero.replace(/\D/g, '').padStart(8, '0')}`
+/**
+ * Sello fiscal de la HOJA IMPRESA — el artefacto que se lleva el cliente.
+ *
+ * Este badge se decidia con `comprobante.estado === 'emitido'`, el estado
+ * COMERCIAL. Los 53 registros historicos sin autorizacion en ARCA conservan
+ * estado='emitido' porque la venta ocurrio y se cobro, asi que la hoja impresa
+ * salia con un "● Emitido" verde. Se verifico en produccion: mientras la
+ * pantalla ya decia "Sin autorización fiscal", el papel seguia diciendo
+ * "Emitido". El papel es la superficie que peor podia mentir y era la ultima
+ * que quedaba mintiendo.
+ *
+ * Ahora lo decide el mismo contrato compartido que el resto de la app.
+ */
+const SELLO: Record<DisplayStatusKey, { texto: string; color: string; fondo: string } | null> = {
+  emitido_arca:            { texto: '● Emitido',                 color: '#059669', fondo: '#ecfdf5' },
+  anulado:                 { texto: '✕ Anulado',                 color: '#dc2626', fondo: '#fef2f2' },
+  sin_autorizacion_fiscal: { texto: '⚠ Sin autorización fiscal', color: '#b45309', fondo: '#fffbeb' },
+  // Sin sello: no hay nada que sellar todavia y un recuadro vacio en la hoja
+  // confunde mas que la ausencia.
+  error_arca:             null,
+  cobrado_pendiente_arca: null,
+  borrador:               null,
 }
 
 const TIPO_LABEL: Record<string, string> = {
@@ -234,21 +253,21 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
         {/* Right: number, date, status */}
         <div className="cpl-doc-meta">
           <p className="cpl-label">Comprobante N°</p>
-          <p className="cpl-doc-num">{formatNumero(comprobante.numero, comprobante.punto_venta)}</p>
+          <p className="cpl-doc-num">{formatearNumeroComprobante(comprobante)}</p>
           <p className="cpl-doc-date">{fmtFecha(comprobante.fecha)}</p>
-          <p className="cpl-muted">Pto. Venta {padPV(comprobante.punto_venta)}</p>
-          {(comprobante.estado === 'emitido' || comprobante.estado === 'anulado') && (
-            <span
-              className="cpl-estado"
-              style={{
-                color: comprobante.estado === 'emitido' ? '#059669' : '#dc2626',
-                borderColor: comprobante.estado === 'emitido' ? '#059669' : '#dc2626',
-                background: comprobante.estado === 'emitido' ? '#ecfdf5' : '#fef2f2',
-              }}
-            >
-              {comprobante.estado === 'emitido' ? '● Emitido' : '✕ Anulado'}
-            </span>
-          )}
+          <p className="cpl-muted">Pto. Venta {padPuntoVenta(comprobante.punto_venta)}</p>
+          {(() => {
+            const sello = SELLO[getComprobanteDisplayStatus(comprobante).key]
+            if (!sello) return null
+            return (
+              <span
+                className="cpl-estado"
+                style={{ color: sello.color, borderColor: sello.color, background: sello.fondo }}
+              >
+                {sello.texto}
+              </span>
+            )
+          })()}
         </div>
       </div>
 
@@ -285,7 +304,7 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
               {comprobante.cae_vencimiento && (
                 <div className="cpl-info-row">
                   <span className="cpl-muted">Venc. CAE</span>
-                  <span className="cpl-info-val">{fmtFecha(comprobante.cae_vencimiento)}</span>
+                  <span className="cpl-info-val">{formatearFechaCalendario(comprobante.cae_vencimiento)}</span>
                 </div>
               )}
             </>

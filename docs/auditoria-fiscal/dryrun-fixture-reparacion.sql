@@ -51,14 +51,19 @@ VALUES
   '2026-07-21','00000000-0000-0000-0000-00000e2e0001','Consumidor Final');
 
 -- ── Los 53: 38 con numero_fiscal simulado + 15 sin ──────────────────────────
--- CAE simulado de 15 digitos, como en produccion.
+-- CAE simulado de 15 digitos, como en produccion, CON su cae_vencimiento
+-- igualmente simulado: es el que retira la migracion complementaria
+-- 20260814140000. Sin este campo el dry-run tomaria el camino no-op y no
+-- probaria nada.
 INSERT INTO public.comprobantes
- (id, business_id, tipo, punto_venta, numero, numero_fiscal, cae, estado, estado_fiscal,
+ (id, business_id, tipo, punto_venta, numero, numero_fiscal, cae, cae_vencimiento,
+  estado, estado_fiscal,
   es_fiscal, total, subtotal, impuestos, fecha, created_by, condicion_fiscal)
 SELECT v.id::uuid, '00000000-0000-0000-0000-00000e2eb001','factura_c','0001',
        '0001-0000'||lpad(n::text,4,'0'),
        CASE WHEN n <= 38 THEN '0001-0090'||lpad(n::text,4,'0') ELSE NULL END,
        '7'||lpad((100000000000000 + n)::text, 14, '0'),
+       ('2026-05-01'::date + n) + 15,
        'emitido',
        CASE WHEN n <= 38 THEN 'emitido' WHEN n <= 45 THEN 'pendiente_emision' ELSE 'error_emision' END,
        true, 1000 + n, 1000 + n, 0, '2026-05-01'::date + n, '00000000-0000-0000-0000-00000e2e0001',
@@ -98,5 +103,6 @@ COMMIT;
 
 SELECT 'fixture' AS x, count(*) AS comprobantes,
        count(*) FILTER (WHERE length(cae)=15) AS cae15,
-       count(*) FILTER (WHERE length(cae)=15 AND numero_fiscal IS NOT NULL) AS cae15_con_nf
+       count(*) FILTER (WHERE length(cae)=15 AND numero_fiscal IS NOT NULL) AS cae15_con_nf,
+       count(*) FILTER (WHERE length(cae)=15 AND cae_vencimiento IS NOT NULL) AS cae15_con_vto
 FROM public.comprobantes WHERE business_id='00000000-0000-0000-0000-00000e2eb001';
