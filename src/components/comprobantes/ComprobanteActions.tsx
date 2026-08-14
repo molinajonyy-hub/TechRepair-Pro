@@ -181,7 +181,7 @@ export function ComprobanteActions({
         </div>
 
         {/* Info banners */}
-        {esBorrador && (
+        {esBorrador && !esEmitido && (
           <div style={{ padding: '0 0.875rem 0.875rem' }}>
             <div style={{
               display: 'flex', gap: '0.5rem', padding: '0.625rem',

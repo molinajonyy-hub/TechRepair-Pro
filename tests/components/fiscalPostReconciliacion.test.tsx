@@ -50,6 +50,16 @@ const LEGACY = {
   estado: 'emitido', estado_fiscal: 'sin_autorizacion_fiscal', total_cobrado: 35000,
 } as never
 
+/** Borrador comercial que todavía no fue autorizado por ARCA. */
+const BORRADOR_PENDIENTE = {
+  ...BASE,
+  numero: '0001-00760000', numero_fiscal: null, punto_venta: '0001',
+  tipo_comprobante_fiscal: '11', cae: null, cae_vencimiento: null,
+  estado: 'borrador', estado_fiscal: 'pendiente_emision', total_cobrado: 0,
+} as never
+
+const BANNER_BORRADOR = 'El comprobante en borrador no tiene validez fiscal hasta ser emitido en ARCA.'
+
 const props = (c: never) => ({
   comprobante: c, items: [], cliente: null, orden: null, profile: PERFIL,
 })
@@ -145,10 +155,20 @@ describe('Caso B · #45 reconciliado con ARCA', () => {
     const { container } = render(<ComprobanteActions {...acciones(C45)} />)
     expect(screen.getByText('Emitido y válido')).toBeTruthy()
     expect(within(container).getByText('Validado por ARCA')).toBeTruthy()
+    expect(within(container).queryByText(BANNER_BORRADOR)).toBeNull()
+    expect(screen.queryByRole('button', { name: /reintentar/i })).toBeNull()
   })
 })
 
 // ─── Que el arreglo no haya roto el caso sano ────────────────────────────────
+
+describe('un borrador realmente no emitido conserva la advertencia fiscal', () => {
+  test('muestra el banner y permite iniciar la emisión', () => {
+    render(<ComprobanteActions {...acciones(BORRADOR_PENDIENTE)} />)
+    expect(screen.getByText(BANNER_BORRADOR)).toBeTruthy()
+    expect(screen.getByRole('button', { name: /emitir en arca/i })).toBeTruthy()
+  })
+})
 
 describe('un comprobante emitido normal sigue igual', () => {
   const SANO = {
