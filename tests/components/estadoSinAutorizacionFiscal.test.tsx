@@ -20,6 +20,7 @@ import { render, screen } from '@testing-library/react'
 
 import { ComprobanteHeader } from '../../src/components/comprobantes/ComprobanteHeader'
 import { ComprobanteDocumento } from '../../src/components/comprobantes/ComprobanteDocumento'
+import { ComprobanteActions } from '../../src/components/comprobantes/ComprobanteActions'
 import {
   getComprobanteDisplayStatus,
   permiteAccionesDeEmision,
@@ -35,7 +36,10 @@ const REPARADO = {
 }
 
 /** Etiquetas que NUNCA pueden aparecer para este estado. */
-const PROHIBIDAS = ['Borrador', 'Emitido ARCA', 'Emitido', 'Pendiente', 'Error ARCA']
+const PROHIBIDAS = [
+  'Borrador', 'Emitido ARCA', 'Emitido', 'Pendiente', 'Error ARCA',
+  'Emitido y válido', 'Autorizado por ARCA', 'Pendiente de emisión',
+]
 
 const PERFIL = {
   nombre_comercial: 'Mi Negocio', domicilio_fiscal: '', orden_whatsapp: '',
@@ -93,8 +97,56 @@ describe('sin_autorizacion_fiscal — representacion inequivoca', () => {
     }
   })
 
-  test('no habilita acciones de emision', () => {
+  test('ComprobanteActions no lo anuncia como "Emitido y valido / Autorizado por ARCA"', () => {
+    // Este componente definia emitido como `estado==='emitido' || !!cae`,
+    // ignorando el estado fiscal: era la superficie que peor mentia.
+    render(
+      <ComprobanteActions
+        comprobante={COMPROBANTE}
+        onEmitir={() => {}}
+        onAnular={() => {}}
+        onDescargarPDF={() => {}}
+        onImprimir={() => {}}
+      />,
+    )
+    expect(screen.getByText('Sin autorización fiscal')).toBeTruthy()
+    expect(
+      screen.getByText('Este registro histórico no posee una autorización válida en ARCA.'),
+    ).toBeTruthy()
+    for (const mala of PROHIBIDAS) {
+      expect(screen.queryByText(mala), `Actions no puede decir "${mala}"`).toBeNull()
+    }
+  })
+
+  test('ComprobanteActions no ofrece emitir para este estado', () => {
+    render(
+      <ComprobanteActions
+        comprobante={COMPROBANTE}
+        onEmitir={() => {}}
+        onAnular={() => {}}
+        onDescargarPDF={() => {}}
+        onImprimir={() => {}}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /emitir/i })).toBeNull()
+  })
+
+  test('el contrato compartido niega emision y reintento', () => {
     expect(permiteAccionesDeEmision('sin_autorizacion_fiscal')).toBe(false)
+    const s = getComprobanteDisplayStatus(REPARADO)
+    expect(s.permiteEmision).toBe(false)
+    expect(s.permiteReintento).toBe(false)
+    expect(s.fiscalmenteEmitido, 'no lo autorizo ARCA').toBe(false)
+    expect(s.detail).toMatch(/no posee una autorización válida en ARCA/)
+  })
+
+  test('un comprobante realmente emitido sigue siendo fiscalmente emitido', () => {
+    // El arreglo no puede haber roto el caso sano.
+    const emitido = getComprobanteDisplayStatus({
+      estado: 'emitido', estado_fiscal: 'emitido', cae: '86249909766646',
+    })
+    expect(emitido.key).toBe('emitido_arca')
+    expect(emitido.fiscalmenteEmitido).toBe(true)
   })
 
   test('los estados que SI son reintentables no se ven afectados', () => {

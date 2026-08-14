@@ -125,14 +125,23 @@ export const afipService = {
   /**
    * Obtener código numérico del tipo de comprobante para AFIP
    */
+  /**
+   * Código WSFEv1 de los tipos con código FIJO.
+   *
+   * `nota_credito` ya NO está mapeada: tenía un 3 genérico, que es NC-A,
+   * mientras que la única NC real de este sistema es NC-C (13). El CbteTipo de
+   * una nota de crédito depende del comprobante original (A→3, B→8, C→13) y
+   * sólo puede resolverse con `tipo_comprobante_fiscal` — ver
+   * src/lib/fiscalIdentity.ts. Devuelve 0 (fail-closed) para lo que no puede
+   * resolver.
+   */
   getCodigoTipoComprobante(tipo: TipoComprobante): number {
-    const codigos: Record<TipoComprobante, number> = {
+    const codigos: Partial<Record<TipoComprobante, number>> = {
       'factura_a': 1,
-      'nota_credito': 3,  // Nota de Crédito A
       'factura_c': 11,
       'remito': 0  // Remito no es comprobante fiscal electrónico
     };
-    return codigos[tipo] || 0;
+    return codigos[tipo] ?? 0;
   },
 
   /**
