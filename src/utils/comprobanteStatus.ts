@@ -1,4 +1,10 @@
-export type DisplayStatusKey = 'borrador' | 'cobrado_pendiente_arca' | 'emitido_arca' | 'error_arca' | 'anulado'
+export type DisplayStatusKey =
+  | 'borrador'
+  | 'cobrado_pendiente_arca'
+  | 'emitido_arca'
+  | 'error_arca'
+  | 'anulado'
+  | 'sin_autorizacion_fiscal'
 
 export interface ComprobanteForDisplay {
   estado?: string | null
@@ -40,9 +46,41 @@ export interface ComprobanteDisplayStatus {
   bgColor: string
 }
 
+/**
+ * Copy secundario del estado, cuando hace falta explicarlo.
+ *
+ * `sin_autorizacion_fiscal` es TERMINAL: la venta existe y se cobró, pero ARCA
+ * confirmó que no hay autorización fiscal para ella. No es un error técnico
+ * reintentable ni un pendiente, así que la UI no debe ofrecer emitir,
+ * reintentar ni reconciliar.
+ */
+export function comprobanteStatusDetalle(key: DisplayStatusKey): string | null {
+  if (key === 'sin_autorizacion_fiscal') {
+    return 'Este registro histórico no posee una autorización válida en ARCA.'
+  }
+  return null
+}
+
+/** ¿La UI puede ofrecer emitir / reintentar / reconciliar en este estado? */
+export function permiteAccionesDeEmision(key: DisplayStatusKey): boolean {
+  return key !== 'sin_autorizacion_fiscal' && key !== 'anulado'
+}
+
 export function getComprobanteDisplayStatus(c: ComprobanteForDisplay): ComprobanteDisplayStatus {
   if (isComprobanteAnnulled(c)) {
     return { key: 'anulado', label: 'Anulado', color: '#f87171', bgColor: 'rgba(239,68,68,0.1)' }
+  }
+  // ANTES que el chequeo de emitido, y no es un detalle de orden: estos
+  // registros conservan `estado='emitido'` (la VENTA ocurrió y se cobró), así
+  // que la condición de abajo los mostraría como "Emitido ARCA" sin CAE — que
+  // es justamente la mentira que la reparación histórica vino a sacar.
+  if (c.estado_fiscal === 'sin_autorizacion_fiscal') {
+    return {
+      key: 'sin_autorizacion_fiscal',
+      label: 'Sin autorización fiscal',
+      color: '#f59e0b',
+      bgColor: 'rgba(245,158,11,0.1)',
+    }
   }
   if (c.cae || c.estado_fiscal === 'emitido' || c.estado === 'emitido') {
     return { key: 'emitido_arca', label: 'Emitido ARCA', color: '#34d399', bgColor: 'rgba(16,185,129,0.1)' }

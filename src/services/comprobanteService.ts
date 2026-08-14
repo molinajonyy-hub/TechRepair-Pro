@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { fiscalIdentity } from '../lib/fiscalIdentity';
 import ArcaService from './arcaService';
 import { requireFeature } from '../utils/requireFeature';
 import { computeCheckoutRequestHash } from '../lib/checkoutIdempotency';
@@ -158,10 +159,21 @@ export const PROVIDER_LABELS: Record<string, string> = {
 };
 
 // Tipo AFIP code map
+/**
+ * Comprobantes con CbteTipo FIJO, derivable del tipo.
+ *
+ * `nota_credito` NO está acá a propósito: su código depende del comprobante
+ * original (A→3, B→8, C→13). Tenía asignado un 3 genérico, que es NC-A; la
+ * única NC real de este sistema es NC-C (13). Una NC se emite por
+ * `crearNotaCredito`, que toma el código de create_credit_note_from_comprobante
+ * — el único lugar que puede derivarlo bien. Ver src/lib/fiscalIdentity.ts.
+ *
+ * Este mapa se usa además como guard de emitibilidad: sacar `nota_credito`
+ * también impide que `crear()` intente emitir una NC por el camino equivocado.
+ */
 const AFIP_TIPO_CODE: Partial<Record<TipoComprobante, number>> = {
   factura_a:    1,
   factura_c:    11,
-  nota_credito: 3,
 };
 
 // Condición fiscal receptor → CondicionIVAReceptorId de AFIP
@@ -1050,14 +1062,26 @@ export const comprobanteService = {
     const original = await this.getById(params.originalComprobanteId, params.businessId)
     if (!original) return { success: false, error: 'Comprobante original no encontrado tras crear NC' }
 
-    // Parsear punto_venta y número del original para CbtesAsoc
-    const cbteAsocTipo   = original.tipo_comprobante_fiscal
-      ? parseInt(original.tipo_comprobante_fiscal as unknown as string, 10)
-      : 11
-    // numero_fiscal = "0001-00000001"
-    const nroParts        = (original.numero_fiscal || '').split('-')
-    const cbteAsocPtoVta  = nroParts[0] ? parseInt(nroParts[0], 10) : (parseInt(original.punto_venta || '1', 10))
-    const cbteAsocNro     = nroParts[1] ? parseInt(nroParts[1], 10) : 0
+    // ── CbtesAsoc: la identidad fiscal COMPLETA del original ─────────────────
+    // Tres inferencias peligrosas vivían acá:
+    //   · CbteTipo con default 11 — una NC sobre una Factura A habría dicho C;
+    //   · punto de venta desde `original.punto_venta`, que es el LOCAL y puede
+    //     no existir en AFIP (medido: 146 comprobantes con local 0001 y fiscal
+    //     0010);
+    //   · número 0 cuando no había numero_fiscal.
+    // Ahora sale todo de la terna canónica, y si el original no la tiene, la NC
+    // no se emite. Referenciar mal un comprobante ante AFIP es peor que fallar.
+    const identidadOriginal = fiscalIdentity(original)
+    if (!identidadOriginal) {
+      return {
+        success: false,
+        error: 'El comprobante original no tiene una identidad fiscal completa en ARCA '
+             + '(punto de venta, tipo y número). Emitilo o reconciliá su CAE antes de generar la Nota de Crédito.',
+      }
+    }
+    const cbteAsocTipo   = identidadOriginal.cbteTipo
+    const cbteAsocPtoVta = identidadOriginal.puntoVenta
+    const cbteAsocNro    = identidadOriginal.numero
 
     let cae: string | undefined
     let arcaError: string | undefined
