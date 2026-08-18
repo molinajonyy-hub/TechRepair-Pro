@@ -16,6 +16,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
+  CBTE_TIPO,
+  cbteTipoFacturaParaNotaCredito,
+  cbteTipoNotaCreditoParaFactura,
   fiscalIdentity,
   fiscalIdentityKey,
   mismaIdentidadFiscal,
@@ -102,6 +105,31 @@ test('E2 · factura_a / factura_c SI derivan sin codigo persistido', () => {
 test('E3 · el remito no tiene identidad fiscal', () => {
   assert.equal(esTipoFiscal('remito'), false)
   assert.equal(fiscalIdentity({ tipo: 'remito', numero_fiscal: '0001-00000015' }), null)
+})
+
+test('E2b · un CbteTipo persistido que contradice el tipo lógico invalida la identidad', () => {
+  for (const comprobante of [
+    { tipo: 'factura_c', numero_fiscal: '0010-00000001', tipo_comprobante_fiscal: 1 },
+    { tipo: 'factura_a', numero_fiscal: '0010-00000001', tipo_comprobante_fiscal: 11 },
+    { tipo: 'nota_credito', numero_fiscal: '0010-00000001', tipo_comprobante_fiscal: 11 },
+    { tipo: 'nota_credito', numero_fiscal: '0010-00000001', tipo_comprobante_fiscal: 99 },
+  ]) {
+    assert.equal(resolverCbteTipo(comprobante), null)
+    assert.equal(fiscalIdentity(comprobante), null)
+  }
+})
+
+test('E4 · la correspondencia Factura A/B/C ↔ NC A/B/C es única y reversible', () => {
+  for (const [factura, notaCredito] of [
+    [CBTE_TIPO.FACTURA_A, CBTE_TIPO.NOTA_CREDITO_A],
+    [CBTE_TIPO.FACTURA_B, CBTE_TIPO.NOTA_CREDITO_B],
+    [CBTE_TIPO.FACTURA_C, CBTE_TIPO.NOTA_CREDITO_C],
+  ]) {
+    assert.equal(cbteTipoNotaCreditoParaFactura(factura), notaCredito)
+    assert.equal(cbteTipoFacturaParaNotaCredito(notaCredito), factura)
+  }
+  assert.equal(cbteTipoNotaCreditoParaFactura(99), null)
+  assert.equal(cbteTipoFacturaParaNotaCredito(99), null)
 })
 
 // ─── F/G · estado sin_autorizacion_fiscal ───────────────────────────────────
@@ -191,13 +219,38 @@ test('I4 · la migracion es no-op donde no estan los datos', () => {
 
 // ─── Controles negativos sobre la fuente ────────────────────────────────────
 
-test('NEG · AFIP_TIPO_CODE no vuelve a mapear nota_credito', () => {
+test('NEG · comprobanteService no mantiene otro mapa de CbteTipo', () => {
   const src = stripComments(read('../../src/services/comprobanteService.ts'))
-  const bloque = /const AFIP_TIPO_CODE[^}]*}/.exec(src)?.[0] ?? ''
-  assert.ok(bloque.length > 0, 'no se encontro AFIP_TIPO_CODE')
-  assert.doesNotMatch(bloque, /nota_credito/,
-    'una NC no tiene CbteTipo fijo: 3 es NC-A y la real es NC-C (13)')
-  assert.match(bloque, /factura_c:\s*11/)
+  assert.doesNotMatch(src, /AFIP_TIPO_CODE/,
+    'los códigos A/C deben salir de resolverCbteTipo, no de un mapa paralelo')
+  assert.match(src, /resolverCbteTipo\(\{ tipo \}\)/)
+  assert.match(src, /resolverCbteTipo\(comp\)/)
+})
+
+test('NEG · checkout genérico deriva fiscalidad del tipo y no ofrece Nota de Crédito', () => {
+  const service = stripComments(read('../../src/services/comprobanteService.ts'))
+  const crear = service.slice(service.indexOf('async crear(input'), service.indexOf('async _finalizarNotaCreditoAutorizada'))
+  assert.match(crear, /const esFiscal\s*=\s*esTipoFiscal\(tipo\)/)
+  assert.doesNotMatch(crear, /es_fiscal\s*\|\|\s*emitir_en_arca/)
+  assert.match(crear, /if \(tipo === 'nota_credito'\)/)
+
+  const modal = stripComments(read('../../src/components/comprobantes/ComprobanteProModal.tsx'))
+  const tiposPos = /const TIPOS_POS_GENERICOS\s*=\s*\[[^\]]+\]/.exec(modal)?.[0] ?? ''
+  assert.match(tiposPos, /factura_a/)
+  assert.match(tiposPos, /factura_c/)
+  assert.match(tiposPos, /remito/)
+  assert.doesNotMatch(tiposPos, /nota_credito/,
+    'la NC sólo puede nacer desde un comprobante original')
+  assert.match(modal, /if \(k === 'remito'\) setEmitirEnArca\(false\)/,
+    'cambiar a remito debe limpiar un flag ARCA previo')
+
+  const restore = modal.slice(modal.indexOf('const d = draftInfo.data'), modal.indexOf('Restaurar borrador'))
+  const guardNc = restore.indexOf("if (d.tipo === 'nota_credito')")
+  const restoreLines = restore.indexOf('setLineas(d.lineas)')
+  assert.ok(guardNc >= 0 && guardNc < restoreLines,
+    'el draft NC debe bloquearse antes de restaurar datos como otra clase')
+  assert.match(restore, /localStorage\.removeItem\(DRAFT_KEY\)/)
+  assert.match(restore, /Generá la NC desde el comprobante fiscal original/)
 })
 
 test('NEG · las tres superficies derivan el significado del contrato compartido', () => {
@@ -222,14 +275,22 @@ test('NEG · las tres superficies derivan el significado del contrato compartido
   assert.match(header, /getComprobanteDisplayStatus\(/)
 })
 
-test('NEG · facturacionService tampoco vuelve a mapear nota_credito a 3', () => {
-  // Segunda copia de la trampa, encontrada por el bundle gate: viajaba a
-  // produccion aunque no tuviera llamadores.
+test('NEG · facturacionService reutiliza CbteTipo canónico y bloquea mutadores fiscales legacy', () => {
   const src = stripComments(read('../../src/services/facturacionService.ts'))
   const bloque = /getCodigoTipoComprobante[\s\S]{0,400}?\n  \},/.exec(src)?.[0] ?? ''
   assert.ok(bloque.length > 0, 'no se encontro getCodigoTipoComprobante')
-  assert.doesNotMatch(bloque, /nota_credito/,
-    'una NC no tiene CbteTipo fijo: 3 es NC-A y la real es NC-C (13)')
+  assert.match(bloque, /resolverCbteTipo\(\{ tipo \}\) \?\? 0/)
+  assert.doesNotMatch(bloque, /factura_a['"]?\s*:\s*1|factura_c['"]?\s*:\s*11|nota_credito['"]?\s*:\s*3/,
+    'CbteTipo debe salir del helper canónico, no de otro mapa')
+
+  for (const metodo of ['async crearComprobante(data', 'async crearComprobanteIndependiente(data']) {
+    const inicio = src.indexOf(metodo)
+    const insert = src.indexOf(".from('comprobantes')", inicio)
+    const gate = src.indexOf('if (esTipoFiscal(data.tipo))', inicio)
+    assert.ok(inicio >= 0 && insert > inicio, `no se encontró ${metodo}`)
+    assert.ok(gate > inicio && gate < insert,
+      `${metodo} debe fallar antes del INSERT para toda factura/NC`)
+  }
 })
 
 test('NEG · el simulador legacy sigue sin poder fabricar un CAE', () => {

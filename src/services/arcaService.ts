@@ -322,6 +322,8 @@ export class ArcaService {
     reconciled?: boolean
     /** true si ARCA no pudo confirmar el resultado — no reintentar automáticamente. */
     pendingReconciliation?: boolean
+    /** CAE confirmado, pero el cierre local idempotente de una NC debe reintentarse. */
+    finalizationPending?: boolean
   }> {
     try {
       const config = await this.getArcaConfig(businessId)
@@ -386,6 +388,7 @@ export class ArcaService {
         observaciones:     data.observaciones,
         outcome:           data.outcome,
         reconciled:        !!data.reconciled,
+        finalizationPending: !!data.finalization_pending,
       }
     } catch (error: any) {
       console.error('Error emitting invoice:', error)

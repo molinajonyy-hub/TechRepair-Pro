@@ -14,7 +14,7 @@ import {
 import { TipoComprobante, Comprobante, ComprobanteItem } from '../../hooks/useComprobantes'
 import { OrderPrintSettings } from '../../hooks/useOrderPrintSettings'
 import { getComprobanteDisplayStatus, type DisplayStatusKey } from '../../utils/comprobanteStatus'
-import { formatearNumeroComprobante } from '../../lib/fiscalDisplay'
+import { formatearNumeroComprobante, muestraNumeroInternoFiscal } from '../../lib/fiscalDisplay'
 import { formatearFechaCalendario } from '../../lib/fechaCalendario'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -125,6 +125,8 @@ function SectionLabel({ children }: { children: ReactNode }) {
 function DocHeader({ comprobante, profile }: { comprobante: Comprobante; profile: OrderPrintSettings }) {
   const tipo = TIPO_CONFIG[comprobante.tipo] ?? TIPO_CONFIG.factura_c
   const est  = ESTADO_CONFIG[claveDeEstado(comprobante)] ?? ESTADO_CONFIG.borrador
+  const displayStatus = getComprobanteDisplayStatus(comprobante)
+  const esNumeroInternoFiscal = muestraNumeroInternoFiscal(comprobante)
   const name = profile.nombre_comercial || 'Mi Negocio'
   const addr = profile.domicilio_fiscal
   const wa   = profile.orden_whatsapp
@@ -247,6 +249,11 @@ function DocHeader({ comprobante, profile }: { comprobante: Comprobante; profile
         <p style={{ fontFamily: 'monospace', fontWeight: 800, fontSize: '1.2rem', color: tipo.color, margin: 0, letterSpacing: '0.04em' }}>
           {formatearNumeroComprobante(comprobante)}
         </p>
+        {esNumeroInternoFiscal && (
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.72rem', margin: '0.25rem 0 0' }}>
+            N° interno{displayStatus.permiteEmision ? ' · pendiente de emisión' : ''}
+          </p>
+        )}
         <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', margin: '0.25rem 0' }}>
           {fmtFecha(comprobante.fecha)}
         </p>

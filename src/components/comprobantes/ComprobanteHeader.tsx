@@ -1,6 +1,10 @@
 import { TipoComprobante } from '../../hooks/useComprobantes';
 import { getComprobanteDisplayStatus } from '../../utils/comprobanteStatus';
-import { identidadVisible } from '../../lib/comprobanteFiscalIdentity';
+import {
+  formatearNumeroComprobante,
+  muestraNumeroInternoFiscal,
+  puntoVentaVisibleComprobante,
+} from '../../lib/fiscalDisplay';
 
 interface ComprobanteHeaderProps {
   tipo: TipoComprobante;
@@ -88,9 +92,6 @@ const ESTADO_CONFIG: Record<string, { label: string; dotColor: string; badgeBg: 
   // Registro historico sin autorizacion fiscal en ARCA. Sin esta entrada el
   // `?? ESTADO_CONFIG.borrador` de abajo lo mostraria como "Borrador", pese a
   // que la venta ocurrio y se cobro.
-  // Registro historico sin autorizacion fiscal en ARCA. Sin esta entrada el
-  // `?? ESTADO_CONFIG.borrador` de abajo lo mostraria como "Borrador", pese a
-  // que la venta ocurrio y se cobro.
   sin_autorizacion_fiscal: {
     label: 'Sin autorización fiscal',
     dotColor: '#f59e0b',
@@ -109,11 +110,12 @@ const ESTADO_CONFIG: Record<string, { label: string; dotColor: string; badgeBg: 
 
 export function ComprobanteHeader({ tipo, numero, numeroFiscal, estado, puntoVenta, estadoFiscal, cae, totalCobrado }: ComprobanteHeaderProps) {
   const cfg = TIPO_CONFIG[tipo] ?? TIPO_CONFIG.factura_c;
-  const identidad = identidadVisible({
-    tipo, numero, numero_fiscal: numeroFiscal, punto_venta: puntoVenta,
-  });
+  const numeroInput = { numero, numero_fiscal: numeroFiscal, punto_venta: puntoVenta };
   const displayStatus = getComprobanteDisplayStatus({ estado, estado_fiscal: estadoFiscal, cae, total_cobrado: totalCobrado })
   const est = ESTADO_CONFIG[displayStatus.key] ?? ESTADO_CONFIG.borrador;
+  const displayInput = { ...numeroInput, tipo };
+  const puntoVentaVisible = puntoVentaVisibleComprobante(displayInput);
+  const esNumeroInternoFiscal = muestraNumeroInternoFiscal(displayInput);
 
   return (
     <div style={{
@@ -179,19 +181,19 @@ export function ComprobanteHeader({ tipo, numero, numeroFiscal, estado, puntoVen
           Comprobante N°
         </p>
         <p style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '1.25rem', color: cfg.color, margin: 0, letterSpacing: '0.05em' }}>
-          {identidad.texto}
+          {formatearNumeroComprobante(numeroInput)}
         </p>
         {/* Igual que el resto de las superficies: numero_fiscal es la identidad
             canónica, y un tipo fiscal sin CAE no tiene punto de venta que
             mostrar. */}
-        {identidad.puntoVenta && (
+        {puntoVentaVisible && (
           <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0.25rem 0 0.75rem' }}>
-            Pto. Venta {identidad.puntoVenta}
+            Pto. Venta {puntoVentaVisible}
           </p>
         )}
-        {identidad.pendienteDeEmision && (
+        {esNumeroInternoFiscal && (
           <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: '0.25rem 0 0.75rem' }}>
-            N° interno · pendiente de emisión
+            N° interno{displayStatus.permiteEmision ? ' · pendiente de emisión' : ''}
           </p>
         )}
         <div style={{

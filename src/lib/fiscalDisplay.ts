@@ -25,12 +25,16 @@
 
 // Extension explicita: este modulo lo carga tambien `node --test`, que no
 // resuelve extensiones implicitas. tsconfig tiene allowImportingTsExtensions.
-import { parseNumeroFiscal } from './fiscalIdentity.ts'
+import { esTipoFiscal, parseNumeroFiscal } from './fiscalIdentity.ts'
 
 export interface ComprobanteNumeroInput {
   numero?: string | null
   numero_fiscal?: string | null
   punto_venta?: string | null
+}
+
+export interface ComprobanteDisplayFiscalInput extends ComprobanteNumeroInput {
+  tipo?: string | null
 }
 
 /** '1' | '0001' | 'PV 1' -> '0001'. */
@@ -88,4 +92,23 @@ export function formatearNumeroComprobante(c: ComprobanteNumeroInput): string {
  */
 export function muestraIdentidadFiscal(c: ComprobanteNumeroInput): boolean {
   return parseNumeroFiscal(c.numero_fiscal) !== null
+}
+
+/**
+ * Punto de venta que se puede presentar sin confundir una serie local con
+ * una fiscal. Si hay numero_fiscal, su PV manda. Un tipo fiscal interno todavía
+ * no tiene PV fiscal visible; un remito sí conserva el PV local.
+ */
+export function puntoVentaVisibleComprobante(c: ComprobanteDisplayFiscalInput): string | null {
+  const fiscal = parseNumeroFiscal(c.numero_fiscal)
+  if (fiscal) return padPuntoVenta(String(fiscal.puntoVenta))
+  if (esTipoFiscal(c.tipo)) return null
+
+  const local = String(c.punto_venta ?? '').replace(/\D/g, '')
+  return local ? padPuntoVenta(local) : null
+}
+
+/** Un tipo fiscal sin numero_fiscal está mostrando sólo su número interno. */
+export function muestraNumeroInternoFiscal(c: ComprobanteDisplayFiscalInput): boolean {
+  return esTipoFiscal(c.tipo) && !muestraIdentidadFiscal(c)
 }
