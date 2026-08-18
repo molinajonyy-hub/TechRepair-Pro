@@ -35,21 +35,37 @@ const BUSINESS_ID    = 'aa930802-0861-46ce-896c-7f68b181cb39'
  */
 function supabaseDoble(filas: Record<string, any[]>) {
   const consultas: string[] = []
+  const buscar = (id: unknown, biz: unknown) =>
+    (filas.comprobantes ?? []).find(f => f.id === id && f.business_id === biz) ?? null
+
   return {
     consultas,
-    from(tabla: string) {
-      consultas.push(tabla)
-      const filtros: Array<[string, unknown]> = []
-      const api: any = {
-        select() { return api },
-        eq(col: string, val: unknown) { filtros.push([col, val]); return api },
-        async maybeSingle() {
-          const candidatas = (filas[tabla] ?? []).filter(f =>
-            filtros.every(([c, v]) => f[c] === v))
-          return { data: candidatas[0] ?? null, error: null }
-        },
+    async rpc(nombre: string, args: Record<string, any>) {
+      if (nombre === 'snapshot_arca_comprobante_identity') {
+        consultas.push('comprobante')
+        const f = buscar(args.p_comprobante_id, args.p_business_id)
+        return {
+          data: f ? {
+            tipo: f.tipo,
+            tipo_comprobante_fiscal: f.tipo_comprobante_fiscal,
+            comprobante_original_id: f.comprobante_original_id,
+          } : null,
+          error: null,
+        }
       }
-      return api
+      if (nombre === 'snapshot_arca_original_identity') {
+        consultas.push('original')
+        const f = buscar(args.p_original_id, args.p_business_id)
+        return {
+          data: f ? {
+            tipo: f.tipo,
+            numero_fiscal: f.numero_fiscal,
+            tipo_comprobante_fiscal: f.tipo_comprobante_fiscal,
+          } : null,
+          error: null,
+        }
+      }
+      throw new Error(`RPC inesperada: ${nombre}`)
     },
   }
 }
@@ -93,7 +109,7 @@ test('G · la factura no entra en la lógica de NC: no consulta el comprobante o
 
   // Exactamente UNA lectura: la propia fila. Una segunda sería la búsqueda del
   // comprobante original, que sólo corresponde a una Nota de Crédito.
-  assert.deepEqual(db.consultas, ['comprobantes'])
+  assert.deepEqual(db.consultas, ['comprobante'])
 })
 
 test('B · Factura A / CbteTipo 1 tampoco entra en la lógica de NC', async () => {
@@ -108,7 +124,7 @@ test('B · Factura A / CbteTipo 1 tampoco entra en la lógica de NC', async () =
   })
 
   assert.equal(r.ok, true, `el gate rechazó una Factura A normal: ${r.error}`)
-  assert.deepEqual(db.consultas, ['comprobantes'])
+  assert.deepEqual(db.consultas, ['comprobante'])
 })
 
 test('E · mismatch REAL entre el CbteTipo del intento y el tipo de la fila falla cerrado', async () => {

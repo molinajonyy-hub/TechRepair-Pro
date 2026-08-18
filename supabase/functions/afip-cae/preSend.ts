@@ -38,6 +38,7 @@ export type PreSendGate =
   | 'ATTEMPT_MISMATCH'
   | 'ATTEMPT_NOT_ACTIVE'
   | 'CBTES_ASOC_INVALID'
+  | 'COMPROBANTE_READ_FAILED'
   | 'NC_IDENTITY_UNPROVEN'
 
 export interface PreSendReject {
@@ -135,9 +136,16 @@ export async function evaluarPreEnvio(
     body: params.body,
   })
   if (!cbtesAsoc.ok) {
+    // Un fallo de LECTURA es del servidor (5xx), no del cliente. Mezclarlo con
+    // los rechazos de contrato fue lo que ocultó el incidente del 2026-08-18:
+    // un 42501 se reportaba como 400, indistinguible de un payload inválido.
+    const fallaDeLectura = cbtesAsoc.gate === 'COMPROBANTE_READ_FAILED'
+      || cbtesAsoc.gate === 'ORIGINAL_READ_FAILED'
     return {
-      ok: false, status: 400, gate: 'CBTES_ASOC_INVALID',
-      detalle: cbtesAsoc.gate,
+      ok: false,
+      status: fallaDeLectura ? 503 : 400,
+      gate: fallaDeLectura ? 'COMPROBANTE_READ_FAILED' : 'CBTES_ASOC_INVALID',
+      detalle: cbtesAsoc.detalle ? `${cbtesAsoc.gate}:${cbtesAsoc.detalle}` : cbtesAsoc.gate,
       error: cbtesAsoc.error || 'CbtesAsoc inválido',
     }
   }

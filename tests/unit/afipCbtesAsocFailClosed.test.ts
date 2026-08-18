@@ -10,32 +10,52 @@ const NC_ID = '00000000-0000-0000-0000-000000000013'
 const ORIGINAL_ID = '00000000-0000-0000-0000-000000000011'
 const BUSINESS_ID = '00000000-0000-0000-0000-0000000000b0'
 
+/**
+ * Doble del cliente.
+ *
+ * El comprobante ya NO se lee con `.from('comprobantes')`: service_role no tiene
+ * grants sobre esa tabla y esa lectura directa devolvía 42501 (incidente
+ * 2026-08-18). Va por las RPC acotadas, y el doble las modela igual que el
+ * motor: `data: null` cuando el negocio no corresponde.
+ */
 function supabaseFixture(rows: Record<string, Record<string, unknown>>) {
   const queries: Array<{ table: string; select: string; filters: Record<string, unknown> }> = []
+
+  const buscar = (id: unknown, businessId: unknown) => {
+    const row = rows[String(id)] ?? null
+    if (!row || row.business_id !== businessId) return null
+    return row
+  }
+
   return {
     queries,
     client: {
-      from(table: string) {
-        const query = { table, select: '', filters: {} as Record<string, unknown> }
-        queries.push(query)
-        const builder = {
-          select(columns: string) {
-            query.select = columns
-            return builder
-          },
-          eq(column: string, value: unknown) {
-            query.filters[column] = value
-            return builder
-          },
-          async maybeSingle() {
-            const row = rows[String(query.filters.id)] ?? null
-            if (row && row.business_id !== query.filters.business_id) {
-              return { data: null, error: null }
-            }
-            return { data: row, error: null }
-          },
+      async rpc(nombre: string, args: Record<string, unknown>) {
+        if (nombre === 'snapshot_arca_comprobante_identity') {
+          queries.push({ table: 'comprobantes', select: 'identity', filters: { id: args.p_comprobante_id, business_id: args.p_business_id } })
+          const row = buscar(args.p_comprobante_id, args.p_business_id)
+          return {
+            data: row ? {
+              tipo: row.tipo,
+              tipo_comprobante_fiscal: row.tipo_comprobante_fiscal,
+              comprobante_original_id: row.comprobante_original_id,
+            } : null,
+            error: null,
+          }
         }
-        return builder
+        if (nombre === 'snapshot_arca_original_identity') {
+          queries.push({ table: 'comprobantes', select: 'original', filters: { id: args.p_original_id, business_id: args.p_business_id } })
+          const row = buscar(args.p_original_id, args.p_business_id)
+          return {
+            data: row ? {
+              tipo: row.tipo,
+              numero_fiscal: row.numero_fiscal,
+              tipo_comprobante_fiscal: row.tipo_comprobante_fiscal,
+            } : null,
+            error: null,
+          }
+        }
+        throw new Error(`RPC inesperada: ${nombre}`)
       },
     },
   }
