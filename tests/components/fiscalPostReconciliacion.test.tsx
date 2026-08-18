@@ -20,6 +20,7 @@ import { render, screen, within } from '@testing-library/react'
 import { ComprobanteDocumento } from '../../src/components/comprobantes/ComprobanteDocumento'
 import { ComprobantePrintLayout } from '../../src/components/comprobantes/ComprobantePrintLayout'
 import { ComprobanteActions } from '../../src/components/comprobantes/ComprobanteActions'
+import { ComprobanteHeader } from '../../src/components/comprobantes/ComprobanteHeader'
 
 const PERFIL = {
   nombre_comercial: 'Mi Negocio', domicilio_fiscal: '', orden_whatsapp: '',
@@ -56,6 +57,19 @@ const BORRADOR_PENDIENTE = {
   numero: '0001-00760000', numero_fiscal: null, punto_venta: '0001',
   tipo_comprobante_fiscal: '11', cae: null, cae_vencimiento: null,
   estado: 'borrador', estado_fiscal: 'pendiente_emision', total_cobrado: 0,
+} as never
+
+/** El PV local diverge a propósito del que ARCA autorizó. */
+const FISCAL_PV_DIVERGENTE = {
+  ...C45,
+  punto_venta: '0007',
+} as never
+
+const REMITO = {
+  ...BASE,
+  tipo: 'remito', numero: '0007-00000015', numero_fiscal: null, punto_venta: '0007',
+  cae: null, cae_vencimiento: null,
+  estado: 'borrador', estado_fiscal: 'no_fiscal', total_cobrado: 0,
 } as never
 
 const BANNER_BORRADOR = 'El comprobante en borrador no tiene validez fiscal hasta ser emitido en ARCA.'
@@ -167,6 +181,42 @@ describe('un borrador realmente no emitido conserva la advertencia fiscal', () =
     render(<ComprobanteActions {...acciones(BORRADOR_PENDIENTE)} />)
     expect(screen.getByText(BANNER_BORRADOR)).toBeTruthy()
     expect(screen.getByRole('button', { name: /emitir en arca/i })).toBeTruthy()
+  })
+
+  test('el documento lo rotula como interno y no imprime el PV local como fiscal', () => {
+    const { container } = render(<ComprobantePrintLayout {...props(BORRADOR_PENDIENTE)} />)
+    expect(container.textContent).toContain('N° interno · pendiente de emisión')
+    expect(container.textContent).not.toContain('Pto. Venta 0001')
+  })
+})
+
+describe('contrato de punto de venta visible', () => {
+  test('un fiscal emitido muestra el PV de numero_fiscal, no el local', () => {
+    const { container } = render(<ComprobantePrintLayout {...props(FISCAL_PV_DIVERGENTE)} />)
+    expect(container.textContent).toContain('Pto. Venta 0010')
+    expect(container.textContent).not.toContain('Pto. Venta 0007')
+
+    const header = render(
+      <ComprobanteHeader
+        tipo="factura_c"
+        numero="0007-00759033"
+        numeroFiscal="0010-00000045"
+        estado="borrador"
+        puntoVenta="0007"
+        estadoFiscal="emitido"
+        cae="86249909766646"
+      />,
+    )
+    expect(within(header.container).getByText('0010-00000045')).toBeTruthy()
+    expect(within(header.container).getByText('Pto. Venta 0010')).toBeTruthy()
+    expect(within(header.container).queryByText('Pto. Venta 0007')).toBeNull()
+  })
+
+  test('un remito conserva su número y su PV locales', () => {
+    const { container } = render(<ComprobantePrintLayout {...props(REMITO)} />)
+    expect(container.querySelector('.cpl-doc-num')?.textContent).toBe('0007-00000015')
+    expect(container.textContent).toContain('Pto. Venta 0007')
+    expect(container.textContent).not.toContain('pendiente de emisión')
   })
 })
 

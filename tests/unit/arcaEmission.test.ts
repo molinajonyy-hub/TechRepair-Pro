@@ -371,13 +371,13 @@ test('Comprobantes (detalle/retry) emite vía comprobanteService.emitir — NO v
   assert.doesNotMatch(page, /facturacionService\.emitirComprobante\(comprobanteActual/, 'no debe emitir CAE vía el servicio mock')
 })
 
-test('_claimYEmitirArca es la ÚNICA puerta a ArcaService.emitirFactura; crear/emitir/crearNotaCredito la usan', () => {
+test('_claimYEmitirArca es la ÚNICA puerta a ArcaService.emitirFactura; crear/emitir la usan y crearNotaCredito delega', () => {
   const service = read('../../src/services/comprobanteService.ts')
   const directArcaCalls = service.match(/ArcaService\.emitirFactura\(/g) ?? []
   assert.equal(directArcaCalls.length, 1, '_claimYEmitirArca debe ser la ÚNICA llamadora directa de ArcaService.emitirFactura')
 
   const claimCalls = service.match(/this\._claimYEmitirArca\(/g) ?? []
-  assert.equal(claimCalls.length, 3, 'crear(), emitir() y crearNotaCredito() deben usar _claimYEmitirArca')
+  assert.equal(claimCalls.length, 2, 'crear() y emitir() deben usar _claimYEmitirArca; crearNotaCredito() delega a emitir()')
 })
 
 test('_claimYEmitirArca reclama atómicamente vía RPC (DB) antes de llamar a ARCA — no un guard en memoria', () => {
@@ -520,10 +520,11 @@ test('reserve_arca_number persiste el número ANTES de mark_arca_attempt_sent (c
   assert.match(migration, /SET status = 'sent', sent_at = now\(\), updated_at = now\(\)\s*\n\s*WHERE id = p_attempt_id AND status = 'number_reserved'/)
 })
 
-test('crearNotaCredito usa el mismo mecanismo de claim/idempotencia que comprobantes normales (respeta su propia serie)', () => {
+test('crearNotaCredito delega a emitir para compartir claim, CbtesAsoc y finalización idempotente', () => {
   const service = read('../../src/services/comprobanteService.ts')
   const ncFn = service.slice(service.indexOf('async crearNotaCredito'), service.indexOf('async eliminar('))
-  assert.match(ncFn, /this\._claimYEmitirArca\(params\.businessId, ncId,/)
+  assert.match(ncFn, /this\.emitir\(ncId, params\.businessId, params\.userId, true\)/)
+  assert.doesNotMatch(ncFn, /this\._claimYEmitirArca/)
 })
 
 test('_claimYEmitirArca ya NO envía punto_venta/tipo_comprobante/ambiente al reclamar (server-side los resuelve)', () => {
@@ -706,8 +707,12 @@ test('UI: el botón "Anular" se oculta cuando el comprobante ya tiene CAE (dirig
 
 test('crearNotaCredito no anula el original si ARCA queda pendiente de conciliación', () => {
   const service = read('../../src/services/comprobanteService.ts');
-  assert.match(service, /estadoFiscalNc\s*=\s*'pendiente_conciliacion'/);
-  assert.match(service, /if \(estadoFiscalNc === 'emitido'\) \{/);
+  const emitirFn = service.slice(service.indexOf('async emitir('), service.indexOf('// ── Anular comprobante'))
+  const ncFn = service.slice(service.indexOf('async crearNotaCredito'), service.indexOf('async eliminar('))
+  assert.match(emitirFn, /if \(arcaResult\.success\) \{[\s\S]*_finalizarNotaCreditoAutorizada/)
+  assert.match(emitirFn, /if \(arcaResult\.pendingReconciliation\)/)
+  assert.doesNotMatch(ncFn, /_finalizarNotaCreditoAutorizada/,
+    'crearNotaCredito delega: nunca finaliza por fuera del resultado autorizado de emitir()')
 });
 
 // ─────────────────────────────────────────────────────────────────────────

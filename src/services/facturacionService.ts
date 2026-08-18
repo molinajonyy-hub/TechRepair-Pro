@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { esTipoFiscal, resolverCbteTipo } from '../lib/fiscalIdentity';
 
 // ============================================
 // TIPOS DE COMPROBANTES
@@ -136,12 +137,7 @@ export const afipService = {
    * resolver.
    */
   getCodigoTipoComprobante(tipo: TipoComprobante): number {
-    const codigos: Partial<Record<TipoComprobante, number>> = {
-      'factura_a': 1,
-      'factura_c': 11,
-      'remito': 0  // Remito no es comprobante fiscal electrónico
-    };
-    return codigos[tipo] ?? 0;
+    return resolverCbteTipo({ tipo }) ?? 0;
   },
 
   /**
@@ -192,6 +188,12 @@ export const facturacionService = {
     comprobante?: Comprobante;
     error?: string;
   }> {
+    // Ruta legacy sin autoridad de arca_config ni claim atómico. Se conserva
+    // sólo para remitos locales; cualquier documento fiscal debe pasar por
+    // comprobanteService (y una NC, además, por su original/CbtesAsoc).
+    if (esTipoFiscal(data.tipo)) {
+      return { success: false, error: 'Los comprobantes fiscales deben crearse por el flujo canónico del POS.' };
+    }
     try {
       // 1. Crear comprobante
       const { data: comprobante, error: comprobanteError } = await supabase
@@ -282,6 +284,9 @@ export const facturacionService = {
     comprobante?: Comprobante;
     error?: string;
   }> {
+    if (esTipoFiscal(data.tipo)) {
+      return { success: false, error: 'Los comprobantes fiscales deben crearse por el flujo canónico del POS.' };
+    }
     try {
       const exchangeRate = data.exchange_rate || 1;
 

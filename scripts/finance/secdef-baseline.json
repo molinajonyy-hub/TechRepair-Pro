@@ -42,6 +42,7 @@
                      "supabase/migrations/20260713280000_m7_7c_health_check_v2.sql":  2,
                      "supabase/migrations/20260713300000_m7_7c1a_qualify_and_drop_public_from_path.sql":  13,
                      "supabase/migrations/20260714130000_m7_7e3_fix_bfe_income_duplicated_check.sql":  1,
-                     "supabase/migrations/20260720121000_m7_hotfix_hc_canonical_view_isolation_check.sql":  1
+                     "supabase/migrations/20260720121000_m7_hotfix_hc_canonical_view_isolation_check.sql":  1,
+                     "supabase/migrations/20260814150000_fiscal_sales_point_canonical_contract.sql":  2
                  }
 }

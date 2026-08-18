@@ -2010,9 +2010,26 @@ tbody tr:hover td {
   }
 }
 
-/* Teléfono angosto: el header puede envolver. */
+/* Teléfono angosto: el header puede envolver.
+
+   `height: auto` NO es cosmético — es el arreglo del defecto. El header trae
+   `height: 64` inline y acá se lo deja envolver: a 390px sus tres grupos suman
+   ~722px y necesitan 167px repartidos en tres filas, pero el alto seguía
+   clavado en 64px y `.cpm-shell { overflow: hidden }` recortaba los 104px
+   sobrantes. Se perdían el punto de venta, el tipo de cambio y TODA la fila de
+   acciones, incluido el botón de cerrar. `flex-wrap` sin soltar el alto es
+   contradictorio: envolver a altura fija sólo esconde lo que envuelve.
+
+   Va con !important porque colisiona con el height inline, igual que el
+   padding de esta misma regla y que el resto de overrides móviles del POS. */
 @media (max-width: 767px) {
-  .cpm-header { flex-wrap: wrap; gap: 0.5rem; padding: 0.5rem 0.875rem !important; }
+  .cpm-header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.5rem 0.875rem !important;
+    height: auto !important;      /* colisiona height inline (64px) */
+    min-height: 56px;             /* conserva la presencia del header vacío */
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

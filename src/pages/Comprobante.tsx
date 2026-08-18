@@ -21,7 +21,7 @@ import {
 } from '../services/comprobanteService';
 import { buildComprobanteFilename } from '../lib/printFilename';
 import { isComprobanteAnnulled } from '../utils/comprobanteStatus';
-import { formatearNumeroComprobante, padPuntoVenta } from '../lib/fiscalDisplay';
+import { formatearNumeroComprobante, puntoVentaVisibleComprobante } from '../lib/fiscalDisplay';
 import { formatearFechaCalendario } from '../lib/fechaCalendario';
 import { logger } from '../lib/logger';
 
@@ -484,6 +484,9 @@ export default function ComprobantePage() {
   const orden: any = comprobanteActual?.order_id ? { id: comprobanteActual.order_id } : null;
   const cliente = (comprobanteActual as any)?.customer ?? null;
   const items  = (comprobanteActual as any)?.items  ?? [];
+  const puntoVentaVisible = comprobanteActual
+    ? puntoVentaVisibleComprobante(comprobanteActual)
+    : null;
 
   // ── Page ──────────────────────────────────────────────────────────────────
   return (
@@ -501,7 +504,7 @@ export default function ComprobantePage() {
             </nav>
             <h1 className="page-hdr-title">
               {comprobanteActual && TIPO_LABELS[comprobanteActual.tipo]}
-              {comprobanteActual && (comprobanteActual.numero || comprobanteActual.numero_fiscal) && (
+              {comprobanteActual && (comprobanteActual.numero_fiscal || comprobanteActual.numero) && (
                 <span style={{ fontFamily: 'monospace', fontWeight: 500, color: 'var(--text-muted)', fontSize: '1rem', marginLeft: '0.5rem' }}>
                   #{formatearNumeroComprobante(comprobanteActual)}
                 </span>
@@ -521,7 +524,7 @@ export default function ComprobantePage() {
                 nombre:             (cliente?.name ?? '').split(' ')[0] || (cliente?.name ?? ''),
                 cliente:            cliente?.name ?? '',
                 tipo_comprobante:   TIPO_LABELS[comprobanteActual.tipo] ?? comprobanteActual.tipo,
-                numero_comprobante: (comprobanteActual as any).numero_fiscal ?? comprobanteActual.numero ?? '',
+                numero_comprobante: formatearNumeroComprobante(comprobanteActual),
                 precio:             comprobanteActual.total ? `$${Math.round(comprobanteActual.total).toLocaleString('es-AR')}` : '',
                 saldo:              (comprobanteActual as any).saldo_pendiente > 0 ? `$${Math.round((comprobanteActual as any).saldo_pendiente).toLocaleString('es-AR')}` : '',
               }}
@@ -768,7 +771,7 @@ export default function ComprobantePage() {
                 {[
                   ['Tipo', TIPO_LABELS[comprobanteActual.tipo]],
                   ['Fecha', new Date(comprobanteActual.fecha).toLocaleDateString('es-AR')],
-                  ['Pto. Venta', padPuntoVenta(comprobanteActual.punto_venta)],
+                  ...(puntoVentaVisible ? [['Pto. Venta', puntoVentaVisible]] : []),
                   // Sin CAE no hay vencimiento que mostrar. Los 53 registros
                   // historicos conservaron `cae_vencimiento` del CAE simulado
                   // despues de que la reparacion les anulara el CAE, y este
@@ -899,7 +902,7 @@ export default function ComprobantePage() {
                 <AlertCircle size={14} style={{ flexShrink: 0 }} />
                 <span>
                   Se creará una Nota de Crédito en borrador vinculada al comprobante{' '}
-                  <strong>#{comprobanteActual.numero}</strong> por ${(comprobanteActual.total || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}.
+                  <strong>#{formatearNumeroComprobante(comprobanteActual)}</strong> por ${(comprobanteActual.total || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}.
                   Deberás emitirla manualmente en ARCA desde el detalle de la nota.
                 </span>
               </div>
@@ -907,7 +910,7 @@ export default function ComprobantePage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.75rem', background: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
                 {[
                   ['Tipo', 'Nota de Crédito'],
-                  ['Comprobante original', `#${comprobanteActual.numero}`],
+                  ['Comprobante original', `#${formatearNumeroComprobante(comprobanteActual)}`],
                   ['Cliente', (comprobanteActual as any).customer?.name || comprobanteActual.condicion_fiscal || 'Consumidor Final'],
                   ['Total', `$${(comprobanteActual.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`],
                 ].map(([label, value]) => (

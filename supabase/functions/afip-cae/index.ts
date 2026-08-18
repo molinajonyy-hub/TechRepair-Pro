@@ -45,6 +45,7 @@ import {
   getUltimoComprobante,
   type FacturaData, type EmissionOutcome,
 } from './logic.ts'
+import { esNotaCreditoFiscal, resolverCbtesAsocCanonico } from './cbtesAsoc.ts'
 
 // ─────────────────────────────────────────────────────────────────
 // CORS — single source of truth (buildCorsHeaders + jsonResponse)
@@ -216,6 +217,64 @@ async function completeAttempt(
   }
 }
 
+/** Fija CbtesAsoc en el attempt antes de cualquier llamada externa. */
+async function persistirCbtesAsocSnapshot(
+  supabase: any,
+  params: {
+    attemptId: string
+    comprobanteId: string
+    originalId: string
+    identidad: { cbteTipo: number; puntoVenta: number; numero: number }
+  },
+  ctx: Record<string, unknown>,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('snapshot_arca_nc_cbtes_asoc', {
+      p_attempt_id: params.attemptId,
+      p_nc_id: params.comprobanteId,
+      p_original_id: params.originalId,
+      p_cbte_tipo: params.identidad.cbteTipo,
+      p_punto_venta: params.identidad.puntoVenta,
+      p_numero: params.identidad.numero,
+    })
+    if (error || data?.success !== true) {
+      const message = error?.message ?? data?.error ?? 'No se pudo fijar CbtesAsoc en el attempt'
+      logStructured({ ...ctx, stage: 'snapshot_cbtes_asoc', classification: 'fatal', error: message })
+      return { ok: false, error: message }
+    }
+    logStructured({ ...ctx, stage: 'snapshot_cbtes_asoc', classification: data?.replay ? 'replay' : 'persisted' })
+    return { ok: true }
+  } catch (error) {
+    const message = String((error as any)?.message ?? error)
+    logStructured({ ...ctx, stage: 'snapshot_cbtes_asoc', classification: 'fatal', error: message })
+    return { ok: false, error: message }
+  }
+}
+
+/**
+ * Cierra atómicamente los efectos locales de una NC después de persistir su
+ * autorización. Para facturas es un no-op.
+ */
+async function finalizarNotaCreditoAutorizada(
+  supabase: any,
+  comprobanteId: string,
+  tipoComprobante: number,
+  ctx: Record<string, unknown>,
+): Promise<{ pending: boolean }> {
+  if (!esNotaCreditoFiscal(tipoComprobante)) return { pending: false }
+
+  const { data, error } = await supabase.rpc('create_credit_note_finance_reversal', {
+    p_nc_id: comprobanteId,
+  })
+  if (error || data?.ok !== true) {
+    const message = error?.message ?? data?.error ?? 'finalización de Nota de Crédito rechazada'
+    logStructured({ ...ctx, stage: 'finalizacion_nc', classification: 'fatal', error: message })
+    return { pending: true }
+  }
+  logStructured({ ...ctx, stage: 'finalizacion_nc', classification: data?.replay ? 'replay' : 'completed' })
+  return { pending: false }
+}
+
 // ──────────────────────────────────────────────
 // Handler principal
 // ──────────────────────────────────────────────
@@ -251,9 +310,9 @@ serve(async (req: Request) => {
       cotizacion_moneda = 1,
       fecha_cbte,
       condicion_iva_receptor_id,
-      cbte_asoc_tipo,
-      cbte_asoc_pto_vta,
-      cbte_asoc_nro,
+      cbte_asoc_tipo: requested_cbte_asoc_tipo,
+      cbte_asoc_pto_vta: requested_cbte_asoc_pto_vta,
+      cbte_asoc_nro: requested_cbte_asoc_nro,
     } = body
 
     if (!comprobante_id || !attempt_id) {
@@ -282,6 +341,60 @@ serve(async (req: Request) => {
     businessIdForLog = business_id
     const logCtx = { correlationId, businessId: business_id, ambiente, comprobanteId: comprobante_id, attemptId: attempt_id }
     logStructured({ ...logCtx, stage: 'start' })
+
+    // Una NC (CbteTipo 3/8/13) no puede avanzar con CbtesAsoc parcial,
+    // inventado por el cliente o incoherente con su clase. La terna se vuelve
+    // a resolver desde la NC + comprobante original usando service_role y el
+    // helper fiscal canónico. Esto ocurre ANTES de WSAA, numeración, reserva y
+    // FECAESolicitar: un fallo no consume ni deja un intento marcado `sent`.
+    const cbtesAsoc = await resolverCbtesAsocCanonico(supabase, {
+      comprobanteId: comprobante_id,
+      businessId: business_id,
+      tipoComprobante: tipo_comprobante,
+      body: {
+        cbteAsocTipo: requested_cbte_asoc_tipo,
+        cbteAsocPtoVta: requested_cbte_asoc_pto_vta,
+        cbteAsocNro: requested_cbte_asoc_nro,
+      },
+    })
+    if (!cbtesAsoc.ok) {
+      logStructured({ ...logCtx, stage: 'validacion_cbtes_asoc', classification: 'fatal', error: cbtesAsoc.error })
+      return jsonResponse(req, {
+        success: false,
+        error: cbtesAsoc.error || 'CbtesAsoc inválido',
+        correlation_id: correlationId,
+      }, 400)
+    }
+    const cbte_asoc_tipo = cbtesAsoc.identidad?.cbteTipo
+    const cbte_asoc_pto_vta = cbtesAsoc.identidad?.puntoVenta
+    const cbte_asoc_nro = cbtesAsoc.identidad?.numero
+
+    // La evidencia se persiste inmediatamente despues de resolver la fuente
+    // canonica y antes de WSAA, numeracion o FECAESolicitar. Sin snapshot la NC
+    // falla cerrada: una fila con CAE aislado nunca habilita efectos economicos.
+    if (esNotaCreditoFiscal(tipo_comprobante)) {
+      if (!cbtesAsoc.identidad || !cbtesAsoc.originalId) {
+        return jsonResponse(req, {
+          success: false,
+          error: 'No se pudo demostrar la identidad completa de CbtesAsoc',
+          correlation_id: correlationId,
+        }, 400)
+      }
+
+      const snapshot = await persistirCbtesAsocSnapshot(supabase, {
+        attemptId: attempt_id,
+        comprobanteId: comprobante_id,
+        originalId: cbtesAsoc.originalId,
+        identidad: cbtesAsoc.identidad,
+      }, logCtx)
+      if (!snapshot.ok) {
+        return jsonResponse(req, {
+          success: false,
+          error: snapshot.error || 'No se pudo fijar CbtesAsoc en el attempt',
+          correlation_id: correlationId,
+        }, 409)
+      }
+    }
 
     // 1. Obtener token+sign (llama internamente a afip-wsaa)
     logStructured({ ...logCtx, stage: 'auth' })
@@ -316,12 +429,15 @@ serve(async (req: Request) => {
           resultado: consulta.resultado || '', observaciones: consulta.observaciones,
         }
         await completeAttempt(supabase, attempt_id, 'authorized_reconciled', outcome, logCtx)
+        const finalizacionNc = await finalizarNotaCreditoAutorizada(supabase, comprobante_id, tipo_comprobante, logCtx)
         const nroCbteFormateado = `${String(punto_venta).padStart(4, '0')}-${String(outcome.numero_cbte).padStart(8, '0')}`
         return jsonResponse(req, {
           success: true, cae: outcome.cae, cae_vencimiento: outcome.cae_vencimiento,
           numero_comprobante: nroCbteFormateado, numero_cbte_raw: outcome.numero_cbte,
           resultado: outcome.resultado, observaciones: outcome.observaciones || null,
-          reconciled: true, outcome: 'authorized_reconciled', correlation_id: correlationId,
+          reconciled: true, outcome: 'authorized_reconciled',
+          finalization_pending: finalizacionNc.pending,
+          correlation_id: correlationId,
         })
       }
 
@@ -394,6 +510,7 @@ serve(async (req: Request) => {
       case 'authorized':
       case 'authorized_reconciled': {
         await completeAttempt(supabase, attempt_id, outcome.kind, outcome, logCtx)
+        const finalizacionNc = await finalizarNotaCreditoAutorizada(supabase, comprobante_id, tipo_comprobante, logCtx)
         const nroCbteFormateado = `${String(punto_venta).padStart(4, '0')}-${String(outcome.numero_cbte).padStart(8, '0')}`
         return jsonResponse(req, {
           success: true,
@@ -405,6 +522,7 @@ serve(async (req: Request) => {
           observaciones:      outcome.observaciones || null,
           reconciled:         outcome.reconciled,
           outcome:            outcome.kind,
+          finalization_pending: finalizacionNc.pending,
           correlation_id:     correlationId,
         })
       }

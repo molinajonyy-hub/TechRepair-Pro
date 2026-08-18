@@ -24,6 +24,8 @@ import { posLogger } from '../../lib/logger'
 import { currencyService } from '../../services/currencyService'
 import { smartSearch } from '../../utils/searchUtils'
 import { searchSellableProducts, isSellableProduct, type ProductSearchErrorReason } from '../../services/productSearchService'
+import { salesPointService } from '../../services/salesPointService'
+import { ArcaService } from '../../services/arcaService'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { useCaja } from '../../contexts/CajaContext'
@@ -44,6 +46,8 @@ import { useKeyboardAwareBottomOffset } from '../../hooks/useKeyboardAwareBottom
 import {
   computeCheckoutRequestHash, getOrCreateIdempotencyKey, clearPendingCheckout, readPendingCheckout,
 } from '../../lib/checkoutIdempotency'
+import { esTipoFiscal } from '../../lib/fiscalIdentity'
+import { formatearNumeroComprobante } from '../../lib/fiscalDisplay'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -72,12 +76,14 @@ interface PagoLinea {
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const TIPO_CONFIG: Record<TipoComprobante, { label: string; short: string; color: string; bg: string; border: string; fiscal: boolean }> = {
-  factura_a:    { label: 'Factura A',       short: 'A',     color: 'var(--pos-accent-2)', bg: 'rgba(99,102,241,0.12)',  border: 'rgba(99,102,241,0.4)',  fiscal: true },
-  factura_c:    { label: 'Factura C',       short: 'C',     color: 'var(--pos-success)', bg: 'rgba(52,211,153,0.12)',  border: 'rgba(52,211,153,0.4)',  fiscal: true },
-  nota_credito: { label: 'Nota Crédito',    short: 'NC',    color: 'var(--pos-danger)', bg: 'rgba(239,68,68,0.12)',   border: 'rgba(239,68,68,0.4)',   fiscal: true },
-  remito:       { label: 'Remito',          short: 'REM',   color: 'var(--pos-warning)', bg: 'rgba(245,158,11,0.12)',  border: 'rgba(245,158,11,0.4)',  fiscal: false },
+const TIPO_CONFIG: Record<TipoComprobante, { label: string; short: string; color: string; bg: string; border: string }> = {
+  factura_a:    { label: 'Factura A',       short: 'A',     color: 'var(--pos-accent-2)', bg: 'rgba(99,102,241,0.12)',  border: 'rgba(99,102,241,0.4)' },
+  factura_c:    { label: 'Factura C',       short: 'C',     color: 'var(--pos-success)', bg: 'rgba(52,211,153,0.12)',  border: 'rgba(52,211,153,0.4)' },
+  nota_credito: { label: 'Nota Crédito',    short: 'NC',    color: 'var(--pos-danger)', bg: 'rgba(239,68,68,0.12)',   border: 'rgba(239,68,68,0.4)' },
+  remito:       { label: 'Remito',          short: 'REM',   color: 'var(--pos-warning)', bg: 'rgba(245,158,11,0.12)',  border: 'rgba(245,158,11,0.4)' },
 }
+type TipoPosGenerico = Exclude<TipoComprobante, 'nota_credito'>
+const TIPOS_POS_GENERICOS = ['factura_a', 'factura_c', 'remito'] as const satisfies readonly TipoPosGenerico[]
 const CONDICIONES = ['Consumidor Final','Responsable Inscripto','Monotributo','Exento','Responsable No Inscripto']
 const emptyLinea = (): LineaItem => ({
   _key: Math.random().toString(36).slice(2),
@@ -132,7 +138,7 @@ function parseQtyCode(raw: string): { code: string; qty: number } {
 
 export interface ComprobanteProModalProps {
   isOpen: boolean; onClose: () => void; onCreado?: () => void
-  tipoInicial?: TipoComprobante; puntoVentaInicial?: string; condicionFiscalInicial?: string
+  tipoInicial?: TipoPosGenerico; puntoVentaInicial?: string; condicionFiscalInicial?: string
   initialItems?: { descripcion: string; cantidad: number; precio_unitario: number; currency?: 'ARS'|'USD'; inventory_id?: string; costo_unitario?: number; tipo_linea?: TipoLinea }[]
   initialClienteId?: string; usarPrecioMayorista?: boolean; skipFinanceEntry?: boolean
   /**
@@ -330,8 +336,10 @@ export function ComprobanteProModal({
   const { flatMethods } = usePaymentCommissions()
 
   // ── Encabezado ───────────────────────────────────────────────────────────
-  const [tipo, setTipo]             = useState<TipoComprobante>(tipoInicial ?? 'factura_c')
+  const [tipo, setTipo]             = useState<TipoPosGenerico>(tipoInicial ?? 'factura_c')
   const [puntoVenta, setPuntoVenta] = useState(puntoVentaInicial ?? '0001')
+  /** PV fiscal leído de arca_config. Sólo informativo: manda el servidor. */
+  const [pvFiscal, setPvFiscal] = useState<string | null>(null)
   const [condicion, setCondicion]   = useState(condicionFiscalInicial ?? 'Consumidor Final')
   const [clienteId, setClienteId]   = useState(initialClienteId ?? '')
   const [clienteQuery, setClienteQuery] = useState('')
@@ -564,7 +572,7 @@ export function ComprobanteProModal({
       tipo, punto_venta: puntoVenta, condicion_fiscal: condicion,
       customer_id: clienteId || null, order_id: orderId ?? null,
       observaciones, exchange_rate: exchangeRate,
-      es_fiscal: TIPO_CONFIG[tipo].fiscal, emitir_en_arca: emitirEnArca,
+      es_fiscal: esTipoFiscal(tipo), emitir_en_arca: emitirEnArca,
       items: itemsPayload,
       pagos: pagosPayload,
       business_id: businessId, created_by: user?.id, caja_id: cajaId || null,
@@ -713,10 +721,20 @@ export function ComprobanteProModal({
 
   useEffect(() => {
     if (!isOpen || !businessId || puntoVentaInicial) return
-    supabase.from('sales_points').select('punto_venta').eq('business_id', businessId)
-      .eq('is_active', true).order('created_at', { ascending: true }).limit(1).maybeSingle()
-      .then(({ data }) => { if (data?.punto_venta) setPuntoVenta(String(data.punto_venta).padStart(4, '0')) })
+    // Si falla o no hay PV configurado se conserva el default del estado: el
+    // servicio ya registró el error. Ver salesPointService (contrato real de
+    // la tabla: numero/activo/predeterminado, no punto_venta/is_active).
+    // Esto alimenta SOLO al comprobante no fiscal: en un fiscal el PV lo
+    // resuelve el servidor desde arca_config.
+    salesPointService.getActiveNumeroFormateado(businessId)
+      .then(numero => { if (numero) setPuntoVenta(numero) })
   }, [isOpen, businessId, puntoVentaInicial])
+
+  // PV fiscal (arca_config) — sólo para MOSTRARLO. La autoridad es el servidor.
+  useEffect(() => {
+    if (!isOpen || !businessId) return
+    ArcaService.getPuntoVentaFiscal(businessId).then(setPvFiscal)
+  }, [isOpen, businessId])
 
   useEffect(() => {
     if (!isOpen || !businessId) return
@@ -1165,6 +1183,8 @@ export function ComprobanteProModal({
   if (!isOpen) return null
 
   const tc = TIPO_CONFIG[tipo]
+  /** Un tipo fiscal toma su PV de ARCA, no del punto de venta local. */
+  const tipoEsFiscal = esTipoFiscal(tipo)
   const filledLineas = lineas.filter(l => l.descripcion.trim())
 
   // ── Shared icon-button style ─────────────────────────────────────────────
@@ -1235,10 +1255,14 @@ export function ComprobanteProModal({
 
           {/* Tipo — segmented control */}
           <div role="group" aria-label="Tipo de comprobante" style={{ display: 'flex', background: 'var(--pos-inset-bg-strong)', borderRadius: '0.75rem', padding: '0.2rem', gap: '0.125rem' }}>
-            {(Object.entries(TIPO_CONFIG) as [TipoComprobante, typeof tc][]).map(([k, cfg]) => {
+            {TIPOS_POS_GENERICOS.map((k) => {
+              const cfg = TIPO_CONFIG[k]
               const sel = k === tipo
               return (
-                <button key={k} onClick={() => setTipo(k)} aria-pressed={sel} title={cfg.label}
+                <button key={k} onClick={() => {
+                  setTipo(k)
+                  if (k === 'remito') setEmitirEnArca(false)
+                }} aria-pressed={sel} title={cfg.label}
                   style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.35rem 0.875rem', borderRadius: '0.5rem', border: `1px solid ${sel ? cfg.border : 'transparent'}`, background: sel ? cfg.bg : 'transparent', color: sel ? cfg.color : 'var(--pos-text-secondary)', fontSize: '0.78rem', fontWeight: sel ? 800 : 500, cursor: 'pointer', transition: 'all 0.15s', fontFamily: F }}>
                   {/* Indicador no-cromático: check para el tipo activo */}
                   {sel && <Check size={12} style={{ flexShrink: 0 }} />}
@@ -1250,10 +1274,27 @@ export function ComprobanteProModal({
 
           {/* Centro: PV + dólar */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '0.375rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'var(--pos-inset-bg)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem', padding: '0.25rem 0.625rem' }}>
-              <span style={{ fontSize: '0.68rem', color: 'var(--pos-text-muted)', fontWeight: 700 }}>PV</span>
-              <input value={puntoVenta} onChange={e => setPuntoVenta(e.target.value)} style={{ width: '3.5rem', background: 'none', border: 'none', outline: 'none', color: 'var(--pos-text-secondary)', fontSize: '0.82rem', textAlign: 'center', fontFamily: F }} />
-            </div>
+            {/* PUNTO DE VENTA.
+                En un comprobante FISCAL el PV lo resuelve el servidor desde la
+                configuración de ARCA (create_comprobante_checkout_atomic), así
+                que acá se muestra ESE valor y en modo lectura: dejar editable el
+                PV local hacía creer que definía la identidad fiscal cuando el
+                CAE se pide siempre con el de ARCA.
+                En un remito el PV local sigue siendo legítimo y editable. */}
+            {tipoEsFiscal ? (
+              <div data-testid="comprobante-pv-fiscal" title="Lo define la configuración de ARCA"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'var(--pos-inset-bg)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem', padding: '0.25rem 0.625rem' }}>
+                <span style={{ fontSize: '0.68rem', color: 'var(--pos-text-muted)', fontWeight: 700 }}>PV fiscal</span>
+                <span style={{ minWidth: '3.5rem', textAlign: 'center', color: pvFiscal ? 'var(--pos-text-secondary)' : 'var(--pos-warning)', fontSize: '0.82rem', fontFamily: F }}>
+                  {pvFiscal ?? 'sin configurar'}
+                </span>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'var(--pos-inset-bg)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem', padding: '0.25rem 0.625rem' }}>
+                <span style={{ fontSize: '0.68rem', color: 'var(--pos-text-muted)', fontWeight: 700 }}>PV</span>
+                <input data-testid="comprobante-pv-local" value={puntoVenta} onChange={e => setPuntoVenta(e.target.value)} style={{ width: '3.5rem', background: 'none', border: 'none', outline: 'none', color: 'var(--pos-text-secondary)', fontSize: '0.82rem', textAlign: 'center', fontFamily: F }} />
+              </div>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'var(--pos-inset-bg)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem', padding: '0.25rem 0.625rem' }}>
               <DollarSign size={11} color="var(--pos-text-muted)" />
               <input type="number" value={exchangeRate} onChange={e => setExchangeRate(parseFloat(e.target.value) || 1)} style={{ width: '4.5rem', background: 'none', border: 'none', outline: 'none', color: 'var(--pos-text-secondary)', fontSize: '0.82rem', textAlign: 'right', fontFamily: F }} />
@@ -1655,7 +1696,7 @@ export function ComprobanteProModal({
                   style={{ flex: 1, padding: '0.4rem 0.625rem', background: 'var(--pos-soft-bg)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem', color: 'var(--pos-text-secondary)', fontSize: '0.78rem', cursor: 'pointer', outline: 'none', fontFamily: F }}>
                   {CONDICIONES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
-                {TIPO_CONFIG[tipo].fiscal && (
+                {tipoEsFiscal && (
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', color: 'var(--pos-text-secondary)', fontSize: '0.78rem', cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
                     <input type="checkbox" checked={emitirEnArca} onChange={e => setEmitirEnArca(e.target.checked)} />
                     Emitir en ARCA
@@ -2319,7 +2360,7 @@ export function ComprobanteProModal({
         nombre:             (selectedCliente?.name ?? '').split(' ')[0] || (selectedCliente?.name ?? ''),
         cliente:            selectedCliente?.name ?? '',
         tipo_comprobante:   tc?.label ?? 'Comprobante',
-        numero_comprobante: comprobanteCreado?.numero_fiscal ?? comprobanteCreado?.numero ?? '',
+        numero_comprobante: comprobanteCreado ? formatearNumeroComprobante(comprobanteCreado) : '',
         precio:             `$${Math.round(comprobanteCreado?.total ?? totales.total).toLocaleString('es-AR')}`,
       }}
       context={{
@@ -2365,7 +2406,18 @@ export function ComprobanteProModal({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.75rem 1.5rem 1.25rem' }}>
             <button onClick={() => {
               const d = draftInfo.data as any
-              if (d.tipo) setTipo(d.tipo); if (d.puntoVenta) setPuntoVenta(d.puntoVenta)
+              if (d.tipo === 'nota_credito') {
+                // Un draft del checkout genérico nunca tiene la identidad del
+                // comprobante original. No convertirlo silenciosamente en una
+                // Factura C: descartarlo y exigir el flujo fiscal correcto.
+                try { localStorage.removeItem(DRAFT_KEY) } catch {}
+                setDraftInfo(null)
+                setSubmitError('Ese borrador de Nota de Crédito no puede restaurarse. Generá la NC desde el comprobante fiscal original.')
+                setErrorShakeKey(k => k + 1)
+                return
+              }
+              if (TIPOS_POS_GENERICOS.includes(d.tipo as TipoPosGenerico)) setTipo(d.tipo as TipoPosGenerico)
+              if (d.puntoVenta) setPuntoVenta(d.puntoVenta)
               if (d.condicion) setCondicion(d.condicion)
               if (d.clienteId) { setClienteId(d.clienteId); setClienteQuery(d.clienteQuery || '') }
               if (Array.isArray(d.lineas) && d.lineas.length) setLineas(d.lineas)

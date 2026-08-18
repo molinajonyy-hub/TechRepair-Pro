@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { formatearNumeroComprobante } from '../../lib/fiscalDisplay';
 import {
   FileText,
   Receipt,
@@ -68,6 +69,7 @@ export function ComprobantesTable({ comprobantes, onEdit, onNotaCredito, onElimi
 
   const searchedComprobantes = searchTerm
     ? smartSearch(comprobantes, searchTerm, [
+        { getValue: (c) => c.numero_fiscal,                   weight: 6 },
         { getValue: (c) => c.numero,                          weight: 5 },
         { getValue: (c) => (c as any).cliente_nombre ?? null, weight: 3 },
         { getValue: (c) => c.tipo,                            weight: 2 },
@@ -105,7 +107,7 @@ export function ComprobantesTable({ comprobantes, onEdit, onNotaCredito, onElimi
     const headers = ['Tipo', 'Número', 'Fecha', 'Cliente', 'Moneda', 'Total', 'Estado'];
     const rows = data.map(comp => [
       tipoConfig[comp.tipo].label,
-      comp.numero || comp.numero_fiscal || '-',
+      formatearNumeroComprobante(comp),
       formatDate(comp.fecha),
       (comp as any).cliente_nombre || 'Sin cliente',
       (comp as any).currency || 'ARS',
@@ -431,8 +433,11 @@ export function ComprobantesTable({ comprobantes, onEdit, onNotaCredito, onElimi
                         </div>
                       </td>
                       <td style={{ padding: '1rem' }}>
+                        {/* numero_fiscal primero: `numero || numero_fiscal`
+                            mostraba SIEMPRE el local, porque el local nunca es
+                            nulo, y así el número de AFIP no se veía ni con CAE. */}
                         <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>
-                          {comprobante.numero || comprobante.numero_fiscal || '-'}
+                          {formatearNumeroComprobante(comprobante)}
                         </span>
                       </td>
                       <td style={{ padding: '1rem' }}>

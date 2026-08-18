@@ -40,12 +40,13 @@ const BASURA = ['NaN', 'undefined', '[object Object]', 'Infinity']
  * falló, así que filtrarlo por texto silenciaría también un 400 nuevo de la
  * búsqueda. Se listan uno por uno, nunca un patrón genérico.
  *
- * `sales_points`: el POS pide `punto_venta` e `is_active`, columnas que la
- * tabla no tiene (son `numero` y `activo`). Ese lookup viene fallando con 400
- * desde antes de este lote y no se toca acá: queda reportado como hallazgo
- * aparte.
+ * `sales_points` YA NO está en esta lista. El POS pedía `punto_venta` e
+ * `is_active`, columnas inexistentes (son `numero` y `activo`), y ese 400 se
+ * toleraba acá. El lote pre-beta del POS lo arregló centralizando la consulta
+ * en salesPointService, así que la excepción se retira a propósito: si el 400
+ * vuelve, este gate tiene que ponerse en rojo.
  */
-const FALLOS_PREEXISTENTES = [/\/rest\/v1\/sales_points/i, /favicon/i]
+const FALLOS_PREEXISTENTES = [/favicon/i]
 
 const PADRE = 'Funda Silicone iPhone 15'
 

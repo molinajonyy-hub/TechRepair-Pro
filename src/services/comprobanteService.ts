@@ -1,5 +1,12 @@
 import { supabase } from '../lib/supabase';
-import { fiscalIdentity } from '../lib/fiscalIdentity';
+import {
+  CBTE_TIPO,
+  cbteTipoFacturaParaNotaCredito,
+  cbteTipoNotaCreditoParaFactura,
+  esTipoFiscal,
+  fiscalIdentity,
+  resolverCbteTipo,
+} from '../lib/fiscalIdentity';
 import ArcaService from './arcaService';
 import { requireFeature } from '../utils/requireFeature';
 import { computeCheckoutRequestHash } from '../lib/checkoutIdempotency';
@@ -156,24 +163,6 @@ export const PROVIDER_LABELS: Record<string, string> = {
   'getnet':       'Getnet',
   'banco':        'Banco',
   'personalizado':'Personalizado',
-};
-
-// Tipo AFIP code map
-/**
- * Comprobantes con CbteTipo FIJO, derivable del tipo.
- *
- * `nota_credito` NO está acá a propósito: su código depende del comprobante
- * original (A→3, B→8, C→13). Tenía asignado un 3 genérico, que es NC-A; la
- * única NC real de este sistema es NC-C (13). Una NC se emite por
- * `crearNotaCredito`, que toma el código de create_credit_note_from_comprobante
- * — el único lugar que puede derivarlo bien. Ver src/lib/fiscalIdentity.ts.
- *
- * Este mapa se usa además como guard de emitibilidad: sacar `nota_credito`
- * también impide que `crear()` intente emitir una NC por el camino equivocado.
- */
-const AFIP_TIPO_CODE: Partial<Record<TipoComprobante, number>> = {
-  factura_a:    1,
-  factura_c:    11,
 };
 
 // Condición fiscal receptor → CondicionIVAReceptorId de AFIP
@@ -378,6 +367,7 @@ export const comprobanteService = {
     reconciled?: boolean;
     error?: string;
     pendingReconciliation?: boolean;
+    finalizationPending?: boolean;
     alreadyInProgress?: boolean;
     serieOcupada?: boolean;
   }> {
@@ -447,6 +437,7 @@ export const comprobanteService = {
       reconciled: arcaResult.reconciled,
       error: arcaResult.error,
       pendingReconciliation: arcaResult.pendingReconciliation,
+      finalizationPending: arcaResult.finalizationPending,
     };
   },
 
@@ -485,14 +476,33 @@ export const comprobanteService = {
     const {
       tipo, punto_venta = '0001', condicion_fiscal = 'Consumidor Final',
       customer_id, order_id, observaciones, exchange_rate: globalRate = 1,
-      es_fiscal = false, emitir_en_arca = false,
+      emitir_en_arca = false,
       items, pagos = [], business_id,
       caja_id = null,
       skip_finance_entry = false,
       idempotency_key,
     } = input;
 
-    const esFiscal = es_fiscal || emitir_en_arca;
+    // La fiscalidad pertenece al tipo canónico, no a flags controlados por el
+    // caller. La NC genérica no puede pasar por checkout: necesita factura
+    // original + identidad completa y vive exclusivamente en crearNotaCredito.
+    const esFiscal = esTipoFiscal(tipo);
+    if (tipo === 'nota_credito') {
+      return {
+        success: false,
+        error: 'La Nota de Crédito debe generarse desde el comprobante fiscal original.',
+      };
+    }
+    if (emitir_en_arca && !esFiscal) {
+      return {
+        success: false,
+        error: 'Un comprobante no fiscal no puede emitirse en ARCA.',
+      };
+    }
+    const tipoComprobanteArca = emitir_en_arca ? resolverCbteTipo({ tipo }) : null;
+    if (emitir_en_arca && tipoComprobanteArca === null) {
+      return { success: false, error: 'El tipo fiscal no tiene un CbteTipo ARCA canónico.' };
+    }
 
     try {
       // ── 1. Calcular totales ──────────────────────────────────────────────
@@ -529,9 +539,8 @@ export const comprobanteService = {
 
       // Auto-default: si no hay pagos explícitos, cobrar efectivo por el total.
       // Evita que comprobantes nuevos arranquen como "pendiente" sin selección explícita.
-      // Excepción: nota_credito es una reversión contable, no genera pago ni ingreso en caja.
       const pagosEffective: ComprobantePago[] =
-        pagos.length > 0 || tipo === 'nota_credito'
+        pagos.length > 0
           ? pagos
           : [{ payment_method: 'efectivo', amount: total, currency: 'ARS', exchange_rate: globalRate }];
 
@@ -558,7 +567,7 @@ export const comprobanteService = {
       const totalNeto   = total - totalComisiones;
       const totalBruto  = total;
 
-      const emitirArcaAhora = emitir_en_arca && esFiscal && AFIP_TIPO_CODE[tipo] !== undefined;
+      const emitirArcaAhora = emitir_en_arca && esFiscal;
 
       // Validación: Factura A requiere receptor identificado (no Consumidor Final).
       // Se valida ANTES de crear nada — no tiene sentido insertar un comprobante
@@ -701,7 +710,7 @@ export const comprobanteService = {
 
       if (emitirArcaAhora) {
         const arcaResult = await this._claimYEmitirArca(business_id, compId, {
-          tipo_comprobante:         AFIP_TIPO_CODE[tipo]!,
+          tipo_comprobante:         tipoComprobanteArca!,
           tipo_doc_receptor:        99,   // Consumidor Final por defecto (futuro: cargar de cliente)
           nro_doc_receptor:         '0',
           concepto:                 1,
@@ -738,55 +747,181 @@ export const comprobanteService = {
     }
   },
 
+  /**
+   * Completa los efectos locales posteriores a una NC ya autorizada por ARCA.
+   * Una RPC atómica e idempotente anula el original y deduplica las reversas
+   * por la identidad natural de la NC. Se comparte entre la
+   * emisión inicial y el retry de una NC que ya obtuvo CAE pero quedó a mitad
+   * de esta finalización.
+   */
+  async _finalizarNotaCreditoAutorizada(
+    ncId: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    // La RPC SECURITY DEFINER hace atómicamente la anulación del original y
+    // las reversas FM/BFE. Sus índices naturales permiten repetirla: para la
+    // misma NC devuelve replay y nunca deja media finalización aplicada.
+    const { data: revData, error: revErr } = await supabase
+      .rpc('create_credit_note_finance_reversal', { p_nc_id: ncId })
+    const rev = revData as { ok?: boolean; replay?: boolean; error_code?: string; error?: string } | null
+    const reversalError = !!revErr || rev?.ok !== true
+    if (reversalError) {
+      logger.error('FINANCE', 'La reversa financiera de la NC no se registró', {
+        ncId, errorCode: rev?.error_code ?? null, transport: revErr?.message ?? null,
+      })
+    }
+
+    if (reversalError) {
+      return {
+        success: false,
+        error: 'La Nota de Crédito fue autorizada, pero su finalización local quedó pendiente. Reintentá la operación.',
+      }
+    }
+    return { success: true }
+  },
+
   // ── Emitir borrador ──────────────────────────────────────────────────────────
   async emitir(
     comprobanteId: string,
     businessId: string,
     userId: string,
     emitirArcaAhora = false
-  ): Promise<{ success: boolean; cae?: string; error?: string; pendingReconciliation?: boolean; alreadyInProgress?: boolean; serieOcupada?: boolean }> {
-    // Validar plan antes de emitir en ARCA
-    if (emitirArcaAhora) {
-      try {
-        await requireFeature(businessId, 'arca', 'emitir_comprobante_arca')
-      } catch (e: any) {
-        return { success: false, error: e.message }
-      }
-    }
-
+  ): Promise<{ success: boolean; cae?: string; error?: string; pendingReconciliation?: boolean; finalizationPending?: boolean; alreadyInProgress?: boolean; serieOcupada?: boolean }> {
     const comp = await this.getById(comprobanteId, businessId);
     if (!comp) return { success: false, error: 'Comprobante no encontrado' };
+
+    const tipo = (comp.type || comp.tipo) as TipoComprobante;
+    const tipoEsFiscal = esTipoFiscal(tipo);
+
+    // No existe una emisión "local" de un documento fiscal: Factura/NC sin
+    // ARCA debe permanecer borrador. Tampoco un remito puede entrar a ARCA.
+    if (tipoEsFiscal && !emitirArcaAhora) {
+      return { success: false, error: 'Un comprobante fiscal sólo puede emitirse mediante ARCA.' };
+    }
+    if (!tipoEsFiscal && emitirArcaAhora) {
+      return { success: false, error: 'Un comprobante no fiscal no puede emitirse en ARCA.' };
+    }
+
+    let tipoComprobanteArca: number | null = null;
+    let originalNotaCredito: Comprobante | null = null;
+    let identidadOriginalNotaCredito: ReturnType<typeof fiscalIdentity> = null;
+
+    if (tipo === 'nota_credito') {
+      if (!comp.comprobante_original_id) {
+        return { success: false, error: 'La Nota de Crédito no tiene un comprobante original asociado.' };
+      }
+      originalNotaCredito = await this.getById(comp.comprobante_original_id, businessId);
+      if (!originalNotaCredito) {
+        return { success: false, error: 'No se encontró el comprobante fiscal original de la Nota de Crédito.' };
+      }
+
+      identidadOriginalNotaCredito = fiscalIdentity(originalNotaCredito);
+      const tipoNotaCredito = resolverCbteTipo(comp);
+      const tipoFacturaEsperado = tipoNotaCredito === null
+        ? null
+        : cbteTipoFacturaParaNotaCredito(tipoNotaCredito);
+      const tipoNotaCreditoEsperado = identidadOriginalNotaCredito
+        ? cbteTipoNotaCreditoParaFactura(identidadOriginalNotaCredito.cbteTipo)
+        : null;
+
+      if (
+        !identidadOriginalNotaCredito
+        || tipoNotaCredito === null
+        || tipoFacturaEsperado === null
+        || tipoFacturaEsperado !== identidadOriginalNotaCredito.cbteTipo
+        || tipoNotaCreditoEsperado !== tipoNotaCredito
+      ) {
+        return {
+          success: false,
+          error: 'La Nota de Crédito y su comprobante original no tienen una identidad fiscal A/B/C consistente.',
+        };
+      }
+      tipoComprobanteArca = tipoNotaCredito;
+    } else if (tipoEsFiscal) {
+      tipoComprobanteArca = resolverCbteTipo(comp);
+      if (tipoComprobanteArca === null) {
+        return { success: false, error: 'El tipo fiscal no tiene un CbteTipo ARCA canónico.' };
+      }
+    } else if (tipo !== 'remito') {
+      return { success: false, error: 'Tipo de comprobante no soportado para emisión local.' };
+    }
 
     // Atajo rápido (evita un round-trip de RPC): la atomicidad REAL la da
     // claim_comprobante_arca_emission (mismo chequeo, pero atómico en DB) más
     // abajo — este guard en JS por sí solo NO evita carreras entre pestañas.
     if (comp.cae || comp.estado_fiscal === 'emitido') {
+      if (tipo === 'nota_credito') {
+        const finalizacion = await this._finalizarNotaCreditoAutorizada(
+          comprobanteId,
+        );
+        if (!finalizacion.success) {
+          return {
+            success: true,
+            cae: comp.cae ?? undefined,
+            error: finalizacion.error,
+            finalizationPending: true,
+          };
+        }
+      }
       return { success: true, cae: comp.cae ?? undefined };
     }
     if (comp.estado === 'anulado' || comp.status === 'cancelled') {
       return { success: false, error: 'El comprobante ya está anulado' };
     }
 
-    const tipo = (comp.type || comp.tipo) as TipoComprobante;
-    const emitirArcaEfectivo = emitirArcaAhora && AFIP_TIPO_CODE[tipo] !== undefined;
+    // El payload actual (receptor 99/0, IVA 0 y neto=total) sólo es correcto
+    // para NC-C. La correspondencia A/B está modelada canónicamente, pero su
+    // payload específico todavía no está implementado: fallar antes del claim.
+    if (
+      tipo === 'nota_credito'
+      && (
+        tipoComprobanteArca !== CBTE_TIPO.NOTA_CREDITO_C
+        || identidadOriginalNotaCredito?.cbteTipo !== CBTE_TIPO.FACTURA_C
+      )
+    ) {
+      return { success: false, error: 'La emisión de Nota de Crédito A/B todavía no está soportada.' };
+    }
 
-    if (emitirArcaEfectivo) {
+    if (tipoEsFiscal) {
+      try {
+        await requireFeature(businessId, 'arca', 'emitir_comprobante_arca')
+      } catch (e: any) {
+        return { success: false, error: e.message }
+      }
+
       const arcaResult = await this._claimYEmitirArca(businessId, comprobanteId, {
-        tipo_comprobante:          AFIP_TIPO_CODE[tipo]!,
+        tipo_comprobante:          tipoComprobanteArca!,
         tipo_doc_receptor:         99,
         nro_doc_receptor:          '0',
         concepto:                  1,
         importe_neto:              comp.subtotal || 0,
         importe_iva:               comp.impuestos || comp.tax || 0,
-        alicuota_iva:              tipo === 'factura_a' ? 21 : 0,
+        alicuota_iva:              tipoComprobanteArca === CBTE_TIPO.FACTURA_A
+                                    || tipoComprobanteArca === CBTE_TIPO.NOTA_CREDITO_A ? 21 : 0,
         importe_total:             comp.total || 0,
         condicion_iva_receptor_id: condicionIvaId(comp.condicion_fiscal),
+        ...(identidadOriginalNotaCredito ? {
+          cbte_asoc_tipo:    identidadOriginalNotaCredito.cbteTipo,
+          cbte_asoc_pto_vta: identidadOriginalNotaCredito.puntoVenta,
+          cbte_asoc_nro:     identidadOriginalNotaCredito.numero,
+        } : {}),
       });
 
       if (arcaResult.success) {
         // complete_arca_attempt (server-side) ya escribió cae/estado_fiscal=
         // 'emitido'/estado='emitido'/status='issued' — no se reescribe acá.
-        if (comp.items) {
+        if (tipo === 'nota_credito') {
+          const finalizacion = await this._finalizarNotaCreditoAutorizada(
+            comprobanteId,
+          );
+          if (!finalizacion.success) {
+            return {
+              success: true,
+              cae: arcaResult.cae,
+              error: finalizacion.error,
+              finalizationPending: true,
+            };
+          }
+        } else if (comp.items) {
           const stockItems = comp.items
             .filter(i => i.inventory_id && ['producto','repuesto'].includes(i.tipo_linea || 'producto'));
           await this._descontarStock(stockItems, comprobanteId, businessId, userId);
@@ -808,7 +943,7 @@ export const comprobanteService = {
       return { success: false, error: arcaResult.error || 'Error en ARCA' };
     }
 
-    // No fiscal / sin ARCA: marcar como emitido localmente (comportamiento preexistente).
+    // Única rama local: remito. Los tipos fiscales ya fallaron cerrado arriba.
     const { error } = await supabase
       .from('comprobantes')
       .update({
@@ -1045,6 +1180,40 @@ export const comprobanteService = {
     error?: string
     pendingReconciliation?: boolean
   }> {
+    // ── 0. Identidad fiscal del original — FAIL-CLOSED antes de crear nada ───
+    // El CbtesAsoc que se manda a AFIP referencia al comprobante original por
+    // punto de venta + número. Ese dato sólo puede salir de `numero_fiscal`, que
+    // es lo que AFIP autorizó. El código anterior caía a `original.punto_venta`
+    // (el PV LOCAL) cuando faltaba: con sales_points.numero=7 y
+    // arca_config.punto_venta=3 eso mandaba a AFIP un CbtesAsoc apuntando al PV
+    // 7, que allá no existe.
+    //
+    // Se valida la terna completa ANTES de crear el borrador para no dejar una
+    // NC huérfana, incluso cuando el caller pide crearla sin emitirla todavía.
+    const original = await this.getById(params.originalComprobanteId, params.businessId)
+    if (!original) {
+      return { success: false, error: 'Comprobante original no encontrado' }
+    }
+    const identidadOriginal = fiscalIdentity(original)
+    const ncTipoEsperado = identidadOriginal
+      ? cbteTipoNotaCreditoParaFactura(identidadOriginal.cbteTipo)
+      : null
+    if (!identidadOriginal || ncTipoEsperado === null) {
+      return {
+        success: false,
+        error: 'El comprobante original no tiene una identidad fiscal A/B/C completa en ARCA '
+             + '(punto de venta, tipo y número). Emitilo o reconciliá su CAE antes de generar la Nota de Crédito.',
+      }
+    }
+    if (
+      identidadOriginal.cbteTipo !== CBTE_TIPO.FACTURA_C
+      || ncTipoEsperado !== CBTE_TIPO.NOTA_CREDITO_C
+    ) {
+      return {
+        success: false,
+        error: 'La emisión de Nota de Crédito A/B todavía no está soportada; sólo puede generarse NC-C.',
+      }
+    }
     // ── 1. Crear draft NC + copiar ítems (RPC atómica) ───────────────────────
     const { data: rpcData, error: rpcError } = await supabase.rpc(
       'create_credit_note_from_comprobante',
@@ -1055,120 +1224,36 @@ export const comprobanteService = {
 
     const ncId:          string = rpcData.nc_id
     const ncTipoFiscal:  number = rpcData.nc_tipo_fiscal
-    const originalTotal: number = rpcData.total ?? 0
     const originalNumero: string = rpcData.original_numero || params.originalComprobanteId.slice(0, 8)
 
-    // ── 2. Obtener datos del original para CbtesAsoc ─────────────────────────
-    const original = await this.getById(params.originalComprobanteId, params.businessId)
-    if (!original) return { success: false, error: 'Comprobante original no encontrado tras crear NC' }
-
-    // ── CbtesAsoc: la identidad fiscal COMPLETA del original ─────────────────
-    // Tres inferencias peligrosas vivían acá:
-    //   · CbteTipo con default 11 — una NC sobre una Factura A habría dicho C;
-    //   · punto de venta desde `original.punto_venta`, que es el LOCAL y puede
-    //     no existir en AFIP (medido: 146 comprobantes con local 0001 y fiscal
-    //     0010);
-    //   · número 0 cuando no había numero_fiscal.
-    // Ahora sale todo de la terna canónica, y si el original no la tiene, la NC
-    // no se emite. Referenciar mal un comprobante ante AFIP es peor que fallar.
-    const identidadOriginal = fiscalIdentity(original)
-    if (!identidadOriginal) {
+    if (ncTipoFiscal !== ncTipoEsperado) {
       return {
         success: false,
-        error: 'El comprobante original no tiene una identidad fiscal completa en ARCA '
-             + '(punto de venta, tipo y número). Emitilo o reconciliá su CAE antes de generar la Nota de Crédito.',
+        error: 'La Nota de Crédito creada no corresponde a la clase fiscal A/B/C del comprobante original.',
       }
     }
-    const cbteAsocTipo   = identidadOriginal.cbteTipo
-    const cbteAsocPtoVta = identidadOriginal.puntoVenta
-    const cbteAsocNro    = identidadOriginal.numero
 
     let cae: string | undefined
     let arcaError: string | undefined
-    let estadoFiscalNc: EstadoFiscal = 'pendiente_emision'
     let pendingReconciliation = false
 
-    // ── 3. Emitir en ARCA (opcional) — mismo claim atómico que emitir()/crear() ──
-    if (params.emitirEnArca) {
-      const arcaResult = await this._claimYEmitirArca(params.businessId, ncId, {
-        tipo_comprobante:          ncTipoFiscal,
-        tipo_doc_receptor:         99,
-        nro_doc_receptor:          '0',
-        concepto:                  1,
-        importe_neto:              originalTotal,
-        importe_iva:               0,
-        alicuota_iva:              0,
-        importe_total:             originalTotal,
-        moneda:                    'PES',
-        cotizacion_moneda:         1,
-        // CbtesAsoc: referencia a la factura original
-        cbte_asoc_tipo:            cbteAsocTipo,
-        cbte_asoc_pto_vta:         cbteAsocPtoVta > 0 ? cbteAsocPtoVta : undefined,
-        cbte_asoc_nro:             cbteAsocNro    > 0 ? cbteAsocNro    : undefined,
-        // Condición IVA del receptor: heredar del comprobante original
-        condicion_iva_receptor_id: condicionIvaId(original.condicion_fiscal),
+    // Las observaciones descriptivas no las escribe complete_arca_attempt.
+    await supabase.from('comprobantes')
+      .update({
+        observaciones: `Nota de Crédito — anula ${originalNumero}${params.motivo ? ` · ${params.motivo}` : ''}`,
+        updated_at:    new Date().toISOString(),
       })
+      .eq('id', ncId)
+      .eq('business_id', params.businessId)
 
-      if (arcaResult.success) {
-        // complete_arca_attempt (server-side) ya escribió cae/estado_fiscal=
-        // 'emitido'/estado='emitido'/status='issued' en la fila de la NC.
-        cae            = arcaResult.cae
-        estadoFiscalNc = 'emitido'
-      } else if (arcaResult.pendingReconciliation) {
-        // Ambiguo — NUNCA marcar como rechazado ni anular el original todavía.
-        // afip-cae ya dejó el intento persistido para reconciliar en el próximo intento.
-        arcaError            = arcaResult.error
-        estadoFiscalNc       = 'pendiente_conciliacion'
-        pendingReconciliation = true
-      } else {
-        arcaError      = arcaResult.error
-        estadoFiscalNc = arcaResult.alreadyInProgress ? 'pendiente_emision' : 'error_emision'
-      }
-
-      // Las observaciones descriptivas no las escribe complete_arca_attempt —
-      // se agregan siempre, sin pisar los campos fiscales que ya haya escrito.
-      await supabase.from('comprobantes')
-        .update({
-          observaciones: `Nota de Crédito — anula ${originalNumero}${params.motivo ? ` · ${params.motivo}` : ''}`,
-          updated_at:    new Date().toISOString(),
-        })
-        .eq('id', ncId)
-        .eq('business_id', params.businessId)
-
-      // Si ARCA OK: marcar original como anulado_fiscal + crear reversa financiera via RPC
-      if (estadoFiscalNc === 'emitido') {
-        await supabase.from('comprobantes')
-          .update({
-            estado:           'anulado',
-            status:           'cancelled',
-            estado_comercial: 'anulado',
-            estado_fiscal:    'anulado_fiscal',
-            updated_at:       new Date().toISOString(),
-          })
-          .eq('id', params.originalComprobanteId)
-          .eq('business_id', params.businessId)
-
-        // RPC SECURITY DEFINER: crea FM (sign=-1) + BFE negativo.
-        //
-        // M7 7E.1b — La idempotencia es por IDENTIDAD NATURAL (el id de la NC),
-        // no por idempotency key: "revertir ESTA NC" sólo puede pasar una vez, y
-        // lo garantizan dos índices únicos parciales (uniq_fm_comprobante_reversal
-        // y uniq_bfe_comprobante_reversal), no un chequeo previo. Una key acá
-        // sería decorativa: no agrega ninguna garantía que los índices no den ya.
-        //
-        // El resultado ANTES SE DESCARTABA por completo: un fallo de la reversa
-        // pasaba inadvertido y la NC quedaba emitida sin su contrapartida
-        // financiera. Ahora se registra. No se lanza: la NC ya se emitió en ARCA
-        // y abortar acá dejaría al usuario sin comprobante y sin explicación.
-        const { data: revData, error: revErr } = await supabase
-          .rpc('create_credit_note_finance_reversal', { p_nc_id: ncId })
-        const rev = revData as { ok?: boolean; replay?: boolean; error_code?: string; error?: string } | null
-        if (revErr || rev?.ok === false) {
-          logger.error('FINANCE', 'La reversa financiera de la NC no se registró', {
-            ncId, errorCode: rev?.error_code ?? null, transport: revErr?.message ?? null,
-          })
-        }
-      }
+    // ── 2. Emisión opcional por la ruta ÚNICA ───────────────────────────────
+    // emitir() resuelve otra vez la identidad, arma CbtesAsoc, reclama ARCA y
+    // ejecuta la finalización idempotente. crearNotaCredito no duplica ese flujo.
+    if (params.emitirEnArca) {
+      const emision = await this.emitir(ncId, params.businessId, params.userId, true)
+      cae = emision.cae
+      if (!emision.success || emision.finalizationPending) arcaError = emision.error
+      pendingReconciliation = emision.pendingReconciliation === true
     }
 
     const nc = await this.getById(ncId, params.businessId)

@@ -8,7 +8,11 @@
 import type { Comprobante, ComprobanteItem } from '../../hooks/useComprobantes'
 import type { OrderPrintSettings } from '../../hooks/useOrderPrintSettings'
 import { getComprobanteDisplayStatus, type DisplayStatusKey } from '../../utils/comprobanteStatus'
-import { formatearNumeroComprobante, padPuntoVenta } from '../../lib/fiscalDisplay'
+import {
+  formatearNumeroComprobante,
+  muestraNumeroInternoFiscal,
+  puntoVentaVisibleComprobante,
+} from '../../lib/fiscalDisplay'
 import { formatearFechaCalendario } from '../../lib/fechaCalendario'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -85,6 +89,9 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
   const em         = profile.orden_email_visible || profile.email
   const addr       = profile.domicilio_fiscal
   const condicion  = comprobante.condicion_fiscal || cliente?.condicion_fiscal
+  const displayStatus = getComprobanteDisplayStatus(comprobante)
+  const puntoVentaVisible = puntoVentaVisibleComprobante(comprobante)
+  const esNumeroInternoFiscal = muestraNumeroInternoFiscal(comprobante)
 
   return (
     <div className="comprobante-print-layout">
@@ -255,9 +262,14 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
           <p className="cpl-label">Comprobante N°</p>
           <p className="cpl-doc-num">{formatearNumeroComprobante(comprobante)}</p>
           <p className="cpl-doc-date">{fmtFecha(comprobante.fecha)}</p>
-          <p className="cpl-muted">Pto. Venta {padPuntoVenta(comprobante.punto_venta)}</p>
+          {puntoVentaVisible && <p className="cpl-muted">Pto. Venta {puntoVentaVisible}</p>}
+          {esNumeroInternoFiscal && (
+            <p className="cpl-muted">
+              N° interno{displayStatus.permiteEmision ? ' · pendiente de emisión' : ''}
+            </p>
+          )}
           {(() => {
-            const sello = SELLO[getComprobanteDisplayStatus(comprobante).key]
+            const sello = SELLO[displayStatus.key]
             if (!sello) return null
             return (
               <span
