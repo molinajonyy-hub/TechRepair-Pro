@@ -192,19 +192,27 @@ export function useOrderSimple(orderId: string | undefined) {
           }
         }
 
-        // Cargar checklist
-        try {
-          const { data: checklistData } = await supabase
-            .from('order_checklists')
-            .select('*')
-            .eq('order_id', orderId)
-            .single()
-          
-          if (checklistData) {
-            result.checklist = checklistData
-          }
-        } catch (err) {
-          if (import.meta.env.DEV) console.warn('Could not load checklist:', err)
+        // Cargar checklist.
+        //
+        // `maybeSingle()`, NO `single()`: una orden sin checklist es el estado
+        // normal — el checklist se crea recién cuando alguien lo completa desde
+        // ChecklistCard, no hay trigger ni constraint que lo exija. `single()`
+        // manda Accept: application/vnd.pgrst.object+json y con 0 filas
+        // PostgREST responde 406 PGRST116, que ensuciaba la consola en cada
+        // apertura de orden. Y el try/catch de abajo nunca lo atrapó:
+        // supabase-js no lanza ante errores de PostgREST, devuelve { error }.
+        const { data: checklistData, error: checklistError } = await supabase
+          .from('order_checklists')
+          .select('*')
+          .eq('order_id', orderId)
+          .maybeSingle()
+
+        if (checklistError) {
+          // Un fallo real (permisos, red) se sigue reportando; sólo la ausencia
+          // de fila es silenciosa.
+          if (import.meta.env.DEV) console.warn('Could not load checklist:', checklistError)
+        } else if (checklistData) {
+          result.checklist = checklistData
         }
 
         // Cargar repuestos (order_parts — métricas de costo/margen)
@@ -349,18 +357,18 @@ export function useOrderSimple(orderId: string | undefined) {
         result.technician = data || null
       }
 
-      // Recargar checklist
-      try {
-        const { data: checklistData } = await supabase
-          .from('order_checklists')
-          .select('*')
-          .eq('order_id', orderId)
-          .single()
-        if (checklistData) {
-          result.checklist = checklistData
-        }
-      } catch (err) {
-        if (import.meta.env.DEV) console.warn('Could not load checklist:', err)
+      // Recargar checklist — misma razón que en la carga inicial: sin fila es
+      // un estado válido, así que `maybeSingle()` y no `single()`.
+      const { data: checklistData, error: checklistError } = await supabase
+        .from('order_checklists')
+        .select('*')
+        .eq('order_id', orderId)
+        .maybeSingle()
+
+      if (checklistError) {
+        if (import.meta.env.DEV) console.warn('Could not load checklist:', checklistError)
+      } else if (checklistData) {
+        result.checklist = checklistData
       }
 
       // Recargar repuestos
