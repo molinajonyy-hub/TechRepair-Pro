@@ -272,7 +272,9 @@ test('una factura rechaza CbtesAsoc elegido por el caller', async () => {
 
 test('afip-cae resuelve y persiste el snapshot antes de WSAA, numeración y FECAESolicitar', () => {
   const index = readFileSync(new URL('../../supabase/functions/afip-cae/index.ts', import.meta.url), 'utf8')
-  const gate = index.indexOf('await resolverCbtesAsocCanonico')
+  // El gate se ejecuta dentro de evaluarPreEnvio (./preSend.ts), extraído para
+  // poder correrlo offline; el ordenamiento que fija este test no cambió.
+  const gate = index.indexOf('await evaluarPreEnvio')
   const snapshot = index.indexOf('await persistirCbtesAsocSnapshot', gate)
   const wsaa = index.indexOf("supabase.functions.invoke('afip-wsaa'")
   const ultimo = index.indexOf('await getUltimoComprobante')
@@ -320,11 +322,13 @@ test('Edge finaliza cada NC autorizada/reconciliada después de completeAttempt 
     'un fallo local no puede ocultar un CAE ya confirmado')
   assert.match(index, /finalization_pending:\s*finalizacionNc\.pending/)
 
-  const llamadas = index.match(/await finalizarNotaCreditoAutorizada\(supabase, comprobante_id, tipo_comprobante, logCtx\)/g) ?? []
+  // Los ids se toman de la fila del intento (comprobanteIdOk / attemptIdOk)
+  // desde que los gates se extrajeron a preSend.ts; el contrato no cambió.
+  const llamadas = index.match(/await finalizarNotaCreditoAutorizada\(supabase, comprobanteIdOk, tipo_comprobante, logCtx\)/g) ?? []
   assert.equal(llamadas.length, 2, 'debe cubrir reconciliación previa y autorización del request actual')
 
   const reconciliacion = index.slice(
-    index.indexOf("await completeAttempt(supabase, attempt_id, 'authorized_reconciled'"),
+    index.indexOf("await completeAttempt(supabase, attemptIdOk, 'authorized_reconciled'"),
     index.indexOf("if (consulta.status === 'query_failed')"),
   )
   assert.ok(reconciliacion.indexOf('completeAttempt') < reconciliacion.indexOf('finalizarNotaCreditoAutorizada'))

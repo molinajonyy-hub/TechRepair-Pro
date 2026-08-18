@@ -389,8 +389,11 @@ test('arcaService.emitirFactura exige comprobante_id + attempt_id (no se puede e
   const arcaService = read('../../src/services/arcaService.ts')
   assert.match(arcaService, /comprobante_id: string\s*\n\s*attempt_id: string/)
 
-  const arcaService2 = read('../../supabase/functions/afip-cae/index.ts')
-  assert.match(arcaService2, /if \(!comprobante_id \|\| !attempt_id\)/)
+  // El guard vive en los gates pre-envío desde que se extrajeron a preSend.ts
+  // para poder ejecutarlos offline (investigación del 400 del 2026-08-18).
+  const preSend = read('../../supabase/functions/afip-cae/preSend.ts')
+  assert.match(preSend, /if \(!comprobanteId \|\| !attemptId\)/)
+  assert.match(preSend, /MISSING_IDS/)
 })
 
 test('comprobanteService.crear/emitir/crearNotaCredito son las únicas rutas al edge function afip-cae (vía ArcaService)', () => {
