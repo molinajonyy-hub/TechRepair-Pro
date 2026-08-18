@@ -48,6 +48,7 @@ const COLUMNAS_INEXISTENTES = ['punto_venta', 'is_active']
 const MIGRACION_FISCAL =
   'supabase/migrations/20260814150000_fiscal_sales_point_canonical_contract.sql'
 const EDGE_AFIP_CAE = 'supabase/functions/afip-cae/index.ts'
+const EDGE_AFIP_PRESEND = 'supabase/functions/afip-cae/preSend.ts'
 
 // ─── Comprobaciones puras (testeables) ──────────────────────────────────────
 
@@ -230,7 +231,13 @@ export function snapshotCbtesAsocFailClosed(sql) {
 
 /** La Edge fija el snapshot despues del resolver y antes de toda llamada ARCA. */
 export function edgePersisteSnapshotAntesDeArca(fuente) {
-  const resolver = fuente.indexOf('await resolverCbtesAsocCanonico')
+  // El gate puede estar inline (`resolverCbtesAsocCanonico`) o detrás de
+  // `evaluarPreEnvio`, que lo ejecuta desde ./preSend.ts — se extrajo para poder
+  // correr los gates offline tras el 400 del 2026-08-18. Lo que este guard
+  // protege es el ORDEN, no dónde vive la llamada.
+  const inline = fuente.indexOf('await resolverCbtesAsocCanonico')
+  const extraido = fuente.indexOf('await evaluarPreEnvio')
+  const resolver = inline >= 0 ? inline : extraido
   const snapshot = fuente.indexOf('await persistirCbtesAsocSnapshot', resolver)
   const wsaa = fuente.indexOf("supabase.functions.invoke('afip-wsaa'", resolver)
   const ultimo = fuente.indexOf('await getUltimoComprobante', resolver)
@@ -435,6 +442,16 @@ function validarRepo() {
     fallas.push(`Falta ${EDGE_AFIP_CAE}: no se puede verificar el orden fail-closed de CbtesAsoc.`)
   } else if (!edgePersisteSnapshotAntesDeArca(readFileSync(join(RAIZ, EDGE_AFIP_CAE), 'utf-8'))) {
     fallas.push(`${EDGE_AFIP_CAE}: CbtesAsoc no se persiste con fail-closed antes de WSAA/numeración/FECAESolicitar.`)
+  } else if (
+    readFileSync(join(RAIZ, EDGE_AFIP_CAE), 'utf-8').includes('await evaluarPreEnvio')
+    && !existsSync(join(RAIZ, EDGE_AFIP_PRESEND))
+  ) {
+    fallas.push(`Falta ${EDGE_AFIP_PRESEND}: el gate de CbtesAsoc se delegó a un módulo inexistente.`)
+  } else if (
+    readFileSync(join(RAIZ, EDGE_AFIP_CAE), 'utf-8').includes('await evaluarPreEnvio')
+    && !/await resolverCbtesAsocCanonico/.test(readFileSync(join(RAIZ, EDGE_AFIP_PRESEND), 'utf-8'))
+  ) {
+    fallas.push(`${EDGE_AFIP_PRESEND}: los gates pre-envío dejaron de resolver CbtesAsoc server-side.`)
   }
 
   return fallas

@@ -45,7 +45,8 @@ import {
   getUltimoComprobante,
   type FacturaData, type EmissionOutcome,
 } from './logic.ts'
-import { esNotaCreditoFiscal, resolverCbtesAsocCanonico } from './cbtesAsoc.ts'
+import { evaluarPreEnvio, type AttemptRow } from './preSend.ts'
+import { esNotaCreditoFiscal } from './cbtesAsoc.ts'
 
 // ─────────────────────────────────────────────────────────────────
 // CORS — single source of truth (buildCorsHeaders + jsonResponse)
@@ -138,26 +139,9 @@ function jsonResponse(req: Request, body: unknown, status = 200): Response {
 // Fila del intento — identidad fiscal AUTORITATIVA (nunca el body del cliente).
 // ──────────────────────────────────────────────
 
-interface AttemptRow {
-  id: string
-  comprobante_id: string
-  business_id: string
-  ambiente: string
-  cuit_emisor: string
-  punto_venta: number
-  tipo_comprobante: number
-  numero_intentado: number | null
-  status: string
-}
-
-async function fetchAttempt(supabase: any, attemptId: string): Promise<AttemptRow | null> {
-  const { data } = await supabase
-    .from('arca_emission_attempts')
-    .select('id, comprobante_id, business_id, ambiente, cuit_emisor, punto_venta, tipo_comprobante, numero_intentado, status')
-    .eq('id', attemptId)
-    .maybeSingle()
-  return data ?? null
-}
+// AttemptRow / fetchAttempt / los gates pre-envío viven en ./preSend.ts para
+// poder ejecutarlos offline: este handler está dentro de `serve()` y no se
+// puede importar en un test sin levantar un servidor.
 
 // ──────────────────────────────────────────────
 // RPCs atómicas (supabase/migrations/20260701150000_arca_atomic_claim.sql).
@@ -315,22 +299,46 @@ serve(async (req: Request) => {
       cbte_asoc_nro: requested_cbte_asoc_nro,
     } = body
 
-    if (!comprobante_id || !attempt_id) {
-      // No se emite fiscalmente sin una identidad local persistente y un claim
-      // atómico ya reclamado — ver claim_comprobante_arca_emission.
-      return jsonResponse(req, { success: false, error: 'Faltan comprobante_id / attempt_id: debe reclamarse el intento antes de invocar afip-cae' }, 400)
+    // ── Gates pre-envío (./preSend.ts) ────────────────────────────────────
+    // La identidad fiscal AUTORITATIVA se lee del intento ya reclamado, NUNCA
+    // del body: un cliente no puede spoofear punto_venta/cuit/ambiente/
+    // tipo_comprobante aunque los incluya en la request.
+    const pre = await evaluarPreEnvio(supabase, {
+      comprobanteId: comprobante_id,
+      attemptId: attempt_id,
+      body: {
+        cbteAsocTipo: requested_cbte_asoc_tipo,
+        cbteAsocPtoVta: requested_cbte_asoc_pto_vta,
+        cbteAsocNro: requested_cbte_asoc_nro,
+      },
+    })
+    if (!pre.ok) {
+      logStructured({
+        correlationId,
+        comprobanteId: comprobante_id,
+        attemptId: attempt_id,
+        stage: 'pre_envio',
+        gate_code: pre.gate,
+        gate_detalle: pre.detalle ?? null,
+        classification: 'fatal',
+        error: pre.error,
+      })
+      return jsonResponse(req, {
+        success: false,
+        error_code: pre.detalle ?? pre.gate,
+        error: pre.error,
+        correlation_id: correlationId,
+      }, pre.status)
     }
 
-    // ── Identidad fiscal AUTORITATIVA: se lee del intento ya reclamado, NUNCA
-    //    del body. Un cliente no puede spoofear punto_venta/cuit/ambiente/
-    //    tipo_comprobante aunque los incluya en la request. ──────────────────
-    const attempt = await fetchAttempt(supabase, attempt_id)
-    if (!attempt || attempt.comprobante_id !== comprobante_id) {
-      return jsonResponse(req, { success: false, error: 'attempt_id inválido o no corresponde a comprobante_id' }, 400)
-    }
-    if (!['claimed', 'number_reserved', 'sent'].includes(attempt.status)) {
-      return jsonResponse(req, { success: false, error: `El intento ya no está activo (status=${attempt.status})` }, 409)
-    }
+    const attempt: AttemptRow = pre.attempt
+    const cbtesAsoc = pre.cbtesAsoc
+
+    // A partir de acá los ids se toman de la FILA, no del body: evaluarPreEnvio
+    // ya garantizó que existen (MISSING_IDS) y que el intento corresponde al
+    // comprobante (ATTEMPT_MISMATCH). Además quedan tipados como string.
+    const attemptIdOk: string     = attempt.id
+    const comprobanteIdOk: string = attempt.comprobante_id
 
     const business_id = attempt.business_id
     const cuit         = attempt.cuit_emisor
@@ -342,29 +350,6 @@ serve(async (req: Request) => {
     const logCtx = { correlationId, businessId: business_id, ambiente, comprobanteId: comprobante_id, attemptId: attempt_id }
     logStructured({ ...logCtx, stage: 'start' })
 
-    // Una NC (CbteTipo 3/8/13) no puede avanzar con CbtesAsoc parcial,
-    // inventado por el cliente o incoherente con su clase. La terna se vuelve
-    // a resolver desde la NC + comprobante original usando service_role y el
-    // helper fiscal canónico. Esto ocurre ANTES de WSAA, numeración, reserva y
-    // FECAESolicitar: un fallo no consume ni deja un intento marcado `sent`.
-    const cbtesAsoc = await resolverCbtesAsocCanonico(supabase, {
-      comprobanteId: comprobante_id,
-      businessId: business_id,
-      tipoComprobante: tipo_comprobante,
-      body: {
-        cbteAsocTipo: requested_cbte_asoc_tipo,
-        cbteAsocPtoVta: requested_cbte_asoc_pto_vta,
-        cbteAsocNro: requested_cbte_asoc_nro,
-      },
-    })
-    if (!cbtesAsoc.ok) {
-      logStructured({ ...logCtx, stage: 'validacion_cbtes_asoc', classification: 'fatal', error: cbtesAsoc.error })
-      return jsonResponse(req, {
-        success: false,
-        error: cbtesAsoc.error || 'CbtesAsoc inválido',
-        correlation_id: correlationId,
-      }, 400)
-    }
     const cbte_asoc_tipo = cbtesAsoc.identidad?.cbteTipo
     const cbte_asoc_pto_vta = cbtesAsoc.identidad?.puntoVenta
     const cbte_asoc_nro = cbtesAsoc.identidad?.numero
@@ -372,20 +357,14 @@ serve(async (req: Request) => {
     // La evidencia se persiste inmediatamente despues de resolver la fuente
     // canonica y antes de WSAA, numeracion o FECAESolicitar. Sin snapshot la NC
     // falla cerrada: una fila con CAE aislado nunca habilita efectos economicos.
-    if (esNotaCreditoFiscal(tipo_comprobante)) {
-      if (!cbtesAsoc.identidad || !cbtesAsoc.originalId) {
-        return jsonResponse(req, {
-          success: false,
-          error: 'No se pudo demostrar la identidad completa de CbtesAsoc',
-          correlation_id: correlationId,
-        }, 400)
-      }
-
+    // `requiereSnapshotNc` ya viene resuelto por los gates pre-envío.
+    if (pre.requiereSnapshotNc) {
       const snapshot = await persistirCbtesAsocSnapshot(supabase, {
-        attemptId: attempt_id,
-        comprobanteId: comprobante_id,
-        originalId: cbtesAsoc.originalId,
-        identidad: cbtesAsoc.identidad,
+        attemptId: attemptIdOk,
+        comprobanteId: comprobanteIdOk,
+        // Garantizados por el gate NC_IDENTITY_UNPROVEN de evaluarPreEnvio.
+        originalId: cbtesAsoc.originalId!,
+        identidad: cbtesAsoc.identidad!,
       }, logCtx)
       if (!snapshot.ok) {
         return jsonResponse(req, {
@@ -428,8 +407,8 @@ serve(async (req: Request) => {
           numero_cbte: consulta.numero_cbte ?? attempt.numero_intentado,
           resultado: consulta.resultado || '', observaciones: consulta.observaciones,
         }
-        await completeAttempt(supabase, attempt_id, 'authorized_reconciled', outcome, logCtx)
-        const finalizacionNc = await finalizarNotaCreditoAutorizada(supabase, comprobante_id, tipo_comprobante, logCtx)
+        await completeAttempt(supabase, attemptIdOk, 'authorized_reconciled', outcome, logCtx)
+        const finalizacionNc = await finalizarNotaCreditoAutorizada(supabase, comprobanteIdOk, tipo_comprobante, logCtx)
         const nroCbteFormateado = `${String(punto_venta).padStart(4, '0')}-${String(outcome.numero_cbte).padStart(8, '0')}`
         return jsonResponse(req, {
           success: true, cae: outcome.cae, cae_vencimiento: outcome.cae_vencimiento,
@@ -445,7 +424,7 @@ serve(async (req: Request) => {
         // Ya había una ambigüedad previa Y esta reconciliación tampoco pudo
         // confirmar nada: no avanzamos, no pedimos número nuevo, no inventamos CAE.
         const message = consulta.motivo || 'No se pudo confirmar el estado del comprobante en ARCA'
-        await completeAttempt(supabase, attempt_id, 'pending_reconciliation', { error_mensaje: message }, logCtx)
+        await completeAttempt(supabase, attemptIdOk, 'pending_reconciliation', { error_mensaje: message }, logCtx)
         return jsonResponse(req, {
           success: false, error: message, outcome: 'pending_reconciliation',
           pending_reconciliation: true, correlation_id: correlationId,
@@ -463,12 +442,12 @@ serve(async (req: Request) => {
     // 4. Reservar el número (claimed → number_reserved) ANTES de considerar
     //    enviar nada — trazado incluso si el proceso cae antes de llegar a
     //    marcar 'sent'. No se infiere que fue ENVIADO solo porque se reservó.
-    await reserveNumber(supabase, attempt_id, proximoNro, logCtx)
+    await reserveNumber(supabase, attemptIdOk, proximoNro, logCtx)
 
     // 5. Recién ahora, confirmar que se va a invocar FECAESolicitar
     //    (number_reserved → sent) — si la respuesta a ESTE cliente se pierde
     //    después de este punto, una invocación futura reconcilia este número.
-    await markAttemptSent(supabase, attempt_id, logCtx)
+    await markAttemptSent(supabase, attemptIdOk, logCtx)
 
     // 6. Armar y enviar SOAP FECAESolicitar, con reconciliación idempotente
     //    (matriz de 5 casos: ver logic.ts::decidirTrasAmbiguo) si el resultado
@@ -509,8 +488,8 @@ serve(async (req: Request) => {
     switch (outcome.kind) {
       case 'authorized':
       case 'authorized_reconciled': {
-        await completeAttempt(supabase, attempt_id, outcome.kind, outcome, logCtx)
-        const finalizacionNc = await finalizarNotaCreditoAutorizada(supabase, comprobante_id, tipo_comprobante, logCtx)
+        await completeAttempt(supabase, attemptIdOk, outcome.kind, outcome, logCtx)
+        const finalizacionNc = await finalizarNotaCreditoAutorizada(supabase, comprobanteIdOk, tipo_comprobante, logCtx)
         const nroCbteFormateado = `${String(punto_venta).padStart(4, '0')}-${String(outcome.numero_cbte).padStart(8, '0')}`
         return jsonResponse(req, {
           success: true,
@@ -527,7 +506,7 @@ serve(async (req: Request) => {
         })
       }
       case 'pending_reconciliation':
-        await completeAttempt(supabase, attempt_id, 'pending_reconciliation', { error_mensaje: outcome.message }, logCtx)
+        await completeAttempt(supabase, attemptIdOk, 'pending_reconciliation', { error_mensaje: outcome.message }, logCtx)
         // success:false a propósito — mantiene el contrato "no marcar como
         // emitido" para clientes viejos, mientras que clientes nuevos pueden
         // leer `pending_reconciliation`/`outcome` para mostrar el mensaje
@@ -546,7 +525,7 @@ serve(async (req: Request) => {
         // bloqueados hasta una reconciliación explícita, en vez de cerrar la
         // puerta con un 'rejected' definitivo (podría haber llegado por otra
         // vía de red que sí alcanzó a AFIP).
-        await completeAttempt(supabase, attempt_id, 'pending_reconciliation', { error_mensaje: outcome.message }, logCtx)
+        await completeAttempt(supabase, attemptIdOk, 'pending_reconciliation', { error_mensaje: outcome.message }, logCtx)
         return jsonResponse(req, {
           success: false,
           error: outcome.message,
@@ -555,7 +534,7 @@ serve(async (req: Request) => {
         }, 502)
       case 'rejected':
       default:
-        await completeAttempt(supabase, attempt_id, 'rejected', { error_mensaje: outcome.message }, logCtx)
+        await completeAttempt(supabase, attemptIdOk, 'rejected', { error_mensaje: outcome.message }, logCtx)
         return jsonResponse(req, {
           success: false,
           error: outcome.message,
