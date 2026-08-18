@@ -23,6 +23,7 @@ export interface CbtesAsocBody {
  * por eliminación (incidente 2026-08-18).
  */
 export type CbtesAsocGate =
+  | 'COMPROBANTE_READ_FAILED'
   | 'ROW_NOT_FOUND'
   | 'ROW_TYPE_MISMATCH'
   | 'ASOC_NOT_ALLOWED_ON_INVOICE'
@@ -32,6 +33,7 @@ export type CbtesAsocGate =
   | 'INVOICE_CBTE_TIPO_MISMATCH'
   | 'NC_CBTE_TIPO_MISMATCH'
   | 'NC_WITHOUT_ORIGINAL'
+  | 'ORIGINAL_READ_FAILED'
   | 'ORIGINAL_NOT_FOUND'
   | 'ORIGINAL_WITHOUT_IDENTITY'
   | 'ORIGINAL_CLASS_MISMATCH'
@@ -43,6 +45,8 @@ export interface CbtesAsocResult {
   originalId?: string
   error?: string
   gate?: CbtesAsocGate
+  /** Código sanitizado del motor (p. ej. '42501'); nunca material sensible. */
+  detalle?: string
 }
 
 export function esNotaCreditoFiscal(tipoComprobante: number): boolean {
@@ -117,22 +121,32 @@ export async function resolverCbtesAsocCanonico(
 ): Promise<CbtesAsocResult> {
   // La fila se lee SIEMPRE, aun para un CbteTipo que no parece NC. Así una
   // fila nota_credito corrupta no puede eludir el gate con attempt tipo 11/99.
-  const { data: notaCredito, error: errorNc } = await supabase
-    .from('comprobantes')
-    .select('tipo, tipo_comprobante_fiscal, comprobante_original_id')
-    .eq('id', params.comprobanteId)
-    .eq('business_id', params.businessId)
-    .maybeSingle()
+  //
+  // Va por RPC y no por `.from('comprobantes')`: service_role NO tiene grants
+  // sobre esa tabla (lockdown deliberado de las tablas de negocio), así que la
+  // lectura directa devolvía 42501 y abortaba la emisión antes de WSAA —
+  // el incidente del 2026-08-18. La RPC expone sólo estas tres columnas,
+  // acotadas por negocio. Ver 20260818210000_arca_comprobante_identity_snapshot.
+  const { data: notaCredito, error: errorNc } = await supabase.rpc(
+    'snapshot_arca_comprobante_identity',
+    { p_comprobante_id: params.comprobanteId, p_business_id: params.businessId },
+  )
 
-  if (errorNc || !notaCredito) {
-    // Se distingue "la lectura falló" de "la fila no existe": antes ambos
-    // devolvían el mismo texto y no había forma de saber cuál fue.
+  // Un fallo de LECTURA no es lo mismo que una fila ausente. Colapsarlos fue lo
+  // que dejó este incidente sin diagnóstico: 42501 se leía como "no existe".
+  if (errorNc) {
+    return {
+      ok: false,
+      gate: 'COMPROBANTE_READ_FAILED',
+      error: 'No se pudo leer el comprobante local del intento fiscal',
+      detalle: String((errorNc as any)?.code ?? (errorNc as any)?.message ?? errorNc),
+    }
+  }
+  if (!notaCredito) {
     return {
       ok: false,
       gate: 'ROW_NOT_FOUND',
-      error: errorNc
-        ? 'No se pudo leer el comprobante local del intento fiscal'
-        : 'No se encontró el comprobante local del intento fiscal',
+      error: 'No se encontró el comprobante local del intento fiscal',
     }
   }
 
@@ -165,20 +179,29 @@ export async function resolverCbtesAsocCanonico(
     return { ok: false, gate: 'NC_WITHOUT_ORIGINAL', error: 'La Nota de Crédito no tiene un comprobante original válido' }
   }
 
-  const { data: original, error: errorOriginal } = await supabase
-    .from('comprobantes')
-    .select('tipo, numero_fiscal, tipo_comprobante_fiscal')
-    .eq('id', notaCredito.comprobante_original_id)
-    .eq('business_id', params.businessId)
-    .maybeSingle()
+  // Misma pared de permisos que arriba: también va por RPC acotada. Ésta sí
+  // devuelve numero_fiscal, porque probar la terna del original lo exige.
+  const { data: original, error: errorOriginal } = await supabase.rpc(
+    'snapshot_arca_original_identity',
+    {
+      p_original_id: notaCredito.comprobante_original_id,
+      p_business_id: params.businessId,
+    },
+  )
 
-  if (errorOriginal || !original) {
+  if (errorOriginal) {
+    return {
+      ok: false,
+      gate: 'ORIGINAL_READ_FAILED',
+      error: 'No se pudo leer el comprobante fiscal original de la Nota de Crédito',
+      detalle: String((errorOriginal as any)?.code ?? (errorOriginal as any)?.message ?? errorOriginal),
+    }
+  }
+  if (!original) {
     return {
       ok: false,
       gate: 'ORIGINAL_NOT_FOUND',
-      error: errorOriginal
-        ? 'No se pudo leer el comprobante fiscal original de la Nota de Crédito'
-        : 'No se encontró el comprobante fiscal original de la Nota de Crédito',
+      error: 'No se encontró el comprobante fiscal original de la Nota de Crédito',
     }
   }
 

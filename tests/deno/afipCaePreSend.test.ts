@@ -42,10 +42,19 @@ const FILA_ATTEMPT = {
   status: 'claimed',
 }
 
-/** Doble del cliente PostgREST. `fallaLectura` simula un error de la base. */
+/**
+ * Doble del cliente Supabase.
+ *
+ * `from()` sólo se usa para `arca_emission_attempts` — la única tabla que
+ * service_role puede leer. El comprobante va por RPC, igual que en producción.
+ *
+ * `rpcError` inyecta el error real del incidente (42501 permission denied) para
+ * el control negativo: con la lectura directa de `comprobantes` eso era
+ * exactamente lo que devolvía PostgREST.
+ */
 function supabaseDoble(
   filas: Record<string, any[]>,
-  opts: { fallaLectura?: string } = {},
+  opts: { fallaLectura?: string; rpcError?: { code: string; message: string } } = {},
 ) {
   return {
     from(tabla: string) {
@@ -63,6 +72,35 @@ function supabaseDoble(
         },
       }
       return api
+    },
+    rpc(nombre: string, args: Record<string, any>) {
+      if (opts.rpcError) return Promise.resolve({ data: null, error: opts.rpcError })
+
+      if (nombre === 'snapshot_arca_comprobante_identity') {
+        const f = (filas.comprobantes ?? []).find(x =>
+          x.id === args.p_comprobante_id && x.business_id === args.p_business_id)
+        return Promise.resolve({
+          data: f ? {
+            tipo: f.tipo,
+            tipo_comprobante_fiscal: f.tipo_comprobante_fiscal,
+            comprobante_original_id: f.comprobante_original_id,
+          } : null,
+          error: null,
+        })
+      }
+      if (nombre === 'snapshot_arca_original_identity') {
+        const f = (filas.comprobantes ?? []).find(x =>
+          x.id === args.p_original_id && x.business_id === args.p_business_id)
+        return Promise.resolve({
+          data: f ? {
+            tipo: f.tipo,
+            numero_fiscal: f.numero_fiscal,
+            tipo_comprobante_fiscal: f.tipo_comprobante_fiscal,
+          } : null,
+          error: null,
+        })
+      }
+      throw new Error(`RPC inesperada en los gates pre-envío: ${nombre}`)
     },
     // Si algún gate llamara al boundary externo, el test falla ruidosamente.
     functions: {
@@ -184,6 +222,46 @@ Deno.test('ATTEMPT_NOT_ACTIVE no puede reabrir un intento terminal', async () =>
 })
 
 // ── El defecto de diagnóstico que dejó el incidente sin explicación ─────────
+
+// ── CONTROL NEGATIVO del incidente: el 42501 real ───────────────────────────
+
+Deno.test('42501 al leer el comprobante NO llega a WSAA y se reporta como fallo de lectura', async () => {
+  // Exactamente lo que devolvía PostgREST con la lectura directa de
+  // public.comprobantes: service_role no tiene grants sobre esa tabla.
+  const db = supabaseDoble(BASE, {
+    rpcError: { code: '42501', message: 'permission denied for table comprobantes' },
+  })
+
+  const r = await evaluarPreEnvio(db, {
+    comprobanteId: COMPROBANTE_ID, attemptId: ATTEMPT_ID, body: {},
+  })
+
+  assert(!r.ok, 'un fallo de permisos no puede dejar pasar la emisión')
+  assertEquals(r.gate, 'COMPROBANTE_READ_FAILED')
+  assertEquals(r.status, 503, 'un 42501 es del servidor: nunca 400')
+  assert(String(r.detalle).includes('42501'), 'el código del motor debe llegar al log')
+})
+
+Deno.test('con la RPC acotada respondiendo, el mismo caso SÍ alcanza el boundary', async () => {
+  // Mismo fixture, sin el error: es el after del control negativo.
+  const r = await evaluarPreEnvio(supabaseDoble(BASE), {
+    comprobanteId: COMPROBANTE_ID, attemptId: ATTEMPT_ID, body: {},
+  })
+  assert(r.ok, 'REACHED_WSAA_BOUNDARY')
+})
+
+Deno.test('multitenant · el comprobante de otro negocio no se resuelve', async () => {
+  const db = supabaseDoble({
+    comprobantes: [FILA_COMPROBANTE],                                   // negocio A
+    arca_emission_attempts: [{ ...FILA_ATTEMPT, business_id: 'bbbbbbbb-0000-0000-0000-00000000000b' }],
+  })
+  const r = await evaluarPreEnvio(db, {
+    comprobanteId: COMPROBANTE_ID, attemptId: ATTEMPT_ID, body: {},
+  })
+  assert(!r.ok, 'un negocio no puede resolver el comprobante de otro')
+  assertEquals(r.detalle, 'ROW_NOT_FOUND')
+  assertEquals(r.status, 400)
+})
 
 Deno.test('un fallo de LECTURA es 503 ATTEMPT_READ_FAILED, no un 400 que culpa al cliente', async () => {
   const db = supabaseDoble(BASE, { fallaLectura: 'canceling statement due to statement timeout' })
