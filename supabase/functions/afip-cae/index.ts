@@ -150,13 +150,29 @@ interface AttemptRow {
   status: string
 }
 
-async function fetchAttempt(supabase: any, attemptId: string): Promise<AttemptRow | null> {
-  const { data } = await supabase
+/**
+ * Lee el intento reclamado.
+ *
+ * Devuelve el error de PostgREST en vez de tragarlo. Antes esta función hacía
+ * `const { data } = await ...` y descartaba `error`: CUALQUIER fallo de lectura
+ * (permisos, timeout, PGRST*) se volvía `null` y el caller respondía
+ * "attempt_id inválido o no corresponde a comprobante_id". Ese mensaje describe
+ * un problema del cliente cuando en realidad el servidor no pudo leer, y fue lo
+ * que dejó el 400 del 2026-08-18 sin diagnóstico posible desde los logs.
+ */
+async function fetchAttempt(
+  supabase: any,
+  attemptId: string,
+): Promise<{ row: AttemptRow | null; error: string | null }> {
+  const { data, error } = await supabase
     .from('arca_emission_attempts')
     .select('id, comprobante_id, business_id, ambiente, cuit_emisor, punto_venta, tipo_comprobante, numero_intentado, status')
     .eq('id', attemptId)
     .maybeSingle()
-  return data ?? null
+  return {
+    row: (data as AttemptRow) ?? null,
+    error: error ? String((error as any)?.message ?? error) : null,
+  }
 }
 
 // ──────────────────────────────────────────────
@@ -318,18 +334,33 @@ serve(async (req: Request) => {
     if (!comprobante_id || !attempt_id) {
       // No se emite fiscalmente sin una identidad local persistente y un claim
       // atómico ya reclamado — ver claim_comprobante_arca_emission.
-      return jsonResponse(req, { success: false, error: 'Faltan comprobante_id / attempt_id: debe reclamarse el intento antes de invocar afip-cae' }, 400)
+      logStructured({ correlationId, stage: 'gate', gate_code: 'MISSING_IDS', classification: 'fatal' })
+      return jsonResponse(req, { success: false, error_code: 'MISSING_IDS', error: 'Faltan comprobante_id / attempt_id: debe reclamarse el intento antes de invocar afip-cae', correlation_id: correlationId }, 400)
     }
 
     // ── Identidad fiscal AUTORITATIVA: se lee del intento ya reclamado, NUNCA
     //    del body. Un cliente no puede spoofear punto_venta/cuit/ambiente/
     //    tipo_comprobante aunque los incluya en la request. ──────────────────
-    const attempt = await fetchAttempt(supabase, attempt_id)
+    const { row: attempt, error: attemptError } = await fetchAttempt(supabase, attempt_id)
+
+    // Un fallo de LECTURA no es un error del cliente: se distingue del mismatch
+    // para no volver a confundir "no pude leer" con "me mandaste mal los ids".
+    if (attemptError) {
+      logStructured({ correlationId, comprobanteId: comprobante_id, attemptId: attempt_id, stage: 'gate', gate_code: 'ATTEMPT_READ_FAILED', classification: 'fatal', error: attemptError })
+      return jsonResponse(req, { success: false, error_code: 'ATTEMPT_READ_FAILED', error: 'No se pudo leer el intento fiscal en la base', correlation_id: correlationId }, 503)
+    }
     if (!attempt || attempt.comprobante_id !== comprobante_id) {
-      return jsonResponse(req, { success: false, error: 'attempt_id inválido o no corresponde a comprobante_id' }, 400)
+      logStructured({
+        correlationId, comprobanteId: comprobante_id, attemptId: attempt_id,
+        stage: 'gate', gate_code: 'ATTEMPT_MISMATCH', classification: 'fatal',
+        attemptFound: !!attempt,
+        attemptComprobanteId: attempt?.comprobante_id ?? null,
+      })
+      return jsonResponse(req, { success: false, error_code: 'ATTEMPT_MISMATCH', error: 'attempt_id inválido o no corresponde a comprobante_id', correlation_id: correlationId }, 400)
     }
     if (!['claimed', 'number_reserved', 'sent'].includes(attempt.status)) {
-      return jsonResponse(req, { success: false, error: `El intento ya no está activo (status=${attempt.status})` }, 409)
+      logStructured({ correlationId, comprobanteId: comprobante_id, attemptId: attempt_id, stage: 'gate', gate_code: 'ATTEMPT_NOT_ACTIVE', classification: 'fatal', attemptStatus: attempt.status })
+      return jsonResponse(req, { success: false, error_code: 'ATTEMPT_NOT_ACTIVE', error: `El intento ya no está activo (status=${attempt.status})`, correlation_id: correlationId }, 409)
     }
 
     const business_id = attempt.business_id
@@ -358,9 +389,20 @@ serve(async (req: Request) => {
       },
     })
     if (!cbtesAsoc.ok) {
-      logStructured({ ...logCtx, stage: 'validacion_cbtes_asoc', classification: 'fatal', error: cbtesAsoc.error })
+      logStructured({
+        ...logCtx,
+        stage: 'validacion_cbtes_asoc',
+        gate_code: cbtesAsoc.gate ?? 'UNKNOWN',
+        classification: 'fatal',
+        error: cbtesAsoc.error,
+        // Los dos valores que hicieron falta reconstruir a mano en el incidente
+        // del 2026-08-18. Son códigos fiscales, no datos personales.
+        cbteTipoIntento: tipo_comprobante,
+        puntoVentaIntento: punto_venta,
+      })
       return jsonResponse(req, {
         success: false,
+        error_code: cbtesAsoc.gate ?? 'CBTES_ASOC_INVALID',
         error: cbtesAsoc.error || 'CbtesAsoc inválido',
         correlation_id: correlationId,
       }, 400)

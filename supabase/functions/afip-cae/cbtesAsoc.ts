@@ -17,11 +17,32 @@ export interface CbtesAsocBody {
   cbteAsocNro?: unknown
 }
 
+/**
+ * Código estable del gate que cortó. Va en el log y en la respuesta: sin esto,
+ * un 400 de este módulo era indistinguible del resto y hubo que reconstruirlo
+ * por eliminación (incidente 2026-08-18).
+ */
+export type CbtesAsocGate =
+  | 'ROW_NOT_FOUND'
+  | 'ROW_TYPE_MISMATCH'
+  | 'ASOC_NOT_ALLOWED_ON_INVOICE'
+  | 'ASOC_REQUIRED_FOR_NC'
+  | 'ASOC_INCOMPLETE'
+  | 'ASOC_CLASS_MISMATCH'
+  | 'INVOICE_CBTE_TIPO_MISMATCH'
+  | 'NC_CBTE_TIPO_MISMATCH'
+  | 'NC_WITHOUT_ORIGINAL'
+  | 'ORIGINAL_NOT_FOUND'
+  | 'ORIGINAL_WITHOUT_IDENTITY'
+  | 'ORIGINAL_CLASS_MISMATCH'
+  | 'ASOC_DOES_NOT_MATCH_ORIGINAL'
+
 export interface CbtesAsocResult {
   ok: boolean
   identidad?: FiscalIdentity
   originalId?: string
   error?: string
+  gate?: CbtesAsocGate
 }
 
 export function esNotaCreditoFiscal(tipoComprobante: number): boolean {
@@ -52,15 +73,15 @@ export function validarCbtesAsocBody(
   if (!esNotaCredito) {
     return presentes === 0
       ? { ok: true }
-      : { ok: false, error: 'CbtesAsoc sólo está permitido para una Nota de Crédito' }
+      : { ok: false, gate: 'ASOC_NOT_ALLOWED_ON_INVOICE', error: 'CbtesAsoc sólo está permitido para una Nota de Crédito' }
   }
 
   if (presentes === 0) {
-    return { ok: false, error: 'La Nota de Crédito requiere CbtesAsoc completo (Tipo, PtoVta, Nro)' }
+    return { ok: false, gate: 'ASOC_REQUIRED_FOR_NC', error: 'La Nota de Crédito requiere CbtesAsoc completo (Tipo, PtoVta, Nro)' }
   }
 
   if (presentes !== 3 || !values.every(enteroPositivo)) {
-    return { ok: false, error: 'CbtesAsoc debe contener Tipo, PtoVta y Nro enteros positivos' }
+    return { ok: false, gate: 'ASOC_INCOMPLETE', error: 'CbtesAsoc debe contener Tipo, PtoVta y Nro enteros positivos' }
   }
 
   const identidad = {
@@ -72,6 +93,7 @@ export function validarCbtesAsocBody(
   if (identidad.cbteTipo !== cbteTipoFacturaParaNotaCredito(tipoComprobante)) {
     return {
       ok: false,
+      gate: 'ASOC_CLASS_MISMATCH',
       error: `CbtesAsoc.Tipo=${identidad.cbteTipo} no corresponde a Nota de Crédito CbteTipo=${tipoComprobante}`,
     }
   }
@@ -103,13 +125,21 @@ export async function resolverCbtesAsocCanonico(
     .maybeSingle()
 
   if (errorNc || !notaCredito) {
-    return { ok: false, error: 'No se encontró el comprobante local del intento fiscal' }
+    // Se distingue "la lectura falló" de "la fila no existe": antes ambos
+    // devolvían el mismo texto y no había forma de saber cuál fue.
+    return {
+      ok: false,
+      gate: 'ROW_NOT_FOUND',
+      error: errorNc
+        ? 'No se pudo leer el comprobante local del intento fiscal'
+        : 'No se encontró el comprobante local del intento fiscal',
+    }
   }
 
   const filaEsNotaCredito = notaCredito.tipo === 'nota_credito'
   const intentoEsNotaCredito = esNotaCreditoFiscal(params.tipoComprobante)
   if (filaEsNotaCredito !== intentoEsNotaCredito) {
-    return { ok: false, error: 'El tipo de la fila y el CbteTipo del intento no son fiscalmente equivalentes' }
+    return { ok: false, gate: 'ROW_TYPE_MISMATCH', error: 'El tipo de la fila y el CbteTipo del intento no son fiscalmente equivalentes' }
   }
 
   const validacionBody = validarCbtesAsocBody(params.tipoComprobante, params.body)
@@ -121,18 +151,18 @@ export async function resolverCbtesAsocCanonico(
   if (!filaEsNotaCredito) {
     const tipoFila = resolverCbteTipo(notaCredito)
     if (tipoFila === null || tipoFila !== params.tipoComprobante) {
-      return { ok: false, error: 'El CbteTipo del intento no coincide con el tipo fiscal canónico del comprobante' }
+      return { ok: false, gate: 'INVOICE_CBTE_TIPO_MISMATCH', error: `El CbteTipo del intento (${params.tipoComprobante}) no coincide con el tipo fiscal canónico del comprobante (${tipoFila ?? 'indeterminado'})` }
     }
     return validacionBody
   }
 
   const tipoNotaCreditoPersistido = resolverCbteTipo(notaCredito)
   if (tipoNotaCreditoPersistido !== params.tipoComprobante) {
-    return { ok: false, error: 'El CbteTipo del intento no coincide con el tipo fiscal persistido de la Nota de Crédito' }
+    return { ok: false, gate: 'NC_CBTE_TIPO_MISMATCH', error: 'El CbteTipo del intento no coincide con el tipo fiscal persistido de la Nota de Crédito' }
   }
 
   if (!notaCredito.comprobante_original_id) {
-    return { ok: false, error: 'La Nota de Crédito no tiene un comprobante original válido' }
+    return { ok: false, gate: 'NC_WITHOUT_ORIGINAL', error: 'La Nota de Crédito no tiene un comprobante original válido' }
   }
 
   const { data: original, error: errorOriginal } = await supabase
@@ -143,20 +173,27 @@ export async function resolverCbtesAsocCanonico(
     .maybeSingle()
 
   if (errorOriginal || !original) {
-    return { ok: false, error: 'No se encontró el comprobante fiscal original de la Nota de Crédito' }
+    return {
+      ok: false,
+      gate: 'ORIGINAL_NOT_FOUND',
+      error: errorOriginal
+        ? 'No se pudo leer el comprobante fiscal original de la Nota de Crédito'
+        : 'No se encontró el comprobante fiscal original de la Nota de Crédito',
+    }
   }
 
   // Fuente única: el mismo helper canónico que usa comprobanteService. No se
   // reimplementa parseo ni resolución de CbteTipo en la Edge Function.
   const identidadOriginal = fiscalIdentity(original)
   if (!identidadOriginal) {
-    return { ok: false, error: 'El comprobante original no tiene identidad fiscal completa' }
+    return { ok: false, gate: 'ORIGINAL_WITHOUT_IDENTITY', error: 'El comprobante original no tiene identidad fiscal completa' }
   }
 
   const tipoOriginalEsperado = cbteTipoFacturaParaNotaCredito(params.tipoComprobante)
   if (identidadOriginal.cbteTipo !== tipoOriginalEsperado) {
     return {
       ok: false,
+      gate: 'ORIGINAL_CLASS_MISMATCH',
       error: `La identidad del original no corresponde a Nota de Crédito CbteTipo=${params.tipoComprobante}`,
     }
   }
@@ -167,7 +204,7 @@ export async function resolverCbtesAsocCanonico(
     || bodyIdentity.cbteTipo !== identidadOriginal.cbteTipo
     || bodyIdentity.numero !== identidadOriginal.numero
   ) {
-    return { ok: false, error: 'CbtesAsoc no coincide con la identidad fiscal canónica del original' }
+    return { ok: false, gate: 'ASOC_DOES_NOT_MATCH_ORIGINAL', error: 'CbtesAsoc no coincide con la identidad fiscal canónica del original' }
   }
 
   return {
