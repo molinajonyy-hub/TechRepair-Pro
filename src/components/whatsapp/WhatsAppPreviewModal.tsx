@@ -104,6 +104,8 @@ export function WhatsAppPreviewModal({
   const [editingPhone, setEditingPhone] = useState(false)
   /** Claves de la allowlist que la plantilla activa resolvió con datos reales. */
   const [varsUsadas, setVarsUsadas] = useState<{ key: string; valor: string }[]>([])
+  /** Variables de PERFIL del negocio sin cargar: degradan el mensaje, no lo bloquean. */
+  const [perfilIncompleto, setPerfilIncompleto] = useState<string[]>([])
 
   const dialogRef       = useRef<HTMLDivElement>(null)
   const textareaRef     = useRef<HTMLTextAreaElement>(null)
@@ -178,14 +180,17 @@ export function WhatsAppPreviewModal({
     const cuerpo = renderTemplate(tpl.message_template, valores)
     let msg = cuerpo.text
     let usadas = cuerpo.resueltas
+    let incompletas = cuerpo.incompletas
     if (settings.closing_message?.trim()) {
       const cierre = renderTemplate(settings.closing_message, valores)
       msg = `${msg}\n\n${cierre.text}`
       usadas = [...new Set([...usadas, ...cierre.resueltas])]
+      incompletas = [...new Set([...incompletas, ...cierre.incompletas])]
     }
 
     setMessage(msg)
     setVarsUsadas(usadas.map(key => ({ key, valor: valores[key] ?? '' })))
+    setPerfilIncompleto(incompletas)
     setStatus('idle')
     setErrorMsg('')
   }, [selectedKey, templates, settings, vars, recipientName])
@@ -451,6 +456,18 @@ export function WhatsAppPreviewModal({
                     ))}
                   </div>
                 </div>
+              )}
+
+              {/* Perfil del negocio incompleto — degrada el mensaje, NO lo bloquea */}
+              {!bloqueo && perfilIncompleto.length > 0 && (
+                <p
+                  data-testid="whatsapp-perfil-incompleto"
+                  style={{ margin: 0, fontSize: '0.7rem', color: 'var(--text-subtle)', lineHeight: 1.5 }}
+                >
+                  El mensaje queda con huecos porque falta{' '}
+                  {perfilIncompleto.map(k => getWhatsAppVariableSpec(k)?.label ?? k).join(', ').toLowerCase()}.
+                  Podés completarlo en Configuración → WhatsApp, o editar el texto acá.
+                </p>
               )}
 
               {/* Variable sin resolver — se nombra y se bloquea la apertura */}
