@@ -124,6 +124,19 @@ export function WhatsAppPreviewModal({
   /** Variables sin resolver en el mensaje final (incluye lo tipeado a mano). */
   const bloqueo = useMemo(() => motivoDeBloqueo(message), [message])
 
+  /**
+   * Huella por CONTENIDO de `vars`.
+   *
+   * Los llamadores pasan un objeto literal inline, así que su identidad cambia
+   * en cada render del padre. Con `vars` en las dependencias, el efecto que
+   * arma el mensaje se volvía a disparar por cualquier re-render y pisaba el
+   * textarea. Eso importa más ahora: cuando falta una variable, editar el
+   * mensaje a mano es justamente la vía para desbloquear la apertura, y esa
+   * edición se perdía. Con la huella el efecto corre sólo si los datos
+   * cambiaron de verdad.
+   */
+  const varsKey = JSON.stringify(vars)
+
   // ── Load settings + templates + cloud connection ───────────────────────────
   const loadData = useCallback(async () => {
     if (!businessId || !isOpen) return
@@ -193,7 +206,9 @@ export function WhatsAppPreviewModal({
     setPerfilIncompleto(incompletas)
     setStatus('idle')
     setErrorMsg('')
-  }, [selectedKey, templates, settings, vars, recipientName])
+    // `varsKey` es la huella por contenido de `vars` — ver su definición arriba.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKey, templates, settings, varsKey, recipientName])
 
   // ── Accessibility: Escape to close, focus trap-lite, focus restore ──────────
   useEffect(() => {

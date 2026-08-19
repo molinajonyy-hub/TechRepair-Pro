@@ -308,6 +308,33 @@ describe('W1 · modal de preview', () => {
     expect(usadas.textContent).toContain('Ana')
   })
 
+  it('un re-render del padre NO pisa el mensaje editado a mano', async () => {
+    // Los llamadores pasan `vars` como objeto literal inline: su identidad
+    // cambia en cada render. Si eso rearmara el mensaje, la edición manual
+    // -que es la vía para desbloquear una variable faltante- se perdería.
+    const user = userEvent.setup()
+    const props = {
+      isOpen: true as const,
+      onClose: () => {},
+      recipientName: 'Ana Gómez',
+      phone: '351 1234567',
+      defaultTemplateKey: 'ready_pickup',
+      context: { orderId: 'ord-1' },
+    }
+    const { rerender } = render(<WhatsAppPreviewModal {...props} vars={{ equipo: 'Galaxy A54' }} />)
+
+    const textarea = await screen.findByTestId('whatsapp-preview-textarea') as HTMLTextAreaElement
+    await waitFor(() => expect(textarea.value.length).toBeGreaterThan(0))
+
+    await user.clear(textarea)
+    await user.type(textarea, 'Texto escrito a mano')
+
+    // Mismo CONTENIDO, objeto nuevo: exactamente lo que produce un re-render.
+    rerender(<WhatsAppPreviewModal {...props} vars={{ equipo: 'Galaxy A54' }} />)
+
+    await waitFor(() => expect(textarea.value).toBe('Texto escrito a mano'))
+  })
+
   it('abrir WhatsApp usa wa.me, la pestaña estable, y registra "opened" (no "sent")', async () => {
     const aperturas: Array<[string, string]> = []
     const openSpy = vi.fn((url: string, target: string) => { aperturas.push([url, target]); return {} as Window })
