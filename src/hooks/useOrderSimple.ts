@@ -17,18 +17,10 @@ export interface OrderDetailSimple {
   customer_id: string
   device_id: string
   technician_id?: string | null
-  checklist_id?: string | null
-  // Datos adicionales para validaciones
-  checklist?: {
-    id: string
-    diagnosis_done: boolean
-    repair_done: boolean
-    final_test_passed: boolean
-    cleaning_done: boolean
-    quality_control: boolean
-    retirement_signature?: string
-    retirement_signature_date?: string
-  } | null
+  // `checklist` se retiró: era una lectura de `order_checklists` sin ningún
+  // consumidor. La única UI que escribe esa tabla (ChecklistCard) no está
+  // montada en ninguna pantalla, así que el hook leía algo que nadie mostraba.
+  // Ver tests/components/orderChecklistAusente.test.tsx.
   // Historial de estados
   history?: StatusHistoryEntry[]
   // Pagos (con nuevos campos)
@@ -192,29 +184,6 @@ export function useOrderSimple(orderId: string | undefined) {
           }
         }
 
-        // Cargar checklist.
-        //
-        // `maybeSingle()`, NO `single()`: una orden sin checklist es el estado
-        // normal — el checklist se crea recién cuando alguien lo completa desde
-        // ChecklistCard, no hay trigger ni constraint que lo exija. `single()`
-        // manda Accept: application/vnd.pgrst.object+json y con 0 filas
-        // PostgREST responde 406 PGRST116, que ensuciaba la consola en cada
-        // apertura de orden. Y el try/catch de abajo nunca lo atrapó:
-        // supabase-js no lanza ante errores de PostgREST, devuelve { error }.
-        const { data: checklistData, error: checklistError } = await supabase
-          .from('order_checklists')
-          .select('*')
-          .eq('order_id', orderId)
-          .maybeSingle()
-
-        if (checklistError) {
-          // Un fallo real (permisos, red) se sigue reportando; sólo la ausencia
-          // de fila es silenciosa.
-          if (import.meta.env.DEV) console.warn('Could not load checklist:', checklistError)
-        } else if (checklistData) {
-          result.checklist = checklistData
-        }
-
         // Cargar repuestos (order_parts — métricas de costo/margen)
         try {
           const { data: partsData } = await supabase
@@ -336,7 +305,6 @@ export function useOrderSimple(orderId: string | undefined) {
         customer: null,
         device: null,
         technician: null,
-        checklist: null,
         history: [],
         payments: [],
         parts: [],
@@ -355,20 +323,6 @@ export function useOrderSimple(orderId: string | undefined) {
       if (orderData.technician_id) {
         const { data } = await supabase.from('users').select('id, name').eq('id', orderData.technician_id).single()
         result.technician = data || null
-      }
-
-      // Recargar checklist — misma razón que en la carga inicial: sin fila es
-      // un estado válido, así que `maybeSingle()` y no `single()`.
-      const { data: checklistData, error: checklistError } = await supabase
-        .from('order_checklists')
-        .select('*')
-        .eq('order_id', orderId)
-        .maybeSingle()
-
-      if (checklistError) {
-        if (import.meta.env.DEV) console.warn('Could not load checklist:', checklistError)
-      } else if (checklistData) {
-        result.checklist = checklistData
       }
 
       // Recargar repuestos
