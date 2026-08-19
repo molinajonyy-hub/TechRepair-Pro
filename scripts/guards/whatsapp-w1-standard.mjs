@@ -24,7 +24,7 @@
 // Se mide sobre el CÓDIGO FUENTE. El comportamiento ya lo cubren
 // tests/unit/whatsappTemplate.test.ts y tests/components/whatsappW1.test.tsx;
 // acá interesa que no reaparezca la FORMA que causaba el problema.
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -41,6 +41,9 @@ const HANDOFF   = 'src/services/whatsappHandoff.ts'
 const MODAL     = 'src/components/whatsapp/WhatsAppPreviewModal.tsx'
 const HISTORIAL = 'src/components/whatsapp/WhatsAppHistorial.tsx'
 const EDITOR    = 'src/components/settings/WhatsAppTemplatesSettings.tsx'
+
+/** Migracion que limita la escritura de whatsapp_templates a owner/admin. */
+const MIGRACION_GATE = '20260819120000_whatsapp_templates_settings_sensitive_rls.sql'
 
 /** Vocabulario EXACTO que acepta el CHECK whatsapp_logs_send_result_check. */
 const SEND_RESULT_VALIDOS = ['opened', 'copied', 'failed', 'skipped', 'sent_api']
@@ -123,9 +126,19 @@ export function usaWaMe(fuente) {
   return /https:\/\/wa\.me\//.test(fuente)
 }
 
-/** La ventana de handoff tiene nombre estable (no se abre una por mensaje). */
+/**
+ * La ventana de handoff tiene nombre estable (no se abre una por mensaje).
+ *
+ * `_blank` cuenta como NO estable aunque sintacticamente sea un nombre: es
+ * justamente el valor que hace que cada mensaje abra una pestana nueva. Lo
+ * mismo con los otros targets reservados.
+ */
+const TARGETS_NO_ESTABLES = new Set(['_blank', '_self', '_parent', '_top'])
+
 export function usaVentanaConNombreEstable(fuente) {
-  return /WHATSAPP_WINDOW_NAME\s*=\s*['"][a-z_]+['"]/.test(fuente)
+  const m = fuente.match(/WHATSAPP_WINDOW_NAME\s*=\s*['"]([^'"]+)['"]/)
+  if (!m) return false
+  return !TARGETS_NO_ESTABLES.has(m[1])
 }
 
 /** El handoff falla CERRADO: un teléfono inválido no produce URL. */
@@ -142,6 +155,23 @@ export function bloqueaVariableSinResolver(fuente) {
 export function usaRendererCanonico(fuente) {
   return /from\s+['"][^'"]*whatsappTemplate['"]/.test(fuente)
       && /\brenderTemplate\s*\(/.test(fuente)
+}
+
+/**
+ * Una migracion que reabre la escritura de whatsapp_templates a is_staff().
+ *
+ * El chequeo AUTORITATIVO del gate es dinamico y vive en
+ * supabase/tests/whatsapp_templates_rls_test.sql (consulta pg_policies). Esto
+ * es solo la red estatica: caza el `CREATE POLICY ... FOR INSERT/UPDATE/DELETE
+ * ... is_staff()` sobre esa tabla en cualquier migracion nueva, que es la forma
+ * concreta en que el agujero volveria.
+ */
+export function reabreEscrituraATodoElStaff(fuente) {
+  const bloques = fuente.match(
+    /CREATE\s+POLICY[\s\S]*?ON\s+(?:public\.)?"?whatsapp_templates"?[\s\S]*?(?=CREATE\s+POLICY|DROP\s+POLICY|COMMIT|$)/gi)
+  if (!bloques) return false
+  return bloques.some(b =>
+    /FOR\s+(INSERT|UPDATE|DELETE)/i.test(b) && /is_staff\(\)/.test(b))
 }
 
 /** El editor de plantillas gatea con el helper canónico de permisos. */
@@ -256,6 +286,19 @@ function validarRepo() {
     }
   }
 
+  // 7. Ninguna migracion posterior al gate reabre la escritura a is_staff().
+  const DIR_MIGRACIONES = join(RAIZ, 'supabase', 'migrations')
+  if (!existsSync(join(DIR_MIGRACIONES, MIGRACION_GATE))) {
+    fallas.push(`Falta supabase/migrations/${MIGRACION_GATE}: es la migracion que limita la escritura de whatsapp_templates a owner/admin.`)
+  }
+  for (const nombre of readdirSync(DIR_MIGRACIONES)) {
+    if (!nombre.endsWith('.sql')) continue
+    if (nombre <= MIGRACION_GATE) continue          // el baseline SI tiene el is_staff() viejo
+    if (reabreEscrituraATodoElStaff(readFileSync(join(DIR_MIGRACIONES, nombre), 'utf-8'))) {
+      fallas.push(`supabase/migrations/${nombre}: reabre la ESCRITURA de whatsapp_templates a is_staff(), que incluye a viewer. Ese es exactamente el agujero que cerro ${MIGRACION_GATE}.`)
+    }
+  }
+
   return fallas
 }
 
@@ -331,8 +374,12 @@ function selfTest() {
 
   chequear('reconoce la ventana estable',
     usaVentanaConNombreEstable(`export const WHATSAPP_WINDOW_NAME = 'techrepair_whatsapp'`), true)
-  chequear('caza el _blank suelto',
+  chequear('caza la falta del nombre',
     usaVentanaConNombreEstable(`window.open(url, '_blank', 'noopener')`), false)
+  chequear('caza _blank disfrazado de nombre estable',
+    usaVentanaConNombreEstable(`export const WHATSAPP_WINDOW_NAME = '_blank'`), false)
+  chequear('caza _self / _top',
+    usaVentanaConNombreEstable(`export const WHATSAPP_WINDOW_NAME = '_self'`), false)
 
   chequear('reconoce el fail-closed',
     fallaCerradoSinTelefono(`if (!telefono.valid) return { ok: false, error: e }`), true)
@@ -366,6 +413,21 @@ function selfTest() {
     guardaSoloConPermiso(`if (!businessId || !puedeEditar) return`), true)
   chequear('caza el handler sin corte',
     guardaSoloConPermiso(`if (!businessId) return`), false)
+
+  // Migraciones
+  chequear('caza una migracion que reabre la ESCRITURA a is_staff()', reabreEscrituraATodoElStaff(`
+    CREATE POLICY "whatsapp_templates_update" ON public.whatsapp_templates
+      FOR UPDATE USING (business_id = public.current_business_id() AND public.is_staff())
+      WITH CHECK (business_id = public.current_business_id() AND public.is_staff());`), true)
+  chequear('no marca la policy correcta', reabreEscrituraATodoElStaff(`
+    CREATE POLICY "whatsapp_templates_update" ON public.whatsapp_templates
+      FOR UPDATE USING (business_id = public.current_business_id() AND public.is_owner_or_admin());`), false)
+  chequear('no marca el SELECT, que SI debe seguir en is_staff()', reabreEscrituraATodoElStaff(`
+    CREATE POLICY "whatsapp_templates_select" ON public.whatsapp_templates
+      FOR SELECT USING (business_id = public.current_business_id() AND public.is_staff());`), false)
+  chequear('no marca una migracion de otra tabla', reabreEscrituraATodoElStaff(`
+    CREATE POLICY "otra_cosa_update" ON public.whatsapp_logs
+      FOR UPDATE USING (public.is_staff());`), false)
 
   // Multitenant
   chequear('caza la query sin business_id',
