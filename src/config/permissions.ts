@@ -191,8 +191,11 @@ export function resolvePermissions(
 ): AppPermissions {
   const defaults = ROLE_DEFAULT_PERMISSIONS[role]
   if (!defaults) {
-    // Rol desconocido — aplicar permisos mínimos y advertir en desarrollo
-    if (import.meta.env.DEV) {
+    // Rol desconocido — aplicar permisos mínimos y advertir en desarrollo.
+    // `import.meta.env` sólo lo inyecta Vite: fuera del bundler (p. ej. los
+    // tests unitarios con `node --test`) es undefined, y este aviso de DEV no
+    // debe tumbar una resolución de permisos que por lo demás es pura.
+    if (import.meta.env?.DEV) {
       console.warn(`[permissions] Rol desconocido: "${role}". Aplicando permisos de viewer.`)
     }
     return { ...ROLE_DEFAULT_PERMISSIONS['viewer'] }

@@ -1,24 +1,29 @@
 /**
- * WhatsAppPreviewModal — modal genérico de preview y envío de WhatsApp.
+ * WhatsAppPreviewModal — modal genérico de preview y apertura de WhatsApp.
  *
  * Funciona para cualquier contexto: orden, cliente, comprobante, garantía.
  * Carga templates del negocio, permite elegir plantilla, EDITAR el teléfono y
- * el mensaje, y enviar por Cloud API (si hay conexión activa) o abrir
- * WhatsApp (Desktop / Web / wa.me) como fallback.
+ * el mensaje, y abrir WhatsApp por handoff estándar wa.me.
  *
- * Estados honestos: "abrir WhatsApp" NO confirma envío — sólo el envío por API
- * confirmado muestra "Enviado por API".
+ * W1 — lo que cambió respecto de la versión anterior:
+ *  · El mensaje lo arma `renderTemplate` (allowlist explícita) en vez de
+ *    `interpolateTemplate`, que dejaba pasar `{placeholders}` arbitrarios
+ *    hasta el chat del cliente y expandía valores inyectados.
+ *  · La apertura es `wa.me` sobre una pestaña con nombre estable
+ *    (`whatsappHandoff`), no una pestaña nueva por mensaje.
+ *  · Si queda una variable sin resolver, se dice CUÁL y no se abre WhatsApp.
+ *
+ * Estados honestos: "abrir WhatsApp" NO confirma envío. Sólo el envío por
+ * Cloud API confirmado server-side muestra "Enviado por API"; ese camino es
+ * preexistente y ajeno a W1 — sólo aparece si el negocio ya tiene conexión.
  */
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { MessageCircle, Copy, ExternalLink, Check, AlertTriangle, X, RefreshCw, ChevronDown, Pencil } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { getConnection } from '../../services/whatsappCloudService'
 import {
   whatsappService,
-  interpolateTemplate,
   buildWhatsAppDesktopUrl,
-  buildWhatsAppWebUrl,
-  buildWhatsAppUniversalUrl,
   openWhatsAppDesktop,
   isMobileDevice,
   normalizeWhatsAppPhone,
@@ -27,6 +32,13 @@ import {
   WhatsAppSettings,
   DEFAULT_TEMPLATES,
 } from '../../services/whatsappService'
+import {
+  renderTemplate,
+  resolveWhatsAppValues,
+  motivoDeBloqueo,
+  getWhatsAppVariableSpec,
+} from '../../services/whatsappTemplate'
+import { buildWaMeUrl, abrirWhatsApp, EVENTO_APERTURA } from '../../services/whatsappHandoff'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,17 +64,21 @@ export interface WhatsAppPreviewModalProps {
 
 // ─── Status chip ──────────────────────────────────────────────────────────────
 
-type SendStatus = 'idle' | 'sending' | 'sent_api' | 'fallback_opened' | 'desktop_opened' | 'web_opened' | 'copied' | 'error'
+type SendStatus = 'idle' | 'sending' | 'sent_api' | 'fallback_opened' | 'desktop_opened' | 'copied' | 'error'
 
+/**
+ * Ningún estado de este mapa dice "Enviado" salvo `sent_api`, que sólo se
+ * alcanza con una confirmación real de la Cloud API. Abrir WhatsApp se rotula
+ * "abierto", nunca "enviado".
+ */
 const STATUS_UI: Record<SendStatus, { label: string; color: string } | null> = {
   idle:             null,
   sending:          { label: 'Enviando…', color: '#818cf8' },
   sent_api:         { label: 'Enviado por API', color: '#22c55e' },
   fallback_opened:  { label: 'WhatsApp abierto', color: '#22c55e' },
   desktop_opened:   { label: 'WhatsApp Desktop abierto', color: '#22c55e' },
-  web_opened:       { label: 'WhatsApp Web abierto', color: '#22c55e' },
   copied:           { label: 'Mensaje copiado', color: '#60a5fa' },
-  error:            { label: 'No se pudo enviar', color: '#f87171' },
+  error:            { label: 'No se pudo abrir', color: '#f87171' },
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -86,6 +102,10 @@ export function WhatsAppPreviewModal({
   const [cloudConnected, setCloudConnected] = useState(false)
   const [phoneInput, setPhoneInput] = useState(phone ?? '')
   const [editingPhone, setEditingPhone] = useState(false)
+  /** Claves de la allowlist que la plantilla activa resolvió con datos reales. */
+  const [varsUsadas, setVarsUsadas] = useState<{ key: string; valor: string }[]>([])
+  /** Variables de PERFIL del negocio sin cargar: degradan el mensaje, no lo bloquean. */
+  const [perfilIncompleto, setPerfilIncompleto] = useState<string[]>([])
 
   const dialogRef       = useRef<HTMLDivElement>(null)
   const textareaRef     = useRef<HTMLTextAreaElement>(null)
@@ -94,8 +114,28 @@ export function WhatsAppPreviewModal({
   const isMobile    = isMobileDevice()
   const phoneResult = normalizeWhatsAppPhone(phoneInput)
   const desktopUrl  = phoneResult.valid ? buildWhatsAppDesktopUrl(phoneInput, message) : ''
-  const webUrl      = phoneResult.valid ? buildWhatsAppWebUrl(phoneInput, message) : ''
-  const mobileUrl   = phoneResult.valid ? buildWhatsAppUniversalUrl(phoneInput, message) : ''
+
+  /**
+   * Handoff estándar wa.me. Se recalcula sobre el mensaje FINAL — el que el
+   * usuario ve en el textarea — así que la vista previa y lo que recibe
+   * WhatsApp son literalmente el mismo string.
+   */
+  const handoff = useMemo(() => buildWaMeUrl(phoneInput, message), [phoneInput, message])
+  /** Variables sin resolver en el mensaje final (incluye lo tipeado a mano). */
+  const bloqueo = useMemo(() => motivoDeBloqueo(message), [message])
+
+  /**
+   * Huella por CONTENIDO de `vars`.
+   *
+   * Los llamadores pasan un objeto literal inline, así que su identidad cambia
+   * en cada render del padre. Con `vars` en las dependencias, el efecto que
+   * arma el mensaje se volvía a disparar por cualquier re-render y pisaba el
+   * textarea. Eso importa más ahora: cuando falta una variable, editar el
+   * mensaje a mano es justamente la vía para desbloquear la apertura, y esa
+   * edición se perdía. Con la huella el efecto corre sólo si los datos
+   * cambiaron de verdad.
+   */
+  const varsKey = JSON.stringify(vars)
 
   // ── Load settings + templates + cloud connection ───────────────────────────
   const loadData = useCallback(async () => {
@@ -143,16 +183,32 @@ export function WhatsAppPreviewModal({
       horario:  settings.business_hours      || '',
       nombre:   recipientName.split(' ')[0] || recipientName,
       cliente:  recipientName,
+      fecha:    new Date().toLocaleDateString('es-AR'),
       ...vars,
     }
-    let msg = interpolateTemplate(tpl.message_template, mergedVars)
+    // `renderTemplate` es determinista y no conoce alias: la política de
+    // fallback vive en `resolveWhatsAppValues`, testeable por separado.
+    const valores = resolveWhatsAppValues(mergedVars as Record<string, string | null | undefined>)
+
+    const cuerpo = renderTemplate(tpl.message_template, valores)
+    let msg = cuerpo.text
+    let usadas = cuerpo.resueltas
+    let incompletas = cuerpo.incompletas
     if (settings.closing_message?.trim()) {
-      msg = `${msg}\n\n${interpolateTemplate(settings.closing_message, mergedVars)}`
+      const cierre = renderTemplate(settings.closing_message, valores)
+      msg = `${msg}\n\n${cierre.text}`
+      usadas = [...new Set([...usadas, ...cierre.resueltas])]
+      incompletas = [...new Set([...incompletas, ...cierre.incompletas])]
     }
+
     setMessage(msg)
+    setVarsUsadas(usadas.map(key => ({ key, valor: valores[key] ?? '' })))
+    setPerfilIncompleto(incompletas)
     setStatus('idle')
     setErrorMsg('')
-  }, [selectedKey, templates, settings, vars, recipientName])
+    // `varsKey` es la huella por contenido de `vars` — ver su definición arriba.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKey, templates, settings, varsKey, recipientName])
 
   // ── Accessibility: Escape to close, focus trap-lite, focus restore ──────────
   useEffect(() => {
@@ -199,7 +255,11 @@ export function WhatsAppPreviewModal({
     } catch { setStatus('error'); setErrorMsg('No se pudo copiar') }
   }
 
-  const logOpen = (result: 'opened') => {
+  /**
+   * Registra que TechRepair ABRIÓ WhatsApp con el mensaje preparado.
+   * NO afirma `sent`/`delivered`/`read`: no hay evidencia de nada de eso.
+   */
+  const logOpen = () => {
     if (!businessId) return
     void whatsappService.logMessage(businessId, {
       order_id:    context.orderId,
@@ -208,47 +268,39 @@ export function WhatsAppPreviewModal({
       status_key:  selectedKey,
       message,
       send_mode:   'manual',
-      send_result: result,
+      send_result: EVENTO_APERTURA,
     })
   }
 
   // whatsapp:// — abre WhatsApp Desktop sin pestaña nueva; silencioso si no instalado
   const handleOpenDesktop = () => {
-    if (!desktopUrl) return
+    if (!desktopUrl || bloqueo) return
     openWhatsAppDesktop(desktopUrl)
     setStatus('desktop_opened')
-    logOpen('opened')
+    logOpen()
   }
 
-  // web.whatsapp.com — detecta bloqueo de popup
-  const handleOpenWeb = () => {
-    if (!webUrl) return
-    const win = window.open(webUrl, '_blank', 'noopener,noreferrer')
-    if (!win) {
-      setStatus('error')
-      setErrorMsg('El navegador bloqueó la ventana. Copiá el mensaje o permití pop-ups para este sitio.')
-      return
-    }
-    setStatus('web_opened')
-    logOpen('opened')
-  }
+  /**
+   * Handoff estándar wa.me sobre la pestaña con nombre estable. Mismo camino
+   * en desktop y en móvil: en móvil el sistema delega en la app nativa.
+   */
+  const handleAbrirWhatsApp = () => {
+    if (bloqueo) { setStatus('error'); setErrorMsg(bloqueo); return }
+    if (!handoff.ok) { setStatus('error'); setErrorMsg(handoff.error); return }
 
-  // wa.me — mobile: abre la app nativa; detecta bloqueo de popup
-  const handleOpenMobile = () => {
-    if (!mobileUrl) return
-    const win = window.open(mobileUrl, '_blank', 'noopener,noreferrer')
-    if (!win) {
+    const apertura = abrirWhatsApp(handoff.url)
+    if (!apertura.abierto) {
       setStatus('error')
-      setErrorMsg('No se pudo abrir WhatsApp. Copiá el mensaje e intentá manualmente.')
+      setErrorMsg(apertura.error)
       return
     }
     setStatus('fallback_opened')
-    logOpen('opened')
+    logOpen()
   }
 
   const handleSendApi = async () => {
     if (!cloudConnected || !businessId) {
-      isMobile ? handleOpenMobile() : handleOpenDesktop()
+      handleAbrirWhatsApp()
       return
     }
     setStatus('sending')
@@ -268,7 +320,9 @@ export function WhatsAppPreviewModal({
 
   const statusUi = STATUS_UI[status]
   const apiEnabled = cloudConnected
-  const canSend = phoneResult.valid && message.trim().length > 0
+  // Fail-closed: sin teléfono resoluble, sin mensaje, o con una variable sin
+  // resolver, no se abre nada. `bloqueo` ya explica cuál falta.
+  const canSend = phoneResult.valid && message.trim().length > 0 && !bloqueo
 
   return (
     <div
@@ -396,6 +450,52 @@ export function WhatsAppPreviewModal({
                 </p>
               </div>
 
+              {/* Variables utilizadas — qué datos reales entraron en el mensaje */}
+              {varsUsadas.length > 0 && (
+                <div data-testid="whatsapp-vars-usadas">
+                  <span style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.375rem' }}>
+                    Variables utilizadas
+                  </span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem' }}>
+                    {varsUsadas.map(v => (
+                      <span
+                        key={v.key}
+                        title={`{${v.key}} → ${v.valor}`}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: '999px', background: 'rgba(37,211,102,0.08)', border: '1px solid rgba(37,211,102,0.18)', color: 'var(--text-secondary)', maxWidth: '100%' }}
+                      >
+                        <span style={{ color: '#25d366', fontWeight: 700 }}>
+                          {getWhatsAppVariableSpec(v.key)?.label ?? v.key}
+                        </span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 150 }}>{v.valor}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Perfil del negocio incompleto — degrada el mensaje, NO lo bloquea */}
+              {!bloqueo && perfilIncompleto.length > 0 && (
+                <p
+                  data-testid="whatsapp-perfil-incompleto"
+                  style={{ margin: 0, fontSize: '0.7rem', color: 'var(--text-subtle)', lineHeight: 1.5 }}
+                >
+                  El mensaje queda con huecos porque falta{' '}
+                  {perfilIncompleto.map(k => getWhatsAppVariableSpec(k)?.label ?? k).join(', ').toLowerCase()}.
+                  Podés completarlo en Configuración → WhatsApp, o editar el texto acá.
+                </p>
+              )}
+
+              {/* Variable sin resolver — se nombra y se bloquea la apertura */}
+              {bloqueo && (
+                <div
+                  data-testid="whatsapp-variables-faltantes"
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', padding: '0.625rem 0.875rem', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)', borderRadius: 'var(--radius-sm)' }}
+                >
+                  <AlertTriangle size={14} style={{ color: '#fbbf24', flexShrink: 0, marginTop: 2 }} />
+                  <span style={{ fontSize: '0.8rem', color: '#fcd34d', lineHeight: 1.5 }}>{bloqueo}</span>
+                </div>
+              )}
+
               {/* Status */}
               {statusUi && (
                 <div data-testid="whatsapp-send-status" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: statusUi.color, fontWeight: 600 }}>
@@ -412,23 +512,23 @@ export function WhatsAppPreviewModal({
               )}
 
               {/* Honest reminder: opening WhatsApp ≠ message sent */}
-              {(status === 'fallback_opened' || status === 'desktop_opened' || status === 'web_opened') && (
+              {(status === 'fallback_opened' || status === 'desktop_opened') && (
                 <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--text-subtle)', lineHeight: 1.5 }}>
-                  Se abrió WhatsApp con el mensaje preparado. Recordá que abrir WhatsApp no confirma que el mensaje haya sido enviado.
+                  Se abrió WhatsApp con el mensaje preparado. Todavía tenés que tocar “Enviar” allá: TechRepair no puede confirmar que el mensaje haya llegado.
                 </p>
               )}
 
-              {/* Fallback notice when API failed */}
+              {/* Fallback notice when opening failed */}
               {status === 'error' && (
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.03)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
-                  Usá los botones de abajo para enviar manualmente o copiar el mensaje.
+                  Podés copiar el mensaje y pegarlo en WhatsApp a mano.
                 </div>
               )}
 
               {/* Desktop hint */}
               {!isMobile && !loading && (
                 <p style={{ margin: 0, fontSize: '0.68rem', color: 'var(--text-subtle)', lineHeight: 1.5 }}>
-                  Para evitar pestañas nuevas, usá <strong>WhatsApp Desktop</strong>. WhatsApp Web puede abrir una pestaña nueva según el navegador.
+                  “Abrir WhatsApp” reutiliza siempre la misma pestaña. Si tenés <strong>WhatsApp Desktop</strong> instalado, ese botón abre la app sin pasar por el navegador.
                 </p>
               )}
             </>
@@ -465,48 +565,35 @@ export function WhatsAppPreviewModal({
             </button>
           )}
 
-          {/* Mobile: un solo botón wa.me */}
-          {!apiEnabled && isMobile && (
-            <button
-              data-testid="whatsapp-send-api-button"
-              onClick={handleOpenMobile}
-              disabled={!canSend}
-              className="btn btn-sm"
-              style={{ background: canSend ? '#25d366' : undefined, border: 'none', color: canSend ? '#fff' : undefined }}
-              title={canSend ? 'Abrir WhatsApp en tu dispositivo' : phoneResult.error}
-            >
-              <MessageCircle size={13} />
-              Abrir en WhatsApp
-            </button>
-          )}
-
-          {/* Desktop: botón secundario WhatsApp Web */}
+          {/* Desktop: secundario — app instalada, sin pasar por el navegador */}
           {!apiEnabled && !isMobile && (
             <button
               data-testid="whatsapp-fallback-button"
-              onClick={handleOpenWeb}
+              onClick={handleOpenDesktop}
               disabled={!canSend}
               className="btn btn-ghost btn-sm"
               style={{ color: '#25d366', borderColor: canSend ? 'rgba(37,211,102,0.3)' : undefined }}
-              title={canSend ? 'Abrir WhatsApp Web en el navegador (puede abrir pestaña nueva)' : phoneResult.error}
+              title={canSend ? 'Abre WhatsApp Desktop si está instalado (sin pestaña nueva)' : (bloqueo ?? phoneResult.error)}
             >
               <ExternalLink size={13} />
-              WhatsApp Web
+              WhatsApp Desktop
             </button>
           )}
 
-          {/* Desktop: botón principal WhatsApp Desktop (protocolo whatsapp://) */}
-          {!apiEnabled && !isMobile && (
+          {/* Principal — handoff estándar wa.me, misma pestaña siempre */}
+          {!apiEnabled && (
             <button
               data-testid="whatsapp-send-api-button"
-              onClick={handleOpenDesktop}
+              onClick={handleAbrirWhatsApp}
               disabled={!canSend}
               className="btn btn-sm"
               style={{ background: canSend ? '#25d366' : undefined, border: 'none', color: canSend ? '#fff' : undefined }}
-              title={canSend ? 'Abre WhatsApp Desktop si está instalado (sin pestaña nueva)' : phoneResult.error}
+              title={canSend
+                ? 'Abrir WhatsApp con el mensaje preparado'
+                : (bloqueo ?? (handoff.ok ? undefined : handoff.error))}
             >
               <MessageCircle size={13} />
-              WhatsApp Desktop
+              Abrir WhatsApp
             </button>
           )}
         </div>
