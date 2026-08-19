@@ -294,7 +294,9 @@ export function WhatsAppPreviewModal({
     if (bloqueo) { setStatus('error'); setErrorMsg(bloqueo); return }
     if (!handoff.ok) { setStatus('error'); setErrorMsg(handoff.error); return }
 
-    const apertura = abrirWhatsApp(handoff.url)
+    // `reutilizar` sólo en desktop: en móvil el sistema se lleva `wa.me` a la
+    // app nativa y guardar una referencia a la pestaña no aporta nada.
+    const apertura = abrirWhatsApp(handoff.url, { reutilizar: !isMobile })
     if (!apertura.abierto) {
       setStatus('error')
       setErrorMsg(apertura.error)

@@ -104,15 +104,37 @@ test('@m7-local W1 · el sidebar no ofrece el módulo Cloud API, y el editor sig
 })
 
 test('@m7-local W1 · orden → plantilla → preview → WhatsApp (pestaña reutilizada)', async ({ page }) => {
-  // ── Espía de window.open ANTES de que cargue nada ──────────────────────────
-  // Devuelve un objeto no-nulo: `null` significa "popup bloqueado" y el modal
-  // mostraría un error en vez de registrar la apertura.
+  // ── Espía ANTES de que cargue nada ─────────────────────────────────────────
+  //
+  // No alcanza con contar `window.open` y comparar el target: el nombre de
+  // ventana se RESETEA al navegar cross-origin (techrepairpro.app →
+  // web.whatsapp.com), así que un diseño basado sólo en el nombre estrenaría
+  // pestaña desde el segundo mensaje sin que un espía del target lo note.
+  //
+  // Por eso el falso WindowProxy registra también las NAVEGACIONES: eso es lo
+  // que prueba que la pestaña se reutiliza de verdad.
   await page.addInitScript(() => {
-    ;(window as unknown as { __WA_OPEN__: [string, string][] }).__WA_OPEN__ = []
+    const wa = {
+      aperturas: [] as [string, string][],
+      navegaciones: [] as string[],
+      focos: 0,
+      openerSeteado: 'sin tocar' as unknown,
+      cerrada: false,
+    }
+    ;(window as unknown as { __WA__: typeof wa }).__WA__ = wa
+
     window.open = ((url?: string | URL, target?: string) => {
-      ;(window as unknown as { __WA_OPEN__: [string, string][] }).__WA_OPEN__
-        .push([String(url ?? ''), String(target ?? '')])
-      return {} as Window
+      wa.aperturas.push([String(url ?? ''), String(target ?? '')])
+      return {
+        get closed() { return wa.cerrada },
+        set opener(v: unknown) { wa.openerSeteado = v },
+        get opener() { return wa.openerSeteado },
+        location: {
+          set href(u: string) { wa.navegaciones.push(u) },
+          get href() { return wa.navegaciones[wa.navegaciones.length - 1] ?? '' },
+        },
+        focus() { wa.focos++ },
+      } as unknown as Window
     }) as typeof window.open
   })
 
@@ -159,23 +181,32 @@ test('@m7-local W1 · orden → plantilla → preview → WhatsApp (pestaña reu
   await expect(boton).toBeEnabled()
   await boton.click()
 
-  const leerAperturas = () => page.evaluate(
-    () => (window as unknown as { __WA_OPEN__: [string, string][] }).__WA_OPEN__)
+  type EstadoWa = {
+    aperturas: [string, string][]; navegaciones: string[]; focos: number; openerSeteado: unknown
+  }
+  const leerWa = () => page.evaluate(() => (window as unknown as { __WA__: EstadoWa }).__WA__)
 
-  const aperturas = await leerAperturas()
-  expect(aperturas, 'tiene que abrirse exactamente una vez').toHaveLength(1)
-  const [url, target] = aperturas[0]
+  const wa1 = await leerWa()
 
-  // Desktop: WhatsApp Web directo. NO la pantalla intermedia de
-  // api.whatsapp.com ("Continuar en WhatsApp Web"), que era la que sacaba al
-  // usuario de la pestaña nombrada y estrenaba una nueva.
+  // Se abre VACÍA con el nombre estable: about:blank sigue siendo same-origin
+  // y es el único momento en que se puede cortar el opener.
+  expect(wa1.aperturas, 'exactamente un open').toHaveLength(1)
+  expect(wa1.aperturas[0][0]).toBe('')
+  expect(wa1.aperturas[0][1]).toBe('techrepair_whatsapp')
+  expect(wa1.aperturas[0][1]).not.toBe('_blank')
+
+  // WhatsApp no queda con una referencia de vuelta a TechRepair.
+  expect(wa1.openerSeteado, 'opener cortado mientras era same-origin').toBeNull()
+
+  // Recién ahí se navega. Desktop: WhatsApp Web directo, NO la pantalla
+  // intermedia de api.whatsapp.com ("Continuar en WhatsApp Web"), que era la
+  // que sacaba al usuario de la pestaña y estrenaba otra.
+  expect(wa1.navegaciones).toHaveLength(1)
+  const url = wa1.navegaciones[0]
   expect(new URL(url).hostname).toBe('web.whatsapp.com')
   expect(url).not.toContain('api.whatsapp.com')
   expect(url).toContain(`phone=${TEL_NORMALIZADO}`)
-
-  // Pestaña con nombre estable, nunca _blank.
-  expect(target).toBe('techrepair_whatsapp')
-  expect(target).not.toBe('_blank')
+  expect(wa1.focos).toBe(1)
 
   // ── 5 · el preview es EXACTAMENTE lo que recibe WhatsApp ───────────────────
   const textoDe = (u: string) => decodeURIComponent(u.slice(u.indexOf('&text=') + '&text='.length))
@@ -186,9 +217,10 @@ test('@m7-local W1 · orden → plantilla → preview → WhatsApp (pestaña reu
   expect(url).toContain('%0A')
   expect(url).not.toContain('%250A')
 
-  // ── 4b · el SEGUNDO handoff reutiliza la MISMA pestaña ────────────────────
-  // Se cambia de plantilla para que el mensaje sea distinto: lo que tiene que
-  // repetirse es el target, no la URL.
+  // ── 4b · el SEGUNDO handoff REUTILIZA la pestaña ──────────────────────────
+  // Lo que prueba la reutilización no es el target repetido, sino que NO se
+  // vuelva a llamar `open` y que la pestaña ya abierta navegue al nuevo
+  // destino.
   await modal.locator('[data-testid="whatsapp-template-select"]').selectOption('ready_pickup')
   await expect.poll(async () => await textarea.inputValue()).not.toBe(mensaje)
   const mensaje2 = await textarea.inputValue()
@@ -196,13 +228,14 @@ test('@m7-local W1 · orden → plantilla → preview → WhatsApp (pestaña reu
   await expect(boton).toBeEnabled()
   await boton.click()
 
-  const aperturas2 = await leerAperturas()
-  expect(aperturas2, 'el segundo mensaje también abre').toHaveLength(2)
-  const [url2, target2] = aperturas2[1]
+  const wa2 = await leerWa()
 
-  expect(target2, 'reutiliza la pestaña: mismo nombre de ventana').toBe('techrepair_whatsapp')
-  expect(target2).toBe(target)
-  expect(url2, 'pero navega a un destino distinto').not.toBe(url)
+  expect(wa2.aperturas, 'el segundo mensaje NO puede estrenar pestaña').toHaveLength(1)
+  expect(wa2.navegaciones, 'la MISMA pestaña navegó de nuevo').toHaveLength(2)
+  expect(wa2.focos).toBe(2)
+
+  const url2 = wa2.navegaciones[1]
+  expect(url2, 'y va a un destino distinto').not.toBe(url)
   expect(new URL(url2).hostname).toBe('web.whatsapp.com')
   expect(url2).not.toContain('api.whatsapp.com')
   expect(textoDe(url2)).toBe(mensaje2)

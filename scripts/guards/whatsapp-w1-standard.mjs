@@ -156,6 +156,35 @@ export function usaVentanaConNombreEstable(fuente) {
   return !TARGETS_NO_ESTABLES.has(m[1])
 }
 
+/**
+ * La reutilización se apoya en una REFERENCIA, no sólo en el nombre.
+ *
+ * `window.name` se resetea al navegar cross-origin, y el salto a
+ * web.whatsapp.com lo es: repetir `open(url, TARGET)` estrena pestaña desde el
+ * segundo mensaje. El diseño correcto abre about:blank (same-origin, donde se
+ * puede cortar `opener`), guarda el WindowProxy y después navega con
+ * `location.href`.
+ */
+export function reutilizaPorReferencia(fuente) {
+  const guardaReferencia = /pestana\s*=\s*win/.test(fuente)
+  const navegaLaReferencia = /pestana\.location\.href\s*=/.test(fuente)
+  const chequeaCerrada = /pestana\.closed/.test(fuente)
+  return guardaReferencia && navegaLaReferencia && chequeaCerrada
+}
+
+/** El opener se corta mientras la pestaña todavía es same-origin. */
+export function cortaElOpener(fuente) {
+  return /\.opener\s*=\s*null/.test(fuente)
+}
+
+/**
+ * `noopener` devuelve null y nos dejaría sin la referencia, que es lo único
+ * que hace funcionar la reutilización. El corte de opener se hace a mano.
+ */
+export function usaNoopener(fuente) {
+  return /noopener/.test(fuente)
+}
+
 /** El handoff falla CERRADO: un teléfono inválido no produce URL. */
 export function fallaCerradoSinTelefono(fuente) {
   return /ok:\s*false/.test(fuente) && /telefono\.valid/.test(fuente)
@@ -278,6 +307,15 @@ function validarRepo() {
   }
   if (!usaVentanaConNombreEstable(handoff)) {
     fallas.push(`${HANDOFF}: perdió el nombre de ventana estable. Sin él, cada mensaje abre una pestaña nueva.`)
+  }
+  if (!reutilizaPorReferencia(handoff)) {
+    fallas.push(`${HANDOFF}: volvió a apoyarse sólo en el nombre de ventana. window.name se RESETEA al navegar cross-origin (techrepairpro.app → web.whatsapp.com), así que desde el segundo mensaje estrena pestaña. Hay que conservar el WindowProxy y navegarlo con location.href.`)
+  }
+  if (!cortaElOpener(handoff)) {
+    fallas.push(`${HANDOFF}: dejó de cortar el opener. WhatsApp quedaría con una referencia de vuelta a TechRepair.`)
+  }
+  if (usaNoopener(handoff)) {
+    fallas.push(`${HANDOFF}: usa noopener, que devuelve null y nos deja sin la referencia con la que se reutiliza la pestaña. El corte de opener va a mano sobre about:blank.`)
   }
   if (!fallaCerradoSinTelefono(handoff)) {
     fallas.push(`${HANDOFF}: dejó de fallar cerrado ante un teléfono inválido. Sin eso se abre https://wa.me/?text=… , que no lleva a ningún contacto.`)
@@ -415,6 +453,24 @@ function selfTest() {
     usaVentanaConNombreEstable(`export const WHATSAPP_WINDOW_NAME = '_blank'`), false)
   chequear('caza _self / _top',
     usaVentanaConNombreEstable(`export const WHATSAPP_WINDOW_NAME = '_self'`), false)
+
+  const REFERENCIA_OK = `
+    if (pestana && !pestana.closed) { pestana.location.href = url; return { abierto: true } }
+    const win = abrirVentana('', WHATSAPP_WINDOW_NAME)
+    win.opener = null
+    pestana = win
+    win.location.href = url`
+  const SOLO_NOMBRE = `
+    const win = abrirVentana(url, WHATSAPP_WINDOW_NAME)
+    if (!win) return { abierto: false }
+    return { abierto: true }`
+
+  chequear('reconoce la reutilización por referencia', reutilizaPorReferencia(REFERENCIA_OK), true)
+  chequear('caza la vuelta al enfoque de solo-nombre', reutilizaPorReferencia(SOLO_NOMBRE), false)
+  chequear('reconoce el corte de opener', cortaElOpener(REFERENCIA_OK), true)
+  chequear('caza la falta del corte de opener', cortaElOpener(SOLO_NOMBRE), false)
+  chequear('caza noopener', usaNoopener(`window.open(u, t, 'noopener')`), true)
+  chequear('no marca su ausencia', usaNoopener(REFERENCIA_OK), false)
 
   chequear('reconoce el fail-closed',
     fallaCerradoSinTelefono(`if (!telefono.valid) return { ok: false, error: e }`), true)
