@@ -38,6 +38,8 @@ import { STATUS_CONFIG } from '../types/orderStatus'
 import { DeviceLockCard } from '../components/order/DeviceLockCard'
 import { WarrantyFormModal } from '../components/warranties/WarrantyFormModal'
 import { useWarranties } from '../hooks/useWarranties'
+import { useOrderCanonicalBalance } from '../hooks/useOrderCanonicalBalance'
+import { formatImporteWhatsApp } from '../services/whatsappTemplate'
 
 interface Document {
   id: string
@@ -69,6 +71,14 @@ export function OrderDetail() {
 
   // Cargar datos reales desde Supabase
   const { order, loading, error, refresh } = useOrderSimple(id)
+
+  // Importes CANÓNICOS (server-side, vía get_order_financial_amounts). Son la
+  // única fuente de las variables económicas de WhatsApp: `orders.total_cost`
+  // es el COGS que escribe `recalculate_order_total`, no el precio al cliente,
+  // y restar pagos en el cliente ignora las imputaciones de cuenta corriente.
+  // `disponible: false` (sin comprobante o rol sin permiso) ⇒ la variable NO se
+  // pasa, y el preview de WhatsApp avisa cuál falta en vez de mandar un hueco.
+  const importes = useOrderCanonicalBalance(id)
 
   // Comprobantes
   const {
@@ -622,8 +632,16 @@ export function OrderDetail() {
           problema:    order.device?.issue ?? '',
           numero_orden:(order.id ?? '').slice(0, 8).toUpperCase(),
           estado:      STATUS_CONFIG[order.status as keyof typeof STATUS_CONFIG]?.label ?? '',
-          precio:      order.total_cost ? `$${Math.round(order.total_cost).toLocaleString('es-AR')}` : '',
-          presupuesto: order.estimated_total ? `$${Math.round(order.estimated_total).toLocaleString('es-AR')}` : '',
+          // Importes: SOLO del estado canónico. Sin `disponible` se omiten a
+          // propósito para que el preview nombre lo que falta.
+          ...(importes.disponible ? {
+            precio:   importes.total   > 0 ? formatImporteWhatsApp(importes.total)   : '',
+            anticipo: importes.cobrado > 0 ? formatImporteWhatsApp(importes.cobrado) : '',
+            saldo:    importes.saldo   > 0 ? formatImporteWhatsApp(importes.saldo)   : '',
+          } : {}),
+          // `estimated_total` es el presupuesto de la propia orden, no un
+          // importe del libro contable: no pasa por la RPC financiera.
+          presupuesto: order.estimated_total ? formatImporteWhatsApp(order.estimated_total) : '',
         }}
         context={{ orderId: order.id, customerId: order.customer?.id ?? (order as any).customer_id }}
       />

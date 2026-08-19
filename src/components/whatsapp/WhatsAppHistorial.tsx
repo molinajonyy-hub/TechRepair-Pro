@@ -6,12 +6,19 @@ interface WhatsAppHistorialProps {
   orderId: string
 }
 
+/**
+ * Estados honestos. `opened` significa que TechRepair abrió WhatsApp con el
+ * mensaje preparado — NO que el mensaje se haya enviado, entregado ni leído.
+ * Rotularlo "Enviado" (como hacía antes) afirmaba algo que el sistema no puede
+ * saber: el usuario todavía tiene que tocar "Enviar" dentro de WhatsApp.
+ * Sólo `sent_api` proviene de una confirmación real de la Cloud API.
+ */
 const RESULT_CONFIG = {
-  opened:   { label: 'Enviado',  color: '#25d366', icon: ExternalLink },
-  copied:   { label: 'Copiado',  color: '#6366f1', icon: Copy },
-  failed:   { label: 'Error',    color: '#dc2626', icon: XCircle },
-  skipped:  { label: 'Omitido',  color: '#64748b', icon: XCircle },
-  sent_api: { label: 'API',      color: '#818cf8', icon: Zap },
+  opened:   { label: 'Abierto',       color: '#25d366', icon: ExternalLink },
+  copied:   { label: 'Copiado',       color: '#6366f1', icon: Copy },
+  failed:   { label: 'Error',         color: '#dc2626', icon: XCircle },
+  skipped:  { label: 'Omitido',       color: '#64748b', icon: XCircle },
+  sent_api: { label: 'Enviado (API)', color: '#818cf8', icon: Zap },
 } as const
 
 const MODE_CONFIG = {
@@ -93,7 +100,7 @@ export function WhatsAppHistorial({ orderId }: WhatsAppHistorialProps) {
             color: '#475569', fontSize: '0.875rem'
           }}>
             <MessageCircle size={32} style={{ opacity: 0.3, marginBottom: '0.75rem' }} />
-            <p style={{ margin: 0 }}>Aún no se enviaron mensajes por WhatsApp en esta orden.</p>
+            <p style={{ margin: 0 }}>Aún no se preparó ningún mensaje de WhatsApp para esta orden.</p>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>

@@ -1,0 +1,405 @@
+#!/usr/bin/env node
+// ============================================================================
+// Guard — WhatsApp estándar (W1): handoff honesto y desacoplado.
+//
+//   node scripts/guards/whatsapp-w1-standard.mjs             (valida el repo)
+//   node scripts/guards/whatsapp-w1-standard.mjs --self-test (valida el guard)
+//
+// ┌── QUÉ PROTEGE ──────────────────────────────────────────────────────────┐
+// │ 1. HONESTIDAD. Abrir wa.me NO es enviar. TechRepair no tiene evidencia  │
+// │    de `sent`, `delivered` ni `read`, así que no puede registrarlos ni   │
+// │    rotularlos. El historial llegó a mostrar "Enviado" para un evento    │
+// │    que sólo significaba "abrimos WhatsApp".                             │
+// │ 2. DESACOPLE. El camino estándar (plantilla → preview → wa.me) no puede │
+// │    depender del transporte oficial de Meta: ni Cloud API, ni Edge       │
+// │    Functions de envío, ni tokens.                                       │
+// │ 3. VOCABULARIO. `whatsapp_logs.send_result` tiene un CHECK en producción│
+// │    (opened|copied|failed|skipped|sent_api). Un valor fuera de esa lista │
+// │    no es un bug de tipos: es un 23514 en runtime, en la cara del user.  │
+// │ 4. ALLOWLIST. Las variables de plantilla se declaran en UN solo lugar.  │
+// │ 5. MULTITENANT. Toda lectura/escritura de plantillas va acotada por     │
+// │    business_id.                                                          │
+// └─────────────────────────────────────────────────────────────────────────┘
+//
+// Se mide sobre el CÓDIGO FUENTE. El comportamiento ya lo cubren
+// tests/unit/whatsappTemplate.test.ts y tests/components/whatsappW1.test.tsx;
+// acá interesa que no reaparezca la FORMA que causaba el problema.
+import { readFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const RAIZ = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..')
+
+/** Módulos del camino estándar. NO pueden tocar el transporte oficial. */
+const MODULOS_W1 = [
+  'src/services/whatsappTemplate.ts',
+  'src/services/whatsappHandoff.ts',
+]
+
+const RENDERER  = 'src/services/whatsappTemplate.ts'
+const HANDOFF   = 'src/services/whatsappHandoff.ts'
+const MODAL     = 'src/components/whatsapp/WhatsAppPreviewModal.tsx'
+const HISTORIAL = 'src/components/whatsapp/WhatsAppHistorial.tsx'
+const EDITOR    = 'src/components/settings/WhatsAppTemplatesSettings.tsx'
+
+/** Vocabulario EXACTO que acepta el CHECK whatsapp_logs_send_result_check. */
+const SEND_RESULT_VALIDOS = ['opened', 'copied', 'failed', 'skipped', 'sent_api']
+
+// ─── Comprobaciones puras (testeables) ──────────────────────────────────────
+
+/**
+ * Saca los comentarios antes de medir la FORMA del código.
+ *
+ * Sin esto el guard se dispara con su propia documentación: el encabezado de
+ * `whatsappHandoff.ts` nombra `access_token` y `whatsapp-send` justamente para
+ * explicar que NO los usa. Un guard que una prosa correcta puede romper obliga
+ * a no escribir esa prosa.
+ *
+ * Se quitan los bloques `/* *\/` y los comentarios de línea que ARRANCAN la
+ * línea. Los de fin de línea se dejan a propósito: quitarlos exigiría parsear
+ * strings, y truncaría un literal como 'https://wa.me/' en el primer `//`.
+ */
+export function sinComentarios(fuente) {
+  return fuente
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^[ \t]*\/\/.*$/gm, '')
+}
+
+/** Un módulo del camino estándar no puede importar el transporte oficial. */
+export function importaTransporteOficial(fuente) {
+  return /from\s+['"][^'"]*whatsappCloudService/.test(fuente)
+      || /from\s+['"][^'"]*\/lib\/supabase/.test(fuente)
+      || /supabase\s*\.\s*functions\s*\.\s*invoke/.test(fuente)
+      || /whatsapp-send|whatsapp-embedded-signup/.test(fuente)
+}
+
+/** Ni conocer credenciales de Meta. */
+export function mencionaSecretosMeta(fuente) {
+  return /access_token|phone_number_id|META_APP_ID|META_APP_SECRET/.test(fuente)
+}
+
+/**
+ * Registrar un envío que no ocurrió. `send_result` sólo puede tomar valores
+ * del CHECK, y `sent`/`delivered`/`read` no están ahí por diseño.
+ */
+export function registraEnvioInexistente(fuente) {
+  const asignaciones = [...fuente.matchAll(/send_result\s*:\s*['"]([a-z_]+)['"]/g)]
+  return asignaciones.some(m => !SEND_RESULT_VALIDOS.includes(m[1]))
+}
+
+/** El historial no puede rotular una apertura como "Enviado". */
+export function rotulaAperturaComoEnviado(fuente) {
+  // Caza `opened: { label: 'Enviado' ...` con cualquier separación.
+  return /\bopened\s*:\s*\{[^}]*label\s*:\s*['"]\s*Enviado\s*['"]/.test(fuente)
+}
+
+/** El renderer declara la allowlist y la expone. */
+export function declaraAllowlist(fuente) {
+  return /export const WHATSAPP_VARIABLES/.test(fuente)
+}
+
+/**
+ * El renderer hace UNA sola pasada con replacer.
+ *
+ * La forma peligrosa es construir una RegExp POR CLAVE y aplicarla una clave
+ * por vez (lo que hacía `interpolateTemplate`): la iteración N+1 vuelve a
+ * recorrer el texto ya sustituido, así que un valor que contenga `{precio}`
+ * termina expandido. Se caza esa forma directamente, sin depender de matchear
+ * el encabezado del `for` (que lleva paréntesis anidados).
+ */
+export function reemplazaEnUnaPasada(fuente) {
+  if (/\.replace\(\s*new RegExp\(/.test(fuente)) return false
+  // Y la forma correcta tiene que estar presente, no sólo ausente la mala.
+  return /\.replace\(\s*PLACEHOLDER_RE\s*,/.test(fuente)
+}
+
+/** Nada de evaluar plantillas dinámicamente. */
+export function evaluaDinamicamente(fuente) {
+  return /\beval\s*\(|new\s+Function\s*\(/.test(fuente)
+}
+
+/** El handoff usa wa.me, no web.whatsapp.com ni api.whatsapp.com. */
+export function usaWaMe(fuente) {
+  return /https:\/\/wa\.me\//.test(fuente)
+}
+
+/** La ventana de handoff tiene nombre estable (no se abre una por mensaje). */
+export function usaVentanaConNombreEstable(fuente) {
+  return /WHATSAPP_WINDOW_NAME\s*=\s*['"][a-z_]+['"]/.test(fuente)
+}
+
+/** El handoff falla CERRADO: un teléfono inválido no produce URL. */
+export function fallaCerradoSinTelefono(fuente) {
+  return /ok:\s*false/.test(fuente) && /telefono\.valid/.test(fuente)
+}
+
+/** El modal bloquea la apertura cuando queda una variable sin resolver. */
+export function bloqueaVariableSinResolver(fuente) {
+  return /motivoDeBloqueo/.test(fuente) && /!bloqueo/.test(fuente)
+}
+
+/** El modal arma el mensaje con el renderer de allowlist. */
+export function usaRendererCanonico(fuente) {
+  return /from\s+['"][^'"]*whatsappTemplate['"]/.test(fuente)
+      && /\brenderTemplate\s*\(/.test(fuente)
+}
+
+/** El editor de plantillas gatea con el helper canónico de permisos. */
+export function gateaConPermisoCanonico(fuente) {
+  return /from\s+['"][^'"]*usePermissions['"]/.test(fuente)
+      && /can\(\s*['"]settings_sensitive['"]\s*\)/.test(fuente)
+}
+
+/** ...y no inventa un sistema paralelo de roles. */
+export function inventaRolesAMano(fuente) {
+  return /role\s*===\s*['"](owner|admin|manager|tech|sales|cashier|viewer)['"]/.test(fuente)
+      || /\bisOwner\s*\|\|\s*isAdmin\b/.test(fuente)
+}
+
+/** Toda operación sobre las tablas de WhatsApp va acotada por negocio. */
+export function acotaPorNegocio(fuente) {
+  const tocaTablas = /\.from\(\s*['"]whatsapp_(templates|settings)['"]\s*\)/.test(fuente)
+  if (!tocaTablas) return true
+  return /\.eq\(\s*['"]business_id['"]/.test(fuente)
+      || /business_id:\s*businessId/.test(fuente)
+}
+
+/** El editor guarda sólo si tiene permiso (fail-closed en el handler). */
+export function guardaSoloConPermiso(fuente) {
+  return /if\s*\(\s*!businessId\s*\|\|\s*!puedeEditar\s*\)\s*return/.test(fuente)
+}
+
+// ─── Recorrido del repo ─────────────────────────────────────────────────────
+
+function validarRepo() {
+  const fallas = []
+  // Se mide la FORMA del código, no la documentación que la explica.
+  const leer = p => sinComentarios(readFileSync(join(RAIZ, p), 'utf-8'))
+
+  // 0. Los archivos del lote existen.
+  for (const p of [RENDERER, HANDOFF, MODAL, HISTORIAL, EDITOR]) {
+    if (!existsSync(join(RAIZ, p))) {
+      fallas.push(`Falta ${p}: el camino estándar de WhatsApp perdió una pieza.`)
+    }
+  }
+  if (fallas.length) return fallas
+
+  // 1. Desacople del transporte oficial.
+  for (const p of MODULOS_W1) {
+    const fuente = leer(p)
+    if (importaTransporteOficial(fuente)) {
+      fallas.push(`${p}: importa el transporte oficial (Cloud API / Supabase / Edge Function de envío). El camino estándar tiene que poder funcionar sin nada de Meta.`)
+    }
+    if (mencionaSecretosMeta(fuente)) {
+      fallas.push(`${p}: menciona credenciales de Meta. Ese material es server-side y vive en Vault, nunca en el camino wa.me.`)
+    }
+    if (evaluaDinamicamente(fuente)) {
+      fallas.push(`${p}: usa eval/new Function. Una plantilla es TEXTO: evaluarla convierte un campo editable por el negocio en ejecución de código.`)
+    }
+  }
+
+  // 2. Honestidad de estados — en TODO el frontend, no sólo en los módulos W1.
+  for (const p of [MODAL, HISTORIAL, EDITOR, 'src/services/whatsappService.ts']) {
+    const fuente = leer(p)
+    if (registraEnvioInexistente(fuente)) {
+      fallas.push(`${p}: escribe un send_result fuera del CHECK de producción (${SEND_RESULT_VALIDOS.join('|')}). Si es 'sent'/'delivered'/'read', además afirma algo que el sistema no puede saber.`)
+    }
+  }
+  if (rotulaAperturaComoEnviado(leer(HISTORIAL))) {
+    fallas.push(`${HISTORIAL}: vuelve a rotular 'opened' como "Enviado". Abrir WhatsApp no confirma envío: el usuario todavía tiene que tocar Enviar allá.`)
+  }
+
+  // 3. El renderer conserva sus propiedades.
+  const renderer = leer(RENDERER)
+  if (!declaraAllowlist(renderer)) {
+    fallas.push(`${RENDERER}: perdió la allowlist WHATSAPP_VARIABLES. Sin allowlist, cualquier {placeholder} de una plantilla viaja literal al chat del cliente.`)
+  }
+  if (!reemplazaEnUnaPasada(renderer)) {
+    fallas.push(`${RENDERER}: volvió al reemplazo en bucle por clave. Eso re-expande un valor que contenga otra variable ⇒ template injection.`)
+  }
+
+  // 4. El handoff es wa.me, con pestaña estable y fail-closed.
+  const handoff = leer(HANDOFF)
+  if (!usaWaMe(handoff)) {
+    fallas.push(`${HANDOFF}: dejó de usar https://wa.me/. Ése es el handoff estándar del bloque.`)
+  }
+  if (!usaVentanaConNombreEstable(handoff)) {
+    fallas.push(`${HANDOFF}: perdió el nombre de ventana estable. Sin él, cada mensaje abre una pestaña nueva.`)
+  }
+  if (!fallaCerradoSinTelefono(handoff)) {
+    fallas.push(`${HANDOFF}: dejó de fallar cerrado ante un teléfono inválido. Sin eso se abre https://wa.me/?text=… , que no lleva a ningún contacto.`)
+  }
+
+  // 5. El modal usa el renderer y bloquea los huecos.
+  const modal = leer(MODAL)
+  if (!usaRendererCanonico(modal)) {
+    fallas.push(`${MODAL}: no arma el mensaje con renderTemplate. Volver a interpolateTemplate reintroduce los placeholders desconocidos silenciosos.`)
+  }
+  if (!bloqueaVariableSinResolver(modal)) {
+    fallas.push(`${MODAL}: dejó de bloquear la apertura cuando queda una variable sin resolver. El cliente recibiría "tenés un saldo pendiente de {saldo}".`)
+  }
+
+  // 6. RBAC y multitenant del editor.
+  const editor = leer(EDITOR)
+  if (!gateaConPermisoCanonico(editor)) {
+    fallas.push(`${EDITOR}: no gatea la edición con can('settings_sensitive') del helper canónico usePermissions.`)
+  }
+  if (inventaRolesAMano(editor)) {
+    fallas.push(`${EDITOR}: compara roles a mano. El permiso canónico es usePermissions().can(...), no un if de roles.`)
+  }
+  if (!guardaSoloConPermiso(editor)) {
+    fallas.push(`${EDITOR}: el handler de guardado no corta sin permiso. Deshabilitar el botón no es fail-closed.`)
+  }
+  for (const p of [EDITOR, 'src/services/whatsappService.ts']) {
+    if (!acotaPorNegocio(leer(p))) {
+      fallas.push(`${p}: opera sobre whatsapp_templates/whatsapp_settings sin acotar por business_id.`)
+    }
+  }
+
+  return fallas
+}
+
+// ─── Self-test ──────────────────────────────────────────────────────────────
+//
+// Cada comprobación se prueba en los DOS sentidos: que cace lo que dice cazar
+// y que no marque lo correcto. Un guard que nunca falla no protege nada.
+
+function selfTest() {
+  const casos = []
+  const chequear = (nombre, real, esperado) => casos.push({ nombre, ok: real === esperado })
+
+  // Stripping de comentarios
+  chequear('el bloque de doc no dispara el guard',
+    importaTransporteOficial(sinComentarios(
+      "/**\n * NO invoca whatsapp-send ni usa access_token.\n */\nimport { x } from './whatsappFormat.ts'")), false)
+  chequear('el comentario de línea tampoco',
+    mencionaSecretosMeta(sinComentarios("  // nunca toca access_token\nconst u = 'https://wa.me/'")), false)
+  chequear('pero el CÓDIGO real sí dispara',
+    mencionaSecretosMeta(sinComentarios("/** doc */\nconst t = cfg.access_token")), true)
+  chequear('no truncar una URL con // dentro de un string',
+    usaWaMe(sinComentarios("const u = 'https://wa.me/' + tel")), true)
+
+  // Desacople
+  chequear('caza el import de Cloud API',
+    importaTransporteOficial(`import { getConnection } from './whatsappCloudService'`), true)
+  chequear('caza el import de supabase',
+    importaTransporteOficial(`import { supabase } from '../lib/supabase'`), true)
+  chequear('caza la invocación de la edge function',
+    importaTransporteOficial(`await supabase.functions.invoke('whatsapp-send', {})`), true)
+  chequear('no marca un módulo puro',
+    importaTransporteOficial(`import { normalizeWhatsAppPhone } from './whatsappFormat.ts'`), false)
+
+  chequear('caza el access_token', mencionaSecretosMeta(`const t = cfg.access_token`), true)
+  chequear('no marca texto normal', mencionaSecretosMeta(`const url = 'https://wa.me/549'`), false)
+
+  // Honestidad
+  chequear('caza send_result: sent', registraEnvioInexistente(`send_result: 'sent',`), true)
+  chequear('caza send_result: delivered', registraEnvioInexistente(`send_result: 'delivered'`), true)
+  chequear('caza send_result: read', registraEnvioInexistente(`send_result: 'read'`), true)
+  chequear('acepta opened', registraEnvioInexistente(`send_result: 'opened',`), false)
+  chequear('acepta copied y sent_api',
+    registraEnvioInexistente(`send_result: 'copied'\nsend_result: 'sent_api'`), false)
+  chequear('no marca un archivo sin send_result', registraEnvioInexistente(`const x = 1`), false)
+
+  chequear('caza el rótulo "Enviado" sobre opened',
+    rotulaAperturaComoEnviado(`opened: { label: 'Enviado', color: '#25d366' },`), true)
+  chequear('acepta el rótulo "Abierto"',
+    rotulaAperturaComoEnviado(`opened: { label: 'Abierto', color: '#25d366' },`), false)
+  chequear('no confunde sent_api con opened',
+    rotulaAperturaComoEnviado(`sent_api: { label: 'Enviado (API)', color: '#818cf8' },`), false)
+
+  // Renderer
+  chequear('reconoce la allowlist', declaraAllowlist(`export const WHATSAPP_VARIABLES = []`), true)
+  chequear('caza su ausencia', declaraAllowlist(`const vars = []`), false)
+
+  chequear('caza el reemplazo en bucle (template injection)', reemplazaEnUnaPasada(
+    "for (const [key, value] of Object.entries(reps)) {\n" +
+    "  result = result.replace(new RegExp('\\\\{' + key + '\\\\}', 'g'), () => value)\n" +
+    "}"), false)
+  chequear('acepta la pasada única con replacer',
+    reemplazaEnUnaPasada(`const text = template.replace(PLACEHOLDER_RE, (m, key) => resolver(key))`), true)
+  chequear('exige la forma correcta, no sólo la ausencia de la mala',
+    reemplazaEnUnaPasada(`const text = template`), false)
+
+  chequear('caza eval', evaluaDinamicamente(`return eval(tpl)`), true)
+  chequear('caza new Function', evaluaDinamicamente(`const f = new Function('v', tpl)`), true)
+  chequear('no marca código normal', evaluaDinamicamente(`const f = (v) => v.trim()`), false)
+
+  // Handoff
+  chequear('reconoce wa.me', usaWaMe('`https://wa.me/${tel}?text=${t}`'), true)
+  chequear('caza su ausencia', usaWaMe(`'https://web.whatsapp.com/send'`), false)
+
+  chequear('reconoce la ventana estable',
+    usaVentanaConNombreEstable(`export const WHATSAPP_WINDOW_NAME = 'techrepair_whatsapp'`), true)
+  chequear('caza el _blank suelto',
+    usaVentanaConNombreEstable(`window.open(url, '_blank', 'noopener')`), false)
+
+  chequear('reconoce el fail-closed',
+    fallaCerradoSinTelefono(`if (!telefono.valid) return { ok: false, error: e }`), true)
+  chequear('caza el fail-open',
+    fallaCerradoSinTelefono(`return { ok: true, url: 'https://wa.me/?text=' + t }`), false)
+
+  // Modal
+  chequear('reconoce el renderer canónico', usaRendererCanonico(`
+    import { renderTemplate } from '../../services/whatsappTemplate'
+    const r = renderTemplate(tpl, vals)`), true)
+  chequear('caza la vuelta a interpolateTemplate', usaRendererCanonico(`
+    import { interpolateTemplate } from '../../services/whatsappService'
+    const msg = interpolateTemplate(tpl, vars)`), false)
+
+  chequear('reconoce el bloqueo por variable faltante',
+    bloqueaVariableSinResolver(`const bloqueo = motivoDeBloqueo(message)\nconst canSend = ok && !bloqueo`), true)
+  chequear('caza su ausencia',
+    bloqueaVariableSinResolver(`const canSend = phoneResult.valid && message.length > 0`), false)
+
+  // RBAC
+  chequear('reconoce el permiso canónico', gateaConPermisoCanonico(`
+    import { usePermissions } from '../../hooks/usePermissions'
+    const puedeEditar = can('settings_sensitive')`), true)
+  chequear('caza la falta de gate', gateaConPermisoCanonico(`const { businessId } = useAuth()`), false)
+
+  chequear('caza el if de roles a mano', inventaRolesAMano(`const ok = role === 'owner' || role === 'admin'`), true)
+  chequear('caza isOwner || isAdmin', inventaRolesAMano(`const canManage = isOwner || isAdmin;`), true)
+  chequear('no marca el uso canónico', inventaRolesAMano(`const puedeEditar = can('settings_sensitive')`), false)
+
+  chequear('reconoce el corte fail-closed del handler',
+    guardaSoloConPermiso(`if (!businessId || !puedeEditar) return`), true)
+  chequear('caza el handler sin corte',
+    guardaSoloConPermiso(`if (!businessId) return`), false)
+
+  // Multitenant
+  chequear('caza la query sin business_id',
+    acotaPorNegocio(`supabase.from('whatsapp_templates').select('*')`), false)
+  chequear('reconoce el acotado',
+    acotaPorNegocio(`supabase.from('whatsapp_templates').select('*').eq('business_id', businessId)`), true)
+  chequear('reconoce el acotado en el insert',
+    acotaPorNegocio(`supabase.from('whatsapp_templates').upsert({ business_id: businessId })`), true)
+  chequear('no marca un archivo que no toca esas tablas',
+    acotaPorNegocio(`supabase.from('orders').select('*')`), true)
+
+  for (const c of casos) console.log(`  ${c.ok ? '✓' : '✗'} ${c.nombre}`)
+  const fallidos = casos.filter(c => !c.ok)
+  if (fallidos.length) {
+    console.error(`\n✗ Self-test FALLIDO: ${fallidos.length}/${casos.length} comprobaciones no se comportan como dicen.`)
+    process.exit(1)
+  }
+  console.log(`\n✓ Self-test OK: ${casos.length} comprobaciones verificadas en ambos sentidos.`)
+}
+
+// ─── Main ───────────────────────────────────────────────────────────────────
+
+if (process.argv.includes('--self-test')) {
+  console.log('\n─── guard:whatsapp-w1 · self-test ──────────────────────────────────')
+  selfTest()
+} else {
+  const fallas = validarRepo()
+  if (fallas.length) {
+    console.error('\n' + '═'.repeat(74))
+    console.error('  GUARD FALLIDO — WhatsApp estándar (W1) se salió del contrato')
+    console.error('═'.repeat(74))
+    for (const f of fallas) console.error(`  ✗ ${f}`)
+    console.error('═'.repeat(74) + '\n')
+    process.exit(1)
+  }
+  console.log('✓ guard:whatsapp-w1 — handoff wa.me honesto, desacoplado y con allowlist.')
+}

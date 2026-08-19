@@ -19,6 +19,7 @@ import {
   Loader2,
   RefreshCw,
   Printer,
+  MessageCircle,
 
 } from 'lucide-react'
 import { ThemeToggle } from '../components/ui/ThemeToggle'
@@ -26,12 +27,13 @@ import { OrderPrintSettings } from '../components/settings/OrderPrintSettings'
 import { ComprobantePrintSettings } from '../components/settings/ComprobantePrintSettings'
 import { PaymentMethodSettings } from '../components/payments/PaymentMethodSettings'
 import { CommissionSettings } from '../components/settings/CommissionSettings'
+import { WhatsAppTemplatesSettings } from '../components/settings/WhatsAppTemplatesSettings'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import ArcaService from '../services/arcaService'
 import { uploadBusinessLogo } from '../lib/storageSetup'
 
-type TabType = 'datos' | 'puntos' | 'arca' | 'preferencias' | 'seguridad' | 'orden' | 'comprobante' | 'pagos' | 'comisiones'
+type TabType = 'datos' | 'puntos' | 'arca' | 'preferencias' | 'seguridad' | 'orden' | 'comprobante' | 'pagos' | 'comisiones' | 'whatsapp'
 
 interface BusinessSettings {
   id?: string
@@ -604,6 +606,7 @@ export default function Settings() {
     { id: 'comprobante' as TabType, label: 'Comprobantes', icon: FileText },
     { id: 'pagos' as TabType, label: 'Cobros y Pagos', icon: Shield },
     { id: 'comisiones' as TabType, label: 'Comisiones', icon: Bell },
+    { id: 'whatsapp' as TabType, label: 'WhatsApp', icon: MessageCircle },
   ]
 
   if (loading) {
@@ -1505,6 +1508,12 @@ export default function Settings() {
             {/* Toggle módulo mayorista */}
             <MayoristaToggle />
             <CommissionSettings />
+          </div>
+        )}
+
+        {activeTab === 'whatsapp' && (
+          <div className="card" style={{ padding: '2rem', maxWidth: '860px' }}>
+            <WhatsAppTemplatesSettings />
           </div>
         )}
 
