@@ -38,7 +38,7 @@ import {
   motivoDeBloqueo,
   getWhatsAppVariableSpec,
 } from '../../services/whatsappTemplate'
-import { buildWaMeUrl, abrirWhatsApp, EVENTO_APERTURA } from '../../services/whatsappHandoff'
+import { buildHandoffUrl, abrirWhatsApp, EVENTO_APERTURA } from '../../services/whatsappHandoff'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -116,11 +116,17 @@ export function WhatsAppPreviewModal({
   const desktopUrl  = phoneResult.valid ? buildWhatsAppDesktopUrl(phoneInput, message) : ''
 
   /**
-   * Handoff estándar wa.me. Se recalcula sobre el mensaje FINAL — el que el
-   * usuario ve en el textarea — así que la vista previa y lo que recibe
-   * WhatsApp son literalmente el mismo string.
+   * Handoff estándar según plataforma: `web.whatsapp.com/send` en desktop (sin
+   * la pantalla intermedia de api.whatsapp.com, que era la que terminaba
+   * abriendo pestañas nuevas) y `wa.me` en móvil, que deja abrir la app.
+   *
+   * Se recalcula sobre el mensaje FINAL — el que el usuario ve en el textarea —
+   * así que la vista previa y lo que recibe WhatsApp son el mismo string.
    */
-  const handoff = useMemo(() => buildWaMeUrl(phoneInput, message), [phoneInput, message])
+  const handoff = useMemo(
+    () => buildHandoffUrl(phoneInput, message, isMobile),
+    [phoneInput, message, isMobile],
+  )
   /** Variables sin resolver en el mensaje final (incluye lo tipeado a mano). */
   const bloqueo = useMemo(() => motivoDeBloqueo(message), [message])
 

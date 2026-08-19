@@ -121,9 +121,24 @@ export function evaluaDinamicamente(fuente) {
   return /\beval\s*\(|new\s+Function\s*\(/.test(fuente)
 }
 
-/** El handoff usa wa.me, no web.whatsapp.com ni api.whatsapp.com. */
+/** El handoff móvil sigue siendo wa.me (deja que el sistema abra la app). */
 export function usaWaMe(fuente) {
   return /https:\/\/wa\.me\//.test(fuente)
+}
+
+/** En desktop se va directo a WhatsApp Web, sin pantalla intermedia. */
+export function usaWebSendEnDesktop(fuente) {
+  return /https:\/\/web\.whatsapp\.com\/send/.test(fuente)
+}
+
+/**
+ * `api.whatsapp.com/send` es la pantalla intermedia ("Abrir aplicación" /
+ * "Continuar en WhatsApp Web"). Es el paso que hacía que el navegador
+ * estrenara pestaña fuera del nombre de ventana que fija el módulo, así que el
+ * camino Standard no puede volver a apuntar ahí.
+ */
+export function usaPantallaIntermedia(fuente) {
+  return /api\.whatsapp\.com/.test(fuente)
 }
 
 /**
@@ -251,7 +266,15 @@ function validarRepo() {
   // 4. El handoff es wa.me, con pestaña estable y fail-closed.
   const handoff = leer(HANDOFF)
   if (!usaWaMe(handoff)) {
-    fallas.push(`${HANDOFF}: dejó de usar https://wa.me/. Ése es el handoff estándar del bloque.`)
+    fallas.push(`${HANDOFF}: dejó de usar https://wa.me/. Ése es el handoff móvil, el que deja abrir la app nativa.`)
+  }
+  if (!usaWebSendEnDesktop(handoff)) {
+    fallas.push(`${HANDOFF}: dejó de usar https://web.whatsapp.com/send para desktop. Sin eso vuelve la pantalla intermedia que abría pestañas nuevas.`)
+  }
+  for (const p of [HANDOFF, MODAL]) {
+    if (usaPantallaIntermedia(leer(p))) {
+      fallas.push(`${p}: apunta a api.whatsapp.com, la pantalla intermedia ("Continuar en WhatsApp Web"). Ese paso saca al usuario de la pestaña techrepair_whatsapp y estrena una nueva.`)
+    }
   }
   if (!usaVentanaConNombreEstable(handoff)) {
     fallas.push(`${HANDOFF}: perdió el nombre de ventana estable. Sin él, cada mensaje abre una pestaña nueva.`)
@@ -371,6 +394,18 @@ function selfTest() {
   // Handoff
   chequear('reconoce wa.me', usaWaMe('`https://wa.me/${tel}?text=${t}`'), true)
   chequear('caza su ausencia', usaWaMe(`'https://web.whatsapp.com/send'`), false)
+
+  chequear('reconoce web.whatsapp.com/send',
+    usaWebSendEnDesktop('`https://web.whatsapp.com/send?phone=${t}&text=${m}`'), true)
+  chequear('caza su ausencia',
+    usaWebSendEnDesktop('`https://wa.me/${t}?text=${m}`'), false)
+
+  chequear('caza la pantalla intermedia',
+    usaPantallaIntermedia('`https://api.whatsapp.com/send?phone=${t}`'), true)
+  chequear('no marca web.whatsapp.com',
+    usaPantallaIntermedia('`https://web.whatsapp.com/send?phone=${t}`'), false)
+  chequear('no marca wa.me',
+    usaPantallaIntermedia('`https://wa.me/${t}?text=${m}`'), false)
 
   chequear('reconoce la ventana estable',
     usaVentanaConNombreEstable(`export const WHATSAPP_WINDOW_NAME = 'techrepair_whatsapp'`), true)

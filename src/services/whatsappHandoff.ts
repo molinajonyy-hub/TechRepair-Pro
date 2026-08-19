@@ -15,7 +15,7 @@
 // Extensión explícita: este módulo se testea con `node --test`, cuyo resolver
 // de ESM no completa extensiones. `allowImportingTsExtensions` ya está activo y
 // el repo usa este patrón en otros módulos con cobertura unitaria.
-import { normalizeWhatsAppPhone } from './whatsappFormat.ts'
+import { normalizeWhatsAppPhone, isMobileDevice } from './whatsappFormat.ts'
 
 /**
  * Nombre de ventana estable. Reabrir el handoff reutiliza la MISMA pestaña en
@@ -64,6 +64,57 @@ export function buildWaMeUrl(
   }
 }
 
+/**
+ * URL de WhatsApp Web para DESKTOP.
+ *
+ * POR QUÉ NO wa.me EN DESKTOP: `wa.me` redirige a
+ * `api.whatsapp.com/send`, que es una pantalla intermedia ("Chatea en WhatsApp
+ * con…", "Abrir aplicación" / "Continuar en WhatsApp Web"). Ese paso extra es
+ * el que terminaba abriendo pestañas y sesiones nuevas: el usuario elegía
+ * "Continuar en WhatsApp Web" y el navegador estrenaba pestaña, fuera del
+ * control del nombre de ventana que fija este módulo.
+ *
+ * Apuntando directo a `web.whatsapp.com/send` no hay intermediaria, y la
+ * navegación ocurre DENTRO de la pestaña `techrepair_whatsapp` ya abierta.
+ */
+export function buildWebSendUrl(
+  phone: string | null | undefined,
+  message: string,
+): ResultadoHandoff {
+  const telefono = normalizeWhatsAppPhone(phone)
+  if (!telefono.valid) {
+    return { ok: false, error: telefono.error ?? 'Número de teléfono inválido' }
+  }
+  if (!message.trim()) {
+    return { ok: false, error: 'El mensaje está vacío' }
+  }
+  return {
+    ok: true,
+    telefono: telefono.normalized,
+    url: `https://web.whatsapp.com/send?phone=${telefono.normalized}&text=${encodeURIComponent(message)}`,
+  }
+}
+
+/**
+ * URL de handoff según la plataforma.
+ *
+ *  · Desktop → `web.whatsapp.com/send` (sin pantalla intermedia).
+ *  · Móvil   → `wa.me` , que es el que deja al sistema abrir la app nativa.
+ *              Forzar `web.whatsapp.com` en un teléfono lo mandaría al WhatsApp
+ *              Web del navegador móvil, que es peor que la app.
+ *
+ * `esMobile` es inyectable para poder testear las dos ramas sin tocar el
+ * user-agent. Por defecto usa `isMobileDevice()`, el mecanismo que el proyecto
+ * ya venía usando — no se agrega una detección nueva.
+ */
+export function buildHandoffUrl(
+  phone: string | null | undefined,
+  message: string,
+  esMobile: boolean = isMobileDevice(),
+): ResultadoHandoff {
+  return esMobile ? buildWaMeUrl(phone, message) : buildWebSendUrl(phone, message)
+}
+
 export type AperturaHandoff =
   | { abierto: true }
   | { abierto: false; error: string }
@@ -73,7 +124,17 @@ export type AperturaHandoff =
  *
  * No se pasa `noopener`: con él el navegador ignora el nombre de ventana y
  * abre una pestaña nueva cada vez. El destino es un dominio fijo y conocido
- * (wa.me), y nunca se le entrega una referencia útil a la página de origen.
+ * de WhatsApp, y nunca se le entrega una referencia útil a la página de origen.
+ *
+ * CONTRATO DE REUTILIZACIÓN (y su límite honesto):
+ *  · 1er handoff desde TechRepair → crea la pestaña `techrepair_whatsapp`.
+ *  · 2º y siguientes → el navegador encuentra la pestaña por NOMBRE y navega
+ *    esa misma, aunque cambien cliente, teléfono y mensaje.
+ *  · Si el usuario la cerró → `window.open` la vuelve a crear, sin ruido.
+ *
+ * Lo que NO se promete: adoptar una pestaña de WhatsApp Web que el usuario haya
+ * abierto por su cuenta. El navegador no deja enumerar pestañas ajenas, y sólo
+ * responde al nombre de ventana que fijó esta misma app.
  */
 export function abrirWhatsApp(
   url: string,
@@ -86,5 +147,9 @@ export function abrirWhatsApp(
       error: 'El navegador bloqueó la ventana. Permití las ventanas emergentes para este sitio o copiá el mensaje.',
     }
   }
+  // Traer la pestaña reutilizada al frente. Es best-effort: algunos navegadores
+  // devuelven una referencia cross-origin donde `focus` no existe o lanza. Que
+  // no se pueda enfocar NO invalida la apertura.
+  try { win.focus?.() } catch { /* el navegador no permite enfocarla; no importa */ }
   return { abierto: true }
 }

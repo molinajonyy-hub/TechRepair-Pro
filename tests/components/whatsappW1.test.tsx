@@ -335,7 +335,7 @@ describe('W1 · modal de preview', () => {
     await waitFor(() => expect(textarea.value).toBe('Texto escrito a mano'))
   })
 
-  it('abrir WhatsApp usa wa.me, la pestaña estable, y registra "opened" (no "sent")', async () => {
+  it('abrir WhatsApp usa WhatsApp Web, la pestaña estable, y registra "opened" (no "sent")', async () => {
     const aperturas: Array<[string, string]> = []
     const openSpy = vi.fn((url: string, target: string) => { aperturas.push([url, target]); return {} as Window })
     vi.stubGlobal('open', openSpy)
@@ -351,14 +351,18 @@ describe('W1 · modal de preview', () => {
     estado.ops = []
     await user.click(boton)
 
-    // 1 · handoff wa.me sobre la ventana con nombre estable
+    // 1 · desktop (jsdom no es móvil) ⇒ WhatsApp Web directo, sobre la ventana
+    //     con nombre estable. NUNCA api.whatsapp.com, que es la pantalla
+    //     intermedia que sacaba al usuario de esa pestaña.
     expect(aperturas).toHaveLength(1)
     const [url, target] = aperturas[0]
-    expect(url.startsWith('https://wa.me/5493511234567?text=')).toBe(true)
+    expect(url.startsWith('https://web.whatsapp.com/send?phone=5493511234567&text=')).toBe(true)
+    expect(url).not.toContain('api.whatsapp.com')
     expect(target).toBe('techrepair_whatsapp')
+    expect(target).not.toBe('_blank')
 
     // 2 · el preview es EXACTAMENTE lo que recibe WhatsApp
-    expect(decodeURIComponent(url.split('?text=')[1])).toBe(mensajeEnPantalla)
+    expect(decodeURIComponent(url.split('&text=')[1])).toBe(mensajeEnPantalla)
 
     // 3 · la UI dice "abierto", nunca "enviado"
     const chip = await screen.findByTestId('whatsapp-send-status')
@@ -367,5 +371,42 @@ describe('W1 · modal de preview', () => {
 
     // 4 · el log escrito es `opened`, jamás sent/delivered/read
     await waitFor(() => expect(opsDe('whatsapp_logs').length).toBeGreaterThan(0))
+  })
+
+  it('dos mensajes seguidos REUTILIZAN la pestaña: mismo target, URL distinta', async () => {
+    estado.filas.whatsapp_templates = [
+      { id: 't1', business_id: BIZ_A, status_key: 'ready_pickup', status_label: 'Listo para Retirar',
+        message_template: 'Hola {nombre}, tu equipo está listo.', auto_send: false, is_active: true },
+      { id: 't2', business_id: BIZ_A, status_key: 'received', status_label: 'Recibido',
+        message_template: 'Hola {nombre}, recibimos tu equipo.', auto_send: false, is_active: true },
+    ]
+    const aperturas: Array<[string, string]> = []
+    vi.stubGlobal('open', vi.fn((url: string, target: string) => {
+      aperturas.push([url, target]); return {} as Window
+    }))
+
+    const user = userEvent.setup()
+    abrirModal()
+
+    const textarea = await screen.findByTestId('whatsapp-preview-textarea') as HTMLTextAreaElement
+    const boton = screen.getByTestId('whatsapp-send-api-button')
+    await waitFor(() => expect(boton).toBeEnabled())
+    await user.click(boton)
+
+    // Segundo mensaje: otra plantilla ⇒ otro texto ⇒ otra URL.
+    await user.selectOptions(screen.getByTestId('whatsapp-template-select'), 'received')
+    await waitFor(() => expect(textarea.value).toContain('recibimos'))
+    await waitFor(() => expect(boton).toBeEnabled())
+    await user.click(boton)
+
+    expect(aperturas).toHaveLength(2)
+    // Lo que se repite es el NOMBRE de la ventana: por eso el navegador
+    // reutiliza la pestaña en vez de estrenar una por mensaje.
+    expect(aperturas[0][1]).toBe('techrepair_whatsapp')
+    expect(aperturas[1][1]).toBe(aperturas[0][1])
+    expect(aperturas.some(([, t]) => t === '_blank')).toBe(false)
+    // Y el destino sí cambia.
+    expect(aperturas[1][0]).not.toBe(aperturas[0][0])
+    expect(aperturas.every(([u]) => u.startsWith('https://web.whatsapp.com/send?'))).toBe(true)
   })
 })

@@ -84,7 +84,26 @@ COMMIT;
 `)
 })
 
-test('@m7-local W1 · orden → plantilla → preview → wa.me', async ({ page }) => {
+test('@m7-local W1 · el sidebar no ofrece el módulo Cloud API, y el editor sigue accesible', async ({ page }) => {
+  await page.goto('/dashboard')
+  await page.waitForLoadState('networkidle')
+
+  // El item de navegación a /whatsapp (pantalla Cloud API) se retiró.
+  const navWhatsApp = page.locator('.sidebar nav a[href="/whatsapp"], .sidebar-mobile nav a[href="/whatsapp"]')
+  await expect(navWhatsApp, 'el item WhatsApp no va más en el sidebar').toHaveCount(0)
+
+  // Pero las plantillas Standard se siguen editando desde Configuración.
+  await page.goto('/settings?tab=whatsapp')
+  await page.waitForLoadState('networkidle')
+  await expect(page.locator('[data-testid="whatsapp-templates-settings"]')).toBeVisible({ timeout: 15_000 })
+
+  // Y la ruta Cloud API NO se borró: sigue respondiendo.
+  await page.goto('/whatsapp')
+  await page.waitForLoadState('networkidle')
+  await expect(page.locator('h1, h2, .page-hdr-title, .page-title').first()).toBeVisible({ timeout: 15_000 })
+})
+
+test('@m7-local W1 · orden → plantilla → preview → WhatsApp (pestaña reutilizada)', async ({ page }) => {
   // ── Espía de window.open ANTES de que cargue nada ──────────────────────────
   // Devuelve un objeto no-nulo: `null` significa "popup bloqueado" y el modal
   // mostraría un error en vez de registrar la apertura.
@@ -140,24 +159,53 @@ test('@m7-local W1 · orden → plantilla → preview → wa.me', async ({ page 
   await expect(boton).toBeEnabled()
   await boton.click()
 
-  const aperturas = await page.evaluate(
+  const leerAperturas = () => page.evaluate(
     () => (window as unknown as { __WA_OPEN__: [string, string][] }).__WA_OPEN__)
 
+  const aperturas = await leerAperturas()
   expect(aperturas, 'tiene que abrirse exactamente una vez').toHaveLength(1)
   const [url, target] = aperturas[0]
 
-  // Destino: wa.me con el teléfono normalizado, y pestaña con nombre estable.
-  expect(url.startsWith(`https://wa.me/${TEL_NORMALIZADO}?text=`)).toBe(true)
+  // Desktop: WhatsApp Web directo. NO la pantalla intermedia de
+  // api.whatsapp.com ("Continuar en WhatsApp Web"), que era la que sacaba al
+  // usuario de la pestaña nombrada y estrenaba una nueva.
+  expect(new URL(url).hostname).toBe('web.whatsapp.com')
+  expect(url).not.toContain('api.whatsapp.com')
+  expect(url).toContain(`phone=${TEL_NORMALIZADO}`)
+
+  // Pestaña con nombre estable, nunca _blank.
   expect(target).toBe('techrepair_whatsapp')
+  expect(target).not.toBe('_blank')
 
   // ── 5 · el preview es EXACTAMENTE lo que recibe WhatsApp ───────────────────
-  const enviado = decodeURIComponent(url.slice(url.indexOf('?text=') + '?text='.length))
-  expect(enviado, 'lo que se ve tiene que ser lo que se manda').toBe(mensaje)
+  const textoDe = (u: string) => decodeURIComponent(u.slice(u.indexOf('&text=') + '&text='.length))
+  expect(textoDe(url), 'lo que se ve tiene que ser lo que se manda').toBe(mensaje)
 
   // Encoding correcto y sin doble encoding.
   expect(url).not.toContain('\n')
   expect(url).toContain('%0A')
   expect(url).not.toContain('%250A')
+
+  // ── 4b · el SEGUNDO handoff reutiliza la MISMA pestaña ────────────────────
+  // Se cambia de plantilla para que el mensaje sea distinto: lo que tiene que
+  // repetirse es el target, no la URL.
+  await modal.locator('[data-testid="whatsapp-template-select"]').selectOption('ready_pickup')
+  await expect.poll(async () => await textarea.inputValue()).not.toBe(mensaje)
+  const mensaje2 = await textarea.inputValue()
+
+  await expect(boton).toBeEnabled()
+  await boton.click()
+
+  const aperturas2 = await leerAperturas()
+  expect(aperturas2, 'el segundo mensaje también abre').toHaveLength(2)
+  const [url2, target2] = aperturas2[1]
+
+  expect(target2, 'reutiliza la pestaña: mismo nombre de ventana').toBe('techrepair_whatsapp')
+  expect(target2).toBe(target)
+  expect(url2, 'pero navega a un destino distinto').not.toBe(url)
+  expect(new URL(url2).hostname).toBe('web.whatsapp.com')
+  expect(url2).not.toContain('api.whatsapp.com')
+  expect(textoDe(url2)).toBe(mensaje2)
 
   // ── 6 · la UI no miente ────────────────────────────────────────────────────
   const chip = modal.locator('[data-testid="whatsapp-send-status"]')

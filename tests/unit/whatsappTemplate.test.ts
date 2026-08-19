@@ -21,6 +21,8 @@ import {
 } from '../../src/services/whatsappTemplate.ts'
 import {
   buildWaMeUrl,
+  buildWebSendUrl,
+  buildHandoffUrl,
   abrirWhatsApp,
   WHATSAPP_WINDOW_NAME,
   EVENTO_APERTURA,
@@ -331,6 +333,103 @@ describe('buildWaMeUrl', () => {
   test('nunca arma el wa.me sin destinatario (https://wa.me/?text=…)', () => {
     const r = buildWaMeUrl('', 'hola')
     assert.equal(r.ok, false)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════
+// HANDOFF POR PLATAFORMA · desktop sin pantalla intermedia
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('buildHandoffUrl — desktop vs móvil', () => {
+
+  const MSG = 'Hola Ana 👋\nTotal: $85.000'
+
+  test('DESKTOP va directo a web.whatsapp.com/send', () => {
+    const r = buildHandoffUrl('0351 15 1234567', MSG, false)
+    assert.equal(r.ok, true)
+    const url = (r as { url: string }).url
+    assert.ok(url.startsWith('https://web.whatsapp.com/send?phone=5493511234567&text='), url)
+  })
+
+  test('DESKTOP nunca usa api.whatsapp.com (la pantalla intermedia)', () => {
+    const url = (buildHandoffUrl('3511234567', MSG, false) as { url: string }).url
+    assert.ok(!url.includes('api.whatsapp.com'),
+      'api.whatsapp.com obliga a "Continuar en WhatsApp Web" y estrena pestaña')
+  })
+
+  test('DESKTOP tampoco usa wa.me, que redirige a esa pantalla', () => {
+    const url = (buildHandoffUrl('3511234567', MSG, false) as { url: string }).url
+    assert.ok(!url.includes('wa.me'), url)
+  })
+
+  test('MÓVIL sigue en wa.me, que deja abrir la app nativa', () => {
+    const r = buildHandoffUrl('0351 15 1234567', MSG, true)
+    const url = (r as { url: string }).url
+    assert.ok(url.startsWith('https://wa.me/5493511234567?text='), url)
+    assert.ok(!url.includes('web.whatsapp.com'), 'en un teléfono, WhatsApp Web es peor que la app')
+  })
+
+  test('las dos ramas fallan cerrado con teléfono inválido', () => {
+    for (const esMobile of [true, false]) {
+      const r = buildHandoffUrl('351 123', MSG, esMobile)
+      assert.equal(r.ok, false, `esMobile=${esMobile}`)
+      assert.ok(!('url' in r))
+    }
+  })
+
+  test('las dos ramas codifican igual, una sola vez', () => {
+    const esperado = encodeURIComponent(MSG)
+    assert.ok((buildHandoffUrl('3511234567', MSG, false) as { url: string }).url.endsWith(esperado))
+    assert.ok((buildHandoffUrl('3511234567', MSG, true)  as { url: string }).url.endsWith(esperado))
+  })
+
+  test('sin doble encoding en desktop: %0A, no %250A', () => {
+    const url = (buildWebSendUrl('3511234567', 'a\nb 100%') as { url: string }).url
+    assert.ok(url.includes('%0A'))
+    assert.ok(!url.includes('%250A'))
+    assert.ok(!url.includes('%2525'))
+  })
+
+  test('el teléfono va en el parámetro phone, en dígitos', () => {
+    const url = (buildWebSendUrl('+54 9 351 1234567', 'hola') as { url: string }).url
+    assert.ok(url.includes('phone=5493511234567'), url)
+  })
+})
+
+describe('reutilización de la pestaña', () => {
+
+  test('tres handoffs seguidos usan SIEMPRE el mismo target, con URLs distintas', () => {
+    const llamadas: { url: string; target: string }[] = []
+    const spy = (url: string, target: string) => { llamadas.push({ url, target }); return {} as Window }
+
+    for (const [tel, msg] of [['3511234567', 'uno'], ['1123456789', 'dos'], ['3512223333', 'tres']]) {
+      const r = buildHandoffUrl(tel, msg, false)
+      abrirWhatsApp((r as { url: string }).url, spy)
+    }
+
+    assert.equal(llamadas.length, 3)
+    // Mismo target siempre: el navegador reutiliza la pestaña por NOMBRE.
+    assert.deepEqual([...new Set(llamadas.map(l => l.target))], ['techrepair_whatsapp'])
+    assert.ok(!llamadas.some(l => l.target === '_blank'), '_blank estrena pestaña cada vez')
+    // Y navega a destinos distintos aunque cambien cliente, teléfono y mensaje.
+    assert.equal(new Set(llamadas.map(l => l.url)).size, 3)
+  })
+
+  test('enfoca la pestaña reutilizada', () => {
+    let enfocada = 0
+    abrirWhatsApp('https://web.whatsapp.com/send?phone=1&text=a',
+      () => ({ focus: () => { enfocada++ } } as unknown as Window))
+    assert.equal(enfocada, 1)
+  })
+
+  test('si el navegador no deja enfocar, la apertura sigue siendo válida', () => {
+    const sinFocus = abrirWhatsApp('https://web.whatsapp.com/send?phone=1&text=a',
+      () => ({} as Window))
+    assert.equal(sinFocus.abierto, true)
+
+    const focusQueLanza = abrirWhatsApp('https://web.whatsapp.com/send?phone=1&text=a',
+      () => ({ focus: () => { throw new Error('cross-origin') } } as unknown as Window))
+    assert.equal(focusQueLanza.abierto, true)
   })
 })
 
