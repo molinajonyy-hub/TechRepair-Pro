@@ -35,8 +35,46 @@ export const ORIGENES_AUTORIZADOS = Object.freeze([
  */
 const TELEFONO_VALIDO = /^[0-9]{8,15}$/;
 
-export const error = (code, detalle) =>
-  ({ ok: false, code, ...(detalle ? { detalle } : {}) });
+/**
+ * Códigos de error del contrato.
+ *
+ * `HOST_ACCESS_REQUIRED` es distinto de todos los demás y de "no instalada":
+ * la extensión ESTÁ, pero Chrome le retiró el acceso a web.whatsapp.com (el
+ * usuario o una política puso el acceso al sitio en «Al hacer clic»). Sin ese
+ * acceso, `tabs.query({url})` NO tira error: devuelve CERO pestañas —medido—,
+ * así que la extensión crearía una pestaña nueva cada vez, en silencio, que es
+ * exactamente lo que existe para evitar. Por eso se detecta y se dice.
+ */
+export const CODIGOS = Object.freeze({
+  FORBIDDEN_ORIGIN: 'FORBIDDEN_ORIGIN',
+  BAD_PAYLOAD: 'BAD_PAYLOAD',
+  UNKNOWN_TYPE: 'UNKNOWN_TYPE',
+  BAD_PHONE: 'BAD_PHONE',
+  BAD_TEXT: 'BAD_TEXT',
+  TEXT_TOO_LONG: 'TEXT_TOO_LONG',
+  HOST_ACCESS_REQUIRED: 'HOST_ACCESS_REQUIRED',
+  TAB_ERROR: 'TAB_ERROR',
+});
+
+/**
+ * Respuesta de error. SÓLO el código.
+ *
+ * No se adjunta el detalle del error de Chrome: esos mensajes pueden incluir la
+ * URL completa —o sea el teléfono y el mensaje— y devolvérselos a la página es
+ * un canal de eco que nadie necesita. El llamador sólo usa el código.
+ */
+export const error = (code) => ({ ok: false, code });
+
+/**
+ * Respuesta de apertura exitosa. MÍNIMA a propósito.
+ *
+ * No lleva `tabId` ni la cantidad de pestañas encontradas. TechRepair no
+ * necesita saber cuántas pestañas de WhatsApp Web tiene abiertas la persona, y
+ * emitir ese dato hacia una página web es estado del navegador saliendo de la
+ * extensión sin ninguna razón. Lo único que el llamador usa es si se reutilizó
+ * una pestaña o se creó una.
+ */
+export const respuestaApertura = (action) => ({ ok: true, action });
 
 /** True sólo para un origin de la allowlist. Fail-closed ante cualquier cosa rara. */
 export function origenAutorizado(sender) {
@@ -55,11 +93,11 @@ export function origenAutorizado(sender) {
  * destino no se negocia con el llamador.
  */
 export function validarApertura(msg) {
-  if (!msg || typeof msg !== 'object') return error('BAD_PAYLOAD');
-  if (msg.type !== 'OPEN_WHATSAPP_WEB') return error('UNKNOWN_TYPE');
-  if (typeof msg.phone !== 'string' || !TELEFONO_VALIDO.test(msg.phone)) return error('BAD_PHONE');
-  if (typeof msg.text !== 'string' || msg.text.length === 0) return error('BAD_TEXT');
-  if (msg.text.length > MAX_TEXTO) return error('TEXT_TOO_LONG');
+  if (!msg || typeof msg !== 'object') return error(CODIGOS.BAD_PAYLOAD);
+  if (msg.type !== 'OPEN_WHATSAPP_WEB') return error(CODIGOS.UNKNOWN_TYPE);
+  if (typeof msg.phone !== 'string' || !TELEFONO_VALIDO.test(msg.phone)) return error(CODIGOS.BAD_PHONE);
+  if (typeof msg.text !== 'string' || msg.text.length === 0) return error(CODIGOS.BAD_TEXT);
+  if (msg.text.length > MAX_TEXTO) return error(CODIGOS.TEXT_TOO_LONG);
   return null;
 }
 
@@ -79,6 +117,10 @@ export function construirUrl(phone, text) {
  *   3. fallback estable por `(windowId, index)`.
  *
  * Nunca aleatorio. Nunca cierra las demás: si el usuario tiene varias, son suyas.
+ *
+ * Sólo lee propiedades no sensibles: `active`, `lastAccessed`, `windowId` e
+ * `index`. Chrome también entrega `url`, `title` y `favIconUrl` de las pestañas
+ * que matchean el host permission —está medido—, pero acá no se leen.
  */
 export function elegirPestana(tabs) {
   if (!Array.isArray(tabs) || tabs.length === 0) return null;

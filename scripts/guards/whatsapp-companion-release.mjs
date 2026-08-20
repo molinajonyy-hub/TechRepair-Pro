@@ -30,9 +30,26 @@ const SW = `${DIR}/service-worker.js`
 /** Permisos que la extensión NO necesita y que ampliarían mucho su alcance. */
 const PERMISOS_PROHIBIDOS = [
   'tabs', 'cookies', 'history', 'webRequest', 'webRequestBlocking',
+  'declarativeNetRequest', 'declarativeNetRequestWithHostAccess',
   'scripting', 'nativeMessaging', 'downloads', 'clipboardRead',
   'clipboardWrite', 'management', 'debugger', 'proxy', 'privacy',
+  // `storage` y `activeTab` no estaban, y son justamente los que un commit
+  // futuro agregaría sin llamar la atención. La extensión no guarda nada.
+  'storage', 'unlimitedStorage', 'activeTab', 'bookmarks', 'topSites',
 ]
+
+/**
+ * APIs de almacenamiento que NO requieren declararse en el manifest.
+ *
+ * IndexedDB y CacheStorage están disponibles sin pedir nada, así que la
+ * ausencia de la clave `permissions` no prueba que la extensión no almacene.
+ * Lo que lo prueba es el código, no el manifest — de ahí este chequeo aparte.
+ */
+const APIS_DE_ALMACENAMIENTO =
+  /\bchrome\s*\.\s*storage\b|\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|\bcaches\s*\.\s*open\b/
+
+/** Tamaños de ícono que el manifest debe declarar. El 128 lo exige el Store. */
+const ICONOS_REQUERIDOS = ['16', '32', '48', '128']
 
 // ─── Comprobaciones puras (testeables) ──────────────────────────────────────
 
@@ -85,6 +102,70 @@ export function validaOrigenYPayload(fuente) {
   return /origenAutorizado/.test(fuente) && /validarApertura/.test(fuente)
 }
 
+/**
+ * El código no usa ninguna API de almacenamiento.
+ *
+ * El manifest no puede probar esto: IndexedDB y CacheStorage no se declaran.
+ * «No almacena» es un claim que va a la ficha del Store, así que tiene que
+ * estar bajo guard y no bajo palabra.
+ */
+export function usaAlmacenamiento(fuente) {
+  return APIS_DE_ALMACENAMIENTO.test(fuente)
+}
+
+/**
+ * La respuesta al sitio es MÍNIMA.
+ *
+ * `encontradas: tabs.length` le informaba a la página cuántas pestañas de
+ * WhatsApp Web tenía abiertas la persona: estado del navegador saliendo hacia
+ * una web, sin consumidor y sin figurar en el contrato documentado. Y el
+ * `detalle` de los errores podía llevar el mensaje crudo de Chrome, que incluye
+ * la URL completa — o sea el teléfono y el texto.
+ */
+export function filtraEstadoDelNavegador(fuente) {
+  return /\bencontradas\b/.test(fuente)
+      || /\btabCount\b/.test(fuente)
+      || /tabId\s*:/.test(fuente)
+      || /error\([^)]*,\s*String\(/.test(fuente)
+}
+
+/**
+ * Distingue «sin acceso al host» de «no instalada».
+ *
+ * MEDIDO: sin el host permission, `tabs.query({url})` no tira error — devuelve
+ * cero pestañas. Sin este chequeo la extensión crearía una pestaña nueva en
+ * cada mensaje, en silencio y respondiendo ok, que es justo el problema que
+ * vino a resolver.
+ */
+export function detectaFaltaDeAcceso(fuente) {
+  return /permissions\s*\.\s*contains\s*\(/.test(fuente)
+      && /HOST_ACCESS_REQUIRED/.test(fuente)
+}
+
+/**
+ * No afirma que no toca el historial.
+ *
+ * Es falso: `tabs.update` es una navegación top-level y Chrome la asienta en el
+ * historial con el teléfono y el mensaje en la URL. La frase correcta habla de
+ * las APIs (`no usa chrome.history`), no del efecto.
+ */
+export function afirmaQueNoTocaElHistorial(fuente) {
+  return /no\s+(toca|tocan|deja|dejan)[^\n.]{0,40}historial/i.test(fuente)
+}
+
+/** Declara los íconos, y los archivos existen. Devuelve lo que falta. */
+export function iconosFaltantes(manifest, existe) {
+  const faltan = []
+  const icons = manifest?.icons
+  if (!icons || typeof icons !== 'object') return ['la clave "icons" no está declarada']
+  for (const tamano of ICONOS_REQUERIDOS) {
+    const ruta = icons[tamano]
+    if (!ruta) faltan.push(`icons.${tamano} no declarado`)
+    else if (!existe(ruta)) faltan.push(`icons.${tamano} apunta a ${ruta}, que no existe`)
+  }
+  return faltan
+}
+
 // ─── Recorrido del repo ─────────────────────────────────────────────────────
 
 function validarRepo() {
@@ -124,9 +205,30 @@ function validarRepo() {
     fallas.push(`${CONTRATO}: dejó de construir el destino internamente. Si el host o el path vinieran del payload, la extensión sería un open-redirect.`)
   }
 
+  const faltanIconos = iconosFaltantes(manifest, (ruta) => existsSync(join(RAIZ, DIR, ruta)))
+  if (faltanIconos.length) {
+    fallas.push(`${MANIFEST}: ${faltanIconos.join(' · ')}. Chrome Web Store exige el ícono de 128×128; sin él la submission no se completa. Generalos con: npm run companion:iconos`)
+  }
+
   const sw = readFileSync(join(RAIZ, SW), 'utf-8')
   if (!validaOrigenYPayload(sw)) {
     fallas.push(`${SW}: dejó de validar el origen o el payload antes de abrir una pestaña.`)
+  }
+  if (!detectaFaltaDeAcceso(sw)) {
+    fallas.push(`${SW}: dejó de distinguir «sin acceso al host» de «no instalada». Sin permissions.contains + HOST_ACCESS_REQUIRED, con el acceso al sitio en «Al hacer clic» la extensión crea una pestaña nueva en cada mensaje, en silencio y respondiendo ok.`)
+  }
+  if (filtraEstadoDelNavegador(sw)) {
+    fallas.push(`${SW}: la respuesta al sitio volvió a llevar estado del navegador (encontradas/tabId) o el detalle crudo de un error. TechRepair no necesita nada de eso, y el detalle del error puede incluir la URL completa — o sea el teléfono y el mensaje.`)
+  }
+
+  for (const p of [SW, CONTRATO]) {
+    const fuente = readFileSync(join(RAIZ, p), 'utf-8')
+    if (usaAlmacenamiento(fuente)) {
+      fallas.push(`${p}: usa una API de almacenamiento. «No almacena nada» es un claim de la ficha del Store; IndexedDB y CacheStorage ni siquiera se declaran en el manifest, así que esto sólo lo puede probar el código.`)
+    }
+    if (afirmaQueNoTocaElHistorial(fuente)) {
+      fallas.push(`${p}: afirma que no toca el historial. Es falso: tabs.update es una navegación top-level y Chrome la asienta en el historial con el teléfono y el mensaje en la URL. La frase correcta es que no usa las APIs de cookies/storage/history.`)
+    }
   }
 
   return fallas
@@ -176,6 +278,47 @@ function selfTest() {
 
   chequear('reconoce las validaciones', validaOrigenYPayload('origenAutorizado(sender); validarApertura(msg)'), true)
   chequear('caza su ausencia', validaOrigenYPayload('abrirEnWhatsApp(msg.url)'), false)
+
+  // Almacenamiento — lo que el manifest no puede probar
+  chequear('caza chrome.storage', usaAlmacenamiento('await chrome.storage.local.set({ x })'), true)
+  chequear('caza localStorage', usaAlmacenamiento('localStorage.setItem("a", b)'), true)
+  chequear('caza indexedDB', usaAlmacenamiento('const db = indexedDB.open("x")'), true)
+  chequear('caza CacheStorage', usaAlmacenamiento('const c = await caches.open("v1")'), true)
+  chequear('no marca el código actual', usaAlmacenamiento('const tabs = await chrome.tabs.query({ url })'), false)
+
+  // Respuesta mínima
+  chequear('caza encontradas', filtraEstadoDelNavegador('return { ok: true, action, encontradas: tabs.length }'), true)
+  chequear('caza tabCount', filtraEstadoDelNavegador('return { ok: true, tabCount: n }'), true)
+  chequear('caza tabId', filtraEstadoDelNavegador('return { ok: true, action, tabId: tab.id }'), true)
+  chequear('caza el detalle crudo del error',
+    filtraEstadoDelNavegador('sendResponse(error(CODIGOS.TAB_ERROR, String(e.message)))'), true)
+  chequear('acepta la respuesta mínima',
+    filtraEstadoDelNavegador('return respuestaApertura("reused")\nsendResponse(error(CODIGOS.TAB_ERROR))'), false)
+
+  // Host access
+  chequear('reconoce la detección de falta de acceso', detectaFaltaDeAcceso(
+    'await chrome.permissions.contains({ origins: [P] })\nerror(CODIGOS.HOST_ACCESS_REQUIRED)'), true)
+  chequear('caza que sólo esté el chequeo sin el código',
+    detectaFaltaDeAcceso('await chrome.permissions.contains({ origins: [P] })'), false)
+  chequear('caza su ausencia total',
+    detectaFaltaDeAcceso('const tabs = await chrome.tabs.query({ url })'), false)
+
+  // Historial — la afirmación que no se puede sostener
+  chequear('caza «no toca cookies, storage ni historial»',
+    afirmaQueNoTocaElHistorial('// no toca cookies, storage ni historial'), true)
+  chequear('caza «no deja datos en el historial»',
+    afirmaQueNoTocaElHistorial('no deja datos en el historial del navegador'), true)
+  chequear('acepta la redacción correcta',
+    afirmaQueNoTocaElHistorial('no usa las APIs de cookies, storage ni history, y no las declara'), false)
+  chequear('acepta que se explique que SÍ lo escribe',
+    afirmaQueNoTocaElHistorial('Chrome la asienta en el historial del perfil'), false)
+
+  // Íconos
+  const iconsOk = { icons: { 16: 'icons/icon16.png', 32: 'icons/icon32.png', 48: 'icons/icon48.png', 128: 'icons/icon128.png' } }
+  chequear('acepta los cuatro íconos presentes', iconosFaltantes(iconsOk, () => true).length, 0)
+  chequear('caza el archivo ausente', iconosFaltantes(iconsOk, (r) => r !== 'icons/icon128.png').length, 1)
+  chequear('caza la falta del 128', iconosFaltantes({ icons: { 16: 'a.png', 32: 'b.png', 48: 'c.png' } }, () => true).length, 1)
+  chequear('caza la ausencia de la clave icons', iconosFaltantes({}, () => true).length, 1)
 
   for (const c of casos) console.log(`  ${c.ok ? '✓' : '✗'} ${c.nombre}`)
   const fallidos = casos.filter(c => !c.ok)
