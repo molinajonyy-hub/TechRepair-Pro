@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "TechRepair WhatsApp Companion",
-  "version": "0.1.0",
-  "description": "Administra UNA sola pestaña de WhatsApp Web para TechRepair. No lee ni envía mensajes.",
+  "version": "1.0.0",
+  "description": "Reutiliza una sola pestaña de WhatsApp Web para los mensajes que prepara TechRepair. No lee ni envía mensajes.",
   "background": {
-    "service_worker": "service-worker.js"
+    "service_worker": "service-worker.js",
+    "type": "module"
   },
   "host_permissions": [
     "https://web.whatsapp.com/*"
@@ -12,8 +13,7 @@
   "externally_connectable": {
     "matches": [
       "https://techrepairpro.app/*",
-      "https://www.techrepairpro.app/*",
-      "http://localhost:4599/*"
+      "https://www.techrepairpro.app/*"
     ]
   }
 }

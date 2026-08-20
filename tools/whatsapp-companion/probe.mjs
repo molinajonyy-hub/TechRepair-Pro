@@ -67,6 +67,17 @@ const chequear = (etiqueta, ok, detalle) => {
   console.log(`   ${ok ? 'OK  ' : 'FALLA'} ${etiqueta}${detalle ? ' · ' + detalle : ''}`)
 }
 
+// ══ PING · descubrimiento ═════════════════════════════════════════════════
+// Así TechRepair sabe si el Companion está instalado sin heurísticas: le habla
+// a una extensión conocida por ID. Tiene que responder SIN abrir nada.
+console.log('══ PING · descubrimiento ═════════════════════════════════════')
+const tabsAntesPing = tabsWhatsApp().length
+const ping = await enviar(page, { type: 'PING' })
+await page.waitForTimeout(500)
+chequear('responde ok', ping.res?.ok === true, JSON.stringify(ping.res))
+chequear('declara versión', typeof ping.res?.version === 'string' && /^\d+\.\d+\.\d+$/.test(ping.res.version), ping.res?.version)
+chequear('el PING no abre ninguna pestaña', tabsWhatsApp().length === tabsAntesPing)
+
 // ══ CASO 0 · WhatsApp abierto MANUALMENTE, se adopta ═══════════════════════
 console.log('══ CASO 0 · adopta una pestaña abierta a mano ════════════════')
 const manual = await ctx.newPage()
