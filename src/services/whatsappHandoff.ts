@@ -1,37 +1,61 @@
 /**
  * whatsappHandoff — apertura ESTÁNDAR de WhatsApp (W1).
  *
- * Handoff externo puro: `https://wa.me/<telefono>?text=<mensaje>`.
- *
  * DESACOPLADO DEL TRANSPORTE OFICIAL A PROPÓSITO. Este módulo no importa
  * Supabase, no invoca Edge Functions, no conoce `whatsapp-send` ni ningún
  * `access_token` / `phone_number_id` de Meta. El guard
  * `scripts/guards/whatsapp-w1-standard.mjs` lo verifica en CI.
  *
- * LO QUE TECHREPAIR PUEDE SABER: que preparó el mensaje y que el usuario tocó
- * "Abrir WhatsApp". NADA MÁS. No hay evidencia de `sent`, `delivered` ni
- * `read`, así que este módulo no expone esos estados. Ver `EVENTO_APERTURA`.
+ * ┌── POR QUÉ NO SE REUTILIZA UNA PESTAÑA DE WHATSAPP WEB ────────────────────┐
+ * │ MEDIDO en Chromium real, no supuesto. `https://web.whatsapp.com/` responde│
+ * │                                                                           │
+ * │     Cross-Origin-Opener-Policy: same-origin                               │
+ * │     Cross-Origin-Embedder-Policy: require-corp                            │
+ * │                                                                           │
+ * │ Con COOP `same-origin`, navegar un popup cross-origin hacia WhatsApp      │
+ * │ provoca un browsing-context-group switch: el `WindowProxy` que conservaba  │
+ * │ el opener queda SEVERED y `ref.closed` pasa a `true` AUNQUE LA PESTAÑA     │
+ * │ SIGA ABIERTA. Medición desde techrepairpro.app:                           │
+ * │                                                                           │
+ * │     about:blank            → closed: false                                │
+ * │     tras `opener = null`   → closed: false                                │
+ * │     tras cargar WhatsApp   → closed: TRUE   ← sin que nadie la cerrara     │
+ * │                                                                           │
+ * │ Se probaron las tres vías y las tres fallan contra WhatsApp: referencia    │
+ * │ con opener anulado, referencia con opener conservado, y target por nombre  │
+ * │ (`window.name` además se resetea al navegar cross-origin). Los mismos      │
+ * │ escenarios contra un destino SIN COOP sí reutilizan, así que la lógica     │
+ * │ era correcta y COOP es la única variable.                                  │
+ * │                                                                           │
+ * │ Corolario aparte: `ref.opener = null` TAMBIÉN renuncia al permiso de       │
+ * │ navegar esa pestaña después (`SecurityError: does not have permission to   │
+ * │ navigate the target frame`). El patrón estaba roto por dos motivos.        │
+ * │                                                                           │
+ * │ ⇒ Reutilizar la pestaña de WhatsApp Web NO es alcanzable. No agregar       │
+ * │   window.name tricks, polling, opener hacks, iframes ni enumeración de     │
+ * │   pestañas: ninguno cambia lo de arriba.                                   │
+ * └───────────────────────────────────────────────────────────────────────────┘
+ *
+ * CÓMO SE EVITA ENTONCES ACUMULAR PESTAÑAS:
+ *  · Desktop · app  → protocolo `whatsapp://`. No abre ninguna pestaña.
+ *  · Desktop · web  → navega la MISMA pestaña de TechRepair. Back vuelve.
+ *  · Móvil          → `wa.me`, que el sistema entrega a la app nativa.
+ *
+ * LO QUE TECHREPAIR PUEDE SABER: que preparó el mensaje y que el usuario
+ * inició el handoff. NADA MÁS. No hay evidencia de `sent`, `delivered` ni
+ * `read`, así que este módulo no expone esos estados.
  */
-// Extensión explícita: este módulo se testea con `node --test`, cuyo resolver
-// de ESM no completa extensiones. `allowImportingTsExtensions` ya está activo y
-// el repo usa este patrón en otros módulos con cobertura unitaria.
-import { normalizeWhatsAppPhone, isMobileDevice } from './whatsappFormat.ts'
-
-/**
- * Nombre de ventana estable. Reabrir el handoff reutiliza la MISMA pestaña en
- * vez de acumular una por mensaje. En móvil el navegador delega igual en la
- * app nativa, así que no hace falta ramificar por user-agent.
- */
-export const WHATSAPP_WINDOW_NAME = 'techrepair_whatsapp'
+import { normalizeWhatsAppPhone, isMobileDevice, buildWhatsAppDesktopUrl } from './whatsappFormat.ts'
 
 /**
  * Único resultado que este flujo puede registrar honestamente, y que además ya
  * pertenece al vocabulario que acepta el CHECK de `whatsapp_logs.send_result`
  * (`opened | copied | failed | skipped | sent_api`).
  *
- * `prepared` NO se agrega: exigiría ampliar ese CHECK en producción — una
- * migración que W1 no necesita. El evento que importa (el click en "Abrir
- * WhatsApp") es exactamente `opened`.
+ * SEMÁNTICA: significa **handoff iniciado**, no "el mensaje se abrió y menos
+ * aún se envió". En el camino de la app de escritorio ni siquiera se puede
+ * saber si la app existe. Se conserva el nombre `opened` porque es el valor
+ * histórico de esa columna y renombrarlo exigiría una migración que no aporta.
  */
 export const EVENTO_APERTURA = 'opened' as const
 
@@ -39,73 +63,68 @@ export type ResultadoHandoff =
   | { ok: true;  url: string; telefono: string }
   | { ok: false; error: string }
 
-/**
- * Arma la URL wa.me. FAIL-CLOSED: sin un teléfono resoluble no devuelve URL,
- * así que es imposible abrir un link roto (`https://wa.me/?text=…`, que en
- * desktop lleva a un selector de contacto vacío y en móvil no hace nada útil).
- */
-export function buildWaMeUrl(
-  phone: string | null | undefined,
-  message: string,
-): ResultadoHandoff {
+const ERROR_POPUP =
+  'El navegador bloqueó la ventana. Permití las ventanas emergentes para este sitio o copiá el mensaje.'
+
+/** Valida teléfono y mensaje una sola vez para las tres variantes de URL. */
+function validar(phone: string | null | undefined, message: string) {
   const telefono = normalizeWhatsAppPhone(phone)
-  if (!telefono.valid) {
-    return { ok: false, error: telefono.error ?? 'Número de teléfono inválido' }
-  }
-  if (!message.trim()) {
-    return { ok: false, error: 'El mensaje está vacío' }
-  }
-  // encodeURIComponent UNA sola vez. `message` es texto plano, nunca una URL ya
-  // codificada, así que no hay doble encoding: %0A queda %0A, no %250A.
+  if (!telefono.valid) return { error: telefono.error ?? 'Número de teléfono inválido' }
+  if (!message.trim()) return { error: 'El mensaje está vacío' }
+  return { telefono: telefono.normalized }
+}
+
+/**
+ * `wa.me` — MÓVIL. Es el que el sistema operativo entrega a la app nativa.
+ * FAIL-CLOSED: sin teléfono resoluble no devuelve URL, así que es imposible
+ * abrir un link roto (`https://wa.me/?text=…`, que no lleva a ningún contacto).
+ */
+export function buildWaMeUrl(phone: string | null | undefined, message: string): ResultadoHandoff {
+  const v = validar(phone, message)
+  if (v.error) return { ok: false, error: v.error }
   return {
     ok: true,
-    telefono: telefono.normalized,
-    url: `https://wa.me/${telefono.normalized}?text=${encodeURIComponent(message)}`,
+    telefono: v.telefono!,
+    // encodeURIComponent UNA sola vez. `message` es texto plano, nunca una URL
+    // ya codificada, así que no hay doble encoding: %0A queda %0A, no %250A.
+    url: `https://wa.me/${v.telefono}?text=${encodeURIComponent(message)}`,
   }
 }
 
 /**
- * URL de WhatsApp Web para DESKTOP.
- *
- * POR QUÉ NO wa.me EN DESKTOP: `wa.me` redirige a
- * `api.whatsapp.com/send`, que es una pantalla intermedia ("Chatea en WhatsApp
- * con…", "Abrir aplicación" / "Continuar en WhatsApp Web"). Ese paso extra es
- * el que terminaba abriendo pestañas y sesiones nuevas: el usuario elegía
- * "Continuar en WhatsApp Web" y el navegador estrenaba pestaña, fuera del
- * control del nombre de ventana que fija este módulo.
- *
- * Apuntando directo a `web.whatsapp.com/send` no hay intermediaria, y la
- * navegación ocurre DENTRO de la pestaña `techrepair_whatsapp` ya abierta.
+ * WhatsApp Web — DESKTOP. Se apunta directo a `web.whatsapp.com/send` y no a
+ * `wa.me`, porque en desktop wa.me redirige a `api.whatsapp.com/send`, la
+ * pantalla intermedia ("Abrir aplicación" / "Continuar en WhatsApp Web") que
+ * agrega un paso y termina estrenando otra pestaña.
  */
-export function buildWebSendUrl(
-  phone: string | null | undefined,
-  message: string,
-): ResultadoHandoff {
-  const telefono = normalizeWhatsAppPhone(phone)
-  if (!telefono.valid) {
-    return { ok: false, error: telefono.error ?? 'Número de teléfono inválido' }
-  }
-  if (!message.trim()) {
-    return { ok: false, error: 'El mensaje está vacío' }
-  }
+export function buildWebSendUrl(phone: string | null | undefined, message: string): ResultadoHandoff {
+  const v = validar(phone, message)
+  if (v.error) return { ok: false, error: v.error }
   return {
     ok: true,
-    telefono: telefono.normalized,
-    url: `https://web.whatsapp.com/send?phone=${telefono.normalized}&text=${encodeURIComponent(message)}`,
+    telefono: v.telefono!,
+    url: `https://web.whatsapp.com/send?phone=${v.telefono}&text=${encodeURIComponent(message)}`,
   }
 }
 
 /**
- * URL de handoff según la plataforma.
+ * App de escritorio — protocolo `whatsapp://`. No abre ninguna pestaña: el
+ * sistema operativo se lo entrega a la app instalada.
  *
- *  · Desktop → `web.whatsapp.com/send` (sin pantalla intermedia).
- *  · Móvil   → `wa.me` , que es el que deja al sistema abrir la app nativa.
- *              Forzar `web.whatsapp.com` en un teléfono lo mandaría al WhatsApp
- *              Web del navegador móvil, que es peor que la app.
- *
- * `esMobile` es inyectable para poder testear las dos ramas sin tocar el
- * user-agent. Por defecto usa `isMobileDevice()`, el mecanismo que el proyecto
- * ya venía usando — no se agrega una detección nueva.
+ * Se delega en `buildWhatsAppDesktopUrl`, el helper canónico que el proyecto ya
+ * tenía; acá sólo se le agrega el fail-closed.
+ */
+export function buildAppUrl(phone: string | null | undefined, message: string): ResultadoHandoff {
+  const v = validar(phone, message)
+  if (v.error) return { ok: false, error: v.error }
+  return { ok: true, telefono: v.telefono!, url: buildWhatsAppDesktopUrl(phone!, message) }
+}
+
+/**
+ * URL del camino por defecto de cada plataforma: móvil → `wa.me`,
+ * desktop → WhatsApp Web. `esMobile` es inyectable para testear las dos ramas
+ * sin tocar el user-agent; por defecto usa `isMobileDevice()`, el mecanismo que
+ * el proyecto ya venía usando (no se agrega una detección nueva).
  */
 export function buildHandoffUrl(
   phone: string | null | undefined,
@@ -119,128 +138,56 @@ export type AperturaHandoff =
   | { abierto: true }
   | { abierto: false; error: string }
 
-const ERROR_POPUP =
-  'El navegador bloqueó la ventana. Permití las ventanas emergentes para este sitio o copiá el mensaje.'
-
 /**
- * Lo único que este módulo necesita de la pestaña destino.
- *
- * Se declara como interfaz propia en vez de `Window` porque, una vez que la
- * pestaña navegó a WhatsApp, es cross-origin y SÓLO estas cuatro cosas siguen
- * siendo accesibles desde acá: leer `closed`, ESCRIBIR `location.href`
- * (navegar), y llamar `focus()`. Leer la URL, el DOM o cualquier otra cosa
- * lanza. `opener` sólo se puede tocar mientras sigue en about:blank.
+ * MÓVIL. `wa.me` en una pestaña nueva; el sistema la intercepta y abre la app.
+ * `_blank` explícito: no se promete reutilizar nada.
  */
-export interface PestanaHandoff {
-  readonly closed: boolean
-  opener: unknown
-  location: { href: string }
-  focus?: () => void
-}
-
-/**
- * POR QUÉ NO ALCANZA EL NOMBRE DE VENTANA
- *
- * El primer diseño repetía `window.open(url, 'techrepair_whatsapp')` confiando
- * en que el navegador reutilizara la pestaña por nombre. No alcanza: el HTML
- * Standard **resetea `window.name` cuando el browsing context navega a otro
- * origen**. Nuestro salto es techrepairpro.app → web.whatsapp.com, o sea
- * cross-origin, así que después del primer handoff esa pestaña ya no responde
- * al nombre y el segundo `open` estrena una nueva. Es justo el bug que se
- * quería cerrar. (Los tests que sólo comparaban el string del target no podían
- * verlo: mockean `window.open` y no reproducen esa regla del navegador.)
- *
- * Por eso se conserva una referencia real al `WindowProxy`:
- *
- *  1. Primer handoff, dentro del click: `open('', TARGET)` → about:blank, que
- *     todavía es SAME-ORIGIN.
- *  2. Ahí, y sólo ahí, se puede hacer `opener = null`: WhatsApp no queda con
- *     una referencia de vuelta a TechRepair. (No se usa `noopener` en el open
- *     porque devuelve `null` y nos dejaría sin referencia, que es lo único que
- *     hace funcionar la reutilización.)
- *  3. Se guarda la referencia y se navega con `location.href = url`.
- *  4. Handoffs siguientes: si la referencia vive y no está cerrada, se navega
- *     ESA misma pestaña. No se vuelve a llamar `open`.
- *
- * LÍMITE EXPLÍCITO: la referencia vive en memoria de esta pestaña de
- * TechRepair. Un reload completo, cerrar TechRepair o una sesión nueva la
- * pierden, y no hay forma de redescubrir una pestaña de WhatsApp ya abierta —
- * el navegador no deja enumerar pestañas ajenas. El contrato honesto es:
- * *TechRepair reutiliza una única pestaña de WhatsApp mientras esta sesión de
- * la app siga cargada*, que es lo que resuelve el problema real de acumular
- * pestañas durante el uso normal.
- */
-export function crearHandoffWhatsApp(
-  abrirVentana: (url: string, target: string) => PestanaHandoff | null =
-    (u, t) => window.open(u, t) as unknown as PestanaHandoff | null,
-) {
-  let pestana: PestanaHandoff | null = null
-
-  const enfocar = (p: PestanaHandoff) => {
-    // Best-effort: `focus` sí está permitido cross-origin, pero algunos
-    // navegadores lo ignoran o lanzan. No poder enfocar NO invalida la
-    // apertura: el mensaje igual quedó cargado en la pestaña.
-    try { p.focus?.() } catch { /* el navegador no la deja enfocar */ }
-  }
-
-  /**
-   * @param reutilizar false en móvil: ahí `wa.me` se lo lleva el sistema
-   *        operativo a la app nativa y guardar un WindowProxy no aporta nada.
-   */
-  function abrir(url: string, { reutilizar = true }: { reutilizar?: boolean } = {}): AperturaHandoff {
-    if (!reutilizar) {
-      const win = abrirVentana(url, WHATSAPP_WINDOW_NAME)
-      if (!win) return { abierto: false, error: ERROR_POPUP }
-      enfocar(win)
-      return { abierto: true }
-    }
-
-    // Reutilización por REFERENCIA.
-    if (pestana && !pestana.closed) {
-      pestana.location.href = url
-      enfocar(pestana)
-      return { abierto: true }
-    }
-
-    // No hay pestaña viva (primer handoff, o el usuario la cerró).
-    const win = abrirVentana('', WHATSAPP_WINDOW_NAME)
-    if (!win) {
-      pestana = null
-      return { abierto: false, error: ERROR_POPUP }
-    }
-    // about:blank hereda el origen: es el ÚNICO momento en que se puede cortar
-    // el vínculo de vuelta antes de mandarla a WhatsApp.
-    try { win.opener = null } catch { /* no se pudo; se sigue igual */ }
-    pestana = win
-    win.location.href = url
-    enfocar(win)
-    return { abierto: true }
-  }
-
-  /** Sólo para tests: descarta la referencia viva. */
-  function _olvidarPestana() { pestana = null }
-
-  return { abrir, _olvidarPestana }
-}
-
-const handoffPorDefecto = crearHandoffWhatsApp()
-
-/** Abre (o reutiliza) la pestaña de WhatsApp de esta sesión. */
-export function abrirWhatsApp(
+export function abrirWhatsAppMovil(
   url: string,
-  opciones: { reutilizar?: boolean } = {},
+  open: (url: string, target: string) => Window | null = (u, t) => window.open(u, t),
 ): AperturaHandoff {
-  return handoffPorDefecto.abrir(url, opciones)
+  const win = open(url, '_blank')
+  if (!win) return { abierto: false, error: ERROR_POPUP }
+  return { abierto: true }
 }
 
 /**
- * Descarta la referencia viva del singleton. SÓLO para tests.
+ * DESKTOP · app instalada. Navegar a un `whatsapp://` NO cambia de página: el
+ * navegador se lo pasa al sistema operativo y TechRepair se queda donde está.
  *
- * La referencia sobrevive a propósito entre aperturas del modal — es lo que
- * hace que WhatsApp se reutilice aunque el mensaje salga de otra pantalla —
- * así que en una suite hay que soltarla entre casos o el segundo test hereda
- * la pestaña del primero.
+ * NO se intenta detectar si la app existe. Hacerlo requeriría una heurística de
+ * foco/timeout que es exactamente el tipo de hack que este flujo evita, y que
+ * además daría falsos negativos. Por eso la UI acompaña con la salida: si no
+ * pasa nada, usar WhatsApp Web.
  */
-export function _olvidarPestanaWhatsApp(): void {
-  handoffPorDefecto._olvidarPestana()
+export function abrirAppDeEscritorio(
+  url: string,
+  navegar: (url: string) => void = (u) => { window.location.href = u },
+): AperturaHandoff {
+  try {
+    navegar(url)
+    return { abierto: true }
+  } catch {
+    return { abierto: false, error: 'No se pudo abrir WhatsApp Desktop. Probá con WhatsApp Web.' }
+  }
+}
+
+/**
+ * DESKTOP · WhatsApp Web en la MISMA pestaña.
+ *
+ * Deliberadamente NO usa `window.open`: cada `open` contra WhatsApp Web crea
+ * una pestaña que después es imposible reutilizar (ver el encabezado), así que
+ * la única forma determinista de no acumular es navegar la pestaña actual. El
+ * Back del navegador devuelve a TechRepair, con la recarga normal de la SPA.
+ */
+export function irAWhatsAppWeb(
+  url: string,
+  navegar: (url: string) => void = (u) => { window.location.assign(u) },
+): AperturaHandoff {
+  try {
+    navegar(url)
+    return { abierto: true }
+  } catch {
+    return { abierto: false, error: 'No se pudo abrir WhatsApp Web. Copiá el mensaje e intentá manualmente.' }
+  }
 }

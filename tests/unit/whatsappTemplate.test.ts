@@ -23,9 +23,10 @@ import {
   buildWaMeUrl,
   buildWebSendUrl,
   buildHandoffUrl,
-  abrirWhatsApp,
-  crearHandoffWhatsApp,
-  WHATSAPP_WINDOW_NAME,
+  buildAppUrl,
+  abrirWhatsAppMovil,
+  abrirAppDeEscritorio,
+  irAWhatsAppWeb,
   EVENTO_APERTURA,
 } from '../../src/services/whatsappHandoff.ts'
 import { resolvePermissions } from '../../src/config/permissions.ts'
@@ -398,142 +399,121 @@ describe('buildHandoffUrl — desktop vs móvil', () => {
 })
 
 /**
- * Reutilización REAL de la pestaña.
+ * HANDOFF DETERMINISTA · sin reutilización de pestaña.
  *
- * El diseño anterior repetía `window.open(url, 'techrepair_whatsapp')` y
- * confiaba en que el navegador la reutilizara por nombre. No alcanza: el
- * `window.name` se RESETEA al navegar cross-origin, y el salto
- * techrepairpro.app → web.whatsapp.com lo es, así que a partir del segundo
- * mensaje estrenaba pestaña. Un test que sólo compara el string del target
- * nunca puede detectarlo, porque mockea `window.open` y no reproduce esa regla.
+ * El diseño anterior guardaba un `WindowProxy` y lo re-navegaba. Se midió en
+ * Chromium real que eso NO puede funcionar contra WhatsApp: `web.whatsapp.com`
+ * manda `Cross-Origin-Opener-Policy: same-origin`, así que al navegar hacia
+ * allá el proxy queda severed y `closed` pasa a `true` con la pestaña abierta.
+ * Fallan las tres vías (referencia con opener anulado, con opener conservado,
+ * y target por nombre); los mismos escenarios contra un destino SIN COOP sí
+ * reutilizan.
  *
- * Por eso acá se asevera sobre la REFERENCIA: cuántas veces se llamó a `open`
- * y adónde se navegó la pestaña ya abierta.
+ * Por eso acá NO se testea reutilización: se testea que cada camino sea
+ * determinista y no cree pestañas de más.
  */
-describe('reutilización de la pestaña (por referencia)', () => {
+describe('handoff · caminos deterministas', () => {
 
-  /** Pestaña falsa que registra navegaciones, focus y el corte de opener. */
-  function pestanaFalsa() {
-    const estado = { navegaciones: [] as string[], focos: 0, openerSeteado: undefined as unknown, cerrada: false }
-    const proxy = {
-      get closed() { return estado.cerrada },
-      set opener(v: unknown) { estado.openerSeteado = v },
-      get opener() { return estado.openerSeteado },
-      location: {
-        set href(u: string) { estado.navegaciones.push(u) },
-        get href() { return estado.navegaciones.at(-1) ?? '' },
-      },
-      focus() { estado.focos++ },
-    }
-    return { estado, proxy }
-  }
+  const MSG = 'Hola Ana 👋\nTotal: $85.000'
 
-  function entorno() {
-    const aperturas: { url: string; target: string }[] = []
-    const tab = pestanaFalsa()
-    const handoff = crearHandoffWhatsApp((url, target) => {
-      aperturas.push({ url, target })
-      return tab.proxy
-    })
-    return { aperturas, tab, handoff }
-  }
+  test('DESKTOP · WhatsApp Web navega la MISMA pestaña, nunca window.open', () => {
+    const navegadas: string[] = []
+    let abrioVentana = false
+    const openFalso = () => { abrioVentana = true; return {} as Window }
 
-  const URL1 = 'https://web.whatsapp.com/send?phone=5493511234567&text=uno'
-  const URL2 = 'https://web.whatsapp.com/send?phone=5491123456789&text=dos'
-  const URL3 = 'https://web.whatsapp.com/send?phone=5493512223333&text=tres'
+    const url = (buildWebSendUrl('0351 15 1234567', MSG) as { url: string }).url
+    const r = irAWhatsAppWeb(url, (u) => navegadas.push(u))
 
-  test('A · primer handoff: UN open, a about:blank, con opener cortado y navegación', () => {
-    const { aperturas, tab, handoff } = entorno()
-
-    assert.equal(handoff.abrir(URL1).abierto, true)
-
-    assert.equal(aperturas.length, 1)
-    // Se abre VACÍA a propósito: about:blank sigue siendo same-origin y es el
-    // único momento en que se puede cortar el opener.
-    assert.equal(aperturas[0].url, '')
-    assert.equal(aperturas[0].target, 'techrepair_whatsapp')
-    assert.notEqual(aperturas[0].target, '_blank')
-
-    assert.equal(tab.estado.openerSeteado, null, 'WhatsApp no puede quedar con referencia a TechRepair')
-    assert.deepEqual(tab.estado.navegaciones, [URL1])
-    assert.equal(tab.estado.focos, 1)
+    assert.equal(r.abierto, true)
+    assert.deepEqual(navegadas, [url], 'tiene que navegar la pestaña actual')
+    assert.equal(abrioVentana, false, 'window.open crearía una pestaña imposible de reutilizar')
+    void openFalso
   })
 
-  test('B · segundo handoff: NO se vuelve a llamar open; navega la MISMA pestaña', () => {
-    const { aperturas, tab, handoff } = entorno()
+  test('DESKTOP · dos handoffs Web seguidos NO crean browsing contexts', () => {
+    const navegadas: string[] = []
+    const u1 = (buildWebSendUrl('3511234567', 'uno') as { url: string }).url
+    const u2 = (buildWebSendUrl('1123456789', 'dos') as { url: string }).url
 
-    handoff.abrir(URL1)
-    handoff.abrir(URL2)
+    irAWhatsAppWeb(u1, (u) => navegadas.push(u))
+    irAWhatsAppWeb(u2, (u) => navegadas.push(u))
 
-    assert.equal(aperturas.length, 1, 'un segundo open estrenaría pestaña: es el bug que se cierra')
-    assert.deepEqual(tab.estado.navegaciones, [URL1, URL2])
-    assert.equal(tab.estado.focos, 2)
+    // Cada acción navega la pestaña actual: nunca hay más de una.
+    assert.deepEqual(navegadas, [u1, u2])
+    assert.equal(new Set(navegadas).size, 2, 'cada mensaje va a su propio destino')
   })
 
-  test('C · tercer handoff: sigue habiendo UN solo open', () => {
-    const { aperturas, tab, handoff } = entorno()
+  test('DESKTOP · app de escritorio usa whatsapp:// y no abre pestaña', () => {
+    const navegadas: string[] = []
+    const r = buildAppUrl('0351 15 1234567', MSG)
+    assert.equal(r.ok, true)
+    const url = (r as { url: string }).url
 
-    handoff.abrir(URL1); handoff.abrir(URL2); handoff.abrir(URL3)
+    assert.ok(url.startsWith('whatsapp://send?phone=5493511234567&text='), url)
+    assert.ok(!url.includes('web.whatsapp.com'))
+    assert.ok(!url.includes('wa.me'))
 
-    assert.equal(aperturas.length, 1)
-    assert.deepEqual(tab.estado.navegaciones, [URL1, URL2, URL3])
-    assert.equal(tab.estado.focos, 3)
-    assert.equal(new Set(tab.estado.navegaciones).size, 3, 'cada mensaje va a su propio destino')
+    assert.equal(abrirAppDeEscritorio(url, (u) => navegadas.push(u)).abierto, true)
+    assert.deepEqual(navegadas, [url])
   })
 
-  test('D · si el usuario cerró la pestaña, se abre una nueva', () => {
-    const { aperturas, tab, handoff } = entorno()
+  test('MÓVIL · wa.me en pestaña nueva, con target _blank explícito', () => {
+    const llamadas: { url: string; target: string }[] = []
+    const url = (buildWaMeUrl('3511234567', MSG) as { url: string }).url
 
-    handoff.abrir(URL1)
-    tab.estado.cerrada = true
-    handoff.abrir(URL2)
+    const r = abrirWhatsAppMovil(url, (u, t) => { llamadas.push({ url: u, target: t }); return {} as Window })
 
-    assert.equal(aperturas.length, 2, 'con la pestaña cerrada hay que volver a abrir')
-    assert.equal(aperturas[1].target, 'techrepair_whatsapp')
+    assert.equal(r.abierto, true)
+    assert.equal(llamadas.length, 1)
+    assert.equal(llamadas[0].url, url)
+    // `_blank` a propósito: no se promete reutilizar ninguna pestaña.
+    assert.equal(llamadas[0].target, '_blank')
   })
 
-  test('E · popup bloqueado: falla controlado y NO deja referencia colgada', () => {
-    const aperturas: string[] = []
-    const handoff = crearHandoffWhatsApp((url) => { aperturas.push(url); return null })
-
-    const r = handoff.abrir(URL1)
+  test('MÓVIL · popup bloqueado ⇒ error accionable, no silencio', () => {
+    const r = abrirWhatsAppMovil('https://wa.me/5493511234567?text=a', () => null)
     assert.equal(r.abierto, false)
     assert.match((r as { error: string }).error, /ventana|emergente/i)
-
-    // Y el intento siguiente vuelve a probar, no se queda pegado a un null.
-    handoff.abrir(URL2)
-    assert.equal(aperturas.length, 2)
   })
 
-  test('G · móvil: sin reutilización, se abre directo la URL', () => {
-    const { aperturas, tab, handoff } = entorno()
+  test('los tres caminos consumen EXACTAMENTE el mismo mensaje', () => {
+    const tel = '0351 15 1234567'
+    const web = (buildWebSendUrl(tel, MSG) as { url: string }).url
+    const app = (buildAppUrl(tel, MSG)     as { url: string }).url
+    const mov = (buildWaMeUrl(tel, MSG)    as { url: string }).url
 
-    handoff.abrir('https://wa.me/5493511234567?text=hola', { reutilizar: false })
-
-    assert.equal(aperturas.length, 1)
-    assert.equal(aperturas[0].url, 'https://wa.me/5493511234567?text=hola',
-      'en móvil se abre la URL de una, para que el sistema se la lleve a la app')
-    assert.deepEqual(tab.estado.navegaciones, [], 'no se guarda ni se navega una referencia')
+    const textoDe = (u: string, sep: string) => decodeURIComponent(u.slice(u.indexOf(sep) + sep.length))
+    assert.equal(textoDe(web, '&text='), MSG)
+    assert.equal(textoDe(app, '&text='), MSG)
+    assert.equal(textoDe(mov, '?text='), MSG)
   })
 
-  test('si el navegador no deja enfocar, la apertura sigue siendo válida', () => {
-    const conFocusRoto = crearHandoffWhatsApp(() => ({
-      closed: false, opener: undefined,
-      location: { href: '' },
-      focus() { throw new Error('cross-origin') },
-    }))
-    assert.equal(conFocusRoto.abrir(URL1).abierto, true)
-
-    const sinFocus = crearHandoffWhatsApp(() => ({
-      closed: false, opener: undefined, location: { href: '' },
-    }))
-    assert.equal(sinFocus.abrir(URL1).abierto, true)
+  test('encoding: %0A en los tres, sin doble encoding', () => {
+    for (const [nombre, r] of [
+      ['web', buildWebSendUrl('3511234567', 'a\nb 100%')],
+      ['app', buildAppUrl('3511234567', 'a\nb 100%')],
+      ['mov', buildWaMeUrl('3511234567', 'a\nb 100%')],
+    ] as const) {
+      const u = (r as { url: string }).url
+      assert.ok(u.includes('%0A'), `${nombre}: falta %0A`)
+      assert.ok(!u.includes('%250A'), `${nombre}: doble encoding`)
+      assert.ok(!u.includes('\n'), `${nombre}: salto crudo`)
+    }
   })
 
-  test('el singleton exportado mantiene el mismo contrato', () => {
-    // No se puede inyectar en el singleton, pero sí comprobar que existe y que
-    // sin `window` no rompe el módulo al importarlo.
-    assert.equal(typeof abrirWhatsApp, 'function')
+  test('los tres fallan CERRADO con teléfono inválido', () => {
+    for (const build of [buildWebSendUrl, buildAppUrl, buildWaMeUrl]) {
+      const r = build('351 123', 'hola')
+      assert.equal(r.ok, false)
+      assert.ok(!('url' in r))
+    }
+  })
+
+  test('ningún camino apunta a la pantalla intermedia api.whatsapp.com', () => {
+    for (const build of [buildWebSendUrl, buildAppUrl, buildWaMeUrl]) {
+      const u = (build('3511234567', 'hola') as { url: string }).url
+      assert.ok(!u.includes('api.whatsapp.com'), u)
+    }
   })
 })
 
@@ -595,15 +575,12 @@ describe('semántica de estado', () => {
     }
   })
 
-  test('el nombre de ventana canónico es estable', () => {
-    assert.equal(WHATSAPP_WINDOW_NAME, 'techrepair_whatsapp')
-  })
-
-  test('popup bloqueado ⇒ no se registra apertura, se devuelve un error accionable', () => {
-    const handoff = crearHandoffWhatsApp(() => null)
-    const r = handoff.abrir('https://web.whatsapp.com/send?phone=549351123456&text=a')
-    assert.equal(r.abierto, false)
-    assert.match((r as { error: string }).error, /ventana|emergente/i)
+  test('ya no existe promesa de reutilizar una pestaña con nombre estable', () => {
+    // El módulo no exporta más `WHATSAPP_WINDOW_NAME` ni una fábrica de
+    // handoff con referencia: WhatsApp Web no se puede reutilizar (COOP).
+    assert.equal(typeof abrirWhatsAppMovil, 'function')
+    assert.equal(typeof irAWhatsAppWeb, 'function')
+    assert.equal(typeof abrirAppDeEscritorio, 'function')
   })
 })
 

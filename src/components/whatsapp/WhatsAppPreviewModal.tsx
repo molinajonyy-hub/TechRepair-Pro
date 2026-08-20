@@ -5,26 +5,29 @@
  * Carga templates del negocio, permite elegir plantilla, EDITAR el teléfono y
  * el mensaje, y abrir WhatsApp por handoff estándar wa.me.
  *
- * W1 — lo que cambió respecto de la versión anterior:
- *  · El mensaje lo arma `renderTemplate` (allowlist explícita) en vez de
- *    `interpolateTemplate`, que dejaba pasar `{placeholders}` arbitrarios
- *    hasta el chat del cliente y expandía valores inyectados.
- *  · La apertura es `wa.me` sobre una pestaña con nombre estable
- *    (`whatsappHandoff`), no una pestaña nueva por mensaje.
- *  · Si queda una variable sin resolver, se dice CUÁL y no se abre WhatsApp.
+ * W1 — el mensaje lo arma `renderTemplate` (allowlist explícita) y, si queda
+ * una variable sin resolver, se dice CUÁL y no se abre WhatsApp.
  *
- * Estados honestos: "abrir WhatsApp" NO confirma envío. Sólo el envío por
+ * DOS CAMINOS EN DESKTOP, Y POR QUÉ:
+ * WhatsApp Web manda `Cross-Origin-Opener-Policy: same-origin`, así que una
+ * pestaña suya NO se puede reutilizar desde acá (medido: el `WindowProxy` queda
+ * severed y `closed` pasa a `true` con la pestaña abierta). Abrir una pestaña
+ * por mensaje acumulaba pestañas sin remedio. Entonces:
+ *  · primario   → app de escritorio por `whatsapp://`: no abre NINGUNA pestaña
+ *                 y TechRepair se queda donde está;
+ *  · secundario → WhatsApp Web navegando la MISMA pestaña. Back vuelve.
+ * En móvil no cambia nada: `wa.me` y el sistema abre la app.
+ *
+ * Estados honestos: iniciar el handoff NO confirma envío. Sólo el envío por
  * Cloud API confirmado server-side muestra "Enviado por API"; ese camino es
  * preexistente y ajeno a W1 — sólo aparece si el negocio ya tiene conexión.
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { MessageCircle, Copy, ExternalLink, Check, AlertTriangle, X, RefreshCw, ChevronDown, Pencil } from 'lucide-react'
+import { MessageCircle, Copy, ExternalLink, Check, AlertTriangle, X, RefreshCw, ChevronDown, Pencil, Monitor } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { getConnection } from '../../services/whatsappCloudService'
 import {
   whatsappService,
-  buildWhatsAppDesktopUrl,
-  openWhatsAppDesktop,
   isMobileDevice,
   normalizeWhatsAppPhone,
   WhatsAppVars,
@@ -38,7 +41,14 @@ import {
   motivoDeBloqueo,
   getWhatsAppVariableSpec,
 } from '../../services/whatsappTemplate'
-import { buildHandoffUrl, abrirWhatsApp, EVENTO_APERTURA } from '../../services/whatsappHandoff'
+import {
+  buildHandoffUrl,
+  buildAppUrl,
+  abrirWhatsAppMovil,
+  abrirAppDeEscritorio,
+  irAWhatsAppWeb,
+  EVENTO_APERTURA,
+} from '../../services/whatsappHandoff'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -68,15 +78,18 @@ type SendStatus = 'idle' | 'sending' | 'sent_api' | 'fallback_opened' | 'desktop
 
 /**
  * Ningún estado de este mapa dice "Enviado" salvo `sent_api`, que sólo se
- * alcanza con una confirmación real de la Cloud API. Abrir WhatsApp se rotula
- * "abierto", nunca "enviado".
+ * alcanza con una confirmación real de la Cloud API.
+ *
+ * `desktop_opened` NO afirma que la app se haya abierto: no hay forma de
+ * saberlo sin una heurística de foco/timeout que daría falsos negativos. Se
+ * rotula como lo que efectivamente pasó — se le pasó el mensaje al sistema.
  */
 const STATUS_UI: Record<SendStatus, { label: string; color: string } | null> = {
   idle:             null,
   sending:          { label: 'Enviando…', color: '#818cf8' },
   sent_api:         { label: 'Enviado por API', color: '#22c55e' },
   fallback_opened:  { label: 'WhatsApp abierto', color: '#22c55e' },
-  desktop_opened:   { label: 'WhatsApp Desktop abierto', color: '#22c55e' },
+  desktop_opened:   { label: 'Abriendo WhatsApp Desktop…', color: '#22c55e' },
   copied:           { label: 'Mensaje copiado', color: '#60a5fa' },
   error:            { label: 'No se pudo abrir', color: '#f87171' },
 }
@@ -113,20 +126,21 @@ export function WhatsAppPreviewModal({
 
   const isMobile    = isMobileDevice()
   const phoneResult = normalizeWhatsAppPhone(phoneInput)
-  const desktopUrl  = phoneResult.valid ? buildWhatsAppDesktopUrl(phoneInput, message) : ''
 
   /**
-   * Handoff estándar según plataforma: `web.whatsapp.com/send` en desktop (sin
-   * la pantalla intermedia de api.whatsapp.com, que era la que terminaba
-   * abriendo pestañas nuevas) y `wa.me` en móvil, que deja abrir la app.
+   * Camino por defecto de la plataforma: en desktop `web.whatsapp.com/send`
+   * (nunca la intermedia de api.whatsapp.com), en móvil `wa.me`.
    *
-   * Se recalcula sobre el mensaje FINAL — el que el usuario ve en el textarea —
-   * así que la vista previa y lo que recibe WhatsApp son el mismo string.
+   * Ambos se recalculan sobre el mensaje FINAL — el que el usuario ve en el
+   * textarea — así que la vista previa y lo que recibe WhatsApp son el mismo
+   * string, por los dos caminos.
    */
   const handoff = useMemo(
     () => buildHandoffUrl(phoneInput, message, isMobile),
     [phoneInput, message, isMobile],
   )
+  /** App de escritorio (`whatsapp://`). Mismo mensaje, otra vía de entrega. */
+  const handoffApp = useMemo(() => buildAppUrl(phoneInput, message), [phoneInput, message])
   /** Variables sin resolver en el mensaje final (incluye lo tipeado a mano). */
   const bloqueo = useMemo(() => motivoDeBloqueo(message), [message])
 
@@ -262,12 +276,16 @@ export function WhatsAppPreviewModal({
   }
 
   /**
-   * Registra que TechRepair ABRIÓ WhatsApp con el mensaje preparado.
-   * NO afirma `sent`/`delivered`/`read`: no hay evidencia de nada de eso.
+   * Registra que TechRepair INICIÓ el handoff con el mensaje preparado.
+   * `opened` significa "handoff iniciado", no que el mensaje se haya abierto y
+   * mucho menos enviado. NO se escribe `sent`/`delivered`/`read` jamás.
+   *
+   * Devuelve la promesa porque el camino de WhatsApp Web navega la pestaña
+   * actual: si no se espera, el request se cancela al salir de la página.
    */
-  const logOpen = () => {
-    if (!businessId) return
-    void whatsappService.logMessage(businessId, {
+  const logOpen = (): Promise<void> => {
+    if (!businessId) return Promise.resolve()
+    return whatsappService.logMessage(businessId, {
       order_id:    context.orderId,
       customer_id: context.customerId,
       phone:       phoneInput || '',
@@ -278,37 +296,58 @@ export function WhatsAppPreviewModal({
     })
   }
 
-  // whatsapp:// — abre WhatsApp Desktop sin pestaña nueva; silencioso si no instalado
-  const handleOpenDesktop = () => {
-    if (!desktopUrl || bloqueo) return
-    openWhatsAppDesktop(desktopUrl)
+  /**
+   * DESKTOP · primario. `whatsapp://` se lo lleva el sistema a la app: no abre
+   * ninguna pestaña y TechRepair se queda donde está. No se detecta si la app
+   * existe — si no pasa nada, la UI ya ofrece WhatsApp Web al lado.
+   */
+  const handleAbrirApp = () => {
+    if (bloqueo) { setStatus('error'); setErrorMsg(bloqueo); return }
+    if (!handoffApp.ok) { setStatus('error'); setErrorMsg(handoffApp.error); return }
+
+    const apertura = abrirAppDeEscritorio(handoffApp.url)
+    if (!apertura.abierto) { setStatus('error'); setErrorMsg(apertura.error); return }
     setStatus('desktop_opened')
-    logOpen()
+    void logOpen()
   }
 
   /**
-   * Handoff estándar wa.me sobre la pestaña con nombre estable. Mismo camino
-   * en desktop y en móvil: en móvil el sistema delega en la app nativa.
+   * DESKTOP · secundario. WhatsApp Web en la MISMA pestaña.
+   *
+   * No se usa `window.open`: una pestaña de WhatsApp Web es imposible de
+   * reutilizar después (COOP same-origin), así que abrir una por mensaje
+   * acumulaba pestañas. Navegar la actual es la única forma determinista de no
+   * acumular; el Back del navegador vuelve a TechRepair.
+   *
+   * El log se ESPERA antes de navegar: al salir de la página el request en
+   * vuelo se cancela y el handoff quedaría sin registro.
    */
-  const handleAbrirWhatsApp = () => {
+  const handleIrAWhatsAppWeb = async () => {
     if (bloqueo) { setStatus('error'); setErrorMsg(bloqueo); return }
     if (!handoff.ok) { setStatus('error'); setErrorMsg(handoff.error); return }
 
-    // `reutilizar` sólo en desktop: en móvil el sistema se lleva `wa.me` a la
-    // app nativa y guardar una referencia a la pestaña no aporta nada.
-    const apertura = abrirWhatsApp(handoff.url, { reutilizar: !isMobile })
-    if (!apertura.abierto) {
-      setStatus('error')
-      setErrorMsg(apertura.error)
-      return
-    }
+    try { await logOpen() } catch { /* el registro no puede bloquear el handoff */ }
+
+    const apertura = irAWhatsAppWeb(handoff.url)
+    if (!apertura.abierto) { setStatus('error'); setErrorMsg(apertura.error) }
+  }
+
+  /** MÓVIL · acción única. `wa.me` y el sistema abre la app nativa. */
+  const handleAbrirEnMovil = () => {
+    if (bloqueo) { setStatus('error'); setErrorMsg(bloqueo); return }
+    if (!handoff.ok) { setStatus('error'); setErrorMsg(handoff.error); return }
+
+    const apertura = abrirWhatsAppMovil(handoff.url)
+    if (!apertura.abierto) { setStatus('error'); setErrorMsg(apertura.error); return }
     setStatus('fallback_opened')
-    logOpen()
+    void logOpen()
   }
 
   const handleSendApi = async () => {
     if (!cloudConnected || !businessId) {
-      handleAbrirWhatsApp()
+      // Sin Cloud API no debería llegarse acá (el botón no se renderiza), pero
+      // si pasa, se cae al camino estándar de la plataforma.
+      isMobile ? handleAbrirEnMovil() : handleAbrirApp()
       return
     }
     setStatus('sending')
@@ -520,9 +559,17 @@ export function WhatsAppPreviewModal({
               )}
 
               {/* Honest reminder: opening WhatsApp ≠ message sent */}
-              {(status === 'fallback_opened' || status === 'desktop_opened') && (
+              {status === 'fallback_opened' && (
                 <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--text-subtle)', lineHeight: 1.5 }}>
                   Se abrió WhatsApp con el mensaje preparado. Todavía tenés que tocar “Enviar” allá: TechRepair no puede confirmar que el mensaje haya llegado.
+                </p>
+              )}
+
+              {/* App de escritorio: no se puede saber si existe, así que no se afirma. */}
+              {status === 'desktop_opened' && (
+                <p style={{ margin: 0, fontSize: '0.7rem', color: 'var(--text-subtle)', lineHeight: 1.5 }}>
+                  Le pasamos el mensaje a WhatsApp Desktop. Si no se abrió nada, no tenés la aplicación instalada:
+                  usá <strong>WhatsApp Web</strong>. Y recordá que TechRepair no puede confirmar que el mensaje haya llegado.
                 </p>
               )}
 
@@ -533,10 +580,12 @@ export function WhatsAppPreviewModal({
                 </div>
               )}
 
-              {/* Desktop hint */}
+              {/* Desktop: cómo elegir. Sin prometer nada que no se pueda cumplir. */}
               {!isMobile && !loading && (
-                <p style={{ margin: 0, fontSize: '0.68rem', color: 'var(--text-subtle)', lineHeight: 1.5 }}>
-                  “Abrir WhatsApp” reutiliza siempre la misma pestaña. Si tenés <strong>WhatsApp Desktop</strong> instalado, ese botón abre la app sin pasar por el navegador.
+                <p data-testid="whatsapp-ayuda-desktop" style={{ margin: 0, fontSize: '0.68rem', color: 'var(--text-subtle)', lineHeight: 1.5 }}>
+                  Recomendado: <strong>WhatsApp Desktop</strong> mantiene TechRepair abierto.
+                  Si no tenés la aplicación instalada, usá <strong>WhatsApp Web</strong>, que se abre en esta misma pestaña
+                  (con el botón Atrás volvés).
                 </p>
               )}
             </>
@@ -573,26 +622,45 @@ export function WhatsAppPreviewModal({
             </button>
           )}
 
-          {/* Desktop: secundario — app instalada, sin pasar por el navegador */}
+          {/* DESKTOP · secundario — WhatsApp Web en la MISMA pestaña */}
           {!apiEnabled && !isMobile && (
             <button
               data-testid="whatsapp-fallback-button"
-              onClick={handleOpenDesktop}
+              onClick={handleIrAWhatsAppWeb}
               disabled={!canSend}
               className="btn btn-ghost btn-sm"
               style={{ color: '#25d366', borderColor: canSend ? 'rgba(37,211,102,0.3)' : undefined }}
-              title={canSend ? 'Abre WhatsApp Desktop si está instalado (sin pestaña nueva)' : (bloqueo ?? phoneResult.error)}
+              title={canSend
+                ? 'Abre WhatsApp Web en esta misma pestaña. Con el botón Atrás volvés a TechRepair.'
+                : (bloqueo ?? phoneResult.error)}
             >
               <ExternalLink size={13} />
-              WhatsApp Desktop
+              Usar WhatsApp Web
             </button>
           )}
 
-          {/* Principal — handoff estándar wa.me, misma pestaña siempre */}
-          {!apiEnabled && (
+          {/* DESKTOP · primario — app instalada, sin pestañas de por medio */}
+          {!apiEnabled && !isMobile && (
             <button
               data-testid="whatsapp-send-api-button"
-              onClick={handleAbrirWhatsApp}
+              onClick={handleAbrirApp}
+              disabled={!canSend}
+              className="btn btn-sm"
+              style={{ background: canSend ? '#25d366' : undefined, border: 'none', color: canSend ? '#fff' : undefined }}
+              title={canSend
+                ? 'Abre la app de WhatsApp instalada. TechRepair se queda abierto.'
+                : (bloqueo ?? (handoffApp.ok ? undefined : handoffApp.error))}
+            >
+              <Monitor size={13} />
+              Abrir en WhatsApp Desktop
+            </button>
+          )}
+
+          {/* MÓVIL · acción única — wa.me y el sistema abre la app */}
+          {!apiEnabled && isMobile && (
+            <button
+              data-testid="whatsapp-send-api-button"
+              onClick={handleAbrirEnMovil}
               disabled={!canSend}
               className="btn btn-sm"
               style={{ background: canSend ? '#25d366' : undefined, border: 'none', color: canSend ? '#fff' : undefined }}
