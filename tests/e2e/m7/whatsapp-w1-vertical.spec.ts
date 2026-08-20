@@ -130,8 +130,8 @@ type MensajeCompanion = { type: string; phone?: string; text?: string }
  * simula la Tabs API ni el manejo de pestañas: eso lo prueba el probe en
  * Chromium real con la extensión de verdad. Acá interesa el lado de TechRepair.
  */
-async function instalarBridgeCompanion(page: Pagina) {
-  await page.addInitScript(() => {
+async function instalarBridgeCompanion(page: Pagina, { conAcceso = true } = {}) {
+  await page.addInitScript(({ acceso }) => {
     const enviados: Array<{ extId: string; mensaje: MensajeCompanion }> = []
     ;(window as unknown as { __COMPANION__: typeof enviados }).__COMPANION__ = enviados
     ;(window as unknown as { chrome: unknown }).chrome = {
@@ -139,13 +139,14 @@ async function instalarBridgeCompanion(page: Pagina) {
         lastError: undefined,
         sendMessage: (extId: string, mensaje: MensajeCompanion, cb: (r: unknown) => void) => {
           enviados.push({ extId, mensaje })
-          setTimeout(() => cb(mensaje.type === 'PING'
-            ? { ok: true, version: '1.0.0' }
-            : { ok: true, action: 'reused', tabId: 7 }), 0)
+          const respuesta = mensaje.type === 'PING'
+            ? { ok: true, version: '1.0.0', hostAccess: acceso }
+            : (acceso ? { ok: true, action: 'reused' } : { ok: false, code: 'HOST_ACCESS_REQUIRED' })
+          setTimeout(() => cb(respuesta), 0)
         },
       },
     }
-  })
+  }, { acceso: conAcceso })
 }
 
 const mensajesAlCompanion = (page: Pagina) =>
@@ -210,7 +211,7 @@ test('@m7-local W1 · preview resuelto y fallbacks de desktop sin Companion', as
   await expect(modal.locator('[data-testid="whatsapp-variables-faltantes"]')).toHaveCount(0)
 
   // ── Sin Companion: los fallbacks, con la app como primaria ────────────────
-  await expect(modal.locator('[data-testid="whatsapp-send-api-button"]')).toContainText(/WhatsApp Desktop/i)
+  await expect(modal.locator('[data-testid="whatsapp-desktop-app-button"]')).toContainText(/WhatsApp Desktop/i)
   await expect(modal.locator('[data-testid="whatsapp-fallback-button"]')).toContainText(/WhatsApp Web/i)
   // Sin URL de instalación configurada NO se ofrece instalar nada.
   await expect(modal.locator('[data-testid="whatsapp-install-companion"]')).toHaveCount(0)
@@ -227,7 +228,7 @@ test('@m7-local W1 · preview resuelto y fallbacks de desktop sin Companion', as
 test('@m7-local W1 · la app de escritorio no abre ninguna pestaña ni saca de TechRepair', async ({ page }) => {
   const { modal } = await abrirPreview(page)
 
-  const botonApp = modal.locator('[data-testid="whatsapp-send-api-button"]')
+  const botonApp = modal.locator('[data-testid="whatsapp-desktop-app-button"]')
   await expect(botonApp).toContainText(/WhatsApp Desktop/i)
   await expect(botonApp).toBeEnabled()
   await botonApp.click()
@@ -300,8 +301,12 @@ test('@m7-local W1 · con Companion: UN solo CTA, payload exacto y TechRepair in
   const { modal, mensaje } = await abrirPreview(page)
 
   // §18 · una sola acción. Sin menú de fallbacks.
-  const cta = modal.locator('[data-testid="whatsapp-send-api-button"]')
-  await expect(cta).toHaveText(/^Abrir WhatsApp$/i)
+  const cta = modal.locator('[data-testid="whatsapp-companion-button"]')
+  // El botón lleva un ícono adelante, así que el nodo de texto empieza con un
+  // espacio. Lo que importa es la etiqueta: «Abrir WhatsApp», no «Abrir en
+  // WhatsApp Desktop», que es la del fallback.
+  await expect(cta).toContainText(/Abrir WhatsApp/i)
+  await expect(cta).not.toContainText(/Desktop/i)
   await expect(modal.locator('[data-testid="whatsapp-fallback-button"]')).toHaveCount(0)
   await expect(modal.locator('[data-testid="whatsapp-install-companion"]')).toHaveCount(0)
   await expect(modal.locator('[data-testid="whatsapp-ayuda-desktop"]')).toContainText(/conectado con TechRepair/i)
@@ -334,4 +339,51 @@ test('@m7-local W1 · con Companion: UN solo CTA, payload exacto y TechRepair in
   await expect.poll(() => ejecutarSQL(
     `SELECT send_result FROM public.whatsapp_logs WHERE order_id = '${W1.order}' ORDER BY created_at DESC LIMIT 1;`),
     { timeout: 10_000 }).toContain('opened')
+})
+
+/**
+ * Instalada pero SIN ACCESO al host.
+ *
+ * Chrome permite dejar el acceso al sitio en «Al hacer clic». MEDIDO en un
+ * navegador real: en ese estado `tabs.query({url})` no falla, devuelve cero
+ * pestañas — así que sin detectarlo la extensión abriría una pestaña nueva por
+ * mensaje, en silencio y respondiendo ok. Del lado de TechRepair lo que importa
+ * es que se distinga de «no instalada» y que NO se registre un handoff que no
+ * ocurrió.
+ */
+test('@m7-local W1 · sin acceso al host: se explica, hay alternativas, y NO se registra opened', async ({ page }) => {
+  expect(process.env.VITE_WHATSAPP_COMPANION_EXTENSION_ID,
+    'Falta VITE_WHATSAPP_COMPANION_EXTENSION_ID en .env.e2e (ver .env.e2e.example).').toBeTruthy()
+
+  // Limpia el rastro del test anterior para poder aseverar que acá no se agrega.
+  ejecutarSQL(`DELETE FROM public.whatsapp_logs WHERE order_id = '${W1.order}';`)
+
+  await instalarBridgeCompanion(page, { conAcceso: false })
+  const { modal } = await abrirPreview(page)
+
+  // No manda a instalar: ya está instalada. Dice dónde se habilita.
+  const aviso = modal.locator('[data-testid="whatsapp-sin-acceso"]')
+  await expect(aviso).toBeVisible()
+  await expect(aviso).toContainText(/está instalado/i)
+  await expect(aviso).toContainText(/Acceso al sitio/i)
+  await expect(modal.locator('[data-testid="whatsapp-install-companion"]')).toHaveCount(0)
+
+  // Y quedan alternativas para mandar el mensaje ahora.
+  await expect(modal.locator('[data-testid="whatsapp-desktop-app-button"]')).toBeVisible()
+  await expect(modal.locator('[data-testid="whatsapp-fallback-button"]')).toBeVisible()
+
+  const cta = modal.locator('[data-testid="whatsapp-companion-button"]')
+  await expect(cta).toBeEnabled()
+  await cta.click()
+
+  await expect(modal.locator('[data-testid="whatsapp-send-status"]')).toContainText(/no se pudo abrir/i)
+  await expect(page).toHaveURL(new RegExp(`/orders/${W1.order}$`))
+  expect(await opens(page)).toEqual([])
+
+  // Lo importante: `opened` significa handoff iniciado, y acá no hubo ninguno.
+  await page.waitForTimeout(1500)
+  expect(
+    ejecutarSQL(`SELECT count(*) FROM public.whatsapp_logs WHERE order_id = '${W1.order}';`),
+    'no se puede registrar un handoff que no ocurrió',
+  ).toMatch(/\b0\b/)
 })

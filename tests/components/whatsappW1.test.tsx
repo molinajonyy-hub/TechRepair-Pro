@@ -126,6 +126,28 @@ function companionInstalado(responder: (m: MensajeCompanion) => unknown = (m) =>
   return enviados
 }
 
+/** Instalado, pero Chrome le retiró el acceso a WhatsApp Web. */
+function companionSinAcceso() {
+  return companionInstalado((m) => m.type === 'PING'
+    ? { ok: true, version: '1.0.0', hostAccess: false }
+    : { ok: false, code: 'HOST_ACCESS_REQUIRED' })
+}
+
+/** Instalado pero el service worker no contesta a tiempo. */
+function companionQueNoContesta() {
+  estado.extensionId = ID_COMPANION
+  const enviados: MensajeCompanion[] = []
+  vi.stubGlobal('chrome', {
+    runtime: {
+      lastError: undefined,
+      // Nunca llama al callback: el cliente tiene que caer por timeout, no por
+      // lastError. Es el caso del worker MV3 dormido.
+      sendMessage: (_id: string, mensaje: MensajeCompanion) => { enviados.push(mensaje) },
+    },
+  })
+  return enviados
+}
+
 /** Configurado pero NO instalado: Chrome contesta con `lastError`. */
 function companionNoInstalado() {
   estado.extensionId = ID_COMPANION
@@ -337,7 +359,7 @@ describe('W1 · modal de preview', () => {
 
     const aviso = await screen.findByTestId('whatsapp-variables-faltantes')
     expect(aviso.textContent).toMatch(/Saldo pendiente/i)
-    expect(screen.getByTestId('whatsapp-send-api-button')).toBeDisabled()
+    expect(screen.getByTestId('whatsapp-desktop-app-button')).toBeDisabled()
 
     // Y jamás se manda el hueco silencioso.
     const textarea = screen.getByTestId('whatsapp-preview-textarea') as HTMLTextAreaElement
@@ -354,14 +376,14 @@ describe('W1 · modal de preview', () => {
 
     await screen.findByTestId('whatsapp-preview-textarea')
     await waitFor(() => expect(screen.queryByTestId('whatsapp-variables-faltantes')).toBeNull())
-    expect(screen.getByTestId('whatsapp-send-api-button')).toBeEnabled()
+    expect(screen.getByTestId('whatsapp-desktop-app-button')).toBeEnabled()
   })
 
   it('teléfono inválido: no se puede abrir y se explica por qué', async () => {
     abrirModal({ phone: '351 123' })
 
     await screen.findByTestId('whatsapp-preview-textarea')
-    expect(screen.getByTestId('whatsapp-send-api-button')).toBeDisabled()
+    expect(screen.getByTestId('whatsapp-desktop-app-button')).toBeDisabled()
     expect(screen.getByText(/no es válido|no tiene teléfono/i)).toBeVisible()
   })
 
@@ -410,8 +432,8 @@ describe('W1 · modal de preview', () => {
     abrirModal({ vars: { equipo: 'Galaxy A54' } })
     await screen.findByTestId('whatsapp-preview-textarea')
 
-    const primario = screen.getByTestId('whatsapp-send-api-button')
-    await waitFor(() => expect(primario.textContent).toMatch(/^Abrir WhatsApp$/i))
+    const primario = screen.getByTestId('whatsapp-companion-button')
+    await waitFor(() => expect(primario.textContent?.trim()).toMatch(/^Abrir WhatsApp$/i))
 
     expect(screen.queryByTestId('whatsapp-fallback-button'), 'sobra con el Companion').toBeNull()
     expect(screen.queryByTestId('whatsapp-install-companion')).toBeNull()
@@ -441,7 +463,7 @@ describe('W1 · modal de preview', () => {
     abrirModal({ vars: { equipo: 'Galaxy A54' } })
 
     const textarea = await screen.findByTestId('whatsapp-preview-textarea') as HTMLTextAreaElement
-    const boton = screen.getByTestId('whatsapp-send-api-button')
+    const boton = screen.getByTestId('whatsapp-companion-button')
     await waitFor(() => expect(boton).toBeEnabled())
     const mensajeEnPantalla = textarea.value
     estado.ops = []
@@ -475,12 +497,12 @@ describe('W1 · modal de preview', () => {
     const user = userEvent.setup()
     abrirModal({ vars: { equipo: 'Galaxy A54' } })
     await screen.findByTestId('whatsapp-preview-textarea')
-    const boton = screen.getByTestId('whatsapp-send-api-button')
-    await waitFor(() => expect(boton.textContent).toMatch(/^Abrir WhatsApp$/i))
+    const boton = screen.getByTestId('whatsapp-companion-button')
+    await waitFor(() => expect(boton.textContent?.trim()).toMatch(/^Abrir WhatsApp$/i))
     await user.click(boton)
 
     await waitFor(() => expect(screen.getByTestId('whatsapp-fallback-button')).toBeInTheDocument())
-    expect(screen.getByTestId('whatsapp-send-api-button').textContent).toMatch(/WhatsApp Desktop/i)
+    expect(screen.getByTestId('whatsapp-desktop-app-button').textContent).toMatch(/WhatsApp Desktop/i)
   })
 
   // ── SIN Companion (I · fallbacks) ─────────────────────────────────────────
@@ -493,7 +515,7 @@ describe('W1 · modal de preview', () => {
     await screen.findByTestId('whatsapp-preview-textarea')
 
     await waitFor(() => expect(screen.getByTestId('whatsapp-fallback-button')).toBeInTheDocument())
-    expect(screen.getByTestId('whatsapp-send-api-button').textContent).toMatch(/WhatsApp Desktop/i)
+    expect(screen.getByTestId('whatsapp-desktop-app-button').textContent).toMatch(/WhatsApp Desktop/i)
     expect(screen.getByTestId('whatsapp-fallback-button').textContent).toMatch(/WhatsApp Web/i)
 
     const instalar = screen.getByTestId('whatsapp-install-companion') as HTMLAnchorElement
@@ -505,6 +527,83 @@ describe('W1 · modal de preview', () => {
     expect(ayuda).toMatch(/nueva pestaña/i)
     expect(ayuda).not.toMatch(/reutiliz/i)
   })
+
+  // ── Instalada pero SIN ACCESO al host ─────────────────────────────────────
+
+  /**
+   * Chrome permite dejar el acceso al sitio en «Al hacer clic». MEDIDO: en ese
+   * estado `tabs.query({url})` no falla — devuelve cero pestañas — así que la
+   * extensión crearía una pestaña nueva por mensaje, en silencio. Ahora se
+   * detecta, y necesita un mensaje propio: no hay nada que instalar.
+   */
+  it('sin acceso al host: se dice DÓNDE habilitarlo, y no se ofrece instalar', async () => {
+    companionSinAcceso()
+    estado.installUrl = 'https://chromewebstore.google.com/detail/x'
+
+    abrirModal({ vars: { equipo: 'Galaxy A54' } })
+    await screen.findByTestId('whatsapp-preview-textarea')
+
+    const aviso = await screen.findByTestId('whatsapp-sin-acceso')
+    expect(aviso.textContent).toMatch(/está instalado/i)
+    expect(aviso.textContent, 'tiene que decir dónde se arregla').toMatch(/Acceso al sitio/i)
+    expect(aviso.textContent).toMatch(/web\.whatsapp\.com/)
+
+    // Instalarla de nuevo no arreglaría nada.
+    expect(screen.queryByTestId('whatsapp-install-companion'),
+      'ya está instalada: ofrecer instalarla sería un consejo inútil').toBeNull()
+  })
+
+  it('sin acceso al host: quedan alternativas para mandar el mensaje ahora', async () => {
+    // Nadie tiene por qué pelearse con los permisos de Chrome para poder
+    // contestarle a un cliente en este momento.
+    companionSinAcceso()
+    abrirModal({ vars: { equipo: 'Galaxy A54' } })
+    await screen.findByTestId('whatsapp-preview-textarea')
+    await screen.findByTestId('whatsapp-sin-acceso')
+
+    expect(screen.getByTestId('whatsapp-desktop-app-button')).toBeInTheDocument()
+    expect(screen.getByTestId('whatsapp-fallback-button')).toBeInTheDocument()
+    // Y el botón del Companion sigue: si acaba de habilitar el permiso, un clic
+    // alcanza — sin cerrar y reabrir el modal.
+    expect(screen.getByTestId('whatsapp-companion-button')).toBeInTheDocument()
+  })
+
+  it('sin acceso al host: NO se registra "opened", porque no se abrió nada', async () => {
+    companionSinAcceso()
+    const user = userEvent.setup()
+    abrirModal({ vars: { equipo: 'Galaxy A54' } })
+    await screen.findByTestId('whatsapp-preview-textarea')
+    const boton = screen.getByTestId('whatsapp-companion-button')
+    await waitFor(() => expect(boton).toBeEnabled())
+    estado.ops = []
+    await user.click(boton)
+
+    const chip = await screen.findByTestId('whatsapp-send-status')
+    expect(chip.textContent).toMatch(/no se pudo abrir/i)
+    // `opened` significa handoff iniciado. Acá no hubo handoff.
+    await waitFor(() => expect(screen.getByTestId('whatsapp-sin-acceso')).toBeInTheDocument())
+    expect(opsDe('whatsapp_logs')).toHaveLength(0)
+  })
+
+  // ── Service worker frío ───────────────────────────────────────────────────
+
+  /**
+   * Un timeout NO es una ausencia. Medido: la ausencia real llega por
+   * `lastError` en ~1 ms. Si el worker tarda, decir «no está instalada» hace
+   * que la persona vea los fallbacks teniendo la extensión, sin forma de
+   * descubrir el error. Por eso se es optimista y el clic decide.
+   */
+  it('si el Companion no contesta a tiempo, NO se lo declara ausente', async () => {
+    companionQueNoContesta()
+    abrirModal({ vars: { equipo: 'Galaxy A54' } })
+    await screen.findByTestId('whatsapp-preview-textarea')
+
+    // Con 2500 ms × 2 intentos, a los 300 ms todavía está buscando: lo que
+    // importa es que NO haya saltado al menú de fallbacks.
+    await new Promise(r => setTimeout(r, 300))
+    expect(screen.queryByTestId('whatsapp-fallback-button')).toBeNull()
+    expect(screen.getByTestId('whatsapp-companion-button')).toBeInTheDocument()
+  }, 10_000)
 
   it('I · sin URL de instalación configurada NO se ofrece instalar', async () => {
     // Mientras la extensión no esté publicada, mandar a un link inventado sería
@@ -530,7 +629,7 @@ describe('W1 · modal de preview', () => {
     abrirModal({ vars: { equipo: 'Galaxy A54' } })
 
     const textarea = await screen.findByTestId('whatsapp-preview-textarea') as HTMLTextAreaElement
-    const boton = screen.getByTestId('whatsapp-send-api-button')
+    const boton = screen.getByTestId('whatsapp-desktop-app-button')
     await waitFor(() => expect(boton.textContent).toMatch(/WhatsApp Desktop/i))
     await waitFor(() => expect(boton).toBeEnabled())
     const mensajeEnPantalla = textarea.value
@@ -620,7 +719,7 @@ describe('W1 · modal de preview', () => {
       const user = userEvent.setup()
       abrirModal({ vars: { equipo: 'Galaxy A54' } })
       const textarea = await screen.findByTestId('whatsapp-preview-textarea') as HTMLTextAreaElement
-      const boton = screen.getByTestId('whatsapp-send-api-button')
+      const boton = screen.getByTestId('whatsapp-mobile-button')
 
       expect(boton.textContent).toMatch(/Abrir WhatsApp/i)
       expect(screen.queryByTestId('whatsapp-fallback-button'), 'móvil no muestra las acciones de desktop').toBeNull()

@@ -85,11 +85,34 @@ export interface WhatsAppPreviewModalProps {
 type SendStatus = 'idle' | 'sending' | 'sent_api' | 'fallback_opened' | 'desktop_opened' | 'copied' | 'error'
 
 /**
- * Descubrimiento del Companion. `buscando` dura lo que tarda Chrome en
- * responder —milisegundos— y cae solo a `ausente` si nadie contesta, así que no
- * hay estado de carga visible en la práctica.
+ * Descubrimiento del Companion. Cuatro estados, no dos:
+ *
+ *  · `buscando`      — dura lo que tarda Chrome en contestar. Medido: 1-2 ms con
+ *                      el worker caliente, 78 ms recién arrancado, y ~1 ms para
+ *                      concluir una ausencia (llega por `lastError`, no por
+ *                      timeout). En la práctica no es un estado visible.
+ *  · `disponible`    — está y puede trabajar.
+ *  · `sin_acceso`    — ESTÁ INSTALADA pero Chrome le retiró el acceso a
+ *                      WhatsApp Web («Al hacer clic»). Se arregla en dos clics;
+ *                      confundirlo con «no instalada» mandaría a la persona a
+ *                      instalar algo que ya tiene.
+ *  · `ausente`       — no está, o no se puede saber. Se ofrecen los fallbacks.
+ *
+ * El caso «no contestó a tiempo» se trata como `disponible` a propósito: el
+ * clic en el botón es la autoridad final, y si la apertura falla el estado se
+ * corrige solo. Al revés —dar por ausente algo que tardó— la persona ve los
+ * fallbacks teniendo la extensión, y no tiene forma de descubrir el error.
  */
-type EstadoCompanion = 'buscando' | 'disponible' | 'ausente'
+type EstadoCompanion = 'buscando' | 'disponible' | 'sin_acceso' | 'ausente'
+
+/**
+ * El único mensaje del flujo que pide una acción concreta en otra pantalla.
+ * Dice DÓNDE, porque «revisá los permisos» no le sirve a nadie.
+ */
+const COPY_SIN_ACCESO =
+  'TechRepair Companion está instalado, pero Chrome no le permite acceder a WhatsApp Web. ' +
+  'En chrome://extensions → TechRepair Companion → Detalles → Acceso al sitio, elegí ' +
+  '“En web.whatsapp.com”.'
 
 /**
  * Ningún estado de este mapa dice "Enviado" salvo `sent_api`, que sólo se
@@ -138,6 +161,15 @@ export function WhatsAppPreviewModal({
   const [perfilIncompleto, setPerfilIncompleto] = useState<string[]>([])
   /** ¿Está el Companion? Sólo se consulta en desktop, y sólo sin Cloud API. */
   const [companion, setCompanion] = useState<EstadoCompanion>('buscando')
+  /**
+   * Una apertura falló y no se sabe por qué.
+   *
+   * No alcanza con mostrar el error: si el Companion sigue figurando como
+   * disponible, la única acción en pantalla es la que acaba de fallar y la
+   * persona queda sin salida. Esto destraba las alternativas sin afirmar que la
+   * extensión no está — que es lo que no se sabe.
+   */
+  const [aperturaFallo, setAperturaFallo] = useState(false)
 
   const dialogRef       = useRef<HTMLDivElement>(null)
   const textareaRef     = useRef<HTMLTextAreaElement>(null)
@@ -207,7 +239,12 @@ export function WhatsAppPreviewModal({
     let vigente = true
     setCompanion('buscando')
     void consultarCompanion().then(r => {
-      if (vigente) setCompanion(r.disponible ? 'disponible' : 'ausente')
+      if (!vigente) return
+      // `indeterminado` (no contestó a tiempo) se toma como disponible: el clic
+      // decide. Ver el comentario de EstadoCompanion.
+      if (r.estado === 'ausente') setCompanion('ausente')
+      else if (r.estado === 'sin_acceso') setCompanion('sin_acceso')
+      else setCompanion('disponible')
     })
     return () => { vigente = false }
   }, [isOpen, isMobile, cloudConnected])
@@ -219,6 +256,7 @@ export function WhatsAppPreviewModal({
       setEditingPhone(false)
       setStatus('idle')
       setErrorMsg('')
+      setAperturaFallo(false)
       setSelectedKey(defaultTemplateKey)
     }
   }, [isOpen, phone, defaultTemplateKey])
@@ -362,16 +400,33 @@ export function WhatsAppPreviewModal({
     if (bloqueo) { setStatus('error'); setErrorMsg(bloqueo); return }
     if (!phoneResult.valid) { setStatus('error'); setErrorMsg(phoneResult.error ?? 'Teléfono inválido'); return }
 
+    setStatus('sending')
     const r = await abrirEnCompanion(phoneInput, message)
+
     if (!r.ok) {
-      // Si la extensión dejó de responder (desinstalada en caliente), se cae al
-      // menú de fallbacks en vez de dejar al usuario sin salida.
-      if (r.motivo) setCompanion('ausente')
+      // El OPEN es la autoridad: su veredicto corrige lo que haya concluido el
+      // descubrimiento, en vez de dejar la UI pegada a una conclusión vieja.
+      if (r.estado === 'sin_acceso') {
+        setCompanion('sin_acceso')
+        setStatus('error')
+        setErrorMsg(COPY_SIN_ACCESO)
+        return
+      }
+      if (r.estado === 'ausente') setCompanion('ausente')
+      // Cualquier otro fallo: no se sabe qué pasó, pero la persona necesita
+      // poder mandar el mensaje igual.
+      setAperturaFallo(true)
       setStatus('error')
       setErrorMsg('No se pudo abrir WhatsApp. Probá con la aplicación de escritorio o copiá el mensaje.')
       return
     }
+
+    // Si el descubrimiento había dudado, el éxito lo zanja.
+    setCompanion('disponible')
+    setAperturaFallo(false)
     setStatus('fallback_opened')
+    // `opened` se registra SÓLO acá: después de un OPEN que respondió ok. Antes
+    // de eso no hubo handoff, y registrarlo diría algo que no pasó.
     void logOpen()
   }
 
@@ -427,6 +482,13 @@ export function WhatsAppPreviewModal({
 
   const statusUi = STATUS_UI[status]
   const apiEnabled = cloudConnected
+  /**
+   * Hay que ofrecer alternativas. Cubre los dos casos en que el Companion no
+   * puede resolverlo solo: cuando no está, y cuando está pero Chrome le retiró
+   * el acceso al sitio.
+   */
+  const sinCompanionOperativo =
+    companion === 'ausente' || companion === 'sin_acceso' || aperturaFallo
   // Fail-closed: sin teléfono resoluble, sin mensaje, o con una variable sin
   // resolver, no se abre nada. `bloqueo` ya explica cuál falta.
   const canSend = phoneResult.valid && message.trim().length > 0 && !bloqueo
@@ -641,10 +703,27 @@ export function WhatsAppPreviewModal({
               )}
 
               {/* Desktop: qué va a pasar. Sin prometer nada que no se pueda cumplir. */}
-              {!isMobile && !loading && !apiEnabled && companion === 'disponible' && (
+              {!isMobile && !loading && !apiEnabled && (companion === 'disponible' || companion === 'buscando') && (
                 <p data-testid="whatsapp-ayuda-desktop" style={{ margin: 0, fontSize: '0.68rem', color: 'var(--text-subtle)', lineHeight: 1.5 }}>
                   WhatsApp Web conectado con TechRepair.
                 </p>
+              )}
+
+              {/*
+                Instalada pero sin acceso al sitio. Es un estado propio porque
+                la salida es distinta: no hay que instalar nada, hay que
+                habilitar un permiso. Se dice dónde.
+              */}
+              {!isMobile && !loading && !apiEnabled && companion === 'sin_acceso' && (
+                <div
+                  data-testid="whatsapp-sin-acceso"
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', padding: '0.625rem 0.875rem', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)', borderRadius: 'var(--radius-sm)' }}
+                >
+                  <AlertTriangle size={14} style={{ color: '#fbbf24', flexShrink: 0, marginTop: 2 }} />
+                  <span style={{ fontSize: '0.78rem', color: '#fcd34d', lineHeight: 1.55 }}>
+                    {COPY_SIN_ACCESO}
+                  </span>
+                </div>
               )}
 
               {!isMobile && !loading && !apiEnabled && companion === 'ausente' && (
@@ -702,8 +781,13 @@ export function WhatsAppPreviewModal({
             </a>
           )}
 
-          {/* DESKTOP · sin Companion — WhatsApp Web en una pestaña NUEVA */}
-          {!apiEnabled && !isMobile && companion === 'ausente' && (
+          {/*
+            Alternativas. Se muestran sin Companion y TAMBIÉN cuando está pero
+            Chrome le retiró el acceso: en ese estado el mensaje explica cómo
+            habilitarlo, pero nadie tiene por qué pelearse con los permisos de
+            Chrome para poder mandar un mensaje ahora.
+          */}
+          {!apiEnabled && !isMobile && sinCompanionOperativo && (
             <button
               data-testid="whatsapp-fallback-button"
               onClick={handleAbrirWebEnNuevaPestana}
@@ -719,14 +803,16 @@ export function WhatsAppPreviewModal({
             </button>
           )}
 
-          {/* DESKTOP · sin Companion — primario: la app instalada, sin pestañas */}
-          {!apiEnabled && !isMobile && companion === 'ausente' && (
+          {/* La app instalada: es el único camino que no toca ninguna pestaña. */}
+          {!apiEnabled && !isMobile && sinCompanionOperativo && (
             <button
-              data-testid="whatsapp-send-api-button"
+              data-testid="whatsapp-desktop-app-button"
               onClick={handleAbrirApp}
               disabled={!canSend}
-              className="btn btn-sm"
-              style={{ background: canSend ? '#25d366' : undefined, border: 'none', color: canSend ? '#fff' : undefined }}
+              className={companion === 'ausente' ? 'btn btn-sm' : 'btn btn-ghost btn-sm'}
+              style={companion === 'ausente'
+                ? { background: canSend ? '#25d366' : undefined, border: 'none', color: canSend ? '#fff' : undefined }
+                : { color: '#25d366', borderColor: canSend ? 'rgba(37,211,102,0.3)' : undefined }}
               title={canSend
                 ? 'Abre la app de WhatsApp instalada. TechRepair se queda abierto.'
                 : (bloqueo ?? (handoffApp.ok ? undefined : handoffApp.error))}
@@ -736,27 +822,33 @@ export function WhatsAppPreviewModal({
             </button>
           )}
 
-          {/* DESKTOP · con Companion — UNA sola acción */}
+          {/*
+            EL primario. Con el Companion operativo es la única acción (§18).
+            En `sin_acceso` se conserva a propósito: si la persona acaba de
+            habilitar el permiso, un clic alcanza — sin cerrar y reabrir el
+            modal — porque el OPEN es la autoridad final y corrige el estado.
+          */}
           {!apiEnabled && !isMobile && companion !== 'ausente' && (
             <button
-              data-testid="whatsapp-send-api-button"
+              data-testid="whatsapp-companion-button"
               onClick={handleAbrirConCompanion}
-              disabled={!canSend || companion === 'buscando'}
+              disabled={!canSend || companion === 'buscando' || status === 'sending'}
               className="btn btn-sm"
               style={{ background: canSend ? '#25d366' : undefined, border: 'none', color: canSend ? '#fff' : undefined }}
               title={canSend
                 ? 'Abre el chat en WhatsApp Web. TechRepair se queda abierto.'
                 : (bloqueo ?? phoneResult.error)}
             >
-              <MessageCircle size={13} />
-              Abrir WhatsApp
+              {status === 'sending'
+                ? <><RefreshCw size={13} className="animate-spin" /> Abriendo…</>
+                : <><MessageCircle size={13} /> Abrir WhatsApp</>}
             </button>
           )}
 
           {/* MÓVIL · acción única — wa.me y el sistema abre la app */}
           {!apiEnabled && isMobile && (
             <button
-              data-testid="whatsapp-send-api-button"
+              data-testid="whatsapp-mobile-button"
               onClick={handleAbrirEnMovil}
               disabled={!canSend}
               className="btn btn-sm"
