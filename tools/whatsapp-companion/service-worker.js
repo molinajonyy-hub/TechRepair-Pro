@@ -26,10 +26,17 @@
 // él mismo.
 // ============================================================================
 
-/** Origins que pueden hablarle. Duplica `externally_connectable` a propósito. */
+/**
+ * Origins que pueden hablarle. Duplica `externally_connectable` a propósito.
+ *
+ * `http://localhost:4599` es SÓLO para el harness del POC: puerto fijo y
+ * esquema fijo, lo más angosto que se puede. Sacarlo antes de cualquier
+ * distribución.
+ */
 const ORIGENES_AUTORIZADOS = new Set([
   'https://techrepairpro.app',
   'https://www.techrepairpro.app',
+  'http://localhost:4599',
 ]);
 
 const WHATSAPP_PATRON = 'https://web.whatsapp.com/*';

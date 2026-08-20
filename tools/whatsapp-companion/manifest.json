@@ -12,7 +12,8 @@
   "externally_connectable": {
     "matches": [
       "https://techrepairpro.app/*",
-      "https://www.techrepairpro.app/*"
+      "https://www.techrepairpro.app/*",
+      "http://localhost:4599/*"
     ]
   }
 }

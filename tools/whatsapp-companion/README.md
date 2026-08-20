@@ -67,7 +67,11 @@ Doble barrera:
 
 La 1 ya es fuerte: Chrome **sólo expone** `chrome.runtime.sendMessage` a las páginas que matchean, así que desde otro origin la API ni existe. La 2 cubre que alguien afloje el manifest sin tocar el código.
 
-Hoy: `https://techrepairpro.app/*` y `https://www.techrepairpro.app/*`.
+Hoy:
+
+- `https://techrepairpro.app/*` y `https://www.techrepairpro.app/*` — producción (futuro).
+- `http://localhost:4599/*` — **sólo para el harness del POC**. Puerto y esquema fijos,
+  lo más angosto posible. **Sacarlo antes de cualquier distribución.**
 
 ## Elección de pestaña (determinista)
 
@@ -81,13 +85,19 @@ Nunca aleatorio, y **nunca cierra** las demás: si tenés varias abiertas, son t
 
 ## Probarlo en tu Chrome
 
+```bash
+npx serve tools/whatsapp-companion/harness -l 4599
+```
+
 1. `chrome://extensions` → activá **Modo de desarrollador**.
-2. **Cargar descomprimida** → elegí `tools/whatsapp-companion/`.
+2. **Cargar descomprimida** → elegí la carpeta `tools/whatsapp-companion/`.
 3. Copiá el **ID** que muestra la tarjeta de la extensión.
-4. Abrí el harness **desde un origin autorizado** y pegá el ID en el campo.
-   Para probar desde otro origin (localhost, por ejemplo), agregalo a
-   `externally_connectable.matches` y tocá **Recargar** en la extensión.
+4. Abrí `http://localhost:4599/` y pegá el ID en el campo (queda guardado).
 5. Abrí WhatsApp Web a mano en otra pestaña y probá Cliente A / B / C.
+
+El puerto **4599 no es decorativo**: es el único de localhost autorizado en
+`externally_connectable`. Si servís en otro puerto, `chrome.runtime` no existe en esa
+página y el harness no puede hablarle a la extensión.
 
 **Qué tiene que pasar:** siempre **una sola** pestaña de WhatsApp, el **mismo `tabId`**, cambiando de destinatario, y TechRepair intacto. Si cerrás la pestaña, el próximo handoff responde `action: "created"` y crea exactamente una.
 
