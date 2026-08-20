@@ -70,6 +70,7 @@ const OrderDetail = lazy(() => import('./pages/OrderDetail').then(m => ({ defaul
 const Orders = lazy(() => import('./pages/Orders').then(m => ({ default: m.Orders })))
 const PaymentPending = lazy(() => import('./pages/PaymentPending').then(m => ({ default: m.PaymentPending })))
 const Plans = lazy(() => import('./pages/Plans').then(m => ({ default: m.Plans })))
+const Privacidad = lazy(() => import('./pages/Privacidad').then(m => ({ default: m.Privacidad })))
 const Reports = lazy(() => import('./pages/Reports').then(m => ({ default: m.Reports })))
 const Subscription = lazy(() => import('./pages/Subscription').then(m => ({ default: m.Subscription })))
 const SubscriptionFailure = lazy(() => import('./pages/SubscriptionFailure').then(m => ({ default: m.SubscriptionFailure })))
@@ -145,6 +146,15 @@ function AppContent() {
           <Route path="/no-business" element={<NoBusiness />} />
           <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/customer-portal" element={<CustomerPortal />} />
+          {/*
+            Legal — público, SIN sesión. La ruta canónica es /privacidad; /privacy
+            queda como alias porque es la que espera el Chrome Web Store y la que
+            escribe la gente que llega en inglés. Tienen que estar acá arriba: si
+            cayeran bajo ProtectedRoute, un visitante anónimo terminaría en /login
+            y la URL de la política sería inservible para un revisor.
+          */}
+          <Route path="/privacidad" element={<Privacidad />} />
+          <Route path="/privacy" element={<Privacidad />} />
 
           <Route element={<ProtectedRoute />}>
             <Route element={<MainLayout />}>

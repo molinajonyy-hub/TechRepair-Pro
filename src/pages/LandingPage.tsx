@@ -866,6 +866,15 @@ function Footer({ onTrial }: { onTrial: (s: string) => void }) {
 
         <div className="lp-footer-bottom">
           <span>© {new Date().getFullYear()} TechRepair Pro · Argentina</span>
+          {/* Ruta pública, sin sesión: el revisor del Chrome Web Store y
+              cualquier visitante tienen que poder abrirla. */}
+          <button
+            type="button"
+            data-testid="landing-link-privacidad"
+            onClick={() => navigate('/privacidad')}
+          >
+            Política de privacidad
+          </button>
           <span>Hecho para técnicos, por técnicos.</span>
         </div>
       </div>
