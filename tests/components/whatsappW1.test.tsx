@@ -69,7 +69,6 @@ vi.mock('../../src/lib/supabase', () => ({
 
 import { WhatsAppTemplatesSettings } from '../../src/components/settings/WhatsAppTemplatesSettings'
 import { WhatsAppPreviewModal } from '../../src/components/whatsapp/WhatsAppPreviewModal'
-import { _olvidarPestanaWhatsApp } from '../../src/services/whatsappHandoff'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -82,10 +81,6 @@ const negociosTocados = () => [...new Set(
 )]
 
 beforeEach(() => {
-  // La referencia a la pestaña de WhatsApp vive a nivel de módulo y sobrevive
-  // a propósito entre aperturas del modal. En la suite hay que soltarla, o un
-  // test hereda la pestaña abierta por el anterior y nunca llama a `open`.
-  _olvidarPestanaWhatsApp()
   estado.businessId = BIZ_A
   estado.puedeEditar = true
   estado.cloudConectado = false
@@ -339,18 +334,31 @@ describe('W1 · modal de preview', () => {
 
     await waitFor(() => expect(textarea.value).toBe('Texto escrito a mano'))
   })
+  /**
+   * En desktop hay DOS acciones. Ninguna reutiliza pestañas: WhatsApp Web manda
+   * COOP same-origin y su pestaña es imposible de re-navegar desde acá (medido
+   * en Chromium real). Lo que se asevera es que cada camino sea determinista.
+   */
+  it('DESKTOP · muestra las dos acciones, con la app como primaria', async () => {
+    abrirModal({ vars: { equipo: 'Galaxy A54' } })
+    await screen.findByTestId('whatsapp-preview-textarea')
 
-  it('abrir WhatsApp usa WhatsApp Web, la pestaña estable, y registra "opened" (no "sent")', async () => {
-    const aperturas: Array<[string, string]> = []
-    const navegaciones: string[] = []
-    const pestana = {
-      closed: false, opener: undefined as unknown,
-      location: { set href(u: string) { navegaciones.push(u) }, get href() { return '' } },
-      focus() {},
-    }
-    vi.stubGlobal('open', vi.fn((url: string, target: string) => {
-      aperturas.push([url, target]); return pestana as unknown as Window
-    }))
+    expect(screen.getByTestId('whatsapp-send-api-button').textContent).toMatch(/WhatsApp Desktop/i)
+    expect(screen.getByTestId('whatsapp-fallback-button').textContent).toMatch(/WhatsApp Web/i)
+
+    // El copy no puede prometer reutilización ni detección de la app.
+    const ayuda = screen.getByTestId('whatsapp-ayuda-desktop').textContent ?? ''
+    expect(ayuda).toMatch(/misma pestaña/i)
+    expect(ayuda).not.toMatch(/reutiliz/i)
+  })
+
+  it('DESKTOP · app usa whatsapp://, sin window.open, y registra "opened"', async () => {
+    const navegadas: string[] = []
+    const openSpy = vi.fn()
+    vi.stubGlobal('open', openSpy)
+    // `location.href` es lo que usa el camino de la app.
+    const loc = { assign: vi.fn(), _href: '', set href(u: string) { navegadas.push(u) }, get href() { return '' } }
+    Object.defineProperty(window, 'location', { value: loc, writable: true, configurable: true })
 
     const user = userEvent.setup()
     abrirModal({ vars: { equipo: 'Galaxy A54' } })
@@ -358,93 +366,106 @@ describe('W1 · modal de preview', () => {
     const textarea = await screen.findByTestId('whatsapp-preview-textarea') as HTMLTextAreaElement
     const boton = screen.getByTestId('whatsapp-send-api-button')
     await waitFor(() => expect(boton).toBeEnabled())
-
     const mensajeEnPantalla = textarea.value
     estado.ops = []
     await user.click(boton)
 
-    // 1 · desktop (jsdom no es móvil): se abre VACÍA con el nombre estable —
-    //     about:blank sigue siendo same-origin y es donde se corta el opener —
-    //     y recién ahí se navega a WhatsApp Web. Nunca api.whatsapp.com, que es
-    //     la pantalla intermedia que sacaba al usuario de esa pestaña.
-    expect(aperturas).toHaveLength(1)
-    const [urlApertura, target] = aperturas[0]
-    expect(urlApertura).toBe('')
-    expect(target).toBe('techrepair_whatsapp')
-    expect(target).not.toBe('_blank')
+    expect(openSpy, 'la app no abre ninguna pestaña').not.toHaveBeenCalled()
+    expect(navegadas).toHaveLength(1)
+    expect(navegadas[0].startsWith('whatsapp://send?phone=5493511234567&text=')).toBe(true)
+    expect(navegadas[0]).not.toContain('web.whatsapp.com')
+    // Mismo texto que el preview.
+    expect(decodeURIComponent(navegadas[0].split('&text=')[1])).toBe(mensajeEnPantalla)
 
-    expect(navegaciones).toHaveLength(1)
-    const url = navegaciones[0]
-    expect(url.startsWith('https://web.whatsapp.com/send?phone=5493511234567&text=')).toBe(true)
-    expect(url).not.toContain('api.whatsapp.com')
-
-    // 2 · el preview es EXACTAMENTE lo que recibe WhatsApp
-    expect(decodeURIComponent(url.split('&text=')[1])).toBe(mensajeEnPantalla)
-
-    // 3 · la UI dice "abierto", nunca "enviado"
+    // La UI no afirma que la app se haya abierto — no se puede saber.
     const chip = await screen.findByTestId('whatsapp-send-status')
-    expect(chip.textContent).toMatch(/abierto/i)
     expect(chip.textContent).not.toMatch(/enviado/i)
 
-    // 4 · el log escrito es `opened`, jamás sent/delivered/read
     await waitFor(() => expect(opsDe('whatsapp_logs').length).toBeGreaterThan(0))
   })
 
-  it('dos mensajes seguidos REUTILIZAN la pestaña: un solo open, la referencia navega', async () => {
-    // El nombre de ventana NO alcanza: se resetea al navegar cross-origin
-    // (techrepairpro.app → web.whatsapp.com). Lo que se asevera acá es el
-    // contrato real: cuántas veces se llamó a open, y adónde se navegó la
-    // pestaña ya abierta.
+  it('DESKTOP · WhatsApp Web navega la MISMA pestaña, nunca window.open', async () => {
+    const openSpy = vi.fn()
+    vi.stubGlobal('open', openSpy)
+    const asignadas: string[] = []
+    Object.defineProperty(window, 'location', {
+      value: { assign: (u: string) => asignadas.push(u), href: '' },
+      writable: true, configurable: true,
+    })
+
+    const user = userEvent.setup()
+    abrirModal({ vars: { equipo: 'Galaxy A54' } })
+
+    const textarea = await screen.findByTestId('whatsapp-preview-textarea') as HTMLTextAreaElement
+    const web = screen.getByTestId('whatsapp-fallback-button')
+    await waitFor(() => expect(web).toBeEnabled())
+    const mensajeEnPantalla = textarea.value
+    await user.click(web)
+
+    await waitFor(() => expect(asignadas).toHaveLength(1))
+    expect(openSpy, 'window.open crearía una pestaña imposible de reutilizar').not.toHaveBeenCalled()
+    expect(asignadas[0].startsWith('https://web.whatsapp.com/send?phone=5493511234567&text=')).toBe(true)
+    expect(asignadas[0]).not.toContain('api.whatsapp.com')
+    expect(decodeURIComponent(asignadas[0].split('&text=')[1])).toBe(mensajeEnPantalla)
+  })
+
+  it('DESKTOP · dos handoffs Web seguidos NO crean browsing contexts', async () => {
     estado.filas.whatsapp_templates = [
       { id: 't1', business_id: BIZ_A, status_key: 'ready_pickup', status_label: 'Listo para Retirar',
         message_template: 'Hola {nombre}, tu equipo está listo.', auto_send: false, is_active: true },
       { id: 't2', business_id: BIZ_A, status_key: 'received', status_label: 'Recibido',
         message_template: 'Hola {nombre}, recibimos tu equipo.', auto_send: false, is_active: true },
     ]
-
-    const aperturas: Array<[string, string]> = []
-    const navegaciones: string[] = []
-    let openerSeteado: unknown = 'sin tocar'
-    let focos = 0
-    const pestana = {
-      closed: false,
-      set opener(v: unknown) { openerSeteado = v },
-      get opener() { return openerSeteado },
-      location: { set href(u: string) { navegaciones.push(u) }, get href() { return '' } },
-      focus() { focos++ },
-    }
-    vi.stubGlobal('open', vi.fn((url: string, target: string) => {
-      aperturas.push([url, target]); return pestana as unknown as Window
-    }))
+    const openSpy = vi.fn()
+    vi.stubGlobal('open', openSpy)
+    const asignadas: string[] = []
+    Object.defineProperty(window, 'location', {
+      value: { assign: (u: string) => asignadas.push(u), href: '' },
+      writable: true, configurable: true,
+    })
 
     const user = userEvent.setup()
     abrirModal()
-
     const textarea = await screen.findByTestId('whatsapp-preview-textarea') as HTMLTextAreaElement
-    const boton = screen.getByTestId('whatsapp-send-api-button')
-    await waitFor(() => expect(boton).toBeEnabled())
-    await user.click(boton)
+    const web = screen.getByTestId('whatsapp-fallback-button')
+    await waitFor(() => expect(web).toBeEnabled())
 
-    // Segundo mensaje: otra plantilla ⇒ otro texto ⇒ otro destino.
+    await user.click(web)
     await user.selectOptions(screen.getByTestId('whatsapp-template-select'), 'received')
     await waitFor(() => expect(textarea.value).toContain('recibimos'))
-    await waitFor(() => expect(boton).toBeEnabled())
-    await user.click(boton)
+    await user.click(web)
 
-    // UN solo open: el segundo mensaje NO estrena pestaña.
-    expect(aperturas).toHaveLength(1)
-    expect(aperturas[0][0]).toBe('')                       // about:blank
-    expect(aperturas[0][1]).toBe('techrepair_whatsapp')
-    expect(aperturas[0][1]).not.toBe('_blank')
+    await waitFor(() => expect(asignadas).toHaveLength(2))
+    // Lo que importa: CERO pestañas creadas, y cada acción a su propio destino.
+    expect(openSpy).not.toHaveBeenCalled()
+    expect(asignadas[1]).not.toBe(asignadas[0])
+  })
 
-    // WhatsApp no queda con referencia de vuelta a TechRepair.
-    expect(openerSeteado).toBeNull()
+  it('MÓVIL · una sola acción, wa.me, y sin los botones de desktop', async () => {
+    const original = navigator.userAgent
+    Object.defineProperty(navigator, 'userAgent', { value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)', configurable: true })
+    try {
+      const llamadas: Array<[string, string]> = []
+      vi.stubGlobal('open', vi.fn((u: string, t: string) => { llamadas.push([u, t]); return {} as Window }))
 
-    // La MISMA pestaña navegó dos veces, a destinos distintos.
-    expect(navegaciones).toHaveLength(2)
-    expect(navegaciones[1]).not.toBe(navegaciones[0])
-    expect(navegaciones.every(u => u.startsWith('https://web.whatsapp.com/send?'))).toBe(true)
-    expect(navegaciones.some(u => u.includes('api.whatsapp.com'))).toBe(false)
-    expect(focos).toBe(2)
+      const user = userEvent.setup()
+      abrirModal({ vars: { equipo: 'Galaxy A54' } })
+      const textarea = await screen.findByTestId('whatsapp-preview-textarea') as HTMLTextAreaElement
+      const boton = screen.getByTestId('whatsapp-send-api-button')
+
+      expect(boton.textContent).toMatch(/Abrir WhatsApp/i)
+      expect(screen.queryByTestId('whatsapp-fallback-button'), 'móvil no muestra las dos acciones de desktop').toBeNull()
+
+      await waitFor(() => expect(boton).toBeEnabled())
+      const mensajeEnPantalla = textarea.value
+      await user.click(boton)
+
+      expect(llamadas).toHaveLength(1)
+      expect(llamadas[0][0].startsWith('https://wa.me/5493511234567?text=')).toBe(true)
+      expect(llamadas[0][1]).toBe('_blank')
+      expect(decodeURIComponent(llamadas[0][0].split('?text=')[1])).toBe(mensajeEnPantalla)
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', { value: original, configurable: true })
+    }
   })
 })

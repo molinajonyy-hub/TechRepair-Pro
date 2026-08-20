@@ -142,47 +142,41 @@ export function usaPantallaIntermedia(fuente) {
 }
 
 /**
- * La ventana de handoff tiene nombre estable (no se abre una por mensaje).
+ * Maquinaria de reutilización de pestaña — PROHIBIDA.
  *
- * `_blank` cuenta como NO estable aunque sintacticamente sea un nombre: es
- * justamente el valor que hace que cada mensaje abra una pestana nueva. Lo
- * mismo con los otros targets reservados.
- */
-const TARGETS_NO_ESTABLES = new Set(['_blank', '_self', '_parent', '_top'])
-
-export function usaVentanaConNombreEstable(fuente) {
-  const m = fuente.match(/WHATSAPP_WINDOW_NAME\s*=\s*['"]([^'"]+)['"]/)
-  if (!m) return false
-  return !TARGETS_NO_ESTABLES.has(m[1])
-}
-
-/**
- * La reutilización se apoya en una REFERENCIA, no sólo en el nombre.
+ * MEDIDO en Chromium real: `web.whatsapp.com` manda `COOP: same-origin`, así
+ * que al navegar hacia allá el `WindowProxy` queda severed y `closed` pasa a
+ * `true` con la pestaña abierta. Fallan las tres vías: referencia con opener
+ * anulado, referencia con opener conservado, y target por nombre. Cualquier
+ * intento de volver a "reutilizar la pestaña" es humo, y peor: los tests con
+ * un WindowProxy falso lo dan por bueno.
  *
- * `window.name` se resetea al navegar cross-origin, y el salto a
- * web.whatsapp.com lo es: repetir `open(url, TARGET)` estrena pestaña desde el
- * segundo mensaje. El diseño correcto abre about:blank (same-origin, donde se
- * puede cortar `opener`), guarda el WindowProxy y después navega con
- * `location.href`.
+ * Además `ref.opener = null` renuncia al permiso de navegar esa pestaña
+ * después (SecurityError), así que el patrón estaba roto por dos motivos.
  */
-export function reutilizaPorReferencia(fuente) {
-  const guardaReferencia = /pestana\s*=\s*win/.test(fuente)
-  const navegaLaReferencia = /pestana\.location\.href\s*=/.test(fuente)
-  const chequeaCerrada = /pestana\.closed/.test(fuente)
-  return guardaReferencia && navegaLaReferencia && chequeaCerrada
+export function intentaReutilizarPestana(fuente) {
+  return /\.closed\b/.test(fuente)          // guardar y consultar una referencia
+      || /\.opener\s*=\s*null/.test(fuente) // cortar el opener para conservarla
+      || /WHATSAPP_WINDOW_NAME/.test(fuente)// target con nombre estable
+      || /techrepair_whatsapp/.test(fuente)
 }
 
-/** El opener se corta mientras la pestaña todavía es same-origin. */
-export function cortaElOpener(fuente) {
-  return /\.opener\s*=\s*null/.test(fuente)
+/** WhatsApp Web se abre en la MISMA pestaña, nunca con window.open. */
+export function abreWebEnLaMismaPestana(fuente) {
+  const navegaLaActual = /location\.assign\(/.test(fuente)
+  const abreVentanaParaWeb = /window\.open\([^)]*web\.whatsapp/.test(fuente)
+  return navegaLaActual && !abreVentanaParaWeb
 }
 
-/**
- * `noopener` devuelve null y nos dejaría sin la referencia, que es lo único
- * que hace funcionar la reutilización. El corte de opener se hace a mano.
- */
-export function usaNoopener(fuente) {
-  return /noopener/.test(fuente)
+/** Existe el camino de la app de escritorio (protocolo whatsapp://). */
+export function ofreceAppDeEscritorio(fuente) {
+  return /buildAppUrl/.test(fuente) && /abrirAppDeEscritorio/.test(fuente)
+}
+
+/** El copy no puede prometer lo que el navegador no permite. */
+export function prometeReutilizarPestana(fuente) {
+  return /reutiliza[^\n]*pesta/i.test(fuente)
+      || /misma pesta[^\n]*siempre/i.test(fuente)
 }
 
 /** El handoff falla CERRADO: un teléfono inválido no produce URL. */
@@ -305,17 +299,19 @@ function validarRepo() {
       fallas.push(`${p}: apunta a api.whatsapp.com, la pantalla intermedia ("Continuar en WhatsApp Web"). Ese paso saca al usuario de la pestaña techrepair_whatsapp y estrena una nueva.`)
     }
   }
-  if (!usaVentanaConNombreEstable(handoff)) {
-    fallas.push(`${HANDOFF}: perdió el nombre de ventana estable. Sin él, cada mensaje abre una pestaña nueva.`)
+  for (const p of [HANDOFF, MODAL]) {
+    if (intentaReutilizarPestana(leer(p))) {
+      fallas.push(`${p}: volvió la maquinaria de reutilización de pestaña (referencia/.closed, opener=null o target con nombre). MEDIDO: web.whatsapp.com manda COOP same-origin, el WindowProxy queda severed y .closed pasa a true con la pestaña abierta. Las tres vías fallan; no hay forma de reutilizarla.`)
+    }
   }
-  if (!reutilizaPorReferencia(handoff)) {
-    fallas.push(`${HANDOFF}: volvió a apoyarse sólo en el nombre de ventana. window.name se RESETEA al navegar cross-origin (techrepairpro.app → web.whatsapp.com), así que desde el segundo mensaje estrena pestaña. Hay que conservar el WindowProxy y navegarlo con location.href.`)
+  if (!abreWebEnLaMismaPestana(handoff)) {
+    fallas.push(`${HANDOFF}: WhatsApp Web dejó de abrirse en la MISMA pestaña. Con window.open cada mensaje estrena una pestaña que después es imposible de reutilizar: es exactamente el problema que se cerró.`)
   }
-  if (!cortaElOpener(handoff)) {
-    fallas.push(`${HANDOFF}: dejó de cortar el opener. WhatsApp quedaría con una referencia de vuelta a TechRepair.`)
+  if (!ofreceAppDeEscritorio(handoff)) {
+    fallas.push(`${HANDOFF}: se perdió el camino de la app de escritorio (whatsapp://), que es el único que no toca ninguna pestaña.`)
   }
-  if (usaNoopener(handoff)) {
-    fallas.push(`${HANDOFF}: usa noopener, que devuelve null y nos deja sin la referencia con la que se reutiliza la pestaña. El corte de opener va a mano sobre about:blank.`)
+  if (prometeReutilizarPestana(leer(MODAL))) {
+    fallas.push(`${MODAL}: el copy promete reutilizar una pestaña. El navegador no lo permite; no se le puede decir eso al usuario.`)
   }
   if (!fallaCerradoSinTelefono(handoff)) {
     fallas.push(`${HANDOFF}: dejó de fallar cerrado ante un teléfono inválido. Sin eso se abre https://wa.me/?text=… , que no lleva a ningún contacto.`)
@@ -445,32 +441,38 @@ function selfTest() {
   chequear('no marca wa.me',
     usaPantallaIntermedia('`https://wa.me/${t}?text=${m}`'), false)
 
-  chequear('reconoce la ventana estable',
-    usaVentanaConNombreEstable(`export const WHATSAPP_WINDOW_NAME = 'techrepair_whatsapp'`), true)
-  chequear('caza la falta del nombre',
-    usaVentanaConNombreEstable(`window.open(url, '_blank', 'noopener')`), false)
-  chequear('caza _blank disfrazado de nombre estable',
-    usaVentanaConNombreEstable(`export const WHATSAPP_WINDOW_NAME = '_blank'`), false)
-  chequear('caza _self / _top',
-    usaVentanaConNombreEstable(`export const WHATSAPP_WINDOW_NAME = '_self'`), false)
+  // Maquinaria de reutilización — prohibida
+  chequear('caza la referencia con .closed',
+    intentaReutilizarPestana(`if (pestana && !pestana.closed) { pestana.location.href = url }`), true)
+  chequear('caza el corte de opener',
+    intentaReutilizarPestana(`win.opener = null`), true)
+  chequear('caza el target con nombre estable',
+    intentaReutilizarPestana(`window.open(u, 'techrepair_whatsapp')`), true)
+  chequear('caza la constante del nombre',
+    intentaReutilizarPestana(`const WHATSAPP_WINDOW_NAME = 'x'`), true)
+  chequear('no marca el handoff determinista',
+    intentaReutilizarPestana(`window.location.assign(url)`), false)
 
-  const REFERENCIA_OK = `
-    if (pestana && !pestana.closed) { pestana.location.href = url; return { abierto: true } }
-    const win = abrirVentana('', WHATSAPP_WINDOW_NAME)
-    win.opener = null
-    pestana = win
-    win.location.href = url`
-  const SOLO_NOMBRE = `
-    const win = abrirVentana(url, WHATSAPP_WINDOW_NAME)
-    if (!win) return { abierto: false }
-    return { abierto: true }`
+  // WhatsApp Web en la misma pestaña
+  chequear('reconoce la navegación same-tab',
+    abreWebEnLaMismaPestana(`export function irAWhatsAppWeb(u) { window.location.assign(u) }`), true)
+  chequear('caza window.open contra WhatsApp Web',
+    abreWebEnLaMismaPestana(`window.location.assign(a); window.open('https://web.whatsapp.com/send', '_blank')`), false)
+  chequear('caza la falta de same-tab',
+    abreWebEnLaMismaPestana(`window.open(url, '_blank')`), false)
 
-  chequear('reconoce la reutilización por referencia', reutilizaPorReferencia(REFERENCIA_OK), true)
-  chequear('caza la vuelta al enfoque de solo-nombre', reutilizaPorReferencia(SOLO_NOMBRE), false)
-  chequear('reconoce el corte de opener', cortaElOpener(REFERENCIA_OK), true)
-  chequear('caza la falta del corte de opener', cortaElOpener(SOLO_NOMBRE), false)
-  chequear('caza noopener', usaNoopener(`window.open(u, t, 'noopener')`), true)
-  chequear('no marca su ausencia', usaNoopener(REFERENCIA_OK), false)
+  // App de escritorio
+  chequear('reconoce el camino de la app',
+    ofreceAppDeEscritorio(`export function buildAppUrl(){} export function abrirAppDeEscritorio(){}`), true)
+  chequear('caza su ausencia', ofreceAppDeEscritorio(`export function irAWhatsAppWeb(){}`), false)
+
+  // Copy honesto
+  chequear('caza la promesa de reutilizar',
+    prometeReutilizarPestana(`“Abrir WhatsApp” reutiliza siempre la misma pestaña.`), true)
+  chequear('caza "misma pestaña siempre"',
+    prometeReutilizarPestana(`usa la misma pestaña siempre`), true)
+  chequear('no marca el copy correcto',
+    prometeReutilizarPestana(`Se abre en esta misma pestaña; con Atrás volvés a TechRepair.`), false)
 
   chequear('reconoce el fail-closed',
     fallaCerradoSinTelefono(`if (!telefono.valid) return { ok: false, error: e }`), true)

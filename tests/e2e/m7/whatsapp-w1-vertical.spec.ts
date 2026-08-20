@@ -13,8 +13,16 @@
 // (`e2e:ci-local -- --project=m7-local`), y siembra su propia orden para no
 // depender de que exista uno.
 //
-// NO abre WhatsApp de verdad: `window.open` se reemplaza por un espía antes de
-// que cargue la página, así que la URL queda capturada y nada sale a wa.me.
+// NO SE SIMULA EL NAVEGADOR. La versión anterior de este spec usaba un fake
+// `WindowProxy` para "probar" que la pestaña de WhatsApp se reutilizaba, y dio
+// falso positivo: un objeto plano acepta `opener = null` y `location.href = …`
+// sin ningún modelo de seguridad, y su `closed` nunca cambia. En producción
+// `web.whatsapp.com` manda `COOP: same-origin`, el WindowProxy queda severed y
+// aparecía una segunda pestaña.
+//
+// Ahora se asevera lo que el browser hace DE VERDAD: `window.open` no se usa en
+// ningún camino de desktop, y WhatsApp Web navega la MISMA página (se
+// intercepta el destino para no salir a la red, pero la navegación es real).
 // ============================================================================
 import { test, expect } from './fixtures'
 import { ejecutarSQL } from '../setup/sqlLocal'
@@ -103,53 +111,26 @@ test('@m7-local W1 · el sidebar no ofrece el módulo Cloud API, y el editor sig
   await expect(page.locator('h1, h2, .page-hdr-title, .page-title').first()).toBeVisible({ timeout: 15_000 })
 })
 
-test('@m7-local W1 · orden → plantilla → preview → WhatsApp (pestaña reutilizada)', async ({ page }) => {
-  // ── Espía ANTES de que cargue nada ─────────────────────────────────────────
-  //
-  // No alcanza con contar `window.open` y comparar el target: el nombre de
-  // ventana se RESETEA al navegar cross-origin (techrepairpro.app →
-  // web.whatsapp.com), así que un diseño basado sólo en el nombre estrenaría
-  // pestaña desde el segundo mensaje sin que un espía del target lo note.
-  //
-  // Por eso el falso WindowProxy registra también las NAVEGACIONES: eso es lo
-  // que prueba que la pestaña se reutiliza de verdad.
+
+/**
+ * Abre la orden y deja el preview listo. Devuelve el mensaje renderizado.
+ *
+ * Deja stubeado `window.open`: en desktop NINGÚN camino puede usarlo. Ésa es la
+ * regresión que se vigila — abrir una pestaña de WhatsApp Web crea un browsing
+ * context que después es imposible de reutilizar (COOP same-origin), y era lo
+ * que acumulaba pestañas.
+ */
+async function abrirPreview(page: import('@playwright/test').Page) {
   await page.addInitScript(() => {
-    const wa = {
-      aperturas: [] as [string, string][],
-      navegaciones: [] as string[],
-      focos: 0,
-      openerSeteado: 'sin tocar' as unknown,
-      cerrada: false,
-    }
-    ;(window as unknown as { __WA__: typeof wa }).__WA__ = wa
-
-    window.open = ((url?: string | URL, target?: string) => {
-      wa.aperturas.push([String(url ?? ''), String(target ?? '')])
-      return {
-        get closed() { return wa.cerrada },
-        set opener(v: unknown) { wa.openerSeteado = v },
-        get opener() { return wa.openerSeteado },
-        location: {
-          set href(u: string) { wa.navegaciones.push(u) },
-          get href() { return wa.navegaciones[wa.navegaciones.length - 1] ?? '' },
-        },
-        focus() { wa.focos++ },
-      } as unknown as Window
+    ;(window as unknown as { __OPENS__: string[] }).__OPENS__ = []
+    window.open = ((url?: string | URL) => {
+      ;(window as unknown as { __OPENS__: string[] }).__OPENS__.push(String(url ?? ''))
+      return {} as Window
     }) as typeof window.open
-  })
-
-  // Toda llamada al transporte oficial de Meta queda registrada para aseverar
-  // que NO ocurre. W1 tiene que funcionar sin nada de Cloud API.
-  const llamadasCloudApi: string[] = []
-  page.on('request', r => {
-    const u = r.url()
-    if (/whatsapp-send|whatsapp-embedded-signup|graph\.facebook\.com/.test(u)) llamadasCloudApi.push(u)
   })
 
   await page.goto(`/orders/${W1.order}`)
   await page.waitForLoadState('networkidle')
-
-  // ── 1 · abrir el selector de plantilla desde la orden ──────────────────────
   await page.locator('button', { hasText: /^whatsapp$/i }).first().click()
   await page.locator('[data-testid="order-whatsapp-received"]').click()
 
@@ -160,100 +141,94 @@ test('@m7-local W1 · orden → plantilla → preview → WhatsApp (pestaña reu
   await expect(textarea).toBeVisible()
   await expect.poll(async () => (await textarea.inputValue()).length).toBeGreaterThan(0)
 
-  const mensaje = await textarea.inputValue()
+  return { modal, textarea, mensaje: await textarea.inputValue() }
+}
 
-  // ── 2 · el render quedó resuelto: ni un placeholder pendiente ──────────────
+const opens = (page: import('@playwright/test').Page) =>
+  page.evaluate(() => (window as unknown as { __OPENS__: string[] }).__OPENS__)
+
+test('@m7-local W1 · preview resuelto y dos acciones de desktop', async ({ page }) => {
+  const llamadasCloudApi: string[] = []
+  page.on('request', r => {
+    const u = r.url()
+    if (/whatsapp-send|whatsapp-embedded-signup|graph\.facebook\.com/.test(u)) llamadasCloudApi.push(u)
+  })
+
+  const { modal, mensaje } = await abrirPreview(page)
+
+  // ── El render quedó resuelto, con datos reales de la orden ────────────────
   expect(mensaje, 'ninguna variable puede quedar sin resolver').not.toMatch(/\{[A-Za-z_][A-Za-z0-9_]*\}/)
   expect(mensaje).not.toContain('undefined')
   expect(mensaje).not.toContain('NaN')
-  // Datos reales de la orden, no de un mock.
   expect(mensaje).toContain('Samsung')
   expect(mensaje).toContain('Galaxy A54')
   expect(mensaje).toContain(NUMERO_ORDEN)
   expect(mensaje).toContain('TechRepair E2E')
 
-  // ── 3 · teléfono normalizado y sin aviso de bloqueo ────────────────────────
+  // Teléfono normalizado y sin variables faltantes.
   await expect(modal).toContainText(`+${TEL_NORMALIZADO}`)
   await expect(modal.locator('[data-testid="whatsapp-variables-faltantes"]')).toHaveCount(0)
 
-  // ── 4 · abrir WhatsApp ─────────────────────────────────────────────────────
-  const boton = modal.locator('[data-testid="whatsapp-send-api-button"]')
-  await expect(boton).toBeEnabled()
-  await boton.click()
+  // ── Las DOS acciones, con la app como primaria ────────────────────────────
+  await expect(modal.locator('[data-testid="whatsapp-send-api-button"]')).toContainText(/WhatsApp Desktop/i)
+  await expect(modal.locator('[data-testid="whatsapp-fallback-button"]')).toContainText(/WhatsApp Web/i)
 
-  type EstadoWa = {
-    aperturas: [string, string][]; navegaciones: string[]; focos: number; openerSeteado: unknown
-  }
-  const leerWa = () => page.evaluate(() => (window as unknown as { __WA__: EstadoWa }).__WA__)
+  // El copy no promete reutilizar pestañas ni detectar la app instalada.
+  const ayuda = modal.locator('[data-testid="whatsapp-ayuda-desktop"]')
+  await expect(ayuda).toContainText(/misma pestaña/i)
+  await expect(ayuda).not.toContainText(/reutiliz/i)
+  await expect(modal).not.toContainText(/enviado por api/i)
 
-  const wa1 = await leerWa()
+  expect(llamadasCloudApi, 'el camino estándar no toca el transporte oficial').toEqual([])
+})
 
-  // Se abre VACÍA con el nombre estable: about:blank sigue siendo same-origin
-  // y es el único momento en que se puede cortar el opener.
-  expect(wa1.aperturas, 'exactamente un open').toHaveLength(1)
-  expect(wa1.aperturas[0][0]).toBe('')
-  expect(wa1.aperturas[0][1]).toBe('techrepair_whatsapp')
-  expect(wa1.aperturas[0][1]).not.toBe('_blank')
+test('@m7-local W1 · la app de escritorio no abre ninguna pestaña ni saca de TechRepair', async ({ page }) => {
+  const { modal } = await abrirPreview(page)
 
-  // WhatsApp no queda con una referencia de vuelta a TechRepair.
-  expect(wa1.openerSeteado, 'opener cortado mientras era same-origin').toBeNull()
+  const botonApp = modal.locator('[data-testid="whatsapp-send-api-button"]')
+  await expect(botonApp).toBeEnabled()
+  await botonApp.click()
 
-  // Recién ahí se navega. Desktop: WhatsApp Web directo, NO la pantalla
-  // intermedia de api.whatsapp.com ("Continuar en WhatsApp Web"), que era la
-  // que sacaba al usuario de la pestaña y estrenaba otra.
-  expect(wa1.navegaciones).toHaveLength(1)
-  const url = wa1.navegaciones[0]
+  // `whatsapp://` se lo lleva el sistema: sin handler no pasa nada, y en
+  // ningún caso se crea una pestaña ni se abandona TechRepair.
+  expect(await opens(page), 'la app NO puede usar window.open').toEqual([])
+  await expect(page).toHaveURL(new RegExp(`/orders/${W1.order}$`))
+  await expect(modal, 'el modal sigue ahí: TechRepair no se movió').toBeVisible()
+
+  // Se registró el handoff como `opened`, jamás sent/delivered/read.
+  await expect.poll(() => ejecutarSQL(
+    `SELECT send_result FROM public.whatsapp_logs WHERE order_id = '${W1.order}' ORDER BY created_at DESC LIMIT 1;`),
+    { timeout: 10_000 }).toContain('opened')
+})
+
+test('@m7-local W1 · WhatsApp Web navega la MISMA pestaña, sin window.open', async ({ page }) => {
+  // Se intercepta el destino para no salir a la red: la navegación es REAL y
+  // ocurre sobre la misma página, que es justamente lo que hay que probar.
+  await page.route('https://web.whatsapp.com/**', route =>
+    route.fulfill({ status: 200, contentType: 'text/html', body: '<title>stub</title>' }))
+
+  const { modal, mensaje } = await abrirPreview(page)
+
+  const botonWeb = modal.locator('[data-testid="whatsapp-fallback-button"]')
+  await expect(botonWeb).toBeEnabled()
+  await botonWeb.click()
+
+  // MISMA pestaña: el mismo objeto `page` terminó en WhatsApp Web.
+  await page.waitForURL(/web\.whatsapp\.com/, { timeout: 15_000 })
+
+  const url = page.url()
   expect(new URL(url).hostname).toBe('web.whatsapp.com')
-  expect(url).not.toContain('api.whatsapp.com')
+  expect(url, 'nunca la pantalla intermedia').not.toContain('api.whatsapp.com')
   expect(url).toContain(`phone=${TEL_NORMALIZADO}`)
-  expect(wa1.focos).toBe(1)
 
-  // ── 5 · el preview es EXACTAMENTE lo que recibe WhatsApp ───────────────────
-  const textoDe = (u: string) => decodeURIComponent(u.slice(u.indexOf('&text=') + '&text='.length))
-  expect(textoDe(url), 'lo que se ve tiene que ser lo que se manda').toBe(mensaje)
-
-  // Encoding correcto y sin doble encoding.
+  // El preview es EXACTAMENTE lo que recibe WhatsApp, sin doble encoding.
+  const texto = decodeURIComponent(url.slice(url.indexOf('&text=') + '&text='.length))
+  expect(texto, 'lo que se ve tiene que ser lo que se manda').toBe(mensaje)
   expect(url).not.toContain('\n')
   expect(url).toContain('%0A')
   expect(url).not.toContain('%250A')
 
-  // ── 4b · el SEGUNDO handoff REUTILIZA la pestaña ──────────────────────────
-  // Lo que prueba la reutilización no es el target repetido, sino que NO se
-  // vuelva a llamar `open` y que la pestaña ya abierta navegue al nuevo
-  // destino.
-  await modal.locator('[data-testid="whatsapp-template-select"]').selectOption('ready_pickup')
-  await expect.poll(async () => await textarea.inputValue()).not.toBe(mensaje)
-  const mensaje2 = await textarea.inputValue()
-
-  await expect(boton).toBeEnabled()
-  await boton.click()
-
-  const wa2 = await leerWa()
-
-  expect(wa2.aperturas, 'el segundo mensaje NO puede estrenar pestaña').toHaveLength(1)
-  expect(wa2.navegaciones, 'la MISMA pestaña navegó de nuevo').toHaveLength(2)
-  expect(wa2.focos).toBe(2)
-
-  const url2 = wa2.navegaciones[1]
-  expect(url2, 'y va a un destino distinto').not.toBe(url)
-  expect(new URL(url2).hostname).toBe('web.whatsapp.com')
-  expect(url2).not.toContain('api.whatsapp.com')
-  expect(textoDe(url2)).toBe(mensaje2)
-
-  // ── 6 · la UI no miente ────────────────────────────────────────────────────
-  const chip = modal.locator('[data-testid="whatsapp-send-status"]')
-  await expect(chip).toBeVisible()
-  await expect(chip).toContainText(/abierto/i)
-  await expect(chip).not.toContainText(/enviado/i)
-  await expect(modal).not.toContainText(/enviado por api/i)
-
-  // ── 7 · nada de Cloud API ──────────────────────────────────────────────────
-  expect(llamadasCloudApi, 'el camino estándar no puede tocar el transporte oficial').toEqual([])
-
-  // ── 8 · lo que se registró es una APERTURA, no un envío ────────────────────
-  await expect.poll(() => {
-    const fila = ejecutarSQL(
-      `SELECT send_result FROM public.whatsapp_logs WHERE order_id = '${W1.order}' ORDER BY created_at DESC LIMIT 1;`)
-    return fila
-  }, { timeout: 10_000 }).toContain('opened')
+  // Y no se creó ningún browsing context: ni window.open, ni una pestaña más.
+  expect(await opens(page), 'WhatsApp Web NO puede usar window.open').toEqual([])
+  expect(page.context().pages().length, 'sigue habiendo una sola pestaña').toBe(1)
 })
