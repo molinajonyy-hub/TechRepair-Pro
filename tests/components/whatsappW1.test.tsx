@@ -17,6 +17,9 @@ const estado = vi.hoisted(() => ({
   businessId: 'biz-aaaa-1111' as string | null,
   puedeEditar: true,
   cloudConectado: false,
+  /** Configuración del Companion. Ver el mock de `whatsappCompanionEnv`. */
+  extensionId: null as string | null,
+  installUrl: null as string | null,
   /** Toda operación contra Supabase, para auditar el acotado por negocio. */
   ops: [] as Array<{ tabla: string; verbo: string; filtros: Array<[string, unknown]> }>,
   filas: {} as Record<string, Array<Record<string, unknown>>>,
@@ -37,6 +40,19 @@ vi.mock('../../src/hooks/usePermissions', () => ({
 
 vi.mock('../../src/services/whatsappCloudService', () => ({
   getConnection: async () => (estado.cloudConectado ? { phone_number_id: 'pn-1' } : null),
+}))
+
+/**
+ * Se sustituye SÓLO la lectura de entorno. El cliente del Companion corre de
+ * verdad —incluido qué payload arma y el manejo de `lastError`—; lo único
+ * falseado es `chrome.runtime`, que es la API del navegador.
+ *
+ * (A `import.meta.env` de otro módulo no se le puede escribir desde un test:
+ * Vite lo fija. De ahí que la lectura viva aislada en su propio módulo.)
+ */
+vi.mock('../../src/config/whatsappCompanionEnv', () => ({
+  extensionIdConfigurado: () => estado.extensionId,
+  installUrlConfigurada: () => estado.installUrl,
 }))
 
 function construirQuery(tabla: string) {
@@ -80,7 +96,55 @@ const negociosTocados = () => [...new Set(
   estado.ops.flatMap(o => o.filtros.filter(([c]) => c === 'business_id').map(([, v]) => v)),
 )]
 
+// ── Companion ────────────────────────────────────────────────────────────────
+//
+// NO se mockea `whatsappCompanion`: se falsea sólo la API del navegador
+// (`chrome.runtime`) y se deja correr el cliente real. Así estos tests también
+// cubren qué payload sale y que no se navegue nada. El comportamiento de la
+// extensión —pestañas— lo prueba `tools/whatsapp-companion/probe.mjs` en
+// Chromium real; eso no se simula.
+
+const ID_COMPANION = 'abcdefghijklmnopabcdefghijklmnop'
+
+type MensajeCompanion = { type: string; phone?: string; text?: string }
+
+/** Companion instalado: `chrome.runtime` responde. Devuelve lo que se le mandó. */
+function companionInstalado(responder: (m: MensajeCompanion) => unknown = (m) =>
+  m.type === 'PING' ? { ok: true, version: '1.0.0' } : { ok: true, action: 'reused', tabId: 7 },
+) {
+  estado.extensionId = ID_COMPANION
+  const enviados: Array<{ id: string; mensaje: MensajeCompanion }> = []
+  vi.stubGlobal('chrome', {
+    runtime: {
+      lastError: undefined,
+      sendMessage: (id: string, mensaje: MensajeCompanion, cb: (r: unknown) => void) => {
+        enviados.push({ id, mensaje })
+        setTimeout(() => cb(responder(mensaje)), 0)
+      },
+    },
+  })
+  return enviados
+}
+
+/** Configurado pero NO instalado: Chrome contesta con `lastError`. */
+function companionNoInstalado() {
+  estado.extensionId = ID_COMPANION
+  const enviados: MensajeCompanion[] = []
+  const runtime = {
+    lastError: { message: 'Could not establish connection.' },
+    sendMessage: (_id: string, mensaje: MensajeCompanion, cb: (r: unknown) => void) => {
+      enviados.push(mensaje)
+      setTimeout(() => cb(undefined), 0)
+    },
+  }
+  vi.stubGlobal('chrome', { runtime })
+  return enviados
+}
+
 beforeEach(() => {
+  vi.unstubAllGlobals()
+  estado.extensionId = null
+  estado.installUrl = null
   estado.businessId = BIZ_A
   estado.puedeEditar = true
   estado.cloudConectado = false
@@ -334,25 +398,127 @@ describe('W1 · modal de preview', () => {
 
     await waitFor(() => expect(textarea.value).toBe('Texto escrito a mano'))
   })
+  // ── CON Companion ─────────────────────────────────────────────────────────
+
   /**
-   * En desktop hay DOS acciones. Ninguna reutiliza pestañas: WhatsApp Web manda
-   * COOP same-origin y su pestaña es imposible de re-navegar desde acá (medido
-   * en Chromium real). Lo que se asevera es que cada camino sea determinista.
+   * §18: con el Companion instalado hay UN solo CTA. Volver a tres botones
+   * permanentes sería regresar a hacerle elegir al usuario algo que el sistema
+   * ya sabe resolver.
    */
-  it('DESKTOP · muestra las dos acciones, con la app como primaria', async () => {
+  it('DESKTOP · con Companion hay UNA sola acción, sin menú de fallbacks', async () => {
+    companionInstalado()
     abrirModal({ vars: { equipo: 'Galaxy A54' } })
     await screen.findByTestId('whatsapp-preview-textarea')
 
-    expect(screen.getByTestId('whatsapp-send-api-button').textContent).toMatch(/WhatsApp Desktop/i)
-    expect(screen.getByTestId('whatsapp-fallback-button').textContent).toMatch(/WhatsApp Web/i)
+    const primario = screen.getByTestId('whatsapp-send-api-button')
+    await waitFor(() => expect(primario.textContent).toMatch(/^Abrir WhatsApp$/i))
 
-    // El copy no puede prometer reutilización ni detección de la app.
+    expect(screen.queryByTestId('whatsapp-fallback-button'), 'sobra con el Companion').toBeNull()
+    expect(screen.queryByTestId('whatsapp-install-companion')).toBeNull()
+
     const ayuda = screen.getByTestId('whatsapp-ayuda-desktop').textContent ?? ''
-    expect(ayuda).toMatch(/misma pestaña/i)
+    expect(ayuda).toMatch(/conectado con TechRepair/i)
+    // El copy no habla de pestañas técnicas ni promete reutilización.
     expect(ayuda).not.toMatch(/reutiliz/i)
   })
 
+  /**
+   * G + H: con el Companion activo TechRepair no se mueve y no estrena
+   * pestañas. La navegación la hace Chrome del lado de la extensión.
+   */
+  it('DESKTOP · Companion: no navega, no abre pestañas, y registra "opened"', async () => {
+    const enviados = companionInstalado()
+    const openSpy = vi.fn()
+    vi.stubGlobal('open', openSpy)
+    const asignadas: string[] = []
+    const navegadas: string[] = []
+    Object.defineProperty(window, 'location', {
+      value: { assign: (u: string) => asignadas.push(u), set href(u: string) { navegadas.push(u) }, get href() { return '' } },
+      writable: true, configurable: true,
+    })
+
+    const user = userEvent.setup()
+    abrirModal({ vars: { equipo: 'Galaxy A54' } })
+
+    const textarea = await screen.findByTestId('whatsapp-preview-textarea') as HTMLTextAreaElement
+    const boton = screen.getByTestId('whatsapp-send-api-button')
+    await waitFor(() => expect(boton).toBeEnabled())
+    const mensajeEnPantalla = textarea.value
+    estado.ops = []
+    await user.click(boton)
+
+    // G · TechRepair se queda donde está.
+    await waitFor(() => expect(enviados.some(e => e.mensaje.type === 'OPEN_WHATSAPP_WEB')).toBe(true))
+    expect(asignadas, 'TechRepair no puede navegarse a WhatsApp').toHaveLength(0)
+    expect(navegadas).toHaveLength(0)
+    // H · y no estrena ninguna pestaña.
+    expect(openSpy).not.toHaveBeenCalled()
+
+    // El payload es el del contrato, y el texto es EL MISMO que el preview.
+    const apertura = enviados.find(e => e.mensaje.type === 'OPEN_WHATSAPP_WEB')!
+    expect(apertura.id).toBe(ID_COMPANION)
+    expect(Object.keys(apertura.mensaje).sort()).toEqual(['phone', 'text', 'type'])
+    expect(apertura.mensaje.phone).toBe('5493511234567')
+    expect(apertura.mensaje.text).toBe(mensajeEnPantalla)
+
+    // Estado honesto: se abrió, no se envió.
+    const chip = await screen.findByTestId('whatsapp-send-status')
+    expect(chip.textContent).not.toMatch(/enviado/i)
+    await waitFor(() => expect(opsDe('whatsapp_logs').length).toBeGreaterThan(0))
+  })
+
+  it('DESKTOP · si el Companion deja de responder, se cae al menú de fallbacks', async () => {
+    // Instalado al momento del PING, pero la apertura falla: desinstalado en
+    // caliente, o service worker caído. No puede dejar al usuario sin salida.
+    companionInstalado((m) => m.type === 'PING' ? { ok: true, version: '1.0.0' } : null)
+
+    const user = userEvent.setup()
+    abrirModal({ vars: { equipo: 'Galaxy A54' } })
+    await screen.findByTestId('whatsapp-preview-textarea')
+    const boton = screen.getByTestId('whatsapp-send-api-button')
+    await waitFor(() => expect(boton.textContent).toMatch(/^Abrir WhatsApp$/i))
+    await user.click(boton)
+
+    await waitFor(() => expect(screen.getByTestId('whatsapp-fallback-button')).toBeInTheDocument())
+    expect(screen.getByTestId('whatsapp-send-api-button').textContent).toMatch(/WhatsApp Desktop/i)
+  })
+
+  // ── SIN Companion (I · fallbacks) ─────────────────────────────────────────
+
+  it('I · sin Companion aparecen los fallbacks, con copy honesto', async () => {
+    companionNoInstalado()
+    estado.installUrl = 'https://chromewebstore.google.com/detail/x'
+
+    abrirModal({ vars: { equipo: 'Galaxy A54' } })
+    await screen.findByTestId('whatsapp-preview-textarea')
+
+    await waitFor(() => expect(screen.getByTestId('whatsapp-fallback-button')).toBeInTheDocument())
+    expect(screen.getByTestId('whatsapp-send-api-button').textContent).toMatch(/WhatsApp Desktop/i)
+    expect(screen.getByTestId('whatsapp-fallback-button').textContent).toMatch(/WhatsApp Web/i)
+
+    const instalar = screen.getByTestId('whatsapp-install-companion') as HTMLAnchorElement
+    expect(instalar.getAttribute('href')).toMatch(/^https:\/\//)
+    expect(instalar.getAttribute('rel')).toContain('noopener')
+
+    // No se promete lo que sin extensión no se puede cumplir.
+    const ayuda = screen.getByTestId('whatsapp-ayuda-desktop').textContent ?? ''
+    expect(ayuda).toMatch(/nueva pestaña/i)
+    expect(ayuda).not.toMatch(/reutiliz/i)
+  })
+
+  it('I · sin URL de instalación configurada NO se ofrece instalar', async () => {
+    // Mientras la extensión no esté publicada, mandar a un link inventado sería
+    // peor que no ofrecerlo.
+    companionNoInstalado()
+    abrirModal({ vars: { equipo: 'Galaxy A54' } })
+    await screen.findByTestId('whatsapp-preview-textarea')
+
+    await waitFor(() => expect(screen.getByTestId('whatsapp-fallback-button')).toBeInTheDocument())
+    expect(screen.queryByTestId('whatsapp-install-companion')).toBeNull()
+  })
+
   it('DESKTOP · app usa whatsapp://, sin window.open, y registra "opened"', async () => {
+    companionNoInstalado()
     const navegadas: string[] = []
     const openSpy = vi.fn()
     vi.stubGlobal('open', openSpy)
@@ -365,6 +531,7 @@ describe('W1 · modal de preview', () => {
 
     const textarea = await screen.findByTestId('whatsapp-preview-textarea') as HTMLTextAreaElement
     const boton = screen.getByTestId('whatsapp-send-api-button')
+    await waitFor(() => expect(boton.textContent).toMatch(/WhatsApp Desktop/i))
     await waitFor(() => expect(boton).toBeEnabled())
     const mensajeEnPantalla = textarea.value
     estado.ops = []
@@ -384,12 +551,22 @@ describe('W1 · modal de preview', () => {
     await waitFor(() => expect(opsDe('whatsapp_logs').length).toBeGreaterThan(0))
   })
 
-  it('DESKTOP · WhatsApp Web navega la MISMA pestaña, nunca window.open', async () => {
-    const openSpy = vi.fn()
-    vi.stubGlobal('open', openSpy)
+  /**
+   * G · el fallback abre una pestaña NUEVA y TechRepair NO se navega.
+   *
+   * Esto invierte lo que hacía PR #55 a propósito: sin forma de reutilizar
+   * nada, navegar la pestaña actual era el mal menor; con el Companion
+   * resolviendo el caso bueno, sacar al usuario de su trabajo dejó de ser
+   * aceptable. Lo que NO cambió: no se promete reutilizar esta pestaña.
+   */
+  it('G · sin Companion, WhatsApp Web abre pestaña nueva y NO navega TechRepair', async () => {
+    companionNoInstalado()
+    const llamadas: Array<[string, string]> = []
+    vi.stubGlobal('open', vi.fn((u: string, t: string) => { llamadas.push([u, t]); return {} as Window }))
     const asignadas: string[] = []
+    const navegadas: string[] = []
     Object.defineProperty(window, 'location', {
-      value: { assign: (u: string) => asignadas.push(u), href: '' },
+      value: { assign: (u: string) => asignadas.push(u), set href(u: string) { navegadas.push(u) }, get href() { return '' } },
       writable: true, configurable: true,
     })
 
@@ -397,54 +574,46 @@ describe('W1 · modal de preview', () => {
     abrirModal({ vars: { equipo: 'Galaxy A54' } })
 
     const textarea = await screen.findByTestId('whatsapp-preview-textarea') as HTMLTextAreaElement
+    await waitFor(() => expect(screen.getByTestId('whatsapp-fallback-button')).toBeEnabled())
     const web = screen.getByTestId('whatsapp-fallback-button')
-    await waitFor(() => expect(web).toBeEnabled())
     const mensajeEnPantalla = textarea.value
     await user.click(web)
 
-    await waitFor(() => expect(asignadas).toHaveLength(1))
-    expect(openSpy, 'window.open crearía una pestaña imposible de reutilizar').not.toHaveBeenCalled()
-    expect(asignadas[0].startsWith('https://web.whatsapp.com/send?phone=5493511234567&text=')).toBe(true)
-    expect(asignadas[0]).not.toContain('api.whatsapp.com')
-    expect(decodeURIComponent(asignadas[0].split('&text=')[1])).toBe(mensajeEnPantalla)
+    await waitFor(() => expect(llamadas).toHaveLength(1))
+    expect(asignadas, 'TechRepair no se navega a WhatsApp').toHaveLength(0)
+    expect(navegadas).toHaveLength(0)
+    expect(llamadas[0][1]).toBe('_blank')
+    expect(llamadas[0][0].startsWith('https://web.whatsapp.com/send?phone=5493511234567&text=')).toBe(true)
+    expect(llamadas[0][0]).not.toContain('api.whatsapp.com')
+    expect(decodeURIComponent(llamadas[0][0].split('&text=')[1])).toBe(mensajeEnPantalla)
   })
 
-  it('DESKTOP · dos handoffs Web seguidos NO crean browsing contexts', async () => {
-    estado.filas.whatsapp_templates = [
-      { id: 't1', business_id: BIZ_A, status_key: 'ready_pickup', status_label: 'Listo para Retirar',
-        message_template: 'Hola {nombre}, tu equipo está listo.', auto_send: false, is_active: true },
-      { id: 't2', business_id: BIZ_A, status_key: 'received', status_label: 'Recibido',
-        message_template: 'Hola {nombre}, recibimos tu equipo.', auto_send: false, is_active: true },
-    ]
-    const openSpy = vi.fn()
-    vi.stubGlobal('open', openSpy)
-    const asignadas: string[] = []
-    Object.defineProperty(window, 'location', {
-      value: { assign: (u: string) => asignadas.push(u), href: '' },
-      writable: true, configurable: true,
-    })
+  it('el popup bloqueado en el fallback se dice, no se traga', async () => {
+    companionNoInstalado()
+    vi.stubGlobal('open', vi.fn(() => null))
 
     const user = userEvent.setup()
-    abrirModal()
-    const textarea = await screen.findByTestId('whatsapp-preview-textarea') as HTMLTextAreaElement
-    const web = screen.getByTestId('whatsapp-fallback-button')
-    await waitFor(() => expect(web).toBeEnabled())
+    abrirModal({ vars: { equipo: 'Galaxy A54' } })
+    await screen.findByTestId('whatsapp-preview-textarea')
+    await waitFor(() => expect(screen.getByTestId('whatsapp-fallback-button')).toBeEnabled())
+    await user.click(screen.getByTestId('whatsapp-fallback-button'))
 
-    await user.click(web)
-    await user.selectOptions(screen.getByTestId('whatsapp-template-select'), 'received')
-    await waitFor(() => expect(textarea.value).toContain('recibimos'))
-    await user.click(web)
-
-    await waitFor(() => expect(asignadas).toHaveLength(2))
-    // Lo que importa: CERO pestañas creadas, y cada acción a su propio destino.
-    expect(openSpy).not.toHaveBeenCalled()
-    expect(asignadas[1]).not.toBe(asignadas[0])
+    const chip = await screen.findByTestId('whatsapp-send-status')
+    expect(chip.textContent).toMatch(/no se pudo abrir/i)
   })
 
-  it('MÓVIL · una sola acción, wa.me, y sin los botones de desktop', async () => {
+  /**
+   * J · el móvil no cambia y NO usa el Companion. Ahí `wa.me` se lo entrega el
+   * sistema a la app nativa, que es mejor que cualquier cosa que pueda hacer
+   * una extensión de escritorio. Ni se consulta ni se ofrece instalarla.
+   */
+  it('J · MÓVIL · una sola acción wa.me, sin Companion y sin botones de desktop', async () => {
     const original = navigator.userAgent
     Object.defineProperty(navigator, 'userAgent', { value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)', configurable: true })
     try {
+      // Companion instalado a propósito: aun así el móvil no le habla.
+      const enviados = companionInstalado()
+      estado.installUrl = 'https://chromewebstore.google.com/detail/x'
       const llamadas: Array<[string, string]> = []
       vi.stubGlobal('open', vi.fn((u: string, t: string) => { llamadas.push([u, t]); return {} as Window }))
 
@@ -454,7 +623,9 @@ describe('W1 · modal de preview', () => {
       const boton = screen.getByTestId('whatsapp-send-api-button')
 
       expect(boton.textContent).toMatch(/Abrir WhatsApp/i)
-      expect(screen.queryByTestId('whatsapp-fallback-button'), 'móvil no muestra las dos acciones de desktop').toBeNull()
+      expect(screen.queryByTestId('whatsapp-fallback-button'), 'móvil no muestra las acciones de desktop').toBeNull()
+      expect(screen.queryByTestId('whatsapp-install-companion'), 'no se ofrece una extensión de escritorio en un teléfono').toBeNull()
+      expect(screen.queryByTestId('whatsapp-ayuda-desktop')).toBeNull()
 
       await waitFor(() => expect(boton).toBeEnabled())
       const mensajeEnPantalla = textarea.value
@@ -464,6 +635,9 @@ describe('W1 · modal de preview', () => {
       expect(llamadas[0][0].startsWith('https://wa.me/5493511234567?text=')).toBe(true)
       expect(llamadas[0][1]).toBe('_blank')
       expect(decodeURIComponent(llamadas[0][0].split('?text=')[1])).toBe(mensajeEnPantalla)
+
+      // Ni el PING salió.
+      expect(enviados, 'en móvil no se consulta al Companion').toHaveLength(0)
     } finally {
       Object.defineProperty(navigator, 'userAgent', { value: original, configurable: true })
     }

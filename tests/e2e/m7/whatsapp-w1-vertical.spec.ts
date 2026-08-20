@@ -20,9 +20,15 @@
 // `web.whatsapp.com` manda `COOP: same-origin`, el WindowProxy queda severed y
 // aparecía una segunda pestaña.
 //
-// Ahora se asevera lo que el browser hace DE VERDAD: `window.open` no se usa en
-// ningún camino de desktop, y WhatsApp Web navega la MISMA página (se
-// intercepta el destino para no salir a la red, pero la navegación es real).
+// Ahora se asevera lo que el browser hace DE VERDAD, con dos caminos separados:
+//   · SIN Companion  → la app de escritorio no abre nada, y el fallback Web
+//     abre una pestaña NUEVA real (se intercepta el destino para no salir a la
+//     red, pero la pestaña se crea de verdad y TechRepair no se mueve).
+//   · CON Companion  → se inyecta un BRIDGE de test: un `chrome.runtime` que
+//     responde. NO se finge la Tabs API — el comportamiento de pestañas de la
+//     extensión lo demuestra `tools/whatsapp-companion/probe.mjs` en Chromium
+//     real. Acá se verifica el contrato del frontend: qué payload sale, que
+//     TechRepair siga en su URL, y que se registre `opened`.
 // ============================================================================
 import { test, expect } from './fixtures'
 import { ejecutarSQL } from '../setup/sqlLocal'
@@ -112,22 +118,56 @@ test('@m7-local W1 · el sidebar no ofrece el módulo Cloud API, y el editor sig
 })
 
 
+type Pagina = import('@playwright/test').Page
+
+/** Mensaje que el frontend le manda al Companion. Sólo estas tres claves. */
+type MensajeCompanion = { type: string; phone?: string; text?: string }
+
+/**
+ * BRIDGE de test del Companion.
+ *
+ * Instala un `chrome.runtime` que responde, y registra lo que se le mandó. NO
+ * simula la Tabs API ni el manejo de pestañas: eso lo prueba el probe en
+ * Chromium real con la extensión de verdad. Acá interesa el lado de TechRepair.
+ */
+async function instalarBridgeCompanion(page: Pagina) {
+  await page.addInitScript(() => {
+    const enviados: Array<{ extId: string; mensaje: MensajeCompanion }> = []
+    ;(window as unknown as { __COMPANION__: typeof enviados }).__COMPANION__ = enviados
+    ;(window as unknown as { chrome: unknown }).chrome = {
+      runtime: {
+        lastError: undefined,
+        sendMessage: (extId: string, mensaje: MensajeCompanion, cb: (r: unknown) => void) => {
+          enviados.push({ extId, mensaje })
+          setTimeout(() => cb(mensaje.type === 'PING'
+            ? { ok: true, version: '1.0.0' }
+            : { ok: true, action: 'reused', tabId: 7 }), 0)
+        },
+      },
+    }
+  })
+}
+
+const mensajesAlCompanion = (page: Pagina) =>
+  page.evaluate(() => (window as unknown as { __COMPANION__: Array<{ extId: string; mensaje: MensajeCompanion }> }).__COMPANION__)
+
 /**
  * Abre la orden y deja el preview listo. Devuelve el mensaje renderizado.
  *
- * Deja stubeado `window.open`: en desktop NINGÚN camino puede usarlo. Ésa es la
- * regresión que se vigila — abrir una pestaña de WhatsApp Web crea un browsing
- * context que después es imposible de reutilizar (COOP same-origin), y era lo
- * que acumulaba pestañas.
+ * `stubOpen` deja registrado todo `window.open` en vez de ejecutarlo. Se usa
+ * para los caminos donde NINGUNA pestaña puede crearse (app de escritorio,
+ * Companion). El fallback Web sí abre una de verdad y se mide como popup real.
  */
-async function abrirPreview(page: import('@playwright/test').Page) {
-  await page.addInitScript(() => {
-    ;(window as unknown as { __OPENS__: string[] }).__OPENS__ = []
-    window.open = ((url?: string | URL) => {
-      ;(window as unknown as { __OPENS__: string[] }).__OPENS__.push(String(url ?? ''))
-      return {} as Window
-    }) as typeof window.open
-  })
+async function abrirPreview(page: Pagina, { stubOpen = true } = {}) {
+  if (stubOpen) {
+    await page.addInitScript(() => {
+      ;(window as unknown as { __OPENS__: string[] }).__OPENS__ = []
+      window.open = ((url?: string | URL) => {
+        ;(window as unknown as { __OPENS__: string[] }).__OPENS__.push(String(url ?? ''))
+        return {} as Window
+      }) as typeof window.open
+    })
+  }
 
   await page.goto(`/orders/${W1.order}`)
   await page.waitForLoadState('networkidle')
@@ -144,10 +184,10 @@ async function abrirPreview(page: import('@playwright/test').Page) {
   return { modal, textarea, mensaje: await textarea.inputValue() }
 }
 
-const opens = (page: import('@playwright/test').Page) =>
+const opens = (page: Pagina) =>
   page.evaluate(() => (window as unknown as { __OPENS__: string[] }).__OPENS__)
 
-test('@m7-local W1 · preview resuelto y dos acciones de desktop', async ({ page }) => {
+test('@m7-local W1 · preview resuelto y fallbacks de desktop sin Companion', async ({ page }) => {
   const llamadasCloudApi: string[] = []
   page.on('request', r => {
     const u = r.url()
@@ -169,13 +209,15 @@ test('@m7-local W1 · preview resuelto y dos acciones de desktop', async ({ page
   await expect(modal).toContainText(`+${TEL_NORMALIZADO}`)
   await expect(modal.locator('[data-testid="whatsapp-variables-faltantes"]')).toHaveCount(0)
 
-  // ── Las DOS acciones, con la app como primaria ────────────────────────────
+  // ── Sin Companion: los fallbacks, con la app como primaria ────────────────
   await expect(modal.locator('[data-testid="whatsapp-send-api-button"]')).toContainText(/WhatsApp Desktop/i)
   await expect(modal.locator('[data-testid="whatsapp-fallback-button"]')).toContainText(/WhatsApp Web/i)
+  // Sin URL de instalación configurada NO se ofrece instalar nada.
+  await expect(modal.locator('[data-testid="whatsapp-install-companion"]')).toHaveCount(0)
 
-  // El copy no promete reutilizar pestañas ni detectar la app instalada.
+  // El copy avisa la pestaña nueva y no promete reutilizar nada.
   const ayuda = modal.locator('[data-testid="whatsapp-ayuda-desktop"]')
-  await expect(ayuda).toContainText(/misma pestaña/i)
+  await expect(ayuda).toContainText(/nueva pestaña/i)
   await expect(ayuda).not.toContainText(/reutiliz/i)
   await expect(modal).not.toContainText(/enviado por api/i)
 
@@ -186,6 +228,7 @@ test('@m7-local W1 · la app de escritorio no abre ninguna pestaña ni saca de T
   const { modal } = await abrirPreview(page)
 
   const botonApp = modal.locator('[data-testid="whatsapp-send-api-button"]')
+  await expect(botonApp).toContainText(/WhatsApp Desktop/i)
   await expect(botonApp).toBeEnabled()
   await botonApp.click()
 
@@ -201,22 +244,29 @@ test('@m7-local W1 · la app de escritorio no abre ninguna pestaña ni saca de T
     { timeout: 10_000 }).toContain('opened')
 })
 
-test('@m7-local W1 · WhatsApp Web navega la MISMA pestaña, sin window.open', async ({ page }) => {
-  // Se intercepta el destino para no salir a la red: la navegación es REAL y
-  // ocurre sobre la misma página, que es justamente lo que hay que probar.
-  await page.route('https://web.whatsapp.com/**', route =>
+test('@m7-local W1 · sin Companion, WhatsApp Web abre pestaña nueva y TechRepair NO se mueve', async ({ page, context }) => {
+  // Se intercepta el destino para no salir a la red, pero la pestaña se crea de
+  // VERDAD: acá `window.open` no se stubea, así que lo que se mide es el
+  // browsing context real que produce el navegador.
+  await context.route('https://web.whatsapp.com/**', route =>
     route.fulfill({ status: 200, contentType: 'text/html', body: '<title>stub</title>' }))
 
-  const { modal, mensaje } = await abrirPreview(page)
+  const { modal, mensaje } = await abrirPreview(page, { stubOpen: false })
 
   const botonWeb = modal.locator('[data-testid="whatsapp-fallback-button"]')
   await expect(botonWeb).toBeEnabled()
-  await botonWeb.click()
 
-  // MISMA pestaña: el mismo objeto `page` terminó en WhatsApp Web.
-  await page.waitForURL(/web\.whatsapp\.com/, { timeout: 15_000 })
+  const [popup] = await Promise.all([
+    page.waitForEvent('popup', { timeout: 15_000 }),
+    botonWeb.click(),
+  ])
+  await popup.waitForLoadState('domcontentloaded')
 
-  const url = page.url()
+  // TechRepair se queda donde estaba: el contrato cambió respecto de PR #55.
+  await expect(page, 'TechRepair no puede navegarse a WhatsApp').toHaveURL(new RegExp(`/orders/${W1.order}$`))
+  await expect(modal).toBeVisible()
+
+  const url = popup.url()
   expect(new URL(url).hostname).toBe('web.whatsapp.com')
   expect(url, 'nunca la pantalla intermedia').not.toContain('api.whatsapp.com')
   expect(url).toContain(`phone=${TEL_NORMALIZADO}`)
@@ -228,7 +278,60 @@ test('@m7-local W1 · WhatsApp Web navega la MISMA pestaña, sin window.open', a
   expect(url).toContain('%0A')
   expect(url).not.toContain('%250A')
 
-  // Y no se creó ningún browsing context: ni window.open, ni una pestaña más.
-  expect(await opens(page), 'WhatsApp Web NO puede usar window.open').toEqual([])
+  await popup.close()
+})
+
+/**
+ * CON Companion. §15: bridge controlado, sin fingir la Tabs API.
+ *
+ * Lo que se demuestra acá es el lado de TechRepair: un solo CTA, el payload
+ * exacto, que la app no se mueva ni estrene pestañas, y que se registre
+ * `opened`. Que la extensión reutilice UNA pestaña —A → B → C— lo demuestra
+ * `tools/whatsapp-companion/probe.mjs` con la extensión de verdad cargada en
+ * Chromium. Son responsabilidades separadas a propósito.
+ */
+test('@m7-local W1 · con Companion: UN solo CTA, payload exacto y TechRepair intacto', async ({ page }) => {
+  const idConfigurado = process.env.VITE_WHATSAPP_COMPANION_EXTENSION_ID
+  expect(idConfigurado,
+    'Falta VITE_WHATSAPP_COMPANION_EXTENSION_ID en .env.e2e. Copiar el valor de .env.e2e.example: ' +
+    'es un ID de prueba, no una extensión publicada.').toBeTruthy()
+
+  await instalarBridgeCompanion(page)
+  const { modal, mensaje } = await abrirPreview(page)
+
+  // §18 · una sola acción. Sin menú de fallbacks.
+  const cta = modal.locator('[data-testid="whatsapp-send-api-button"]')
+  await expect(cta).toHaveText(/^Abrir WhatsApp$/i)
+  await expect(modal.locator('[data-testid="whatsapp-fallback-button"]')).toHaveCount(0)
+  await expect(modal.locator('[data-testid="whatsapp-install-companion"]')).toHaveCount(0)
+  await expect(modal.locator('[data-testid="whatsapp-ayuda-desktop"]')).toContainText(/conectado con TechRepair/i)
+
+  await expect(cta).toBeEnabled()
+  await cta.click()
+
+  // El payload es el del contrato, y nada más.
+  await expect.poll(async () =>
+    (await mensajesAlCompanion(page)).some(m => m.mensaje.type === 'OPEN_WHATSAPP_WEB'),
+    { timeout: 10_000 }).toBe(true)
+
+  const enviados = await mensajesAlCompanion(page)
+  expect(enviados[0].mensaje.type, 'lo primero es el descubrimiento').toBe('PING')
+
+  const apertura = enviados.find(m => m.mensaje.type === 'OPEN_WHATSAPP_WEB')!
+  expect(apertura.extId).toBe(idConfigurado)
+  expect(Object.keys(apertura.mensaje).sort()).toEqual(['phone', 'text', 'type'])
+  expect(apertura.mensaje.phone).toBe(TEL_NORMALIZADO)
+  expect(apertura.mensaje.text, 'lo que se ve es lo que se manda').toBe(mensaje)
+  expect(JSON.stringify(apertura.mensaje), 'la URL la arma la extensión').not.toContain('web.whatsapp.com')
+
+  // TechRepair no se mueve ni estrena pestañas.
+  await expect(page).toHaveURL(new RegExp(`/orders/${W1.order}$`))
+  await expect(modal).toBeVisible()
+  expect(await opens(page), 'con Companion no se abre ninguna pestaña desde acá').toEqual([])
   expect(page.context().pages().length, 'sigue habiendo una sola pestaña').toBe(1)
+
+  // Y el registro sigue siendo `opened`, jamás sent/delivered/read.
+  await expect.poll(() => ejecutarSQL(
+    `SELECT send_result FROM public.whatsapp_logs WHERE order_id = '${W1.order}' ORDER BY created_at DESC LIMIT 1;`),
+    { timeout: 10_000 }).toContain('opened')
 })

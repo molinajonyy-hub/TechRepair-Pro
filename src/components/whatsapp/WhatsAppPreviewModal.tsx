@@ -8,22 +8,25 @@
  * W1 — el mensaje lo arma `renderTemplate` (allowlist explícita) y, si queda
  * una variable sin resolver, se dice CUÁL y no se abre WhatsApp.
  *
- * DOS CAMINOS EN DESKTOP, Y POR QUÉ:
+ * DESKTOP — UNA acción cuando se puede, varias cuando hay que elegir:
  * WhatsApp Web manda `Cross-Origin-Opener-Policy: same-origin`, así que una
- * pestaña suya NO se puede reutilizar desde acá (medido: el `WindowProxy` queda
- * severed y `closed` pasa a `true` con la pestaña abierta). Abrir una pestaña
- * por mensaje acumulaba pestañas sin remedio. Entonces:
- *  · primario   → app de escritorio por `whatsapp://`: no abre NINGUNA pestaña
- *                 y TechRepair se queda donde está;
- *  · secundario → WhatsApp Web navegando la MISMA pestaña. Back vuelve.
- * En móvil no cambia nada: `wa.me` y el sistema abre la app.
+ * pestaña suya NO se puede reutilizar desde una página normal (medido: el
+ * `WindowProxy` queda severed y `closed` pasa a `true` con la pestaña abierta).
+ * Quien SÍ puede es el TechRepair WhatsApp Companion, porque la navegación la
+ * ejecuta Chrome vía Tabs API. Entonces:
+ *  · con Companion → UN botón, "Abrir WhatsApp". TechRepair se queda abierto y
+ *                    WhatsApp Web usa siempre la misma pestaña;
+ *  · sin Companion → instalarlo, o app de escritorio (`whatsapp://`, no abre
+ *                    pestaña), o WhatsApp Web en una pestaña NUEVA, avisada.
+ * En móvil no cambia nada: `wa.me` y el sistema abre la app. El Companion no se
+ * consulta ni se ofrece en móvil.
  *
  * Estados honestos: iniciar el handoff NO confirma envío. Sólo el envío por
  * Cloud API confirmado server-side muestra "Enviado por API"; ese camino es
  * preexistente y ajeno a W1 — sólo aparece si el negocio ya tiene conexión.
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { MessageCircle, Copy, ExternalLink, Check, AlertTriangle, X, RefreshCw, ChevronDown, Pencil, Monitor } from 'lucide-react'
+import { MessageCircle, Copy, ExternalLink, Check, AlertTriangle, X, RefreshCw, ChevronDown, Pencil, Monitor, Puzzle } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { getConnection } from '../../services/whatsappCloudService'
 import {
@@ -46,9 +49,14 @@ import {
   buildAppUrl,
   abrirWhatsAppMovil,
   abrirAppDeEscritorio,
-  irAWhatsAppWeb,
+  abrirWhatsAppWebEnNuevaPestana,
   EVENTO_APERTURA,
 } from '../../services/whatsappHandoff'
+import {
+  consultarCompanion,
+  abrirEnCompanion,
+  companionInstallUrl,
+} from '../../services/whatsappCompanion'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -77,6 +85,13 @@ export interface WhatsAppPreviewModalProps {
 type SendStatus = 'idle' | 'sending' | 'sent_api' | 'fallback_opened' | 'desktop_opened' | 'copied' | 'error'
 
 /**
+ * Descubrimiento del Companion. `buscando` dura lo que tarda Chrome en
+ * responder —milisegundos— y cae solo a `ausente` si nadie contesta, así que no
+ * hay estado de carga visible en la práctica.
+ */
+type EstadoCompanion = 'buscando' | 'disponible' | 'ausente'
+
+/**
  * Ningún estado de este mapa dice "Enviado" salvo `sent_api`, que sólo se
  * alcanza con una confirmación real de la Cloud API.
  *
@@ -88,6 +103,8 @@ const STATUS_UI: Record<SendStatus, { label: string; color: string } | null> = {
   idle:             null,
   sending:          { label: 'Enviando…', color: '#818cf8' },
   sent_api:         { label: 'Enviado por API', color: '#22c55e' },
+  // Vale para el Companion y para el móvil: en los dos casos se abrió WhatsApp
+  // con el mensaje preparado, y en ninguno se puede afirmar que se haya enviado.
   fallback_opened:  { label: 'WhatsApp abierto', color: '#22c55e' },
   desktop_opened:   { label: 'Abriendo WhatsApp Desktop…', color: '#22c55e' },
   copied:           { label: 'Mensaje copiado', color: '#60a5fa' },
@@ -119,6 +136,8 @@ export function WhatsAppPreviewModal({
   const [varsUsadas, setVarsUsadas] = useState<{ key: string; valor: string }[]>([])
   /** Variables de PERFIL del negocio sin cargar: degradan el mensaje, no lo bloquean. */
   const [perfilIncompleto, setPerfilIncompleto] = useState<string[]>([])
+  /** ¿Está el Companion? Sólo se consulta en desktop, y sólo sin Cloud API. */
+  const [companion, setCompanion] = useState<EstadoCompanion>('buscando')
 
   const dialogRef       = useRef<HTMLDivElement>(null)
   const textareaRef     = useRef<HTMLTextAreaElement>(null)
@@ -126,6 +145,8 @@ export function WhatsAppPreviewModal({
 
   const isMobile    = isMobileDevice()
   const phoneResult = normalizeWhatsAppPhone(phoneInput)
+  /** Sólo se ofrece instalar si hay una URL configurada. No se inventa una. */
+  const urlInstalacion = companionInstallUrl()
 
   /**
    * Camino por defecto de la plataforma: en desktop `web.whatsapp.com/send`
@@ -175,6 +196,21 @@ export function WhatsAppPreviewModal({
   }, [businessId, isOpen])
 
   useEffect(() => { void loadData() }, [loadData])
+
+  // ── ¿Está el Companion? ────────────────────────────────────────────────────
+  //
+  // En MÓVIL no se consulta ni se ofrece: ahí `wa.me` entrega el mensaje a la
+  // app nativa, que es mejor que cualquier cosa que pueda hacer una extensión.
+  // Con Cloud API tampoco, porque ese camino tiene prioridad y no toca pestañas.
+  useEffect(() => {
+    if (!isOpen || isMobile || cloudConnected) { setCompanion('ausente'); return }
+    let vigente = true
+    setCompanion('buscando')
+    void consultarCompanion().then(r => {
+      if (vigente) setCompanion(r.disponible ? 'disponible' : 'ausente')
+    })
+    return () => { vigente = false }
+  }, [isOpen, isMobile, cloudConnected])
 
   // ── Sync editable phone + reset transient state when (re)opened ─────────────
   useEffect(() => {
@@ -312,24 +348,48 @@ export function WhatsAppPreviewModal({
   }
 
   /**
-   * DESKTOP · secundario. WhatsApp Web en la MISMA pestaña.
+   * DESKTOP · primario CUANDO EL COMPANION ESTÁ. Una sola acción.
    *
-   * No se usa `window.open`: una pestaña de WhatsApp Web es imposible de
-   * reutilizar después (COOP same-origin), así que abrir una por mensaje
-   * acumulaba pestañas. Navegar la actual es la única forma determinista de no
-   * acumular; el Back del navegador vuelve a TechRepair.
+   * La extensión encuentra o crea UNA pestaña de WhatsApp Web y la navega al
+   * chat. TechRepair no se mueve. Se le manda `{ type, phone, text }` y nada
+   * más: la URL la arma la extensión.
    *
-   * El log se ESPERA antes de navegar: al salir de la página el request en
-   * vuelo se cancela y el handoff quedaría sin registro.
+   * `tabs.update` recrea el documento de WhatsApp Web, así que hay un par de
+   * segundos de carga del otro lado. Eso NO es un error y no se rotula como
+   * tal; tampoco se hace polling para "confirmar" que el chat cargó.
    */
-  const handleIrAWhatsAppWeb = async () => {
+  const handleAbrirConCompanion = async () => {
+    if (bloqueo) { setStatus('error'); setErrorMsg(bloqueo); return }
+    if (!phoneResult.valid) { setStatus('error'); setErrorMsg(phoneResult.error ?? 'Teléfono inválido'); return }
+
+    const r = await abrirEnCompanion(phoneInput, message)
+    if (!r.ok) {
+      // Si la extensión dejó de responder (desinstalada en caliente), se cae al
+      // menú de fallbacks en vez de dejar al usuario sin salida.
+      if (r.motivo) setCompanion('ausente')
+      setStatus('error')
+      setErrorMsg('No se pudo abrir WhatsApp. Probá con la aplicación de escritorio o copiá el mensaje.')
+      return
+    }
+    setStatus('fallback_opened')
+    void logOpen()
+  }
+
+  /**
+   * DESKTOP · fallback SIN Companion. WhatsApp Web en una pestaña NUEVA.
+   *
+   * Se avisa que abre una pestaña, y no se promete que se reutilice: contra
+   * WhatsApp Web eso es imposible sin la extensión (COOP same-origin, medido).
+   * TechRepair NO se navega: sacar al usuario de su trabajo era peor.
+   */
+  const handleAbrirWebEnNuevaPestana = () => {
     if (bloqueo) { setStatus('error'); setErrorMsg(bloqueo); return }
     if (!handoff.ok) { setStatus('error'); setErrorMsg(handoff.error); return }
 
-    try { await logOpen() } catch { /* el registro no puede bloquear el handoff */ }
-
-    const apertura = irAWhatsAppWeb(handoff.url)
-    if (!apertura.abierto) { setStatus('error'); setErrorMsg(apertura.error) }
+    const apertura = abrirWhatsAppWebEnNuevaPestana(handoff.url)
+    if (!apertura.abierto) { setStatus('error'); setErrorMsg(apertura.error); return }
+    setStatus('fallback_opened')
+    void logOpen()
   }
 
   /** MÓVIL · acción única. `wa.me` y el sistema abre la app nativa. */
@@ -580,12 +640,17 @@ export function WhatsAppPreviewModal({
                 </div>
               )}
 
-              {/* Desktop: cómo elegir. Sin prometer nada que no se pueda cumplir. */}
-              {!isMobile && !loading && (
+              {/* Desktop: qué va a pasar. Sin prometer nada que no se pueda cumplir. */}
+              {!isMobile && !loading && !apiEnabled && companion === 'disponible' && (
                 <p data-testid="whatsapp-ayuda-desktop" style={{ margin: 0, fontSize: '0.68rem', color: 'var(--text-subtle)', lineHeight: 1.5 }}>
-                  Recomendado: <strong>WhatsApp Desktop</strong> mantiene TechRepair abierto.
-                  Si no tenés la aplicación instalada, usá <strong>WhatsApp Web</strong>, que se abre en esta misma pestaña
-                  (con el botón Atrás volvés).
+                  WhatsApp Web conectado con TechRepair.
+                </p>
+              )}
+
+              {!isMobile && !loading && !apiEnabled && companion === 'ausente' && (
+                <p data-testid="whatsapp-ayuda-desktop" style={{ margin: 0, fontSize: '0.68rem', color: 'var(--text-subtle)', lineHeight: 1.5 }}>
+                  Recomendado: <strong>WhatsApp Desktop</strong> mantiene TechRepair abierto y no abre pestañas.
+                  Si no tenés la aplicación, <strong>WhatsApp Web abrirá una nueva pestaña</strong>.
                 </p>
               )}
             </>
@@ -622,16 +687,31 @@ export function WhatsAppPreviewModal({
             </button>
           )}
 
-          {/* DESKTOP · secundario — WhatsApp Web en la MISMA pestaña */}
-          {!apiEnabled && !isMobile && (
+          {/* DESKTOP · sin Companion — instalarlo. Sólo si hay URL configurada. */}
+          {!apiEnabled && !isMobile && companion === 'ausente' && urlInstalacion && (
+            <a
+              data-testid="whatsapp-install-companion"
+              href={urlInstalacion}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-ghost btn-sm"
+              title="Con el complemento instalado, WhatsApp Web usa una sola pestaña."
+            >
+              <Puzzle size={13} />
+              Instalar complemento
+            </a>
+          )}
+
+          {/* DESKTOP · sin Companion — WhatsApp Web en una pestaña NUEVA */}
+          {!apiEnabled && !isMobile && companion === 'ausente' && (
             <button
               data-testid="whatsapp-fallback-button"
-              onClick={handleIrAWhatsAppWeb}
+              onClick={handleAbrirWebEnNuevaPestana}
               disabled={!canSend}
               className="btn btn-ghost btn-sm"
               style={{ color: '#25d366', borderColor: canSend ? 'rgba(37,211,102,0.3)' : undefined }}
               title={canSend
-                ? 'Abre WhatsApp Web en esta misma pestaña. Con el botón Atrás volvés a TechRepair.'
+                ? 'WhatsApp Web abrirá una nueva pestaña.'
                 : (bloqueo ?? phoneResult.error)}
             >
               <ExternalLink size={13} />
@@ -639,8 +719,8 @@ export function WhatsAppPreviewModal({
             </button>
           )}
 
-          {/* DESKTOP · primario — app instalada, sin pestañas de por medio */}
-          {!apiEnabled && !isMobile && (
+          {/* DESKTOP · sin Companion — primario: la app instalada, sin pestañas */}
+          {!apiEnabled && !isMobile && companion === 'ausente' && (
             <button
               data-testid="whatsapp-send-api-button"
               onClick={handleAbrirApp}
@@ -653,6 +733,23 @@ export function WhatsAppPreviewModal({
             >
               <Monitor size={13} />
               Abrir en WhatsApp Desktop
+            </button>
+          )}
+
+          {/* DESKTOP · con Companion — UNA sola acción */}
+          {!apiEnabled && !isMobile && companion !== 'ausente' && (
+            <button
+              data-testid="whatsapp-send-api-button"
+              onClick={handleAbrirConCompanion}
+              disabled={!canSend || companion === 'buscando'}
+              className="btn btn-sm"
+              style={{ background: canSend ? '#25d366' : undefined, border: 'none', color: canSend ? '#fff' : undefined }}
+              title={canSend
+                ? 'Abre el chat en WhatsApp Web. TechRepair se queda abierto.'
+                : (bloqueo ?? phoneResult.error)}
+            >
+              <MessageCircle size={13} />
+              Abrir WhatsApp
             </button>
           )}
 
