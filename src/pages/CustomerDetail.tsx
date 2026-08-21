@@ -9,6 +9,7 @@ import {
 import { WhatsAppActionButton } from '../components/whatsapp/WhatsAppActionButton'
 import { Loader } from '../components/ui/Loader'
 import { customersService } from '../services/api'
+import { estaRedactado, AVISO_REDACCION } from '../services/whatsappRetention'
 import { supabase } from '../lib/supabase'
 import { STATUS_CONFIG } from '../types/orderStatus'
 import { cuentasService, getAccountStatus, type Account } from '../services/cuentasService'
@@ -710,9 +711,20 @@ export function CustomerDetail() {
                             </span>
                           </td>
                           <td style={{ padding: '0.5rem 0.75rem', color: 'var(--text-muted)', maxWidth: 240 }}>
-                            <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {log.message?.slice(0, 80) ?? '—'}
-                            </span>
+                            {/* Vencida la retención de 90 días, el cuerpo ya no está:
+                                se dice, en vez de mostrar el centinela crudo. */}
+                            {estaRedactado(log.message) ? (
+                              <span
+                                data-testid="customer-communication-redactado"
+                                style={{ display: 'block', fontStyle: 'italic', opacity: 0.75, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                              >
+                                {AVISO_REDACCION}
+                              </span>
+                            ) : (
+                              <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {log.message?.slice(0, 80) ?? '—'}
+                              </span>
+                            )}
                             {log.order_id && (
                               <Link to={`/orders/${log.order_id}`} style={{ fontSize: '0.65rem', color: 'var(--accent-primary)', opacity: 0.8 }}>
                                 Ver orden
