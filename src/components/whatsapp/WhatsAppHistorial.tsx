@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { MessageCircle, Clock, User, Zap, Copy, ExternalLink, XCircle, RefreshCw } from 'lucide-react'
+import { estaRedactado, AVISO_REDACCION } from '../../services/whatsappRetention'
 import { whatsappService, WhatsAppLog } from '../../services/whatsappService'
 
 interface WhatsAppHistorialProps {
@@ -173,24 +174,40 @@ export function WhatsAppHistorial({ orderId }: WhatsAppHistorialProps) {
                     </p>
                   )}
 
-                  {/* Mensaje preview */}
-                  <div style={{
-                    backgroundColor: 'rgba(37,211,102,0.05)',
-                    border: '1px solid rgba(37,211,102,0.1)',
-                    borderRadius: '0.5rem',
-                    padding: '0.625rem 0.75rem',
-                    fontSize: '0.8rem', color: '#94a3b8',
-                    lineHeight: 1.5, whiteSpace: 'pre-wrap',
-                    maxHeight: '80px', overflow: 'hidden',
-                    position: 'relative'
-                  }}>
-                    {log.message}
+                  {/* Mensaje preview — o el aviso de retención si ya venció */}
+                  {estaRedactado(log.message) ? (
+                    <div
+                      data-testid="whatsapp-log-redactado"
+                      style={{
+                        backgroundColor: 'rgba(148,163,184,0.06)',
+                        border: '1px dashed rgba(148,163,184,0.25)',
+                        borderRadius: '0.5rem',
+                        padding: '0.625rem 0.75rem',
+                        fontSize: '0.78rem', color: '#94a3b8',
+                        lineHeight: 1.5, fontStyle: 'italic',
+                      }}
+                    >
+                      {AVISO_REDACCION}
+                    </div>
+                  ) : (
                     <div style={{
-                      position: 'absolute', bottom: 0, left: 0, right: 0,
-                      height: '2rem',
-                      background: 'linear-gradient(transparent, rgba(15,23,42,0.9))'
-                    }} />
-                  </div>
+                      backgroundColor: 'rgba(37,211,102,0.05)',
+                      border: '1px solid rgba(37,211,102,0.1)',
+                      borderRadius: '0.5rem',
+                      padding: '0.625rem 0.75rem',
+                      fontSize: '0.8rem', color: '#94a3b8',
+                      lineHeight: 1.5, whiteSpace: 'pre-wrap',
+                      maxHeight: '80px', overflow: 'hidden',
+                      position: 'relative'
+                    }}>
+                      {log.message}
+                      <div style={{
+                        position: 'absolute', bottom: 0, left: 0, right: 0,
+                        height: '2rem',
+                        background: 'linear-gradient(transparent, rgba(15,23,42,0.9))'
+                      }} />
+                    </div>
+                  )}
 
                   {/* Error message */}
                   {log.error_message && (
