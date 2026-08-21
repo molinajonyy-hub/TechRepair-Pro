@@ -18,7 +18,7 @@
 // │ con SÓLO `host_permissions: https://web.whatsapp.com/*`, sin "tabs".    │
 // └─────────────────────────────────────────────────────────────────────────┘
 import { readFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const RAIZ = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..')
@@ -199,7 +199,7 @@ export function iconosFaltantes(manifest, existe) {
 
 // ─── Recorrido del repo ─────────────────────────────────────────────────────
 
-function validarRepo() {
+export function validarRepo() {
   const fallas = []
   for (const p of [MANIFEST, CONTRATO, SW]) {
     if (!existsSync(join(RAIZ, p))) {
@@ -388,18 +388,31 @@ function selfTest() {
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
-if (process.argv.includes('--self-test')) {
-  console.log('\n─── guard:whatsapp-companion · self-test ───────────────────────────')
-  selfTest()
-} else {
-  const fallas = validarRepo()
-  if (fallas.length) {
-    console.error('\n' + '═'.repeat(74))
-    console.error('  GUARD FALLIDO — el Companion tiene privilegios que no debería')
-    console.error('═'.repeat(74))
-    for (const f of fallas) console.error(`  ✗ ${f}`)
-    console.error('═'.repeat(74) + '\n')
-    process.exit(1)
+/**
+ * Sólo corre el guard si el archivo se ejecutó directamente.
+ *
+ * `companion:package` IMPORTA `validarRepo` para no poder construir un ZIP que
+ * el guard rechazaría. Sin esta condición, ese import ejecutaría el guard como
+ * efecto secundario de cargar el módulo — y un `process.exit(1)` acá adentro
+ * cortaría el empaquetado con un mensaje que no explica de dónde salió.
+ */
+const ejecutadoDirectamente =
+  process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+
+if (ejecutadoDirectamente) {
+  if (process.argv.includes('--self-test')) {
+    console.log('\n─── guard:whatsapp-companion · self-test ───────────────────────────')
+    selfTest()
+  } else {
+    const fallas = validarRepo()
+    if (fallas.length) {
+      console.error('\n' + '═'.repeat(74))
+      console.error('  GUARD FALLIDO — el Companion tiene privilegios que no debería')
+      console.error('═'.repeat(74))
+      for (const f of fallas) console.error(`  ✗ ${f}`)
+      console.error('═'.repeat(74) + '\n')
+      process.exit(1)
+    }
+    console.log('✓ guard:whatsapp-companion — sin origins de desarrollo ni permisos de más.')
   }
-  console.log('✓ guard:whatsapp-companion — sin origins de desarrollo ni permisos de más.')
 }
