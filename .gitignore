@@ -53,3 +53,8 @@ public/version.json
 # Playwright E2E — artefactos de ejecución local (nunca commitear)
 playwright-report/
 test-results/
+
+# Copia dev del Companion con la `key` del item del Store (ID productivo en
+# unpacked). NO va bajo dist/: el build de Vite lo vacia y Chrome marcaria la
+# extension como rota.
+.companion-local/

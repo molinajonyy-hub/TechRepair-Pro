@@ -30,8 +30,16 @@ import { ARCHIVOS_DEL_PAQUETE } from './package.mjs'
 
 const RAIZ = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const EXT = join(RAIZ, 'tools', 'whatsapp-companion')
-const SALIDA = join(RAIZ, 'dist', 'companion-dev')
-const KEY_POR_DEFECTO = join(RAIZ, 'dist', 'companion-public-key.pem')
+
+/**
+ * NO va bajo `dist/`. Vite vacía ese directorio en cada `npm run build`, así que
+ * la carpeta que el owner tiene cargada en `chrome://extensions` desaparecería
+ * —y Chrome la marcaría como rota— por correr un build cualquiera. Vive en un
+ * directorio propio, ignorado por git y que ninguna tarea limpia.
+ */
+const LOCAL = join(RAIZ, '.companion-local')
+const SALIDA = join(LOCAL, 'unpacked')
+const KEY_POR_DEFECTO = join(LOCAL, 'public-key.pem')
 
 /** PEM → una sola línea de base64, que es lo que espera el campo `key`. */
 export function pemAUnaLinea(pem) {
