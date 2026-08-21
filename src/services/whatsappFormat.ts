@@ -196,22 +196,27 @@ export function buildWhatsAppDesktopUrl(phone: string, message: string): string 
   return `whatsapp://send?phone=${normalized}&text=${encodeURIComponent(message)}`
 }
 
-/**
- * Abre WhatsApp reutilizando siempre la misma pestaña del navegador.
- * No se usa noopener para que el named-window funcione correctamente.
- * Devuelve la referencia de ventana (null si el navegador bloqueó el popup).
- */
-export function openWhatsAppWindow(url: string): Window | null {
-  return window.open(url, 'techrepair-whatsapp-web')
-}
-
-/**
- * Navega a una URL de protocolo whatsapp:// sin abrir pestaña nueva.
- * Equivalente a hacer click en un link tel: o mailto:.
- */
-export function openWhatsAppDesktop(url: string): void {
-  window.location.href = url
-}
+// ─── Acá vivían dos helpers de apertura. NO VUELVEN. ────────────────────────
+//
+// `openWhatsAppWindow` abría con el named target «techrepair-whatsapp-web»
+// prometiendo reutilizar la pestaña. Es imposible y está MEDIDO: WhatsApp Web
+// manda `Cross-Origin-Opener-Policy: same-origin`, así que el `WindowProxy`
+// queda severed y `closed` pasa a `true` con la pestaña abierta. El named target
+// tampoco alcanza. Encima su único consumidor registraba `opened` a partir de
+// `win !== null`, que sólo dice que el popup no fue bloqueado — no que el
+// mensaje se haya entregado.
+//
+// `openWhatsAppDesktop` hacía `window.location.href = url`. Con un `whatsapp://`
+// el SO lo intercepta, pero con cualquier otra URL navegaba la propia pestaña de
+// TechRepair y sacaba a la persona de su trabajo.
+//
+// Reemplazos vigentes, en `whatsappHandoff.ts`:
+//   · desktop con Companion  → `whatsappCompanion.ts`, mensajería con la extensión
+//   · desktop sin Companion  → `abrirWhatsAppWebEnNuevaPestana`, `_blank` avisado
+//   · app de escritorio      → `abrirAppDeEscritorio`, sólo `whatsapp://`
+//   · móvil                  → `abrirWhatsAppMovil`, `wa.me` en `_blank`
+//
+// `guard:whatsapp-w1` falla si cualquiera de los dos patrones reaparece.
 
 // ============================================
 // INTERPOLACIÓN DE PLANTILLAS

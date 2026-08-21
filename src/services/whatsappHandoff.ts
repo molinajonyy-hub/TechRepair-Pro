@@ -37,9 +37,16 @@
  * └───────────────────────────────────────────────────────────────────────────┘
  *
  * CÓMO SE EVITA ENTONCES ACUMULAR PESTAÑAS:
- *  · Desktop · app  → protocolo `whatsapp://`. No abre ninguna pestaña.
- *  · Desktop · web  → navega la MISMA pestaña de TechRepair. Back vuelve.
- *  · Móvil          → `wa.me`, que el sistema entrega a la app nativa.
+ *  · Desktop · Companion → la extensión reutiliza UNA pestaña vía Tabs API.
+ *                          Ver `whatsappCompanion.ts`. Es el camino primario.
+ *  · Desktop · app       → protocolo `whatsapp://`. No abre ninguna pestaña.
+ *  · Desktop · web       → pestaña nueva EXPLÍCITA, sólo como fallback.
+ *  · Móvil               → `wa.me`, que el sistema entrega a la app nativa.
+ *
+ * POR QUÉ WHATSAPP WEB YA NO NAVEGA LA PESTAÑA ACTUAL: era el mal menor
+ * mientras no había forma de reutilizar nada — sacaba al usuario de TechRepair
+ * en medio de su trabajo. Con el Companion resolviendo el caso bueno, el
+ * fallback puede ser honesto: una pestaña nueva, avisada como tal.
  *
  * LO QUE TECHREPAIR PUEDE SABER: que preparó el mensaje y que el usuario
  * inició el handoff. NADA MÁS. No hay evidencia de `sent`, `delivered` ni
@@ -173,21 +180,21 @@ export function abrirAppDeEscritorio(
 }
 
 /**
- * DESKTOP · WhatsApp Web en la MISMA pestaña.
+ * DESKTOP · WhatsApp Web en una pestaña NUEVA. Fallback explícito.
  *
- * Deliberadamente NO usa `window.open`: cada `open` contra WhatsApp Web crea
- * una pestaña que después es imposible reutilizar (ver el encabezado), así que
- * la única forma determinista de no acumular es navegar la pestaña actual. El
- * Back del navegador devuelve a TechRepair, con la recarga normal de la SPA.
+ * Sólo se ofrece cuando el Companion no está: con él, la extensión reutiliza
+ * una única pestaña y este camino no se muestra.
+ *
+ * Se abre en `_blank` a propósito, y la UI lo dice con todas las letras. NO se
+ * navega la pestaña de TechRepair: eso sacaba al usuario de su trabajo, y el
+ * Back devolvía a una SPA recargada. Y NO se promete reutilizar la pestaña que
+ * esto crea — ver el encabezado: contra WhatsApp Web es imposible.
  */
-export function irAWhatsAppWeb(
+export function abrirWhatsAppWebEnNuevaPestana(
   url: string,
-  navegar: (url: string) => void = (u) => { window.location.assign(u) },
+  open: (url: string, target: string) => Window | null = (u, t) => window.open(u, t),
 ): AperturaHandoff {
-  try {
-    navegar(url)
-    return { abierto: true }
-  } catch {
-    return { abierto: false, error: 'No se pudo abrir WhatsApp Web. Copiá el mensaje e intentá manualmente.' }
-  }
+  const win = open(url, '_blank')
+  if (!win) return { abierto: false, error: ERROR_POPUP }
+  return { abierto: true }
 }

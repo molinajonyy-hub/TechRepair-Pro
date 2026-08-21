@@ -38,6 +38,10 @@ const MODULOS_W1 = [
 
 const RENDERER  = 'src/services/whatsappTemplate.ts'
 const HANDOFF   = 'src/services/whatsappHandoff.ts'
+/** Único módulo que le habla al Companion. */
+const CLIENTE_COMPANION = 'src/services/whatsappCompanion.ts'
+/** Único lugar donde se lee y valida la configuración del Companion. */
+const ENV_COMPANION = 'src/config/whatsappCompanionEnv.ts'
 const MODAL     = 'src/components/whatsapp/WhatsAppPreviewModal.tsx'
 const HISTORIAL = 'src/components/whatsapp/WhatsAppHistorial.tsx'
 const EDITOR    = 'src/components/settings/WhatsAppTemplatesSettings.tsx'
@@ -161,11 +165,123 @@ export function intentaReutilizarPestana(fuente) {
       || /techrepair_whatsapp/.test(fuente)
 }
 
-/** WhatsApp Web se abre en la MISMA pestaña, nunca con window.open. */
-export function abreWebEnLaMismaPestana(fuente) {
-  const navegaLaActual = /location\.assign\(/.test(fuente)
-  const abreVentanaParaWeb = /window\.open\([^)]*web\.whatsapp/.test(fuente)
-  return navegaLaActual && !abreVentanaParaWeb
+/**
+ * TechRepair NO navega su propia pestaña hacia WhatsApp.
+ *
+ * ESTO INVIERTE EL INVARIANTE ANTERIOR, a propósito. Antes se EXIGÍA
+ * `location.assign` porque, sin forma de reutilizar una pestaña, navegar la
+ * actual era el único modo determinista de no acumularlas — a costa de sacar al
+ * usuario de su trabajo. Con el Companion resolviendo el caso bueno, el fallback
+ * puede ser una pestaña nueva avisada, y navegar TechRepair pasa a estar
+ * prohibido.
+ *
+ * `abrirAppDeEscritorio` sigue usando `location.href` para `whatsapp://`: eso no
+ * es navegar, el sistema operativo se lo lleva. Por eso la segunda rama exige
+ * que el destino sea un host de WhatsApp en la MISMA línea.
+ */
+export function navegaTechRepairAWhatsApp(fuente) {
+  return /location\.assign\(/.test(fuente)
+      || /location\.href\s*=[^\n;]*(web\.whatsapp|wa\.me)/.test(fuente)
+}
+
+/** El fallback sin Companion abre una pestaña nueva, y existe. */
+export function ofreceFallbackDePestanaNueva(fuente) {
+  return /abrirWhatsAppWebEnNuevaPestana/.test(fuente)
+}
+
+/**
+ * Los helpers de apertura de la arquitectura descartada por COOP.
+ *
+ * POR QUÉ ES UN CHEQUEO APARTE, Y REPO-WIDE. `intentaReutilizarPestana` sólo
+ * mira el handoff y el modal, así que estos dos helpers sobrevivieron en
+ * `whatsappFormat.ts` — sin llamadores, pero listos para que alguien los use:
+ *
+ *   · `openWhatsAppWindow` abría con el named target «techrepair-whatsapp-web».
+ *     Nótese el GUIÓN: `intentaReutilizarPestana` buscaba `techrepair_whatsapp`
+ *     con guión BAJO, así que tampoco lo habría cazado si hubiera corrido acá.
+ *   · `openWhatsAppDesktop` hacía `window.location.href = url`, que con
+ *     cualquier URL que no fuera `whatsapp://` navegaba la pestaña de TechRepair.
+ *
+ * Se buscan IDENTIFICADORES ÚNICOS a propósito. Los patrones genéricos del otro
+ * chequeo no sirven repo-wide: `.closed` es legítimo en los modales de
+ * impresión, que lo usan sobre una ventana propia.
+ */
+const APERTURA_LEGACY = /\bopenWhatsAppWindow\b|\bopenWhatsAppDesktop\b|techrepair-whatsapp-web|techrepair_whatsapp/
+
+export function usaAperturaLegacy(fuente) {
+  return APERTURA_LEGACY.test(fuente)
+}
+
+/** Todos los .ts/.tsx bajo src/, para poder buscar en TODO el frontend. */
+function fuentesDelFrontend(dir = join(RAIZ, 'src'), acumulado = []) {
+  for (const entrada of readdirSync(dir, { withFileTypes: true })) {
+    const ruta = join(dir, entrada.name)
+    if (entrada.isDirectory()) fuentesDelFrontend(ruta, acumulado)
+    else if (/\.tsx?$/.test(entrada.name)) acumulado.push(ruta)
+  }
+  return acumulado
+}
+
+// ─── Companion (extensión de Chrome) ────────────────────────────────────────
+
+/**
+ * Al Companion se le manda SÓLO `{ type, phone, text }`.
+ *
+ * Si el llamador pudiera aportar `url`/`hostname`/`path`, la extensión —que
+ * tiene permiso de navegar pestañas— se volvería un open-redirect. El destino
+ * lo construye ella con host y path constantes suyos.
+ */
+export function mandaCamposDeMas(fuente) {
+  const payloads = [...fuente.matchAll(/const payload\s*=\s*\{([\s\S]*?)\}/g)]
+  if (payloads.length === 0) return false
+  return payloads.some(p => /\b(url|hostname|scheme|path|origin|business_id|customer)\s*:/.test(p[1]))
+}
+
+/** El payload lleva las tres claves del contrato, no otras. */
+export function mandaElContratoCompleto(fuente) {
+  const payload = fuente.match(/const payload\s*=\s*\{([\s\S]*?)\}/)
+  if (!payload) return false
+  return /\btype\s*:/.test(payload[1])
+      && /\bphone\s*:/.test(payload[1])
+      && /\btext\s*:/.test(payload[1])
+}
+
+/** El extension ID sale de configuración, nunca hardcodeado. */
+export function hardcodeaExtensionId(fuente) {
+  return /['"][a-p]{32}['"]/.test(fuente)
+}
+
+/** ...y si falta, el cliente se declara no disponible en vez de adivinar. */
+export function fallaCerradoSinExtensionId(fuente) {
+  return /if\s*\(\s*!extensionId\s*\)\s*return/.test(fuente)
+}
+
+/** La configuración sale del entorno, y se valida antes de usarse. */
+export function leeLaConfiguracionDelEntorno(fuente) {
+  return /VITE_WHATSAPP_COMPANION_EXTENSION_ID/.test(fuente)
+      && /VITE_WHATSAPP_COMPANION_INSTALL_URL/.test(fuente)
+      && /\[a-p\]\{32\}/.test(fuente)
+}
+
+/** Una URL de instalación que no sea https no puede llegar a un href. */
+export function exigeHttpsEnLaInstalacion(fuente) {
+  return /protocol\s*===\s*['"]https:['"]/.test(fuente)
+}
+
+/**
+ * El descubrimiento no puede ensuciar la consola.
+ *
+ * Son dos cosas distintas: no escribir con `console.*`, y LEER
+ * `runtime.lastError` dentro del callback — si no se lee, Chrome imprime
+ * "Unchecked runtime.lastError" en la consola de todo usuario sin la extensión.
+ */
+export function ensuciaLaConsola(fuente) {
+  // Se exige la LECTURA (`= …lastError`), no la mera aparición de la palabra:
+  // la declaración de tipo `lastError?: { message?: string }` la contiene y
+  // dejaría pasar un callback que nunca la consulta.
+  const leeLastError = /=\s*[\w.]*\blastError\b/.test(fuente)
+  return /\bconsole\s*\.\s*(log|warn|error|info|debug)\s*\(/.test(fuente)
+      || !leeLastError
 }
 
 /** Existe el camino de la app de escritorio (protocolo whatsapp://). */
@@ -245,7 +361,7 @@ function validarRepo() {
   const leer = p => sinComentarios(readFileSync(join(RAIZ, p), 'utf-8'))
 
   // 0. Los archivos del lote existen.
-  for (const p of [RENDERER, HANDOFF, MODAL, HISTORIAL, EDITOR]) {
+  for (const p of [RENDERER, HANDOFF, MODAL, HISTORIAL, EDITOR, CLIENTE_COMPANION, ENV_COMPANION]) {
     if (!existsSync(join(RAIZ, p))) {
       fallas.push(`Falta ${p}: el camino estándar de WhatsApp perdió una pieza.`)
     }
@@ -304,8 +420,23 @@ function validarRepo() {
       fallas.push(`${p}: volvió la maquinaria de reutilización de pestaña (referencia/.closed, opener=null o target con nombre). MEDIDO: web.whatsapp.com manda COOP same-origin, el WindowProxy queda severed y .closed pasa a true con la pestaña abierta. Las tres vías fallan; no hay forma de reutilizarla.`)
     }
   }
-  if (!abreWebEnLaMismaPestana(handoff)) {
-    fallas.push(`${HANDOFF}: WhatsApp Web dejó de abrirse en la MISMA pestaña. Con window.open cada mensaje estrena una pestaña que después es imposible de reutilizar: es exactamente el problema que se cerró.`)
+  for (const p of [HANDOFF, MODAL]) {
+    if (navegaTechRepairAWhatsApp(leer(p))) {
+      fallas.push(`${p}: navega la pestaña de TechRepair hacia WhatsApp. Eso saca al usuario de su trabajo y el Back devuelve a una SPA recargada. El fallback tiene que ser una pestaña NUEVA, avisada como tal.`)
+    }
+  }
+  // Los helpers legacy no pueden volver a NINGUNA parte del frontend, no sólo
+  // al handoff: vivieron sin llamadores en whatsappFormat.ts hasta que se
+  // borraron, y ahí no llegaba ningún chequeo.
+  for (const ruta of fuentesDelFrontend()) {
+    if (usaAperturaLegacy(sinComentarios(readFileSync(ruta, 'utf-8')))) {
+      const relativa = ruta.replace(RAIZ + '\\', '').replace(RAIZ + '/', '').replace(/\\/g, '/')
+      fallas.push(`${relativa}: reapareció un helper de apertura legacy (openWhatsAppWindow / openWhatsAppDesktop / el named target techrepair-whatsapp-web). MEDIDO: WhatsApp Web manda COOP same-origin y el named target NO reutiliza nada; y navegar con location.href saca a la persona de TechRepair. El camino vigente es el Companion, y sin él una pestaña nueva avisada.`)
+    }
+  }
+
+  if (!ofreceFallbackDePestanaNueva(handoff)) {
+    fallas.push(`${HANDOFF}: se perdió el fallback de WhatsApp Web en pestaña nueva, que es el único camino cuando no están ni el Companion ni la app de escritorio.`)
   }
   if (!ofreceAppDeEscritorio(handoff)) {
     fallas.push(`${HANDOFF}: se perdió el camino de la app de escritorio (whatsapp://), que es el único que no toca ninguna pestaña.`)
@@ -324,6 +455,34 @@ function validarRepo() {
   }
   if (!bloqueaVariableSinResolver(modal)) {
     fallas.push(`${MODAL}: dejó de bloquear la apertura cuando queda una variable sin resolver. El cliente recibiría "tenés un saldo pendiente de {saldo}".`)
+  }
+
+  // 5b. El cliente del Companion no le da poder de más a la extensión.
+  const cliente = leer(CLIENTE_COMPANION)
+  if (mandaCamposDeMas(cliente)) {
+    fallas.push(`${CLIENTE_COMPANION}: le manda al Companion campos fuera del contrato (url/hostname/path/business_id/...). La extensión navega pestañas: si el destino viniera de acá, sería un open-redirect con permisos.`)
+  }
+  if (!mandaElContratoCompleto(cliente)) {
+    fallas.push(`${CLIENTE_COMPANION}: el payload dejó de tener las tres claves del contrato (type/phone/text).`)
+  }
+  if (hardcodeaExtensionId(cliente)) {
+    fallas.push(`${CLIENTE_COMPANION}: hardcodea un extension ID. El del unpacked de desarrollo no es el de producción; tiene que salir de VITE_WHATSAPP_COMPANION_EXTENSION_ID.`)
+  }
+  if (!fallaCerradoSinExtensionId(cliente)) {
+    fallas.push(`${CLIENTE_COMPANION}: dejó de fallar cerrado sin extension ID configurado.`)
+  }
+  const envCompanion = leer(ENV_COMPANION)
+  if (!leeLaConfiguracionDelEntorno(envCompanion)) {
+    fallas.push(`${ENV_COMPANION}: dejó de leer y validar la configuración del Companion desde el entorno (ID con forma [a-p]{32} + URL de instalación).`)
+  }
+  if (hardcodeaExtensionId(envCompanion)) {
+    fallas.push(`${ENV_COMPANION}: hardcodea un extension ID.`)
+  }
+  if (!exigeHttpsEnLaInstalacion(envCompanion)) {
+    fallas.push(`${ENV_COMPANION}: la URL de instalación dejó de exigir https. Un javascript: o un http:// en una variable de entorno no puede terminar en un href de la app.`)
+  }
+  if (ensuciaLaConsola(cliente)) {
+    fallas.push(`${CLIENTE_COMPANION}: ensucia la consola. Sin console.*, y hay que LEER runtime.lastError en el callback: si no se lee, Chrome imprime "Unchecked runtime.lastError" a todo usuario que no tenga la extensión.`)
   }
 
   // 6. RBAC y multitenant del editor.
@@ -453,13 +612,101 @@ function selfTest() {
   chequear('no marca el handoff determinista',
     intentaReutilizarPestana(`window.location.assign(url)`), false)
 
-  // WhatsApp Web en la misma pestaña
-  chequear('reconoce la navegación same-tab',
-    abreWebEnLaMismaPestana(`export function irAWhatsAppWeb(u) { window.location.assign(u) }`), true)
-  chequear('caza window.open contra WhatsApp Web',
-    abreWebEnLaMismaPestana(`window.location.assign(a); window.open('https://web.whatsapp.com/send', '_blank')`), false)
-  chequear('caza la falta de same-tab',
-    abreWebEnLaMismaPestana(`window.open(url, '_blank')`), false)
+  // TechRepair no se navega a WhatsApp
+  chequear('caza la navegación de la pestaña actual',
+    navegaTechRepairAWhatsApp(`window.location.assign(u)`), true)
+  chequear('caza el href hacia WhatsApp Web',
+    navegaTechRepairAWhatsApp(`window.location.href = 'https://web.whatsapp.com/send?phone=' + t`), true)
+  chequear('caza el href hacia wa.me',
+    navegaTechRepairAWhatsApp(`window.location.href = 'https://wa.me/' + t`), true)
+  chequear('NO marca el protocolo whatsapp:// de la app de escritorio',
+    navegaTechRepairAWhatsApp(`navegar: (u) => { window.location.href = u }`), false)
+  chequear('no marca la pestaña nueva',
+    navegaTechRepairAWhatsApp(`const win = open(url, '_blank')`), false)
+
+  chequear('reconoce el fallback de pestaña nueva',
+    ofreceFallbackDePestanaNueva(`export function abrirWhatsAppWebEnNuevaPestana(u) {}`), true)
+  chequear('caza su ausencia',
+    ofreceFallbackDePestanaNueva(`export function irAWhatsAppWeb(u) {}`), false)
+
+  // Apertura legacy — los helpers descartados por COOP, repo-wide
+  chequear('caza openWhatsAppWindow',
+    usaAperturaLegacy(`const win = openWhatsAppWindow(link)`), true)
+  chequear('caza su definición, no sólo la llamada',
+    usaAperturaLegacy(`export function openWhatsAppWindow(url) { return window.open(url, 'x') }`), true)
+  chequear('caza openWhatsAppDesktop',
+    usaAperturaLegacy(`openWhatsAppDesktop(url)`), true)
+  chequear('caza el named target con GUIÓN (el que se usaba de verdad)',
+    usaAperturaLegacy(`window.open(url, 'techrepair-whatsapp-web')`), true)
+  chequear('caza también la variante con guión bajo',
+    usaAperturaLegacy(`const NOMBRE = 'techrepair_whatsapp'`), true)
+  chequear('caza el re-export',
+    usaAperturaLegacy(`export { openWhatsAppWindow } from './whatsappFormat'`), true)
+  // Negativos: lo vigente y lo ajeno NO se marca.
+  chequear('no marca el camino vigente del Companion',
+    usaAperturaLegacy(`const r = await abrirEnCompanion(phoneInput, message)`), false)
+  chequear('no marca el fallback de pestaña nueva',
+    usaAperturaLegacy(`abrirWhatsAppWebEnNuevaPestana(handoff.url)`), false)
+  chequear('no marca la app de escritorio vigente',
+    usaAperturaLegacy(`abrirAppDeEscritorio(buildWhatsAppDesktopUrl(p, m))`), false)
+  // El falso positivo que obligó a usar identificadores únicos: los modales de
+  // impresión consultan `.closed` sobre SU PROPIA ventana, y son legítimos.
+  chequear('no marca win.closed de los modales de impresión',
+    usaAperturaLegacy(`setTimeout(() => { if (!win.closed) { win.print(); win.close() } }, 800)`), false)
+  chequear('no marca un window.open cualquiera',
+    usaAperturaLegacy(`const win = window.open(url, '_blank')`), false)
+
+  // Companion — contrato del payload
+  chequear('caza una url en el payload',
+    mandaCamposDeMas(`const payload = { type: T, phone: p, text: m, url: destino }`), true)
+  chequear('caza business_id en el payload',
+    mandaCamposDeMas(`const payload = { type: T, phone: p, text: m, business_id: b }`), true)
+  chequear('no marca el payload correcto',
+    mandaCamposDeMas(`const payload = { type: COMPANION_TIPO_APERTURA, phone: t.normalized, text: message }`), false)
+
+  chequear('reconoce las tres claves',
+    mandaElContratoCompleto(`const payload = { type: T, phone: p, text: m }`), true)
+  chequear('caza la falta de text',
+    mandaElContratoCompleto(`const payload = { type: T, phone: p }`), false)
+  chequear('caza la ausencia total de payload',
+    mandaElContratoCompleto(`sendMessage(id, { type: 'X' })`), false)
+
+  chequear('caza un extension ID hardcodeado',
+    hardcodeaExtensionId(`const ID = 'abcdefghijklmnopabcdefghijklmnop'`), true)
+  chequear('no marca un string cualquiera',
+    hardcodeaExtensionId(`const t = 'OPEN_WHATSAPP_WEB'`), false)
+  chequear('no marca un id con caracteres fuera de a-p',
+    hardcodeaExtensionId(`const ID = 'abcdefghijklmnopabcdefghijklmnoz'`), false)
+
+  chequear('reconoce el fail-closed sin ID', fallaCerradoSinExtensionId(
+    `if (!extensionId) return { disponible: false, motivo: 'sin_configurar' }`), true)
+  chequear('caza el fail-open', fallaCerradoSinExtensionId(
+    `const id = extensionId || 'algo'`), false)
+
+  chequear('reconoce la lectura validada del entorno', leeLaConfiguracionDelEntorno(`
+    const RE = /^[a-p]{32}$/
+    env().VITE_WHATSAPP_COMPANION_EXTENSION_ID
+    env().VITE_WHATSAPP_COMPANION_INSTALL_URL`), true)
+  chequear('caza que se deje de validar la forma del ID', leeLaConfiguracionDelEntorno(`
+    env().VITE_WHATSAPP_COMPANION_EXTENSION_ID
+    env().VITE_WHATSAPP_COMPANION_INSTALL_URL`), false)
+  chequear('caza que falte la URL de instalación', leeLaConfiguracionDelEntorno(`
+    const RE = /^[a-p]{32}$/
+    env().VITE_WHATSAPP_COMPANION_EXTENSION_ID`), false)
+
+  chequear('reconoce la exigencia de https',
+    exigeHttpsEnLaInstalacion(`return u.protocol === 'https:' ? u.toString() : null`), true)
+  chequear('caza que se acepte cualquier esquema',
+    exigeHttpsEnLaInstalacion(`return u.toString()`), false)
+
+  chequear('caza console.log', ensuciaLaConsola(`lastError; console.log('ping')`), true)
+  chequear('caza console.warn', ensuciaLaConsola(`lastError; console.warn(e)`), true)
+  chequear('caza NO leer lastError',
+    ensuciaLaConsola(`runtime.sendMessage(id, m, (r) => resolve(r))`), true)
+  chequear('la sola DECLARACIÓN del tipo no alcanza',
+    ensuciaLaConsola(`interface R { lastError?: { message?: string } }\nsendMessage(id, m, (r) => resolve(r))`), true)
+  chequear('acepta el callback que lo lee',
+    ensuciaLaConsola(`runtime.sendMessage(id, m, (r) => { const e = runtime.lastError; resolve(e ? null : r) })`), false)
 
   // App de escritorio
   chequear('reconoce el camino de la app',

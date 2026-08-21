@@ -98,6 +98,7 @@
     "companion:package": "node scripts/companion/package.mjs",
     "companion:package:self-test": "node scripts/companion/package.mjs --self-test",
     "companion:iconos": "node scripts/companion/generar-iconos.mjs",
+    "companion:dev-unpacked": "node scripts/companion/dev-unpacked.mjs",
     "guard:whatsapp-w1:self-test": "node scripts/guards/whatsapp-w1-standard.mjs --self-test",
     "guard:sales-point:self-test": "node scripts/guards/sales-point-contract.mjs --self-test",
     "e2e:m7": "playwright test --project=m7-local",

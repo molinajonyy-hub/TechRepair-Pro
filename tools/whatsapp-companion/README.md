@@ -143,6 +143,24 @@ sin declarar nada— y responde con este código en vez de abrir a ciegas. El
 frontend puede así distinguir tres estados: **ausente**, **lista**, e
 **instalada pero sin acceso**, que necesitan mensajes distintos.
 
+## Cómo lo usa TechRepair
+
+Del lado del frontend hay exactamente dos módulos:
+
+- `src/config/whatsappCompanionEnv.ts` — **único** lugar que lee las variables
+  de entorno, y las valida (ID con forma `[a-p]{32}`, URL de instalación sólo
+  `https`). Fail-closed: si algo no pasa, es como si el Companion no estuviera.
+- `src/services/whatsappCompanion.ts` — **único** que le habla. Manda el `PING`
+  para descubrirlo y el `OPEN_WHATSAPP_WEB` para abrir el chat.
+
+En el preview de WhatsApp: si el Companion responde, hay **un solo botón**
+("Abrir WhatsApp"); si no, aparecen los fallbacks (instalar / WhatsApp Desktop /
+copiar / WhatsApp Web en pestaña nueva, avisada como tal). En **móvil** no se
+consulta ni se ofrece: ahí `wa.me` se lo entrega el sistema a la app nativa.
+
+El registro es siempre `opened` — handoff iniciado. Nunca `sent`/`delivered`/
+`read`: TechRepair no tiene evidencia de eso y no la va a inventar.
+
 ## Origins autorizados
 
 Doble barrera:

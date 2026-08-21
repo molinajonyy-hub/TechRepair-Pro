@@ -26,7 +26,7 @@ import {
   buildAppUrl,
   abrirWhatsAppMovil,
   abrirAppDeEscritorio,
-  irAWhatsAppWeb,
+  abrirWhatsAppWebEnNuevaPestana,
   EVENTO_APERTURA,
 } from '../../src/services/whatsappHandoff.ts'
 import { resolvePermissions } from '../../src/config/permissions.ts'
@@ -416,31 +416,37 @@ describe('handoff · caminos deterministas', () => {
 
   const MSG = 'Hola Ana 👋\nTotal: $85.000'
 
-  test('DESKTOP · WhatsApp Web navega la MISMA pestaña, nunca window.open', () => {
-    const navegadas: string[] = []
-    let abrioVentana = false
-    const openFalso = () => { abrioVentana = true; return {} as Window }
-
+  test('DESKTOP · el fallback Web abre una pestaña NUEVA, con _blank explícito', () => {
+    const llamadas: Array<[string, string]> = []
     const url = (buildWebSendUrl('0351 15 1234567', MSG) as { url: string }).url
-    const r = irAWhatsAppWeb(url, (u) => navegadas.push(u))
+
+    const r = abrirWhatsAppWebEnNuevaPestana(url, (u, t) => {
+      llamadas.push([u, t]); return {} as Window
+    })
 
     assert.equal(r.abierto, true)
-    assert.deepEqual(navegadas, [url], 'tiene que navegar la pestaña actual')
-    assert.equal(abrioVentana, false, 'window.open crearía una pestaña imposible de reutilizar')
-    void openFalso
+    assert.deepEqual(llamadas, [[url, '_blank']])
   })
 
-  test('DESKTOP · dos handoffs Web seguidos NO crean browsing contexts', () => {
-    const navegadas: string[] = []
-    const u1 = (buildWebSendUrl('3511234567', 'uno') as { url: string }).url
-    const u2 = (buildWebSendUrl('1123456789', 'dos') as { url: string }).url
+  test('DESKTOP · el fallback NO navega la pestaña de TechRepair', () => {
+    // El contrato cambió respecto de PR #55: navegar la pestaña actual sacaba
+    // al usuario de su trabajo y el Back devolvía a una SPA recargada. Con el
+    // Companion resolviendo el caso bueno, el fallback puede ser honesto.
+    let navegoLaActual = false
+    const url = (buildWebSendUrl('3511234567', 'uno') as { url: string }).url
 
-    irAWhatsAppWeb(u1, (u) => navegadas.push(u))
-    irAWhatsAppWeb(u2, (u) => navegadas.push(u))
+    abrirWhatsAppWebEnNuevaPestana(url, (_u, t) => {
+      if (t !== '_blank') navegoLaActual = true
+      return {} as Window
+    })
 
-    // Cada acción navega la pestaña actual: nunca hay más de una.
-    assert.deepEqual(navegadas, [u1, u2])
-    assert.equal(new Set(navegadas).size, 2, 'cada mensaje va a su propio destino')
+    assert.equal(navegoLaActual, false)
+  })
+
+  test('DESKTOP · popup bloqueado en el fallback ⇒ error accionable', () => {
+    const r = abrirWhatsAppWebEnNuevaPestana('https://web.whatsapp.com/send?phone=1', () => null)
+    assert.equal(r.abierto, false)
+    assert.match((r as { error: string }).error, /ventana|emergente/i)
   })
 
   test('DESKTOP · app de escritorio usa whatsapp:// y no abre pestaña', () => {
@@ -579,7 +585,7 @@ describe('semántica de estado', () => {
     // El módulo no exporta más `WHATSAPP_WINDOW_NAME` ni una fábrica de
     // handoff con referencia: WhatsApp Web no se puede reutilizar (COOP).
     assert.equal(typeof abrirWhatsAppMovil, 'function')
-    assert.equal(typeof irAWhatsAppWeb, 'function')
+    assert.equal(typeof abrirWhatsAppWebEnNuevaPestana, 'function')
     assert.equal(typeof abrirAppDeEscritorio, 'function')
   })
 })

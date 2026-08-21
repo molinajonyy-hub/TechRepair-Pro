@@ -187,6 +187,13 @@ const RUTA_ENV = '.env.e2e'
 // Contraseña del usuario sembrado en un backend descartable. No es un secreto:
 // vive sólo en este stack local, que se destruye al terminar el job.
 const PASSWORD_E2E = 'e2e-local-Passw0rd'
+/**
+ * Extension ID de PRUEBA para el Companion. Tiene la forma real que el frontend
+ * valida (32 caracteres en a-p) pero no corresponde a ninguna extensión: el
+ * spec inyecta su propio `chrome.runtime`. Sin esto el frontend se declararía
+ * "sin configurar" y no habría nada que ejercitar.
+ */
+const ID_COMPANION_E2E = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 
 if (!existsSync(RUTA_ENV) || REESCRIBIR_ENV) {
   const contenido = [
@@ -199,6 +206,10 @@ if (!existsSync(RUTA_ENV) || REESCRIBIR_ENV) {
     'E2E_EMAIL=e2e-owner@e2e.local',
     `E2E_PASSWORD=${PASSWORD_E2E}`,
     `SUPABASE_SERVICE_ROLE_KEY=${status.SERVICE_ROLE_KEY}`,
+    // Companion: ID de PRUEBA con la forma real ([a-p]{32}). No es ninguna
+    // extensión publicada; sólo hace que el frontend quede configurado para que
+    // el E2E pueda inyectar su bridge y ejercitar el cliente de verdad.
+    `VITE_WHATSAPP_COMPANION_EXTENSION_ID=${ID_COMPANION_E2E}`,
     '',
   ].join('\n')
   writeFileSync(RUTA_ENV, contenido, 'utf-8')
