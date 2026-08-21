@@ -51,6 +51,20 @@ const APIS_DE_ALMACENAMIENTO =
 /** Tamaños de ícono que el manifest debe declarar. El 128 lo exige el Store. */
 const ICONOS_REQUERIDOS = ['16', '32', '48', '128']
 
+/**
+ * Largo máximo de `description`, en caracteres.
+ *
+ * No es una convención nuestra: el Chrome Web Store rechazó el ZIP ANTES de
+ * dejar crear el ítem, con «El campo description del archivo de manifiesto es
+ * demasiado largo. 140. Supera el límite máximo de 132 caracteres.» — o sea que
+ * ni siquiera llegás a la ficha, y el error aparece recién al subir.
+ *
+ * Se mide con `.length` (unidades UTF-16) porque es lo que dio exactamente los
+ * 140 que contó el Store, y porque para texto fuera del BMP es el número más
+ * grande de los dos: falla cerrado.
+ */
+const MAX_DESCRIPTION = 132
+
 // ─── Comprobaciones puras (testeables) ──────────────────────────────────────
 
 /** Ningún origin de desarrollo puede quedar autorizado. */
@@ -153,6 +167,23 @@ export function afirmaQueNoTocaElHistorial(fuente) {
   return /no\s+(toca|tocan|deja|dejan)[^\n.]{0,40}historial/i.test(fuente)
 }
 
+/**
+ * `description` existe y entra en el límite del Store.
+ *
+ * Falla cerrado: sin descripción tampoco se puede publicar.
+ * Devuelve el motivo, o `null` si está bien.
+ */
+export function descripcionFueraDeLimite(manifest) {
+  const d = manifest?.description
+  if (typeof d !== 'string' || d.trim() === '') {
+    return 'no declara "description", y el Store la exige'
+  }
+  if (d.length > MAX_DESCRIPTION) {
+    return `"description" mide ${d.length} caracteres y el máximo es ${MAX_DESCRIPTION}`
+  }
+  return null
+}
+
 /** Declara los íconos, y los archivos existen. Devuelve lo que falta. */
 export function iconosFaltantes(manifest, existe) {
   const faltan = []
@@ -203,6 +234,11 @@ function validarRepo() {
   }
   if (!construyeElDestinoAdentro(contrato)) {
     fallas.push(`${CONTRATO}: dejó de construir el destino internamente. Si el host o el path vinieran del payload, la extensión sería un open-redirect.`)
+  }
+
+  const problemaDescripcion = descripcionFueraDeLimite(manifest)
+  if (problemaDescripcion) {
+    fallas.push(`${MANIFEST}: ${problemaDescripcion}. El Store lo rechaza al SUBIR el ZIP, antes de crear el ítem, así que se descubre tarde y a mano.`)
   }
 
   const faltanIconos = iconosFaltantes(manifest, (ruta) => existsSync(join(RAIZ, DIR, ruta)))
@@ -319,6 +355,27 @@ function selfTest() {
   chequear('caza el archivo ausente', iconosFaltantes(iconsOk, (r) => r !== 'icons/icon128.png').length, 1)
   chequear('caza la falta del 128', iconosFaltantes({ icons: { 16: 'a.png', 32: 'b.png', 48: 'c.png' } }, () => true).length, 1)
   chequear('caza la ausencia de la clave icons', iconosFaltantes({}, () => true).length, 1)
+
+  // Largo de la description
+  // El caso que importa: la descripción REAL que el Store rechazó el 2026-08-21.
+  // Si este chequeo se rompe, el guard dejó de cazar una falla ya ocurrida.
+  const RECHAZADA_POR_EL_STORE =
+    'Abre WhatsApp Web en una sola pestaña con el chat y el mensaje que preparaste en TechRepair Pro. No lee tus chats ni envía mensajes por vos.'
+  chequear('la descripción rechazada medía los 140 que contó el Store',
+    RECHAZADA_POR_EL_STORE.length, 140)
+  chequear('caza la descripción que el Store rechazó de verdad',
+    descripcionFueraDeLimite({ description: RECHAZADA_POR_EL_STORE }) !== null, true)
+  chequear('acepta la descripción actual del manifest',
+    descripcionFueraDeLimite(JSON.parse(readFileSync(join(RAIZ, MANIFEST), 'utf-8'))), null)
+  chequear('acepta exactamente 132',
+    descripcionFueraDeLimite({ description: 'x'.repeat(132) }), null)
+  chequear('caza 133, un solo carácter de más',
+    descripcionFueraDeLimite({ description: 'x'.repeat(133) }) !== null, true)
+  chequear('falla cerrado sin description', descripcionFueraDeLimite({}) !== null, true)
+  chequear('falla cerrado con description vacía',
+    descripcionFueraDeLimite({ description: '   ' }) !== null, true)
+  chequear('los acentos cuentan como UN carácter, no como dos bytes',
+    descripcionFueraDeLimite({ description: 'á'.repeat(132) }), null)
 
   for (const c of casos) console.log(`  ${c.ok ? '✓' : '✗'} ${c.nombre}`)
   const fallidos = casos.filter(c => !c.ok)
