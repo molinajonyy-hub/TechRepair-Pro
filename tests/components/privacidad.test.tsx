@@ -26,6 +26,7 @@ vi.mock('react-router-dom', async (importOriginal) => {
 })
 
 import { Privacidad } from '../../src/pages/Privacidad'
+import { CONTACTO_SOPORTE } from '../../src/config/contacto'
 
 const montar = () => render(<MemoryRouter><Privacidad /></MemoryRouter>)
 const texto = () => (screen.getByTestId('pagina-privacidad').textContent ?? '')
@@ -94,15 +95,60 @@ describe('política de privacidad · dice lo incómodo', () => {
   })
 })
 
-describe('política de privacidad · contacto fail-closed', () => {
+describe('política de privacidad · contacto', () => {
 
-  it('sin casilla configurada NO inventa una dirección', () => {
-    // `VITE_CONTACT_EMAIL` está vacía en el repo. Publicar un mailto que nadie
-    // lee sería peor que no publicar ninguno.
+  it('publica el contacto oficial, y NO depende de una variable de entorno', () => {
+    // Antes salía de `VITE_CONTACT_EMAIL` y fallaba cerrado. Ahora está
+    // definido: un documento legal no puede quedarse sin casilla porque alguien
+    // no configuró una env en el deploy.
     montar()
-    expect(screen.queryByTestId('privacidad-contacto')).toBeNull()
-    expect(screen.getByTestId('privacidad-contacto-pendiente')).toBeVisible()
-    expect(texto()).not.toMatch(/mailto:/)
+    expect(screen.queryByTestId('privacidad-contacto-pendiente')).toBeNull()
+    const contacto = screen.getByTestId('privacidad-contacto')
+    expect(contacto).toBeVisible()
+    expect(contacto.textContent).toContain(CONTACTO_SOPORTE)
+    expect(contacto.querySelector('a')?.getAttribute('href')).toBe(`mailto:${CONTACTO_SOPORTE}`)
+  })
+
+  it('es el mismo email en toda la superficie pública', () => {
+    // El del Store, el de la política y el del pie tienen que decir lo mismo.
+    expect(CONTACTO_SOPORTE).toMatch(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)
+    expect(CONTACTO_SOPORTE).toBe('techrepairpro.soporte@gmail.com')
+  })
+})
+
+describe('política de privacidad · plazos de retención', () => {
+
+  it('declara los 90 días para teléfono y cuerpo del mensaje', () => {
+    // No se puede publicar un plazo que la base no cumple: la migración de
+    // retención ya está aplicada en producción y el job corre a diario.
+    montar()
+    const bloque = screen.getByTestId('privacidad-retencion').parentElement
+    const t = bloque?.textContent ?? ''
+    expect(t).toMatch(/90 días/)
+    expect(t).toMatch(/teléfono/i)
+    expect(t).toMatch(/cuerpo del mensaje/i)
+  })
+
+  it('declara los 12 meses para la metadata y el borrado final', () => {
+    montar()
+    const t = screen.getByTestId('privacidad-retencion').parentElement?.textContent ?? ''
+    expect(t).toMatch(/12 meses/)
+    expect(t).toMatch(/metadata operacional/i)
+    expect(t).toMatch(/se elimina por completo/i)
+  })
+
+  it('dice qué ve el usuario en lugar del mensaje eliminado', () => {
+    // Es el mismo texto que muestran las dos pantallas del historial.
+    montar()
+    expect(texto()).toMatch(/Contenido eliminado por política de retención/)
+  })
+
+  it('promete que la eliminación es definitiva, sin copias ni derivados', () => {
+    // Guardar un hash sería conservar el dato con otro nombre.
+    montar()
+    const t = screen.getByTestId('privacidad-retencion').parentElement?.textContent ?? ''
+    expect(t).toMatch(/no guardamos una copia/i)
+    expect(t).toMatch(/valor\s+derivado/i)
   })
 })
 

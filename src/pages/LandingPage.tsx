@@ -9,6 +9,7 @@ import {
 import { PLANS, type SubscriptionPlan } from '../types/subscription'
 import { initLandingAnalytics, track } from '../lib/analytics'
 import { useTheme } from '../hooks/useTheme'
+import { CONTACTO_SOPORTE } from '../config/contacto'
 import '../css/landing.css'
 
 // ─── Acentos temables del mockup ──────────────────────────────────────────────
@@ -39,7 +40,10 @@ function useThemedAccent() {
 // no mostrar contactos ficticios o rotos en producción.
 const CONTACT = {
   whatsapp:  (import.meta.env.VITE_CONTACT_WHATSAPP  as string | undefined)?.trim() || '',
-  email:     (import.meta.env.VITE_CONTACT_EMAIL     as string | undefined)?.trim() || '',
+  // El email SÍ tiene default: es el contacto oficial publicado, el mismo que
+  // usan la política de privacidad y la ficha del Chrome Web Store. La variable
+  // de entorno queda para poder pisarlo sin tocar código.
+  email:     (import.meta.env.VITE_CONTACT_EMAIL     as string | undefined)?.trim() || CONTACTO_SOPORTE,
   instagram: (import.meta.env.VITE_CONTACT_INSTAGRAM as string | undefined)?.trim() || '',
 }
 const HAS_SOCIAL = !!(CONTACT.whatsapp || CONTACT.instagram)

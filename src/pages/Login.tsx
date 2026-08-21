@@ -767,7 +767,7 @@ export function Login() {
               se saca hasta que ese documento exista — prometer algo inexistente
               en la pantalla de registro es peor que no mencionarlo.
             */}
-            Al continuar aceptás nuestra{' '}
+            Al continuar, declarás haber leído nuestra{' '}
             <Link
               to="/privacidad"
               data-testid="login-link-privacidad"

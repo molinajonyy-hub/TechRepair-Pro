@@ -23,17 +23,18 @@
  */
 import { useNavigate } from 'react-router-dom'
 import logoSvg from '../assets/logo.svg'
+import { CONTACTO_SOPORTE } from '../config/contacto'
 
 /**
- * Contacto público. Sale del entorno igual que el de la landing, y es
- * FAIL-CLOSED a propósito: si no está configurado, no se inventa una casilla —
- * se dice que falta. Publicar una dirección que nadie lee sería peor que no
- * publicar ninguna.
+ * Contacto público. Ya no sale del entorno: una política de privacidad es un
+ * documento legal y su casilla no puede desaparecer porque falte una env en el
+ * deploy. Es el mismo email que el publisher de la extensión en el Chrome Web
+ * Store, que lo exige verificado y lo muestra en la ficha.
  */
-const CONTACTO = import.meta.env.VITE_CONTACT_EMAIL?.trim() || ''
+const CONTACTO = CONTACTO_SOPORTE
 
 /** Última revisión del texto. Se actualiza a mano cuando el contenido cambia. */
-const ACTUALIZADO = '20 de agosto de 2026'
+const ACTUALIZADO = '21 de agosto de 2026'
 
 const c = {
   fondo: '#0f1115',
@@ -116,6 +117,23 @@ export function Privacidad() {
             negocio, y sirve para que tengas el historial de lo que le mandaste a cada cliente.
             La aplicación <strong>no puede saber</strong> si el mensaje efectivamente se envió:
             eso ocurre dentro de WhatsApp.
+          </p>
+        </Seccion>
+
+        <Seccion titulo="Cuánto tiempo conservamos los mensajes">
+          <p style={{ margin: 0 }} data-testid="privacidad-retencion">
+            Los mensajes de WhatsApp que preparás no se guardan para siempre. La política es
+            automática y corre todos los días:
+          </p>
+          <Lista items={[
+            <>El <strong>número de teléfono</strong> del destinatario y el <strong>cuerpo del mensaje</strong> se conservan por un máximo de <strong>90 días</strong> desde que se preparó el mensaje.</>,
+            <>Cumplidos los 90 días, <strong>esos campos se eliminan</strong>. En su lugar el historial muestra “Contenido eliminado por política de retención”, así seguís sabiendo que hubo un contacto y cuándo, pero el contenido ya no está.</>,
+            <>La <strong>metadata operacional</strong> —la fecha, la orden asociada, la plantilla usada y el resultado— se conserva por un máximo de <strong>12 meses</strong>.</>,
+            <>Cumplidos los <strong>12 meses</strong>, el registro <strong>se elimina por completo</strong>.</>,
+          ]} />
+          <p style={{ marginBottom: 0 }}>
+            La eliminación es definitiva: no guardamos una copia, ni un resumen, ni un valor
+            derivado del que se pueda reconstruir el mensaje original.
           </p>
         </Seccion>
 
