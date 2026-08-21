@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { Lock, Mail, Eye, EyeOff, Loader2, User, ArrowLeft } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -760,10 +760,21 @@ export function Login() {
             textAlign: 'center', color: 'var(--text-subtle)',
             fontSize: '0.75rem', marginTop: '1.5rem', lineHeight: 1.6,
           }}>
-            Al continuar aceptás los{' '}
-            <a href="#" style={{ color: '#6366f1', textDecoration: 'none' }}>Términos de uso</a>
-            {' '}y la{' '}
-            <a href="#" style={{ color: '#6366f1', textDecoration: 'none' }}>Política de privacidad</a>
+            {/*
+              Antes decía «Términos de uso y Política de privacidad» con los dos
+              enlaces en href="#": prometía dos documentos que no existían. La
+              política ya existe y se enlaza de verdad. La mención a los términos
+              se saca hasta que ese documento exista — prometer algo inexistente
+              en la pantalla de registro es peor que no mencionarlo.
+            */}
+            Al continuar, declarás haber leído nuestra{' '}
+            <Link
+              to="/privacidad"
+              data-testid="login-link-privacidad"
+              style={{ color: '#6366f1', textDecoration: 'none' }}
+            >
+              Política de privacidad
+            </Link>
           </p>
         </div>
 

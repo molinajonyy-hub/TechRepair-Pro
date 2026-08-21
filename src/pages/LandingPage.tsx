@@ -9,6 +9,7 @@ import {
 import { PLANS, type SubscriptionPlan } from '../types/subscription'
 import { initLandingAnalytics, track } from '../lib/analytics'
 import { useTheme } from '../hooks/useTheme'
+import { CONTACTO_SOPORTE } from '../config/contacto'
 import '../css/landing.css'
 
 // ─── Acentos temables del mockup ──────────────────────────────────────────────
@@ -39,7 +40,10 @@ function useThemedAccent() {
 // no mostrar contactos ficticios o rotos en producción.
 const CONTACT = {
   whatsapp:  (import.meta.env.VITE_CONTACT_WHATSAPP  as string | undefined)?.trim() || '',
-  email:     (import.meta.env.VITE_CONTACT_EMAIL     as string | undefined)?.trim() || '',
+  // El email SÍ tiene default: es el contacto oficial publicado, el mismo que
+  // usan la política de privacidad y la ficha del Chrome Web Store. La variable
+  // de entorno queda para poder pisarlo sin tocar código.
+  email:     (import.meta.env.VITE_CONTACT_EMAIL     as string | undefined)?.trim() || CONTACTO_SOPORTE,
   instagram: (import.meta.env.VITE_CONTACT_INSTAGRAM as string | undefined)?.trim() || '',
 }
 const HAS_SOCIAL = !!(CONTACT.whatsapp || CONTACT.instagram)
@@ -866,6 +870,15 @@ function Footer({ onTrial }: { onTrial: (s: string) => void }) {
 
         <div className="lp-footer-bottom">
           <span>© {new Date().getFullYear()} TechRepair Pro · Argentina</span>
+          {/* Ruta pública, sin sesión: el revisor del Chrome Web Store y
+              cualquier visitante tienen que poder abrirla. */}
+          <button
+            type="button"
+            data-testid="landing-link-privacidad"
+            onClick={() => navigate('/privacidad')}
+          >
+            Política de privacidad
+          </button>
           <span>Hecho para técnicos, por técnicos.</span>
         </div>
       </div>
