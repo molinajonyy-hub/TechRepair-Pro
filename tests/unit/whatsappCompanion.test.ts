@@ -13,7 +13,10 @@ import assert from 'node:assert/strict'
 import {
   VERSION,
   MAX_TEXTO,
+  CODIGOS,
   ORIGENES_AUTORIZADOS,
+  error,
+  respuestaApertura,
   origenAutorizado,
   validarApertura,
   construirUrl,
@@ -215,6 +218,84 @@ describe('elegirPestana', () => {
     const copia = JSON.stringify(tabs)
     elegirPestana(tabs)
     assert.equal(JSON.stringify(tabs), copia)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════
+// RESPUESTA MÍNIMA
+//
+// Lo que la extensión le devuelve a la página es una superficie de datos que
+// sale del navegador hacia una web. Cuanto más chica, menos hay que declarar
+// y menos hay que defender.
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('respuestaApertura', () => {
+
+  test('devuelve EXACTAMENTE { ok, action }', () => {
+    assert.deepEqual(respuestaApertura('reused'), { ok: true, action: 'reused' })
+    assert.deepEqual(Object.keys(respuestaApertura('created')).sort(), ['action', 'ok'])
+  })
+
+  test('NO filtra cuántas pestañas de WhatsApp tiene abiertas el usuario', () => {
+    // `encontradas: tabs.length` le contaba a techrepairpro.app el estado del
+    // navegador de la persona. Nadie lo consumía y no estaba en el contrato.
+    const r = respuestaApertura('reused') as Record<string, unknown>
+    assert.ok(!('encontradas' in r))
+    assert.ok(!('tabCount' in r))
+    assert.ok(!('cantidad' in r))
+  })
+
+  test('NO filtra el id interno de la pestaña', () => {
+    const r = respuestaApertura('created') as Record<string, unknown>
+    assert.ok(!('tabId' in r), 'un id de pestaña no es identidad ni permiso')
+  })
+})
+
+describe('error', () => {
+
+  test('devuelve sólo ok y code', () => {
+    assert.deepEqual(error(CODIGOS.BAD_PHONE), { ok: false, code: 'BAD_PHONE' })
+    assert.deepEqual(Object.keys(error(CODIGOS.TAB_ERROR)).sort(), ['code', 'ok'])
+  })
+
+  test('NO adjunta el detalle crudo del error de Chrome', () => {
+    // Los mensajes de la Tabs API del tipo `Invalid url: "..."` incluyen la URL
+    // completa, o sea el teléfono y el mensaje. Devolvérselos a la página es un
+    // canal de eco que nadie necesita.
+    const r = error(CODIGOS.TAB_ERROR) as Record<string, unknown>
+    for (const k of ['detalle', 'message', 'stack', 'url']) assert.ok(!(k in r), k)
+  })
+
+  test('la extensión no puede aceptar un detalle aunque se lo pasen', () => {
+    const r = (error as (c: string, d?: string) => Record<string, unknown>)(CODIGOS.TAB_ERROR, 'https://web.whatsapp.com/send?phone=549…')
+    assert.deepEqual(r, { ok: false, code: 'TAB_ERROR' })
+  })
+})
+
+describe('CODIGOS', () => {
+
+  test('HOST_ACCESS_REQUIRED existe y es distinto de todo lo demás', () => {
+    // Es el caso que no se podía expresar: la extensión ESTÁ, pero Chrome le
+    // retiró el acceso al sitio. Sin este código el frontend lo confundiría con
+    // «no instalada» y ofrecería instalarla de nuevo.
+    assert.equal(CODIGOS.HOST_ACCESS_REQUIRED, 'HOST_ACCESS_REQUIRED')
+    const valores = Object.values(CODIGOS)
+    assert.equal(new Set(valores).size, valores.length, 'no puede haber códigos repetidos')
+  })
+
+  test('cada error del contrato tiene su código', () => {
+    for (const c of ['FORBIDDEN_ORIGIN', 'BAD_PAYLOAD', 'UNKNOWN_TYPE', 'BAD_PHONE',
+                     'BAD_TEXT', 'TEXT_TOO_LONG', 'HOST_ACCESS_REQUIRED', 'TAB_ERROR']) {
+      assert.equal(CODIGOS[c as keyof typeof CODIGOS], c)
+    }
+  })
+
+  test('validarApertura devuelve códigos del contrato, no strings sueltos', () => {
+    const codigos = Object.values(CODIGOS)
+    for (const malo of [null, { type: 'X' }, { type: 'OPEN_WHATSAPP_WEB', phone: 'x', text: 'y' }]) {
+      const r = validarApertura(malo as never)
+      assert.ok(r && codigos.includes(r.code), JSON.stringify(r))
+    }
   })
 })
 
