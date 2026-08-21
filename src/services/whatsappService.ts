@@ -4,8 +4,6 @@ import { getConnection as getCloudConnection } from './whatsappCloudService'
 import { OrderStatus, STATUS_CONFIG } from '../types/orderStatus'
 import {
   interpolateTemplate,
-  buildWhatsAppFallbackUrl,
-  openWhatsAppWindow,
   type WhatsAppVars,
 } from './whatsappFormat'
 
@@ -20,8 +18,6 @@ export {
   buildWhatsAppUniversalUrl,
   buildWhatsAppFallbackUrl,
   buildWhatsAppDesktopUrl,
-  openWhatsAppWindow,
-  openWhatsAppDesktop,
   interpolateTemplate,
 } from './whatsappFormat'
 export type { WhatsAppVars, NormalizedPhone } from './whatsappFormat'
@@ -552,51 +548,6 @@ export const whatsappService = {
     } catch (err: any) {
       logger.error('WHATSAPP', 'sendViaAPI falló', err)
       return { success: false, error: err?.message || 'Error al conectar con la API' }
-    }
-  },
-
-  // ---------- ENVÍO MANUAL ----------
-
-  /**
-   * Abre WhatsApp con el mensaje precargado y guarda el log.
-   * Desktop → web.whatsapp.com (sin pantalla intermedia, reutiliza pestaña).
-   * Mobile  → wa.me (abre app nativa).
-   */
-  async sendManual(
-    businessId: string,
-    phone: string,
-    message: string,
-    context: { order_id?: string; customer_id?: string; status_key?: string }
-  ): Promise<{ success: boolean; link: string; blocked?: boolean }> {
-    const link = buildWhatsAppFallbackUrl(phone, message)
-
-    try {
-      const win = openWhatsAppWindow(link)
-      // window.open devuelve null cuando el navegador bloqueó el popup.
-      const blocked = win === null
-      await this.logMessage(businessId, {
-        order_id:    context.order_id,
-        customer_id: context.customer_id,
-        phone,
-        status_key:  context.status_key,
-        message,
-        send_mode:   'manual',
-        send_result: blocked ? 'failed' : 'opened',
-        error_message: blocked ? 'Popup bloqueado por el navegador' : undefined,
-      })
-      return { success: !blocked, link, blocked }
-    } catch (err: any) {
-      await this.logMessage(businessId, {
-        order_id:      context.order_id,
-        customer_id:   context.customer_id,
-        phone,
-        status_key:    context.status_key,
-        message,
-        send_mode:     'manual',
-        send_result:   'failed',
-        error_message: err?.message || 'Error desconocido',
-      })
-      return { success: false, link }
     }
   },
 

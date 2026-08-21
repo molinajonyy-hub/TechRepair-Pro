@@ -189,6 +189,39 @@ export function ofreceFallbackDePestanaNueva(fuente) {
   return /abrirWhatsAppWebEnNuevaPestana/.test(fuente)
 }
 
+/**
+ * Los helpers de apertura de la arquitectura descartada por COOP.
+ *
+ * POR QUÉ ES UN CHEQUEO APARTE, Y REPO-WIDE. `intentaReutilizarPestana` sólo
+ * mira el handoff y el modal, así que estos dos helpers sobrevivieron en
+ * `whatsappFormat.ts` — sin llamadores, pero listos para que alguien los use:
+ *
+ *   · `openWhatsAppWindow` abría con el named target «techrepair-whatsapp-web».
+ *     Nótese el GUIÓN: `intentaReutilizarPestana` buscaba `techrepair_whatsapp`
+ *     con guión BAJO, así que tampoco lo habría cazado si hubiera corrido acá.
+ *   · `openWhatsAppDesktop` hacía `window.location.href = url`, que con
+ *     cualquier URL que no fuera `whatsapp://` navegaba la pestaña de TechRepair.
+ *
+ * Se buscan IDENTIFICADORES ÚNICOS a propósito. Los patrones genéricos del otro
+ * chequeo no sirven repo-wide: `.closed` es legítimo en los modales de
+ * impresión, que lo usan sobre una ventana propia.
+ */
+const APERTURA_LEGACY = /\bopenWhatsAppWindow\b|\bopenWhatsAppDesktop\b|techrepair-whatsapp-web|techrepair_whatsapp/
+
+export function usaAperturaLegacy(fuente) {
+  return APERTURA_LEGACY.test(fuente)
+}
+
+/** Todos los .ts/.tsx bajo src/, para poder buscar en TODO el frontend. */
+function fuentesDelFrontend(dir = join(RAIZ, 'src'), acumulado = []) {
+  for (const entrada of readdirSync(dir, { withFileTypes: true })) {
+    const ruta = join(dir, entrada.name)
+    if (entrada.isDirectory()) fuentesDelFrontend(ruta, acumulado)
+    else if (/\.tsx?$/.test(entrada.name)) acumulado.push(ruta)
+  }
+  return acumulado
+}
+
 // ─── Companion (extensión de Chrome) ────────────────────────────────────────
 
 /**
@@ -392,6 +425,16 @@ function validarRepo() {
       fallas.push(`${p}: navega la pestaña de TechRepair hacia WhatsApp. Eso saca al usuario de su trabajo y el Back devuelve a una SPA recargada. El fallback tiene que ser una pestaña NUEVA, avisada como tal.`)
     }
   }
+  // Los helpers legacy no pueden volver a NINGUNA parte del frontend, no sólo
+  // al handoff: vivieron sin llamadores en whatsappFormat.ts hasta que se
+  // borraron, y ahí no llegaba ningún chequeo.
+  for (const ruta of fuentesDelFrontend()) {
+    if (usaAperturaLegacy(sinComentarios(readFileSync(ruta, 'utf-8')))) {
+      const relativa = ruta.replace(RAIZ + '\\', '').replace(RAIZ + '/', '').replace(/\\/g, '/')
+      fallas.push(`${relativa}: reapareció un helper de apertura legacy (openWhatsAppWindow / openWhatsAppDesktop / el named target techrepair-whatsapp-web). MEDIDO: WhatsApp Web manda COOP same-origin y el named target NO reutiliza nada; y navegar con location.href saca a la persona de TechRepair. El camino vigente es el Companion, y sin él una pestaña nueva avisada.`)
+    }
+  }
+
   if (!ofreceFallbackDePestanaNueva(handoff)) {
     fallas.push(`${HANDOFF}: se perdió el fallback de WhatsApp Web en pestaña nueva, que es el único camino cuando no están ni el Companion ni la app de escritorio.`)
   }
@@ -585,6 +628,33 @@ function selfTest() {
     ofreceFallbackDePestanaNueva(`export function abrirWhatsAppWebEnNuevaPestana(u) {}`), true)
   chequear('caza su ausencia',
     ofreceFallbackDePestanaNueva(`export function irAWhatsAppWeb(u) {}`), false)
+
+  // Apertura legacy — los helpers descartados por COOP, repo-wide
+  chequear('caza openWhatsAppWindow',
+    usaAperturaLegacy(`const win = openWhatsAppWindow(link)`), true)
+  chequear('caza su definición, no sólo la llamada',
+    usaAperturaLegacy(`export function openWhatsAppWindow(url) { return window.open(url, 'x') }`), true)
+  chequear('caza openWhatsAppDesktop',
+    usaAperturaLegacy(`openWhatsAppDesktop(url)`), true)
+  chequear('caza el named target con GUIÓN (el que se usaba de verdad)',
+    usaAperturaLegacy(`window.open(url, 'techrepair-whatsapp-web')`), true)
+  chequear('caza también la variante con guión bajo',
+    usaAperturaLegacy(`const NOMBRE = 'techrepair_whatsapp'`), true)
+  chequear('caza el re-export',
+    usaAperturaLegacy(`export { openWhatsAppWindow } from './whatsappFormat'`), true)
+  // Negativos: lo vigente y lo ajeno NO se marca.
+  chequear('no marca el camino vigente del Companion',
+    usaAperturaLegacy(`const r = await abrirEnCompanion(phoneInput, message)`), false)
+  chequear('no marca el fallback de pestaña nueva',
+    usaAperturaLegacy(`abrirWhatsAppWebEnNuevaPestana(handoff.url)`), false)
+  chequear('no marca la app de escritorio vigente',
+    usaAperturaLegacy(`abrirAppDeEscritorio(buildWhatsAppDesktopUrl(p, m))`), false)
+  // El falso positivo que obligó a usar identificadores únicos: los modales de
+  // impresión consultan `.closed` sobre SU PROPIA ventana, y son legítimos.
+  chequear('no marca win.closed de los modales de impresión',
+    usaAperturaLegacy(`setTimeout(() => { if (!win.closed) { win.print(); win.close() } }, 800)`), false)
+  chequear('no marca un window.open cualquiera',
+    usaAperturaLegacy(`const win = window.open(url, '_blank')`), false)
 
   // Companion — contrato del payload
   chequear('caza una url en el payload',
