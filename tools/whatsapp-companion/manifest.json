@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "TechRepair Companion",
   "version": "1.0.0",
-  "description": "Abre WhatsApp Web en una sola pestaña con el chat y el mensaje que preparaste en TechRepair Pro. No lee tus chats ni envía mensajes por vos.",
+  "description": "Abre o reutiliza una pestaña de WhatsApp Web desde TechRepair Pro. Vos revisás el mensaje y apretás Enviar.",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",

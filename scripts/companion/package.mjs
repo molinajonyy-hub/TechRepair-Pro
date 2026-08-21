@@ -17,14 +17,28 @@
 // no la carpeta de la que salió.
 //
 // El ZIP se construye con la implementación mínima de DEFLATE/STORE que hay
-// abajo, para no depender de utilidades del sistema operativo: el mismo comando
-// produce el mismo archivo en Windows, en Linux y en el runner de CI.
+// abajo, para no depender de utilidades del sistema operativo, y con la marca de
+// tiempo fija. El artefacto es REPRODUCIBLE EN EL ENTORNO CANÓNICO DE
+// PACKAGING y verificable mediante SHA-256: dos corridas seguidas sobre el
+// mismo checkout dan el mismo archivo.
+//
+// No se afirma reproducibilidad entre plataformas: el repo tiene
+// `core.autocrlf=true` y no hay `.gitattributes`, así que el árbol de trabajo en
+// Windows usa CRLF donde el índice guarda LF, y el ZIP se arma desde el árbol de
+// trabajo. Un clon en Linux produce un SHA-256 distinto. No afecta a la
+// extensión —Chrome no distingue los finales de línea— y no bloquea al Chrome
+// Web Store; sólo importa al comparar hashes entre máquinas.
+//
+// FAIL-CLOSED: antes de escribir nada corre el guard de release del Companion y
+// el self-test de este script. Si algo falla no se escribe ZIP, así que no puede
+// quedar un artefacto publicable que las comprobaciones habrían rechazado.
 // ============================================================================
 import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, dirname, posix } from 'node:path'
+import { join, dirname, posix, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { deflateRawSync, inflateRawSync, crc32 } from 'node:zlib'
+import { validarRepo } from '../guards/whatsapp-companion-release.mjs'
 
 const RAIZ = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const EXT = join(RAIZ, 'tools', 'whatsapp-companion')
@@ -225,7 +239,14 @@ export function extraerZip(zip, destino) {
 
 // ─── Self-test ──────────────────────────────────────────────────────────────
 
-function selfTest() {
+/**
+ * Corre las comprobaciones puras y DEVUELVE los casos, sin imprimir ni salir.
+ *
+ * Lo llaman dos consumidores con necesidades distintas: `--self-test`, que
+ * quiere el detalle completo en pantalla, y `empaquetar()`, que sólo necesita
+ * saber si algo falló para abortar antes de escribir el ZIP.
+ */
+function correrSelfTest() {
   const casos = []
   const chequear = (nombre, real, esperado) =>
     casos.push({ nombre, ok: JSON.stringify(real) === JSON.stringify(esperado) })
@@ -281,6 +302,12 @@ function selfTest() {
     rmSync(tmp, { recursive: true, force: true })
   }
 
+  return casos
+}
+
+/** Modo `--self-test`: imprime cada caso y sale con código según el resultado. */
+function selfTest() {
+  const casos = correrSelfTest()
   for (const c of casos) console.log(`  ${c.ok ? '✓' : '✗'} ${c.nombre}`)
   const fallidos = casos.filter((c) => !c.ok)
   if (fallidos.length) {
@@ -292,31 +319,71 @@ function selfTest() {
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
+/** Aborta el empaquetado con un cartel legible. NUNCA deja un ZIP escrito. */
+function abortar(titulo, fallas, pista) {
+  console.error('\n' + '═'.repeat(70))
+  console.error(`  ${titulo}`)
+  console.error('═'.repeat(70))
+  for (const f of fallas) console.error(`  ✗ ${f}`)
+  if (pista) console.error(`\n  ${pista}`)
+  console.error('═'.repeat(70))
+  console.error('  No se escribió ningún ZIP.\n')
+  process.exit(1)
+}
+
 function empaquetar() {
+  // Se limpia la salida ANTES de cualquier comprobación. Si esta corrida falla,
+  // no puede quedar el ZIP de una corrida anterior haciéndose pasar por el
+  // artefacto actual: fallar tiene que dejar CERO artefactos, no uno viejo con
+  // fecha creíble.
+  rmSync(SALIDA_DIR, { recursive: true, force: true })
+
+  // ── Puerta 1 · las comprobaciones puras se comportan como dicen ──────────
+  // Si el verificador está roto, todo lo que venga después no prueba nada.
+  const fallidosSelfTest = correrSelfTest().filter((c) => !c.ok)
+  if (fallidosSelfTest.length) {
+    abortar(
+      'SELF-TEST FALLIDO — las comprobaciones del empaquetador no son confiables',
+      fallidosSelfTest.map((c) => c.nombre),
+      'Detalle completo: npm run companion:package:self-test',
+    )
+  }
+
+  // ── Puerta 2 · el guard de release ──────────────────────────────────────
+  // Corre ACÁ, no en un comando aparte que hay que acordarse de ejecutar. Cubre
+  // description fuera de límite, permisos prohibidos, origins de desarrollo
+  // (localhost), íconos declarados que no existen y superficie de más.
+  const fallasGuard = validarRepo()
+  if (fallasGuard.length) {
+    abortar(
+      'GUARD DE RELEASE FALLIDO — el Companion no está en condiciones de distribuirse',
+      fallasGuard,
+      'Este es el mismo guard que npm run guard:whatsapp-companion.',
+    )
+  }
+
   const manifest = JSON.parse(readFileSync(join(EXT, 'manifest.json'), 'utf-8'))
   const nombreZip = `techrepair-companion-${manifest.version}.zip`
 
   const archivos = ARCHIVOS_DEL_PAQUETE.map((nombre) => {
     const disco = join(EXT, nombre.replace(/\//g, '/'))
     if (!existsSync(disco)) {
-      console.error(`\n✗ Falta ${nombre} en tools/whatsapp-companion/.`)
-      if (nombre.startsWith('icons/')) {
-        console.error('  Generá los íconos con: node scripts/companion/generar-iconos.mjs')
-      }
-      process.exit(1)
+      const pista = nombre.startsWith('icons/')
+        ? 'Generá los íconos con: node scripts/companion/generar-iconos.mjs'
+        : null
+      abortar('FALTA UN ARCHIVO DEL PAQUETE', [`${nombre} no está en tools/whatsapp-companion/`], pista)
     }
     return { nombre, datos: readFileSync(disco) }
   })
 
   const zip = construirZip(archivos)
 
-  rmSync(SALIDA_DIR, { recursive: true, force: true })
-  mkdirSync(SALIDA_DIR, { recursive: true })
-  const rutaZip = join(SALIDA_DIR, nombreZip)
-  writeFileSync(rutaZip, zip)
-
-  // ── Validación del ARTEFACTO, no de la carpeta ───────────────────────────
-  const entradas = leerEntradas(readFileSync(rutaZip))
+  // ── Puerta 3 · validación del ARTEFACTO, no de la carpeta ───────────────
+  // Se valida el ZIP EN MEMORIA y recién después se escribe. Antes se escribía
+  // primero y se validaba después: un paquete rechazado quedaba igual en disco,
+  // con pinta de publicable, y nada distinguía la corrida que falló de la que
+  // funcionó salvo leer la consola.
+  const entradas = leerEntradas(zip)
   const fallas = []
 
   const conBackslash = entradasConBackslash(entradas)
@@ -335,14 +402,12 @@ function empaquetar() {
     if (entradas.includes(prohibido)) fallas.push(`archivo prohibido en el paquete: ${prohibido}`)
   }
 
-  if (fallas.length) {
-    console.error('\n' + '═'.repeat(70))
-    console.error('  PAQUETE INVÁLIDO')
-    console.error('═'.repeat(70))
-    for (const f of fallas) console.error(`  ✗ ${f}`)
-    console.error('═'.repeat(70) + '\n')
-    process.exit(1)
-  }
+  if (fallas.length) abortar('PAQUETE INVÁLIDO', fallas)
+
+  // ── Recién acá se escribe, con las tres puertas pasadas ──────────────────
+  mkdirSync(SALIDA_DIR, { recursive: true })
+  const rutaZip = join(SALIDA_DIR, nombreZip)
+  writeFileSync(rutaZip, zip)
 
   console.log(`\n✓ ${nombreZip}  (${zip.length} B, ${entradas.length} archivos)`)
   for (const e of entradas) console.log(`    ${e}`)
@@ -350,9 +415,24 @@ function empaquetar() {
   console.log('  Verificalo cargado en un navegador con: npm run companion:probe:packaged\n')
 }
 
-if (process.argv.includes('--self-test')) {
-  console.log('\n─── companion:package · self-test ──────────────────────────────────')
-  selfTest()
-} else {
-  empaquetar()
+/**
+ * Sólo empaqueta si el archivo se ejecutó directamente.
+ *
+ * `tools/whatsapp-companion/probe.mjs` importa `extraerZip` de acá. Sin esta
+ * condición, ese import ejecutaba `empaquetar()` como efecto secundario: cada
+ * `companion:probe:packaged` volvía a armar el ZIP en silencio, y el probe
+ * terminaba verificando un artefacto que él mismo acababa de generar en vez del
+ * que había en disco. Con las puertas fail-closed sería peor todavía: un guard
+ * en rojo cortaría el probe con un cartel de empaquetado.
+ */
+const ejecutadoDirectamente =
+  process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+
+if (ejecutadoDirectamente) {
+  if (process.argv.includes('--self-test')) {
+    console.log('\n─── companion:package · self-test ──────────────────────────────────')
+    selfTest()
+  } else {
+    empaquetar()
+  }
 }
