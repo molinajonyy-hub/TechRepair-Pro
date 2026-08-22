@@ -1,58 +1,161 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../lib/supabase'
+import { sanitizeInternalPath } from '../lib/authRedirect'
+import { PORTAL_DOMAINS } from '../portal/portalDomains'
 
 /**
- * Página de callback para OAuth (Google, etc.).
+ * Callback único de autenticación. Soporta TRES caminos:
  *
- * En lugar de navegar inmediatamente en SIGNED_IN (antes del profile),
- * espera a que AuthContext resuelva tanto auth como profile, luego navega.
- * Esto elimina la race condition donde el profile no estaba cargado y
- * ProtectedRoute redirigía a /no-business → /onboarding.
+ *   A. OAuth PKCE          `?code=...`
+ *      Lo resuelve supabase-js solo (`detectSessionInUrl`). Acá sólo se espera
+ *      a que AuthContext termine de resolver auth + profile y se navega.
+ *
+ *   B. Confirmación de correo  `?token_hash=...&type=signup`
+ *      Se verifica con `supabase.auth.verifyOtp({ token_hash, type })`.
+ *
+ *      POR QUÉ token_hash Y NO ConfirmationURL/PKCE: el flujo PKCE exige el
+ *      `code_verifier` que quedó en el localStorage del navegador ORIGINAL. El
+ *      caso real es registrarse en la compu y abrir el correo en el celular:
+ *      ahí no hay verifier y el link muere. `verifyOtp` con `token_hash` no
+ *      depende del navegador de origen, así que la confirmación es válida
+ *      cross-device.
+ *
+ *   C. Error del proveedor `?error=...`
+ *
+ * Nada de esto confía en un query param como autoridad: el estado final
+ * siempre se relee de la sesión/servidor. No existe `?verified=true`.
  */
+
+/** Tipos de OTP que este callback acepta. Cerrado a propósito. */
+const TIPOS_OTP = ['signup', 'email', 'recovery'] as const
+type TipoOtp = (typeof TIPOS_OTP)[number]
+
+const esTipoOtp = (v: string | null): v is TipoOtp =>
+  !!v && (TIPOS_OTP as readonly string[]).includes(v)
+
+/** Destino tras confirmar, respetando el dominio dedicado del portal. */
+function destinoPostConfirmacion(): string {
+  // En un dominio exclusivo del portal mayorista todo cuelga de la raíz: el
+  // PortalRouter se monta en `/` y no existe `/dashboard`. Mandar ahí a un
+  // cliente mayorista lo sacaría de su portal.
+  if (PORTAL_DOMAINS[window.location.hostname]) return '/'
+
+  const guardado = window.sessionStorage.getItem('post_login_redirect')
+  window.sessionStorage.removeItem('post_login_redirect')
+  return sanitizeInternalPath(guardado, '/dashboard')
+}
+
+type Fase = 'verificando' | 'listo' | 'error'
+
 export function AuthCallback() {
   const navigate = useNavigate()
   const { isAuthenticated, loading, profileLoading } = useAuth()
   const [urlError, setUrlError] = useState<string | null>(null)
+  const [fase, setFase] = useState<Fase>('verificando')
   const navigatedRef = useRef(false)
+  const procesadoRef = useRef(false)
 
-  // Detectar errores OAuth en la URL (ej: acceso denegado)
+  // ── Camino C + B ───────────────────────────────────────────────────────────
   useEffect(() => {
+    if (procesadoRef.current) return
+    procesadoRef.current = true
+
     const params = new URLSearchParams(window.location.search)
-    const err     = params.get('error')
+
+    // C. Error explícito del proveedor.
+    const err = params.get('error')
     const errDesc = params.get('error_description')
     if (err) {
       const msg = errDesc
         ? decodeURIComponent(errDesc.replace(/\+/g, ' '))
         : err === 'access_denied'
-        ? 'Cancelaste el inicio de sesión con Google.'
-        : `Error de autenticación: ${err}`
+          ? 'Cancelaste el inicio de sesión.'
+          : 'No pudimos completar la autenticación.'
       setUrlError(msg)
+      setFase('error')
       setTimeout(() => navigate('/login', { replace: true }), 3000)
+      return
     }
+
+    const tokenHash = params.get('token_hash')
+    const tipo = params.get('type')
+
+    // A. Sin token_hash es el camino PKCE de siempre: no se toca.
+    if (!tokenHash) {
+      setFase('listo')
+      return
+    }
+
+    if (!esTipoOtp(tipo)) {
+      navigate('/verificar-email?estado=LINK_EXPIRED_OR_INVALID', { replace: true })
+      return
+    }
+
+    void (async () => {
+      // El token no debe quedar en el historial del navegador. Se limpia la
+      // query ANTES de resolver: si el usuario recarga, no se reenvía un token
+      // ya consumido (que daría un "link inválido" engañoso).
+      window.history.replaceState({}, '', window.location.pathname)
+
+      const { error } = await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: tipo,
+      })
+
+      if (!error) {
+        if (tipo === 'recovery') {
+          navigate('/reset-password', { replace: true })
+          return
+        }
+        setFase('listo')
+        return
+      }
+
+      // ── Enlace rechazado ────────────────────────────────────────────────
+      // Puede ser vencido, inválido, o simplemente YA USADO. El último caso es
+      // recuperable y frecuente (el usuario hace click dos veces, o el cliente
+      // de correo pre-visita el link). No se decide por el mensaje de error:
+      // se relee el estado real.
+      const { data } = await supabase.auth.getUser()
+
+      if (data?.user?.email_confirmed_at) {
+        // Link ya usado pero la cuenta está confirmada -> continuar normal.
+        setFase('listo')
+        return
+      }
+
+      if (data?.user) {
+        // Hay sesión, sigue sin confirmar: la pantalla permite reenviar.
+        navigate('/verificar-email?estado=LINK_EXPIRED_OR_INVALID', { replace: true })
+        return
+      }
+
+      // Sin sesión en este dispositivo (caso cross-device con link vencido).
+      // /verificar-email rebotaría a /login, así que se va directo con motivo.
+      navigate('/login?motivo=link_invalido', { replace: true })
+    })()
   }, [navigate])
 
-  // Navegar una vez que auth + profile están totalmente resueltos
+  // ── Navegación final, una vez que auth + profile resolvieron ───────────────
   useEffect(() => {
-    if (urlError) return
+    if (fase !== 'listo') return
     if (navigatedRef.current) return
     if (loading || profileLoading) return
 
     navigatedRef.current = true
 
     if (isAuthenticated) {
-      const redirect = sessionStorage.getItem('post_login_redirect') || '/dashboard'
-      sessionStorage.removeItem('post_login_redirect')
-      navigate(redirect, { replace: true })
+      navigate(destinoPostConfirmacion(), { replace: true })
     } else {
-      // No hay sesión después de cargar → volver al login
       setTimeout(() => navigate('/login', { replace: true }), 1500)
     }
-  }, [urlError, loading, profileLoading, isAuthenticated, navigate])
+  }, [fase, loading, profileLoading, isAuthenticated, navigate])
 
-  // Timeout de seguridad: si en 15s no resuelve, ir al login
+  // Timeout de seguridad: si en 15s no resuelve, ir al login.
   useEffect(() => {
-    if (urlError) return
+    if (fase === 'error') return
     const t = setTimeout(() => {
       if (!navigatedRef.current) {
         navigatedRef.current = true
@@ -60,7 +163,7 @@ export function AuthCallback() {
       }
     }, 15_000)
     return () => clearTimeout(t)
-  }, [urlError, navigate])
+  }, [fase, navigate])
 
   return (
     <div style={{
@@ -110,10 +213,10 @@ export function AuthCallback() {
               margin: '0 auto 1.25rem',
             }} />
             <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', fontWeight: 700, color: '#f1f5f9' }}>
-              Iniciando sesión...
+              Verificando tu cuenta...
             </h2>
             <p style={{ margin: 0, fontSize: '0.875rem', color: '#475569' }}>
-              Verificando tu cuenta de Google
+              Un momento, estamos confirmando tus datos
             </p>
           </>
         )}

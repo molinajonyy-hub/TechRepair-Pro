@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { getProfileCacheKey } from '../lib/profileCache';
+import { getAuthCallbackUrl } from '../lib/authRedirect';
 
 export type UserRole = 'owner' | 'admin' | 'manager' | 'tech' | 'sales' | 'cashier' | 'viewer';
 
@@ -32,6 +33,18 @@ export interface SignUpResult {
   needsEmailConfirmation: boolean;
 }
 
+/**
+ * Resultado de reenviar el correo de confirmación.
+ *
+ * `rateLimited` se distingue de `error` a propósito: es el único fallo que el
+ * usuario puede resolver solo (esperando), así que la pantalla lo trata como
+ * un estado y no como una falla.
+ */
+export type ResendConfirmationResult =
+  | { status: 'sent' }
+  | { status: 'rate_limited' }
+  | { status: 'error' };
+
 interface AuthContextType {
   user: User | null;
   session: Session | null;
@@ -42,6 +55,18 @@ interface AuthContextType {
   isLoading: boolean;
   profileLoading: boolean;
   isAuthenticated: boolean;
+  /**
+   * Señal CANÓNICA y provider-agnostic de «este correo está verificado».
+   *
+   * Se deriva de `session.user.email_confirmed_at` y nunca de `provider`:
+   * Google devuelve el usuario ya confirmado vía GoTrue, así que un usuario de
+   * OAuth entra por el mismo camino que uno de email+password que ya confirmó.
+   * No hay una rama `provider === 'google'` en ningún lado, y no debe haberla.
+   *
+   * Sin sesión es `false`. Los guards ya exigen `isAuthenticated` por separado,
+   * así que un `false` sin sesión nunca se confunde con «pendiente».
+   */
+  emailConfirmed: boolean;
   hasBusinessAccess: boolean;
   profileError: string | null;
   isOwner: boolean;
@@ -55,6 +80,19 @@ interface AuthContextType {
   signUp: (email: string, password: string, fullName?: string) => Promise<SignUpResult>;
   signInWithGoogle: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  /**
+   * Reenvía el correo de confirmación de signup usando la API oficial de
+   * Supabase. No hay endpoint propio ni se guarda ningún token.
+   */
+  resendConfirmation: (email: string) => Promise<ResendConfirmationResult>;
+  /**
+   * Consulta el estado REAL del usuario contra el servidor (`auth.getUser()`)
+   * y sincroniza el contexto. Es lo que respalda «Ya confirmé, continuar»:
+   * jamás se marca confirmado con una bandera local.
+   *
+   * Devuelve `true` si el correo quedó confirmado.
+   */
+  refreshUser: () => Promise<boolean>;
   signOut: () => Promise<void>;
   setProfileLoadingDisabled: (disabled: boolean) => void;
 }
@@ -80,6 +118,43 @@ const withTimeout = async <T,>(promise: PromiseLike<T>, timeoutMs: number, error
 };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Correo de un registro que quedó pendiente de confirmación.
+ *
+ * Con «Confirm Email» ON, `signUp` NO devuelve sesión: el usuario existe en
+ * `auth.users` pero el browser no tiene nada. Sin este dato, /verificar-email
+ * no sabría a quién reenviarle el correo.
+ *
+ * Va en `sessionStorage` (no `localStorage`): muere con la pestaña, que es el
+ * alcance correcto para un dato de un flujo en curso. Se guarda ÚNICAMENTE el
+ * email — jamás un token ni un `token_hash`.
+ */
+const PENDING_CONFIRMATION_EMAIL_KEY = 'trp_pending_confirmation_email';
+
+export const rememberPendingConfirmationEmail = (email: string) => {
+  try {
+    window.sessionStorage.setItem(PENDING_CONFIRMATION_EMAIL_KEY, email);
+  } catch {
+    // sessionStorage bloqueado: la pantalla degrada a pedir el email de nuevo.
+  }
+};
+
+export const readPendingConfirmationEmail = (): string | null => {
+  try {
+    return window.sessionStorage.getItem(PENDING_CONFIRMATION_EMAIL_KEY);
+  } catch {
+    return null;
+  }
+};
+
+export const clearPendingConfirmationEmail = () => {
+  try {
+    window.sessionStorage.removeItem(PENDING_CONFIRMATION_EMAIL_KEY);
+  } catch {
+    // no-op
+  }
+};
 
 const PROFILE_LOAD_TIMEOUT_MS = 20000;
 
@@ -123,6 +198,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loadProfile = async (currentUser: User) => {
     if (profileLoadingDisabledRef.current) {
+      return null;
+    }
+
+    // Sin correo confirmado no hay provisioning server-side todavía (ver la
+    // migración 20260823120000), así que `get_my_profile` devolvería 0 filas y
+    // dispararía un intento inútil de `link_profile_to_auth_user` en cada
+    // carga. Peor: dejaría `profileError = "No existe un perfil de negocio"`,
+    // que manda a diagnosticar al lugar equivocado cuando lo único que falta
+    // es hacer click en el correo.
+    if (!currentUser.email_confirmed_at) {
+      setProfile(null);
+      setProfileError(null);
+      setProfileLoading(false);
       return null;
     }
 
@@ -380,6 +468,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email,
         password,
         options: {
+          // Con «Confirm Email» ON, esta es la URL que GoTrue interpola en la
+          // plantilla del correo. Sale del helper canónico, nunca de
+          // `window.location.origin` suelto.
+          emailRedirectTo: getAuthCallbackUrl(),
           data: {
             full_name: fullName || '',
           },
@@ -397,6 +489,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         void loadProfile(nextSession.user);
       }
 
+      // NO se asume que signUp devuelve sesión: con Confirm Email ON, Supabase
+      // crea el usuario y devuelve `session: null`. Eso NO es un error — es el
+      // camino feliz del registro pendiente.
+      if (!nextSession) {
+        // Sin sesión, /verificar-email no tendría de dónde sacar el correo y
+        // rebotaría a /login, que es justo el callejón sin salida que esta P0
+        // viene a eliminar. Se guarda el email —y sólo el email, nunca un
+        // token— para que la pantalla pueda ofrecer el reenvío.
+        rememberPendingConfirmationEmail(email);
+      }
+
       return {
         needsEmailConfirmation: !nextSession,
       };
@@ -409,16 +512,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(true);
 
     try {
-      // Usar VITE_APP_URL si está definido (para producción),
-      // o window.location.origin como fallback (para desarrollo local).
       // La URL /auth/callback debe estar en la lista de URLs permitidas en Supabase.
-      const appUrl = (import.meta.env.VITE_APP_URL as string | undefined)?.replace(/\/$/, '')
-        || window.location.origin;
-
+      // El origen sale del helper canónico (allowlist cerrada), no de
+      // `window.location.origin` crudo.
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${appUrl}/auth/callback`,
+          redirectTo: getAuthCallbackUrl(),
           queryParams: {
             access_type: 'offline',
             prompt: 'select_account',
@@ -432,6 +532,78 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // signInWithOAuth redirige el browser — el código posterior no se ejecuta
     } finally {
       setLoading(false);
+    }
+  };
+
+  const resendConfirmation = async (email: string): Promise<ResendConfirmationResult> => {
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email,
+        options: {
+          emailRedirectTo: getAuthCallbackUrl(),
+        },
+      });
+
+      if (!error) {
+        return { status: 'sent' };
+      }
+
+      // 429 es el único fallo accionable por el usuario. Se detecta por status
+      // Y por mensaje: distintas versiones de GoTrue lo reportan distinto.
+      const status = (error as { status?: number }).status;
+      const message = error.message?.toLowerCase() ?? '';
+      if (status === 429 || message.includes('rate limit') || message.includes('too many')) {
+        return { status: 'rate_limited' };
+      }
+
+      if (import.meta.env.DEV) console.warn('Error reenviando la confirmación:', error);
+      return { status: 'error' };
+    } catch (error) {
+      if (import.meta.env.DEV) console.warn('Error reenviando la confirmación:', error);
+      return { status: 'error' };
+    }
+  };
+
+  const refreshUser = async (): Promise<boolean> => {
+    try {
+      // getUser() consulta al servidor de auth; getSession() sólo lee el token
+      // guardado, que puede ser anterior a la confirmación. Esa diferencia es
+      // exactamente el punto de «Ya confirmé, continuar».
+      const { data, error } = await supabase.auth.getUser();
+
+      if (error || !data?.user) {
+        return false;
+      }
+
+      const confirmed = !!data.user.email_confirmed_at;
+
+      if (confirmed) {
+        // El JWT vigente se emitió antes de confirmar. Se refresca para que la
+        // sesión (y cualquier claim derivado) refleje el estado nuevo, y para
+        // que el provisioning server-side ya tenga su fila cuando se pida el
+        // profile.
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        const nextSession = refreshed?.session ?? null;
+
+        if (nextSession) {
+          applySession(nextSession);
+          await loadProfile(nextSession.user);
+        } else {
+          // Sin refresh disponible, al menos se adopta el user real.
+          setUser(data.user);
+          await loadProfile(data.user);
+        }
+      } else {
+        // Se adopta igual el user del servidor: es la fuente de verdad y deja
+        // el contexto consistente aunque siga sin confirmar.
+        setUser(data.user);
+      }
+
+      return confirmed;
+    } catch (error) {
+      if (import.meta.env.DEV) console.warn('Error consultando el usuario:', error);
+      return false;
     }
   };
 
@@ -455,6 +627,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       // Limpiar redirect de sesión para evitar que otro usuario herede la URL
       window.sessionStorage.removeItem('post_login_redirect');
+      // Y el correo pendiente: si alguien cambia de cuenta, no debe arrastrar
+      // el registro a medias de la anterior.
+      clearPendingConfirmationEmail();
     } finally {
       setLoading(false);
     }
@@ -470,6 +645,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isLoading: loading,
     profileLoading,
     isAuthenticated: !!user,
+    emailConfirmed: !!user?.email_confirmed_at,
     hasBusinessAccess: !!profile?.business_id && profile.is_active,
     profileError,
     isOwner: profile?.role === 'owner',
@@ -483,6 +659,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     signUp,
     signInWithGoogle,
     refreshProfile,
+    resendConfirmation,
+    refreshUser,
     signOut,
     setProfileLoadingDisabled: updateProfileLoadingDisabled,
   };

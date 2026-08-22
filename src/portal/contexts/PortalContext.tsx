@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import { supabase } from '../../lib/supabase'
-import { getPortalBusiness, getCustomerByAuthId } from '../services/portalService'
+import { getPortalBusiness, getCustomerByAuthId, completePendingWholesaleRegistration } from '../services/portalService'
 import type { PortalLoadErrorReason } from '../portalPublicContract'
 import type { PortalBusiness, WholesaleCustomer } from '../types'
 
@@ -91,11 +91,27 @@ export function PortalProvider({ slug, basePath, children }: Props) {
     setAuthLoading(true)
     try {
       const c = await getCustomerByAuthId(business.id)
-      setCustomer(c)
+      if (c) {
+        setCustomer(c)
+        return
+      }
+
+      // EMAIL VERIFICATION P0 — hay sesión pero no hay fila de cliente.
+      //
+      // Es el estado en que queda un registro mayorista hecho con Confirm
+      // Email ON: el auth user existe desde el signup, pero el alta se
+      // posterga hasta tener sesión autenticada. Este es el punto donde eso
+      // ocurre, y corre una sola vez porque en el siguiente refresh
+      // `getCustomerByAuthId` ya devuelve la fila.
+      //
+      // `business.id` se resolvió server-side desde el slug; la metadata del
+      // usuario sólo aporta el slug y los datos del formulario.
+      const completado = await completePendingWholesaleRegistration(business.id, slug)
+      setCustomer(completado)
     } finally {
       setAuthLoading(false)
     }
-  }, [business])
+  }, [business, slug])
 
   useEffect(() => {
     if (!business) return
