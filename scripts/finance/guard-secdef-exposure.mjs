@@ -95,7 +95,7 @@ function declaraciones(limpio, crudo) {
       const b = crudo.indexOf(d, a)
       cuerpo = b === -1 ? '' : crudo.slice(a, b)
     }
-    out.push({ nombre: pelar(m[1]), cuerpo })
+    out.push({ nombre: pelar(m[1]), cuerpo, esReplace: /OR\s+REPLACE/i.test(m[0]) })
   }
   return out
 }
@@ -120,7 +120,26 @@ function revisarArchivo(archivo, { soloR6 = false } = {}) {
   }
 
   // ── R2: SECDEF declarada sin REVOKE ... FROM PUBLIC ───────────────────────
+  //
+  // EXENCION UNICA Y ACOTADA: `CREATE OR REPLACE` de una funcion que YA esta en
+  // ALLOWLIST_ANON. Para esas ocho, ser ejecutable por anon ES el contrato
+  // intencional (helpers de RLS inertes sin sesion + superficies publicas del
+  // portal), asi que exigirles `REVOKE ... FROM PUBLIC` es contradictorio con la
+  // propia allowlist. Y sobre una funcion existente `CREATE OR REPLACE` PRESERVA
+  // el ACL: no aplica la premisa de R2 ("nace abierta").
+  //
+  // La exencion NO cubre un `CREATE FUNCTION` pelado, ni ninguna funcion fuera
+  // de la allowlist: ahi la premisa sigue valiendo y R2 sigue bloqueando.
+  //
+  // Motivo concreto: 20260822160000 tiene que cambiar el CUERPO de
+  // current_business_id() (sin eso, un perfil reparado por
+  // link_profile_to_auth_user deja 96 policies negando). MEDIDO contra
+  // produccion: cerrarla a PUBLIC le sacaria EXECUTE a 26 roles, entre ellos
+  // authenticator, supabase_realtime_admin, supabase_storage_admin y
+  // supabase_auth_admin. Ese cierre merece su propio lote con verificacion de
+  // realtime y storage, no colarse en un P0 de auth.
   for (const d of decls) {
+    if (d.esReplace && ALLOWLIST_ANON.has(d.nombre)) continue
     const reRevoke = new RegExp(
       `REVOKE\\s+(?:ALL|EXECUTE)[\\s\\S]{0,200}?ON\\s+FUNCTION\\s+(?:"?\\w+"?\\.)?"?${d.nombre}"?\\s*\\([^)]*\\)[\\s\\S]{0,80}?FROM\\s+PUBLIC`, 'i')
     if (!reRevoke.test(limpio)) {
@@ -186,6 +205,19 @@ function revisarTimestamps(dir) {
 
 // ── self-test ───────────────────────────────────────────────────────────────
 const FIXTURES = [
+  // ── Exencion R2: CREATE OR REPLACE de una funcion de ALLOWLIST_ANON ───────
+  { nombre: 'R2 exenta: OR REPLACE de una funcion de la allowlist, sin REVOKE', debeFallar: false, sql:
+`CREATE OR REPLACE FUNCTION public.current_business_id() RETURNS uuid LANGUAGE sql
+ STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
+ AS $$ SELECT p.business_id FROM public.profiles p WHERE COALESCE(p.user_id, p.id) = auth.uid() LIMIT 1 $$;` },
+  { nombre: 'R2 NO exenta: CREATE pelado de una funcion de la allowlist', debeFallar: true, sql:
+`CREATE FUNCTION public.current_business_id() RETURNS uuid LANGUAGE sql
+ STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
+ AS $$ SELECT 1 $$;` },
+  { nombre: 'R2 NO exenta: OR REPLACE de una funcion FUERA de la allowlist', debeFallar: true, sql:
+`CREATE OR REPLACE FUNCTION public.get_my_profile() RETURNS uuid LANGUAGE sql
+ STABLE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp
+ AS $$ SELECT 1 $$;` },
   { nombre: 'SECDEF con REVOKE y grant sólo a authenticated', debeFallar: false, sql:
 `CREATE FUNCTION public.f1(a uuid) RETURNS int LANGUAGE sql SECURITY DEFINER
  SET search_path = pg_catalog, pg_temp AS $$ SELECT 1 $$;

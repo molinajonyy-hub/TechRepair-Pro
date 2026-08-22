@@ -288,11 +288,12 @@ BEGIN
     (v_huerfano, 'ph_oauth_huerfano@example.test'),
     (v_nuevo,    'ph_oauth@example.test');
 
-  -- profiles.id es FK a auth.users, pero user_id no: se lo apunta a otro id
-  -- para reproducir el desapareo que resuelve el fallback. `profiles.email`
-  -- es el del auth user NUEVO, que es por donde engancha la vinculación.
+  -- Perfil HUÉRFANO: `user_id IS NULL` (desde 20260822160000 ése es el
+  -- requisito fuerte del fallback — un perfil ya vinculado a otra identidad no
+  -- se reasigna aunque coincida el email). `profiles.email` es el del auth user
+  -- NUEVO, que es por donde engancha la vinculación.
   INSERT INTO public.profiles (id, user_id, business_id, role, is_active, email, permissions)
-  VALUES (v_huerfano, gen_random_uuid(), v_biz_a, 'sales', true, 'ph_oauth@example.test',
+  VALUES (v_huerfano, NULL, v_biz_a, 'sales', true, 'ph_oauth@example.test',
           '{"inventory_view_costs": true}'::jsonb);
 
   SET LOCAL ROLE authenticated;
