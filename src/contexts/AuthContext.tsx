@@ -155,24 +155,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const profileRow = Array.isArray(data) ? data[0] : data;
 
           if (!profileRow) {
-            // Fallback para OAuth (Google): si get_my_profile no encontró por user_id,
-            // intentar vincular el profile existente por email al auth user actual.
+            // `get_my_profile` resuelve SÓLO por identidad
+            // (COALESCE(user_id, id) = auth.uid()). Cero filas significa que
+            // este auth user todavía no tiene un perfil vinculado, así que se
+            // intenta la REPARACIÓN explícita: vincular por email un perfil
+            // huérfano (user_id IS NULL). Ver 20260822160000.
+            //
+            // Antes esto vivía en un try/catch mudo, y fue parte de por qué el
+            // defecto quedó invisible tanto tiempo: cualquier fallo del
+            // fallback se reportaba como "no existe perfil". Ahora se
+            // distinguen los dos estados.
+            let linkedRow: Profile | undefined;
+
             try {
-              const { data: linked } = await supabase.rpc('link_profile_to_auth_user');
-              const linkedRow = Array.isArray(linked) ? linked[0] : linked;
-              if (linkedRow) {
-                const linkedProfile: Profile = {
-                  ...linkedRow,
-                  user_id: linkedRow.user_id ?? currentUser.id,
-                };
-                setProfile(linkedProfile);
-                cacheProfile(currentUser.id, linkedProfile);
-                setProfileError(linkedProfile.is_active ? null : 'Tu usuario existe, pero esta inactivo para este negocio.');
-                return linkedProfile;
+              const { data: linked, error: linkError } = await supabase.rpc('link_profile_to_auth_user');
+
+              if (linkError) {
+                throw new Error(linkError.message);
               }
-            } catch {
-              // link falló — continuar con perfil null
+
+              linkedRow = Array.isArray(linked) ? linked[0] : linked;
+            } catch (linkError) {
+              // LINK_ERROR — distinto de NO_PROFILE. Se da, por ejemplo, cuando
+              // hay más de un perfil huérfano con el mismo email y el servidor
+              // falla cerrado (SQLSTATE TRLNK) en vez de vincular uno al azar.
+              // No se reintenta: reintentar no cambiaría el resultado.
+              if (import.meta.env.DEV) console.warn('Error vinculando el perfil:', linkError);
+              setProfile(null);
+              setProfileError(
+                'No pudimos vincular tu perfil de negocio. Escribinos para que lo revisemos.'
+              );
+              return null;
             }
+
+            if (linkedRow) {
+              const linkedProfile: Profile = {
+                ...linkedRow,
+                user_id: linkedRow.user_id ?? currentUser.id,
+              };
+              setProfile(linkedProfile);
+              cacheProfile(currentUser.id, linkedProfile);
+              setProfileError(linkedProfile.is_active ? null : 'Tu usuario existe, pero esta inactivo para este negocio.');
+              return linkedProfile;
+            }
+
+            // NO_PROFILE — no hay perfil propio ni huérfano que reparar.
             setProfile(null);
             setProfileError('No existe un perfil de negocio para este usuario.');
             return null;
