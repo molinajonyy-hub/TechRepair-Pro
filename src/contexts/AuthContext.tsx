@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
-import type { AppPermissions } from '../config/permissions';
+import { getProfileCacheKey } from '../lib/profileCache';
 
 export type UserRole = 'owner' | 'admin' | 'manager' | 'tech' | 'sales' | 'cashier' | 'viewer';
 
@@ -14,7 +14,16 @@ export interface Profile {
   full_name?: string;
   email?: string;
   phone?: string;
-  permissions?: Partial<AppPermissions> | null;
+  /**
+   * Overrides de permisos crudos, tal como los devuelve `get_my_profile()` /
+   * `link_profile_to_auth_user()` desde `profiles.permissions` (jsonb).
+   *
+   * Deliberadamente `unknown`: es un payload no confiable (jsonb libre, y
+   * además puede venir de un caché de localStorage viejo). El único lugar
+   * autorizado a interpretarlo es `sanitizePermissions()` en
+   * `src/hooks/usePermissions.ts`, que falla cerrado si no lo entiende.
+   */
+  permissions?: unknown;
   created_at: string;
   updated_at: string;
 }
@@ -72,10 +81,7 @@ const withTimeout = async <T,>(promise: PromiseLike<T>, timeoutMs: number, error
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const PROFILE_CACHE_KEY_PREFIX = 'techrepair_profile';
 const PROFILE_LOAD_TIMEOUT_MS = 20000;
-
-const getProfileCacheKey = (userId: string) => `${PROFILE_CACHE_KEY_PREFIX}:${userId}`;
 
 const isTransientProfileLoadError = (error: unknown) => {
   if (!(error instanceof Error)) {

@@ -1,6 +1,7 @@
 import { supabase, type Order, type Customer, type Device, type Note,
   type PartUsed, type InventoryItem, type Supplier, type Expense,
   type User, type StatusHistory } from '../lib/supabase'
+import { getProfileCacheKey } from '../lib/profileCache'
 
 type CustomerPayload = Omit<Customer, 'id' | 'created_at' | 'updated_at' | 'business_id' | 'created_by'>
 type OrderPayload = Omit<Order, 'id' | 'created_at' | 'updated_at' | 'business_id' | 'created_by'>
@@ -24,7 +25,6 @@ type DeviceModelCatalogItem = CatalogItem & {
   brand_id: string
 }
 
-const CUSTOMER_PROFILE_CACHE_KEY_PREFIX = 'techrepair_profile'
 const LOCAL_ID_PREFIX = 'local:'
 
 const FALLBACK_BRANDS: CatalogItem[] = [
@@ -59,7 +59,10 @@ const loadCachedCustomerContext = (userId: string): CustomerContext | null => {
   }
 
   try {
-    const rawProfile = window.localStorage.getItem(`${CUSTOMER_PROFILE_CACHE_KEY_PREFIX}:${userId}`)
+    // Misma entrada que escribe AuthContext: la clave es compartida a propósito
+    // (ver src/lib/profileCache.ts). Acá sólo se usa como fallback offline para
+    // recuperar `business_id` cuando el RPC no responde.
+    const rawProfile = window.localStorage.getItem(getProfileCacheKey(userId))
 
     if (!rawProfile) {
       return null
