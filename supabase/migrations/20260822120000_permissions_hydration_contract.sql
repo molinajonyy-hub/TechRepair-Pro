@@ -23,10 +23,17 @@
 -- expone la columna) y nunca vuelven al perfil propio: el contrato quedaba
 -- partido entre el escritor y el lector.
 --
--- El defecto sólo podía DENEGAR de más o IGNORAR una restricción; nunca otorgar
--- un permiso que el rol no tuviera por default (los defaults son el piso). Por
--- eso no bloqueó a W1. Lo que cierra esta migración es el contrato, antes de la
--- beta y antes de que existan overrides vivos.
+-- IMPACTO — los overrides eran ignorados POR COMPLETO, en las dos direcciones:
+--   · default=false + override=true ignorado -> una capacidad concedida
+--     explícitamente quedaba negada;
+--   · default=true + override=false ignorado -> una capacidad revocada
+--     explícitamente seguía habilitada en el frontend.
+-- O sea: el efectivo era siempre el default del rol, que respecto de la
+-- INTENCIÓN del administrador puede quedar corto o largo. La autorización
+-- server-side seguía dependiendo de sus propios controles independientes (RLS y
+-- predicados de las policies); este defecto no evidencia ningún bypass de esos
+-- controles, y no se afirma ninguno. Lo que cierra esta migración es el
+-- contrato, antes de la beta y antes de que existan overrides vivos.
 --
 -- POR QUÉ HAY QUE DROPEAR
 -- Agregar una columna a un `RETURNS TABLE` cambia el tipo de retorno de la
