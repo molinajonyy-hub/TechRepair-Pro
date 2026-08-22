@@ -347,6 +347,26 @@ describe('W1 · modal de preview', () => {
       />,
     )
 
+  it('se monta en document.body, fuera del subárbol de la página', async () => {
+    // REGRESIÓN MEDIDA a 1280×800 preparando la captura del Chrome Web Store:
+    // las páginas se envuelven en `.animate-fade-in`, que anima `transform` con
+    // `forwards`, así que la matriz identidad queda aplicada para siempre. Un
+    // `transform` crea un CONTEXTO DE APILAMIENTO: dentro de él el z-index 9999
+    // del overlay sólo competía con sus hermanos, y `.top-header` (z-index 30)
+    // pintaba encima y tapaba el encabezado del modal. Peor todavía, un ancestro
+    // transformado se vuelve el bloque contenedor de `position: fixed`, así que
+    // `inset: 0` cubría ese contenedor y no el viewport.
+    //
+    // Este test falla si el modal vuelve a renderizarse dentro del contenedor
+    // del caller. Subir el z-index NO lo arreglaría —el problema es el contexto,
+    // no el número— y este test seguiría en rojo, que es lo que se quiere.
+    const { container } = abrirModal()
+    const overlay = await screen.findByTestId('whatsapp-preview-modal')
+
+    expect(container.contains(overlay), 'el modal quedó dentro del subárbol del caller').toBe(false)
+    expect(overlay.parentElement).toBe(document.body)
+  })
+
   it('un hueco de plata NOMBRA la variable y bloquea la apertura', async () => {
     estado.filas.whatsapp_templates = [{
       id: 't1', business_id: BIZ_A, status_key: 'ready_pickup', status_label: 'Listo para Retirar',

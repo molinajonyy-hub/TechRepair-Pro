@@ -26,6 +26,7 @@
  * preexistente y ajeno a W1 — sólo aparece si el negocio ya tiene conexión.
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { MessageCircle, Copy, ExternalLink, Check, AlertTriangle, X, RefreshCw, ChevronDown, Pencil, Monitor, Puzzle } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { getConnection } from '../../services/whatsappCloudService'
@@ -493,7 +494,28 @@ export function WhatsAppPreviewModal({
   // resolver, no se abre nada. `bloqueo` ya explica cuál falta.
   const canSend = phoneResult.valid && message.trim().length > 0 && !bloqueo
 
-  return (
+  /**
+   * PORTAL a `document.body`. Mismo patrón que `AllocationModal` y los modales
+   * de `personal/`; no es una preferencia de estilo, arregla un bug medido.
+   *
+   * Las páginas se envuelven en `.animate-fade-in`, y esa clase anima
+   * `transform: translateY(8px) → translateY(0)` con `forwards`: la matriz
+   * identidad queda aplicada para siempre. Un `transform` —aunque sea la
+   * identidad— crea un CONTEXTO DE APILAMIENTO, y eso rompía dos cosas a la vez:
+   *
+   *   · `z-index: 9999` sólo competía DENTRO de ese contexto. Hacia afuera el
+   *     contenedor vale `auto`, así que `.top-header` (z-index 30) pintaba por
+   *     encima de todo el subárbol y tapaba el encabezado del modal. Medido a
+   *     1280×800 mientras se preparaba la captura del Chrome Web Store.
+   *   · un ancestro transformado además pasa a ser el bloque contenedor de
+   *     `position: fixed`, así que `inset: 0` cubría ese contenedor y no el
+   *     viewport, y el modal quedaba descentrado.
+   *
+   * Subirle el z-index no habría servido: el problema es el contexto, no el
+   * número. Sacándolo del subárbol, el overlay vuelve a medirse contra el
+   * viewport y a competir en el contexto raíz.
+   */
+  return createPortal(
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
@@ -863,6 +885,7 @@ export function WhatsAppPreviewModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
