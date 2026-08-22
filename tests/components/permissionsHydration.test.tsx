@@ -219,6 +219,23 @@ describe('N. el editor de plantillas de WhatsApp usa el permiso hidratado', () =
     expect(screen.getByPlaceholderText('TechRepair Centro')).not.toBeDisabled()
   })
 
+  // Regresión W1: los roles que NO tienen settings_sensitive por default deben
+  // seguir sin poder editar cuando no hay override. Es el lado negativo del
+  // gate, el que una hidratación mal hecha podría abrir.
+  it.each(['sales', 'viewer'] as const)(
+    '%s sin overrides: sigue en solo lectura',
+    async (rol) => {
+      expect(ROLE_DEFAULT_PERMISSIONS[rol].settings_sensitive).toBe(false)
+      estado.role = rol
+      estado.permissions = null
+
+      await montar()
+
+      expect(screen.getByTestId('whatsapp-templates-readonly')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('TechRepair Centro')).toBeDisabled()
+    },
+  )
+
   it('payload malformado: solo lectura aunque el rol sea admin', async () => {
     estado.role = 'admin'
     estado.permissions = 'no-soy-un-objeto'
