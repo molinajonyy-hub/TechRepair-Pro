@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Mail, RefreshCw, Building2, Plus, Loader2, ArrowRight } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { provisionMyBusiness } from '../services/provisioningService';
 
 export function NoBusiness() {
   const { user, refreshProfile, setProfileLoadingDisabled, signOut, businessId, loading: authLoading, profileLoading } = useAuth();
@@ -101,14 +102,18 @@ export function NoBusiness() {
     try {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
-          const { error: rpcError } = await supabase.rpc('bootstrap_owner_profile', {
-            p_user_email: userEmail,
-            p_business_name: businessName.trim(),
-            p_full_name: fullName.trim() || null,
-          });
+          // P0-P1: autoridad canónica. Antes llamaba a `bootstrap_owner_profile`,
+          // que en la fase B deja de ser ejecutable por `authenticated` — y cuya
+          // rama de creación fallaba con 23503 de todos modos.
+          const res = await provisionMyBusiness(businessName);
 
-          if (rpcError) {
-            throw new Error(rpcError.message);
+          if (res.status === 'invitation_pending') {
+            setError('Tenés una invitación pendiente a un negocio. Aceptala para entrar a ese equipo en vez de crear uno nuevo.');
+            return;
+          }
+          if (res.status === 'email_not_confirmed') {
+            setError('Confirmá tu correo antes de crear el negocio.');
+            return;
           }
 
           setProfileLoadingDisabled(false);
