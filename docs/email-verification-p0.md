@@ -217,9 +217,67 @@ Ningún usuario existente queda bloqueado.
    `emailConfirmed` es `true` para todos los usuarios actuales y nada cambia.
 2. **`npx supabase db push`** — mergear NO aplica migraciones.
 3. Validar: login normal, Google OAuth, portal mayorista.
-4. **Recién entonces**, y a mano, el owner activa Confirm Email en el panel de
+4. Cargar la allowlist de Redirect URLs y cambiar la plantilla Confirm signup
+   a `{{ .RedirectTo }}` — **ver §8, incluido por qué `www` no es opcional**.
+5. **Recién entonces**, y a mano, el owner activa Confirm Email en el panel de
    Auth.
 
-Antes de activar el switch, agregar a la allowlist de Redirect URLs del panel:
-`https://techrepairpro.app/auth/callback` y
-`https://clicmayorista.com.ar/auth/callback`.
+---
+
+## 8. Contrato de `RedirectTo` y allowlist (MEDIDO)
+
+La plantilla **Confirm signup** debe usar:
+
+```
+{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=signup
+```
+
+y **no** `{{ .SiteURL }}/auth/callback?...`. `.RedirectTo` es exactamente el
+`emailRedirectTo` que manda el cliente, que es lo único que preserva el origen
+—y por lo tanto la sesión, que vive por origen— del portal mayorista.
+
+`{{ .SiteURL }}` mandaría **todas** las confirmaciones al dominio principal,
+incluidas las de clientes mayoristas, y su alta nunca podría completarse.
+
+**Todos** los flujos que disparan un correo pasan por el helper canónico
+(verificado, y con guard permanente `npm run guard:auth-redirect`):
+
+| Sitio | Llamada | Redirect |
+|---|---|---|
+| `AuthContext.signUp` | `auth.signUp` | `getAuthCallbackUrl()` |
+| `AuthContext.resendConfirmation` | `auth.resend` | `getAuthCallbackUrl()` |
+| `AuthContext.signInWithGoogle` | `auth.signInWithOAuth` | `getAuthCallbackUrl()` |
+| `Login` (olvidé mi contraseña) | `auth.resetPasswordForEmail` | `getAuthCallbackUrl()` |
+| `portalService.registerCustomer` | `auth.signUp` | `getAuthCallbackUrl()` |
+| `services/auth.ts` (sin consumidores) | `signUp` / `resetPassword` | alineado igual |
+
+Como el helper sólo emite hosts de una allowlist cerrada, **no existe forma de
+que un `RedirectTo` arbitrario del usuario llegue a GoTrue**. Y GoTrue vuelve a
+validar contra su propia allowlist: fail-closed en dos capas.
+
+### Qué hosts hay que allowlistear — y por qué `www` NO es opcional
+
+Medido el 2026-08-23 sobre `/auth/callback`:
+
+| Host | Respuesta |
+|---|---|
+| `techrepairpro.app` | **307 → `www.techrepairpro.app`** |
+| `www.techrepairpro.app` | **200** — el que sirve la app |
+| `clicmayorista.com.ar` | **200** — el que sirve el portal |
+| `www.clicmayorista.com.ar` | 307 → apex |
+
+O sea: **en producción el usuario está siempre en `www.techrepairpro.app`**, así
+que ése es el `emailRedirectTo` que se manda de verdad. Si falta en la
+allowlist, GoTrue rechaza **todos** los signups con 400 apenas se encienda
+Confirm Email.
+
+Allowlist mínima (sin wildcards):
+
+```
+https://www.techrepairpro.app/auth/callback     <- OBLIGATORIO (el que sirve)
+https://techrepairpro.app/auth/callback         <- por el salto 307 / si se invierte Vercel
+https://clicmayorista.com.ar/auth/callback      <- OBLIGATORIO (portal mayorista)
+```
+
+`https://www.clicmayorista.com.ar/auth/callback` **no hace falta**: ese host
+307-redirige al apex y el bundle nunca llega a ejecutarse ahí.

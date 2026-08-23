@@ -1,6 +1,15 @@
 import { supabase, type User } from '../lib/supabase'
+import { getAuthCallbackUrl, getResetPasswordUrl } from '../lib/authRedirect'
 
 // Auth Service
+//
+// ⚠️ HOY NO TIENE CONSUMIDORES (verificado 2026-08-23: nada importa este
+// módulo). Se conserva, pero sus redirects se alinearon con el helper canónico
+// igual: con «Confirm Email» ON, un `signUp` SIN `emailRedirectTo` hace que
+// GoTrue caiga al Site URL, y la confirmación de un cliente del portal
+// mayorista aterrizaría en el dominio equivocado — con la sesión del lado
+// equivocado. Dejarlo "como estaba" era dejar armada esa trampa para el
+// próximo que lo enchufe.
 export const authService = {
   // Login with email/password
   async signIn(email: string, password: string) {
@@ -19,6 +28,7 @@ export const authService = {
       email,
       password,
       options: {
+        emailRedirectTo: getAuthCallbackUrl(),
         data: userData
       }
     })
@@ -50,7 +60,7 @@ export const authService = {
   // Reset password
   async resetPassword(email: string) {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`
+      redirectTo: getResetPasswordUrl()
     })
     if (error) throw error
   },

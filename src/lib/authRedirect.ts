@@ -23,8 +23,21 @@
 // servidor: esto es defensa en profundidad, no un reemplazo.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Dominio de producción. Último recurso cuando el origen no es reconocible. */
-const CANONICAL_APP_URL = 'https://techrepairpro.app'
+/**
+ * Dominio de producción. Último recurso cuando el origen no es reconocible.
+ *
+ * Es `www`, NO el apex, y eso está MEDIDO (2026-08-23):
+ *
+ *   https://techrepairpro.app/auth/callback      -> 307 a www
+ *   https://www.techrepairpro.app/auth/callback  -> 200
+ *
+ * O sea: el host que realmente sirve la app es `www`, y un usuario nunca se
+ * queda en el apex. Apuntar el fallback al apex agregaría un salto 307 inútil
+ * en medio de un flujo de confirmación.
+ *
+ * (En clicmayorista es al revés: sirve el APEX y `www` redirige.)
+ */
+const CANONICAL_APP_URL = 'https://www.techrepairpro.app'
 
 /**
  * Hosts que pueden servir `/auth/callback`.
@@ -38,9 +51,22 @@ const CANONICAL_APP_URL = 'https://techrepairpro.app'
  * los tiene, así que incluirlos acá sólo cambiaría un error claro por un 400
  * del servidor de auth.
  */
+// MEDIDO (2026-08-23) sobre /auth/callback:
+//   techrepairpro.app         -> 307 a www.techrepairpro.app
+//   www.techrepairpro.app     -> 200   <- el que sirve la app
+//   clicmayorista.com.ar      -> 200   <- el que sirve el portal
+//   www.clicmayorista.com.ar  -> 307 al apex
+//
+// Se listan los cuatro igual: los dos que sirven son los que se van a usar de
+// verdad, y los dos que redirigen quedan cubiertos por si el owner invierte la
+// configuración de dominios en Vercel. Preservar el origen SIEMPRE es lo que
+// mantiene la sesión del lado correcto.
+//
+// Cada host que pueda salir de acá tiene que estar en la allowlist de Redirect
+// URLs del panel de Supabase, o GoTrue rechaza el signup con 400.
 const ALLOWED_HOSTS: ReadonlySet<string> = new Set([
-  'techrepairpro.app',
   'www.techrepairpro.app',
+  'techrepairpro.app',
   'clicmayorista.com.ar',
   'www.clicmayorista.com.ar',
 ])
