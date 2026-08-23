@@ -95,7 +95,13 @@ function declaraciones(limpio, crudo) {
       const b = crudo.indexOf(d, a)
       cuerpo = b === -1 ? '' : crudo.slice(a, b)
     }
-    out.push({ nombre: pelar(m[1]), cuerpo, esReplace: /OR\s+REPLACE/i.test(m[0]) })
+    out.push({
+      nombre: pelar(m[1]),
+      cuerpo,
+      esReplace: /OR\s+REPLACE/i.test(m[0]),
+      // `decl` va desde CREATE hasta el primer `$`, asi que incluye el RETURNS.
+      retornaTrigger: /RETURNS\s+trigger\b/i.test(decl),
+    })
   }
   return out
 }
@@ -138,8 +144,25 @@ function revisarArchivo(archivo, { soloR6 = false } = {}) {
   // authenticator, supabase_realtime_admin, supabase_storage_admin y
   // supabase_auth_admin. Ese cierre merece su propio lote con verificacion de
   // realtime y storage, no colarse en un P0 de auth.
+  // SEGUNDA EXENCION, IGUAL DE ACOTADA: funciones que retornan `trigger`.
+  //
+  // R2 existe porque una SECDEF "nace abierta": EXECUTE a PUBLIC es el default
+  // de PostgreSQL, asi que anon podria INVOCARLA. Sobre una funcion de trigger
+  // esa premisa no se sostiene, y esta MEDIDO (2026-08-23, stack local):
+  //
+  //   SET LOCAL ROLE anon; PERFORM public.handle_new_user();
+  //   -> SQLSTATE 0A000: trigger functions can only be called as triggers
+  //
+  // Aunque tenga EXECUTE, NADIE puede invocarla: ni por SQL directo ni por
+  // PostgREST, que sólo expone funciones con retorno distinto de `trigger`.
+  // Un REVOKE ahi no cierra nada — no hay superficie que cerrar.
+  //
+  // La exencion es por RETORNO, no por nombre: cualquier funcion invocable
+  // sigue cayendo bajo R2 aunque este en la misma migracion. Las fixtures
+  // "R2 trigger" del self-test fijan las dos mitades del contrato.
   for (const d of decls) {
     if (d.esReplace && ALLOWLIST_ANON.has(d.nombre)) continue
+    if (d.retornaTrigger) continue
     const reRevoke = new RegExp(
       `REVOKE\\s+(?:ALL|EXECUTE)[\\s\\S]{0,200}?ON\\s+FUNCTION\\s+(?:"?\\w+"?\\.)?"?${d.nombre}"?\\s*\\([^)]*\\)[\\s\\S]{0,80}?FROM\\s+PUBLIC`, 'i')
     if (!reRevoke.test(limpio)) {
@@ -205,6 +228,22 @@ function revisarTimestamps(dir) {
 
 // ── self-test ───────────────────────────────────────────────────────────────
 const FIXTURES = [
+  // ── Exencion R2: funciones de trigger (no son invocables por nadie) ───────
+  { nombre: 'R2 trigger: SECDEF que retorna trigger, sin REVOKE', debeFallar: false, sql:
+`CREATE OR REPLACE FUNCTION public.handle_new_user() RETURNS trigger
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+ AS $$ begin return new; end; $$;` },
+
+  // La otra mitad: la exencion NO puede filtrarse a una funcion invocable
+  // declarada en el mismo archivo.
+  { nombre: 'R2 trigger: una funcion INVOCABLE en el mismo archivo sigue bloqueando', debeFallar: true, sql:
+`CREATE OR REPLACE FUNCTION public.handle_new_user() RETURNS trigger
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+ AS $$ begin return new; end; $$;
+CREATE FUNCTION public.cobrar_todo(p uuid) RETURNS void
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+ AS $$ begin perform 1; end; $$;` },
+
   // ── Exencion R2: CREATE OR REPLACE de una funcion de ALLOWLIST_ANON ───────
   { nombre: 'R2 exenta: OR REPLACE de una funcion de la allowlist, sin REVOKE', debeFallar: false, sql:
 `CREATE OR REPLACE FUNCTION public.current_business_id() RETURNS uuid LANGUAGE sql
