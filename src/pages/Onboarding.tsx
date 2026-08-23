@@ -8,6 +8,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { uploadBusinessLogo } from '../lib/storageSetup'
 import { track } from '../lib/analytics'
+import { logger } from '../lib/logger'
+import { provisionMyBusiness } from '../services/provisioningService'
 import { PLANS, type SubscriptionPlan } from '../types/subscription'
 
 // Plan elegido en la landing (?plan=...). Persistido temporalmente para
@@ -133,20 +135,41 @@ export function Onboarding() {
   const [businessId, setBusinessId]             = useState<string | null>(null)
 
   // ── Step 1: crear negocio ──────────────────────────────────────────────────
+  //
+  // P0-P1: este es el ÚNICO punto del flujo SaaS que puede provocar la creación
+  // de un tenant, y lo hace por la autoridad canónica `provision_my_business`.
+  // Antes llamaba a `bootstrap_owner_profile`, cuya rama de creación moría con
+  // 23503 (`profiles.id` es FK a `auth.users(id)` y el INSERT no lo pasaba), o
+  // sea que este paso estaba roto justo para el usuario que lo necesitaba.
+  //
+  // El email ya NO viaja como parámetro: la RPC lo deriva de auth.uid().
   const handleStep1 = async () => {
     if (!businessName.trim()) { setError('El nombre del negocio es obligatorio'); return }
     if (!rubro)                { setError('Seleccioná el rubro de tu negocio'); return }
-    if (!user?.email)          { setError('No se detectó usuario autenticado'); return }
     setSaving(true); setError('')
     try {
-      const { data: bizId, error: rpcErr } = await supabase.rpc('bootstrap_owner_profile', {
-        p_user_email:    user.email,
-        p_business_name: businessName.trim(),
-        p_full_name:     null,
-      })
-      if (rpcErr) throw rpcErr
-      await supabase.from('businesses').update({ rubro }).eq('id', bizId)
-      setBusinessId(bizId)
+      const res = await provisionMyBusiness(businessName)
+
+      if (res.status === 'invitation_pending') {
+        // No es un error del usuario: lo invitaron a un negocio existente. Dejar
+        // que se cree un tenant propio acá es justo lo que genera huérfanos.
+        setError('Tenés una invitación pendiente a un negocio. Aceptala para entrar a ese equipo en vez de crear uno nuevo.')
+        return
+      }
+      if (res.status === 'email_not_confirmed') {
+        setError('Confirmá tu correo antes de crear el negocio. Revisá tu bandeja de entrada.')
+        return
+      }
+
+      // El rubro todavía se escribe directo, y ese UPDATE falla con 42501:
+      // `authenticated` no tiene GRANT de UPDATE sobre `businesses`. Es deuda
+      // conocida y acotada del wizard (handoff P0-P5, persistencia por RPC).
+      // Se registra en vez de descartarse en silencio, que es lo que venía
+      // pasando y por lo que 23 de 24 negocios quedaron sin rubro.
+      const { error: rubroErr } = await supabase.from('businesses').update({ rubro }).eq('id', res.businessId)
+      if (rubroErr) logger.warn('AUTH', 'Onboarding: no se pudo guardar el rubro (pendiente P0-P5)', rubroErr)
+
+      setBusinessId(res.businessId)
       await refreshProfile()
       setStep(2)
     } catch (e: any) {
