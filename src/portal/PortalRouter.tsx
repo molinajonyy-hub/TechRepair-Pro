@@ -11,16 +11,12 @@ import { PortalCart }     from './pages/PortalCart'
 import { PortalOrders }     from './pages/PortalOrders'
 import { PortalSuspendido } from './pages/PortalSuspendido'
 
-// Dominios exclusivos del portal — sin prefijo /mayorista/:slug en la URL
-export const PORTAL_DOMAINS: Record<string, string> = {
-  'clicmayorista.com.ar':     'clic',
-  'www.clicmayorista.com.ar': 'clic',
-}
-
-// Mapa inverso: slug → dominio público dedicado del portal
-const PORTAL_PUBLIC_DOMAINS: Record<string, string> = {
-  clic: 'https://clicmayorista.com.ar',
-}
+// Los mapas de dominios viven en `portalDomains.ts` para que un consumidor
+// liviano (AuthCallback) pueda preguntar por un hostname sin importar el árbol
+// entero de páginas del portal. Se re-exporta PORTAL_DOMAINS porque App.tsx ya
+// lo importa desde acá.
+import { PORTAL_DOMAINS, PORTAL_PUBLIC_DOMAINS } from './portalDomains'
+export { PORTAL_DOMAINS }
 
 /** URL pública del portal para un slug dado (dominio dedicado si existe, sino /mayorista/:slug). */
 export function getPortalUrl(slug: string, path = ''): string {

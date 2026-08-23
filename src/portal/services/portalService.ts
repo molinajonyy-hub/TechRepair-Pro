@@ -1,4 +1,5 @@
 import { supabase } from '../../lib/supabase'
+import { getAuthCallbackUrl } from '../../lib/authRedirect'
 import {
   PORTAL_PUBLIC_RPC, PORTAL_PUBLIC_COLUMNS, isMissingObject,
   PORTAL_FEATURES_RPC, portalCanOrder, classifyPortalError,
@@ -97,8 +98,107 @@ export async function getCustomerByAuthId(businessId: string): Promise<Wholesale
   return (data as WholesaleCustomer | null)
 }
 
+// ─── Alta mayorista con confirmación de correo ───────────────────────────────
+//
+// El portal mayorista es PRIVADO de Clic/el owner. Nada de lo que sigue lo
+// convierte en un módulo multi-tenant ni agrega permisos: es la adaptación
+// MÍNIMA para que el alta sobreviva a «Confirm Email» global.
+//
+// EL PROBLEMA
+//   Antes: signUp() y acto seguido INSERT en wholesale_customers. Con Confirm
+//   Email ON, signUp devuelve `session: null`, así que ese INSERT sale como
+//   `anon` y la policy `wc_own_insert` (WITH CHECK auth_user_id = auth.uid())
+//   lo rechaza con 42501. El registro quedaba a medias: auth user sí, cliente
+//   mayorista no.
+//
+// LA FORMA MÍNIMA DE CONSERVAR EL CONTEXTO
+//   Los datos del formulario viajan en `raw_user_meta_data` bajo una sola
+//   clave namespaced, y el alta se completa DESPUÉS, ya con sesión, contra
+//   `auth.uid()` real.
+//
+//   Lo que se guarda es el SLUG del portal, NUNCA un business_id. Al completar,
+//   el business_id sale de `business.id` del PortalContext, que se resolvió
+//   server-side con `get_wholesale_portal_public(p_slug)`. Un cliente que
+//   manipule su metadata sólo puede nombrar un slug; si ese slug no es el del
+//   portal que está mirando, no se completa nada. No hay forma de inyectar un
+//   business_id arbitrario, ni antes ni ahora.
+//
+//   Y NO se agrega una RPC SECURITY DEFINER para `anon`: eso abriría una
+//   superficie de escritura sin sesión, que es exactamente lo que la P0 de
+//   SECDEF vino cerrando.
+//
+// El namespace importa: `handle_new_user()` lee `full_name`, `role` y
+// `business_name` del NIVEL SUPERIOR de raw_user_meta_data. Todo va adentro de
+// `wholesale_registration` para no alterar ese comportamiento.
+
+/** Clave namespaced dentro de raw_user_meta_data. */
+const WHOLESALE_META_KEY = 'wholesale_registration'
+
+interface WholesaleRegistrationMeta {
+  portal_slug: string
+  name: string
+  business_name: string | null
+  whatsapp: string | null
+  province: string | null
+  city: string | null
+  instagram: string | null
+}
+
+export type RegisterCustomerResult =
+  | { status: 'created'; customer: WholesaleCustomer }
+  | { status: 'pending_confirmation' }
+  | { status: 'error'; error: string }
+
+/** Normaliza los campos del formulario una sola vez. */
+function buildRegistrationMeta(input: {
+  portalSlug: string
+  name: string
+  businessName: string
+  whatsapp: string
+  province: string
+  city: string
+  instagram?: string
+}): WholesaleRegistrationMeta {
+  return {
+    portal_slug:   input.portalSlug,
+    name:          input.name,
+    business_name: input.businessName || null,
+    whatsapp:      input.whatsapp.replace(/\D/g, '') || null,
+    province:      input.province || null,
+    city:          input.city || null,
+    instagram:     input.instagram?.replace(/^@/, '') || null,
+  }
+}
+
+async function insertWholesaleCustomer(
+  businessId: string,
+  authUserId: string,
+  email: string,
+  meta: WholesaleRegistrationMeta,
+): Promise<{ customer: WholesaleCustomer | null; error: string | null }> {
+  const { data, error } = await supabase
+    .from('wholesale_customers')
+    .insert({
+      business_id:   businessId,
+      auth_user_id:  authUserId,
+      name:          meta.name,
+      business_name: meta.business_name,
+      email,
+      whatsapp:      meta.whatsapp,
+      province:      meta.province,
+      city:          meta.city,
+      instagram:     meta.instagram,
+    })
+    .select()
+    .single()
+
+  if (error) return { customer: null, error: error.message }
+  return { customer: data as WholesaleCustomer, error: null }
+}
+
 export async function registerCustomer(input: {
   businessId: string
+  portalSlug: string
   name: string
   businessName: string
   email: string
@@ -107,35 +207,94 @@ export async function registerCustomer(input: {
   province: string
   city: string
   instagram?: string
-}): Promise<{ customer: WholesaleCustomer | null; error: string | null }> {
+}): Promise<RegisterCustomerResult> {
+  const meta = buildRegistrationMeta(input)
+
   const { data: authData, error: authErr } = await supabase.auth.signUp({
     email: input.email,
     password: input.password,
+    options: {
+      emailRedirectTo: getAuthCallbackUrl(),
+      data: { [WHOLESALE_META_KEY]: meta },
+    },
   })
+
   if (authErr || !authData.user) {
     const msg = authErr?.message || 'Error al crear cuenta'
-    const friendly = msg.toLowerCase().includes('already') ? 'Este email ya está registrado. Intentá iniciar sesión.' : msg
-    return { customer: null, error: friendly }
+    const friendly = msg.toLowerCase().includes('already')
+      ? 'Este email ya está registrado. Intentá iniciar sesión.'
+      : msg
+    return { status: 'error', error: friendly }
   }
 
-  const { data, error } = await supabase
-    .from('wholesale_customers')
-    .insert({
-      business_id:   input.businessId,
-      auth_user_id:  authData.user.id,
-      name:          input.name,
-      business_name: input.businessName || null,
-      email:         input.email,
-      whatsapp:      input.whatsapp.replace(/\D/g, '') || null,
-      province:      input.province || null,
-      city:          input.city || null,
-      instagram:     input.instagram?.replace(/^@/, '') || null,
-    })
-    .select()
-    .single()
+  // Sin sesión = Confirm Email está ON. El alta se completa al confirmar.
+  // NO se intenta el INSERT: como `anon` sería un 42501 garantizado y le
+  // mostraría al cliente un error de permisos por un flujo que funcionó.
+  if (!authData.session) {
+    return { status: 'pending_confirmation' }
+  }
 
-  if (error) return { customer: null, error: error.message }
-  return { customer: data as WholesaleCustomer, error: null }
+  const { customer, error } = await insertWholesaleCustomer(
+    input.businessId, authData.user.id, input.email, meta,
+  )
+  if (error || !customer) return { status: 'error', error: error || 'Error al crear la cuenta' }
+  return { status: 'created', customer }
+}
+
+/**
+ * Completa el alta mayorista de un usuario que YA confirmó su correo.
+ *
+ * Idempotente por dos vías: sólo corre si no existe ya la fila del cliente, y
+ * el `businessId` viene del portal resuelto server-side. Devuelve `null`
+ * cuando no hay nada que completar (que es el caso normal).
+ */
+export async function completePendingWholesaleRegistration(
+  businessId: string,
+  portalSlug: string,
+): Promise<WholesaleCustomer | null> {
+  const { data: { session } } = await supabase.auth.getSession()
+  const user = session?.user
+  if (!user) return null
+
+  // Sin correo confirmado no se completa: la RLS lo permitiría (hay sesión),
+  // pero el contrato de producto es que el alta ocurre POST confirmación.
+  if (!user.email_confirmed_at) return null
+
+  const raw = (user.user_metadata as Record<string, unknown> | undefined)?.[WHOLESALE_META_KEY]
+  if (!raw || typeof raw !== 'object') return null
+
+  const meta = raw as Partial<WholesaleRegistrationMeta>
+
+  // El slug de la metadata TIENE que ser el del portal que se está mirando.
+  // Es lo que impide que una metadata manipulada dé de alta al usuario en otro
+  // portal: el business_id nunca sale de acá, y sin coincidencia no se escribe.
+  if (!meta.portal_slug || meta.portal_slug !== portalSlug) return null
+  if (!meta.name) return null
+
+  const { customer, error } = await insertWholesaleCustomer(
+    businessId,
+    user.id,
+    user.email ?? '',
+    {
+      portal_slug:   portalSlug,
+      name:          meta.name,
+      business_name: meta.business_name ?? null,
+      whatsapp:      meta.whatsapp ?? null,
+      province:      meta.province ?? null,
+      city:          meta.city ?? null,
+      instagram:     meta.instagram ?? null,
+    },
+  )
+
+  if (error) {
+    // 23505 = ya existía (carrera entre dos pestañas). No es un fallo.
+    if (!error.includes('duplicate') && !error.includes('23505')) {
+      console.warn('[portalService] no se pudo completar el alta mayorista:', error)
+    }
+    return null
+  }
+
+  return customer
 }
 
 export async function loginCustomer(

@@ -13,7 +13,7 @@ const PROVINCES = [
 ]
 
 export function PortalRegister() {
-  const { business, basePath } = usePortal()
+  const { business, basePath, slug } = usePortal()
   const navigate = useNavigate()
 
   const [form, setForm] = useState({
@@ -22,6 +22,8 @@ export function PortalRegister() {
   })
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
+  /** Registro aceptado pero pendiente de confirmar el correo. NO es un error. */
+  const [pendingEmail, setPendingEmail] = useState('')
 
   const set = (k: keyof typeof form) => (v: string) => setForm(p => ({ ...p, [k]: v }))
 
@@ -31,8 +33,9 @@ export function PortalRegister() {
     if (form.password.length < 6) { setError('La contraseña debe tener al menos 6 caracteres'); return }
     if (form.password !== form.confirmPassword) { setError('Las contraseñas no coinciden'); return }
     setLoading(true); setError('')
-    const { error: err } = await registerCustomer({
+    const res = await registerCustomer({
       businessId:   business.id,
+      portalSlug:   slug,
       name:         form.name,
       businessName: form.businessName,
       email:        form.email,
@@ -43,8 +46,39 @@ export function PortalRegister() {
       instagram:    form.instagram,
     })
     setLoading(false)
-    if (err) { setError(typeof err === 'string' ? err : (err as any)?.message || 'Error al registrarse'); return }
+
+    if (res.status === 'error') { setError(res.error); return }
+
+    if (res.status === 'pending_confirmation') {
+      // El alta mayorista se completa sola cuando el cliente vuelve con sesión
+      // (ver completePendingWholesaleRegistration). Acá sólo se le explica el
+      // paso que falta.
+      setPendingEmail(form.email)
+      return
+    }
+
     navigate(`${basePath}/pendiente`)
+  }
+
+  if (pendingEmail) {
+    return (
+      <PortalLayout title="Confirmá tu correo" showBack showCart={false} backTo={`${basePath}/login`}>
+        <div style={{ padding: '2rem 1.25rem', textAlign: 'center' }} data-testid="portal-register-pending">
+          <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>📬</div>
+          <h2 style={{ color: PT.text, fontSize: '1.1rem', fontWeight: 800, margin: '0 0 0.6rem' }}>
+            Revisá tu correo
+          </h2>
+          <p style={{ color: PT.textSub, fontSize: '0.9rem', lineHeight: 1.6, margin: '0 0 1rem' }}>
+            Te enviamos un enlace a <strong style={{ color: PT.text }}>{pendingEmail}</strong>.
+            Confirmalo para que podamos dar de alta tu solicitud de acceso mayorista.
+          </p>
+          <p style={{ color: PT.textSub, fontSize: '0.8rem', lineHeight: 1.5, margin: 0 }}>
+            Si no lo ves, mirá la carpeta de spam. Una vez confirmado, el negocio
+            revisa tu solicitud y te habilita el catálogo.
+          </p>
+        </div>
+      </PortalLayout>
+    )
   }
 
   return (

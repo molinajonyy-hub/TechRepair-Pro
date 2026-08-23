@@ -36,7 +36,18 @@ vi.mock('../../src/lib/supabase', () => ({
   supabase: {
     auth: {
       getSession: async () => ({
-        data: { session: { user: { id: USER_ID } } },
+        // `email_confirmed_at` es parte de CUALQUIER sesión real de GoTrue:
+        // se setea al confirmar, y también en el signup cuando «Confirm Email»
+        // está apagado. El fixture no lo tenía y eso pasó desapercibido hasta
+        // que la P0 de verificación de correo lo empezó a leer: desde
+        // 20260823120000, AuthContext no pide el perfil de un usuario sin
+        // confirmar (no existe todavía, ver el gate en loadProfile).
+        //
+        // Poner el campo NO afloja este test: lo que mide —identidad vs
+        // reparación— sigue igual. Lo que hace es que la sesión simulada se
+        // parezca a una de verdad. El lado negativo (sin confirmar => ni
+        // get_my_profile ni link) está cubierto en emailVerification.test.tsx.
+        data: { session: { user: { id: USER_ID, email_confirmed_at: '2026-01-01T00:00:00Z' } } },
         error: null,
       }),
       onAuthStateChange: () => ({

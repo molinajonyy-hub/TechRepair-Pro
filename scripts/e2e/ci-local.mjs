@@ -41,9 +41,23 @@ const HOSTS_LOCALES = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
 // `supabase start --help` (su texto de ayuda está desincronizado: pasarle
 // "analytics" o "inbucket" sólo imprime un WARNING y no excluye nada). Se
 // quedan levantados los que la suite sí usa: db, gotrue, kong, postgrest,
-// realtime y storage-api.
+// realtime, storage-api y mailpit.
+//
+// `mailpit` ESTABA excluido y se sacó de la lista al encender
+// `enable_confirmations` en el config local (EMAIL VERIFICATION P0).
+//
+// MEDIDO, no supuesto: con Confirm Email ON, GoTrue manda un correo en CADA
+// signup. Sin servidor de mail el envío falla y el signup entero devuelve
+// **500** — no un usuario pendiente. Probado deteniendo el contenedor contra
+// el mismo stack:
+//
+//   con mailpit  -> signUp OK, session: null   (registro pendiente, correcto)
+//   sin mailpit  -> signUp 500, sin usuario
+//
+// Por eso el mailer dejó de ser opcional: es una dependencia dura del flujo de
+// registro, y excluirlo hacía que el CI probara un producto distinto del real.
 const SERVICIOS_EXCLUIDOS = [
-  'studio', 'imgproxy', 'edge-runtime', 'logflare', 'vector', 'mailpit', 'postgres-meta', 'supavisor',
+  'studio', 'imgproxy', 'edge-runtime', 'logflare', 'vector', 'postgres-meta', 'supavisor',
 ]
 
 // El import de `assertLocalTarget.ts` desde un `.mjs` depende del type stripping

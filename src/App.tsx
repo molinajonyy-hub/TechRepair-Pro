@@ -33,6 +33,8 @@ const PersonalMonthlyPlan = lazy(() => import('./personal/pages/PersonalMonthlyP
 // ── Auth / utility — always static (critical paths, small size) ───
 import { AcceptInvite } from './pages/AcceptInvite'
 import { AuthCallback } from './pages/AuthCallback'
+import { VerifyEmail } from './pages/VerifyEmail'
+import { RequireEmailConfirmed } from './components/auth/RequireEmailConfirmed'
 import { Login } from './pages/Login'
 import { MiGuitaBridge } from './pages/MiGuitaBridge'
 import { NoBusiness } from './pages/NoBusiness'
@@ -125,6 +127,21 @@ function AppContent() {
       <>
         {loadingNode}
         <Routes>
+          {/*
+            EMAIL VERIFICATION P0 — el callback de auth TIENE que existir también
+            en el dominio dedicado del portal, y va ANTES del catch-all.
+
+            La sesión de Supabase vive en el localStorage del ORIGEN. Si el
+            enlace de confirmación de un cliente mayorista apuntara a
+            techrepairpro.app, la sesión quedaría en ese origen y el alta
+            mayorista —que corre en clicmayorista.com.ar— nunca podría
+            completarse. Con esta ruta, la confirmación aterriza en el mismo
+            origen donde el cliente se registró.
+
+            Sin esta línea el `/*` de abajo se tragaba /auth/callback y lo
+            resolvía como un slug del portal.
+          */}
+          <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/*" element={<PortalRouter forcedSlug={portalSlug} />} />
         </Routes>
       </>
@@ -141,10 +158,17 @@ function AppContent() {
           <Route path="/landing" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/verificar-email" element={<VerifyEmail />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/accept-invite" element={<AcceptInvite />} />
-          <Route path="/no-business" element={<NoBusiness />} />
-          <Route path="/onboarding" element={<Onboarding />} />
+          {/*
+            EMAIL VERIFICATION P0 — estas dos rutas viven FUERA de
+            ProtectedRoute, así que el guard central no las alcanza. Sin el
+            wrapper, escribir /onboarding a mano dejaba a un usuario sin
+            confirmar creando su negocio.
+          */}
+          <Route path="/no-business" element={<RequireEmailConfirmed><NoBusiness /></RequireEmailConfirmed>} />
+          <Route path="/onboarding" element={<RequireEmailConfirmed><Onboarding /></RequireEmailConfirmed>} />
           <Route path="/customer-portal" element={<CustomerPortal />} />
           {/*
             Legal — público, SIN sesión. La ruta canónica es /privacidad; /privacy

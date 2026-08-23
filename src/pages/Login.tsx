@@ -3,6 +3,7 @@ import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { Lock, Mail, Eye, EyeOff, Loader2, User, ArrowLeft } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { sanitizeInternalPath, getAuthCallbackUrl } from '../lib/authRedirect'
 
 // ── Inline styles (misma estética que la landing page) ──────────────
 
@@ -257,7 +258,7 @@ function blurOn(e: React.FocusEvent<HTMLInputElement>, hasError: boolean) {
 export function Login() {
   const navigate    = useNavigate()
   const location    = useLocation()
-  const { signIn, signUp, signInWithGoogle, isAuthenticated, isLoading: authLoading } = useAuth()
+  const { signIn, signUp, signInWithGoogle, resendConfirmation, isAuthenticated, emailConfirmed, isLoading: authLoading } = useAuth()
   const emailInputRef = useRef<HTMLInputElement>(null)
 
   const [mode, setMode]                         = useState<'login' | 'register' | 'forgot'>('login')
@@ -274,10 +275,31 @@ export function Login() {
   const [emailError, setEmailError]             = useState('')
   const [passwordError, setPasswordError]       = useState('')
   const [confirmError, setConfirmError]         = useState('')
+  /**
+   * Email cuyo login falló por falta de confirmación.
+   *
+   * En ese punto NO hay sesión, así que /verificar-email no es alcanzable
+   * (rebotaría a /login). El reenvío se ofrece acá mismo: la API `resend` de
+   * Supabase no necesita sesión y responde igual exista o no la cuenta, así
+   * que tampoco revela emails de terceros.
+   */
+  const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState('')
+  const [resendState, setResendState] = useState<'idle' | 'sending' | 'sent' | 'limited'>('idle')
 
   // Support ?redirectTo=... from direct links (e.g., PWA deep links or Mi Guita shortcuts)
+  //
+  // `?redirectTo=` es entrada NO CONFIABLE: viene de la URL, así que la escribe
+  // cualquiera. Sin normalizar, un `?redirectTo=//evil.com` convertía el login
+  // en un open redirect. `sanitizeInternalPath` exige un path interno y cae a
+  // /dashboard ante cualquier duda.
+  //
+  // `location.state.from.pathname` lo escribe el router, no la URL, pero pasa
+  // por el mismo filtro: una sola regla, sin excepciones que auditar.
   const searchRedirect = new URLSearchParams(location.search).get('redirectTo')
-  const from = searchRedirect || location.state?.from?.pathname || '/dashboard'
+  const from = sanitizeInternalPath(
+    searchRedirect ?? location.state?.from?.pathname,
+    '/dashboard',
+  )
 
   // Detectar errores OAuth que redirigen de vuelta al login (ej: acceso denegado)
   useEffect(() => {
@@ -291,18 +313,33 @@ export function Login() {
         ? 'Cancelaste el inicio de sesión con Google.'
         : `Error de Google: ${oauthError}`
       setError(msg)
+      return
+    }
+    // Enlace de confirmación vencido abierto en un dispositivo sin sesión:
+    // /auth/callback no puede ofrecer el reenvío ahí (haría falta sesión), así
+    // que deriva acá con un motivo del enum, no con un mensaje del servidor.
+    if (params.get('motivo') === 'link_invalido') {
+      setError('Ese enlace de confirmación venció o ya no es válido. Iniciá sesión para pedir uno nuevo.')
     }
   }, [location.search])
 
   useEffect(() => { emailInputRef.current?.focus() }, [])
 
   useEffect(() => {
-    if (isAuthenticated) {
-      const stored = sessionStorage.getItem('post_login_redirect')
-      sessionStorage.removeItem('post_login_redirect')
-      navigate(stored || from, { replace: true })
+    if (!isAuthenticated) return
+
+    // Sesión sin correo confirmado: el destino es la pantalla de verificación,
+    // no el producto. Si se navegara al destino guardado, ProtectedRoute
+    // rebotaría igual, pero pasando por una pantalla intermedia que parpadea.
+    if (!emailConfirmed) {
+      navigate('/verificar-email', { replace: true })
+      return
     }
-  }, [isAuthenticated, from, navigate])
+
+    const stored = sessionStorage.getItem('post_login_redirect')
+    sessionStorage.removeItem('post_login_redirect')
+    navigate(sanitizeInternalPath(stored, from), { replace: true })
+  }, [isAuthenticated, emailConfirmed, from, navigate])
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -317,6 +354,14 @@ export function Login() {
   const clearErrors = () => {
     setError(''); setSuccess('')
     setEmailError(''); setPasswordError(''); setConfirmError('')
+    setPendingConfirmationEmail(''); setResendState('idle')
+  }
+
+  const handleResendFromLogin = async () => {
+    if (!pendingConfirmationEmail || resendState === 'sending' || resendState === 'sent') return
+    setResendState('sending')
+    const res = await resendConfirmation(pendingConfirmationEmail)
+    setResendState(res.status === 'sent' ? 'sent' : res.status === 'rate_limited' ? 'limited' : 'idle')
   }
 
   const handleModeChange = (m: 'login' | 'register' | 'forgot') => {
@@ -331,8 +376,11 @@ export function Login() {
     if (!validateEmail(email)) { setEmailError('Email inválido'); return }
     setIsLoading(true)
     try {
+      // Mismo origen canónico que el resto de los redirects de auth. No cambia
+      // el destino (sigue siendo /auth/callback), sólo deja de depender de
+      // `window.location.origin` sin validar.
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: getAuthCallbackUrl(),
       })
       if (resetError) throw resetError
       setSuccess(`Enviamos un enlace a ${email}. Revisá tu bandeja de entrada (y spam).`)
@@ -365,9 +413,13 @@ export function Login() {
       } else {
         const result = await signUp(email, password, fullName.trim() || undefined)
         if (result.needsEmailConfirmation) {
-          setMode('login'); setPassword(''); setConfirmPassword('')
-          setSuccess('Cuenta creada. Revisá tu email para confirmar y luego iniciá sesión.')
-          setIsLoading(false); return
+          // NO es un error: con Confirm Email ON, Supabase crea el usuario y
+          // devuelve `session: null`. El destino es la pantalla dedicada, que
+          // ofrece reenviar y verificar. Antes se volvía al formulario de
+          // login con un cartelito, y el usuario quedaba sin salida clara.
+          setIsLoading(false)
+          navigate('/verificar-email', { replace: true })
+          return
         }
         navigate('/no-business', { replace: true })
       }
@@ -375,9 +427,28 @@ export function Login() {
       const raw: string = (err?.message || '').toLowerCase()
       let msg: string
       if (mode === 'login') {
-        msg = raw.includes('invalid login') || raw.includes('invalid credentials') || raw.includes('email not confirmed')
-          ? 'Email o contraseña incorrectos. Verificá tus datos.'
-          : err?.message || 'Error al iniciar sesión. Intentá nuevamente.'
+        // Cuatro casos DISTINTOS que antes colapsaban en uno solo.
+        //
+        // El bug: `email not confirmed` estaba en la misma rama que las
+        // credenciales inválidas, así que a quien sólo le faltaba hacer click
+        // en el correo se le decía que su contraseña estaba mal. Con Confirm
+        // Email ON eso pasa a ser el error MÁS común del login.
+        //
+        // Se sigue sin filtrar texto interno: los mensajes salen de acá, no de
+        // `err.message`.
+        const status = (err as { status?: number })?.status
+        if (raw.includes('email not confirmed') || raw.includes('not confirmed')) {
+          msg = 'Tu cuenta todavía no está confirmada. Revisá tu correo y hacé click en el enlace que te enviamos.'
+          // Con sesión no hay: signInWithPassword falla. Se ofrece la pantalla
+          // de verificación, que sabe reenviar el correo.
+          setPendingConfirmationEmail(email.trim())
+        } else if (status === 429 || raw.includes('rate limit') || raw.includes('too many')) {
+          msg = 'Demasiados intentos seguidos. Esperá un minuto y volvé a probar.'
+        } else if (raw.includes('invalid login') || raw.includes('invalid credentials')) {
+          msg = 'Email o contraseña incorrectos. Verificá tus datos.'
+        } else {
+          msg = 'No pudimos iniciar sesión. Intentá nuevamente en un momento.'
+        }
       } else {
         if (raw.includes('already registered') || raw.includes('already been registered')) {
           msg = 'Este email ya tiene una cuenta. Iniciá sesión o recuperá tu contraseña.'
@@ -486,7 +557,7 @@ export function Login() {
               <button type="button" style={S.tab(mode === 'login', disabled)} onClick={() => handleModeChange('login')} disabled={disabled}>
                 Iniciar sesión
               </button>
-              <button type="button" style={S.tab(mode === 'register', disabled)} onClick={() => handleModeChange('register')} disabled={disabled}>
+              <button type="button" data-testid="login-tab-register" style={S.tab(mode === 'register', disabled)} onClick={() => handleModeChange('register')} disabled={disabled}>
                 Crear cuenta
               </button>
             </div>
@@ -504,6 +575,36 @@ export function Login() {
             }} role="alert">
               <span style={{ fontSize: '1rem', flexShrink: 0 }}>⚠️</span>
               {error}
+            </div>
+          )}
+
+          {/* Reenvío inline: sólo cuando el login falló por falta de confirmación. */}
+          {pendingConfirmationEmail && (
+            <div style={{ marginTop: '-0.5rem', marginBottom: '0.25rem', textAlign: 'center' }}>
+              {resendState === 'sent' ? (
+                <span data-testid="login-resend-sent" style={{ fontSize: '0.8rem', color: 'var(--success)' }}>
+                  Te reenviamos el correo de confirmación. Revisá tu bandeja y el spam.
+                </span>
+              ) : resendState === 'limited' ? (
+                <span data-testid="login-resend-limited" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Ya enviamos varios correos en poco tiempo. Esperá unos minutos.
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleResendFromLogin}
+                  disabled={resendState === 'sending'}
+                  data-testid="login-resend-confirmation"
+                  style={{
+                    background: 'transparent', border: 'none', padding: '0.25rem',
+                    color: '#6366f1', fontWeight: 600, fontSize: '0.8rem',
+                    cursor: resendState === 'sending' ? 'wait' : 'pointer',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  {resendState === 'sending' ? 'Enviando…' : 'Reenviar correo de confirmación'}
+                </button>
+              )}
             </div>
           )}
 
@@ -645,7 +746,8 @@ export function Login() {
                 <div style={{ position: 'relative' }}>
                   <Lock size={17} style={{ ...S.iconLeft, color: confirmError ? '#f87171' : '#334155' }} />
                   <input
-                    id="confirmPassword" type={showConfirm ? 'text' : 'password'} value={confirmPassword}
+                    id="confirmPassword" data-testid="login-confirm-password"
+                    type={showConfirm ? 'text' : 'password'} value={confirmPassword}
                     placeholder="••••••••" autoComplete="new-password" disabled={disabled}
                     style={S.inputWithRight(!!confirmError, disabled)}
                     onChange={e => { setConfirmPassword(e.target.value); setConfirmError(''); setError('') }}

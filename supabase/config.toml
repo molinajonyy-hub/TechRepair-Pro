@@ -167,9 +167,20 @@ max_indexes = 5
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
 # in emails.
-site_url = "http://127.0.0.1:3000"
+# EMAIL VERIFICATION P0 — apuntaba a :3000, un puerto que este proyecto no
+# sirve en ningún modo. Los enlaces de confirmación locales quedaban rotos.
+# 5173 = `npm run dev`; 5174 = `npm run dev:e2e` y el preview de Playwright.
+site_url = "http://localhost:5174"
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["https://127.0.0.1:3000"]
+# Son EXACTAS: hay que listar el callback, no sólo el origen.
+additional_redirect_urls = [
+  "http://localhost:5173",
+  "http://localhost:5173/auth/callback",
+  "http://localhost:5174",
+  "http://localhost:5174/auth/callback",
+  "http://127.0.0.1:5173/auth/callback",
+  "http://127.0.0.1:5174/auth/callback",
+]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to the local API URL (http://127.0.0.1:<port>/auth/v1).
@@ -229,7 +240,26 @@ enable_signup = true
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
-enable_confirmations = false
+#
+# EMAIL VERIFICATION P0 — ENCENDIDO EN LOCAL, a propósito.
+#
+# Esto es SÓLO el stack local: la configuración de Auth de producción vive en
+# el panel de Supabase, no en este archivo. Producción sigue con Confirm Email
+# APAGADO y lo activa el owner a mano después del deploy.
+#
+# Se enciende acá porque el flujo NO se puede probar de otra forma. MEDIDO:
+# con `enable_confirmations = false`, GoTrue igual rechaza el login de un
+# usuario sin confirmar con `400 Email not confirmed` — el flag sólo gobierna
+# el SIGNUP (auto-confirma), no el password grant. Es decir: con el flag
+# apagado no existe forma de llegar al estado "sesión sin confirmar", y con
+# `signUp` auto-confirmando tampoco se puede recorrer el registro pendiente.
+#
+# Encenderlo NO rompe la suite existente: los usuarios sembrados se crean con
+# la admin API y `email_confirm: true` (ver tests/e2e/setup/seedE2E.ts), así
+# que siguen logueando igual. Ningún spec hace signup por UI.
+#
+# Los correos locales se leen en Inbucket: http://127.0.0.1:54424
+enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.

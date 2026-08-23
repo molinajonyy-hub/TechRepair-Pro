@@ -1,0 +1,152 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// EMAIL VERIFICATION P0 — URL canónica y saneo de destinos internos.
+//
+// `sanitizeInternalPath` es la barrera contra open redirect: es la única cosa
+// entre `?redirectTo=` (que escribe cualquiera) y un `navigate()`.
+//
+// Corre con `node --test`, sin DOM: el módulo se importa con un `window`
+// simulado mínimo para poder ejercitar `getAppBaseUrl`.
+// ─────────────────────────────────────────────────────────────────────────────
+import test from 'node:test'
+import assert from 'node:assert/strict'
+
+// El módulo lee `import.meta.env` (Vite) y `window`. Se levantan antes del
+// import dinámico para que el módulo los vea al evaluarse.
+const setOrigin = (origin: string) => {
+  ;(globalThis as unknown as { window: unknown }).window = {
+    location: { origin, hostname: new URL(origin).hostname },
+  }
+}
+
+setOrigin('https://techrepairpro.app')
+
+const { sanitizeInternalPath, getAppBaseUrl, getAuthCallbackUrl } = await import(
+  '../../src/lib/authRedirect.ts'
+)
+
+// ── sanitizeInternalPath: lo que TIENE que pasar ────────────────────────────
+
+test('acepta paths internos normales', () => {
+  assert.equal(sanitizeInternalPath('/dashboard'), '/dashboard')
+  assert.equal(sanitizeInternalPath('/orders/123'), '/orders/123')
+  assert.equal(sanitizeInternalPath('/personal'), '/personal')
+  assert.equal(sanitizeInternalPath('/'), '/')
+})
+
+test('conserva query y fragmento', () => {
+  assert.equal(sanitizeInternalPath('/inventory?cat=x'), '/inventory?cat=x')
+  assert.equal(sanitizeInternalPath('/finance#tab'), '/finance#tab')
+  assert.equal(sanitizeInternalPath('/orders?q=a%20b'), '/orders?q=a%20b')
+})
+
+// ── sanitizeInternalPath: lo que NO puede pasar ─────────────────────────────
+
+test('rechaza URLs absolutas', () => {
+  assert.equal(sanitizeInternalPath('https://evil.com'), '/dashboard')
+  assert.equal(sanitizeInternalPath('http://evil.com/x'), '/dashboard')
+})
+
+test('rechaza protocol-relative //host', () => {
+  assert.equal(sanitizeInternalPath('//evil.com'), '/dashboard')
+  assert.equal(sanitizeInternalPath('//evil.com/path'), '/dashboard')
+})
+
+test('rechaza la variante con backslash, que el browser normaliza a //', () => {
+  assert.equal(sanitizeInternalPath('/\\evil.com'), '/dashboard')
+  assert.equal(sanitizeInternalPath('\\\\evil.com'), '/dashboard')
+  assert.equal(sanitizeInternalPath('/foo\\bar'), '/dashboard')
+})
+
+test('rechaza esquemas peligrosos', () => {
+  assert.equal(sanitizeInternalPath('javascript:alert(1)'), '/dashboard')
+  assert.equal(sanitizeInternalPath('data:text/html,<script>'), '/dashboard')
+})
+
+test('rechaza el // escondido detrás de un %2f', () => {
+  // Cualquier router que decodifique antes de navegar ve `//evil.com`.
+  assert.equal(sanitizeInternalPath('/%2f%2fevil.com'), '/dashboard')
+  assert.equal(sanitizeInternalPath('%2f%2fevil.com'), '/dashboard')
+})
+
+test('rechaza control chars y whitespace intermedio', () => {
+  // Los parsers de URL descartan tabs/newlines, y `/<tab>/evil.com` termina
+  // siendo protocol-relative.
+  assert.equal(sanitizeInternalPath('/\t/evil.com'), '/dashboard')
+  assert.equal(sanitizeInternalPath('/\n/evil.com'), '/dashboard')
+  assert.equal(sanitizeInternalPath('/foo bar'), '/dashboard')
+  assert.equal(sanitizeInternalPath('/\u0000evil'), '/dashboard')
+})
+
+test('rechaza lo que no es string y lo vacío', () => {
+  assert.equal(sanitizeInternalPath(null), '/dashboard')
+  assert.equal(sanitizeInternalPath(undefined), '/dashboard')
+  assert.equal(sanitizeInternalPath(42), '/dashboard')
+  assert.equal(sanitizeInternalPath({}), '/dashboard')
+  assert.equal(sanitizeInternalPath(''), '/dashboard')
+  assert.equal(sanitizeInternalPath('   '), '/dashboard')
+})
+
+test('rechaza escapes mal formados en vez de adivinar', () => {
+  assert.equal(sanitizeInternalPath('/%E0%A4%A'), '/dashboard')
+})
+
+test('no permite volver a rutas de auth (evita el loop post-login)', () => {
+  assert.equal(sanitizeInternalPath('/login'), '/dashboard')
+  assert.equal(sanitizeInternalPath('/verificar-email'), '/dashboard')
+  assert.equal(sanitizeInternalPath('/auth/callback'), '/dashboard')
+  assert.equal(sanitizeInternalPath('/login?next=/x'), '/dashboard')
+})
+
+test('respeta el fallback que le pasen', () => {
+  assert.equal(sanitizeInternalPath('//evil.com', '/personal'), '/personal')
+  assert.equal(sanitizeInternalPath(null, '/'), '/')
+})
+
+// ── getAppBaseUrl / getAuthCallbackUrl ──────────────────────────────────────
+
+test('preserva el origen de producción (www, el que sirve la app)', async () => {
+  // MEDIDO: el apex 307-redirige a www, así que en producción el usuario está
+  // SIEMPRE en www y ese es el emailRedirectTo que se manda de verdad.
+  setOrigin('https://www.techrepairpro.app')
+  assert.equal(getAppBaseUrl(), 'https://www.techrepairpro.app')
+  assert.equal(getAuthCallbackUrl(), 'https://www.techrepairpro.app/auth/callback')
+})
+
+test('el apex también se preserva si alguien llega ahí', async () => {
+  setOrigin('https://techrepairpro.app')
+  assert.equal(getAuthCallbackUrl(), 'https://techrepairpro.app/auth/callback')
+})
+
+test('preserva el dominio del portal mayorista', async () => {
+  // Es el punto del diseño: la sesión de Supabase vive por ORIGEN, así que la
+  // confirmación de un cliente mayorista tiene que volver a su propio dominio.
+  setOrigin('https://clicmayorista.com.ar')
+  assert.equal(getAuthCallbackUrl(), 'https://clicmayorista.com.ar/auth/callback')
+})
+
+test('preserva localhost para dev y E2E, con cualquier puerto', () => {
+  setOrigin('http://localhost:5174')
+  assert.equal(getAuthCallbackUrl(), 'http://localhost:5174/auth/callback')
+  setOrigin('http://127.0.0.1:5173')
+  assert.equal(getAuthCallbackUrl(), 'http://127.0.0.1:5173/auth/callback')
+})
+
+test('un host desconocido NO puede ser base de redirect', () => {
+  setOrigin('https://evil.com')
+  assert.equal(getAppBaseUrl(), 'https://www.techrepairpro.app')
+  setOrigin('https://techrepairpro.app.evil.com')
+  assert.equal(getAppBaseUrl(), 'https://www.techrepairpro.app')
+})
+
+test('un host conocido servido por http tampoco vale', () => {
+  // Downgrade a http en un dominio real: se cae al canónico https.
+  setOrigin('http://techrepairpro.app')
+  assert.equal(getAppBaseUrl(), 'https://www.techrepairpro.app')
+})
+
+test('el fallback canónico apunta al host que SIRVE, no al que redirige', () => {
+  // Si el fallback fuera el apex, cada confirmación que cayera acá se comería
+  // un 307 en el medio del flujo.
+  setOrigin('https://evil.com')
+  assert.equal(getAppBaseUrl(), 'https://www.techrepairpro.app')
+})

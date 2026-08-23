@@ -127,7 +127,7 @@ function MiGuitaPaywall() {
  * - While subscription is loading → renders optimistically to avoid flashes.
  */
 export function PersonalProtectedRoute() {
-  const { isAuthenticated, loading, profileLoading, profile, profileError, businessId } = useAuth()
+  const { isAuthenticated, loading, emailConfirmed, profileLoading, profile, profileError, businessId } = useAuth()
   const { hasFeature, loading: subLoading } = useSubscription()
   const location = useLocation()
 
@@ -137,12 +137,21 @@ export function PersonalProtectedRoute() {
   const profileEstablished = profileEverLoadedRef.current
   const isInitialLoad = !profileEstablished
 
-  if (loading || (profileLoading && isInitialLoad) || (isAuthenticated && !profile && !profileError && isInitialLoad)) {
-    return <PersonalLoadingScreen />
-  }
+  if (loading) return <PersonalLoadingScreen />
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />
+  }
+
+  // Mismo contrato que ProtectedRoute, y por la misma razón: sin confirmar no
+  // hay profile que esperar, así que el chequeo va antes del loader.
+  // Mi Guita es producto: tampoco es operativo sin correo verificado.
+  if (!emailConfirmed) {
+    return <Navigate to="/verificar-email" replace />
+  }
+
+  if ((profileLoading && isInitialLoad) || (!profile && !profileError && isInitialLoad)) {
+    return <PersonalLoadingScreen />
   }
 
   // Gate: only check plan when the user has a business AND subscription is resolved.
