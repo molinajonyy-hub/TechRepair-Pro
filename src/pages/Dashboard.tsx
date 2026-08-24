@@ -55,7 +55,7 @@ export function Dashboard() {
   const [movimientosLoading, setMovimientosLoading] = useState(false)
   const [comprobantesLoaded, setComprobantesLoaded] = useState(false)
 
-  const { isOpen: cajaIsOpen, cajaId, loading: cajaLoading, activeCaja: cajaActiva } = useCaja()
+  const { isOpen: cajaIsOpen, cajaId, loading: cajaLoading, activeCaja: cajaActiva, canUseCaja } = useCaja()
   const cajaStatus = cajaIsOpen ? 'open' : 'closed'
 
   const { businessId } = useAuth()
@@ -165,19 +165,26 @@ export function Dashboard() {
               onClick={() => navigate('/comprobantes', { state: { openNew: true } })}>
               Nuevo Comprobante
             </AppButton>
-            <AppButton
-              variant={cajaIsOpen ? 'secondary' : 'primary'}
-              size="sm"
-              leftIcon={cajaIsOpen ? <LockIcon size={15} /> : <FinanceIcon size={15} />}
-              onClick={handleCaja}
-              loading={cajaLoading}
-            >
-              {cajaIsOpen ? 'Gestionar Caja' : 'Abrir Caja'}
-            </AppButton>
-            <AppButton variant="ghost" size="sm" leftIcon={<ExpenseReceiptIcon size={15} />}
-              onClick={() => navigate('/expenses')}>
-              Gasto
-            </AppButton>
+            {/* P0-P6: los CTA de caja y gasto llevan a rutas que exigen
+                `finance`. Mostrarlos a quien no la tiene sólo produce un rebote
+                que el usuario no entiende. */}
+            {canUseCaja && (
+              <AppButton
+                variant={cajaIsOpen ? 'secondary' : 'primary'}
+                size="sm"
+                leftIcon={cajaIsOpen ? <LockIcon size={15} /> : <FinanceIcon size={15} />}
+                onClick={handleCaja}
+                loading={cajaLoading}
+              >
+                {cajaIsOpen ? 'Gestionar Caja' : 'Abrir Caja'}
+              </AppButton>
+            )}
+            {puedeVerFinanzas && (
+              <AppButton variant="ghost" size="sm" leftIcon={<ExpenseReceiptIcon size={15} />}
+                onClick={() => navigate('/expenses')}>
+                Gasto
+              </AppButton>
+            )}
             <AppIconButton icon={<RefreshIcon size={14} />} label="Actualizar datos"
               onClick={refreshStats} size="sm" />
           </div>
@@ -190,8 +197,12 @@ export function Dashboard() {
       </div>
 
 
-      {/* ── 3. Estado de Caja ─────────────────────────────────────────────── */}
+      {/* ── 3. Estado de Caja ───────────────────────────────────────────────
+          P0-P6: el estado abierta/cerrada es información operativa de caja.
+          Un actor sin `finance` no la ve, y tampoco el atajo "Gestionar →". */}
+      {canUseCaja && (
       <div
+        data-testid="dash-estado-caja"
         onClick={handleCaja}
         style={{
           display: 'flex', alignItems: 'center', gap: '1rem',
@@ -225,6 +236,7 @@ export function Dashboard() {
           {cajaIsOpen ? 'Gestionar →' : 'Abrir →'}
         </span>
       </div>
+      )}
 
       {/* ── 4. Métricas ───────────────────────────────────────────────────── */}
       {statsLoading && !stats ? (
@@ -377,10 +389,18 @@ export function Dashboard() {
           <AppTabs
             activeTab={activeTab}
             onChange={setActiveTab}
+            /* P0-P6: las pestañas se filtran por capacidad. `Movimientos Caja`
+               lee movimientos financieros; `Comprobantes` exige su propia
+               capacidad. Dejarlas visibles mostraría una tabla siempre vacía
+               —la RLS ya las rechaza— que parece un bug del producto. */
             tabs={[
               { key: 'orders',        label: 'Órdenes',           icon: <OrderIcon size={14} /> },
-              { key: 'comprobantes',  label: 'Comprobantes',      icon: <ExpenseReceiptIcon size={14} /> },
-              { key: 'movimientos',   label: 'Movimientos Caja',  icon: <FinanceIcon size={14} /> },
+              ...(can('comprobantes')
+                ? [{ key: 'comprobantes', label: 'Comprobantes', icon: <ExpenseReceiptIcon size={14} /> }]
+                : []),
+              ...(canUseCaja
+                ? [{ key: 'movimientos', label: 'Movimientos Caja', icon: <FinanceIcon size={14} /> }]
+                : []),
             ]}
           />
         </div>
@@ -448,7 +468,7 @@ export function Dashboard() {
           )}
 
           {/* Tab: Comprobantes */}
-          {activeTab === 'comprobantes' && (
+          {activeTab === 'comprobantes' && can('comprobantes') && (
             comprobantes.length === 0
               ? <AppEmptyState icon={<ExpenseReceiptIcon size={24} />} title="No hay comprobantes registrados" compact
                   action={{ label: 'Nuevo comprobante', icon: <InvoiceIcon size={14} />, onClick: () => navigate('/comprobantes', { state: { openNew: true } }) }} />
@@ -498,7 +518,10 @@ export function Dashboard() {
           )}
 
           {/* Tab: Movimientos de caja */}
-          {activeTab === 'movimientos' && (
+          {/* La pestaña ya no se renderiza sin capacidad, así que `activeTab`
+              no puede llegar acá hoy. El chequeo igual va explícito: si mañana
+              alguien persiste la pestaña activa, el contenido no se filtra. */}
+          {activeTab === 'movimientos' && canUseCaja && (
             movimientosLoading
               ? <AppLoadingState rows={4} />
               : movimientosCaja.length === 0
