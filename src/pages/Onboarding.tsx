@@ -1,15 +1,33 @@
 /**
- * Onboarding.tsx — Wizard de creación de negocio y configuración inicial.
- * 7 pasos: Negocio → Logo → Contacto → Fiscal → Métodos de pago → Plan/Trial → ¡Listo!
+ * Onboarding.tsx — CONFIGURACIÓN del negocio.
+ *
+ * P0-P5. El wizard NO crea tenants: cuando esta pantalla se monta el negocio ya
+ * existe (lo creó `provision_my_business()` desde /no-business o desde el alta).
+ * Acá sólo se configura, y toda la persistencia va por `businessSetupService`.
+ *
+ * ── QUÉ SE ARREGLÓ ───────────────────────────────────────────────────────────
+ * La versión anterior hacía seis `supabase.from('businesses').update(...)`
+ * sueltos. TODOS fallaban:
+ *   · 42501 — `authenticated` no tiene GRANT de UPDATE sobre `businesses`;
+ *   · 42703 — `condicion_fiscal`, `cuit` y `payment_methods_enabled` ni
+ *     siquiera existen en esa tabla (los fiscales viven en business_settings).
+ *
+ * Y no se veía porque `supabase.from().update()` NO LANZA: devuelve
+ * `{ data, error }`. El código hacía `await ...update(...)` sin mirar `error`,
+ * así que el try/catch no atrapaba nada y el paso avanzaba igual.
+ * MEDIDO: de 26 negocios productivos, 1 tenía rubro y 2 tenían logo.
+ *
+ * Ahora cada paso espera el resultado, corta si falla y precarga desde la DB.
  */
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../lib/supabase'
-import { uploadBusinessLogo } from '../lib/storageSetup'
+import { uploadBusinessLogo, LogoUploadError } from '../lib/storageSetup'
 import { track } from '../lib/analytics'
 import { logger } from '../lib/logger'
-import { provisionMyBusiness } from '../services/provisioningService'
+import {
+  businessSetupService, BusinessSetupError, type BusinessSetup,
+} from '../services/businessSetupService'
 import { PLANS, type SubscriptionPlan } from '../types/subscription'
 
 // Plan elegido en la landing (?plan=...). Persistido temporalmente para
@@ -35,14 +53,6 @@ const CONDICIONES_FISCALES = [
   { id: 'consumidor_final',      label: 'Consumidor Final interno' },
 ]
 
-const PAYMENT_METHODS = [
-  { id: 'efectivo',       label: '💵 Efectivo' },
-  { id: 'transferencia',  label: '🏦 Transferencia' },
-  { id: 'tarjeta',        label: '💳 Tarjeta' },
-  { id: 'qr',             label: '📱 QR (Mercado Pago, etc.)' },
-  { id: 'cuenta_corriente', label: '📒 Cuenta corriente propia' },
-]
-
 const CHECKLIST_INITIAL = [
   'Crear tu primera orden de reparación',
   'Agregar productos al inventario',
@@ -61,7 +71,7 @@ const TRIAL_FEATURES_LIST = [
   'Garantías y postventa',
 ]
 
-const TOTAL_STEPS = 7
+const TOTAL_STEPS = 6
 
 const OB_INPUT_STYLE: React.CSSProperties = {
   width: '100%', boxSizing: 'border-box',
@@ -80,53 +90,15 @@ const OB_BTN_PRIMARY_STYLE: React.CSSProperties = {
 }
 
 export function Onboarding() {
-  const { user, businessId: existingBusinessId, loading, profileLoading, refreshProfile } = useAuth()
+  const { authState, refreshProfile } = useAuth()
   const navigate = useNavigate()
 
-  // ── Guard ────────────────────────────────────────────────────────────────────
-  const [guardDone, setGuardDone] = useState(false)
-
-  // Plan de origen (landing → ?plan=...), validado contra la fuente de verdad.
   const [originPlan, setOriginPlan] = useState<SubscriptionPlan | null>(null)
-  // Idempotencia: la conversión signup_completed se dispara una sola vez por flujo.
   const signupCompletedRef = useRef(false)
 
-  useEffect(() => {
-    if (guardDone) return
-    if (loading || profileLoading) return
-    if (!user) { navigate('/login', { replace: true }); return }
-    if (existingBusinessId) { navigate('/dashboard', { replace: true }); return }
-    setGuardDone(true)
-  }, [guardDone, loading, profileLoading, user, existingBusinessId, navigate])
-
-  useEffect(() => {
-    // Lee el plan elegido en la landing: query param primero, luego sessionStorage.
-    const fromUrl = new URLSearchParams(window.location.search).get('plan')
-    const stored = (() => { try { return sessionStorage.getItem(ORIGIN_PLAN_KEY) } catch { return null } })()
-    const candidate = fromUrl ?? stored
-    if (isValidPlan(candidate)) {
-      setOriginPlan(candidate)
-      try { sessionStorage.setItem(ORIGIN_PLAN_KEY, candidate) } catch { /* no-op */ }
-    }
-  }, [])
-
-  // ⚠️ TODOS los hooks van ANTES de cualquier return temprano.
-  //
-  // Estos `useState` vivían DESPUÉS del `if (!guardDone) return <spinner/>`. Es
-  // una violación de las Rules of Hooks: al pasar `guardDone` de false a true,
-  // React renderiza 13 hooks más que en el render anterior y lanza «Rendered
-  // more hooks than during the previous render», que el error boundary global
-  // convierte en «Algo salió mal».
-  //
-  // Estuvo latente e invisible durante meses porque el trigger de `auth.users`
-  // provisionaba antes de que el frontend pudiera evaluar el guard: con
-  // `existingBusinessId` siempre presente, el componente redirigía y `guardDone`
-  // NUNCA llegaba a true. Al retirar el provisioning automático (P0-P1 fase B)
-  // esta pantalla pasó a ser el camino de todo owner nuevo, y el bug se volvió
-  // un crash en el punto exacto del que depende el alta. Lo detectó el E2E.
-  //
-  // `react-hooks/rules-of-hooks` está en `warn` en este repo, así que el lint
-  // no lo frenaba.
+  // ── Estado del wizard ──────────────────────────────────────────────────────
+  const [cargando, setCargando]                 = useState(true)
+  const [setup, setSetup]                       = useState<BusinessSetup | null>(null)
   const [step, setStep]                         = useState(1)
   const [businessName, setBusinessName]         = useState('')
   const [rubro, setRubro]                       = useState('')
@@ -136,179 +108,219 @@ export function Onboarding() {
   const [ciudad, setCiudad]                     = useState('')
   const [condicionFiscal, setCondicionFiscal]   = useState('')
   const [cuit, setCuit]                         = useState('')
-  const [activarArca, setActivarArca]           = useState<'now' | 'later'>('later')
-  const [selectedPayments, setSelectedPayments] = useState<string[]>(['efectivo'])
   const [saving, setSaving]                     = useState(false)
   const [error, setError]                       = useState('')
-  const [businessId, setBusinessId]             = useState<string | null>(null)
 
-  // ── Guard: recién acá, con todos los hooks ya declarados ───────────────────
-  if (!guardDone) {
-    return (
-      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--auth-bg)' }}>
-        <div style={{ width: 36, height: 36, borderRadius: '50%', border: '3px solid rgba(99,102,241,0.2)', borderTop: '3px solid #6366f1', animation: 'tr-spin 0.8s linear infinite' }} />
-      </div>
-    )
-  }
+  // ── Guard de routing ───────────────────────────────────────────────────────
+  // Se decide SÓLO por `authState`: mientras esté en un estado de espera no se
+  // redirige. Es lo que evita el rebote prematuro que tenía la versión anterior.
+  useEffect(() => {
+    if (authState === 'AUTH_LOADING' || authState === 'AUTHENTICATED_PROFILE_LOADING') return
+    if (authState === 'UNAUTHENTICATED') { navigate('/login', { replace: true }); return }
+    if (authState === 'EMAIL_UNCONFIRMED') { navigate('/verificar-email', { replace: true }); return }
+    // Sin negocio NO se puede configurar nada: el alta del tenant es una acción
+    // explícita del usuario y vive en /no-business.
+    if (authState === 'AUTHENTICATED_WITHOUT_BUSINESS' || authState === 'AUTH_ERROR') {
+      navigate('/no-business', { replace: true })
+    }
+  }, [authState, navigate])
 
-  // ── Step 1: crear negocio ──────────────────────────────────────────────────
-  //
-  // P0-P1: este es el ÚNICO punto del flujo SaaS que puede provocar la creación
-  // de un tenant, y lo hace por la autoridad canónica `provision_my_business`.
-  // Antes llamaba a `bootstrap_owner_profile`, cuya rama de creación moría con
-  // 23503 (`profiles.id` es FK a `auth.users(id)` y el INSERT no lo pasaba), o
-  // sea que este paso estaba roto justo para el usuario que lo necesitaba.
-  //
-  // El email ya NO viaja como parámetro: la RPC lo deriva de auth.uid().
-  const handleStep1 = async () => {
-    if (!businessName.trim()) { setError('El nombre del negocio es obligatorio'); return }
-    if (!rubro)                { setError('Seleccioná el rubro de tu negocio'); return }
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('plan')
+    const stored = (() => { try { return sessionStorage.getItem(ORIGIN_PLAN_KEY) } catch { return null } })()
+    const candidate = fromUrl ?? stored
+    if (isValidPlan(candidate)) {
+      setOriginPlan(candidate)
+      try { sessionStorage.setItem(ORIGIN_PLAN_KEY, candidate) } catch { /* no-op */ }
+    }
+  }, [])
+
+  // ── PRECARGA / REANUDACIÓN ─────────────────────────────────────────────────
+  // Los datos salen de la DB, no del estado de React: cerrar la pestaña en el
+  // paso 3 y volver ya no pierde lo guardado.
+  useEffect(() => {
+    if (authState !== 'AUTHENTICATED_WITH_BUSINESS') return
+    let vivo = true
+
+    ;(async () => {
+      try {
+        const actual = await businessSetupService.getMyBusinessSetup()
+        if (!vivo) return
+
+        setSetup(actual)
+        // `Mi Negocio` es el nombre por defecto de `provision_my_business`: se
+        // trata como «todavía sin elegir» para que el usuario no tenga que
+        // borrarlo a mano.
+        setBusinessName(actual.name === 'Mi Negocio' ? '' : actual.name)
+        setRubro(actual.rubro ?? '')
+        setCiudad(actual.ciudad ?? '')
+        setWhatsapp(actual.whatsapp ?? '')
+        setCuit(actual.cuit ?? '')
+        setCondicionFiscal(actual.condicionFiscal ?? '')
+        setLogoPreview(actual.logoUrl)
+
+        // Se retoma en el PRIMER paso que todavía tiene algo pendiente, en vez
+        // de volver siempre al principio. Los campos ya guardados llegan
+        // precargados, así que avanzar es sólo confirmar.
+        if (!actual.name || actual.name === 'Mi Negocio' || !actual.rubro) setStep(1)
+        else if (!actual.logoUrl) setStep(2)
+        else if (!actual.ciudad || !actual.whatsapp) setStep(3)
+        else if (!actual.cuit || !actual.condicionFiscal) setStep(4)
+        else setStep(5)
+      } catch (e) {
+        if (!vivo) return
+        logger.error('AUTH', 'Onboarding: no se pudo precargar la configuración', e)
+        setError(e instanceof BusinessSetupError ? e.message : 'No se pudo cargar la configuración de tu negocio.')
+      } finally {
+        if (vivo) setCargando(false)
+      }
+    })()
+
+    return () => { vivo = false }
+  }, [authState])
+
+  /**
+   * Guarda un tramo y sólo avanza si el servidor confirmó.
+   *
+   * Es el corazón del arreglo: antes cada paso avanzaba pasara lo que pasara.
+   */
+  const guardarYAvanzar = useCallback(async (
+    patch: Parameters<typeof businessSetupService.updateMyBusinessSetup>[0],
+    siguiente: number,
+  ): Promise<void> => {
     setSaving(true); setError('')
     try {
-      const res = await provisionMyBusiness(businessName)
-
-      if (res.status === 'invitation_pending') {
-        // No es un error del usuario: lo invitaron a un negocio existente. Dejar
-        // que se cree un tenant propio acá es justo lo que genera huérfanos.
-        setError('Tenés una invitación pendiente a un negocio. Aceptala para entrar a ese equipo en vez de crear uno nuevo.')
-        return
+      const actualizado = await businessSetupService.updateMyBusinessSetup(patch)
+      setSetup(actualizado)
+      setStep(siguiente)
+    } catch (e) {
+      if (!(e instanceof BusinessSetupError)) {
+        logger.error('AUTH', 'Onboarding: fallo inesperado al guardar', e)
       }
-      if (res.status === 'email_not_confirmed') {
-        setError('Confirmá tu correo antes de crear el negocio. Revisá tu bandeja de entrada.')
-        return
-      }
+      setError(e instanceof BusinessSetupError ? e.message : 'No se pudo guardar. Intentá nuevamente.')
+      // NO se avanza: el dato obligatorio no quedó persistido.
+    } finally {
+      setSaving(false)
+    }
+  }, [])
 
-      // El rubro todavía se escribe directo, y ese UPDATE falla con 42501:
-      // `authenticated` no tiene GRANT de UPDATE sobre `businesses`. Es deuda
-      // conocida y acotada del wizard (handoff P0-P5, persistencia por RPC).
-      // Se registra en vez de descartarse en silencio, que es lo que venía
-      // pasando y por lo que 23 de 24 negocios quedaron sin rubro.
-      const { error: rubroErr } = await supabase.from('businesses').update({ rubro }).eq('id', res.businessId)
-      if (rubroErr) logger.warn('AUTH', 'Onboarding: no se pudo guardar el rubro (pendiente P0-P5)', rubroErr)
-
-      setBusinessId(res.businessId)
-      await refreshProfile()
-      setStep(2)
-    } catch (e: any) {
-      setError(e.message || 'Error al crear el negocio')
-    } finally { setSaving(false) }
+  // ── Paso 1: identidad del negocio (obligatorio) ────────────────────────────
+  const handleStep1 = () => {
+    if (!businessName.trim()) { setError('El nombre del negocio es obligatorio'); return }
+    if (!rubro)               { setError('Seleccioná el rubro de tu negocio'); return }
+    void guardarYAvanzar({ name: businessName.trim(), rubro }, 2)
   }
 
-  // ── Step 2: logo ──────────────────────────────────────────────────────────
+  // ── Paso 2: logo (opcional) ────────────────────────────────────────────────
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     setLogoFile(file)
     setLogoPreview(URL.createObjectURL(file))
+    setError('')
   }
 
   const handleStep2 = async () => {
+    if (!logoFile) { setStep(3); return }
+
     setSaving(true); setError('')
     try {
-      if (logoFile && businessId) {
-        if (logoFile.size > 5 * 1024 * 1024) { setError('Máximo 5 MB.'); setSaving(false); return }
-        if (!['image/png','image/jpeg','image/jpg','image/webp'].includes(logoFile.type)) {
-          setError('Formato no soportado. Usá PNG, JPG o WebP.'); setSaving(false); return
-        }
-        try {
-          const url = await uploadBusinessLogo(logoFile, businessId)
-          if (url) {
-            await supabase.from('businesses').update({ logo_url: url }).eq('id', businessId)
-            await supabase.from('business_settings').update({ logo_url: url }).eq('business_id', businessId)
-          }
-        } catch (uploadErr: any) {
-          setError(`No se pudo subir el logo: ${uploadErr.message}. Podés subirlo desde Configuración.`)
-        }
-      }
+      const url = await uploadBusinessLogo(logoFile, setup!.businessId)
+      const actualizado = await businessSetupService.updateMyBusinessSetup({ logoUrl: url })
+      setSetup(actualizado)
+      setLogoPreview(actualizado.logoUrl)
+      setLogoFile(null)
       setStep(3)
-    } finally { setSaving(false) }
+    } catch (e) {
+      // El logo es OPCIONAL: su fallo se muestra pero no bloquea el wizard, y el
+      // usuario puede omitirlo. Lo que ya NO pasa es que falle en silencio.
+      const msg = e instanceof LogoUploadError || e instanceof BusinessSetupError
+        ? e.message
+        : 'No se pudo subir el logo.'
+      setError(`${msg} Podés omitir este paso y cargarlo después desde Configuración.`)
+      if (!(e instanceof LogoUploadError) && !(e instanceof BusinessSetupError)) {
+        logger.error('AUTH', 'Onboarding: fallo inesperado subiendo el logo', e)
+      }
+    } finally {
+      setSaving(false)
+    }
   }
 
-  // ── Step 3: datos de contacto ─────────────────────────────────────────────
-  const handleStep3 = async () => {
+  // ── Paso 3: contacto (opcional) ────────────────────────────────────────────
+  const handleStep3 = () => {
+    void guardarYAvanzar({ whatsapp: whatsapp.trim(), ciudad: ciudad.trim() }, 4)
+  }
+
+  // ── Paso 4: fiscal (opcional) ──────────────────────────────────────────────
+  const handleStep4 = () => {
+    void guardarYAvanzar({ cuit: cuit.trim(), condicionFiscal: condicionFiscal || '' }, 5)
+  }
+
+  // ── Paso 5: plan / trial (informativo) ─────────────────────────────────────
+  const handleStep5 = () => setStep(6)
+
+  // ── Paso 6: completar ──────────────────────────────────────────────────────
+  const handleFinish = async () => {
+    if (signupCompletedRef.current) { navigate('/dashboard', { replace: true }); return }
+
     setSaving(true); setError('')
     try {
-      if (businessId) {
-        const cleanWA = whatsapp.replace(/\D/g, '')
-        await supabase.from('businesses').update({
-          ...(cleanWA ? { wholesale_whatsapp: cleanWA } : {}),
-          ...(ciudad ? { ciudad } : {}),
-        }).eq('id', businessId)
+      // El servidor valida contra lo REALMENTE persistido, no contra el estado
+      // local: si un paso obligatorio falló antes, esto no marca completo.
+      const actualizado = await businessSetupService.updateMyBusinessSetup({ complete: true })
+      setSetup(actualizado)
+
+      signupCompletedRef.current = true
+      track('signup_completed', { business_id: actualizado.businessId, plan: originPlan ?? null, source: 'onboarding' })
+      try { sessionStorage.removeItem(ORIGIN_PLAN_KEY) } catch { /* no-op */ }
+
+      // El nombre y el rubro del negocio acaban de cambiar: sin refrescar, el
+      // shell seguiría mostrando los datos viejos.
+      await refreshProfile()
+      navigate('/dashboard', { replace: true })
+    } catch (e) {
+      if (e instanceof BusinessSetupError && e.code === 'ONBOARDING_INCOMPLETE') {
+        setError('Faltan datos obligatorios. Volvé al primer paso y completá el nombre y el rubro.')
+        setStep(1)
+        return
       }
-      setStep(4)
-    } catch (e: any) {
-      setError(e.message || 'Error al guardar configuración')
-    } finally { setSaving(false) }
+      if (!(e instanceof BusinessSetupError)) {
+        logger.error('AUTH', 'Onboarding: fallo inesperado al finalizar', e)
+      }
+      setError(e instanceof BusinessSetupError ? e.message : 'No se pudo finalizar. Intentá nuevamente.')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  // ── Step 4: fiscal ────────────────────────────────────────────────────────
-  const handleStep4 = async () => {
-    setSaving(true); setError('')
-    try {
-      if (businessId && (condicionFiscal || cuit)) {
-        // Guardamos con cast any — estos campos existen en businesses para integración ARCA
-        await supabase.from('businesses').update({
-          ...(condicionFiscal ? { condicion_fiscal: condicionFiscal } as any : {}),
-          ...(cuit ? { cuit } as any : {}),
-        }).eq('id', businessId)
-      }
-      setStep(5)
-    } catch {
-      // Non-blocking: si el campo no existe en el schema, continuamos igual
-      setStep(5)
-    } finally { setSaving(false) }
-  }
-
-  // ── Step 5: métodos de pago ───────────────────────────────────────────────
-  const togglePayment = (id: string) => {
-    setSelectedPayments(prev =>
-      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
+  // ── Espera ─────────────────────────────────────────────────────────────────
+  if (authState !== 'AUTHENTICATED_WITH_BUSINESS' || cargando) {
+    return (
+      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--auth-bg)' }}>
+        <div style={{ width: 36, height: 36, borderRadius: '50%', border: '3px solid rgba(99,102,241,0.2)', borderTop: '3px solid #6366f1', animation: 'tr-spin 0.8s linear infinite' }} />
+        <style>{`@keyframes tr-spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
     )
   }
 
-  const handleStep5 = async () => {
-    setSaving(true); setError('')
-    try {
-      if (businessId && selectedPayments.length > 0) {
-        await supabase.from('businesses').update({
-          payment_methods_enabled: selectedPayments,
-        } as any).eq('id', businessId)
-      }
-      setStep(6)
-    } catch {
-      setStep(6)
-    } finally { setSaving(false) }
-  }
-
-  // ── Step 6: plan / trial info ─────────────────────────────────────────────
-  const handleStep6 = () => setStep(7)
-
-  // ── Step 7: guardar y listo ───────────────────────────────────────────────
-  const handleFinish = async () => {
-    // Ya completado en este flujo: no re-disparar la conversión, sólo continuar.
-    if (signupCompletedRef.current) { navigate('/dashboard', { replace: true }); return }
-    // Sin negocio creado no hubo onboarding válido: no es una conversión.
-    if (!businessId) { navigate('/dashboard', { replace: true }); return }
-
-    setSaving(true); setError('')
-    try {
-      await supabase.from('businesses').update({
-        onboarding_completed: true,
-        onboarding_completed_at: new Date().toISOString(),
-      }).eq('id', businessId)
-
-      // El backend confirmó la finalización del onboarding: recién acá es una
-      // conversión real. Guard idempotente para evitar duplicados por reintentos.
-      // `business_id` queda sólo en el contrato interno (dataLayer); el sanitizador
-      // de analytics lo excluye de GA4/Clarity. A externo sólo van plan/source.
-      signupCompletedRef.current = true
-      track('signup_completed', { business_id: businessId, plan: originPlan ?? null, source: 'onboarding' })
-      try { sessionStorage.removeItem(ORIGIN_PLAN_KEY) } catch { /* no-op */ }
-
-      navigate('/dashboard', { replace: true })
-    } catch (e: any) {
-      setError(e.message || 'Error al finalizar')
-    } finally { setSaving(false) }
+  // Sólo owner/admin configuran. A los demás se les dice por qué en vez de
+  // dejarlos chocar contra un 42501 al guardar.
+  if (setup && !setup.canEdit) {
+    return (
+      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--auth-bg)', padding: '1.25rem' }}>
+        <div style={{ maxWidth: 440, textAlign: 'center', background: 'var(--auth-card-bg)', border: '1px solid var(--border-color)', borderRadius: 22, padding: '2.25rem' }}>
+          <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+            Ya estás dentro de {setup.name}
+          </h2>
+          <p style={{ margin: '0 0 1.5rem', color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+            La configuración inicial la completa el dueño o un administrador del negocio.
+          </p>
+          <button data-testid="onboarding-ir-dashboard" className="ob-btn-primary" onClick={() => navigate('/dashboard', { replace: true })} style={OB_BTN_PRIMARY_STYLE}>
+            Ir al dashboard →
+          </button>
+        </div>
+      </div>
+    )
   }
 
   const stepLabel = step < TOTAL_STEPS ? `Paso ${step} de ${TOTAL_STEPS - 1}` : '¡Todo listo!'
@@ -324,13 +336,12 @@ export function Onboarding() {
         @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
         @keyframes tr-spin { to { transform: rotate(360deg); } }
         .ob-card { animation: fadeUp 0.4s cubic-bezier(0.22,1,0.36,1) both; }
-        .rubro-btn:hover, .pay-btn:hover { border-color: rgba(99,102,241,0.5) !important; background: rgba(99,102,241,0.06) !important; }
+        .rubro-btn:hover { border-color: rgba(99,102,241,0.5) !important; background: rgba(99,102,241,0.06) !important; }
         .ob-input:focus { outline:none; border-color:#6366f1 !important; box-shadow: 0 0 0 3px rgba(99,102,241,0.12) !important; }
         .ob-btn-primary:hover:not(:disabled) { opacity:0.88; transform:translateY(-1px); }
         .ob-btn-primary { transition: opacity 0.15s, transform 0.15s; }
       `}</style>
 
-      {/* Progreso */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginBottom: '2rem' }}>
         {Array.from({ length: TOTAL_STEPS }, (_, i) => (
           <div key={i} style={{
@@ -356,7 +367,7 @@ export function Onboarding() {
           <>
             <div style={{ marginBottom: '1.75rem' }}>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.5rem' }}>Bienvenido</div>
-              <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Creá tu negocio</h1>
+              <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Configurá tu negocio</h1>
               <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem', lineHeight: 1.6 }}>En menos de 2 minutos vas a tener tu sistema listo.</p>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.125rem' }}>
@@ -380,7 +391,7 @@ export function Onboarding() {
               </div>
               {error && <p data-testid="onboarding-error" role="alert" style={{ margin: 0, color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>}
               <button data-testid="onboarding-step1-submit" className="ob-btn-primary" onClick={handleStep1} disabled={saving} style={{ ...OB_BTN_PRIMARY_STYLE, opacity: saving ? 0.65 : 1, cursor: saving ? 'not-allowed' : 'pointer' }}>
-                {saving ? 'Creando...' : 'Continuar →'}
+                {saving ? 'Guardando...' : 'Continuar →'}
               </button>
             </div>
           </>
@@ -392,7 +403,7 @@ export function Onboarding() {
             <div style={{ marginBottom: '1.75rem' }}>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.5rem' }}>Identidad visual</div>
               <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Logo de tu negocio</h2>
-              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem' }}>Opcional — podés cargarlo después desde Ajustes.</p>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem' }}>Opcional — podés cargarlo después desde Configuración.</p>
             </div>
             <label style={{ cursor: 'pointer', display: 'block' }}>
               <div style={{
@@ -411,17 +422,17 @@ export function Onboarding() {
                   </div>
                 )}
               </div>
-              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleLogoChange} />
+              <input data-testid="onboarding-logo-input" type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={handleLogoChange} />
             </label>
             {logoPreview && (
-              <button onClick={() => { setLogoFile(null); setLogoPreview(null) }} style={{ display: 'block', margin: '0 auto 1.25rem', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.78rem', cursor: 'pointer' }}>
+              <button onClick={() => { setLogoFile(null); setLogoPreview(setup?.logoUrl ?? null) }} style={{ display: 'block', margin: '0 auto 1.25rem', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.78rem', cursor: 'pointer' }}>
                 Quitar logo
               </button>
             )}
-            {error && <p style={{ margin: '0 0 0.75rem', color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>}
+            {error && <p data-testid="onboarding-error" role="alert" style={{ margin: '0 0 0.75rem', color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>}
             <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <button onClick={() => setStep(3)} style={{ flex: 1, padding: '12px', background: 'var(--input-bg)', border: '1px solid var(--border-color)', borderRadius: 12, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>Omitir</button>
-              <button className="ob-btn-primary" onClick={handleStep2} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
+              <button data-testid="onboarding-logo-skip" onClick={() => setStep(3)} style={{ flex: 1, padding: '12px', background: 'var(--input-bg)', border: '1px solid var(--border-color)', borderRadius: 12, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>Omitir</button>
+              <button data-testid="onboarding-step2-submit" className="ob-btn-primary" onClick={() => void handleStep2()} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
                 {saving ? 'Guardando...' : logoFile ? 'Guardar logo →' : 'Continuar →'}
               </button>
             </div>
@@ -437,19 +448,18 @@ export function Onboarding() {
               <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem' }}>Para WhatsApp y el encabezado de tus comprobantes.</p>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {[
-                { label: 'WhatsApp del negocio', value: whatsapp, set: setWhatsapp, placeholder: '3512345678', type: 'tel' },
-                { label: 'Ciudad / Localidad',   value: ciudad,   set: setCiudad,   placeholder: 'Ej: Córdoba',  type: 'text' },
-              ].map(({ label, value, set, placeholder, type }) => (
-                <div key={label}>
-                  <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>{label}</label>
-                  <input className="ob-input" type={type} value={value} onChange={e => set(e.target.value)} placeholder={placeholder} style={OB_INPUT_STYLE} />
-                </div>
-              ))}
-              {error && <p style={{ margin: 0, color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>WhatsApp del negocio</label>
+                <input data-testid="onboarding-whatsapp" className="ob-input" type="tel" value={whatsapp} onChange={e => setWhatsapp(e.target.value)} placeholder="3512345678" style={OB_INPUT_STYLE} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Ciudad / Localidad</label>
+                <input data-testid="onboarding-ciudad" className="ob-input" type="text" value={ciudad} onChange={e => setCiudad(e.target.value)} placeholder="Ej: Córdoba" style={OB_INPUT_STYLE} />
+              </div>
+              {error && <p data-testid="onboarding-error" role="alert" style={{ margin: 0, color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>}
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 <button onClick={() => setStep(4)} style={{ flex: 1, padding: '12px', background: 'var(--input-bg)', border: '1px solid var(--border-color)', borderRadius: 12, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>Omitir</button>
-                <button className="ob-btn-primary" onClick={handleStep3} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
+                <button data-testid="onboarding-step3-submit" className="ob-btn-primary" onClick={handleStep3} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
                   {saving ? 'Guardando...' : 'Continuar →'}
                 </button>
               </div>
@@ -463,14 +473,14 @@ export function Onboarding() {
             <div style={{ marginBottom: '1.75rem' }}>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.5rem' }}>Configuración fiscal</div>
               <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Datos impositivos</h2>
-              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem' }}>Opcional. Podés configurar ARCA / facturación electrónica después.</p>
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem' }}>Opcional. La facturación electrónica (ARCA) se configura después, desde Configuración.</p>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Condición fiscal</label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                   {CONDICIONES_FISCALES.map(c => (
-                    <button key={c.id} className="rubro-btn" onClick={() => setCondicionFiscal(c.id)} style={{
+                    <button key={c.id} data-testid={`onboarding-cond-${c.id}`} className="rubro-btn" onClick={() => setCondicionFiscal(c.id)} style={{
                       padding: '0.6rem 0.75rem',
                       background: condicionFiscal === c.id ? 'rgba(99,102,241,0.15)' : 'var(--bg-hover)',
                       border: `1.5px solid ${condicionFiscal === c.id ? '#6366f1' : 'var(--border-color)'}`,
@@ -482,30 +492,12 @@ export function Onboarding() {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>CUIT <span style={{ fontWeight: 400, textTransform: 'none' }}>(sin guiones)</span></label>
-                <input className="ob-input" type="text" value={cuit} onChange={e => setCuit(e.target.value.replace(/\D/g, ''))} placeholder="20123456789" maxLength={11} style={OB_INPUT_STYLE} />
+                <input data-testid="onboarding-cuit" className="ob-input" type="text" value={cuit} onChange={e => setCuit(e.target.value.replace(/\D/g, ''))} placeholder="20123456789" maxLength={11} style={OB_INPUT_STYLE} />
               </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>ARCA / Facturación electrónica</label>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  {[{ id: 'now' as const, label: 'Configurar ahora' }, { id: 'later' as const, label: 'Configurar después' }].map(({ id, label }) => (
-                    <button key={id} onClick={() => setActivarArca(id)} style={{
-                      flex: 1, padding: '0.6rem 0.75rem',
-                      background: activarArca === id ? 'rgba(99,102,241,0.15)' : 'var(--bg-hover)',
-                      border: `1.5px solid ${activarArca === id ? '#6366f1' : 'var(--border-color)'}`,
-                      borderRadius: 10, color: activarArca === id ? '#818cf8' : '#64748b',
-                      fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
-                    }}>{label}</button>
-                  ))}
-                </div>
-                {activarArca === 'now' && (
-                  <p style={{ margin: '0.5rem 0 0', fontSize: '0.75rem', color: '#6366f1' }}>
-                    Podés configurar ARCA en Configuración → ARCA después de entrar al sistema.
-                  </p>
-                )}
-              </div>
+              {error && <p data-testid="onboarding-error" role="alert" style={{ margin: 0, color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>}
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem' }}>
                 <button onClick={() => setStep(5)} style={{ flex: 1, padding: '12px', background: 'var(--input-bg)', border: '1px solid var(--border-color)', borderRadius: 12, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>Omitir</button>
-                <button className="ob-btn-primary" onClick={handleStep4} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
+                <button data-testid="onboarding-step4-submit" className="ob-btn-primary" onClick={handleStep4} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
                   {saving ? 'Guardando...' : 'Continuar →'}
                 </button>
               </div>
@@ -513,49 +505,8 @@ export function Onboarding() {
           </>
         )}
 
-        {/* ── Paso 5: Métodos de pago ───────────────────────────── */}
+        {/* ── Paso 5: Plan / Trial ─────────────────────────────── */}
         {step === 5 && (
-          <>
-            <div style={{ marginBottom: '1.75rem' }}>
-              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.5rem' }}>Cobranza</div>
-              <h2 style={{ margin: '0 0 0.5rem', fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>Métodos de pago</h2>
-              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem' }}>¿Cómo aceptás pagos? Podés cambiarlo desde Configuración.</p>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>
-              {PAYMENT_METHODS.map(pm => (
-                <button key={pm.id} className="pay-btn" onClick={() => togglePayment(pm.id)} style={{
-                  display: 'flex', alignItems: 'center', gap: '0.75rem',
-                  padding: '0.75rem 1rem',
-                  background: selectedPayments.includes(pm.id) ? 'rgba(99,102,241,0.12)' : 'var(--bg-hover)',
-                  border: `1.5px solid ${selectedPayments.includes(pm.id) ? '#6366f1' : 'var(--border-color)'}`,
-                  borderRadius: 12, color: selectedPayments.includes(pm.id) ? '#818cf8' : '#64748b',
-                  fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
-                }}>
-                  <div style={{
-                    width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
-                    border: `2px solid ${selectedPayments.includes(pm.id) ? '#6366f1' : 'var(--border-strong)'}`,
-                    background: selectedPayments.includes(pm.id) ? '#6366f1' : 'transparent',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    {selectedPayments.includes(pm.id) && (
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
-                    )}
-                  </div>
-                  {pm.label}
-                </button>
-              ))}
-            </div>
-            <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <button onClick={() => setStep(6)} style={{ flex: 1, padding: '12px', background: 'var(--input-bg)', border: '1px solid var(--border-color)', borderRadius: 12, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>Omitir</button>
-              <button className="ob-btn-primary" onClick={handleStep5} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
-                {saving ? 'Guardando...' : 'Continuar →'}
-              </button>
-            </div>
-          </>
-        )}
-
-        {/* ── Paso 6: Plan / Trial ─────────────────────────────── */}
-        {step === 6 && (
           <>
             <div style={{ marginBottom: '1.5rem', textAlign: 'center' }}>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.5rem' }}>Tu plan</div>
@@ -582,17 +533,17 @@ export function Onboarding() {
                 ))}
               </div>
             </div>
-            <p style={{ margin: '0 0 1.25rem', fontSize: '0.75rem', color: '#334155', textAlign: 'center' }}>
-              Al finalizar el trial podés elegir un plan desde Configuración → Suscripción.
+            <p style={{ margin: '0 0 1.25rem', fontSize: '0.75rem', color: 'var(--text-subtle)', textAlign: 'center' }}>
+              Los métodos de pago del mostrador se configuran desde Configuración → Métodos de pago.
             </p>
-            <button className="ob-btn-primary" onClick={handleStep6} style={{ ...OB_BTN_PRIMARY_STYLE }}>
+            <button data-testid="onboarding-step5-submit" className="ob-btn-primary" onClick={handleStep5} style={{ ...OB_BTN_PRIMARY_STYLE }}>
               Entendido, ¡vamos! →
             </button>
           </>
         )}
 
-        {/* ── Paso 7: ¡Listo! ──────────────────────────────────── */}
-        {step === 7 && (
+        {/* ── Paso 6: ¡Listo! ──────────────────────────────────── */}
+        {step === 6 && (
           <>
             <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
               <div style={{
@@ -618,11 +569,11 @@ export function Onboarding() {
                 ))}
               </div>
             </div>
-            {error && <p style={{ margin: '0 0 0.75rem', color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>}
-            <button className="ob-btn-primary" onClick={handleFinish} disabled={saving} style={{ ...OB_BTN_PRIMARY_STYLE, opacity: saving ? 0.65 : 1, cursor: saving ? 'not-allowed' : 'pointer' }}>
+            {error && <p data-testid="onboarding-error" role="alert" style={{ margin: '0 0 0.75rem', color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>}
+            <button data-testid="onboarding-finish" className="ob-btn-primary" onClick={() => void handleFinish()} disabled={saving} style={{ ...OB_BTN_PRIMARY_STYLE, opacity: saving ? 0.65 : 1, cursor: saving ? 'not-allowed' : 'pointer' }}>
               {saving ? 'Finalizando...' : 'Ir al dashboard →'}
             </button>
-            <p style={{ textAlign: 'center', margin: '1rem 0 0', fontSize: '0.75rem', color: '#334155' }}>
+            <p style={{ textAlign: 'center', margin: '1rem 0 0', fontSize: '0.75rem', color: 'var(--text-subtle)' }}>
               Podés elegir un plan en cualquier momento desde Suscripción
             </p>
           </>
