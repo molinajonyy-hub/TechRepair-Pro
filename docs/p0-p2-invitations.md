@@ -1,13 +1,14 @@
 # P0-P2 — Invitations / alta segura de miembros
 
-**Estado: B — código correcto y CI verde; falta el merge, el `db push` y el smoke humano.**
-El merge a `main` y la migración a producción quedaron **sin ejecutar** (bloqueados por el
-clasificador de permisos de la sesión). Producción está **intacta**: 232 migraciones, las mismas
-que antes de empezar.
+**Estado: EN PRODUCCIÓN — 2026-08-24. Falta únicamente el smoke humano.**
 
-- Rama: `fix/p0-p2-invitations-lifecycle`
-- PR: https://github.com/molinajonyy-hub/TechRepair-Pro/pull/68
-- Commits: `8823fa1` (DB), `ba96881` (frontend)
+- PR: https://github.com/molinajonyy-hub/TechRepair-Pro/pull/68 — **MERGED**
+- Merge commit: **`dc6aed5`** (2026-08-24 15:40:10Z)
+- Commits: `8823fa1` (DB), `ba96881` (frontend), `fafe37b` (informe)
+- Vercel: `/version.json` → `{"commit":"dc6aed5","buildTime":"2026-08-24T15:40:26.443Z"}`
+- DB: **232 → 233**, head `20260824120000`, postcondiciones OK
+- Orden respetado: frontend verificado en producción **antes** del `db push`
+- La migración tocó **0 filas de datos**: los counts pre y post son idénticos
 
 ---
 
@@ -211,11 +212,47 @@ sea re-ejecutable aunque un caso falle a la mitad.
 
 ---
 
-## 7. Pendiente
+## 7. Rollout — ejecutado
 
-1. **Merge del PR #68** → Vercel publica el frontend.
-2. **`supabase db push`** → aplica `20260824120000`. **En ese orden.**
-3. **Smoke humano** con un email nuevo.
+| Paso | Resultado |
+|---|---|
+| Merge PR #68 | `dc6aed5`, 15:40:10Z, `MERGEABLE`/`CLEAN`, sin force ni bypass |
+| Vercel | `/version.json` = `dc6aed5`, build 15:40:26Z (16 s después del merge) |
+| Bundle servido | verificado sobre los **121 chunks reales**, no sobre el commit |
+| `migration list` | exactamente 1 pendiente: `20260824120000` |
+| `db push` | aplicada, `NOTICE: P0-P2: postcondiciones OK` |
+| DB | 232 → **233** |
+
+### Verificación del bundle realmente servido
+
+Se descargaron los 121 chunks JS de producción y se buscó el contrato, no el hash del commit:
+
+| Marcador | Resultado |
+|---|---|
+| `create_business_invitation` | 1 call site: `{p_email, p_role}` — **sin `p_business_id`** |
+| `accept_business_invitation` | 1 call site: `{p_token: t.trim()}` — sólo el token |
+| `cancel_business_invitation` | 1 call site: `{p_invitation_id}` |
+| `gen_random_bytes` | **ausente** |
+| `revoked` | **ausente** |
+| `trp_pending_invite` | presente (preservación del token desplegada) |
+| `getPendingInvitations` / `revokeInvitation` | ausentes (métodos retirados) |
+| `handle_new_user` / `bootstrap_owner_profile` | ausentes |
+| `UsersManagement` | no llama a las RPC directo; su único `p_business_id` es `check_user_limit_before_invite`, que lo recibe de forma legítima |
+
+### Postcondiciones en producción
+
+`legacy_3args_retirada = true` · `overloads_create = 1` · `accept → jsonb` ·
+PUBLIC y `anon` sin EXECUTE en las tres · `authenticated` con EXECUTE en las tres ·
+`search_path = pg_catalog, public, pg_temp` en las tres · DML estructural de cliente sobre
+`profiles`/`businesses`/`business_invitations` = **0** · ninguna RPC llama a `gen_random_bytes` sin
+calificar · ninguna inserta en `businesses` · advisory lock y `FOR UPDATE` presentes ·
+índice único parcial `(business_id, lower(btrim(email))) WHERE status='pending'` creado ·
+`provision_my_business` intacta, con `INVITATION_PENDING` y su `INSERT ... (id,` explícito ·
+`handle_new_user`/`bootstrap_owner_profile` = 0 · triggers en `auth.users` = 0.
+
+### Pendiente
+
+**Sólo el smoke humano.** Ver §10.
 
 ### Por qué frontend primero
 
@@ -229,23 +266,53 @@ argumentos, que **ya existe** en producción, corre el código viejo y falla con
 cierra. `cancel` ya funciona, el listado no cambia, y el parser del accept tolera ambas formas de
 retorno a propósito.
 
-### Counts de producción — antes
+### Counts de producción — baseline del smoke
 
-| | |
-|---|---|
-| auth users | 17 |
-| profiles | 17 |
-| businesses | 26 (6 `trialing`) |
-| invitations | 0 |
-| profiles huérfanos | 0 |
-| migraciones | 232 |
+Medidos **después** del `db push`. Idénticos a los de antes salvo `migraciones`: la migración no
+tocó ninguna fila de datos.
 
-Después del smoke se espera: **+1 auth user, +1 profile, +0 businesses, +0 trials**, invitación en
-`accepted`, 0 huérfanos nuevos.
+| | antes | después |
+|---|---|---|
+| auth users | 17 | **17** |
+| profiles | 17 | **17** |
+| businesses | 26 | **26** |
+| businesses `trialing` | 6 | **6** |
+| invitations (total / pending / accepted / cancelled / expired) | 0/0/0/0/0 | **0/0/0/0/0** |
+| profiles huérfanos | 0 | **0** |
+| businesses sin miembros | 9 | **9** |
+| migraciones | 232 | **233** |
+
+`businesses sin miembros = 9` es **preexistente** y está fuera de alcance (cleanup histórico). El
+criterio del smoke es el **delta**, no el absoluto: debe quedar en 9.
 
 ---
 
-## 8. Invariantes
+## 10. Smoke humano — preparado, NO ejecutado
+
+**Owner**: `molina.jonyy@gmail.com` · negocio **Clic** · plan `full` · estado `active` ·
+1 miembro activo · `check_user_limit_before_invite` = **OK** (el gate de plan no va a bloquear).
+
+**Email invitado sugerido**: `techrepairpro.soporte+invite01@gmail.com` — verificado como **no
+registrado** (0 en `auth.users`, 0 alias `+invite`, 0 invitaciones previas). Tiene que ser una
+casilla que recibas de verdad: Confirm Email está ON, así que hay que confirmar por correo.
+
+### Deltas esperados
+
+```
+auth users        +1
+profiles          +1
+businesses        +0     <- si da +1, DETENER: viola la invariante central
+businesses trial  +0
+invitación        pending -> accepted
+```
+
+Profile nuevo: `id = auth.uid()` del invitado · `business_id` = el de Clic · `role = tech` ·
+`email` = el del invitado. Y: 0 tenants huérfanos nuevos, owner original intacto, el invitado
+sobrevive a logout/login en el mismo business.
+
+---
+
+## 11. Invariantes
 
 ```
 provision_my_business()
@@ -267,7 +334,7 @@ postcondición de migración.
 
 ---
 
-## 9. Handoffs (fuera de alcance, registrados)
+## 12. Handoffs (fuera de alcance, registrados)
 
 - **Envío automático de emails de invitación**: sigue sin existir. El owner comparte el link a mano.
 - **`expire_old_invitations()` sin agendar**: mitigado en la lectura y en el accept, pero el cron
