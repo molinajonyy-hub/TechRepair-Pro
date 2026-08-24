@@ -12,7 +12,7 @@
  *
  * Con un topic estático y N componentes montados a la vez (en /orders son 5
  * consumidores de useSubscription: Sidebar, useWholesalePermissions dentro del
- * propio Sidebar, SubscriptionGuard, SubscriptionBanner y TrialBanner) el 1º
+ * propio Sidebar, SubscriptionGuard y SubscriptionBanner) el 1º
  * crea y suscribe el canal y del 2º en adelante reciben ESE canal ya suscripto
  * → su `.on()` explota y se quedan sin realtime en silencio.
  *
