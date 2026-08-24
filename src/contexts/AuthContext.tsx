@@ -260,6 +260,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profileResolved, setProfileResolved] = useState(false);
   const profileLoadingDisabledRef = useRef(false);
   const profileRequestRef = useRef<Promise<Profile | null> | null>(null);
+  /**
+   * P0-P4 — Generación de la carga de perfil.
+   *
+   * `loadProfile` deduplica: si ya hay una request en vuelo, devuelve ESA. Está
+   * bien para cargas concurrentes de la misma verdad, pero es un bug cuando el
+   * perfil ACABA DE CAMBIAR: `refreshProfile()` después de aceptar una
+   * invitación se colgaba de la request que había arrancado ANTES del cambio y
+   * resolvía con el estado viejo («sin negocio»), así que el usuario aterrizaba
+   * en /no-business con su membresía ya creada.
+   *
+   * MEDIDO por el E2E del invitado en este mismo lote.
+   *
+   * `refreshProfile` incrementa la generación y arranca una request nueva; las
+   * respuestas de generaciones viejas se descartan en vez de pisar el estado.
+   */
+  const profileGenRef = useRef(0);
 
   const updateProfileLoadingDisabled = (disabled: boolean) => {
     profileLoadingDisabledRef.current = disabled;
@@ -291,14 +307,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return profileRequestRef.current;
     }
 
+    // Se captura la generación al arrancar. Si `refreshProfile` la incrementa
+    // mientras esta request está en vuelo, sus resultados ya no valen.
+    const gen = profileGenRef.current;
+    const vigente = () => gen === profileGenRef.current;
+
+    /**
+     * Única puerta de escritura del estado de perfil. Una respuesta de una
+     * generación vieja NO pisa el estado: descartarla es la diferencia entre
+     * aterrizar en el dashboard o rebotar a /no-business con la membresía ya
+     * creada.
+     */
+    const aplicar = (p: Profile | null, err: string | null, kind: ProfileErrorKind) => {
+      if (!vigente()) return;
+      setProfile(p);
+      setProfileError(err);
+      setProfileErrorKind(kind);
+    };
+
+    const inactivo = (p: Profile) =>
+      p.is_active ? null : 'Tu usuario existe, pero esta inactivo para este negocio.';
+
     setProfileLoading(true);
 
     const cachedProfile = loadCachedProfile(currentUser.id);
 
     if (cachedProfile) {
-      setProfile(cachedProfile);
-      setProfileError(cachedProfile.is_active ? null : 'Tu usuario existe, pero esta inactivo para este negocio.');
-      setProfileErrorKind(cachedProfile.is_active ? 'none' : 'inactive');
+      aplicar(cachedProfile, inactivo(cachedProfile), cachedProfile.is_active ? 'none' : 'inactive');
     }
 
     const request = (async () => {
@@ -343,14 +378,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               // falla cerrado (SQLSTATE TRLNK) en vez de vincular uno al azar.
               // No se reintenta: reintentar no cambiaría el resultado.
               if (import.meta.env.DEV) console.warn('Error vinculando el perfil:', linkError);
-              setProfile(null);
-              setProfileError(
-                'No pudimos vincular tu perfil de negocio. Escribinos para que lo revisemos.'
-              );
               // NO es `no_profile`: hay algo que vincular pero el servidor falló
               // cerrado. Ofrecerle «creá tu negocio» acá fabricaría un tenant
               // duplicado sobre un perfil que ya existe.
-              setProfileErrorKind('link_failed');
+              aplicar(null, 'No pudimos vincular tu perfil de negocio. Escribinos para que lo revisemos.', 'link_failed');
               return null;
             }
 
@@ -359,18 +390,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 ...linkedRow,
                 user_id: linkedRow.user_id ?? currentUser.id,
               };
-              setProfile(linkedProfile);
               cacheProfile(currentUser.id, linkedProfile);
-              setProfileError(linkedProfile.is_active ? null : 'Tu usuario existe, pero esta inactivo para este negocio.');
-              setProfileErrorKind(linkedProfile.is_active ? 'none' : 'inactive');
+              aplicar(linkedProfile, inactivo(linkedProfile), linkedProfile.is_active ? 'none' : 'inactive');
               return linkedProfile;
             }
 
             // NO_PROFILE — no hay perfil propio ni huérfano que reparar.
-            setProfile(null);
-            setProfileError('No existe un perfil de negocio para este usuario.');
             // El ÚNICO estado en el que corresponde ofrecer recovery de owner.
-            setProfileErrorKind('no_profile');
+            aplicar(null, 'No existe un perfil de negocio para este usuario.', 'no_profile');
             return null;
           }
 
@@ -379,14 +406,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             user_id: profileRow.user_id ?? profileRow.id ?? currentUser.id,
           };
 
-          setProfile(normalizedProfile);
           cacheProfile(currentUser.id, normalizedProfile);
-          setProfileError(
-            normalizedProfile.is_active
-              ? null
-              : 'Tu usuario existe, pero esta inactivo para este negocio.'
-          );
-          setProfileErrorKind(normalizedProfile.is_active ? 'none' : 'inactive');
+          aplicar(normalizedProfile, inactivo(normalizedProfile), normalizedProfile.is_active ? 'none' : 'inactive');
 
           return normalizedProfile;
         } catch (error) {
@@ -398,34 +419,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (import.meta.env.DEV) console.warn('Error loading profile:', error);
 
           if (cachedProfile) {
-            setProfile(cachedProfile);
-            setProfileError(
-              'No se pudo actualizar el perfil del negocio en este momento. Usando datos guardados localmente.'
+            aplicar(
+              cachedProfile,
+              'No se pudo actualizar el perfil del negocio en este momento. Usando datos guardados localmente.',
+              'transient',
             );
-            setProfileErrorKind('transient');
             return cachedProfile;
           }
 
-          setProfile(null);
-          setProfileError(
-            error instanceof Error
-              ? `No se pudo cargar el perfil del negocio. ${error.message}`
-              : 'No se pudo cargar el perfil del negocio.'
-          );
           // NO es «no tiene negocio»: es «no pudimos averiguarlo». La diferencia
           // decide si la pantalla ofrece reintentar o crear un tenant.
-          setProfileErrorKind('transient');
+          aplicar(
+            null,
+            error instanceof Error
+              ? `No se pudo cargar el perfil del negocio. ${error.message}`
+              : 'No se pudo cargar el perfil del negocio.',
+            'transient',
+          );
           return null;
         }
       }
 
-      setProfile(null);
-      setProfileError('No se pudo cargar el perfil del negocio.');
-      setProfileErrorKind('transient');
+      aplicar(null, 'No se pudo cargar el perfil del negocio.', 'transient');
       return null;
     })();
 
     profileRequestRef.current = request.finally(() => {
+      // Sólo la generación vigente puede cerrar el estado de carga: si una
+      // request vieja terminara después de un refresh, apagaría el spinner de
+      // la nueva y volvería a abrir la ventana de ambigüedad.
+      if (!vigente()) return;
       profileRequestRef.current = null;
       setProfileLoading(false);
       // La carga TERMINÓ. Recién ahora un `profile === null` significa «no hay»
@@ -472,11 +495,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const refreshProfile = async () => {
-    if (user) {
-      // Limpiar caché para forzar recarga desde DB (evita perfil/rol desactualizado)
-      window.localStorage.removeItem(getProfileCacheKey(user.id));
-      await loadProfile(user);
-    }
+    if (!user) return;
+
+    // Limpiar caché para forzar recarga desde DB (evita perfil/rol desactualizado)
+    window.localStorage.removeItem(getProfileCacheKey(user.id));
+
+    // P0-P4: se fuerza una carga NUEVA en vez de colgarse de la que esté en
+    // vuelo. `refreshProfile` se llama justo DESPUÉS de mutar el perfil
+    // —aceptar una invitación, crear el negocio, terminar el onboarding— y una
+    // request que arrancó antes de esa mutación devuelve el estado viejo.
+    //
+    // Subir la generación además invalida a la request vieja, que ya no puede
+    // pisar el estado cuando termine.
+    profileGenRef.current += 1;
+    profileRequestRef.current = null;
+    setProfileResolved(false);
+
+    await loadProfile(user);
   };
 
   useEffect(() => {
