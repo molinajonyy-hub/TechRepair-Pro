@@ -27,8 +27,15 @@
 //   1. signup por UI  -> /verificar-email, sin sesión, con reenvío
 //   2. sin confirmar  -> NO hay provisioning (ni profile ni business)
 //   3. sin confirmar  -> el login lo dice CLARO (no «contraseña incorrecta»)
-//   4. al confirmar   -> provisioning y el login entra
+//   4. al confirmar   -> el login entra, pero el tenant TODAVÍA no existe
+//   4b. camino canónico -> exactamente 1 tenant, con el nombre elegido, y el
+//       reload no lo duplica
+//   4c. alta estilo mayorista -> 0 tenants SaaS
 //   5. el producto no es alcanzable por URL mientras tanto
+//
+// ⚠️ Los casos 4x cambiaron de contrato en 20260823180000 (P0-P1 fase B):
+// confirmar el correo ya no provisiona. Crear el tenant es una acción explícita
+// del usuario contra `provision_my_business()`.
 //
 // Los correos locales se leen en Inbucket: http://127.0.0.1:54424
 // ============================================================================
@@ -161,7 +168,11 @@ test('@m7 3. el login sin confirmar lo dice claro, no "contraseña incorrecta"',
   await borrarPorEmail(email)
 })
 
-test('@m7 4. al confirmar hay provisioning y el login entra', async ({ page }) => {
+test('@m7 4. al confirmar el login entra, pero el tenant TODAVIA no existe', async ({ page }) => {
+  // ⚠️ CONTRATO NUEVO desde 20260823180000 (P0-P1 fase B). Este test aseveraba
+  // lo contrario —que confirmar disparaba el provisioning— porque eso es lo que
+  // hacía el trigger `on_auth_user_email_confirmed`. Ese acoplamiento se retiró:
+  // confirmar una identidad ya no funda una empresa.
   const email = emailUnico('confirm')
   await borrarPorEmail(email)
 
@@ -174,14 +185,95 @@ test('@m7 4. al confirmar hay provisioning y el login entra', async ({ page }) =
   // Equivale a hacer click en el enlace del correo.
   await confirmar(email)
 
-  // El trigger de confirmación corrió: exactamente un profile y un business.
-  expect(contarProfiles(id!)).toBe(1)
-  expect(contarBusinesses(id!)).toBe(1)
+  // El corazón de la fase B: confirmar NO provisiona.
+  expect(contarProfiles(id!), 'confirmar no debe crear un profile').toBe(0)
+  expect(contarBusinesses(id!), 'confirmar no debe crear un business').toBe(0)
 
+  // Pero el login sí entra: la cuenta quedó operativa.
   await loguearse(page, email)
-
   await expect(page).not.toHaveURL(/\/verificar-email/, { timeout: 25_000 })
   await expect(page).not.toHaveURL(/\/login/, { timeout: 25_000 })
+
+  // Y sin negocio, el guard lo lleva al embudo de creación.
+  await expect(page).toHaveURL(/\/onboarding/, { timeout: 25_000 })
+
+  await borrarPorEmail(email)
+})
+
+test('@m7 4b. el camino canónico crea EXACTAMENTE un tenant, con el nombre elegido', async ({ page }) => {
+  // El test que impide el falso verde de la fase B: apagar los triggers sin
+  // esto sería indistinguible de romper el alta de owners.
+  const email = emailUnico('canonico')
+  const nombreNegocio = `Taller E2E ${Date.now()}`
+  await borrarPorEmail(email)
+
+  await registrarse(page, email)
+  await expect(page).toHaveURL(/\/verificar-email/, { timeout: 25_000 })
+  await confirmar(email)
+  await loguearse(page, email)
+
+  await expect(page).toHaveURL(/\/onboarding/, { timeout: 25_000 })
+  const id = await idDe(email)
+  expect(contarBusinesses(id!)).toBe(0)
+
+  // Acción EXPLÍCITA de crear el taller.
+  await page.getByTestId('onboarding-business-name').fill(nombreNegocio)
+  await page.getByTestId('onboarding-rubro-celulares').click()
+  await page.getByTestId('onboarding-step1-submit').click()
+
+  // El paso 2 (logo) es la señal de que el paso 1 cerró bien.
+  await expect(page.getByText('Logo de tu negocio')).toBeVisible({ timeout: 25_000 })
+  await expect(page.getByTestId('onboarding-error')).toHaveCount(0)
+
+  expect(contarProfiles(id!), 'exactamente 1 profile').toBe(1)
+  expect(contarBusinesses(id!), 'exactamente 1 business').toBe(1)
+
+  // El nombre que el usuario escribió SÍ se persiste. Antes se perdía y por eso
+  // 16 de 24 negocios de producción se llaman «Mi Negocio».
+  const negocio = consultarJSON<{ name: string; role: string; owner_ok: boolean }>(
+    `SELECT b.name, p.role, (b.owner_user_id = '${id}') AS owner_ok
+       FROM public.businesses b JOIN public.profiles p ON p.business_id = b.id
+      WHERE p.id = '${id}'`,
+  )
+  expect(negocio.name).toBe(nombreNegocio)
+  expect(negocio.role).toBe('owner')
+  expect(negocio.owner_ok).toBe(true)
+
+  // RETRY: recargar el embudo no puede fabricar un segundo tenant. Con negocio
+  // ya creado, el guard del wizard manda al dashboard.
+  await page.goto('/onboarding')
+  await expect(page).toHaveURL(/\/dashboard/, { timeout: 25_000 })
+  expect(contarBusinesses(id!), 'el reload no debe duplicar el tenant').toBe(1)
+
+  await borrarPorEmail(email)
+})
+
+test('@m7 4c. un alta estilo mayorista NO fabrica un tenant SaaS', async ({ page: _page }) => {
+  // Medido antes del lote: 2 de 2 clientes mayoristas tenían su propio negocio
+  // «Mi Negocio» con rol owner y trial. El portal puede seguir creando usuarios
+  // de auth; lo que no puede es fundar una empresa.
+  const email = emailUnico('mayorista')
+  await borrarPorEmail(email)
+
+  const sb = await admin()
+  const { error } = await sb.auth.signUp({
+    email,
+    password: PASSWORD,
+    options: {
+      data: {
+        wholesale_registration: { portal_slug: 'demo', name: 'Cliente Mayorista' },
+      },
+    },
+  })
+  expect(error, 'el alta de auth debe funcionar').toBeNull()
+
+  const id = await idDe(email)
+  expect(id, 'el auth user debe existir').not.toBeNull()
+
+  await confirmar(email)
+
+  expect(contarProfiles(id!), 'el mayorista no debe recibir profile SaaS').toBe(0)
+  expect(contarBusinesses(id!), 'el mayorista no debe recibir business SaaS').toBe(0)
 
   await borrarPorEmail(email)
 })

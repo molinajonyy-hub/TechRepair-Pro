@@ -110,15 +110,23 @@ export function Onboarding() {
     }
   }, [])
 
-  if (!guardDone) {
-    return (
-      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--auth-bg)' }}>
-        <div style={{ width: 36, height: 36, borderRadius: '50%', border: '3px solid rgba(99,102,241,0.2)', borderTop: '3px solid #6366f1', animation: 'tr-spin 0.8s linear infinite' }} />
-      </div>
-    )
-  }
-  // ────────────────────────────────────────────────────────────────────────────
-
+  // ⚠️ TODOS los hooks van ANTES de cualquier return temprano.
+  //
+  // Estos `useState` vivían DESPUÉS del `if (!guardDone) return <spinner/>`. Es
+  // una violación de las Rules of Hooks: al pasar `guardDone` de false a true,
+  // React renderiza 13 hooks más que en el render anterior y lanza «Rendered
+  // more hooks than during the previous render», que el error boundary global
+  // convierte en «Algo salió mal».
+  //
+  // Estuvo latente e invisible durante meses porque el trigger de `auth.users`
+  // provisionaba antes de que el frontend pudiera evaluar el guard: con
+  // `existingBusinessId` siempre presente, el componente redirigía y `guardDone`
+  // NUNCA llegaba a true. Al retirar el provisioning automático (P0-P1 fase B)
+  // esta pantalla pasó a ser el camino de todo owner nuevo, y el bug se volvió
+  // un crash en el punto exacto del que depende el alta. Lo detectó el E2E.
+  //
+  // `react-hooks/rules-of-hooks` está en `warn` en este repo, así que el lint
+  // no lo frenaba.
   const [step, setStep]                         = useState(1)
   const [businessName, setBusinessName]         = useState('')
   const [rubro, setRubro]                       = useState('')
@@ -133,6 +141,15 @@ export function Onboarding() {
   const [saving, setSaving]                     = useState(false)
   const [error, setError]                       = useState('')
   const [businessId, setBusinessId]             = useState<string | null>(null)
+
+  // ── Guard: recién acá, con todos los hooks ya declarados ───────────────────
+  if (!guardDone) {
+    return (
+      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--auth-bg)' }}>
+        <div style={{ width: 36, height: 36, borderRadius: '50%', border: '3px solid rgba(99,102,241,0.2)', borderTop: '3px solid #6366f1', animation: 'tr-spin 0.8s linear infinite' }} />
+      </div>
+    )
+  }
 
   // ── Step 1: crear negocio ──────────────────────────────────────────────────
   //
@@ -345,13 +362,13 @@ export function Onboarding() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.125rem' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Nombre del negocio</label>
-                <input className="ob-input" autoFocus value={businessName} onChange={e => setBusinessName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleStep1()} placeholder="Ej: Tecno Reparaciones" style={OB_INPUT_STYLE} />
+                <input data-testid="onboarding-business-name" className="ob-input" autoFocus value={businessName} onChange={e => setBusinessName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleStep1()} placeholder="Ej: Tecno Reparaciones" style={OB_INPUT_STYLE} />
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>Rubro principal</label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
                   {RUBROS.map(r => (
-                    <button key={r.id} className="rubro-btn" onClick={() => setRubro(r.id)} style={{
+                    <button key={r.id} data-testid={`onboarding-rubro-${r.id}`} className="rubro-btn" onClick={() => setRubro(r.id)} style={{
                       padding: '0.625rem 0.75rem',
                       background: rubro === r.id ? 'rgba(99,102,241,0.15)' : 'var(--bg-hover)',
                       border: `1.5px solid ${rubro === r.id ? '#6366f1' : 'var(--border-color)'}`,
@@ -361,8 +378,8 @@ export function Onboarding() {
                   ))}
                 </div>
               </div>
-              {error && <p style={{ margin: 0, color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>}
-              <button className="ob-btn-primary" onClick={handleStep1} disabled={saving} style={{ ...OB_BTN_PRIMARY_STYLE, opacity: saving ? 0.65 : 1, cursor: saving ? 'not-allowed' : 'pointer' }}>
+              {error && <p data-testid="onboarding-error" role="alert" style={{ margin: 0, color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>}
+              <button data-testid="onboarding-step1-submit" className="ob-btn-primary" onClick={handleStep1} disabled={saving} style={{ ...OB_BTN_PRIMARY_STYLE, opacity: saving ? 0.65 : 1, cursor: saving ? 'not-allowed' : 'pointer' }}>
                 {saving ? 'Creando...' : 'Continuar →'}
               </button>
             </div>
