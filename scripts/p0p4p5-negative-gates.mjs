@@ -65,16 +65,27 @@ function correr(cmd, args) {
 
 const restaurarArchivo = (p) => execFileSync('git', ['checkout', '--', p], { stdio: 'ignore' })
 
+/**
+ * `patron` tiene que ser CORTO. Vitest envuelve las lineas largas, y un patron
+ * de varias palabras se parte al medio con un salto de linea: el gate
+ * funcionaba y el match fallaba igual. Se normalizan los espacios para que un
+ * wrap no rompa la busqueda.
+ */
 function esperarFallo(etiqueta, resultado, patron) {
+  const plano = resultado.salida.replace(/\s+/g, ' ')
   // Tiene que fallar Y fallar POR LO QUE ESPERAMOS. Un exit code distinto de 0
   // por cualquier otro motivo no prueba que el gate funcione.
-  if (!resultado.ok && resultado.salida.includes(patron)) {
+  if (!resultado.ok && plano.includes(patron)) {
     console.log(`  OK    ${etiqueta} -> el gate fallo como se esperaba`)
-    const linea = resultado.salida.split('\n').find(l => l.includes(patron))
+    const linea = resultado.salida.split('\n').find(l => l.replace(/\s+/g, ' ').includes(patron))
     if (linea) console.log(`        ${linea.trim().slice(0, 150)}`)
     return
   }
   console.log(`  FALLA ${etiqueta} -> el gate NO detecto la mutacion (exit ok=${resultado.ok})`)
+  console.log('        --- ultimas lineas de la salida ---')
+  for (const l of resultado.salida.trim().split('\n').slice(-6)) {
+    console.log(`        ${l.trim().slice(0, 150)}`)
+  }
   fallas += 1
 }
 
@@ -113,7 +124,7 @@ console.log('==============================================================')
     fallas += 1
   } else {
     escribir(archivo, mutado)
-    esperarFallo('A/test de hidratacion', vitest(), 'NO redirige mientras el perfil')
+    esperarFallo('A/test de hidratacion', vitest(), 'NO redirige')
     restaurarArchivo(archivo)
     console.log('  ...ProtectedRoute restaurado')
   }
@@ -191,7 +202,7 @@ console.log('==============================================================')
     fallas += 1
   } else {
     escribir(archivo, mutado)
-    esperarFallo('D/test de persistencia', vitest(), 'si la persistencia falla NO avanza')
+    esperarFallo('D/test de persistencia', vitest(), 'NO avanza')
     restaurarArchivo(archivo)
     console.log('  ...Onboarding restaurado')
   }
