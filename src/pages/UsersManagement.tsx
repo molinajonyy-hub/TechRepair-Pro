@@ -9,7 +9,7 @@ import { invitationsService, InvitationError, type Invitation } from '../service
 import { showToast } from '../utils/toast';
 import {
   AppPermissions, PermissionKey, PERMISSION_LABELS, PERMISSION_GROUPS,
-  resolvePermissions, ALL_PERMISSIONS,
+  resolvePermissions, ALL_PERMISSIONS, CONFIGURABLE_PERMISSIONS,
 } from '../config/permissions';
 
 const roleOptions = [
@@ -54,7 +54,12 @@ function PermissionsMatrix({ role, value, onChange, disabled }: PermissionsMatri
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       {PERMISSION_GROUPS.map(group => {
-        const keys = ALL_PERMISSIONS.filter(k => PERMISSION_LABELS[k].group === group);
+        // P0-P6: la matriz sólo ofrece capacidades CONFIGURABLES. `Mi Guita`
+        // queda fuera a propósito: está cerrado para la beta y su acceso interno
+        // se decide por `system_admins`, server-side. Si el owner pudiera
+        // tildarlo acá, se lo habilitaría a su equipo y la decisión de producto
+        // sería letra muerta.
+        const keys = CONFIGURABLE_PERMISSIONS.filter(k => PERMISSION_LABELS[k].group === group);
         return (
           <div key={group}>
             <div style={{

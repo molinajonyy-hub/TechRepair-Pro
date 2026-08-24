@@ -9,6 +9,7 @@ import { DollarRateBadge } from '../components/ui/DollarRateBadge'
 import { DashboardTasks } from '../components/tasks/DashboardTasks'
 import { OnboardingChecklist } from '../components/onboarding/OnboardingChecklist'
 import { useAuth } from '../contexts/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 import { supabase } from '../lib/supabase'
 import {
   AppButton, AppIconButton,
@@ -58,8 +59,24 @@ export function Dashboard() {
   const cajaStatus = cajaIsOpen ? 'open' : 'closed'
 
   const { businessId } = useAuth()
+  const { can } = usePermissions()
+
+  /**
+   * P0-P6 — Capacidad financiera del actor.
+   *
+   * Gobierna las tarjetas de Ganancia Real, Cobrado en Caja y Caja Neta, el
+   * acceso a Finanzas y el atajo de Registrar Gasto. Un técnico no la tiene.
+   *
+   * Y no sólo esconde: también decide si la consulta SE HACE. Traer la ganancia
+   * para después ocultar la tarjeta dejaría el dato en la respuesta HTTP, a la
+   * vista en la pestaña Network. La RLS ya lo rechazaría server-side, pero
+   * pedirlo igual sería ruido y una request condenada a fallar.
+   */
+  const puedeVerFinanzas = can('finance')
+
   const { stats, loading: statsLoading, error: statsError, refresh: refreshStats } = useDashboardStats()
-  const { data: finData, loading: finLoading, cajaError: finCajaError } = useFinancialDashboard(businessId, cajaId)
+  const { data: finData, loading: finLoading, cajaError: finCajaError } =
+    useFinancialDashboard(puedeVerFinanzas ? businessId : null, puedeVerFinanzas ? cajaId : null)
   const { comprobantes, listarComprobantes } = useComprobantes()
   const navigate = useNavigate()
 
@@ -86,8 +103,10 @@ export function Dashboard() {
 
 
   // ── Movimientos de caja activa ──
+  // P0-P6: sin capacidad financiera NO se consulta. La RLS ya lo devolvería
+  // vacío, pero la request no tiene por qué existir.
   useEffect(() => {
-    if (!businessId || !cajaId) { setMovimientosCaja([]); return }
+    if (!businessId || !cajaId || !puedeVerFinanzas) { setMovimientosCaja([]); return }
     setMovimientosLoading(true)
     void supabase.from('financial_movements').select('*')
       .eq('business_id', businessId)
@@ -98,7 +117,7 @@ export function Dashboard() {
         ({ data }) => { setMovimientosCaja(data || []); setMovimientosLoading(false) },
         ()         => { setMovimientosLoading(false) }
       )
-  }, [businessId, cajaId])
+  }, [businessId, cajaId, puedeVerFinanzas])
 
   // ── Comprobantes lazy ──
   useEffect(() => {
@@ -247,8 +266,9 @@ export function Dashboard() {
             {stats && <div style={{ fontSize: '0.78rem', color: 'var(--text-subtle)' }}>+{stats.newCustomersThisMonth} este mes</div>}
           </div>
 
-          {/* Ganancia hoy */}
-          <div className="stat-card">
+          {/* Ganancia hoy — P0-P6: sólo con capacidad financiera. */}
+          {puedeVerFinanzas && (
+          <div className="stat-card" data-testid="dash-ganancia-real">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div className="stat-card-label">Ganancia Real Hoy</div>
               <div style={{ width: 36, height: 36, borderRadius: 'var(--radius-md)', background: 'var(--success-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--success)' }}>
@@ -260,14 +280,20 @@ export function Dashboard() {
             </div>
             {stats && <div style={{ fontSize: '0.78rem', color: 'var(--text-subtle)' }}>{stats.averageMarginPct.toFixed(1)}% margen</div>}
           </div>
+          )}
 
           {/* Dólar Blue */}
           <DollarRateBadge variant="full" autoRefresh={false} />
         </div>
       )}
 
-      {/* ── 5. Snapshot financiero del día ────────────────────────────────────── */}
-      {(finData || finLoading) && (
+      {/* ── 5. Snapshot financiero del día ──────────────────────────────────────
+          P0-P6: bloque completo detrás de la capacidad `finance`. Con el gate en
+          false los datos ni siquiera se piden (ver `puedeVerFinanzas` arriba),
+          así que `finData` es null y `finLoading` false: la condición de abajo
+          no se cumple igual. El chequeo explícito está para que la intención sea
+          legible y para que quitarlo rompa un test. */}
+      {puedeVerFinanzas && (finData || finLoading) && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.875rem', marginBottom: '1.5rem' }}>
           {/* Si la consulta de caja falla NO se muestra $0: un cero creíble es
               peor que un "no disponible" honesto. El resto del Dashboard sigue. */}
@@ -312,14 +338,17 @@ export function Dashboard() {
       <section style={{ marginBottom: '1.5rem' }} data-testid="dashboard-quick-actions">
         <AppSectionHeader title="Accesos rápidos" />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.875rem' }}>
+          {/* P0-P6: cada atajo declara la capacidad que necesita. Ofrecer un
+              acceso directo a una pantalla que después rebota es peor que no
+              ofrecerlo — el usuario no entiende por qué "no funciona". */}
           {([
-            { label: 'Nueva Orden',    icon: <NewOrderIcon size={22} />,     color: 'var(--accent-primary)', bg: 'var(--accent-primary-subtle)', onClick: () => navigate('/orders/new') },
-            { label: 'Nuevo Comprobante', icon: <InvoiceIcon size={22} />, color: 'var(--accent-primary)', bg: 'var(--accent-primary-subtle)', onClick: () => navigate('/comprobantes', { state: { openNew: true } }) },
-            { label: 'Nuevo Cliente',  icon: <NewClientIcon size={22} />,    color: 'var(--accent-secondary)',bg: 'var(--accent-secondary-subtle)',onClick: () => navigate('/customers/new') },
-            { label: 'Nuevo Producto', icon: <CurrencyIcon size={22} />,     color: 'var(--info)',           bg: 'var(--info-subtle)',            onClick: () => navigate('/inventory') },
-            { label: 'Nueva Garantía', icon: <WarrantyIcon size={22} />,     color: 'var(--accent-primary)', bg: 'var(--accent-primary-subtle)', onClick: () => navigate('/warranties') },
-            { label: 'Registrar Gasto',icon: <ExpenseReceiptIcon size={22} />,color: 'var(--error)',         bg: 'var(--error-subtle)',           onClick: () => navigate('/expenses') },
-          ]).map(action => (
+            { label: 'Nueva Orden',    icon: <NewOrderIcon size={22} />,     color: 'var(--accent-primary)', bg: 'var(--accent-primary-subtle)', onClick: () => navigate('/orders/new'), need: 'orders' as const },
+            { label: 'Nuevo Comprobante', icon: <InvoiceIcon size={22} />, color: 'var(--accent-primary)', bg: 'var(--accent-primary-subtle)', onClick: () => navigate('/comprobantes', { state: { openNew: true } }), need: 'comprobantes' as const },
+            { label: 'Nuevo Cliente',  icon: <NewClientIcon size={22} />,    color: 'var(--accent-secondary)',bg: 'var(--accent-secondary-subtle)',onClick: () => navigate('/customers/new'), need: 'customers' as const },
+            { label: 'Nuevo Producto', icon: <CurrencyIcon size={22} />,     color: 'var(--info)',           bg: 'var(--info-subtle)',            onClick: () => navigate('/inventory'), need: 'inventory' as const },
+            { label: 'Nueva Garantía', icon: <WarrantyIcon size={22} />,     color: 'var(--accent-primary)', bg: 'var(--accent-primary-subtle)', onClick: () => navigate('/warranties'), need: 'orders' as const },
+            { label: 'Registrar Gasto',icon: <ExpenseReceiptIcon size={22} />,color: 'var(--error)',         bg: 'var(--error-subtle)',           onClick: () => navigate('/expenses'), need: 'finance' as const },
+          ]).filter(action => can(action.need)).map(action => (
             <button
               key={action.label}
               className="card card-interactive"
