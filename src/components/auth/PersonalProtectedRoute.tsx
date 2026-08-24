@@ -1,6 +1,7 @@
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useSubscription } from '../../hooks/useSubscription'
+import { useSystemOwner } from '../../hooks/useSystemOwner'
 import { Wallet } from 'lucide-react'
 import { useRef } from 'react'
 
@@ -129,6 +130,7 @@ function MiGuitaPaywall() {
 export function PersonalProtectedRoute() {
   const { isAuthenticated, loading, emailConfirmed, profileLoading, profile, profileError, businessId } = useAuth()
   const { hasFeature, loading: subLoading } = useSubscription()
+  const { isSystemOwner, loading: systemOwnerLoading } = useSystemOwner()
   const location = useLocation()
 
   // Once profile loaded once, never show loading screen again (same pattern as ProtectedRoute).
@@ -152,6 +154,24 @@ export function PersonalProtectedRoute() {
 
   if ((profileLoading && isInitialLoad) || (!profile && !profileError && isInitialLoad)) {
     return <PersonalLoadingScreen />
+  }
+
+  // ── P0-P6: gate de BETA ───────────────────────────────────────────────────
+  // Mi Guita está cerrado para los usuarios generales durante la beta.
+  //
+  // Antes el único gate era el PLAN (`hasFeature('personal_finance')`), así que
+  // cualquier miembro de un negocio Pro/Full entraba — incluido un técnico
+  // invitado, que fue parte del incidente. Un plan no es una autorización
+  // personal.
+  //
+  // Ahora la puerta la abre `system_admins`, que es server-side (RLS
+  // `user_id = auth.uid()`) y NO configurable desde el tenant: ningún owner
+  // puede habilitárselo a su equipo desde la matriz de permisos.
+  //
+  // Esconder el item del sidebar no alcanzaba: escribir /mi-guita entraba igual.
+  if (systemOwnerLoading) return <PersonalLoadingScreen />
+  if (!isSystemOwner) {
+    return <Navigate to="/dashboard" replace />
   }
 
   // Gate: only check plan when the user has a business AND subscription is resolved.

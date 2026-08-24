@@ -204,6 +204,14 @@ type NavItem = {
   planFeature?: import('../../config/planFeatures').PlanFeature;
   /** If true, this item is only visible to System Owners (system_admins.user_id = auth.uid()) */
   systemOwnerOnly?: boolean;
+  /**
+   * P0-P6 — Si true, un System Owner ve el item aunque no tenga la `permission`.
+   *
+   * Es la escotilla para Mi Guita durante la beta: cerrado para los 7 roles del
+   * negocio, pero disponible para los usuarios internos, que se identifican
+   * server-side por `system_admins` y no por nada configurable del tenant.
+   */
+  systemOwnerAlso?: boolean;
 };
 type NavSection = {
   sectionLabel: string;
@@ -245,7 +253,11 @@ const menuSections: NavSection[] = [
       { path: '/caja',     label: 'Caja',      icon: <CajaIcon />,     permission: 'finance' },
       { path: '/finance', label: 'Finanzas', icon: <DashFinIcon />, permission: 'finance', planFeature: 'advancedFinance' },
       { path: '/reports',        label: 'Reportes',  icon: <ReportesIcon />,  permission: 'reports', planFeature: 'reports' },
-      { path: '/mi-guita', label: 'Mi Guita',  icon: <MiGuitaIcon /> },
+      // P0-P6: Mi Guita queda cerrado para la beta. `personal_finance` es
+      // `false` para los 7 roles (incluido owner) y NO es configurable desde la
+      // matriz de permisos: el acceso interno se resuelve por `system_admins`.
+      // Antes este item no declaraba ningún gate, así que lo veía todo el mundo.
+      { path: '/mi-guita', label: 'Mi Guita',  icon: <MiGuitaIcon />, permission: 'personal_finance', systemOwnerAlso: true },
     ],
   },
   {
@@ -297,14 +309,43 @@ export function Sidebar() {
     .map(section => ({
       ...section,
       items: section.items.filter(item => {
-        // Mayorista: visible para los 7 roles con feature + acceso (canViewWholesale)
-        // y el toggle de negocio mayorista_enabled. NO depende de la permission 'inventory'.
-        if (item.wholesaleView) return wholesale.canView && mayoristaEnabled;
+        // ── P0-P6 ────────────────────────────────────────────────────────────
+        // Este filtro tenía un `return` temprano que anulaba los dos gates de
+        // abajo:
+        //
+        //     if (!item.permission || !can(item.permission)) return !item.permission
+        //
+        // Para cualquier item SIN `permission` eso devolvía `true` de inmediato,
+        // así que `planFeature` y `systemOwnerOnly` NUNCA se evaluaban. Como
+        // `/admin/subscriptions` y `/admin/leads` declaran sólo
+        // `systemOwnerOnly`, y `/mi-guita` no declaraba nada, la sección
+        // SaaS Admin y Mi Guita eran visibles para CUALQUIER usuario —incluido
+        // un técnico invitado—. Ése fue el incidente que disparó el lote.
+        //
+        // Ahora cada gate se evalúa por separado y todos tienen que pasar.
+        // El orden es irrelevante a propósito: son condiciones AND, no una
+        // cadena de precedencia.
+
+        // SaaS Admin: privilegio del SaaS, NUNCA del negocio. No depende del
+        // rol, del plan ni de ningún permiso configurable del tenant.
+        if (item.systemOwnerOnly && !isSystemOwner) return false;
+
+        // Mayorista: hacen falta las TRES cosas. Que el negocio tenga la
+        // feature (plan Full) no alcanza — antes un técnico lo veía sólo por
+        // eso.
+        if (item.wholesaleView) {
+          return wholesale.canView && mayoristaEnabled && can('wholesale');
+        }
+
         // Portal Clic: SOLO el owner real con el portal habilitado.
         if (item.clicPortalManage) return wholesale.canManageClicPortal;
-        if (!item.permission || !can(item.permission)) return !item.permission;
-        if (item.planFeature             && !hasFeature(item.planFeature)) return false;
-        if (item.systemOwnerOnly         && !isSystemOwner) return false;
+
+        // `systemOwnerAlso`: el interno del SaaS pasa aunque el tenant no le dé
+        // la capacidad. Va antes del chequeo de permiso, no en lugar de él.
+        if (item.permission && !can(item.permission)) {
+          if (!(item.systemOwnerAlso && isSystemOwner)) return false;
+        }
+        if (item.planFeature && !hasFeature(item.planFeature)) return false;
         return true;
       }),
     }))

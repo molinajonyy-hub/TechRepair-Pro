@@ -8,6 +8,7 @@ import { LoadingProvider, useLoading } from './contexts/LoadingContext'
 import { LoadingDino } from './components/LoadingDino'
 import { PortalRouter, PORTAL_DOMAINS } from './portal/PortalRouter'
 import { ProtectedRouteByFeature } from './components/auth/ProtectedRouteByFeature'
+import { ProtectedRouteByPermission } from './components/auth/ProtectedRouteByPermission'
 import { ProtectedRouteBySystemOwner } from './components/auth/ProtectedRouteBySystemOwner'
 import { UpdateBanner } from './components/UpdateBanner'
 import { AnalyticsRouteTracker } from './components/AnalyticsRouteTracker'
@@ -187,20 +188,50 @@ function AppContent() {
               <Route path="/orders" element={<Orders />} />
               <Route path="/orders/new" element={<NewOrder />} />
               <Route path="/orders/:id" element={<OrderDetail />} />
-              <Route path="/comprobantes" element={<Comprobantes />} />
-              <Route path="/comprobantes/:id" element={<Comprobante />} />
               <Route path="/warranties" element={<Warranties />} />
-              <Route path="/customers" element={<Customers />} />
-              <Route path="/customers/new" element={<NewCustomer />} />
-              <Route path="/customers/:id" element={<CustomerDetail />} />
-              <Route path="/inventory" element={<Inventory />} />
-              <Route path="/suppliers" element={<Suppliers />} />
-              <Route path="/offers" element={<Offers />} />
-              <Route path="/expenses" element={<Expenses />} />
-              <Route path="/caja" element={<CajaPage />} />
-              <Route path="/currency-settings" element={<CurrencySettings />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/users" element={<UsersManagement />} />
+
+              {/*
+                P0-P6 — Guards por CAPACIDAD.
+
+                Ocultar el item del sidebar NO es protección: escribir la URL a
+                mano tenía que fallar igual, y hasta acá no fallaba. `/caja` y
+                `/expenses` no tenían ningún gate, y `/finance` sólo miraba el
+                plan del negocio — o sea que cualquier miembro de un plan Pro
+                entraba al panel financiero.
+
+                Las lecturas ya están cerradas server-side por RLS; esto evita
+                además que el usuario aterrice en una pantalla vacía y rota.
+              */}
+              <Route element={<ProtectedRouteByPermission permission="comprobantes" />}>
+                <Route path="/comprobantes" element={<Comprobantes />} />
+                <Route path="/comprobantes/:id" element={<Comprobante />} />
+              </Route>
+
+              <Route element={<ProtectedRouteByPermission permission="customers" />}>
+                <Route path="/customers" element={<Customers />} />
+                <Route path="/customers/new" element={<NewCustomer />} />
+                <Route path="/customers/:id" element={<CustomerDetail />} />
+              </Route>
+
+              <Route element={<ProtectedRouteByPermission permission="inventory" />}>
+                <Route path="/inventory" element={<Inventory />} />
+                <Route path="/suppliers" element={<Suppliers />} />
+                <Route path="/offers" element={<Offers />} />
+              </Route>
+
+              <Route element={<ProtectedRouteByPermission permission="finance" />}>
+                <Route path="/expenses" element={<Expenses />} />
+                <Route path="/caja" element={<CajaPage />} />
+              </Route>
+
+              <Route element={<ProtectedRouteByPermission permission="settings" />}>
+                <Route path="/currency-settings" element={<CurrencySettings />} />
+                <Route path="/settings" element={<Settings />} />
+              </Route>
+
+              <Route element={<ProtectedRouteByPermission permission="users" />}>
+                <Route path="/users" element={<UsersManagement />} />
+              </Route>
 
               {/* ── Rutas PRO — currentAccounts ── */}
               <Route element={<ProtectedRouteByFeature feature="currentAccounts" />}>
@@ -208,6 +239,9 @@ function AppContent() {
               </Route>
 
               {/* ── Rutas PRO — advancedFinance ── */}
+              {/* P0-P6: feature del negocio Y capacidad del actor. El plan solo
+                  no alcanza: dejaba entrar a cualquier miembro. */}
+              <Route element={<ProtectedRouteByPermission permission="finance" />}>
               <Route element={<ProtectedRouteByFeature feature="advancedFinance" />}>
                 <Route path="/finance"         element={<FinanceDashboard />} />
                 {/* /finance/reports DEPRECADA: el Panel Financiero legacy calculaba P&L desde BFE crudo (modelo viejo). Se conserva la ruta para bookmarks con un aviso + CTA a /finance (modelo canónico). */}
@@ -216,10 +250,13 @@ function AppContent() {
                 {/* Backward compat redirect */}
                 <Route path="/finance/dashboard" element={<Navigate to="/finance" replace />} />
               </Route>
+              </Route>
 
               {/* ── Rutas PRO — reports ── */}
+              <Route element={<ProtectedRouteByPermission permission="reports" />}>
               <Route element={<ProtectedRouteByFeature feature="reports" />}>
                 <Route path="/reports" element={<Reports />} />
+              </Route>
               </Route>
 
               {/* ── Rutas PRO — tasks ── */}
@@ -228,9 +265,13 @@ function AppContent() {
               </Route>
 
               {/* ── Rutas PRO — mayorista ── */}
+              {/* P0-P6: que el NEGOCIO tenga la feature no implica que todos
+                  sus miembros entren. Hacen falta las dos: feature + capacidad. */}
+              <Route element={<ProtectedRouteByPermission permission="wholesale" />}>
               <Route element={<ProtectedRouteByFeature feature="mayorista" />}>
                 <Route path="/mayorista" element={<Mayorista />} />
                 <Route path="/portal-clic" element={<AdminPortalClic />} />
+              </Route>
               </Route>
 
               {/* ── Rutas SaaS Admin — solo system owner ── */}

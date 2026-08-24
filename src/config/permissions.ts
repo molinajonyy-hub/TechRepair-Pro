@@ -32,6 +32,23 @@ export interface AppPermissions {
   subscription: boolean
   /** Can manage team members and their permissions */
   users: boolean
+  /**
+   * P0-P6 — Can access the wholesale (Mayorista) module.
+   *
+   * Que el NEGOCIO tenga la feature `mayorista` no implica que todos sus
+   * miembros deban verla. Antes el gate era «feature activa + rol ∈ los 7», así
+   * que un técnico veía Mayorista sólo porque el plan del negocio era Full.
+   * Ahora hacen falta las dos cosas: feature del negocio Y capacidad del actor.
+   */
+  wholesale: boolean
+  /**
+   * P0-P6 — Can access Mi Guita (finanzas personales).
+   *
+   * Cerrado para TODOS los roles del negocio durante la beta. No es un permiso
+   * que el owner pueda otorgar desde la matriz: el acceso interno se resuelve
+   * por `system_admins`, que es server-side y no configurable desde el tenant.
+   */
+  personal_finance: boolean
 }
 
 export type PermissionKey = keyof AppPermissions
@@ -50,6 +67,8 @@ export const ALL_PERMISSIONS: PermissionKey[] = [
   'settings_sensitive',
   'subscription',
   'users',
+  'wholesale',
+  'personal_finance',
 ]
 
 /** Human-readable labels for the permissions matrix UI */
@@ -67,10 +86,29 @@ export const PERMISSION_LABELS: Record<PermissionKey, { label: string; descripti
   settings_sensitive:      { label: 'Config. avanzada',          description: 'Cambiar datos del negocio e integraciones',   group: 'Configuración' },
   subscription:            { label: 'Suscripción',                description: 'Ver y gestionar suscripción',                group: 'Configuración' },
   users:                   { label: 'Usuarios / Equipo',          description: 'Invitar y gestionar usuarios',               group: 'Configuración' },
+  wholesale:               { label: 'Mayorista',                  description: 'Acceder al módulo mayorista',                group: 'Clientes' },
+  personal_finance:        { label: 'Mi Guita',                   description: 'Finanzas personales (no disponible en beta)', group: 'Configuración' },
 }
 
 /** Groups for rendering the matrix in sections */
 export const PERMISSION_GROUPS = ['Órdenes', 'Inventario', 'Clientes', 'Finanzas', 'Configuración'] as const
+
+/**
+ * P0-P6 — Capacidades que el owner NO puede otorgar desde la matriz de permisos.
+ *
+ * `personal_finance` está cerrado para la beta y su acceso interno se decide por
+ * `system_admins` (server-side, fuera del tenant). Dejarlo configurable haría
+ * que un owner cualquiera se lo habilite a su equipo, que es justo lo que la
+ * decisión de producto descarta.
+ *
+ * Nada de lo que otorga privilegio SaaS o permite escapar del tenant puede
+ * aparecer acá como configurable.
+ */
+export const NON_CONFIGURABLE_PERMISSIONS: readonly PermissionKey[] = ['personal_finance'] as const
+
+/** Las capacidades que la matriz de permisos puede mostrar y editar. */
+export const CONFIGURABLE_PERMISSIONS: PermissionKey[] =
+  ALL_PERMISSIONS.filter(k => !NON_CONFIGURABLE_PERMISSIONS.includes(k))
 
 /** Default permissions per role. Owners always get all. */
 export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
@@ -88,6 +126,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
     settings_sensitive: true,
     subscription: true,
     users: true,
+    wholesale: true,
+    personal_finance: false,
   },
   admin: {
     orders: true,
@@ -103,6 +143,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
     settings_sensitive: true,
     subscription: false,
     users: true,
+    wholesale: true,
+    personal_finance: false,
   },
   manager: {
     orders: true,
@@ -118,6 +160,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
     settings_sensitive: false,
     subscription: false,
     users: false,
+    wholesale: true,
+    personal_finance: false,
   },
   tech: {
     orders: true,
@@ -133,6 +177,10 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
     settings_sensitive: false,
     subscription: false,
     users: false,
+    // P0-P6: el técnico es el rol más acotado. Sin mayorista, sin finanzas,
+    // sin costos y sin Mi Guita por defecto.
+    wholesale: false,
+    personal_finance: false,
   },
   sales: {
     orders: true,
@@ -148,6 +196,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
     settings_sensitive: false,
     subscription: false,
     users: false,
+    wholesale: true,
+    personal_finance: false,
   },
   cashier: {
     orders: true,
@@ -163,6 +213,9 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
     settings_sensitive: false,
     subscription: false,
     users: false,
+    // Cashier opera caja, no vende mayorista.
+    wholesale: false,
+    personal_finance: false,
   },
   viewer: {
     orders: true,
@@ -178,6 +231,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
     settings_sensitive: false,
     subscription: false,
     users: false,
+    wholesale: false,
+    personal_finance: false,
   },
 }
 
