@@ -194,8 +194,17 @@ test('@m7 4. al confirmar el login entra, pero el tenant TODAVIA no existe', asy
   await expect(page).not.toHaveURL(/\/verificar-email/, { timeout: 25_000 })
   await expect(page).not.toHaveURL(/\/login/, { timeout: 25_000 })
 
-  // Y sin negocio, el guard lo lleva al embudo de creación.
-  await expect(page).toHaveURL(/\/onboarding/, { timeout: 25_000 })
+  // Y sin negocio, el guard lo lleva al RECOVERY.
+  //
+  // ⚠️ CONTRATO NUEVO desde 20260825120000 (P0-P4). Antes el destino era
+  // /onboarding, porque el paso 1 del wizard era el que creaba el tenant. Ahora
+  // el onboarding CONFIGURA un negocio que ya existe y no puede crear ninguno,
+  // así que el alta vive en /no-business detrás de un click explícito.
+  await expect(page).toHaveURL(/\/no-business/, { timeout: 25_000 })
+  await expect(page.getByTestId('no-business-create')).toBeVisible()
+
+  // Y montar esa pantalla no crea nada por su cuenta.
+  expect(contarBusinesses(id!), 'el recovery no provisiona al montarse').toBe(0)
 
   await borrarPorEmail(email)
 })
@@ -212,18 +221,18 @@ test('@m7 4b. el camino canónico crea EXACTAMENTE un tenant, con el nombre eleg
   await confirmar(email)
   await loguearse(page, email)
 
-  await expect(page).toHaveURL(/\/onboarding/, { timeout: 25_000 })
+  // P0-P4: el alta explícita vive en /no-business, no en el paso 1 del wizard.
+  await expect(page).toHaveURL(/\/no-business/, { timeout: 25_000 })
   const id = await idDe(email)
   expect(contarBusinesses(id!)).toBe(0)
 
   // Acción EXPLÍCITA de crear el taller.
-  await page.getByTestId('onboarding-business-name').fill(nombreNegocio)
-  await page.getByTestId('onboarding-rubro-celulares').click()
-  await page.getByTestId('onboarding-step1-submit').click()
+  await page.getByTestId('no-business-name').fill(nombreNegocio)
+  await page.getByTestId('no-business-crear').click()
 
-  // El paso 2 (logo) es la señal de que el paso 1 cerró bien.
-  await expect(page.getByText('Logo de tu negocio')).toBeVisible({ timeout: 25_000 })
-  await expect(page.getByTestId('onboarding-error')).toHaveCount(0)
+  // Llegar al onboarding es la señal de que el alta cerró bien.
+  await expect(page).toHaveURL(/\/onboarding/, { timeout: 25_000 })
+  await expect(page.getByTestId('no-business-error')).toHaveCount(0)
 
   expect(contarProfiles(id!), 'exactamente 1 profile').toBe(1)
   expect(contarBusinesses(id!), 'exactamente 1 business').toBe(1)
@@ -239,11 +248,17 @@ test('@m7 4b. el camino canónico crea EXACTAMENTE un tenant, con el nombre eleg
   expect(negocio.role).toBe('owner')
   expect(negocio.owner_ok).toBe(true)
 
-  // RETRY: recargar el embudo no puede fabricar un segundo tenant. Con negocio
-  // ya creado, el guard del wizard manda al dashboard.
-  await page.goto('/onboarding')
+  // RETRY: volver al recovery no puede fabricar un segundo tenant. Con negocio
+  // ya creado, esa pantalla manda al dashboard.
+  await page.goto('/no-business')
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 25_000 })
-  expect(contarBusinesses(id!), 'el reload no debe duplicar el tenant').toBe(1)
+  expect(contarBusinesses(id!), 'volver al recovery no debe duplicar el tenant').toBe(1)
+
+  // Y el onboarding queda disponible como CONFIGURACIÓN del negocio existente,
+  // sin volver a crear nada.
+  await page.goto('/onboarding')
+  await expect(page.getByTestId('onboarding-business-name')).toBeVisible({ timeout: 25_000 })
+  expect(contarBusinesses(id!), 'configurar no duplica el tenant').toBe(1)
 
   await borrarPorEmail(email)
 })

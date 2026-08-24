@@ -147,9 +147,22 @@ describe('H · estructura: una sola autoridad creadora', () => {
     expect(portal).not.toMatch(/bootstrap_owner_profile/)
   })
 
-  it('los únicos llamadores son los puntos owner del flujo SaaS', () => {
-    expect(onboarding).toMatch(/provisionMyBusiness\(/)
+  it('P0-P4: el ÚNICO llamador productivo es el recovery explícito', () => {
+    // Contrato ENDURECIDO en P0-P4/P0-P5. Antes eran dos llamadores: el wizard
+    // de onboarding también creaba el tenant en su paso 1.
+    //
+    // Ahora el onboarding CONFIGURA un negocio que ya existe y no puede crear
+    // ninguno, así que el alta queda en un solo lugar —/no-business— y siempre
+    // detrás de un click explícito del usuario. Un solo punto de creación es lo
+    // que hace auditable la invariante «provision_my_business es la única
+    // autoridad».
     expect(noBusiness).toMatch(/provisionMyBusiness\(/)
+
+    // Se mide la INVOCACIÓN, no la palabra: el encabezado de Onboarding.tsx
+    // explica a propósito por qué ya no provisiona, y esa historia tiene que
+    // poder escribirse sin romper el test.
+    expect(onboarding, 'Onboarding no puede crear tenants')
+      .not.toMatch(/provisionMyBusiness\s*\(/)
   })
 
   it('ningún llamador quedó apuntando a bootstrap_owner_profile', () => {

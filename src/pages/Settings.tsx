@@ -32,6 +32,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import ArcaService from '../services/arcaService'
 import { uploadBusinessLogo } from '../lib/storageSetup'
+import { businessSetupService } from '../services/businessSetupService'
 
 type TabType = 'datos' | 'puntos' | 'arca' | 'preferencias' | 'seguridad' | 'orden' | 'comprobante' | 'pagos' | 'comisiones' | 'whatsapp'
 
@@ -450,16 +451,13 @@ export default function Settings() {
     try {
       setUploadingLogo(true)
 
-      // Usar función que crea bucket automáticamente si no existe
       const publicUrl = await uploadBusinessLogo(file, businessId)
 
-      // Actualizar business_settings con la URL del logo
-      const { error: updateError } = await supabase
-        .from('business_settings')
-        .update({ logo_url: publicUrl })
-        .eq('business_id', businessId)
-
-      if (updateError) throw updateError
+      // P0-P5: se persiste por la RPC canónica, que hace UPSERT.
+      // El `.update()` directo que había acá tocaba 0 filas —y sin error— en los
+      // negocios que todavía no tienen fila de `business_settings` (18 de 26 en
+      // producción): el logo se subía y la URL se perdía en silencio.
+      await businessSetupService.updateMyBusinessSetup({ logoUrl: publicUrl })
 
       // Actualizar estado local
       setBusinessSettings({ ...businessSettings, logo_url: publicUrl ?? undefined })
@@ -481,13 +479,9 @@ export default function Settings() {
     try {
       setUploadingLogo(true)
 
-      // Eliminar logo de business_settings
-      const { error: updateError } = await supabase
-        .from('business_settings')
-        .update({ logo_url: null })
-        .eq('business_id', businessId)
-
-      if (updateError) throw updateError
+      // P0-P5: mismo camino canónico que la subida. La cadena vacía es la forma
+      // de decir «borralo» (un `null` significaría «no toques este campo»).
+      await businessSetupService.updateMyBusinessSetup({ logoUrl: '' })
 
       // Actualizar estado local
       setBusinessSettings({ ...businessSettings, logo_url: undefined })

@@ -11,8 +11,9 @@ import {
   Phone,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import { supabase } from '../../lib/supabase'
 import { uploadBusinessLogo } from '../../lib/storageSetup'
+import { businessSetupService } from '../../services/businessSetupService'
+import { logger } from '../../lib/logger'
 import {
   useOrderPrintSettings,
   OrderPrintSettings as OPS,
@@ -181,10 +182,12 @@ export function ComprobantePrintSettings() {
     try {
       setUploadingLogo(true)
       const url = await uploadBusinessLogo(e.target.files[0], businessId)
-      await supabase.from('business_settings').update({ logo_url: url }).eq('business_id', businessId)
+      // P0-P5: por la RPC canónica (UPSERT). El `.update()` directo tocaba 0
+      // filas, sin error, en los negocios sin fila de `business_settings`.
+      await businessSetupService.updateMyBusinessSetup({ logoUrl: url })
       updateLocal({ logo_url: url ?? undefined })
     } catch (err) {
-      console.error('Error uploading logo:', err)
+      logger.error('AUTH', 'No se pudo actualizar el logo del comprobante', err)
     } finally {
       setUploadingLogo(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -194,10 +197,12 @@ export function ComprobantePrintSettings() {
   const handleLogoDelete = async () => {
     if (!businessId || !confirm('¿Eliminar el logo actual?')) return
     try {
-      await supabase.from('business_settings').update({ logo_url: null }).eq('business_id', businessId)
+      // P0-P5: mismo camino canónico que la subida. Cadena vacía = «borralo»
+      // (un `null` significaría «no toques este campo»).
+      await businessSetupService.updateMyBusinessSetup({ logoUrl: '' })
       updateLocal({ logo_url: null })
     } catch (err) {
-      console.error('Error deleting logo:', err)
+      logger.error('AUTH', 'No se pudo eliminar el logo del comprobante', err)
     }
   }
 
