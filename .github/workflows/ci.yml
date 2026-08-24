@@ -37,6 +37,13 @@ jobs:
       - name: ESLint (0 errors gate)
         run: npm run lint:errors
 
+      # P0-P1: invariantes de provisioning. Es estático —lee migraciones y
+      # `src/`— así que no necesita DB ni credenciales y puede correr acá, en
+      # PRs y en forks. El self-test va primero: un guard que no puede fallar no
+      # prueba nada, y este ya reemplazó a la barrera que vivía en un trigger.
+      - name: Guard — autoridad de provisioning
+        run: npm run guard:provisioning-authority:self-test && npm run guard:provisioning-authority
+
       - name: Production build
         run: npm run build
         env:

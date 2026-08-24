@@ -50,7 +50,10 @@ const ALLOWLIST_ANON = new Set([
 // Funciones cuyo guard interno no se puede perder en un CREATE OR REPLACE.
 const SENSIBLES = [
   /^arca_/, /^whatsapp_/, /^encrypt_data$/, /^decrypt_data$/,
-  /^bootstrap_owner_profile$/, /^recalculate_product_prices$/,
+  // `bootstrap_owner_profile` se retiro en 20260823180000 (P0-P1 fase B); el
+  // patron se conserva para que reintroducirla no pase inadvertido.
+  /^bootstrap_owner_profile$/, /^provision_my_business$/,
+  /^recalculate_product_prices$/,
   /^get_business_subscription$/, /^get_business_subscription_features$/,
   /^pay_card_statement_atomic$/,
 ]

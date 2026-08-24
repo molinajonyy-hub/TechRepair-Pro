@@ -167,9 +167,17 @@ describe('O. registro mayorista sin sesión', () => {
     expect(serializado).not.toContain('business_id')
   })
 
-  it('NO pisa las claves que lee handle_new_user', async () => {
-    // `full_name`, `role` y `business_name` en el nivel superior cambiarían el
-    // provisioning del negocio. Todo va adentro de `wholesale_registration`.
+  it('NO pisa las claves de provisioning en el nivel superior', async () => {
+    // Histórico: `handle_new_user()` leía `full_name`, `role` y `business_name`
+    // del nivel superior, así que una clave suelta acá cambiaba el provisioning
+    // del negocio —y un `role` invalido llegaba a trabar la confirmación del
+    // correo—. Esa función se retiró en 20260823180000 (P0-P1 fase B) y hoy
+    // NINGUNA metadata define el rol.
+    //
+    // La aserción se conserva igual porque el aislamiento por namespace sigue
+    // siendo correcto: `provision_my_business` todavía lee `full_name` para el
+    // nombre a mostrar, y un cliente mayorista no debería influir ni en eso.
+    // Todo va adentro de `wholesale_registration`.
     estado.signUpSession = null
 
     await registerCustomer(entradaRegistro)
