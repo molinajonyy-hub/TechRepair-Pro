@@ -1,33 +1,75 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mail, RefreshCw, Building2, Plus, Loader2, ArrowRight } from 'lucide-react';
+import { RefreshCw, Building2, Plus, Loader2, AlertTriangle, Mail } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabase';
 import { provisionMyBusiness } from '../services/provisioningService';
+import { peekInviteToken, acceptInviteePath } from '../lib/pendingInvite';
+import { logger } from '../lib/logger';
 
+/**
+ * P0-P4 — Recovery explícito para un usuario autenticado y confirmado que
+ * REALMENTE no tiene negocio.
+ *
+ * ── EL BUG QUE CIERRA ────────────────────────────────────────────────────────
+ * Esta pantalla tenía, arriba de todo, un `useEffect` que redirigía sin
+ * condiciones: con negocio a /dashboard, sin negocio a /onboarding. O sea que
+ * TODA la UI de recuperación de abajo era código muerto — nadie la vio nunca —
+ * y cualquiera sin negocio terminaba en el wizard de owner, incluido un invitado
+ * que sólo tenía que aceptar su invitación.
+ *
+ * Ahora la pantalla tiene UNA responsabilidad y no redirige por su cuenta salvo
+ * cuando el estado dejó de corresponderle.
+ *
+ * ── LAS TRES SALIDAS ─────────────────────────────────────────────────────────
+ *   A. invitación vigente  -> continuar el flujo de invitación (NO crear tenant)
+ *   B. owner sin negocio   -> acción EXPLÍCITA «Crear mi taller»
+ *   C. estado inconsistente-> reintentar; NUNCA ofrecer crear un tenant
+ *
+ * La diferencia entre B y C es la que evita fabricar negocios duplicados a
+ * partir de un corte de red: `authState === 'AUTH_ERROR'` significa «no pudimos
+ * averiguar si tenés negocio», no «no tenés».
+ */
 export function NoBusiness() {
-  const { user, refreshProfile, setProfileLoadingDisabled, signOut, businessId, loading: authLoading, profileLoading } = useAuth();
+  const {
+    user, authState, profileErrorKind, refreshProfile, signOut,
+  } = useAuth();
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
-  const [showCreateBusiness, setShowCreateBusiness] = useState(false);
-  const [businessName, setBusinessName] = useState('');
-  const [fullName, setFullName] = useState('');
-  const [error, setError] = useState('');
 
-  // Si el usuario ya tiene negocio → dashboard. Si no → wizard de onboarding.
+  const [loading, setLoading] = useState(false);
+  const [businessName, setBusinessName] = useState('');
+  const [error, setError] = useState('');
+  const [invitacionPendiente, setInvitacionPendiente] = useState(false);
+
+  // Sólo se navega cuando este estado YA no corresponde a esta pantalla. No hay
+  // redirect «por las dudas»: los estados de espera se quedan quietos.
   useEffect(() => {
-    if (authLoading || profileLoading) return
-    if (businessId) {
-      navigate('/dashboard', { replace: true })
-    } else if (user) {
-      navigate('/onboarding', { replace: true })
+    if (authState === 'AUTHENTICATED_WITH_BUSINESS') {
+      navigate('/dashboard', { replace: true });
+      return;
     }
-  }, [businessId, authLoading, profileLoading, user, navigate]);
+    if (authState === 'UNAUTHENTICATED') {
+      navigate('/login', { replace: true });
+      return;
+    }
+    if (authState === 'EMAIL_UNCONFIRMED') {
+      navigate('/verificar-email', { replace: true });
+    }
+  }, [authState, navigate]);
+
+  // Si quedó un token de invitación guardado, la salida correcta es aceptarla,
+  // no crear un tenant propio. El servidor también lo bloquea
+  // (INVITATION_PENDING), pero es mejor ofrecer el camino bueno que dejarlo
+  // chocar contra un error.
+  useEffect(() => {
+    setInvitacionPendiente(!!peekInviteToken());
+  }, []);
+
+  const esperando =
+    authState === 'AUTH_LOADING' || authState === 'AUTHENTICATED_PROFILE_LOADING';
 
   const handleRefresh = async () => {
     setLoading(true);
     setError('');
-
     try {
       await refreshProfile();
     } finally {
@@ -35,113 +77,43 @@ export function NoBusiness() {
     }
   };
 
-  const resolveAuthenticatedEmail = async () => {
-    if (user?.email) {
-      return user.email;
-    }
-
-    const {
-      data: { session: currentSession },
-      error: sessionError,
-    } = await supabase.auth.getSession();
-
-    if (sessionError) {
-      throw new Error(sessionError.message);
-    }
-
-    if (currentSession?.user?.email) {
-      return currentSession.user.email;
-    }
-
-    const {
-      data: { user: currentUser },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError) {
-      throw new Error(userError.message);
-    }
-
-    return currentUser?.email ?? null;
-  };
-
   const handleCreateBusiness = async () => {
     if (!businessName.trim()) {
-      setError('Por favor ingresa el nombre del negocio');
-      return;
-    }
-
-    let userEmail: string | null = null;
-
-    try {
-      userEmail = await resolveAuthenticatedEmail();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo validar la sesion');
-      return;
-    }
-
-    if (!userEmail) {
-      setError('Tu sesion no esta activa. Volve a iniciar sesion y despues crea tu negocio.');
+      setError('Poné el nombre de tu negocio para continuar.');
       return;
     }
 
     setLoading(true);
     setError('');
-    setProfileLoadingDisabled(true);
-
-    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-    const isAuthLockError = (value: unknown) => {
-      if (!(value instanceof Error)) {
-        return false;
-      }
-
-      const message = value.message.toLowerCase();
-      return message.includes('auth-token') || message.includes('stole it');
-    };
-
     try {
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        try {
-          // P0-P1: autoridad canónica. Antes llamaba a `bootstrap_owner_profile`,
-          // que en la fase B deja de ser ejecutable por `authenticated` — y cuya
-          // rama de creación fallaba con 23503 de todos modos.
-          const res = await provisionMyBusiness(businessName);
+      // ÚNICA llamada a la autoridad de provisioning en todo el frontend
+      // productivo, y sólo detrás de un click explícito del usuario.
+      const res = await provisionMyBusiness(businessName);
 
-          if (res.status === 'invitation_pending') {
-            setError('Tenés una invitación pendiente a un negocio. Aceptala para entrar a ese equipo en vez de crear uno nuevo.');
-            return;
-          }
-          if (res.status === 'email_not_confirmed') {
-            setError('Confirmá tu correo antes de crear el negocio.');
-            return;
-          }
-
-          setProfileLoadingDisabled(false);
-          await sleep(500);
-          await refreshProfile();
-          navigate('/dashboard', { replace: true });
-          return;
-        } catch (err) {
-          if (isAuthLockError(err) && attempt < 2) {
-            await sleep(300);
-            continue;
-          }
-
-          throw err;
-        }
+      if (res.status === 'invitation_pending') {
+        setInvitacionPendiente(true);
+        setError('Tenés una invitación pendiente a un negocio. Aceptala para entrar a ese equipo en vez de crear uno nuevo.');
+        return;
       }
+      if (res.status === 'email_not_confirmed') {
+        setError('Confirmá tu correo antes de crear el negocio.');
+        return;
+      }
+
+      await refreshProfile();
+      // El negocio recién creado se llama como lo escribió el usuario, pero
+      // todavía no tiene rubro ni contacto: el destino es la configuración.
+      navigate('/onboarding', { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al crear negocio. Por favor intenta nuevamente.');
+      logger.error('AUTH', 'No se pudo crear el negocio desde recovery', err);
+      setError(err instanceof Error ? err.message : 'No se pudo crear el negocio. Intentá nuevamente.');
     } finally {
-      setProfileLoadingDisabled(false);
       setLoading(false);
     }
   };
 
   const handleSignOut = async () => {
     setLoading(true);
-    setError('');
-
     try {
       await signOut();
       navigate('/login', { replace: true });
@@ -152,444 +124,164 @@ export function NoBusiness() {
     }
   };
 
-  // Don't render if still loading or if user has business
-  if (authLoading || profileLoading || businessId) {
-    return null;
+  const card: React.CSSProperties = {
+    width: '100%', maxWidth: 460,
+    background: 'var(--auth-card-bg)', border: '1px solid var(--border-color)',
+    borderRadius: 22, padding: '2.25rem',
+    boxShadow: '0 4px 6px rgba(0,0,0,0.1), 0 24px 48px rgba(0,0,0,0.2)',
+  };
+
+  const shell = (hijo: React.ReactNode) => (
+    <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--auth-bg)', padding: '1.25rem' }}>
+      <div style={card}>{hijo}</div>
+    </div>
+  );
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', boxSizing: 'border-box', padding: '12px 15px', fontSize: '0.95rem',
+    background: 'var(--input-bg)', border: '1.5px solid var(--input-border)',
+    borderRadius: 12, color: 'var(--text-primary)',
+  };
+
+  const primaryStyle: React.CSSProperties = {
+    width: '100%', padding: '14px',
+    background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+    border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: '0.95rem',
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+  };
+
+  // ── Espera: no se decide nada todavía ────────────────────────────────────
+  if (esperando) {
+    return shell(
+      <div data-testid="no-business-loading" style={{ textAlign: 'center', padding: '1rem 0' }}>
+        <Loader2 size={32} style={{ color: '#6366f1', animation: 'tr-spin 0.8s linear infinite' }} />
+        <p style={{ marginTop: '1rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>Cargando tu negocio...</p>
+        <style>{`@keyframes tr-spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
   }
 
-  return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: 'var(--auth-bg)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '1rem',
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Background effects */}
-      <div
-        style={{
-          position: 'fixed',
-          top: '-10%',
-          right: '-5%',
-          width: '400px',
-          height: '400px',
-          borderRadius: '50%',
-          background: 'radial-gradient(circle, var(--accent-primary-light) 0%, transparent 70%)',
-          filter: 'blur(80px)',
-          pointerEvents: 'none',
-        }}
-      />
-      <div
-        style={{
-          position: 'fixed',
-          bottom: '-10%',
-          left: '-5%',
-          width: '350px',
-          height: '350px',
-          borderRadius: '50%',
-          background: 'radial-gradient(circle, var(--success-light) 0%, transparent 70%)',
-          filter: 'blur(80px)',
-          pointerEvents: 'none',
-        }}
-      />
+  // ── A. Invitación vigente ────────────────────────────────────────────────
+  if (invitacionPendiente) {
+    const token = peekInviteToken();
+    return shell(
+      <div data-testid="no-business-invitation" style={{ textAlign: 'center' }}>
+        <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(99,102,241,0.12)', border: '2px solid rgba(99,102,241,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}>
+          <Mail size={28} style={{ color: '#818cf8' }} />
+        </div>
+        <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+          Tenés una invitación pendiente
+        </h1>
+        <p style={{ margin: '0 0 1.5rem', color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+          Te invitaron a un negocio existente. Aceptala para entrar a ese equipo en vez de crear uno nuevo.
+        </p>
+        <button
+          data-testid="no-business-aceptar-invitacion"
+          onClick={() => navigate(token ? acceptInviteePath(token) : '/accept-invite')}
+          style={primaryStyle}
+        >
+          Aceptar la invitación
+        </button>
+        <button onClick={() => setInvitacionPendiente(false)} style={{ marginTop: '0.875rem', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.8rem', cursor: 'pointer' }}>
+          No es para mí, quiero crear mi propio negocio
+        </button>
+      </div>
+    );
+  }
 
-      {/* Main Card */}
-      <div
-        style={{
-          maxWidth: '500px',
-          width: '100%',
-          backgroundColor: 'var(--bg-card)',
-          backdropFilter: 'blur(20px)',
-          borderRadius: '1rem',
-          border: '1px solid var(--border-color)',
-          boxShadow: 'var(--shadow-xl)',
-          padding: '2.5rem'
-        }}
-      >
-        {!showCreateBusiness ? (
-          <>
-            {/* Header */}
-            <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-              <div
-                style={{
-                  width: '72px',
-                  height: '72px',
-                  borderRadius: '1.25rem',
-                  background: 'linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  margin: '0 auto 1.25rem',
-                  boxShadow: '0 10px 30px -10px rgba(99, 102, 241, 0.5)',
-                }}
-              >
-                <Building2 size={36} color="#ffffff" strokeWidth={2} />
-              </div>
-              <h1 style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem', letterSpacing: '-0.025em' }}>
-                Creá tu negocio para empezar
-              </h1>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9375rem', fontWeight: 400, lineHeight: 1.6 }}>
-                Para usar el sistema, necesitás vincular tu cuenta a un negocio. Podés crear uno nuevo o aceptar una invitación.
-              </p>
-            </div>
+  // ── C. Estado inconsistente: reintentar, NUNCA crear ─────────────────────
+  if (authState === 'AUTH_ERROR') {
+    const esVinculo = profileErrorKind === 'link_failed';
+    return shell(
+      <div data-testid="no-business-error" style={{ textAlign: 'center' }}>
+        <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(251,191,36,0.12)', border: '2px solid rgba(251,191,36,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}>
+          <AlertTriangle size={28} style={{ color: '#fbbf24' }} />
+        </div>
+        <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+          No pudimos cargar tu negocio
+        </h1>
+        <p style={{ margin: '0 0 1.5rem', color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+          {esVinculo
+            ? 'Tu cuenta existe pero no pudimos vincularla a su negocio. Escribinos y lo resolvemos.'
+            : 'Puede ser un problema de conexión. Probá de nuevo en unos segundos.'}
+        </p>
+        {/* A propósito NO se ofrece «crear negocio» acá: no sabemos si el usuario
+            ya tiene uno, y crear otro sería duplicar su tenant. */}
+        <button data-testid="no-business-reintentar" onClick={() => void handleRefresh()} disabled={loading} style={{ ...primaryStyle, opacity: loading ? 0.6 : 1 }}>
+          {loading ? <Loader2 size={16} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> : <RefreshCw size={16} />}
+          Reintentar
+        </button>
+        <style>{`@keyframes tr-spin { to { transform: rotate(360deg); } }`}</style>
+        <button onClick={() => void handleSignOut()} style={{ marginTop: '0.875rem', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.8rem', cursor: 'pointer' }}>
+          Cerrar sesión
+        </button>
+      </div>
+    );
+  }
 
-            {/* Error Message */}
-            {error && (
-              <div
-                style={{
-                  padding: '1rem',
-                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  borderRadius: '0.75rem',
-                  color: 'var(--error)',
-                  fontSize: '0.875rem',
-                  marginBottom: '1.5rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                }}
-                role="alert"
-              >
-                {error}
-              </div>
-            )}
-
-            {/* Actions */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <button
-                onClick={() => setShowCreateBusiness(true)}
-                disabled={loading}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.75rem',
-                  padding: '1rem 1.5rem',
-                  background: 'linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%)',
-                  border: 'none',
-                  color: '#ffffff',
-                  borderRadius: '0.75rem',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  fontSize: '1rem',
-                  fontWeight: 600,
-                  transition: 'all 0.2s',
-                  boxShadow: '0 4px 12px rgba(99, 102, 241, 0.4)',
-                  opacity: loading ? 0.7 : 1,
-                }}
-                onMouseEnter={(e) => {
-                  if (!loading) {
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                    e.currentTarget.style.boxShadow = '0 6px 16px rgba(99, 102, 241, 0.5)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(99, 102, 241, 0.4)';
-                }}
-              >
-                <Plus size={20} />
-                Crear mi negocio
-              </button>
-
-              <button
-                onClick={() => navigate('/accept-invite')}
-                disabled={loading}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.75rem',
-                  padding: '1rem 1.5rem',
-                  backgroundColor: 'var(--bg-tertiary)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)',
-                  borderRadius: '0.75rem',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  fontSize: '1rem',
-                  fontWeight: 500,
-                  transition: 'all 0.2s',
-                  opacity: loading ? 0.7 : 1,
-                }}
-                onMouseEnter={(e) => {
-                  if (!loading) {
-                    e.currentTarget.style.backgroundColor = 'var(--hover-bg)';
-                    e.currentTarget.style.borderColor = 'var(--border-strong)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)';
-                  e.currentTarget.style.borderColor = 'var(--border-color)';
-                }}
-              >
-                <Mail size={20} />
-                Aceptar invitación
-              </button>
-
-              <button
-                onClick={handleRefresh}
-                disabled={loading}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.5rem',
-                  padding: '0.75rem 1rem',
-                  backgroundColor: 'transparent',
-                  border: 'none',
-                  color: 'var(--text-muted)',
-                  fontSize: '0.875rem',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  fontWeight: 500,
-                  opacity: loading ? 0.5 : 1,
-                  transition: 'color 0.2s',
-                }}
-                onMouseEnter={(e) => {
-                  if (!loading) {
-                    e.currentTarget.style.color = 'var(--text-primary)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = 'var(--text-muted)';
-                }}
-              >
-                <RefreshCw size={16} className={loading ? 'spin' : ''} />
-                {loading ? 'Verificando...' : 'Verificar estado'}
-              </button>
-            </div>
-
-            {/* Footer */}
-            <div style={{ textAlign: 'center', marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border-color)' }}>
-              <button
-                onClick={handleSignOut}
-                disabled={loading}
-                style={{
-                  backgroundColor: 'transparent',
-                  border: 'none',
-                  color: 'var(--text-muted)',
-                  fontSize: '0.875rem',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  opacity: loading ? 0.5 : 1,
-                  textDecoration: 'none',
-                  transition: 'color 0.2s',
-                  fontWeight: 500,
-                }}
-                onMouseEnter={(e) => {
-                  if (!loading) {
-                    e.currentTarget.style.color = 'var(--text-primary)';
-                    e.currentTarget.style.textDecoration = 'underline';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = 'var(--text-muted)';
-                  e.currentTarget.style.textDecoration = 'none';
-                }}
-              >
-                Cerrar sesión
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            {/* Create Business Form */}
-            <div style={{ marginBottom: '2rem' }}>
-              <button
-                onClick={() => setShowCreateBusiness(false)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  backgroundColor: 'transparent',
-                  border: 'none',
-                  color: 'var(--text-muted)',
-                  fontSize: '0.875rem',
-                  cursor: 'pointer',
-                  padding: 0,
-                  marginBottom: '1.5rem',
-                  transition: 'color 0.2s',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = 'var(--text-primary)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = 'var(--text-muted)';
-                }}
-              >
-                <ArrowRight size={16} style={{ transform: 'rotate(180deg)' }} />
-                Volver
-              </button>
-
-              <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>
-                Creá tu negocio
-              </h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9375rem', marginBottom: '1.5rem' }}>
-                Ingresa los datos básicos para comenzar a usar el sistema.
-              </p>
-            </div>
-
-            {/* Error Message */}
-            {error && (
-              <div
-                style={{
-                  padding: '1rem',
-                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  borderRadius: '0.75rem',
-                  color: 'var(--error)',
-                  fontSize: '0.875rem',
-                  marginBottom: '1.5rem',
-                }}
-                role="alert"
-              >
-                {error}
-              </div>
-            )}
-
-            {/* Business Name Field */}
-            <div style={{ marginBottom: '1.25rem' }}>
-              <label 
-                htmlFor="businessName"
-                style={{ 
-                  display: 'block', 
-                  fontSize: '0.875rem', 
-                  color: 'var(--text-secondary)', 
-                  marginBottom: '0.5rem', 
-                  fontWeight: 500 
-                }}
-              >
-                Nombre del negocio *
-              </label>
-              <input
-                id="businessName"
-                type="text"
-                value={businessName}
-                onChange={(e) => {
-                  setBusinessName(e.target.value);
-                  if (error) setError('');
-                }}
-                placeholder="Ej: TechRepair Center"
-                disabled={loading}
-                autoFocus
-                style={{
-                  width: '100%',
-                  padding: '0.875rem 1rem',
-                  backgroundColor: 'var(--input-bg)',
-                  border: '1px solid var(--input-border)',
-                  borderRadius: '0.75rem',
-                  color: 'var(--text-primary)',
-                  fontSize: '0.9375rem',
-                  outline: 'none',
-                  transition: 'all 0.2s',
-                  opacity: loading ? 0.6 : 1,
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = 'var(--input-focus-border)';
-                  e.target.style.boxShadow = '0 0 0 3px var(--accent-primary-light)';
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = 'var(--input-border)';
-                  e.target.style.boxShadow = 'var(--shadow-sm)';
-                }}
-              />
-            </div>
-
-            {/* Full Name Field */}
-            <div style={{ marginBottom: '2rem' }}>
-              <label 
-                htmlFor="fullName"
-                style={{ 
-                  display: 'block', 
-                  fontSize: '0.875rem', 
-                  color: 'var(--text-secondary)', 
-                  marginBottom: '0.5rem', 
-                  fontWeight: 500 
-                }}
-              >
-                Tu nombre (opcional)
-              </label>
-              <input
-                id="fullName"
-                type="text"
-                value={fullName}
-                onChange={(e) => {
-                  setFullName(e.target.value);
-                  if (error) setError('');
-                }}
-                placeholder="Ej: Juan Pérez"
-                disabled={loading}
-                style={{
-                  width: '100%',
-                  padding: '0.875rem 1rem',
-                  backgroundColor: 'var(--input-bg)',
-                  border: '1px solid var(--input-border)',
-                  borderRadius: '0.75rem',
-                  color: 'var(--text-primary)',
-                  fontSize: '0.9375rem',
-                  outline: 'none',
-                  transition: 'all 0.2s',
-                  opacity: loading ? 0.6 : 1,
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = 'var(--input-focus-border)';
-                  e.target.style.boxShadow = '0 0 0 3px var(--accent-primary-light)';
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = 'var(--input-border)';
-                  e.target.style.boxShadow = 'var(--shadow-sm)';
-                }}
-              />
-            </div>
-
-            {/* Submit Button */}
-            <button
-              onClick={handleCreateBusiness}
-              disabled={loading}
-              style={{
-                width: '100%',
-                padding: '1rem 1.5rem',
-                background: 'linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%)',
-                border: 'none',
-                color: '#ffffff',
-                borderRadius: '0.75rem',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                fontWeight: 600,
-                fontSize: '1rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.5rem',
-                opacity: loading ? 0.7 : 1,
-                transition: 'all 0.2s',
-                boxShadow: '0 4px 12px rgba(99, 102, 241, 0.4)',
-              }}
-              onMouseEnter={(e) => {
-                if (!loading) {
-                  e.currentTarget.style.transform = 'translateY(-1px)';
-                  e.currentTarget.style.boxShadow = '0 6px 16px rgba(99, 102, 241, 0.5)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(99, 102, 241, 0.4)';
-              }}
-            >
-              {loading ? (
-                <>
-                  <Loader2 size={20} style={{ animation: 'tr-spin 1s linear infinite' }} />
-                  Creando negocio...
-                </>
-              ) : (
-                'Crear mi negocio'
-              )}
-            </button>
-          </>
-        )}
+  // ── B. Owner sin negocio: alta EXPLÍCITA ─────────────────────────────────
+  return shell(
+    <div data-testid="no-business-create">
+      <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
+        <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(99,102,241,0.12)', border: '2px solid rgba(99,102,241,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}>
+          <Building2 size={28} style={{ color: '#818cf8' }} />
+        </div>
+        <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>
+          Creá tu taller
+        </h1>
+        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+          {user?.email
+            ? <>Tu cuenta <strong style={{ color: 'var(--text-primary)' }}>{user.email}</strong> todavía no tiene un negocio.</>
+            : 'Tu cuenta todavía no tiene un negocio.'}
+        </p>
       </div>
 
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div>
+          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
+            Nombre del negocio
+          </label>
+          <input
+            data-testid="no-business-name"
+            autoFocus
+            value={businessName}
+            onChange={e => setBusinessName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && void handleCreateBusiness()}
+            placeholder="Ej: Tecno Reparaciones"
+            style={inputStyle}
+          />
+        </div>
+
+        {error && (
+          <p data-testid="no-business-error" role="alert" style={{ margin: 0, color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>
+        )}
+
+        <button
+          data-testid="no-business-crear"
+          onClick={() => void handleCreateBusiness()}
+          disabled={loading}
+          style={{ ...primaryStyle, opacity: loading ? 0.6 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}
+        >
+          {loading
+            ? <Loader2 size={16} style={{ animation: 'tr-spin 0.8s linear infinite' }} />
+            : <Plus size={16} />}
+          {loading ? 'Creando...' : 'Crear mi taller'}
+        </button>
+        <style>{`@keyframes tr-spin { to { transform: rotate(360deg); } }`}</style>
+
+        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem' }}>
+          <button onClick={() => void handleRefresh()} disabled={loading} style={{ flex: 1, padding: '10px', background: 'var(--input-bg)', border: '1px solid var(--border-color)', borderRadius: 10, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' }}>
+            Actualizar
+          </button>
+          <button onClick={() => navigate('/accept-invite')} style={{ flex: 1, padding: '10px', background: 'var(--input-bg)', border: '1px solid var(--border-color)', borderRadius: 10, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' }}>
+            Tengo una invitación
+          </button>
+        </div>
+
+        <button onClick={() => void handleSignOut()} style={{ background: 'none', border: 'none', color: 'var(--text-subtle)', fontSize: '0.78rem', cursor: 'pointer', marginTop: '0.25rem' }}>
+          Cerrar sesión
+        </button>
+      </div>
     </div>
   );
 }

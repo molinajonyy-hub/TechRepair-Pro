@@ -50,6 +50,17 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   profile: Profile | null;
+  /**
+   * P0-P4 — Estado canónico para decidir routing. Es la ÚNICA fuente que deben
+   * mirar los guards: `profile === null` por sí solo es ambiguo (no distingue
+   * «todavía no cargó» de «no existe») y esa ambigüedad es el origen de los
+   * redirects prematuros que cierra este lote.
+   */
+  authState: AuthState;
+  /** Naturaleza estructural del fallo de perfil (para routing, no para la UI). */
+  profileErrorKind: ProfileErrorKind;
+  /** `true` cuando una carga de perfil ya terminó para la sesión actual. */
+  profileResolved: boolean;
   businessId: string | null;
   role: UserRole | null;
   loading: boolean;
@@ -157,6 +168,51 @@ export const clearPendingConfirmationEmail = () => {
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// P0-P4 — MÁQUINA DE ESTADOS DE AUTENTICACIÓN
+//
+// El defecto que cierra este lote: `profile === null` significaba DOS cosas
+// incompatibles —«todavía no cargó» y «no existe»— y cada pantalla adivinaba
+// cuál. De ahí salían los redirects prematuros: un owner con negocio, durante
+// el medio segundo que tarda `get_my_profile`, era indistinguible de un usuario
+// sin negocio, y algún guard lo mandaba a /onboarding.
+//
+// `authState` es la única fuente para decidir routing. Es DERIVADO, no un
+// `useState` paralelo: no puede desincronizarse de los datos que resume.
+// ─────────────────────────────────────────────────────────────────────────────
+export type AuthState =
+  /** Todavía no sabemos si hay sesión. NADIE debe redirigir en este estado. */
+  | 'AUTH_LOADING'
+  /** No hay sesión. El destino es /login. */
+  | 'UNAUTHENTICATED'
+  /** Hay sesión pero el correo no está confirmado. El destino es /verificar-email. */
+  | 'EMAIL_UNCONFIRMED'
+  /** Sesión y correo OK; el perfil está en vuelo. NADIE debe redirigir todavía. */
+  | 'AUTHENTICATED_PROFILE_LOADING'
+  /** Miembro activo de un negocio. Es el estado normal del producto. */
+  | 'AUTHENTICATED_WITH_BUSINESS'
+  /** Confirmado y SIN perfil/negocio de verdad. Corresponde recovery. */
+  | 'AUTHENTICATED_WITHOUT_BUSINESS'
+  /** El perfil no se pudo determinar (red, timeout, vínculo ambiguo). NO es
+   *  «no tiene negocio»: acá corresponde reintentar, no ofrecer crear un
+   *  tenant. Confundirlos es cómo se fabrican negocios duplicados. */
+  | 'AUTH_ERROR';
+
+/**
+ * Naturaleza del fallo al cargar el perfil. `profileError` es un string para la
+ * UI; esto es la forma ESTRUCTURAL que necesita el routing.
+ */
+export type ProfileErrorKind =
+  | 'none'
+  /** `get_my_profile` devolvió 0 filas y no había huérfano que vincular. */
+  | 'no_profile'
+  /** El vínculo por correo falló (p. ej. dos huérfanos con el mismo email). */
+  | 'link_failed'
+  /** Red, timeout o token: reintentar puede funcionar. */
+  | 'transient'
+  /** El perfil existe pero está desactivado para ese negocio. */
+  | 'inactive';
+
 const PROFILE_LOAD_TIMEOUT_MS = 20000;
 
 const isTransientProfileLoadError = (error: unknown) => {
@@ -190,6 +246,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
+  // P0-P4: la forma estructural del fallo. `profileError` (string) es para la
+  // pantalla; esto es para decidir el routing.
+  const [profileErrorKind, setProfileErrorKind] = useState<ProfileErrorKind>('none');
+  /**
+   * `true` en cuanto una carga de perfil TERMINÓ (con éxito o no) para la sesión
+   * actual. Es lo que distingue «todavía no cargó» de «cargó y no hay».
+   *
+   * Sin esto, el único dato disponible era `profileLoading`, que arranca en
+   * `false` ANTES de la primera carga: exactamente el instante en el que un
+   * guard leía `profile === null` y concluía «no tiene negocio».
+   */
+  const [profileResolved, setProfileResolved] = useState(false);
   const profileLoadingDisabledRef = useRef(false);
   const profileRequestRef = useRef<Promise<Profile | null> | null>(null);
 
@@ -211,7 +279,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!currentUser.email_confirmed_at) {
       setProfile(null);
       setProfileError(null);
+      setProfileErrorKind('none');
       setProfileLoading(false);
+      // NO se marca resuelto: sin correo confirmado el perfil no se intentó
+      // siquiera. El estado correcto es EMAIL_UNCONFIRMED, que se deriva del
+      // usuario y no de esta bandera.
       return null;
     }
 
@@ -226,6 +298,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (cachedProfile) {
       setProfile(cachedProfile);
       setProfileError(cachedProfile.is_active ? null : 'Tu usuario existe, pero esta inactivo para este negocio.');
+      setProfileErrorKind(cachedProfile.is_active ? 'none' : 'inactive');
     }
 
     const request = (async () => {
@@ -274,6 +347,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setProfileError(
                 'No pudimos vincular tu perfil de negocio. Escribinos para que lo revisemos.'
               );
+              // NO es `no_profile`: hay algo que vincular pero el servidor falló
+              // cerrado. Ofrecerle «creá tu negocio» acá fabricaría un tenant
+              // duplicado sobre un perfil que ya existe.
+              setProfileErrorKind('link_failed');
               return null;
             }
 
@@ -285,12 +362,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setProfile(linkedProfile);
               cacheProfile(currentUser.id, linkedProfile);
               setProfileError(linkedProfile.is_active ? null : 'Tu usuario existe, pero esta inactivo para este negocio.');
+              setProfileErrorKind(linkedProfile.is_active ? 'none' : 'inactive');
               return linkedProfile;
             }
 
             // NO_PROFILE — no hay perfil propio ni huérfano que reparar.
             setProfile(null);
             setProfileError('No existe un perfil de negocio para este usuario.');
+            // El ÚNICO estado en el que corresponde ofrecer recovery de owner.
+            setProfileErrorKind('no_profile');
             return null;
           }
 
@@ -306,6 +386,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ? null
               : 'Tu usuario existe, pero esta inactivo para este negocio.'
           );
+          setProfileErrorKind(normalizedProfile.is_active ? 'none' : 'inactive');
 
           return normalizedProfile;
         } catch (error) {
@@ -321,6 +402,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setProfileError(
               'No se pudo actualizar el perfil del negocio en este momento. Usando datos guardados localmente.'
             );
+            setProfileErrorKind('transient');
             return cachedProfile;
           }
 
@@ -330,18 +412,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ? `No se pudo cargar el perfil del negocio. ${error.message}`
               : 'No se pudo cargar el perfil del negocio.'
           );
+          // NO es «no tiene negocio»: es «no pudimos averiguarlo». La diferencia
+          // decide si la pantalla ofrece reintentar o crear un tenant.
+          setProfileErrorKind('transient');
           return null;
         }
       }
 
       setProfile(null);
       setProfileError('No se pudo cargar el perfil del negocio.');
+      setProfileErrorKind('transient');
       return null;
     })();
 
     profileRequestRef.current = request.finally(() => {
       profileRequestRef.current = null;
       setProfileLoading(false);
+      // La carga TERMINÓ. Recién ahora un `profile === null` significa «no hay»
+      // y no «todavía no sé». Va en el `finally` para que también valga cuando
+      // la carga falla: un error resuelto es un estado, no una espera infinita.
+      setProfileResolved(true);
     });
 
     return profileRequestRef.current;
@@ -373,7 +463,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!nextUser) {
       setProfile(null);
       setProfileError(null);
+      setProfileErrorKind('none');
       setProfileLoading(false);
+      // Sin sesión no hay perfil que resolver: se vuelve al punto de partida
+      // para que el próximo login no herede el «ya resolví» del anterior.
+      setProfileResolved(false);
     }
   };
 
@@ -622,6 +716,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       setProfile(null);
       setProfileError(null);
+      setProfileErrorKind('none');
+      // Se vuelve a «sin resolver»: el próximo login tiene que esperar SU
+      // propia carga de perfil, no heredar la del usuario anterior.
+      setProfileResolved(false);
 
       if (user?.id) {
         window.localStorage.removeItem(getProfileCacheKey(user.id));
@@ -643,10 +741,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // ── P0-P4: el estado canónico, DERIVADO ────────────────────────────────────
+  // El orden de las ramas ES el contrato. Las dos primeras son estados de
+  // ESPERA: mientras alguna sea verdadera, ningún guard puede redirigir.
+  const hasBusiness = !!profile?.business_id && profile.is_active;
+  const authState: AuthState = (() => {
+    if (loading) return 'AUTH_LOADING';
+    if (!user) return 'UNAUTHENTICATED';
+    if (!user.email_confirmed_at) return 'EMAIL_UNCONFIRMED';
+
+    // Se espera mientras la carga esté en vuelo O todavía no haya terminado
+    // nunca. La segunda condición es la que arregla el redirect prematuro:
+    // `profileLoading` arranca en `false` ANTES del primer intento, así que
+    // mirarlo solo dejaba una ventana en la que un owner con negocio parecía
+    // un usuario sin negocio.
+    if (profileLoading || !profileResolved) return 'AUTHENTICATED_PROFILE_LOADING';
+
+    if (hasBusiness) return 'AUTHENTICATED_WITH_BUSINESS';
+
+    // Sin negocio: sólo `no_profile` es realmente «no tiene». Un fallo de red o
+    // un vínculo ambiguo NO habilitan a crear un tenant.
+    if (profileErrorKind === 'no_profile') return 'AUTHENTICATED_WITHOUT_BUSINESS';
+    if (profileErrorKind === 'none') return 'AUTHENTICATED_WITHOUT_BUSINESS';
+    return 'AUTH_ERROR';
+  })();
+
   const value: AuthContextType = {
     user,
     session,
     profile,
+    authState,
+    profileErrorKind,
+    profileResolved,
     businessId: profile?.business_id || null,
     role: profile?.role || null,
     loading,
