@@ -1,6 +1,10 @@
 # P0-P6 — RBAC por capacidad, no sólo por tenant
 
-**Estado: EN PRODUCCIÓN — 2026-08-24. Falta únicamente el smoke humano.**
+**Estado: ✅ CERRADO Y ESTABLE EN PRODUCCIÓN — 2026-08-24.**
+Smoke humano PASADO (tech: Caja desapareció; owner: Caja visible y funcional).
+Backend cerrado en las tres capas: financieras (`20260826120000`), superficie de
+caja (`ccc8eac`) y lectura directa de `cajas` (`20260827120000`).
+DB final: **236**, head `20260827120000`.
 
 - PR: https://github.com/molinajonyy-hub/TechRepair-Pro/pull/70 — **MERGED**
 - Merge commit: **`3c9cf40`** (2026-08-24 21:30:48Z)
@@ -258,27 +262,76 @@ cambio de comportamiento contable que este hotfix no debía hacer.
 Verificado en el bundle servido (`ccc8eac`): banner, CTA y pestaña detrás del
 flag, y `if(!r||!u){...return}` cortando la consulta antes de salir.
 
-### ⚠️ Límite conocido: la tabla `cajas` NO está gateada por capacidad
+---
 
-Su policy es `cajas_select: current_business_id() = business_id AND is_staff()`
-— tenant + staff, **sin capacidad**. Medido: un tech ve **81 filas** de `cajas`
-si consulta directo.
+## 9-ter. CIERRE FINAL de `public.cajas` — merge `80322c2`, DB 236
 
-No se tocó **a propósito**: el encargo excluía explícitamente la RLS ya
-desplegada. El impacto es acotado — `cajas` sólo expone apertura/cierre y
-timestamps de sesión; **los importes viven en `financial_movements`, que sí está
-cerrado (tech = 0 filas)**. El frontend ya no la consulta, así que el criterio de
-Network se cumple; lo que queda abierto es una llamada directa fabricada a mano.
+El hotfix anterior dejó de **pedir** la caja, pero la tabla seguía legible por
+**acceso directo**. Su única policy era:
 
-Cerrarlo es una línea (`AND public.current_user_can('finance')` en esa policy) y
-queda como handoff.
+```sql
+cajas_select : (current_business_id() = business_id) AND is_staff()
+```
+
+`is_staff()` = los **siete** roles del negocio. **Medido: un tech leía 81 filas**
+fabricando una consulta a PostgREST.
+
+### Contrato nuevo (migración `20260827120000`)
+
+```sql
+business_id = current_user_business_id()
+AND ( public.current_user_can('finance')
+      OR public.current_user_can('comprobantes') )
+```
+
+La rama `comprobantes` **no es un descuido**: un `sales` tiene `finance = false`
+pero necesita conocer la caja abierta porque el POS manda `caja_id`. Sin ella
+seguiría vendiendo con `caja_id = NULL` y sus ventas quedarían **fuera del
+arqueo** — un cambio contable disfrazado de cambio de permisos. Es la misma
+separación que ya hace el frontend desde `ccc8eac`.
+
+**Se reemplaza, no se agrega**: dos permissive se combinan con OR y la más laxa
+gana. Una postcondición exige **exactamente una** policy de SELECT y que no
+vuelva a apoyarse en `is_staff()`.
+
+`cajas` tenía **cero** policies de escritura (los grants existen pero sin policy
+la RLS los deniega: abrir/cerrar pasa por RPC SECDEF), así que sólo se tocó
+SELECT.
+
+### Prueba viva en producción (`DO + RAISE`, revierte sola)
+
+```
+TECH   : finance=f comprobantes=f  -> cajas = 0        (antes 81)
+SALES  : finance=f comprobantes=t  -> cajas = 81, caja_abierta = aa29f123-… ✅
+OWNER  : finance=t                 -> cajas = 81
+OWNER  : cajas de otro negocio     -> 0
+```
+
+### SQL security tests — 7 grupos
+
+tech / viewer / sales-sin-capacidad → **0** · owner / admin / cashier → las 2 de
+su negocio · **sales resuelve la caja abierta** · tech con override
+`finance:true` → accede · cross-tenant en ambas direcciones → **0** · sin sesión
+→ **0** · estructura (una policy, sin `is_staff`, tenant+capacidad, financieras
+intactas).
+
+### Counts antes / después
+
+| | antes | después |
+|---|---|---|
+| cajas | 86 | **86** |
+| financial_movements | 377 | **377** |
+| business_finance_entries | 584 | **584** |
+| comprobante_payments | 351 | **351** |
+| comprobantes | 350 | **350** |
+| profiles / businesses | 18 / 26 | **18 / 26** |
+| migraciones | 235 | **236** |
+
+**0 filas de negocio modificadas.** Sólo policy + migración.
 
 ---
 
 ## 10. Handoffs (registrados, no implementados)
-
-- **`cajas_select` sin chequeo de capacidad** (ver 9-bis). Un tech puede leer
-  metadatos de sesiones de caja por llamada directa. Sin importes.
 
 - **`user_can_view_order_amounts`** filtra por la columna cruda `user_id`, que
   `provision_my_business` y `accept_business_invitation` dejan en NULL — mismo
