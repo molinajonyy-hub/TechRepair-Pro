@@ -181,6 +181,10 @@ GRANT EXECUTE ON FUNCTION public.current_user_can(text) TO authenticated;
 -- RLS y por eso se dejan nombradas de forma explícita.
 DROP POLICY IF EXISTS financial_movements_business_select ON public.financial_movements;
 DROP POLICY IF EXISTS fm_select                           ON public.financial_movements;
+-- También la nueva: `CREATE POLICY` no tiene `IF NOT EXISTS`, así que sin esto
+-- la migración no se puede reaplicar sobre un stack que ya la corrió (falla a
+-- mitad de camino y deja el resto sin aplicar).
+DROP POLICY IF EXISTS fm_select_finance_capability         ON public.financial_movements;
 
 CREATE POLICY fm_select_finance_capability
   ON public.financial_movements FOR SELECT TO authenticated
@@ -191,7 +195,8 @@ CREATE POLICY fm_select_finance_capability
 
 -- El ledger devengado. Alimenta ganancia, resultados y el resumen financiero
 -- del dashboard.
-DROP POLICY IF EXISTS bfe_select ON public.business_finance_entries;
+DROP POLICY IF EXISTS bfe_select                     ON public.business_finance_entries;
+DROP POLICY IF EXISTS bfe_select_finance_capability  ON public.business_finance_entries;
 
 CREATE POLICY bfe_select_finance_capability
   ON public.business_finance_entries FOR SELECT TO authenticated
@@ -204,7 +209,8 @@ CREATE POLICY bfe_select_finance_capability
 -- un `sales` necesita leerlos para operar el POS (y ya los puede insertar),
 -- mientras que `tech` y `viewer` quedan afuera. Gatearlos con `finance` habría
 -- roto la venta para sales y manager.
-DROP POLICY IF EXISTS cp_select ON public.comprobante_payments;
+DROP POLICY IF EXISTS cp_select                            ON public.comprobante_payments;
+DROP POLICY IF EXISTS cp_select_comprobantes_capability    ON public.comprobante_payments;
 
 CREATE POLICY cp_select_comprobantes_capability
   ON public.comprobante_payments FOR SELECT TO authenticated

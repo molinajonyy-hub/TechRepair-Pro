@@ -89,6 +89,17 @@ const restaurarDB = () => {
   console.log(r.ok ? '  ...migracion canonica restaurada' : '  !! no se pudo restaurar la migracion')
 }
 
+/**
+ * Las mutaciones multi-linea van por REGEX con `\r?\n`.
+ *
+ * Git normaliza a CRLF al hacer checkout en Windows (`core.autocrlf`), asi que
+ * un patron con `\n` literal NO matchea el archivo en disco: la mutacion no se
+ * aplicaba y el script reportaba «el gate no detecto la mutacion» cuando en
+ * realidad nunca habia mutado nada. Es un falso ROJO, y en el caso opuesto
+ * habria sido un falso verde.
+ */
+const nl = String.raw`\r?\n`
+
 const mutar = (etiqueta, archivo, buscar, reemplazo, patron) => {
   const original = leer(archivo)
   const mutado = original.replace(buscar, reemplazo)
@@ -119,9 +130,11 @@ console.log('==============================================================')
   const original = leer(MIGRACION)
   // Se quita el chequeo de capacidad: vuelve a quedar sólo el filtro de tenant,
   // que es exactamente el estado que este lote cierra.
+  // Se quita SOLO el chequeo de capacidad de fm_select: queda el filtro de
+  // tenant, que es exactamente el estado previo a este lote.
   const mutado = original.replace(
-    "    business_id = public.current_user_business_id()\n    AND public.current_user_can('finance')\n  );\n\n-- El ledger devengado",
-    '    business_id = public.current_user_business_id()\n  );\n\n-- El ledger devengado',
+    new RegExp(`(CREATE POLICY fm_select_finance_capability[\\s\\S]*?)${nl}    AND public\\.current_user_can\\('finance'\\)`),
+    '$1',
   )
   if (mutado === original) {
     console.log('  FALLA B -> la mutacion no se aplico')
@@ -166,7 +179,7 @@ console.log('==============================================================')
 console.log('E. Permitir Mi Guita a un actor externo')
 console.log('==============================================================')
 mutar('E/Mi Guita', 'src/components/auth/PersonalProtectedRoute.tsx',
-  '  if (!isSystemOwner) {\n    return <Navigate to="/dashboard" replace />\n  }',
+  new RegExp(`  if \\(!isSystemOwner\\) \\{${nl}    return <Navigate to="/dashboard" replace />${nl}  \\}`),
   '  // gate removido a proposito',
   'el gate es system_admins')
 
