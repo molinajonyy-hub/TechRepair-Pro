@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { sanitizeInternalPath } from '../lib/authRedirect'
+import { acceptInviteePath, peekInviteToken } from '../lib/pendingInvite'
 import { PORTAL_DOMAINS } from '../portal/portalDomains'
 
 /**
@@ -44,6 +45,22 @@ function destinoPostConfirmacion(): string {
 
   const guardado = window.sessionStorage.getItem('post_login_redirect')
   window.sessionStorage.removeItem('post_login_redirect')
+
+  // P0-P2 — Rescate del camino de invitación.
+  //
+  // `post_login_redirect` vive en sessionStorage, que es POR PESTAÑA. El enlace
+  // de confirmación de correo se abre casi siempre en una pestaña NUEVA, así que
+  // ahí `guardado` viene vacío y el invitado terminaba en /dashboard con la
+  // invitación sin aceptar.
+  //
+  // Si hay un token de invitación vigente guardado (localStorage con TTL), el
+  // destino es la pantalla de aceptación. Sólo se usa como FALLBACK: un
+  // `post_login_redirect` explícito gana, porque es más específico.
+  if (!sanitizeInternalPath(guardado, '')) {
+    const invitacion = peekInviteToken()
+    if (invitacion) return acceptInviteePath(invitacion)
+  }
+
   return sanitizeInternalPath(guardado, '/dashboard')
 }
 

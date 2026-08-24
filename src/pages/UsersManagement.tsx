@@ -4,7 +4,9 @@ import { CloseButton } from '../components/ui/CloseButton';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubscription } from '../hooks/useSubscription';
 import { supabase } from '../lib/supabase';
-import { usersService, BusinessUser, PendingInvitation } from '../services/usersService';
+import { usersService, BusinessUser } from '../services/usersService';
+import { invitationsService, InvitationError, type Invitation } from '../services/invitationsService';
+import { showToast } from '../utils/toast';
 import {
   AppPermissions, PermissionKey, PERMISSION_LABELS, PERMISSION_GROUPS,
   resolvePermissions, ALL_PERMISSIONS,
@@ -197,7 +199,7 @@ export function UsersManagement() {
   const { businessId, isOwner, isAdmin, profile } = useAuth();
   const { } = useSubscription();
   const [users, setUsers] = useState<BusinessUser[]>([]);
-  const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showInvitations, setShowInvitations] = useState(false);
@@ -234,7 +236,7 @@ export function UsersManagement() {
     try {
       const [usersData, invitationsData] = await Promise.all([
         usersService.getBusinessUsers(bid),
-        usersService.getPendingInvitations(bid),
+        invitationsService.listPendingInvitations(bid),
       ]);
       setUsers(usersData);
       setInvitations(invitationsData);
@@ -253,7 +255,7 @@ export function UsersManagement() {
 
   const reloadInvitations = async () => {
     if (!businessId) return;
-    const invitationsData = await usersService.getPendingInvitations(businessId);
+    const invitationsData = await invitationsService.listPendingInvitations(businessId);
     setInvitations(invitationsData);
   };
 
@@ -276,37 +278,43 @@ export function UsersManagement() {
     }
     setInviting(true);
     try {
-      const diff = buildOverrideDiff(inviteRole, invitePerms);
-      const token = await usersService.createInvitation(inviteEmail.trim(), inviteRole, businessId);
+      // P0-P2: no se manda `businessId`. El servidor lo deriva de auth.uid();
+      // un business_id de entrada nunca es autorización.
+      const invitacion = await invitationsService.createInvitation(inviteEmail.trim(), inviteRole);
 
-      // Build shareable link if on web
-      const inviteLink = `${window.location.origin}/accept-invite?token=${token}`;
+      // La RPC es idempotente: si ya había una invitación pendiente para ese
+      // correo devuelve ESA, con el mismo token. Se detecta comparando contra la
+      // lista que ya teníamos para decírselo al usuario en vez de simular un
+      // envío nuevo.
+      const yaExistia = invitations.some(inv => inv.id === invitacion.id);
+
+      const inviteLink = `${window.location.origin}/accept-invite?token=${invitacion.token}`;
       let copied = false;
       try {
         await navigator.clipboard.writeText(inviteLink);
         copied = true;
-      } catch { /* ignore */ }
+      } catch { /* clipboard bloqueado: el link igual se ve en la tabla */ }
 
-      window.alert(
-        copied
-          ? `Invitación enviada. El link de invitación se copió al portapapeles.`
-          : `Invitación enviada.\nLink: ${inviteLink}`
+      showToast(
+        yaExistia
+          ? `Ya existía una invitación pendiente para ese correo.${copied ? ' Copiamos el link al portapapeles.' : ''}`
+          : `Invitación creada.${copied ? ' El link se copió al portapapeles.' : ' Copiá el link desde la lista.'}`,
+        yaExistia ? 'info' : 'success',
       );
-
-      // If custom perms differ from role defaults, save them retroactively
-      if (diff && Object.keys(diff).length > 0) {
-        // We'll look up the invitation to find the future profile — for now store in invitation metadata
-        // The permissions will be applied when the user accepts the invitation
-        // (or the owner can edit them after joining)
-      }
 
       setInviteEmail('');
       setInviteRole('tech');
       setInvitePerms(resolvePermissions('tech'));
       setShowInviteModal(false);
+      setShowInvitations(true);
       await reloadInvitations();
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Error al enviar invitación');
+      // `InvitationError.message` YA es texto de UI. Nunca sale un SQLSTATE ni un
+      // `function gen_random_bytes(integer) does not exist` a la pantalla.
+      showToast(
+        error instanceof InvitationError ? error.message : 'No se pudo crear la invitación. Intentá nuevamente.',
+        'error',
+      );
     } finally {
       setInviting(false);
     }
@@ -316,19 +324,25 @@ export function UsersManagement() {
     const inviteLink = `${window.location.origin}/accept-invite?token=${token}`;
     try {
       await navigator.clipboard.writeText(inviteLink);
-      window.alert('Link de invitación copiado al portapapeles');
+      showToast('Link de invitación copiado al portapapeles', 'success');
     } catch {
-      window.alert(`Link: ${inviteLink}`);
+      showToast('No pudimos copiar automáticamente. Copiá el link desde la tabla.', 'warning');
     }
   };
 
   const handleRevokeInvitation = async (invitationId: string) => {
-    if (!window.confirm('¿Estás seguro de revocar esta invitación?')) return;
+    if (!window.confirm('¿Estás seguro de cancelar esta invitación?')) return;
     try {
-      await usersService.revokeInvitation(invitationId);
+      // `cancelled`, no `revoked`: son los estados que admite el CHECK de la
+      // tabla. Y va por RPC porque `authenticated` no tiene UPDATE directo.
+      await invitationsService.cancelInvitation(invitationId);
+      showToast('Invitación cancelada', 'success');
       await reloadInvitations();
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : 'Error al revocar invitación');
+      showToast(
+        error instanceof InvitationError ? error.message : 'No se pudo cancelar la invitación.',
+        'error',
+      );
     }
   };
 
@@ -473,7 +487,7 @@ export function UsersManagement() {
                       </td>
                       <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
                         <button onClick={() => void handleRevokeInvitation(inv.id)} style={dangerButtonStyle}>
-                          <X size={14} /> Revocar
+                          <X size={14} /> Cancelar
                         </button>
                       </td>
                     </tr>

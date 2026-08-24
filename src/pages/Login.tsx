@@ -413,6 +413,16 @@ export function Login() {
       } else {
         const result = await signUp(email, password, fullName.trim() || undefined)
         if (result.needsEmailConfirmation) {
+          // P0-P2: preservar el destino a través de la confirmación de correo.
+          // Sin esto, alguien que llega desde `/accept-invite?token=...` y se
+          // registra pierde el destino: al volver del enlace de confirmación,
+          // AuthCallback no encuentra `post_login_redirect` y lo manda a
+          // /dashboard, dejando la invitación sin aceptar.
+          //
+          // El token de la invitación además queda guardado aparte (localStorage
+          // con TTL, ver src/lib/pendingInvite.ts) porque `sessionStorage` es POR
+          // PESTAÑA y el enlace del correo suele abrirse en una nueva.
+          sessionStorage.setItem('post_login_redirect', from)
           // NO es un error: con Confirm Email ON, Supabase crea el usuario y
           // devuelve `session: null`. El destino es la pantalla dedicada, que
           // ofrece reenviar y verificar. Antes se volvía al formulario de
