@@ -102,7 +102,11 @@ const restaurarDB = () => {
   console.log(r.ok ? '  ...migracion canonica restaurada' : '  !! no se pudo restaurar la migracion')
 }
 
-const vitest = () => correr('npx', ['vitest', 'run', '--config', 'vitest.config.ts', SUITE])
+// `npx` en Windows es un .cmd: `execFileSync` no lo puede ejecutar directo y
+// falla con ENOENT ANTES de correr nada, dejando stdout vacio. Eso se veia como
+// «el gate no detecto la mutacion» cuando en realidad el test nunca corrio.
+const NPX = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+const vitest = () => correr(NPX, ['vitest', 'run', '--config', 'vitest.config.ts', SUITE])
 
 // ════════════════════════════════════════════════════════════════════════════
 console.log('==============================================================')
