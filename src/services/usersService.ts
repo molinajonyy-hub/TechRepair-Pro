@@ -13,16 +13,21 @@ export interface BusinessUser {
   created_at: string;
 }
 
-export interface PendingInvitation {
-  id: string;
-  business_id: string;
-  email: string;
-  role: string;
-  token: string;
-  status: string;
-  expires_at: string;
-  created_at: string;
-}
+/**
+ * P0-P2 — Las invitaciones (crear / aceptar / cancelar / listar) ya NO viven acá.
+ * Su única fuente es `src/services/invitationsService.ts`, que habla con las RPC
+ * canónicas y traduce los errores del servidor a mensajes semánticos.
+ *
+ * Lo que había en este archivo estaba roto en producción:
+ *   · `createInvitation` llamaba a la firma de 3 argumentos —retirada en la
+ *     migración 20260824120000— y mandaba un `business_id` que el servidor puede
+ *     derivar solo;
+ *   · `revokeInvitation` hacía un `.update({ status: 'revoked' })` DIRECTO sobre
+ *     la tabla: `'revoked'` no existe en el CHECK (los estados son pending /
+ *     accepted / cancelled / expired) y además `authenticated` sólo tiene SELECT
+ *     sobre `business_invitations`, así que la escritura no podía funcionar ni
+ *     con el valor correcto.
+ */
 
 const getErrorMessage = (fallback: string, error: { message?: string } | null) =>
   error?.message ? error.message : fallback;
@@ -40,34 +45,6 @@ export const usersService = {
     }
 
     return data || [];
-  },
-
-  async createInvitation(email: string, role: string, businessId: string): Promise<string> {
-    const { data, error } = await supabase.rpc('create_business_invitation', {
-      p_email: email,
-      p_role: role,
-      p_business_id: businessId,
-    });
-
-    if (error) {
-      throw new Error(getErrorMessage('Error al crear invitacion', error));
-    }
-
-    if (!data) {
-      throw new Error('No se recibió el token de invitación');
-    }
-
-    return data;
-  },
-
-  async acceptInvitation(token: string): Promise<void> {
-    const { error } = await supabase.rpc('accept_business_invitation', {
-      p_token: token,
-    });
-
-    if (error) {
-      throw new Error(getErrorMessage('Error al aceptar invitacion', error));
-    }
   },
 
   async changeUserRole(profileId: string, newRole: string): Promise<void> {
@@ -89,32 +66,6 @@ export const usersService = {
 
     if (error) {
       throw new Error(getErrorMessage('Error al cambiar estado de usuario', error));
-    }
-  },
-
-  async getPendingInvitations(businessId: string): Promise<PendingInvitation[]> {
-    const { data, error } = await supabase
-      .from('business_invitations')
-      .select('*')
-      .eq('business_id', businessId)
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      throw new Error(getErrorMessage('Error al obtener invitaciones', error));
-    }
-
-    return data || [];
-  },
-
-  async revokeInvitation(invitationId: string): Promise<void> {
-    const { error } = await supabase
-      .from('business_invitations')
-      .update({ status: 'revoked' })
-      .eq('id', invitationId);
-
-    if (error) {
-      throw new Error(getErrorMessage('Error al revocar invitacion', error));
     }
   },
 

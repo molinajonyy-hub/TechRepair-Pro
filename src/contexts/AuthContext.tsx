@@ -3,6 +3,7 @@ import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { getProfileCacheKey } from '../lib/profileCache';
 import { getAuthCallbackUrl } from '../lib/authRedirect';
+import { clearInviteToken } from '../lib/pendingInvite';
 
 export type UserRole = 'owner' | 'admin' | 'manager' | 'tech' | 'sales' | 'cashier' | 'viewer';
 
@@ -630,6 +631,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Y el correo pendiente: si alguien cambia de cuenta, no debe arrastrar
       // el registro a medias de la anterior.
       clearPendingConfirmationEmail();
+      // P0-P2: idem con el token de invitación. Vive en localStorage para
+      // sobrevivir el salto de pestaña del enlace de confirmación, así que el
+      // logout tiene que borrarlo explícitamente: si no, el próximo usuario que
+      // inicie sesión en este navegador sería redirigido a aceptar una
+      // invitación ajena (el servidor la rechazaría por correo, pero la pantalla
+      // no tiene por qué aparecer).
+      clearInviteToken();
     } finally {
       setLoading(false);
     }
