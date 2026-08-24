@@ -102,11 +102,21 @@ const restaurarDB = () => {
   console.log(r.ok ? '  ...migracion canonica restaurada' : '  !! no se pudo restaurar la migracion')
 }
 
-// `npx` en Windows es un .cmd: `execFileSync` no lo puede ejecutar directo y
-// falla con ENOENT ANTES de correr nada, dejando stdout vacio. Eso se veia como
-// «el gate no detecto la mutacion» cuando en realidad el test nunca corrio.
-const NPX = process.platform === 'win32' ? 'npx.cmd' : 'npx'
-const vitest = () => correr(NPX, ['vitest', 'run', '--config', 'vitest.config.ts', SUITE])
+/**
+ * Se invoca el entrypoint JS de vitest con el mismo Node, NO `npx`.
+ *
+ * MEDIDO: en Windows con Node 24, `execFileSync('npx.cmd', ...)` falla con
+ * EINVAL —el endurecimiento por CVE-2024-27980 bloquea ejecutar .cmd sin
+ * shell— y `execFileSync('npx', ...)` con ENOENT. En los dos casos el proceso
+ * muere ANTES de correr nada y stdout queda vacio, asi que el script reportaba
+ * «el gate no detecto la mutacion» cuando en realidad el test nunca corrio: un
+ * falso ROJO que podria haberse leido como un falso verde en el caso opuesto.
+ *
+ * Llamar al .mjs directo evita el shell y sus problemas de quoting.
+ */
+const VITEST_BIN = 'node_modules/vitest/vitest.mjs'
+const vitest = () =>
+  correr(process.execPath, [VITEST_BIN, 'run', '--config', 'vitest.config.ts', SUITE])
 
 // ════════════════════════════════════════════════════════════════════════════
 console.log('==============================================================')
