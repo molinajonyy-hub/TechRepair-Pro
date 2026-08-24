@@ -67,7 +67,9 @@ $$;
 DO $$
 DECLARE
   v_p0 CONSTANT text[] := ARRAY[
-    'public.bootstrap_owner_profile(text,text,text)',
+    -- `bootstrap_owner_profile` se RETIRÓ en 20260823180000 (P0-P1 fase B).
+    -- Su reemplazo hereda el lugar en esta lista.
+    'public.provision_my_business(text)',
     'public.recalculate_product_prices(uuid,numeric)',
     'public.get_business_subscription(uuid)',
     'public.get_active_sales_point(uuid)',
@@ -156,23 +158,30 @@ BEGIN
 END;
 $$;
 
--- ── CASO 6 · bootstrap_owner_profile: cross-user bloqueado, cero cambios ────
+-- ── CASO 6 · provision_my_business: sin sesión rechaza y no cambia nada ─────
+--
+-- Este caso probaba `bootstrap_owner_profile`, retirada en 20260823180000
+-- (P0-P1 fase B). Su reemplazo cierra el agujero por CONSTRUCCIÓN y no sólo por
+-- guard: la firma vieja recibía `p_user_email`, así que nombrar a otro usuario
+-- era sintácticamente posible y había que rechazarlo; la nueva no tiene ningún
+-- parámetro capaz de nombrar a un tercero. Por eso acá se aseveran dos cosas:
+-- que sin sesión falla y no toca nada, y que la firma NO admite un selector de
+-- identidad.
 DO $$
 DECLARE
-  v_victima     uuid := gen_random_uuid();
-  v_atacante    uuid := gen_random_uuid();
-  v_biz         uuid := gen_random_uuid();
-  -- profiles.id tiene FK a auth.users(id): el perfil se identifica con el
-  -- propio usuario, no con un uuid suelto.
-  v_prof        uuid := v_victima;
-  v_rol_antes   text;
-  v_rol_despues text;
+  v_victima      uuid := gen_random_uuid();
+  v_biz          uuid := gen_random_uuid();
+  v_prof         uuid := v_victima;  -- profiles.id tiene FK a auth.users(id)
+  v_rol_antes    text;
+  v_rol_despues  text;
   v_activo_antes boolean;
-  v_ok          boolean := false;
+  v_biz_antes    integer;
+  v_biz_despues  integer;
+  v_ok           boolean := false;
+  v_args         text;
 BEGIN
   INSERT INTO auth.users (id, email) VALUES
-    (v_victima,  'secdef_victima@example.invalid'),
-    (v_atacante, 'secdef_atacante@example.invalid')
+    (v_victima, 'secdef_victima@example.invalid')
   ON CONFLICT DO NOTHING;
 
   INSERT INTO public.businesses (id, name, owner_user_id, subscription_status)
@@ -183,11 +192,12 @@ BEGIN
 
   SELECT role, is_active INTO v_rol_antes, v_activo_antes
   FROM public.profiles WHERE id = v_prof;
+  SELECT count(*) INTO v_biz_antes FROM public.businesses;
 
-  -- Sin sesion (auth.uid() = NULL) el bootstrap tiene que fallar 42501.
+  -- (a) Sin sesión (auth.uid() = NULL) tiene que fallar 42501.
   BEGIN
-    PERFORM public.bootstrap_owner_profile('secdef_victima@example.invalid', 'Hackeado', NULL);
-    RAISE EXCEPTION 'CASO 6: bootstrap_owner_profile acepto una llamada SIN sesion';
+    PERFORM public.provision_my_business('Hackeado');
+    RAISE EXCEPTION 'CASO 6: provision_my_business acepto una llamada SIN sesion';
   EXCEPTION
     WHEN insufficient_privilege THEN v_ok := true;
   END;
@@ -196,6 +206,7 @@ BEGIN
     RAISE EXCEPTION 'CASO 6: no se obtuvo 42501';
   END IF;
 
+  -- (b) El rechazo no dejó rastro.
   SELECT role INTO v_rol_despues FROM public.profiles WHERE id = v_prof;
   IF v_rol_despues IS DISTINCT FROM v_rol_antes THEN
     RAISE EXCEPTION 'CASO 6: el rechazo cambio el rol (% -> %)', v_rol_antes, v_rol_despues;
@@ -206,9 +217,22 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = v_prof) THEN
     RAISE EXCEPTION 'CASO 6: el rechazo BORRO el perfil';
   END IF;
+  SELECT count(*) INTO v_biz_despues FROM public.businesses;
+  IF v_biz_despues <> v_biz_antes THEN
+    RAISE EXCEPTION 'CASO 6: el rechazo creo un business';
+  END IF;
 
-  RAISE NOTICE 'CASO 6 OK · bootstrap rechazado (42501) y perfil intacto (rol=%, activo=%)',
-    v_rol_antes, v_activo_antes;
+  -- (c) La firma no admite nombrar a otro usuario. Si alguien reintrodujera un
+  --     `p_user_email`/`p_user_id`, el email volvería a ser un oráculo.
+  SELECT pg_get_function_identity_arguments(p.oid) INTO v_args
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = 'provision_my_business';
+  IF v_args ~* '(user_id|user_email|profile_id|owner_user_id|business_id|\brole\b)' THEN
+    RAISE EXCEPTION 'CASO 6: la firma admite un selector de identidad (%)', v_args;
+  END IF;
+
+  RAISE NOTICE 'CASO 6 OK · provision rechazada (42501), perfil intacto (rol=%, activo=%), firma sin selector: (%)',
+    v_rol_antes, v_activo_antes, v_args;
 END;
 $$;
 

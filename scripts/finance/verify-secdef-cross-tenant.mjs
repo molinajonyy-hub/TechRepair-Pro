@@ -96,7 +96,12 @@ try {
     ['ensure_brand_and_model (negocio B)',                 'ensure_brand_and_model',         { p_brand_name: 'M', p_model_name: 'X', p_business_id: bizB }, false],
     ['get_business_subscription_features (negocio B)',     'get_business_subscription_features', { p_business_id: bizB }, false],
     ['is_comprobante_annulled (cerrada a authenticated)',  'is_comprobante_annulled',        { p_comprobante_id: compB }, false],
-    ['bootstrap_owner_profile (email ajeno)',              'bootstrap_owner_profile',        { p_user_email: emailB, p_business_name: 'Hackeado', p_full_name: null }, false],
+    // `bootstrap_owner_profile` se retiro en 20260823180000 (P0-P1 fase B). Su
+    // reemplazo no tiene ningun parametro capaz de nombrar a otro usuario, asi
+    // que el vector "email ajeno" desaparecio por construccion. Lo que queda por
+    // verificar sobre HTTP es que un usuario YA provisionado no pueda usarla para
+    // escalar: tiene que devolver su propio negocio sin tocar rol ni membresia.
+    ['provision_my_business (usuario ya provisionado)',    'provision_my_business',          { p_business_name: 'Intento De Segundo Taller' }, true],
     ['recalculate_product_prices (negocio B)',             'recalculate_product_prices',     { p_business_id: bizB, p_new_rate: 999 }, false],
     // Positivos: los flujos que usa el frontend tienen que seguir andando.
     ['generar_numero_comprobante (negocio PROPIO)',        'generar_numero_comprobante',     { p_tipo: 'factura_a', p_business_id: bizA, p_punto_venta: '0001' }, true],

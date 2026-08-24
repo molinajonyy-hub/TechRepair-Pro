@@ -32,9 +32,9 @@
 -- fuente de verdad: `proacl IS NULL` significa "defaults de PostgreSQL", que
 -- incluyen EXECUTE para PUBLIC, así que sería un falso negativo.
 --
--- OJO con los fixtures: `public.profiles.id` es FK a `auth.users(id)`, y el
--- trigger `on_auth_user_created` -> `handle_new_user()` YA crea un profile por
--- cada auth.user. Por eso los perfiles se ACTUALIZAN, no se insertan.
+-- OJO con los fixtures: `public.profiles.id` es FK a `auth.users(id)`. Los
+-- perfiles se UPSERTEAN, no se insertan a secas — ver la nota de abajo sobre
+-- por qué eso sobrevivió al retiro del provisioning automático.
 -- ============================================================================
 \set ON_ERROR_STOP on
 BEGIN;
@@ -69,13 +69,15 @@ BEGIN
   INSERT INTO public.businesses (id, name, owner_user_id)
   VALUES (v_biz, 'TEST AUTH PROFILE LINKING', v_legacy);
 
-  -- Los perfiles se UPSERTEAN a propósito: el trigger `on_auth_user_created`
-  -- -> `handle_new_user()` existe en PRODUCCIÓN pero NO en el stack local (la
-  -- función está en las dos, el trigger se creó a mano en prod, como los jobs
-  -- de pg_cron). Con ON CONFLICT el fixture queda igual en ambos entornos, en
-  -- vez de depender de si el trigger ya insertó la fila.
+  -- Los perfiles se UPSERTEAN a propósito. El motivo original era que el
+  -- trigger `on_auth_user_created` provisionaba en prod pero no en local, así
+  -- que el fixture no podía asumir si la fila ya existía. Ese trigger se retiró
+  -- en 20260823180000 (P0-P1 fase B) y hoy ningún INSERT en `auth.users` crea
+  -- perfiles, pero el ON CONFLICT se conserva: hace al fixture indiferente al
+  -- estado del provisioning, que es exactamente la propiedad que lo salvó de
+  -- este cambio de contrato.
   INSERT INTO public.profiles (id, user_id, business_id, role, is_active, email, permissions) VALUES
-    -- A · legacy: exactamente lo que deja handle_new_user (user_id NULL, id=uid)
+    -- A · legacy: user_id NULL con id=uid, la forma que dejaban las altas viejas
     (v_legacy, NULL,    v_biz, 'owner',   true, NULL,                     NULL),
     -- B · canónico: user_id explícito
     (v_canon,  v_canon, v_biz, 'admin',   true, 'apl_canon@invalid.test', NULL),
