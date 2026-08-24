@@ -83,6 +83,8 @@
     "test:components": "vitest run --config vitest.config.ts",
     "test:components:watch": "vitest --config vitest.config.ts",
     "test:unit": "node --test \"tests/unit/**/*.test.ts\"",
+    "test:sql:p0p2": "docker cp supabase/migrations/20260824120000_p0p2_invitation_lifecycle_hardening.sql supabase_db_techrepair-vite:/tmp/p0p2.sql && docker cp tests/sql/p0p2_business_invitations.test.sql supabase_db_techrepair-vite:/tmp/t.sql && docker exec supabase_db_techrepair-vite psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/t.sql",
+    "test:p0p2:negative-gates": "npm run test:sql:p0p2 --silent && docker cp scripts/p0p2-negative-gates.sh supabase_db_techrepair-vite:/tmp/ && docker exec supabase_db_techrepair-vite sh /tmp/p0p2-negative-gates.sh",
     "dev:e2e": "node scripts/dev/preflight-local.mjs e2e && vite --mode e2e --port 5174 --strictPort",
     "e2e:prepare": "node scripts/e2e/prepare-local.mjs",
     "repro:search": "node scripts/search/repro-pos-variant.mjs",
