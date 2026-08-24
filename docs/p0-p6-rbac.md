@@ -223,7 +223,62 @@ Y **Órdenes / Garantías / Tareas tienen que seguir funcionando**.
 
 ---
 
+## 9-bis. HOTFIX de superficie de caja — merge `ccc8eac`
+
+Tras el deploy quedaba un borde: `/caja` ya rebotaba, pero el Dashboard seguía
+mostrando **estado Caja abierta/cerrada**, **Gestionar Caja / Abrir Caja**,
+**Gasto** y la pestaña **Movimientos Caja**. Y `CajaProvider` —que envuelve toda
+la app— consultaba `cajas` en el montaje, en cada `focus` y en cada
+`cash-session-updated`, para cualquier usuario.
+
+Se cerró con la capacidad canónica `finance`, expuesta como `canUseCaja` desde
+`CajaContext` (una sola fuente, sin ramificar por rol).
+
+**Dos preguntas distintas, y esto importa:**
+
+```
+canUseCaja          = can('finance')                        -> gobierna la UI
+necesitaConocerCaja = can('finance') || can('comprobantes') -> gobierna el fetch
+```
+
+El POS manda `caja_id` al crear un comprobante para atar la venta a la sesión
+abierta. Un `sales` tiene `comprobantes` pero no `finance`: cortarle el fetch lo
+habría dejado vendiendo con `caja_id: null`, o sea **fuera del arqueo** — un
+cambio de comportamiento contable que este hotfix no debía hacer.
+
+| actor | UI de caja | fetch de `cajas` |
+|---|---|---|
+| tech default | ✗ | **0** |
+| owner / cashier | ✓ | ✓ |
+| tech con `finance:true` | ✓ | ✓ |
+| cashier con `finance:false` | ✗ | — |
+| sales | ✗ | ✓ (POS intacto) |
+| viewer | ✗ | **0** |
+
+Verificado en el bundle servido (`ccc8eac`): banner, CTA y pestaña detrás del
+flag, y `if(!r||!u){...return}` cortando la consulta antes de salir.
+
+### ⚠️ Límite conocido: la tabla `cajas` NO está gateada por capacidad
+
+Su policy es `cajas_select: current_business_id() = business_id AND is_staff()`
+— tenant + staff, **sin capacidad**. Medido: un tech ve **81 filas** de `cajas`
+si consulta directo.
+
+No se tocó **a propósito**: el encargo excluía explícitamente la RLS ya
+desplegada. El impacto es acotado — `cajas` sólo expone apertura/cierre y
+timestamps de sesión; **los importes viven en `financial_movements`, que sí está
+cerrado (tech = 0 filas)**. El frontend ya no la consulta, así que el criterio de
+Network se cumple; lo que queda abierto es una llamada directa fabricada a mano.
+
+Cerrarlo es una línea (`AND public.current_user_can('finance')` en esa policy) y
+queda como handoff.
+
+---
+
 ## 10. Handoffs (registrados, no implementados)
+
+- **`cajas_select` sin chequeo de capacidad** (ver 9-bis). Un tech puede leer
+  metadatos de sesiones de caja por llamada directa. Sin importes.
 
 - **`user_can_view_order_amounts`** filtra por la columna cruda `user_id`, que
   `provision_my_business` y `accept_business_invitation` dejan en NULL — mismo
