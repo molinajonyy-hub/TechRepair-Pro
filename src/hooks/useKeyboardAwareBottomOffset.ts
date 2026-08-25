@@ -5,10 +5,15 @@ import { useState, useEffect } from 'react'
  * Retorna el desplazamiento en px que el teclado ocupa (0 si está cerrado).
  * Útil para mantener paneles flotantes visibles sobre el teclado.
  */
-export function useKeyboardAwareBottomOffset(): number {
+export function useKeyboardAwareBottomOffset(enabled = true): number {
   const [keyboardHeight, setKeyboardHeight] = useState(0)
 
   useEffect(() => {
+    if (!enabled) {
+      setKeyboardHeight(0)
+      return
+    }
+
     const vv = window.visualViewport
     if (!vv) return
 
@@ -18,13 +23,14 @@ export function useKeyboardAwareBottomOffset(): number {
       setKeyboardHeight(offset > 80 ? offset : 0)
     }
 
+    update()
     vv.addEventListener('resize', update)
     vv.addEventListener('scroll', update)
     return () => {
       vv.removeEventListener('resize', update)
       vv.removeEventListener('scroll', update)
     }
-  }, [])
+  }, [enabled])
 
   return keyboardHeight
 }

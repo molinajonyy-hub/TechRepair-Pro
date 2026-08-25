@@ -150,10 +150,12 @@ export const zIndex = {
   raised:      10,
   dropdown:    100,
   sticky:      200,
+  navigation:  300,
+  drawer:      400,
   overlay:     500,
-  modal:       9999,
-  spotlight:   10000,
-  toast:       99999,
+  modal:       600,
+  spotlight:   650,
+  toast:       700,
 } as const
 
 // ─── Tipografía ───────────────────────────────────────────────────────────────
