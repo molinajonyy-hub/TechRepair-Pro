@@ -106,7 +106,7 @@ ALTER TABLE "public"."account_payment_reversals" ENABLE ROW LEVEL SECURITY;
 
 -- Append-only e inmutable, igual que `order_payment_reversals`.
 CREATE OR REPLACE FUNCTION "public"."account_payment_reversals_immutable"() RETURNS "trigger"
-    LANGUAGE plpgsql SET search_path TO 'public', 'pg_temp' AS $$
+    LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 BEGIN
   RAISE EXCEPTION 'account_payment_reversals es append-only: % no permitido', TG_OP USING ERRCODE='0A000';
 END; $$;
@@ -137,18 +137,18 @@ CREATE OR REPLACE FUNCTION "public"."record_customer_account_adjustment_atomic"(
   p_reason      text,
   p_idempotency_key text DEFAULT NULL
 ) RETURNS jsonb
-    LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'pg_temp'
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 DECLARE
   c_key_max       constant int := 200;
   v_user          uuid := auth.uid();
   v_is_member     boolean := false;
-  v_account       accounts%ROWTYPE;
+  v_account       public.accounts%ROWTYPE;
   v_dir           text := lower(btrim(COALESCE(p_direction,'')));
   v_reason        text := NULLIF(btrim(COALESCE(p_reason,'')), '');
   v_key           text := NULLIF(btrim(COALESCE(p_idempotency_key,'')), '');
   v_hash          text;
-  v_existing      account_payment_requests%ROWTYPE;
+  v_existing      public.account_payment_requests%ROWTYPE;
   v_req_id        uuid;
   v_mov_id        uuid;
   v_new_balance   numeric;
@@ -156,8 +156,8 @@ DECLARE
   v_stage         text := 'init';
 BEGIN
   IF v_user IS NULL THEN RETURN jsonb_build_object('ok', false, 'error_code','UNAUTHORIZED', 'error', 'No autenticado'); END IF;
-  SELECT (EXISTS (SELECT 1 FROM businesses WHERE id=p_business_id AND owner_user_id=v_user)
-       OR EXISTS (SELECT 1 FROM profiles WHERE business_id=p_business_id AND COALESCE(user_id,id)=v_user AND COALESCE(is_active,true))) INTO v_is_member;
+  SELECT (EXISTS (SELECT 1 FROM public.businesses WHERE id=p_business_id AND owner_user_id=v_user)
+       OR EXISTS (SELECT 1 FROM public.profiles WHERE business_id=p_business_id AND COALESCE(user_id,id)=v_user AND COALESCE(is_active,true))) INTO v_is_member;
   IF NOT v_is_member THEN RETURN jsonb_build_object('ok', false, 'error_code','FORBIDDEN', 'error', 'Sin acceso a este negocio'); END IF;
   IF NOT public.current_user_can('finance') THEN
     RETURN jsonb_build_object('ok', false, 'error_code','FORBIDDEN', 'error', 'Sin permiso para operaciones financieras'); END IF;
@@ -171,7 +171,7 @@ BEGIN
   IF v_key IS NOT NULL AND length(v_key) > c_key_max THEN
     RETURN jsonb_build_object('ok', false, 'error_code','VALIDATION_ERROR', 'error', 'La clave de idempotencia es demasiado larga'); END IF;
 
-  SELECT * INTO v_account FROM accounts WHERE id=p_account_id AND business_id=p_business_id FOR UPDATE;
+  SELECT * INTO v_account FROM public.accounts WHERE id=p_account_id AND business_id=p_business_id FOR UPDATE;
   IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'error_code','ACCOUNT_NOT_FOUND', 'error', 'Cuenta inexistente'); END IF;
 
   v_economic_date := public.ar_today();
@@ -181,7 +181,7 @@ BEGIN
     v_hash := encode(extensions.digest(jsonb_build_object(
       'op','customer_account_adjustment', 'business_id',p_business_id, 'account_id',p_account_id,
       'amount',round(p_amount,2), 'direction',v_dir, 'reason',v_reason)::text, 'sha256'), 'hex');
-    SELECT * INTO v_existing FROM account_payment_requests WHERE business_id=p_business_id AND idempotency_key=v_key;
+    SELECT * INTO v_existing FROM public.account_payment_requests WHERE business_id=p_business_id AND idempotency_key=v_key;
     IF FOUND THEN
       IF v_existing.request_hash IS DISTINCT FROM v_hash THEN
         RETURN jsonb_build_object('ok', false, 'error_code','IDEMPOTENCY_CONFLICT', 'error', 'IDEMPOTENCY_CONFLICT', 'message', 'Esta clave ya fue utilizada con datos diferentes'); END IF;
@@ -198,11 +198,11 @@ BEGIN
   END;
 
   IF v_key IS NOT NULL THEN
-    INSERT INTO account_payment_requests (business_id, user_id, op, idempotency_key, request_hash)
+    INSERT INTO public.account_payment_requests (business_id, user_id, op, idempotency_key, request_hash)
       VALUES (p_business_id, v_user, 'customer_account_adjustment', v_key, v_hash)
       ON CONFLICT (business_id, idempotency_key) DO NOTHING RETURNING id INTO v_req_id;
     IF v_req_id IS NULL THEN
-      SELECT * INTO v_existing FROM account_payment_requests WHERE business_id=p_business_id AND idempotency_key=v_key;
+      SELECT * INTO v_existing FROM public.account_payment_requests WHERE business_id=p_business_id AND idempotency_key=v_key;
       IF v_existing.request_hash IS DISTINCT FROM v_hash THEN
         RETURN jsonb_build_object('ok', false, 'error_code','IDEMPOTENCY_CONFLICT', 'error', 'IDEMPOTENCY_CONFLICT', 'message', 'Esta clave ya fue utilizada con datos diferentes'); END IF;
       RETURN jsonb_build_object('ok', true, 'replay', true, 'account_movement_id', v_existing.movement_id);
@@ -215,7 +215,7 @@ BEGIN
   -- Por eso escribe SÓLO el ledger. Si moviera caja sería un cobro, y para eso
   -- está `record_customer_account_payment_atomic`.
   v_stage := 'write';
-  INSERT INTO account_movements (business_id, account_id, date, type, description, debit, credit, balance_after, reference_type, created_by)
+  INSERT INTO public.account_movements (business_id, account_id, date, type, description, debit, credit, balance_after, reference_type, created_by)
     VALUES (p_business_id, p_account_id, v_economic_date, 'ajuste', v_reason,
             CASE WHEN v_dir='debit'  THEN p_amount ELSE 0 END,
             CASE WHEN v_dir='credit' THEN p_amount ELSE 0 END,
@@ -224,11 +224,11 @@ BEGIN
             v_user)
     RETURNING id INTO v_mov_id;
 
-  SELECT balance_after INTO v_new_balance FROM account_movements WHERE id=v_mov_id;
-  IF v_key IS NOT NULL THEN UPDATE account_payment_requests SET movement_id=v_mov_id WHERE id=v_req_id; END IF;
+  SELECT balance_after INTO v_new_balance FROM public.account_movements WHERE id=v_mov_id;
+  IF v_key IS NOT NULL THEN UPDATE public.account_payment_requests SET movement_id=v_mov_id WHERE id=v_req_id; END IF;
 
   v_stage := 'audit';
-  PERFORM finance_log_audit(
+  PERFORM public.finance_log_audit(
     p_business_id, 'customer_account_adjustment', 'account_movements', v_mov_id, 'record_customer_account_adjustment_atomic',
     v_key, v_reason, v_economic_date, 'account', p_account_id,
     NULL, jsonb_build_object('account_id', p_account_id, 'amount', p_amount, 'direction', v_dir,
@@ -254,7 +254,7 @@ CREATE OR REPLACE FUNCTION "public"."reverse_customer_account_payment_atomic"(
   p_reason      text,
   p_idempotency_key text DEFAULT NULL
 ) RETURNS jsonb
-    LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'pg_temp'
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 DECLARE
   c_key_max       constant int := 200;
@@ -263,10 +263,10 @@ DECLARE
   v_reason        text := NULLIF(btrim(COALESCE(p_reason,'')), '');
   v_key           text := NULLIF(btrim(COALESCE(p_idempotency_key,'')), '');
   v_hash          text;
-  v_existing      account_payment_reversals%ROWTYPE;
-  v_orig          account_movements%ROWTYPE;
-  v_fm            financial_movements%ROWTYPE;
-  v_bfe           business_finance_entries%ROWTYPE;
+  v_existing      public.account_payment_reversals%ROWTYPE;
+  v_orig          public.account_movements%ROWTYPE;
+  v_fm            public.financial_movements%ROWTYPE;
+  v_bfe           public.business_finance_entries%ROWTYPE;
   v_alloc_n       int;
   v_date          date;
   v_new_mov       uuid;
@@ -280,8 +280,8 @@ BEGIN
   IF v_reason IS NULL THEN RETURN jsonb_build_object('ok', false, 'error_code','VALIDATION_ERROR', 'error', 'El motivo de la reversa es obligatorio'); END IF;
   IF v_key IS NOT NULL AND length(v_key) > c_key_max THEN RETURN jsonb_build_object('ok', false, 'error_code','VALIDATION_ERROR', 'error', 'La clave de idempotencia es demasiado larga'); END IF;
 
-  SELECT (EXISTS (SELECT 1 FROM businesses WHERE id=p_business_id AND owner_user_id=v_user)
-       OR EXISTS (SELECT 1 FROM profiles WHERE business_id=p_business_id AND COALESCE(user_id,id)=v_user AND COALESCE(is_active,true))) INTO v_is_member;
+  SELECT (EXISTS (SELECT 1 FROM public.businesses WHERE id=p_business_id AND owner_user_id=v_user)
+       OR EXISTS (SELECT 1 FROM public.profiles WHERE business_id=p_business_id AND COALESCE(user_id,id)=v_user AND COALESCE(is_active,true))) INTO v_is_member;
   IF NOT v_is_member THEN RETURN jsonb_build_object('ok', false, 'error_code','FORBIDDEN', 'error', 'Sin acceso a este negocio'); END IF;
   IF NOT public.current_user_can('finance') THEN
     RETURN jsonb_build_object('ok', false, 'error_code','FORBIDDEN', 'error', 'Sin permiso para operaciones financieras'); END IF;
@@ -292,7 +292,7 @@ BEGIN
     v_hash := encode(extensions.digest(jsonb_build_object(
       'op','customer_account_payment_reversal', 'business_id',p_business_id,
       'movement_id',p_movement_id, 'reason',v_reason)::text, 'sha256'), 'hex');
-    SELECT * INTO v_existing FROM account_payment_reversals WHERE business_id=p_business_id AND idempotency_key=v_key;
+    SELECT * INTO v_existing FROM public.account_payment_reversals WHERE business_id=p_business_id AND idempotency_key=v_key;
     IF FOUND THEN
       IF v_existing.request_hash IS DISTINCT FROM v_hash THEN
         RETURN jsonb_build_object('ok', false, 'error_code','IDEMPOTENCY_CONFLICT', 'error', 'IDEMPOTENCY_CONFLICT', 'message', 'Esta clave ya fue utilizada con datos diferentes'); END IF;
@@ -303,14 +303,14 @@ BEGIN
   END IF;
 
   -- LOCK del cobro original: serializa contra dos reversas con claves DISTINTAS.
-  SELECT * INTO v_orig FROM account_movements
+  SELECT * INTO v_orig FROM public.account_movements
     WHERE id=p_movement_id AND business_id=p_business_id FOR UPDATE;
   IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'error_code','NOT_FOUND', 'error', 'El cobro no existe en este negocio'); END IF;
   IF v_orig.type <> 'pago' OR v_orig.credit <= 0 THEN
     RETURN jsonb_build_object('ok', false, 'error_code','VALIDATION_ERROR', 'error', 'El movimiento indicado no es un cobro de cuenta corriente'); END IF;
 
   -- Ya reversado: lo dice el UNIQUE, no el hash. Se lee bajo el lock.
-  IF EXISTS (SELECT 1 FROM account_payment_reversals WHERE original_movement_id=p_movement_id) THEN
+  IF EXISTS (SELECT 1 FROM public.account_payment_reversals WHERE original_movement_id=p_movement_id) THEN
     RETURN jsonb_build_object('ok', false, 'error_code','ALREADY_REVERSED', 'error', 'Este cobro ya fue reversado'); END IF;
 
   -- Este movimiento NO puede ser, a su vez, la reversa de otro cobro.
@@ -318,17 +318,17 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'error_code','VALIDATION_ERROR', 'error', 'No se puede reversar una reversa'); END IF;
 
   -- Imputado: no se deshace en cascada algo que el usuario no pidió.
-  SELECT count(*) INTO v_alloc_n FROM customer_account_payment_allocations
+  SELECT count(*) INTO v_alloc_n FROM public.customer_account_payment_allocations
     WHERE payment_movement_id = p_movement_id AND status = 'active';
   IF v_alloc_n > 0 THEN
     RETURN jsonb_build_object('ok', false, 'error_code','PAYMENT_ALLOCATED',
       'error', 'Este cobro está imputado a comprobantes. Revertí primero la imputación y después el cobro.'); END IF;
 
   -- Las patas financieras del cobro original, por su enlace canónico.
-  SELECT * INTO v_fm FROM financial_movements
+  SELECT * INTO v_fm FROM public.financial_movements
     WHERE business_id=p_business_id AND reference_type='account_movement' AND reference_id=p_movement_id
     ORDER BY created_at LIMIT 1;
-  SELECT * INTO v_bfe FROM business_finance_entries
+  SELECT * INTO v_bfe FROM public.business_finance_entries
     WHERE business_id=p_business_id AND category='cobro_cuenta_corriente'
       AND date=v_orig.date AND amount_ars=v_orig.credit AND source='cobro_cc'
     ORDER BY created_at LIMIT 1;
@@ -348,7 +348,7 @@ BEGIN
   v_stage := 'write';
 
   -- (a) Ledger: contra-movimiento que devuelve la deuda. No se borra el cobro.
-  INSERT INTO account_movements (business_id, account_id, date, type, description, debit, credit, balance_after, reference_type, reference_id, created_by)
+  INSERT INTO public.account_movements (business_id, account_id, date, type, description, debit, credit, balance_after, reference_type, reference_id, created_by)
     VALUES (p_business_id, v_orig.account_id, v_date, 'ajuste',
       'REVERSO cobro — ' || v_reason, v_orig.credit, 0, 0,
       'account_payment_reversal', p_movement_id, v_user)
@@ -357,7 +357,7 @@ BEGIN
   -- (b) Caja: FM compensatorio `expense`, mismo método (no se reclasifica),
   --     en la caja abierta actual (caja_id NULL -> el trigger la asigna).
   IF v_fm.id IS NOT NULL THEN
-    INSERT INTO financial_movements (business_id, date, type, currency, amount, amount_ars, exchange_rate,
+    INSERT INTO public.financial_movements (business_id, date, type, currency, amount, amount_ars, exchange_rate,
       source, description, created_by, metodo_pago, reference_id, reference_type)
       VALUES (p_business_id, v_date, 'expense', v_fm.currency, v_fm.amount, v_fm.amount_ars, v_fm.exchange_rate,
         'reversal', 'REVERSO cobro de cuenta corriente', v_user, v_fm.metodo_pago,
@@ -367,7 +367,7 @@ BEGIN
 
   -- (c) BFE compensatorio: income NEGATIVO, espejo, fuera del P&L.
   IF v_bfe.id IS NOT NULL THEN
-    INSERT INTO business_finance_entries (business_id, date, type, category, description,
+    INSERT INTO public.business_finance_entries (business_id, date, type, category, description,
       amount, currency, amount_ars, exchange_rate, payment_method, source, created_by, economic_class)
       VALUES (p_business_id, v_date, 'income', v_bfe.category, 'REVERSO cobro de cuenta corriente — ' || v_reason,
         -v_bfe.amount, v_bfe.currency, -v_bfe.amount_ars, v_bfe.exchange_rate, v_bfe.payment_method,
@@ -375,11 +375,11 @@ BEGIN
       RETURNING id INTO v_new_bfe;
   END IF;
 
-  SELECT balance_after INTO v_new_balance FROM account_movements WHERE id=v_new_mov;
+  SELECT balance_after INTO v_new_balance FROM public.account_movements WHERE id=v_new_mov;
 
   -- (d) Registro de la reversa. El UNIQUE sobre original_movement_id es lo que
   --     hace imposible la doble reversa aun con claves distintas.
-  INSERT INTO account_payment_reversals (business_id, account_id, original_movement_id,
+  INSERT INTO public.account_payment_reversals (business_id, account_id, original_movement_id,
     original_financial_movement_id, original_finance_entry_id,
     reversal_movement_id, reversal_financial_movement_id, reversal_finance_entry_id,
     amount_ars, reason, created_by, idempotency_key, request_hash, op, metadata)
@@ -390,7 +390,7 @@ BEGIN
     RETURNING id INTO v_rev_id;
 
   v_stage := 'audit';
-  PERFORM finance_log_audit(
+  PERFORM public.finance_log_audit(
     p_business_id, 'customer_account_payment_reversal', 'account_movements', p_movement_id,
     'reverse_customer_account_payment_atomic',
     v_key, v_reason, v_date, 'account', v_orig.account_id,

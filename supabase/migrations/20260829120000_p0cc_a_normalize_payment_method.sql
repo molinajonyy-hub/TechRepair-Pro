@@ -94,7 +94,7 @@ CREATE OR REPLACE FUNCTION "public"."canonical_cc_payment_method"(p_method text)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
-SET search_path TO 'public', 'pg_temp'
+SET search_path = public, pg_temp
 AS $$
   SELECT CASE lower(btrim(COALESCE(p_method, '')))
     WHEN 'efectivo'        THEN 'efectivo'
@@ -124,7 +124,7 @@ CREATE OR REPLACE FUNCTION "public"."normalize_cc_payment_method"(p_method text)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE
-SET search_path TO 'public', 'pg_temp'
+SET search_path = public, pg_temp
 AS $$
   SELECT CASE public.canonical_cc_payment_method(p_method)
     WHEN 'efectivo'        THEN 'efectivo'
@@ -167,13 +167,13 @@ CREATE OR REPLACE FUNCTION "public"."record_customer_account_payment_atomic"(
   p_business_id uuid, p_account_id uuid, p_amount numeric, p_description text, p_user_id uuid,
   p_payment_method text, p_date date, p_caja_id uuid DEFAULT NULL, p_idempotency_key text DEFAULT NULL
 ) RETURNS jsonb
-    LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'pg_temp'
+    LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
 DECLARE
   c_key_max       constant int := 200;
   v_user          uuid := auth.uid();
   v_is_member     boolean := false;
-  v_account       accounts%ROWTYPE;
+  v_account       public.accounts%ROWTYPE;
   v_debt          numeric;
   v_new_balance   numeric;
   v_economic_date date;
@@ -182,7 +182,7 @@ DECLARE
   v_method_caja   text;   -- bucket de caja              -> financial_movements
   v_key           text := NULLIF(btrim(COALESCE(p_idempotency_key,'')), '');
   v_hash          text;
-  v_existing      account_payment_requests%ROWTYPE;
+  v_existing      public.account_payment_requests%ROWTYPE;
   v_req_id        uuid;
   v_mov_id        uuid;
   v_fm_id         uuid;
@@ -192,8 +192,8 @@ BEGIN
   -- 1. Autenticación
   IF v_user IS NULL THEN RETURN jsonb_build_object('ok', false, 'error_code','UNAUTHORIZED', 'error', 'No autenticado'); END IF;
   -- 2/3. Pertenencia (modelo M6: cualquier perfil activo del negocio). CC-C endurece esto.
-  SELECT (EXISTS (SELECT 1 FROM businesses WHERE id=p_business_id AND owner_user_id=v_user)
-       OR EXISTS (SELECT 1 FROM profiles WHERE business_id=p_business_id AND user_id=v_user AND COALESCE(is_active,true))) INTO v_is_member;
+  SELECT (EXISTS (SELECT 1 FROM public.businesses WHERE id=p_business_id AND owner_user_id=v_user)
+       OR EXISTS (SELECT 1 FROM public.profiles WHERE business_id=p_business_id AND user_id=v_user AND COALESCE(is_active,true))) INTO v_is_member;
   IF NOT v_is_member THEN RETURN jsonb_build_object('ok', false, 'error_code','FORBIDDEN', 'error', 'Sin acceso a este negocio'); END IF;
   -- 4. Validación del payload
   IF v_key IS NOT NULL AND length(v_key) > c_key_max THEN RETURN jsonb_build_object('ok', false, 'error_code','VALIDATION_ERROR', 'error', 'La clave de idempotencia es demasiado larga'); END IF;
@@ -207,14 +207,14 @@ BEGIN
       'error', 'Método de cobro no reconocido. La cuenta corriente acepta efectivo, transferencia, débito, crédito, QR u otro, en pesos.');
   END IF;
 
-  SELECT * INTO v_account FROM accounts WHERE id=p_account_id AND business_id=p_business_id FOR UPDATE;
+  SELECT * INTO v_account FROM public.accounts WHERE id=p_account_id AND business_id=p_business_id FOR UPDATE;
   IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'error_code','ACCOUNT_NOT_FOUND', 'error', 'Cuenta inexistente'); END IF;
   IF v_account.type <> 'cliente' THEN RETURN jsonb_build_object('ok', false, 'error_code','VALIDATION_ERROR', 'error', 'La cuenta no es de cliente'); END IF;
   -- Deuda server-side desde el ledger; el cobro no puede superarla (sobrepago)
-  SELECT COALESCE(SUM(debit-credit),0) INTO v_debt FROM account_movements WHERE account_id=p_account_id;
+  SELECT COALESCE(SUM(debit-credit),0) INTO v_debt FROM public.account_movements WHERE account_id=p_account_id;
   IF p_amount > v_debt + 0.01 THEN RETURN jsonb_build_object('ok', false, 'error_code','OVERPAYMENT', 'error', 'El cobro supera la deuda pendiente'); END IF;
   -- Efectivo requiere caja abierta (ahora sobre el bucket normalizado)
-  IF v_method_caja='efectivo' AND p_caja_id IS NULL AND NOT EXISTS (SELECT 1 FROM cajas WHERE business_id=p_business_id AND status='abierta') THEN
+  IF v_method_caja='efectivo' AND p_caja_id IS NULL AND NOT EXISTS (SELECT 1 FROM public.cajas WHERE business_id=p_business_id AND status='abierta') THEN
     RETURN jsonb_build_object('ok', false, 'error_code','CASH_REGISTER_NOT_OPEN', 'error', 'No hay caja abierta para registrar el cobro en efectivo'); END IF;
 
   -- 5. Fecha económica única
@@ -227,7 +227,7 @@ BEGIN
       'op','customer_account_payment', 'business_id',p_business_id, 'account_id',p_account_id,
       'amount',round(p_amount,2), 'currency','ARS', 'method',v_method, 'caja',p_caja_id,
       'economic_date',v_economic_date, 'description',NULLIF(btrim(p_description),''))::text, 'sha256'), 'hex');
-    SELECT * INTO v_existing FROM account_payment_requests WHERE business_id=p_business_id AND idempotency_key=v_key;
+    SELECT * INTO v_existing FROM public.account_payment_requests WHERE business_id=p_business_id AND idempotency_key=v_key;
     IF FOUND THEN
       IF v_existing.request_hash IS DISTINCT FROM v_hash THEN RETURN jsonb_build_object('ok', false, 'error_code','IDEMPOTENCY_CONFLICT', 'error', 'IDEMPOTENCY_CONFLICT', 'message', 'Esta clave ya fue utilizada con datos diferentes'); END IF;
       RETURN jsonb_build_object('ok', true, 'replay', true, 'account_movement_id', v_existing.movement_id);
@@ -245,11 +245,11 @@ BEGIN
 
   -- 8. Reserva idempotente race-safe
   IF v_key IS NOT NULL THEN
-    INSERT INTO account_payment_requests (business_id, user_id, op, idempotency_key, request_hash)
+    INSERT INTO public.account_payment_requests (business_id, user_id, op, idempotency_key, request_hash)
       VALUES (p_business_id, v_user, 'customer_account_payment', v_key, v_hash)
       ON CONFLICT (business_id, idempotency_key) DO NOTHING RETURNING id INTO v_req_id;
     IF v_req_id IS NULL THEN
-      SELECT * INTO v_existing FROM account_payment_requests WHERE business_id=p_business_id AND idempotency_key=v_key;
+      SELECT * INTO v_existing FROM public.account_payment_requests WHERE business_id=p_business_id AND idempotency_key=v_key;
       IF v_existing.request_hash IS DISTINCT FROM v_hash THEN RETURN jsonb_build_object('ok', false, 'error_code','IDEMPOTENCY_CONFLICT', 'error', 'IDEMPOTENCY_CONFLICT', 'message', 'Esta clave ya fue utilizada con datos diferentes'); END IF;
       RETURN jsonb_build_object('ok', true, 'replay', true, 'account_movement_id', v_existing.movement_id);
     END IF;
@@ -260,17 +260,17 @@ BEGIN
 
   -- 10. Escrituras económicas (persisten v_economic_date). balance_after lo pone el trigger.
   v_stage := 'write';
-  INSERT INTO account_movements (business_id, account_id, date, type, description, debit, credit, balance_after, reference_type, created_by)
+  INSERT INTO public.account_movements (business_id, account_id, date, type, description, debit, credit, balance_after, reference_type, created_by)
     VALUES (p_business_id, p_account_id, v_economic_date, 'pago',
       COALESCE(NULLIF(btrim(p_description),''), 'Cobro de cuenta corriente'), 0, p_amount, 0, 'manual', v_user)
     RETURNING id INTO v_mov_id;
-  INSERT INTO financial_movements (business_id, date, type, currency, amount, amount_ars, exchange_rate,
+  INSERT INTO public.financial_movements (business_id, date, type, currency, amount, amount_ars, exchange_rate,
     source, description, created_by, caja_id, metodo_pago, reference_id, reference_type)
     VALUES (p_business_id, v_economic_date, 'income', 'ARS', p_amount, p_amount, 1,
       'cobro_cuenta_corriente', COALESCE(NULLIF(btrim(p_description),''), 'Cobro de cuenta corriente'),
       v_user, p_caja_id, v_method_caja, v_mov_id, 'account_movement')
     RETURNING id INTO v_fm_id;
-  INSERT INTO business_finance_entries (business_id, date, type, category, description,
+  INSERT INTO public.business_finance_entries (business_id, date, type, category, description,
     amount, currency, amount_ars, exchange_rate, payment_method, source, created_by)
     VALUES (p_business_id, v_economic_date, 'income', 'cobro_cuenta_corriente',
       COALESCE(NULLIF(btrim(p_description),''), 'Cobro de cuenta corriente'),
@@ -278,14 +278,14 @@ BEGIN
     RETURNING id INTO v_bfe_id;
 
   -- 11. Saldo nuevo canónico (del trigger; no inventado)
-  SELECT balance_after INTO v_new_balance FROM account_movements WHERE id=v_mov_id;
+  SELECT balance_after INTO v_new_balance FROM public.account_movements WHERE id=v_mov_id;
 
   -- 12. Enlace del request
-  IF v_key IS NOT NULL THEN UPDATE account_payment_requests SET movement_id=v_mov_id WHERE id=v_req_id; END IF;
+  IF v_key IS NOT NULL THEN UPDATE public.account_payment_requests SET movement_id=v_mov_id WHERE id=v_req_id; END IF;
 
   -- 13. Auditoría explícita (un evento)
   v_stage := 'audit';
-  PERFORM finance_log_audit(
+  PERFORM public.finance_log_audit(
     p_business_id, 'customer_account_payment', 'account_movements', v_mov_id, 'record_customer_account_payment_atomic',
     v_key, p_description, v_economic_date, 'account', p_account_id,
     NULL, jsonb_build_object('account_id', p_account_id, 'amount', p_amount, 'currency','ARS', 'amount_ars', p_amount,
