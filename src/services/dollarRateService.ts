@@ -11,6 +11,13 @@
  * REGLA: siempre usa precio de VENTA del dólar blue.
  */
 import { supabase } from '../lib/supabase';
+import {
+  type DolarSource as ConfiguredSource,
+  DOLAR_SOURCES,
+  normalizeDolarSource,
+  normalizeRateSourceTag,
+  type RateSourceTag,
+} from '../lib/dollar/quoteSource';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -88,16 +95,41 @@ interface CacheEntry {
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutos
 const cache = new Map<string, CacheEntry>();
 
-function cacheKey(businessId: string) { return `dollar:${businessId}`; }
+/**
+ * La clave incluye la FUENTE configurada.
+ *
+ * Con `dollar:${businessId}` a secas, cambiar de Córdoba a Nacional servía
+ * hasta 15 minutos el valor de la fuente anterior, etiquetado con la nueva.
+ * La fuente es parte de la identidad del dato cacheado, no un atributo.
+ */
+function cacheKey(businessId: string, source: ConfiguredSource) { return `dollar:${businessId}:${source}`; }
 function isFresh(entry: CacheEntry) { return Date.now() - entry.ts < CACHE_TTL_MS; }
-function setCache(businessId: string, result: DollarRateResult) {
-  cache.set(cacheKey(businessId), { result, ts: Date.now() });
+function setCache(businessId: string, source: ConfiguredSource, result: DollarRateResult) {
+  cache.set(cacheKey(businessId, source), { result, ts: Date.now() });
 }
-function getCache(businessId: string): DollarRateResult | null {
-  const entry = cache.get(cacheKey(businessId));
-  return entry ? entry.result : null;
+function getFreshCache(businessId: string, source: ConfiguredSource): DollarRateResult | null {
+  const entry = cache.get(cacheKey(businessId, source));
+  return entry && isFresh(entry) ? entry.result : null;
 }
-export function clearDollarCache(businessId: string) { cache.delete(cacheKey(businessId)); }
+
+/** Invalida el caché de TODAS las fuentes del negocio. */
+export function clearDollarCache(businessId: string) {
+  for (const source of Object.keys(DOLAR_SOURCES) as ConfiguredSource[]) {
+    cache.delete(cacheKey(businessId, source));
+  }
+}
+
+// ─── Mapeo entre la fuente configurada y el vocabulario de display ────────────
+
+const DISPLAY_SOURCE_BY_CONFIG: Record<ConfiguredSource, DollarSource> = {
+  cordoba:  'INFODOLAR_CORDOBA',
+  nacional: 'AMBITO_NACIONAL',
+};
+
+/** Tag canónico que se persiste en `exchange_rates.source`. */
+function rateTagFor(source: ConfiguredSource): RateSourceTag {
+  return DOLAR_SOURCES[source].rateSourceTag;
+}
 
 // ─── parseARSNumber ───────────────────────────────────────────────────────────
 
@@ -222,10 +254,20 @@ async function getLastDBRate(businessId: string): Promise<DollarRateResult | nul
     ? histBuy
     : undefined;
 
+  // La columna acumuló grafías divergentes ('INFODOLAR_CORDOBA', 'bluelytics',
+  // 'api'…). Se normaliza al leer en vez de castear a ciegas.
+  const tag = normalizeRateSourceTag(data.source);
+  const displaySource: DollarSource =
+    tag === 'infodolar-cordoba' ? 'INFODOLAR_CORDOBA'
+    : tag === 'bluelytics'      ? 'AMBITO_NACIONAL'
+    : tag === 'dolarapi'        ? 'DOLARAPI'
+    : tag === 'manual'          ? 'MANUAL'
+    :                             'DB_CACHE';
+
   return {
     sellPrice: data.rate,
     buyPrice,
-    source: (data.source as DollarSource) ?? 'DB_CACHE',
+    source: displaySource,
     fetchedAt: new Date(data.updated_at),
     isStale: true,
   };
@@ -233,17 +275,19 @@ async function getLastDBRate(businessId: string): Promise<DollarRateResult | nul
 
 // ─── Guardar en DB ────────────────────────────────────────────────────────────
 
-async function saveRateToDB(businessId: string, result: DollarRateResult) {
+async function saveRateToDB(businessId: string, result: DollarRateResult, rateTag: RateSourceTag) {
   const now = new Date().toISOString();
 
-  // Upsert en exchange_rates (valor actual)
+  // Upsert en exchange_rates (valor actual).
+  // `source` se persiste SIEMPRE con el tag canónico — antes escribía el enum
+  // de display en mayúsculas, que ninguna consulta del frontend buscaba.
   await supabase.from('exchange_rates').upsert({
     business_id:     businessId,
     base_currency:   'USD',
     target_currency: 'ARS',
     rate:            result.sellPrice,
     is_manual:       result.source === 'MANUAL',
-    source:          result.source,
+    source:          rateTag,
     updated_at:      now,
   }, { onConflict: 'business_id,base_currency,target_currency' });
 
@@ -252,14 +296,17 @@ async function saveRateToDB(businessId: string, result: DollarRateResult) {
     business_id: businessId,
     sell_price:  result.sellPrice,
     buy_price:   result.buyPrice ?? null,
-    source:      result.source,
+    source:      rateTag,
     province:    result.province ?? null,
     fetched_at:  now,
   });
 
-  // Actualizar last_dollar_source en business_settings
+  // Actualizar last_dollar_source en business_settings.
+  // OJO: `last_dollar_source` es un registro de PROCEDENCIA del último valor
+  // obtenido — NO es la fuente configurada. La configurada vive en
+  // `dolar_source` y sólo la cambia el usuario.
   await supabase.from('business_settings').update({
-    last_dollar_source:     result.source,
+    last_dollar_source:     rateTag,
     last_dollar_fetched_at: now,
   }).eq('business_id', businessId);
 }
@@ -271,9 +318,28 @@ async function saveRateToDB(businessId: string, result: DollarRateResult) {
  * Si el caché está fresco (< 15 min), lo devuelve sin llamar a la API.
  */
 export async function getCurrentDollarRate(businessId: string): Promise<DollarRateResult | null> {
-  const cached = getCache(businessId);
-  if (cached) return cached;
+  // El caché ya no se puede consultar sin saber la fuente: la fuente es parte
+  // de la clave. refreshDollarRate(force=false) resuelve la fuente y luego
+  // consulta el caché de ESA fuente.
   return refreshDollarRate(businessId, false);
+}
+
+/** Fuente configurada por el negocio, normalizada. */
+async function resolveConfiguredSource(businessId: string): Promise<{ source: ConfiguredSource; autoUpdate: boolean }> {
+  const { data: settings } = await supabase
+    .from('business_settings')
+    .select('dolar_source, auto_update_rate')
+    .eq('business_id', businessId)
+    .maybeSingle();
+
+  // Sin fila de settings el negocio no configuró nada: se usan los defaults de
+  // la COLUMNA ('nacional'), no un default propio del servicio.
+  // Antes acá había `?? 'cordoba'`, así que un negocio nuevo cotizaba Córdoba
+  // mientras la pantalla de Configuración mostraba Nacional seleccionada.
+  return {
+    source:     normalizeDolarSource(settings?.dolar_source).source,
+    autoUpdate: settings?.auto_update_rate !== false,
+  };
 }
 
 /**
@@ -282,25 +348,17 @@ export async function getCurrentDollarRate(businessId: string): Promise<DollarRa
  * @param force si false, respeta el TTL del caché
  */
 export async function refreshDollarRate(businessId: string, force = true): Promise<DollarRateResult | null> {
+  const { source, autoUpdate } = await resolveConfiguredSource(businessId);
+
   if (!force) {
-    const entry = cache.get(cacheKey(businessId));
-    if (entry && isFresh(entry)) return entry.result;
+    const cached = getFreshCache(businessId, source);
+    if (cached) return cached;
   }
-
-  // Leer configuración del negocio
-  const { data: settings } = await supabase
-    .from('business_settings')
-    .select('dolar_source, auto_update_rate')
-    .eq('business_id', businessId)
-    .maybeSingle();
-
-  const preferCordoba  = (settings?.dolar_source ?? 'cordoba') !== 'nacional';
-  const autoUpdate     = settings?.auto_update_rate !== false;
 
   // Si no usa auto-update, devolver valor de DB
   if (!autoUpdate) {
     const dbRate = await getLastDBRate(businessId);
-    if (dbRate) { setCache(businessId, dbRate); return dbRate; }
+    if (dbRate) { setCache(businessId, source, dbRate); return dbRate; }
     return null;
   }
 
@@ -308,18 +366,22 @@ export async function refreshDollarRate(businessId: string, force = true): Promi
   const dbRate    = await getLastDBRate(businessId);
   const lastKnown = dbRate?.sellPrice ?? 0;
 
-  // Intentar edge function
-  const primary  = preferCordoba ? 'cordoba' : 'nacional';
-  const fallback = preferCordoba ? 'nacional' : 'cordoba';
-
-  let raw = await fetchViaEdgeFunction(primary, lastKnown);
-  if (!raw) raw = await fetchViaEdgeFunction(fallback, lastKnown);
+  // SOLO la fuente configurada. Antes, si la primaria fallaba se consultaba la
+  // otra en silencio y su valor se guardaba y se mostraba como si fuera la
+  // configurada: un negocio en Nacional terminaba con precios de Córdoba sin
+  // que nada lo dijera.
+  const raw = await fetchViaEdgeFunction(source, lastKnown);
 
   if (!raw || !isValidRate(raw.sell)) {
-    // Usar último valor de DB como fallback
+    // Degradación explícita: último valor conocido, marcado como stale y
+    // conservando su timestamp y su procedencia real.
     if (dbRate) {
-      const stale = { ...dbRate, isStale: true };
-      setCache(businessId, stale);
+      const stale: DollarRateResult = {
+        ...dbRate,
+        isStale: true,
+        warning: `No pudimos actualizar ${DOLAR_SOURCES[source].label}. Mostrando la última cotización válida.`,
+      };
+      setCache(businessId, source, stale);
       return stale;
     }
     return null;
@@ -328,7 +390,7 @@ export async function refreshDollarRate(businessId: string, force = true): Promi
   const result: DollarRateResult = {
     sellPrice: raw.sell,
     buyPrice:  raw.buy,
-    source:    raw.source,
+    source:    DISPLAY_SOURCE_BY_CONFIG[source],
     province:  raw.province,
     fetchedAt: new Date(),
     isStale:   false,
@@ -337,10 +399,10 @@ export async function refreshDollarRate(businessId: string, force = true): Promi
 
   // No guardar si hay variación sospechosa
   if (!raw.warning) {
-    await saveRateToDB(businessId, result);
+    await saveRateToDB(businessId, result, rateTagFor(source));
   }
 
-  setCache(businessId, result);
+  setCache(businessId, source, result);
   return result;
 }
 
@@ -354,8 +416,10 @@ export async function setManualDollarRate(businessId: string, sellPrice: number)
     fetchedAt: new Date(),
     isStale:   false,
   };
-  await saveRateToDB(businessId, result);
-  setCache(businessId, result);
+  await saveRateToDB(businessId, result, 'manual');
+  // La cotización manual no pertenece a ninguna fuente externa: se invalida el
+  // caché de todas para que la próxima lectura resuelva contra la DB.
+  clearDollarCache(businessId);
   return result;
 }
 

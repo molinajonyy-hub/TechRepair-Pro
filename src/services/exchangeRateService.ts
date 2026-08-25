@@ -1,4 +1,12 @@
-export type DolarSource = 'nacional' | 'cordoba'
+import {
+  type DolarSource,
+  type QuoteOutcome,
+  type QuoteFailureReason,
+  isPlausibleRate,
+  quoteFailureMessage,
+} from '../lib/dollar/quoteSource'
+
+export type { DolarSource }
 
 /** Compra y venta explícitos de InfoDolar Córdoba. */
 export interface CordobaRateDetail {
@@ -157,26 +165,89 @@ async function fetchWithTimeoutAndRetry(url: string, opts: FetchRetryOptions): P
   throw lastError
 }
 
-// URL de la Edge Function Supabase (server-side, sin proxy, sin CORS)
-const EDGE_FN_URL = 'https://vrdxxmjzxhfgqlnxmbwx.supabase.co/functions/v1/infodolar-cordoba'
-const SUPABASE_ANON_KEY = (import.meta as { env?: Record<string, string> }).env?.VITE_SUPABASE_ANON_KEY ?? ''
+// ── Configuración de proveedores ─────────────────────────────────────────────
+
+const ENV = (import.meta as { env?: Record<string, string> }).env ?? {}
+const SUPABASE_ANON_KEY = ENV.VITE_SUPABASE_ANON_KEY ?? ''
+
+// La URL del proyecto salía hardcodeada al proyecto productivo, así que un
+// build local/E2E consultaba la Edge Function de PRODUCCIÓN. Ahora sale del
+// entorno, como el resto del cliente Supabase.
+const SUPABASE_URL = (ENV.VITE_SUPABASE_URL ?? '').replace(/\/+$/, '')
+const EDGE_FN_URL = `${SUPABASE_URL}/functions/v1/infodolar-cordoba`
+
+const BLUELYTICS_URL = 'https://api.bluelytics.com.ar/v2/latest'
+
+/** Allowlist cerrada de destinos. El cliente nunca elige una URL. */
+const PROVIDER_TIMEOUT_MS = 20_000
+
+// ── Clasificación de errores de red ──────────────────────────────────────────
+
+function classifyNetworkError(err: unknown): QuoteFailureReason {
+  const e = err instanceof Error ? err : new Error(String(err))
+  if (e.name === 'TimeoutError' || e.name === 'AbortError' || /timed out/i.test(e.message)) return 'timeout'
+  return 'unreachable'
+}
+
+function fail(source: DolarSource, reason: QuoteFailureReason): QuoteOutcome {
+  return { ok: false, source, reason, message: quoteFailureMessage(source, reason) }
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null
+}
+
+function toNumber(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null
+  if (typeof v === 'string') { const n = parseArgPrice(v); return n }
+  return null
+}
 
 // ── Servicio ──────────────────────────────────────────────────────────────────
 
 export const exchangeRateService = {
   /**
    * Dólar Blue Nacional — Bluelytics API (CORS-friendly, JSON directo).
-   * NO modificar — funciona correctamente.
+   *
+   * Devuelve un QuoteOutcome: distingue timeout, host inalcanzable, HTTP no-2xx,
+   * payload ilegible y precio ausente. Antes colapsaba todo a `null`, así que la
+   * UI no podía decir por qué había fallado ni distinguir "falló" de "sin dato".
    */
-  async getDolarBlueNacional(): Promise<number | null> {
+  async fetchNacional(): Promise<QuoteOutcome> {
+    const source: DolarSource = 'nacional'
+
+    let res: Response
     try {
-      const res = await fetch('https://api.bluelytics.com.ar/v2/latest')
-      if (!res.ok) throw new Error('HTTP ' + res.status)
-      const data = await res.json()
-      return data.blue?.value_sell ?? null
+      res = await fetch(BLUELYTICS_URL, { signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) })
     } catch (err) {
-      console.error('[exchangeRate] Nacional:', err)
-      return null
+      return fail(source, classifyNetworkError(err))
+    }
+
+    if (!res.ok) return fail(source, 'http_error')
+
+    let data: unknown
+    try {
+      data = await res.json()
+    } catch {
+      return fail(source, 'invalid_payload')
+    }
+
+    if (!isRecord(data) || !isRecord(data.blue)) return fail(source, 'invalid_payload')
+
+    const sell = toNumber(data.blue.value_sell)
+    const buy  = toNumber(data.blue.value_buy)
+
+    // Validación de rango: un payload con 0, null o un valor absurdo NO se
+    // acepta como cotización.
+    if (!isPlausibleRate(sell)) return fail(source, 'missing_price')
+
+    return {
+      ok:        true,
+      source,
+      sell,
+      buy:       isPlausibleRate(buy) && buy < sell ? buy : null,
+      fetchedAt: new Date().toISOString(),
+      strategy:  'bluelytics:v2-latest',
     }
   },
 
@@ -189,105 +260,118 @@ export const exchangeRateService = {
    * SIEMPRE retorna venta. NUNCA usa promedio, compra ni fallback a nacional.
    * Si ambas estrategias fallan → retorna null → error visible en UI, no se actualizan precios.
    */
-  async getDolarBlueCordobaDetail(): Promise<CordobaRateDetail | null> {
-    // ── Estrategia 1: Edge Function (server-side, confiable) ──────────────────
-    try {
-      const t0 = Date.now()
-      const res = await fetch(EDGE_FN_URL, {
-        headers: {
-          'apikey':        SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type':  'application/json',
-        },
-        signal: AbortSignal.timeout(20000),
-      })
-      const ms = Date.now() - t0
-      const data = await res.json()
+  async fetchCordoba(): Promise<QuoteOutcome> {
+    const source: DolarSource = 'cordoba'
 
-      if (!res.ok || data.error) {
-        const code: string = data.code ?? 'unknown'
-        if (code === 'timeout') throw new Error('No se pudo consultar InfoDolar Córdoba: la fuente tardó demasiado en responder. No se actualizaron precios.')
-        if (code === 'parse')   throw new Error('No se pudo detectar el valor de venta de InfoDolar Córdoba. No se actualizaron precios.')
-        throw new Error(data.error ?? `Edge Function HTTP ${res.status}`)
-      }
+    // ── Transporte 1: Edge Function (server-side, confiable) ──────────────────
+    // Ambos transportes consultan el MISMO proveedor (infodolar.com). No es un
+    // fallback entre fuentes: nunca se sustituye Córdoba por Nacional.
+    let edgeFailure: QuoteFailureReason | null = null
 
-      const detail: CordobaRateDetail = {
-        compra:     data.compra,
-        venta:      data.venta,
-        mode:       'venta',
-        strategy:   `edge:${data.strategy ?? 'unknown'}`,
-        fetchedAt:  data.fetchedAt,
+    if (SUPABASE_URL) {
+      try {
+        const res = await fetch(EDGE_FN_URL, {
+          headers: {
+            'apikey':        SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'Content-Type':  'application/json',
+          },
+          signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+        })
+
+        let data: unknown = null
+        try { data = await res.json() } catch { data = null }
+
+        if (!res.ok || !isRecord(data) || data.error) {
+          const code = isRecord(data) && typeof data.code === 'string' ? data.code : ''
+          edgeFailure = code === 'timeout' ? 'timeout'
+            : code === 'parse'             ? 'missing_price'
+            : !res.ok                      ? 'http_error'
+            :                                'invalid_payload'
+        } else {
+          const venta  = toNumber(data.appliedRate) ?? toNumber(data.venta)
+          const compra = toNumber(data.compra)
+
+          if (!isPlausibleRate(venta)) {
+            edgeFailure = 'missing_price'
+          } else {
+            return {
+              ok:        true,
+              source,
+              sell:      venta,
+              buy:       isPlausibleRate(compra) && compra < venta ? compra : null,
+              fetchedAt: typeof data.fetchedAt === 'string' ? data.fetchedAt : new Date().toISOString(),
+              strategy:  `edge:${typeof data.strategy === 'string' ? data.strategy : 'unknown'}`,
+            }
+          }
+        }
+      } catch (err) {
+        edgeFailure = classifyNetworkError(err)
       }
-      console.log(`[exchangeRate] Córdoba via EdgeFn (${ms}ms): compra=$${detail.compra} venta=$${detail.venta} → $${detail.venta}`)
-      return detail
-    } catch (edgeErr: unknown) {
-      const msg = edgeErr instanceof Error ? edgeErr.message : String(edgeErr)
-      // Si el error es sobre "no se pudo detectar" o timeout, propagarlo directamente
-      if (msg.includes('No se pudo') || msg.includes('InfoDolar')) {
-        console.error('[exchangeRate] Córdoba EdgeFn:', msg)
-        throw edgeErr
-      }
-      console.warn('[exchangeRate] Córdoba EdgeFn falló, intentando proxy:', msg)
     }
 
-    // ── Estrategia 2: Proxy allorigins.win con retry ──────────────────────────
+    // ── Transporte 2: proxy allorigins.win con retry (mismo proveedor) ────────
+    // URL de destino fija — el cliente nunca provee el endpoint.
     const target   = 'https://www.infodolar.com/cotizacion-dolar-provincia-cordoba.aspx'
     const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(target)}`
 
+    let res: Response
     try {
-      const res = await fetchWithTimeoutAndRetry(proxyUrl, {
-        timeoutMs:    15000,
-        retries:      1,       // 2 intentos totales
-        retryDelayMs: 800,
-      })
-      if (!res.ok) throw new Error(`proxy HTTP ${res.status}`)
-
-      const json  = await res.json()
-      const html: string = json.contents ?? ''
-      if (!html) throw new Error('respuesta vacía del proxy')
-
-      const detail = extractInfoDolarCordobaRates(html)
-      if (detail) {
-        console.log(`[exchangeRate] Córdoba via proxy (${detail.strategy}): compra=$${detail.compra} venta=$${detail.venta}`)
-        return detail
-      }
-
-      const snippet = stripHtml(html).slice(0, 300)
-      console.warn('[exchangeRate] Proxy: no se pudo parsear. Fragmento:', snippet)
-      throw new Error('No se pudo detectar el valor de venta de InfoDolar Córdoba. No se actualizaron precios.')
-    } catch (proxyErr: unknown) {
-      const e = proxyErr instanceof Error ? proxyErr : new Error(String(proxyErr))
-      const isTimeout = e.name === 'TimeoutError' || e.name === 'AbortError' || e.message.includes('timed out')
-      const userMsg = isTimeout
-        ? 'No se pudo consultar InfoDolar Córdoba: la fuente tardó demasiado en responder. No se actualizaron precios.'
-        : e.message.includes('No se pudo') ? e.message
-        : `Error al consultar InfoDolar Córdoba: ${e.message}`
-      console.error('[exchangeRate] Proxy Córdoba falló:', e.message)
-      throw new Error(userMsg)
+      res = await fetchWithTimeoutAndRetry(proxyUrl, { timeoutMs: 15000, retries: 1, retryDelayMs: 800 })
+    } catch (err) {
+      return fail(source, edgeFailure ?? classifyNetworkError(err))
     }
-    // ⚠️ Sin fallback a dólar nacional. Si Córdoba falla → error visible en UI.
+
+    if (!res.ok) return fail(source, edgeFailure ?? 'http_error')
+
+    let html = ''
+    try {
+      const json = await res.json()
+      html = isRecord(json) && typeof json.contents === 'string' ? json.contents : ''
+    } catch {
+      return fail(source, 'invalid_payload')
+    }
+
+    if (!html) return fail(source, 'invalid_payload')
+
+    const detail = extractInfoDolarCordobaRates(html)
+    if (!detail || !isPlausibleRate(detail.venta)) return fail(source, 'missing_price')
+
+    return {
+      ok:        true,
+      source,
+      sell:      detail.venta,
+      buy:       isPlausibleRate(detail.compra) && detail.compra < detail.venta ? detail.compra : null,
+      fetchedAt: new Date().toISOString(),
+      strategy:  `proxy:${detail.strategy}`,
+    }
   },
 
   /**
-   * Córdoba: retorna solo el precio de VENTA para aplicar a productos.
+   * Punto de entrada canónico. Resuelve la cotización de la fuente pedida.
+   *
+   * NUNCA sustituye la fuente: si `nacional` falla, devuelve el fallo de
+   * `nacional`. La política previa consultaba la otra fuente en silencio y
+   * guardaba el resultado como si fuera la configurada.
    */
-  async getDolarBlueCordoba(): Promise<number | null> {
-    try {
-      const detail = await this.getDolarBlueCordobaDetail()
-      return detail?.venta ?? null
-    } catch {
-      return null
+  async fetchQuote(source: DolarSource): Promise<QuoteOutcome> {
+    return source === 'cordoba' ? this.fetchCordoba() : this.fetchNacional()
+  },
+
+  /**
+   * Compat: detalle compra/venta de Córdoba para el panel "Probar".
+   * Devuelve null si la consulta falló — el motivo viaja en fetchCordoba().
+   */
+  async getDolarBlueCordobaDetail(): Promise<CordobaRateDetail | null> {
+    const outcome = await this.fetchCordoba()
+    if (!outcome.ok) return null
+    return {
+      compra:    outcome.buy ?? 0,
+      venta:     outcome.sell,
+      mode:      'venta',
+      strategy:  outcome.strategy ?? 'unknown',
+      fetchedAt: outcome.fetchedAt,
     }
-  },
-
-  /** Obtener tasa según fuente configurada por el negocio. */
-  async getDolarRate(source: DolarSource = 'nacional'): Promise<number | null> {
-    return source === 'cordoba' ? this.getDolarBlueCordoba() : this.getDolarBlueNacional()
-  },
-
-  /** @deprecated usa getDolarRate(source) */
-  async getAmbitoDolarRate(): Promise<number | null> {
-    return this.getDolarBlueNacional()
   },
 
   formatLastUpdate(date: Date): string {
