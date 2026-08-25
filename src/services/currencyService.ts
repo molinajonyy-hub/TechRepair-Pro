@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { logger } from '../lib/logger';
+import { type DolarSource, normalizeDolarSource } from '../lib/dollar/quoteSource';
 
 export interface ExchangeRate {
   id: string;
@@ -21,7 +22,12 @@ export interface BusinessSettings {
   auto_update_rate: boolean;
   rate_api_url?: string;
   rate_update_frequency_hours: number;
-  dolar_source?: 'nacional' | 'cordoba';
+  /**
+   * Fuente de cotización configurada. SIEMPRE presente y normalizada: la RPC
+   * `get_business_settings` la devuelve desde 20260902120000 y
+   * `getBusinessSettings()` la normaliza al leer.
+   */
+  dolar_source: DolarSource;
   updated_at: string;
   created_at: string;
 }
@@ -56,38 +62,52 @@ export const currencyService = {
     const { data, error } = await supabase.rpc('get_business_settings');
 
     if (error) {
-      console.error('Error getting business settings:', error);
+      logger.error('INVENTORY', 'Error al leer configuración del negocio', error);
       return null;
     }
 
-    return firstRow(data) as BusinessSettings | null;
+    const row = firstRow(data) as (Omit<BusinessSettings, 'dolar_source'> & { dolar_source?: unknown }) | null;
+    if (!row) return null;
+
+    // Normalización en el borde: si la RPC viniera de un entorno sin la
+    // migración 20260902120000, `dolar_source` llega undefined. Cae en el
+    // default de la columna ('nacional'), nunca en la otra fuente.
+    return { ...row, dolar_source: normalizeDolarSource(row.dolar_source).source } as BusinessSettings;
   },
 
+  /**
+   * Guarda la configuración de moneda vía la RPC canónica.
+   *
+   * Antes escribía directo a `business_settings`, lo que salteaba el gate
+   * owner/admin de `upsert_business_settings` (las policies heredadas sólo
+   * exigían pertenencia al negocio).
+   *
+   * `dolar_source` sólo se manda cuando el llamador la provee explícitamente.
+   * Omitirla significa "no cambiar la fuente" — es el seguro contra la pisada
+   * silenciosa que convertía cualquier guardado en un reset a 'nacional'.
+   */
   async upsertBusinessSettings(settings: Partial<BusinessSettings> & { business_id: string }): Promise<BusinessSettings> {
-    const { data, error } = await supabase
-      .from('business_settings')
-      .upsert({
-        business_id: settings.business_id,
-        default_currency: settings.default_currency ?? 'ARS',
-        show_usd_price: settings.show_usd_price ?? false,
-        auto_update_rate: settings.auto_update_rate ?? false,
-        rate_api_url: settings.rate_api_url ?? null,
-        rate_update_frequency_hours: settings.rate_update_frequency_hours ?? 24,
-        dolar_source: settings.dolar_source ?? 'nacional',
-      }, { onConflict: 'business_id' })
-      .select();
+    const { data, error } = await supabase.rpc('upsert_business_settings', {
+      p_business_id:                 settings.business_id,
+      p_default_currency:            settings.default_currency ?? 'ARS',
+      p_show_usd_price:              settings.show_usd_price ?? false,
+      p_auto_update_rate:            settings.auto_update_rate ?? false,
+      p_rate_api_url:                settings.rate_api_url ?? null,
+      p_rate_update_frequency_hours: settings.rate_update_frequency_hours ?? 24,
+      p_dolar_source:                settings.dolar_source ?? null,
+    });
 
     if (error) {
       throw new Error(error.message || 'Error al guardar configuracion');
     }
 
-    const row = firstRow(data);
+    const row = firstRow(data) as (Omit<BusinessSettings, 'dolar_source'> & { dolar_source?: unknown }) | null;
 
     if (!row) {
       throw new Error('No se recibio la configuracion guardada');
     }
 
-    return row as BusinessSettings;
+    return { ...row, dolar_source: normalizeDolarSource(row.dolar_source).source } as BusinessSettings;
   },
 
   async upsertExchangeRate(
