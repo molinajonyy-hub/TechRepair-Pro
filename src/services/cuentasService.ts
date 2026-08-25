@@ -11,6 +11,7 @@
  */
 import { supabase } from '../lib/supabase'
 import { requireFeature } from '../utils/requireFeature'
+import { financeErrorMessage } from '../lib/financeErrors'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -271,12 +272,18 @@ export const cuentasService = {
       p_idempotency_key: idempotencyKey || null,
     })
     if (error) throw new Error(error.message)
-    if (data?.error === 'IDEMPOTENCY_CONFLICT') {
-      const conflict = new Error(data.message || 'Esta solicitud ya fue utilizada con datos diferentes. Volvé a iniciar la operación.')
-      ;(conflict as Error & { code?: string }).code = 'IDEMPOTENCY_CONFLICT'
-      throw conflict
+
+    // La RPC devuelve {ok:false, error_code, error, message}. El código tipado
+    // manda: `error` trae el texto crudo del server y `error_code` es el
+    // contrato. Antes se comparaba contra `error`, así que sólo el conflicto de
+    // idempotencia —el único que repite el código dentro de `error`— llegaba
+    // clasificado; el resto caía al genérico y perdía el mensaje accionable.
+    if (!data?.ok) {
+      const code = (data?.error_code || data?.error) as string | undefined
+      const err = new Error(financeErrorMessage(code, data?.message || data?.error, 'FINANCE'))
+      ;(err as Error & { code?: string }).code = code
+      throw err
     }
-    if (!data?.ok) throw new Error(data?.error || 'Error al registrar el cobro')
     return data
   },
 }

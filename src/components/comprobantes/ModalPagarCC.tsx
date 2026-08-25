@@ -5,11 +5,27 @@ import { resolvePurchaseKey } from '../../utils/purchaseIdempotency'
 import { formatDisplayMessage } from '../../utils/formatMessage'
 import { useCaja } from '../../contexts/CajaContext'
 
+/**
+ * P0-CC · CC-A — Métodos de cobro de cuenta corriente.
+ *
+ * Los `id` son los valores del catálogo de negocio (`MedioPago`), NO etiquetas.
+ * Antes se mandaban `debito` / `credito`, que no pertenecen a ningún catálogo:
+ * la RPC los persistía crudos en `financial_movements.metodo_pago` y el arqueo
+ * —que sólo entiende efectivo/transferencia/tarjeta/usd— los ignoraba. Esa
+ * plata quedaba fuera del cierre de caja.
+ *
+ * El server igual normaliza y rechaza lo que no reconoce (fail-closed), así que
+ * esta lista es la capa de producto, no la de seguridad.
+ *
+ * No hay opción USD: la cuenta corriente es ARS-only (`account_movements` no
+ * tiene moneda ni cotización). Ver handoff CC-MULTICURRENCY.
+ */
 const METODOS = [
-  { id: 'efectivo',      label: 'Efectivo',      color: '#34d399' },
-  { id: 'transferencia', label: 'Transferencia',  color: '#60a5fa' },
-  { id: 'debito',        label: 'Débito',         color: '#818cf8' },
-  { id: 'credito',       label: 'Crédito',        color: '#f59e0b' },
+  { id: 'efectivo',        label: 'Efectivo',      color: '#34d399' },
+  { id: 'transferencia',   label: 'Transferencia', color: '#60a5fa' },
+  { id: 'tarjeta_debito',  label: 'Débito',        color: '#818cf8' },
+  { id: 'tarjeta_credito', label: 'Crédito',       color: '#f59e0b' },
+  { id: 'otro',            label: 'Otro',          color: '#94a3b8' },
 ]
 
 interface Props {
@@ -25,7 +41,11 @@ export function ModalPagarCC({ isOpen, onClose, onPagado, account, businessId, u
   const { cajaId } = useCaja()
   const [amount,  setAmount]  = useState(String(Math.round(Math.max(0, account.balance))))
   const [method,  setMethod]  = useState('efectivo')
-  const [desc,    setDesc]    = useState(`Pago cuenta corriente — ${account.entity_name}`)
+  // P0-CC: arranca VACÍA y es opcional. Cuando la descripción era obligatoria y
+  // no había selector de método, el operador la usaba para anotar cómo le
+  // pagaron — en producción quedó un cobro cuya descripción es, literalmente,
+  // "efectivo". El método ahora tiene su propio campo; esto es una nota.
+  const [desc,    setDesc]    = useState('')
   const [saving,  setSaving]  = useState(false)
   const [success, setSuccess] = useState(false)
   const [err,     setErr]     = useState('')
@@ -40,10 +60,13 @@ export function ModalPagarCC({ isOpen, onClose, onPagado, account, businessId, u
   const fmtARS = (n: number) => '$' + Math.abs(Math.round(n)).toLocaleString('es-AR')
 
   const handleSave = async () => {
+    // Guard de reentrada: el botón ya está disabled, pero un Enter repetido o un
+    // doble click muy rápido pueden disparar dos veces antes del re-render.
+    // La idempotencia del server lo cubre igual; esto evita el ida y vuelta.
+    if (saving || success) return
     const amt = parseFloat(amount.replace(',', '.'))
     if (!amt || amt <= 0) { setErr('El monto debe ser mayor a 0'); return }
     if (amt > maxAmount + 0.01) { setErr(`El monto no puede superar la deuda (${fmtARS(maxAmount)})`); return }
-    if (!desc.trim()) { setErr('La descripción es obligatoria'); return }
     setSaving(true); setErr('')
     // key ligada al payload: cambia si cambia monto/método/descripción.
     const localHash = `${amt}|${method}|${desc.trim()}`
@@ -104,10 +127,16 @@ export function ModalPagarCC({ isOpen, onClose, onPagado, account, businessId, u
 
         {/* Form */}
         <div style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {/* Monto */}
+          {/* Monto — la moneda se dice explícitamente: la CC es ARS-only. */}
           <div>
-            <label style={labelS}>Monto a cobrar *</label>
+            <label style={labelS}>
+              Monto a cobrar *
+              <span style={{ float: 'right', color: '#64748b', letterSpacing: 0, textTransform: 'none' }}>
+                en pesos (ARS)
+              </span>
+            </label>
             <input
+              data-testid="cc-pay-amount"
               style={{ ...inputS, fontSize: '1.5rem', fontWeight: 800, textAlign: 'right', color: '#34d399' }}
               type="number" min="0.01" step="1" max={maxAmount}
               value={amount} onChange={e => setAmount(e.target.value)} autoFocus
@@ -117,12 +146,15 @@ export function ModalPagarCC({ isOpen, onClose, onPagado, account, businessId, u
           {/* Método */}
           <div>
             <label style={labelS}>Método de cobro *</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.375rem' }}>
+            <div data-testid="cc-pay-methods"
+                 style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(92px, 1fr))', gap: '0.375rem' }}>
               {METODOS.map(m => {
                 const active = method === m.id
                 return (
                   <button
                     key={m.id} type="button" onClick={() => setMethod(m.id)}
+                    data-testid={`cc-pay-method-${m.id}`}
+                    aria-pressed={active}
                     style={{
                       padding: '0.5rem 0.375rem', borderRadius: '0.5rem',
                       border: `2px solid ${active ? m.color : 'rgba(255,255,255,0.07)'}`,
@@ -136,16 +168,30 @@ export function ModalPagarCC({ isOpen, onClose, onPagado, account, businessId, u
                 )
               })}
             </div>
+            {/* La RPC exige caja abierta para cobrar en efectivo. Avisarlo acá
+                evita que el operador cargue todo y recién falle al confirmar. */}
+            {method === 'efectivo' && !cajaId && (
+              <p style={{ margin: '0.45rem 0 0', fontSize: '0.72rem', color: '#fbbf24' }}>
+                No hay una caja abierta. Abrí la caja para poder cobrar en efectivo.
+              </p>
+            )}
           </div>
 
-          {/* Descripción */}
+          {/* Observación — NUNCA sustituye al método de pago. */}
           <div>
-            <label style={labelS}>Descripción</label>
-            <input style={inputS} type="text" value={desc} onChange={e => setDesc(e.target.value)} />
+            <label style={labelS}>
+              Observación
+              <span style={{ float: 'right', color: '#64748b', letterSpacing: 0, textTransform: 'none' }}>
+                opcional
+              </span>
+            </label>
+            <input data-testid="cc-pay-note" style={inputS} type="text" value={desc}
+                   onChange={e => setDesc(e.target.value)} placeholder="Referencia o comentario…" />
           </div>
 
           {err && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 0.875rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '0.5rem' }}>
+            <div data-testid="cc-pay-error" role="alert"
+                 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 0.875rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '0.5rem' }}>
               <AlertCircle size={14} style={{ color: '#f87171', flexShrink: 0 }} />
               <span style={{ color: '#fca5a5', fontSize: '0.8rem' }}>{formatDisplayMessage(err)}</span>
             </div>

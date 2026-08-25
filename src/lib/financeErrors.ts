@@ -40,6 +40,10 @@ export type FinanceErrorCode =
   | 'BLOCKED_PAID'
   | 'NOT_FOUND'
   | 'INTERNAL_ERROR'
+  // P0-CC — cobros y ajustes de cuenta corriente
+  | 'INVALID_PAYMENT_METHOD'
+  | 'OVERPAYMENT'
+  | 'ACCOUNT_NOT_FOUND'
 
 // Cada mensaje dice QUE pasó y QUE hacer. Sin nombres de tabla, sin SQL, sin
 // jerga de idempotencia: el usuario no sabe lo que es una "key".
@@ -78,6 +82,19 @@ const MESSAGES: Record<FinanceErrorCode, string> = {
     'No se encontró el registro. Puede haberlo eliminado otra persona: actualizá la pantalla.',
   INTERNAL_ERROR:
     'La operación no se pudo completar y no quedó nada a medias. Volvé a intentar; si sigue fallando, avisá a soporte.',
+
+  // ── P0-CC ──────────────────────────────────────────────────────────────────
+  // El método llega desde un selector cerrado, así que si el server lo rechaza
+  // es una desincronización, no un error de tipeo del usuario. El texto no le
+  // pide "corregir el método": le pide reintentar y avisar.
+  INVALID_PAYMENT_METHOD:
+    'El método de cobro no es válido para una cuenta corriente. Elegí uno de la lista y volvé a intentar; si el problema sigue, avisá a soporte.',
+  // Decir el tope sin decirlo sería inútil: el usuario necesita saber que el
+  // límite es la deuda, no un capricho del formulario.
+  OVERPAYMENT:
+    'El monto supera la deuda pendiente del cliente. Cobrá como máximo el saldo actual; si el cliente pagó de más, registralo como saldo a favor.',
+  ACCOUNT_NOT_FOUND:
+    'No se encontró la cuenta corriente de este cliente. Actualizá la pantalla; puede haberla modificado otra persona.',
 }
 
 const KNOWN = new Set(Object.keys(MESSAGES))
