@@ -126,6 +126,14 @@ test.describe('@pos-mobile POS — layout responsive y punto de venta', () => {
         await page.setViewportSize({ width: vp.width, height: vp.height })
         await abrirPos(page, tema)
 
+        // MOBILE-1: el POS es fullscreen y debe tomar control explícito del
+        // safe-area inferior; la navegación del shell queda oculta mientras
+        // el modal está abierto para no competir con total/checkout.
+        if (vp.movil) {
+          await expect(page.getByTestId('mobile-bottom-nav')).toBeHidden()
+          expect(await page.evaluate(() => document.body.classList.contains('mobile-pos-fullscreen'))).toBe(true)
+        }
+
         expect(await page.evaluate(() => document.documentElement.getAttribute('data-theme')),
           'el tema debe estar aplicado en <html>').toBe(tema)
 
