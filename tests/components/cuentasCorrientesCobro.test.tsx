@@ -138,6 +138,16 @@ describe('CC-B · /cuentas cobra por el camino canónico', () => {
     expect(boton.textContent).not.toContain('Registrar pago')
   })
 
+  it('el modal usa la MISMA palabra que el botón: cobro, no pago', async () => {
+    // El botón decía «Registrar cobro» y el modal que abría decía «Registrar
+    // pago de CC» y «Confirmar pago». Dos palabras para el mismo acto es
+    // exactamente la ambigüedad que originó este lote.
+    await abrirCuentaYCobrar()
+    expect(screen.getByTestId('cc-pay-confirm').textContent).toContain('Confirmar cobro')
+    expect(screen.queryByText('Registrar pago de CC')).toBeNull()
+    expect(screen.queryByText('Confirmar pago')).toBeNull()
+  })
+
   it('abre ModalPagarCC con el selector de método', async () => {
     await abrirCuentaYCobrar()
     expect(screen.getByTestId('cc-pay-method-efectivo')).toBeTruthy()
@@ -151,7 +161,7 @@ describe('CC-B · /cuentas cobra por el camino canónico', () => {
     await abrirCuentaYCobrar()
     fireEvent.click(screen.getByTestId('cc-pay-method-transferencia'))
     fireEvent.change(screen.getByTestId('cc-pay-amount'), { target: { value: '40000' } })
-    fireEvent.click(screen.getByText('Confirmar pago'))
+    fireEvent.click(screen.getByTestId('cc-pay-confirm'))
 
     await waitFor(() => {
       expect(estado.rpcs.map(r => r.nombre)).toContain('record_customer_account_payment_atomic')
@@ -168,7 +178,7 @@ describe('CC-B · /cuentas cobra por el camino canónico', () => {
     await abrirCuentaYCobrar()
     fireEvent.click(screen.getByTestId('cc-pay-method-tarjeta_debito'))
     fireEvent.change(screen.getByTestId('cc-pay-amount'), { target: { value: '10000' } })
-    fireEvent.click(screen.getByText('Confirmar pago'))
+    fireEvent.click(screen.getByTestId('cc-pay-confirm'))
 
     const llamada = await waitFor(() => {
       const r = estado.rpcs.find(x => x.nombre === 'record_customer_account_payment_atomic')
@@ -191,7 +201,7 @@ describe('CC-B · /cuentas cobra por el camino canónico', () => {
     // descripción es, literalmente, "efectivo".
     expect((screen.getByTestId('cc-pay-note') as HTMLInputElement).value).toBe('')
     fireEvent.change(screen.getByTestId('cc-pay-amount'), { target: { value: '5000' } })
-    fireEvent.click(screen.getByText('Confirmar pago'))
+    fireEvent.click(screen.getByTestId('cc-pay-confirm'))
     await waitFor(() => {
       expect(estado.rpcs.some(r => r.nombre === 'record_customer_account_payment_atomic')).toBe(true)
     })
@@ -201,7 +211,7 @@ describe('CC-B · /cuentas cobra por el camino canónico', () => {
   it('un doble click no dispara dos cobros', async () => {
     await abrirCuentaYCobrar()
     fireEvent.change(screen.getByTestId('cc-pay-amount'), { target: { value: '20000' } })
-    const confirmar = screen.getByText('Confirmar pago')
+    const confirmar = screen.getByTestId('cc-pay-confirm')
     fireEvent.click(confirmar)
     fireEvent.click(confirmar)
     fireEvent.click(confirmar)

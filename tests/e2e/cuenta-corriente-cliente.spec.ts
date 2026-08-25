@@ -150,7 +150,7 @@ test.describe('@cc @finance Cuenta corriente cliente', () => {
     // Transferencia y no efectivo: no depende de que haya una caja abierta.
     await page.click('[data-testid="cc-pay-method-transferencia"]')
     // La observación es OPCIONAL — se deja vacía a propósito.
-    await page.getByRole('button', { name: 'Confirmar pago' }).click()
+    await page.locator('[data-testid="cc-pay-confirm"]').click()
 
     // El modal debe cerrarse y el balance debe actualizarse
     await expect(amountInput).not.toBeVisible({ timeout: 10_000 })
