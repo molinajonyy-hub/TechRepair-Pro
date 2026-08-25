@@ -256,6 +256,7 @@ describe('B · guards de ruta (un sidebar oculto NO es protección)', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 describe('C · estructura del sidebar', () => {
   const src = leerCodigo('src/components/layout/Sidebar.tsx')
+  const navigationGate = leerCodigo('src/hooks/useNavigationAccess.ts')
 
   it('SaaS Admin depende SÓLO del gate de system owner', () => {
     // El bug: `if (!item.permission || !can(item.permission)) return !item.permission`
@@ -263,11 +264,14 @@ describe('C · estructura del sidebar', () => {
     // `systemOwnerOnly` NUNCA se evaluaba y la sección se le mostraba a todos.
     expect(src).not.toMatch(/return !item\.permission/)
     // Y el gate se evalúa antes de cualquier return temprano.
-    expect(src).toMatch(/item\.systemOwnerOnly && !isSystemOwner\) return false/)
+    expect(src).toContain('isNavigationItemAuthorized(item, access)')
+    expect(navigationGate).toMatch(/item\.systemOwnerOnly && !access\.isSystemOwner\) return false/)
   })
 
   it('Mayorista exige feature Y capacidad, no sólo el plan', () => {
-    expect(src).toMatch(/wholesale\.canView && mayoristaEnabled && can\('wholesale'\)/)
+    expect(navigationGate).toMatch(/access\.wholesale\.canView/)
+    expect(navigationGate).toMatch(/access\.mayoristaEnabled/)
+    expect(navigationGate).toMatch(/access\.can\('wholesale'\)/)
   })
 
   it('Mi Guita declara un gate', () => {
