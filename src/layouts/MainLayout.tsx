@@ -7,7 +7,6 @@ import { useAuth } from '../contexts/AuthContext'
 import { useSidebar } from '../hooks/useSidebar'
 import { SubscriptionGuard } from '../components/subscription/SubscriptionGuard'
 import { SubscriptionBanner } from '../components/subscription/SubscriptionBanner'
-import { TrialBanner } from '../components/subscription/TrialBanner'
 import { SystemStatusProvider } from '../contexts/SystemStatusContext'
 import { Suspense, useEffect } from 'react'
 import { backgroundPrefetch } from '../services/refreshCriticalData'
@@ -137,7 +136,6 @@ export function MainLayout() {
           ) : (
             <SubscriptionGuard>
               <SubscriptionBanner />
-              <TrialBanner />
               <Suspense fallback={
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
                   <div style={{
