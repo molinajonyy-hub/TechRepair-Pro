@@ -238,7 +238,11 @@ const menuSections: NavSection[] = [
     sectionLabel: 'Clientes & Stock',
     items: [
       { path: '/customers',  label: 'Clientes',      icon: <ClientesIcon />,    permission: 'customers' },
-      { path: '/cuentas',    label: 'Cuentas Ctes.', icon: <CuentasIcon />,     permission: 'customers', planFeature: 'currentAccounts' },
+      // P0-CC · CC-C — La capacidad es `finance`, no `customers`. Cuentas
+      // Corrientes es deuda, cobranza y caja: que se liste al lado de Clientes
+      // es una decisión de menú, no de permisos. Con `customers` un `sales`
+      // veía el link y entraba a la deuda de toda la cartera.
+      { path: '/cuentas',    label: 'Cuentas Ctes.', icon: <CuentasIcon />,     permission: 'finance', planFeature: 'currentAccounts' },
       { path: '/inventory',  label: 'Inventario',    icon: <InventarioIcon />,  permission: 'inventory' },
       { path: '/mayorista',  label: 'Mayorista',     icon: <MayoristaIcon />,   wholesaleView: true },
       { path: '/portal-clic',label: 'Portal Clic',   icon: <PortalAdminIcon />, clicPortalManage: true },
