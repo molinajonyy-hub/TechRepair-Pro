@@ -3,7 +3,18 @@ import { DollarSign, RefreshCw, Save, History, Cloud, MapPin, Globe, Package, Al
 import { Loader } from '../components/ui/Loader';
 import { useAuth } from '../contexts/AuthContext';
 import { currencyService, BusinessSettings, ExchangeRate } from '../services/currencyService';
-import { exchangeRateService, DolarSource, type CordobaRateDetail } from '../services/exchangeRateService';
+import { exchangeRateService, type CordobaRateDetail } from '../services/exchangeRateService';
+import {
+  type DolarSource,
+  type QuoteOutcome,
+  DOLAR_SOURCES,
+  DOLAR_SOURCE_ORDER,
+  DEFAULT_DOLAR_SOURCE,
+  MANUAL_RATE_SOURCE_TAG,
+  describeRateSource,
+  rateSourceSpellings,
+} from '../lib/dollar/quoteSource';
+import { clearDollarCache } from '../services/dollarRateService';
 import { logger } from '../lib/logger';
 
 interface SyncResult {
@@ -29,6 +40,12 @@ interface LastValidRate {
   updatedAt: string
 }
 
+/** Estado visible de la última operación (guardado o consulta de cotización). */
+interface StatusBanner {
+  kind: 'ok' | 'error' | 'info'
+  message: string
+}
+
 export function CurrencySettings() {
   const { businessId, isOwner, isAdmin } = useAuth();
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
@@ -40,6 +57,7 @@ export function CurrencySettings() {
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [cordobaTest, setCordobaTest] = useState<TestResult>({ loading: false, detail: null, error: null });
   const [lastValidCordoba, setLastValidCordoba] = useState<LastValidRate | null>(null);
+  const [status, setStatus] = useState<StatusBanner | null>(null);
   const [reapplyConfirm, setReapplyConfirm] = useState(false);
   const [rateHistory, setRateHistory] = useState<ExchangeRate[]>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -76,7 +94,14 @@ export function CurrencySettings() {
     }
   };
 
-  /** Carga el último rate válido de InfoDolar Córdoba para mostrarlo como referencia. */
+  /**
+   * Carga el último rate válido de InfoDolar Córdoba para mostrarlo como referencia.
+   *
+   * Filtra por TODAS las grafías históricas de la columna: la consulta original
+   * pedía exactamente 'infodolar-cordoba' y en producción la mayoría de las
+   * filas se escribieron como 'INFODOLAR_CORDOBA', así que el bloque
+   * "Último valor válido" quedaba vacío casi siempre.
+   */
   const loadLastValidCordoba = async () => {
     if (!businessId) return
     try {
@@ -86,7 +111,7 @@ export function CurrencySettings() {
           .eq('business_id', businessId)
           .eq('base_currency', 'USD')
           .eq('target_currency', 'ARS')
-          .eq('source', 'infodolar-cordoba')
+          .in('source', rateSourceSpellings('infodolar-cordoba'))
           .order('updated_at', { ascending: false })
           .limit(1)
           .maybeSingle()
@@ -122,17 +147,26 @@ export function CurrencySettings() {
     if (!settings || !businessId) return;
 
     setSaving(true);
+    setStatus(null);
     try {
       const savedSettings = await currencyService.upsertBusinessSettings({
         ...settings,
         business_id: businessId,
+        // Explícita SIEMPRE: la RPC interpreta null como "no cambiar", así que
+        // mandarla evita depender de un default del lado del servicio.
+        dolar_source: dolarSource,
       });
       setSettings(savedSettings);
-      alert('Configuración guardada exitosamente');
+      // Se invalida el caché de cotización: la fuente pudo haber cambiado.
+      clearDollarCache(businessId);
+      setStatus({
+        kind: 'ok',
+        message: `Configuración guardada. Fuente de cotización: ${DOLAR_SOURCES[savedSettings.dolar_source].label}.`,
+      });
     } catch (error) {
-      console.error('Error saving settings:', error);
-      const message = error instanceof Error ? error.message : 'Error al guardar configuración';
-      alert(message);
+      logger.error('INVENTORY', 'Error al guardar configuración de moneda', error);
+      const message = error instanceof Error ? error.message : 'No pudimos guardar la configuración.';
+      setStatus({ kind: 'error', message });
     } finally {
       setSaving(false);
     }
@@ -149,13 +183,15 @@ export function CurrencySettings() {
         target_currency: 'ARS',
         rate: exchangeRate,
         is_manual: true,
-        source: 'manual'
+        source: MANUAL_RATE_SOURCE_TAG
       });
+      clearDollarCache(businessId);
       loadRateHistory();
-      await syncProductPrices(exchangeRate, 'manual');
+      setStatus({ kind: 'ok', message: `Cotización manual aplicada: $${exchangeRate.toLocaleString('es-AR')}.` });
+      await syncProductPrices(exchangeRate, MANUAL_RATE_SOURCE_TAG);
     } catch (error) {
       logger.error('INVENTORY', 'Error al actualizar cotización manual', error);
-      alert('Error al actualizar tipo de cambio');
+      setStatus({ kind: 'error', message: 'No pudimos guardar la cotización manual.' });
     } finally {
       setSaving(false);
     }
@@ -164,16 +200,23 @@ export function CurrencySettings() {
   /** Prueba InfoDolar Córdoba y muestra compra/venta sin aplicar nada. */
   const handleTestCordoba = async () => {
     setCordobaTest({ loading: true, detail: null, error: null })
-    try {
-      const detail = await exchangeRateService.getDolarBlueCordobaDetail()
-      if (!detail) {
-        setCordobaTest({ loading: false, detail: null, error: 'No se pudo detectar el valor de venta de InfoDolar Córdoba. Revisá el proxy o la estructura de la página.' })
-      } else {
-        setCordobaTest({ loading: false, detail, error: null })
-      }
-    } catch (e: any) {
-      setCordobaTest({ loading: false, detail: null, error: e.message || 'Error al probar InfoDolar Córdoba' })
+    const outcome = await exchangeRateService.fetchCordoba()
+    if (!outcome.ok) {
+      // Mensaje ya redactado para el usuario — nunca el error crudo del proveedor.
+      setCordobaTest({ loading: false, detail: null, error: outcome.message })
+      return
     }
+    setCordobaTest({
+      loading: false,
+      error:   null,
+      detail: {
+        compra:    outcome.buy ?? 0,
+        venta:     outcome.sell,
+        mode:      'venta',
+        strategy:  outcome.strategy ?? 'unknown',
+        fetchedAt: outcome.fetchedAt,
+      },
+    })
   }
 
   /**
@@ -207,34 +250,40 @@ export function CurrencySettings() {
     }
   }
 
-  const dolarSource: DolarSource = (settings?.dolar_source as DolarSource) ?? 'nacional'
+  // `settings.dolar_source` ya viene normalizada desde currencyService.
+  const dolarSource: DolarSource = settings?.dolar_source ?? DEFAULT_DOLAR_SOURCE
+  const sourceInfo = DOLAR_SOURCES[dolarSource]
 
   const handleUpdateFromAPI = async () => {
     if (!businessId) return;
 
     setSaving(true);
+    setStatus(null);
     try {
-      let apiRate: number | null = null
+      // Se consulta EXACTAMENTE la fuente configurada. Si falla, falla — no se
+      // sustituye por la otra ni se inventa un valor.
+      const outcome: QuoteOutcome = await exchangeRateService.fetchQuote(dolarSource)
+
+      if (!outcome.ok) {
+        setStatus({ kind: 'error', message: outcome.message })
+        if (dolarSource === 'cordoba') {
+          setCordobaTest({ loading: false, detail: null, error: outcome.message })
+        }
+        return
+      }
+
+      const apiRate = outcome.sell
       let cordobaDetail: CordobaRateDetail | undefined
 
       if (dolarSource === 'cordoba') {
-        // Para Córdoba: obtener detalle completo, usar SOLO el valor de VENTA
-        const detail = await exchangeRateService.getDolarBlueCordobaDetail()
-        if (!detail) {
-          alert('No se pudo detectar el valor de venta de InfoDolar Córdoba.\nRevisá la conexión o usá el botón "Probar InfoDolar Córdoba" para más detalle.')
-          return
+        cordobaDetail = {
+          compra:    outcome.buy ?? 0,
+          venta:     outcome.sell,
+          mode:      'venta',
+          strategy:  outcome.strategy ?? 'unknown',
+          fetchedAt: outcome.fetchedAt,
         }
-        apiRate = detail.venta
-        cordobaDetail = detail
-        // Actualizar el test panel para que muestre el último resultado
-        setCordobaTest({ loading: false, detail, error: null })
-      } else {
-        apiRate = await exchangeRateService.getDolarBlueNacional()
-      }
-
-      if (!apiRate) {
-        alert('No se pudo obtener el tipo de cambio. Verificá tu conexión o intentá más tarde.');
-        return;
+        setCordobaTest({ loading: false, detail: cordobaDetail, error: null })
       }
 
       await currencyService.upsertExchangeRate({
@@ -243,17 +292,22 @@ export function CurrencySettings() {
         target_currency: 'ARS',
         rate: apiRate,
         is_manual: false,
-        source: dolarSource === 'cordoba' ? 'infodolar-cordoba' : 'bluelytics'
+        source: sourceInfo.rateSourceTag,
       });
 
       setExchangeRate(apiRate);
+      clearDollarCache(businessId);
       loadRateHistory();
+      loadLastValidCordoba();
+      setStatus({
+        kind: 'ok',
+        message: `Cotización actualizada · ${sourceInfo.label} · venta $${apiRate.toLocaleString('es-AR')}`,
+      });
       // Auto-sync con change detection: solo actualiza productos si la cotización cambió
-      const source = dolarSource === 'cordoba' ? 'infodolar-cordoba' : 'bluelytics'
-      await syncProductPrices(apiRate, source, false, cordobaDetail);
+      await syncProductPrices(apiRate, sourceInfo.rateSourceTag, false, cordobaDetail);
     } catch (error) {
       logger.error('INVENTORY', 'Error al actualizar cotización desde API', error);
-      alert('Error al actualizar tipo de cambio desde la fuente seleccionada');
+      setStatus({ kind: 'error', message: `No pudimos obtener ${sourceInfo.label}. Intentá de nuevo en unos minutos.` });
     } finally {
       setSaving(false);
     }
@@ -283,7 +337,35 @@ export function CurrencySettings() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gap: '2rem', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))' }}>
+      {/* Estado explícito de la última operación. Reemplaza a los alert() que
+          volcaban el mensaje crudo de Postgres o "Failed to fetch". */}
+      {status && (
+        <div
+          role="status"
+          data-testid="currency-status"
+          data-status-kind={status.kind}
+          style={{
+            marginBottom: '1rem',
+            padding: '0.75rem 1rem',
+            borderRadius: '0.625rem',
+            fontSize: '0.8125rem',
+            lineHeight: 1.45,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '0.5rem',
+            border: `1px solid ${status.kind === 'error' ? 'rgba(248,113,113,0.35)' : status.kind === 'ok' ? 'rgba(52,211,153,0.3)' : 'rgba(148,163,184,0.25)'}`,
+            background: status.kind === 'error' ? 'rgba(248,113,113,0.08)' : status.kind === 'ok' ? 'rgba(52,211,153,0.07)' : 'rgba(148,163,184,0.06)',
+            color: status.kind === 'error' ? '#f87171' : status.kind === 'ok' ? '#34d399' : '#94a3b8',
+          }}
+        >
+          {status.kind === 'error' && <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: '0.15rem' }} />}
+          <span>{status.message}</span>
+        </div>
+      )}
+
+      {/* minmax(min(400px,100%)) — con 400px fijo la grilla forzaba 400px de
+          ancho y desbordaba horizontalmente en viewports de 360/390. */}
+      <div style={{ display: 'grid', gap: '2rem', gridTemplateColumns: 'repeat(auto-fit, minmax(min(400px, 100%), 1fr))' }}>
         {/* Configuración de moneda */}
         <div className="surface-raised" style={{ padding: '1.5rem' }}>
           <h2 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -299,10 +381,13 @@ export function CurrencySettings() {
               disabled={!canManageSettings}
               className="form-select"
             >
+              {/*
+                Sólo ARS y USD: `business_settings_default_currency_check` no
+                acepta otra cosa. EUR y GBP eran opciones seleccionables sin
+                backend — al guardarlas la DB devolvía un 23514 crudo.
+              */}
               <option value="ARS">Pesos Argentinos (ARS)</option>
               <option value="USD">Dólares Estadounidenses (USD)</option>
-              <option value="EUR">Euros (EUR)</option>
-              <option value="GBP">Libras Esterlinas (GBP)</option>
             </select>
           </div>
 
@@ -334,68 +419,54 @@ export function CurrencySettings() {
 
           {/* Selector de fuente del dólar */}
           <div style={{ marginBottom: '1.5rem' }}>
-            <label className="label-caps">Fuente del Dólar Blue</label>
-            <div style={{ display: 'flex', gap: '0.75rem' }}>
-              {/* Opción Nacional */}
-              <button
-                onClick={() => canManageSettings && setSettings({ ...settings!, dolar_source: 'nacional' })}
-                disabled={!canManageSettings}
-                style={{
-                  flex: 1,
-                  padding: '0.75rem 1rem',
-                  borderRadius: '0.625rem',
-                  border: dolarSource === 'nacional'
-                    ? '2px solid #6366f1'
-                    : '1px solid rgba(255,255,255,0.1)',
-                  backgroundColor: dolarSource === 'nacional'
-                    ? 'rgba(99,102,241,0.12)'
-                    : '#1e293b',
-                  color: dolarSource === 'nacional' ? '#a5b4fc' : '#94a3b8',
-                  cursor: canManageSettings ? 'pointer' : 'not-allowed',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '0.375rem',
-                  transition: 'all 0.18s',
-                  opacity: canManageSettings ? 1 : 0.6,
-                }}
-              >
-                <Globe size={20} style={{ color: dolarSource === 'nacional' ? '#818cf8' : '#64748b' }} />
-                <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Blue Nacional</span>
-                <span style={{ fontSize: '0.6875rem', color: '#64748b', textAlign: 'center', lineHeight: 1.3 }}>
-                  Bluelytics API
-                </span>
-              </button>
-              {/* Opción Córdoba */}
-              <button
-                onClick={() => canManageSettings && setSettings({ ...settings!, dolar_source: 'cordoba' })}
-                disabled={!canManageSettings}
-                style={{
-                  flex: 1,
-                  padding: '0.75rem 1rem',
-                  borderRadius: '0.625rem',
-                  border: dolarSource === 'cordoba'
-                    ? '2px solid #10b981'
-                    : '1px solid rgba(255,255,255,0.1)',
-                  backgroundColor: dolarSource === 'cordoba'
-                    ? 'rgba(16,185,129,0.1)'
-                    : '#1e293b',
-                  color: dolarSource === 'cordoba' ? '#6ee7b7' : '#94a3b8',
-                  cursor: canManageSettings ? 'pointer' : 'not-allowed',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '0.375rem',
-                  transition: 'all 0.18s',
-                  opacity: canManageSettings ? 1 : 0.6,
-                }}
-              >
-                <MapPin size={20} style={{ color: dolarSource === 'cordoba' ? '#34d399' : '#64748b' }} />
-                <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Blue Córdoba</span>
-                <span style={{ fontSize: '0.6875rem', color: '#64748b', textAlign: 'center', lineHeight: 1.3 }}>
-                  infodolar.com
-                </span>
-              </button>
+            <label className="label-caps" id="dolar-source-label">Fuente del Dólar Blue</label>
+            {/*
+              Renderizado desde DOLAR_SOURCES — una sola fuente de verdad para
+              valor persistido, etiqueta y proveedor. Antes cada opción estaba
+              escrita a mano y su valor se repetía en cuatro lugares distintos.
+            */}
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }} role="radiogroup" aria-labelledby="dolar-source-label">
+              {DOLAR_SOURCE_ORDER.map(option => {
+                const info     = DOLAR_SOURCES[option]
+                const selected = dolarSource === option
+                const accent   = option === 'cordoba'
+                  ? { border: '#10b981', bg: 'rgba(16,185,129,0.1)', text: '#6ee7b7', icon: '#34d399' }
+                  : { border: '#6366f1', bg: 'rgba(99,102,241,0.12)', text: '#a5b4fc', icon: '#818cf8' }
+                const Icon = option === 'cordoba' ? MapPin : Globe
+                return (
+                  <button
+                    key={option}
+                    role="radio"
+                    aria-checked={selected}
+                    data-dolar-source={option}
+                    onClick={() => canManageSettings && setSettings({ ...settings!, dolar_source: option })}
+                    disabled={!canManageSettings}
+                    style={{
+                      flex: '1 1 8.5rem',
+                      minWidth: '8.5rem',
+                      minHeight: '44px',
+                      padding: '0.75rem 1rem',
+                      borderRadius: '0.625rem',
+                      border: selected ? `2px solid ${accent.border}` : '1px solid rgba(255,255,255,0.1)',
+                      backgroundColor: selected ? accent.bg : '#1e293b',
+                      color: selected ? accent.text : '#94a3b8',
+                      cursor: canManageSettings ? 'pointer' : 'not-allowed',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '0.375rem',
+                      transition: 'all 0.18s',
+                      opacity: canManageSettings ? 1 : 0.6,
+                    }}
+                  >
+                    <Icon size={20} style={{ color: selected ? accent.icon : '#64748b' }} />
+                    <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>{info.label}</span>
+                    <span style={{ fontSize: '0.6875rem', color: '#64748b', textAlign: 'center', lineHeight: 1.3 }}>
+                      {info.providerLabel}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
             {dolarSource === 'cordoba' && (
               <div style={{
@@ -466,12 +537,10 @@ export function CurrencySettings() {
                   color: '#fff', border: 'none', whiteSpace: 'nowrap',
                   opacity: saving || syncing ? 0.55 : 1,
                 }}
-                title={dolarSource === 'cordoba'
-                  ? 'Obtener valor de venta Blue Córdoba desde infodolar.com'
-                  : 'Obtener Blue Nacional desde Bluelytics API'}
+                title={`Obtener valor de venta de ${sourceInfo.label} desde ${sourceInfo.providerLabel}`}
               >
                 {dolarSource === 'cordoba' ? <MapPin size={15} /> : <Cloud size={15} />}
-                {saving ? 'Actualizando...' : dolarSource === 'cordoba' ? 'Actualizar · Blue Córdoba' : 'Actualizar · Blue Nacional'}
+                {saving ? 'Actualizando...' : `Actualizar · ${sourceInfo.label}`}
               </button>
             )}
 
@@ -632,8 +701,11 @@ export function CurrencySettings() {
                       {syncResult.skipped > 0 && <span style={{ color: '#475569' }}>{syncResult.skipped} omitidos (sin precio USD base)</span>}
                     </div>
                     <div style={{ fontSize: '0.72rem', color: '#334155', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                      {/* describeRateSource normaliza las grafías históricas —
+                          antes cualquier cosa que no fuera exactamente
+                          'infodolar-cordoba' o 'bluelytics' se rotulaba "Manual". */}
                       <span>Fuente: <strong style={{ color: '#475569' }}>
-                        {syncResult.source === 'infodolar-cordoba' ? 'InfoDolar Córdoba' : syncResult.source === 'bluelytics' ? 'Ámbito / Bluelytics' : 'Manual'}
+                        {describeRateSource(syncResult.source)}
                       </strong></span>
                       <span>{syncResult.timestamp}</span>
                     </div>
