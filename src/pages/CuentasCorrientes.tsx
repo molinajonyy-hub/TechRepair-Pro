@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Plus, X, ChevronRight, TrendingUp,
   TrendingDown, User, Building2, RefreshCw,
-  CreditCard, ArrowUpRight, ArrowDownRight, Edit2, Link2,
+  CreditCard, ArrowUpRight, ArrowDownRight, Edit2, Link2, Undo2,
 } from 'lucide-react'
+import { resolvePurchaseKey } from '../utils/purchaseIdempotency'
 import { TimelineView } from '../components/shared/TimelineView'
 import { useEntityTimeline } from '../hooks/useEntityTimeline'
 import { supabase } from '../lib/supabase'
@@ -15,6 +16,7 @@ import {
 } from '../ui'
 import { AddIcon } from '../ui/icons'
 import { AllocationModal } from '../components/finance/AllocationModal'
+import { ModalPagarCC } from '../components/comprobantes/ModalPagarCC'
 import {
   cuentasService,
   getAccountStatus,
@@ -31,7 +33,7 @@ interface EntityOption { id: string; name: string; phone?: string | null }
 
 const fmtARS  = (n: number) => '$' + Math.abs(Math.round(n)).toLocaleString('es-AR')
 import { fmtDate } from '../utils/dateUtils'
-const today   = () => new Date().toISOString().split('T')[0]
+// `today()` se retiró junto con el campo de fecha del MovementModal (CC-B).
 
 const STATUS_META = {
   al_dia:  { label: 'Al día',   color: '#34d399', bg: 'rgba(52,211,153,0.10)',  border: 'rgba(52,211,153,0.25)'  },
@@ -41,7 +43,23 @@ const STATUS_META = {
 
 // ─── MovementModal ────────────────────────────────────────────────────────────
 
-type ModalMode = 'pago' | 'deuda' | 'ajuste'
+/**
+ * P0-CC · CC-B — Este modal YA NO REGISTRA COBROS.
+ *
+ * Tenía un modo `pago` que llamaba a `cuentasService.registerPayment`, es decir
+ * un INSERT directo en `account_movements`. Eso bajaba la deuda del cliente y no
+ * creaba ni el movimiento de caja ni el asiento financiero: la plata entraba al
+ * cajón y el sistema no se enteraba. En producción quedó un cobro así, de
+ * ARS 500.000 (ver docs/p0-cc-historical-findings.md).
+ *
+ * El cobro ahora vive en UN solo lugar: `ModalPagarCC` -> `registrarPagoCC` ->
+ * `record_customer_account_payment_atomic`, el mismo camino que ya usaba la
+ * ficha del cliente.
+ *
+ * Lo que queda acá son la deuda manual y el ajuste, que todavía escriben
+ * directo. CC-D les da su propia RPC auditada y CC-E cierra el INSERT directo.
+ */
+type ModalMode = 'deuda' | 'ajuste'
 
 interface MovementModalProps {
   mode: ModalMode
@@ -53,27 +71,37 @@ interface MovementModalProps {
 }
 
 function MovementModal({ mode, account, businessId, userId, onSaved, onClose }: MovementModalProps) {
+  void userId   // el actor lo deriva el server de la sesión, no se envía
   const [amount, setAmount]   = useState('')
   const [desc, setDesc]       = useState('')
-  const [date, setDate]       = useState(today())
   const [isCredit, setIsCredit] = useState(true)
   const [saving, setSaving]   = useState(false)
   const [err, setErr]         = useState('')
+  const keyRef  = useRef<string | null>(null)
+  const hashRef = useRef<string | null>(null)
 
-  const titles: Record<ModalMode, string> = { pago: 'Registrar pago', deuda: 'Registrar deuda', ajuste: 'Ajuste manual' }
-  const colors: Record<ModalMode, string> = { pago: '#60a5fa', deuda: '#f87171', ajuste: '#a78bfa' }
+  const titles: Record<ModalMode, string> = { deuda: 'Registrar deuda', ajuste: 'Ajuste manual' }
+  const colors: Record<ModalMode, string> = { deuda: '#f87171', ajuste: '#a78bfa' }
 
   const handleSave = async () => {
+    if (saving) return
     const amt = parseFloat(amount.replace(',', '.'))
     if (!amt || amt <= 0) { setErr('El monto debe ser mayor a 0'); return }
-    if (!desc.trim()) { setErr('La descripción es obligatoria'); return }
+    if (!desc.trim()) { setErr('El motivo es obligatorio'); return }
     setSaving(true); setErr('')
+    // Una deuda manual SIEMPRE es débito. Un ajuste elige dirección.
+    const direction: 'debit' | 'credit' = mode === 'deuda' ? 'debit' : (isCredit ? 'credit' : 'debit')
+    const localHash = `${mode}|${amt}|${direction}|${desc.trim()}`
+    const resolved = resolvePurchaseKey(keyRef.current, hashRef.current, localHash, () => crypto.randomUUID())
+    keyRef.current = resolved.key; hashRef.current = resolved.hash
     try {
-      if (mode === 'pago')  await cuentasService.registerPayment(businessId, account.id, amt, desc.trim(), userId)
-      if (mode === 'deuda') await cuentasService.registerDebt(businessId, account.id, amt, desc.trim(), userId)
-      if (mode === 'ajuste') await cuentasService.addAdjustment(businessId, account.id, amt, isCredit, desc.trim(), userId)
+      await cuentasService.registrarAjusteCC(businessId, account.id, amt, direction, desc.trim(), keyRef.current)
+      keyRef.current = null; hashRef.current = null
       onSaved()
-    } catch (e: any) { setErr(e.message || 'Error al guardar') }
+    } catch (e: any) {
+      if ((e as { code?: string })?.code === 'IDEMPOTENCY_CONFLICT') { keyRef.current = null; hashRef.current = null }
+      setErr(e.message || 'Error al guardar')
+    }
     finally { setSaving(false) }
   }
 
@@ -111,22 +139,135 @@ function MovementModal({ mode, account, businessId, userId, onSaved, onClose }: 
           )}
 
           <div>
-            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Descripción *</label>
-            <input data-testid="cc-payment-description-input" className="form-control" type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Motivo o referencia..." />
+            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Motivo *</label>
+            <input data-testid="cc-payment-description-input" className="form-control" type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Por qué se registra este movimiento..." />
           </div>
 
-          <div>
-            <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Fecha</label>
-            <input className="form-control" type="date" value={date} onChange={e => setDate(e.target.value)} />
-          </div>
+          {/* CC-B: se retiró el campo de fecha. Capturaba un valor que
+              `handleSave` nunca enviaba —el movimiento siempre se grababa con la
+              fecha de hoy—, así que prometía un antedatado que no existía.
+              Además `balance_after` es un saldo corrido por orden de inserción:
+              antedatar descuadra la columna de saldo del extracto. Se reintroduce
+              cuando el extracto sepa ordenarse (handoff CC-17). */}
 
           {err && <div className="alert-inline alert-error">{formatDisplayMessage(err)}</div>}
         </div>
 
         <div className="modal-ftr">
           <AppButton variant="secondary" onClick={onClose}>Cancelar</AppButton>
-          <AppButton data-testid="cc-payment-save-button" variant="indigo" loading={saving} onClick={handleSave} leftIcon={mode === 'pago' ? <ArrowDownRight size={14} /> : mode === 'deuda' ? <ArrowUpRight size={14} /> : <Edit2 size={14} />}>
+          <AppButton data-testid="cc-payment-save-button" variant="indigo" loading={saving} disabled={saving} onClick={handleSave} leftIcon={mode === 'deuda' ? <ArrowUpRight size={14} /> : <Edit2 size={14} />}>
             Guardar
+          </AppButton>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── ReversalModal ────────────────────────────────────────────────────────────
+
+/**
+ * P0-CC · CC-D — Revertir un cobro mal cargado.
+ *
+ * Hasta ahora no existía forma de deshacerlo: el ledger es append-only para el
+ * cliente (`DELETE` da 42501, `UPDATE` está revocado) y no había RPC de reversa.
+ * La única salida era un ajuste en sentido contrario, que dejaba el saldo bien
+ * pero NO revertía el movimiento de caja: el ingreso quedaba fantasma.
+ *
+ * La reversa escribe contra-movimientos en las tres patas y conserva el cobro
+ * original en el historial. Sólo se listan los cobros que todavía no fueron
+ * reversados: el estado vive en `account_payment_reversals`, no en el ledger.
+ */
+function ReversalModal({ account, businessId, onDone, onClose }: {
+  account: Account; businessId: string; onDone: () => void; onClose: () => void
+}) {
+  const [cobros, setCobros]   = useState<AccountMovement[] | null>(null)
+  const [selected, setSelected] = useState<string>('')
+  const [reason, setReason]   = useState('')
+  const [saving, setSaving]   = useState(false)
+  const [err, setErr]         = useState('')
+  const keyRef  = useRef<string | null>(null)
+  const hashRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    cuentasService.getCobrosReversibles(account.id)
+      .then(setCobros)
+      .catch(() => setCobros([]))
+  }, [account.id])
+
+  const handleRevert = async () => {
+    if (saving) return
+    if (!selected) { setErr('Elegí el cobro que querés revertir'); return }
+    if (!reason.trim()) { setErr('El motivo de la reversa es obligatorio'); return }
+    setSaving(true); setErr('')
+    const localHash = `${selected}|${reason.trim()}`
+    const resolved = resolvePurchaseKey(keyRef.current, hashRef.current, localHash, () => crypto.randomUUID())
+    keyRef.current = resolved.key; hashRef.current = resolved.hash
+    try {
+      await cuentasService.revertirCobroCC(businessId, selected, reason.trim(), keyRef.current)
+      keyRef.current = null; hashRef.current = null
+      onDone()
+    } catch (e: any) {
+      if ((e as { code?: string })?.code === 'IDEMPOTENCY_CONFLICT') { keyRef.current = null; hashRef.current = null }
+      setErr(e.message || 'No se pudo revertir el cobro')
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="modal-overlay-dark" onClick={e => { if (e.target === e.currentTarget && !saving) onClose() }}>
+      <div className="modal-card" data-testid="cc-reversal-modal" style={{ border: '1px solid rgba(248,113,113,0.25)' }}>
+        <div className="modal-hdr">
+          <div>
+            <h2 style={{ margin: 0 }}>Revertir un cobro</h2>
+            <p className="body-sm" style={{ margin: 0 }}>{account.entity_name}</p>
+          </div>
+          <AppButton variant="ghost" size="sm" onClick={onClose}><X size={15} /></AppButton>
+        </div>
+
+        <div className="modal-body-scroll" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {cobros === null ? (
+            <AppLoadingState rows={3} />
+          ) : cobros.length === 0 ? (
+            <p style={{ margin: 0, fontSize: '0.85rem', color: '#94a3b8' }}>
+              Esta cuenta no tiene cobros pendientes de revertir.
+            </p>
+          ) : (
+            <>
+              <div>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Cobro a revertir *</label>
+                <select data-testid="cc-reversal-select" className="form-select" value={selected}
+                        onChange={e => setSelected(e.target.value)}>
+                  <option value="">— Seleccioná el cobro —</option>
+                  {cobros.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {fmtDate(c.date)} · {fmtARS(c.credit)} · {c.description}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Motivo *</label>
+                <input data-testid="cc-reversal-reason" className="form-control" type="text" value={reason}
+                       onChange={e => setReason(e.target.value)}
+                       placeholder="Por qué se revierte este cobro..." />
+              </div>
+
+              <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8', lineHeight: 1.5 }}>
+                El cobro no se borra: queda en el historial junto con su reversa. Se devuelve la
+                deuda al cliente y se descuenta el ingreso de la caja, con fecha de hoy.
+              </p>
+            </>
+          )}
+
+          {err && <div className="alert-inline alert-error" data-testid="cc-reversal-error">{formatDisplayMessage(err)}</div>}
+        </div>
+
+        <div className="modal-ftr">
+          <AppButton variant="secondary" onClick={onClose}>Cancelar</AppButton>
+          <AppButton data-testid="cc-reversal-confirm" variant="red" loading={saving} disabled={saving || !cobros?.length}
+                     onClick={handleRevert} leftIcon={<Undo2 size={14} />}>
+            Revertir cobro
           </AppButton>
         </div>
       </div>
@@ -244,8 +385,14 @@ function AccountDetail({ account, businessId, userId, onClose, onRefreshList }: 
   const [movements, setMovements] = useState<AccountMovement[]>([])
   const [localBalance, setLocalBalance] = useState(account.balance)
   const [modal, setModal]         = useState<ModalMode | null>(null)
+  const [cobrando, setCobrando]   = useState(false)
+  const [revirtiendo, setRevirtiendo] = useState(false)
   const [imputando, setImputando] = useState(false)
 
+  // El estado SIEMPRE se deriva del saldo fresco. Antes el monto usaba
+  // `localBalance` y el badge usaba `account.balance` (la prop congelada): tras
+  // cobrar toda la deuda el número mostraba $0 y el badge seguía diciendo
+  // "En deuda".
   const status = getAccountStatus(localBalance)
   const sm     = STATUS_META[status]
 
@@ -259,18 +406,31 @@ function AccountDetail({ account, businessId, userId, onClose, onRefreshList }: 
 
   useEffect(() => { loadMovements() }, [loadMovements])
 
+  // Si cambia la cuenta seleccionada, el saldo local tiene que seguirla: si no,
+  // el panel arranca mostrando el saldo de la cuenta anterior hasta que resuelve
+  // el fetch.
+  useEffect(() => { setLocalBalance(account.balance) }, [account.id, account.balance])
+
   const handleMovSaved = async () => {
     setModal(null)
     await loadMovements()
     onRefreshList()
   }
 
+  /**
+   * El saldo se muestra CON su significado, no sólo con un color.
+   * `fmtARS` aplica `Math.abs`, así que un saldo a favor se leía como un número
+   * positivo idéntico a una deuda y sólo el color los distinguía.
+   */
   const balanceDisplay = () => {
-    if (Math.abs(localBalance) < 0.01) return { text: '$0', color: '#34d399' }
-    if (localBalance > 0) return { text: fmtARS(localBalance), color: '#f87171' }
-    return { text: fmtARS(localBalance), color: '#60a5fa' }
+    if (Math.abs(localBalance) < 0.01) return { text: '$0', color: '#34d399', hint: 'Sin deuda' }
+    if (localBalance > 0) return { text: fmtARS(localBalance), color: '#f87171', hint: 'El cliente debe' }
+    return { text: fmtARS(localBalance), color: '#60a5fa', hint: 'A favor del cliente' }
   }
   const bal = balanceDisplay()
+
+  const esCliente  = account.type === 'cliente'
+  const tieneDeuda = localBalance > 0.01
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -290,21 +450,40 @@ function AccountDetail({ account, businessId, userId, onClose, onRefreshList }: 
         </div>
 
         {/* Balance destacado */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem 1rem', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(255,255,255,0.05)', marginBottom: '0.875rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', padding: '0.875rem 1rem', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(255,255,255,0.05)', marginBottom: '0.875rem', flexWrap: 'wrap' as const }}>
           <div>
-            <div style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>Saldo actual</div>
+            <div style={{ fontSize: '0.7rem', color: '#475569', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>{bal.hint}</div>
             <div data-testid="cc-detail-balance" className="mono" style={{ fontSize: '1.625rem', fontWeight: 800, color: bal.color, letterSpacing: '-0.02em' }}>{bal.text}</div>
           </div>
-          <span className={`badge ${getAccountStatus(account.balance) === 'deuda' ? 'badge-error' : getAccountStatus(account.balance) === 'a_favor' ? 'badge-info' : 'badge-success'}`}>
+          <span data-testid="cc-detail-status" className={`badge ${status === 'deuda' ? 'badge-error' : status === 'a_favor' ? 'badge-info' : 'badge-success'}`}>
             {sm.label}
           </span>
         </div>
 
         {/* Acciones */}
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' as const }}>
-          <AppButton data-testid="cc-register-payment-button" variant="indigo" size="sm" leftIcon={<ArrowDownRight size={13} />} onClick={() => setModal('pago')}>Registrar pago</AppButton>
+          {/* CC-B — El cobro de un cliente pasa por el camino canónico y por
+              ningún otro. Sin deuda no hay nada que cobrar: la RPC rechaza el
+              sobrepago, así que ofrecerlo sería mandar al usuario a un error. */}
+          {esCliente && (
+            <AppButton data-testid="cc-register-payment-button" variant="indigo" size="sm"
+                       disabled={!tieneDeuda}
+                       title={tieneDeuda ? undefined : 'Esta cuenta no tiene deuda pendiente'}
+                       leftIcon={<ArrowDownRight size={13} />}
+                       onClick={() => setCobrando(true)}>
+              Registrar cobro
+            </AppButton>
+          )}
           <AppButton variant="red" size="sm" leftIcon={<ArrowUpRight size={13} />} onClick={() => setModal('deuda')}>Registrar deuda</AppButton>
           <AppButton variant="ghost" size="sm" leftIcon={<Edit2 size={13} />} onClick={() => setModal('ajuste')}>Ajuste</AppButton>
+          {/* CC-D — Deshacer un cobro mal cargado. Sólo para cuentas de cliente:
+              la reversa compensa un cobro de cuenta corriente de cliente. */}
+          {esCliente && (
+            <AppButton data-testid="cc-reverse-payment-button" variant="ghost" size="sm"
+                       leftIcon={<Undo2 size={13} />} onClick={() => setRevirtiendo(true)}>
+              Revertir cobro
+            </AppButton>
+          )}
           {/* P0-A.1U2 — Punto de entrada A: imputar un cobro existente a los
               comprobantes abiertos del cliente. Sólo para cuentas de cliente:
               la imputación es contra comprobantes de venta. */}
@@ -316,7 +495,41 @@ function AccountDetail({ account, businessId, userId, onClose, onRefreshList }: 
           )}
           <AppButton variant="ghost" size="sm" leftIcon={<RefreshCw size={13} />} onClick={loadMovements}>Actualizar</AppButton>
         </div>
+
+        {/* Los pagos a proveedor NO son cobros de cuenta corriente de cliente:
+            tienen su propio libro (`supplier_account_movements`) y sus propias
+            RPC atómicas, en la pantalla de Proveedores. Esta pantalla no ofrece
+            registrarlos porque escribiría en el ledger equivocado. */}
+        {!esCliente && (
+          <p style={{ margin: '0.75rem 0 0', fontSize: '0.75rem', color: '#94a3b8' }}>
+            Los pagos a proveedores se registran desde <strong>Proveedores</strong>, que lleva
+            su propia cuenta corriente e impacta la caja correctamente.
+          </p>
+        )}
       </div>
+
+      {/* CC-B — Único camino de cobro: el mismo modal y la misma RPC atómica que
+          usa la ficha del cliente. Antes esta pantalla tenía su propio modal con
+          un INSERT directo que no tocaba la caja. */}
+      {cobrando && esCliente && (
+        <ModalPagarCC
+          isOpen={cobrando}
+          onClose={() => setCobrando(false)}
+          onPagado={async () => { setCobrando(false); await loadMovements(); onRefreshList() }}
+          account={{ ...account, balance: localBalance }}
+          businessId={businessId}
+          userId={userId}
+        />
+      )}
+
+      {revirtiendo && esCliente && (
+        <ReversalModal
+          account={account}
+          businessId={businessId}
+          onDone={async () => { setRevirtiendo(false); await loadMovements(); onRefreshList() }}
+          onClose={() => setRevirtiendo(false)}
+        />
+      )}
 
       {imputando && account.entity_id && (
         <AllocationModal

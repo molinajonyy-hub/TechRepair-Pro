@@ -11,6 +11,7 @@
  */
 import { supabase } from '../lib/supabase'
 import { requireFeature } from '../utils/requireFeature'
+import { financeErrorMessage } from '../lib/financeErrors'
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -140,105 +141,133 @@ export const cuentasService = {
     return (data || []) as AccountMovement[]
   },
 
+  // P0-CC · CC-E — `addMovement` fue ELIMINADA.
+  //
+  // Era el último INSERT directo del cliente sobre `account_movements`. Sus dos
+  // únicos consumidores restantes, `registerSale` y `registerPurchase`, nunca
+  // llegaron a tener llamadores: la deuda de una venta a cuenta corriente la
+  // crea `create_comprobante_checkout_atomic` dentro de la misma transacción
+  // del checkout, no el cliente después del hecho.
+  //
+  // El ledger ya no se escribe desde el navegador. Toda escritura pasa por una
+  // RPC atómica, auditada e idempotente:
+  //   cobro    -> record_customer_account_payment_atomic
+  //   deuda    -> record_customer_account_adjustment_atomic  (direction='debit')
+  //   ajuste   -> record_customer_account_adjustment_atomic  (direction='credit')
+  //   reversa  -> reverse_customer_account_payment_atomic
+  //   venta CC -> create_comprobante_checkout_atomic
+  //   anulación-> annul_comprobante_atomic
+  //
+  // La migración CC-E revoca el INSERT a `authenticated`, así que reintroducir
+  // un `.insert()` acá no fallaría en el code review: fallaría en producción
+  // con 42501.
+
   /**
-   * Inserta un movimiento en el ledger.
-   * balance_after se calcula server-side (trigger BEFORE INSERT con SELECT FOR UPDATE).
+   * P0-CC · CC-D — Movimiento manual (deuda o ajuste) por RPC auditada.
+   *
+   * Reemplaza a `registerDebt` y `addAdjustment`, que hacían INSERT directo: sin
+   * capacidad server-side, sin idempotencia, sin guard de período y sin
+   * auditoría explícita.
+   *
+   * `direction` es el hecho contable, no una etiqueta: `debit` sube la deuda,
+   * `credit` la baja. No se inventó un `type` nuevo en el ledger — una deuda
+   * cargada a mano no es una `venta` y llamarla así contaminaría el devengado.
+   *
+   * Un ajuste NO mueve caja. Si moviera caja sería un cobro, y para eso está
+   * `registrarPagoCC`.
    */
-  async addMovement(businessId: string, accountId: string, input: AddMovementInput): Promise<AccountMovement> {
-    await requireFeature(businessId, 'currentAccounts', 'add_account_movement')
-    const { data, error } = await supabase
+  async registrarAjusteCC(
+    businessId: string,
+    accountId: string,
+    amount: number,
+    direction: 'debit' | 'credit',
+    reason: string,
+    idempotencyKey?: string,
+  ): Promise<{ ok: boolean; replay?: boolean; account_movement_id?: string; balance?: number }> {
+    const { data, error } = await supabase.rpc('record_customer_account_adjustment_atomic', {
+      p_business_id:     businessId,
+      p_account_id:      accountId,
+      p_amount:          amount,
+      p_direction:       direction,
+      p_reason:          reason,
+      p_idempotency_key: idempotencyKey || null,
+    })
+    if (error) throw new Error(error.message)
+    if (!data?.ok) {
+      const code = (data?.error_code || data?.error) as string | undefined
+      const err = new Error(financeErrorMessage(code, data?.message || data?.error, 'FINANCE'))
+      ;(err as Error & { code?: string }).code = code
+      throw err
+    }
+    return data
+  },
+
+  /**
+   * P0-CC · CC-D — Reversa canónica de un cobro de cuenta corriente.
+   *
+   * NO borra ni edita: escribe contra-movimientos auditables en las TRES patas
+   * (ledger, caja y asiento financiero), fechados HOY, enlazados al cobro
+   * original. El cobro queda en el historial.
+   *
+   * Dos reversas del mismo cobro nunca producen dos contra-movimientos: con la
+   * misma clave es un replay; con otra clave devuelve `ALREADY_REVERSED`, y eso
+   * lo garantiza un UNIQUE en la base, no el hash.
+   */
+  async revertirCobroCC(
+    businessId: string,
+    movementId: string,
+    reason: string,
+    idempotencyKey?: string,
+  ): Promise<{ ok: boolean; replay?: boolean; reversal_movement_id?: string; balance?: number }> {
+    const { data, error } = await supabase.rpc('reverse_customer_account_payment_atomic', {
+      p_business_id:     businessId,
+      p_movement_id:     movementId,
+      p_reason:          reason,
+      p_idempotency_key: idempotencyKey || null,
+    })
+    if (error) throw new Error(error.message)
+    if (!data?.ok) {
+      const code = (data?.error_code || data?.error) as string | undefined
+      const err = new Error(financeErrorMessage(code, data?.message || data?.error, 'FINANCE'))
+      ;(err as Error & { code?: string }).code = code
+      throw err
+    }
+    return data
+  },
+
+  /**
+   * Cobros de esta cuenta que TODAVÍA se pueden revertir.
+   *
+   * Un cobro ya reversado se detecta por su fila en `account_payment_reversals`,
+   * no por una columna mutable en el ledger: `account_movements` es append-only
+   * y no se le agregó estado.
+   */
+  async getCobrosReversibles(accountId: string, limit = 20): Promise<AccountMovement[]> {
+    const { data } = await supabase
       .from('account_movements')
-      .insert({
-        business_id:    businessId,
-        account_id:     accountId,
-        date:           input.date || new Date().toISOString().split('T')[0],
-        type:           input.type,
-        description:    input.description,
-        debit:          input.debit,
-        credit:         input.credit,
-        balance_after:  0,  // sobreescrito por el trigger
-        reference_type: input.reference_type || null,
-        reference_id:   input.reference_id   || null,
-        created_by:     input.created_by     || null,
-      })
-      .select()
-      .single()
-    if (error) throw error
-    return data as AccountMovement
+      .select('*')
+      .eq('account_id', accountId)
+      .eq('type', 'pago')
+      .gt('credit', 0)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+    const cobros = (data || []) as AccountMovement[]
+    if (cobros.length === 0) return []
+
+    const { data: revs } = await supabase
+      .from('account_payment_reversals')
+      .select('original_movement_id')
+      .in('original_movement_id', cobros.map(c => c.id))
+    const reversados = new Set((revs || []).map((r: { original_movement_id: string }) => r.original_movement_id))
+    return cobros.filter(c => !reversados.has(c.id))
   },
 
-  /** Registra un pago que reduce la deuda. */
-  async registerPayment(
-    businessId: string, accountId: string,
-    amount: number, description: string, userId: string,
-  ): Promise<AccountMovement> {
-    return this.addMovement(businessId, accountId, {
-      type: 'pago', description, debit: 0, credit: amount, created_by: userId,
-    })
-  },
-
-  /** Registra una deuda manual (no vinculada a venta/compra). */
-  async registerDebt(
-    businessId: string, accountId: string,
-    amount: number, description: string, userId: string,
-  ): Promise<AccountMovement> {
-    return this.addMovement(businessId, accountId, {
-      type: 'ajuste', description, debit: amount, credit: 0, created_by: userId,
-    })
-  },
-
-  /** Ajuste contable: acreedor (isCredit=true) o deudor (isCredit=false). */
-  async addAdjustment(
-    businessId: string, accountId: string,
-    amount: number, isCredit: boolean, reason: string, userId: string,
-  ): Promise<AccountMovement> {
-    return this.addMovement(businessId, accountId, {
-      type: 'ajuste',
-      description: `Ajuste: ${reason}`,
-      debit:  isCredit ? 0 : amount,
-      credit: isCredit ? amount : 0,
-      created_by: userId,
-    })
-  },
-
-  /**
-   * Registra el impacto de una venta en CC (para integración futura).
-   * Llama solo si la venta tiene deuda pendiente.
-   */
-  async registerSale(
-    businessId: string, accountId: string,
-    total: number, paid: number,
-    description: string, comprobante_id?: string, userId?: string,
-  ): Promise<AccountMovement | null> {
-    const deuda = total - paid
-    if (deuda <= 0.01) return null  // pago completo: no impacta CC
-    return this.addMovement(businessId, accountId, {
-      type: 'venta', description,
-      debit: deuda, credit: 0,
-      reference_type: 'comprobante',
-      reference_id:   comprobante_id || null,
-      created_by:     userId || null,
-    })
-  },
-
-  /**
-   * Registra el impacto de una compra a proveedor en CC.
-   */
-  async registerPurchase(
-    businessId: string, accountId: string,
-    total: number, paid: number,
-    description: string, purchase_id?: string, userId?: string,
-  ): Promise<AccountMovement | null> {
-    const deuda = total - paid
-    if (deuda <= 0.01) return null
-    return this.addMovement(businessId, accountId, {
-      type: 'compra', description,
-      debit: deuda, credit: 0,
-      reference_type: 'purchase',
-      reference_id:   purchase_id || null,
-      created_by:     userId || null,
-    })
-  },
+  // `registerSale` y `registerPurchase` se eliminaron con CC-E. Estaban
+  // documentadas como «para integración futura» y nunca tuvieron llamadores: la
+  // deuda de una venta a cuenta corriente ya la crea el checkout atómico, y la
+  // de una compra vive en el ledger de proveedores (`supplier_account_movements`),
+  // que es otro libro. Mantenerlas habría dejado abierto el último INSERT
+  // directo al ledger justo cuando CC-E lo revoca.
 
   /**
    * Registra el cobro de una deuda de cuenta corriente vía RPC atómica.
@@ -271,12 +300,18 @@ export const cuentasService = {
       p_idempotency_key: idempotencyKey || null,
     })
     if (error) throw new Error(error.message)
-    if (data?.error === 'IDEMPOTENCY_CONFLICT') {
-      const conflict = new Error(data.message || 'Esta solicitud ya fue utilizada con datos diferentes. Volvé a iniciar la operación.')
-      ;(conflict as Error & { code?: string }).code = 'IDEMPOTENCY_CONFLICT'
-      throw conflict
+
+    // La RPC devuelve {ok:false, error_code, error, message}. El código tipado
+    // manda: `error` trae el texto crudo del server y `error_code` es el
+    // contrato. Antes se comparaba contra `error`, así que sólo el conflicto de
+    // idempotencia —el único que repite el código dentro de `error`— llegaba
+    // clasificado; el resto caía al genérico y perdía el mensaje accionable.
+    if (!data?.ok) {
+      const code = (data?.error_code || data?.error) as string | undefined
+      const err = new Error(financeErrorMessage(code, data?.message || data?.error, 'FINANCE'))
+      ;(err as Error & { code?: string }).code = code
+      throw err
     }
-    if (!data?.ok) throw new Error(data?.error || 'Error al registrar el cobro')
     return data
   },
 }

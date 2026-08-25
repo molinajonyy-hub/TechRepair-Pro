@@ -233,9 +233,18 @@ function AppContent() {
                 <Route path="/users" element={<UsersManagement />} />
               </Route>
 
-              {/* ── Rutas PRO — currentAccounts ── */}
+              {/* ── Rutas PRO — currentAccounts ──
+                  P0-CC · CC-C: feature del negocio Y capacidad del actor.
+                  Esta ruta quedó fuera de P0-P6 porque `currentAccounts` PARECÍA
+                  un gate, pero es del PLAN, no del ACTOR: cualquier miembro
+                  —incluido un viewer— entraba a ver y mover la deuda de todos
+                  los clientes. Es la misma capacidad `finance` que ya gatea
+                  /caja y /expenses. La RLS y la RPC la exigen server-side; esto
+                  es sólo para no ofrecer una pantalla que después rebota. */}
+              <Route element={<ProtectedRouteByPermission permission="finance" />}>
               <Route element={<ProtectedRouteByFeature feature="currentAccounts" />}>
                 <Route path="/cuentas" element={<CuentasCorrientes />} />
+              </Route>
               </Route>
 
               {/* ── Rutas PRO — advancedFinance ── */}

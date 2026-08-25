@@ -25,8 +25,16 @@ import { join } from 'node:path'
 const SCHEMAS_CONFIABLES = new Set(['pg_catalog', 'extensions'])
 // Objetos de aplicacion cuya resolucion no debe depender del search_path.
 // Se detectan tras FROM/JOIN/INSERT INTO/UPDATE/DELETE FROM y en %ROWTYPE.
-const RE_REL_SIN_CALIFICAR = /\b(?:FROM|JOIN|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?!public\.|pg_catalog\.|auth\.|extensions\.|storage\.|pg_temp\.|\()([a-z_][a-z0-9_]*)/gi
-const RE_ROWTYPE_SIN_CALIFICAR = /\b(?!public\.|auth\.)([a-z_][a-z0-9_]*)\s*%\s*ROWTYPE/gi
+// `IS DISTINCT FROM v_x` NO es una referencia a relacion: sin el lookbehind, el
+// guard reportaba la variable de la derecha como si fuera una tabla sin
+// calificar. Es la comparacion canonica del contrato de idempotencia
+// (`request_hash IS DISTINCT FROM v_hash`), asi que aparecia en toda RPC nueva.
+const RE_REL_SIN_CALIFICAR = /(?<!\bDISTINCT\s)\b(?:FROM|JOIN|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?!public\.|pg_catalog\.|auth\.|extensions\.|storage\.|pg_temp\.|\()([a-z_][a-z0-9_]*)/gi
+// El `\b` permitia empezar a matchear DESPUES del punto, asi que
+// `public.accounts%ROWTYPE` —ya calificado— se reportaba igual que
+// `accounts%ROWTYPE`. El lookbehind exige que no venga precedido de `.` ni de
+// un identificador: calificar ahora SI satisface la regla.
+const RE_ROWTYPE_SIN_CALIFICAR = /(?<![\w.])(?!public\.|auth\.|pg_catalog\.)([a-z_][a-z0-9_]*)\s*%\s*ROWTYPE/gi
 // Palabras que aparecen tras FROM/UPDATE pero NO son relaciones de aplicacion.
 const NO_RELACIONES = new Set([
   'unnest','generate_series','jsonb_array_elements','jsonb_array_elements_text','jsonb_each',
@@ -157,6 +165,25 @@ const FIXTURES = [
 `CREATE FUNCTION public.f9(a uuid) RETURNS int LANGUAGE sql AS $$ SELECT count(*) FROM businesses $$;` },
   { nombre: 'ALTER con public y sin pg_temp', debeFallar: true, sql:
 `ALTER FUNCTION public.f10(uuid) SET search_path = public;` },
+
+  // ── P0-CC — dos falsos positivos que enmascaraban hallazgos reales ─────────
+  // Si el guard marca todo, deja de distinguir lo que importa. Estos dos casos
+  // fijan que calificar SIRVE y que una comparacion no es una tabla.
+  { nombre: 'ROWTYPE CALIFICADO: no debe reportarse', debeFallar: false, sql:
+`CREATE FUNCTION public.f11(a uuid) RETURNS int LANGUAGE plpgsql SECURITY DEFINER
+ SET search_path = pg_catalog, public, pg_temp AS $$ DECLARE v public.businesses%ROWTYPE; BEGIN RETURN 1; END $$;` },
+  { nombre: 'IS DISTINCT FROM <var>: no es una relacion', debeFallar: false, sql:
+`CREATE FUNCTION public.f12(a uuid) RETURNS int LANGUAGE plpgsql SECURITY DEFINER
+ SET search_path = pg_catalog, public, pg_temp AS $$ DECLARE v_hash text; BEGIN
+ IF a::text IS DISTINCT FROM v_hash THEN RETURN 0; END IF; RETURN 1; END $$;` },
+  // …y el guard SIGUE detectando la version sin calificar de ambos.
+  { nombre: 'ROWTYPE sin calificar sigue fallando (no se aflojo la regla)', debeFallar: true, sql:
+`CREATE FUNCTION public.f13(a uuid) RETURNS int LANGUAGE plpgsql SECURITY DEFINER
+ SET search_path = pg_catalog, public, pg_temp AS $$ DECLARE v accounts%ROWTYPE; BEGIN RETURN 1; END $$;` },
+  { nombre: 'FROM tabla sin calificar sigue fallando', debeFallar: true, sql:
+`CREATE FUNCTION public.f14(a uuid) RETURNS int LANGUAGE plpgsql SECURITY DEFINER
+ SET search_path = pg_catalog, public, pg_temp AS $$ BEGIN
+ RETURN (SELECT count(*) FROM account_movements); END $$;` },
 ]
 
 function autoTest() {

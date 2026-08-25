@@ -129,18 +129,28 @@ test.describe('@cc @finance Cuenta corriente cliente', () => {
     await expect(detailBalance).toBeVisible({ timeout: 5_000 })
     const balanceBefore = parseMoney(await detailBalance.textContent())
 
-    // Registrar pago parcial
+    // P0-CC · CC-B — Registrar cobro parcial por el camino CANÓNICO.
+    // Este flujo cambió: antes abría un modal propio de la pantalla que hacía un
+    // INSERT directo en `account_movements` (sin caja, sin método de pago). Ahora
+    // abre `ModalPagarCC`, el mismo de la ficha del cliente, que va por la RPC
+    // atómica. El método de cobro dejó de ser texto libre y es obligatorio.
     const payBtn = page.locator('[data-testid="cc-register-payment-button"]')
     await expect(payBtn).toBeVisible({ timeout: 5_000 })
     await payBtn.click()
 
-    const amountInput = page.locator('[data-testid="cc-payment-amount-input"]')
+    const amountInput = page.locator('[data-testid="cc-pay-amount"]')
     await expect(amountInput).toBeVisible({ timeout: 5_000 })
+
+    // El selector de método es parte del contrato: sin él, la caja no sabe en
+    // qué bucket cae el cobro.
+    await expect(page.locator('[data-testid="cc-pay-methods"]')).toBeVisible()
 
     const payAmount = Math.min(100, balanceBefore)
     await amountInput.fill(String(payAmount))
-    await page.fill('[data-testid="cc-payment-description-input"]', 'E2E pago parcial test')
-    await page.click('[data-testid="cc-payment-save-button"]')
+    // Transferencia y no efectivo: no depende de que haya una caja abierta.
+    await page.click('[data-testid="cc-pay-method-transferencia"]')
+    // La observación es OPCIONAL — se deja vacía a propósito.
+    await page.getByRole('button', { name: 'Confirmar pago' }).click()
 
     // El modal debe cerrarse y el balance debe actualizarse
     await expect(amountInput).not.toBeVisible({ timeout: 10_000 })
@@ -148,6 +158,14 @@ test.describe('@cc @finance Cuenta corriente cliente', () => {
     // El balance debe ser menor
     await page.waitForTimeout(500)
     const balanceAfter = parseMoney(await detailBalance.textContent())
-    expect(balanceAfter, 'El saldo debe reducirse después del pago').toBeLessThan(balanceBefore)
+    expect(balanceAfter, 'El saldo debe reducirse después del cobro').toBeLessThan(balanceBefore)
+
+    // Y el badge tiene que haber seguido al saldo: antes usaba la prop congelada
+    // y podía quedar en «En deuda» con saldo $0.
+    const estado = page.locator('[data-testid="cc-detail-status"]')
+    await expect(estado).toBeVisible()
+    if (balanceAfter < 1) {
+      await expect(estado).not.toHaveText(/En deuda/i)
+    }
   })
 })

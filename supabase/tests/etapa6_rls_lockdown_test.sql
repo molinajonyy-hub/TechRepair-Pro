@@ -198,29 +198,44 @@ BEGIN
   PERFORM pg_temp.assert(EXISTS(SELECT 1 FROM business_finance_entries WHERE id=v_bfe AND amount=v_amt), 'F9-5 UPDATE/DELETE business_finance_entries directo bloqueado');
 END $$;
 
--- (6 adaptado) account_movements: excepción INSERT acotada; UPDATE/DELETE bloqueados; cross-tenant falla
+-- (6 adaptado) account_movements: el cliente NO escribe el ledger; UPDATE/DELETE bloqueados
+--
+-- P0-CC · CC-E — Esta sección CAMBIÓ DE SIGNO a propósito.
+--
+-- M6 dejó una «excepción acotada»: el cliente podía INSERTAR en el ledger para
+-- la carga manual de cuenta corriente. Ese hueco es exactamente el que permitió
+-- que la pantalla de `/cuentas` bajara la deuda de un cliente sin crear el
+-- movimiento de caja ni el asiento financiero. CC-E lo cerró: la carga manual
+-- ahora pasa por `record_customer_account_adjustment_atomic`.
+--
+-- F9-6a se invierte: de «INSERT propio permitido» a «INSERT propio bloqueado».
 DO $$
 DECLARE v_ok boolean := false; v_xtenant_blocked boolean := false; v_mov uuid; v_dbg numeric;
 BEGIN
   SET LOCAL ROLE authenticated;
   SET LOCAL "request.jwt.claim.sub" = '00000000-0000-0000-0000-0000000f9109';
-  -- INSERT propio permitido (excepción documentada: CC manual; feature currentAccounts + is_staff)
+  -- INSERT propio: ya NO permitido (CC-E revocó el grant -> 42501)
   BEGIN
     INSERT INTO account_movements(business_id,account_id,date,type,description,debit,credit,balance_after)
       VALUES ('00000000-0000-0000-0000-0000000f9101','00000000-0000-0000-0000-0000000f9a01','2026-06-25','venta','ajuste manual',100,0,0);
     v_ok := true;
   EXCEPTION WHEN OTHERS THEN v_ok := false;
   END;
-  -- INSERT cross-tenant (biz B) desde owner A -> bloqueado por WITH CHECK
+  -- INSERT cross-tenant (biz B) desde owner A -> bloqueado
   BEGIN
     INSERT INTO account_movements(business_id,account_id,date,type,description,debit,credit,balance_after)
       VALUES ('00000000-0000-0000-0000-0000000f9201','00000000-0000-0000-0000-0000000f9a01','2026-06-25','venta','cross',100,0,0);
   EXCEPTION WHEN OTHERS THEN v_xtenant_blocked := true;
   END;
   RESET ROLE;
-  PERFORM pg_temp.assert(v_ok, 'F9-6a account_movements INSERT propio permitido (excepción acotada)');
+  PERFORM pg_temp.assert(NOT v_ok, 'F9-6a [INVERTIDA CC-E] account_movements INSERT propio BLOQUEADO');
   PERFORM pg_temp.assert(v_xtenant_blocked, 'F9-6b account_movements INSERT cross-tenant bloqueado');
-  -- UPDATE/DELETE propio bloqueado
+
+  -- UPDATE/DELETE propio bloqueado. La fila de prueba ya no la puede crear el
+  -- cliente, así que se siembra como `postgres` (superusuario: no pasa por los
+  -- grants) — lo que se está midiendo acá es el UPDATE/DELETE, no el INSERT.
+  INSERT INTO account_movements(business_id,account_id,date,type,description,debit,credit,balance_after)
+    VALUES ('00000000-0000-0000-0000-0000000f9101','00000000-0000-0000-0000-0000000f9a01','2026-06-25','venta','ajuste manual',100,0,0);
   SELECT id, debit INTO v_mov, v_dbg FROM account_movements WHERE business_id='00000000-0000-0000-0000-0000000f9101' AND description='ajuste manual' LIMIT 1;
   SET LOCAL ROLE authenticated;
   SET LOCAL "request.jwt.claim.sub" = '00000000-0000-0000-0000-0000000f9109';

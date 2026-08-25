@@ -55,15 +55,19 @@ const ALLOWLIST = [
             'INSERT acotado por business_id; UPDATE/DELETE bloqueados; replace ya va por RPC.',
     migrateTo: 'RPC en Fase 10/11 posterior',
   },
-  {
-    code: 'E2',
-    file: 'src/services/cuentasService.ts',
-    table: 'account_movements',
-    op: 'insert',
-    reason: 'CC manual pago/deuda/ajuste (addMovement). UI activa; ledger CC aislado sin ' +
-            'FM/BFE/caja; acotado por business+staff+feature currentAccounts.',
-    migrateTo: 'RPC posterior',
-  },
+  // ── E2 RETIRADA — P0-CC · CC-E ─────────────────────────────────────────────
+  // Era: {file: 'src/services/cuentasService.ts', table: 'account_movements',
+  //       op: 'insert', migrateTo: 'RPC posterior'}.
+  //
+  // Esa excepción amparaba a `addMovement`, el INSERT directo que bajaba la
+  // deuda de un cliente sin crear el movimiento de caja ni el asiento
+  // financiero. Su `migrateTo` decía «RPC posterior»: esa RPC es
+  // `record_customer_account_adjustment_atomic` (CC-D), y CC-E revocó el GRANT
+  // de INSERT sobre el ledger.
+  //
+  // La excepción NO se reemplaza por otra: ya no queda ningún archivo con
+  // permiso para escribir `account_movements` desde el cliente. Reintroducir
+  // ese insert ahora falla en el guard Y en producción con 42501.
   {
     code: 'E3',
     file: 'src/pages/Expenses.tsx',
@@ -205,10 +209,12 @@ function runSelfTest() {
       file: 'src/services/comprobanteService.ts',
       content: `const { error } = await supabase.from('comprobante_payments').insert({ amount })`,
       expect: 'permitted', table: 'comprobante_payments', op: 'insert', code: 'E1' },
-    { n: 5, desc: 'permite E2 (account_movements insert en cuentasService)',
+    // CC-E invirtió este caso: cuentasService ERA el archivo allowlisted para
+    // insertar en el ledger. Ya no lo es, y el guard tiene que decirlo.
+    { n: 5, desc: 'CC-E: RECHAZA account_movements insert incluso en cuentasService',
       file: 'src/services/cuentasService.ts',
       content: `await supabase.from('account_movements').insert({ business_id })`,
-      expect: 'permitted', table: 'account_movements', op: 'insert', code: 'E2' },
+      expect: 'violation', table: 'account_movements', op: 'insert' },
     { n: 6, desc: 'permite E3 (expenses insert en Expenses.tsx)',
       file: 'src/pages/Expenses.tsx',
       content: `await supabase.from('expenses').insert({ amount })`,
