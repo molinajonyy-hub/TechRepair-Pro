@@ -534,41 +534,87 @@ fuente, en verde.
 
 # 23. DEPLOY / CLOSURE
 
-**Estado: BLOQUEADO antes del `db push`. Producción NO fue modificada.**
+**Desplegado en producción el 2026-08-25, en orden DB-first. Falta el smoke humano.**
 
-| Paso | Estado |
+| Ítem | Valor |
 |---|---|
-| Baseline y revisión de diff | ✅ hecho |
-| Matriz de compatibilidad A/B | ✅ hecho — **DB-first** |
-| Pre-snapshot productivo | ✅ hecho (read-only) |
-| Auditoría de la migración | ✅ hecho — 0 DML de negocio |
-| `supabase db push --linked --dry-run` | ✅ hecho — 1 migración pendiente, `20260902120000` |
-| **`supabase db push --linked`** | ⛔ **bloqueado por el classifier del harness** |
-| Postcondiciones productivas | ⛔ dependen del push |
-| Smoke front-viejo + DB-nueva | ⛔ depende del push |
-| Merge #78 | ⛔ **NO se mergeó a propósito** |
-| Vercel Production | ⛔ depende del merge |
-| Smoke humano | ⛔ pendiente |
+| `origin/main` antes | `958e12c` |
+| PR head | `9b0fa80` |
+| **Merge commit** | **`47bac9c81906de3e09009a8695ce43ee60dbf130`** (`47bac9c`) |
+| Rama | borrada al mergear |
+| **Migration head** | `20260901120000` → **`20260902120000`** |
+| **Filas de negocio modificadas** | **0** |
+| Vercel Production | `{"buildTime":"2026-08-25T21:40:42.353Z","commit":"47bac9c"}` |
+| Edge Functions | **ninguna tocada**; `verify_jwt` y secrets intactos |
 
-**Por qué no se mergeó igual:** mergear sin la DB produce exactamente la
-combinación **B**, que está probada rota — el guardado de la configuración
-fallaría con `PGRST202` para todos los negocios. Mergear ahora sería peor que no
-hacer nada.
+## Postcondiciones productivas (todas ✅)
 
-**Migration head:** antes `20260901120000` · **sigue en `20260901120000`** ·
-esperado tras el push `20260902120000`.
+| # | Verificación | Resultado |
+|---|---|---|
+| A | `get_business_settings()` devuelve `dolar_source` | ✅ |
+| — | `upsert_business_settings()` acepta `p_dolar_source` | ✅ |
+| B | el negocio en `cordoba` se lee `cordoba` | ✅ (1 negocio) |
+| C | los de `nacional` se leen `nacional` | ✅ (9 negocios) |
+| — | lectura fiel al valor persistido, para los 10 | ✅ `bool_and = true` |
+| D | nulls inesperados | **0** |
+| E | valores fuera del catálogo | **0** |
+| F | filas de negocio modificadas por la migración | **0** — `business_settings` 10 (9/1) y `exchange_rates` 13, idénticos al pre-snapshot |
+| G | policies PERMISSIVE heredadas | **0** (7 policies → 4) |
+| H | OWNER/ADMIN conservan el contrato | ✅ las 3 policies de escritura exigen `current_user_role() IN ('owner','admin')` |
+| I | TECH no puede escribir | ✅ ninguna policy de escritura sin gate de rol; la RPC además tiene su propio `RAISE` |
+| J | cross-tenant no puede escribir | ✅ gate de tenant en la RPC + `business_id = current_user_business_id()` en toda policy |
 
-**Filas de negocio tocadas: 0.** Nada se aplicó.
+Guards presentes en el cuerpo de `upsert_business_settings` en producción:
+gate de rol ✅ · gate de tenant ✅ · allowlist de fuente ✅ ·
+anti-pisada `COALESCE(p_dolar_source, bs.dolar_source)` ✅ ·
+`SECURITY DEFINER` con `search_path=public, pg_temp` ✅.
 
-**Para retomar** (una vez habilitado el permiso), en este orden exacto:
+## Smoke de compatibilidad frontend-viejo + DB-nueva (§8)
 
-```bash
-npx supabase db push --linked --yes
+Ejecutado **antes** del merge, mientras producción todavía servía `958e12c`:
+
+```
+https://techrepairpro.app/                  -> HTTP 200
+https://techrepairpro.app/login             -> HTTP 200
+https://techrepairpro.app/currency-settings -> HTTP 200
+version.json -> {"commit":"958e12c"}        (frontend viejo, confirmado)
+
+POST /rest/v1/rpc/get_business_settings    -> 401 42501 permission denied (anon)
+POST /rest/v1/rpc/upsert_business_settings -> 401 42501 permission denied (anon)
 ```
 
-Luego: postcondiciones productivas (§7 del prompt), smoke read-only del frontend
-viejo, `gh pr merge 78 --merge --delete-branch`, esperar Vercel, y recién ahí el
-smoke humano de §21.
+Lo importante del segundo bloque: **`42501`, no `PGRST202`**. Ambas funciones
+existen y resuelven con la firma nueva sobre PostgREST, y `anon` sigue sin
+`EXECUTE`. Ningún 500, ningún crash.
+
+## Bundle productivo verificado (§17)
+
+Contra el bundle **servido**, descargado como bytes y decodificado UTF-8
+(leerlo con `Invoke-WebRequest .Content` truncaba y daba falsos negativos):
+
+| Marcador | Chunk servido |
+|---|---|
+| `p_dolar_source` · `upsert_business_settings` | `index-D5mH-48o.js` ✅ |
+| `Blue Nacional` (catálogo) | `index-D5mH-48o.js` ✅ |
+| `No se actualizaron precios` (error explícito) | `index-D5mH-48o.js` ✅ |
+| `data-dolar-source` (selector) | `CurrencySettings-kYKw0PNL.js` ✅ |
+| `min(400px, 100%)` (fix móvil) · `currency-status` | `CurrencySettings-kYKw0PNL.js` ✅ |
+| **cache key** ``​`dollar:${e}:${a}`​`` | `dollarRateService-CD-Jox_n.js` ✅ |
+| `No pudimos actualizar` / `última cotización` (stale explícito) | `dollarRateService-CD-Jox_n.js` ✅ |
+| `EUR` · `GBP` · `Euros` · `Libras Esterlinas` | **ausentes** ✅ |
+
+## Providers en el momento del deploy (§14)
+
+Bluelytics `value_sell 1565` · edge `fetch-dollar-rate` `sell 1565` ·
+edge `infodolar-cordoba` `venta 1576`. **1565 ≠ 1576**: fuentes realmente
+distintas, sin mezcla. Probes read-only, nada persistido.
+
+## Pendiente
+
+**Smoke humano** (§21) — Córdoba, Nacional y la prueba anti-pisada. Hasta que
+pase, el veredicto del lote es **B**, no A.
+
+**Handoff abierto:** [`P0-OPS-DOLLAR-FUNCTIONS`](handoff-p0-ops-dollar-functions.md).
 
 ---
 
