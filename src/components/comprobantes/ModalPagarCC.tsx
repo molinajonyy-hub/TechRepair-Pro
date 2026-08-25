@@ -110,7 +110,10 @@ export function ModalPagarCC({ isOpen, onClose, onPagado, account, businessId, u
               <CreditCard size={16} style={{ color: '#818cf8' }} />
             </div>
             <div>
-              <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#f0f4ff' }}>Registrar pago de CC</h2>
+              {/* Desde el negocio la plata ENTRA: es un COBRO. «Pago» describe
+                  al cliente, y el modal se abría desde un botón que dice
+                  «Registrar cobro»: dos palabras para el mismo acto. */}
+              <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#f0f4ff' }}>Registrar cobro</h2>
               <p style={{ margin: '0.1rem 0 0', fontSize: '0.75rem', color: '#475569' }}>{account.entity_name}</p>
             </div>
           </div>
@@ -200,7 +203,7 @@ export function ModalPagarCC({ isOpen, onClose, onPagado, account, businessId, u
           {success && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 0.875rem', background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: '0.5rem' }}>
               <CheckCircle2 size={14} style={{ color: '#34d399' }} />
-              <span style={{ color: '#34d399', fontSize: '0.8rem', fontWeight: 600 }}>Pago registrado. Impacta en caja y finanzas.</span>
+              <span style={{ color: '#34d399', fontSize: '0.8rem', fontWeight: 600 }}>Cobro registrado. Impacta en caja y finanzas.</span>
             </div>
           )}
         </div>
@@ -211,10 +214,11 @@ export function ModalPagarCC({ isOpen, onClose, onPagado, account, businessId, u
             Cancelar
           </button>
           <button
+            data-testid="cc-pay-confirm"
             onClick={handleSave} disabled={saving || success}
             style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1.25rem', background: success ? 'linear-gradient(135deg,#10b981,#059669)' : 'linear-gradient(135deg,#6366f1,#8b5cf6)', border: 'none', borderRadius: '0.5rem', color: '#fff', fontSize: '0.875rem', fontWeight: 600, cursor: saving || success ? 'not-allowed' : 'pointer', opacity: saving ? 0.75 : 1 }}
           >
-            {saving ? 'Registrando...' : success ? <><CheckCircle2 size={14} /> Registrado</> : 'Confirmar pago'}
+            {saving ? 'Registrando...' : success ? <><CheckCircle2 size={14} /> Registrado</> : 'Confirmar cobro'}
           </button>
         </div>
       </div>
