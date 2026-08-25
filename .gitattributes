@@ -1,0 +1,11 @@
+# ── Fidelidad de las Edge Functions ────────────────────────────────────────
+# El repo se clona en Windows con core.autocrlf=true, asi que el working tree
+# recibe CRLF aunque el blob sea LF. `supabase functions deploy` sube el
+# ARCHIVO DEL WORKING TREE: sin este pin, un deploy desde Windows publicaria un
+# bundle con CRLF, distinto del que produce el mismo commit en Linux/CI.
+#
+# Importa especialmente para las funciones de dolar, cuyo source se recupero
+# byte a byte desde produccion y cuya fidelidad valida
+# `npm run guard:dollar-functions` con un hash del contenido.
+supabase/functions/**/*.ts text eol=lf
+supabase/functions/**/*.json text eol=lf
