@@ -370,11 +370,9 @@ ledger, POS, Inventory, variantes de productos, garantías, QR, Tasks.
 
 ## 20. Riesgos
 
-1. **Orden de despliegue.** La migración cambia la firma de ambas RPC. El
-   frontend viejo llama `upsert_business_settings` con 6 args → tras el DROP esa
-   firma no existe. **Pero el frontend desplegado hoy no usa esa RPC** (upsertea
-   la tabla directo), así que no rompe. Aun así: **frontend primero, `db push`
-   después**, como en los lotes anteriores.
+1. **Orden de despliegue — ver §22.** ⚠️ La recomendación original de este
+   informe ("frontend primero") era **incorrecta** y fue corregida tras medir las
+   dos combinaciones. El orden obligatorio es **DB primero**.
 2. **Tech pierde una capacidad que hoy tiene.** Al cerrar RC-9, un `tech` deja de
    poder cambiar la configuración de moneda. Es la intención, y prod tiene 1 solo
    perfil tech — pero es un cambio de comportamiento observable.
@@ -398,6 +396,179 @@ ledger, POS, Inventory, variantes de productos, garantías, QR, Tasks.
    se mueve**.
 6. Con un usuario `tech`: la pantalla no debe permitir guardar.
 7. Móvil 360px: sin scroll horizontal en la pantalla.
+
+---
+
+---
+
+# 22. PRECHECK FINAL — orden de despliegue (corrige §20.1)
+
+**2026-08-25, contra `origin/main` @ `958e12c` (no avanzó) y PR head `95f66f9`.**
+
+El informe original recomendaba *frontend primero*. Se midieron las dos
+combinaciones y **la conclusión se invierte: DB PRIMERO**.
+
+## Matriz de compatibilidad
+
+### A · DB nueva + frontend viejo → **COMPATIBLE, y además curativa**
+
+Probe transaccional (`BEGIN … ROLLBACK`, 0 filas persistidas) que reproduce el
+camino exacto del frontend hoy desplegado. **8/8 PASS:**
+
+| Aserción | Resultado |
+|---|---|
+| A1a · la RPC nueva expone `dolar_source` | PASS |
+| A1b · el front **viejo** leería `cordoba` (hoy lee `undefined` y pinta Nacional) | PASS |
+| A1c · las 9 columnas originales siguen ahí → **contrato aditivo** | PASS |
+| A2 · el **owner** sigue guardando por el camino viejo tras retirar las policies heredadas | PASS |
+| A3a/A3b · **tech** no escribe por el camino viejo, y la fuente queda intacta | PASS |
+| A4a/A4b · **DB-first CURA el clobber sin tocar el frontend** | PASS |
+
+Evidencia de código, leída de `origin/main` (no de memoria):
+
+```ts
+// origin/main:src/services/currencyService.ts
+return firstRow(data) as BusinessSettings | null        // no filtra columnas → dolar_source pasa
+await supabase.from('business_settings').upsert({...})  // NO usa la RPC → el cambio de firma no lo toca
+dolar_source: settings.dolar_source ?? 'nacional'       // con la RPC nueva, ya no dispara el ??
+// origin/main:src/pages/CurrencySettings.tsx
+const dolarSource = (settings?.dolar_source as DolarSource) ?? 'nacional'   // ahora recibe el valor real
+```
+
+Consumidores de `upsert_business_settings` en TODO el repo: **sólo**
+`src/services/currencyService.ts` (código nuevo). Ni Edge Functions, ni portal,
+ni otro bundle. (`supabase/_archive/loose-scripts/` está archivado, no se ejecuta.)
+
+### B · Frontend nuevo + DB vieja → **ROTO**
+
+El `currencyService` nuevo llama `rpc('upsert_business_settings', { … p_dolar_source })`.
+La DB vieja no tiene ese parámetro → PostgREST responde `PGRST202` (función no
+encontrada) → **guardar la configuración falla**. Y su `get_business_settings`
+sigue sin devolver `dolar_source`, así que el bug reportado seguiría vivo.
+
+### Conclusión
+
+```
+A compatible  +  B roto   →   DB FIRST → POSTCONDICIONES → MERGE → VERCEL
+```
+
+Más fuerte todavía: **el `db push` por sí solo ya corrige el síntoma reportado**
+(la pantalla vuelve a Nacional) y detiene la pisada, incluso antes de mergear el
+frontend. Eso hace la ventana DB-nueva/front-viejo *mejor* que el estado actual,
+no peor.
+
+## Normalización (§26) — propiedad verificada
+
+`normalizeDolarSource()` se usa en **exactamente 3 lugares, todos bordes de
+LECTURA**: la fila que devuelve la RPC de lectura, la que devuelve la RPC de
+escritura, y la lectura directa de `dollarRateService`. **Nunca sobre input del
+usuario antes de persistir.**
+
+El write path manda el valor verbatim (`settings.dolar_source ?? null`) y la
+allowlist estricta de la RPC rechaza lo inválido con `RAISE`. Cubierto por `S4`:
+`'https://evil.example/quote'` → rechazado. `"pepe"` **no** se normaliza a
+`nacional` ni se persiste en silencio: la RPC lo rechaza.
+
+## Pre-snapshot productivo (read-only, sin PII)
+
+Idéntico al de §7 — **nada derivó** entre el informe y el precheck.
+
+```
+business_settings 10 · nacional 9 · cordoba 1 · NULL 0 · fuera del CHECK 0
+businesses 28 · con settings 10 · sin settings 18
+exchange_rates(USD/ARS): INFODOLAR_CORDOBA 11 · api 1 · bluelytics 1
+policies business_settings: 3 heredadas [a][w][r] roles=PUBLIC  +  4 canónicas roles={authenticated}
+get_business_settings()                                    -> SIN dolar_source
+upsert_business_settings(uuid,text,bool,bool,text,integer)  -> SIN dolar_source
+```
+
+## Auditoría de la migración (§5)
+
+Extraídos los cuerpos de función, las sentencias de **nivel superior** son:
+`BEGIN` · 2×`DROP FUNCTION` · 2×`CREATE FUNCTION` · 6×`REVOKE/GRANT` ·
+3×`DROP POLICY` · 1×`DO` (postcondiciones) · `COMMIT`.
+
+**Cero `INSERT`/`UPDATE`/`DELETE`/`TRUNCATE` de negocio a nivel superior.** No
+toca `exchange_rates` históricos, no cambia ningún `dolar_source` actual, no
+toca costos, precios ni accounting.
+
+## Estado de PR #78
+
+| Ítem | Valor |
+|---|---|
+| `origin/main` | `958e12c` (sin avanzar; MOBILE-2A no mergeó) |
+| PR head | `95f66f9` |
+| state / mergeable / mergeStateStatus | `OPEN` / `MERGEABLE` / `CLEAN` |
+| TypeScript + Lint + Build | pass (1m02s) |
+| **E2E Smoke Tests** | **pass — 97/97 en 4.3m**, stack Supabase propio y aislado |
+| Vercel (preview) | pass |
+| Diff | 12 archivos, todos del lote dólar. Nada fuera de alcance |
+
+**Playwright sí se ejecutó**, en CI, aislado: el job levanta su propio stack y
+aplica las 242 migraciones, así que también prueba que `20260902120000` corre
+limpia desde cero. Esto reemplaza a la corrida local que §15 había dejado
+pendiente. No se tocó el stack local compartido con MOBILE-2A.
+
+`lint:ci`: `origin/main` no se movió, así que la comparación de §17 sigue siendo
+la válida — **579 (main) vs 576 (rama)**. El PR no aumenta warnings.
+
+## Providers (§14) — probe read-only, sin persistir
+
+| Fuente | Resultado |
+|---|---|
+| Bluelytics (Nacional, provider real) | HTTP 200 · `value_sell 1565` / `value_buy 1532` |
+| Edge `fetch-dollar-rate` (Nacional) | HTTP 200 · `sell 1565` |
+| Edge `infodolar-cordoba` (Córdoba) | HTTP 200 · `venta 1576` / `compra 1544` |
+
+**Los dos providers devuelven valores distintos (1565 ≠ 1576)** — son fuentes
+realmente separadas y no se están mezclando. Ninguna Edge Function fue
+redeployada; `verify_jwt` y secrets intactos.
+
+## Caché y fallback (§15/§16)
+
+`function cacheKey(businessId, source) { return \`dollar:${businessId}:${source}\` }` — la
+fuente es parte de la clave. Tests de caché **4/4** y el de no-sustitución de
+fuente, en verde.
+
+---
+
+# 23. DEPLOY / CLOSURE
+
+**Estado: BLOQUEADO antes del `db push`. Producción NO fue modificada.**
+
+| Paso | Estado |
+|---|---|
+| Baseline y revisión de diff | ✅ hecho |
+| Matriz de compatibilidad A/B | ✅ hecho — **DB-first** |
+| Pre-snapshot productivo | ✅ hecho (read-only) |
+| Auditoría de la migración | ✅ hecho — 0 DML de negocio |
+| `supabase db push --linked --dry-run` | ✅ hecho — 1 migración pendiente, `20260902120000` |
+| **`supabase db push --linked`** | ⛔ **bloqueado por el classifier del harness** |
+| Postcondiciones productivas | ⛔ dependen del push |
+| Smoke front-viejo + DB-nueva | ⛔ depende del push |
+| Merge #78 | ⛔ **NO se mergeó a propósito** |
+| Vercel Production | ⛔ depende del merge |
+| Smoke humano | ⛔ pendiente |
+
+**Por qué no se mergeó igual:** mergear sin la DB produce exactamente la
+combinación **B**, que está probada rota — el guardado de la configuración
+fallaría con `PGRST202` para todos los negocios. Mergear ahora sería peor que no
+hacer nada.
+
+**Migration head:** antes `20260901120000` · **sigue en `20260901120000`** ·
+esperado tras el push `20260902120000`.
+
+**Filas de negocio tocadas: 0.** Nada se aplicó.
+
+**Para retomar** (una vez habilitado el permiso), en este orden exacto:
+
+```bash
+npx supabase db push --linked --yes
+```
+
+Luego: postcondiciones productivas (§7 del prompt), smoke read-only del frontend
+viejo, `gh pr merge 78 --merge --delete-branch`, esperar Vercel, y recién ahí el
+smoke humano de §21.
 
 ---
 
