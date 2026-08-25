@@ -447,3 +447,24 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 # declarative_schema_path = "./database"
 # JSON string passed through to pg-delta SQL formatting.
 # format_options = "{\"keywordCase\":\"upper\",\"indent\":2,\"maxWidth\":80,\"commaStyle\":\"trailing\"}"
+
+# ── Edge Functions de dolar — verify_jwt EXPLICITO ─────────────────────────
+# Estas tres estan desplegadas en produccion con verify_jwt = false y se
+# llaman desde el cliente SIN header Authorization (ver dollarRateService).
+#
+# La declaracion NO cambia produccion: refleja el estado real medido el
+# 2026-08-25. Existe porque el DEFAULT de supabase functions deploy es
+# verify_jwt = TRUE: sin estas lineas, el proximo deploy las cerraria y los
+# consumidores anonimos empezarian a recibir 401 en silencio.
+#
+# Solo expone cotizacion publica de dolar: no lee business_id, no usa
+# service_role, no muta nada. Ver docs/p0-ops-dollar-functions.md.
+
+[functions.fetch-dollar-rate]
+verify_jwt = false
+
+[functions.infodolar-cordoba]
+verify_jwt = false
+
+[functions.get-dolar-cordoba]
+verify_jwt = false
