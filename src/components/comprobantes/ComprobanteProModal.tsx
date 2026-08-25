@@ -466,6 +466,14 @@ export function ComprobanteProModal({
   // Se expone como CSS custom property en .cpm-root para que el sheet/footer lo consuman.
   const keyboardOffset = useKeyboardAwareBottomOffset()
 
+  // MOBILE-1: el POS ya es un shell fullscreen propio. Ocultar explícitamente
+  // la bottom nav evita dos barras, dos safe-areas y targets superpuestos.
+  useEffect(() => {
+    if (!isOpen) return
+    document.body.classList.add('mobile-pos-fullscreen')
+    return () => document.body.classList.remove('mobile-pos-fullscreen')
+  }, [isOpen])
+
   // ── Totales ───────────────────────────────────────────────────────────────
   const totales = useMemo(() => {
     let subtotal = 0, iva = 0, costo = 0, descuento = 0

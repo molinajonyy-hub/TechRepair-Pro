@@ -10,43 +10,63 @@ export interface AppInputProps extends React.InputHTMLAttributes<HTMLInputElemen
   rightIcon?: React.ReactNode
   /** Si true, el input ocupa toda la fila del grid sin label adicional */
   noLabel?: boolean
+  /** Semántica explícita sin forzar type=number para valores formateables. */
+  semantic?: 'email' | 'tel' | 'search' | 'numeric' | 'decimal' | 'password'
 }
 
-export const AppInput = forwardRef<HTMLInputElement, AppInputProps>(({
-  label, error, hint, leftIcon, rightIcon, noLabel, className = '', id, ...props
-}, ref) => {
-  const inputId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined)
+export function inputSemanticProps(
+  semantic: AppInputProps['semantic'],
+): Pick<React.InputHTMLAttributes<HTMLInputElement>, 'type' | 'inputMode' | 'autoComplete'> {
+  switch (semantic) {
+    case 'email': return { type: 'email', inputMode: 'email', autoComplete: 'email' }
+    case 'tel': return { type: 'tel', inputMode: 'tel', autoComplete: 'tel' }
+    case 'search': return { type: 'search', inputMode: 'search', autoComplete: 'off' }
+    case 'numeric': return { type: 'text', inputMode: 'numeric' }
+    case 'decimal': return { type: 'text', inputMode: 'decimal' }
+    case 'password': return { type: 'password' }
+    default: return {}
+  }
+}
 
-  return (
-    <div>
-      {label && !noLabel && (
-        <label htmlFor={inputId} className="form-label">{label}</label>
-      )}
-      <div className={leftIcon || rightIcon ? 'input-group' : undefined}>
-        {leftIcon && <span className="input-icon">{leftIcon}</span>}
-        <input
-          ref={ref}
-          id={inputId}
-          className={`form-control ${error ? 'border-error' : ''} ${className}`}
-          style={error ? { borderColor: 'var(--error)', ...(props.style || {}) } : props.style}
-          aria-invalid={!!error}
-          aria-describedby={error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined}
-          {...props}
-        />
-        {rightIcon && (
-          <span style={{
-            position: 'absolute', right: '0.75rem', top: '50%',
-            transform: 'translateY(-50%)', color: 'var(--text-subtle)',
-          }}>
-            {rightIcon}
-          </span>
+export const AppInput = forwardRef<HTMLInputElement, AppInputProps>(
+  ({
+    label, error, hint, leftIcon, rightIcon, noLabel, semantic, className = '', id, ...props
+  }, ref) => {
+    const inputId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined)
+    const semanticProps = inputSemanticProps(semantic)
+
+    return (
+      <div>
+        {label && !noLabel && (
+          <label htmlFor={inputId} className="form-label">{label}</label>
         )}
+        <div className={leftIcon || rightIcon ? 'input-group' : undefined}>
+          {leftIcon && <span className="input-icon">{leftIcon}</span>}
+          <input
+            ref={ref}
+            id={inputId}
+            className={`form-control ${error ? 'border-error' : ''} ${className}`}
+            style={error ? { borderColor: 'var(--error)', ...(props.style || {}) } : props.style}
+            aria-invalid={!!error}
+            aria-describedby={error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined}
+            {...semanticProps}
+            {...props}
+          />
+          {rightIcon && (
+            <span style={{
+              position: 'absolute', right: '0.75rem', top: '50%',
+              transform: 'translateY(-50%)', color: 'var(--text-subtle)',
+            }}>
+              {rightIcon}
+            </span>
+          )}
+        </div>
+        {error && <p id={`${inputId}-error`} className="form-error">{error}</p>}
+        {hint && !error && <p id={`${inputId}-hint`} className="form-hint">{hint}</p>}
       </div>
-      {error && <p id={`${inputId}-error`} className="form-error">{error}</p>}
-      {hint && !error && <p id={`${inputId}-hint`} className="form-hint">{hint}</p>}
-    </div>
-  )
-})
+    )
+  },
+)
 AppInput.displayName = 'AppInput'
 
 // ─── AppSelect ────────────────────────────────────────────────────────────────

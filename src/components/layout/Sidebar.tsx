@@ -1,14 +1,14 @@
-import { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
+import { useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSidebar } from '../../hooks/useSidebar';
-import { usePermissions } from '../../hooks/usePermissions';
-import { useSubscription } from '../../hooks/useSubscription';
-import { useSystemOwner } from '../../hooks/useSystemOwner';
-import { useWholesalePermissions } from '../../hooks/useWholesalePermissions';
 import { PermissionKey } from '../../config/permissions';
-import { supabase } from '../../lib/supabase';
+import { zIndex } from '../../lib/tokens';
+import {
+  isNavigationItemAuthorized,
+  type NavigationAccess,
+} from '../../hooks/useNavigationAccess';
 import logoSvg from '../../assets/logo.svg';
 
 // El ícono de WhatsApp vivía acá, para el item de navegación a /whatsapp. Ese
@@ -287,26 +287,64 @@ const expandedWidth = 260;
 const collapsedWidth = 80;
 const mobileWidth = 280;
 
-export function Sidebar() {
-  const { signOut, businessId } = useAuth();
-  const navigate = useNavigate();
-  const { can } = usePermissions();
-  const { hasFeature } = useSubscription();
-  const { isSystemOwner } = useSystemOwner();
-  const wholesale = useWholesalePermissions();
-  const [mayoristaEnabled, setMayoristaEnabled] = useState(true);
+interface SidebarProps {
+  access: NavigationAccess;
+  mobilePrimaryPaths?: string[];
+}
 
-  useEffect(() => {
-    if (!businessId) return;
-    supabase.from('business_settings').select('mayorista_enabled').eq('business_id', businessId).maybeSingle()
-      .then(({ data }) => setMayoristaEnabled(data?.mayorista_enabled !== false));
-  }, [businessId]);
+export function Sidebar({ access, mobilePrimaryPaths = [] }: SidebarProps) {
+  const { signOut } = useAuth();
+  const navigate = useNavigate();
   const {
     isCollapsed,
     isMobileOpen,
     toggleSidebar,
     closeMobileSidebar,
   } = useSidebar();
+  const mobileDrawerRef = useRef<HTMLElement>(null);
+  const mobileCloseRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!isMobileOpen) return;
+
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const focusFrame = window.requestAnimationFrame(() => mobileCloseRef.current?.focus());
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMobileSidebar();
+        return;
+      }
+
+      if (event.key !== 'Tab' || !mobileDrawerRef.current) return;
+      const focusable = Array.from(
+        mobileDrawerRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [closeMobileSidebar, isMobileOpen]);
 
   // Filter sections and items based on permissions + feature flags
   const visibleSections = menuSections
@@ -332,30 +370,13 @@ export function Sidebar() {
 
         // SaaS Admin: privilegio del SaaS, NUNCA del negocio. No depende del
         // rol, del plan ni de ningún permiso configurable del tenant.
-        if (item.systemOwnerOnly && !isSystemOwner) return false;
-
-        // Mayorista: hacen falta las TRES cosas. Que el negocio tenga la
-        // feature (plan Full) no alcanza — antes un técnico lo veía sólo por
-        // eso.
-        if (item.wholesaleView) {
-          return wholesale.canView && mayoristaEnabled && can('wholesale');
-        }
-
-        // Portal Clic: SOLO el owner real con el portal habilitado.
-        if (item.clicPortalManage) return wholesale.canManageClicPortal;
-
-        // `systemOwnerAlso`: el interno del SaaS pasa aunque el tenant no le dé
-        // la capacidad. Va antes del chequeo de permiso, no en lugar de él.
-        if (item.permission && !can(item.permission)) {
-          if (!(item.systemOwnerAlso && isSystemOwner)) return false;
-        }
-        if (item.planFeature && !hasFeature(item.planFeature)) return false;
-        return true;
+        return isNavigationItemAuthorized(item, access);
       }),
     }))
     .filter(section => section.items.length > 0);
 
   const sidebarWidth = isCollapsed ? collapsedWidth : expandedWidth;
+  const primaryPathSet = new Set(mobilePrimaryPaths);
 
   const handleSignOut = async () => {
     try {
@@ -427,17 +448,27 @@ export function Sidebar() {
 
   const renderNav = (variant: 'desktop' | 'mobile') => {
     const collapsed = variant === 'desktop' && isCollapsed;
+    const sections = variant === 'mobile'
+      ? visibleSections
+        .map(section => ({
+          ...section,
+          items: section.items.filter(item => !primaryPathSet.has(item.path)),
+        }))
+        .filter(section => section.items.length > 0)
+      : visibleSections;
 
     return (
       <nav
+        aria-label={variant === 'mobile' ? 'Más módulos' : 'Navegación lateral'}
         style={{
           flex: 1,
           padding: collapsed ? '0.75rem 0.5rem' : '0.75rem 0.625rem',
+          paddingBottom: variant === 'mobile' ? 'max(0.75rem, env(safe-area-inset-bottom, 0px))' : undefined,
           overflowY: 'auto',
           overflowX: 'hidden',
         }}
       >
-        {visibleSections.map((section) => (
+        {sections.map((section) => (
           <div key={section.sectionLabel}>
             {/* Section label — hidden when collapsed */}
             {!collapsed && (
@@ -463,6 +494,7 @@ export function Sidebar() {
                 onClick={variant === 'mobile' ? closeMobileSidebar : undefined}
                 title={collapsed ? item.label : undefined}
                 className={item.isWhatsApp ? 'nav-whatsapp-item' : ''}
+                tabIndex={variant === 'mobile' && !isMobileOpen ? -1 : undefined}
                 style={({ isActive }) => ({
                   display: 'flex',
                   alignItems: 'center',
@@ -489,6 +521,7 @@ export function Sidebar() {
                   fontSize: variant === 'mobile' ? '0.875rem' : '0.8125rem',
                   boxSizing: 'border-box',
                   overflow: 'hidden',
+                  minHeight: variant === 'mobile' ? 44 : undefined,
                 })}
               >
                 <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>
@@ -526,6 +559,7 @@ export function Sidebar() {
       >
         <button
           onClick={handleSignOut}
+          tabIndex={variant === 'mobile' && !isMobileOpen ? -1 : undefined}
           aria-label="Cerrar sesion"
           title={collapsed ? 'Cerrar sesion' : undefined}
           style={{
@@ -545,6 +579,7 @@ export function Sidebar() {
             fontSize: variant === 'mobile' ? '0.875rem' : '0.8125rem',
             boxSizing: 'border-box',
             overflow: 'hidden',
+            minHeight: variant === 'mobile' ? 44 : undefined,
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.backgroundColor = 'var(--nav-hover-bg)';
@@ -575,11 +610,11 @@ export function Sidebar() {
           top: 0,
           left: 0,
           width: `${sidebarWidth}px`,
-          height: '100vh',
+          height: '100dvh',
           backgroundColor: 'var(--bg-sidebar-overlay)',
           backdropFilter: 'blur(20px)',
           borderRight: '1px solid var(--border-color)',
-          zIndex: 1000,
+          zIndex: zIndex.drawer,
           display: 'flex',
           flexDirection: 'column',
           boxSizing: 'border-box',
@@ -648,7 +683,7 @@ export function Sidebar() {
             position: 'fixed',
             inset: 0,
             backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            zIndex: 999,
+            zIndex: zIndex.drawer - 1,
             backdropFilter: 'blur(4px)',
           }}
         />
@@ -656,6 +691,12 @@ export function Sidebar() {
 
       {/* Mobile sidebar */}
       <aside
+        id="mobile-more-drawer"
+        ref={mobileDrawerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Más módulos"
+        aria-hidden={!isMobileOpen}
         className="sidebar-mobile"
         style={{
           position: 'fixed',
@@ -663,11 +704,11 @@ export function Sidebar() {
           left: 0,
           width: `${mobileWidth}px`,
           maxWidth: 'calc(100vw - 24px)',
-          height: '100vh',
+          height: '100dvh',
           backgroundColor: 'var(--bg-sidebar-overlay)',
           backdropFilter: 'blur(20px)',
           borderRight: '1px solid var(--border-color)',
-          zIndex: 1000,
+          zIndex: zIndex.drawer,
           display: 'flex',
           flexDirection: 'column',
           boxSizing: 'border-box',
@@ -678,7 +719,7 @@ export function Sidebar() {
       >
         <div
           style={{
-            padding: '1.25rem 1rem',
+            padding: 'max(1rem, env(safe-area-inset-top, 0px)) 1rem 1rem',
             borderBottom: '1px solid var(--border-color)',
             display: 'flex',
             alignItems: 'center',
@@ -688,11 +729,13 @@ export function Sidebar() {
         >
           {renderLogo(false, false)}
           <button
+            ref={mobileCloseRef}
             onClick={closeMobileSidebar}
+            tabIndex={isMobileOpen ? undefined : -1}
             aria-label="Cerrar menu"
             style={{
-              width: '36px',
-              height: '36px',
+              width: '46px',
+              height: '46px',
               backgroundColor: 'var(--nav-hover-bg)',
               border: '1px solid var(--border-color)',
               borderRadius: '0.5rem',

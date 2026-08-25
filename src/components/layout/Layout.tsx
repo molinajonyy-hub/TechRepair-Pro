@@ -4,6 +4,7 @@ import { ThemeToggle } from '../ui/ThemeToggle';
 import { useSidebar } from '../../hooks/useSidebar';
 import { useAutoExchangeRate } from '../../hooks/useAutoExchangeRate';
 import { useNavigate } from 'react-router-dom';
+import { useNavigationAccess } from '../../hooks/useNavigationAccess';
 
 interface LayoutProps {
   children: ReactNode;
@@ -14,6 +15,7 @@ interface LayoutProps {
 export function Layout({ children, title, description }: LayoutProps) {
   const { isCollapsed, toggleMobileSidebar } = useSidebar();
   const navigate = useNavigate();
+  const navigationAccess = useNavigationAccess();
   useAutoExchangeRate();
 
   return (
@@ -35,7 +37,7 @@ export function Layout({ children, title, description }: LayoutProps) {
         }}
       />
 
-      <Sidebar />
+      <Sidebar access={navigationAccess} />
       
       {/* Main Content Area */}
       <main className={`

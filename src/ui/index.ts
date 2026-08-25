@@ -15,10 +15,11 @@ export { AppButton, AppIconButton }            from './components/AppButton'
 export type { AppButtonProps, AppIconButtonProps, ButtonVariant, ButtonSize } from './components/AppButton'
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
-export { AppModal, ModalSection, FormGrid }    from './components/AppModal'
+export { AppModal, ResponsiveDialog, ModalSection, FormGrid } from './components/AppModal'
+export type { AppModalProps, ResponsiveDialogMode } from './components/AppModal'
 
 // ── Inputs ────────────────────────────────────────────────────────────────────
-export { AppInput, AppSelect, AppTextarea, AppSearchInput } from './components/AppInput'
+export { AppInput, AppSelect, AppTextarea, AppSearchInput, inputSemanticProps } from './components/AppInput'
 export type { AppInputProps, AppSelectProps, AppTextareaProps, SelectOption } from './components/AppInput'
 
 // ── Badges ────────────────────────────────────────────────────────────────────
@@ -44,3 +45,11 @@ export { AppConfirmDialog, useConfirm }        from './components/AppConfirmDial
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 export { AppTabs }                             from './components/AppTabs'
 export type { TabItem }                        from './components/AppTabs'
+
+// ── Mobile foundations ───────────────────────────────────────────────────────
+export { MobileActionBar }                     from './components/MobileActionBar'
+export type { MobileActionBarProps }           from './components/MobileActionBar'
+export { CompactList }                         from './components/CompactList'
+export type { CompactListProps, CompactListItem } from './components/CompactList'
+export { OverflowMenu }                        from './components/OverflowMenu'
+export type { OverflowMenuProps, OverflowMenuAction } from './components/OverflowMenu'
