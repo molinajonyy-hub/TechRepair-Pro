@@ -625,4 +625,249 @@ cascadeo silencioso) es un **riesgo de comportamiento preexistente y ya
 mitigado del lado del cliente**, no una vulnerabilidad — y corregirlo exige
 redeploy, que este lote tiene prohibido.
 
-> **NO MERGE. NO DEPLOY.**
+---
+
+# MERGE / CLOSURE — 2026-08-25
+
+> **PR #79 MERGEADO. CERO redeploys de Edge Functions.**
+> Git ahora describe fielmente las funciones productivas.
+
+## C.1 Baseline final
+
+| Ítem | Valor |
+|---|---|
+| `origin/main` pre-merge | `b1676f5fabe40de967cb115c788157eb2a37ff5f` — **no avanzó** desde el informe |
+| PR head (`headRefOid`) | `9ae130be8333242ac851679029d5f72a91f981e3` |
+| Estado | `OPEN` · `MERGEABLE` · `mergeStateStatus: CLEAN` · `isDraft: false` |
+| Diff | 8 archivos · +1828 / −2 |
+| Working tree | limpio |
+
+El HEAD **no cambió** desde el informe, así que los números del lote siguen
+siendo los reales; se re-corrieron igual (C.5).
+
+## C.2 Alcance del diff — sin contaminación
+
+Ninguno de los 8 archivos cae en dominio prohibido. Verificado por patrón sobre
+`CurrencySettings`, `dollarRateService`, `quoteSource`, `currencyService`,
+`exchangeRateService`, `Orders`, `Customers`, `NewOrder`, Caja, comprobantes,
+Inventory, Garantías, ARCA/AFIP, WhatsApp, Finance y `migrations`:
+**0 coincidencias**.
+
+`supabase/config.toml`: **21 líneas agregadas, 0 borradas**, todas al final del
+archivo (después de la línea 447). No se tocó `api`, `db`, `storage`, `auth`,
+`realtime`, `edge_runtime` ni ningún puerto.
+
+## C.3 Auditoría de auto-deploy — **el merge NO despliega Edge Functions**
+
+Búsqueda exhaustiva repo-wide (`*.yml`, `*.yaml`, `*.json`, `*.mjs`, `*.js`,
+`*.ts`, `*.sh`, `*.ps1`, `*.toml`, `Makefile`, excluyendo `node_modules`/`dist`)
+de `functions deploy`, `functions:deploy`, `deploy_edge_function`,
+`supabase deploy`:
+
+**Las únicas dos coincidencias son comentarios escritos en este mismo lote** —
+`scripts/guards/dollar-functions-contract.mjs:19` y `supabase/config.toml:456`.
+**Cero invocaciones reales.**
+
+| Superficie | Qué hace | ¿Despliega Edge Functions? |
+|---|---|---|
+| `.github/workflows/ci.yml` (único workflow) | `supabase/setup-cli@v1`, `supabase start`, `supabase stop --no-backup` — stack **local y descartable** | **NO** |
+| `vercel.json` | `buildCommand: npm run build` → `vite build` | **NO** |
+| `package.json` | sin `postinstall`, `predeploy`, `deploy`, `postbuild` | **NO** |
+
+Además, el workflow **no tiene credenciales** para tocar el proyecto remoto: no
+hay `SUPABASE_ACCESS_TOKEN`, ni `--project-ref`, ni `supabase link`, ni un solo
+`secrets.*` en uso (lo documenta su propio comentario en la línea 65-70, herencia
+de M7 7D.2).
+
+**Conclusión: seguro para mergear.** Vercel sí redeploya el frontend porque
+`main` cambió — eso es esperado y no equivale a un deploy de Supabase.
+
+## C.4 Auditoría de `config.toml` — hacer explícito, no cambiar
+
+Antes de este PR, `config.toml` **no declaraba `[functions.*]` para ninguna de
+las 18 funciones**. Por eso la columna "repo antes" es `(sin declarar)` en todos
+los casos, y **ninguna otra función pudo verse afectada**: el PR sólo agrega
+tres bloques nuevos.
+
+| Función | prod `verify_jwt` | repo antes | repo después | ¿coincide? |
+|---|---|---|---|---|
+| `fetch-dollar-rate` | `false` | *(sin declarar)* | `false` | ✅ |
+| `infodolar-cordoba` | `false` | *(sin declarar)* | `false` | ✅ |
+| `get-dolar-cordoba` | `false` | *(sin declarar)* | `false` | ✅ |
+| las otras 15 | *(varía)* | *(sin declarar)* | *(sin declarar)* | ✅ sin cambio |
+
+No hubo ningún `true → false` ni `false → true`. No se alteraron entrypoints,
+puertos ni configuración de `auth`/`db`/`storage`. Sin secrets.
+
+## C.5 Gates re-ejecutados en el head exacto del PR (`9ae130b`)
+
+| Gate | Resultado |
+|---|---|
+| `npm run test:deno` | ✅ **87 passed / 0 failed** |
+| contract tests del lote | ✅ **25 passed / 0 failed** |
+| `guard:dollar-functions --self-test` | ✅ **21 comprobaciones**, ambos sentidos |
+| `guard:dollar-functions` | ✅ fuente fiel · sin secretos · verify_jwt declarado · sin SSRF · inventario estable |
+
+### Checks remotos — los 4 en verde
+
+| Check | Estado | Duración |
+|---|---|---|
+| TypeScript + Lint + Build | **pass** | 1 m 18 s |
+| E2E Smoke Tests | **pass** | 6 m 27 s |
+| Vercel | **pass** | — |
+| Vercel Preview Comments | **pass** | — |
+
+## C.6 Fidelidad final pre-merge
+
+Descarga fresca con el mismo comando oficial, comparada contra el **blob
+commiteado** (`git rev-parse HEAD:<path>`):
+
+| Función | bajado | commit | |
+|---|---|---|---|
+| `fetch-dollar-rate` | `d9bc185ccaa0` | `d9bc185ccaa0` | ✅ **IDÉNTICOS** |
+| `infodolar-cordoba` | `dbfdb153334e` | `dbfdb153334e` | ✅ **IDÉNTICOS** |
+
+No se modificó ningún archivo recuperado para forzar la coincidencia.
+
+### Line endings — el PR no introduce CRLF
+
+Los 8 blobs commiteados son **LF puro**, verificado a nivel de bytes crudos:
+
+```
+.gitattributes                                CR: false    742 bytes
+docs/p0-ops-dollar-functions.md               CR: false  26383 bytes
+package.json                                  CR: false  14140 bytes
+scripts/guards/dollar-functions-contract.mjs  CR: false  15603 bytes
+supabase/config.toml                          CR: false  18729 bytes
+supabase/functions/fetch-dollar-rate/index.ts CR: false   7359 bytes   ← == descarga
+supabase/functions/infodolar-cordoba/index.ts CR: false   7731 bytes   ← == descarga
+tests/deno/dollarFunctionsContract.test.ts    CR: false  19504 bytes
+```
+
+> ⚠️ **Trampa de medición:** un primer chequeo con
+> `git cat-file blob … | Out-String` reportó CR en **los 8** archivos. Era falso:
+> PowerShell parte la salida en líneas y `Out-String` las vuelve a unir **con
+> CRLF**. Hay que mirar los bytes crudos (`execSync` + `Buffer.includes(13)`).
+
+## C.7 Merge
+
+```
+gh pr merge 79 --merge --delete-branch
+```
+
+| | |
+|---|---|
+| PR head | `9ae130be8333242ac851679029d5f72a91f981e3` |
+| Merge commit | `71a418181d921334ac045cd7ff41a547c87bb2e2` (`71a4181`) |
+| Padres | `b1676f5` (main) + `9ae130b` (PR) |
+| Método | **merge commit** (igual que el PR #78) |
+| `mergedAt` | 2026-08-25T23:21:59Z |
+| Estado | `MERGED` |
+
+Commits contenidos: `d5129e2` · `d34e3bf` · `5a1b1c0` · `9ae130b`.
+
+> **Nota de tooling:** `gh pr merge` devolvió exit 1 con
+> *"fatal: 'main' is already used by worktree at …"*. **El merge remoto sí se
+> hizo**; lo que falló fue el paso local de `gh` que intenta pasar el checkout a
+> `main`, imposible porque `main` está tomado por el worktree principal. Se
+> verificó contra `origin/main` y contra la API antes de dar el merge por bueno.
+> Efecto colateral: `--delete-branch` no llegó a correr, así que la rama remota
+> se borró aparte.
+
+## C.8 🔒 Integridad de producción — PRE vs POST
+
+Snapshot completo de las **18** Edge Functions antes y después del merge,
+comparado **mecánicamente** sobre `version` + `verify_jwt` + `status` +
+`updated_at` + `ezbr_sha256`:
+
+```
+funciones PRE: 18   POST: 18
+
+  fetch-dollar-rate    v4 verify_jwt=false ezbr=f8ba2cfec690…  IDENTICO
+  infodolar-cordoba    v3 verify_jwt=false ezbr=b10cdf7a4368…  IDENTICO
+  get-dolar-cordoba    v4 verify_jwt=false ezbr=e6b8abc73be1…  IDENTICO
+
+RESULTADO: 0 cambios en las 18 Edge Functions. CERO redeploys.
+```
+
+**Ninguna función cambió de versión, hash, `verify_jwt`, status ni
+`updated_at`.** Ni las tres de dólar ni las otras quince. La prueba de que el
+merge no desplegó nada no es una afirmación: es un diff de metadata.
+
+## C.9 Sanity de proveedores — post-merge
+
+Probe read-only contra los endpoints productivos, sin persistir nada
+(2026-08-25T20:23:29-03:00):
+
+| Función | HTTP | Latencia | ACAO | Body |
+|---|---|---|---|---|
+| `infodolar-cordoba` | 200 | 456 ms | `*` | `{"compra":1544,"venta":1576,"appliedRate":1576,"mode":"venta","source":"infodolar_cordoba","strategy":"html-table-row","fetchedAt":"…"}` |
+| `fetch-dollar-rate` (`source:'nacional'`) | 200 | 559 ms | `*` | `{"sell":1565,"buy":1545,"source":"AMBITO_NACIONAL","province":null}` |
+
+Coinciden **exactamente** con los contratos de §9, incluida la invariante
+`appliedRate === venta`. La `strategy` devuelta (`html-table-row`) es la misma
+que ejercita el fixture de los tests. Los valores (1576 Córdoba / 1565 Nacional)
+son los mismos que registró P0-DÓLAR: las dos fuentes siguen divergiendo, como
+debe ser.
+
+## C.10 Vercel — frontend sí, Edge Functions no
+
+```
+GET https://techrepairpro.app/version.json  →  200
+{"buildTime":"2026-08-25T23:22:14.354Z","commit":"71a4181"}
+```
+
+Vercel sirve el **merge commit** `71a4181`, construido 15 s después del merge.
+
+**Los dos estados, por separado y confirmados:**
+
+| Superficie | ¿Cambió? |
+|---|---|
+| Frontend (Vercel) | ✅ **SÍ** — redeploy automático al avanzar `main`. Esperado |
+| Supabase Edge Functions | ❌ **NO** — 0/18 cambiaron (C.8) |
+
+## C.11 Handoffs formalizados — **ninguno se inició**
+
+### A. `P0-OPS-DOLLAR-FUNCTIONS-DEPLOY`
+Único lote autorizado a redeployar. Alcance: cerrar el cascadeo silencioso de
+`fetch-dollar-rate` (R1), la rama >15% que responde 200 sin `sell`/`error` (R2),
+marcador de versión (`X-TechRepair-Version`), observabilidad, cache de ~60 s
+(§14), `Access-Control-Max-Age`, retiro de `get-dolar-cordoba`, comparación de
+contratos pre/post y validación de rollback.
+**Precondición:** que `config.toml` siga declarando `verify_jwt = false`.
+
+### B. `P0-OPS-SUBMIT-LEAD-SOURCE`
+`submit-lead` — v3, **ACTIVE**, `verify_jwt=false`, `ezbr_sha256`
+`6dbcbed51b79…`. **Source ausente del repo.** Misma deuda que las dos
+recuperadas acá. Requiere recuperación fiel por la vía oficial **antes de la
+beta**. No se tocó en este lote.
+
+### C. `P0-OPS-GUARDS-CRLF`
+`npm run guards` falla en **cualquier clon fresco de Windows**: sin
+`.gitattributes` para `supabase/migrations/**`, `core.autocrlf=true` baja las
+migraciones en CRLF y un caso del self-test de `guard:prebeta-p1` las
+re-convierte produciendo `\r\r\n`. CI corre en Ubuntu (LF), por eso está verde.
+Arreglarlo renormalizaría ~274 archivos de Finanzas → **lote propio**.
+Este PR **no** ejecutó renormalización masiva ni tocó migraciones.
+
+## C.12 `get-dolar-cordoba` — clasificación preservada
+
+Sin cambios: **desplegada** (v4, ACTIVE, `verify_jwt=false`), con código en el
+repo byte a byte idéntico al deployment, **sin consumidores activos**, contrato
+`{rate, source, timestamp}` **incompatible** con las otras dos. Candidata a
+retiro en el handoff A. **No se eliminó ni se redeployó.** El guard falla si
+alguien la vuelve a cablear sin reclasificarla.
+
+## C.13 Veredicto de cierre
+
+**A — P0-OPS-DOLLAR-FUNCTIONS: SOURCE RECOVERY CERRADO Y ESTABLE.**
+
+Git ahora describe fielmente las Edge Functions productivas. Se cumplen las seis
+condiciones: PR mergeado (`71a4181`); source fiel probado contra descarga fresca;
+`config.toml` explícito y aditivo; las 18 funciones productivas **exactamente**
+con las mismas versiones, hashes y `verify_jwt`; proveedores respondiendo con el
+contrato documentado; tests verdes local y remotamente.
+
+**No se realizó ningún redeploy de Edge Functions.**
+
+> **NO se inicia `P0-OPS-DOLLAR-FUNCTIONS-DEPLOY` ni ningún otro lote.**
