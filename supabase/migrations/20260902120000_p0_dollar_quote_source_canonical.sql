@@ -56,7 +56,7 @@ RETURNS TABLE (
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path TO 'public', 'pg_temp'
+SET search_path = public, pg_temp
 AS $$
   SELECT
     bs.id,
@@ -118,7 +118,7 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path TO 'public', 'pg_temp'
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   v_business_id UUID;
