@@ -7,7 +7,7 @@ import { refreshDollarRate, refreshInventoryDollarPrices, type DollarRateResult 
 import { useCaja } from '../contexts/CajaContext'
 import { DollarRateBadge } from '../components/ui/DollarRateBadge'
 import { DashboardTasks } from '../components/tasks/DashboardTasks'
-import { OnboardingChecklist } from '../components/onboarding/OnboardingChecklist'
+import { FirstStepsChecklist } from '../components/onboarding/FirstStepsChecklist'
 import { useAuth } from '../contexts/AuthContext'
 import { usePermissions } from '../hooks/usePermissions'
 import { supabase } from '../lib/supabase'
@@ -149,7 +149,7 @@ export function Dashboard() {
   // ─── RENDER ────────────────────────────────────────────────────────────────
   return (
     <div className="page-shell" data-testid="dashboard-page">
-      <OnboardingChecklist />
+      <FirstStepsChecklist />
       {/* ── 1. Page Header ─────────────────────────────────────────────────── */}
       <AppPageHeader
         icon={<DashboardIcon size={20} />}
