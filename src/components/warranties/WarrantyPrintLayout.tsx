@@ -5,6 +5,7 @@ import {
   computeWarrantyStatus,
 } from '../../hooks/useWarranties'
 import type { OrderPrintSettings } from '../../hooks/useOrderPrintSettings'
+import { resolveBusinessDisplayName } from '../../lib/businessIdentity'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -93,7 +94,12 @@ function Copy({
     : { bg: '#fee2e2', color: '#991b1b', border: '#fca5a5', label: 'VENCIDA' }
 
   const checklist = warranty.checklist || {}
-  const businessName = settings.nombre_comercial || settings.razon_social || 'Mi Negocio'
+  // P0-ONB1: el certificado de garantía queda en manos del cliente. Un
+  // placeholder técnico no puede salir impreso ahí.
+  const businessName = resolveBusinessDisplayName({
+    nombreComercial: settings.nombre_comercial,
+    razonSocial:     settings.razon_social,
+  })
 
   const contactParts: string[] = []
   if (settings.orden_mostrar_direccion) {

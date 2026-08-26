@@ -179,7 +179,147 @@ export async function updateMyBusinessSetup(patch: BusinessSetupPatch): Promise<
   return mapear((Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null)
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// P0-ONBOARDING-1 — Perfil canónico completo
+//
+// `getMyBusinessSetup` / `updateMyBusinessSetup` (arriba) siguen siendo el
+// contrato del WIZARD y no cambian: su firma es la que está desplegada.
+//
+// Lo de abajo es el contrato COMPLETO, el que usa Configuración. Vive en la
+// misma capa a propósito: que existan dos writers para el mismo dato es
+// exactamente el defecto que este lote cierra, así que Settings deja de hacer
+// `supabase.from('business_settings').upsert(...)` y pasa por acá.
+//
+// Contrato del patch — TRES estados, y por eso `undefined` y `null` NO son lo
+// mismo:
+//   · campo AUSENTE (`undefined`) -> no se toca;
+//   · campo con texto             -> se escribe;
+//   · campo `null` o `''`         -> se BORRA.
+// ═════════════════════════════════════════════════════════════════════════════
+
+export interface BusinessProfile {
+  businessId: string
+  /** AUTORIDAD comercial. Es lo que imprimen comprobantes, órdenes y garantías. */
+  nombreComercial: string | null
+  razonSocial: string | null
+  cuit: string | null
+  /** Slug canónico. Ver `src/lib/fiscalCondition.ts`. */
+  condicionIva: string | null
+  domicilioFiscal: string | null
+  localidad: string | null
+  provincia: string | null
+  codigoPostal: string | null
+  telefono: string | null
+  email: string | null
+  observacionesComprobantes: string | null
+  logoUrl: string | null
+  rubro: string | null
+  /** `businesses.name` — espejo técnico. Sólo para diagnóstico; NO imprimir. */
+  businessNameMirror: string | null
+  onboardingCompleted: boolean
+  role: string | null
+  canEdit: boolean
+}
+
+export interface BusinessProfilePatch {
+  nombreComercial?: string | null
+  razonSocial?: string | null
+  cuit?: string | null
+  condicionIva?: string | null
+  domicilioFiscal?: string | null
+  localidad?: string | null
+  provincia?: string | null
+  codigoPostal?: string | null
+  telefono?: string | null
+  email?: string | null
+  observacionesComprobantes?: string | null
+  logoUrl?: string | null
+  rubro?: string | null
+}
+
+/** camelCase del frontend -> claves del patch jsonb que espera la RPC. */
+const CLAVES_PATCH: ReadonlyArray<[keyof BusinessProfilePatch, string]> = [
+  ['nombreComercial',           'nombre_comercial'],
+  ['razonSocial',               'razon_social'],
+  ['cuit',                      'cuit'],
+  ['condicionIva',              'condicion_iva'],
+  ['domicilioFiscal',           'domicilio_fiscal'],
+  ['localidad',                 'localidad'],
+  ['provincia',                 'provincia'],
+  ['codigoPostal',              'codigo_postal'],
+  ['telefono',                  'telefono'],
+  ['email',                     'email'],
+  ['observacionesComprobantes', 'observaciones_comprobantes'],
+  ['logoUrl',                   'logo_url'],
+  ['rubro',                     'rubro'],
+]
+
+const txt = (v: unknown): string | null => {
+  const s = typeof v === 'string' ? v.trim() : ''
+  return s === '' ? null : s
+}
+
+const mapearPerfil = (fila: Record<string, unknown> | null): BusinessProfile => {
+  if (!fila?.business_id) throw new BusinessSetupError('UNKNOWN')
+  return {
+    businessId:                String(fila.business_id),
+    nombreComercial:           txt(fila.nombre_comercial),
+    razonSocial:               txt(fila.razon_social),
+    cuit:                      txt(fila.cuit),
+    condicionIva:              txt(fila.condicion_iva),
+    domicilioFiscal:           txt(fila.domicilio_fiscal),
+    localidad:                 txt(fila.localidad),
+    provincia:                 txt(fila.provincia),
+    codigoPostal:              txt(fila.codigo_postal),
+    telefono:                  txt(fila.telefono),
+    email:                     txt(fila.email),
+    observacionesComprobantes: txt(fila.observaciones_comprobantes),
+    logoUrl:                   txt(fila.logo_url),
+    rubro:                     txt(fila.rubro),
+    businessNameMirror:        txt(fila.business_name_mirror),
+    onboardingCompleted:       !!fila.onboarding_completed,
+    role:                      txt(fila.role),
+    canEdit:                   !!fila.can_edit,
+  }
+}
+
+/** Perfil completo del negocio del usuario. El tenant se deriva server-side. */
+export async function getMyBusinessProfile(): Promise<BusinessProfile> {
+  const { data, error } = await supabase.rpc('get_my_business_profile')
+  if (error) fallar(error)
+  return mapearPerfil((Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null)
+}
+
+/**
+ * Persiste un subconjunto del perfil y devuelve el estado resultante.
+ *
+ * El patch se arma con `hasOwnProperty` y NO con un chequeo de valor:
+ * `{ provincia: null }` tiene que llegar como «borrala», y un
+ * `if (patch.provincia)` lo convertiría en «no la toques». Es la distinción que
+ * hace que guardar un paso no pise lo que guardó otro.
+ */
+export async function updateMyBusinessProfile(
+  patch: BusinessProfilePatch,
+  complete = false,
+): Promise<BusinessProfile> {
+  const payload: Record<string, string> = {}
+  for (const [campo, clave] of CLAVES_PATCH) {
+    if (!Object.prototype.hasOwnProperty.call(patch, campo)) continue
+    const valor = patch[campo]
+    payload[clave] = valor == null ? '' : String(valor)
+  }
+
+  const { data, error } = await supabase.rpc('update_my_business_profile', {
+    p_patch:    payload,
+    p_complete: complete,
+  })
+  if (error) fallar(error)
+  return mapearPerfil((Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null)
+}
+
 export const businessSetupService = {
   getMyBusinessSetup,
   updateMyBusinessSetup,
+  getMyBusinessProfile,
+  updateMyBusinessProfile,
 }

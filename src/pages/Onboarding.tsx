@@ -29,6 +29,8 @@ import {
   businessSetupService, BusinessSetupError, type BusinessSetup,
 } from '../services/businessSetupService'
 import { PLANS, type SubscriptionPlan } from '../types/subscription'
+import { CONDICIONES_FISCALES as CONDICIONES_UI } from '../lib/fiscalCondition'
+import { isPlaceholderBusinessName } from '../lib/businessIdentity'
 
 // Plan elegido en la landing (?plan=...). Persistido temporalmente para
 // sobrevivir un refresh durante el onboarding. Se valida contra PLANS.
@@ -46,12 +48,16 @@ const RUBROS = [
   { id: 'otro',             label: 'Otro rubro' },
 ]
 
-const CONDICIONES_FISCALES = [
-  { id: 'monotributo',           label: 'Monotributo' },
-  { id: 'responsable_inscripto', label: 'Responsable Inscripto' },
-  { id: 'exento',                label: 'Exento' },
-  { id: 'consumidor_final',      label: 'Consumidor Final interno' },
-]
+// P0-ONB1: la lista canónica vive en `src/lib/fiscalCondition.ts` y la comparte
+// con Configuración. Tenerla duplicada acá fue la causa de que las dos
+// pantallas usaran vocabularios distintos sobre la MISMA columna.
+//
+// Cambios visibles respecto de la lista anterior de este archivo:
+//   · 'Monotributo'              -> 'Responsable Monotributo' (nombre real)
+//   · 'Consumidor Final interno' -> 'Consumidor Final'
+//   · se suma 'Monotributista Social', que Configuración ya ofrecía y el
+//     wizard no: elegirla acá dejaba de ser posible y no hay razón para eso.
+const CONDICIONES_FISCALES = CONDICIONES_UI.map(c => ({ id: c.slug, label: c.label }))
 
 const CHECKLIST_INITIAL = [
   'Crear tu primera orden de reparación',
@@ -151,7 +157,12 @@ export function Onboarding() {
         // `Mi Negocio` es el nombre por defecto de `provision_my_business`: se
         // trata como «todavía sin elegir» para que el usuario no tenga que
         // borrarlo a mano.
-        setBusinessName(actual.name === 'Mi Negocio' ? '' : actual.name)
+        //
+        // P0-ONB1: la comparación literal pasa a `isPlaceholderBusinessName`,
+        // que es la MISMA regla que usan las superficies de impresión. Que este
+        // archivo supiera que «Mi Negocio» no es un nombre real mientras los
+        // comprobantes lo imprimían como si lo fuera era, literalmente, el bug.
+        setBusinessName(isPlaceholderBusinessName(actual.name) ? '' : actual.name)
         setRubro(actual.rubro ?? '')
         setCiudad(actual.ciudad ?? '')
         setWhatsapp(actual.whatsapp ?? '')
@@ -162,7 +173,7 @@ export function Onboarding() {
         // Se retoma en el PRIMER paso que todavía tiene algo pendiente, en vez
         // de volver siempre al principio. Los campos ya guardados llegan
         // precargados, así que avanzar es sólo confirmar.
-        if (!actual.name || actual.name === 'Mi Negocio' || !actual.rubro) setStep(1)
+        if (!actual.name || isPlaceholderBusinessName(actual.name) || !actual.rubro) setStep(1)
         else if (!actual.logoUrl) setStep(2)
         else if (!actual.ciudad || !actual.whatsapp) setStep(3)
         else if (!actual.cuit || !actual.condicionFiscal) setStep(4)

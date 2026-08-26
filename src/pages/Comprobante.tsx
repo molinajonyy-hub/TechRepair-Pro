@@ -20,6 +20,7 @@ import {
   splitArcaRejectionMessage,
 } from '../services/comprobanteService';
 import { buildComprobanteFilename } from '../lib/printFilename';
+import { resolveBusinessDisplayName } from '../lib/businessIdentity';
 import { isComprobanteAnnulled } from '../utils/comprobanteStatus';
 import { formatearNumeroComprobante, puntoVentaVisibleComprobante } from '../lib/fiscalDisplay';
 import { formatearFechaCalendario } from '../lib/fechaCalendario';
@@ -240,7 +241,14 @@ export default function ComprobantePage() {
         import('jspdf-autotable'),
       ]);
       const doc = new jsPDF();
-      const name = profile.nombre_comercial || 'TechRepair';
+      // P0-ONB1: era `|| 'TechRepair'`, o sea el nombre del SaaS impreso como
+      // encabezado del comprobante del comercio. Mismo defecto que «Mi Negocio»
+      // y peor consecuencia: el PDF que recibe el cliente decía el nombre del
+      // proveedor del software. Sin nombre real, vacío.
+      const name = resolveBusinessDisplayName({
+        nombreComercial: profile.nombre_comercial,
+        razonSocial:     profile.razon_social,
+      });
       doc.setFont('helvetica');
       doc.setFontSize(18);
       doc.setTextColor(79, 70, 229);
