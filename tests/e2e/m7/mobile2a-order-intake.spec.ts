@@ -7,6 +7,46 @@ async function continueStep(page:Page){const button=page.getByTestId('mobile-act
 async function selectSeedCustomer(page:Page){await page.getByLabel('Buscar cliente').fill('Cliente E2E');await page.getByRole('button',{name:/Cliente E2E/}).click();await continueStep(page)}
 
 test.describe('@mobile2a MOBILE-2A · recepción OWNER',()=>{
+  test('quick-create queda por encima de la action bar y abre en cada ancho mobile',async({page})=>{
+    for(const viewport of [{width:320,height:568},{width:390,height:844},{width:430,height:932}]){
+      await page.setViewportSize(viewport)
+      await page.goto('/orders/new')
+      const quickCreate=page.getByRole('button',{name:'Crear cliente rápido'})
+      await expect(quickCreate).toBeVisible()
+      await quickCreate.evaluate(element=>element.scrollIntoView({block:'end'}))
+
+      const geometry=await page.evaluate(()=>{
+        const quick=Array.from(document.querySelectorAll('button')).find(element=>element.textContent?.trim()==='Crear cliente rápido')
+        const bar=document.querySelector('[data-testid="mobile-action-bar"]')
+        if(!quick||!bar)throw new Error('Falta quick-create o MobileActionBar')
+        const buttonRect=quick.getBoundingClientRect()
+        const barRect=bar.getBoundingClientRect()
+        const x=buttonRect.left+buttonRect.width/2
+        const points=[buttonRect.top+4,buttonRect.top+buttonRect.height/2,buttonRect.bottom-4]
+        return {
+          intersects:buttonRect.bottom>barRect.top&&buttonRect.top<barRect.bottom,
+          hitTargets:points.map(y=>{const hit=document.elementFromPoint(x,y);return hit===quick||Boolean(hit&&quick.contains(hit))}),
+          overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,
+        }
+      })
+
+      expect(geometry.intersects).toBe(false)
+      expect(geometry.hitTargets).toEqual([true,true,true])
+      expect(geometry.overflow).toBeLessThanOrEqual(1)
+      await quickCreate.click()
+      const dialog=page.getByRole('dialog',{name:'Crear cliente rápido'})
+      await expect(dialog).toBeVisible()
+      const customerType=dialog.getByLabel('Tipo de cliente')
+      await expect(customerType).toHaveValue('minorista')
+      await customerType.selectOption('mayorista')
+      await expect(dialog.getByLabel('Razón social')).toBeVisible()
+      await customerType.selectOption('minorista')
+      await expect(dialog.getByLabel('Razón social')).not.toBeVisible()
+      await dialog.getByRole('button',{name:'Cerrar'}).click()
+      await expect(dialog).not.toBeVisible()
+    }
+  })
+
   test('flujo completo USD, foto, checklist, secreto enmascarado e idempotencia visual',async({page})=>{
     await page.setViewportSize({width:390,height:844})
     await page.addInitScript(()=>{localStorage.setItem('theme','dark');localStorage.setItem('techrepair_theme','dark')})

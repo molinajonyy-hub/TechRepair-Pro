@@ -117,7 +117,8 @@ export function NewOrder() {
 
   if(!can('orders_create'))return <div className="card"><div className="card-body"><h1>Nueva orden</h1><p>No tenés permiso para registrar recepciones.</p><AppButton onClick={()=>navigate('/orders')}>Volver</AppButton></div></div>
 
-  return <div className="animate-fade-in intake-page">
+  return <>
+    <div className="animate-fade-in intake-page">
     <header className="intake-header">
       <button type="button" className="btn btn-ghost" onClick={cancel} aria-label="Salir de nueva orden"><ArrowLeft size={20}/></button>
       <div><p className="intake-eyebrow">Nueva orden · Paso {step+1} de {STEPS.length}</p><h1 ref={headingRef} tabIndex={-1}>{STEPS[step]}</h1></div>
@@ -176,11 +177,11 @@ export function NewOrder() {
     </div></StepCard>}
 
     <div className="intake-desktop-actions"><AppButton variant="secondary" onClick={step===0?cancel:back} leftIcon={<ChevronLeft size={18}/>}>{step===0?'Cancelar':'Anterior'}</AppButton>{step<9?<AppButton variant="primary" onClick={next} rightIcon={<ChevronRight size={18}/>}>Continuar</AppButton>:<AppButton variant="primary" loading={submitting} onClick={submit}>{createdOrderId?'Reintentar fotos':'Crear orden'}</AppButton>}</div>
+    </div>
     <MobileActionBar secondaryAction={<AppButton variant="secondary" fullWidth onClick={step===0?cancel:back}>{step===0?'Cancelar':'Anterior'}</AppButton>} primaryAction={step<9?<AppButton variant="primary" fullWidth onClick={next}>Continuar</AppButton>:<AppButton variant="primary" fullWidth loading={submitting} onClick={submit}>{createdOrderId?'Reintentar fotos':'Crear orden'}</AppButton>}/>
-
     <QuickCustomerDialog open={quickOpen} onClose={()=>setQuickOpen(false)} onCreated={customer=>{setCustomers(previous=>[customer,...previous]);update({customerId:customer.id});setQuickOpen(false)}}/>
     <BarcodeScannerDialog open={scanner!==null} onClose={()=>setScanner(null)} onDetected={value=>scanner&&updateDevice({[scanner]:scanner==='imei'?normalizeImei(value):value} as Partial<IntakeDraft['device']>)}/>
-  </div>
+  </>
 }
 
 function Summary({title,onEdit,children}:{title:string;onEdit:()=>void;children:React.ReactNode}){return <section><div><h2>{title}</h2><button type="button" onClick={onEdit}>Editar</button></div><p>{children||'—'}</p></section>}
