@@ -76,4 +76,3 @@ export function intakePayload(draft: IntakeDraft) {
     budget: { amount: parseLocalizedAmount(draft.budgetAmount)?.toString() ?? '', currency: draft.budgetCurrency },
   }
 }
-

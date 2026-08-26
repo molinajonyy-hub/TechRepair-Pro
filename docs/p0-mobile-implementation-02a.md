@@ -67,12 +67,12 @@ El estado permanece en memoria al volver atrás. Al intentar salir con cambios s
 
 ## Acceso seguro al equipo
 
-- En `orders` sólo queda `access_mode`; `orders.device_password` se migra a Vault, se limpia y queda protegido por un CHECK que exige siempre NULL.
+- EXPAND mantiene temporalmente `orders.device_password` como shadow legacy escribible y sincronizado con Vault. No se limpia ni se instala el CHECK definitivo en este PR.
 - PIN, patrón y contraseña viajan sólo como parámetro separado al RPC; no forman parte del payload idempotente ni del resumen.
 - El secreto se guarda en Supabase Vault y el mapping vive en `private.order_device_access_secrets`, sin SELECT para browser, `anon`, `authenticated` ni `service_role`.
 - `device_access_secret` es la capability explícita. Defaults: OWNER/ADMIN/MANAGER/TECH autorizados; SALES/CASHIER/VIEWER denegados. La UI usa capabilities, no checks de rol.
 - Reveal es explícito, oculto por defecto, se recupera sólo al tocar Mostrar y se vuelve a ocultar a los 30 segundos.
-- Store, replace, reveal y delete se auditan en una tabla dedicada sin registrar valores.
+- Store, replace, reveal, delete, backfill y cada escritura legacy reflejada se auditan en una tabla dedicada sin registrar valores.
 - Patrón usa grilla 3×3 con alternativa por botones/teclado y representación canónica cifrada.
 - Existe eliminación manual autorizada. No se implementó auto-purga porque el modelo no tiene un estado inequívoco de entrega física; `completed` no es suficiente.
 
@@ -102,13 +102,86 @@ Directorio: `docs/p0-mobile-evidence/implementation-mobile-2a/`.
 
 ## Verificación
 
-- DB reset desde cero: P0-DÓLAR `20260902120000` seguido por MOBILE-2A `20260903120000`.
+- DB reset desde cero: P0-DÓLAR `20260902120000` seguido por MOBILE-2A EXPAND `20260903120000`.
 - SQL transaccional: atomicidad, Vault, grants, RBAC, cross-tenant, auditoría, delete, idempotencia, storage/metadata y cero writes financieros.
 - Componentes específicos: modelo IMEI/monto/secreto, navegación y preservación, alta rápida, fotos, scanner/fallback, patrón, resumen enmascarado, doble submit y retry parcial.
 - E2E local OWNER: flujo completo y recepción mínima.
 - Gates: TypeScript, ESLint, build, componentes, guards SECURITY DEFINER/exposure, finance direct-write, guard de secretos MOBILE-2A y `git diff --check`.
 
-Los conteos y estados definitivos de CI/Vercel se consignan en el PR una vez abierto. No se silenció ningún finding nuevo con baseline.
+PR #80 (`e1cbb1a48dbb4ba700daba651b3694fbcafcd896`) quedó verde en TypeScript, ESLint, guard MOBILE-2A, provisioning, build y E2E local. La verificación local del mismo código registró 1032 unit tests, 575 component tests y 11 tests específicos MOBILE-2A. El SQL MOBILE-2A pasó también sobre el stack de compatibilidad aislado. El agregado histórico `npm run guards` conserva un único fallo preexistente del self-test PRE-BETA P6 sobre normalización de fin de línea, reproducido sin este PR en `origin/main`; los guards relevantes de secretos, finanzas, exposición, SECURITY DEFINER, provisioning y MOBILE-2A pasan. No se silenció ningún finding nuevo con baseline.
+
+## EXPAND/CONTRACT rollout — 2026-08-26
+
+### Breaking original y alcance de PR #80
+
+El diseño inicial limpiaba `orders.device_password` e instalaba `orders_device_password_retired_check`. Eso hacía fallar al frontend productivo viejo, cuyo `DeviceLockCard` todavía ejecuta `UPDATE orders SET device_password=...`. PR #80 ahora contiene sólo EXPAND: mantiene el filename `20260903120000_mobile2a_order_intake.sql`, conserva todos los cambios aditivos y no incluye ninguna migración CONTRACT reconocida por `supabase db push`.
+
+Producción continúa en `20260902120000_p0_dollar_quote_source_canonical.sql`; MOBILE-2A no fue aplicada. El frontend MOBILE-2A no tiene obligación de funcionar contra DB vieja: el rollout es DB EXPAND first.
+
+### DML de EXPAND y dual-write temporal
+
+- El backfill copia cada secreto legacy existente a Vault/private mapping, deriva `access_mode` con el codec legacy canónico y registra `migrated/backfill`.
+- El backfill no borra ni modifica `device_password`; el plaintext histórico permanece disponible sólo durante la ventana de compatibilidad.
+- El trigger temporal `mobile2a_mirror_legacy_device_password` refleja cada cambio legacy a Vault, incluido delete, después de revalidar actor autenticado, mismo tenant e `is_staff`, que es el contrato RLS histórico de `orders_update`.
+- Cada write viejo genera metadata server-side `legacy_secret_write_mirrored` con `order_id`, `business_id`, `actor_id`, `created_at` y `operation=set|delete`. La tabla de audit no tiene columna para secreto.
+- `create_order_intake` y `set_order_device_access_secret` escriben primero Vault y luego actualizan el shadow legacy con `private.mobile2a_write_legacy_shadow`.
+- `delete_order_device_access_secret` borra mapping/Vault y pone el shadow en NULL.
+- Un setting transaction-local distingue Vault → legacy de un write legacy real. El trigger retorna sin volver a escribir Vault, evitando loop, doble secreto y falso telemetry legacy.
+- Patrón se traduce entre `pattern:0-4-8` legacy y `[0,4,8]` en Vault; PIN conserva `pin:` en legacy y password conserva `text:`.
+
+Este dual-write es una excepción temporal y deliberada: no es la arquitectura final. EXPAND no agrega el CHECK de retiro y deja un comentario explícito sobre la columna.
+
+### Contrato de seguridad
+
+Las RPC nuevas siguen exigiendo `device_access_secret` y tenant. El bridge legacy no amplía permisos: una operación debe superar primero la RLS `orders_update` y además el trigger vuelve a exigir mismo tenant e `is_staff`. `anon`, `authenticated` y `service_role` no tienen acceso directo a las tablas/helpers privados. Audit, errores, payload idempotente, documentos y notas no reciben el valor; las pruebas comparan hashes cuando verifican persistencia.
+
+### Matriz aislada
+
+Stack descartable: `project_id=techrepair-mobile2a-expand`, API `56421`, DB `56422`; el stack compartido `techrepair-vite` no se tocó. Se arrancó exactamente desde `origin/main` (`bdedfcab3554d66b9b218e85f28a5cd741e3d4b9`), se sembró una orden legacy antes de EXPAND y luego se aplicó sólo `20260903120000_mobile2a_order_intake.sql`.
+
+| Combinación | Resultado | Evidencia |
+|---|---|---|
+| DB EXPAND + frontend productivo viejo (`origin/main`) | **PASS** | UI real creó dispositivo/orden, cambió estado y guardó PIN legacy; SQL real cubrió create/update de cliente. El plaintext siguió legible por el cliente viejo; Vault y audit coincidieron por hash. |
+| DB EXPAND + frontend MOBILE-2A de PR #80 | **PASS** | UI real recorrió intake, checklist, acceso, USD y double-click; creó exactamente una orden. Vault, shadow legacy e idempotency coincidieron. |
+| Coexistencia viejo → nuevo | **PASS** | El frontend nuevo mostró `PIN configurado` y reveal disponible para un write originado por el frontend viejo, sin mostrar plaintext. |
+| Coexistencia nuevo → viejo | **PASS** | El frontend viejo leyó el shadow generado por la RPC nueva como PIN configurado y enmascarado. |
+
+Los viewports UI 320, 390, 430 y sanity desktop 1440 no presentaron overflow horizontal. La suite SQL cubrió también fotos/metadata privadas, checklist, ARS/USD, reveal/delete, RBAC, cross-tenant, grants, request idempotente y cero writes financieros.
+
+### Negative gates
+
+| Gate | Resultado |
+|---|---|
+| A · quitar legacy → Vault | Guard mutado falla por trigger/audit ausente. |
+| B · quitar nuevo → legacy | Guard mutado falla si create/set/delete dejan de llamar al shadow helper; SQL/UI comprueban coexistencia. |
+| C · reintroducir CHECK NULL | Guard mutado falla; prueba legacy escribe y lee un valor no nulo. |
+| D · agregar secreto al audit | Guard mutado falla por columna sensible; SQL comprueba esquema sin columnas secret/plaintext. |
+| E · quitar barrera de recursión | Guard mutado falla; SQL exige un solo secreto Vault y cero eventos legacy durante RPC nueva. |
+| F · legacy cross-tenant | UPDATE afecta cero filas y no genera mapping ni audit. |
+| G · actor sin capability | SALES no puede invocar `set_order_device_access_secret`. |
+
+Las mutaciones A–E ocurren sólo sobre strings en memoria del self-test; no cambian archivos. F–G se ejecutan dentro de una transacción SQL con rollback.
+
+### Rollout futuro
+
+1. DB EXPAND production, con autorización separada.
+2. Verificar postconditions agregadas y coverage Vault.
+3. Smoke del frontend productivo viejo.
+4. Smoke completo del Preview PR #80 con OWNER QA.
+5. Merge PR #80.
+6. Vercel Production.
+7. Smoke MOBILE-2A productivo.
+8. Ventana de drenaje y observación de `legacy_secret_write_mirrored`.
+9. PR MOBILE-2A-CONTRACT separado.
+10. DB CONTRACT sólo con autorización separada.
+
+No alcanza con que Vercel termine: pestañas y bundles viejos pueden seguir activos. CONTRACT requiere medir última actividad legacy, writes posteriores al deploy y sesiones de prueba relevantes.
+
+### MOBILE-2A-CONTRACT handoff — diseño, no migración pendiente
+
+El PR futuro deberá: tomar snapshot agregado; ejecutar un mirror final legacy → Vault; validar coverage; limpiar `orders.device_password`; retirar trigger, codecs, shadow helper y dual-write de las RPC; instalar `orders_device_password_retired_check`; verificar plaintext count cero; conservar Vault y auditoría. No existe hoy un archivo CONTRACT dentro de `supabase/migrations/`, por lo que un `db push` de EXPAND no puede aplicar ambas fases accidentalmente.
+
+No se ejecutó `db push`, merge ni deploy.
 
 ## Riesgos y decisiones diferidas
 

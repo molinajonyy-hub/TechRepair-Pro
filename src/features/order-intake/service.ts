@@ -65,4 +65,3 @@ export async function deleteDeviceAccess(orderId: string) {
   const { error } = await supabase.rpc('delete_order_device_access_secret' as never, { p_order_id: orderId } as never)
   if (error) throw error
 }
-
