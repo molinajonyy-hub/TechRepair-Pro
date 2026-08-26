@@ -17,7 +17,6 @@ export interface IntakeDraft {
   budgetAmount: string
   budgetCurrency: Currency
 }
-
 export const INITIAL_INTAKE_DRAFT: IntakeDraft = {
   customerId: '',
   device: { type: 'smartphone', brand: '', model: '', serial: '', imei: '' },

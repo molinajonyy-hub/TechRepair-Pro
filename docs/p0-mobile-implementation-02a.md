@@ -126,4 +126,3 @@ Los conteos y estados definitivos de CI/Vercel se consignan en el PR una vez abi
 - Tablas internas a cards/master-detail.
 - Integrar fotos, checklist y reveal del intake en el detalle rediseñado.
 - No reescribir accounting, Cuenta Corriente ni POS.
-

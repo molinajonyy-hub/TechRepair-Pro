@@ -19,4 +19,3 @@ export function PatternGrid({ value, onChange, readOnly = false }: PatternGridPr
     </div>
   )
 }
-

@@ -12,7 +12,6 @@ export async function createOrderIntake(requestId: string, draft: IntakeDraft): 
   if (error) throw new Error(error.message)
   return data as unknown as IntakeCreateResult
 }
-
 async function currentBusinessId(): Promise<string> {
   const { data, error } = await supabase.rpc('get_my_profile')
   if (error) throw error
