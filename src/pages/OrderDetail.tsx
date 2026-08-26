@@ -375,14 +375,8 @@ export function OrderDetail() {
             {/* Device Lock / Password */}
             <DeviceLockCard
               orderId={order.id}
-              initialValue={(order as any).device_password ?? null}
-              onSave={async (encoded) => {
-                await supabase
-                  .from('orders')
-                  .update({ device_password: encoded, updated_at: new Date().toISOString() })
-                  .eq('id', order.id)
-                await refresh()
-              }}
+              accessMode={(order as any).access_mode ?? null}
+              onChanged={refresh}
             />
 
             {/* Comprobante Section */}
