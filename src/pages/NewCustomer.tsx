@@ -17,6 +17,8 @@ export function NewCustomer() {
     document: '',
     documentType: 'dni' as 'dni' | 'cuit',
     customer_type: 'minorista' as 'minorista' | 'mayorista',
+    business_name: '',
+    contact_person: '',
   })
 
   const returnTo = location.state?.returnTo || '/customers'
@@ -40,6 +42,8 @@ export function NewCustomer() {
           ? `${formData.documentType.toUpperCase()}: ${formData.document}`
           : undefined,
         customer_type: formData.customer_type,
+        business_name: formData.customer_type === 'mayorista' ? formData.business_name || undefined : undefined,
+        contact_person: formData.customer_type === 'mayorista' ? formData.contact_person || undefined : undefined,
       })
 
       if (returnTo === '/orders/new') {
@@ -191,7 +195,12 @@ export function NewCustomer() {
                     <button
                       key={opt.value}
                       type="button"
-                      onClick={() => handleChange('customer_type', opt.value)}
+                      onClick={() => setFormData(previous => ({
+                        ...previous,
+                        customer_type: opt.value,
+                        business_name: opt.value === 'minorista' ? '' : previous.business_name,
+                        contact_person: opt.value === 'minorista' ? '' : previous.contact_person,
+                      }))}
                       style={{
                         flex: 1,
                         display: 'flex', alignItems: 'center', gap: '0.625rem',
@@ -220,9 +229,19 @@ export function NewCustomer() {
                 })}
               </div>
               {formData.customer_type === 'mayorista' && (
-                <p style={{ margin: '0.5rem 0 0', fontSize: '0.75rem', color: '#818cf8', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                  <Building2 size={11} /> Al cobrarle se usarán precios mayoristas del inventario automáticamente.
-                </p>
+                <div style={{ marginTop: '1rem', display: 'grid', gap: '1rem' }}>
+                  <div>
+                    <label className="form-label">Razón social *</label>
+                    <input className="form-control" value={formData.business_name} onChange={e => handleChange('business_name', e.target.value)} required />
+                  </div>
+                  <div>
+                    <label className="form-label">Persona de contacto</label>
+                    <input className="form-control" value={formData.contact_person} onChange={e => handleChange('contact_person', e.target.value)} />
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: '#818cf8', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <Building2 size={11} /> Al cobrarle se usarán precios mayoristas del inventario automáticamente.
+                  </p>
+                </div>
               )}
             </div>
 
