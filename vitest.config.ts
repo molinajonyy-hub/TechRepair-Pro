@@ -24,7 +24,7 @@ export default defineConfig({
     __BUILD_COMMIT__: JSON.stringify('testsha'),
   },
   test: {
-    include: ['tests/components/**/*.test.tsx'],
+    include: ['tests/components/**/*.test.ts', 'tests/components/**/*.test.tsx'],
     exclude: ['tests/unit/**', 'tests/e2e/**', 'node_modules/**'],
     environment: 'jsdom',
     globals: true,

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { zIndex } from '../../lib/tokens'
 import { useKeyboardAwareBottomOffset } from '../../hooks/useKeyboardAwareBottomOffset'
@@ -91,7 +92,11 @@ export function AppModal({
     if (!isOpen) return
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = previousOverflow }
+    document.body.classList.add('app-modal-open')
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.body.classList.remove('app-modal-open')
+    }
   }, [isOpen])
 
   if (!isOpen) return null
@@ -100,7 +105,7 @@ export function AppModal({
     ? { display: 'flex', flexDirection: 'column', maxHeight: '90dvh', maxWidth: SIZE_PX[size] }
     : { maxWidth: SIZE_PX[size] }
 
-  return (
+  return createPortal((
     <div
       className={`modal-overlay modal-overlay--${mobilePresentation}`}
       data-mobile-presentation={mobilePresentation}
@@ -178,7 +183,7 @@ export function AppModal({
         )}
       </div>
     </div>
-  )
+  ), document.body)
 }
 
 // ─── Sub-componentes helper ───────────────────────────────────────────────────

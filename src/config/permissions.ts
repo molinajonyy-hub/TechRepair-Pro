@@ -8,6 +8,10 @@
 export interface AppPermissions {
   /** Can see and manage service orders */
   orders: boolean
+  /** Can create a reception order */
+  orders_create: boolean
+  /** Can store, reveal or remove a device access secret */
+  device_access_secret: boolean
   /** Can change order status (e.g. tech updating Recibido → En proceso) */
   orders_change_status: boolean
   /** Can see prices, totals and financial data within an order */
@@ -55,6 +59,8 @@ export type PermissionKey = keyof AppPermissions
 
 export const ALL_PERMISSIONS: PermissionKey[] = [
   'orders',
+  'orders_create',
+  'device_access_secret',
   'orders_change_status',
   'orders_view_financials',
   'inventory',
@@ -74,6 +80,8 @@ export const ALL_PERMISSIONS: PermissionKey[] = [
 /** Human-readable labels for the permissions matrix UI */
 export const PERMISSION_LABELS: Record<PermissionKey, { label: string; description: string; group: string }> = {
   orders:                  { label: 'Órdenes de servicio',        description: 'Ver y gestionar órdenes',                    group: 'Órdenes' },
+  orders_create:           { label: 'Crear órdenes',              description: 'Registrar equipos en recepción',             group: 'Órdenes' },
+  device_access_secret:    { label: 'Acceso del equipo',          description: 'Guardar y revelar PIN, patrón o contraseña', group: 'Órdenes' },
   orders_change_status:    { label: 'Cambiar estado de órdenes',  description: 'Actualizar el estado de una orden',          group: 'Órdenes' },
   orders_view_financials:  { label: 'Ver precios en órdenes',     description: 'Ver totales y datos financieros por orden',  group: 'Órdenes' },
   inventory:               { label: 'Inventario',                 description: 'Acceder al módulo de inventario',            group: 'Inventario' },
@@ -114,6 +122,8 @@ export const CONFIGURABLE_PERMISSIONS: PermissionKey[] =
 export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
   owner: {
     orders: true,
+    orders_create: true,
+    device_access_secret: true,
     orders_change_status: true,
     orders_view_financials: true,
     inventory: true,
@@ -131,6 +141,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
   },
   admin: {
     orders: true,
+    orders_create: true,
+    device_access_secret: true,
     orders_change_status: true,
     orders_view_financials: true,
     inventory: true,
@@ -148,6 +160,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
   },
   manager: {
     orders: true,
+    orders_create: true,
+    device_access_secret: true,
     orders_change_status: true,
     orders_view_financials: true,
     inventory: true,
@@ -165,6 +179,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
   },
   tech: {
     orders: true,
+    orders_create: true,
+    device_access_secret: true,
     orders_change_status: true,
     orders_view_financials: false,
     inventory: false,
@@ -184,6 +200,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
   },
   sales: {
     orders: true,
+    orders_create: true,
+    device_access_secret: false,
     orders_change_status: true,
     orders_view_financials: true,
     inventory: true,
@@ -201,6 +219,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
   },
   cashier: {
     orders: true,
+    orders_create: true,
+    device_access_secret: false,
     orders_change_status: false,
     orders_view_financials: true,
     inventory: false,
@@ -219,6 +239,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
   },
   viewer: {
     orders: true,
+    orders_create: false,
+    device_access_secret: false,
     orders_change_status: false,
     orders_view_financials: false,
     inventory: false,
