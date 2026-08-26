@@ -257,6 +257,12 @@ if (!existsSync(RUTA_ENV) || REESCRIBIR_ENV) {
 }
 
 // ─── 6. Marker + datos ──────────────────────────────────────────────────────
+// MOBILE-2A prueba el contrato SQL contra PostgreSQL real antes de sembrar el
+// E2E. Es transaccional y termina en ROLLBACK: no contamina los fixtures.
+console.log('  · validando MOBILE-2A SQL (atomicidad, tenant, Vault, cero finanzas)…')
+correr('npm', ['run', 'test:sql:mobile2a'],
+  'El contrato SQL de MOBILE-2A falló contra el stack local.')
+
 // Se reutiliza el script de 7D.2 sin tocarlo: es el que crea el marker que el
 // guard exige, y valida el destino por su cuenta antes de escribir nada.
 console.log('  · preparando datos (npm run e2e:prepare)…')
