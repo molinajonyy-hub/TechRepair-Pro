@@ -13,6 +13,8 @@
     "lint:errors": "eslint src --ext .ts,.tsx --quiet",
     "lint:ci": "eslint src --ext .ts,.tsx --max-warnings 100",
     "typecheck": "tsc --noEmit",
+    "guard:ui-governance": "node scripts/guards/ui-governance-authority.mjs",
+    "preguards": "npm run guard:ui-governance",
     "guard:finance-writes": "node scripts/guards/no-direct-finance-writes.mjs",
     "guard:finance-writes:self-test": "node scripts/guards/no-direct-finance-writes.mjs --self-test",
     "guard:secdef": "node scripts/finance/guard-security-definer.mjs",
