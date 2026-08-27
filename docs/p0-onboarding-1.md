@@ -579,8 +579,129 @@ y no toca ninguna de las migraciones selladas (218-221).
 ## 15. Estado final
 
 - ✅ Rama y commit propios, worktree aislado
-- ✅ Cero escrituras a producción (sólo `SELECT` vía MCP)
-- ✅ **NO** `db push` · **NO** merge · **NO** deploy
+- ✅ Cero escrituras a producción *durante la preparación* (sólo `SELECT` vía MCP)
+- ✅ `db push`, merge y deploy EJECUTADOS — ver §16 PRODUCTION ROLLOUT
 - ✅ MOBILE-2A intacto
 - ✅ Todos los gates en verde
-- ⏸️ Pendiente: aplicar `20260903120000` de MOBILE-2A antes que esta migración
+- ✅ `20260903120000` (MOBILE-2A) aplicada antes que esta migración, como estaba previsto
+
+---
+
+## 16. PRODUCTION ROLLOUT — ejecutado
+
+Rollout **DB-FIRST** ejecutado el 2026-08-26/27. Todos los números de esta sección están
+medidos contra producción, no estimados.
+
+### 16.1 Secuencia
+
+| Paso | Detalle |
+| --- | --- |
+| Integración con `main` | merge commit `28e537ab8a81dda875de60001b86f05e533c3a3f` (sobre `1150905`) |
+| PR | [#81](https://github.com/molinajonyy-hub/TechRepair-Pro/pull/81) — CI 4/4 verde |
+| Dry-run | única migración listada: `20260904120000` |
+| **`db push`** | **2026-08-26 23:49:34 UTC** |
+| Merge del frontend | `cba90981cf7f6f2f59c184b63131d6c822d7e96f` — 2026-08-27 01:10:09 UTC |
+| Vercel Production | build `2026-08-27T01:10:24Z`, sirve `cba9098` en apex y `www` (HTTP 200) |
+
+Migration head: `20260903120000` → **`20260904120000`** (243 → 244 migraciones).
+
+### 16.2 Reparación histórica — PRE → POST
+
+La migración reportó `nombre=14, localidad=5, telefono=6, logo=1`, idéntico a lo medido
+en el snapshot previo.
+
+| Métrica | PRE | POST |
+| --- | --- | --- |
+| Pendientes nombre / localidad / teléfono / logo | 14 / 5 / 6 / 1 | **0 / 0 / 0 / 0** |
+| `business_settings` (filas) | 12 | **20** (+8 INSERT) |
+| Placeholder copiado a `nombre_comercial` | — | **0** |
+| Logo divergente entre tablas | 1 | **0** |
+| `businesses` con logo | 6 | **6** |
+| md5 de `businesses` sin `updated_at` | `5082c9c0…` | **`5082c9c0…` (idéntico)** |
+| Segunda pasada lógica | — | **0 filas** (idempotente) |
+
+El md5 idéntico de `businesses` es la prueba de R2: la reparación escribió **sólo** en
+`business_settings`. Se excluye `updated_at` porque el trigger del logo dispara
+`update_businesses_updated_at`, que es incondicional.
+
+Los **2** negocios que ya tenían un nombre comercial real distinto de `businesses.name`
+siguen divergiendo del espejo — que es exactamente la señal de que **no** se pisaron.
+Aritmética cerrada: 16 con nombre real = 14 reparados + 2 intocables; clases 14 + 14 + 2 = 30.
+
+### 16.3 `condicion_iva`
+
+| Valor | PRE | POST |
+| --- | --- | --- |
+| `monotributo` | 5 | **7** |
+| `responsable_inscripto` | — | **5** |
+| `Responsable Inscripto` (label) | 5 | 0 |
+| `Responsable Monotributo` (label) | 2 | 0 |
+| `NULL` | 0 | **8** |
+
+Cero valores fuera de la allowlist, CHECK activo, `DEFAULT 'Responsable Inscripto'`
+eliminado. Los 8 `NULL` son las filas creadas por la reparación: ausencia de dato ahora se
+representa como ausencia, y no como una afirmación fiscal que nadie hizo.
+
+### 16.4 Defecto transitorio detectado en la ventana DB-nueva + bundle-viejo
+
+Con la DB ya migrada y el bundle `1150905` todavía servido, el `<select>` de condición IVA
+del Settings desplegado tenía como **`value` las etiquetas humanas**, mientras la DB pasó a
+guardar **slugs**. Ningún slug matcheaba ninguna `<option>`, así que el navegador caía a la
+primera opción y mostraba **«Responsable Inscripto»**.
+
+Medido en esa ventana: **7 negocios** (`monotributo`) mostraban una condición fiscal
+equivocada en pantalla. De esos, **5 ya estaban rotos antes del push** (ya eran
+`monotributo`; está documentado en los comentarios de la propia migración) y **2 se
+rompieron por la normalización** de `Responsable Monotributo` → `monotributo`.
+
+**No hubo riesgo de corrupción silenciosa.** El Settings desplegado hace un `upsert`
+directo (no usa el wrapper legacy, que lo consume el wizard): guardar otro campo mandaba el
+slug que seguía en el estado de React y pasaba el CHECK; tocar el select mandaba una
+etiqueta y el CHECK la rechazaba con `23514`, en voz alta. Fail-closed.
+
+**El merge del frontend es la corrección**, no el riesgo: verificado read-only sobre
+`cba9098`, el select pasa a tener `value` = slug con etiqueta humana
+(`monotributo` → «Responsable Monotributo»), más una opción «Sin especificar» para los
+`NULL`. Es la razón por la que la ventana DB-first conviene que sea corta.
+
+### 16.5 Postcondiciones y seguridad (verificadas en producción)
+
+- Firma legacy **exacta** conservada: `update_my_business_onboarding(p_name, p_rubro,
+  p_ciudad, p_whatsapp, p_condicion_fiscal, p_cuit, p_logo_url, p_complete)`.
+- `private.write_business_profile` inejecutable por `anon` **y** por `authenticated`;
+  `private` sin `USAGE` para ambos roles.
+- `PUBLIC` revocado en las 6 funciones (ningún `proacl` volvió a `NULL`).
+- Ninguna RPC pública acepta `business_id` → cross-tenant cerrado por construcción.
+- `anon` EXECUTE sobre `public`: **103 → 103** (no ganó nada). `authenticated`: 212 → 214.
+  `private`: 41 → 43.
+- Advisors: **0 ERROR**. Las 4 RPC públicas sólo figuran bajo el warning genérico
+  `authenticated_security_definer_function_executable` (compartido con 138 funciones
+  preexistentes); ninguna bajo `anon_*` ni `function_search_path_mutable`.
+- md5 **idénticos** pre/post en `comprobantes`, `orders`, `inventory`, `profiles`,
+  `sales_points`. Cero daño colateral.
+- Logs post-push: 0 ERROR/FATAL en Postgres; 0 respuestas 4xx/5xx.
+
+La migración se auto-envuelve en `BEGIN;` … `COMMIT;`, lo que neutraliza el autocommit del
+runner de migraciones: o pasaban las 13 postcondiciones o no se commiteaba nada.
+
+### 16.6 Smoke
+
+| Ítem | Resultado |
+| --- | --- |
+| Vercel Production, apex y `www` | HTTP 200, `version.json` = `cba9098` |
+| Settings carga todos los campos | ✅ nombre comercial, razón social, CUIT, condición IVA, domicilio, localidad, provincia, CP, teléfono, email |
+| Nombre comercial impreso | ✅ real, nunca «Mi Negocio» |
+| Logo | ✅ presente tras el rollout |
+| Condición IVA | ✅ muestra la etiqueta correcta y persiste el slug |
+| Sanity MOBILE-2A | ✅ `/orders/new` abre el wizard (paso 1/10), búsqueda de clientes y alta rápida operativas |
+| Smoke de **guardado** en Settings | ⏸️ pendiente con el tenant OWNER QA |
+
+El smoke de guardado quedó pendiente a propósito: la única sesión disponible correspondía a
+un negocio **real**, y el contrato del lote prohíbe usar negocios reales para QA.
+
+### 16.7 Estado de migraciones
+
+- `20260903120000` MOBILE-2A — **aplicada**
+- `20260904120000` ONBOARDING-1 — **aplicada**
+- `20260905120000` FIRST-STEPS-1 — **NO aplicada** (fuera de alcance)
+- MOBILE-2A CONTRACT — no existe como migración pendiente
