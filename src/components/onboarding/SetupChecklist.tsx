@@ -1,9 +1,19 @@
 /**
- * SetupChecklist — tarjeta de configuración inicial para negocios nuevos.
+ * SetupChecklist — componente PRESENTACIONAL del checklist de primeros pasos.
  *
- * Muestra el progreso de setup y se oculta automáticamente cuando el
- * negocio ya completó el onboarding hace más de 30 días.
- * Se puede descartar manualmente.
+ * P0 FIRST-STEPS-1 (§12): había dos implementaciones del mismo checklist.
+ * `OnboardingChecklist` (montado, con estado en localStorage y checkboxes
+ * editables) y éste (muerto, pero con tokens de tema y mejor estructura).
+ * Se conservó éste como capa de presentación y se eliminó aquél: menor deuda,
+ * usa `var(--*)` en vez de hexadecimales dark hardcodeados, y no inventa
+ * estado. Todo el estado vive ahora en `useFirstSteps`.
+ *
+ * CONTRATO: este componente NO decide si algo está hecho. Recibe `items` ya
+ * resueltos desde el servidor y los dibuja.
+ *
+ * El indicador circular es SÓLO visual (`aria-hidden`): no es un checkbox y no
+ * se puede tildar. La fila entera es un `<button>` que navega — accesible por
+ * teclado, con el estado anunciado en su `aria-label`.
  */
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -18,17 +28,19 @@ export interface SetupChecklistItem {
 
 interface SetupChecklistProps {
   items: SetupChecklistItem[]
-  /** Callback al cerrar el checklist */
+  /** Título opcional; por defecto el del checklist de primeros pasos. */
+  title?: string
+  /** Callback al cerrar el checklist. */
   onDismiss: () => void
 }
 
-export function SetupChecklist({ items, onDismiss }: SetupChecklistProps) {
+export function SetupChecklist({ items, title, onDismiss }: SetupChecklistProps) {
   const navigate = useNavigate()
   const [closing, setClosing] = useState(false)
 
   const doneCount = items.filter(i => i.done).length
   const progress  = items.length > 0 ? (doneCount / items.length) * 100 : 0
-  const allDone   = doneCount === items.length
+  const allDone   = items.length > 0 && doneCount === items.length
 
   const handleDismiss = () => {
     setClosing(true)
@@ -36,8 +48,9 @@ export function SetupChecklist({ items, onDismiss }: SetupChecklistProps) {
   }
 
   return (
-    <div
+    <section
       data-testid="setup-checklist"
+      aria-label="Primeros pasos"
       style={{
         background: 'var(--bg-card)',
         border: '1px solid var(--border-subtle)',
@@ -52,97 +65,122 @@ export function SetupChecklist({ items, onDismiss }: SetupChecklistProps) {
       {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        gap: '0.75rem',
         padding: '0.875rem 1.125rem',
         borderBottom: '1px solid var(--border-subtle)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', minWidth: 0 }}>
           <span style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-            {allDone ? '✅ Configuración completa' : '🚀 Configuración inicial'}
+            {allDone ? 'Configuración completa' : (title ?? 'Primeros pasos')}
           </span>
-          <span style={{
-            fontSize: '0.72rem', fontWeight: 700, padding: '0.15rem 0.5rem',
-            borderRadius: '9999px',
-            background: allDone ? 'rgba(34,197,94,0.12)' : 'rgba(99,102,241,0.12)',
-            color: allDone ? '#22c55e' : '#818cf8',
-          }}>
+          <span
+            data-testid="setup-checklist-progress"
+            style={{
+              fontSize: '0.72rem', fontWeight: 700, padding: '0.15rem 0.5rem',
+              borderRadius: '9999px', flexShrink: 0,
+              background: allDone ? 'rgba(34,197,94,0.12)' : 'rgba(99,102,241,0.12)',
+              color: allDone ? 'var(--success, #16a34a)' : 'var(--accent, #6366f1)',
+            }}
+          >
             {doneCount}/{items.length}
           </span>
         </div>
         <button
+          type="button"
           onClick={handleDismiss}
-          title="Cerrar checklist"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: '0.25rem' }}
+          aria-label="Ocultar primeros pasos"
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'var(--text-muted)', display: 'flex', padding: '0.25rem',
+            flexShrink: 0,
+          }}
         >
-          <X size={14} />
+          <X size={14} aria-hidden="true" />
         </button>
       </div>
 
       {/* Progress bar */}
-      <div style={{ height: 3, background: 'var(--border-subtle)' }}>
+      <div
+        role="progressbar"
+        aria-valuenow={doneCount}
+        aria-valuemin={0}
+        aria-valuemax={items.length}
+        aria-label={`${doneCount} de ${items.length} pasos completados`}
+        style={{ height: 3, background: 'var(--border-subtle)' }}
+      >
         <div style={{
           height: '100%', width: `${progress}%`,
-          background: allDone ? '#22c55e' : '#6366f1',
+          background: allDone ? 'var(--success, #16a34a)' : 'var(--accent, #6366f1)',
           transition: 'width 0.5s ease',
         }} />
       </div>
 
       {/* Items */}
-      <div style={{ padding: '0.75rem 1.125rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      <ul style={{
+        listStyle: 'none', margin: 0,
+        padding: '0.5rem 0.625rem',
+        display: 'flex', flexDirection: 'column', gap: '0.125rem',
+      }}>
         {items.map(item => (
-          <div
-            key={item.id}
-            onClick={() => item.href && !item.done && navigate(item.href)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '0.625rem',
-              cursor: item.href && !item.done ? 'pointer' : 'default',
-              opacity: item.done ? 0.6 : 1,
-            }}
-          >
-            {item.done
-              ? <CheckCircle2 size={15} style={{ color: '#22c55e', flexShrink: 0 }} />
-              : <Circle size={15} style={{ color: 'var(--text-subtle)', flexShrink: 0 }} />
-            }
-            <span style={{
-              fontSize: '0.82rem',
-              color: item.done ? 'var(--text-muted)' : 'var(--text-secondary)',
-              textDecoration: item.done ? 'line-through' : 'none',
-              flex: 1,
-            }}>
-              {item.label}
-            </span>
-            {!item.done && item.href && (
-              <span style={{ fontSize: '0.7rem', color: '#6366f1', fontWeight: 600 }}>Ir →</span>
-            )}
-          </div>
+          <li key={item.id}>
+            <button
+              type="button"
+              data-testid={`setup-step-${item.id}`}
+              data-done={item.done ? 'true' : 'false'}
+              onClick={() => item.href && navigate(item.href)}
+              disabled={!item.href}
+              aria-label={`${item.label}. ${item.done ? 'Completado' : 'Pendiente'}`}
+              style={{
+                width: '100%',
+                display: 'flex', alignItems: 'center', gap: '0.625rem',
+                // Mobile-first: 44px de alto real para que el toque no falle.
+                minHeight: 44,
+                padding: '0.375rem 0.5rem',
+                background: 'none', border: 'none', borderRadius: '0.5rem',
+                textAlign: 'left',
+                cursor: item.href ? 'pointer' : 'default',
+                color: 'inherit',
+              }}
+            >
+              {item.done
+                ? <CheckCircle2 size={16} aria-hidden="true" style={{ color: 'var(--success, #16a34a)', flexShrink: 0 }} />
+                : <Circle size={16} aria-hidden="true" style={{ color: 'var(--text-subtle)', flexShrink: 0 }} />
+              }
+              <span style={{
+                fontSize: '0.82rem',
+                color: item.done ? 'var(--text-muted)' : 'var(--text-secondary)',
+                textDecoration: item.done ? 'line-through' : 'none',
+                flex: 1, minWidth: 0,
+              }}>
+                {item.label}
+              </span>
+              {!item.done && item.href && (
+                <span aria-hidden="true" style={{
+                  fontSize: '0.7rem', color: 'var(--accent, #6366f1)',
+                  fontWeight: 600, flexShrink: 0,
+                }}>
+                  Ir →
+                </span>
+              )}
+            </button>
+          </li>
         ))}
-      </div>
+      </ul>
 
       {allDone && (
-        <div style={{ padding: '0.625rem 1.125rem 0.875rem', textAlign: 'center' }}>
-          <button onClick={handleDismiss} style={{
-            fontSize: '0.78rem', color: 'var(--text-muted)',
-            background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline',
-          }}>
-            Ocultar checklist
+        <div style={{ padding: '0.25rem 1.125rem 0.875rem', textAlign: 'center' }}>
+          <button
+            type="button"
+            onClick={handleDismiss}
+            style={{
+              fontSize: '0.78rem', color: 'var(--text-muted)', minHeight: 44,
+              background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline',
+            }}
+          >
+            Listo, ocultar
           </button>
         </div>
       )}
-    </div>
+    </section>
   )
-}
-
-/** Hook para gestionar el estado del checklist (visible/oculto) en localStorage. */
-export function useSetupChecklistVisible(businessId: string | null): [boolean, () => void] {
-  const key = businessId ? `setup_checklist_hidden_${businessId}` : null
-  const [visible, setVisible] = useState(() => {
-    if (!key) return false
-    return localStorage.getItem(key) !== 'true'
-  })
-
-  const dismiss = () => {
-    if (key) localStorage.setItem(key, 'true')
-    setVisible(false)
-  }
-
-  return [visible, dismiss]
 }
