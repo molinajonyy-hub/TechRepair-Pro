@@ -1,5 +1,8 @@
 # TechRepair Pro — Design System
 
+> **LEGACY / SECONDARY IMPLEMENTATION REFERENCE**
+> The canonical product-design and UI/UX rules live in `.claude/skills/techrepair-product-design/SKILL.md` and its references. If this document conflicts with those rules or with explicitly newer approved product behavior, the Product Design Skill wins.
+
 > **Guía de referencia visual para desarrolladores.**
 > Este documento refleja el estado del sistema después de 11 fases de auditoría y migración visual.
 > Toda nueva pantalla, modal o componente debe seguir estas convenciones antes de crear estilos propios.
