@@ -2,30 +2,20 @@ import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { ArrowLeft, UserPlus, Save, User, Building2 } from 'lucide-react'
 import { customersService } from '../services/api'
+import { DOCUMENT_TYPES, useCustomerCore } from '../features/customer-core'
 
 export function NewCustomer() {
   const navigate = useNavigate()
   const location = useLocation()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
-  
-  const [formData, setFormData] = useState({
-    name: '',
-    phone: '',
-    email: '',
-    address: '',
-    document: '',
-    documentType: 'dni' as 'dni' | 'cuit',
-    customer_type: 'minorista' as 'minorista' | 'mayorista',
-    business_name: '',
-    contact_person: '',
-  })
+
+  // Las reglas (normalización del documento, regla de mayorista, armado del
+  // payload) viven en el core y son las MISMAS que usa el alta rápida de
+  // Nueva Orden. Acá sólo queda la presentación de página completa.
+  const { values, errors, setField, setCustomerType, toCreatePayload } = useCustomerCore()
 
   const returnTo = location.state?.returnTo || '/customers'
-
-  const handleChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
-  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -33,18 +23,7 @@ export function NewCustomer() {
     setError('')
 
     try {
-      const customer = await customersService.create({
-        name: formData.name,
-        phone: formData.phone,
-        email: formData.email || undefined,
-        address: formData.address || undefined,
-        document: formData.document
-          ? `${formData.documentType.toUpperCase()}: ${formData.document}`
-          : undefined,
-        customer_type: formData.customer_type,
-        business_name: formData.customer_type === 'mayorista' ? formData.business_name || undefined : undefined,
-        contact_person: formData.customer_type === 'mayorista' ? formData.contact_person || undefined : undefined,
-      })
+      const customer = await customersService.create(toCreatePayload())
 
       if (returnTo === '/orders/new') {
         navigate('/orders/new', { 
@@ -99,8 +78,8 @@ export function NewCustomer() {
               <input
                 type="text"
                 data-testid="customer-name-input"
-                value={formData.name}
-                onChange={(e) => handleChange('name', e.target.value)}
+                value={values.name}
+                onChange={(e) => setField('name', e.target.value)}
                 className="form-control"
                 placeholder="Ej: Juan Pérez"
                 required
@@ -112,8 +91,8 @@ export function NewCustomer() {
               <input
                 type="tel"
                 data-testid="customer-phone-input"
-                value={formData.phone}
-                onChange={(e) => handleChange('phone', e.target.value)}
+                value={values.phone}
+                onChange={(e) => setField('phone', e.target.value)}
                 className="form-control"
                 placeholder="Ej: +54 9 11 1234-5678"
                 required
@@ -124,8 +103,9 @@ export function NewCustomer() {
               <label className="form-label">Email</label>
               <input
                 type="email"
-                value={formData.email}
-                onChange={(e) => handleChange('email', e.target.value)}
+                data-testid="customer-email-input"
+                value={values.email}
+                onChange={(e) => setField('email', e.target.value)}
                 className="form-control"
                 placeholder="Ej: juan@email.com"
               />
@@ -137,16 +117,18 @@ export function NewCustomer() {
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 {/* Selector de tipo */}
                 <div style={{ display: 'flex', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: '0.5rem', overflow: 'hidden', flexShrink: 0 }}>
-                  {(['dni', 'cuit'] as const).map(t => (
+                  {DOCUMENT_TYPES.map(t => (
                     <button
                       key={t}
                       type="button"
-                      onClick={() => handleChange('documentType', t)}
+                      data-testid={`customer-document-type-${t}`}
+                      aria-pressed={values.documentType === t}
+                      onClick={() => setField('documentType', t)}
                       style={{
                         padding: '0.5rem 0.875rem',
                         border: 'none',
-                        background: formData.documentType === t ? 'rgba(99,102,241,0.25)' : 'transparent',
-                        color: formData.documentType === t ? '#a5b4fc' : 'var(--text-subtle)',
+                        background: values.documentType === t ? 'rgba(99,102,241,0.25)' : 'transparent',
+                        color: values.documentType === t ? '#a5b4fc' : 'var(--text-subtle)',
                         fontWeight: 700,
                         fontSize: '0.8rem',
                         cursor: 'pointer',
@@ -161,10 +143,11 @@ export function NewCustomer() {
                 {/* Input del número */}
                 <input
                   type="text"
-                  value={formData.document}
-                  onChange={e => handleChange('document', e.target.value)}
+                  data-testid="customer-document-input"
+                  value={values.document}
+                  onChange={e => setField('document', e.target.value)}
                   className="form-control"
-                  placeholder={formData.documentType === 'dni' ? 'Ej: 30.123.456' : 'Ej: 20-30123456-7'}
+                  placeholder={values.documentType === 'dni' ? 'Ej: 30.123.456' : 'Ej: 20-30123456-7'}
                   style={{ flex: 1 }}
                 />
               </div>
@@ -173,8 +156,9 @@ export function NewCustomer() {
             <div style={{ marginBottom: '1.5rem' }}>
               <label className="form-label">Dirección</label>
               <textarea
-                value={formData.address}
-                onChange={(e) => handleChange('address', e.target.value)}
+                data-testid="customer-address-input"
+                value={values.address}
+                onChange={(e) => setField('address', e.target.value)}
                 className="form-control"
                 rows={3}
                 placeholder="Ej: Av. Corrientes 1234, CABA"
@@ -190,17 +174,14 @@ export function NewCustomer() {
                   { value: 'mayorista', label: 'Mayorista', icon: Building2, desc: 'Precios mayoristas automáticos' },
                 ] as const).map(opt => {
                   const Icon = opt.icon
-                  const active = formData.customer_type === opt.value
+                  const active = values.customerType === opt.value
                   return (
                     <button
                       key={opt.value}
                       type="button"
-                      onClick={() => setFormData(previous => ({
-                        ...previous,
-                        customer_type: opt.value,
-                        business_name: opt.value === 'minorista' ? '' : previous.business_name,
-                        contact_person: opt.value === 'minorista' ? '' : previous.contact_person,
-                      }))}
+                      data-testid={`customer-type-${opt.value}`}
+                      aria-pressed={active}
+                      onClick={() => setCustomerType(opt.value)}
                       style={{
                         flex: 1,
                         display: 'flex', alignItems: 'center', gap: '0.625rem',
@@ -228,15 +209,28 @@ export function NewCustomer() {
                   )
                 })}
               </div>
-              {formData.customer_type === 'mayorista' && (
+              {values.customerType === 'mayorista' && (
                 <div style={{ marginTop: '1rem', display: 'grid', gap: '1rem' }}>
                   <div>
                     <label className="form-label">Razón social *</label>
-                    <input className="form-control" value={formData.business_name} onChange={e => handleChange('business_name', e.target.value)} required />
+                    <input
+                      className="form-control"
+                      data-testid="customer-business-name-input"
+                      value={values.businessName}
+                      onChange={e => setField('businessName', e.target.value)}
+                      aria-invalid={Boolean(errors.businessName)}
+                      required
+                    />
+                    {errors.businessName && <p className="form-error" role="alert">{errors.businessName}</p>}
                   </div>
                   <div>
                     <label className="form-label">Persona de contacto</label>
-                    <input className="form-control" value={formData.contact_person} onChange={e => handleChange('contact_person', e.target.value)} />
+                    <input
+                      className="form-control"
+                      data-testid="customer-contact-person-input"
+                      value={values.contactPerson}
+                      onChange={e => setField('contactPerson', e.target.value)}
+                    />
                   </div>
                   <p style={{ margin: 0, fontSize: '0.75rem', color: '#818cf8', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                     <Building2 size={11} /> Al cobrarle se usarán precios mayoristas del inventario automáticamente.
@@ -253,7 +247,10 @@ export function NewCustomer() {
                 type="submit"
                 data-testid="customer-save-button"
                 className="btn btn-primary btn-lift"
-                disabled={isSubmitting || !formData.name || !formData.phone}
+                // La condición ahora sale del core: además de nombre y teléfono,
+                // cubre la regla de mayorista, que antes sólo la frenaba el
+                // `required` del navegador.
+                disabled={isSubmitting || Object.keys(errors).length > 0}
               >
                 {isSubmitting ? 'Guardando...' : <><Save size={16} /> Guardar Cliente</>}
               </button>

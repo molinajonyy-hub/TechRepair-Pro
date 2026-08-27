@@ -10,6 +10,7 @@ import { BarcodeScannerDialog } from '../features/order-intake/BarcodeScannerDia
 import { PatternGrid } from '../features/order-intake/PatternGrid'
 import { INITIAL_INTAKE_DRAFT, isValidImei, normalizeImei, parseLocalizedAmount, type AccessMode, type CheckResult, type IntakeDraft } from '../features/order-intake/model'
 import { createOrderIntake, loadAssignableProfiles, uploadIntakePhotos } from '../features/order-intake/service'
+import { DOCUMENT_TYPES, documentSearchTokens, firstCustomerCoreError, useCustomerCore, type CustomerType } from '../features/customer-core'
 
 const STEPS = ['Cliente','Equipo','Identificación','Estado y fotos','Checklist','Acceso','Problema','Asignación','Presupuesto','Resumen'] as const
 const CHECKS = [['display','Pantalla'],['touch','Táctil'],['cameras','Cámaras'],['audio','Audio'],['charging','Carga'],['wifi','Wi‑Fi'],['buttons','Botones'],['biometrics','Biometría']] as const
@@ -68,7 +69,15 @@ export function NewOrder() {
   const selectedCustomer=customers.find(customer=>customer.id===draft.customerId)
   const filteredCustomers=useMemo(()=>{
     const q=search.trim().toLowerCase(); if(!q)return customers.slice(0,20)
-    return customers.filter(customer=>[customer.name,customer.phone,customer.document,customer.business_name].some(value=>value?.toLowerCase().includes(q))).slice(0,20)
+    // El documento se busca contra TODAS sus representaciones. En la tabla
+    // conviven filas canónicas (`DNI 30123456`) con históricas (`DNI: 30.123.456`)
+    // y este lote no las migra, así que la búsqueda tiene que encontrar ambas
+    // se tipee con separadores o sin ellos.
+    const qDoc=q.replace(/[^a-z0-9]/g,'')
+    return customers.filter(customer=>
+      [customer.name,customer.phone,customer.business_name].some(value=>value?.toLowerCase().includes(q))
+      ||(qDoc!==''&&documentSearchTokens(customer.document).some(token=>token.toLowerCase().replace(/[^a-z0-9]/g,'').includes(qDoc)))
+    ).slice(0,20)
   },[customers,search])
   const models=DEFAULT_MODELS_BY_BRAND[Object.keys(DEFAULT_MODELS_BY_BRAND).find(key=>key.toLowerCase()===draft.device.brand.toLowerCase())||'']||[]
 
@@ -186,16 +195,30 @@ export function NewOrder() {
 
 function Summary({title,onEdit,children}:{title:string;onEdit:()=>void;children:React.ReactNode}){return <section><div><h2>{title}</h2><button type="button" onClick={onEdit}>Editar</button></div><p>{children||'—'}</p></section>}
 
+/**
+ * Alta rápida de cliente.
+ *
+ * Muestra menos campos que la página completa a propósito (sin dirección ni
+ * notas), pero consume EXACTAMENTE las mismas reglas: normalización del
+ * documento, regla de mayorista y armado del payload salen del customer core.
+ * Antes guardaba el documento crudo y el tipo DNI/CUIT sólo existía en el
+ * label, así que se perdía.
+ */
 function QuickCustomerDialog({open,onClose,onCreated}:{open:boolean;onClose:()=>void;onCreated:(customer:Customer)=>void}){
-  const [type,setType]=useState<'minorista'|'mayorista'>('minorista')
-  const [form,setForm]=useState({name:'',phone:'',email:'',document:'',business_name:'',contact_person:''})
+  const {values,errors,setField,setCustomerType,toCreatePayload}=useCustomerCore()
   const [saving,setSaving]=useState(false);const [error,setError]=useState('')
-  const change=(key:keyof typeof form,value:string)=>setForm(previous=>({...previous,[key]:value}))
-  const changeType=(value:'minorista'|'mayorista')=>{setType(value);if(value==='minorista')setForm(previous=>({...previous,business_name:'',contact_person:''}))}
-  const save=async()=>{if(!form.name.trim()||!form.phone.trim()||(type==='mayorista'&&!form.business_name.trim())){setError('Completá los campos obligatorios.');return}setSaving(true);setError('');try{const customer=await customersService.create({name:form.name.trim(),phone:form.phone.trim(),email:form.email||undefined,document:form.document||undefined,customer_type:type,business_name:form.business_name||undefined,contact_person:form.contact_person||undefined});onCreated(customer)}catch(cause){setError(cause instanceof Error?cause.message:'No se pudo crear el cliente.')}finally{setSaving(false)}}
+  const wholesale=values.customerType==='mayorista'
+  const save=async()=>{
+    const message=firstCustomerCoreError(errors)
+    if(message){setError(message);return}
+    setSaving(true);setError('')
+    try{const customer=await customersService.create(toCreatePayload());onCreated(customer)}
+    catch(cause){setError(cause instanceof Error?cause.message:'No se pudo crear el cliente.')}
+    finally{setSaving(false)}
+  }
   return <ResponsiveDialog isOpen={open} onClose={onClose} title="Crear cliente rápido" subtitle="Queda disponible para esta orden y futuras recepciones." mobilePresentation="fullscreen" footer={<><AppButton variant="secondary" onClick={onClose}>Cancelar</AppButton><AppButton variant="primary" loading={saving} onClick={save}>Crear cliente</AppButton></>}>
-    {error&&<p className="form-error" role="alert">{error}</p>}<AppSelect label="Tipo de cliente" value={type} onChange={e=>changeType(e.target.value as 'minorista'|'mayorista')} options={[{value:'minorista',label:'Minorista'},{value:'mayorista',label:'Mayorista'}]}/>
-    {type==='mayorista'&&<FormGrid><AppInput label="Razón social" required value={form.business_name} onChange={e=>change('business_name',e.target.value)}/><AppInput label="Persona de contacto" value={form.contact_person} onChange={e=>change('contact_person',e.target.value)}/></FormGrid>}
-    <FormGrid><AppInput label={type==='mayorista'?'Nombre de contacto':'Nombre completo'} required value={form.name} onChange={e=>change('name',e.target.value)}/><AppInput semantic="tel" label="Teléfono" required value={form.phone} onChange={e=>change('phone',e.target.value)}/><AppInput semantic="email" label="Email" value={form.email} onChange={e=>change('email',e.target.value)}/><AppInput semantic="numeric" label={type==='mayorista'?'CUIT':'DNI'} value={form.document} onChange={e=>change('document',e.target.value)}/></FormGrid>
+    {error&&<p className="form-error" role="alert">{error}</p>}<AppSelect label="Tipo de cliente" value={values.customerType} onChange={e=>setCustomerType(e.target.value as CustomerType)} options={[{value:'minorista',label:'Minorista'},{value:'mayorista',label:'Mayorista'}]}/>
+    {wholesale&&<FormGrid><AppInput label="Razón social" required value={values.businessName} error={errors.businessName} onChange={e=>setField('businessName',e.target.value)}/><AppInput label="Persona de contacto" value={values.contactPerson} onChange={e=>setField('contactPerson',e.target.value)}/></FormGrid>}
+    <FormGrid><AppInput label={wholesale?'Nombre de contacto':'Nombre completo'} required value={values.name} onChange={e=>setField('name',e.target.value)}/><AppInput semantic="tel" label="Teléfono" required value={values.phone} onChange={e=>setField('phone',e.target.value)}/><AppInput semantic="email" label="Email" value={values.email} onChange={e=>setField('email',e.target.value)}/><AppSelect label="Tipo de documento" value={values.documentType} onChange={e=>setField('documentType',e.target.value)} options={DOCUMENT_TYPES.map(item=>({value:item,label:item.toUpperCase()}))}/><AppInput semantic="numeric" label={values.documentType==='cuit'?'CUIT':'DNI'} value={values.document} onChange={e=>setField('document',e.target.value)}/></FormGrid>
   </ResponsiveDialog>
 }

@@ -4,6 +4,19 @@ import { supabase, type Order, type Customer, type Device, type Note,
 import { getProfileCacheKey } from '../lib/profileCache'
 
 type CustomerPayload = Omit<Customer, 'id' | 'created_at' | 'updated_at' | 'business_id' | 'created_by'>
+
+/**
+ * Edición de cliente. Los campos opcionales aceptan `null` además de `string`
+ * porque hay que poder BORRAR un valor guardado — al pasar un cliente de
+ * mayorista a minorista, la razón social tiene que desaparecer de la fila.
+ * `undefined` no sirve: PostgREST omite la clave y el valor viejo sobrevive.
+ *
+ * Es un ensanchamiento del tipo anterior (`Partial<Customer>`): todo llamador
+ * que ya compilaba sigue compilando.
+ */
+type CustomerUpdatePayload = Partial<{
+  [K in keyof CustomerPayload]: CustomerPayload[K] | null
+}>
 type OrderPayload = Omit<Order, 'id' | 'created_at' | 'updated_at' | 'business_id' | 'created_by'>
 type DevicePayload = Omit<Device, 'id' | 'created_at' | 'updated_at' | 'business_id' | 'created_by'>
 
@@ -511,7 +524,7 @@ export const customersService = {
     return data as Customer
   },
 
-  async update(id: string, customer: Partial<Customer>) {
+  async update(id: string, customer: CustomerUpdatePayload) {
     const { businessId } = await getCurrentCustomerContext()
 
     const { data, error } = await supabase
