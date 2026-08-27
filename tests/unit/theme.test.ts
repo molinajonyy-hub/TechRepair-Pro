@@ -21,6 +21,7 @@ import { readFileSync } from 'node:fs'
 const html = readFileSync(new URL('../../index.html', import.meta.url), 'utf-8')
 const themeCtx = readFileSync(new URL('../../src/contexts/ThemeContext.tsx', import.meta.url), 'utf-8')
 const indexCss = readFileSync(new URL('../../src/index.css', import.meta.url), 'utf-8')
+const setupChecklist = readFileSync(new URL('../../src/components/onboarding/SetupChecklist.tsx', import.meta.url), 'utf-8')
 
 const THEME_KEY = 'techrepair_theme'
 
@@ -57,4 +58,19 @@ test('index.css: existen los dos sets de tokens (dark default + light)', () => {
     const occurrences = indexCss.split(`${token}:`).length - 1
     assert.ok(occurrences >= 2, `El token ${token} debe estar definido en ambos temas`)
   }
+})
+
+test('fundaciones compartidas usan tokens de tema y touch target canónicos', () => {
+  const iconButton = /\.icon-btn\s*\{([\s\S]*?)\}/.exec(indexCss)?.[1] ?? ''
+  const iconButtonHover = /\.icon-btn:hover:not\(:disabled\)\s*\{([\s\S]*?)\}/.exec(indexCss)?.[1] ?? ''
+
+  assert.match(iconButton, /background:\s*var\(--bg-surface\)/)
+  assert.match(iconButton, /border:\s*1px solid var\(--border-color\)/)
+  assert.match(iconButtonHover, /background:\s*var\(--bg-hover\)/)
+  assert.match(indexCss, /@media \(max-width: 1023px\)\s*\{\s*\.icon-btn\s*\{[\s\S]*?min-width:\s*var\(--mobile-touch-target\);[\s\S]*?min-height:\s*var\(--mobile-touch-target\)/)
+  assert.match(indexCss, /\.data-table td\s*\{[\s\S]*?border-bottom:\s*1px solid var\(--border-subtle\)/)
+  assert.match(indexCss, /\.data-table tbody tr:hover\s*\{\s*background:\s*var\(--bg-hover\)/)
+  assert.match(indexCss, /\.intake-pattern\s*\{[^}]*background:\s*var\(--bg-tertiary\)/)
+  assert.doesNotMatch(setupChecklist, /var\(--accent(?:,|\))/)
+  assert.match(setupChecklist, /var\(--accent-primary\)/)
 })
