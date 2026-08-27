@@ -499,3 +499,298 @@ ONBOARDING-1.
 
 Sin `db push`. Sin merge. Sin deploy. Sin escrituras a producción (lo único que
 se ejecutó contra prod fueron `SELECT` y un `EXPLAIN`).
+
+> **Superado el 2026-08-26.** Ver la sección 17: el lote salió a producción.
+
+---
+
+## 17. PRODUCTION ROLLOUT — 2026-08-26
+
+El veredicto A de la sección 16 se levantó una vez que MOBILE-2A (`20260903120000`)
+y ONBOARDING-1 (`20260904120000`) quedaron estables en producción. Todo lo que
+sigue se midió **después** de integrar `origin/main`: los resultados previos no
+sustituyen esta ejecución.
+
+### 17.1 Sync con `main`
+
+| Ítem | Valor |
+|---|---|
+| `origin/main` al integrar | `916a488` (merge del PR #82, cierre de ONBOARDING-1) |
+| Merge-base previo | `bdedfca` |
+| Commit de integración | `d707db3` (merge commit — convención del repo, no squash) |
+| Conflictos | **1**: `package.json` |
+
+El conflicto era aditivo en ambos lados y se resolvió como **unión**, no eligiendo
+un lado:
+
+- script agregador `guards`: conserva `guard:onboarding-canonical` (de `main`) y
+  añade `guard:first-steps` (de esta rama) al final;
+- entradas de scripts: se conservan los dos bloques completos
+  (`onboarding-canonical` / `compat` / `sql` / `negative-gates` de `main`, más
+  `first-steps` / `sql` / `negative-gates` de esta rama).
+
+Que la unión sea correcta **se verificó ejecutando** `npm run guards`: el
+agregado corre `onboarding-canonical` **y** `first-steps` en la misma pasada.
+Ningún `reset --hard`, ningún force push.
+
+Las migraciones `20260903120000` y `20260904120000` quedaron **byte-idénticas** a
+`origin/main` tras el merge (`git diff origin/main -- <ambas>` = 0 líneas).
+
+### 17.2 Orden y unicidad de la migración (§2)
+
+Orden físico en `supabase/migrations/`, verificado en disco:
+
+```
+20260903120000_mobile2a_order_intake.sql
+20260904120000_p0onb1_canonical_business_profile.sql
+20260905120000_first_steps_derived.sql
+```
+
+`20260905120000` se re-verificó como única **sin apoyarse en mediciones
+anteriores**:
+
+- `git log --all --diff-filter=A` sobre ese prefijo → **un solo commit**
+  (`995c09d`), contando refs locales y remotas;
+- ausente de `supabase_migrations.schema_migrations` en producción antes del push.
+
+### 17.3 Gates post-integración
+
+| Gate | Resultado |
+|---|---|
+| `tsc --noEmit` | 0 errores |
+| `npm run lint:errors` | 0 |
+| `vite build` | OK (21.75s) |
+| Unit (`node --test`) | **1032/1032**, 30 suites, 0 fail |
+| Componentes (vitest) | **595/595**, 43 archivos — incluye los 14 de FIRST-STEPS |
+| `npm run guards` (agregado) | exit 0 |
+| `guard:mobile2a` + self-test | OK — «sin CONTRACT pendiente» |
+| `test:sql:first-steps` | **27/27 PASS**, cierra en `ROLLBACK` |
+| `test:first-steps:negative-gates` | **5/5 en rojo**, árbol restaurado a verde |
+| `git diff --check` | limpio |
+
+### 17.4 Negative gates (§20) — re-medidos
+
+Los cinco defectos se inyectaron de nuevo y cada uno puso su gate en **rojo**:
+
+| Gate | Defecto inyectado | Señal |
+|---|---|---|
+| A | `localStorage` vuelve a ser la fuente de «done» | gate de componente exit 1 (5 de 14 tests fallan) |
+| B | contar `financial_movements` de egreso como cobro | `FAIL t10 · esperado f/f/f/f/f · obtenido f/f/f/t/f` |
+| C | eliminar el scoping por tenant | `FAIL t0 · tenant vacío obtiene t/t/t/t/f` |
+| D | `GRANT EXECUTE` a `anon` | la postcondición de la migración aborta el push |
+| E | la RPC acepta un `business_id` del cliente | guard estático exit 1 |
+
+### 17.5 Matriz de compatibilidad (§21) — medida por PostgREST real
+
+| Celda | Medición |
+|---|---|
+| control: DB vieja + frontend viejo | `GET /businesses` → 200 |
+| **B.** DB vieja + frontend NUEVO | `POST /rpc/get_my_first_steps` → **404 `PGRST202`** |
+| **A.** DB nueva + frontend VIEJO | `GET /businesses` → **200** |
+| DB nueva + frontend NUEVO | 200 → `1 de 5` |
+| DB nueva + `anon` | **401 `42501`** |
+
+**A pasa y B falla explícitamente → rollout DB-FIRST.** La base local quedó
+restaurada tras la medición (función ausente, head de nuevo en `20260904120000`).
+
+### 17.6 PR y CI
+
+| Ítem | Valor |
+|---|---|
+| Rama | `feat/p0-first-steps-1-derived` |
+| PR | [#83](https://github.com/molinajonyy-hub/TechRepair-Pro/pull/83) |
+| HEAD aprobado | `d707db3f4dc047525541383506f04580e04fb8bf` |
+| TypeScript + Lint + Build | PASS (1m27s) |
+| E2E Smoke Tests | PASS (6m32s) |
+| Vercel Preview | PASS |
+
+### 17.7 Dry-run contra producción
+
+Producción estaba en `20260904120000`. `supabase db push --linked --dry-run`
+devolvió **exclusivamente**:
+
+```
+Would push these migrations:
+ • 20260905120000_first_steps_derived.sql
+```
+
+Sin `0903`, sin `0904`, sin CONTRACT, sin nada posterior.
+
+### 17.8 Snapshot PRE (producción, sólo lectura, sin PII)
+
+| Tabla | Filas |
+|---|---|
+| `businesses` | 30 |
+| `customers` | 128 |
+| `orders` | 117 |
+| `inventory` | 795 |
+| `comprobante_payments` | 354 |
+| `order_payments` | 1 |
+| `account_movements` | 5 (de los cuales `credit > 0`: 1) |
+
+**Estado esperado del tenant QA, calculado ANTES de desplegar la RPC**
+(«cuenta prieba» `3b52e902…`; **nunca** «Clic.» `aa930802…`, que es real),
+aplicando a mano los mismos cinco predicados:
+
+| Paso | Esperado |
+|---|---|
+| `has_customer` | **true** |
+| `has_order` | **true** |
+| `has_inventory` | false |
+| `has_cobro` | false |
+| `has_logo` | **true** |
+
+→ **3 de 5**. No se alteró ningún dato para fabricar este estado.
+
+### 17.9 DB push
+
+`supabase db push --linked` aplicó **una sola** migración,
+`20260905120000_first_steps_derived.sql`, sin errores y sin reparaciones
+manuales.
+
+### 17.10 Postcondiciones en producción
+
+| Comprobación | Resultado |
+|---|---|
+| Migration head | `20260905120000` |
+| `public.get_my_first_steps()` | existe |
+| Firma | `pronargs = 0` — no acepta `business_id` |
+| Resultado | `TABLE(has_customer, has_order, has_inventory, has_cobro, has_logo)` — sólo booleanos |
+| `prosecdef` | `true` (SECURITY DEFINER) |
+| `provolatile` | `s` (STABLE) |
+| `proconfig` | `search_path=pg_catalog, public, pg_temp` — `pg_temp` **al final** |
+| `authenticated` EXECUTE | **sí** |
+| `anon` EXECUTE | **no** |
+| `PUBLIC` EXECUTE | **no** |
+| `service_role` EXECUTE | no |
+
+La denegación a `anon` se verificó además **en ejecución**, no sólo por el bit de
+privilegio, con una sonda transaccional que discrimina: `anon → DENEGADO (42501)`
+y `authenticated → EJECUTÓ`. Que la sonda pueda distinguir ambos casos es lo que
+impide un falso verde.
+
+### 17.11 QA real de la RPC en producción (§17)
+
+Actor: el OWNER del tenant QA dedicado (`29345c0b…`, último login 2026-08-27
+01:27 UTC — el del smoke humano de ONBOARDING-1). **No se usó «Clic.».**
+
+Invocada como rol `authenticated` con las claims de ese usuario:
+
+```
+actor = authenticated
+uid   = 29345c0b-4c56-469b-9e45-f0566e684d7f
+biz   = 3b52e902-bcdf-4048-bf2b-6af3d7496002   <- derivado server-side
+has_customer=true  has_order=true  has_inventory=false  has_cobro=false  has_logo=true
+```
+
+**Coincide exactamente con el estado esperado de §17.8: 3 de 5.** El tenant se
+derivó server-side, no se pidió.
+
+### 17.12 Frontend viejo con DB nueva (§18)
+
+Con la RPC ya desplegada y el frontend productivo todavía en `cba9098`, el actor
+QA leyó sin errores lo que consumen Dashboard / Orders / NewOrder / Settings:
+`businesses` 1, `business_settings` 1, `customers` 3, `orders` 3, `inventory` 0,
+`comprobantes` 0 — todo correctamente acotado a su propio tenant, sin `42501`.
+(`inventory` 0 y `comprobantes` 0 cruzan además con `has_inventory=false` y
+`has_cobro=false`.)
+
+### 17.13 Merge y deploy
+
+| Ítem | Valor |
+|---|---|
+| PR | #83 |
+| HEAD aprobado | `d707db3` |
+| Merge commit | `bbcd618b20db504ed23b1cc1e7fffcc9a36c2928` |
+| Timestamp | 2026-08-26 23:10:05 -0300 |
+| Método | merge commit (convención del repo) |
+| Vercel | success |
+| `version.json` | `{"buildTime":"2026-08-27T02:10:19.417Z","commit":"bbcd618"}` |
+| apex `techrepairpro.app` | 200 (redirige al canónico `www`) |
+| `www.techrepairpro.app` | 200 |
+
+### 17.14 Sanity de UI medido (§22, §23, §24)
+
+Contra el stack **local** con la migración aplicada (misma forma que producción),
+sesión real del owner E2E. El tenant local tiene un perfil **distinto** al de QA
+(`customer=T, order=F, inventory=T, cobro=T, logo=F` → 3/5), lo que hace de
+control independiente:
+
+| Comprobación | Resultado |
+|---|---|
+| §21 la UI coincide **exactamente** con `get_my_first_steps()` | PASS — 5/5 pasos y el contador `3/5` |
+| §21 sembrar basura `onboarding_done_*` | PASS — el progreso **no cambia** |
+| §22 contexto de navegador limpio, misma sesión | PASS — **mismo** progreso |
+| §23 dismiss oculta la tarjeta | PASS |
+| §23 dismiss **no** altera el resultado de la RPC | PASS — idéntica antes y después |
+| §23 al limpiar la preferencia local vuelve | PASS — con el **mismo** progreso |
+| §24 320 / 390 / 430 / 1440 | PASS — 0 desborde horizontal, 5 filas, todas ≥44 px y alcanzables al toque, contador con forma `n/5` y ≥11 px |
+| §24 dark / light | PASS — los tokens resuelven en ambos (ni fondo ni texto transparentes) |
+
+A 320 px la fila más larga («Crear tu primera orden de reparación») envuelve en
+dos líneas sin romper la tarjeta ni empujar el `Ir →`.
+
+### 17.15 MOBILE-2A sin regresión (§25)
+
+La suite `@mobile2a` completa corrió con la DB nueva: **3/3 PASS**, incluido el
+quick-create de `/orders/new` en 320/390/430. No se tocaron Vault ni secretos.
+Las capturas de evidencia que la suite regenera se revirtieron: pertenecen al
+lote MOBILE-2A, no a éste.
+
+### 17.16 Finanzas intactas (§26)
+
+Recuento de producción **después** de todo el rollout, comparado contra el
+snapshot PRE de §17.8:
+
+| Tabla | PRE | POST |
+|---|---|---|
+| `businesses` | 30 | 30 |
+| `customers` | 128 | 128 |
+| `orders` | 117 | 117 |
+| `inventory` | 795 | 795 |
+| `comprobante_payments` | 354 | 354 |
+| `order_payments` | 1 | 1 |
+| `account_movements` | 5 | 5 |
+| `financial_movements` | 382 | 382 |
+| `business_finance_entries` | 592 | 592 |
+
+**Cero escrituras.** Consultar el progreso no asienta nada — FIRST-STEPS es
+read-only por construcción.
+
+### 17.17 Estado final de migraciones (§27)
+
+| Versión | Lote | Estado |
+|---|---|---|
+| `20260903120000` | MOBILE-2A (EXPAND) | ✅ aplicada |
+| `20260904120000` | ONBOARDING-1 | ✅ aplicada |
+| `20260905120000` | **FIRST-STEPS-1** | ✅ **aplicada** |
+| — | MOBILE-2A CONTRACT | ❌ **no aplicada** (pendiente de drenaje, no tocar) |
+| — | ONBOARDING-2 | ❌ no iniciado |
+
+Migration head de producción: **`20260905120000`**.
+
+### 17.18 Pendiente
+
+Queda **una** cosa, y requiere una persona con la sesión del OWNER QA:
+
+- **Smoke humano en producción (§21).** Abrir el Dashboard con «cuenta prieba»
+  (no «Clic.») y confirmar que «Primeros pasos» muestra **3 de 5**, con
+  *cliente*, *orden* y *logo* tildados, y *inventario* y *cobro* pendientes —
+  exactamente lo que devolvió la RPC en §17.11. Si ese navegador conserva la
+  clave vieja `onboarding_done_<businessId>`, se puede borrar: es basura del
+  componente anterior. El componente nuevo la ignora de todos modos (probado en
+  §17.14), así que borrarla no debería cambiar nada de lo que se ve.
+
+Todo lo demás quedó medido.
+
+---
+
+## 18. Veredicto del rollout
+
+**P0-FIRST-STEPS-1 — EN PRODUCCIÓN.**
+
+Frontend `bbcd618` servido, DB en `20260905120000`, seguridad verificada contra
+producción (`anon` denegado en ejecución, firma sin `business_id`, `PUBLIC`
+revocado), progreso real del tenant QA reproducido exactamente, y cero
+escrituras. Falta únicamente el smoke humano de §17.18 para declararlo
+**STABLE IN PRODUCTION**.
