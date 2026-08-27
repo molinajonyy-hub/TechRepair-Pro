@@ -168,3 +168,103 @@ test.describe('@customer-core UI-CONSISTENCY-1 · paridad entre superficies de a
     expect(row.business_name).toBe('Editada SRL')
   })
 })
+
+// ── Sanidad responsive y de tema ────────────────────────────────────────────
+// No es un rediseño: sólo se comprueba que las superficies tocadas no
+// desbordan ni tapan su CTA. El diálogo sumó un campo (tipo de documento) y el
+// modal de edición sumó cuatro, así que el riesgo real es de alto y scroll.
+const MOBILE_WIDTHS = [320, 390, 430]
+
+async function overflow(page: Page) {
+  return page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+}
+
+test.describe('@customer-core UI-CONSISTENCY-1 · sanidad responsive', () => {
+  test.afterAll(() => cleanup())
+
+  for (const width of MOBILE_WIDTHS) {
+    test(`el alta rápida abre, no desborda y cancela en ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 })
+      await page.goto('/orders/new')
+
+      const trigger = page.getByRole('button', { name: 'Crear cliente rápido' })
+      await trigger.click()
+      const dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
+      await expect(dialog).toBeVisible()
+
+      // El campo nuevo está presente y el diálogo sigue sin desbordar.
+      await expect(dialog.getByLabel('Tipo de documento')).toBeVisible()
+      expect(await overflow(page)).toBeLessThanOrEqual(1)
+
+      // El CTA es alcanzable y nada lo tapa: se comprueba por hit-test real,
+      // no sólo por visibilidad.
+      //
+      // NOTA: hoy mide ~39 px de alto, por debajo del mínimo táctil de 44 px.
+      // Viene de MOBILE-2A (el footer de ResponsiveDialog) y este lote NO lo
+      // toca: cambiar el alto del AppButton afecta el footer de TODOS los
+      // diálogos de la app. Queda reportado para el lote de convergencia de
+      // diálogos. Acá sólo se fija que no haya regresión de alcance.
+      const cta = dialog.getByRole('button', { name: 'Crear cliente' })
+      await expect(cta).toBeVisible()
+      const reachable = await cta.evaluate((element) => {
+        const rect = element.getBoundingClientRect()
+        const x = rect.left + rect.width / 2
+        return [rect.top + 3, rect.top + rect.height / 2, rect.bottom - 3].every((y) => {
+          const hit = document.elementFromPoint(x, y)
+          return hit === element || Boolean(hit && element.contains(hit))
+        })
+      })
+      expect(reachable).toBe(true)
+
+      // Escape cierra sin crear nada.
+      await page.keyboard.press('Escape')
+      await expect(dialog).not.toBeVisible()
+    })
+  }
+
+  test('el modal de edición scrollea sus campos nuevos en 320px', async ({ page }) => {
+    const name = `${MARK} Responsive`
+    ejecutarSQL(`INSERT INTO public.customers (business_id, name, phone, customer_type, business_name)
+                 VALUES ('${E2E.business}', '${name}', '${PHONE}', 'mayorista', 'Demo SRL');`)
+
+    await page.setViewportSize({ width: 320, height: 568 })
+    await page.goto('/customers')
+    await page.getByRole('row').filter({ hasText: name }).getByTitle('Editar cliente').click()
+    await expect(page.getByText('Editar Cliente')).toBeVisible()
+
+    expect(await overflow(page)).toBeLessThanOrEqual(1)
+
+    // Los campos que sumó el lote son alcanzables por el scroll propio del modal.
+    const businessName = page.getByTestId('customer-edit-business-name-input')
+    await businessName.scrollIntoViewIfNeeded()
+    await expect(businessName).toBeVisible()
+    await expect(page.getByTestId('customer-edit-save-button')).toBeVisible()
+    expect(await overflow(page)).toBeLessThanOrEqual(1)
+  })
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`el alta full page es usable en 1440 · ${theme}`, async ({ page }) => {
+      await page.addInitScript((value) => {
+        localStorage.setItem('theme', value)
+        localStorage.setItem('techrepair_theme', value)
+      }, theme)
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.goto('/customers/new')
+
+      await expect(page.getByTestId('customer-name-input')).toBeVisible()
+      await expect(page.getByTestId('customer-address-input')).toBeVisible()
+      await expect(page.getByTestId('customer-document-input')).toBeVisible()
+      expect(await overflow(page)).toBeLessThanOrEqual(1)
+
+      // Los controles del lote pintan texto legible, no heredan transparente.
+      const contrast = await page.evaluate(() => {
+        const target = document.querySelector('[data-testid="customer-document-type-dni"]')
+        if (!target) return null
+        const style = getComputedStyle(target)
+        return { color: style.color, transparent: style.color === 'rgba(0, 0, 0, 0)' }
+      })
+      expect(contrast).not.toBeNull()
+      expect(contrast!.transparent).toBe(false)
+    })
+  }
+})
