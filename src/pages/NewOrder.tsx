@@ -1,694 +1,201 @@
-import { useState, useEffect, useRef } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, Plus, Search, UserPlus, Smartphone, Loader2 } from 'lucide-react'
-import { ordersService, customersService, devicesService } from '../services/api'
-import {
-  getBrands, getModels,
-  ensureBrand, ensureModel, ensureBrandAndModel,
-  DEFAULT_BRANDS, DEFAULT_MODELS_BY_BRAND,
-  type BrandItem, type ModelItem,
-} from '../services/deviceCatalogService'
-import { Autocomplete } from '../components/ui/Autocomplete'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { ArrowLeft, Camera, Check, ChevronLeft, ChevronRight, ScanLine, ShieldCheck, Trash2, UserPlus } from 'lucide-react'
+import { customersService } from '../services/api'
+import { DEFAULT_BRANDS, DEFAULT_MODELS_BY_BRAND } from '../services/deviceCatalogService'
+import type { Customer } from '../lib/supabase'
+import { AppButton, AppInput, AppSelect, AppTextarea, FormGrid, MobileActionBar, ResponsiveDialog } from '../ui'
+import { effectivePermissions, usePermissions } from '../hooks/usePermissions'
+import { BarcodeScannerDialog } from '../features/order-intake/BarcodeScannerDialog'
+import { PatternGrid } from '../features/order-intake/PatternGrid'
+import { INITIAL_INTAKE_DRAFT, isValidImei, normalizeImei, parseLocalizedAmount, type AccessMode, type CheckResult, type IntakeDraft } from '../features/order-intake/model'
+import { createOrderIntake, loadAssignableProfiles, uploadIntakePhotos } from '../features/order-intake/service'
 
+const STEPS = ['Cliente','Equipo','Identificación','Estado y fotos','Checklist','Acceso','Problema','Asignación','Presupuesto','Resumen'] as const
+const CHECKS = [['display','Pantalla'],['touch','Táctil'],['cameras','Cámaras'],['audio','Audio'],['charging','Carga'],['wifi','Wi‑Fi'],['buttons','Botones'],['biometrics','Biometría']] as const
+const CHECK_OPTIONS: { value: CheckResult; label: string }[] = [
+  { value:'ok',label:'OK' },{ value:'fail',label:'Falla' },{ value:'not_tested',label:'No probado' },{ value:'not_applicable',label:'No aplica' },
+]
+const ACCESS: { value: AccessMode; label: string; hint: string }[] = [
+  {value:'none',label:'Sin bloqueo',hint:'El equipo no tiene bloqueo'},
+  {value:'pin',label:'PIN',hint:'Código numérico'}, {value:'pattern',label:'Patrón',hint:'Secuencia 3 × 3'},
+  {value:'password',label:'Contraseña',hint:'Clave alfanumérica'},
+  {value:'not_provided',label:'No lo proporcionó',hint:'El cliente no dejó el acceso'},
+  {value:'not_verifiable',label:'No se puede verificar',hint:'El equipo no permite comprobarlo'},
+]
+type PhotoDraft = { file: File; preview: string }
+type ProfileOption = { id:string; full_name?:string|null; email?:string|null; role?:string|null; permissions?:unknown }
 
-interface NewOrderForm {
-  customer_id: string
-  device_type: string
-  brand: string
-  model: string
-  serial: string
-  imei: string
-  issue: string
-  priority: string
-  technician_id: string
-  estimated_total: string
-}
+function StepCard({ children }: { children: React.ReactNode }) { return <section className="card intake-step-card"><div className="card-body">{children}</div></section> }
+function ChoiceGrid({ children }: { children: React.ReactNode }) { return <div className="intake-choice-grid">{children}</div> }
 
 export function NewOrder() {
   const navigate = useNavigate()
-  const location = useLocation()
-  const [step, setStep] = useState<'customer' | 'device' | 'details'>('customer')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [customers, setCustomers] = useState<any[]>([])
-  const [selectedCustomer, setSelectedCustomer] = useState<any>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isSearching, setIsSearching] = useState(false)
-  const [allCustomers, setAllCustomers] = useState<any[]>([])
-  const [error, setError] = useState('')
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [brandItems, setBrandItems]       = useState<BrandItem[]>([])
-  const [modelItems, setModelItems]       = useState<ModelItem[]>([])
-  const [isLoadingBrands, setIsLoadingBrands] = useState(false)
-  const [isLoadingModels, setIsLoadingModels] = useState(false)
-  const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null)
+  const { can } = usePermissions()
+  const [step,setStep] = useState(0)
+  const [draft,setDraft] = useState<IntakeDraft>(INITIAL_INTAKE_DRAFT)
+  const [customers,setCustomers] = useState<Customer[]>([])
+  const [search,setSearch] = useState('')
+  const [profiles,setProfiles] = useState<ProfileOption[]>([])
+  const [photos,setPhotos] = useState<PhotoDraft[]>([])
+  const [quickOpen,setQuickOpen] = useState(false)
+  const [scanner,setScanner] = useState<'serial'|'imei'|null>(null)
+  const [error,setError] = useState('')
+  const [submitting,setSubmitting] = useState(false)
+  const [createdOrderId,setCreatedOrderId] = useState('')
+  const [dirty,setDirty] = useState(false)
+  const requestIdRef = useRef(crypto.randomUUID())
+  const submitLock = useRef(false)
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const photosRef = useRef<PhotoDraft[]>([])
 
-  // Derived string arrays for Autocomplete
-  const brands = brandItems.map(b => b.name)
-  const models = modelItems.map(m => m.name)
+  const update = (patch: Partial<IntakeDraft>) => { setDraft(previous => ({...previous,...patch})); setDirty(true); setError('') }
+  const updateDevice = (patch: Partial<IntakeDraft['device']>) => update({device:{...draft.device,...patch}})
 
-  const [formData, setFormData] = useState<NewOrderForm>({
-    customer_id: '',
-    device_type: 'smartphone',
-    brand: '',
-    model: '',
-    serial: '',
-    imei: '',
-    issue: '',
-    priority: 'medium',
-    technician_id: '',
-    estimated_total: ''
-  })
-
-  // Load all customers on mount
+  useEffect(() => { Promise.all([customersService.getAll(),loadAssignableProfiles()]).then(([c,p])=>{
+    setCustomers(c)
+    setProfiles(p.filter(profile=>effectivePermissions(profile.role,profile.role==='owner',profile.permissions).orders_create))
+  }).catch(e=>setError(e.message)) },[])
+  useEffect(() => { headingRef.current?.focus() },[step])
   useEffect(() => {
-    const loadAllCustomers = async () => {
-      setIsSearching(true)
-      try {
-        const data = await customersService.getAll()
-        setAllCustomers(data || [])
-        setCustomers(data || [])
-      } catch (err: any) {
-        console.error('Error loading customers:', err)
-      } finally {
-        setIsSearching(false)
+    const handler=(event:BeforeUnloadEvent)=>{if(dirty&&!submitting){event.preventDefault();event.returnValue=''}}
+    window.addEventListener('beforeunload',handler); return()=>window.removeEventListener('beforeunload',handler)
+  },[dirty,submitting])
+  useEffect(()=>{photosRef.current=photos},[photos])
+  useEffect(() => () => { photosRef.current.forEach(photo=>URL.revokeObjectURL(photo.preview)) },[])
+
+  const selectedCustomer=customers.find(customer=>customer.id===draft.customerId)
+  const filteredCustomers=useMemo(()=>{
+    const q=search.trim().toLowerCase(); if(!q)return customers.slice(0,20)
+    return customers.filter(customer=>[customer.name,customer.phone,customer.document,customer.business_name].some(value=>value?.toLowerCase().includes(q))).slice(0,20)
+  },[customers,search])
+  const models=DEFAULT_MODELS_BY_BRAND[Object.keys(DEFAULT_MODELS_BY_BRAND).find(key=>key.toLowerCase()===draft.device.brand.toLowerCase())||'']||[]
+
+  const stepError = () => {
+    if(step===0&&!draft.customerId)return 'Seleccioná o creá un cliente.'
+    if(step===1&&(!draft.device.brand.trim()||!draft.device.model.trim()))return 'Completá marca y modelo.'
+    if(step===2&&draft.device.imei&&!isValidImei(draft.device.imei))return 'El IMEI debe tener 15 dígitos y un dígito verificador válido.'
+    if(step===5&&draft.accessMode==='pin'&&!/^\d{4,12}$/.test(draft.accessSecret))return 'El PIN debe tener entre 4 y 12 dígitos.'
+    if(step===5&&draft.accessMode==='password'&&!draft.accessSecret.trim())return 'Ingresá la contraseña.'
+    if(step===5&&draft.accessMode==='pattern'&&draft.pattern.length<2)return 'Marcá al menos 2 puntos del patrón.'
+    if(step===6&&!draft.problem.trim())return 'Describí el problema informado.'
+    if(step===8&&draft.budgetAmount&&parseLocalizedAmount(draft.budgetAmount)===null)return 'Ingresá un presupuesto válido.'
+    return ''
+  }
+  const next=()=>{const message=stepError();if(message){setError(message);return}setStep(value=>Math.min(STEPS.length-1,value+1))}
+  const back=()=>setStep(value=>Math.max(0,value-1))
+  const cancel=()=>{if(!dirty||window.confirm('¿Salir? Los datos cargados no se guardarán.'))navigate('/orders')}
+
+  const addPhotos=(files:FileList|null)=>{
+    if(!files)return
+    const accepted=Array.from(files).filter(file=>file.type.startsWith('image/')&&file.size<=10*1024*1024)
+    const slots=Math.max(0,8-photos.length)
+    if(accepted.length!==files.length||accepted.length>slots)setError('Se admiten hasta 8 imágenes de 10 MB cada una.')
+    setPhotos(previous=>[...previous,...accepted.slice(0,slots).map(file=>({file,preview:URL.createObjectURL(file)}))]);setDirty(true)
+    if(fileRef.current)fileRef.current.value=''
+  }
+  const removePhoto=(index:number)=>setPhotos(previous=>{URL.revokeObjectURL(previous[index].preview);return previous.filter((_,i)=>i!==index)})
+
+  const submit=async()=>{
+    if(submitLock.current)return
+    submitLock.current=true;setSubmitting(true);setError('')
+    let orderId=createdOrderId
+    try{
+      if(!orderId){const created=await createOrderIntake(requestIdRef.current,draft);orderId=created.order_id;setCreatedOrderId(orderId)}
+      const upload=await uploadIntakePhotos(orderId,photos.map(photo=>photo.file))
+      setDraft(previous=>({...previous,accessSecret:'',pattern:[]}));setDirty(false)
+      if(upload.failed.length){
+        setPhotos(previous=>previous.filter(photo=>upload.failed.includes(photo.file.name)))
+        setError(`La orden fue creada. No se pudieron subir ${upload.failed.length} foto(s). Tocá “Reintentar fotos” para completar la evidencia.`)
+        submitLock.current=false;return
       }
-    }
-    loadAllCustomers()
-  }, [])
-
-  // Check if we have a pre-selected customer from NewCustomer page
-  useEffect(() => {
-    const state = location.state as { selectedCustomer?: any; step?: string } | null
-    if (state?.selectedCustomer) {
-      const createdCustomer = state.selectedCustomer
-
-      setSelectedCustomer(createdCustomer)
-      setAllCustomers(prev => {
-        const rest = prev.filter(c => c.id !== createdCustomer.id)
-        return [createdCustomer, ...rest]
-      })
-      setCustomers(prev => {
-        const rest = prev.filter(c => c.id !== createdCustomer.id)
-        return [createdCustomer, ...rest]
-      })
-      setSearchQuery(createdCustomer.name || '')
-      setFormData(prev => ({ ...prev, customer_id: createdCustomer.id }))
-      if (state.step) {
-        setStep(state.step as any)
-      }
-      navigate(location.pathname, { replace: true, state: {} })
-    }
-  }, [])
-
-  // Debounced filter as user types
-  useEffect(() => {
-    if (searchTimer.current) clearTimeout(searchTimer.current)
-
-    if (!searchQuery.trim()) {
-      setCustomers(allCustomers)
-      return
-    }
-
-    searchTimer.current = setTimeout(() => {
-      const q = searchQuery.toLowerCase()
-      const filtered = allCustomers.filter(c =>
-        c.name?.toLowerCase().includes(q) ||
-        c.phone?.toLowerCase().includes(q) ||
-        c.email?.toLowerCase().includes(q)
-      )
-      setCustomers(filtered)
-    }, 200)
-
-    return () => { if (searchTimer.current) clearTimeout(searchTimer.current) }
-  }, [searchQuery, allCustomers])
-
-  // Load brands on component mount: DB brands + DEFAULT_BRANDS combined
-  useEffect(() => {
-    const loadBrands = async () => {
-      setIsLoadingBrands(true)
-      try {
-        const dbBrands = await getBrands()
-
-        // Merge DB brands with defaults — defaults ensure non-empty list even for new businesses
-        const dbNames = new Set(dbBrands.map(b => b.name.toLowerCase()))
-        const extraDefaults = DEFAULT_BRANDS.filter(n => !dbNames.has(n.toLowerCase()))
-        const defaultItems: BrandItem[] = extraDefaults.map(n => ({ id: `default:${n.toLowerCase()}`, name: n }))
-        const merged = [...dbBrands, ...defaultItems]
-
-        setBrandItems(merged)
-      } catch (err) {
-        console.error('Error loading brands, using defaults:', err)
-        setBrandItems(DEFAULT_BRANDS.map(n => ({ id: `default:${n.toLowerCase()}`, name: n })))
-      } finally {
-        setIsLoadingBrands(false)
-      }
-    }
-    loadBrands()
-  }, [])
-
-  // Load models when brand is selected: DB models + DEFAULT_MODELS combined
-  useEffect(() => {
-    const loadModels = async () => {
-      setModelItems([])
-      if (!formData.brand.trim()) return
-
-      setIsLoadingModels(true)
-      try {
-        // Get default models for this brand name (case-insensitive)
-        const brandKey = Object.keys(DEFAULT_MODELS_BY_BRAND).find(
-          k => k.toLowerCase() === formData.brand.trim().toLowerCase()
-        )
-        const defaultModelNames = brandKey ? DEFAULT_MODELS_BY_BRAND[brandKey] : []
-
-        // Get DB models (only if we have a real UUID brand ID)
-        let dbModels: ModelItem[] = []
-        if (selectedBrandId && !selectedBrandId.startsWith('default:')) {
-          dbModels = await getModels(selectedBrandId)
-        }
-
-        // Merge: DB models + default models that don't duplicate
-        const dbNames = new Set(dbModels.map(m => m.name.toLowerCase()))
-        const extraDefaults = defaultModelNames.filter(n => !dbNames.has(n.toLowerCase()))
-        const defaultItems: ModelItem[] = extraDefaults.map(n => ({
-          id: `default:${n.toLowerCase()}`, name: n, brand_id: selectedBrandId ?? ''
-        }))
-        const merged = [...dbModels, ...defaultItems]
-
-        setModelItems(merged)
-      } catch (err) {
-        console.error('Error loading models, using defaults:', err)
-        const brandKey = Object.keys(DEFAULT_MODELS_BY_BRAND).find(
-          k => k.toLowerCase() === formData.brand.trim().toLowerCase()
-        )
-        const defaults = brandKey ? DEFAULT_MODELS_BY_BRAND[brandKey] : []
-        setModelItems(defaults.map(n => ({ id: `default:${n.toLowerCase()}`, name: n, brand_id: selectedBrandId ?? '' })))
-      } finally {
-        setIsLoadingModels(false)
-      }
-    }
-    loadModels()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedBrandId, formData.brand])
-
-  const handleChange = (field: keyof NewOrderForm, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
+      navigate(`/orders/${orderId}`,{replace:true,state:{intakeCreated:true}})
+    }catch(cause){setError(cause instanceof Error?cause.message:'No se pudo crear la orden.');if(!orderId)submitLock.current=false}
+    finally{setSubmitting(false)}
   }
 
-  const handleBrandChange = async (value: string) => {
-    handleChange('brand', value)
-    handleChange('model', '') // Reset model when brand changes
+  if(!can('orders_create'))return <div className="card"><div className="card-body"><h1>Nueva orden</h1><p>No tenés permiso para registrar recepciones.</p><AppButton onClick={()=>navigate('/orders')}>Volver</AppButton></div></div>
 
-    if (value.trim()) {
-      // Fast path: look in already-loaded brand items
-      const local = brandItems.find(b => b.name.toLowerCase() === value.trim().toLowerCase())
-      if (local) {
-        // If it's a default: item, resolve to real DB ID
-        if (local.id.startsWith('default:')) {
-          // Will be persisted when form submits via ensureBrandAndModel
-          setSelectedBrandId(null)
-        } else {
-          setSelectedBrandId(local.id)
-        }
-        return
-      }
-      // Unknown brand typed: no DB ID yet (ensureBrandAndModel at submit handles it)
-      setSelectedBrandId(null)
-    } else {
-      setSelectedBrandId(null)
-    }
-  }
+  return <>
+    <div className="animate-fade-in intake-page">
+    <header className="intake-header">
+      <button type="button" className="btn btn-ghost" onClick={cancel} aria-label="Salir de nueva orden"><ArrowLeft size={20}/></button>
+      <div><p className="intake-eyebrow">Nueva orden · Paso {step+1} de {STEPS.length}</p><h1 ref={headingRef} tabIndex={-1}>{STEPS[step]}</h1></div>
+    </header>
+    <div className="intake-progress" role="progressbar" aria-label="Progreso de la recepción" aria-valuemin={1} aria-valuemax={STEPS.length} aria-valuenow={step+1}><span style={{width:`${((step+1)/STEPS.length)*100}%`}}/></div>
+    {error&&<div className="alert-inline alert-error" role="alert">{error}</div>}
 
-  const handleCreateBrand = async (name: string): Promise<string> => {
-    const trimmed = name.trim()
-    if (!trimmed) return trimmed
+    {step===0&&<StepCard><AppInput semantic="search" label="Buscar cliente" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Nombre, teléfono, DNI/CUIT o empresa"/>
+      <div className="intake-customer-list">{filteredCustomers.map(customer=><button type="button" key={customer.id} className={draft.customerId===customer.id?'is-selected':''} onClick={()=>update({customerId:customer.id})}><span>{customer.business_name||customer.name}</span><small>{customer.name} · {customer.phone}</small>{draft.customerId===customer.id&&<Check size={18}/>}</button>)}</div>
+      {!filteredCustomers.length&&<p className="form-hint">No encontramos coincidencias.</p>}
+      <AppButton variant="secondary" fullWidth leftIcon={<UserPlus size={18}/>} onClick={()=>setQuickOpen(true)}>Crear cliente rápido</AppButton>
+    </StepCard>}
 
-    // Persist in DB immediately so models can be saved under this brand
-    const brandId = await ensureBrand(trimmed)
-    if (brandId) {
-      setSelectedBrandId(brandId)
-      const updated = await getBrands()
-      // Merge with defaults, preserving order
-      const dbNames = new Set(updated.map(b => b.name.toLowerCase()))
-      const extraDefaults = DEFAULT_BRANDS.filter(n => !dbNames.has(n.toLowerCase()))
-      setBrandItems([...updated, ...extraDefaults.map(n => ({ id: `default:${n.toLowerCase()}`, name: n }))])
-      const canonical = updated.find(b => b.id === brandId)
-      return canonical?.name ?? trimmed
-    }
-    return trimmed
-  }
+    {step===1&&<StepCard><AppSelect label="Tipo de equipo" value={draft.device.type} onChange={e=>updateDevice({type:e.target.value as IntakeDraft['device']['type']})} options={[{value:'smartphone',label:'Teléfono'},{value:'tablet',label:'Tablet'},{value:'laptop',label:'Notebook'},{value:'smartwatch',label:'Smartwatch'},{value:'other',label:'Otro'}]}/>
+      <FormGrid><div><AppInput label="Marca" required value={draft.device.brand} onChange={e=>updateDevice({brand:e.target.value,model:''})} list="intake-brands"/><datalist id="intake-brands">{DEFAULT_BRANDS.map(item=><option key={item} value={item}/>)}</datalist></div><div><AppInput label="Modelo" required value={draft.device.model} onChange={e=>updateDevice({model:e.target.value})} list="intake-models"/><datalist id="intake-models">{models.map(item=><option key={item} value={item}/>)}</datalist></div></FormGrid>
+    </StepCard>}
 
-  const handleCreateModel = async (name: string): Promise<string> => {
-    const trimmed = name.trim()
-    if (!trimmed) return trimmed
+    {step===2&&<StepCard><div className="intake-field-action"><AppInput label="Número de serie" value={draft.device.serial} onChange={e=>updateDevice({serial:e.target.value})} autoCapitalize="characters"/><AppButton variant="secondary" leftIcon={<ScanLine size={17}/>} onClick={()=>setScanner('serial')}>Escanear</AppButton></div>
+      <div className="intake-field-action"><AppInput semantic="numeric" label="IMEI (opcional)" value={draft.device.imei} error={draft.device.imei&&!isValidImei(draft.device.imei)?'Debe ser un IMEI válido de 15 dígitos.':''} onChange={e=>updateDevice({imei:normalizeImei(e.target.value)})} maxLength={15}/><AppButton variant="secondary" leftIcon={<ScanLine size={17}/>} onClick={()=>setScanner('imei')}>Escanear</AppButton></div>
+    </StepCard>}
 
-    // If brand is a default: item, persist it first to get a real UUID
-    let realBrandId = selectedBrandId
-    if (!realBrandId || realBrandId.startsWith('default:')) {
-      realBrandId = await ensureBrand(formData.brand) ?? null
-      if (realBrandId) setSelectedBrandId(realBrandId)
-    }
+    {step===3&&<StepCard><AppSelect label="Estado general" value={draft.condition.general} onChange={e=>update({condition:{...draft.condition,general:e.target.value}})} options={['Excelente','Bueno','Regular','Dañado'].map(value=>({value,label:value}))}/>
+      <AppSelect label="¿Enciende?" value={draft.condition.powersOn} onChange={e=>update({condition:{...draft.condition,powersOn:e.target.value as IntakeDraft['condition']['powersOn']}})} options={[{value:'yes',label:'Sí'},{value:'no',label:'No'},{value:'not_verified',label:'No verificado'}]}/>
+      <fieldset><legend>Condiciones visibles</legend><ChoiceGrid>{['Pantalla rota','Rayones','Golpes','Humedad','Tapa dañada','Faltantes'].map(item=><label key={item} className="intake-check"><input type="checkbox" checked={draft.condition.physical.includes(item)} onChange={e=>update({condition:{...draft.condition,physical:e.target.checked?[...draft.condition.physical,item]:draft.condition.physical.filter(value=>value!==item)}})}/>{item}</label>)}</ChoiceGrid></fieldset>
+      <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={e=>addPhotos(e.target.files)}/><AppButton variant="secondary" leftIcon={<Camera size={18}/>} onClick={()=>fileRef.current?.click()} disabled={photos.length>=8}>Agregar fotos ({photos.length}/8)</AppButton>
+      <div className="intake-photo-grid">{photos.map((photo,index)=><div key={photo.preview}><img src={photo.preview} alt={`Foto de recepción ${index+1}`}/><button type="button" onClick={()=>removePhoto(index)} aria-label={`Quitar foto ${index+1}`}><Trash2 size={16}/></button></div>)}</div>
+    </StepCard>}
 
-    if (!realBrandId) {
-      // Brand unknown: will be handled at submit by ensureBrandAndModel
-      return trimmed
-    }
+    {step===4&&<StepCard><p className="form-hint">Marcá qué se verificó al recibir el equipo. “No probado” evita asumir que algo funciona.</p>{CHECKS.map(([key,label])=><AppSelect key={key} label={label} value={draft.checklist[key]||'not_tested'} onChange={e=>update({checklist:{...draft.checklist,[key]:e.target.value as CheckResult}})} options={CHECK_OPTIONS}/>)}</StepCard>}
 
-    const modelId = await ensureModel(trimmed, realBrandId)
-    if (modelId) {
-      const updated = await getModels(realBrandId)
-      setModelItems(updated)
-      const canonical = updated.find(m => m.id === modelId)
-      return canonical?.name ?? trimmed
-    }
-    return trimmed
-  }
-
-  const handleSelectCustomer = (customer: any) => {
-    setSelectedCustomer(customer)
-    handleChange('customer_id', customer.id)
-    setStep('device')
-  }
-
-  const handleCreateNewCustomer = () => {
-    navigate('/customers/new', { state: { returnTo: '/orders/new' } })
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsSubmitting(true)
-    setError('')
-
-    try {
-      // ── Persist brand + model in catalog (non-blocking: failure doesn't abort order) ──
-      // This guarantees that even if the user typed the brand/model without clicking
-      // "Crear", they are saved for future orders.
-      if (formData.brand && formData.model) {
-        try {
-          await ensureBrandAndModel(formData.brand, formData.model)
-        } catch {
-          // Catalog persistence failure is non-blocking — order creation continues
-        }
-      }
-
-      const device = await devicesService.create({
-        customer_id: formData.customer_id,
-        type: formData.device_type as any,
-        brand: formData.brand,
-        model: formData.model,
-        serial: formData.serial || undefined,
-        imei: formData.imei || undefined,
-        issue: formData.issue,
-        diagnosis: undefined
-      })
-
-      const order = await ordersService.create({
-        customer_id: formData.customer_id,
-        device_id: device.id,
-        technician_id: formData.technician_id || null,
-        status: 'new',
-        priority: formData.priority as any,
-        estimated_total: parseFloat(formData.estimated_total) || 0,
-        labor_cost: 0,
-        total_cost: 0
-      })
-
-      navigate(`/orders/${order.id}`)
-    } catch (err: any) {
-      setError(err.message || 'Error al crear la orden')
-      setIsSubmitting(false)
-    }
-  }
-
-  return (
-    <div className="animate-fade-in">
-      <div style={{ marginBottom: '2rem' }}>
-        <button onClick={() => navigate('/orders')} className="btn btn-ghost btn-sm" style={{ marginBottom: '1rem' }}>
-          <ArrowLeft size={15} />
-          Volver a Órdenes
-        </button>
-        <div className="page-hdr" style={{ marginBottom: 0 }}>
-          <div className="page-hdr-left">
-            <div className="page-hdr-icon"><Plus size={20} /></div>
-            <div>
-              <h1 className="page-hdr-title">Nueva Orden de Trabajo</h1>
-              <p className="page-hdr-subtitle">Crea una nueva orden paso a paso</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
-        {[
-          { id: 'customer', label: '1. Cliente',     icon: UserPlus,  clickable: true },
-          { id: 'device',   label: '2. Dispositivo', icon: Smartphone, clickable: !!selectedCustomer },
-          { id: 'details',  label: '3. Detalles',    icon: Plus,       clickable: !!selectedCustomer }
-        ].map((s) => (
-          <button
-            key={s.id}
-            onClick={() => s.clickable && setStep(s.id as any)}
-            disabled={!s.clickable}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '0.5rem',
-              padding: '0.625rem 1rem',
-              borderRadius: '0.625rem',
-              background: step === s.id
-                ? 'linear-gradient(135deg,#6366f1,#8b5cf6)'
-                : s.clickable ? 'rgba(255,255,255,0.04)' : 'transparent',
-              color: step === s.id ? '#fff' : s.clickable ? 'var(--text-secondary)' : 'var(--text-muted)',
-              fontWeight: step === s.id ? 700 : 500,
-              fontSize: '0.875rem',
-              border: `1px solid ${step === s.id ? 'rgba(99,102,241,0.5)' : 'rgba(255,255,255,0.08)'}`,
-              cursor: s.clickable ? 'pointer' : 'not-allowed',
-              opacity: s.clickable ? 1 : 0.45,
-              transition: 'all 0.15s',
-              boxShadow: step === s.id ? '0 4px 12px rgba(99,102,241,0.3)' : 'none',
-            }}
-          >
-            <s.icon size={15} />
-            {s.label}
-            {s.id === 'customer' && selectedCustomer && (
-              <span style={{ marginLeft: '0.125rem', color: step === s.id ? '#a5f3fc' : '#34d399', fontSize: '0.8rem' }}>✓</span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {error && (
-        <div className="alert-inline alert-error" style={{ marginBottom: '1.5rem' }}>{error}</div>
+    {step===5&&<StepCard><div className="intake-security-note"><ShieldCheck size={20}/><span>El acceso se cifra en Vault. No aparece en el resumen ni se guarda en el navegador.</span></div><ChoiceGrid>{ACCESS.map(option=><button type="button" key={option.value} className={`intake-choice ${draft.accessMode===option.value?'is-selected':''}`} onClick={()=>update({accessMode:option.value,accessSecret:'',pattern:[]})}><strong>{option.label}</strong><small>{option.hint}</small></button>)}</ChoiceGrid>
+      {draft.accessMode==='pin' && (
+        <AppInput semantic="password" inputMode="numeric" autoComplete="new-password" label="PIN" value={draft.accessSecret} onChange={e=>update({accessSecret:e.target.value.replace(/\D/g,'').slice(0,12)})}/>
       )}
-
-      {step === 'customer' && (
-        <div className="card">
-          <div className="card-header">
-            <div>
-              <h3 className="card-title">Paso 1: Seleccionar Cliente</h3>
-              <p style={{ fontSize: '0.875rem', color: '#64748b', margin: '0.25rem 0 0 0' }}>
-                Busca un cliente existente o crea uno nuevo para continuar con la orden
-              </p>
-            </div>
-          </div>
-          <div className="card-body">
-            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem' }}>
-              <div style={{ position: 'relative', flex: 1 }}>
-                <Search size={18} style={{ position: 'absolute', left: '0.875rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }} />
-                <input
-                  type="text"
-                  data-testid="new-order-customer-search"
-                  placeholder="Filtrar por nombre, teléfono o email..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="form-control"
-                  style={{ paddingLeft: '2.5rem', paddingRight: isSearching ? '2.5rem' : undefined }}
-                  autoFocus
-                />
-                {isSearching && (
-                  <Loader2 size={16} style={{ position: 'absolute', right: '0.875rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', animation: 'tr-spin 1s linear infinite' }} />
-                )}
-              </div>
-              <button
-                onClick={handleCreateNewCustomer}
-                className="btn btn-outline"
-              >
-                <UserPlus size={18} />
-                Nuevo Cliente
-              </button>
-            </div>
-
-            {customers.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <p style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: '0.5rem' }}>
-                  {searchQuery
-                    ? `${customers.length} resultado${customers.length !== 1 ? 's' : ''} — hacé clic en uno para seleccionarlo`
-                    : `${customers.length} cliente${customers.length !== 1 ? 's' : ''} — hacé clic en uno para seleccionarlo`
-                  }
-                </p>
-                {customers.map((customer) => (
-                  <div
-                    key={customer.id}
-                    data-testid="new-order-customer-card"
-                    onClick={() => handleSelectCustomer(customer)}
-                    style={{
-                      padding: '1rem',
-                      backgroundColor: selectedCustomer?.id === customer.id ? 'rgba(99, 102, 241, 0.2)' : 'rgba(15,23,42,0.8)',
-                      borderRadius: '0.5rem',
-                      cursor: 'pointer',
-                      border: selectedCustomer?.id === customer.id ? '2px solid #6366f1' : '1px solid transparent',
-                      transition: 'all 0.2s ease'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div>
-                        <h4 style={{ fontWeight: 600, color: '#f8fafc', marginBottom: '0.5rem' }}>
-                          {customer.name}
-                          {selectedCustomer?.id === customer.id && (
-                            <span style={{ marginLeft: '0.5rem', color: '#10b981' }}>✓ Seleccionado</span>
-                          )}
-                        </h4>
-                        <div style={{ fontSize: '0.875rem', color: '#a0aec0' }}>
-                          <span style={{ marginRight: '1rem' }}>
-                            <i className="fas fa-phone me-2"></i>
-                            {customer.phone}
-                          </span>
-                          {customer.email && (
-                            <span>
-                              <i className="fas fa-envelope me-2"></i>
-                              {customer.email}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      {selectedCustomer?.id === customer.id && (
-                        <button
-                          data-testid="new-order-customer-continue"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setStep('device')
-                          }}
-                          className="btn btn-primary btn-sm"
-                        >
-                          Continuar →
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {customers.length === 0 && !isSearching && (
-              <div style={{ textAlign: 'center', padding: '2.5rem 2rem', color: '#64748b', backgroundColor: 'rgba(15,23,42,0.8)', borderRadius: '0.5rem' }}>
-                <UserPlus size={40} style={{ marginBottom: '1rem', opacity: 0.4 }} />
-                {searchQuery ? (
-                  <>
-                    <p style={{ fontSize: '1rem', marginBottom: '0.5rem', color: '#a0aec0' }}>
-                      Sin resultados para "{searchQuery}"
-                    </p>
-                    <p style={{ fontSize: '0.875rem', margin: '0 auto 1.25rem' }}>
-                      Probá con otro término o creá el cliente nuevo
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p style={{ fontSize: '1rem', marginBottom: '0.5rem', color: '#a0aec0' }}>
-                      No hay clientes registrados aún
-                    </p>
-                    <p style={{ fontSize: '0.875rem', margin: '0 auto 1.25rem' }}>
-                      Creá el primer cliente para continuar
-                    </p>
-                  </>
-                )}
-                <button
-                  onClick={handleCreateNewCustomer}
-                  className="btn btn-primary"
-                >
-                  <UserPlus size={17} />
-                  Crear Nuevo Cliente
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+      {draft.accessMode==='password' && (
+        <AppInput semantic="password" autoComplete="new-password" label="Contraseña" value={draft.accessSecret} onChange={e=>update({accessSecret:e.target.value.slice(0,256)})}/>
       )}
+      {draft.accessMode==='pattern'&&<PatternGrid value={draft.pattern} onChange={pattern=>update({pattern})}/>}</StepCard>}
 
-      {(step === 'device' || step === 'details') && selectedCustomer && (
-        <form onSubmit={handleSubmit}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-            <div className="card" style={{ gridColumn: 'span 2' }}>
-              <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <h3 className="card-title">Cliente Seleccionado</h3>
-                <button 
-                  type="button"
-                  onClick={() => {
-                    setSelectedCustomer(null)
-                    setStep('customer')
-                  }}
-                  className="btn btn-sm btn-outline"
-                >
-                  Cambiar
-                </button>
-              </div>
-              <div className="card-body">
-                <h4 style={{ fontWeight: 600, color: '#f8fafc' }}>{selectedCustomer.name}</h4>
-                <p style={{ color: '#a0aec0', fontSize: '0.875rem' }}>
-                  {selectedCustomer.phone} • {selectedCustomer.email}
-                </p>
-              </div>
-            </div>
+    {step===6&&<StepCard><AppTextarea label="Problema informado por el cliente" required value={draft.problem} onChange={e=>update({problem:e.target.value})} minRows={4}/><AppTextarea label="Observaciones de recepción" value={draft.observations} onChange={e=>update({observations:e.target.value})} hint="Estado, accesorios o aclaraciones que no forman parte del problema."/></StepCard>}
 
-            <div className="card">
-              <div className="card-header">
-                <h3 className="card-title">Información del Dispositivo</h3>
-              </div>
-              <div className="card-body">
-                <div style={{ marginBottom: '1rem' }}>
-                  <label className="form-label">Tipo de Dispositivo</label>
-                  <select
-                    data-testid="new-order-device-type-select"
-                    value={formData.device_type}
-                    onChange={(e) => handleChange('device_type', e.target.value)}
-                    className="form-select"
-                  >
-                    <option value="smartphone">Celular</option>
-                    <option value="tablet">Tablet</option>
-                    <option value="laptop">Notebook</option>
-                    <option value="smartwatch">Smartwatch</option>
-                    <option value="other">Otro</option>
-                  </select>
-                </div>
+    {step===7&&<StepCard><AppSelect label="Técnico / responsable" value={draft.assignedProfileId} onChange={e=>update({assignedProfileId:e.target.value})} placeholder="Sin asignar" options={profiles.map(profile=>({value:profile.id,label:profile.full_name||profile.email||'Integrante'}))}/><AppSelect label="Prioridad" value={draft.priority} onChange={e=>update({priority:e.target.value as IntakeDraft['priority']})} options={[{value:'medium',label:'Normal'},{value:'high',label:'Importante'},{value:'urgent',label:'Urgente'}]}/></StepCard>}
 
-                <div style={{ marginBottom: '1rem' }}>
-                  <Autocomplete
-                    testId="new-order-brand-input"
-                    value={formData.brand}
-                    onChange={handleBrandChange}
-                    options={brands}
-                    label="Marca"
-                    placeholder="Ej: Apple, Samsung, Xiaomi"
-                    required
-                    allowCreate
-                    onCreate={handleCreateBrand}
-                    isLoading={isLoadingBrands}
-                  />
-                </div>
+    {step===8&&<StepCard><p className="form-hint">El presupuesto es opcional y no registra pagos ni movimientos financieros.</p><FormGrid><AppInput semantic="decimal" label="Presupuesto estimado" value={draft.budgetAmount} onChange={e=>update({budgetAmount:e.target.value})} placeholder="Ej. 100.000,50"/><AppSelect label="Moneda" value={draft.budgetCurrency} onChange={e=>update({budgetCurrency:e.target.value as 'ARS'|'USD'})} options={[{value:'ARS',label:'ARS — Pesos'},{value:'USD',label:'USD — Dólares'}]}/></FormGrid></StepCard>}
 
-                <div style={{ marginBottom: '1rem' }}>
-                  <Autocomplete
-                    testId="new-order-model-input"
-                    value={formData.model}
-                    onChange={(value) => handleChange('model', value)}
-                    options={models}
-                    label="Modelo"
-                    placeholder="Ej: iPhone 13 Pro"
-                    required
-                    allowCreate
-                    onCreate={handleCreateModel}
-                    isLoading={isLoadingModels}
-                    disabled={!formData.brand}
-                  />
-                </div>
+    {step===9&&<StepCard><div className="intake-summary">
+      <Summary title="Cliente" onEdit={()=>setStep(0)}>{selectedCustomer?.business_name||selectedCustomer?.name}</Summary>
+      <Summary title="Equipo" onEdit={()=>setStep(1)}>{draft.device.brand} {draft.device.model} · {draft.device.type}</Summary>
+      <Summary title="Identificación" onEdit={()=>setStep(2)}>Serie: {draft.device.serial||'No informada'} · IMEI: {draft.device.imei||'No informado'}</Summary>
+      <Summary title="Estado y fotos" onEdit={()=>setStep(3)}>{draft.condition.general} · {photos.length} foto(s)</Summary>
+      <Summary title="Checklist" onEdit={()=>setStep(4)}>{Object.values(draft.checklist).filter(value=>value==='fail').length} falla(s) marcada(s)</Summary>
+      <Summary title="Acceso" onEdit={()=>setStep(5)}>{['pin','pattern','password'].includes(draft.accessMode)?`${ACCESS.find(a=>a.value===draft.accessMode)?.label} configurado`:ACCESS.find(a=>a.value===draft.accessMode)?.label}</Summary>
+      <Summary title="Problema" onEdit={()=>setStep(6)}>{draft.problem}</Summary>
+      <Summary title="Asignación" onEdit={()=>setStep(7)}>{profiles.find(profile=>profile.id===draft.assignedProfileId)?.full_name||'Sin asignar'} · {draft.priority==='medium'?'Normal':draft.priority==='high'?'Importante':'Urgente'}</Summary>
+      <Summary title="Presupuesto" onEdit={()=>setStep(8)}>{draft.budgetAmount?`${draft.budgetCurrency} ${draft.budgetAmount}`:'Sin presupuesto'}</Summary>
+    </div></StepCard>}
 
-                <div style={{ marginBottom: '1rem' }}>
-                  <label className="form-label">Serial / IMEI</label>
-                  <input
-                    type="text"
-                    value={formData.serial}
-                    onChange={(e) => handleChange('serial', e.target.value)}
-                    className="form-control"
-                    placeholder="Número de serie o IMEI"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-header">
-                <h3 className="card-title">Detalles de la Orden</h3>
-              </div>
-              <div className="card-body">
-                <div style={{ marginBottom: '1rem' }}>
-                  <label className="form-label">Problema Reportado *</label>
-                  <textarea
-                    data-testid="new-order-issue-input"
-                    value={formData.issue}
-                    onChange={(e) => handleChange('issue', e.target.value)}
-                    className="form-control"
-                    rows={4}
-                    placeholder="Describe el problema que reporta el cliente..."
-                    required
-                  />
-                </div>
-
-                <div style={{ marginBottom: '1rem' }}>
-                  <label className="form-label">Prioridad</label>
-                  <select
-                    value={formData.priority}
-                    onChange={(e) => handleChange('priority', e.target.value)}
-                    className="form-select"
-                  >
-                    <option value="urgent">Urgente</option>
-                    <option value="high">Alta</option>
-                    <option value="medium">Media</option>
-                    <option value="low">Baja</option>
-                  </select>
-                </div>
-
-                <div style={{ marginBottom: '1rem' }}>
-                  <label className="form-label">ID Técnico (opcional)</label>
-                  <input
-                    type="text"
-                    value={formData.technician_id}
-                    onChange={(e) => handleChange('technician_id', e.target.value)}
-                    className="form-control"
-                    placeholder="ID del técnico asignado"
-                  />
-                </div>
-
-                <div style={{ marginBottom: '1rem' }}>
-                  <label className="form-label">Presupuesto Estimado</label>
-                  <input
-                    data-testid="new-order-budget-input"
-                    type="number"
-                    value={formData.estimated_total}
-                    onChange={(e) => handleChange('estimated_total', e.target.value)}
-                    className="form-control"
-                    placeholder="0.00"
-                    min="0"
-                    step="0.01"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-            <button
-              type="button"
-              onClick={() => setStep('customer')}
-              className="btn btn-outline"
-            >
-              Anterior
-            </button>
-            <button
-              data-testid="new-order-save-button"
-              type="submit"
-              className="btn btn-primary"
-              disabled={isSubmitting || !formData.brand || !formData.model || !formData.issue}
-            >
-              {isSubmitting ? (
-                <>
-                  <span className="spinner-border spinner-border-sm" style={{ marginRight: '0.5rem' }}></span>
-                  Creando...
-                </>
-              ) : (
-                <>
-                  <Plus size={18} />
-                  Crear Orden
-                </>
-              )}
-            </button>
-          </div>
-        </form>
-      )}
+    <div className="intake-desktop-actions"><AppButton variant="secondary" onClick={step===0?cancel:back} leftIcon={<ChevronLeft size={18}/>}>{step===0?'Cancelar':'Anterior'}</AppButton>{step<9?<AppButton variant="primary" onClick={next} rightIcon={<ChevronRight size={18}/>}>Continuar</AppButton>:<AppButton variant="primary" loading={submitting} onClick={submit}>{createdOrderId?'Reintentar fotos':'Crear orden'}</AppButton>}</div>
     </div>
-  )
+    <MobileActionBar secondaryAction={<AppButton variant="secondary" fullWidth onClick={step===0?cancel:back}>{step===0?'Cancelar':'Anterior'}</AppButton>} primaryAction={step<9?<AppButton variant="primary" fullWidth onClick={next}>Continuar</AppButton>:<AppButton variant="primary" fullWidth loading={submitting} onClick={submit}>{createdOrderId?'Reintentar fotos':'Crear orden'}</AppButton>}/>
+    <QuickCustomerDialog open={quickOpen} onClose={()=>setQuickOpen(false)} onCreated={customer=>{setCustomers(previous=>[customer,...previous]);update({customerId:customer.id});setQuickOpen(false)}}/>
+    <BarcodeScannerDialog open={scanner!==null} onClose={()=>setScanner(null)} onDetected={value=>scanner&&updateDevice({[scanner]:scanner==='imei'?normalizeImei(value):value} as Partial<IntakeDraft['device']>)}/>
+  </>
+}
+
+function Summary({title,onEdit,children}:{title:string;onEdit:()=>void;children:React.ReactNode}){return <section><div><h2>{title}</h2><button type="button" onClick={onEdit}>Editar</button></div><p>{children||'—'}</p></section>}
+
+function QuickCustomerDialog({open,onClose,onCreated}:{open:boolean;onClose:()=>void;onCreated:(customer:Customer)=>void}){
+  const [type,setType]=useState<'minorista'|'mayorista'>('minorista')
+  const [form,setForm]=useState({name:'',phone:'',email:'',document:'',business_name:'',contact_person:''})
+  const [saving,setSaving]=useState(false);const [error,setError]=useState('')
+  const change=(key:keyof typeof form,value:string)=>setForm(previous=>({...previous,[key]:value}))
+  const changeType=(value:'minorista'|'mayorista')=>{setType(value);if(value==='minorista')setForm(previous=>({...previous,business_name:'',contact_person:''}))}
+  const save=async()=>{if(!form.name.trim()||!form.phone.trim()||(type==='mayorista'&&!form.business_name.trim())){setError('Completá los campos obligatorios.');return}setSaving(true);setError('');try{const customer=await customersService.create({name:form.name.trim(),phone:form.phone.trim(),email:form.email||undefined,document:form.document||undefined,customer_type:type,business_name:form.business_name||undefined,contact_person:form.contact_person||undefined});onCreated(customer)}catch(cause){setError(cause instanceof Error?cause.message:'No se pudo crear el cliente.')}finally{setSaving(false)}}
+  return <ResponsiveDialog isOpen={open} onClose={onClose} title="Crear cliente rápido" subtitle="Queda disponible para esta orden y futuras recepciones." mobilePresentation="fullscreen" footer={<><AppButton variant="secondary" onClick={onClose}>Cancelar</AppButton><AppButton variant="primary" loading={saving} onClick={save}>Crear cliente</AppButton></>}>
+    {error&&<p className="form-error" role="alert">{error}</p>}<AppSelect label="Tipo de cliente" value={type} onChange={e=>changeType(e.target.value as 'minorista'|'mayorista')} options={[{value:'minorista',label:'Minorista'},{value:'mayorista',label:'Mayorista'}]}/>
+    {type==='mayorista'&&<FormGrid><AppInput label="Razón social" required value={form.business_name} onChange={e=>change('business_name',e.target.value)}/><AppInput label="Persona de contacto" value={form.contact_person} onChange={e=>change('contact_person',e.target.value)}/></FormGrid>}
+    <FormGrid><AppInput label={type==='mayorista'?'Nombre de contacto':'Nombre completo'} required value={form.name} onChange={e=>change('name',e.target.value)}/><AppInput semantic="tel" label="Teléfono" required value={form.phone} onChange={e=>change('phone',e.target.value)}/><AppInput semantic="email" label="Email" value={form.email} onChange={e=>change('email',e.target.value)}/><AppInput semantic="numeric" label={type==='mayorista'?'CUIT':'DNI'} value={form.document} onChange={e=>change('document',e.target.value)}/></FormGrid>
+  </ResponsiveDialog>
 }

@@ -14,6 +14,7 @@ import {
   puntoVentaVisibleComprobante,
 } from '../../lib/fiscalDisplay'
 import { formatearFechaCalendario } from '../../lib/fechaCalendario'
+import { resolveBusinessDisplayName } from '../../lib/businessIdentity'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -79,7 +80,14 @@ const TIPO_LETRA: Record<string, string> = {
 
 export function ComprobantePrintLayout({ comprobante, items, cliente, orden, profile }: Props) {
   const tipoLetra  = TIPO_LETRA[comprobante.tipo]  ?? '?'
-  const nombre     = profile.nombre_comercial || 'Mi Negocio'
+  // P0-ONB1: la HOJA IMPRESA. Es la superficie más peligrosa del lote — está
+  // oculta en el DOM (`display: none` hasta window.print()), así que un probe
+  // filtrado por visibilidad NO la ve y daría falso verde. Un placeholder
+  // técnico jamás sale impreso. Ver lib/businessIdentity.ts.
+  const nombre     = resolveBusinessDisplayName({
+    nombreComercial: profile.nombre_comercial,
+    razonSocial:     profile.razon_social,
+  })
   const esRemito   = comprobante.tipo === 'remito'
   const showIva    = comprobante.tipo === 'factura_a'
   const esNC       = comprobante.tipo === 'nota_credito'

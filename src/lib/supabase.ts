@@ -36,6 +36,9 @@ export type Order = {
   status: 'new' | 'diagnosis' | 'waiting_approval' | 'repair' | 'waiting_parts' | 'ready_delivery' | 'waiting_payment' | 'completed' | 'cancelled'
   priority: 'urgent' | 'high' | 'medium' | 'low'
   estimated_total: number
+  estimated_total_currency?: 'ARS' | 'USD'
+  access_mode?: 'none' | 'pin' | 'pattern' | 'password' | 'not_provided' | 'not_verifiable' | null
+  assigned_profile_id?: string | null
   labor_cost: number
   total_cost: number
   notes?: string
@@ -56,6 +59,8 @@ export type Customer = {
   city?: string
   active?: boolean
   customer_type?: string
+  business_name?: string
+  contact_person?: string
   business_id?: string
   created_by?: string
   created_at: string
@@ -139,7 +144,9 @@ export type Document = {
   id: string
   order_id: string
   file_name: string
-  file_url: string
+  file_url?: string | null
+  storage_path?: string | null
+  kind?: 'general' | 'intake'
   file_type: string
   file_size?: number
   uploaded_by?: string

@@ -321,7 +321,10 @@ describe('E · Mi Guita fail-closed', () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('F · el frontend y la DB describen el MISMO contrato', () => {
+  // El helper se redefine aditivamente cuando nace una capacidad nueva; el
+  // contrato efectivo es la suma ordenada de la definición base y su override.
   const sql = leer('supabase/migrations/20260826120000_p0p6_capability_rbac.sql')
+    + leer('supabase/migrations/20260903120000_mobile2a_order_intake.sql')
 
   it('el helper server-side conoce todas las capacidades del frontend', () => {
     // Si alguien agrega una capacidad al frontend y se olvida del helper, la

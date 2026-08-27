@@ -5,6 +5,7 @@ import {
   OrderPrintSettings,
   DEFAULT_PRINT_SETTINGS,
 } from '../../hooks/useOrderPrintSettings'
+import { resolveBusinessDisplayName } from '../../lib/businessIdentity'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -200,7 +201,12 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
     const orderDate = new Date(order.created_at).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: '2-digit', year: 'numeric' })
     const orderTime = new Date(order.created_at).toLocaleTimeString('es-AR', { timeZone: 'America/Argentina/Cordoba', hour: '2-digit', minute: '2-digit' })
     const total = itemsTotal !== null ? itemsTotal : (order.final_total || order.estimated_total || 0)
-    const businessName = s.nombre_comercial || s.razon_social || 'Mi Negocio'
+    // P0-ONB1: la orden de servicio se le entrega al cliente al dejar el
+    // equipo. Un placeholder técnico no puede salir impreso ahí.
+    const businessName = resolveBusinessDisplayName({
+      nombreComercial: s.nombre_comercial,
+      razonSocial:     s.razon_social,
+    })
     const statusInfo = getStatus(order.status)
 
     // QR URL para seguimiento (usa servicio público)

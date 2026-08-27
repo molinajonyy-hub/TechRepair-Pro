@@ -16,6 +16,7 @@ import { OrderPrintSettings } from '../../hooks/useOrderPrintSettings'
 import { getComprobanteDisplayStatus, type DisplayStatusKey } from '../../utils/comprobanteStatus'
 import { formatearNumeroComprobante, muestraNumeroInternoFiscal } from '../../lib/fiscalDisplay'
 import { formatearFechaCalendario } from '../../lib/fechaCalendario'
+import { resolveBusinessDisplayName } from '../../lib/businessIdentity'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -127,7 +128,12 @@ function DocHeader({ comprobante, profile }: { comprobante: Comprobante; profile
   const est  = ESTADO_CONFIG[claveDeEstado(comprobante)] ?? ESTADO_CONFIG.borrador
   const displayStatus = getComprobanteDisplayStatus(comprobante)
   const esNumeroInternoFiscal = muestraNumeroInternoFiscal(comprobante)
-  const name = profile.nombre_comercial || 'Mi Negocio'
+  // P0-ONB1: un placeholder técnico no puede terminar en un comprobante que se
+  // le entrega al cliente. Sin nombre real, vacío. Ver lib/businessIdentity.ts.
+  const name = resolveBusinessDisplayName({
+    nombreComercial: profile.nombre_comercial,
+    razonSocial:     profile.razon_social,
+  })
   const addr = profile.domicilio_fiscal
   const wa   = profile.orden_whatsapp
   const ig   = profile.orden_instagram

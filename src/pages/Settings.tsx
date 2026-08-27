@@ -32,7 +32,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import ArcaService from '../services/arcaService'
 import { uploadBusinessLogo } from '../lib/storageSetup'
-import { businessSetupService } from '../services/businessSetupService'
+import { businessSetupService, BusinessSetupError } from '../services/businessSetupService'
+import { CONDICIONES_FISCALES, normalizeCondicionFiscal } from '../lib/fiscalCondition'
 
 type TabType = 'datos' | 'puntos' | 'arca' | 'preferencias' | 'seguridad' | 'orden' | 'comprobante' | 'pagos' | 'comisiones' | 'whatsapp'
 
@@ -240,6 +241,42 @@ export default function Settings() {
         setBusinessSettings(businessData)
       }
 
+      // P0-ONB1 — LECTURA CANÓNICA.
+      //
+      // Leer sólo `business_settings` es exactamente el defecto que este lote
+      // cierra: el onboarding escribía el nombre en `businesses.name` y esta
+      // pantalla lo buscaba en `business_settings.nombre_comercial`, así que el
+      // usuario veía el campo vacío y lo cargaba de nuevo. Medido: 18 de 20
+      // negocios con onboarding completo tenían `nombre_comercial` vacío.
+      //
+      // La RPC resuelve la autoridad y el espejo en una sola llamada, así que
+      // esta pantalla ya no tiene que saber qué campo vive en qué tabla. Los
+      // campos que este lote NO gobierna (impresión, moneda, dólar) quedan con
+      // los valores crudos cargados arriba.
+      try {
+        const perfil = await businessSetupService.getMyBusinessProfile()
+        setBusinessSettings(prev => ({
+          ...prev,
+          nombre_comercial:           perfil.nombreComercial           ?? '',
+          razon_social:               perfil.razonSocial               ?? '',
+          cuit:                       perfil.cuit                      ?? '',
+          // Slug canónico: es lo que matchean las <option> desde este lote.
+          condicion_iva:              perfil.condicionIva              ?? '',
+          domicilio_fiscal:           perfil.domicilioFiscal           ?? '',
+          localidad:                  perfil.localidad                 ?? '',
+          provincia:                  perfil.provincia                 ?? '',
+          codigo_postal:              perfil.codigoPostal              ?? '',
+          telefono:                   perfil.telefono                  ?? '',
+          email:                      perfil.email                     ?? '',
+          observaciones_comprobantes: perfil.observacionesComprobantes ?? '',
+          logo_url:                   perfil.logoUrl                   ?? undefined,
+        }))
+      } catch (e) {
+        // Un negocio sin perfil no debe dejar la pantalla en blanco: quedan los
+        // valores crudos ya cargados arriba. No se traga el diagnóstico.
+        console.error('Settings: no se pudo cargar el perfil canónico', e)
+      }
+
       // Cargar puntos de venta (ignorar errores de permisos/tabla)
       try {
         const { data: pointsData, error: pointsError } = await supabase
@@ -275,30 +312,57 @@ export default function Settings() {
     }
   }
 
+  /**
+   * P0-ONB1 — Guardado por el WRITER CANÓNICO.
+   *
+   * Lo que había acá era un `supabase.from('business_settings').upsert(...)`
+   * directo con TODO el objeto de estado. Tres problemas, todos medidos:
+   *
+   *   1. Escribía SÓLO `business_settings`, así que el nombre que se editaba
+   *      acá y el de `businesses.name` —el que ve el shell y el que escribía el
+   *      wizard— quedaban divergentes para siempre.
+   *   2. Mandaba el objeto entero, incluidos los defaults del `useState`. En un
+   *      negocio sin fila, guardar el teléfono también estampaba
+   *      `condicion_iva: 'Responsable Inscripto'` — una afirmación fiscal que
+   *      el usuario nunca hizo.
+   *   3. Al ser un segundo writer del mismo dato, cualquier regla nueva había
+   *      que implementarla dos veces. Es la definición del defecto de este lote.
+   *
+   * Ahora se manda un PATCH EXPLÍCITO de los campos que esta pantalla gobierna.
+   * El resto de `business_settings` (impresión de órdenes y comprobantes,
+   * moneda, dólar) tiene sus propias pantallas y sus propios writers, y este
+   * guardado ya no los toca ni por accidente.
+   */
   const handleSaveBusinessSettings = async () => {
     if (!businessId) return
 
     try {
       setSaving(true)
 
-      // Extraemos solo los campos editables del negocio (sin id, business_id ni campos orden_*)
-      const {
-        id: _id,
-        business_id: _bid,
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        ...fieldsToUpdate
-      } = businessSettings as any
-
-      const { error } = await supabase
-        .from('business_settings')
-        .upsert({ ...fieldsToUpdate, business_id: businessId }, { onConflict: 'business_id' })
-
-      if (error) throw error
+      await businessSetupService.updateMyBusinessProfile({
+        nombreComercial:           businessSettings.nombre_comercial,
+        razonSocial:               businessSettings.razon_social,
+        cuit:                      businessSettings.cuit,
+        condicionIva:              businessSettings.condicion_iva,
+        domicilioFiscal:           businessSettings.domicilio_fiscal,
+        localidad:                 businessSettings.localidad,
+        provincia:                 businessSettings.provincia,
+        codigoPostal:              businessSettings.codigo_postal,
+        telefono:                  businessSettings.telefono,
+        email:                     businessSettings.email,
+        observacionesComprobantes: businessSettings.observaciones_comprobantes,
+      })
 
       alert('Configuración guardada exitosamente')
     } catch (err: any) {
       console.error('Error saving settings:', err)
-      alert('Error al guardar la configuración: ' + (err?.message || JSON.stringify(err)))
+      // El servidor devuelve códigos semánticos (CUIT inválido, condición fuera
+      // de la lista, sin permiso). Mostrar el mensaje del error en crudo dejaba
+      // al usuario con un SQLSTATE en un alert.
+      const msg = err instanceof BusinessSetupError
+        ? err.message
+        : (err?.message || JSON.stringify(err))
+      alert('Error al guardar la configuración: ' + msg)
     } finally {
       setSaving(false)
     }
@@ -768,16 +832,36 @@ export default function Settings() {
 
               <div>
                 <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Condición frente al IVA *</label>
+                {/*
+                  P0-ONB1 — EL CAMPO QUE SE VEÍA EN BLANCO.
+
+                  Las <option> tenían como `value` la ETIQUETA humana
+                  ('Responsable Inscripto') mientras que el wizard guardaba el
+                  SLUG ('monotributo'). Un <select> controlado de React con un
+                  `value` que no existe entre sus opciones deja
+                  `selectedIndex = -1`: se renderiza VACÍO. Medido: les pasaba a
+                  los 5 negocios que habían completado el onboarding.
+
+                  Desde este lote: `value` = slug canónico, texto = etiqueta.
+                  `normalizeCondicionFiscal` cubre la fila que todavía no pasó
+                  por el writer canónico (etiqueta legacy -> slug), así que el
+                  campo se ve bien ANTES de volver a guardar y no después.
+
+                  OJO: el <select> de PUNTOS DE VENTA (más abajo) es otra cosa
+                  —la condición del punto de venta, territorio ARCA— y este lote
+                  NO lo toca.
+                */}
                 <select
-                  value={businessSettings.condicion_iva}
+                  value={normalizeCondicionFiscal(businessSettings.condicion_iva) ?? ''}
                   onChange={(e) => setBusinessSettings({ ...businessSettings, condicion_iva: e.target.value })}
                   className="form-control"
                 >
-                  <option value="Responsable Inscripto">Responsable Inscripto</option>
-                  <option value="Responsable Monotributo">Responsable Monotributo</option>
-                  <option value="Exento">Exento</option>
-                  <option value="Monotributista Social">Monotributista Social</option>
-                  <option value="Consumidor Final">Consumidor Final</option>
+                  {/* Sin condición cargada NO se elige una por el usuario: una
+                      condición fiscal inventada se imprime en un comprobante. */}
+                  <option value="">Sin especificar</option>
+                  {CONDICIONES_FISCALES.map(c => (
+                    <option key={c.slug} value={c.slug}>{c.label}</option>
+                  ))}
                 </select>
               </div>
 

@@ -51,7 +51,15 @@ export const DEFAULT_CONDITIONS =
 export const DEFAULT_THANK_YOU = 'Gracias por confiar en nosotros'
 
 export const DEFAULT_PRINT_SETTINGS: OrderPrintSettings = {
-  nombre_comercial: 'Mi Negocio',
+  // P0-ONB1: vacío, NUNCA el placeholder técnico.
+  //
+  // Este default se renderiza durante el primer frame, antes de que responda la
+  // DB. `Orders.tsx` ya documentaba la race que por eso imprimía «Mi Negocio»
+  // en el HTML capturado. Con un negocio sin `nombre_comercial` el default
+  // además NO era transitorio: quedaba para siempre.
+  //
+  // Ver src/lib/businessIdentity.ts para la regla completa.
+  nombre_comercial: '',
   razon_social: '',
   domicilio_fiscal: '',
   telefono: '',
