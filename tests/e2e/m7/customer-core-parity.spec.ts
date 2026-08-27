@@ -200,10 +200,15 @@ test.describe('@customer-core UI-CONSISTENCY-1 · sanidad responsive', () => {
       // no sólo por visibilidad.
       //
       // NOTA: hoy mide ~39 px de alto, por debajo del mínimo táctil de 44 px.
-      // Viene de MOBILE-2A (el footer de ResponsiveDialog) y este lote NO lo
+      // Viene del footer de ResponsiveDialog (MOBILE-2A) y este lote NO lo
       // toca: cambiar el alto del AppButton afecta el footer de TODOS los
-      // diálogos de la app. Queda reportado para el lote de convergencia de
-      // diálogos. Acá sólo se fija que no haya regresión de alcance.
+      // diálogos de la app.
+      //
+      // UI-CONSISTENCY-4 (PR #86) NO lo cubre. Medido tras integrarlo: subió
+      // `.icon-btn` a 44×44 con `--mobile-touch-target` bajo 1023 px, pero el
+      // footer de los diálogos sigue en 39,1 px. No asumir que ya está resuelto.
+      // Queda para el lote de convergencia de diálogos; acá sólo se fija que no
+      // haya regresión de alcance.
       const cta = dialog.getByRole('button', { name: 'Crear cliente' })
       await expect(cta).toBeVisible()
       const reachable = await cta.evaluate((element) => {
