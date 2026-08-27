@@ -35,6 +35,20 @@ type CustomerStats = {
   total: number
 }
 
+/**
+ * Fila de orden que alimenta las estadísticas de la lista.
+ *
+ * Está tipada a propósito: mientras el estado era `any[]`, leer una relación
+ * embebida inexistente (`order.customer?.id`) compilaba sin queja y rompía el
+ * cálculo en silencio. Con este tipo, ese error es de compilación.
+ */
+type CustomerStatsOrderRow = {
+  id: string
+  customer_id: string | null
+  total_cost: number | null
+  estimated_total: number | null
+}
+
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('es-AR', {
     style: 'currency',
@@ -48,7 +62,7 @@ export function Customers() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const searchTimer = useRef<ReturnType<typeof setTimeout>>()
   const [customers, setCustomers] = useState<CustomerSummary[]>([])
-  const [orders, setOrders] = useState<any[]>([])
+  const [orders, setOrders] = useState<CustomerStatsOrderRow[]>([])
   const [error, setError] = useState<string | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const { showLoading, hideLoading } = useLoading()
@@ -132,10 +146,13 @@ export function Customers() {
       // Cargar clientes con un conteo de órdenes embebido — evita traer todas las órdenes
       const [customersResult, ordersCountResult] = await Promise.allSettled([
         customersService.getAll(),
-        // Solo traer order_id y customer_id: query liviana para estadísticas
+        // Query liviana para estadísticas. `estimated_total` es obligatorio:
+        // el valor de una orden es `total_cost` cuando es positivo y si no el
+        // presupuesto estimado. Sin traerlo, toda orden aún sin costo final
+        // sumaba 0 aunque tuviera presupuesto.
         supabase
           .from('orders')
-          .select('id, customer_id, total_cost, amount_paid')
+          .select('id, customer_id, total_cost, estimated_total')
           .eq('business_id', businessId)
           .limit(2000),
       ])
@@ -147,7 +164,7 @@ export function Customers() {
       setCustomers((customersResult.value || []) as CustomerSummary[])
 
       if (ordersCountResult.status === 'fulfilled') {
-        setOrders(ordersCountResult.value.data || [])
+        setOrders((ordersCountResult.value.data || []) as CustomerStatsOrderRow[])
       } else {
         console.error('Error loading customer stats:', ordersCountResult.reason)
         setOrders([])
@@ -289,7 +306,10 @@ export function Customers() {
 
   const customerStats = useMemo(() => {
     return orders.reduce<Record<string, CustomerStats>>((stats, order) => {
-      const customerId = order.customer?.id
+      // La query trae `customer_id` plano, NO una relación embebida. Leer
+      // `order.customer?.id` daba siempre undefined y descartaba TODAS las
+      // órdenes, así que cada cliente mostraba 0 órdenes y $0.
+      const customerId = order.customer_id
 
       if (!customerId) {
         return stats
@@ -499,20 +519,15 @@ export function Customers() {
                 <div>
                   <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>DNI / CUIT</label>
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <div style={{ display: 'flex', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: '0.5rem', overflow: 'hidden', flexShrink: 0 }}>
+                    <div className="seg-field">
                       {DOCUMENT_TYPES.map(t => (
                         <button
                           key={t}
                           type="button"
+                          className="seg-field-option"
                           data-testid={`customer-edit-document-type-${t}`}
                           aria-pressed={editForm.documentType === t}
                           onClick={() => setEditField('documentType', t)}
-                          style={{
-                            padding: '0.5rem 0.875rem', border: 'none', cursor: 'pointer',
-                            fontWeight: 700, fontSize: '0.8rem', letterSpacing: '0.04em', transition: 'all 0.15s',
-                            background: editForm.documentType === t ? 'rgba(99,102,241,0.25)' : 'transparent',
-                            color: editForm.documentType === t ? '#a5b4fc' : 'var(--text-subtle)',
-                          }}
                         >
                           {t.toUpperCase()}
                         </button>

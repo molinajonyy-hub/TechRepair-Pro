@@ -1106,6 +1106,57 @@ select:disabled,
   gap: 0.25rem;
 }
 
+/* ─── Segmento de opciones dentro de un campo (DNI / CUIT) ─────────────────
+   Reemplaza los colores inline que venían de la época dark-only. Medido:
+   el par viejo (#a5b4fc sobre rgba(99,102,241,.25)) daba 1.44:1 en tema
+   claro; el no seleccionado (--text-subtle) daba 2.56:1 en AMBOS temas.
+   Con estos tokens el seleccionado da 14.9:1 (claro) / 13.2:1 (oscuro) y el
+   no seleccionado 4.8:1 / 6.0:1 — AA para texto chico en los dos temas.
+   El estado seleccionado no depende sólo del color: además del contraste hay
+   fondo teñido propio, de modo que se distingue sin percibir el matiz. */
+.seg-field {
+  display: flex;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.seg-field-option {
+  padding: 0.5rem 0.875rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.seg-field-option:hover:not([aria-pressed='true']) {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.seg-field-option[aria-pressed='true'] {
+  background: var(--accent-primary-light);
+  color: var(--text-primary);
+}
+
+.seg-field-option:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
+}
+
+/* Mismo criterio táctil que `.icon-btn` (UI-CONSISTENCY-4). */
+@media (max-width: 1023px) {
+  .seg-field-option {
+    min-height: var(--mobile-touch-target);
+  }
+}
+
 /* Input con ícono */
 .input-group {
   position: relative;

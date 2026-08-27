@@ -88,7 +88,7 @@
     "test:components:watch": "vitest --config vitest.config.ts",
     "test:unit": "node --test \"tests/unit/**/*.test.ts\"",
     "test:mobile2a": "vitest run --config vitest.config.ts tests/components/orderIntakeModel.test.ts tests/components/orderIntakeMobile.test.tsx tests/components/orderIntakeWizard.test.tsx tests/components/orderIntakeService.test.ts && npm run guard:mobile2a:self-test && npm run guard:mobile2a",
-    "test:customer-core": "vitest run --config vitest.config.ts tests/components/customerCore.test.tsx tests/components/customerEdit.test.tsx && npm run guard:customer-core:self-test && npm run guard:customer-core",
+    "test:customer-core": "vitest run --config vitest.config.ts tests/components/customerCore.test.tsx tests/components/customerEdit.test.tsx tests/components/customerSurfaces.test.tsx && npm run guard:customer-core:self-test && npm run guard:customer-core",
     "guard:customer-core": "node scripts/guards/customer-core-canonical.mjs",
     "guard:customer-core:self-test": "node scripts/guards/customer-core-canonical.mjs --self-test",
     "test:sql:mobile2a": "docker cp tests/sql/mobile2a_order_intake.test.sql supabase_db_techrepair-vite:/tmp/mobile2a.sql && docker exec supabase_db_techrepair-vite psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/mobile2a.sql",

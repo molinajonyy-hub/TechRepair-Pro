@@ -23,6 +23,17 @@ const FORBIDDEN = [
   [/document:\s*`\$\{[^}]*documentType[^}]*\}/, 'documento armado a mano en una superficie'],
   [/document:\s*(?:form|formData|editForm)\.document\s*\|\|/, 'documento persistido crudo, sin normalizar'],
   [/\.toUpperCase\(\)\}\s*:\s*\$\{/, 'prefijo legacy `TIPO: valor` reintroducido'],
+
+  // UI-CONSISTENCY-2A. El par de colores de la época dark-only medía 1.44:1 en
+  // tema claro. El selector va por clase canónica (`seg-field-option`), nunca
+  // inline.
+  [/rgba\(99,\s*102,\s*241,\s*0?\.25\)/, 'color inline legacy del selector DNI/CUIT (1.44:1 en claro)'],
+  [/#a5b4fc/i, 'color de texto inline legacy del selector DNI/CUIT'],
+
+  // El motivo de validación se muestra UNA vez, en el campo. Volver a
+  // empujarlo al resumen reintroduce el mensaje duplicado.
+  [/firstCustomerCoreError\([^)]*\)\s*;?\s*\n?\s*if\s*\(\s*message\s*\)\s*\{\s*set[A-Za-z]*[Ee]rror\(message\)/,
+    'mensaje de validación empujado al resumen (duplica el error inline)'],
 ]
 
 function inspectSurface(text) {
@@ -69,6 +80,9 @@ if (process.argv.includes('--self-test')) {
   expectSurface('document: `${formData.documentType.toUpperCase()}: ${formData.document}`', 'documento armado a mano')
   expectSurface('document: form.document || undefined,', 'documento persistido crudo')
   expectSurface('return `${type.toUpperCase()}: ${body}`', 'prefijo legacy')
+  expectSurface("background: sel ? 'rgba(99,102,241,0.25)' : 'transparent',", 'color inline legacy')
+  expectSurface("color: sel ? '#a5b4fc' : 'var(--text-subtle)',", 'texto inline legacy')
+  expectSurface('const message=firstCustomerCoreError(errors)\n    if(message){setError(message);return}', 'empujado al resumen')
 
   const clean = inspectSurface(SURFACES.map(([path]) => read(path)).join('\n'))
   if (clean.length) throw new Error(`self-test falso positivo en superficies: ${clean.join(', ')}`)
