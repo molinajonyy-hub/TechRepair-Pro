@@ -22,7 +22,11 @@ import {
 import { soundSystem } from '../../lib/sounds'
 import { posLogger } from '../../lib/logger'
 import { currencyService } from '../../services/currencyService'
-import { smartSearch } from '../../utils/searchUtils'
+import {
+  getPosCustomerById,
+  searchPosCustomers,
+  type PosCustomerOption,
+} from '../../services/posCustomerSearchService'
 import { searchSellableProducts, isSellableProduct, type ProductSearchErrorReason } from '../../services/productSearchService'
 import { salesPointService } from '../../services/salesPointService'
 import { ArcaService } from '../../services/arcaService'
@@ -59,7 +63,7 @@ interface InventoryResult {
   base_price?: number | null; base_currency?: string | null; has_variants?: boolean | null
   auto_update_price?: boolean | null; exchange_rate_used?: number | null
 }
-interface ClienteOption { id: string; name: string; cuit?: string; customer_type?: string; phone?: string }
+type ClienteOption = PosCustomerOption
 interface LineaItem {
   _key: string; tipo_linea: TipoLinea; descripcion: string; inventory_id?: string | null
   cantidad: number; precio_unitario: number; descuento_linea: number
@@ -345,6 +349,9 @@ export function ComprobanteProModal({
   const [clienteQuery, setClienteQuery] = useState('')
   const [clientes, setClientes]     = useState<ClienteOption[]>([])
   const [clienteOpen, setClienteOpen] = useState(false)
+  const [clienteLoading, setClienteLoading] = useState(false)
+  const [clienteSearchError, setClienteSearchError] = useState(false)
+  const [selectedClienteCache, setSelectedClienteCache] = useState<ClienteOption | null>(null)
   const [observaciones, setObservaciones] = useState('')
   const [exchangeRate, setExchangeRate]   = useState(1)
   const [emitirEnArca, setEmitirEnArca]   = useState(false)
@@ -397,7 +404,11 @@ export function ComprobanteProModal({
   const dropdownRefs   = useRef<(HTMLDivElement | null)[]>([])
 
   // ── Mayorista ────────────────────────────────────────────────────────────
-  const selectedCliente = useMemo(() => clientes.find(c => c.id === clienteId) ?? null, [clientes, clienteId])
+  const selectedCliente = useMemo(
+    () => clientes.find(c => c.id === clienteId)
+      ?? (selectedClienteCache?.id === clienteId ? selectedClienteCache : null),
+    [clientes, clienteId, selectedClienteCache],
+  )
   const esClienteMayorista = useMemo(() => usarPrecioMayorista || isWholesaleCustomer(selectedCliente), [usarPrecioMayorista, selectedCliente])
   const [showRecalcPrompt, setShowRecalcPrompt] = useState(false)
   const prevClienteIdRef = useRef<string>('')
@@ -442,6 +453,7 @@ export function ComprobanteProModal({
   // ── Refs ──────────────────────────────────────────────────────────────────
   const clienteWrapperRef  = useRef<HTMLDivElement>(null)
   const clienteInputRef    = useRef<HTMLInputElement>(null)
+  const clienteSearchSeqRef = useRef(0)
   const isSubmittingRef    = useRef(false)        // anti-doble-submit
   const lastScanTimeRef    = useRef<number>(0)    // cooldown anti-doble-scan (150ms)
 
@@ -654,7 +666,7 @@ export function ComprobanteProModal({
     if (!isOpen) return
     setTipo(tipoInicial ?? 'factura_c'); setPuntoVenta(puntoVentaInicial ?? '0001')
     setCondicion(condicionFiscalInicial ?? 'Consumidor Final'); setClienteId(initialClienteId ?? '')
-    setClienteQuery(''); setObservaciones(''); setEmitirEnArca(false)
+    setClienteQuery(''); setSelectedClienteCache(null); setObservaciones(''); setEmitirEnArca(false)
     setSubmitError(null); setShowSuccess(false); setArcaWarning(null)
     setComprobanteCreado(null); setShowWaModal(false)
     setPagos([]); setSpotQ(''); setSpotResults([]); setSpotKeyIdx(-1); setSpotlightMode(false)
@@ -744,12 +756,68 @@ export function ComprobanteProModal({
     ArcaService.getPuntoVentaFiscal(businessId).then(setPvFiscal)
   }, [isOpen, businessId])
 
+  // Lista inicial acotada + búsqueda server-side. El número de secuencia y el
+  // AbortController evitan que una respuesta vieja reemplace la consulta más
+  // reciente cuando el cajero escribe rápido.
   useEffect(() => {
     if (!isOpen || !businessId) return
-    supabase.from('customers').select('id, name, customer_type, phone')
-      .eq('business_id', businessId).order('name').limit(300)
-      .then(({ data }) => setClientes((data || []) as ClienteOption[]))
-  }, [isOpen, businessId])
+    if (!clienteOpen && clienteQuery.trim()) {
+      setClienteLoading(false)
+      return
+    }
+
+    const sequence = ++clienteSearchSeqRef.current
+    const controller = new AbortController()
+    const delay = clienteQuery.trim() ? 180 : 0
+
+    setClienteLoading(true)
+    setClienteSearchError(false)
+
+    const timer = setTimeout(async () => {
+      const result = await searchPosCustomers({
+        businessId,
+        query: clienteQuery,
+        signal: controller.signal,
+      })
+      if (sequence !== clienteSearchSeqRef.current || controller.signal.aborted) return
+
+      if (result.status === 'error') {
+        setClientes([])
+        setClienteSearchError(true)
+      } else {
+        setClientes(result.items)
+      }
+      setClienteLoading(false)
+    }, delay)
+
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+      if (sequence === clienteSearchSeqRef.current) clienteSearchSeqRef.current++
+    }
+  }, [isOpen, businessId, clienteOpen, clienteQuery])
+
+  // Una venta iniciada desde una orden o un borrador puede referenciar a un
+  // cliente fuera de la lista inicial. Se recupera sólo ese id, siempre dentro
+  // del tenant actual, para preservar selección y precio mayorista.
+  useEffect(() => {
+    if (!isOpen || !businessId || !clienteId) {
+      if (!clienteId) setSelectedClienteCache(null)
+      return
+    }
+    const inResults = clientes.find(customer => customer.id === clienteId)
+    if (inResults) {
+      setSelectedClienteCache(inResults)
+      return
+    }
+    if (selectedClienteCache?.id === clienteId) return
+
+    let cancelled = false
+    getPosCustomerById(businessId, clienteId).then(customer => {
+      if (!cancelled && customer) setSelectedClienteCache(customer)
+    })
+    return () => { cancelled = true }
+  }, [isOpen, businessId, clienteId, clientes, selectedClienteCache])
 
   // Productos recientes (últimos vendidos desde comprobante_items)
   useEffect(() => {
@@ -851,7 +919,12 @@ export function ComprobanteProModal({
         if (hasContent && !showSuccess) setShowCloseConfirm(true); else if (!showSuccess) onClose(); return
       }
       if ((e.key === 'F4' || (e.shiftKey && e.key === 'Enter') || (e.ctrlKey && e.key === 'Enter')) && !showSuccess) { e.preventDefault(); void handleSubmit(); return }
-      if (e.key === 'F2' && !showSuccess) { e.preventDefault(); clienteInputRef.current?.focus(); return }
+      if (e.key === 'F2' && !showSuccess) {
+        e.preventDefault()
+        setClienteOpen(true)
+        setTimeout(() => clienteInputRef.current?.focus(), 0)
+        return
+      }
       // Ctrl+B → focus directo al input POS (no abre overlay)
       if ((e.ctrlKey && (e.key === 'b' || e.key === 'B')) && !showSuccess) { e.preventDefault(); refocusInput(0); return }
       // Shift+Backspace → eliminar último ítem cargado
@@ -1447,25 +1520,20 @@ export function ComprobanteProModal({
                   <input data-testid="comprobante-customer-search" className="cpm-input16" ref={clienteInputRef} value={clienteQuery}
                     onChange={e => { setClienteQuery(e.target.value); setClienteOpen(true); if (!e.target.value) setClienteId('') }}
                     onFocus={() => setClienteOpen(true)}
-                    placeholder="Buscar cliente por nombre... (F2)"
-                    style={{ width: '100%', padding: '0.625rem 0.875rem 0.625rem 2.25rem', background: 'var(--pos-soft-bg)', border: '1px solid var(--pos-border)', borderRadius: '0.75rem', color: 'var(--pos-text-primary)', fontSize: '0.875rem', outline: 'none', fontFamily: F, boxSizing: 'border-box' }} />
+                    placeholder="Buscar por nombre, teléfono o documento... (F2)"
+                    style={{ width: '100%', padding: '0.625rem 2.25rem', background: 'var(--pos-soft-bg)', border: '1px solid var(--pos-border)', borderRadius: '0.75rem', color: 'var(--pos-text-primary)', fontSize: '0.875rem', outline: 'none', fontFamily: F, boxSizing: 'border-box' }} />
+                  {clienteLoading && <Loader2 size={14} color="var(--pos-accent-2)" aria-label="Buscando clientes" style={{ position: 'absolute', right: '0.75rem', top: 'calc(50% - 7px)', animation: 'tr-spin 0.8s linear infinite' }} />}
                 </div>
               )}
 
               {/* Cliente dropdown */}
               {clienteOpen && (() => {
-                const clienteResults = clienteQuery
-                  ? smartSearch(clientes, clienteQuery, [
-                      { getValue: (c) => c.name,  weight: 3 },
-                      { getValue: (c) => c.phone ?? null, weight: 5 },
-                      { getValue: (c) => c.cuit ?? null,  weight: 8 },
-                    ]).slice(0, 25)
-                  : clientes.slice(0, 25)
+                const clienteResults = clientes
                 return (
                   <div data-testid="comprobante-customer-results" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, background: 'var(--pos-surface)', border: '1px solid var(--pos-border)', borderRadius: '0.875rem', boxShadow: 'var(--pos-shadow-pop)', maxHeight: 240, overflowY: 'auto', marginTop: '0.25rem', animation: 'spotlightSlide 0.12s ease' }}>
-                    {clienteResults.map(c => (
-                      <button data-testid="comprobante-customer-option" key={c.id} onMouseDown={() => { setClienteId(c.id); setClienteQuery(c.name); setClienteOpen(false) }}
-                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '0.625rem 1rem', background: c.id === clienteId ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', cursor: 'pointer', color: 'var(--pos-text-primary)', fontSize: '0.845rem', textAlign: 'left', fontFamily: F, gap: '0.5rem', transition: 'background 0.08s' }}
+                    {!clienteLoading && clienteResults.map(c => (
+                      <button data-testid="comprobante-customer-option" data-customer-id={c.id} key={c.id} onMouseDown={() => { setClienteId(c.id); setSelectedClienteCache(c); setClienteQuery(c.name); setClienteOpen(false) }}
+                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', minHeight: 44, padding: '0.625rem 1rem', background: c.id === clienteId ? 'rgba(99,102,241,0.1)' : 'none', border: 'none', cursor: 'pointer', color: 'var(--pos-text-primary)', fontSize: '0.845rem', textAlign: 'left', fontFamily: F, gap: '0.5rem', transition: 'background 0.08s' }}
                         onMouseEnter={e => { if (c.id !== clienteId) e.currentTarget.style.background = 'var(--pos-soft-bg)' }}
                         onMouseLeave={e => { e.currentTarget.style.background = c.id === clienteId ? 'rgba(99,102,241,0.1)' : 'none' }}>
                         <div>
@@ -1475,7 +1543,13 @@ export function ComprobanteProModal({
                         {c.customer_type === 'mayorista' && <span style={{ fontSize: '0.65rem', color: 'var(--pos-accent-2)', fontWeight: 700, flexShrink: 0 }}>MAYORISTA</span>}
                       </button>
                     ))}
-                    {clienteResults.length === 0 && (
+                    {!clienteLoading && clienteSearchError && (
+                      <div style={{ padding: '0.75rem 1rem', color: 'var(--pos-red)', fontSize: '0.8rem' }}>No se pudo buscar. Reintentá.</div>
+                    )}
+                    {!clienteLoading && !clienteSearchError && clienteQuery.trim().length === 1 && (
+                      <div style={{ padding: '0.75rem 1rem', color: 'var(--pos-text-muted)', fontSize: '0.8rem' }}>Escribí al menos 2 caracteres</div>
+                    )}
+                    {!clienteLoading && !clienteSearchError && clienteQuery.trim().length !== 1 && clienteResults.length === 0 && (
                       <div style={{ padding: '0.75rem 1rem', color: 'var(--pos-text-muted)', fontSize: '0.8rem' }}>Sin resultados</div>
                     )}
                   </div>
@@ -1910,7 +1984,7 @@ export function ComprobanteProModal({
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.375rem', padding: '0.5rem 0.625rem', background: 'var(--pos-accent-soft)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem' }}>
                         <AlertCircle size={13} color="var(--pos-accent)" style={{ flexShrink: 0 }} />
                         <span style={{ flex: 1, fontSize: '0.72rem', color: 'var(--pos-text-secondary)' }}>Seleccioná un cliente para cobrar en cuenta corriente.</span>
-                        <button onClick={() => { setClienteOpen(true); clienteInputRef.current?.focus() }}
+                        <button onClick={() => { setClienteOpen(true); setTimeout(() => clienteInputRef.current?.focus(), 0) }}
                           style={{ flexShrink: 0, fontSize: '0.72rem', fontWeight: 700, color: 'var(--pos-accent)', background: 'transparent', border: '1px solid var(--pos-border-hover)', borderRadius: '0.375rem', padding: '0.25rem 0.55rem', cursor: 'pointer', fontFamily: F }}>
                           Elegir cliente
                         </button>
