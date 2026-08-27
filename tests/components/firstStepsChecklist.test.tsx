@@ -162,7 +162,9 @@ describe('FirstStepsChecklist — dismiss es preferencia de UI, no estado', () =
     renderCard()
     await waitFor(() => expect(screen.getByTestId('setup-checklist')).toBeTruthy())
 
-    fireEvent.click(screen.getByLabelText('Ocultar primeros pasos'))
+    const dismiss = screen.getByLabelText('Ocultar primeros pasos')
+    expect(dismiss).toHaveClass('mobile-touch-target')
+    fireEvent.click(dismiss)
 
     await waitFor(() => expect(screen.queryByTestId('setup-checklist')).toBeNull())
     expect(localStorage.getItem(dismissKey('biz-1'))).toBe('true')

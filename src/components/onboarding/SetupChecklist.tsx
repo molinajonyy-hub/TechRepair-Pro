@@ -79,7 +79,7 @@ export function SetupChecklist({ items, title, onDismiss }: SetupChecklistProps)
               fontSize: '0.72rem', fontWeight: 700, padding: '0.15rem 0.5rem',
               borderRadius: '9999px', flexShrink: 0,
               background: allDone ? 'rgba(34,197,94,0.12)' : 'rgba(99,102,241,0.12)',
-              color: allDone ? 'var(--success, #16a34a)' : 'var(--accent, #6366f1)',
+              color: allDone ? 'var(--success, #16a34a)' : 'var(--accent-primary)',
             }}
           >
             {doneCount}/{items.length}
@@ -87,6 +87,7 @@ export function SetupChecklist({ items, title, onDismiss }: SetupChecklistProps)
         </div>
         <button
           type="button"
+          className="mobile-touch-target"
           onClick={handleDismiss}
           aria-label="Ocultar primeros pasos"
           style={{
@@ -110,7 +111,7 @@ export function SetupChecklist({ items, title, onDismiss }: SetupChecklistProps)
       >
         <div style={{
           height: '100%', width: `${progress}%`,
-          background: allDone ? 'var(--success, #16a34a)' : 'var(--accent, #6366f1)',
+          background: allDone ? 'var(--success, #16a34a)' : 'var(--accent-primary)',
           transition: 'width 0.5s ease',
         }} />
       </div>
@@ -156,7 +157,7 @@ export function SetupChecklist({ items, title, onDismiss }: SetupChecklistProps)
               </span>
               {!item.done && item.href && (
                 <span aria-hidden="true" style={{
-                  fontSize: '0.7rem', color: 'var(--accent, #6366f1)',
+                  fontSize: '0.7rem', color: 'var(--accent-primary)',
                   fontWeight: 600, flexShrink: 0,
                 }}>
                   Ir →
