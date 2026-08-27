@@ -1514,7 +1514,7 @@ body.app-modal-open .mobile-bottom-nav { visibility:hidden; pointer-events:none;
   padding: 0.625rem 1rem;
   font-size: 0.875rem;
   font-weight: 600;
-  color: var(--text-subtle);
+  color: var(--text-secondary);
   border-bottom: 2px solid transparent;
   white-space: nowrap;
   cursor: pointer;
@@ -1532,7 +1532,10 @@ body.app-modal-open .mobile-bottom-nav { visibility:hidden; pointer-events:none;
 
 .tab.tab-active,
 .tab[aria-selected="true"] {
-  color: var(--indigo-400);
+  /* Los índigos globales no alcanzan AA en ambos temas sobre las superficies
+     transparentes de tabs. El token primario de texto sí; la selección sigue
+     inequívoca por el subrayado de acento y el peso 700. */
+  color: var(--text-primary);
   border-bottom-color: var(--accent-primary);
   font-weight: 700;
 }
