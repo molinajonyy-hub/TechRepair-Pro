@@ -11,8 +11,19 @@ import { ExcelService, ExcelRow } from '../services/excelService'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { useRefreshOnWakeUp } from '../hooks/useAppWakeUp'
+import {
+  CUSTOMER_TYPES,
+  DOCUMENT_TYPES,
+  documentSearchTokens,
+  firstCustomerCoreError,
+  useCustomerCore,
+  type CustomerCoreRecord,
+} from '../features/customer-core'
 
-type CustomerSummary = {
+// `customersService.getAll()` hace `select('*')`: la fila trae estos campos.
+// Declararlos evita hidratar el formulario de edición desde un `any` y perder
+// silenciosamente razón social, documento o persona de contacto.
+type CustomerSummary = CustomerCoreRecord & {
   id: string
   name: string
   phone?: string
@@ -43,38 +54,31 @@ export function Customers() {
   const { showLoading, hideLoading } = useLoading()
 
   // ── Editar cliente ───────────────────────────────────────────
+  // Las reglas salen del customer core, igual que en las dos altas. Antes esta
+  // pantalla no conocía razón social, persona de contacto ni documento, así que
+  // podía dejar un mayorista SIN razón social — dato inválido que ninguna de
+  // las altas permitía crear.
   const [editingCustomer, setEditingCustomer] = useState<any | null>(null)
-  const [editForm, setEditForm] = useState({ name: '', phone: '', email: '', address: '', notes: '', customer_type: 'minorista' as 'minorista' | 'mayorista' })
+  const { values: editForm, errors: editErrors, setField: setEditField, setCustomerType: setEditCustomerType, reset: resetEditForm, toUpdatePayload } =
+    useCustomerCore({ mode: 'update' })
   const [editLoading, setEditLoading] = useState(false)
   const [editError, setEditError] = useState('')
 
   const openEdit = (customer: CustomerSummary) => {
     setEditingCustomer(customer)
-    setEditForm({
-      name: customer.name || '',
-      phone: (customer as any).phone || '',
-      email: customer.email || '',
-      address: (customer as any).address || '',
-      notes: (customer as any).notes || '',
-      customer_type: (customer as any).customer_type || 'minorista',
-    })
+    resetEditForm(customer)
     setEditError('')
   }
 
   const handleEditSave = async () => {
     if (!editingCustomer) return
-    if (!editForm.name.trim()) { setEditError('El nombre es obligatorio'); return }
+    // El motivo ya se muestra al lado del campo que falla; el alerta de arriba
+    // queda reservada para errores del servidor y no repite el mismo texto.
+    if (firstCustomerCoreError(editErrors)) return
     setEditLoading(true)
     setEditError('')
     try {
-      await customersService.update(editingCustomer.id, {
-        name: editForm.name.trim(),
-        phone: editForm.phone.trim(),
-        email: editForm.email.trim(),
-        address: editForm.address.trim(),
-        notes: editForm.notes.trim(),
-        customer_type: editForm.customer_type,
-      } as any)
+      await customersService.update(editingCustomer.id, toUpdatePayload())
       setEditingCustomer(null)
       await loadCustomers()
     } catch (err: any) {
@@ -272,7 +276,10 @@ export function Customers() {
       { getValue: c => c.name,                    weight: 3 },
       { getValue: c => (c as any).phone,           weight: 3 },
       { getValue: c => c.email,                   weight: 2 },
-      { getValue: c => (c as any).document,        weight: 3 },
+      // Todas las representaciones del documento: conviven filas canónicas
+      // (`DNI 30123456`) con históricas (`DNI: 30.123.456`) y este lote no las
+      // migra, así que se busca con y sin separadores.
+      { getValue: c => documentSearchTokens((c as any).document).join(' '), weight: 3 },
       { getValue: c => (c as any).address,         weight: 1 },
       { getValue: c => (c as any).city,            weight: 1 },
       { getValue: c => (c as any).notes,           weight: 0.5 },
@@ -468,42 +475,110 @@ export function Customers() {
             </div>
             <div className="modal-body-scroll">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-                {[
+                {([
                   { label: 'Nombre *', key: 'name', placeholder: 'Nombre y apellido' },
                   { label: 'Teléfono', key: 'phone', placeholder: 'Ej: 5493512345678' },
                   { label: 'Email', key: 'email', placeholder: 'correo@ejemplo.com' },
                   { label: 'Dirección', key: 'address', placeholder: 'Av. Corrientes 1234, CABA' },
                   { label: 'Notas', key: 'notes', placeholder: 'Observaciones...' },
-                ].map(f => (
+                ] as const).map(f => (
                   <div key={f.key}>
                     <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>{f.label}</label>
                     <input
                       type="text"
-                      value={(editForm as any)[f.key]}
-                      onChange={e => setEditForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                      data-testid={`customer-edit-${f.key}-input`}
+                      value={editForm[f.key]}
+                      onChange={e => setEditField(f.key, e.target.value)}
                       placeholder={f.placeholder}
                       className="form-control"
                     />
                   </div>
                 ))}
+                {/* DNI / CUIT — la edición no lo conocía y no había forma de
+                    corregir un documento sin volver a dar de alta al cliente. */}
+                <div>
+                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>DNI / CUIT</label>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: '0.5rem', overflow: 'hidden', flexShrink: 0 }}>
+                      {DOCUMENT_TYPES.map(t => (
+                        <button
+                          key={t}
+                          type="button"
+                          data-testid={`customer-edit-document-type-${t}`}
+                          aria-pressed={editForm.documentType === t}
+                          onClick={() => setEditField('documentType', t)}
+                          style={{
+                            padding: '0.5rem 0.875rem', border: 'none', cursor: 'pointer',
+                            fontWeight: 700, fontSize: '0.8rem', letterSpacing: '0.04em', transition: 'all 0.15s',
+                            background: editForm.documentType === t ? 'rgba(99,102,241,0.25)' : 'transparent',
+                            color: editForm.documentType === t ? '#a5b4fc' : 'var(--text-subtle)',
+                          }}
+                        >
+                          {t.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="text"
+                      data-testid="customer-edit-document-input"
+                      value={editForm.document}
+                      onChange={e => setEditField('document', e.target.value)}
+                      placeholder={editForm.documentType === 'dni' ? 'Ej: 30.123.456' : 'Ej: 20-30123456-7'}
+                      className="form-control"
+                      style={{ flex: 1 }}
+                    />
+                  </div>
+                </div>
                 <div>
                   <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Tipo de cliente</label>
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    {(['minorista', 'mayorista'] as const).map(tipo => (
-                      <button key={tipo} type="button" onClick={() => setEditForm(prev => ({ ...prev, customer_type: tipo }))}
-                        style={{ flex: 1, padding: '0.625rem', borderRadius: '0.5rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: editForm.customer_type === tipo ? 700 : 400,
-                          border: `2px solid ${editForm.customer_type === tipo ? tipo === 'mayorista' ? 'rgba(99,102,241,0.5)' : 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.08)'}`,
-                          background: editForm.customer_type === tipo ? tipo === 'mayorista' ? 'rgba(99,102,241,0.12)' : 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.03)',
-                          color: editForm.customer_type === tipo ? tipo === 'mayorista' ? '#c7d2fe' : '#4ade80' : 'var(--text-muted)',
+                    {CUSTOMER_TYPES.map(tipo => (
+                      <button key={tipo} type="button"
+                        data-testid={`customer-edit-type-${tipo}`}
+                        aria-pressed={editForm.customerType === tipo}
+                        onClick={() => setEditCustomerType(tipo)}
+                        style={{ flex: 1, padding: '0.625rem', borderRadius: '0.5rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: editForm.customerType === tipo ? 700 : 400,
+                          border: `2px solid ${editForm.customerType === tipo ? tipo === 'mayorista' ? 'rgba(99,102,241,0.5)' : 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.08)'}`,
+                          background: editForm.customerType === tipo ? tipo === 'mayorista' ? 'rgba(99,102,241,0.12)' : 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.03)',
+                          color: editForm.customerType === tipo ? tipo === 'mayorista' ? '#c7d2fe' : '#4ade80' : 'var(--text-muted)',
                         }}>
                         {tipo === 'mayorista' ? 'Mayorista' : 'Minorista'}
                       </button>
                     ))}
                   </div>
-                  {editForm.customer_type === 'mayorista' && (
-                    <p className="body-sm" style={{ margin: '0.35rem 0 0', color: 'var(--accent-primary)' }}>
-                      Se usarán precios mayoristas automáticamente al cobrarle
-                    </p>
+                  {editForm.customerType === 'mayorista' && (
+                    <>
+                      <div style={{ marginTop: '0.875rem' }}>
+                        <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Razón social *</label>
+                        <input
+                          type="text"
+                          data-testid="customer-edit-business-name-input"
+                          value={editForm.businessName}
+                          onChange={e => setEditField('businessName', e.target.value)}
+                          aria-invalid={Boolean(editErrors.businessName)}
+                          placeholder="Nombre fiscal de la empresa"
+                          className="form-control"
+                        />
+                        {editErrors.businessName && (
+                          <p className="body-sm" role="alert" style={{ margin: '0.35rem 0 0', color: 'var(--danger, #f87171)' }}>
+                            {editErrors.businessName}
+                          </p>
+                        )}
+                      </div>
+                      <div style={{ marginTop: '0.875rem' }}>
+                        <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Persona de contacto</label>
+                        <input
+                          type="text"
+                          data-testid="customer-edit-contact-person-input"
+                          value={editForm.contactPerson}
+                          onChange={e => setEditField('contactPerson', e.target.value)}
+                          className="form-control"
+                        />
+                      </div>
+                      <p className="body-sm" style={{ margin: '0.35rem 0 0', color: 'var(--accent-primary)' }}>
+                        Se usarán precios mayoristas automáticamente al cobrarle
+                      </p>
+                    </>
                   )}
                 </div>
                 {editError && <div className="alert-inline alert-error">{editError}</div>}
@@ -511,7 +586,12 @@ export function Customers() {
             </div>
             <div className="modal-ftr">
               <button onClick={() => setEditingCustomer(null)} className="btn btn-ghost">Cancelar</button>
-              <button onClick={handleEditSave} disabled={editLoading} className="btn btn-primary btn-lift">
+              <button
+                onClick={handleEditSave}
+                data-testid="customer-edit-save-button"
+                disabled={editLoading || Object.keys(editErrors).length > 0}
+                className="btn btn-primary btn-lift"
+              >
                 {editLoading ? <><Loader2 size={15} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</> : 'Guardar cambios'}
               </button>
             </div>
