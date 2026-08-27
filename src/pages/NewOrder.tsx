@@ -208,15 +208,19 @@ function QuickCustomerDialog({open,onClose,onCreated}:{open:boolean;onClose:()=>
   const {values,errors,setField,setCustomerType,toCreatePayload}=useCustomerCore()
   const [saving,setSaving]=useState(false);const [error,setError]=useState('')
   const wholesale=values.customerType==='mayorista'
+  const invalid=Object.keys(errors).length>0
+  // El motivo se muestra UNA sola vez, al lado del campo que falla, igual que
+  // en el alta full page y en la edición. La alerta de arriba queda reservada
+  // para errores del servidor: antes repetía palabra por palabra el mensaje
+  // inline de la razón social.
   const save=async()=>{
-    const message=firstCustomerCoreError(errors)
-    if(message){setError(message);return}
+    if(firstCustomerCoreError(errors))return
     setSaving(true);setError('')
     try{const customer=await customersService.create(toCreatePayload());onCreated(customer)}
     catch(cause){setError(cause instanceof Error?cause.message:'No se pudo crear el cliente.')}
     finally{setSaving(false)}
   }
-  return <ResponsiveDialog isOpen={open} onClose={onClose} title="Crear cliente rápido" subtitle="Queda disponible para esta orden y futuras recepciones." mobilePresentation="fullscreen" footer={<><AppButton variant="secondary" onClick={onClose}>Cancelar</AppButton><AppButton variant="primary" loading={saving} onClick={save}>Crear cliente</AppButton></>}>
+  return <ResponsiveDialog isOpen={open} onClose={onClose} title="Crear cliente rápido" subtitle="Queda disponible para esta orden y futuras recepciones." mobilePresentation="fullscreen" footer={<><AppButton variant="secondary" onClick={onClose}>Cancelar</AppButton><AppButton variant="primary" loading={saving} disabled={invalid} onClick={save}>Crear cliente</AppButton></>}>
     {error&&<p className="form-error" role="alert">{error}</p>}<AppSelect label="Tipo de cliente" value={values.customerType} onChange={e=>setCustomerType(e.target.value as CustomerType)} options={[{value:'minorista',label:'Minorista'},{value:'mayorista',label:'Mayorista'}]}/>
     {wholesale&&<FormGrid><AppInput label="Razón social" required value={values.businessName} error={errors.businessName} onChange={e=>setField('businessName',e.target.value)}/><AppInput label="Persona de contacto" value={values.contactPerson} onChange={e=>setField('contactPerson',e.target.value)}/></FormGrid>}
     <FormGrid><AppInput label={wholesale?'Nombre de contacto':'Nombre completo'} required value={values.name} onChange={e=>setField('name',e.target.value)}/><AppInput semantic="tel" label="Teléfono" required value={values.phone} onChange={e=>setField('phone',e.target.value)}/><AppInput semantic="email" label="Email" value={values.email} onChange={e=>setField('email',e.target.value)}/><AppSelect label="Tipo de documento" value={values.documentType} onChange={e=>setField('documentType',e.target.value)} options={DOCUMENT_TYPES.map(item=>({value:item,label:item.toUpperCase()}))}/><AppInput semantic="numeric" label={values.documentType==='cuit'?'CUIT':'DNI'} value={values.document} onChange={e=>setField('document',e.target.value)}/></FormGrid>

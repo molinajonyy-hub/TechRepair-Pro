@@ -116,25 +116,15 @@ export function NewCustomer() {
               <label className="form-label">DNI / CUIT <span style={{ color: 'var(--text-subtle)', fontWeight: 400, textTransform: 'none' }}>(opcional)</span></label>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 {/* Selector de tipo */}
-                <div style={{ display: 'flex', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: '0.5rem', overflow: 'hidden', flexShrink: 0 }}>
+                <div className="seg-field">
                   {DOCUMENT_TYPES.map(t => (
                     <button
                       key={t}
                       type="button"
+                      className="seg-field-option"
                       data-testid={`customer-document-type-${t}`}
                       aria-pressed={values.documentType === t}
                       onClick={() => setField('documentType', t)}
-                      style={{
-                        padding: '0.5rem 0.875rem',
-                        border: 'none',
-                        background: values.documentType === t ? 'rgba(99,102,241,0.25)' : 'transparent',
-                        color: values.documentType === t ? '#a5b4fc' : 'var(--text-subtle)',
-                        fontWeight: 700,
-                        fontSize: '0.8rem',
-                        cursor: 'pointer',
-                        letterSpacing: '0.04em',
-                        transition: 'all 0.15s',
-                      }}
                     >
                       {t.toUpperCase()}
                     </button>
