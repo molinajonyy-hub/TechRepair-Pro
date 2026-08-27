@@ -179,6 +179,9 @@ async function overflow(page: Page) {
   return page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
 }
 
+/** CTA de creación dentro del diálogo rápido. */
+const cta0 = (dialog: ReturnType<Page['getByRole']>) => dialog.getByRole('button', { name: 'Crear cliente' })
+
 test.describe('@customer-core UI-CONSISTENCY-1 · sanidad responsive', () => {
   test.afterAll(() => cleanup())
 
@@ -195,6 +198,17 @@ test.describe('@customer-core UI-CONSISTENCY-1 · sanidad responsive', () => {
       // El campo nuevo está presente y el diálogo sigue sin desbordar.
       await expect(dialog.getByLabel('Tipo de documento')).toBeVisible()
       expect(await overflow(page)).toBeLessThanOrEqual(1)
+
+      // UI-CONSISTENCY-2A. El CTA ahora arranca DESHABILITADO con el formulario
+      // vacío (es el reemplazo del mensaje de validación duplicado), y
+      // `.btn:disabled` lleva `pointer-events:none`, así que un hit-test sobre
+      // el botón deshabilitado mediría el elemento de atrás, no el layout. Se
+      // completan los campos mínimos para evaluar lo que este test siempre
+      // quiso evaluar: que nada TAPE el CTA.
+      await expect(cta0(dialog)).toBeDisabled()
+      await dialog.getByLabel('Nombre completo').fill('QA Sanidad Responsive')
+      await dialog.getByLabel('Teléfono').fill('3510000009')
+      await expect(cta0(dialog)).toBeEnabled()
 
       // El CTA es alcanzable y nada lo tapa: se comprueba por hit-test real,
       // no sólo por visibilidad.
@@ -260,16 +274,88 @@ test.describe('@customer-core UI-CONSISTENCY-1 · sanidad responsive', () => {
       await expect(page.getByTestId('customer-address-input')).toBeVisible()
       await expect(page.getByTestId('customer-document-input')).toBeVisible()
       expect(await overflow(page)).toBeLessThanOrEqual(1)
-
-      // Los controles del lote pintan texto legible, no heredan transparente.
-      const contrast = await page.evaluate(() => {
-        const target = document.querySelector('[data-testid="customer-document-type-dni"]')
-        if (!target) return null
-        const style = getComputedStyle(target)
-        return { color: style.color, transparent: style.color === 'rgba(0, 0, 0, 0)' }
-      })
-      expect(contrast).not.toBeNull()
-      expect(contrast!.transparent).toBe(false)
     })
   }
+})
+
+// ── UI-CONSISTENCY-2A · contraste real del selector DNI/CUIT ────────────────
+// El gate anterior sólo probaba que el color existiera, y por eso dejó pasar
+// un par medido en 1.44:1 en tema claro. Acá se calcula el ratio WCAG de
+// verdad, en el navegador, con los tokens ya resueltos.
+//
+// El texto del chip es ~12.8 px bold: NO califica como "large text", así que
+// el umbral es 4.5:1, no 3:1.
+const AA_TEXTO_CHICO = 4.5
+
+/** Ratio WCAG entre el color de un elemento y su fondo pintado real. */
+async function contrastOf(page: Page, testId: string): Promise<number> {
+  return page.evaluate((id) => {
+    const parse = (value: string) => (value.match(/[\d.]+/g) || []).map(Number)
+    const srgb = (c: number) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4) }
+    const lum = (rgb: number[]) => 0.2126 * srgb(rgb[0]) + 0.7152 * srgb(rgb[1]) + 0.0722 * srgb(rgb[2])
+
+    const el = document.querySelector(id) as HTMLElement
+    if (!el) throw new Error(`sin elemento ${id}`)
+
+    // Fondo REAL: se componen las capas semitransparentes hacia arriba hasta
+    // dar con una opaca. Un chip con fondo teñido sobre el contenedor no se
+    // puede evaluar contra `transparent`.
+    const layers: Array<{ rgb: number[]; a: number }> = []
+    for (let node: HTMLElement | null = el; node; node = node.parentElement) {
+      const parts = parse(getComputedStyle(node).backgroundColor)
+      if (parts.length < 3) continue
+      const a = parts.length > 3 ? parts[3] : 1
+      if (a === 0) continue
+      layers.push({ rgb: parts.slice(0, 3), a })
+      if (a === 1) break
+    }
+    let bg = layers.length && layers[layers.length - 1].a === 1
+      ? layers[layers.length - 1].rgb
+      : [255, 255, 255]
+    for (let i = layers.length - 2; i >= 0; i--) {
+      const { rgb, a } = layers[i]
+      bg = rgb.map((c, k) => c * a + bg[k] * (1 - a))
+    }
+
+    const fg = parse(getComputedStyle(el).color).slice(0, 3)
+    const [hi, lo] = [lum(fg), lum(bg)].sort((x, y) => y - x)
+    return (hi + 0.05) / (lo + 0.05)
+  }, `[data-testid="${testId}"]`)
+}
+
+test.describe('@customer-core UI-CONSISTENCY-2A · contraste del selector DNI/CUIT', () => {
+  for (const theme of ['light', 'dark'] as const) {
+    test(`DNI/CUIT cumple AA en tema ${theme}`, async ({ page }) => {
+      await page.addInitScript((value) => {
+        localStorage.setItem('theme', value)
+        localStorage.setItem('techrepair_theme', value)
+      }, theme)
+      await page.goto('/customers/new')
+      await expect(page.getByTestId('customer-document-type-dni')).toBeVisible()
+
+      // DNI arranca seleccionado, CUIT no: se miden los dos estados.
+      await expect(page.getByTestId('customer-document-type-dni')).toHaveAttribute('aria-pressed', 'true')
+      const seleccionado = await contrastOf(page, 'customer-document-type-dni')
+      const noSeleccionado = await contrastOf(page, 'customer-document-type-cuit')
+
+      expect(seleccionado, `seleccionado en ${theme}`).toBeGreaterThanOrEqual(AA_TEXTO_CHICO)
+      expect(noSeleccionado, `no seleccionado en ${theme}`).toBeGreaterThanOrEqual(AA_TEXTO_CHICO)
+
+      // El par viejo daba exactamente 1.44:1 en claro y 2.56:1 el inactivo:
+      // este margen deja fuera cualquier vuelta a esos valores.
+      expect(seleccionado).toBeGreaterThan(2.6)
+    })
+  }
+
+  test('el estado seleccionado no se distingue sólo por el color del texto', async ({ page }) => {
+    await page.goto('/customers/new')
+    await expect(page.getByTestId('customer-document-type-dni')).toBeVisible()
+    const fondos = await page.evaluate(() => {
+      const bg = (id: string) =>
+        getComputedStyle(document.querySelector(`[data-testid="${id}"]`)!).backgroundColor
+      return { sel: bg('customer-document-type-dni'), noSel: bg('customer-document-type-cuit') }
+    })
+    // Hay fondo propio en el seleccionado, no sólo un matiz de texto.
+    expect(fondos.sel).not.toBe(fondos.noSel)
+  })
 })
