@@ -1,9 +1,19 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useAppWakeUp, type AppStatus, emitWakeUp } from '../hooks/useAppWakeUp'
 import { supabase } from '../lib/supabase'
+import { probeSession } from '../lib/sessionSignal'
 import { useAuth } from './AuthContext'
 import { forcePrefetch } from '../services/refreshCriticalData'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MOBILE-SESSION-1A — Este provider informa CONECTIVIDAD, no autenticación.
+//
+// Ya no navega a /login ni anuncia «Tu sesión venció». La pérdida real de sesión
+// tiene un solo dueño —auth-js → AuthContext → ProtectedRoute— y cuando ocurre,
+// ProtectedRoute desmonta MainLayout, que es quien monta este provider. Un
+// segundo redirect desde acá sólo podía competir con el canónico: mientras el
+// usuario siguiera autenticado, /login lo rebotaba de vuelta al dashboard.
+// ─────────────────────────────────────────────────────────────────────────────
 
 // ─── Toast mínimo ─────────────────────────────────────────────────────────────
 
@@ -37,7 +47,6 @@ export function SystemStatusProvider({ children }: { children: React.ReactNode }
   const [status, setStatus] = useState<AppStatus>('online')
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
-  const navigate = useNavigate()
   const refreshRef = useRef<() => void>(() => {})
   const { businessId } = useAuth()
 
@@ -57,11 +66,6 @@ export function SystemStatusProvider({ children }: { children: React.ReactNode }
     if (businessId) forcePrefetch(businessId)
   }, [addToast, businessId])
 
-  const handleSessionExpired = useCallback(() => {
-    addToast('Tu sesión venció. Redirigiendo al login…', 'error', 4000)
-    setTimeout(() => navigate('/login'), 2000)
-  }, [addToast, navigate])
-
   const handleStatusChange = useCallback((s: AppStatus) => {
     setStatus(s)
     if (s === 'online' && status !== 'online') {
@@ -77,30 +81,39 @@ export function SystemStatusProvider({ children }: { children: React.ReactNode }
 
   useAppWakeUp({
     onWakeUp: handleWakeUp,
-    onSessionExpired: handleSessionExpired,
     onStatusChange: handleStatusChange,
   })
 
-  // Manual reconnect: refresh session + emit wake-up
+  // Reconexión manual (botón «Reconectar»): revalidar y refrescar datos.
+  //
+  // MOBILE-SESSION-1A — Tenía el MISMO defecto que el wake-up: sin señal,
+  // `getSession()` fallaba, el `refreshSession()` de rescate fallaba también y
+  // el botón terminaba mandando al login. Tocar «Reconectar» sin conexión es
+  // justamente lo que hace un técnico con señal débil.
   const manualRefresh = useCallback(async () => {
     setStatus('updating')
     addToast('Reconectando sistema…', 'info', 2000)
-    try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        const { error } = await supabase.auth.refreshSession()
-        if (error) { handleSessionExpired(); return }
-      }
-      setStatus('online')
-      setLastRefresh(new Date())
-      if (businessId) forcePrefetch(businessId)
-      emitWakeUp()
-      addToast('Sistema reconectado correctamente', 'success', 3000)
-    } catch {
+
+    const probe = await probeSession(() => supabase.auth.getSession())
+
+    if (probe.kind === 'unreachable') {
       setStatus('reconnecting')
-      addToast('No se pudo reconectar. Verificá tu conexión.', 'error', 4000)
+      addToast('Sin conexión. Reintentá cuando vuelva la señal.', 'warning', 4000)
+      return
     }
-  }, [addToast, handleSessionExpired])
+
+    if (probe.kind === 'absent') {
+      // Terminal, y ya lo está resolviendo ProtectedRoute. Acá no se navega.
+      setStatus('session_expired')
+      return
+    }
+
+    setStatus('online')
+    setLastRefresh(new Date())
+    if (businessId) forcePrefetch(businessId)
+    emitWakeUp()
+    addToast('Sistema reconectado correctamente', 'success', 3000)
+  }, [addToast, businessId])
 
   refreshRef.current = manualRefresh
 
