@@ -5,12 +5,12 @@
  * completitud y permitía tildar tareas a mano. Las tareas NO son checkboxes:
  * el círculo/check es sólo un indicador, y el estado viene del servidor.
  *
- * VISIBILIDAD (§13). La regla vieja era "onboarding completo + >7 días →
- * desaparece", que ocultaba trabajo REALMENTE pendiente al día 8. La nueva:
+ * VISIBILIDAD. La regla vieja era "onboarding completo + >7 días →
+ * desaparece", que ocultaba trabajo REALMENTE pendiente al día 8. La regla
+ * canónica ahora es:
  *
  *   - hay tareas pendientes  -> se muestra hasta que el usuario lo descarte;
- *   - 5/5                    -> se muestra el estado de éxito, que el usuario
- *                               cierra cuando quiere;
+ *   - 5/5                    -> no se renderiza: la guía ya cumplió su función;
  *   - descartado             -> oculto en ese navegador, para siempre.
  *
  * Se evaluó la ventana de 30 días que proponía el lote y se descartó: sólo
@@ -40,6 +40,7 @@ export function FirstStepsChecklist() {
   const { steps, loading, dismissed, dismiss } = useFirstSteps()
 
   if (loading || dismissed || !steps) return null
+  if (STEPS.every(step => steps[step.key])) return null
 
   const items: SetupChecklistItem[] = STEPS.map(s => ({
     id:    s.id,
