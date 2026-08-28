@@ -209,6 +209,13 @@ export const financeChartsService = {
     const { data, error } = await (signal ? query.abortSignal(signal) : query)
 
     if (error) {
+      // PostgREST representa un fetch abortado como `{ error }`, igual que una
+      // falla real. El signal del caller es la autoridad para distinguirlos:
+      // abandonar el período o desmontar Charts es control de flujo esperado,
+      // no un ERROR de aplicación ni una entrada para el buffer de diagnóstico.
+      if (signal?.aborted) {
+        throw new DOMException('La solicitud fue cancelada.', 'AbortError')
+      }
       logger.error('FINANCE', 'get_finance_charts_l1 falló', error)
       throw new Error(error.message)
     }

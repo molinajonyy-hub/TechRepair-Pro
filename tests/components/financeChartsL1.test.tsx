@@ -13,7 +13,7 @@
 //   26 due_date vacío · 27 sin NaN · 28 sin undefined · 29 sin JSON crudo
 // ─────────────────────────────────────────────────────────────────────────────
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor, fireEvent, cleanup, within } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, cleanup, within, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
 // ─── Recharts en jsdom ───────────────────────────────────────────────────────
@@ -47,6 +47,7 @@ import { buildWaterfallBars } from '../../src/components/finance/charts/ResultWa
 import {
   buildDelta, buildPaymentSlices, replenishmentText, capitalCoverage,
 } from '../../src/lib/finance/chartsL1Presentation'
+import { logger } from '../../src/lib/logger'
 
 // ─── Payload de referencia ───────────────────────────────────────────────────
 
@@ -299,6 +300,73 @@ describe('Charts L1 — ciclo de vida (§29)', () => {
     // Se espera lo suficiente como para que la respuesta vieja llegue.
     await new Promise(r => setTimeout(r, 80))
     expect(textoVisible()).not.toContain('111.111')
+  })
+
+  it('8b. al cambiar de período aborta el request viejo y su rechazo no pisa los datos nuevos', async () => {
+    let llamada = 0
+    let primerSignal: AbortSignal | null = null
+    const loggerError = vi.spyOn(logger, 'error').mockImplementation(() => {})
+
+    estado.fetch = (args: unknown) => {
+      llamada += 1
+      const { signal, periodEnd } = args as { signal: AbortSignal; periodEnd: string }
+      if (llamada === 1) {
+        primerSignal = signal
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => reject(new DOMException('La solicitud fue cancelada.', 'AbortError')),
+            { once: true },
+          )
+        })
+      }
+      return Promise.resolve({
+        ...PAYLOAD(),
+        summary: { ...PAYLOAD().summary, net_sales: 222222 },
+        period: { ...PAYLOAD().period, end: periodEnd },
+      })
+    }
+
+    const { rerender } = montar()
+    await waitFor(() => expect(primerSignal).not.toBeNull())
+
+    rerender(
+      <MemoryRouter>
+        <FinanceChartsL1 businessId="biz-1" periodStart="2026-08-01" periodEnd="2026-08-20" />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(within(screen.getByTestId('kpi-net-sales')).getByText(/222\.222/)).toBeTruthy()
+    })
+    expect((primerSignal as AbortSignal | null)?.aborted).toBe(true)
+    expect(screen.getByTestId('card-result').getAttribute('data-state')).toBe('available')
+    expect(loggerError).not.toHaveBeenCalled()
+  })
+
+  it('8c. al desmontar aborta el request activo y el rechazo tardío queda descartado', async () => {
+    let signalActivo: AbortSignal | null = null
+    const loggerError = vi.spyOn(logger, 'error').mockImplementation(() => {})
+
+    estado.fetch = (args: unknown) => {
+      signalActivo = (args as { signal: AbortSignal }).signal
+      return new Promise((_resolve, reject) => {
+        signalActivo!.addEventListener(
+          'abort',
+          () => reject(new DOMException('La solicitud fue cancelada.', 'AbortError')),
+          { once: true },
+        )
+      })
+    }
+
+    const { unmount } = montar()
+    await waitFor(() => expect(signalActivo).not.toBeNull())
+
+    unmount()
+    await act(async () => { await Promise.resolve() })
+
+    expect((signalActivo as AbortSignal | null)?.aborted).toBe(true)
+    expect(loggerError).not.toHaveBeenCalled()
   })
 
   it('9. cambiar de período dispara exactamente una consulta nueva', async () => {
