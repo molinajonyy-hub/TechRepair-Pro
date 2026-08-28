@@ -1,51 +1,39 @@
 {
-  "name": "Mi Guita — Finanzas Personales",
-  "short_name": "Mi Guita",
-  "description": "Controlá tus finanzas personales separadas del negocio",
-  "start_url": "/personal",
+  "name": "TechRepair Pro",
+  "short_name": "TechRepair Pro",
+  "description": "Gestión para talleres y locales de reparación: órdenes de servicio, clientes, inventario, caja y facturación.",
+  "id": "/",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#071018",
-  "theme_color": "#071018",
+  "orientation": "any",
+  "background_color": "#f4f7fb",
+  "theme_color": "#f4f7fb",
   "lang": "es-AR",
-  "categories": ["finance", "productivity"],
+  "dir": "ltr",
+  "categories": [
+    "business",
+    "productivity"
+  ],
   "icons": [
     {
-      "src": "/icons/miguita-192.svg",
+      "src": "/icons/techrepair-192.png",
       "sizes": "192x192",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/miguita-512.svg",
+      "src": "/icons/techrepair-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/miguita-512.svg",
+      "src": "/icons/techrepair-maskable-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "maskable"
     }
   ],
-  "screenshots": [],
-  "shortcuts": [
-    {
-      "name": "Gasto rápido",
-      "url": "/personal?quickExpense=1",
-      "description": "Registrar un gasto rápidamente"
-    },
-    {
-      "name": "Nuevo gasto",
-      "url": "/personal/movimientos/nuevo?type=expense",
-      "description": "Registrar un gasto personal"
-    },
-    {
-      "name": "Nuevo ingreso",
-      "url": "/personal/movimientos/nuevo?type=income",
-      "description": "Registrar un ingreso personal"
-    }
-  ]
+  "screenshots": []
 }

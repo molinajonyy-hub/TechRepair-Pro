@@ -98,15 +98,17 @@
     }
     </script>
 
-    <!-- PWA — Mi Guita -->
+    <!-- PWA — identidad de instalación: TechRepair Pro (MOBILE-PWA-0).
+         El sitio primario (techrepairpro.app) instala TechRepair Pro, NO Mi Guita.
+         El apple-touch-icon debe ser PNG: Safari no soporta SVG acá. Mi Guita
+         sigue siendo un módulo interno; su manifest propio queda diferido. -->
     <link rel="manifest" href="/manifest.json" />
-    <link rel="apple-touch-icon" sizes="512x512" href="/icons/miguita-512.svg" />
-    <link rel="apple-touch-icon" sizes="192x192" href="/icons/miguita-192.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Mi Guita" />
-    <meta name="theme-color" content="#071018" />
+    <meta name="apple-mobile-web-app-title" content="TechRepair Pro" />
+    <meta name="theme-color" content="#f4f7fb" />
 
     <!-- Tema pre-paint: aplica data-theme antes de que React monte para evitar
          flash de tema incorrecto. Debe mantener la misma lógica que ThemeContext:
