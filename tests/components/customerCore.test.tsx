@@ -154,6 +154,17 @@ describe('regla de mayorista', () => {
     expect(validateCustomerCore(values({ phone: '' }), 'create').phone).toBeTruthy()
     expect(validateCustomerCore(values({ phone: '' }), 'update').phone).toBeUndefined()
   })
+
+  it('el email es opcional, pero si se informa usa la regla explícita de creación', () => {
+    expect(validateCustomerCore(values({ email: '' }), 'create').email).toBeUndefined()
+    expect(validateCustomerCore(values({ email: '   ' }), 'create').email).toBeUndefined()
+    expect(validateCustomerCore(values({ email: 'cliente@example.com' }), 'create').email).toBeUndefined()
+    expect(validateCustomerCore(values({ email: 'email-invalido' }), 'create').email).toBe('Ingresá un email válido.')
+  })
+
+  it('no endurece retroactivamente la edición de emails históricos', () => {
+    expect(validateCustomerCore(values({ email: 'email-historico' }), 'update').email).toBeUndefined()
+  })
 })
 
 // ── Limpieza mayorista → minorista ──────────────────────────────────────────
@@ -216,25 +227,29 @@ describe('paridad full page ↔ alta rápida', () => {
   const DOCUMENT_INPUT = '30.123.456'
 
   async function createFromFullPage() {
-    render(<MemoryRouter><NewCustomer /></MemoryRouter>)
+    const view = render(<MemoryRouter><NewCustomer /></MemoryRouter>)
     fireEvent.change(screen.getByTestId('customer-name-input'), { target: { value: 'Juan Pérez' } })
     fireEvent.change(screen.getByTestId('customer-phone-input'), { target: { value: '3512345678' } })
     fireEvent.change(screen.getByTestId('customer-document-input'), { target: { value: DOCUMENT_INPUT } })
     fireEvent.change(screen.getByTestId('customer-address-input'), { target: { value: 'Av. Corrientes 1234' } })
     fireEvent.click(screen.getByTestId('customer-save-button'))
     await waitFor(() => expect(mocks.customerCreate).toHaveBeenCalled())
-    return mocks.customerCreate.mock.calls[0][0]
+    const payload = mocks.customerCreate.mock.calls[0][0]
+    view.unmount()
+    return payload
   }
 
   async function createFromQuickDialog() {
-    render(<MemoryRouter><NewOrder /></MemoryRouter>)
+    const view = render(<MemoryRouter><NewOrder /></MemoryRouter>)
     fireEvent.click(await screen.findByRole('button', { name: 'Crear cliente rápido' }))
     fireEvent.change(screen.getByLabelText('Nombre completo'), { target: { value: 'Juan Pérez' } })
     fireEvent.change(screen.getByLabelText('Teléfono'), { target: { value: '3512345678' } })
     fireEvent.change(screen.getByLabelText('DNI'), { target: { value: DOCUMENT_INPUT } })
     fireEvent.click(screen.getByRole('button', { name: 'Crear cliente' }))
     await waitFor(() => expect(mocks.customerCreate).toHaveBeenCalled())
-    return mocks.customerCreate.mock.calls[0][0]
+    const payload = mocks.customerCreate.mock.calls[0][0]
+    view.unmount()
+    return payload
   }
 
   it('las dos altas normalizan el MISMO documento al mismo valor', async () => {
@@ -293,14 +308,15 @@ describe('paridad full page ↔ alta rápida', () => {
   })
 
   it('elegir mayorista pasa el documento a CUIT en las dos superficies', async () => {
-    render(<MemoryRouter><NewCustomer /></MemoryRouter>)
+    const fullPage = render(<MemoryRouter><NewCustomer /></MemoryRouter>)
     fireEvent.click(screen.getByTestId('customer-type-mayorista'))
     expect(screen.getByTestId('customer-document-type-cuit')).toHaveAttribute('aria-pressed', 'true')
+    fullPage.unmount()
 
     render(<MemoryRouter><NewOrder /></MemoryRouter>)
     fireEvent.click(await screen.findByRole('button', { name: 'Crear cliente rápido' }))
-    fireEvent.change(screen.getByLabelText('Tipo de cliente'), { target: { value: 'mayorista' } })
-    expect(screen.getByLabelText('Tipo de documento')).toHaveValue('cuit')
+    fireEvent.click(screen.getByTestId('customer-type-mayorista'))
+    expect(screen.getByTestId('customer-document-type-cuit')).toHaveAttribute('aria-pressed', 'true')
   })
 })
 

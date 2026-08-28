@@ -10,7 +10,7 @@ import { BarcodeScannerDialog } from '../features/order-intake/BarcodeScannerDia
 import { PatternGrid } from '../features/order-intake/PatternGrid'
 import { INITIAL_INTAKE_DRAFT, isValidImei, normalizeImei, parseLocalizedAmount, type AccessMode, type CheckResult, type IntakeDraft } from '../features/order-intake/model'
 import { createOrderIntake, loadAssignableProfiles, uploadIntakePhotos } from '../features/order-intake/service'
-import { DOCUMENT_TYPES, documentSearchTokens, firstCustomerCoreError, useCustomerCore, type CustomerType } from '../features/customer-core'
+import { CustomerCreateFields, documentSearchTokens, firstCustomerCoreError, useCustomerCore } from '../features/customer-core'
 
 const STEPS = ['Cliente','Equipo','Identificación','Estado y fotos','Checklist','Acceso','Problema','Asignación','Presupuesto','Resumen'] as const
 const CHECKS = [['display','Pantalla'],['touch','Táctil'],['cameras','Cámaras'],['audio','Audio'],['charging','Carga'],['wifi','Wi‑Fi'],['buttons','Botones'],['biometrics','Biometría']] as const
@@ -195,34 +195,27 @@ export function NewOrder() {
 
 function Summary({title,onEdit,children}:{title:string;onEdit:()=>void;children:React.ReactNode}){return <section><div><h2>{title}</h2><button type="button" onClick={onEdit}>Editar</button></div><p>{children||'—'}</p></section>}
 
-/**
- * Alta rápida de cliente.
- *
- * Muestra menos campos que la página completa a propósito (sin dirección ni
- * notas), pero consume EXACTAMENTE las mismas reglas: normalización del
- * documento, regla de mayorista y armado del payload salen del customer core.
- * Antes guardaba el documento crudo y el tipo DNI/CUIT sólo existía en el
- * label, así que se perdía.
- */
+const QUICK_CUSTOMER_FORM_ID = 'quick-customer-form'
+
+/** Alta rápida: shell de diálogo sobre el cuerpo canónico de creación. */
 function QuickCustomerDialog({open,onClose,onCreated}:{open:boolean;onClose:()=>void;onCreated:(customer:Customer)=>void}){
   const {values,errors,setField,setCustomerType,toCreatePayload}=useCustomerCore()
   const [saving,setSaving]=useState(false);const [error,setError]=useState('')
-  const wholesale=values.customerType==='mayorista'
+  const submitLock=useRef(false)
   const invalid=Object.keys(errors).length>0
-  // El motivo se muestra UNA sola vez, al lado del campo que falla, igual que
-  // en el alta full page y en la edición. La alerta de arriba queda reservada
-  // para errores del servidor: antes repetía palabra por palabra el mensaje
-  // inline de la razón social.
-  const save=async()=>{
-    if(firstCustomerCoreError(errors))return
+  const save=async(event:React.FormEvent<HTMLFormElement>)=>{
+    event.preventDefault()
+    if(submitLock.current||firstCustomerCoreError(errors))return
+    submitLock.current=true
     setSaving(true);setError('')
     try{const customer=await customersService.create(toCreatePayload());onCreated(customer)}
     catch(cause){setError(cause instanceof Error?cause.message:'No se pudo crear el cliente.')}
-    finally{setSaving(false)}
+    finally{setSaving(false);submitLock.current=false}
   }
-  return <ResponsiveDialog isOpen={open} onClose={onClose} title="Crear cliente rápido" subtitle="Queda disponible para esta orden y futuras recepciones." mobilePresentation="fullscreen" footer={<><AppButton variant="secondary" onClick={onClose}>Cancelar</AppButton><AppButton variant="primary" loading={saving} disabled={invalid} onClick={save}>Crear cliente</AppButton></>}>
-    {error&&<p className="form-error" role="alert">{error}</p>}<AppSelect label="Tipo de cliente" value={values.customerType} onChange={e=>setCustomerType(e.target.value as CustomerType)} options={[{value:'minorista',label:'Minorista'},{value:'mayorista',label:'Mayorista'}]}/>
-    {wholesale&&<FormGrid><AppInput label="Razón social" required value={values.businessName} error={errors.businessName} onChange={e=>setField('businessName',e.target.value)}/><AppInput label="Persona de contacto" value={values.contactPerson} onChange={e=>setField('contactPerson',e.target.value)}/></FormGrid>}
-    <FormGrid><AppInput label={wholesale?'Nombre de contacto':'Nombre completo'} required value={values.name} onChange={e=>setField('name',e.target.value)}/><AppInput semantic="tel" label="Teléfono" required value={values.phone} onChange={e=>setField('phone',e.target.value)}/><AppInput semantic="email" label="Email" value={values.email} onChange={e=>setField('email',e.target.value)}/><AppSelect label="Tipo de documento" value={values.documentType} onChange={e=>setField('documentType',e.target.value)} options={DOCUMENT_TYPES.map(item=>({value:item,label:item.toUpperCase()}))}/><AppInput semantic="numeric" label={values.documentType==='cuit'?'CUIT':'DNI'} value={values.document} onChange={e=>setField('document',e.target.value)}/></FormGrid>
+  return <ResponsiveDialog isOpen={open} onClose={onClose} title="Crear cliente rápido" subtitle="Queda disponible para esta orden y futuras recepciones." size="lg" mobilePresentation="fullscreen" footer={<div className="customer-create-dialog-actions"><AppButton variant="secondary" onClick={onClose}>Cancelar</AppButton><AppButton type="submit" form={QUICK_CUSTOMER_FORM_ID} variant="primary" loading={saving} disabled={invalid} data-testid="quick-customer-save-button">Crear cliente</AppButton></div>}>
+    <form id={QUICK_CUSTOMER_FORM_ID} className="customer-create-form customer-create-form--quick" onSubmit={save} noValidate>
+      {error&&<p className="form-error customer-create-server-error" role="alert">{error}</p>}
+      <CustomerCreateFields values={values} errors={errors} setField={setField} setCustomerType={setCustomerType} additionalInitiallyOpen={false}/>
+    </form>
   </ResponsiveDialog>
 }

@@ -125,6 +125,8 @@ const orUndefined = (value: string): string | undefined => value || undefined
 
 const orNull = (value: string): string | null => value || null
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 /** Normaliza cualquier string a un `CustomerType` válido para el CHECK de la DB. */
 export function toCustomerType(value: string | null | undefined): CustomerType {
   return value === 'mayorista' ? 'mayorista' : 'minorista'
@@ -200,6 +202,10 @@ export function validateCustomerCore(
     errors.phone = 'El teléfono es obligatorio.'
   }
 
+  if (mode === 'create' && text(values.email) && !EMAIL_PATTERN.test(text(values.email))) {
+    errors.email = 'Ingresá un email válido.'
+  }
+
   if (values.customerType === 'mayorista' && !text(values.businessName)) {
     errors.businessName = 'Un cliente mayorista necesita razón social.'
   }
@@ -216,7 +222,7 @@ export function isCustomerCoreValid(
 
 /** Primer mensaje de error, para las superficies que muestran un único aviso. */
 export function firstCustomerCoreError(errors: CustomerCoreErrors): string {
-  const order: CustomerCoreField[] = ['name', 'phone', 'businessName', 'contactPerson', 'document']
+  const order: CustomerCoreField[] = ['name', 'phone', 'email', 'businessName', 'contactPerson', 'document']
   for (const field of order) {
     const message = errors[field]
     if (message) return message

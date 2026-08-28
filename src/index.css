@@ -2947,6 +2947,225 @@ tbody tr:hover td {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   CUSTOMER-CREATION-PARITY-1A — cuerpo compartido, shells independientes
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.customer-create-page {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.customer-create-card {
+  width: 100%;
+}
+
+.customer-create-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--accent-primary);
+}
+
+.customer-create-page .page-hdr-right .btn {
+  min-height: var(--mobile-touch-target);
+}
+
+.customer-create-server-error {
+  margin-bottom: 1rem;
+}
+
+.customer-create-form,
+.customer-create-fields,
+.customer-create-section-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.customer-create-form {
+  gap: 0;
+}
+
+.customer-create-fields {
+  gap: 1.25rem;
+}
+
+.customer-create-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.customer-create-section + .customer-create-section {
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.customer-create-section-title {
+  display: block;
+  width: 100%;
+  margin: 0 0 0.875rem;
+  padding: 0;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.customer-create-section-body {
+  gap: 1rem;
+}
+
+.customer-create-segment {
+  width: 100%;
+}
+
+.customer-create-segment .seg-field-option {
+  flex: 1 1 50%;
+  min-height: var(--mobile-touch-target);
+  letter-spacing: 0;
+}
+
+.customer-create-document-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.75rem;
+}
+
+.customer-create-document-segment .seg-field-option {
+  min-width: 4rem;
+  min-height: var(--mobile-touch-target);
+}
+
+.customer-create-optional-label {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.customer-create-wholesale-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.customer-create-disclosure-heading {
+  margin: 0;
+  font-size: inherit;
+}
+
+.customer-create-disclosure {
+  display: flex;
+  width: 100%;
+  min-height: var(--mobile-touch-target);
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 750;
+  text-align: left;
+  cursor: pointer;
+}
+
+.customer-create-disclosure:hover {
+  color: var(--accent-primary);
+}
+
+.customer-create-disclosure:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
+.customer-create-disclosure svg {
+  flex-shrink: 0;
+  transition: transform 160ms ease;
+}
+
+.customer-create-disclosure[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+
+.customer-create-additional-body {
+  padding-top: 0.875rem;
+}
+
+.customer-create-action-host {
+  margin-top: 1.5rem;
+}
+
+.customer-create-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.625rem;
+  width: 100%;
+}
+
+.customer-create-dialog-actions .btn {
+  min-height: var(--mobile-touch-target);
+}
+
+@media (max-width: 599px) {
+  .customer-create-document-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .customer-create-document-segment {
+    width: 100%;
+  }
+
+  .customer-create-document-segment .seg-field-option {
+    flex: 1 1 50%;
+  }
+
+  .customer-create-card .card-body {
+    padding: 1rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .customer-create-action-host .mobile-action-bar__spacer {
+    display: none;
+  }
+
+  .customer-create-action-host .mobile-action-bar {
+    position: static;
+    display: block;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+
+  .customer-create-action-host .mobile-action-bar__inner {
+    grid-template-columns: auto auto;
+    justify-content: end;
+    max-width: none;
+    margin: 0;
+  }
+
+  .customer-create-action-host .mobile-action-bar__primary > *,
+  .customer-create-action-host .mobile-action-bar__secondary > * {
+    width: auto;
+    min-height: var(--mobile-touch-target);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .customer-create-disclosure svg {
+    transition: none;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    PRINT
    ══════════════════════════════════════════════════════════════════════════ */
 

@@ -15,7 +15,7 @@
 // `docker exec` al contenedor local, así que este archivo es estructuralmente
 // incapaz de tocar producción.
 // ─────────────────────────────────────────────────────────────────────────────
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { consultarJSON, ejecutarSQL } from '../setup/sqlLocal'
 import { E2E } from '../setup/seedE2E'
 
@@ -25,7 +25,9 @@ const FULL_PAGE_NAME = `${MARK} Alta Full Page`
 const QUICK_NAME = `${MARK} Alta Rapida`
 const PHONE = '3512345678'
 const EMAIL = 'uicons1@example.test'
-const DOCUMENT_TYPED = '30.123.456'
+const ADDRESS = 'Av. Corrientes 1234, CABA'
+const NOTES = 'Cliente de prueba de paridad.'
+const DOCUMENT_TYPED = 'AB-123.456'
 
 type CustomerRow = {
   name: string
@@ -35,11 +37,13 @@ type CustomerRow = {
   customer_type: string
   business_name: string | null
   contact_person: string | null
+  address: string | null
+  notes: string | null
 }
 
 function readCustomer(name: string): CustomerRow {
   return consultarJSON<CustomerRow>(`
-    SELECT name, phone, email, document, customer_type, business_name, contact_person
+    SELECT name, phone, email, document, customer_type, business_name, contact_person, address, notes
       FROM public.customers
      WHERE business_id = '${E2E.business}' AND name = '${name}'
   `)
@@ -56,6 +60,8 @@ async function createFromFullPage(page: Page) {
   await page.getByTestId('customer-phone-input').fill(PHONE)
   await page.getByTestId('customer-email-input').fill(EMAIL)
   await page.getByTestId('customer-document-input').fill(DOCUMENT_TYPED)
+  await page.getByTestId('customer-address-input').fill(ADDRESS)
+  await page.getByTestId('customer-notes-input').fill(NOTES)
   await page.getByTestId('customer-save-button').click()
   // La página completa navega al detalle del cliente creado.
   await page.waitForURL(/\/customers\/[0-9a-f-]{36}$/)
@@ -68,8 +74,11 @@ async function createFromQuickDialog(page: Page) {
   await expect(dialog).toBeVisible()
   await dialog.getByLabel('Nombre completo').fill(QUICK_NAME)
   await dialog.getByLabel('Teléfono').fill(PHONE)
+  await dialog.getByTestId('customer-additional-toggle').click()
   await dialog.getByLabel('Email').fill(EMAIL)
   await dialog.getByLabel('DNI').fill(DOCUMENT_TYPED)
+  await dialog.getByLabel('Dirección').fill(ADDRESS)
+  await dialog.getByLabel('Notas').fill(NOTES)
   await dialog.getByRole('button', { name: 'Crear cliente' }).click()
   await expect(dialog).not.toBeVisible()
   // Contrato con el wizard: vuelve seleccionado en el paso Cliente.
@@ -88,12 +97,12 @@ test.describe('@customer-core UI-CONSISTENCY-1 · paridad entre superficies de a
     const quick = readCustomer(QUICK_NAME)
 
     // 1) El documento quedó en el formato canónico en AMBAS filas.
-    expect(full.document).toBe('DNI 30123456')
-    expect(quick.document).toBe('DNI 30123456')
+    expect(full.document).toBe('DNI AB123456')
+    expect(quick.document).toBe('DNI AB123456')
 
     // 2) Los campos compartidos son semánticamente idénticos.
     //    (`name` se excluye a propósito: es lo único que distingue las filas.)
-    for (const field of ['phone', 'email', 'document', 'customer_type', 'business_name', 'contact_person'] as const) {
+    for (const field of ['phone', 'email', 'document', 'customer_type', 'business_name', 'contact_person', 'address', 'notes'] as const) {
       expect(quick[field], `divergencia en "${field}"`).toEqual(full[field])
     }
 
@@ -119,10 +128,10 @@ test.describe('@customer-core UI-CONSISTENCY-1 · paridad entre superficies de a
     await page.goto('/orders/new')
     await page.getByRole('button', { name: 'Crear cliente rápido' }).click()
     const dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
-    await dialog.getByLabel('Tipo de cliente').selectOption('mayorista')
-    await expect(dialog.getByLabel('Tipo de documento')).toHaveValue('cuit')
+    await dialog.getByTestId('customer-type-mayorista').click()
+    await expect(dialog.getByTestId('customer-document-type-cuit')).toHaveAttribute('aria-pressed', 'true')
     await dialog.getByLabel('Razón social').fill('Demo SRL')
-    await dialog.getByLabel('Nombre de contacto').fill(quickWholesale)
+    await dialog.getByLabel('Nombre completo').fill(quickWholesale)
     await dialog.getByLabel('Teléfono').fill(PHONE)
     await dialog.getByLabel('CUIT').fill('20-30123456-7')
     await dialog.getByRole('button', { name: 'Crear cliente' }).click()
@@ -169,113 +178,159 @@ test.describe('@customer-core UI-CONSISTENCY-1 · paridad entre superficies de a
   })
 })
 
-// ── Sanidad responsive y de tema ────────────────────────────────────────────
-// No es un rediseño: sólo se comprueba que las superficies tocadas no
-// desbordan ni tapan su CTA. El diálogo sumó un campo (tipo de documento) y el
-// modal de edición sumó cuatro, así que el riesgo real es de alto y scroll.
-const MOBILE_WIDTHS = [320, 390, 430]
+// ── Sanidad responsive, de tema y de interacción ───────────────────────────
+const VIEWPORTS = [320, 375, 390, 430, 768, 1024, 1440] as const
+const THEMES = ['light', 'dark'] as const
 
 async function overflow(page: Page) {
   return page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
 }
 
-/** CTA de creación dentro del diálogo rápido. */
-const cta0 = (dialog: ReturnType<Page['getByRole']>) => dialog.getByRole('button', { name: 'Crear cliente' })
+async function expectReachable(locator: Locator) {
+  await locator.scrollIntoViewIfNeeded()
+  await expect(locator).toBeVisible()
+  const reachable = await locator.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    const x = rect.left + rect.width / 2
+    const y = rect.top + rect.height / 2
+    const hit = document.elementFromPoint(x, y)
+    return hit === element || Boolean(hit && element.contains(hit))
+  })
+  expect(reachable).toBe(true)
+}
 
-test.describe('@customer-core UI-CONSISTENCY-1 · sanidad responsive', () => {
+async function expectTouchTargets(locator: Locator) {
+  const boxes = await locator.evaluateAll((elements) => elements
+    .filter((element) => (element as HTMLElement).getClientRects().length > 0)
+    .map((element) => {
+      const rect = element.getBoundingClientRect()
+      return { width: rect.width, height: rect.height }
+    }))
+  expect(boxes.length).toBeGreaterThan(0)
+  for (const box of boxes) {
+    expect(box.width).toBeGreaterThanOrEqual(43.5)
+    expect(box.height).toBeGreaterThanOrEqual(43.5)
+  }
+}
+
+test.describe('@customer-core CUSTOMER-CREATION-PARITY-1A · responsive y tema', () => {
+  for (const theme of THEMES) {
+    for (const width of VIEWPORTS) {
+      test(`ambos shells son usables en ${width}px · ${theme}`, async ({ page }) => {
+        const height = width <= 430 ? 844 : 900
+        await page.addInitScript((value) => {
+          localStorage.setItem('theme', value)
+          localStorage.setItem('techrepair_theme', value)
+        }, theme)
+        await page.setViewportSize({ width, height })
+
+        await page.goto('/customers/new')
+        await expect(page.getByTestId('customer-additional-toggle')).toHaveAttribute('aria-expanded', 'true')
+        await expect(page.getByLabel('Nombre completo')).toBeVisible()
+        await expect(page.getByLabel('Dirección')).toBeVisible()
+        await expect(page.getByLabel('Notas')).toBeVisible()
+        expect(await overflow(page)).toBeLessThanOrEqual(1)
+
+        await page.getByLabel('Nombre completo').fill('QA responsive')
+        await page.getByLabel('Teléfono').fill('3510000009')
+        const fullCta = page.getByTestId('customer-save-button')
+        await expect(fullCta).toBeEnabled()
+        await expectReachable(fullCta)
+        const fullActionPosition = await page.getByTestId('mobile-action-bar').evaluate((element) => getComputedStyle(element).position)
+        expect(fullActionPosition).toBe(width < 1024 ? 'fixed' : 'static')
+        await expectTouchTargets(page.locator('.customer-create-page .customer-create-fields input, .customer-create-page .customer-create-fields textarea, .customer-create-page .customer-create-fields button, .customer-create-page .page-hdr-right .btn, .customer-create-page [data-testid="customer-save-button"]'))
+
+        await page.goto('/orders/new')
+        const trigger = page.getByRole('button', { name: 'Crear cliente rápido' })
+        await trigger.click()
+        const dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
+        await expect(dialog).toBeVisible()
+        await expect(dialog.getByTestId('customer-additional-toggle')).toHaveAttribute('aria-expanded', 'false')
+        expect(await overflow(page)).toBeLessThanOrEqual(1)
+
+        if (width <= 767) {
+          await expect.poll(async () => (await dialog.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(width - 1)
+          await expect.poll(async () => (await dialog.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(height - 1)
+        } else {
+          const dialogBox = await dialog.boundingBox()
+          expect(dialogBox).not.toBeNull()
+          expect(dialogBox!.width).toBeLessThan(width)
+        }
+
+        await dialog.getByLabel('Nombre completo').fill('QA diálogo')
+        await dialog.getByLabel('Teléfono').fill('3510000009')
+        await dialog.getByTestId('customer-additional-toggle').click()
+        await expect(dialog.getByLabel('Dirección')).toBeVisible()
+        await expect(dialog.getByLabel('Notas')).toBeVisible()
+        const quickCta = dialog.getByRole('button', { name: 'Crear cliente' })
+        await expect(quickCta).toBeEnabled()
+        await expectReachable(quickCta)
+        await expectTouchTargets(dialog.locator('.customer-create-fields input, .customer-create-fields textarea, .customer-create-fields button, .modal-footer .btn'))
+        expect(await overflow(page)).toBeLessThanOrEqual(1)
+
+        await page.keyboard.press('Escape')
+        await expect(dialog).not.toBeVisible()
+        await expect(trigger).toBeFocused()
+      })
+    }
+  }
+})
+
+test.describe('@customer-core CUSTOMER-CREATION-PARITY-1A · validación y teclado', () => {
+  test.beforeEach(() => cleanup())
   test.afterAll(() => cleanup())
 
-  for (const width of MOBILE_WIDTHS) {
-    test(`el alta rápida abre, no desborda y cancela en ${width}px`, async ({ page }) => {
-      await page.setViewportSize({ width, height: 844 })
-      await page.goto('/orders/new')
+  test('el email vacío es válido y el inválido muestra el mismo error en ambos shells', async ({ page }) => {
+    await page.goto('/customers/new')
+    await page.getByLabel('Nombre completo').fill('Email Full')
+    await page.getByLabel('Teléfono').fill(PHONE)
+    await expect(page.getByTestId('customer-save-button')).toBeEnabled()
+    await page.getByLabel('Email').fill('email-invalido')
+    await expect(page.getByText('Ingresá un email válido.')).toBeVisible()
+    await expect(page.getByLabel('Email')).toHaveAttribute('aria-invalid', 'true')
+    await expect(page.getByTestId('customer-save-button')).toBeDisabled()
 
-      const trigger = page.getByRole('button', { name: 'Crear cliente rápido' })
-      await trigger.click()
-      const dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
-      await expect(dialog).toBeVisible()
-
-      // El campo nuevo está presente y el diálogo sigue sin desbordar.
-      await expect(dialog.getByLabel('Tipo de documento')).toBeVisible()
-      expect(await overflow(page)).toBeLessThanOrEqual(1)
-
-      // UI-CONSISTENCY-2A. El CTA ahora arranca DESHABILITADO con el formulario
-      // vacío (es el reemplazo del mensaje de validación duplicado), y
-      // `.btn:disabled` lleva `pointer-events:none`, así que un hit-test sobre
-      // el botón deshabilitado mediría el elemento de atrás, no el layout. Se
-      // completan los campos mínimos para evaluar lo que este test siempre
-      // quiso evaluar: que nada TAPE el CTA.
-      await expect(cta0(dialog)).toBeDisabled()
-      await dialog.getByLabel('Nombre completo').fill('QA Sanidad Responsive')
-      await dialog.getByLabel('Teléfono').fill('3510000009')
-      await expect(cta0(dialog)).toBeEnabled()
-
-      // El CTA es alcanzable y nada lo tapa: se comprueba por hit-test real,
-      // no sólo por visibilidad.
-      //
-      // NOTA: hoy mide ~39 px de alto, por debajo del mínimo táctil de 44 px.
-      // Viene del footer de ResponsiveDialog (MOBILE-2A) y este lote NO lo
-      // toca: cambiar el alto del AppButton afecta el footer de TODOS los
-      // diálogos de la app.
-      //
-      // UI-CONSISTENCY-4 (PR #86) NO lo cubre. Medido tras integrarlo: subió
-      // `.icon-btn` a 44×44 con `--mobile-touch-target` bajo 1023 px, pero el
-      // footer de los diálogos sigue en 39,1 px. No asumir que ya está resuelto.
-      // Queda para el lote de convergencia de diálogos; acá sólo se fija que no
-      // haya regresión de alcance.
-      const cta = dialog.getByRole('button', { name: 'Crear cliente' })
-      await expect(cta).toBeVisible()
-      const reachable = await cta.evaluate((element) => {
-        const rect = element.getBoundingClientRect()
-        const x = rect.left + rect.width / 2
-        return [rect.top + 3, rect.top + rect.height / 2, rect.bottom - 3].every((y) => {
-          const hit = document.elementFromPoint(x, y)
-          return hit === element || Boolean(hit && element.contains(hit))
-        })
-      })
-      expect(reachable).toBe(true)
-
-      // Escape cierra sin crear nada.
-      await page.keyboard.press('Escape')
-      await expect(dialog).not.toBeVisible()
-    })
-  }
-
-  test('el modal de edición scrollea sus campos nuevos en 320px', async ({ page }) => {
-    const name = `${MARK} Responsive`
-    ejecutarSQL(`INSERT INTO public.customers (business_id, name, phone, customer_type, business_name)
-                 VALUES ('${E2E.business}', '${name}', '${PHONE}', 'mayorista', 'Demo SRL');`)
-
-    await page.setViewportSize({ width: 320, height: 568 })
-    await page.goto('/customers')
-    await page.getByRole('row').filter({ hasText: name }).getByTitle('Editar cliente').click()
-    await expect(page.getByText('Editar Cliente')).toBeVisible()
-
-    expect(await overflow(page)).toBeLessThanOrEqual(1)
-
-    // Los campos que sumó el lote son alcanzables por el scroll propio del modal.
-    const businessName = page.getByTestId('customer-edit-business-name-input')
-    await businessName.scrollIntoViewIfNeeded()
-    await expect(businessName).toBeVisible()
-    await expect(page.getByTestId('customer-edit-save-button')).toBeVisible()
-    expect(await overflow(page)).toBeLessThanOrEqual(1)
+    await page.goto('/orders/new')
+    await page.getByRole('button', { name: 'Crear cliente rápido' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
+    await dialog.getByLabel('Nombre completo').fill('Email Quick')
+    await dialog.getByLabel('Teléfono').fill(PHONE)
+    await expect(dialog.getByRole('button', { name: 'Crear cliente' })).toBeEnabled()
+    await dialog.getByTestId('customer-additional-toggle').click()
+    await dialog.getByLabel('Email').fill('email-invalido')
+    await expect(dialog.getByText('Ingresá un email válido.')).toBeVisible()
+    await expect(dialog.getByLabel('Email')).toHaveAttribute('aria-invalid', 'true')
+    await expect(dialog.getByRole('button', { name: 'Crear cliente' })).toBeDisabled()
   })
 
-  for (const theme of ['light', 'dark'] as const) {
-    test(`el alta full page es usable en 1440 · ${theme}`, async ({ page }) => {
-      await page.addInitScript((value) => {
-        localStorage.setItem('theme', value)
-        localStorage.setItem('techrepair_theme', value)
-      }, theme)
-      await page.setViewportSize({ width: 1440, height: 900 })
-      await page.goto('/customers/new')
+  test('Enter envía ambos formularios una sola vez y conserva la selección del wizard', async ({ page }) => {
+    const fullName = `${MARK} Enter Full`
+    const quickName = `${MARK} Enter Rapido`
 
-      await expect(page.getByTestId('customer-name-input')).toBeVisible()
-      await expect(page.getByTestId('customer-address-input')).toBeVisible()
-      await expect(page.getByTestId('customer-document-input')).toBeVisible()
-      expect(await overflow(page)).toBeLessThanOrEqual(1)
-    })
-  }
+    await page.goto('/customers/new')
+    await page.getByLabel('Nombre completo').fill(fullName)
+    await page.getByLabel('Teléfono').fill(PHONE)
+    await page.getByLabel('Teléfono').press('Enter')
+    await page.waitForURL(/\/customers\/[0-9a-f-]{36}$/)
+
+    await page.goto('/orders/new')
+    await page.getByRole('button', { name: 'Crear cliente rápido' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
+    await dialog.getByLabel('Nombre completo').fill(quickName)
+    await dialog.getByLabel('Teléfono').fill(PHONE)
+    await dialog.getByLabel('Teléfono').press('Enter')
+    await expect(dialog).not.toBeVisible()
+    await expect(page.getByRole('button', { name: new RegExp(quickName) })).toBeVisible()
+
+    for (const name of [fullName, quickName]) {
+      const row = consultarJSON<{ count: number }>(`
+        SELECT count(*)::int AS count
+          FROM public.customers
+         WHERE business_id = '${E2E.business}' AND name = '${name}'
+      `)
+      expect(row.count, name).toBe(1)
+    }
+  })
 })
 
 // ── UI-CONSISTENCY-2A · contraste real del selector DNI/CUIT ────────────────
