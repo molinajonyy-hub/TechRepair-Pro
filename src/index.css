@@ -2543,6 +2543,23 @@ tbody tr:hover td {
   flex-shrink: 0;
 }
 
+/* DIALOG-TOUCH-1 — contrato tactil de las acciones del footer.
+   `footer` es un ReactNode arbitrario: cada consumidor arma sus propios botones,
+   asi que el contrato no puede viajar en una prop de AppButton ni en un size.
+   Lo declara el footer, que es el unico punto compartido por todos.
+   `.btn` en talla md mide 39px (line-height 21 de bootstrap + 8+8 de padding +
+   1+1 de borde) y ademas se comprime a ~37,8px cuando el header ocupa dos lineas
+   en 320px. Mismo criterio y mismo breakpoint que `.icon-btn` (UI-CONSISTENCY-4):
+   por debajo de 1024px el diálogo ya expone un cierre de 44px en el header, y una
+   accion de 39px al lado incumple el mismo contrato dentro del mismo diálogo.
+   Desktop (>=1024px) conserva la densidad compacta a proposito. */
+@media (max-width: 1023px) {
+  .modal-content-responsive .modal-footer button,
+  .modal-content-responsive .modal-footer .btn {
+    min-height: var(--mobile-touch-target);
+  }
+}
+
 /* Toolbar row — barra de búsqueda/filtros */
 .toolbar-row {
   display: flex;
