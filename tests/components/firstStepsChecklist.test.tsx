@@ -41,6 +41,11 @@ const NOTHING = {
   has_cobro: false, has_logo: false,
 }
 
+const EVERYTHING = {
+  has_customer: true, has_order: true, has_inventory: true,
+  has_cobro: true, has_logo: true,
+}
+
 const renderCard = () =>
   render(<MemoryRouter><FirstStepsChecklist /></MemoryRouter>)
 
@@ -57,6 +62,13 @@ beforeEach(() => {
 afterEach(() => { localStorage.clear() })
 
 describe('FirstStepsChecklist — estado derivado del servidor', () => {
+  it('no dibuja nada mientras la lectura está cargando', () => {
+    mockGet.mockReturnValue(new Promise(() => {}))
+    renderCard()
+
+    expect(screen.queryByTestId('setup-checklist')).toBeNull()
+  })
+
   it('tenant nuevo con localStorage limpio muestra 0 de 5', async () => {
     mockGet.mockResolvedValue({ ...NOTHING })
     renderCard()
@@ -99,15 +111,28 @@ describe('FirstStepsChecklist — estado derivado del servidor', () => {
     await waitFor(() => expect(screen.getByTestId('setup-checklist-progress').textContent).toBe('2/5'))
   })
 
-  it('5/5 muestra el estado de éxito y deja cerrarlo', async () => {
-    mockGet.mockResolvedValue({
-      has_customer: true, has_order: true, has_inventory: true,
-      has_cobro: true, has_logo: true,
-    })
+  it.each([
+    ['customer', 'has_customer'],
+    ['order', 'has_order'],
+    ['inventory', 'has_inventory'],
+    ['cobro', 'has_cobro'],
+    ['logo', 'has_logo'],
+  ] as const)('sigue visible si sólo falta %s', async (_id, missingKey) => {
+    mockGet.mockResolvedValue({ ...EVERYTHING, [missingKey]: false })
     renderCard()
-    await waitFor(() => expect(screen.getByTestId('setup-checklist-progress').textContent).toBe('5/5'))
-    expect(screen.getByText('Configuración completa')).toBeTruthy()
-    expect(screen.getByText('Listo, ocultar')).toBeTruthy()
+
+    await waitFor(() => expect(screen.getByTestId('setup-checklist-progress').textContent).toBe('4/5'))
+    expect(screen.getByTestId(`setup-step-${_id}`).getAttribute('data-done')).toBe('false')
+  })
+
+  it('5/5 no renderiza la tarjeta persistente', async () => {
+    mockGet.mockResolvedValue({ ...EVERYTHING })
+    renderCard()
+
+    await waitFor(() => expect(mockGet).toHaveBeenCalled())
+    expect(screen.queryByTestId('setup-checklist')).toBeNull()
+    expect(screen.queryByText('Configuración completa')).toBeNull()
+    expect(localStorage.getItem(dismissKey('biz-1'))).toBeNull()
   })
 
   it('no dibuja nada si la lectura falla (nunca un 0/5 falso)', async () => {
@@ -157,6 +182,15 @@ describe('FirstStepsChecklist — las tareas NO son checkboxes', () => {
 })
 
 describe('FirstStepsChecklist — dismiss es preferencia de UI, no estado', () => {
+  it('si ya estaba descartado no dibuja la tarjeta', async () => {
+    localStorage.setItem(dismissKey('biz-1'), 'true')
+    mockGet.mockResolvedValue({ ...NOTHING })
+    renderCard()
+
+    await waitFor(() => expect(mockGet).toHaveBeenCalled())
+    expect(screen.queryByTestId('setup-checklist')).toBeNull()
+  })
+
   it('descartar oculta la tarjeta y guarda la clave NUEVA', async () => {
     mockGet.mockResolvedValue({ ...NOTHING })
     renderCard()
