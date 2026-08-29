@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NewOrder } from '../../src/pages/NewOrder'
@@ -45,6 +45,25 @@ describe('MOBILE-2A · wizard',()=>{
     expect(screen.queryByLabelText('Razón social')).not.toBeInTheDocument()
     fireEvent.click(screen.getByTestId('customer-type-mayorista'))
     expect(screen.getByLabelText('Razón social')).toHaveValue('')
+  })
+
+  it('una carga tardía de clientes no reemplaza al cliente recién creado',async()=>{
+    let resolveCustomers!: (customers: Array<{id:string;name:string;phone:string;created_at:string;updated_at:string}>)=>void
+    mocks.getAll.mockReturnValueOnce(new Promise(resolve=>{resolveCustomers=resolve}))
+    mocks.customerCreate.mockResolvedValueOnce({id:'nuevo',name:'Cliente Nuevo',phone:'222',created_at:'',updated_at:''})
+    renderWizard()
+
+    fireEvent.click(screen.getByRole('button',{name:'Crear cliente rápido'}))
+    fireEvent.change(screen.getByLabelText('Nombre completo'),{target:{value:'Cliente Nuevo'}})
+    fireEvent.change(screen.getByLabelText('Teléfono'),{target:{value:'222'}})
+    fireEvent.click(screen.getByRole('button',{name:'Crear cliente'}))
+
+    expect(await screen.findByRole('button',{name:/Cliente Nuevo/})).toHaveClass('is-selected')
+
+    await act(async()=>resolveCustomers([{id:'c1',name:'Cliente Uno',phone:'111',created_at:'',updated_at:''}]))
+
+    await screen.findByRole('button',{name:/Cliente Uno/})
+    expect(screen.getByRole('button',{name:/Cliente Nuevo/})).toHaveClass('is-selected')
   })
 
   it('limita fotos de ingreso a ocho, muestra previews y permite quitarlas',async()=>{

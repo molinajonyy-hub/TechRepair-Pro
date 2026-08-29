@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Save, UserPlus } from 'lucide-react'
 import {
   CustomerCreateFields,
@@ -11,14 +11,11 @@ import { AppButton, MobileActionBar } from '../ui'
 
 export function NewCustomer() {
   const navigate = useNavigate()
-  const location = useLocation()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
   const submitLock = useRef(false)
 
   const { values, errors, setField, setCustomerType, toCreatePayload } = useCustomerCore()
-
-  const returnTo = location.state?.returnTo || '/customers'
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -31,16 +28,7 @@ export function NewCustomer() {
     try {
       const customer = await customersService.create(toCreatePayload())
 
-      if (returnTo === '/orders/new') {
-        navigate('/orders/new', {
-          state: {
-            selectedCustomer: customer,
-            step: 'customer',
-          },
-        })
-      } else {
-        navigate(`/customers/${customer.id}`)
-      }
+      navigate(`/customers/${customer.id}`)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Error al crear el cliente')
       setIsSubmitting(false)
@@ -48,7 +36,7 @@ export function NewCustomer() {
     }
   }
 
-  const cancel = () => navigate(returnTo)
+  const cancel = () => navigate('/customers')
   const invalid = Object.keys(errors).length > 0
 
   return (
