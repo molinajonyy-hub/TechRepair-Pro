@@ -333,6 +333,74 @@ test.describe('@customer-core CUSTOMER-CREATION-PARITY-1A · validación y tecla
   })
 })
 
+test.describe('@customer-core CUSTOMER-CREATION-PARITY-1B · ciclo del alta rápida', () => {
+  test.beforeEach(() => cleanup())
+  test.afterAll(() => cleanup())
+
+  test('cancelar y reabrir descarta datos, tipo, campos mayoristas, disclosure y errores', async ({ page }) => {
+    await page.goto('/orders/new')
+    const trigger = page.getByRole('button', { name: 'Crear cliente rápido' })
+    await trigger.click()
+
+    let dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
+    await dialog.getByLabel('Nombre completo').fill(`${MARK} Descartar`)
+    await dialog.getByLabel('Teléfono').fill(PHONE)
+    await dialog.getByTestId('customer-type-mayorista').click()
+    await dialog.getByLabel('Razón social').fill('Descartar SRL')
+    await dialog.getByLabel('Persona de contacto').fill('Ana')
+    await dialog.getByTestId('customer-additional-toggle').click()
+    await dialog.getByLabel('Email').fill('email-invalido')
+    await dialog.getByLabel('Dirección').fill(ADDRESS)
+    await dialog.getByLabel('Notas').fill(NOTES)
+    await expect(dialog.getByText('Ingresá un email válido.')).toBeVisible()
+
+    await dialog.getByRole('button', { name: 'Cancelar' }).click()
+    await expect(dialog).not.toBeVisible()
+    await trigger.click()
+    dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
+
+    await expect(dialog.getByTestId('customer-type-minorista')).toHaveAttribute('aria-pressed', 'true')
+    await expect(dialog.getByLabel('Nombre completo')).toHaveValue('')
+    await expect(dialog.getByLabel('Teléfono')).toHaveValue('')
+    await expect(dialog.getByTestId('customer-additional-toggle')).toHaveAttribute('aria-expanded', 'false')
+    await expect(dialog.getByLabel('Razón social')).toHaveCount(0)
+    await expect(dialog.getByLabel('Persona de contacto')).toHaveCount(0)
+    await expect(dialog.getByLabel('Email')).toBeHidden()
+    await expect(dialog.getByLabel('Email')).toHaveValue('')
+    await expect(dialog.getByLabel('Dirección')).toHaveValue('')
+    await expect(dialog.getByLabel('Notas')).toHaveValue('')
+    await expect(dialog.getByText('Ingresá un email válido.')).toHaveCount(0)
+  })
+
+  test('crear conserva la selección y la siguiente apertura empieza limpia', async ({ page }) => {
+    const quickName = `${MARK} Lifecycle Rapido`
+    await page.goto('/orders/new')
+    const trigger = page.getByRole('button', { name: 'Crear cliente rápido' })
+    await trigger.click()
+
+    let dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
+    await dialog.getByLabel('Nombre completo').fill(quickName)
+    await dialog.getByLabel('Teléfono').fill(PHONE)
+    await dialog.getByTestId('customer-additional-toggle').click()
+    await dialog.getByLabel('Dirección').fill(ADDRESS)
+    await dialog.getByRole('button', { name: 'Crear cliente' }).click()
+    await expect(dialog).not.toBeVisible()
+
+    const selected = page.getByRole('button', { name: new RegExp(quickName) })
+    await expect(selected).toBeVisible()
+    await expect(selected).toHaveClass(/is-selected/)
+
+    await trigger.click()
+    dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
+    await expect(dialog.getByLabel('Nombre completo')).toHaveValue('')
+    await expect(dialog.getByLabel('Teléfono')).toHaveValue('')
+    await expect(dialog.getByTestId('customer-type-minorista')).toHaveAttribute('aria-pressed', 'true')
+    await expect(dialog.getByTestId('customer-additional-toggle')).toHaveAttribute('aria-expanded', 'false')
+    await expect(dialog.getByLabel('Dirección')).toBeHidden()
+    await expect(dialog.getByLabel('Dirección')).toHaveValue('')
+  })
+})
+
 // ── UI-CONSISTENCY-2A · contraste real del selector DNI/CUIT ────────────────
 // El gate anterior sólo probaba que el color existiera, y por eso dejó pasar
 // un par medido en 1.44:1 en tema claro. Acá se calcula el ratio WCAG de

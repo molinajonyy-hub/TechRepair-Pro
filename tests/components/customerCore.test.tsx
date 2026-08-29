@@ -277,6 +277,23 @@ describe('paridad full page ↔ alta rápida', () => {
     expect(full.address).toBe('Av. Corrientes 1234')
   })
 
+  it('el alta full page ignora el handoff de navegación obsoleto', async () => {
+    render(
+      <MemoryRouter initialEntries={[{
+        pathname: '/customers/new',
+        state: { returnTo: '/orders/new', selectedCustomer: { id: 'legacy' }, step: 'customer' },
+      }]}>
+        <NewCustomer />
+      </MemoryRouter>
+    )
+    fireEvent.change(screen.getByTestId('customer-name-input'), { target: { value: 'Sin Handoff' } })
+    fireEvent.change(screen.getByTestId('customer-phone-input'), { target: { value: '3512345678' } })
+    fireEvent.click(screen.getByTestId('customer-save-button'))
+
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith('/customers/new-id'))
+    expect(mocks.navigate).not.toHaveBeenCalledWith('/orders/new', expect.anything())
+  })
+
   it('el alta rápida devuelve el Customer creado al wizard', async () => {
     render(<MemoryRouter><NewOrder /></MemoryRouter>)
     fireEvent.click(await screen.findByRole('button', { name: 'Crear cliente rápido' }))
