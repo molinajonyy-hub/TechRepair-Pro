@@ -37,14 +37,13 @@ describe('MOBILE-2A · wizard',()=>{
   it('alta rápida muestra campos mayoristas y los limpia al volver a minorista',async()=>{
     renderWizard();await screen.findByText('Cliente Uno')
     fireEvent.click(screen.getByRole('button',{name:'Crear cliente rápido'}))
-    const type=screen.getByLabelText('Tipo de cliente')
-    fireEvent.change(type,{target:{value:'mayorista'}})
+    fireEvent.click(screen.getByTestId('customer-type-mayorista'))
     const business=screen.getByLabelText('Razón social')
     fireEvent.change(business,{target:{value:'Comercio Demo'}})
     expect(business).toHaveValue('Comercio Demo')
-    fireEvent.change(type,{target:{value:'minorista'}})
+    fireEvent.click(screen.getByTestId('customer-type-minorista'))
     expect(screen.queryByLabelText('Razón social')).not.toBeInTheDocument()
-    fireEvent.change(type,{target:{value:'mayorista'}})
+    fireEvent.click(screen.getByTestId('customer-type-mayorista'))
     expect(screen.getByLabelText('Razón social')).toHaveValue('')
   })
 

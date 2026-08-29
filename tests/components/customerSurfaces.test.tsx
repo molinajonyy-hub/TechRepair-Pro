@@ -6,7 +6,7 @@
 //   2. el alta rápida repetía el error de mayorista dos veces;
 //   3. el selector DNI/CUIT llevaba colores inline de la época dark-only.
 // ─────────────────────────────────────────────────────────────────────────────
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -46,6 +46,7 @@ vi.mock('../../src/lib/supabase', () => ({
 }))
 
 import { Customers } from '../../src/pages/Customers'
+import { NewCustomer } from '../../src/pages/NewCustomer'
 import { NewOrder } from '../../src/pages/NewOrder'
 
 const CUSTOMERS = [
@@ -136,9 +137,10 @@ describe('alta rápida · el error de mayorista se muestra UNA sola vez', () => 
   async function openWholesaleDialog() {
     render(<MemoryRouter><NewOrder /></MemoryRouter>)
     fireEvent.click(await screen.findByRole('button', { name: 'Crear cliente rápido' }))
-    fireEvent.change(screen.getByLabelText('Tipo de cliente'), { target: { value: 'mayorista' } })
-    fireEvent.change(screen.getByLabelText('Nombre de contacto'), { target: { value: 'QA Contacto' } })
-    fireEvent.change(screen.getByLabelText('Teléfono'), { target: { value: '3510000001' } })
+    const dialog = screen.getByRole('dialog', { name: 'Crear cliente rápido' })
+    fireEvent.click(within(dialog).getByTestId('customer-type-mayorista'))
+    fireEvent.change(within(dialog).getByLabelText('Nombre completo'), { target: { value: 'QA Contacto' } })
+    fireEvent.change(within(dialog).getByLabelText('Teléfono'), { target: { value: '3510000001' } })
   }
 
   it('renderiza exactamente un mensaje visible para el error de razón social', async () => {
@@ -199,6 +201,108 @@ describe('alta rápida · el error de mayorista se muestra UNA sola vez', () => 
     fireEvent.click(screen.getByRole('button', { name: 'Crear cliente' }))
 
     expect(await screen.findByText('Fallo del servidor')).toBeInTheDocument()
+  })
+})
+
+describe('alta canónica · paridad visual y de interacción', () => {
+  async function openQuickDialog() {
+    render(<MemoryRouter><NewOrder /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Crear cliente rápido' }))
+    return screen.getByRole('dialog', { name: 'Crear cliente rápido' })
+  }
+
+  it('la página completa empieza expandida y persiste email, dirección y notas', async () => {
+    render(<MemoryRouter><NewCustomer /></MemoryRouter>)
+    expect(screen.getByTestId('customer-additional-toggle')).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.change(screen.getByLabelText('Nombre completo'), { target: { value: 'Cliente Completo' } })
+    fireEvent.change(screen.getByLabelText('Teléfono'), { target: { value: '3510000001' } })
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'cliente@example.test' } })
+    fireEvent.change(screen.getByLabelText('Dirección'), { target: { value: 'Av. Siempre Viva 123' } })
+    fireEvent.change(screen.getByLabelText('Notas'), { target: { value: 'Prefiere mensajes.' } })
+    fireEvent.click(screen.getByTestId('customer-save-button'))
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalled())
+    expect(mocks.create.mock.calls[0][0]).toMatchObject({
+      email: 'cliente@example.test',
+      address: 'Av. Siempre Viva 123',
+      notes: 'Prefiere mensajes.',
+    })
+  })
+
+  it('el diálogo empieza colapsado, expone los mismos opcionales y los persiste', async () => {
+    const dialog = await openQuickDialog()
+    const toggle = within(dialog).getByTestId('customer-additional-toggle')
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(within(dialog).getByLabelText('Dirección')).not.toBeVisible()
+
+    fireEvent.click(toggle)
+    fireEvent.change(within(dialog).getByLabelText('Nombre completo'), { target: { value: 'Cliente Rápido' } })
+    fireEvent.change(within(dialog).getByLabelText('Teléfono'), { target: { value: '3510000001' } })
+    fireEvent.change(within(dialog).getByLabelText('Email'), { target: { value: 'rapido@example.test' } })
+    fireEvent.change(within(dialog).getByLabelText('Dirección'), { target: { value: 'San Martín 456' } })
+    fireEvent.change(within(dialog).getByLabelText('Notas'), { target: { value: 'Entregar por la tarde.' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Crear cliente' }))
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalled())
+    expect(mocks.create.mock.calls[0][0]).toMatchObject({
+      email: 'rapido@example.test',
+      address: 'San Martín 456',
+      notes: 'Entregar por la tarde.',
+    })
+  })
+
+  it('muestra la misma validación explícita de email en ambos shells', async () => {
+    const full = render(<MemoryRouter><NewCustomer /></MemoryRouter>)
+    fireEvent.change(screen.getByLabelText('Nombre completo'), { target: { value: 'Cliente' } })
+    fireEvent.change(screen.getByLabelText('Teléfono'), { target: { value: '3510000001' } })
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'invalido' } })
+    expect(screen.getByText('Ingresá un email válido.')).toBeVisible()
+    expect(screen.getByTestId('customer-save-button')).toBeDisabled()
+    full.unmount()
+
+    const dialog = await openQuickDialog()
+    fireEvent.change(within(dialog).getByLabelText('Nombre completo'), { target: { value: 'Cliente' } })
+    fireEvent.change(within(dialog).getByLabelText('Teléfono'), { target: { value: '3510000001' } })
+    fireEvent.click(within(dialog).getByTestId('customer-additional-toggle'))
+    fireEvent.change(within(dialog).getByLabelText('Email'), { target: { value: 'invalido' } })
+    expect(within(dialog).getByText('Ingresá un email válido.')).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: 'Crear cliente' })).toBeDisabled()
+  })
+
+  it('conserva “Nombre completo” al pasar a mayorista', async () => {
+    const dialog = await openQuickDialog()
+    fireEvent.click(within(dialog).getByTestId('customer-type-mayorista'))
+    expect(within(dialog).getByLabelText('Nombre completo')).toBeInTheDocument()
+    expect(within(dialog).queryByLabelText('Nombre de contacto')).not.toBeInTheDocument()
+  })
+
+  it('el submit del diálogo es un formulario real y bloquea envíos simultáneos', async () => {
+    let resolveCreate!: (value: { id: string; name: string; phone: string }) => void
+    mocks.create.mockImplementationOnce(() => new Promise((resolve) => { resolveCreate = resolve }))
+    const dialog = await openQuickDialog()
+    fireEvent.change(within(dialog).getByLabelText('Nombre completo'), { target: { value: 'Sin Duplicar' } })
+    fireEvent.change(within(dialog).getByLabelText('Teléfono'), { target: { value: '3510000001' } })
+
+    const submit = within(dialog).getByRole('button', { name: 'Crear cliente' })
+    expect(submit).toHaveAttribute('form', 'quick-customer-form')
+    const form = document.getElementById('quick-customer-form') as HTMLFormElement
+    fireEvent.submit(form)
+    fireEvent.submit(form)
+    expect(mocks.create).toHaveBeenCalledTimes(1)
+
+    await act(async () => resolveCreate({ id: 'nuevo', name: 'Sin Duplicar', phone: '3510000001' }))
+  })
+
+  it('cancelar no crea y mantiene el borrador del diálogo para 1B', async () => {
+    const dialog = await openQuickDialog()
+    fireEvent.change(within(dialog).getByLabelText('Nombre completo'), { target: { value: 'Borrador pendiente' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancelar' }))
+    expect(mocks.create).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Crear cliente rápido' }))
+    const reopened = screen.getByRole('dialog', { name: 'Crear cliente rápido' })
+    expect(within(reopened).getByLabelText('Nombre completo')).toHaveValue('Borrador pendiente')
   })
 })
 

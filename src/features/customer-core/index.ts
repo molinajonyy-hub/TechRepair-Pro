@@ -10,3 +10,4 @@
 export * from './document'
 export * from './model'
 export * from './useCustomerCore'
+export * from './CustomerCreateFields'
