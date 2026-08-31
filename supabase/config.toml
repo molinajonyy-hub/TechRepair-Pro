@@ -476,3 +476,11 @@ verify_jwt = false
 
 [functions.get-dolar-cordoba]
 verify_jwt = false
+
+# Lote 1: unconditional, data-free 410 stubs, including anonymous OAuth callbacks.
+# CORS/JWT are not the containment boundary; no operational handler is retained.
+[functions.mp-oauth]
+verify_jwt = false
+
+[functions.mp-payments]
+verify_jwt = false
