@@ -10,6 +10,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 // @ts-ignore: node-forge en Deno via npm
 import forge from 'npm:node-forge@1.3.1'
 import { resolveArcaPrivateKey, WsaaKeyError, type KeySource } from './keyResolver.ts'
+import { authorizeArcaCaller } from '../_shared/arcaAuthorization.ts'
+import { withWsaaAuthorization } from './authorizationBoundary.ts'
 
 // ─────────────────────────────────────────────────────────────────
 // CORS — single source of truth (buildCorsHeaders + jsonResponse)
@@ -351,16 +353,32 @@ serve(async (req: Request) => {
     return new Response(null, { status: 204, headers: buildCorsHeaders(req) })
   }
 
-  const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-  const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-  const supabase    = createClient(supabaseUrl, supabaseKey)
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')
+  const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
+  if (!supabaseUrl || !supabaseKey || !anonKey) {
+    return jsonResponse(req, { success: false, error: 'AUTHORIZATION_UNAVAILABLE' }, 503)
+  }
 
-  try {
-    const { business_id, service = 'wsfe', force_refresh = false } = await req.json()
-
-    if (!business_id) {
-      return jsonResponse(req, { success: false, error: 'Falta business_id' }, 400)
-    }
+  return withWsaaAuthorization(req, {
+    authorize: () => authorizeArcaCaller(req.headers.get('Authorization'), {
+      capability: 'settings_sensitive',
+      serviceRoleKey: supabaseKey,
+      createUserClient: (authorization) => createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authorization } },
+        auth: { persistSession: false, autoRefreshToken: false },
+      }),
+    }),
+    json: (body, status) => jsonResponse(req, body, status),
+    markAuthorizedError: async (businessId, message) => {
+      const authorizedClient = createClient(supabaseUrl, supabaseKey)
+      await authorizedClient.from('arca_config')
+        .update({ estado_conexion: 'error', ultimo_error: message })
+        .eq('business_id', businessId)
+    },
+    run: async ({ businessId: business_id, service, forceRefresh: force_refresh }) => {
+      // Identity, active membership and action authority have already passed.
+      const supabase = createClient(supabaseUrl, supabaseKey)
 
     // 1. Cargar configuración ARCA
     const { data: config, error: configError } = await supabase
@@ -461,24 +479,6 @@ serve(async (req: Request) => {
 
     return jsonResponse(req, { success: true, token, sign, cached: false, expires_at: expiresAt })
 
-  } catch (err: any) {
-    console.error('afip-wsaa error:', err)
-
-    const errMsg = err?.message || 'Error interno en WSAA'
-
-    // Marcar error en DB si hay business_id
-    try {
-      const body = await req.clone().json().catch(() => ({}))
-      if (body?.business_id) {
-        await supabase
-          .from('arca_config')
-          .update({ estado_conexion: 'error', ultimo_error: errMsg })
-          .eq('business_id', body.business_id)
-      }
-    } catch (_) { /* ignorar */ }
-
-    // Retornar 200 con success:false — un 500 hace que el cliente Supabase
-    // descarte el body y muestre solo "Edge Function returned a non-2xx status code".
-    return jsonResponse(req, { success: false, error: errMsg }, 200)
-  }
+    },
+  })
 })

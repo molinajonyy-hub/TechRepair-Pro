@@ -34,6 +34,7 @@ export const ESTADOS_ACTIVOS = ['claimed', 'number_reserved', 'sent'] as const
 
 export type PreSendGate =
   | 'MISSING_IDS'
+  | 'FORBIDDEN_ATTEMPT'
   | 'ATTEMPT_READ_FAILED'
   | 'ATTEMPT_MISMATCH'
   | 'ATTEMPT_NOT_ACTIVE'
@@ -70,12 +71,14 @@ export interface PreSendOk {
 export async function fetchAttempt(
   supabase: any,
   attemptId: string,
+  authorizedBusinessId?: string,
 ): Promise<{ row: AttemptRow | null; error: string | null }> {
-  const { data, error } = await supabase
+  let query = supabase
     .from('arca_emission_attempts')
     .select('id, comprobante_id, business_id, ambiente, cuit_emisor, punto_venta, tipo_comprobante, numero_intentado, status')
     .eq('id', attemptId)
-    .maybeSingle()
+  if (authorizedBusinessId) query = query.eq('business_id', authorizedBusinessId)
+  const { data, error } = await query.maybeSingle()
   return {
     row: (data as AttemptRow) ?? null,
     error: error ? String((error as any)?.message ?? error) : null,
@@ -91,6 +94,7 @@ export async function fetchAttempt(
 export async function evaluarPreEnvio(
   supabase: any,
   params: {
+    authorizedBusinessId?: string
     comprobanteId?: string
     attemptId?: string
     body: CbtesAsocBody
@@ -105,7 +109,12 @@ export async function evaluarPreEnvio(
     }
   }
 
-  const { row: attempt, error: attemptError } = await fetchAttempt(supabase, attemptId)
+  const { row: attempt, error: attemptError } = await fetchAttempt(supabase, attemptId, params.authorizedBusinessId)
+
+  if (!attemptError && params.authorizedBusinessId
+    && (!attempt || attempt.business_id !== params.authorizedBusinessId)) {
+    return { ok: false, status: 403, gate: 'FORBIDDEN_ATTEMPT', error: 'FORBIDDEN' }
+  }
 
   // Un fallo de LECTURA no es un error del cliente: se separa del mismatch para
   // no volver a confundir "no pude leer" con "me mandaste mal los ids".
