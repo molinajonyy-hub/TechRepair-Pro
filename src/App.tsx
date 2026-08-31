@@ -157,6 +157,8 @@ function AppContent() {
       <Suspense fallback={<PageFallback />}>
         <Routes>
           <Route path="/landing" element={<LandingPage />} />
+          {/* Merchant Connect is POST-BETA, including old OAuth deep links. */}
+          <Route path="/mp/*" element={<Navigate to="/landing" replace />} />
           <Route path="/login" element={<Login />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/verificar-email" element={<VerifyEmail />} />

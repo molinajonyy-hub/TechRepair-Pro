@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { paymentButtonService, PaymentButton, NewPaymentButton } from '../../services/paymentButtonService';
-import { formatFeeLabel, PAYMENT_TYPE_LABELS, PROVIDER_LABELS, INTEGRATION_LABELS } from '../../services/paymentCalculator';
+import { formatFeeLabel, PAYMENT_TYPE_LABELS, PROVIDER_LABELS } from '../../services/paymentCalculator';
 import { supabase } from '../../lib/supabase';
 import { CloseButton } from '../ui/CloseButton';
 
@@ -131,27 +131,12 @@ function ButtonForm({ initial, businessId, onSave, onCancel }: ButtonFormProps) 
         <div>
           <label style={labelS}>Proveedor</label>
           <select value={form.provider} onChange={e => set('provider', e.target.value)} style={inputS}>
-            {Object.entries(PROVIDER_LABELS).filter(([k]) => k !== 'mercadopago').map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            {Object.entries(PROVIDER_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </div>
       </div>
 
-      {/* Canal + Integración */}
-      <div style={rowS}>
-        <div>
-          <label style={labelS}>Canal</label>
-          <select value={form.channel} onChange={e => set('channel', e.target.value as any)} style={inputS}>
-            <option value="manual">Manual</option>
-            <option value="integrated">Integrado</option>
-          </select>
-        </div>
-        <div>
-          <label style={labelS}>Tipo integración</label>
-          <select value={form.integration_kind} onChange={e => set('integration_kind', e.target.value as any)} style={inputS} disabled={form.channel === 'manual'}>
-            {Object.entries(INTEGRATION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
-        </div>
-      </div>
+      {/* Beta: estos botones registran pagos manuales; no conectan cuentas. */}
 
       {/* Tarifas */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '0.75rem' }}>
@@ -237,12 +222,14 @@ export function PaymentMethodSettings() {
     if (!businessId) return;
     setLoading(true);
     try {
-      // Consultar mp_accounts y payment_method_buttons directamente — más confiable que el Edge Function
+      // Los botones manuales no requieren cuenta conectada ni Edge Functions MP.
       const btnsRes = await supabase
         .from('payment_method_buttons')
         .select('*')
         .eq('business_id', businessId)
         .eq('is_active', true)
+        .eq('channel', 'manual')
+        .eq('integration_kind', 'none')
         .order('sort_order', { ascending: true });
 
       setButtons((btnsRes.data || []) as PaymentButton[]);
@@ -357,11 +344,6 @@ export function PaymentMethodSettings() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#f1f5f9' }}>{btn.name}</span>
-                    {btn.integration_kind !== 'none' && (
-                      <span style={{ fontSize: '0.6rem', color: '#fbbf24', backgroundColor: 'rgba(251,191,36,0.1)', padding: '0.1rem 0.375rem', borderRadius: '0.25rem', fontWeight: 700 }}>
-                        {INTEGRATION_LABELS[btn.integration_kind]}
-                      </span>
-                    )}
                   </div>
                   <div style={{ fontSize: '0.7rem', color: '#475569', marginTop: '0.1rem' }}>
                     {PROVIDER_LABELS[btn.provider] ?? btn.provider}

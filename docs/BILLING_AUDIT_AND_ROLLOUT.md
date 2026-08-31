@@ -1,5 +1,7 @@
 # Auditoría de Planes, Suscripciones y Cobros (Mercado Pago) — 2026-06-23
 
+> Alcance Beta — Lote 1: Mercado Pago POS / Merchant Connect (`mp-oauth`, `mp-payments`) queda POST-BETA. Esto no desactiva Billing SaaS (`mp-subscription`, `mp-webhook`) ni el registro manual de pagos MP del POS. Ver [inventario y evidencia del lote](security-mp-pos-lote1-containment.md). Las correcciones de autorización de Billing corresponden a su propio lote.
+
 Proyecto Supabase: `vrdxxmjzxhfgqlnxmbwx` (techrepair-pro, Postgres 17).
 **Nada de esto se aplicó en producción.** Todo es código + migraciones idempotentes
 para revisión y rollout por etapas.

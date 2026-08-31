@@ -1,5 +1,7 @@
 # Edge Functions — CORS / `verify_jwt` Audit (remaining functions)
 
+> Beta scope update (Lote 1): `mp-oauth` and `mp-payments` are retired by unconditional 410 stubs, not by CORS. Their operational descriptions below are historical, not deployment instructions. `mp-subscription` and `mp-webhook` remain SaaS Billing; manual MP tender remains supported. See [current scope and evidence](security-mp-pos-lote1-containment.md).
+
 Pre-work classification for the functions **not** touched by `stable-afip-cors-v1`.
 Purpose: decide per-flow whether to scope CORS to the allowlist (the
 [deployment doc](EDGE_FUNCTIONS_DEPLOYMENT.md) pattern), **before** changing
