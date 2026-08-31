@@ -463,6 +463,14 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 [functions.fetch-dollar-rate]
 verify_jwt = false
 
+# Lote 0 containment. Internal callers send the existing service-role JWT;
+# browser callers send a user JWT. In-function authorization remains mandatory.
+[functions.afip-wsaa]
+verify_jwt = true
+
+[functions.afip-cae]
+verify_jwt = true
+
 [functions.infodolar-cordoba]
 verify_jwt = false
 

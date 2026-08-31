@@ -163,7 +163,7 @@ export class ArcaService {
   // ──────────────────────────────────────────────
 
   /**
-   * Obtiene token+sign del WSAA.
+   * Comprueba WSAA sin traer credenciales operativas al navegador.
    * Usa caché interno en arca_config (válido 12h con buffer de 30 min).
    * Si force_refresh=true, siempre obtiene uno nuevo.
    */
@@ -171,7 +171,7 @@ export class ArcaService {
     businessId: string,
     service = 'wsfe',
     forceRefresh = false
-  ): Promise<{ token: string; sign: string; cached: boolean }> {
+  ): Promise<{ tokenOk: boolean; signOk: boolean; cached: boolean }> {
     const { data, error } = await supabase.functions.invoke('afip-wsaa', {
       body: { business_id: businessId, service, force_refresh: forceRefresh },
     })
@@ -180,8 +180,8 @@ export class ArcaService {
     if (!data?.success) throw new Error(data?.error || 'Error en WSAA')
 
     return {
-      token:  data.token  as string,
-      sign:   data.sign   as string,
+      tokenOk: data.tokenOk === true,
+      signOk: data.signOk === true,
       cached: data.cached as boolean,
     }
   }
@@ -210,7 +210,7 @@ export class ArcaService {
       }
 
       // Obtener token fresco para testear
-      const { token, sign } = await this.getWSAAToken(businessId, 'wsfe', true)
+      const { tokenOk, signOk } = await this.getWSAAToken(businessId, 'wsfe', true)
 
       // Consultar puntos de venta con el token real
       const puntosVenta = await this.getPuntosVenta(businessId)
@@ -221,8 +221,8 @@ export class ArcaService {
         details: {
           ambiente:             config.ambiente,
           puntosVenta,
-          tokenOk:              !!token,
-          signOk:               !!sign,
+          tokenOk,
+          signOk,
           ultimaSincronizacion: new Date().toISOString(),
         },
       }

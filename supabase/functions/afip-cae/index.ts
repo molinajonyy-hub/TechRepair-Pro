@@ -40,6 +40,7 @@
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { authorizeArcaCaller, ArcaAuthorizationError } from '../_shared/arcaAuthorization.ts'
 import {
   logStructured, todayYYYYMMDD, solicitarCAEConReconciliacion, consultarComprobante,
   getUltimoComprobante,
@@ -271,7 +272,6 @@ serve(async (req: Request) => {
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-  const supabase    = createClient(supabaseUrl, supabaseKey)
 
   // Declarado antes del try para poder correlacionar también los errores tempranos
   // (body inválido, excepciones no clasificadas) en el catch de abajo.
@@ -279,6 +279,17 @@ serve(async (req: Request) => {
   let businessIdForLog: string | undefined
 
   try {
+    // WSAA trusts this Edge's service credential. Verify its human caller first
+    // so afip-cae cannot act as a privileged relay for a foreign tenant.
+    const caller = await authorizeArcaCaller(req.headers.get('Authorization'), {
+      capability: 'comprobantes',
+      createUserClient: (authorization) => createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
+        global: { headers: { Authorization: authorization } },
+        auth: { persistSession: false, autoRefreshToken: false },
+      }),
+    })
+    if (caller.kind !== 'user') return jsonResponse(req, { success: false, error: 'FORBIDDEN' }, 403)
+    const supabase = createClient(supabaseUrl, supabaseKey)
     const body: FacturaData & { attempt_id?: string } = await req.json()
     const {
       comprobante_id,
@@ -304,6 +315,7 @@ serve(async (req: Request) => {
     // del body: un cliente no puede spoofear punto_venta/cuit/ambiente/
     // tipo_comprobante aunque los incluya en la request.
     const pre = await evaluarPreEnvio(supabase, {
+      authorizedBusinessId: caller.businessId,
       comprobanteId: comprobante_id,
       attemptId: attempt_id,
       body: {
@@ -544,6 +556,9 @@ serve(async (req: Request) => {
     }
 
   } catch (err: any) {
+    if (err instanceof ArcaAuthorizationError) {
+      return jsonResponse(req, { success: false, error: err.code }, err.status)
+    }
     logStructured({
       correlationId,
       businessId: businessIdForLog,
