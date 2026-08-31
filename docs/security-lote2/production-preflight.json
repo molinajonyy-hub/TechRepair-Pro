@@ -1,0 +1,109 @@
+{
+  "captured_at": "2026-08-31T19:06:19.76743+00:00",
+  "baseline": "3ce69b7b69f2816c0162948c89e43bec5753595c",
+  "total_secdef": 205,
+  "differences": [],
+  "unchanged": true,
+  "production_writes": false,
+  "expected_local_changes": [
+    {
+      "anon": false,
+      "owner": "postgres",
+      "public": false,
+      "signature": "backfill_remito_fm(uuid[])",
+      "search_path": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "service_role": false,
+      "authenticated": false
+    },
+    {
+      "anon": false,
+      "owner": "postgres",
+      "public": false,
+      "signature": "check_user_limit_before_invite(uuid)",
+      "search_path": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "service_role": false,
+      "authenticated": true
+    },
+    {
+      "anon": false,
+      "owner": "postgres",
+      "public": false,
+      "signature": "delete_supplier_purchase_safe(uuid,uuid,uuid)",
+      "search_path": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "service_role": false,
+      "authenticated": true
+    },
+    {
+      "anon": false,
+      "owner": "postgres",
+      "public": false,
+      "signature": "pay_comprobante_from_account_atomic(uuid,uuid,uuid,numeric,text,text,date,uuid,uuid,text)",
+      "search_path": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "service_role": true,
+      "authenticated": true
+    },
+    {
+      "anon": false,
+      "owner": "postgres",
+      "public": false,
+      "signature": "preview_missing_stock_movements(uuid)",
+      "search_path": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "service_role": true,
+      "authenticated": true
+    },
+    {
+      "anon": false,
+      "owner": "postgres",
+      "public": false,
+      "signature": "repair_missing_stock_movements(uuid,boolean)",
+      "search_path": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "service_role": true,
+      "authenticated": true
+    },
+    {
+      "anon": false,
+      "owner": "postgres",
+      "public": false,
+      "signature": "user_can_allocate_payments(uuid,uuid)",
+      "search_path": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "service_role": true,
+      "authenticated": false
+    },
+    {
+      "anon": false,
+      "owner": "postgres",
+      "public": false,
+      "signature": "user_can_reverse_allocations(uuid,uuid)",
+      "search_path": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "service_role": true,
+      "authenticated": false
+    },
+    {
+      "anon": false,
+      "owner": "postgres",
+      "public": false,
+      "signature": "user_can_view_order_amounts(uuid,uuid)",
+      "search_path": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "service_role": true,
+      "authenticated": false
+    }
+  ]
+}

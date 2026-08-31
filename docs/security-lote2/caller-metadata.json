@@ -1,0 +1,6 @@
+{
+  "queried_at": "2026-08-31T18:59:02.386041+00:00",
+  "sql": "scripts/security/lote2-callers.sql",
+  "rows": [],
+  "scope": "All nine candidates: policies and cron. SQL parents and triggers captured separately in catalog-before.json."
+}
