@@ -261,4 +261,19 @@ describe('CC-B · el camino legacy ya no existe en el código', () => {
     expect(ficha).toMatch(/ModalPagarCC/)
     expect(ficha).not.toMatch(/registerPayment/)
   })
+
+  it('la ficha no consulta ni muestra el historial financiero sin orders_view_financials', () => {
+    const ficha = leerCodigo('src/pages/CustomerDetail.tsx')
+    expect(ficha).toMatch(/can\(['"]orders_view_financials['"]\)/)
+    expect(ficha).toMatch(/activeTab !== ['"]compras['"] \|\| !canViewPurchaseFinancials/)
+    expect(ficha).toMatch(/canViewPurchaseFinancials \? \[\{ id: ['"]compras['"]/)
+  })
+
+  it('la ficha también oculta montos de orden y cuenta corriente al override false', () => {
+    const ficha = leerCodigo('src/pages/CustomerDetail.tsx')
+    expect(ficha).toMatch(/canViewPurchaseFinancials && <th>Total<\/th>/)
+    expect(ficha).toMatch(/canViewPurchaseFinancials && ccAccount/)
+    expect(ficha).toMatch(/if \(!canViewPurchaseFinancials \|\| !businessId \|\| !id\)/)
+    expect(ficha).toMatch(/canViewPurchaseFinancials && <td[^>]*>\{fmt\(amount\)\}<\/td>/)
+  })
 })

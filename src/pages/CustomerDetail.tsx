@@ -15,6 +15,7 @@ import { STATUS_CONFIG } from '../types/orderStatus'
 import { cuentasService, getAccountStatus, type Account } from '../services/cuentasService'
 import { ModalPagarCC } from '../components/comprobantes/ModalPagarCC'
 import { useAuth } from '../contexts/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -286,6 +287,8 @@ function PurchaseRow({ purchase }: { purchase: PurchaseRecord }) {
 export function CustomerDetail() {
   const { id } = useParams<{ id: string }>()
   const { businessId, user } = useAuth()
+  const { can } = usePermissions()
+  const canViewPurchaseFinancials = can('orders_view_financials')
   const [customer,      setCustomer]      = useState<CustomerDetailData | null>(null)
   const [loading,       setLoading]       = useState(true)
   const [error,         setError]         = useState<string | null>(null)
@@ -313,16 +316,19 @@ export function CustomerDetail() {
 
   // Load CC account
   const loadCcAccount = useCallback(async () => {
-    if (!businessId || !id) return
+    if (!canViewPurchaseFinancials || !businessId || !id) {
+      setCcAccount(null)
+      return
+    }
     const accounts = await cuentasService.getAccounts(businessId, 'cliente')
     setCcAccount(accounts.find(a => a.entity_id === id) || null)
-  }, [businessId, id])
+  }, [canViewPurchaseFinancials, businessId, id])
 
   useEffect(() => { void loadCcAccount() }, [loadCcAccount])
 
   // Load purchase history via RPC when tab selected
   useEffect(() => {
-    if (activeTab !== 'compras' || !id || !businessId) return
+    if (activeTab !== 'compras' || !canViewPurchaseFinancials || !id || !businessId) return
     setPhLoading(true)
     void Promise.resolve(
       supabase.rpc('customer_purchase_history', { p_customer_id: id, p_business_id: businessId })
@@ -332,7 +338,11 @@ export function CustomerDetail() {
         setPhSummary(data.summary as PurchaseSummary)
       }
     }).finally(() => setPhLoading(false))
-  }, [activeTab, id, businessId])
+  }, [activeTab, canViewPurchaseFinancials, id, businessId])
+
+  useEffect(() => {
+    if (!canViewPurchaseFinancials && activeTab === 'compras') setActiveTab('ordenes')
+  }, [activeTab, canViewPurchaseFinancials])
 
   // Filtered + searched purchases
   const filteredPurchases = useMemo(() => {
@@ -429,9 +439,9 @@ export function CustomerDetail() {
       {/* Summary cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.875rem', marginBottom: '1.5rem' }}>
         {[
-          { label: 'Total comprado', value: fmt(totalComprado), color: '#818cf8', icon: <ShoppingBag size={16} /> },
+          ...(canViewPurchaseFinancials ? [{ label: 'Total comprado', value: fmt(totalComprado), color: '#818cf8', icon: <ShoppingBag size={16} /> }] : []),
           { label: 'Comprobantes', value: String(purchases.length || (customer.orders?.length ?? 0)), color: '#34d399', icon: <Receipt size={16} /> },
-          { label: 'Deuda CC', value: deudaCC > 0 ? fmt(deudaCC) : 'Sin deuda', color: deudaCC > 0 ? '#f87171' : '#34d399', icon: <CreditCard size={16} /> },
+          ...(canViewPurchaseFinancials ? [{ label: 'Deuda CC', value: deudaCC > 0 ? fmt(deudaCC) : 'Sin deuda', color: deudaCC > 0 ? '#f87171' : '#34d399', icon: <CreditCard size={16} /> }] : []),
           { label: 'Última compra', value: ultimaCompra ? new Date(ultimaCompra).toLocaleDateString('es-AR') : '—', color: '#64748b', icon: <Tag size={16} /> },
         ].map(s => (
           <div key={s.label} className="stat-card" style={{ padding: '0.875rem 1rem' }}>
@@ -445,7 +455,7 @@ export function CustomerDetail() {
       </div>
 
       {/* CC widget */}
-      {ccAccount && Math.abs(ccAccount.balance) > 0.01 && (() => {
+      {canViewPurchaseFinancials && ccAccount && Math.abs(ccAccount.balance) > 0.01 && (() => {
         const status = getAccountStatus(ccAccount.balance)
         const sm = CC_STATUS[status]
         return (
@@ -514,7 +524,7 @@ export function CustomerDetail() {
           <div className="tabs" style={{ padding: '0 0.25rem' }}>
             {([
               { id: 'ordenes',         label: 'Órdenes',        icon: <ClipboardList size={14} />, count: customer.orders?.length ?? 0 },
-              { id: 'compras',         label: 'Compras',         icon: <ShoppingBag size={14} />,  count: purchases.length },
+              ...(canViewPurchaseFinancials ? [{ id: 'compras' as const, label: 'Compras', icon: <ShoppingBag size={14} />, count: purchases.length }] : []),
               { id: 'comunicaciones',  label: 'Comunicaciones',  icon: <MessageCircle size={14} />, count: waLogs.length },
             ] as const).map(tab => (
               <button
@@ -541,14 +551,14 @@ export function CustomerDetail() {
                     <th>Orden</th>
                     <th>Dispositivo</th>
                     <th>Estado</th>
-                    <th>Total</th>
+                    {canViewPurchaseFinancials && <th>Total</th>}
                     <th>Fecha</th>
                   </tr>
                 </thead>
                 <tbody>
                   {!customer.orders || customer.orders.length === 0 ? (
                     <tr>
-                      <td colSpan={5} style={{ textAlign: 'center', padding: '2.5rem', color: '#64748b' }}>
+                      <td colSpan={canViewPurchaseFinancials ? 5 : 4} style={{ textAlign: 'center', padding: '2.5rem', color: '#64748b' }}>
                         Este cliente no tiene órdenes de servicio registradas.
                       </td>
                     </tr>
@@ -572,7 +582,7 @@ export function CustomerDetail() {
                             {STATUS_CONFIG[order.status as keyof typeof STATUS_CONFIG]?.label || order.status}
                           </span>
                         </td>
-                        <td style={{ fontWeight: 600 }}>{fmt(amount)}</td>
+                        {canViewPurchaseFinancials && <td style={{ fontWeight: 600 }}>{fmt(amount)}</td>}
                         <td style={{ color: '#64748b' }}>{new Date(order.created_at).toLocaleDateString('es-AR')}</td>
                       </tr>
                     )

@@ -47,6 +47,9 @@ jobs:
       - name: Guard — autoridad de provisioning
         run: npm run guard:provisioning-authority:self-test && npm run guard:provisioning-authority
 
+      - name: Guard — Lote 3 action/write authority
+        run: npm run guard:lote3-authority:self-test && npm run guard:lote3-authority
+
       - name: Production build
         run: npm run build
         env:

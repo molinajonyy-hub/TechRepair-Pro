@@ -1,0 +1,1619 @@
+{
+  "captured_at": "2026-08-31T23:22:13.422077+00:00",
+  "source_baseline": "cb9299652d11cc5b3fd3d595407c1454eb5486e0",
+  "latest_migration": {
+    "name": "secdef_tenant_authority",
+    "version": "20260907120000"
+  },
+  "production_writes": false,
+  "scope": "catalog metadata only; no commercial rows, credentials, Vault values, tokens, or emails",
+  "functions": [
+    {
+      "name": "close_cash_session_atomic",
+      "identity_arguments": "p_business_id uuid, p_user_id uuid, p_caja_id uuid, p_count_efectivo numeric, p_count_transferencia numeric, p_count_tarjeta numeric, p_count_usd numeric, p_usd_rate numeric, p_notes text, p_idempotency_key text",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "85504dec8f24e0bb0cd0f264d54f4f247afacd5c509a3d63bc0f696c43e6e1c8",
+      "definition_semantic_sha256": "250b23bd05e8e8e37b3067733bf3f3b6307b363efc81eefd0ea70887e5e9edff",
+      "has_current_user_can": false,
+      "has_active_check": true
+    },
+    {
+      "name": "create_comprobante_checkout_atomic",
+      "identity_arguments": "p_business_id uuid, p_idempotency_key text, p_request_hash text, p_payload jsonb",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "7848aa9b09dc026b62f3034819c9afe754cf540bccacf8d507b0889fe3d17744",
+      "definition_semantic_sha256": "56a38a2a01778f61eff3aa26cbb85ca7e2278dc6c2e1ee21bd39e054c1eb7ab0",
+      "has_current_user_can": false,
+      "has_active_check": false
+    },
+    {
+      "name": "create_credit_note_finance_reversal",
+      "identity_arguments": "p_nc_id uuid",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "0e6e7311ada8978b4f708cd158262747291eee3cc387bd02a087a5ec5b78bceb",
+      "definition_semantic_sha256": "b255097ec29739ca08cfe92031df75e02d285858c348bef3471f054e1bf3887e",
+      "has_current_user_can": false,
+      "has_active_check": false
+    },
+    {
+      "name": "create_credit_note_from_comprobante",
+      "identity_arguments": "p_comprobante_id uuid",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "aa9197c1ac538b532c32c373ca72495f2c1925f34ce12603e15daa2f7ee1996e",
+      "definition_semantic_sha256": "bded895eb22f626fd6fb654c56225a82afdd79042bbe19ca3e38aa7f9cf820c0",
+      "has_current_user_can": false,
+      "has_active_check": false
+    },
+    {
+      "name": "create_expense_with_finance",
+      "identity_arguments": "p_business_id uuid, p_user_id uuid, p_description text, p_category text, p_category_key text, p_finance_type text, p_amount numeric, p_payment_method text, p_date date, p_is_recurring boolean, p_frequency text, p_notes text, p_caja_id uuid, p_idempotency_key text",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "a47a806be1d2b7552d716a522aa40e266c089ae3ade0c2cd07c71279ed8f005e",
+      "definition_semantic_sha256": "783f9f45a4359f18de2af27300a9a472bb010fd2b844ae09ba0686f8935eaea2",
+      "has_current_user_can": false,
+      "has_active_check": true
+    },
+    {
+      "name": "create_manual_cash_movement_atomic",
+      "identity_arguments": "p_business_id uuid, p_type text, p_method text, p_amount numeric, p_description text, p_user_id uuid, p_exchange_rate numeric, p_idempotency_key text",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "09788f4be307f811603b6ad56bcd31319a9ded0c79b6051f2ea73b10933cae27",
+      "definition_semantic_sha256": "018df988fb6a4e1d34c0c337ff78e0c170d21491987036a405e2d5ad721da536",
+      "has_current_user_can": false,
+      "has_active_check": true
+    },
+    {
+      "name": "create_order_payment_atomic",
+      "identity_arguments": "p_business_id uuid, p_order_id uuid, p_amount numeric, p_payment_method text, p_currency text, p_exchange_rate numeric, p_user_id uuid, p_notes text, p_date date, p_idempotency_key text",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "8271dcef7f826bb1beb94110f50327d6e490cf48d8b20827ceb3bff3494b1784",
+      "definition_semantic_sha256": "de763a673b865e4c009505f2dbe58d88915ceadf6fb7641f67132ddf2f7cf2ce",
+      "has_current_user_can": false,
+      "has_active_check": true
+    },
+    {
+      "name": "create_quick_inventory_purchase_atomic",
+      "identity_arguments": "p_business_id uuid, p_idempotency_key text, p_supplier_id uuid, p_supplier_name text, p_invoice text, p_date date, p_payment_method text, p_total_ars numeric, p_paid_ars numeric, p_items jsonb",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "e42a55107d05a3a9b5509fe2c1782b33b5f451501383ebd85db8fdc6c687eba4",
+      "definition_semantic_sha256": "fdd033581fd333cfeeaef570e3d29a4f27899f37302b56a19eac8c38eeeaffef",
+      "has_current_user_can": false,
+      "has_active_check": true
+    },
+    {
+      "name": "create_supplier_purchase_atomic",
+      "identity_arguments": "p_business_id uuid, p_supplier_id uuid, p_user_id uuid, p_supplier_name text, p_purchase_date date, p_invoice_number text, p_total_amount numeric, p_paid_amount numeric, p_payment_method text, p_notes text, p_items jsonb, p_idempotency_key text",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "058d42f0908cab1a3dbc8ce99318ce391fec0cf371b674e3ad2de3576e5847a7",
+      "definition_semantic_sha256": "a1adadb6a63baeb5a7b59311865dfbdb13553063dc2c9c6e5c83e406c4b8cf00",
+      "has_current_user_can": false,
+      "has_active_check": true
+    },
+    {
+      "name": "customer_purchase_history",
+      "identity_arguments": "p_customer_id uuid, p_business_id uuid",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": false,
+      "definition_sha256": "007e54fcfa2f7dd5de63edb170a22472e7e9af8c2c2347fa3344094050be2f1a",
+      "definition_semantic_sha256": "fe181664ab0727494db9b550c4c245dc1e03e2ce0dec1faba9ff71be2ae6276a",
+      "has_current_user_can": false,
+      "has_active_check": false
+    },
+    {
+      "name": "delete_comprobante_with_finance",
+      "identity_arguments": "p_comprobante_id uuid",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "cbb959269f44846f24da0470ce6540cd11aafb54d2a44d8d3a4e3db686ae684b",
+      "definition_semantic_sha256": "91d383b5029928f48905dc47c1b7f39f304d73be0c758538b157967f5f02f448",
+      "has_current_user_can": false,
+      "has_active_check": false
+    },
+    {
+      "name": "finance_dashboard_summary",
+      "identity_arguments": "p_business_id uuid, p_date_from date, p_date_to date",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "89c9df007cf3b4e11b3427d46f456d9c6ddfb521c24973891d1acf796e9fabb9",
+      "definition_semantic_sha256": "7558b95519e64061417ae20d6031c297e9c11d81bd51227f186831d48dab8076",
+      "has_current_user_can": false,
+      "has_active_check": false
+    },
+    {
+      "name": "finance_health_check",
+      "identity_arguments": "p_business_id uuid",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": false,
+      "definition_sha256": "84399c403c8a2f4b8e743e3163d68641e99b4cfd98e332b2576ee2fd2e232271",
+      "definition_semantic_sha256": "43f1d6b5b48a668fc80f412bd4260f91cbef860906a57749c54d8557094de773",
+      "has_current_user_can": false,
+      "has_active_check": false
+    },
+    {
+      "name": "finance_health_check_v2",
+      "identity_arguments": "p_business_id uuid, p_include_global boolean",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "4ff5942c78c762b9f8b6bc3ef05d2bc9e87bdf64f07fc224e86595041aa0260c",
+      "definition_semantic_sha256": "6ca24966afdffe4f490859478fdc7cec6dd3d52452a850615c5b55608e17b67f",
+      "has_current_user_can": false,
+      "has_active_check": true
+    },
+    {
+      "name": "finance_pending_historicals",
+      "identity_arguments": "p_business_id uuid",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "a25f42372399495c56684137877456ea3b84eb05ecad3257336856da04ea94cf",
+      "definition_semantic_sha256": "12737fad38201899977fe50a2fa6ed58beb9a31d12f6b57504a26dd0f12930d4",
+      "has_current_user_can": false,
+      "has_active_check": true
+    },
+    {
+      "name": "generate_finance_insights",
+      "identity_arguments": "p_business_id uuid, p_period_start date, p_period_end date",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "92938e3ac9add7bc7bc819f72bc0289824d81197d554cdf8e7bcda85168430f6",
+      "definition_semantic_sha256": "5bd903d9f2430532de3d7ffa8b90a93382cb4ff0052adebb419ab0280f73d4f0",
+      "has_current_user_can": false,
+      "has_active_check": true
+    },
+    {
+      "name": "get_checkout_request_status",
+      "identity_arguments": "p_business_id uuid, p_idempotency_key text",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "fedc69c2e6c5e38c54a2c4d0338c62f91c5786618074a8c5d6eb12c043764287",
+      "definition_semantic_sha256": "8a45533cd506e4aa02c29dc7449d99cd0900e5187a8526d2c729407f2533eb52",
+      "has_current_user_can": false,
+      "has_active_check": false
+    },
+    {
+      "name": "open_cash_session_atomic",
+      "identity_arguments": "p_business_id uuid, p_user_id uuid, p_efectivo numeric, p_transferencia numeric, p_tarjeta numeric, p_usd numeric, p_usd_rate numeric, p_idempotency_key text",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "b215754b299550b2c40f914877bcb1dcf394f7d4124a8113fd4ee606f1b2ceda",
+      "definition_semantic_sha256": "77e6e0434e1cf4697f795193416dda4cbd8bc745f8b3623fd2649f9bfcaecd38",
+      "has_current_user_can": false,
+      "has_active_check": true
+    },
+    {
+      "name": "pay_supplier_free_atomic",
+      "identity_arguments": "p_business_id uuid, p_supplier_id uuid, p_user_id uuid, p_supplier_name text, p_payment_date date, p_amount numeric, p_payment_method text, p_notes text, p_idempotency_key text",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "64446756199003ad22b198ef53640cbca93b88765796e50eb32481a23c2cbb97",
+      "definition_semantic_sha256": "4456f62197135e068a1c09ed9e9874720e3aa60397ab954e1427c1bb8608eff3",
+      "has_current_user_can": false,
+      "has_active_check": true
+    },
+    {
+      "name": "pay_supplier_purchase_atomic",
+      "identity_arguments": "p_business_id uuid, p_supplier_id uuid, p_user_id uuid, p_supplier_name text, p_purchase_id uuid, p_payment_date date, p_amount numeric, p_payment_method text, p_notes text, p_idempotency_key text",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "29cdda22d85c7fcec148609c04454383c5f71a9cec10fb4742600d36d6d8aa80",
+      "definition_semantic_sha256": "a0347ae8997ebedd8c6df78d9e3178b7ce7488dee3df8bdbcff4097048aa384f",
+      "has_current_user_can": false,
+      "has_active_check": true
+    },
+    {
+      "name": "replace_comprobante_payment",
+      "identity_arguments": "p_comprobante_id uuid, p_business_id uuid, p_payment_method text, p_amount numeric, p_amount_ars numeric, p_currency text, p_exchange_rate numeric, p_notes text, p_user_id uuid, p_commission_amount numeric, p_payment_provider text, p_idempotency_key text",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "cd1a99ddaf9274dc47f0faac4893646364a3231da64ea54a46a45120c5c16ee8",
+      "definition_semantic_sha256": "e2a17fa039c9cdf1462bcf981dcb1ee64984069f94e1a63b9e364ba9f577faab",
+      "has_current_user_can": false,
+      "has_active_check": true
+    },
+    {
+      "name": "reverse_manual_cash_movement",
+      "identity_arguments": "p_movement_id uuid, p_reason text",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "fbc2e0330de3944a83f99f244b1d3289306586874f45a202e0a43e09aed80e3e",
+      "definition_semantic_sha256": "cce6001bf519b46ef811e5b714ede8086b78b13c1a14ca550f3f58f054f3dbc5",
+      "has_current_user_can": false,
+      "has_active_check": true
+    },
+    {
+      "name": "reverse_operating_expense_atomic",
+      "identity_arguments": "p_business_id uuid, p_expense_id uuid, p_reason text, p_user_id uuid, p_idempotency_key text",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "4f8960bda0b5eb6f0dd2f4d8c2a8aa7666c29572e9022f08225f93c3108bbde5",
+      "definition_semantic_sha256": "c4375b0e2ca8cfaa21cd1641201c5f6939869d1d7302e515d5f555d6b0109e59",
+      "has_current_user_can": false,
+      "has_active_check": true
+    },
+    {
+      "name": "reverse_order_payment_atomic",
+      "identity_arguments": "p_business_id uuid, p_order_payment_id uuid, p_reason text, p_user_id uuid, p_idempotency_key text",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=public, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": true,
+      "definition_sha256": "027234bfb21a95ccbe3c7110048271d11a355a8853355715ce30289d1b45e183",
+      "definition_semantic_sha256": "e67d4627cfff311f9d5de628303741646298e30e718cfcc4b980b650a594c855",
+      "has_current_user_can": false,
+      "has_active_check": true
+    },
+    {
+      "name": "update_inventory_dollar_prices",
+      "identity_arguments": "p_business_id uuid, p_new_rate numeric",
+      "result": "jsonb",
+      "owner": "postgres",
+      "security_definer": true,
+      "proconfig": [
+        "search_path=pg_catalog, pg_temp"
+      ],
+      "proacl": "{postgres=X/postgres,authenticated=X/postgres}",
+      "anon_execute": false,
+      "authenticated_execute": true,
+      "service_role_execute": false,
+      "definition_sha256": "3ee63135d271585d298f9fcb527cc7bb544c9816f66d66dd9775cf79d320e489",
+      "definition_semantic_sha256": "bf65bc2335e10807f0fb594800a91c72a0f0e8e91ce1ced5d11ec6357a69ec5d",
+      "has_current_user_can": false,
+      "has_active_check": true
+    }
+  ],
+  "is_staff": {
+    "definition": "CREATE OR REPLACE FUNCTION public.is_staff()\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public', 'pg_temp'\nAS $function$\r\n  select coalesce(\r\n    public.current_user_role() in ('owner', 'admin', 'manager', 'tech', 'sales', 'cashier', 'viewer'),\r\n    false\r\n  )\r\n$function$\n",
+    "owner": "postgres",
+    "proacl": null,
+    "proconfig": [
+      "search_path=public, pg_temp"
+    ],
+    "definition_sha256": "94b95f11b4416aa744116dce22f7a5eae029d1ab27f98d37e0539d2ea43b50f6"
+  },
+  "is_staff_policy_count": 75,
+  "is_staff_policy_counts": {
+    "INSERT": 21,
+    "UPDATE": 18,
+    "SELECT": 25,
+    "ALL": 10,
+    "DELETE": 1
+  },
+  "is_staff_policies": [
+    {
+      "command": "INSERT",
+      "policy": "comprobante_items_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "comprobante_items",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "UPDATE",
+      "policy": "comprobante_items_update",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "comprobante_items",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "INSERT",
+      "policy": "comprobantes_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "comprobantes",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "UPDATE",
+      "policy": "comprobantes_update",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "comprobantes",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "INSERT",
+      "policy": "device_inspections_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "device_inspections",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "device_inspections_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "device_inspections",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "UPDATE",
+      "policy": "device_inspections_update",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "device_inspections",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "INSERT",
+      "policy": "devices_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "devices",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "devices_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "devices",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "UPDATE",
+      "policy": "devices_update",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "devices",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "INSERT",
+      "policy": "documents_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "documents",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "documents_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "documents",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "UPDATE",
+      "policy": "documents_update",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "documents",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "ALL",
+      "policy": "rls_drh",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "dollar_rate_history",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "ALL",
+      "policy": "rls_ec",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "expense_categories",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "INSERT",
+      "policy": "expenses_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "expenses",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "expenses_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "expenses",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "INSERT",
+      "policy": "inventory_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "inventory",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "inventory_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "inventory",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "UPDATE",
+      "policy": "inventory_update",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "inventory",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "INSERT",
+      "policy": "inventory_movements_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "inventory_movements",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "inventory_movements_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "inventory_movements",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "INSERT",
+      "policy": "notes_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "notes",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "notes_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "notes",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "UPDATE",
+      "policy": "notes_update",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "notes",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "INSERT",
+      "policy": "notifications_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "notifications",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "UPDATE",
+      "policy": "notifications_update",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "notifications",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "INSERT",
+      "policy": "order_checklists_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "order_checklists",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "order_checklists_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "order_checklists",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "UPDATE",
+      "policy": "order_checklists_update",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "order_checklists",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "INSERT",
+      "policy": "order_parts_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "order_parts",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "order_parts_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "order_parts",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "UPDATE",
+      "policy": "order_parts_update",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "order_parts",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "order_payments_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "order_payments",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "INSERT",
+      "policy": "orders_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "orders",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "orders_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "orders",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "UPDATE",
+      "policy": "orders_update",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "orders",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "INSERT",
+      "policy": "parts_used_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "parts_used",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "parts_used_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "parts_used",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "UPDATE",
+      "policy": "parts_used_update",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "parts_used",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "ALL",
+      "policy": "rls_pcg",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "payment_commission_groups",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "ALL",
+      "policy": "rls_pco",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "payment_commission_options",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "ALL",
+      "policy": "rls_product_offers_all",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "product_offers",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "INSERT",
+      "policy": "purchase_items_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "purchase_items",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "purchase_items_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "purchase_items",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "UPDATE",
+      "policy": "purchase_items_update",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "purchase_items",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "INSERT",
+      "policy": "purchases_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "purchases",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "purchases_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "purchases",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "UPDATE",
+      "policy": "purchases_update",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "purchases",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "INSERT",
+      "policy": "status_history_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "status_history",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "status_history_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "status_history",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "UPDATE",
+      "policy": "status_history_update",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "status_history",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "supplier_account_movements_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "supplier_account_movements",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "SELECT",
+      "policy": "supplier_payments_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "supplier_payments",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "ALL",
+      "policy": "rls_supplier_purchase_items",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "supplier_purchase_items",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "ALL",
+      "policy": "rls_supplier_purchases",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "supplier_purchases",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "INSERT",
+      "policy": "suppliers_insert",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "suppliers",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "suppliers_select",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "suppliers",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "UPDATE",
+      "policy": "suppliers_update",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "suppliers",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "ALL",
+      "policy": "task_comments_plan",
+      "roles": [
+        "PUBLIC"
+      ],
+      "schema": "public",
+      "table": "task_comments",
+      "using": "((business_id = current_user_business_id()) AND is_staff() AND business_has_feature('tasks'::text))",
+      "with_check": "((business_id = current_user_business_id()) AND is_staff() AND business_has_feature('tasks'::text))"
+    },
+    {
+      "command": "ALL",
+      "policy": "task_history_plan",
+      "roles": [
+        "PUBLIC"
+      ],
+      "schema": "public",
+      "table": "task_history",
+      "using": "((business_id = current_user_business_id()) AND is_staff() AND business_has_feature('tasks'::text))",
+      "with_check": "((business_id = current_user_business_id()) AND is_staff() AND business_has_feature('tasks'::text))"
+    },
+    {
+      "command": "ALL",
+      "policy": "task_items_plan",
+      "roles": [
+        "PUBLIC"
+      ],
+      "schema": "public",
+      "table": "task_items",
+      "using": "((business_id = current_user_business_id()) AND is_staff() AND business_has_feature('tasks'::text))",
+      "with_check": "((business_id = current_user_business_id()) AND is_staff() AND business_has_feature('tasks'::text))"
+    },
+    {
+      "command": "DELETE",
+      "policy": "tasks_plan_delete",
+      "roles": [
+        "PUBLIC"
+      ],
+      "schema": "public",
+      "table": "tasks",
+      "using": "((business_id = current_user_business_id()) AND is_staff() AND business_has_feature('tasks'::text))",
+      "with_check": null
+    },
+    {
+      "command": "INSERT",
+      "policy": "tasks_plan_insert",
+      "roles": [
+        "PUBLIC"
+      ],
+      "schema": "public",
+      "table": "tasks",
+      "using": null,
+      "with_check": "((business_id = current_user_business_id()) AND is_staff() AND business_has_feature('tasks'::text))"
+    },
+    {
+      "command": "SELECT",
+      "policy": "tasks_plan_select",
+      "roles": [
+        "PUBLIC"
+      ],
+      "schema": "public",
+      "table": "tasks",
+      "using": "((business_id = current_user_business_id()) AND is_staff() AND business_has_feature('tasks'::text))",
+      "with_check": null
+    },
+    {
+      "command": "UPDATE",
+      "policy": "tasks_plan_update",
+      "roles": [
+        "PUBLIC"
+      ],
+      "schema": "public",
+      "table": "tasks",
+      "using": "((business_id = current_user_business_id()) AND is_staff() AND business_has_feature('tasks'::text))",
+      "with_check": null
+    },
+    {
+      "command": "INSERT",
+      "policy": "warranties_insert",
+      "roles": [
+        "PUBLIC"
+      ],
+      "schema": "public",
+      "table": "warranties",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "warranties_select",
+      "roles": [
+        "PUBLIC"
+      ],
+      "schema": "public",
+      "table": "warranties",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "UPDATE",
+      "policy": "warranties_update",
+      "roles": [
+        "PUBLIC"
+      ],
+      "schema": "public",
+      "table": "warranties",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "INSERT",
+      "policy": "whatsapp_logs_insert",
+      "roles": [
+        "PUBLIC"
+      ],
+      "schema": "public",
+      "table": "whatsapp_logs",
+      "using": null,
+      "with_check": "((business_id = current_business_id()) AND is_staff())"
+    },
+    {
+      "command": "SELECT",
+      "policy": "whatsapp_logs_select",
+      "roles": [
+        "PUBLIC"
+      ],
+      "schema": "public",
+      "table": "whatsapp_logs",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "SELECT",
+      "policy": "whatsapp_templates_select",
+      "roles": [
+        "PUBLIC"
+      ],
+      "schema": "public",
+      "table": "whatsapp_templates",
+      "using": "((business_id = current_business_id()) AND is_staff())",
+      "with_check": null
+    },
+    {
+      "command": "SELECT",
+      "policy": "wc_staff_read",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "wholesale_customers",
+      "using": "((business_id = current_user_business_id()) AND is_staff() AND business_has_feature('mayorista'::text))",
+      "with_check": null
+    },
+    {
+      "command": "SELECT",
+      "policy": "woi_staff_read",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "wholesale_order_items",
+      "using": "((business_id = current_user_business_id()) AND is_staff() AND business_has_feature('mayorista'::text))",
+      "with_check": null
+    },
+    {
+      "command": "SELECT",
+      "policy": "wo_staff_read",
+      "roles": [
+        "authenticated"
+      ],
+      "schema": "public",
+      "table": "wholesale_orders",
+      "using": "((business_id = current_user_business_id()) AND is_staff() AND business_has_feature('mayorista'::text))",
+      "with_check": null
+    }
+  ],
+  "payment_transactions": {
+    "columns": [
+      {
+        "default": "gen_random_uuid()",
+        "name": "id",
+        "not_null": true,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "business_id",
+        "not_null": true,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "comprobante_id",
+        "not_null": false,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "payment_order_id",
+        "not_null": false,
+        "type": "uuid"
+      },
+      {
+        "default": null,
+        "name": "payment_button_id",
+        "not_null": false,
+        "type": "uuid"
+      },
+      {
+        "default": "'manual'::text",
+        "name": "provider",
+        "not_null": true,
+        "type": "text"
+      },
+      {
+        "default": "'manual'::text",
+        "name": "channel",
+        "not_null": true,
+        "type": "text"
+      },
+      {
+        "default": "'none'::text",
+        "name": "integration_kind",
+        "not_null": true,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "provider_payment_id",
+        "not_null": false,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "provider_order_id",
+        "not_null": false,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "external_reference",
+        "not_null": false,
+        "type": "text"
+      },
+      {
+        "default": "'pending'::text",
+        "name": "status",
+        "not_null": true,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "status_detail",
+        "not_null": false,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "payment_method_type",
+        "not_null": false,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "payment_method_id",
+        "not_null": false,
+        "type": "text"
+      },
+      {
+        "default": "1",
+        "name": "installments",
+        "not_null": false,
+        "type": "integer"
+      },
+      {
+        "default": "0",
+        "name": "transaction_amount",
+        "not_null": true,
+        "type": "numeric(14,2)"
+      },
+      {
+        "default": "0",
+        "name": "fee_amount_estimated",
+        "not_null": true,
+        "type": "numeric(14,2)"
+      },
+      {
+        "default": null,
+        "name": "fee_amount_real",
+        "not_null": false,
+        "type": "numeric(14,2)"
+      },
+      {
+        "default": "0",
+        "name": "net_amount_estimated",
+        "not_null": true,
+        "type": "numeric(14,2)"
+      },
+      {
+        "default": null,
+        "name": "net_amount_real",
+        "not_null": false,
+        "type": "numeric(14,2)"
+      },
+      {
+        "default": "'ARS'::text",
+        "name": "currency",
+        "not_null": true,
+        "type": "text"
+      },
+      {
+        "default": null,
+        "name": "approved_at",
+        "not_null": false,
+        "type": "timestamp with time zone"
+      },
+      {
+        "default": null,
+        "name": "released_at",
+        "not_null": false,
+        "type": "timestamp with time zone"
+      },
+      {
+        "default": "false",
+        "name": "is_manual",
+        "not_null": true,
+        "type": "boolean"
+      },
+      {
+        "default": null,
+        "name": "raw_payment",
+        "not_null": false,
+        "type": "jsonb"
+      },
+      {
+        "default": "now()",
+        "name": "created_at",
+        "not_null": true,
+        "type": "timestamp with time zone"
+      },
+      {
+        "default": "now()",
+        "name": "updated_at",
+        "not_null": true,
+        "type": "timestamp with time zone"
+      }
+    ],
+    "foreign_keys": [
+      {
+        "definition": "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE",
+        "name": "payment_transactions_business_id_fkey"
+      },
+      {
+        "definition": "FOREIGN KEY (comprobante_id) REFERENCES comprobantes(id) ON DELETE SET NULL",
+        "name": "payment_transactions_comprobante_id_fkey"
+      },
+      {
+        "definition": "FOREIGN KEY (payment_button_id) REFERENCES payment_method_buttons(id) ON DELETE SET NULL",
+        "name": "payment_transactions_payment_button_id_fkey"
+      },
+      {
+        "definition": "FOREIGN KEY (payment_order_id) REFERENCES payment_orders(id) ON DELETE SET NULL",
+        "name": "payment_transactions_payment_order_id_fkey"
+      }
+    ],
+    "grants": [
+      {
+        "grantee": "authenticated",
+        "privilege": "DELETE"
+      },
+      {
+        "grantee": "authenticated",
+        "privilege": "INSERT"
+      },
+      {
+        "grantee": "authenticated",
+        "privilege": "SELECT"
+      },
+      {
+        "grantee": "authenticated",
+        "privilege": "UPDATE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "DELETE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "INSERT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "REFERENCES"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "SELECT"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRIGGER"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "TRUNCATE"
+      },
+      {
+        "grantee": "postgres",
+        "privilege": "UPDATE"
+      },
+      {
+        "grantee": "service_role",
+        "privilege": "DELETE"
+      },
+      {
+        "grantee": "service_role",
+        "privilege": "INSERT"
+      },
+      {
+        "grantee": "service_role",
+        "privilege": "SELECT"
+      },
+      {
+        "grantee": "service_role",
+        "privilege": "UPDATE"
+      }
+    ],
+    "indexes": [
+      {
+        "definition": "CREATE INDEX idx_payment_transactions_payment_button ON public.payment_transactions USING btree (payment_button_id) WHERE (payment_button_id IS NOT NULL)",
+        "name": "idx_payment_transactions_payment_button"
+      },
+      {
+        "definition": "CREATE INDEX idx_payment_transactions_payment_order ON public.payment_transactions USING btree (payment_order_id) WHERE (payment_order_id IS NOT NULL)",
+        "name": "idx_payment_transactions_payment_order"
+      },
+      {
+        "definition": "CREATE UNIQUE INDEX payment_transactions_pkey ON public.payment_transactions USING btree (id)",
+        "name": "payment_transactions_pkey"
+      },
+      {
+        "definition": "CREATE INDEX pt_business_status_idx ON public.payment_transactions USING btree (business_id, status, created_at DESC)",
+        "name": "pt_business_status_idx"
+      },
+      {
+        "definition": "CREATE INDEX pt_comprobante_idx ON public.payment_transactions USING btree (comprobante_id)",
+        "name": "pt_comprobante_idx"
+      },
+      {
+        "definition": "CREATE INDEX pt_external_ref_idx ON public.payment_transactions USING btree (external_reference)",
+        "name": "pt_external_ref_idx"
+      },
+      {
+        "definition": "CREATE INDEX pt_provider_payment_idx ON public.payment_transactions USING btree (provider_payment_id)",
+        "name": "pt_provider_payment_idx"
+      }
+    ],
+    "policies": [
+      {
+        "command": "r",
+        "name": "pt_select",
+        "roles": [
+          "0"
+        ],
+        "using": "(business_id = current_user_business_id())",
+        "with_check": null
+      },
+      {
+        "command": "*",
+        "name": "pt_write",
+        "roles": [
+          "16485"
+        ],
+        "using": "(business_id = current_user_business_id())",
+        "with_check": "(business_id = current_user_business_id())"
+      }
+    ],
+    "rls_enabled": true,
+    "triggers": [
+      {
+        "definition": "CREATE TRIGGER pt_updated_at BEFORE UPDATE ON payment_transactions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()",
+        "name": "pt_updated_at"
+      },
+      {
+        "definition": "CREATE TRIGGER trig_pt_approved AFTER UPDATE OF status ON payment_transactions FOR EACH ROW EXECUTE FUNCTION trigger_payment_transaction_approved()",
+        "name": "trig_pt_approved"
+      }
+    ]
+  }
+}
