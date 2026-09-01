@@ -117,6 +117,7 @@ Real local Kong/PostgREST used valid locally signed authenticated JWTs and a pos
 
 - Fresh local migration rebuild: pass.
 - Lote 3 SQL authority/negative suite: pass; 25 RPCs and all role/tenant/override/plan groups.
+- Mobile2A SQL coexistence suite: pass after aligning its legacy bridge fixture with Lote 3 authority. It now proves same-tenant `viewer` direct secret writes have zero effects, then exercises set/repeat/clear and Vault no-recursion with an authorized owner; the cross-tenant probe also uses that authorized actor so tenant isolation is tested independently.
 - Lote 2 tenant-authority suite: pass, 441 assertions; internal allocation/order-amount helpers remain non-executable directly and function through legitimate parents.
 - Components: 11 files / 187 tests passed across Caja, MP POS containment, customer/CC, orders, finance and POS customer search.
 - `typecheck`, `lint:errors`, production build, finance-write guard, SECURITY DEFINER guard, exposure guard, fragile-function-definition guard and diff check: pass (build has existing chunk-size warnings).
