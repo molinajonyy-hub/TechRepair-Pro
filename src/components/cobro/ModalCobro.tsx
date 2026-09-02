@@ -6,6 +6,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { X, Plus, Trash2, ChevronRight, ChevronLeft, Check, Search, ExternalLink } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
+import { fetchOrderLineAmounts } from '../../lib/orderLineAmounts'
 import { useAuth } from '../../contexts/AuthContext'
 import { invalidateStatsCache } from '../../hooks/useDashboardStats'
 import { formatDisplayMessage } from '../../utils/formatMessage'
@@ -244,18 +245,31 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
   const prefillOrden = async (id: string) => {
     // SEC-08A: `total_cost` y `amount_paid` ya no son seleccionables desde el
     // browser. La orden aporta lo operativo; los importes, la ruta autorizada.
+    // SEC-08A Fase B: `order_parts.sale_price` tampoco es seleccionable. La
+    // relación anidada aporta sólo lo operativo; el precio del repuesto llega
+    // por `get_order_line_amounts`, con la misma capacidad que los importes.
     const { data } = await supabase
       .from('orders')
-      .select('id, device_id, customer_id, business_id, customers(name, phone, email), order_parts(name, quantity, sale_price, status)')
+      .select('id, device_id, customer_id, business_id, customers(name, phone, email), order_parts(id, name, quantity, status)')
       .eq('id', id).single()
     if (!data) return
     const montos = await fetchOrderAmounts(data.business_id, [id])
     const fila = montos[id]
     const totalCost = fila?.total_cost ?? null
     const amountPaidValor = fila?.amount_paid ?? null
-    const saldo = (totalCost || 0) - (amountPaidValor || 0)
     setOrdenSelec({ id: data.id, titulo: `Orden #${data.id.slice(0, 6).toUpperCase()}`, total_cost: totalCost, amount_paid: amountPaidValor, customer_name: (data.customers as any)?.name ?? null, customer_id: data.customer_id })
     if (data.customers) setClienteSelec({ id: data.customer_id, name: (data.customers as any).name, phone: (data.customers as any).phone, email: (data.customers as any).email })
+
+    // Sin autorización NO se prellena ningún importe. Antes se caía en
+    // `saldo = 0` y el modal anunciaba "Orden ya cobrada completa": una verdad
+    // financiera FABRICADA a partir de una denegación. Denegado no es cobrado.
+    if (totalCost === null && amountPaidValor === null) {
+      setItems([{ id: crypto.randomUUID(), nombre: 'Importes restringidos — cargá el detalle a mano', cantidad: 1, precio: 0 }])
+      return
+    }
+
+    const saldo = (totalCost || 0) - (amountPaidValor || 0)
+    const lineAmounts = await fetchOrderLineAmounts(data.business_id, [id])
     const parts = ((data.order_parts as any[]) || []).filter(p => p.status === 'used' || p.status === 'sold')
     const amountPaid = amountPaidValor || 0
     if (saldo <= 0) {
@@ -263,7 +277,7 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
     } else if (parts.length > 0 && amountPaid > 0) {
       setItems([{ id: crypto.randomUUID(), nombre: `Saldo pendiente Orden #${id.slice(0, 6).toUpperCase()}`, cantidad: 1, precio: saldo }])
     } else if (parts.length > 0) {
-      setItems(parts.map((p: any) => ({ id: crypto.randomUUID(), nombre: p.name || 'Repuesto', cantidad: p.quantity || 1, precio: p.sale_price || 0 })))
+      setItems(parts.map((p: any) => ({ id: crypto.randomUUID(), nombre: p.name || 'Repuesto', cantidad: p.quantity || 1, precio: lineAmounts.parts.get(p.id)?.sale_price ?? 0 })))
     } else if (saldo > 0) {
       setItems([{ id: crypto.randomUUID(), nombre: 'Servicio técnico', cantidad: 1, precio: saldo }])
     }

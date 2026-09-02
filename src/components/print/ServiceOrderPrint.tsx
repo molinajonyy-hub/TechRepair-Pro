@@ -13,7 +13,11 @@ export interface PrintOrderItem {
   tipo: 'repuesto' | 'servicio'
   descripcion: string
   cantidad: number
-  precio_unitario: number
+  /**
+   * SEC-08A Fase B — OPCIONAL: el precio de línea sólo llega con
+   * `orders_view_financials`. `undefined` se imprime como "—", nunca como $0.
+   */
+  precio_unitario?: number
   cliente_paga_repuesto: boolean
 }
 
@@ -189,13 +193,17 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
 
     const s: OrderPrintSettings = externalSettings ?? loadedSettings ?? DEFAULT_PRINT_SETTINGS
 
-    const itemsTotal = order.orderItems
-      ? order.orderItems.reduce((sum, item) => {
-          if (item.tipo === 'servicio' || item.cliente_paga_repuesto)
-            return sum + item.precio_unitario * item.cantidad
-          return sum
-        }, 0)
-      : null
+    // SEC-08A Fase B — si algún ítem facturable llegó SIN precio autorizado, no
+    // hay total que imprimir: `null` deja el bloque de totales fuera de la hoja
+    // en vez de imprimir una suma parcial que parecería el total real.
+    const itemsFacturables = (order.orderItems ?? []).filter(
+      item => item.tipo === 'servicio' || item.cliente_paga_repuesto,
+    )
+    const itemsTotal = !order.orderItems
+      ? null
+      : itemsFacturables.some(item => item.precio_unitario === undefined)
+        ? null
+        : itemsFacturables.reduce((sum, item) => sum + (item.precio_unitario as number) * item.cantidad, 0)
 
     const orderNumber = order.id.slice(0, 8).toUpperCase()
     const orderDate = new Date(order.created_at).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -371,8 +379,8 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
                         </span>
                       </td>
                       <td style={{ padding: '3px 5px', textAlign: 'center', color: '#475569' }}>{item.cantidad}</td>
-                      <td style={{ padding: '3px 5px', textAlign: 'right', color: '#475569' }}>{fmtCurrency(item.precio_unitario)}</td>
-                      <td style={{ padding: '3px 5px', textAlign: 'right', color: '#1e293b', fontWeight: 700 }}>{fmtCurrency(item.precio_unitario * item.cantidad)}</td>
+                      <td style={{ padding: '3px 5px', textAlign: 'right', color: '#475569' }}>{item.precio_unitario === undefined ? '—' : fmtCurrency(item.precio_unitario)}</td>
+                      <td style={{ padding: '3px 5px', textAlign: 'right', color: '#1e293b', fontWeight: 700 }}>{item.precio_unitario === undefined ? '—' : fmtCurrency(item.precio_unitario * item.cantidad)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -516,9 +524,11 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
                       )}
                     </td>
                     <td style={{ padding: '2px 5px', textAlign: 'center', color: '#475569' }}>{item.cantidad}</td>
-                    <td style={{ padding: '2px 5px', textAlign: 'right', color: '#475569' }}>{fmtCurrency(item.precio_unitario)}</td>
+                    <td style={{ padding: '2px 5px', textAlign: 'right', color: '#475569' }}>{item.precio_unitario === undefined ? '—' : fmtCurrency(item.precio_unitario)}</td>
                     <td style={{ padding: '2px 5px', textAlign: 'right', color: '#1e293b', fontWeight: 700 }}>
-                      {(item.tipo === 'servicio' || item.cliente_paga_repuesto) ? fmtCurrency(item.precio_unitario * item.cantidad) : '—'}
+                      {(item.tipo === 'servicio' || item.cliente_paga_repuesto) && item.precio_unitario !== undefined
+                        ? fmtCurrency(item.precio_unitario * item.cantidad)
+                        : '—'}
                     </td>
                   </tr>
                 ))}

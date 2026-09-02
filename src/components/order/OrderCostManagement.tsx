@@ -15,6 +15,11 @@ import {
   MinusCircle
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import {
+  fetchOrderLineAmounts,
+  mergePartAmounts,
+  ORDER_PART_OPERATIONAL_COLUMNS,
+} from '../../lib/orderLineAmounts'
 import { currencyService } from '../../services/currencyService'
 import { useAuth } from '../../contexts/AuthContext'
 import { resolvePurchaseKey } from '../../utils/purchaseIdempotency'
@@ -35,11 +40,15 @@ interface OrderPart {
   name: string
   description?: string
   part_number?: string
-  internal_cost: number
-  sale_price: number
+  /**
+   * SEC-08A Fase B — importes del repuesto. OPCIONALES: llegan por
+   * `get_order_line_amounts`. `undefined` es "restringido", nunca cero.
+   */
+  internal_cost?: number
+  sale_price?: number
   quantity: number
-  margin_amount: number
-  margin_percentage: number
+  margin_amount?: number
+  margin_percentage?: number
   status: keyof typeof PART_STATUSES
   deduct_from_inventory: boolean
   notes?: string
@@ -79,6 +88,8 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
   const [payments, setPayments] = useState<Payment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  /** SEC-08A Fase B — ¿el servidor autorizó los importes de línea? */
+  const [amountsAuthorized, setAmountsAuthorized] = useState(false)
   
   // Form states
   const [showAddPart, setShowAddPart] = useState(false)
@@ -115,15 +126,21 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
     try {
       setLoading(true)
       
-      // Cargar repuestos
+      // Cargar repuestos.
+      // SEC-08A Fase B: `select('*')` responde 42501 desde que internal_cost /
+      // sale_price / márgenes dejaron de estar concedidos al browser. Los
+      // importes llegan por `get_order_line_amounts`, con la misma capacidad
+      // (`orders_view_financials`) que ya exige `order_payments` más abajo.
       const { data: partsData, error: partsError } = await supabase
         .from('order_parts')
-        .select('*')
+        .select(ORDER_PART_OPERATIONAL_COLUMNS)
         .eq('order_id', orderId)
         .order('added_at', { ascending: false })
-      
+
       if (partsError) throw partsError
-      setParts(partsData || [])
+      const lineAmounts = await fetchOrderLineAmounts(businessId, [orderId])
+      setAmountsAuthorized(lineAmounts.authorized)
+      setParts(mergePartAmounts((partsData ?? []) as { id: string }[], lineAmounts) as OrderPart[])
       
       // Cargar pagos
       const { data: paymentsData, error: paymentsError } = await supabase
@@ -141,14 +158,18 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
     }
   }
 
-  // Cálculos financieros
+  // Cálculos financieros.
+  // SEC-08A Fase B: sin autorización los importes llegan `undefined`. Se suma 0
+  // sólo para no romper la aritmética; la UI NO muestra estos totales cuando
+  // `amountsAuthorized` es false (ver el bloque de resumen), para no presentar
+  // un cero calculado como si fuera el costo real.
   const partsInternalCost = parts
     .filter(p => ['used', 'sold'].includes(p.status))
-    .reduce((sum, p) => sum + (p.internal_cost * p.quantity), 0)
-  
+    .reduce((sum, p) => sum + ((p.internal_cost ?? 0) * p.quantity), 0)
+
   const partsSaleTotal = parts
     .filter(p => ['used', 'sold'].includes(p.status))
-    .reduce((sum, p) => sum + (p.sale_price * p.quantity), 0)
+    .reduce((sum, p) => sum + ((p.sale_price ?? 0) * p.quantity), 0)
   
   const partsProfit = partsSaleTotal - partsInternalCost
   
@@ -380,10 +401,22 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
           </h3>
         </div>
         <div className="card-body">
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', 
-            gap: '1rem' 
+          {/* SEC-08A Fase B — sin `orders_view_financials` el servidor no
+              entrega los importes de línea. Los totales derivados darían 0 y se
+              leerían como "esta orden no costó nada": se dice que están
+              restringidos en vez de mostrar el cero calculado. */}
+          {!amountsAuthorized ? (
+            <p
+              data-testid="order-cost-amounts-restricted"
+              style={{ color: '#64748b', margin: 0, fontSize: '0.875rem' }}
+            >
+              Importes restringidos
+            </p>
+          ) : (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+            gap: '1rem'
           }}>
             {/* Costos */}
             <div style={{ padding: '1rem', backgroundColor: '#1e293b', borderRadius: '0.5rem' }}>
@@ -464,6 +497,7 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
               </p>
             </div>
           </div>
+          )}
         </div>
       </div>
 
@@ -653,20 +687,28 @@ export function OrderCostManagement({ orderId, laborCost, totalQuoted, onDataCha
                             Qty: {part.quantity} {part.part_number && `• ${part.part_number}`}
                           </p>
                         </td>
+                        {/* SEC-08A Fase B — "—" cuando el importe no está
+                            autorizado. Denegado no es $0. */}
                         <td style={{ textAlign: 'right', padding: '0.75rem', color: '#a0aec0' }}>
-                          ${part.internal_cost.toLocaleString()}
+                          {part.internal_cost === undefined ? '—' : `$${part.internal_cost.toLocaleString()}`}
                         </td>
                         <td style={{ textAlign: 'right', padding: '0.75rem', color: '#a0aec0' }}>
-                          ${part.sale_price.toLocaleString()}
+                          {part.sale_price === undefined ? '—' : `$${part.sale_price.toLocaleString()}`}
                         </td>
                         <td style={{ textAlign: 'right', padding: '0.75rem' }}>
-                          <span style={{ color: '#10b981', fontSize: '0.75rem' }}>
-                            +${part.margin_amount.toLocaleString()}
-                          </span>
-                          <br />
-                          <span style={{ color: '#64748b', fontSize: '0.625rem' }}>
-                            {part.margin_percentage}%
-                          </span>
+                          {part.margin_amount === undefined ? (
+                            <span style={{ color: '#64748b', fontSize: '0.75rem' }}>—</span>
+                          ) : (
+                            <>
+                              <span style={{ color: '#10b981', fontSize: '0.75rem' }}>
+                                +${part.margin_amount.toLocaleString()}
+                              </span>
+                              <br />
+                              <span style={{ color: '#64748b', fontSize: '0.625rem' }}>
+                                {part.margin_percentage}%
+                              </span>
+                            </>
+                          )}
                         </td>
                         <td style={{ textAlign: 'center', padding: '0.75rem' }}>
                           <select

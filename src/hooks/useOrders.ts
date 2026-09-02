@@ -61,12 +61,11 @@ export interface OrderListItem {
     model: string
     type: string
   } | null
-  order_items?: {
-    tipo: string
-    precio_unitario: number
-    cantidad: number
-    cliente_paga_repuesto: boolean
-  }[]
+  // SEC-08A Fase B: el listado ya no anida `order_items`. Sus precios de línea
+  // reconstruían `orders.estimated_total` EXACTAMENTE —
+  // `recalculate_order_total` lo define como SUM(precio_unitario * cantidad)—,
+  // así que eran una vía paralela a la ruta autorizada. El total del listado
+  // sale únicamente de `get_order_financial_amounts`.
 }
 
 export interface UseOrdersFilters {
@@ -122,8 +121,11 @@ export function useOrders(filters: UseOrdersFilters = {}) {
       // pagina: nunca se descargan todas las órdenes para filtrarlas en React.
       let idsFiltrados: string[] | null = null
       if (paymentFilter) {
-        // v_order_payment_state NO tiene importes: el filtro y el badge
-        // funcionan para cualquier rol, incluidos los que no ven montos.
+        // SEC-08A Fase B: `v_order_payment_state` no tiene importes, pero
+        // `payment_status` SÍ es verdad financiera de la orden (se deriva de los
+        // comprobantes), así que ahora exige `orders_view_financials` en ese
+        // negocio. Sin la capacidad la vista devuelve CERO FILAS —nunca
+        // 'sin_facturar' fabricado—, y filtrar por cobro no devuelve órdenes.
         let q = supabase
           .from('v_order_payment_state')
           .select('order_id')
@@ -143,8 +145,7 @@ export function useOrders(filters: UseOrdersFilters = {}) {
         .select(`
           id, status, priority, created_at,
           customer:customers(id, name, phone),
-          device:devices(id, brand, model, type),
-          order_items(tipo, precio_unitario, cantidad, cliente_paga_repuesto)
+          device:devices(id, brand, model, type)
         `)
         .eq('business_id', businessId)
       if (statusFilter) oq = oq.eq('status', statusFilter)
@@ -162,7 +163,9 @@ export function useOrders(filters: UseOrdersFilters = {}) {
       if (lista.length > 0) {
         const ids = lista.map(o => o.id)
 
-        // 1) Estado de cobro (sin importes): lo ve cualquier rol del negocio.
+        // 1) Estado de cobro (sin importes). SEC-08A Fase B: requiere
+        //    `orders_view_financials`; sin la capacidad no hay filas y el badge
+        //    simplemente no se dibuja.
         const { data: st, error: stErr } = await supabase
           .from('v_order_payment_state')
           .select('order_id, payment_status, comprobantes_vigentes, comprobante_id, comprobante_numero')

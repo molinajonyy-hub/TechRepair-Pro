@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react'
 import { Plus, Trash2, Package, Wrench, TrendingUp, Loader2, AlertCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../contexts/AuthContext'
+import {
+  fetchOrderLineAmounts,
+  mergeItemAmounts,
+  ORDER_ITEM_OPERATIONAL_COLUMNS,
+} from '../../lib/orderLineAmounts'
 import { ModalAgregarItem } from './ModalAgregarItem'
 
 interface OrderItem {
@@ -8,12 +14,20 @@ interface OrderItem {
   tipo: 'repuesto' | 'servicio'
   descripcion: string
   cantidad: number
-  precio_unitario: number
-  costo_unitario: number
+  /**
+   * SEC-08A Fase B — importes de línea. OPCIONALES: llegan por
+   * `get_order_line_amounts` y sólo con `orders_view_financials`. `undefined`
+   * significa "restringido", NUNCA cero.
+   */
+  precio_unitario?: number
+  costo_unitario?: number
   cliente_paga_repuesto: boolean
   product_id?: string
   created_at: string
 }
+
+/** Placeholder único para un importe que el servidor no autorizó. */
+const RESTRINGIDO = '—'
 
 interface OrderItemsCardProps {
   orderId: string
@@ -26,22 +40,30 @@ export function OrderItemsCard({ orderId, onTotalsChange }: OrderItemsCardProps)
   const [error, setError] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  /** ¿El servidor autorizó los importes de línea de esta orden? */
+  const [amountsAuthorized, setAmountsAuthorized] = useState(false)
+  const { businessId } = useAuth()
 
   useEffect(() => {
     loadItems()
-  }, [orderId])
+  }, [orderId, businessId])
 
   async function loadItems() {
     try {
       setLoading(true)
+      // SEC-08A Fase B: `select('*')` responde 42501 desde que
+      // precio_unitario / costo_unitario dejaron de estar concedidos.
       const { data, error } = await supabase
         .from('order_items')
-        .select('*')
+        .select(ORDER_ITEM_OPERATIONAL_COLUMNS)
         .eq('order_id', orderId)
         .order('created_at', { ascending: true })
 
       if (error) throw error
-      setItems(data || [])
+      const filas = (data ?? []) as unknown as OrderItem[]
+      const amounts = await fetchOrderLineAmounts(businessId, [orderId])
+      setAmountsAuthorized(amounts.authorized)
+      setItems(mergeItemAmounts(filas, amounts) as OrderItem[])
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -91,17 +113,19 @@ export function OrderItemsCard({ orderId, onTotalsChange }: OrderItemsCardProps)
   const repuestos = items.filter(i => i.tipo === 'repuesto')
   const servicios = items.filter(i => i.tipo === 'servicio')
 
+  // SEC-08A Fase B — los totales sólo existen si el servidor autorizó los
+  // importes. Sin autorización NO se suman ceros: se muestra "restringido".
   const totalRepuestos = repuestos
     .filter(i => i.cliente_paga_repuesto)
-    .reduce((s, i) => s + i.precio_unitario * i.cantidad, 0)
+    .reduce((s, i) => s + (i.precio_unitario ?? 0) * i.cantidad, 0)
 
   const totalServicios = servicios
-    .reduce((s, i) => s + i.precio_unitario * i.cantidad, 0)
+    .reduce((s, i) => s + (i.precio_unitario ?? 0) * i.cantidad, 0)
 
   const totalCliente = totalRepuestos + totalServicios
 
   const costoTotal = items
-    .reduce((s, i) => s + i.costo_unitario * i.cantidad, 0)
+    .reduce((s, i) => s + (i.costo_unitario ?? 0) * i.cantidad, 0)
 
   const margen = totalCliente - costoTotal
 
@@ -257,6 +281,16 @@ export function OrderItemsCard({ orderId, onTotalsChange }: OrderItemsCardProps)
                 borderRadius: '0.625rem',
                 display: 'flex', flexDirection: 'column', gap: '0.5rem'
               }}>
+                {!amountsAuthorized ? (
+                  <div
+                    data-testid="order-items-amounts-restricted"
+                    style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem' }}
+                  >
+                    <span style={{ color: '#94a3b8' }}>Total al cliente</span>
+                    <span style={{ color: '#64748b', fontWeight: 600 }}>Importes restringidos</span>
+                  </div>
+                ) : (
+                <>
                 {totalServicios > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem' }}>
                     <span style={{ color: '#94a3b8' }}>Servicios</span>
@@ -290,6 +324,8 @@ export function OrderItemsCard({ orderId, onTotalsChange }: OrderItemsCardProps)
                     )}
                   </span>
                 </div>
+                </>
+                )}
               </div>
             </>
           )}
@@ -316,8 +352,12 @@ function ItemRow({
   onDelete: (id: string) => void
   deletingId: string | null
 }) {
-  const subtotal = item.precio_unitario * item.cantidad
-  const costo = item.costo_unitario * item.cantidad
+  // SEC-08A Fase B — sin autorización estos importes llegan `undefined`. Se
+  // dibuja "—", nunca "$0": denegado no es gratis.
+  const precio = item.precio_unitario
+  const subtotal = precio === undefined ? undefined : precio * item.cantidad
+  const costo = item.costo_unitario === undefined ? undefined : item.costo_unitario * item.cantidad
+  const money = (v: number | undefined) => (v === undefined ? RESTRINGIDO : '$' + v.toLocaleString())
   const isDeleting = deletingId === item.id
 
   return (
@@ -334,13 +374,13 @@ function ItemRow({
         {item.cantidad}
       </td>
       <td style={{ padding: '0.75rem 0.5rem', textAlign: 'right', color: '#94a3b8' }}>
-        ${item.precio_unitario.toLocaleString()}
+        {money(precio)}
       </td>
       <td style={{ padding: '0.75rem 0.5rem', textAlign: 'right', color: '#f8fafc', fontWeight: 600 }}>
-        ${subtotal.toLocaleString()}
+        {money(subtotal)}
       </td>
       <td style={{ padding: '0.75rem 0.5rem', textAlign: 'right', color: '#64748b', fontSize: '0.8125rem' }}>
-        ${costo.toLocaleString()}
+        {money(costo)}
       </td>
       <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
         <button

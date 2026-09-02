@@ -1,5 +1,12 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import {
+  fetchOrderLineAmounts,
+  mergeItemAmounts,
+  mergePartAmounts,
+  ORDER_ITEM_OPERATIONAL_COLUMNS,
+  ORDER_PART_OPERATIONAL_COLUMNS,
+} from '../lib/orderLineAmounts'
 import { OrderStatus, StatusHistoryEntry } from '../types/orderStatus'
 
 /**
@@ -53,17 +60,22 @@ export interface OrderDetailSimple {
     due_date?: string
     notes?: string
   }[]
-  // Repuestos usados en la orden
+  /**
+   * Repuestos usados en la orden.
+   * SEC-08A Fase B — los importes son OPCIONALES: llegan por
+   * `get_order_line_amounts` y sólo con `orders_view_financials`. `undefined`
+   * significa "no autorizado", nunca "cero".
+   */
   parts?: {
     id: string
     name: string
     description?: string
     part_number?: string
-    internal_cost: number
-    sale_price: number
+    internal_cost?: number
+    sale_price?: number
     quantity: number
-    margin_amount: number
-    margin_percentage: number
+    margin_amount?: number
+    margin_percentage?: number
     status: string
     deduct_from_inventory: boolean
     /** false = internal/consumed, not billed to customer */
@@ -71,14 +83,18 @@ export interface OrderDetailSimple {
     notes?: string
     added_at: string
   }[]
-  // Ítems de trabajo (servicios + repuestos) — fuente de verdad para facturación
+  /**
+   * Ítems de trabajo (servicios + repuestos) — fuente de verdad para facturación.
+   * SEC-08A Fase B — `precio_unitario` y `costo_unitario` son OPCIONALES por el
+   * mismo motivo: sumados reconstruyen `estimated_total` y `total_cost` exactos.
+   */
   orderItems?: {
     id: string
     tipo: 'servicio' | 'repuesto' | string
     descripcion: string
     cantidad: number
-    precio_unitario: number
-    costo_unitario: number
+    precio_unitario?: number
+    costo_unitario?: number
     /** false = repuesto interno, no se factura al cliente */
     cliente_paga_repuesto: boolean
     product_id?: string | null
@@ -171,6 +187,9 @@ export function useOrderSimple(orderId: string | undefined) {
         }
 
         const montos = await fetchAuthorizedAmounts(orderData.business_id, orderId!)
+        // SEC-08A Fase B — importes de LÍNEA por la ruta autorizada. Una sola
+        // llamada para ítems y repuestos; sin capacidad, los mapas van vacíos.
+        const lineAmounts = await fetchOrderLineAmounts(orderData.business_id, [orderId!])
 
         const result: OrderDetailSimple = {
           ...orderData,
@@ -243,12 +262,12 @@ export function useOrderSimple(orderId: string | undefined) {
         try {
           const { data: partsData } = await supabase
             .from('order_parts')
-            .select('*')
+            .select(ORDER_PART_OPERATIONAL_COLUMNS)
             .eq('order_id', orderId)
             .order('added_at', { ascending: false })
 
           if (partsData) {
-            result.parts = partsData
+            result.parts = mergePartAmounts(partsData as { id: string }[], lineAmounts) as OrderDetailSimple['parts']
           }
         } catch (err) {
           if (import.meta.env.DEV) console.warn('Could not load parts:', err)
@@ -258,12 +277,12 @@ export function useOrderSimple(orderId: string | undefined) {
         try {
           const { data: itemsData } = await supabase
             .from('order_items')
-            .select('id, tipo, descripcion, cantidad, precio_unitario, costo_unitario, cliente_paga_repuesto, product_id')
+            .select(ORDER_ITEM_OPERATIONAL_COLUMNS)
             .eq('order_id', orderId)
             .order('created_at', { ascending: true })
 
           if (itemsData) {
-            result.orderItems = itemsData as OrderDetailSimple['orderItems']
+            result.orderItems = mergeItemAmounts(itemsData as { id: string }[], lineAmounts) as OrderDetailSimple['orderItems']
           }
         } catch (err) {
           if (import.meta.env.DEV) console.warn('Could not load order items:', err)
@@ -359,6 +378,7 @@ export function useOrderSimple(orderId: string | undefined) {
       }
 
       const montos = await fetchAuthorizedAmounts(orderData.business_id, orderId)
+      const lineAmounts = await fetchOrderLineAmounts(orderData.business_id, [orderId])
 
       const result: OrderDetailSimple = {
         ...orderData,
@@ -397,11 +417,11 @@ export function useOrderSimple(orderId: string | undefined) {
       try {
         const { data: partsData } = await supabase
           .from('order_parts')
-          .select('*')
+          .select(ORDER_PART_OPERATIONAL_COLUMNS)
           .eq('order_id', orderId)
           .order('added_at', { ascending: false })
         if (partsData) {
-          result.parts = partsData
+          result.parts = mergePartAmounts(partsData as { id: string }[], lineAmounts) as OrderDetailSimple['parts']
         }
       } catch (err) {
         if (import.meta.env.DEV) console.warn('Could not load parts:', err)
@@ -411,11 +431,11 @@ export function useOrderSimple(orderId: string | undefined) {
       try {
         const { data: itemsData } = await supabase
           .from('order_items')
-          .select('id, tipo, descripcion, cantidad, precio_unitario, costo_unitario, cliente_paga_repuesto, product_id')
+          .select(ORDER_ITEM_OPERATIONAL_COLUMNS)
           .eq('order_id', orderId)
           .order('created_at', { ascending: true })
         if (itemsData) {
-          result.orderItems = itemsData as OrderDetailSimple['orderItems']
+          result.orderItems = mergeItemAmounts(itemsData as { id: string }[], lineAmounts) as OrderDetailSimple['orderItems']
         }
       } catch (err) {
         if (import.meta.env.DEV) console.warn('Could not load order items:', err)
