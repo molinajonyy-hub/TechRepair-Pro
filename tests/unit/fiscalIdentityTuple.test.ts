@@ -283,14 +283,17 @@ test('NEG · facturacionService reutiliza CbteTipo canónico y bloquea mutadores
   assert.doesNotMatch(bloque, /factura_a['"]?\s*:\s*1|factura_c['"]?\s*:\s*11|nota_credito['"]?\s*:\s*3/,
     'CbteTipo debe salir del helper canónico, no de otro mapa')
 
+  // Lote 3 Phase C: estos dos constructores legacy hacían un INSERT directo
+  // sobre `comprobantes`, así que un actor con la capability podía fabricar
+  // identidad fiscal y verdad de cobro desde el browser. La creación pasó a ser
+  // RPC-only y la garantía se endurece: ya no basta con gatear lo fiscal antes
+  // del INSERT, los métodos no existen y el INSERT directo tampoco.
   for (const metodo of ['async crearComprobante(data', 'async crearComprobanteIndependiente(data']) {
-    const inicio = src.indexOf(metodo)
-    const insert = src.indexOf(".from('comprobantes')", inicio)
-    const gate = src.indexOf('if (esTipoFiscal(data.tipo))', inicio)
-    assert.ok(inicio >= 0 && insert > inicio, `no se encontró ${metodo}`)
-    assert.ok(gate > inicio && gate < insert,
-      `${metodo} debe fallar antes del INSERT para toda factura/NC`)
+    assert.equal(src.indexOf(metodo), -1,
+      `${metodo} debe seguir retirado: la creación de comprobantes es RPC-only`)
   }
+  assert.doesNotMatch(src, /\.from\('comprobantes'\)[\s\S]{0,300}\.(?:insert|upsert|delete)\s*\(/,
+    'facturacionService no puede volver a crear ni borrar comprobantes directo')
 })
 
 test('NEG · el simulador legacy sigue sin poder fabricar un CAE', () => {

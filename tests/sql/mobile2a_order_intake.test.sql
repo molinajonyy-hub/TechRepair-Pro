@@ -206,8 +206,9 @@ DO $$ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN NULL;END;
 END $$;
 
--- Contrato productivo viejo: CRUD directo + device_password sigue legible y
--- escribible; el trigger refleja a Vault sin recursión ni exposición en audit.
+-- Coexistencia legacy: un actor sin capability no puede escribir; para un actor
+-- autorizado, device_password sigue escribible y el trigger refleja a Vault sin
+-- recursión ni exposición del secreto en audit.
 SELECT pg_temp.como(current_setting('test.owner_a')::uuid);
 DO $$ DECLARE v_customer uuid;v_device uuid;v_order uuid;BEGIN
   INSERT INTO public.customers(name,phone,business_id,created_by)
@@ -222,6 +223,20 @@ DO $$ DECLARE v_customer uuid;v_device uuid;v_order uuid;BEGIN
   PERFORM set_config('test.legacy_order',v_order::text,false);
 END $$;
 SELECT pg_temp.como(current_setting('test.viewer_a')::uuid);
+DO $$ DECLARE v_rows bigint;BEGIN
+  UPDATE public.orders SET device_password='pin:'||current_setting('test.secret_legacy')
+   WHERE id=current_setting('test.legacy_order')::uuid;
+  GET DIAGNOSTICS v_rows=ROW_COUNT;
+  IF v_rows<>0 THEN RAISE EXCEPTION 'ACTION AUTHORITY FAIL: viewer escribió device_password';END IF;
+END $$;
+RESET ROLE;
+DO $$ BEGIN
+  IF EXISTS(SELECT 1 FROM private.order_device_access_secrets
+            WHERE order_id=current_setting('test.legacy_order')::uuid) THEN
+    RAISE EXCEPTION 'ACTION AUTHORITY FAIL: viewer generó secreto Vault';END IF;
+END $$;
+SET LOCAL ROLE authenticated;
+SELECT pg_temp.como(current_setting('test.owner_a')::uuid);
 UPDATE public.orders SET device_password='pin:'||current_setting('test.secret_legacy')
  WHERE id=current_setting('test.legacy_order')::uuid;
 RESET ROLE;
@@ -239,11 +254,11 @@ DO $$ DECLARE v_secret_id uuid;v_plain text;v_vault_rows int;BEGIN
   IF (SELECT count(*) FROM private.order_device_access_audit
        WHERE order_id=current_setting('test.legacy_order')::uuid
          AND action='legacy_secret_write_mirrored' AND operation='set'
-         AND actor_id=current_setting('test.viewer_a')::uuid)<>1 THEN RAISE EXCEPTION 'LEGACY FAIL: audit metadata';END IF;
+         AND actor_id=current_setting('test.owner_a')::uuid)<>1 THEN RAISE EXCEPTION 'LEGACY FAIL: audit metadata';END IF;
 END $$;
 
 SET LOCAL ROLE authenticated;
-SELECT pg_temp.como(current_setting('test.viewer_a')::uuid);
+SELECT pg_temp.como(current_setting('test.owner_a')::uuid);
 UPDATE public.orders SET device_password='pin:'||current_setting('test.secret_legacy')
  WHERE id=current_setting('test.legacy_order')::uuid;
 RESET ROLE;
@@ -258,7 +273,7 @@ DO $$ BEGIN
 END $$;
 
 SET LOCAL ROLE authenticated;
-SELECT pg_temp.como(current_setting('test.viewer_a')::uuid);
+SELECT pg_temp.como(current_setting('test.owner_a')::uuid);
 UPDATE public.orders SET device_password=NULL WHERE id=current_setting('test.legacy_order')::uuid;
 RESET ROLE;
 DO $$ BEGIN
@@ -270,7 +285,7 @@ DO $$ BEGIN
 END $$;
 
 SET LOCAL ROLE authenticated;
-SELECT pg_temp.como(current_setting('test.viewer_a')::uuid);
+SELECT pg_temp.como(current_setting('test.owner_a')::uuid);
 DO $$ DECLARE v_rows bigint;BEGIN
   UPDATE public.orders SET device_password='pin:'||current_setting('test.secret_legacy')
    WHERE id=current_setting('test.order_b')::uuid;
