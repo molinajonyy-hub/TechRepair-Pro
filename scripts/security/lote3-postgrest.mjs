@@ -16,8 +16,18 @@ const sql = query => docker(['exec','-i',dbContainer,'psql','-X','-U','postgres'
 const actorNames=['owner','admin','manager','tech','sales','cashier','viewer','inactive','ownerB']
 const ids = Object.fromEntries([
   'A','B',...actorNames,'supplier','inventory','purchaseBlocked','purchaseSafe','purchaseItemBlocked',
-  'purchaseItemSafe','compForge','compDraft','compPayment','paymentTransaction','categoryPositive','inventoryPositive','caja',
+  'purchaseItemSafe','compForge','compDraft','compPayment','compDeleteOk','compForged',
+  'paymentTransaction','categoryPositive','inventoryPositive','caja',
 ].map(name => [name,randomUUID()]))
+
+// Phase C: a browser-crafted comprobante carrying forged fiscal identity and
+// forged collection truth. No actor may persist this shape.
+const forgedComprobante = businessId => ({
+  business_id:businessId, tipo:'factura_c', estado:'emitido', status:'completed',
+  estado_comercial:'pagado', estado_fiscal:'emitido', es_fiscal:true,
+  cae:'75123456789012', numero_fiscal:'00001-00099999',
+  total:999999, total_cobrado:999999, saldo_pendiente:0, payment_status:'paid',
+})
 
 let seeded = false
 let requests = 0
@@ -98,7 +108,8 @@ try {
     INSERT INTO public.comprobantes(id,business_id,tipo,estado,status,estado_comercial,total,total_cobrado,saldo_pendiente,payment_status) VALUES
       ('${ids.compForge}','${ids.A}','remito','emitido','completed','pendiente',100,0,100,'pending'),
       ('${ids.compDraft}','${ids.A}','remito','borrador','draft','pendiente',100,0,100,'pending'),
-      ('${ids.compPayment}','${ids.A}','remito','emitido','completed','pendiente',100,0,100,'pending');
+      ('${ids.compPayment}','${ids.A}','remito','emitido','completed','pendiente',100,0,100,'pending'),
+      ('${ids.compDeleteOk}','${ids.A}','remito','borrador','draft','pendiente',0,0,0,'pending');
     INSERT INTO public.payment_transactions(id,business_id,comprobante_id,status,transaction_amount,net_amount_estimated,currency)
       VALUES('${ids.paymentTransaction}','${ids.A}','${ids.compForge}','pending',100,100,'ARS');
     INSERT INTO public.cajas(id,business_id,status,opened_by,opened_at)
@@ -116,11 +127,17 @@ try {
     await deny(actor,`/comprobantes?id=eq.${ids.compForge}`,{method:'PATCH',body:{total:1,total_cobrado:1000,saldo_pendiente:0,payment_status:'paid',cae:'FORGED',numero_fiscal:'X-1'}},`${actor} protected comprobante PATCH`)
     await deny(actor,'/comprobante_payments',{method:'POST',body:{comprobante_id:ids.compPayment,business_id:ids.A,amount:100,amount_ars:100,payment_method:'efectivo',created_by:ids[actor]}},`${actor} direct payment INSERT`)
     await deny(actor,`/payment_transactions?business_id=eq.${ids.A}`,{},`${actor} payment transaction SELECT`)
+    await deny(actor,'/comprobantes',{method:'POST',body:{id:ids.compForged,...forgedComprobante(ids.A)}},`${actor} forged comprobante INSERT`)
+    await deny(actor,`/comprobantes?id=eq.${ids.compForge}`,{method:'DELETE'},`${actor} comprobante direct DELETE`)
   }
   await deny(null,`/supplier_purchases?id=eq.${ids.purchaseBlocked}`,{method:'DELETE'},'anonymous supplier parent DELETE')
   await deny(null,`/comprobantes?id=eq.${ids.compForge}`,{method:'PATCH',body:{total:1}},'anonymous protected comprobante PATCH')
   await deny(null,'/comprobante_payments',{method:'POST',body:{comprobante_id:ids.compPayment,business_id:ids.A,amount:100,amount_ars:100,payment_method:'efectivo'}},'anonymous payment INSERT')
   await deny(null,`/payment_transactions?business_id=eq.${ids.A}`,{},'anonymous payment transaction SELECT')
+  await deny(null,'/comprobantes',{method:'POST',body:{id:ids.compForged,...forgedComprobante(ids.A)}},'anonymous forged comprobante INSERT')
+  await deny(null,`/comprobantes?id=eq.${ids.compForge}`,{method:'DELETE'},'anonymous comprobante DELETE')
+  assert.equal(sql(`SELECT count(*) FROM public.comprobantes WHERE id='${ids.compForged}'`),'0','a forged comprobante was persisted')
+  assert.equal(sql(`SELECT count(*) FROM public.comprobantes WHERE id='${ids.compForge}'`),'1','a comprobante was destroyed by direct DELETE')
 
   const observations=await request('sales',`/comprobantes?id=eq.${ids.compForge}`,{method:'PATCH',body:{observaciones:'safe-http-note'}})
   assert.equal(observations.status,200,`safe comprobante observation failed: ${JSON.stringify(observations)}`)
@@ -134,6 +151,21 @@ try {
   const remito=await request('cashier','/rpc/issue_remito_atomic',{method:'POST',body:{p_comprobante_id:ids.compDraft,p_business_id:ids.A}})
   assert.equal(remito.status,200,`canonical remito issue failed: ${JSON.stringify(remito)}`)
   assert.equal(remito.body?.ok,true,'canonical remito issue did not report ok')
+
+  // Phase C canonical delete: an inert draft is still removable through the RPC,
+  // and the RPC still refuses what it is supposed to protect.
+  const canonicalDelete=await request('manager','/rpc/delete_comprobante_with_finance',{method:'POST',body:{p_comprobante_id:ids.compDeleteOk}})
+  assert.equal(canonicalDelete.status,200,`canonical comprobante delete failed: ${JSON.stringify(canonicalDelete)}`)
+  assert.equal(canonicalDelete.body?.success,true,'canonical comprobante delete did not report success')
+  assert.equal(sql(`SELECT count(*) FROM public.comprobantes WHERE id='${ids.compDeleteOk}'`),'0','canonical delete did not remove the draft')
+
+  const guardedDelete=await request('manager','/rpc/delete_comprobante_with_finance',{method:'POST',body:{p_comprobante_id:ids.compForge}})
+  assert.equal(guardedDelete.status,200,`canonical guarded delete errored: ${JSON.stringify(guardedDelete)}`)
+  assert.equal(guardedDelete.body?.success,false,'canonical delete should refuse a non-draft comprobante')
+  assert.equal(sql(`SELECT count(*) FROM public.comprobantes WHERE id='${ids.compForge}'`),'1','guarded comprobante was removed anyway')
+
+  const viewerDelete=await request('viewer','/rpc/delete_comprobante_with_finance',{method:'POST',body:{p_comprobante_id:ids.compPayment}})
+  assert.ok([401,403,404].includes(viewerDelete.status),`viewer canonical delete unexpectedly allowed: ${JSON.stringify(viewerDelete)}`)
 
   const payment=await request('cashier','/rpc/replace_comprobante_payment',{method:'POST',body:{
     p_comprobante_id:ids.compPayment,p_business_id:ids.A,p_payment_method:'efectivo',p_amount:100,p_amount_ars:100,
@@ -155,7 +187,7 @@ try {
   const servicePending=await request(null,'/rpc/finance_pending_historicals',{method:'POST',role:'service_role',body:{p_business_id:ids.A}})
   assert.equal(servicePending.status,200,`effective service role RPC bypass failed: ${JSON.stringify(servicePending)}`)
 
-  console.log(`PASS Lote 3 Phase B real PostgREST: ${requests} requests; all browser-role direct exploits denied with zero effects; canonical supplier, remito, payment and service-role controls passed`)
+  console.log(`PASS Lote 3 Phase C real PostgREST: ${requests} requests; all browser-role direct exploits denied with zero effects; canonical supplier, comprobante create/delete, remito, payment and service-role controls passed`)
 } catch (error) {
   console.error(error.message)
   process.exitCode=1

@@ -1,10 +1,12 @@
 #!/usr/bin/env node
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 
 const rpcPath = 'supabase/migrations/20260908120000_lote3_secdef_action_authority.sql'
 const paymentPath = 'supabase/migrations/20260908130000_lote3_payment_transactions_containment.sql'
 const rlsPath = 'supabase/migrations/20260908140000_lote3_is_staff_action_policies.sql'
 const reworkPath = 'supabase/migrations/20260909120000_lote3_phase_b_direct_write_rework.sql'
+const phaseCPath = 'supabase/migrations/20260910120000_lote3_phase_c_comprobante_create_delete.sql'
 const uiPath = 'src/pages/CustomerDetail.tsx'
 const servicePath = 'src/services/comprobanteService.ts'
 const testPath = 'tests/sql/lote3_action_write_authority.test.sql'
@@ -24,7 +26,7 @@ const expected = [
   'reverse_order_payment_atomic','update_inventory_dollar_prices',
 ]
 
-function inspect({ rpc, payment, rls, rework, ui, service, tests, afterRework = '' }) {
+function inspect({ rpc, payment, rls, rework, phaseC, ui, service, browser, tests, afterRework = '', afterPhaseC = '' }) {
   const failures = []
   const predicate = rework.match(/CREATE OR REPLACE FUNCTION private\.has_action_authority[\s\S]*?\$function\$;/)?.[0] || ''
   const compatibilityGate = rework.match(/CREATE OR REPLACE FUNCTION private\.require_action_authority[\s\S]*?\$function\$;/)?.[0] || ''
@@ -59,22 +61,47 @@ function inspect({ rpc, payment, rls, rework, ui, service, tests, afterRework = 
   const evidenceMarkers=['pt_write_old_control','before_old_supplier_delete','before_old_comprobante_update','before_old_cp_insert','call_with_claim','anonymous execute revoked','protected comprobantes UPDATE ZERO EFFECTS','canonical supplier safe delete succeeds','canonical payment produces reconciled comprobante state','canonical duplicate/legacy profile selects newest business B','comprobantes exact safe UPDATE column allowlist']
   for (const marker of evidenceMarkers) if (!tests.includes(marker)) failures.push(`missing Phase B SQL evidence: ${marker}`)
 
+  // Phase C: comprobante creation and destruction are canonical-only.
+  if (!/REVOKE INSERT, DELETE ON TABLE public\.comprobantes FROM authenticated/.test(phaseC)) failures.push('comprobantes direct INSERT/DELETE grants not closed')
+  if (!phaseC.includes('DROP POLICY IF EXISTS comprobantes_insert ON public.comprobantes') || !phaseC.includes('DROP POLICY IF EXISTS comprobantes_delete ON public.comprobantes')) failures.push('comprobantes INSERT/DELETE policy path remains')
+  if (!phaseC.includes("L3C_POSTCONDITION: comprobantes browser INSERT remains") || !phaseC.includes("L3C_POSTCONDITION: comprobantes browser DELETE remains")) failures.push('Phase C postconditions missing')
+  if (!phaseC.includes('canonical comprobante authority incomplete')) failures.push('Phase C does not assert canonical create/delete authority survives')
+  if (/\.from\(['"]comprobantes['"]\)[\s\S]{0,300}\.(?:insert|upsert|delete)\s*\(/.test(browser)) failures.push('client direct comprobante INSERT/DELETE remains')
+  if (!service.includes("supabase.rpc('delete_comprobante_with_finance'")) failures.push('canonical comprobante delete no longer wired in the client')
+  if (!service.includes("supabase.rpc('create_comprobante_checkout_atomic'")) failures.push('canonical comprobante creation no longer wired in the client')
+
+  const phaseCMarkers=['before_old_comprobante_insert','before_old_comprobante_delete','negative control old comprobantes direct INSERT succeeds as sales','negative control forges fiscal identity and collection truth at creation','negative control old comprobantes direct DELETE succeeds as manager','negative control destroys a comprobante the canonical path protects','forged comprobante direct INSERT denied','comprobante direct DELETE ZERO EFFECTS','canonical comprobante delete succeeds for an inert draft','comprobantes has no authenticated INSERT or DELETE grant']
+  for (const marker of phaseCMarkers) if (!tests.includes(marker)) failures.push(`missing Phase C SQL evidence: ${marker}`)
+
   if (/GRANT\s+DELETE[^;]*(?:supplier_purchases|supplier_purchase_items)[^;]*authenticated/i.test(afterRework)) failures.push('later migration reopens supplier DELETE')
   if (/GRANT\s+UPDATE\s+ON[^;]*comprobantes[^;]*authenticated/i.test(afterRework)) failures.push('later migration reopens comprobantes table UPDATE')
   if (/GRANT\s+(?:INSERT|UPDATE|DELETE)[^;]*comprobante_payments[^;]*authenticated/i.test(afterRework)) failures.push('later migration reopens direct comprobante payments')
   if (/GRANT\s+(?:SELECT|INSERT|UPDATE|DELETE)[^;]*payment_transactions[^;]*authenticated/i.test(afterRework)) failures.push('later migration reopens payment transactions')
+  if (/GRANT\s+(?:INSERT|DELETE)[^;]*\bcomprobantes\b[^;]*authenticated/i.test(afterPhaseC)) failures.push('later migration reopens comprobantes INSERT/DELETE')
   return failures
+}
+
+const readSrc = (dir, out = []) => {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry)
+    if (statSync(full).isDirectory()) readSrc(full, out)
+    else if (/\.tsx?$/.test(entry)) out.push(readFileSync(full, 'utf8'))
+  }
+  return out
 }
 
 const load = () => {
   const migrations = readdirSync('supabase/migrations').filter(n => n.endsWith('.sql')).sort()
-  const afterRework = migrations.filter(n => n > reworkPath.split('/').at(-1))
+  const after = from => migrations.filter(n => n > from.split('/').at(-1))
     .map(n => readFileSync(`supabase/migrations/${n}`,'utf8')).join('\n')
   return {
     rpc:readFileSync(rpcPath,'utf8'), payment:readFileSync(paymentPath,'utf8'),
     rls:readFileSync(rlsPath,'utf8'), rework:readFileSync(reworkPath,'utf8'),
+    phaseC:readFileSync(phaseCPath,'utf8'),
     ui:readFileSync(uiPath,'utf8'), service:readFileSync(servicePath,'utf8'),
-    tests:readFileSync(testPath,'utf8'), afterRework,
+    browser:readSrc('src').join('\n'),
+    tests:readFileSync(testPath,'utf8'),
+    afterRework:after(reworkPath), afterPhaseC:after(phaseCPath),
   }
 }
 
@@ -94,6 +121,13 @@ if (process.argv.includes('--self-test')) {
     [{...source,service:source.service+"\nawait supabase.from('comprobante_payments').insert({ amount: 1 })"},'client direct comprobante'],
     [{...source,tests:source.tests.replace('canonical duplicate/legacy profile selects newest business B','canonical identity evidence removed')},'Phase B SQL evidence'],
     [{...source,afterRework:source.afterRework+'\nGRANT SELECT ON public.payment_transactions TO authenticated;'},'reopens payment transactions'],
+    [{...source,phaseC:source.phaseC.replace('REVOKE INSERT, DELETE ON TABLE public.comprobantes FROM authenticated','-- removed comprobantes revoke')},'comprobantes direct INSERT/DELETE grants'],
+    [{...source,phaseC:source.phaseC.replace('DROP POLICY IF EXISTS comprobantes_delete ON public.comprobantes','-- delete policy retained')},'comprobantes INSERT/DELETE policy path'],
+    [{...source,browser:source.browser+"\nawait supabase.from('comprobantes').insert({ cae: 'X' })"},'client direct comprobante INSERT/DELETE'],
+    [{...source,browser:source.browser+"\nawait supabase.from('comprobantes').delete().eq('id', id)"},'client direct comprobante INSERT/DELETE'],
+    [{...source,service:source.service.replace("supabase.rpc('delete_comprobante_with_finance'","supabase.rpc('removed_delete_rpc'")},'canonical comprobante delete no longer wired'],
+    [{...source,tests:source.tests.replace('negative control destroys a comprobante the canonical path protects','phase C delete evidence removed')},'missing Phase C SQL evidence'],
+    [{...source,afterPhaseC:source.afterPhaseC+'\nGRANT INSERT ON public.comprobantes TO authenticated;'},'reopens comprobantes INSERT/DELETE'],
   ]
   for (const [mutated,label] of mutations) if (!inspect(mutated).some(f=>f.includes(label))) throw new Error(`self-test did not detect ${label}`)
   console.log(`Lote 3 authority guard self-test OK: ${mutations.length} authority mutations detected`)
@@ -105,4 +139,4 @@ if (failures.length) {
   console.error(`Lote 3 authority guard FAIL:\n- ${failures.join('\n- ')}`)
   process.exit(1)
 }
-console.log('Lote 3 authority guard OK: 25 gated RPCs; Phase B direct supplier/comprobante/payment paths closed; canonical identity, effective service role and regression evidence present')
+console.log('Lote 3 authority guard OK: 25 gated RPCs; Phase B direct supplier/comprobante/payment paths closed; Phase C comprobante create/delete canonical-only; canonical identity, effective service role and regression evidence present')

@@ -11,37 +11,9 @@ export interface UseComprobantesReturn {
   error: string | null;
   
   // CRUD
-  crearComprobante: (data: {
-    order_id: string;
-    customer_id: string;
-    tipo: TipoComprobante;
-    punto_venta?: string;
-    condicion_fiscal?: string;
-    cuit?: string;
-    items: {
-      descripcion: string;
-      cantidad: number;
-      precio_unitario: number;
-      inventory_id?: string;
-    }[];
-  }) => Promise<boolean>;
-
-  crearComprobanteIndependiente: (data: {
-    tipo: TipoComprobante;
-    punto_venta: string;
-    condicion_fiscal: string;
-    customer_id: string | null;
-    exchange_rate?: number;
-    items: {
-      descripcion: string;
-      cantidad: number;
-      precio_unitario: number;
-      currency?: 'ARS' | 'USD';
-      exchange_rate?: number;
-      inventory_id?: string;
-    }[];
-  }) => Promise<boolean>;
-  
+  // La creación de comprobantes es RPC-only (Lote 3 Phase C): el POS crea por
+  // create_comprobante_checkout_atomic y las NC por
+  // create_credit_note_from_comprobante, ambas vía comprobanteService.
   cargarComprobante: (id: string) => Promise<void>;
   cargarComprobantesByOrder: (orderId: string) => Promise<void>;
   listarComprobantes: (filters?: {
@@ -84,46 +56,6 @@ export function useComprobantes(_comprobanteId?: string): UseComprobantesReturn 
   const [loading, setLoading] = useState(false);
   const [emitiendo, setEmitiendo] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const crearComprobante = useCallback(async (data: {
-    order_id: string;
-    customer_id: string;
-    tipo: TipoComprobante;
-    punto_venta?: string;
-    condicion_fiscal?: string;
-    cuit?: string;
-    items: {
-      descripcion: string;
-      cantidad: number;
-      precio_unitario: number;
-      inventory_id?: string;
-    }[];
-  }): Promise<boolean> => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const result = await facturacionService.crearComprobante({
-        ...data,
-        business_id: businessId!,
-        created_by: user?.id
-      });
-
-      if (result.success && result.comprobante) {
-        setComprobanteActual(result.comprobante);
-        setComprobantes(prev => [result.comprobante!, ...prev]);
-        return true;
-      } else {
-        setError(toErrorMessage(result.error, 'Error creando comprobante'));
-        return false;
-      }
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Error desconocido');
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }, [businessId, user?.id]);
 
   const cargarComprobante = useCallback(async (id: string): Promise<void> => {
     setLoading(true);
@@ -337,48 +269,6 @@ export function useComprobantes(_comprobanteId?: string): UseComprobantesReturn 
     setError(null);
   }, []);
 
-  const crearComprobanteIndependiente = useCallback(async (data: {
-    tipo: TipoComprobante;
-    punto_venta: string;
-    condicion_fiscal: string;
-    customer_id: string | null;
-    exchange_rate?: number;
-    items: {
-      descripcion: string;
-      cantidad: number;
-      precio_unitario: number;
-      currency?: 'ARS' | 'USD';
-      exchange_rate?: number;
-      inventory_id?: string;
-    }[];
-  }): Promise<boolean> => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const result = await facturacionService.crearComprobanteIndependiente({
-        ...data,
-        business_id: businessId!,
-        created_by: user?.id
-      });
-
-      if (result.success) {
-        await listarComprobantes();
-        return true;
-      } else {
-        const msg = result.error || 'Error creando comprobante independiente';
-        setError(msg);
-        throw new Error(msg);
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Error desconocido';
-      setError(msg);
-      throw err; // Re-lanzar para que el caller reciba el mensaje real
-    } finally {
-      setLoading(false);
-    }
-  }, [listarComprobantes]);
-
   const reset = useCallback(() => {
     setComprobantes([]);
     setComprobanteActual(null);
@@ -391,8 +281,6 @@ export function useComprobantes(_comprobanteId?: string): UseComprobantesReturn 
     loading,
     emitiendo,
     error,
-    crearComprobante,
-    crearComprobanteIndependiente,
     cargarComprobante,
     cargarComprobantesByOrder,
     listarComprobantes,

@@ -326,3 +326,121 @@ The Phase B candidate has completed its local authority gates and is suitable
 for a second independent adversarial review. Do not merge or deploy from this
 document alone; remote CI status and immutable commit/PR identifiers belong in
 the final handoff.
+
+# Phase C corrective addendum (authoritative over Phase B where different)
+
+The second independent adversarial review confirmed the three original Lote 3
+P1s CLOSED and reported two further confirmed P1s of the same family, both
+pre-existing rather than introduced by Phase B. Phase C closes exactly those two
+and nothing else.
+
+## A. Scope
+
+| Finding | Exploit confirmed by the review | Phase C contract |
+|---|---|---|
+| P1-N1 | `sales` POSTs `/comprobantes` supplying `cae`, `numero_fiscal`, `estado_fiscal='emitido'`, `es_fiscal=true`, `total_cobrado`, `estado_comercial='pagado'`; row persists (HTTP 201) | no authenticated INSERT grant, no INSERT policy |
+| P1-N2 | `owner`/`admin`/`manager` DELETE `/comprobantes`; row destroyed, `delete_comprobante_with_finance` bypassed | no authenticated DELETE grant, no DELETE policy |
+
+Phase B's UPDATE allowlist closed the forgery-by-mutation vector. Creation
+reached the same forged outcome, so the column allowlist alone was not the whole
+boundary. Deletion was the comprobante-side twin of the supplier direct DELETE
+that Phase B had already closed.
+
+## B. Direct INSERT caller inventory
+
+Every writer of `public.comprobantes` reachable from the browser, classified:
+
+| Caller | Flow | Disposition |
+|---|---|---|
+| `comprobanteService.crear` → `create_comprobante_checkout_atomic` | POS / checkout | canonical RPC, unchanged |
+| `comprobanteService.crearNotaCredito` → `create_credit_note_from_comprobante` | credit note | canonical RPC, unchanged |
+| `comprobanteService` → `issue_remito_atomic` | remito issuance | canonical RPC (Phase B), unchanged |
+| `comprobanteService` → `annul_comprobante_atomic` | annulment | canonical RPC, unchanged |
+| `comprobanteService` → `delete_comprobante_with_finance` | deletion | canonical RPC, unchanged |
+| ARCA fiscal issuance (`afip-cae` edge function) | fiscal | `service_role`, unaffected by browser grants |
+| `facturacionService.crearComprobante` | legacy non-fiscal draft | **direct INSERT, zero callers → removed** |
+| `facturacionService.crearComprobanteIndependiente` | legacy non-fiscal draft | **direct INSERT, zero callers → removed** |
+
+Both removed builders already refused fiscal `tipo` values and only produced
+non-fiscal `borrador` rows, so no Beta flow depended on them; they were exposed
+through `useComprobantes` but destructured by no component. `recalcularTotales`
+was their only remaining consumer and went with them. Nothing was migrated to a
+new wrapper because no legitimate browser INSERT remained: creation was already
+RPC-only in the product.
+
+## C. Fiscal-forgery old-exploit proof
+
+`tests/sql/lote3_action_write_authority.test.sql` restores the baseline contract
+under `SAVEPOINT before_old_comprobante_insert` (grant + `comprobantes_insert`
+policy), proves `sales` persists a row carrying `cae='75123456789012'`,
+`numero_fiscal='00001-00099999'`, `estado_fiscal='emitido'`, `es_fiscal`,
+`total_cobrado=999999`, `estado_comercial='pagado'`, `payment_status='paid'`,
+proves that forged document carries no `comprobante_payments`,
+`financial_movements` or `business_finance_entries`, then rolls back.
+
+## D. New comprobante-create contract
+
+`authenticated` holds no table-level and no per-column INSERT privilege on
+`public.comprobantes`, and no INSERT policy exists. The full actor matrix
+(`owner, admin, manager, tech, sales, cashier, viewer, inactive, ownerB`) plus
+`anon` is denied with fingerprinted zero effects, and no forged row exists after
+the matrix runs.
+
+## E. Direct DELETE old-exploit proof
+
+Under `SAVEPOINT before_old_comprobante_delete` the suite first proves the
+canonical path *refuses* the target comprobante (`success:false`, row intact),
+then proves the old grant plus `can_manage()` policy let `manager` destroy that
+same row outright. That is the precise semantic loss: direct DELETE destroyed
+what the canonical reversal exists to protect. Rolled back afterwards.
+
+## F. New canonical-delete contract
+
+`authenticated` holds no DELETE privilege and no DELETE policy on
+`public.comprobantes`. Full actor matrix plus `anon` denied with zero effects,
+and the comprobante survives the matrix. `delete_comprobante_with_finance`
+remains the only route: it still deletes an inert draft, still refuses
+non-drafts and fiscally-issued documents, still denies an actor without the
+`comprobantes` capability, and leaves `financial_movements` /
+`business_finance_entries` counts unchanged.
+
+## G. PostgREST results
+
+`npm run test:postgrest:lote3-authority` — **88 requests, all pass** (65 before
+Phase C), with real locally signed JWTs. Adds, for every actor and for `anon`:
+forged comprobante POST denied, direct comprobante DELETE denied, plus the
+canonical positives (`delete_comprobante_with_finance` removes an inert draft,
+refuses a guarded one, and denies `viewer`).
+
+## H. Canonical positive paths
+
+Checkout, credit note, remito issuance, payment replacement, supplier safe
+delete and canonical comprobante delete all still succeed and stay reconciled.
+`create_comprobante_checkout_atomic`, `create_credit_note_from_comprobante`,
+`delete_comprobante_with_finance`, `issue_remito_atomic` and
+`annul_comprobante_atomic` are asserted, in the migration itself and in the SQL
+suite, to remain `SECURITY DEFINER`, owned by `postgres`, and executable by
+`authenticated`.
+
+## I. Regression
+
+| Suite | Result |
+|---|---|
+| Lote 3 SQL authority | 1105 assertions PASS (1054 before) |
+| Lote 3 real PostgREST | 88/88 PASS |
+| Lote 2 SQL | 441/441 PASS |
+| Lote 3 guard + self-test | PASS, 20 mutations detected (13 before) |
+| `no-direct-finance-writes` guard | PASS, 13/13 self-test |
+| Vitest components | 707/707 PASS (51 files) |
+| Unit | 1080 pass / 1 fail — `safeDevPreflight`, missing `.env.development.local`, identical to the pre-change baseline |
+| `tsc --noEmit` | clean |
+| `lint:errors` | 0 |
+| `npm run build` | OK |
+| `git diff --check` | clean |
+
+Migration verified idempotent on reapply.
+
+## J. Production
+
+NO MERGE. NO DEPLOY. NO DB PUSH. NO PRODUCTION WRITE. All evidence is local
+Docker, in rolled-back transactions or explicitly cleaned fixtures.

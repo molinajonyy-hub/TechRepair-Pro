@@ -202,6 +202,17 @@ in the generated catalog evidence):
   (`observaciones`, `updated_at`); issuance moved to `issue_remito_atomic`.
   Legacy fiscal service updates are not wired to a Beta caller and receive no
   browser grant.
+- `comprobantes` creation and deletion (Phase C): the UPDATE allowlist bounded
+  mutation but not creation, so an actor holding `comprobantes` could still
+  POST a row carrying a fabricated `cae`, `numero_fiscal`, `estado_fiscal` and
+  `total_cobrado`; DELETE separately destroyed rows that
+  `delete_comprobante_with_finance` is written to protect. Creation was already
+  RPC-only in the product (`create_comprobante_checkout_atomic`,
+  `create_credit_note_from_comprobante`) and deletion already went through
+  `delete_comprobante_with_finance`; the only direct INSERTs left were two
+  legacy non-fiscal draft builders with no caller, removed with the migration.
+  Authenticated now keeps SELECT plus the two-column UPDATE and holds no INSERT
+  or DELETE grant or policy on the table.
 - `comprobante_payments`: reads remain for the comprobante UI; no reachable
   direct writer remains. Checkout and replacement RPCs own payment rows and
   their ledger effects.

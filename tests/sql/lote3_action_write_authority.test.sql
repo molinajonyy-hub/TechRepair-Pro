@@ -332,8 +332,10 @@ END $$;
 -- is_staff policy negative controls. Each block temporarily restores a
 -- representative baseline policy and proves that viewer regains access; the
 -- savepoint rollback reinstates the candidate before its matching assertion.
+-- Phase C removed the comprobantes INSERT grant and policy outright, so this
+-- control restores both halves of the baseline contract before exercising it.
 SAVEPOINT old_comprobantes_policy;
-DROP POLICY comprobantes_insert ON public.comprobantes;
+GRANT INSERT ON public.comprobantes TO authenticated;
 CREATE POLICY comprobantes_insert ON public.comprobantes FOR INSERT TO authenticated
   WITH CHECK (business_id=public.current_business_id() AND public.is_staff());
 DO $$ DECLARE r jsonb;
@@ -861,6 +863,155 @@ BEGIN
   PERFORM pg_temp.check_true(has_function_privilege('authenticated','public.issue_remito_atomic(uuid,uuid)','EXECUTE')
     AND NOT has_function_privilege('anon','public.issue_remito_atomic(uuid,uuid)','EXECUTE'),
     'issue_remito_atomic exact browser execution grant');
+END $$;
+
+-- ===========================================================================
+-- Phase C: comprobante creation and destruction are canonical-only.
+-- ===========================================================================
+INSERT INTO pg_temp.ids(name) VALUES ('compForgedOld'),('compForgedNew'),('compDeleteOk');
+
+-- Phase C blocker 4: the old direct INSERT fabricated fiscal identity and
+-- collection truth on a row that persists, with no canonical ledger behind it.
+SAVEPOINT before_old_comprobante_insert;
+GRANT INSERT ON public.comprobantes TO authenticated;
+CREATE POLICY comprobantes_insert_old_control ON public.comprobantes FOR INSERT TO authenticated
+  WITH CHECK (business_id=public.current_business_id() AND public.current_user_can('comprobantes'));
+
+DO $$ DECLARE r jsonb;
+BEGIN
+  r:=pg_temp.call_as('sales','authenticated',format(
+    'WITH x AS (INSERT INTO public.comprobantes(id,business_id,tipo,estado,status,estado_comercial,'
+    ||'estado_fiscal,es_fiscal,cae,numero_fiscal,total,total_cobrado,saldo_pendiente,payment_status) '
+    ||'VALUES(%L,%L,''factura_c'',''emitido'',''completed'',''pagado'',''emitido'',true,'
+    ||'''75123456789012'',''00001-00099999'',999999,999999,0,''paid'') RETURNING id) SELECT to_jsonb(id) FROM x',
+    pg_temp.id('compForgedOld'),pg_temp.id('A')));
+  PERFORM pg_temp.check_true(r#>>'{}'=pg_temp.id('compForgedOld')::text,
+    'negative control old comprobantes direct INSERT succeeds as sales');
+  PERFORM pg_temp.check_true((SELECT cae='75123456789012' AND numero_fiscal='00001-00099999'
+      AND estado_fiscal='emitido' AND es_fiscal AND total_cobrado=999999
+      AND estado_comercial='pagado' AND payment_status='paid'
+    FROM public.comprobantes WHERE id=pg_temp.id('compForgedOld')),
+    'negative control forges fiscal identity and collection truth at creation');
+  PERFORM pg_temp.check_true(NOT EXISTS(SELECT 1 FROM public.comprobante_payments WHERE comprobante_id=pg_temp.id('compForgedOld'))
+    AND NOT EXISTS(SELECT 1 FROM public.financial_movements WHERE comprobante_id=pg_temp.id('compForgedOld'))
+    AND NOT EXISTS(SELECT 1 FROM public.business_finance_entries WHERE reference_comprobante_id=pg_temp.id('compForgedOld')),
+    'negative control forged document carries no canonical ledger');
+END $$;
+
+ROLLBACK TO SAVEPOINT before_old_comprobante_insert;
+
+DO $$ DECLARE actor text; before_hash jsonb; r jsonb; stmt text;
+BEGIN
+  stmt:='WITH x AS (INSERT INTO public.comprobantes(id,business_id,tipo,estado,status,estado_comercial,'
+    ||'estado_fiscal,es_fiscal,cae,numero_fiscal,total,total_cobrado,saldo_pendiente,payment_status) '
+    ||'VALUES(%L,%L,''factura_c'',''emitido'',''completed'',''pagado'',''emitido'',true,'
+    ||'''75123456789012'',''00001-00099999'',999999,999999,0,''paid'') RETURNING id) SELECT to_jsonb(id) FROM x';
+  FOREACH actor IN ARRAY ARRAY['owner','admin','manager','tech','sales','cashier','viewer','inactive','ownerB'] LOOP
+    before_hash:=pg_temp.fingerprint();
+    r:=pg_temp.call_as(actor,'authenticated',format(stmt,pg_temp.id('compForgedNew'),pg_temp.id('A')));
+    PERFORM pg_temp.check_true(pg_temp.is_denied(r),actor||' forged comprobante direct INSERT denied');
+    PERFORM pg_temp.check_true(before_hash=pg_temp.fingerprint(),actor||' forged comprobante INSERT ZERO EFFECTS');
+  END LOOP;
+  PERFORM pg_temp.deny(NULL,'anon',format(stmt,pg_temp.id('compForgedNew'),pg_temp.id('A')),
+    'anonymous forged comprobante INSERT');
+  PERFORM pg_temp.check_true(NOT EXISTS(SELECT 1 FROM public.comprobantes WHERE id=pg_temp.id('compForgedNew')),
+    'no forged comprobante row exists after the full actor matrix');
+END $$;
+
+-- Phase C blocker 5: the old direct DELETE destroyed a comprobante that the
+-- canonical reversal explicitly refuses to touch.
+SAVEPOINT before_old_comprobante_delete;
+GRANT DELETE ON public.comprobantes TO authenticated;
+CREATE POLICY comprobantes_delete_old_control ON public.comprobantes FOR DELETE TO authenticated
+  USING (business_id=public.current_business_id() AND public.can_manage());
+
+DO $$ DECLARE r jsonb;
+BEGIN
+  r:=pg_temp.call_as('manager','authenticated',format(
+    'SELECT public.delete_comprobante_with_finance(%L)',pg_temp.id('compA')));
+  PERFORM pg_temp.check_true(r->>'success'='false',
+    'negative control canonical delete refuses this comprobante');
+  PERFORM pg_temp.check_true(EXISTS(SELECT 1 FROM public.comprobantes WHERE id=pg_temp.id('compA')),
+    'negative control canonical refusal leaves the row intact');
+
+  r:=pg_temp.call_as('manager','authenticated',format(
+    'WITH x AS (DELETE FROM public.comprobantes WHERE id=%L RETURNING id) SELECT to_jsonb(id) FROM x',
+    pg_temp.id('compA')));
+  PERFORM pg_temp.check_true(r#>>'{}'=pg_temp.id('compA')::text,
+    'negative control old comprobantes direct DELETE succeeds as manager');
+  PERFORM pg_temp.check_true(NOT EXISTS(SELECT 1 FROM public.comprobantes WHERE id=pg_temp.id('compA')),
+    'negative control destroys a comprobante the canonical path protects');
+END $$;
+
+ROLLBACK TO SAVEPOINT before_old_comprobante_delete;
+
+DO $$ DECLARE actor text; before_hash jsonb; r jsonb;
+BEGIN
+  FOREACH actor IN ARRAY ARRAY['owner','admin','manager','tech','sales','cashier','viewer','inactive','ownerB'] LOOP
+    before_hash:=pg_temp.fingerprint();
+    r:=pg_temp.call_as(actor,'authenticated',format(
+      'WITH x AS (DELETE FROM public.comprobantes WHERE id=%L RETURNING id) SELECT to_jsonb(id) FROM x',
+      pg_temp.id('compA')));
+    PERFORM pg_temp.check_true(pg_temp.is_denied(r),actor||' comprobante direct DELETE denied');
+    PERFORM pg_temp.check_true(before_hash=pg_temp.fingerprint(),actor||' comprobante direct DELETE ZERO EFFECTS');
+  END LOOP;
+  PERFORM pg_temp.deny(NULL,'anon',format(
+    'WITH x AS (DELETE FROM public.comprobantes WHERE id=%L RETURNING id) SELECT to_jsonb(id) FROM x',
+    pg_temp.id('compA')),'anonymous comprobante DELETE');
+  PERFORM pg_temp.check_true(EXISTS(SELECT 1 FROM public.comprobantes WHERE id=pg_temp.id('compA')),
+    'comprobante survives the full direct DELETE actor matrix');
+END $$;
+
+-- Canonical positive: an inert draft is still deletable through the RPC, and
+-- the reversal keeps the surrounding financial state consistent.
+INSERT INTO public.comprobantes(id,business_id,tipo,estado,status,estado_comercial,total,total_cobrado)
+  VALUES(pg_temp.id('compDeleteOk'),pg_temp.id('A'),'remito','borrador','draft','pendiente',0,0);
+
+DO $$ DECLARE r jsonb; fm_before int; bfe_before int;
+BEGIN
+  SELECT count(*) INTO fm_before FROM public.financial_movements WHERE business_id=pg_temp.id('A');
+  SELECT count(*) INTO bfe_before FROM public.business_finance_entries WHERE business_id=pg_temp.id('A');
+
+  r:=pg_temp.call_as('manager','authenticated',format(
+    'SELECT public.delete_comprobante_with_finance(%L)',pg_temp.id('compDeleteOk')));
+  PERFORM pg_temp.check_true(r->>'success'='true','canonical comprobante delete succeeds for an inert draft');
+  PERFORM pg_temp.check_true(NOT EXISTS(SELECT 1 FROM public.comprobantes WHERE id=pg_temp.id('compDeleteOk')),
+    'canonical comprobante delete removes the draft');
+  PERFORM pg_temp.check_true(
+    (SELECT count(*) FROM public.financial_movements WHERE business_id=pg_temp.id('A'))=fm_before
+    AND (SELECT count(*) FROM public.business_finance_entries WHERE business_id=pg_temp.id('A'))=bfe_before,
+    'canonical comprobante delete leaves the ledger consistent');
+
+  r:=pg_temp.call_as('viewer','authenticated',format(
+    'SELECT public.delete_comprobante_with_finance(%L)',pg_temp.id('compDraft')));
+  PERFORM pg_temp.check_true(pg_temp.is_denied(r),'canonical comprobante delete denies a non-comprobantes actor');
+END $$;
+
+-- Exact Phase C boundary.
+DO $$ DECLARE v_cols text[];
+BEGIN
+  PERFORM pg_temp.check_true(NOT has_table_privilege('authenticated','public.comprobantes','INSERT')
+    AND NOT has_table_privilege('authenticated','public.comprobantes','DELETE'),
+    'comprobantes has no authenticated INSERT or DELETE grant');
+  SELECT array_agg(DISTINCT column_name) INTO v_cols
+    FROM information_schema.column_privileges
+   WHERE table_schema='public' AND table_name='comprobantes'
+     AND grantee='authenticated' AND privilege_type IN ('INSERT','DELETE');
+  PERFORM pg_temp.check_true(v_cols IS NULL,'comprobantes has no per-column INSERT or DELETE grant');
+  PERFORM pg_temp.check_true(NOT EXISTS(SELECT 1 FROM pg_policy
+    WHERE polrelid='public.comprobantes'::regclass AND polcmd IN ('a','d','*')),
+    'comprobantes has no permissive INSERT or DELETE policy');
+  PERFORM pg_temp.check_true(NOT has_table_privilege('anon','public.comprobantes','INSERT')
+    AND NOT has_table_privilege('anon','public.comprobantes','DELETE'),
+    'anon has no comprobantes write surface');
+  PERFORM pg_temp.check_true(
+    (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname='public' AND p.prosecdef
+        AND pg_get_userbyid(p.proowner)='postgres'
+        AND has_function_privilege('authenticated',p.oid,'EXECUTE')
+        AND p.proname IN ('create_comprobante_checkout_atomic','create_credit_note_from_comprobante',
+                          'delete_comprobante_with_finance','issue_remito_atomic','annul_comprobante_atomic'))=5,
+    'canonical comprobante create/issue/annul/delete authority intact');
 END $$;
 
 -- No remaining write policy may use is_staff as its action authority.
