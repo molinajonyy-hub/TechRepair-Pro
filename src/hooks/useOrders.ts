@@ -8,6 +8,11 @@ import type { OrderPaymentStatus } from '../components/orders/OrderFinancialBadg
  * P0-A.1U1 — Estado financiero de la orden, tal cual lo devuelve
  * `v_order_financial_status`. La UI NO lo calcula: ni el estado, ni el saldo,
  * ni el total cobrado. Se leen y se muestran.
+ *
+ * SEC-08A — los importes propios de la orden (`estimated_total`, `labor_cost`,
+ * `total_cost`, `amount_paid`) también llegan por acá. El browser ya no puede
+ * leerlos de `public.orders`: sin `orders_view_financials` la DB no los
+ * entrega, así que llegan `undefined` y la UI dice "restringido", nunca 0.
  */
 export interface OrderFinancialStatus {
   order_id: string
@@ -25,14 +30,25 @@ export interface OrderFinancialStatus {
   completed_at: string | null
   paid_at: string | null
   ultimo_pago: string | null
+  /**
+   * Columnas O1 de `orders`, sólo presentes cuando `authorized` es true.
+   * Se declaran únicamente las que esta pantalla usa: la RPC devuelve más
+   * (`total_cost`, `amount_paid`, `estimated_total_currency`), pero el listado
+   * no las consume y no tiene por qué conocerlas.
+   */
+  estimated_total?: number
+  labor_cost?: number
 }
 
+/**
+ * SEC-08A — forma OPERATIVA de la orden. Deliberadamente sin campos
+ * financieros: son las columnas que `public.orders` le concede al browser.
+ * Los importes viven en `OrderFinancialStatus`, detrás de la capacidad.
+ */
 export interface OrderListItem {
   id: string
   status: string
   priority: string
-  estimated_total: number
-  labor_cost: number
   created_at: string
   customer: {
     id: string
@@ -93,9 +109,11 @@ export function useOrders(filters: UseOrdersFilters = {}) {
       setError(null)
       setFinancialError(false)
 
+      // SEC-08A: `select('*')` sobre orders es 42501 para cualquier rol. Un
+      // conteo no necesita columnas: se pide la PK y nada más.
       const { count } = await supabase
         .from('orders')
-        .select('*', { count: 'exact', head: true })
+        .select('id', { count: 'exact', head: true })
         .eq('business_id', businessId)
       setTotal(count ?? 0)
 
@@ -123,7 +141,7 @@ export function useOrders(filters: UseOrdersFilters = {}) {
       let oq = supabase
         .from('orders')
         .select(`
-          id, status, priority, estimated_total, labor_cost, created_at,
+          id, status, priority, created_at,
           customer:customers(id, name, phone),
           device:devices(id, brand, model, type),
           order_items(tipo, precio_unitario, cantidad, cliente_paga_repuesto)

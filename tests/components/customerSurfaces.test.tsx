@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   ordersQuery: vi.fn(),
   loadProfiles: vi.fn(),
   ordersSelect: vi.fn(),
+  // SEC-08A: los importes ya no viajan en la fila de la orden.
+  rpc: vi.fn(),
 }))
 
 vi.mock('../../src/services/api', () => ({
@@ -42,6 +44,7 @@ vi.mock('../../src/lib/supabase', () => ({
         return { eq: () => ({ limit: () => mocks.ordersQuery() }) }
       },
     }),
+    rpc: (name: string, args: unknown) => mocks.rpc(name, args),
   },
 }))
 
@@ -55,14 +58,23 @@ const CUSTOMERS = [
   { id: 'cust-c', name: 'Cliente C SinOrdenes', phone: '3510000003', customer_type: 'minorista' },
 ]
 
-// "Total" = por orden, `total_cost` si es positivo; si no, `estimated_total`.
-// Es la MISMA expresión que ya renderiza CustomerDetail por orden; este lote
-// no la reinterpreta, sólo hace que la lista la calcule de verdad.
+// SEC-08A — la query de la lista es OPERATIVA: sólo el vínculo orden→cliente.
+// Los importes ya no son columnas seleccionables de `orders`.
 const ORDERS = [
-  { id: 'o1', customer_id: 'cust-a', total_cost: 1000, estimated_total: 999 },   // gana total_cost
-  { id: 'o2', customer_id: 'cust-a', total_cost: null, estimated_total: 500 },   // cae a estimated_total
-  { id: 'o3', customer_id: 'cust-b', total_cost: 0,    estimated_total: 250 },   // 0 no es positivo -> estimado
-  { id: 'o4', customer_id: null,     total_cost: 700,  estimated_total: 700 },   // huérfana: se ignora
+  { id: 'o1', customer_id: 'cust-a' },
+  { id: 'o2', customer_id: 'cust-a' },
+  { id: 'o3', customer_id: 'cust-b' },
+  { id: 'o4', customer_id: null },   // huérfana: se ignora
+]
+
+// "Total" = por orden, `total_cost` si es positivo; si no, `estimated_total`.
+// Es la MISMA expresión que ya renderiza CustomerDetail por orden; SEC-08A no
+// la reinterpreta, sólo cambia por dónde llegan los números.
+const AMOUNTS = [
+  { order_id: 'o1', total_cost: 1000, estimated_total: 999 },   // gana total_cost
+  { order_id: 'o2', total_cost: null, estimated_total: 500 },   // cae a estimated_total
+  { order_id: 'o3', total_cost: 0,    estimated_total: 250 },   // 0 no es positivo -> estimado
+  { order_id: 'o4', total_cost: 700,  estimated_total: 700 },   // huérfana: se ignora
 ]
 
 function rowOf(name: string) {
@@ -75,6 +87,7 @@ beforeEach(() => {
   mocks.create.mockReset().mockImplementation(async (p) => ({ id: 'nuevo', ...p }))
   mocks.ordersQuery.mockReset().mockResolvedValue({ data: ORDERS })
   mocks.ordersSelect.mockReset()
+  mocks.rpc.mockReset().mockResolvedValue({ data: { ok: true, authorized: true, rows: AMOUNTS }, error: null })
   mocks.loadProfiles.mockReset().mockResolvedValue([])
 })
 
@@ -103,14 +116,42 @@ describe('estadísticas de la lista de clientes', () => {
     expect(rowOf('Cliente C SinOrdenes').textContent).toMatch(/\$\s?0/)
   })
 
-  it('pide estimated_total en la query: sin ese campo el total caía a 0', async () => {
+  // SEC-08A — este test cambió de contrato a propósito. Antes exigía que la
+  // query PIDIERA los importes; ahora exige lo contrario: la fila de la orden
+  // no puede traerlos, porque la DB no se los concede al browser y el pedido
+  // entero respondería 42501.
+  it('NO pide columnas financieras en la query de la lista', async () => {
     render(<MemoryRouter><Customers /></MemoryRouter>)
     await waitFor(() => expect(mocks.ordersSelect).toHaveBeenCalled())
 
     const columns = mocks.ordersSelect.mock.calls[0][0] as string
     expect(columns).toContain('customer_id')
-    expect(columns).toContain('total_cost')
-    expect(columns).toContain('estimated_total')
+    expect(columns).not.toContain('total_cost')
+    expect(columns).not.toContain('estimated_total')
+    expect(columns).not.toContain('*')
+  })
+
+  it('pide los importes por la ruta autorizada, no por la tabla', async () => {
+    render(<MemoryRouter><Customers /></MemoryRouter>)
+    await waitFor(() => expect(mocks.rpc).toHaveBeenCalled())
+
+    const [name, args] = mocks.rpc.mock.calls[0] as [string, { p_business_id: string; p_order_ids: string[] }]
+    expect(name).toBe('get_order_financial_amounts')
+    expect(args.p_business_id).toBe('biz-1')
+    expect(args.p_order_ids).toEqual(['o1', 'o2', 'o3', 'o4'])
+  })
+
+  it('sin autorización del servidor muestra un guion, nunca $0', async () => {
+    mocks.rpc.mockResolvedValue({ data: { ok: true, authorized: false, rows: [] }, error: null })
+    render(<MemoryRouter><Customers /></MemoryRouter>)
+    await screen.findByText('Cliente A DosOrdenes')
+
+    // El conteo de órdenes sigue estando: es operativo, no financiero.
+    expect(within(rowOf('Cliente A DosOrdenes')).getByText('2')).toBeInTheDocument()
+    // El importe NO: ni el real ni un cero inventado.
+    expect(rowOf('Cliente A DosOrdenes').textContent).not.toContain('1.500')
+    expect(rowOf('Cliente A DosOrdenes').textContent).not.toMatch(/\$\s?0/)
+    expect(within(rowOf('Cliente A DosOrdenes')).getByTestId('customer-total-restricted')).toBeInTheDocument()
   })
 
   it('ignora órdenes sin cliente en vez de agruparlas juntas', async () => {

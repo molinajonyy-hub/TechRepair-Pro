@@ -28,6 +28,14 @@ if (import.meta.env.MODE === 'e2e') {
 }
 
 // Types
+/**
+ * SEC-08A — los campos financieros son OPCIONALES a propósito. `public.orders`
+ * no se los concede al browser: llegan por `get_order_financial_amounts` y sólo
+ * si el actor tiene `orders_view_financials`. Declararlos obligatorios hacía
+ * que cualquier lector asumiera que siempre están, que es justo el supuesto que
+ * este lote rompe. `device_password` no figura acá: nunca es una columna
+ * legible desde el browser; el secreto se lee con `reveal_order_device_access`.
+ */
 export type Order = {
   id: string
   customer_id: string
@@ -35,12 +43,12 @@ export type Order = {
   technician_id: string | null
   status: 'new' | 'diagnosis' | 'waiting_approval' | 'repair' | 'waiting_parts' | 'ready_delivery' | 'waiting_payment' | 'completed' | 'cancelled'
   priority: 'urgent' | 'high' | 'medium' | 'low'
-  estimated_total: number
+  estimated_total?: number
   estimated_total_currency?: 'ARS' | 'USD'
   access_mode?: 'none' | 'pin' | 'pattern' | 'password' | 'not_provided' | 'not_verifiable' | null
   assigned_profile_id?: string | null
-  labor_cost: number
-  total_cost: number
+  labor_cost?: number
+  total_cost?: number
   notes?: string
   business_id?: string
   created_by?: string

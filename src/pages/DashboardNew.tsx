@@ -71,8 +71,9 @@ export function Dashboard() {
       subtitle: 'esta semana'
     },
     { 
-      label: 'Saldo Pendiente', 
-      value: `$${stats.pendingPayments.toLocaleString()}`, 
+      label: 'Saldo Pendiente',
+      // SEC-08A: sin autorización del servidor no se dibuja un importe.
+      value: stats.pendingPaymentsAuthorized ? `$${stats.pendingPayments.toLocaleString()}` : '—',
       change: `${stats.completedOrdersToday} completadas`,
       trend: 'down' as const,
       icon: TrendingUp, 

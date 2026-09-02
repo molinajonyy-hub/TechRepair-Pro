@@ -634,7 +634,9 @@ export function OrderDetail() {
             saldo:    importes.saldo   > 0 ? formatImporteWhatsApp(importes.saldo)   : '',
           } : {}),
           // `estimated_total` es el presupuesto de la propia orden, no un
-          // importe del libro contable: no pasa por la RPC financiera.
+          // importe del libro contable. SEC-08A: ya no se lee de la fila cruda;
+          // llega por la misma RPC autorizada, y sin permiso llega `undefined`,
+          // así que la variable queda vacía y el preview nombra lo que falta.
           presupuesto: order.estimated_total ? formatImporteWhatsApp(order.estimated_total) : '',
         }}
         context={{ orderId: order.id, customerId: order.customer?.id ?? (order as any).customer_id }}

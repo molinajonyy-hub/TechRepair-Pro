@@ -5,9 +5,6 @@ export interface OrderDetail {
   id: string
   status: string
   priority: string
-  estimated_total: number
-  labor_cost: number
-  total_cost: number
   created_at: string
   updated_at: string
   notes?: string
@@ -34,8 +31,12 @@ export interface OrderDetail {
   } | null
 }
 
+// SEC-08A — sólo columnas operativas. `*` sobre `orders` responde 42501; los
+// importes salen de `get_order_financial_amounts`.
 const ORDER_SELECT = `
-  *,
+  id, business_id, customer_id, device_id, technician_id, assigned_profile_id,
+  created_by, comprobante_id, status, priority, notes, access_mode,
+  created_at, updated_at, completed_at,
   customer:customers(id, name, phone, email, address),
   device:devices(id, type, brand, model, serial, imei, issue, diagnosis),
   technician:users(id, name)
@@ -65,7 +66,9 @@ export function useOrder(orderId: string | undefined) {
       if (orderError) throw orderError
       if (!data) { setError('Orden no encontrada'); return }
 
-      setOrder(data as OrderDetail)
+      // `as unknown` porque supabase-js tipa las relaciones embebidas como
+      // arrays; en runtime `customer`/`device` son objetos.
+      setOrder(data as unknown as OrderDetail)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Error al cargar la orden'
       console.error('❌ Error fetching order:', err)

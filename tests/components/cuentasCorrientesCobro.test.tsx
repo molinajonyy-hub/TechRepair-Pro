@@ -271,9 +271,14 @@ describe('CC-B · el camino legacy ya no existe en el código', () => {
 
   it('la ficha también oculta montos de orden y cuenta corriente al override false', () => {
     const ficha = leerCodigo('src/pages/CustomerDetail.tsx')
-    expect(ficha).toMatch(/canViewPurchaseFinancials && <th>Total<\/th>/)
+    // SEC-08A — la columna "Total" de órdenes pasó a depender TAMBIÉN de que el
+    // servidor haya autorizado los importes (`showOrderTotals`). `can(...)` sola
+    // ya no alcanza: era el cliente decidiendo sobre un dato que el cliente no
+    // debería tener. El resto del gate por capacidad no cambia.
+    expect(ficha).toMatch(/const showOrderTotals = canViewPurchaseFinancials && orderAmountsAuthorized/)
+    expect(ficha).toMatch(/showOrderTotals && <th>Total<\/th>/)
+    expect(ficha).toMatch(/showOrderTotals && <td[^>]*>\{fmt\(amount\)\}<\/td>/)
     expect(ficha).toMatch(/canViewPurchaseFinancials && ccAccount/)
     expect(ficha).toMatch(/if \(!canViewPurchaseFinancials \|\| !businessId \|\| !id\)/)
-    expect(ficha).toMatch(/canViewPurchaseFinancials && <td[^>]*>\{fmt\(amount\)\}<\/td>/)
   })
 })
