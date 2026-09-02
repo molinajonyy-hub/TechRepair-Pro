@@ -1,4 +1,4 @@
-// Real local PostgREST boundary with locally signed authenticated JWTs.
+// Real local PostgREST boundary with locally signed JWTs.
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { createHmac, randomUUID } from 'node:crypto'
@@ -13,9 +13,10 @@ if (!/^supabase_db_[a-z0-9-]+$/.test(dbContainer)) throw new Error('Local DB con
 
 const docker = (args,input) => execFileSync('docker',args,{input,encoding:'utf8',stdio:['pipe','pipe','pipe'],maxBuffer:16*1024*1024})
 const sql = query => docker(['exec','-i',dbContainer,'psql','-X','-U','postgres','-d','postgres','-Atq','-v','ON_ERROR_STOP=1'],query).trim()
+const actorNames=['owner','admin','manager','tech','sales','cashier','viewer','inactive','ownerB']
 const ids = Object.fromEntries([
-  'A','B','owner','viewer','inactive','ownerB','adminFalse','techTrue','customerOnly',
-  'customerA','compA','ptA','categoryPositive','inventoryPositive',
+  'A','B',...actorNames,'supplier','inventory','purchaseBlocked','purchaseSafe','purchaseItemBlocked',
+  'purchaseItemSafe','compForge','compDraft','compPayment','paymentTransaction','categoryPositive','inventoryPositive','caja',
 ].map(name => [name,randomUUID()]))
 
 let seeded = false
@@ -33,17 +34,19 @@ try {
     assert(key?.k,'Local HS256 JWK missing')
     signingKey = Buffer.from(key.k,'base64url')
   }
-  const token = actor => {
+  const token = (actor,role='authenticated') => {
     const h=Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url')
-    const c=Buffer.from(JSON.stringify({role:'authenticated',sub:ids[actor],aud:'authenticated',exp:Math.floor(Date.now()/1000)+600})).toString('base64url')
+    const claims={role,aud:'authenticated',exp:Math.floor(Date.now()/1000)+600}
+    if (actor) claims.sub=ids[actor]
+    const c=Buffer.from(JSON.stringify(claims)).toString('base64url')
     const p=`${h}.${c}`
     return `${p}.${createHmac('sha256',signingKey).update(p).digest('base64url')}`
   }
-  const request = async (actor,path,{method='GET',body}={}) => {
+  const request = async (actor,path,{method='GET',body,role='authenticated'}={}) => {
     requests++
     const response = await fetch(api+path,{
       method,
-      headers:{'Content-Type':'application/json','Prefer':'return=representation',...(actor?{Authorization:`Bearer ${token(actor)}`}:{})},
+      headers:{'Content-Type':'application/json','Prefer':'return=representation',...(actor||role==='service_role'?{Authorization:`Bearer ${token(actor,role)}`}:{})},
       ...(body===undefined?{}:{body:JSON.stringify(body)}),
       signal:AbortSignal.timeout(10000),
     })
@@ -51,75 +54,136 @@ try {
     try{parsed=text?JSON.parse(text):null}catch{}
     return {status:response.status,body:parsed}
   }
+  const fingerprint = () => sql(`SELECT md5(jsonb_build_object(
+    'purchases',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.supplier_purchases x WHERE business_id='${ids.A}'),
+    'items',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.supplier_purchase_items x WHERE business_id='${ids.A}'),
+    'deletions',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.supplier_purchase_deletions x WHERE business_id='${ids.A}'),
+    'inventory',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.inventory x WHERE business_id='${ids.A}'),
+    'comprobantes',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.comprobantes x WHERE business_id='${ids.A}'),
+    'payments',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.comprobante_payments x WHERE business_id='${ids.A}'),
+    'pt',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.payment_transactions x WHERE business_id='${ids.A}'),
+    'fm',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.financial_movements x WHERE business_id='${ids.A}'),
+    'bfe',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.business_finance_entries x WHERE business_id='${ids.A}')
+  )::text)`)
   const deny = async (actor,path,options,label) => {
-    const before=sql("SELECT md5(jsonb_build_object('pt',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.payment_transactions x),'fm',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.financial_movements x),'bfe',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.business_finance_entries x),'ec',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.expense_categories x),'inventory',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.inventory x))::text)")
+    const before=fingerprint()
     const result=await request(actor,path,options)
     assert([401,403,404].includes(result.status),`${label}: ${JSON.stringify(result)}`)
-    assert.equal(sql("SELECT md5(jsonb_build_object('pt',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.payment_transactions x),'fm',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.financial_movements x),'bfe',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.business_finance_entries x),'ec',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.expense_categories x),'inventory',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY id),'[]') FROM public.inventory x))::text)"),before,`${label} changed data`)
+    assert.equal(fingerprint(),before,`${label} changed data`)
     return result
   }
 
+  const users=actorNames.map(name=>`('${ids[name]}','${name}@lote3-http.invalid',now())`).join(',')
+  const profiles=actorNames.map(name=>`('${ids[name]}','${ids[name]}','${name==='ownerB'?ids.B:ids.A}','${name==='ownerB'||name==='inactive'?'owner':name}',${name==='inactive'?'false':'true'},'${name}@lote3-http.invalid')`).join(',')
   sql(`
     BEGIN;
     SET session_replication_role=replica;
-    INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
-      ('${ids.owner}','owner@lote3-http.invalid',now()),('${ids.viewer}','viewer@lote3-http.invalid',now()),
-      ('${ids.inactive}','inactive@lote3-http.invalid',now()),('${ids.ownerB}','ownerb@lote3-http.invalid',now()),
-      ('${ids.adminFalse}','adminfalse@lote3-http.invalid',now()),('${ids.techTrue}','techtrue@lote3-http.invalid',now()),
-      ('${ids.customerOnly}','customeronly@lote3-http.invalid',now());
+    INSERT INTO auth.users(id,email,email_confirmed_at) VALUES ${users};
     INSERT INTO public.businesses(id,name,owner_user_id,subscription_plan,subscription_status) VALUES
       ('${ids.A}','Synthetic Lote3 HTTP A','${ids.owner}','full','active'),
       ('${ids.B}','Synthetic Lote3 HTTP B','${ids.ownerB}','full','active');
-    INSERT INTO public.profiles(id,user_id,business_id,role,is_active,email,permissions) VALUES
-      ('${ids.owner}','${ids.owner}','${ids.A}','owner',true,'owner@lote3-http.invalid',NULL),
-      ('${ids.viewer}','${ids.viewer}','${ids.A}','viewer',true,'viewer@lote3-http.invalid',NULL),
-      ('${ids.inactive}','${ids.inactive}','${ids.A}','owner',false,'inactive@lote3-http.invalid',NULL),
-      ('${ids.ownerB}','${ids.ownerB}','${ids.B}','owner',true,'ownerb@lote3-http.invalid',NULL),
-      ('${ids.adminFalse}','${ids.adminFalse}','${ids.A}','admin',true,'adminfalse@lote3-http.invalid','{"finance":false,"customers":false,"orders_view_financials":false}'),
-      ('${ids.techTrue}','${ids.techTrue}','${ids.A}','tech',true,'techtrue@lote3-http.invalid','{"finance":true,"customers":true,"orders_view_financials":true}'),
-      ('${ids.customerOnly}','${ids.customerOnly}','${ids.A}','tech',true,'customeronly@lote3-http.invalid','{"customers":true,"orders_view_financials":false}');
-    INSERT INTO public.customers(id,business_id,name,phone) VALUES('${ids.customerA}','${ids.A}','Synthetic','000');
-    INSERT INTO public.comprobantes(id,business_id,customer_id,tipo,estado,status,estado_comercial,total,saldo_pendiente)
-      VALUES('${ids.compA}','${ids.A}','${ids.customerA}','remito','emitido','completed','pendiente',100,100);
+    INSERT INTO public.profiles(id,user_id,business_id,role,is_active,email) VALUES ${profiles};
+    INSERT INTO public.suppliers(id,business_id,name) VALUES('${ids.supplier}','${ids.A}','Lote3 HTTP supplier');
+    INSERT INTO public.inventory(id,business_id,code,name,category,cost_price,sale_price,stock,stock_quantity) VALUES
+      ('${ids.inventory}','${ids.A}','L3-HTTP-STOCK','Lote3 stock','fixture',1,2,10,10);
+    INSERT INTO public.supplier_purchases(id,business_id,supplier_id,total_amount,paid_amount,pending_amount,payment_status,created_by) VALUES
+      ('${ids.purchaseBlocked}','${ids.A}','${ids.supplier}',100,25,75,'partial','${ids.owner}'),
+      ('${ids.purchaseSafe}','${ids.A}','${ids.supplier}',20,0,20,'pending','${ids.owner}');
+    INSERT INTO public.supplier_purchase_items(id,business_id,purchase_id,supplier_id,inventory_id,product_name,quantity,unit_cost,subtotal) VALUES
+      ('${ids.purchaseItemBlocked}','${ids.A}','${ids.purchaseBlocked}','${ids.supplier}','${ids.inventory}','Blocked item',3,10,30),
+      ('${ids.purchaseItemSafe}','${ids.A}','${ids.purchaseSafe}','${ids.supplier}','${ids.inventory}','Safe item',2,10,20);
+    INSERT INTO public.supplier_account_movements(business_id,supplier_id,purchase_id,type,description,debit,credit,balance_after) VALUES
+      ('${ids.A}','${ids.supplier}','${ids.purchaseBlocked}','purchase','Blocked debt',100,0,75),
+      ('${ids.A}','${ids.supplier}','${ids.purchaseSafe}','purchase','Safe debt',20,0,20);
+    INSERT INTO public.comprobantes(id,business_id,tipo,estado,status,estado_comercial,total,total_cobrado,saldo_pendiente,payment_status) VALUES
+      ('${ids.compForge}','${ids.A}','remito','emitido','completed','pendiente',100,0,100,'pending'),
+      ('${ids.compDraft}','${ids.A}','remito','borrador','draft','pendiente',100,0,100,'pending'),
+      ('${ids.compPayment}','${ids.A}','remito','emitido','completed','pendiente',100,0,100,'pending');
     INSERT INTO public.payment_transactions(id,business_id,comprobante_id,status,transaction_amount,net_amount_estimated,currency)
-      VALUES('${ids.ptA}','${ids.A}','${ids.compA}','pending',100,100,'ARS');
+      VALUES('${ids.paymentTransaction}','${ids.A}','${ids.compForge}','pending',100,100,'ARS');
+    INSERT INTO public.cajas(id,business_id,status,opened_by,opened_at)
+      VALUES('${ids.caja}','${ids.A}','abierta','${ids.owner}',now());
     SET session_replication_role=origin;
     COMMIT;
   `);seeded=true
 
-  // A 200 response proves the JWT is valid and PostgREST resolved auth.uid().
   const positive=await request('owner','/rpc/finance_dashboard_summary',{method:'POST',body:{p_business_id:ids.A,p_date_from:'2026-08-01',p_date_to:'2026-08-31'}})
   assert.equal(positive.status,200,`positive signed-JWT control failed: ${JSON.stringify(positive)}`)
-  assert.equal((await request('techTrue','/rpc/finance_dashboard_summary',{method:'POST',body:{p_business_id:ids.A,p_date_from:'2026-08-01',p_date_to:'2026-08-31'}})).status,200,'explicit false-default -> true override must allow')
 
-  await deny(null,'/rpc/finance_dashboard_summary',{method:'POST',body:{p_business_id:ids.A,p_date_from:'2026-08-01',p_date_to:'2026-08-31'}},'anonymous finance RPC')
-  await deny('viewer','/rpc/finance_dashboard_summary',{method:'POST',body:{p_business_id:ids.A,p_date_from:'2026-08-01',p_date_to:'2026-08-31'}},'viewer finance RPC')
-  await deny('inactive','/rpc/finance_dashboard_summary',{method:'POST',body:{p_business_id:ids.A,p_date_from:'2026-08-01',p_date_to:'2026-08-31'}},'inactive finance RPC')
-  await deny('ownerB','/rpc/finance_dashboard_summary',{method:'POST',body:{p_business_id:ids.A,p_date_from:'2026-08-01',p_date_to:'2026-08-31'}},'foreign finance RPC')
-  await deny('adminFalse','/rpc/finance_dashboard_summary',{method:'POST',body:{p_business_id:ids.A,p_date_from:'2026-08-01',p_date_to:'2026-08-31'}},'true-default explicit false override')
+  for (const actor of actorNames) {
+    await deny(actor,`/supplier_purchases?id=eq.${ids.purchaseBlocked}`,{method:'DELETE'},`${actor} supplier parent DELETE`)
+    await deny(actor,`/supplier_purchase_items?id=eq.${ids.purchaseItemBlocked}`,{method:'DELETE'},`${actor} supplier item DELETE`)
+    await deny(actor,`/comprobantes?id=eq.${ids.compForge}`,{method:'PATCH',body:{total:1,total_cobrado:1000,saldo_pendiente:0,payment_status:'paid',cae:'FORGED',numero_fiscal:'X-1'}},`${actor} protected comprobante PATCH`)
+    await deny(actor,'/comprobante_payments',{method:'POST',body:{comprobante_id:ids.compPayment,business_id:ids.A,amount:100,amount_ars:100,payment_method:'efectivo',created_by:ids[actor]}},`${actor} direct payment INSERT`)
+    await deny(actor,`/payment_transactions?business_id=eq.${ids.A}`,{},`${actor} payment transaction SELECT`)
+  }
+  await deny(null,`/supplier_purchases?id=eq.${ids.purchaseBlocked}`,{method:'DELETE'},'anonymous supplier parent DELETE')
+  await deny(null,`/comprobantes?id=eq.${ids.compForge}`,{method:'PATCH',body:{total:1}},'anonymous protected comprobante PATCH')
+  await deny(null,'/comprobante_payments',{method:'POST',body:{comprobante_id:ids.compPayment,business_id:ids.A,amount:100,amount_ars:100,payment_method:'efectivo'}},'anonymous payment INSERT')
+  await deny(null,`/payment_transactions?business_id=eq.${ids.A}`,{},'anonymous payment transaction SELECT')
 
-  assert.equal((await request('techTrue','/rpc/customer_purchase_history',{method:'POST',body:{p_customer_id:ids.customerA,p_business_id:ids.A}})).status,200,'combined capability positive')
-  await deny('customerOnly','/rpc/customer_purchase_history',{method:'POST',body:{p_customer_id:ids.customerA,p_business_id:ids.A}},'combined capability missing financial half')
+  const observations=await request('sales',`/comprobantes?id=eq.${ids.compForge}`,{method:'PATCH',body:{observaciones:'safe-http-note'}})
+  assert.equal(observations.status,200,`safe comprobante observation failed: ${JSON.stringify(observations)}`)
 
-  assert.equal((await request('viewer',`/payment_transactions?business_id=eq.${ids.A}`)).status,200,'payment history remains readable')
-  await deny('owner','/payment_transactions',{method:'POST',body:{business_id:ids.A,status:'approved',transaction_amount:100,net_amount_estimated:100,currency:'ARS'}},'payment INSERT')
-  await deny('owner',`/payment_transactions?id=eq.${ids.ptA}`,{method:'PATCH',body:{status:'approved'}},'payment approved UPDATE')
+  const safeDelete=await request('manager','/rpc/delete_supplier_purchase_safe',{method:'POST',body:{p_business_id:ids.A,p_purchase_id:ids.purchaseSafe,p_user_id:ids.manager}})
+  assert.equal(safeDelete.status,200,`safe supplier delete failed: ${JSON.stringify(safeDelete)}`)
+  assert.equal(safeDelete.body?.ok,true,'safe supplier delete did not report ok')
+  assert.equal(sql(`SELECT stock_quantity FROM public.inventory WHERE id='${ids.inventory}'`),'8','safe supplier delete did not reverse stock')
+  assert.equal(sql(`SELECT count(*) FROM public.supplier_purchase_deletions WHERE purchase_id='${ids.purchaseSafe}'`),'1','safe supplier delete tombstone missing')
 
-  await deny('viewer','/expense_categories',{method:'POST',body:{business_id:ids.A,name:'viewer-forged'}},'is_staff finance write')
-  const directPositive=await request('owner','/expense_categories',{method:'POST',body:{id:ids.categoryPositive,business_id:ids.A,name:'owner-authorized'}})
-  assert.equal(directPositive.status,201,`capability RLS positive failed: ${JSON.stringify(directPositive)}`)
-  const inventoryBody={business_id:ids.A,code:'L3-HTTP',name:'Lote3 HTTP item',category:'fixture',cost_price:1,sale_price:2}
-  await deny('viewer','/inventory',{method:'POST',body:inventoryBody},'parallel inventory tenant-only policy')
-  const inventoryPositive=await request('owner','/inventory',{method:'POST',body:{...inventoryBody,id:ids.inventoryPositive,code:'L3-HTTP-OK'}})
-  assert.equal(inventoryPositive.status,201,`inventory capability RLS positive failed: ${JSON.stringify(inventoryPositive)}`)
+  const remito=await request('cashier','/rpc/issue_remito_atomic',{method:'POST',body:{p_comprobante_id:ids.compDraft,p_business_id:ids.A}})
+  assert.equal(remito.status,200,`canonical remito issue failed: ${JSON.stringify(remito)}`)
+  assert.equal(remito.body?.ok,true,'canonical remito issue did not report ok')
 
-  console.log(`PASS Lote 3 real PostgREST: ${requests} requests, valid signed JWT positive controls, overrides, combined capability, RLS and payment zero-effect rejects`)
+  const payment=await request('cashier','/rpc/replace_comprobante_payment',{method:'POST',body:{
+    p_comprobante_id:ids.compPayment,p_business_id:ids.A,p_payment_method:'efectivo',p_amount:100,p_amount_ars:100,
+    p_currency:'ARS',p_exchange_rate:1,p_notes:'canonical HTTP positive',p_user_id:ids.cashier,p_commission_amount:0,
+    p_payment_provider:null,p_idempotency_key:`l3b-http-${ids.compPayment}`,
+  }})
+  assert.equal(payment.status,200,`canonical payment failed: ${JSON.stringify(payment)}`)
+  assert.equal(payment.body?.ok,true,'canonical payment did not report ok')
+  assert.equal(sql(`SELECT (estado_comercial='pagado' AND total_cobrado=100 AND saldo_pendiente=0)::text FROM public.comprobantes WHERE id='${ids.compPayment}'`),'true','canonical payment did not reconcile receipt')
+  assert.equal(sql(`SELECT (EXISTS(SELECT 1 FROM public.financial_movements WHERE comprobante_id='${ids.compPayment}') AND EXISTS(SELECT 1 FROM public.business_finance_entries WHERE reference_comprobante_id='${ids.compPayment}'))::text`),'true','canonical payment ledger effects missing')
+
+  for (const actor of actorNames) {
+    const result=await request(actor,'/rpc/finance_pending_historicals',{method:'POST',body:{p_business_id:ids.A}})
+    if (actor==='owner'||actor==='admin') assert.equal(result.status,200,`${actor} pending historicals positive failed: ${JSON.stringify(result)}`)
+    else assert([401,403,404].includes(result.status),`${actor} pending historicals unexpectedly allowed: ${JSON.stringify(result)}`)
+  }
+  const serviceRead=await request(null,`/payment_transactions?business_id=eq.${ids.A}`,{role:'service_role'})
+  assert.equal(serviceRead.status,200,`effective service role payment read failed: ${JSON.stringify(serviceRead)}`)
+  const servicePending=await request(null,'/rpc/finance_pending_historicals',{method:'POST',role:'service_role',body:{p_business_id:ids.A}})
+  assert.equal(servicePending.status,200,`effective service role RPC bypass failed: ${JSON.stringify(servicePending)}`)
+
+  console.log(`PASS Lote 3 Phase B real PostgREST: ${requests} requests; all browser-role direct exploits denied with zero effects; canonical supplier, remito, payment and service-role controls passed`)
 } catch (error) {
   console.error(error.message)
   process.exitCode=1
 } finally {
   if (seeded) {
-    try { sql(`DELETE FROM public.businesses WHERE id IN ('${ids.A}','${ids.B}'); DELETE FROM auth.users WHERE id IN ('${ids.owner}','${ids.viewer}','${ids.inactive}','${ids.ownerB}','${ids.adminFalse}','${ids.techTrue}','${ids.customerOnly}');`) }
+    try { sql(`
+      SET session_replication_role=replica;
+      DELETE FROM public.finance_audit_log WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.supplier_purchase_deletions WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.supplier_account_movements WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.supplier_payments WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.supplier_purchase_items WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.supplier_purchases WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.account_movements WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.accounts WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.financial_movements WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.business_finance_entries WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.comprobante_payments WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.payment_transactions WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.comprobantes WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.cajas WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.inventory WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.suppliers WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.profiles WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.businesses WHERE id IN ('${ids.A}','${ids.B}');
+      DELETE FROM auth.users WHERE id IN (${actorNames.map(n=>`'${ids[n]}'`).join(',')});
+      SET session_replication_role=origin;
+    `) }
     catch (error) { console.error(`Local fixture cleanup failed: ${error.stderr?.toString() || error.message}`); process.exitCode=1 }
   }
 }

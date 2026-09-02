@@ -158,14 +158,15 @@ in the generated catalog evidence):
   tests. Authenticated nevertheless had INSERT/UPDATE/DELETE plus tenant-only
   `pt_write`; updating `status` to `approved` reached the SECDEF trigger and
   wrote both finance ledgers and the comprobante payment state.
-- The trigger is a valid trusted-upstream mechanism; the browser write surface is
-  not. Candidate contract: authenticated SELECT only, service-role writes
-  retained, history untouched.
-- Canonical finance RPCs are the browser ledger writers. The existing finance
-  static guard has two documented exceptions: documentary supplier invoices in
-  `Expenses.tsx`, and the not-yet-migrated `comprobante_payments` insertion in
-  `comprobanteService.ts`. Lote 3 capability-gates their table policies but does
-  not mix in an unrelated finance rewrite.
+- The trigger is a valid trusted-upstream mechanism; the browser surface is not.
+  Phase B found no Beta browser reader either, so authenticated has no direct
+  SELECT or DML. Existing service-role storage access, history, triggers and
+  indexes remain untouched.
+- Canonical finance RPCs are the browser ledger writers. Phase B removed the
+  unwired `comprobanteService.registrarPago` direct insert and retired finance
+  guard exception E1. `comprobante_payments` creation is now RPC-only;
+  documentary supplier invoices in `Expenses.tsx` remain the separate E3
+  contract.
 - Inventory/supplier services have direct stock/document CRUD paths. They remain
   direct RLS paths and receive `inventory` authority; the atomic RPCs remain the
   canonical paths for financial purchase/payment effects.
@@ -188,3 +189,28 @@ in the generated catalog evidence):
 5. Customer history requires both customer access and financial-order visibility
    because the response includes totals and payment details; the API is not
    redesigned or partially sanitized in this lot.
+
+## Phase B direct-write inventory and final authority
+
+- Supplier purchase deletion: the only product caller is
+  `suppliersService.deletePurchaseSafe`, which already calls
+  `delete_supplier_purchase_safe`. There is no direct frontend DELETE to
+  preserve. Authenticated keeps inventory-authorized SELECT/INSERT/UPDATE and
+  loses DELETE on both supplier purchase tables.
+- `comprobantes`: the reachable direct updates were a safe `observaciones`
+  edit and remito issuance. The former keeps a two-column grant
+  (`observaciones`, `updated_at`); issuance moved to `issue_remito_atomic`.
+  Legacy fiscal service updates are not wired to a Beta caller and receive no
+  browser grant.
+- `comprobante_payments`: reads remain for the comprobante UI; no reachable
+  direct writer remains. Checkout and replacement RPCs own payment rows and
+  their ledger effects.
+- `finance_pending_historicals`: no UI caller; exact authority is active,
+  same-tenant owner/admin (plus effective service role), not general `finance`.
+- Identity: the action gate consumes `get_my_profile()` rather than maintaining
+  another profile ordering. Explicit inactive membership still
+  denies; synthetic duplicate legacy profiles resolve through the same helper.
+- Service bypass: local runtime evidence showed that `current_user` becomes the
+  function owner inside SECURITY DEFINER and that `auth.role()` follows a
+  forgeable JWT GUC. The invoker's effective DB role remains available as
+  `current_setting('role', true)`, which is now the bypass primitive.

@@ -7,9 +7,11 @@ INSERT INTO ids(name) VALUES
  ('A'),('B'),('Basic'),('owner'),('admin'),('manager'),('tech'),('sales'),('cashier'),('viewer'),
  ('ownerB'),('ownerBasic'),('inactive'),('no_profile'),('admin_false'),('tech_true'),
  ('compA'),('compPT'),('movementA'),('cajaA'),('pt_old'),('pt_candidate'),
- ('oldWrite'),('orderA'),('supplierA'),('inventoryA'),('expenseCatA'),
- ('dollarA'),('commissionA'),('taskA'),('whatsappA'),('expenseA'),
- ('orderPaymentA'),('wholesaleA');
+  ('oldWrite'),('orderA'),('supplierA'),('inventoryA'),('expenseCatA'),
+  ('dollarA'),('commissionA'),('taskA'),('whatsappA'),('expenseA'),
+  ('orderPaymentA'),('wholesaleA'),
+  ('purchaseExploit'),('purchaseSafe'),('supplierPaymentExploit'),('supplierExpenseExploit'),
+  ('compForge'),('compDraft'),('compCP'),('cpOld'),('legacyActor'),('legacyProfile');
 GRANT SELECT ON ids TO anon, authenticated, service_role;
 
 CREATE FUNCTION pg_temp.id(n text) RETURNS uuid LANGUAGE sql AS
@@ -29,7 +31,8 @@ BEGIN
     'cajas','financial_movements','business_finance_entries','finance_audit_log','finance_insights',
     'comprobantes','comprobante_payments','orders','order_payments','expenses',
     'inventory','inventory_movements','supplier_purchases','supplier_purchase_items',
-    'supplier_account_movements','accounts','account_movements','payment_transactions'
+    'supplier_account_movements','supplier_payments','supplier_purchase_deletions',
+    'accounts','account_movements','payment_transactions'
   ] LOOP
     EXECUTE format(
       'SELECT md5(coalesce(jsonb_agg(to_jsonb(r) ORDER BY to_jsonb(r)::text)::text,''[]'')) FROM public.%I r', t
@@ -55,6 +58,23 @@ BEGIN
   RETURN result;
 END $$;
 
+CREATE FUNCTION pg_temp.call_with_claim(actor text, dbrole text, claim_role text, query text)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE result jsonb; uid uuid;
+BEGIN
+  uid := CASE WHEN actor IS NULL THEN NULL ELSE pg_temp.id(actor) END;
+  PERFORM set_config('request.jwt.claims',jsonb_build_object('sub',uid,'role',claim_role)::text,true);
+  PERFORM set_config('request.jwt.claim.sub',coalesce(uid::text,''),true);
+  EXECUTE format('SET LOCAL ROLE %I',dbrole);
+  BEGIN
+    EXECUTE query INTO result;
+  EXCEPTION WHEN OTHERS THEN
+    result := jsonb_build_object('sqlstate',SQLSTATE,'message',SQLERRM);
+  END;
+  RESET ROLE;
+  RETURN result;
+END $$;
+
 CREATE FUNCTION pg_temp.is_denied(result jsonb) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
   SELECT COALESCE(result->>'sqlstate' = '42501',false)
       OR COALESCE(result->>'error_code' = 'FORBIDDEN',false)
@@ -64,8 +84,9 @@ CREATE FUNCTION pg_temp.is_denied(result jsonb) RETURNS boolean LANGUAGE sql IMM
 $$;
 
 CREATE FUNCTION pg_temp.deny(actor text, dbrole text, query text, label text) RETURNS void LANGUAGE plpgsql AS $$
-DECLARE before_hash jsonb := pg_temp.fingerprint(); result jsonb;
+DECLARE before_hash jsonb; result jsonb;
 BEGIN
+  before_hash := pg_temp.fingerprint();
   result := pg_temp.call_as(actor,dbrole,query);
   PERFORM pg_temp.check_true(pg_temp.is_denied(result),label||' denied: '||result::text);
   PERFORM pg_temp.check_true(before_hash=pg_temp.fingerprint(),label||' ZERO EFFECTS');
@@ -73,8 +94,8 @@ END $$;
 
 SET LOCAL session_replication_role=replica;
 INSERT INTO auth.users(id,email,email_confirmed_at)
- SELECT id,name||'@lote3.invalid',now() FROM ids
- WHERE name IN ('owner','admin','manager','tech','sales','cashier','viewer','ownerB','ownerBasic','inactive','no_profile','admin_false','tech_true');
+  SELECT id,name||'@lote3.invalid',now() FROM ids
+  WHERE name IN ('owner','admin','manager','tech','sales','cashier','viewer','ownerB','ownerBasic','inactive','no_profile','admin_false','tech_true','legacyActor','legacyProfile');
 INSERT INTO public.businesses(id,name,owner_user_id,subscription_plan,subscription_status) VALUES
  (pg_temp.id('A'),'Synthetic Lote3 A',pg_temp.id('owner'),'full','active'),
  (pg_temp.id('B'),'Synthetic Lote3 B',pg_temp.id('ownerB'),'full','active'),
@@ -83,7 +104,10 @@ INSERT INTO public.profiles(id,user_id,business_id,role,is_active,email)
  SELECT id, id, pg_temp.id(CASE WHEN name='ownerB' THEN 'B' WHEN name='ownerBasic' THEN 'Basic' ELSE 'A' END),
    CASE WHEN name IN ('ownerB','ownerBasic','inactive') THEN 'owner' WHEN name='admin_false' THEN 'admin' WHEN name='tech_true' THEN 'tech' ELSE name END,
    name<>'inactive', name||'@lote3.invalid'
- FROM ids WHERE name IN ('owner','admin','manager','tech','sales','cashier','viewer','ownerB','ownerBasic','inactive','admin_false','tech_true');
+  FROM ids WHERE name IN ('owner','admin','manager','tech','sales','cashier','viewer','ownerB','ownerBasic','inactive','admin_false','tech_true');
+INSERT INTO public.profiles(id,user_id,business_id,role,is_active,email,created_at,updated_at) VALUES
+ (pg_temp.id('legacyActor'),NULL,pg_temp.id('A'),'admin',true,'legacy-old@lote3.invalid',now()-interval '2 days',now()-interval '2 days'),
+ (pg_temp.id('legacyProfile'),pg_temp.id('legacyActor'),pg_temp.id('B'),'admin',true,'legacy-new@lote3.invalid',now()-interval '1 day',now()-interval '1 day');
 UPDATE public.profiles SET permissions =
   '{"finance":false,"comprobantes":false,"inventory":false,"settings_sensitive":false,"customers":false,"orders_view_financials":false}'
  WHERE id=pg_temp.id('admin_false');
@@ -93,7 +117,10 @@ UPDATE public.profiles SET permissions =
 INSERT INTO public.comprobantes(id,business_id,tipo,estado,status,estado_comercial,total,saldo_pendiente)
  VALUES
  (pg_temp.id('compA'),pg_temp.id('A'),'remito','emitido','completed','pendiente',100,100),
- (pg_temp.id('compPT'),pg_temp.id('A'),'remito','emitido','completed','pendiente',100,100);
+ (pg_temp.id('compPT'),pg_temp.id('A'),'remito','emitido','completed','pendiente',100,100),
+ (pg_temp.id('compForge'),pg_temp.id('A'),'remito','emitido','completed','pendiente',100,100),
+ (pg_temp.id('compDraft'),pg_temp.id('A'),'remito','borrador','draft','pendiente',100,100),
+ (pg_temp.id('compCP'),pg_temp.id('A'),'remito','emitido','completed','pendiente',100,100);
 INSERT INTO public.financial_movements(id,business_id,date,type,currency,amount,exchange_rate,amount_ars,source,description,sign)
  VALUES(pg_temp.id('movementA'),pg_temp.id('A'),current_date,'income','ARS',10,1,10,'manual_cash','fixture',1);
 INSERT INTO public.cajas(id,business_id,status,opened_by,opened_at)
@@ -105,7 +132,21 @@ INSERT INTO public.orders(id,business_id,status,notes)
 INSERT INTO public.suppliers(id,business_id,name)
  VALUES(pg_temp.id('supplierA'),pg_temp.id('A'),'Lote3 supplier');
 INSERT INTO public.inventory(id,business_id,code,name,category,cost_price,sale_price)
- VALUES(pg_temp.id('inventoryA'),pg_temp.id('A'),'L3-1','Lote3 item','fixture',1,2);
+  VALUES(pg_temp.id('inventoryA'),pg_temp.id('A'),'L3-1','Lote3 item','fixture',1,2);
+UPDATE public.inventory SET stock=10,stock_quantity=10 WHERE id=pg_temp.id('inventoryA');
+INSERT INTO public.supplier_purchases(id,business_id,supplier_id,total_amount,paid_amount,pending_amount,payment_status,created_by) VALUES
+ (pg_temp.id('purchaseExploit'),pg_temp.id('A'),pg_temp.id('supplierA'),100,25,75,'partial',pg_temp.id('owner')),
+ (pg_temp.id('purchaseSafe'),pg_temp.id('A'),pg_temp.id('supplierA'),20,0,20,'pending',pg_temp.id('owner'));
+INSERT INTO public.supplier_purchase_items(business_id,purchase_id,supplier_id,inventory_id,product_name,quantity,unit_cost,subtotal) VALUES
+ (pg_temp.id('A'),pg_temp.id('purchaseExploit'),pg_temp.id('supplierA'),pg_temp.id('inventoryA'),'Exploit item',3,10,30),
+ (pg_temp.id('A'),pg_temp.id('purchaseSafe'),pg_temp.id('supplierA'),pg_temp.id('inventoryA'),'Safe item',2,10,20);
+INSERT INTO public.supplier_account_movements(business_id,supplier_id,purchase_id,type,description,debit,credit,balance_after) VALUES
+ (pg_temp.id('A'),pg_temp.id('supplierA'),pg_temp.id('purchaseExploit'),'purchase','Exploit debt',100,0,75),
+ (pg_temp.id('A'),pg_temp.id('supplierA'),pg_temp.id('purchaseSafe'),'purchase','Safe debt',20,0,20);
+INSERT INTO public.supplier_payments(id,business_id,supplier_id,purchase_id,amount,payment_method,created_by) VALUES
+ (pg_temp.id('supplierPaymentExploit'),pg_temp.id('A'),pg_temp.id('supplierA'),pg_temp.id('purchaseExploit'),25,'efectivo',pg_temp.id('owner'));
+INSERT INTO public.expenses(id,business_id,description,category,amount,supplier_id,supplier_purchase_id) VALUES
+ (pg_temp.id('supplierExpenseExploit'),pg_temp.id('A'),'Exploit linked expense','supplier_purchase',25,pg_temp.id('supplierA'),pg_temp.id('purchaseExploit'));
 INSERT INTO public.expense_categories(id,business_id,name)
  VALUES(pg_temp.id('expenseCatA'),pg_temp.id('A'),'Lote3 category');
 INSERT INTO public.dollar_rate_history(id,business_id,sell_price,source)
@@ -215,7 +256,13 @@ BEGIN
   PERFORM pg_temp.check_true((SELECT count(*)=25 FROM rpc_cases),'exact 25 RPC cases');
 
   FOR c IN SELECT * FROM rpc_cases ORDER BY function_name LOOP
-    PERFORM pg_temp.deny(NULL,'anon',c.deny_sql,c.function_name||' anonymous');
+    before_hash := pg_temp.fingerprint();
+    PERFORM pg_temp.check_true(NOT EXISTS(
+      SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname='public' AND p.proname=c.function_name
+        AND has_function_privilege('anon',p.oid,'EXECUTE')
+    ),c.function_name||' anonymous execute revoked');
+    PERFORM pg_temp.check_true(before_hash=pg_temp.fingerprint(),c.function_name||' anonymous ACL ZERO EFFECTS');
     PERFORM pg_temp.deny('inactive','authenticated',c.deny_sql,c.function_name||' inactive');
     PERFORM pg_temp.deny('no_profile','authenticated',c.deny_sql,c.function_name||' no profile');
     PERFORM pg_temp.deny('viewer','authenticated',c.deny_sql,c.function_name||' missing capability');
@@ -231,10 +278,14 @@ BEGIN
     PERFORM pg_temp.check_true(before_hash=pg_temp.fingerprint(),c.function_name||' invalid positive probe has no effects');
 
     FOREACH actor IN ARRAY ARRAY['owner','admin','manager','tech','sales','cashier','viewer','tech_true'] LOOP
-      expected := pg_temp.call_as(actor,'authenticated',format(
-        'SELECT to_jsonb(public.current_user_can(%L) AND (%L IS NULL OR public.current_user_can(%L)))',
-        c.capability,c.additional_capability,c.additional_capability
-      )) #>> '{}' = 'true';
+      IF c.function_name = 'finance_pending_historicals' THEN
+        expected := actor IN ('owner','admin');
+      ELSE
+        expected := pg_temp.call_as(actor,'authenticated',format(
+          'SELECT to_jsonb(public.current_user_can(%L) AND (%L IS NULL OR public.current_user_can(%L)))',
+          c.capability,c.additional_capability,c.additional_capability
+        )) #>> '{}' = 'true';
+      END IF;
       before_hash := pg_temp.fingerprint();
       result := pg_temp.call_as(actor,'authenticated',c.positive_sql);
       PERFORM pg_temp.check_true(pg_temp.is_denied(result) = NOT expected,
@@ -261,7 +312,10 @@ BEGIN
     PERFORM pg_temp.check_true(p.proconfig @> ARRAY['search_path=pg_catalog, pg_temp'],c.function_name||' hardened search_path');
     PERFORM pg_temp.check_true(NOT has_function_privilege('anon',p.oid,'EXECUTE'),c.function_name||' anon execute revoked');
     PERFORM pg_temp.check_true(has_function_privilege('authenticated',p.oid,'EXECUTE'),c.function_name||' authenticated execute explicit');
-    PERFORM pg_temp.check_true(position('require_action_authority' in pg_get_functiondef(p.oid))>0,c.function_name||' wrapper gate present');
+    PERFORM pg_temp.check_true(
+      position('require_action_authority' in pg_get_functiondef(p.oid))>0
+      OR position('has_action_authority' in pg_get_functiondef(p.oid))>0,
+      c.function_name||' wrapper gate present');
     IF c.function_name='generate_finance_insights' THEN
       PERFORM pg_temp.check_true(position('advancedFinance' in pg_get_functiondef(p.oid))>0,
         'generate_finance_insights plan entitlement present');
@@ -507,7 +561,9 @@ END $$;
 -- payment_transactions original-flaw negative control, entirely local and
 -- rolled back to a savepoint before testing the candidate contract.
 SAVEPOINT before_old_payment_contract;
-GRANT INSERT, UPDATE, DELETE ON public.payment_transactions TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.payment_transactions TO authenticated;
+CREATE POLICY pt_select_old_control ON public.payment_transactions FOR SELECT TO authenticated
+  USING (business_id=public.current_user_business_id());
 CREATE POLICY pt_write_old_control ON public.payment_transactions TO authenticated
   USING (business_id=public.current_user_business_id())
   WITH CHECK (business_id=public.current_user_business_id());
@@ -544,6 +600,267 @@ BEGIN
   PERFORM pg_temp.check_true(before_hash=pg_temp.fingerprint(),'candidate payment attempts ZERO EFFECTS');
   PERFORM pg_temp.check_true(NOT EXISTS(SELECT 1 FROM pg_policy WHERE polrelid='public.payment_transactions'::regclass AND polcmd<>'r'),'payment_transactions has no write policy');
   PERFORM pg_temp.check_true(NOT has_table_privilege('authenticated','public.payment_transactions','INSERT,UPDATE,DELETE'),'authenticated payment_transactions DML grants revoked');
+END $$;
+
+-- Phase B blocker 1: the old direct supplier DELETE bypasses stock/debt/audit.
+SAVEPOINT before_old_supplier_delete;
+GRANT DELETE ON public.supplier_purchases, public.supplier_purchase_items TO authenticated;
+CREATE POLICY supplier_purchases_old_delete_control
+  ON public.supplier_purchases FOR DELETE TO authenticated
+  USING (business_id=public.current_business_id() AND public.current_user_can('inventory'));
+CREATE POLICY supplier_purchase_items_old_delete_control
+  ON public.supplier_purchase_items FOR DELETE TO authenticated
+  USING (business_id=public.current_business_id() AND public.current_user_can('inventory'));
+
+DO $$ DECLARE r jsonb;
+BEGIN
+  r:=pg_temp.call_as('sales','authenticated',format(
+    'WITH x AS (DELETE FROM public.supplier_purchases WHERE id=%L RETURNING id) SELECT to_jsonb(id) FROM x',
+    pg_temp.id('purchaseExploit')));
+  PERFORM pg_temp.check_true(r#>>'{}'=pg_temp.id('purchaseExploit')::text,
+    'negative control old supplier direct DELETE succeeds');
+  PERFORM pg_temp.check_true(NOT EXISTS(SELECT 1 FROM public.supplier_purchases WHERE id=pg_temp.id('purchaseExploit')),
+    'negative control deletes supplier purchase');
+  PERFORM pg_temp.check_true(NOT EXISTS(SELECT 1 FROM public.supplier_purchase_items WHERE purchase_id=pg_temp.id('purchaseExploit')),
+    'negative control cascades supplier items');
+  PERFORM pg_temp.check_true(EXISTS(SELECT 1 FROM public.supplier_account_movements WHERE description='Exploit debt' AND purchase_id IS NULL)
+    AND EXISTS(SELECT 1 FROM public.supplier_payments WHERE id=pg_temp.id('supplierPaymentExploit') AND purchase_id IS NULL)
+    AND EXISTS(SELECT 1 FROM public.expenses WHERE id=pg_temp.id('supplierExpenseExploit') AND supplier_purchase_id IS NULL),
+    'negative control detaches debt payment and expense');
+  PERFORM pg_temp.check_true((SELECT stock_quantity=10 FROM public.inventory WHERE id=pg_temp.id('inventoryA'))
+    AND NOT EXISTS(SELECT 1 FROM public.inventory_movements WHERE reference_id=pg_temp.id('purchaseExploit'))
+    AND NOT EXISTS(SELECT 1 FROM public.supplier_purchase_deletions WHERE purchase_id=pg_temp.id('purchaseExploit')),
+    'negative control skips stock reversal and deletion tombstone');
+END $$;
+
+ROLLBACK TO SAVEPOINT before_old_supplier_delete;
+
+DO $$ DECLARE actor text; before_hash jsonb; r jsonb;
+BEGIN
+  FOREACH actor IN ARRAY ARRAY['owner','admin','manager','tech','sales','cashier','viewer','inactive','ownerB'] LOOP
+    before_hash:=pg_temp.fingerprint();
+    r:=pg_temp.call_as(actor,'authenticated',format(
+      'WITH x AS (DELETE FROM public.supplier_purchases WHERE id=%L RETURNING id) SELECT to_jsonb(id) FROM x',
+      pg_temp.id('purchaseExploit')));
+    PERFORM pg_temp.check_true(pg_temp.is_denied(r),actor||' supplier purchase direct DELETE denied');
+    PERFORM pg_temp.check_true(before_hash=pg_temp.fingerprint(),actor||' supplier purchase DELETE ZERO EFFECTS');
+
+    r:=pg_temp.call_as(actor,'authenticated',format(
+      'WITH x AS (DELETE FROM public.supplier_purchase_items WHERE purchase_id=%L RETURNING id) SELECT to_jsonb(id) FROM x',
+      pg_temp.id('purchaseSafe')));
+    PERFORM pg_temp.check_true(pg_temp.is_denied(r),actor||' supplier item direct DELETE denied');
+    PERFORM pg_temp.check_true(before_hash=pg_temp.fingerprint(),actor||' supplier item DELETE ZERO EFFECTS');
+  END LOOP;
+  PERFORM pg_temp.deny(NULL,'anon',format(
+    'WITH x AS (DELETE FROM public.supplier_purchases WHERE id=%L RETURNING id) SELECT to_jsonb(id) FROM x',
+    pg_temp.id('purchaseExploit')),'anonymous supplier purchase DELETE');
+
+  r:=pg_temp.call_as('manager','authenticated',format(
+    'SELECT public.delete_supplier_purchase_safe(%L,%L,%L)',
+    pg_temp.id('A'),pg_temp.id('purchaseSafe'),pg_temp.id('manager')));
+  PERFORM pg_temp.check_true(r->>'ok'='true' AND r->>'replay'='false','canonical supplier safe delete succeeds');
+  PERFORM pg_temp.check_true(NOT EXISTS(SELECT 1 FROM public.supplier_purchases WHERE id=pg_temp.id('purchaseSafe'))
+    AND NOT EXISTS(SELECT 1 FROM public.supplier_purchase_items WHERE purchase_id=pg_temp.id('purchaseSafe'))
+    AND NOT EXISTS(SELECT 1 FROM public.supplier_account_movements WHERE purchase_id=pg_temp.id('purchaseSafe')),
+    'canonical supplier safe delete removes purchase items and debt');
+  PERFORM pg_temp.check_true((SELECT stock_quantity=8 FROM public.inventory WHERE id=pg_temp.id('inventoryA'))
+    AND EXISTS(SELECT 1 FROM public.inventory_movements WHERE reference_id=pg_temp.id('purchaseSafe'))
+    AND EXISTS(SELECT 1 FROM public.supplier_purchase_deletions WHERE purchase_id=pg_temp.id('purchaseSafe') AND user_id=pg_temp.id('manager')),
+    'canonical supplier safe delete reverses stock and writes tombstone');
+END $$;
+
+-- Phase B blocker 2: old table-level UPDATE forges canonical payment/fiscal truth.
+SAVEPOINT before_old_comprobante_update;
+GRANT UPDATE ON public.comprobantes TO authenticated;
+
+DO $$ DECLARE actor text; r jsonb;
+BEGIN
+  FOREACH actor IN ARRAY ARRAY['sales','cashier'] LOOP
+    r:=pg_temp.call_as(actor,'authenticated',format(
+      'WITH x AS (UPDATE public.comprobantes SET total=1,total_cobrado=1000,saldo_pendiente=0,payment_status=''paid'',cae=''FORGED'',numero_fiscal=''X-1'' WHERE id=%L RETURNING id) SELECT to_jsonb(id) FROM x',
+      pg_temp.id('compForge')));
+    PERFORM pg_temp.check_true(r#>>'{}'=pg_temp.id('compForge')::text,
+      'negative control old comprobantes UPDATE succeeds as '||actor);
+    PERFORM pg_temp.check_true((SELECT total=1 AND total_cobrado=1000 AND saldo_pendiente=0
+      AND payment_status='paid' AND cae='FORGED' AND numero_fiscal='X-1'
+      FROM public.comprobantes WHERE id=pg_temp.id('compForge')),
+      'negative control forges comprobante canonical fields as '||actor);
+    PERFORM pg_temp.check_true(NOT EXISTS(SELECT 1 FROM public.comprobante_payments WHERE comprobante_id=pg_temp.id('compForge'))
+      AND NOT EXISTS(SELECT 1 FROM public.financial_movements WHERE reference_id=pg_temp.id('compForge'))
+      AND NOT EXISTS(SELECT 1 FROM public.business_finance_entries WHERE reference_comprobante_id=pg_temp.id('compForge')),
+      'negative control forged state has no canonical ledger as '||actor);
+    UPDATE public.comprobantes SET total=100,total_cobrado=0,saldo_pendiente=100,payment_status='pending',cae=NULL,numero_fiscal=NULL
+      WHERE id=pg_temp.id('compForge');
+  END LOOP;
+END $$;
+
+ROLLBACK TO SAVEPOINT before_old_comprobante_update;
+
+DO $$ DECLARE actor text; before_hash jsonb; r jsonb;
+BEGIN
+  FOREACH actor IN ARRAY ARRAY['owner','admin','manager','tech','sales','cashier','viewer','inactive','ownerB'] LOOP
+    before_hash:=pg_temp.fingerprint();
+    r:=pg_temp.call_as(actor,'authenticated',format(
+      'WITH x AS (UPDATE public.comprobantes SET total=1,total_cobrado=1000,saldo_pendiente=0,payment_status=''paid'',cae=''FORGED'',numero_fiscal=''X-1'' WHERE id=%L RETURNING id) SELECT to_jsonb(id) FROM x',
+      pg_temp.id('compForge')));
+    PERFORM pg_temp.check_true(pg_temp.is_denied(r),actor||' protected comprobantes UPDATE denied');
+    PERFORM pg_temp.check_true(before_hash=pg_temp.fingerprint(),actor||' protected comprobantes UPDATE ZERO EFFECTS');
+  END LOOP;
+  PERFORM pg_temp.deny(NULL,'anon',format(
+    'WITH x AS (UPDATE public.comprobantes SET total=1 WHERE id=%L RETURNING id) SELECT to_jsonb(id) FROM x',
+    pg_temp.id('compForge')),'anonymous protected comprobantes UPDATE');
+
+  r:=pg_temp.call_as('sales','authenticated',format(
+    'WITH x AS (UPDATE public.comprobantes SET observaciones=''descriptive-safe'',updated_at=now() WHERE id=%L RETURNING observaciones) SELECT to_jsonb(observaciones) FROM x',
+    pg_temp.id('compForge')));
+  PERFORM pg_temp.check_true(r#>>'{}'='descriptive-safe','safe comprobante descriptive UPDATE remains');
+
+  r:=pg_temp.call_as('cashier','authenticated',format(
+    'SELECT public.issue_remito_atomic(%L,%L)',pg_temp.id('compDraft'),pg_temp.id('A')));
+  PERFORM pg_temp.check_true(r->>'ok'='true' AND r->>'replay'='false','canonical remito issue succeeds');
+  PERFORM pg_temp.check_true((SELECT estado='emitido' AND status='issued' AND estado_fiscal='no_fiscal'
+    FROM public.comprobantes WHERE id=pg_temp.id('compDraft')),'canonical remito issue owns state transition');
+END $$;
+
+-- Phase B blocker 3: old cp_insert lets a viewer manufacture ledger state.
+SAVEPOINT before_old_cp_insert;
+GRANT INSERT ON public.comprobante_payments TO authenticated;
+CREATE POLICY cp_insert_old_control ON public.comprobante_payments FOR INSERT TO authenticated
+  WITH CHECK (business_id=public.current_user_business_id());
+
+DO $$ DECLARE r jsonb;
+BEGIN
+  r:=pg_temp.call_as('viewer','authenticated',format(
+    'INSERT INTO public.comprobante_payments(id,comprobante_id,business_id,amount,amount_ars,payment_method,created_by) VALUES(%L,%L,%L,100,100,''efectivo'',%L) RETURNING jsonb_build_object(''ok'',true)',
+    pg_temp.id('cpOld'),pg_temp.id('compCP'),pg_temp.id('A'),pg_temp.id('viewer')));
+  PERFORM pg_temp.check_true(EXISTS(SELECT 1 FROM public.comprobante_payments WHERE id=pg_temp.id('cpOld')),
+    'negative control old cp_insert viewer succeeds');
+  PERFORM pg_temp.check_true((SELECT estado_comercial='pagado' AND total_cobrado=100 AND saldo_pendiente=0
+    FROM public.comprobantes WHERE id=pg_temp.id('compCP')),'negative control cp_insert marks comprobante paid');
+  PERFORM pg_temp.check_true(EXISTS(SELECT 1 FROM public.financial_movements WHERE comprobante_id=pg_temp.id('compCP'))
+    AND EXISTS(SELECT 1 FROM public.business_finance_entries WHERE reference_comprobante_id=pg_temp.id('compCP')),
+    'negative control cp_insert creates canonical finance effects');
+END $$;
+
+ROLLBACK TO SAVEPOINT before_old_cp_insert;
+
+DO $$ DECLARE actor text; before_hash jsonb; r jsonb;
+BEGIN
+  FOREACH actor IN ARRAY ARRAY['owner','admin','manager','tech','sales','cashier','viewer','inactive','ownerB'] LOOP
+    before_hash:=pg_temp.fingerprint();
+    r:=pg_temp.call_as(actor,'authenticated',format(
+      'WITH x AS (INSERT INTO public.comprobante_payments(comprobante_id,business_id,amount,amount_ars,payment_method,created_by) VALUES(%L,%L,100,100,''efectivo'',%L) RETURNING id) SELECT to_jsonb(id) FROM x',
+      pg_temp.id('compCP'),pg_temp.id('A'),pg_temp.id(actor)));
+    PERFORM pg_temp.check_true(pg_temp.is_denied(r),actor||' direct comprobante payment INSERT denied');
+    PERFORM pg_temp.check_true(before_hash=pg_temp.fingerprint(),actor||' direct comprobante payment INSERT ZERO EFFECTS');
+  END LOOP;
+  PERFORM pg_temp.deny(NULL,'anon',format(
+    'WITH x AS (INSERT INTO public.comprobante_payments(comprobante_id,business_id,amount,amount_ars,payment_method) VALUES(%L,%L,100,100,''efectivo'') RETURNING id) SELECT to_jsonb(id) FROM x',
+    pg_temp.id('compCP'),pg_temp.id('A')),'anonymous comprobante payment INSERT');
+
+  r:=pg_temp.call_as('cashier','authenticated',format(
+    'SELECT public.replace_comprobante_payment(%L,%L,''efectivo'',100,100,''ARS'',1,''canonical positive'',%L,0,NULL,''l3b-payment-positive'')',
+    pg_temp.id('compCP'),pg_temp.id('A'),pg_temp.id('cashier')));
+  PERFORM pg_temp.check_true(r->>'ok'='true','canonical comprobante payment replacement/creation succeeds');
+  PERFORM pg_temp.check_true((SELECT count(*)=1 FROM public.comprobante_payments WHERE comprobante_id=pg_temp.id('compCP') AND replaced_at IS NULL)
+    AND (SELECT estado_comercial='pagado' AND total_cobrado=100 AND saldo_pendiente=0 FROM public.comprobantes WHERE id=pg_temp.id('compCP')),
+    'canonical payment produces reconciled comprobante state');
+  PERFORM pg_temp.check_true(EXISTS(SELECT 1 FROM public.financial_movements WHERE comprobante_id=pg_temp.id('compCP'))
+    AND EXISTS(SELECT 1 FROM public.business_finance_entries WHERE reference_comprobante_id=pg_temp.id('compCP')),
+    'canonical payment produces ledger effects');
+END $$;
+
+-- Bounded corrections: owner/admin diagnostic, no transaction read surface,
+-- canonical identity resolution, and non-spoofable service role bypass.
+DO $$ DECLARE actor text; r jsonb; expected boolean; before_hash jsonb;
+BEGIN
+  FOREACH actor IN ARRAY ARRAY['owner','admin','manager','tech','sales','cashier','viewer'] LOOP
+    before_hash:=pg_temp.fingerprint();
+    r:=pg_temp.call_as(actor,'authenticated',format(
+      'SELECT public.finance_pending_historicals(%L)',pg_temp.id('A')));
+    expected:=actor IN ('owner','admin');
+    PERFORM pg_temp.check_true(pg_temp.is_denied(r)=NOT expected,
+      'finance_pending_historicals owner/admin matrix '||actor);
+    PERFORM pg_temp.check_true(before_hash=pg_temp.fingerprint(),
+      'finance_pending_historicals read-only '||actor);
+  END LOOP;
+
+  FOREACH actor IN ARRAY ARRAY['owner','admin','manager','tech','sales','cashier','viewer','inactive','ownerB'] LOOP
+    r:=pg_temp.call_as(actor,'authenticated','SELECT coalesce(jsonb_agg(t),''[]''::jsonb) FROM public.payment_transactions t');
+    PERFORM pg_temp.check_true(pg_temp.is_denied(r),actor||' payment_transactions direct SELECT denied');
+  END LOOP;
+  PERFORM pg_temp.deny(NULL,'anon','SELECT coalesce(jsonb_agg(t),''[]''::jsonb) FROM public.payment_transactions t',
+    'anonymous payment_transactions SELECT');
+  r:=pg_temp.call_with_claim(NULL,'service_role','service_role',
+    'SELECT coalesce(jsonb_agg(t),''[]''::jsonb) FROM public.payment_transactions t');
+  PERFORM pg_temp.check_true(jsonb_typeof(r)='array','service_role payment transaction history preserved');
+
+  r:=pg_temp.call_with_claim('viewer','authenticated','service_role',format(
+    'SELECT public.finance_dashboard_summary(%L,current_date,current_date)',pg_temp.id('A')));
+  PERFORM pg_temp.check_true(pg_temp.is_denied(r),'authenticated DB role cannot forge service-role bypass');
+  r:=pg_temp.call_with_claim(NULL,'service_role','service_role',format(
+    'SELECT public.finance_dashboard_summary(%L,current_date,current_date)',pg_temp.id('A')));
+  PERFORM pg_temp.check_true(COALESCE(r->>'sqlstate','')<>'42501'
+    AND COALESCE(r->>'error_code','')<>'FORBIDDEN',
+    'real service_role reaches preserved implementation contract');
+
+  r:=pg_temp.call_as('legacyActor','authenticated',format(
+    'SELECT public.finance_dashboard_summary(%L,current_date,current_date)',pg_temp.id('B')));
+  PERFORM pg_temp.check_true(NOT pg_temp.is_denied(r),'canonical duplicate/legacy profile selects newest business B');
+  r:=pg_temp.call_as('legacyActor','authenticated',format(
+    'SELECT public.finance_dashboard_summary(%L,current_date,current_date)',pg_temp.id('A')));
+  PERFORM pg_temp.check_true(pg_temp.is_denied(r),'canonical duplicate/legacy profile rejects stale business A');
+END $$;
+
+-- Exact grants/policies/column boundary after Phase B.
+DO $$ DECLARE v_columns text[]; v_gate text; v_predicate text; v_pending text;
+BEGIN
+  PERFORM pg_temp.check_true(NOT has_table_privilege('authenticated','public.supplier_purchases','DELETE')
+    AND NOT has_table_privilege('authenticated','public.supplier_purchase_items','DELETE'),
+    'supplier purchase tables have no authenticated DELETE grant');
+  PERFORM pg_temp.check_true(NOT EXISTS(SELECT 1 FROM pg_policy WHERE polrelid IN
+    ('public.supplier_purchases'::regclass,'public.supplier_purchase_items'::regclass) AND polcmd IN ('d','*')),
+    'supplier purchase tables have no permissive DELETE policy');
+  PERFORM pg_temp.check_true(NOT has_table_privilege('authenticated','public.comprobantes','UPDATE'),
+    'comprobantes has no table-level authenticated UPDATE');
+  SELECT array_agg(column_name ORDER BY column_name) INTO v_columns
+    FROM information_schema.column_privileges
+   WHERE table_schema='public' AND table_name='comprobantes'
+     AND grantee='authenticated' AND privilege_type='UPDATE';
+  PERFORM pg_temp.check_true(v_columns=ARRAY['observaciones','updated_at'],
+    'comprobantes exact safe UPDATE column allowlist');
+  PERFORM pg_temp.check_true(NOT has_column_privilege('authenticated','public.comprobantes','total','UPDATE')
+    AND NOT has_column_privilege('authenticated','public.comprobantes','total_cobrado','UPDATE')
+    AND NOT has_column_privilege('authenticated','public.comprobantes','saldo_pendiente','UPDATE')
+    AND NOT has_column_privilege('authenticated','public.comprobantes','payment_status','UPDATE')
+    AND NOT has_column_privilege('authenticated','public.comprobantes','cae','UPDATE')
+    AND NOT has_column_privilege('authenticated','public.comprobantes','numero_fiscal','UPDATE')
+    AND NOT has_column_privilege('authenticated','public.comprobantes','estado','UPDATE')
+    AND NOT has_column_privilege('authenticated','public.comprobantes','status','UPDATE'),
+    'comprobantes canonical financial fiscal and state columns protected');
+  PERFORM pg_temp.check_true(NOT has_table_privilege('authenticated','public.comprobante_payments','INSERT')
+    AND NOT EXISTS(SELECT 1 FROM pg_policy WHERE polrelid='public.comprobante_payments'::regclass AND polcmd IN ('a','*')),
+    'comprobante_payments has no authenticated INSERT path');
+  PERFORM pg_temp.check_true(NOT has_table_privilege('authenticated','public.payment_transactions','SELECT')
+    AND NOT EXISTS(SELECT 1 FROM pg_policy WHERE polrelid='public.payment_transactions'::regclass AND polcmd IN ('r','*')),
+    'payment_transactions has no browser SELECT path');
+  PERFORM pg_temp.check_true(has_table_privilege('service_role','public.payment_transactions','SELECT,INSERT,UPDATE,DELETE'),
+    'payment_transactions service-role storage contract preserved');
+
+  SELECT pg_get_functiondef('private.require_action_authority(uuid,text,text,text)'::regprocedure) INTO v_gate;
+  SELECT pg_get_functiondef('private.has_action_authority(uuid,text,text,text)'::regprocedure) INTO v_predicate;
+  PERFORM pg_temp.check_true(v_gate LIKE '%private.has_action_authority%'
+    AND v_predicate LIKE '%get_my_profile()%'
+    AND v_predicate LIKE '%current_setting(''role'', true)%'
+    AND v_predicate NOT LIKE '%auth.role() = ''service_role''%',
+    'authority gate uses canonical business and effective DB role');
+  SELECT pg_get_functiondef('public.finance_pending_historicals(uuid)'::regprocedure) INTO v_pending;
+  PERFORM pg_temp.check_true(v_pending LIKE '%v_role NOT IN (%'
+    AND v_pending LIKE '%''owner''%' AND v_pending LIKE '%''admin''%',
+    'finance pending historicals restores owner/admin authority');
+  PERFORM pg_temp.check_true(has_function_privilege('authenticated','public.issue_remito_atomic(uuid,uuid)','EXECUTE')
+    AND NOT has_function_privilege('anon','public.issue_remito_atomic(uuid,uuid)','EXECUTE'),
+    'issue_remito_atomic exact browser execution grant');
 END $$;
 
 -- No remaining write policy may use is_staff as its action authority.

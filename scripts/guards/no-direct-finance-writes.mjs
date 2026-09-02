@@ -46,15 +46,9 @@ const WRITE_OPS = ['insert', 'update', 'delete', 'upsert'];
 // UPDATE/DELETE en ninguna excepción. Toda excepción futura exige: motivo,
 // owner y plan de migración (ver docs/.../finance-write-guard.md).
 const ALLOWLIST = [
-  {
-    code: 'E1',
-    file: 'src/services/comprobanteService.ts',
-    table: 'comprobante_payments',
-    op: 'insert',
-    reason: 'Cobro inicial de comprobante (registrarPago). POS/checkout/ARCA sensible; ' +
-            'INSERT acotado por business_id; UPDATE/DELETE bloqueados; replace ya va por RPC.',
-    migrateTo: 'RPC en Fase 10/11 posterior',
-  },
+  // ── E1 RETIRADA — Lote 3 Phase B ─────────────────────────────────
+  // `registrarPago` no tenia callers y permitia fabricar estado financiero
+  // mediante INSERT directo. Los cobros quedan exclusivamente en RPCs canonicas.
   // ── E2 RETIRADA — P0-CC · CC-E ─────────────────────────────────────────────
   // Era: {file: 'src/services/cuentasService.ts', table: 'account_movements',
   //       op: 'insert', migrateTo: 'RPC posterior'}.
@@ -205,10 +199,10 @@ function runSelfTest() {
       file: 'src/components/Baz.tsx',
       content: `await supabase.from('order_payments').delete().eq('id', id)`,
       expect: 'violation', table: 'order_payments', op: 'delete' },
-    { n: 4, desc: 'permite E1 (comprobante_payments insert en comprobanteService)',
+    { n: 4, desc: 'L3B: RECHAZA comprobante_payments insert incluso en comprobanteService',
       file: 'src/services/comprobanteService.ts',
       content: `const { error } = await supabase.from('comprobante_payments').insert({ amount })`,
-      expect: 'permitted', table: 'comprobante_payments', op: 'insert', code: 'E1' },
+      expect: 'violation', table: 'comprobante_payments', op: 'insert' },
     // CC-E invirtió este caso: cuentasService ERA el archivo allowlisted para
     // insertar en el ledger. Ya no lo es, y el guard tiene que decirlo.
     { n: 5, desc: 'CC-E: RECHAZA account_movements insert incluso en cuentasService',
@@ -219,7 +213,7 @@ function runSelfTest() {
       file: 'src/pages/Expenses.tsx',
       content: `await supabase.from('expenses').insert({ amount })`,
       expect: 'permitted', table: 'expenses', op: 'insert', code: 'E3' },
-    { n: 7, desc: 'rechaza E1 si cambia insert -> update',
+    { n: 7, desc: 'rechaza comprobante_payments update',
       file: 'src/services/comprobanteService.ts',
       content: `await supabase.from('comprobante_payments').update({ amount }).eq('id', id)`,
       expect: 'violation', table: 'comprobante_payments', op: 'update' },

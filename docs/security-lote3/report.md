@@ -152,3 +152,177 @@ The before snapshot is catalog-only and records 25 definitions/ACLs/search paths
 ## R. Recommendation
 
 Phase A is an implementation candidate only. Open the PR, do not merge/deploy/push DB, and require independent adversarial review before any rollout.
+
+---
+
+# Phase B corrective addendum (authoritative over Phase A where different)
+
+## A. Baseline integrity
+
+Work continued only in the isolated Lote 3 worktree. Phase B started from
+`da114ee89123cec8eec4630262acbcdbba24d869`; audited main remained
+`cb9299652d11cc5b3fd3d595407c1454eb5486e0`. The prior commits were not amended.
+
+## B. Independent-review blockers addressed
+
+1. Supplier DELETE: the Phase A ALL policies and table grant allowed a browser
+   to bypass stock reversal, debt cleanup and the deletion tombstone. A
+   savepoint control reproduces that corrupt result. Phase B removes both direct
+   DELETE grants/policies; the same role matrix is denied with zero effects, and
+   `delete_supplier_purchase_safe` still reverses stock and records the tombstone.
+2. Comprobante UPDATE: a table-level grant let sales/cashier forge paid totals,
+   CAE and fiscal numbering without payment or ledger rows. A rollback control
+   reproduces it. Authenticated now has only column UPDATE on `observaciones`
+   and `updated_at`; remito issuance uses `issue_remito_atomic`.
+3. Payment INSERT: membership-only `cp_insert` let viewer manufacture a payment,
+   paid receipt and both ledger effects. A rollback control reproduces it.
+   Phase B drops the policy and revokes browser INSERT/UPDATE/DELETE; canonical
+   replacement creates reconciled payment and ledger effects.
+
+## C. Supplier safe-delete contract
+
+`supplier_purchases` and `supplier_purchase_items` expose no authenticated
+DELETE grant and no DELETE/ALL policy. Product deletion already called
+`delete_supplier_purchase_safe`; the UI is preserved. A valid manager safe
+delete changes stock 10 → 8, removes purchase/items/debt and writes the immutable
+deletion record.
+
+## D. Comprobantes protected-column contract
+
+The real table has 65 columns. Authenticated may directly update only
+`observaciones` and `updated_at`. The other 63 are protected:
+
+`id`, `order_id`, `customer_id`, `tipo`, `numero`, `punto_venta`, `fecha`,
+`subtotal`, `impuestos`, `total`, `estado`, `cae`, `cae_vencimiento`,
+`afip_response`, `condicion_fiscal`, `created_at`, `business_id`, `created_by`,
+`estado_fiscal`, `tipo_comprobante_fiscal`, `numero_comprobante`,
+`resultado_fiscal`, `observaciones_fiscales`, `error_codigo`, `error_mensaje`,
+`request_data`, `response_data`, `fecha_emision_fiscal`, `currency`, `total_ars`,
+`total_usd`, `exchange_rate`, `type`, `number`, `date`, `tax`, `status`,
+`estado_comercial`, `es_fiscal`, `emitir_en_arca`, `numero_fiscal`,
+`descuento_total`, `recargo_total`, `total_bruto`, `total_cobrado`,
+`saldo_pendiente`, `total_comisiones`, `total_neto`, `payment_status`,
+`payment_provider`, `payment_channel`, `payment_integration`,
+`external_reference`, `provider_order_id`, `provider_payment_id`, `gross_amount`,
+`fee_amount`, `net_amount`, `amount_paid`, `payment_approved_at`, `local_id`,
+`comprobante_original_id`, `numero_secuencial`.
+
+This fail-closed boundary covers identity/tenant links, economic totals,
+reconciliation, lifecycle/annulment, fiscal authorization/numbering and provider
+state. The descriptive note remains usable; canonical transitions stay in
+SECURITY DEFINER functions/triggers.
+
+## E. comprobante_payments canonical-write contract
+
+Authenticated retains capability-gated SELECT only. INSERT/UPDATE/DELETE and
+`cp_insert` are absent. The only historical browser writer,
+`comprobanteService.registrarPago`, had no callers and was removed; static guard
+exception E1 was retired. Checkout and `replace_comprobante_payment` are the
+canonical writers.
+
+## F. finance_pending_historicals
+
+The wrapper first requires active same-tenant `finance`, then requires the
+canonical profile role to be exactly owner/admin. Manager, tech, sales, cashier
+and viewer are denied even if an override could otherwise grant finance.
+
+## G. payment_transactions read contract
+
+No Beta browser reader exists. Authenticated has no SELECT or DML and no policy;
+service-role history/storage access, rows, FKs, indexes and triggers are kept.
+
+## H. Canonical identity gate
+
+`private.require_action_authority` now obtains business and active state from the
+existing `get_my_profile()` canonical identity helper. It no longer duplicates
+nullable profile ordering. An explicit inactive profile denies, and a duplicate legacy
+fixture resolves only to the canonical newest linked profile without widening
+the stale tenant.
+
+## I. Service-role gate
+
+Measured locally inside SECURITY DEFINER: `current_user`/`session_user` are
+`postgres`; an authenticated DB role with forged JWT `role=service_role` still
+has effective setting `authenticated`; a real service request has setting
+`service_role`. Therefore bypass uses `current_setting('role', true)`, not
+`auth.role()` and not `current_user`. Forged claim is denied; real service access
+passes in SQL and PostgREST controls.
+
+## J. RLS/grants after-state
+
+| Table | anon/PUBLIC | authenticated | service role | Policies / parallel paths |
+| --- | --- | --- | --- | --- |
+| `supplier_purchases` | SELECT grant; RLS yields no tenant for anon | SELECT/INSERT/UPDATE; no DELETE | no direct table grant | three inventory-capability policies; no DELETE/ALL |
+| `supplier_purchase_items` | SELECT grant; RLS yields no tenant for anon | SELECT/INSERT/UPDATE; no DELETE | no direct table grant | three inventory-capability policies; no DELETE/ALL |
+| `comprobantes` | no effective table privilege | SELECT/INSERT/DELETE, UPDATE only `observaciones,updated_at`; existing manager-only DELETE predicate unchanged | no direct table grant | capability INSERT/UPDATE plus existing SELECT/delete predicates; column grant blocks protected fields before RLS can permit them |
+| `comprobante_payments` | none | capability SELECT only; no INSERT/UPDATE/DELETE | no direct table grant | one SELECT policy, no write policy |
+| `payment_transactions` | none | none | SELECT/INSERT/UPDATE baseline grants | no policies; service role bypasses RLS by platform contract |
+
+The catalog sweep found no permissive policy that OR-reopens any of the four
+closed operations.
+
+## K. Tests
+
+- Phase B SQL authority suite: 1,054 assertions passed. It includes the three
+  rollback-only old-exploit controls, all-role candidate negatives, zero-effect
+  fingerprints, canonical positive paths, owner/admin diagnostics,
+  browser/service transaction reads, forged-service claims and duplicate-profile
+  resolution.
+- Real signed-JWT Kong/PostgREST matrix: 65 requests passed across every direct
+  surface and the affected valid supplier, remito, payment and service paths.
+- Lote 2: 441 assertions plus migration apply/rollback/idempotent-reapply passed.
+  Mobile 2A SQL, its guard, finance-write guard, SECURITY DEFINER guards and the
+  fragile-function-definition guard also passed with their mutation self-tests.
+- Unit tests: 1,100/1,100. Focused Vitest: 19/19 across the credit-note association
+  regression and Mobile 2A intake service/model. `typecheck`, `lint:errors` and
+  production build passed; the build retains only the pre-existing chunk-size
+  warnings.
+- Mobile 2A local Playwright: 3/3 passed. The requested Caja/comprobante legacy
+  spec stopped before reaching the Lote 3 path because it still requests
+  `inventory-new-button`; the product and `tests/e2e/README.md` identify
+  `inventory-new-product-button` as canonical and explicitly record the former
+  selector as baseline legacy debt. The two supplier smoke checks passed and the
+  detail block was conditionally skipped after the preceding failure. No
+  out-of-scope product or fixture change was made to manufacture green.
+
+The static Lote 3 guard passes and its self-test detects 13 independent authority
+mutations. A clean local rebuild applies the candidate after temporarily
+neutralizing seven pre-existing migration assertions whose ACL expectations no
+longer match the current earlier migration chain; those temporary edits are not
+part of the candidate.
+
+The production preflight re-read catalog metadata only and passed against
+`origin/main@cb9299652d11cc5b3fd3d595407c1454eb5486e0`: 25 RPCs, 75
+`is_staff` policies and `payment_transactions` metadata remained unchanged.
+
+Direct SQL execution as `anon` of any function whose EXECUTE ACL is revoked
+causes a PostgreSQL SIGSEGV in this local Supabase image. The same crash was
+reproduced on the exact Phase A baseline and on a trivial revoked function, so it
+is runtime/baseline-equivalent rather than candidate behavior. SQL verifies the
+anonymous ACL with `has_function_privilege` and zero-effect fingerprints; real
+anonymous HTTP/PostgREST requests verify the actual boundary without a crash.
+
+## L–N. Diff, commits and PR
+
+Exact files, new commit hashes and the final PR head are recorded after commit;
+this tracked report intentionally does not invent a commit's self-hash.
+
+## O. Production
+
+NO DEPLOY. NO DB PUSH. NO PRODUCTION WRITE. The corrective migration was applied
+only to a disposable local Supabase rebuild. Do not merge this PR before a
+second independent adversarial review.
+
+## P. Separate remaining pre-Beta debt
+
+SEC-08 remains a pre-Beta blocker and is not downgraded: inventory cost
+visibility, supplier financial visibility, order financial visibility, and
+`device_password` visibility require their dedicated lot. Billing, Mi Guita,
+role/capability redesign and general SEC-08 work were not mixed into Phase B.
+
+## Q. Recommendation
+
+The Phase B candidate has completed its local authority gates and is suitable
+for a second independent adversarial review. Do not merge or deploy from this
+document alone; remote CI status and immutable commit/PR identifiers belong in
+the final handoff.

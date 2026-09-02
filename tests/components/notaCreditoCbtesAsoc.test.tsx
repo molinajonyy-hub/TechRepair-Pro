@@ -229,6 +229,23 @@ describe('crearNotaCredito — CbtesAsoc canónico antes del borrador', () => {
 })
 
 describe('emitir — separación estricta entre fiscal ARCA y remito local', () => {
+  it('un remito local se emite por issue_remito_atomic y no por UPDATE directo', async () => {
+    vi.spyOn(comprobanteService, 'getById').mockResolvedValue({
+      id: NC_ID, tipo: 'remito', estado: 'borrador', estado_fiscal: 'no_fiscal', items: [],
+    } as any)
+    supabaseMock.rpc.mockResolvedValue({ data: { ok: true, replay: false }, error: null })
+
+    const result = await comprobanteService.emitir(NC_ID, BUSINESS_ID, USER_ID, false)
+
+    expect(result).toEqual({ success: true })
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(1)
+    expect(supabaseMock.rpc).toHaveBeenCalledWith('issue_remito_atomic', {
+      p_comprobante_id: NC_ID,
+      p_business_id: BUSINESS_ID,
+    })
+    expect(supabaseMock.from).not.toHaveBeenCalled()
+  })
+
   it('una Factura C con emitirArcaAhora=false falla sin UPDATE local', async () => {
     vi.spyOn(comprobanteService, 'getById').mockResolvedValue({
       id: NC_ID, tipo: 'factura_c', estado: 'borrador', estado_fiscal: 'pendiente_emision',

@@ -943,19 +943,17 @@ export const comprobanteService = {
       return { success: false, error: arcaResult.error || 'Error en ARCA' };
     }
 
-    // Única rama local: remito. Los tipos fiscales ya fallaron cerrado arriba.
-    const { error } = await supabase
-      .from('comprobantes')
-      .update({
-        estado:        'emitido',
-        status:        'issued',
-        estado_fiscal: 'no_fiscal',
-        updated_at:    new Date().toISOString(),
-      })
-      .eq('id', comprobanteId)
-      .eq('business_id', businessId);
+    // Única rama local: remito. El browser no puede cambiar columnas canónicas
+    // de comprobantes directamente; la transición mínima vive server-side.
+    const { data: issueResult, error: issueError } = await supabase.rpc('issue_remito_atomic', {
+      p_comprobante_id: comprobanteId,
+      p_business_id: businessId,
+    });
 
-    if (error) return { success: false, error: error.message };
+    if (issueError) return { success: false, error: issueError.message };
+    if (!issueResult?.ok) {
+      return { success: false, error: issueResult?.error_code || 'No se pudo emitir el remito' };
+    }
 
     if (comp.items) {
       const stockItems = comp.items
@@ -1050,38 +1048,6 @@ export const comprobanteService = {
 
     // `replay` distingue "recién anulado" de "esta key ya se había ejecutado".
     return { success: true, replay: result?.replay === true };
-  },
-
-  // ── Registrar pago sobre comprobante ──────────────────────────────────────────
-  async registrarPago(
-    comprobanteId: string,
-    businessId: string,
-    userId: string,
-    pago: ComprobantePago,
-    globalRate = 1
-  ): Promise<{ success: boolean; error?: string }> {
-    const amtARS      = pago.currency === 'USD' ? pago.amount * (pago.exchange_rate || globalRate) : pago.amount;
-    const commRate    = pago.commission_rate ?? 0;
-    const commAmt     = amtARS * commRate;
-    const netAmt      = amtARS - commAmt;
-
-    const { error } = await supabase.from('comprobante_payments').insert({
-      comprobante_id:    comprobanteId,
-      business_id:       businessId,
-      amount:            pago.amount,
-      currency:          pago.currency,
-      amount_ars:        amtARS,
-      exchange_rate:     pago.exchange_rate || globalRate,
-      payment_method:    pago.payment_method,
-      payment_provider:  pago.payment_provider || null,
-      commission_rate:   commRate,
-      commission_amount: commAmt,
-      net_amount:        netAmt,
-      date:              new Date().toISOString().split('T')[0],
-      created_by:        userId,
-    });
-
-    return error ? { success: false, error: error.message } : { success: true };
   },
 
   // ── Actualizar medio/estado de cobro ──────────────────────────────────────────
