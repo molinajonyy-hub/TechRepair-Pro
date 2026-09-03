@@ -30,7 +30,7 @@ const docker = (args, input) => execFileSync('docker', args, { input, encoding: 
 const sql = q => docker(['exec', '-i', dbContainer, 'psql', '-X', '-U', 'postgres', '-d', 'postgres', '-Atq', '-v', 'ON_ERROR_STOP=1'], q).trim()
 
 const ACTORS = ['owner', 'admin', 'manager', 'sales', 'cashier', 'tech', 'viewer', 'inactive', 'ownerB']
-const ids = Object.fromEntries([...ACTORS, 'A', 'B', 'prod', 'variant', 'prod2', 'customer', 'comp', 'compOrder', 'order', 'itemFree', 'itemOrder']
+const ids = Object.fromEntries([...ACTORS, 'A', 'B', 'prod', 'variant', 'prod2', 'customer', 'comp', 'compOrder', 'order', 'itemFree', 'itemOrder', 'supplier']
   .map(n => [n, randomUUID()]))
 
 // ── Testigos únicos ──────────────────────────────────────────────────────────
@@ -63,8 +63,9 @@ const main = async () => {
   assert(sql(`SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
                JOIN pg_namespace n ON n.oid=c.relnamespace
               WHERE n.nspname='public' AND c.relname='inventory'
-                AND t.tgname='trig_inventory_guard_cost_write' AND NOT t.tgisinternal;`) === '1',
-    'La Fase B no está aplicada en la base local (falta trig_inventory_guard_cost_write)')
+                AND t.tgname IN ('trig_inventory_guard_cost_write','trig_inventory_inherit_variant_cost')
+                AND NOT t.tgisinternal;`) === '2',
+    'Las Fases B+C no están aplicadas en la base local (faltan los triggers de costo)')
 
   const api = `http://127.0.0.1:${hostPort}/rest/v1`
   let key = Buffer.from(vars.PGRST_JWT_SECRET)
@@ -113,6 +114,7 @@ const main = async () => {
       ('${ids.prod}','${ids.A}','PRES-P','Padre','cat',${COST},${COST_USD},${SALE},10,true,true,NULL),
       ('${ids.variant}','${ids.A}','PRES-V','Variante','cat',${COST_VARIANT},0,${SALE},4,true,false,'${ids.prod}'),
       ('${ids.prod2}','${ids.A}','PRES-Q','Otro','cat',${COST_P2},0,${SALE},6,true,false,NULL);
+    INSERT INTO public.suppliers(id,business_id,name) VALUES ('${ids.supplier}','${ids.A}','Prov PRES');
     INSERT INTO public.customers(id,business_id,name,phone) VALUES ('${ids.customer}','${ids.A}','Cli','1');
     INSERT INTO public.orders(id,business_id,customer_id,status) VALUES ('${ids.order}','${ids.A}','${ids.customer}','repair');
     INSERT INTO public.comprobantes(id,business_id,order_id,customer_id,tipo,estado,subtotal,impuestos,total,total_bruto,total_cobrado,saldo_pendiente,currency,total_ars,total_usd,exchange_rate,tax,status,fecha) VALUES
@@ -315,6 +317,99 @@ const main = async () => {
   setPerm('manager', 'NULL')
   console.log(`\n  ✓ SEC-08A intacto: sin orders_view_financials no hay costo de línea de orden`)
 
+  // ═══ 8bis. FASE C — autoridad de costo en el INSERT ══════════════════════
+  // El UPDATE ya estaba cerrado, pero `sales` tiene autoridad de INSERT
+  // (`inventory_insert` pide `current_user_can('inventory')`) y por PostgREST
+  // directo podía elegir cualquier costo — sin poder leerlo después, o sea
+  // envenenamiento a ciegas del libro de costos.
+  console.log('\n--- 8bis. El INSERT no autorizado no elige el costo ---')
+  const nuevos = []
+  const crear = async (who, body) => {
+    const id = randomUUID()
+    nuevos.push(id)
+    const r = await post(ids[who], `/inventory?select=id,code`, {
+      id, business_id: ids.A, code: `PRES-N-${id.slice(0, 8)}`, name: 'Nuevo',
+      category: 'cat', sale_price: SALE, stock_quantity: 1, is_active: true, ...body,
+    })
+    return { id, r }
+  }
+
+  // (1) SUELTO con costo arbitrario → 0
+  let c = await crear('sales', { cost_price: 999999, cost_price_usd: 888 })
+  expect(c.r.status === 201, `sales tiene autoridad de INSERT y debe poder crear — ${c.r.status} ${c.r.text.slice(0, 140)}`)
+  expect(cost(c.id) === '0.00' && costUsd(c.id) === '0.00',
+    `sales impuso un costo arbitrario al crear: ${cost(c.id)} / ${costUsd(c.id)}`)
+  console.log(`  ✓ sales crea SUELTO con 999999/888 → almacenado ${cost(c.id)} / ${costUsd(c.id)}`)
+
+  // (2) SUELTO con 0 explícito → 0
+  c = await crear('sales', { cost_price: 0, cost_price_usd: 0 })
+  expect(cost(c.id) === '0.00', `el 0 de un no autorizado no quedó en 0: ${cost(c.id)}`)
+  console.log(`  ✓ sales crea SUELTO con 0 → ${cost(c.id)}`)
+
+  // (3) VARIANTE con costo malicioso → hereda del padre
+  resetCosts()
+  c = await crear('sales', { cost_price: 999999, cost_price_usd: 888, parent_id: ids.prod })
+  expect(cost(c.id) === `${COST}.00`,
+    `la variante NO heredó el costo del padre con costo malicioso: ${cost(c.id)}`)
+  expect((await get(ids.sales, `/v_inventory_costs?inventory_id=eq.${c.id}&select=cost_price`)).text.trim() === '[]',
+    'sales pudo LEER el costo heredado de la variante que creó')
+  console.log(`  ✓ sales crea VARIANTE con 999999 → heredó ${cost(c.id)} y sigue sin poder verlo`)
+
+  // (4) VARIANTE con 0 → hereda igual
+  c = await crear('sales', { cost_price: 0, cost_price_usd: 0, parent_id: ids.prod })
+  expect(cost(c.id) === `${COST}.00`, `la variante con 0 no heredó: ${cost(c.id)}`)
+  console.log(`  ✓ sales crea VARIANTE con 0 → heredó ${cost(c.id)}`)
+
+  // (5)(6) Autorizado: elige, y su 0 explícito es real
+  c = await crear('manager', { cost_price: NEW_COST, cost_price_usd: 12 })
+  expect(cost(c.id) === `${NEW_COST}.00`, `manager no pudo fijar el costo al crear: ${cost(c.id)}`)
+  console.log(`  ✓ manager crea con ${NEW_COST} → ${cost(c.id)}`)
+  c = await crear('manager', { cost_price: 0, cost_price_usd: 0 })
+  expect(cost(c.id) === '0.00', `el 0 explícito del autorizado no se respetó: ${cost(c.id)}`)
+  console.log(`  ✓ manager crea con 0 deliberado → ${cost(c.id)}`)
+
+  // (7) admin con override false → semántica de NO autorizado
+  setPerm('admin', `'{"inventory_view_costs": false}'::jsonb`)
+  c = await crear('admin', { cost_price: 999999, cost_price_usd: 888 })
+  expect(cost(c.id) === '0.00', `admin con override false impuso costo al crear: ${cost(c.id)}`)
+  console.log(`  ✓ admin + override false crea con 999999 → ${cost(c.id)}`)
+  setPerm('admin', 'NULL')
+
+  // (8) sales con override true → sí elige
+  setPerm('sales', `'{"inventory_view_costs": true}'::jsonb`)
+  c = await crear('sales', { cost_price: NEW_COST, cost_price_usd: 12 })
+  expect(cost(c.id) === `${NEW_COST}.00`, `sales con override true no pudo fijar el costo: ${cost(c.id)}`)
+  console.log(`  ✓ sales + override true crea con ${NEW_COST} → ${cost(c.id)}`)
+  setPerm('sales', 'NULL')
+
+  // (9) Padre de OTRO tenant: no hay herencia cruzada
+  const foreign = randomUUID()
+  sql(`INSERT INTO public.inventory(id,business_id,code,name,category,cost_price,cost_price_usd,sale_price,stock_quantity,is_active)
+       VALUES ('${foreign}','${ids.B}','PRES-FOREIGN','Ajeno','cat',${COST_P2},7,${SALE},1,true);`)
+  c = await crear('sales', { cost_price: 999999, cost_price_usd: 888, parent_id: foreign })
+  expect(cost(c.id) === '0.00',
+    `una variante con padre de OTRO tenant heredó o conservó costo: ${cost(c.id)} (padre ajeno ${COST_P2})`)
+  console.log(`  ✓ variante con padre de otro tenant → ${cost(c.id)} (sin herencia cruzada)`)
+  sql(`DELETE FROM public.inventory WHERE id='${foreign}';`)
+
+  // (10) El camino canónico SECDEF sigue pudiendo establecer el costo.
+  resetCosts()
+  const compra = await call('POST', ids.sales, '/rpc/create_supplier_purchase_atomic', {
+    p_business_id: ids.A, p_supplier_id: ids.supplier, p_user_id: ids.sales,
+    p_supplier_name: 'Prov PRES', p_purchase_date: new Date().toISOString().slice(0, 10),
+    p_invoice_number: 'PRES-' + randomUUID().slice(0, 6), p_total_amount: 44444,
+    p_paid_amount: 0, p_payment_method: 'efectivo', p_notes: null,
+    p_items: [{ inventory_id: ids.prod, product_name: 'Padre', quantity: 1, unit_cost: 44444, subtotal: 44444 }],
+    p_idempotency_key: 'pres-' + randomUUID(),
+  })
+  expect(compra.status === 200 && compra.text.includes('"ok": true'),
+    `la compra canónica a proveedor falló: ${compra.status} ${compra.text.slice(0, 200)}`)
+  expect(cost(ids.prod) === '44444.00',
+    `la compra canónica se registró pero NO actualizó el costo (quedó ${cost(ids.prod)}): una compra que no mueve el costo es una inconsistencia financiera`)
+  console.log(`  ✓ compra canónica por sales → el costo pasa a ${cost(ids.prod)} (la RPC conserva su autoridad)`)
+
+  if (nuevos.length) sql(`DELETE FROM public.inventory WHERE id IN ('${nuevos.join("','")}');`)
+
   // ═══ 9. CONTROLES NEGATIVOS ══════════════════════════════════════════════
   console.log('\n--- Controles negativos ---')
   resetCosts()
@@ -351,8 +446,43 @@ const main = async () => {
   expect(!closed.text.includes(String(CI_COST)), `tras restaurar, el cashier SIGUE recibiendo el costo: ${closed.text.slice(0, 160)}`)
   console.log(`  ✓ restaurado: el cashier ya no lo recibe`)
 
+  // 9.c Reabrir el INSERT: restaurar el guardián PREVIO a la Fase C, que
+  //     aceptaba el costo elegido por el cliente al crear.
   resetCosts()
-  console.log(`\nSEC-08B Fase B OK — ${checks} aserciones`)
+  const GUARD_C = sql(`SELECT pg_get_functiondef('public.tg_inventory_guard_cost_write()'::regprocedure);`)
+  sql(`
+    CREATE OR REPLACE FUNCTION public.tg_inventory_guard_cost_write() RETURNS trigger
+    LANGUAGE plpgsql SET search_path = pg_catalog, public, pg_temp AS $g$
+    BEGIN
+      IF auth.uid() IS NULL OR current_user NOT IN ('authenticated','anon') THEN RETURN NEW; END IF;
+      IF public.can_view_inventory_cost(COALESCE(NEW.business_id, OLD.business_id)) THEN RETURN NEW; END IF;
+      IF TG_OP = 'UPDATE' THEN
+        NEW.cost_price := OLD.cost_price; NEW.cost_price_usd := OLD.cost_price_usd;
+      END IF;
+      RETURN NEW;   -- INSERT: acepta lo que mande el cliente (pre-Fase C)
+    END $g$;
+    GRANT EXECUTE ON FUNCTION public.tg_inventory_guard_cost_write() TO authenticated;
+  `)
+  const abiertoStd = await crear('sales', { cost_price: 999999, cost_price_usd: 888 })
+  expect(cost(abiertoStd.id) === '999999.00',
+    `CONTROL NEGATIVO INÚTIL: con el guardián previo, el INSERT de sales NO impuso 999999 (quedó ${cost(abiertoStd.id)})`)
+  console.log(`  ✓ sin la Fase C: sales crea con 999999 → almacenado ${cost(abiertoStd.id)} (el hueco es real)`)
+  const abiertoVar = await crear('sales', { cost_price: 999999, cost_price_usd: 888, parent_id: ids.prod })
+  expect(cost(abiertoVar.id) === '999999.00',
+    `CONTROL NEGATIVO INÚTIL: con el guardián previo, la variante NO tomó 999999 (quedó ${cost(abiertoVar.id)})`)
+  console.log(`  ✓ sin la Fase C: variante con 999999 → ${cost(abiertoVar.id)} (padre real ${COST})`)
+
+  sql(`${GUARD_C};
+       GRANT EXECUTE ON FUNCTION public.tg_inventory_guard_cost_write() TO authenticated;`)
+  const cerradoStd = await crear('sales', { cost_price: 999999, cost_price_usd: 888 })
+  const cerradoVar = await crear('sales', { cost_price: 999999, cost_price_usd: 888, parent_id: ids.prod })
+  expect(cost(cerradoStd.id) === '0.00', `tras restaurar, el SUELTO sigue tomando el costo del cliente: ${cost(cerradoStd.id)}`)
+  expect(cost(cerradoVar.id) === `${COST}.00`, `tras restaurar, la VARIANTE no hereda: ${cost(cerradoVar.id)}`)
+  console.log(`  ✓ con la Fase C: suelto ${cost(cerradoStd.id)} · variante ${cost(cerradoVar.id)}`)
+  sql(`DELETE FROM public.inventory WHERE id IN ('${abiertoStd.id}','${abiertoVar.id}','${cerradoStd.id}','${cerradoVar.id}');`)
+
+  resetCosts()
+  console.log(`\nSEC-08B Fases B+C OK — ${checks} aserciones`)
 }
 
 const cleanup = () => {
@@ -369,6 +499,10 @@ const cleanup = () => {
       DELETE FROM public.orders WHERE business_id IN ('${ids.A}','${ids.B}');
       DELETE FROM public.customers WHERE business_id IN ('${ids.A}','${ids.B}');
       DELETE FROM public.inventory WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.supplier_purchase_items WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.supplier_purchases WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.supplier_account_movements WHERE business_id IN ('${ids.A}','${ids.B}');
+      DELETE FROM public.suppliers WHERE business_id IN ('${ids.A}','${ids.B}');
       DELETE FROM public.profiles WHERE business_id IN ('${ids.A}','${ids.B}');
       DELETE FROM public.businesses WHERE id IN ('${ids.A}','${ids.B}');
       DELETE FROM auth.users WHERE email LIKE '%@${TAG}';

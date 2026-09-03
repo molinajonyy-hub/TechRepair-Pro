@@ -31,6 +31,7 @@ if (!/^supabase_db_[a-z0-9-]+$/.test(dbContainer)) throw new Error('Se requiere 
 const MIGRATIONS = [
   'supabase/migrations/20260914120000_sec08b_inventory_cost_visibility.sql',
   'supabase/migrations/20260915120000_sec08b_b_cost_write_authority.sql',
+  'supabase/migrations/20260916120000_sec08b_c_insert_cost_authority.sql',
 ]
 
 const docker = (args, input) => execFileSync('docker', args, { input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 32 * 1024 * 1024 })
@@ -171,6 +172,7 @@ const main = async () => {
     -- dejara activo, la ventana «frontend primero» se mediría con una red de
     -- seguridad que en producción todavía no existe.
     ALTER TABLE public.inventory DISABLE TRIGGER trig_inventory_guard_cost_write;
+    ALTER TABLE public.inventory DISABLE TRIGGER trig_inventory_inherit_variant_cost;
   `)
   await reloadRest()
   const vieja = await medir('DB VIEJA')
@@ -223,6 +225,7 @@ const restore = () => {
     sql(`ALTER VIEW IF EXISTS public.v_inventory_costs__compat_hidden RENAME TO v_inventory_costs;`)
   } catch { /* ya estaba con el nombre bueno */ }
   try { sql(`ALTER TABLE public.inventory ENABLE TRIGGER trig_inventory_guard_cost_write;`) } catch { /* aun no existe */ }
+  try { sql(`ALTER TABLE public.inventory ENABLE TRIGGER trig_inventory_inherit_variant_cost;`) } catch { /* aun no existe */ }
   for (const m of MIGRATIONS) {
     docker(['exec', '-i', dbContainer, 'psql', '-X', '-U', 'postgres', '-d', 'postgres', '-q', '-v', 'ON_ERROR_STOP=1'],
       readFileSync(m, 'utf8'))

@@ -25,6 +25,7 @@ import { join } from 'node:path'
 
 const MIGRATION = 'supabase/migrations/20260914120000_sec08b_inventory_cost_visibility.sql'
 const MIGRATION_B = 'supabase/migrations/20260915120000_sec08b_b_cost_write_authority.sql'
+const MIGRATION_C = 'supabase/migrations/20260916120000_sec08b_c_insert_cost_authority.sql'
 
 /** Columnas revocadas, por tabla. */
 const REVOKED = {
@@ -234,9 +235,78 @@ function inspectPhaseB({ migrationB, later, sources }) {
   return failures
 }
 
-export function inspect({ migration, later, sources, migrationB }) {
+/**
+ * Reglas de la FASE C — autoridad de costo en el INSERT.
+ *
+ * La Fase B cerró el UPDATE y dejó el INSERT abierto: `sales` tiene autoridad
+ * de alta y podía elegir cualquier `cost_price` por PostgREST directo, sin poder
+ * leerlo después. Además su guardián era SECURITY DEFINER, con lo que
+ * `current_user` era siempre su dueño y la exención de los caminos canónicos
+ * quedaba inerte — la compra a proveedor registraba la compra y no movía el
+ * costo.
+ */
+function inspectPhaseC({ migrationC, later }) {
+  const failures = []
+  const mC = stripSqlComments(migrationC)
+  const guard = mC.match(/CREATE OR REPLACE FUNCTION public\.tg_inventory_guard_cost_write[\s\S]*?\$\$;/)?.[0] ?? ''
+  const inherit = mC.match(/CREATE OR REPLACE FUNCTION public\.tg_inventory_inherit_variant_cost[\s\S]*?\$\$;/)?.[0] ?? ''
+
+  if (!guard) failures.push('la Fase C no redefine el guardián de escritura del costo')
+  // El guardián NO puede ser DEFINER: ahí current_user es su dueño y el
+  // discriminador de contexto deja de ver el rol externo.
+  if (/SECURITY\s+DEFINER/i.test(guard)) {
+    failures.push('el guardián volvió a ser SECURITY DEFINER: current_user dejaría de ver el rol externo y los caminos canónicos volverían a quedar bloqueados')
+  }
+  if (!/current_user NOT IN \(\s*'authenticated'\s*,\s*'anon'\s*\)/.test(guard)) {
+    failures.push('el guardián perdió el discriminador de contexto por current_user')
+  }
+  if (!/NEW\.cost_price\s*:=\s*0/.test(guard)) {
+    failures.push('el guardián no fuerza 0 en el INSERT no autorizado: el cliente volvería a elegir el costo al crear')
+  }
+  if (!/NEW\.cost_price\s*:=\s*OLD\.cost_price/.test(guard)) {
+    failures.push('el guardián perdió la preservación del costo en UPDATE')
+  }
+  if (!/GRANT EXECUTE ON FUNCTION public\.tg_inventory_guard_cost_write\(\) TO authenticated/.test(mC)) {
+    failures.push('el guardián INVOKER no es ejecutable por authenticated: toda escritura de inventario fallaría')
+  }
+
+  if (!inherit) failures.push('la Fase C no define la herencia del costo de la variante')
+  if (!/SECURITY\s+DEFINER/i.test(inherit)) {
+    failures.push('la herencia de variante no es SECURITY DEFINER: no podría leer el costo del padre')
+  }
+  if (!/p\.business_id\s*=\s*NEW\.business_id/.test(inherit)) {
+    failures.push('la herencia de la variante no está acotada al mismo negocio: habilitaría un padre de otro tenant')
+  }
+  // Debe ESCRIBIR el costo, no devolverlo: una función que lo devuelva es un
+  // oráculo, porque PostgREST expone toda función de `public` ejecutable.
+  if (!/UPDATE public\.inventory/.test(inherit)) {
+    failures.push('la herencia de variante ya no escribe el costo en la fila')
+  }
+  if (!/AFTER INSERT ON public\.inventory/.test(mC)) {
+    failures.push('la herencia de variante no está montada como trigger AFTER INSERT')
+  }
+
+  const laterClean = stripSqlComments(later)
+  for (const t of ['trig_inventory_guard_cost_write', 'trig_inventory_inherit_variant_cost']) {
+    if (new RegExp(`DROP\\s+TRIGGER[^;]*${t}`, 'i').test(laterClean)
+      || new RegExp(`DISABLE\\s+TRIGGER\\s+${t}`, 'i').test(laterClean)) {
+      failures.push(`una migración posterior desactiva o elimina ${t}`)
+    }
+  }
+  const laterGuard = laterClean.match(/CREATE OR REPLACE FUNCTION public\.tg_inventory_guard_cost_write[\s\S]*?\$\$;/)?.[0] ?? ''
+  if (laterGuard && /SECURITY\s+DEFINER/i.test(laterGuard)) {
+    failures.push('una migración posterior devuelve el guardián a SECURITY DEFINER')
+  }
+  if (laterGuard && !/NEW\.cost_price\s*:=\s*0/.test(laterGuard)) {
+    failures.push('una migración posterior deja el INSERT no autorizado aceptando el costo del cliente')
+  }
+  return failures
+}
+
+export function inspect({ migration, later, sources, migrationB, migrationC }) {
   const failures = []
   if (migrationB !== undefined) failures.push(...inspectPhaseB({ migrationB, later, sources }))
+  if (migrationC !== undefined) failures.push(...inspectPhaseC({ migrationC, later }))
 
   // ── 1. Las columnas de costo quedan revocadas ──────────────────────────────
   if (!/REVOKE SELECT ON public\.%I FROM authenticated/.test(migration)) {
@@ -367,13 +437,14 @@ export function inspect({ migration, later, sources, migrationB }) {
 const load = () => {
   const all = readdirSync('supabase/migrations').filter(n => n.endsWith('.sql')).sort()
   const base = MIGRATION.split('/').at(-1)
-  const baseB = MIGRATION_B.split('/').at(-1)
+  const baseC = MIGRATION_C.split('/').at(-1)
   return {
     migration: readFileSync(MIGRATION, 'utf8'),
     migrationB: readFileSync(MIGRATION_B, 'utf8'),
-    // «posteriores» se cuenta desde la Fase B: la propia Fase B redefine objetos
-    // de la Fase A a propósito y no puede contarse como una reversión.
-    later: all.filter(n => n > baseB).map(n => readFileSync(`supabase/migrations/${n}`, 'utf8')).join('\n'),
+    migrationC: readFileSync(MIGRATION_C, 'utf8'),
+    // «posteriores» se cuenta desde la ÚLTIMA fase: cada fase redefine objetos
+    // de la anterior a propósito y no puede contarse como una reversión.
+    later: all.filter(n => n > baseC).map(n => readFileSync(`supabase/migrations/${n}`, 'utf8')).join('\n'),
     sources: walk('src').map(p => [p, readFileSync(p, 'utf8')]),
   }
 }
@@ -460,6 +531,28 @@ if (process.argv.includes('--self-test')) {
     [{ ...src, sources: [['src/pages/Inventory.tsx',
       "const e = { 'Precio de costo (ARS)': item.cost_price }; const hasCostArs = 1"]] },
       'export de Excel toma el costo de la lectura operativa'],
+
+    // ── FASE C ──────────────────────────────────────────────────────────────
+    [mut('migrationC', /LANGUAGE plpgsql\n-- INVOKER a propósito/, 'LANGUAGE plpgsql\nSECURITY DEFINER\n-- INVOKER a propósito'),
+      'guardián volvió a ser SECURITY DEFINER'],
+    [mut('migrationC', "IF auth.uid() IS NULL OR current_user NOT IN ('authenticated', 'anon') THEN", 'IF auth.uid() IS NULL THEN'),
+      'perdió el discriminador de contexto por current_user'],
+    [mut('migrationC', /  NEW\.cost_price     := 0;\n  NEW\.cost_price_usd := 0;\n/, '  RETURN NEW;\n'),
+      'no fuerza 0 en el INSERT no autorizado'],
+    [mut('migrationC', '    NEW.cost_price     := OLD.cost_price;', '    -- sin preservación'),
+      'perdió la preservación del costo en UPDATE'],
+    [mut('migrationC', 'GRANT EXECUTE ON FUNCTION public.tg_inventory_guard_cost_write() TO authenticated;', '-- sin grant'),
+      'no es ejecutable por authenticated'],
+    [mut('migrationC', /CREATE OR REPLACE FUNCTION public\.tg_inventory_inherit_variant_cost[\s\S]*?\$\$;/, '-- sin herencia'),
+      'no define la herencia del costo de la variante'],
+    [mut('migrationC', '     AND p.business_id = NEW.business_id;', ';'),
+      'herencia de la variante no está acotada al mismo negocio'],
+    [mut('migrationC', 'AFTER INSERT ON public.inventory', 'BEFORE UPDATE ON public.inventory'),
+      'no está montada como trigger AFTER INSERT'],
+    [{ ...src, later: src.later + '\nDROP TRIGGER trig_inventory_inherit_variant_cost ON public.inventory;' },
+      'desactiva o elimina trig_inventory_inherit_variant_cost'],
+    [{ ...src, later: src.later + '\nCREATE OR REPLACE FUNCTION public.tg_inventory_guard_cost_write() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN NEW.cost_price := OLD.cost_price; RETURN NEW; END $$;' },
+      'devuelve el guardián a SECURITY DEFINER'],
   ]
   for (const [mutated, label] of mutations) {
     if (!inspect(mutated).some(f => f.includes(label))) throw new Error(`self-test no detectó: ${label}`)
