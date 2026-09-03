@@ -28,13 +28,19 @@ interface TablaFake {
 const estado = vi.hoisted(() => ({
   tablas: {} as Record<string, TablaFake>,
   llamadas: [] as Array<{ tabla: string; metodo: 'single' | 'maybeSingle' | 'list' }>,
+  // SEC-08A: los importes de la orden llegan por la ruta autorizada, no por la
+  // fila. `autorizado: false` reproduce a un rol sin `orders_view_financials`.
+  rpc: [] as Array<{ nombre: string; args: any }>,
+  selects: [] as Array<{ tabla: string; columnas: string }>,
+  autorizado: true,
+  importes: {} as Record<string, unknown>,
 }))
 
 function construirQuery(tabla: string) {
   const cfg = (): TablaFake => estado.tablas[tabla] ?? { filas: [] }
 
   const q: any = {
-    select: () => q,
+    select: (columnas?: string) => { estado.selects.push({ tabla, columnas: columnas ?? '*' }); return q },
     eq: () => q,
     order: () => q,
     limit: () => q,
@@ -81,7 +87,14 @@ function construirQuery(tabla: string) {
 }
 
 vi.mock('../../src/lib/supabase', () => ({
-  supabase: { from: (tabla: string) => construirQuery(tabla) },
+  supabase: {
+    from: (tabla: string) => construirQuery(tabla),
+    rpc: async (nombre: string, args: any) => {
+      estado.rpc.push({ nombre, args })
+      if (!estado.autorizado) return { data: { ok: true, authorized: false, rows: [] }, error: null }
+      return { data: { ok: true, authorized: true, rows: [estado.importes] }, error: null }
+    },
+  },
 }))
 
 import { useOrderSimple } from '../../src/hooks/useOrderSimple'
@@ -89,10 +102,14 @@ import { useOrderSimple } from '../../src/hooks/useOrderSimple'
 const ORDER_ID = 'ae1dfa39-cc17-404f-944d-8986839b22e6'   // la orden real del 406
 
 function escenarioBase() {
+  estado.autorizado = true
+  // SEC-08A: la fila de la orden es OPERATIVA. `total_cost`/`amount_paid`
+  // llegan por `get_order_financial_amounts`, no por la tabla.
+  estado.importes = { order_id: ORDER_ID, total_cost: 15000, amount_paid: 5000, estimated_total: 20000, labor_cost: 3000 }
   estado.tablas = {
     orders: {
       filas: [{
-        id: ORDER_ID, status: 'received', total_cost: 15000, amount_paid: 5000,
+        id: ORDER_ID, business_id: 'biz-1', status: 'received',
         customer_id: 'cus-1', device_id: null, technician_id: null,
       }],
     },
@@ -107,6 +124,10 @@ const lecturasDeChecklist = () => estado.llamadas.filter(c => c.tabla === 'order
 beforeEach(() => {
   estado.tablas = {}
   estado.llamadas = []
+  estado.rpc = []
+  estado.selects = []
+  estado.autorizado = true
+  estado.importes = {}
 })
 
 describe('useOrderSimple — no consulta order_checklists', () => {
@@ -143,9 +164,50 @@ describe('useOrderSimple — no consulta order_checklists', () => {
     expect(result.current.order?.customer).toMatchObject({ name: 'Cliente Demo' })
     expect(result.current.order?.parts?.length).toBe(1)
     expect(result.current.order?.orderItems?.length).toBe(1)
-    // El saldo derivado se sigue calculando: sin filas en order_payments el
-    // hook recompone amount_paid desde los pagos reales, así que queda el total.
+    // El saldo derivado se sigue calculando con la MISMA fórmula
+    // (`total_cost - amount_paid`); SEC-08A sólo cambió de dónde salen los dos
+    // números: de la ruta autorizada, no de la fila de la orden.
+    expect(result.current.order?.amountsAuthorized).toBe(true)
+    expect(result.current.order?.total_cost).toBe(15000)
     expect(result.current.order?.balance_pending).toBe(15000)
+  })
+
+  // ── SEC-08A ──────────────────────────────────────────────────────────────
+  it('D · la orden se pide por columnas explícitas y los importes por la ruta autorizada', async () => {
+    escenarioBase()
+
+    const { result } = renderHook(() => useOrderSimple(ORDER_ID))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    const select = estado.selects.find(s => s.tabla === 'orders')!.columnas
+    expect(select).not.toContain('*')
+    expect(select).toContain('id')
+    expect(select).toContain('business_id')
+    // Ninguna columna O1/O2 puede viajar en la fila.
+    for (const prohibida of ['total_cost', 'estimated_total', 'labor_cost', 'amount_paid', 'paid_at', 'device_password']) {
+      expect(select).not.toContain(prohibida)
+    }
+    expect(estado.rpc.map(r => r.nombre)).toContain('get_order_financial_amounts')
+    expect(estado.rpc[0].args).toMatchObject({ p_business_id: 'biz-1', p_order_ids: [ORDER_ID] })
+  })
+
+  it('E · sin autorización del servidor, los importes quedan undefined y NO en 0', async () => {
+    escenarioBase()
+    estado.autorizado = false
+
+    const { result } = renderHook(() => useOrderSimple(ORDER_ID))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    // Los datos operativos siguen llegando…
+    expect(result.current.order?.id).toBe(ORDER_ID)
+    expect(result.current.order?.customer).toMatchObject({ name: 'Cliente Demo' })
+    // …y los importes no existen. `undefined` significa "no autorizado";
+    // un 0 mentiría diciendo que la orden no vale nada.
+    expect(result.current.order?.amountsAuthorized).toBe(false)
+    expect(result.current.order?.total_cost).toBeUndefined()
+    expect(result.current.order?.estimated_total).toBeUndefined()
+    expect(result.current.order?.amount_paid).toBeUndefined()
+    expect(result.current.order?.balance_pending).toBeUndefined()
   })
 
   it('D · refresh() conserva los datos de la orden', async () => {

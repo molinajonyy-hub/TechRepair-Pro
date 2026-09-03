@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { ORDER_PART_OPERATIONAL_COLUMNS } from '../lib/orderLineAmounts';
 
 export interface OrderPart {
   id: string;
@@ -7,11 +8,16 @@ export interface OrderPart {
   name: string;
   description?: string;
   part_number?: string;
-  internal_cost: number;
-  sale_price: number;
+  /**
+   * SEC-08A Fase B — importes del repuesto. Son OPCIONALES porque el browser ya
+   * no puede leerlos crudos: llegan por `get_order_line_amounts`, que exige
+   * `orders_view_financials`. `undefined` significa "no autorizado", NO "cero".
+   */
+  internal_cost?: number;
+  sale_price?: number;
   quantity: number;
-  margin_amount: number;
-  margin_percentage: number;
+  margin_amount?: number;
+  margin_percentage?: number;
   status: 'pending' | 'used' | 'sold' | 'returned';
   deduct_from_inventory: boolean;
   notes?: string;
@@ -89,7 +95,10 @@ export const orderPartsService = {
         notes:                 notes || null,
         created_by:            userId,
       })
-      .select()
+      // SEC-08A Fase B: el RETURNING también pasa por los GRANT de columna. Un
+      // `.select()` pelado pediría los importes y respondería 42501 aunque el
+      // INSERT sea legítimo.
+      .select(ORDER_PART_OPERATIONAL_COLUMNS)
       .single();
 
     if (partErr || !part) {
@@ -134,9 +143,10 @@ export const orderPartsService = {
     const { partId, orderId, businessId } = params;
 
     // Obtener datos del part antes de eliminar
+    // Sólo se necesitan datos operativos para decidir el rollback de stock.
     const { data: part } = await supabase
       .from('order_parts')
-      .select('*')
+      .select(ORDER_PART_OPERATIONAL_COLUMNS)
       .eq('id', partId)
       .eq('order_id', orderId)
       .single();
@@ -163,10 +173,14 @@ export const orderPartsService = {
     }
   },
 
+  /**
+   * SEC-08A Fase B — devuelve el repuesto SIN importes. Quien los necesite y
+   * tenga la capacidad los pide por `fetchOrderLineAmounts` y los fusiona.
+   */
   async getPartsByOrder(orderId: string): Promise<OrderPart[]> {
     const { data, error } = await supabase
       .from('order_parts')
-      .select('*')
+      .select(ORDER_PART_OPERATIONAL_COLUMNS)
       .eq('order_id', orderId)
       .order('added_at', { ascending: true });
 

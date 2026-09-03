@@ -163,6 +163,20 @@ export function OrderDetail() {
 
   const status = STATUS_CONFIG[order.status]
 
+  /**
+   * SEC-08A Fase B — ¿se puede facturar esta orden?
+   *
+   * No alcanza con `amountsAuthorized` (los importes de la ORDEN). Facturar arma
+   * el comprobante desde las LÍNEAS, y sus importes vienen por otra ruta. En la
+   * ventana de despliegue frontend→DB el frontend nuevo corre contra la DB
+   * vieja, donde `get_order_line_amounts` todavía no existe: ahí los importes de
+   * orden SÍ llegan y los de línea NO. Sin este chequeo se ofrecería "Generar
+   * Comprobante" y saldría un comprobante VACÍO.
+   */
+  const facturable =
+    order.amountsAuthorized &&
+    (order.orderItems ?? []).every(i => i.precio_unitario !== undefined && i.costo_unitario !== undefined)
+
   return (
     <div className="animate-fade-in">
       {/* Header */}
@@ -197,8 +211,12 @@ export function OrderDetail() {
           
           <div style={{ display: 'flex', gap: '0.625rem', flexWrap: 'wrap', alignItems: 'center' }}>
 
-            {/* Botón Generar Comprobante */}
-            {comprobantes.length === 0 && (
+            {/* Botón Generar Comprobante.
+                SEC-08A Fase B: facturar una orden exige ver sus importes. Sin
+                `orders_view_financials` el servidor no los entrega y el armado
+                produciría líneas en $0. Se oculta la acción en vez de ofrecer
+                un comprobante fabricado. */}
+            {comprobantes.length === 0 && facturable && (
               <button
                 onClick={() => setShowModalCrearComprobante(true)}
                 className="btn btn-primary btn-sm"
@@ -532,7 +550,21 @@ export function OrderDetail() {
           // costo de TODO repuesto consumido llegue al comprobante —incluidos
           // los absorbidos por el precio del servicio— sin alterar el total
           // cotizado al cliente y sin volver a descontar stock.
-          const billing = buildOrderComprobanteItems(order.orderItems, order.parts)
+          // SEC-08A Fase B — `buildOrderComprobanteItems` exige importes reales.
+          // Sólo llegan con `orders_view_financials`; sin la capacidad las
+          // líneas vendrían sin precio ni costo y se facturaría en $0. Las
+          // líneas sin importe autorizado se descartan explícitamente en vez de
+          // completarse con ceros.
+          const billing = facturable
+            ? buildOrderComprobanteItems(
+                (order.orderItems ?? [])
+                  .filter(i => i.precio_unitario !== undefined && i.costo_unitario !== undefined)
+                  .map(i => ({ ...i, precio_unitario: i.precio_unitario!, costo_unitario: i.costo_unitario! })),
+                (order.parts ?? [])
+                  .filter(p => p.sale_price !== undefined && p.internal_cost !== undefined)
+                  .map(p => ({ ...p, sale_price: p.sale_price!, internal_cost: p.internal_cost! })),
+              )
+            : { items: [], absorbedParts: [] }
 
           return (
             <ModalCrearComprobante
@@ -634,7 +666,9 @@ export function OrderDetail() {
             saldo:    importes.saldo   > 0 ? formatImporteWhatsApp(importes.saldo)   : '',
           } : {}),
           // `estimated_total` es el presupuesto de la propia orden, no un
-          // importe del libro contable: no pasa por la RPC financiera.
+          // importe del libro contable. SEC-08A: ya no se lee de la fila cruda;
+          // llega por la misma RPC autorizada, y sin permiso llega `undefined`,
+          // así que la variable queda vacía y el preview nombra lo que falta.
           presupuesto: order.estimated_total ? formatImporteWhatsApp(order.estimated_total) : '',
         }}
         context={{ orderId: order.id, customerId: order.customer?.id ?? (order as any).customer_id }}

@@ -122,7 +122,11 @@ export function Orders() {
   }
 
   const handlePrint = (order: any) => {
-    setPrintingOrder(order)
+    // SEC-08A: el presupuesto impreso sale de la ruta autorizada, no de la fila
+    // de la orden. Un rol sin `orders_view_financials` imprime la orden sin
+    // importe propio en vez de imprimir un cero inventado.
+    const montos = amountsAuthorized === true && !financialError ? financial[order.id] : undefined
+    setPrintingOrder({ ...order, estimated_total: montos?.estimated_total })
     // Wait for React to render ServiceOrderPrint with the resolved settings,
     // then capture innerHTML. 500ms gives render + logo time.
     setTimeout(() => {
@@ -356,13 +360,20 @@ export function Orders() {
                     </td>
                     <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
                       {(() => {
-                        if (order.order_items && order.order_items.length > 0) {
-                          const serviceTotal = order.order_items
-                            .filter(i => i.tipo === 'servicio')
-                            .reduce((s, i) => s + i.precio_unitario * i.cantidad, 0)
-                          if (serviceTotal > 0) return `$${serviceTotal.toLocaleString('es-AR')}`
+                        // SEC-08A: `labor_cost` y `estimated_total` ya no viajan
+                        // en la fila de la orden. Llegan por la ruta autorizada
+                        // (`get_order_financial_amounts`) o no llegan. Sin
+                        // permiso se dice que está restringido: nunca $0.
+                        //
+                        // Fase B: se retiró el atajo que sumaba
+                        // `order_items.precio_unitario` de la fila anidada. Ese
+                        // camino devolvía el importe SIN pasar por la capacidad
+                        // y reconstruía `estimated_total` exactamente.
+                        if (financialError || amountsAuthorized !== true) {
+                          return <span data-testid="order-total-restricted" style={{ color: 'var(--text-subtle)', fontWeight: 400 }}>—</span>
                         }
-                        const total = order.labor_cost || order.estimated_total || 0
+                        const montos = financial[order.id]
+                        const total = montos?.labor_cost || montos?.estimated_total || 0
                         return `$${total.toLocaleString('es-AR')}`
                       })()}
                     </td>

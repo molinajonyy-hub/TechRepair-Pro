@@ -26,6 +26,11 @@ export interface DashboardStats {
   revenueThisWeek: number
   revenueThisMonth: number
   pendingPayments: number
+  /**
+   * SEC-08A — false = el servidor NO autorizó los importes de las órdenes.
+   * El consumidor debe decir "restringido", nunca mostrar $0.
+   */
+  pendingPaymentsAuthorized: boolean
 
   // Ganancia real (margen devengado de comprobantes efectivos, vía
   // finance_dashboard_summary → v_finance_pnl — NO de órdenes abiertas)
@@ -206,7 +211,9 @@ export function useDashboardStats() {
         // 1. Total órdenes (COUNT, sin datos)
         supabase
           .from('orders')
-          .select('*', { count: 'exact', head: true })
+          // SEC-08A: contar no requiere columnas. `select('*')` sobre orders es
+          // 42501 desde que las columnas financieras dejaron de concederse.
+          .select('id', { count: 'exact', head: true })
           .eq('business_id', businessId),
 
         // 2. Órdenes por estado — solo el campo status, sin join
@@ -218,14 +225,18 @@ export function useDashboardStats() {
         // 3. Órdenes nuevas hoy (COUNT)
         supabase
           .from('orders')
-          .select('*', { count: 'exact', head: true })
+          // SEC-08A: contar no requiere columnas. `select('*')` sobre orders es
+          // 42501 desde que las columnas financieras dejaron de concederse.
+          .select('id', { count: 'exact', head: true })
           .eq('business_id', businessId)
           .gte('created_at', today),
 
         // 4. Órdenes completadas hoy (COUNT)
         supabase
           .from('orders')
-          .select('*', { count: 'exact', head: true })
+          // SEC-08A: contar no requiere columnas. `select('*')` sobre orders es
+          // 42501 desde que las columnas financieras dejaron de concederse.
+          .select('id', { count: 'exact', head: true })
           .eq('business_id', businessId)
           .eq('status', 'completed')
           .gte('updated_at', today),
@@ -238,10 +249,13 @@ export function useDashboardStats() {
           .order('created_at', { ascending: false })
           .limit(5),
 
-        // 6. Pagos pendientes — órdenes activas con saldo
+        // 6. Pagos pendientes — órdenes activas con saldo.
+        //    SEC-08A: acá sólo se identifican las órdenes candidatas. Los
+        //    importes los entrega `get_order_financial_amounts` más abajo, si
+        //    el servidor autoriza a este actor a verlos.
         supabase
           .from('orders')
-          .select('total_cost, amount_paid')
+          .select('id')
           .eq('business_id', businessId)
           .in('status', ['completed', 'ready_delivery', 'waiting_payment']),
 
@@ -336,14 +350,29 @@ export function useDashboardStats() {
         revenueThisMonth = incomeEntries.filter(e => e.date >= monthAgoDate).reduce((s, e) => s + (e.amount_ars || 0), 0)
       }
 
-      // Pagos pendientes (órdenes activas con saldo)
+      // Pagos pendientes (órdenes activas con saldo).
+      // SEC-08A: la fórmula NO cambia; cambia de dónde salen los importes.
+      // `pendingPaymentsAuthorized` distingue "cero pendiente" de "no tenés
+      // permiso para verlo": el consumidor no debe mostrar $0 en el segundo caso.
       let pendingPayments = 0
-      if (!pendingResult.error && pendingResult.data) {
-        pendingPayments = pendingResult.data.reduce((sum, o) => {
-          const total = o.total_cost || 0
-          const paid  = o.amount_paid || 0
-          return paid < total ? sum + (total - paid) : sum
-        }, 0)
+      let pendingPaymentsAuthorized = false
+      const pendingIds = (!pendingResult.error && pendingResult.data ? pendingResult.data : []).map(o => o.id)
+      if (pendingIds.length > 0) {
+        const { data: amt, error: amtError } = await supabase.rpc('get_order_financial_amounts', {
+          p_business_id: businessId, p_order_ids: pendingIds,
+        })
+        const res = amt as { ok?: boolean; authorized?: boolean; rows?: { total_cost?: number; amount_paid?: number }[] } | null
+        if (!amtError && res?.ok !== false && res?.authorized === true) {
+          pendingPaymentsAuthorized = true
+          pendingPayments = (res.rows ?? []).reduce((sum, o) => {
+            const total = o.total_cost || 0
+            const paid  = o.amount_paid || 0
+            return paid < total ? sum + (total - paid) : sum
+          }, 0)
+        }
+      } else if (!pendingResult.error) {
+        // No hay órdenes candidatas: el cero es real, no una restricción.
+        pendingPaymentsAuthorized = true
       }
 
       // Tiempo promedio de reparación
@@ -424,6 +453,7 @@ export function useDashboardStats() {
         revenueThisWeek,
         revenueThisMonth,
         pendingPayments,
+        pendingPaymentsAuthorized,
         realProfitToday,
         realProfitThisWeek,
         realProfitThisMonth,

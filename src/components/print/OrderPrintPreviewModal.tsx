@@ -4,6 +4,11 @@ import { CloseButton } from '../ui/CloseButton'
 import { ServiceOrderPrint, ServiceOrderData, PrintOrderItem } from './ServiceOrderPrint'
 import { OrderDetailSimple } from '../../hooks/useOrderSimple'
 import { supabase } from '../../lib/supabase'
+import {
+  fetchOrderLineAmounts,
+  mergeItemAmounts,
+  ORDER_ITEM_OPERATIONAL_COLUMNS,
+} from '../../lib/orderLineAmounts'
 import { useAuth } from '../../contexts/AuthContext'
 import { useOrderPrintSettings } from '../../hooks/useOrderPrintSettings'
 import { buildOrderPrintTitle } from '../../lib/printFilename'
@@ -68,19 +73,26 @@ export const OrderPrintPreviewModal: React.FC<OrderPrintPreviewModalProps> = ({
   useEffect(() => {
     if (!isOpen) { setOrderItems([]); return }
     if (!order?.id) return
-    supabase
-      .from('order_items')
-      .select('tipo, descripcion, cantidad, precio_unitario, cliente_paga_repuesto')
-      .eq('order_id', order.id)
-      .order('created_at', { ascending: true })
-      .then(({ data, error }) => {
-        if (error) {
-          if (import.meta.env.DEV) console.warn('[PrintModal] Error cargando ítems:', error.message)
-          return
-        }
-        if (data) setOrderItems(data as PrintOrderItem[])
-      })
-  }, [isOpen, order?.id])
+    // SEC-08A Fase B — `precio_unitario` ya no es seleccionable. Se pide lo
+    // operativo y los importes por la ruta autorizada: sin
+    // `orders_view_financials` se imprime el detalle del trabajo SIN precios,
+    // nunca una orden con todo en $0.
+    const orderId = order.id
+    void (async () => {
+      const { data, error } = await supabase
+        .from('order_items')
+        .select(ORDER_ITEM_OPERATIONAL_COLUMNS)
+        .eq('order_id', orderId)
+        .order('created_at', { ascending: true })
+      if (error) {
+        if (import.meta.env.DEV) console.warn('[PrintModal] Error cargando ítems:', error.message)
+        return
+      }
+      if (!data) return
+      const amounts = await fetchOrderLineAmounts(businessId, [orderId])
+      setOrderItems(mergeItemAmounts(data as { id: string }[], amounts) as unknown as PrintOrderItem[])
+    })()
+  }, [isOpen, order?.id, businessId])
 
   const handlePrint = () => {
     if (!printRef.current || !order) return

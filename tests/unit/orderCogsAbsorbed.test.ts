@@ -300,7 +300,22 @@ test('el predicado de facturación es idéntico al anterior: el total cotizado n
 test('caso 10: OrderDetail pasa orderId al modal y usa el armado canónico', () => {
   const s = read('src/pages/OrderDetail.tsx')
   assert.match(s, /import \{ buildOrderComprobanteItems \} from '\.\.\/lib\/orderBilling'/)
-  assert.match(s, /buildOrderComprobanteItems\(order\.orderItems, order\.parts\)/)
+  // SEC-08A Fase B: el armado sigue siendo el canónico y sigue partiendo de
+  // `order.orderItems` / `order.parts`, pero ahora va DETRÁS de la autorización
+  // del servidor: los importes de línea dejaron de viajar crudos, así que sin
+  // `orders_view_financials` no hay con qué facturar y el armado no corre.
+  assert.match(s, /buildOrderComprobanteItems\(/, 'debe seguir usando el armado canónico')
+  assert.match(s, /order\.orderItems\s*\?\?\s*\[\]/, 'el armado sigue partiendo de los ítems de la orden')
+  assert.match(s, /order\.parts\s*\?\?\s*\[\]/, 'el armado sigue partiendo de los repuestos de la orden')
+  assert.match(s, /const facturable\s*=[\s\S]{0,400}?order\.amountsAuthorized/,
+    'facturable debe exigir la autorización de importes de la orden')
+  assert.match(s, /const facturable\s*=[\s\S]{0,400}?precio_unitario !== undefined[\s\S]{0,80}?costo_unitario !== undefined/,
+    'facturable debe exigir además que TODA línea traiga sus importes: durante la ventana ' +
+    'frontend→DB los importes de orden llegan y los de línea no, y se facturaría vacío')
+  assert.match(s, /facturable\s*[\r\n\s]*\?\s*buildOrderComprobanteItems/,
+    'el armado debe estar guardado por facturable')
+  assert.match(s, /comprobantes\.length === 0 && facturable &&/,
+    'la acción de facturar debe ocultarse cuando no se puede facturar de verdad')
   assert.match(s, /orderId=\{order\.id\}/, 'el comprobante debe nacer vinculado a la orden')
   // El armado viejo (que perdía el costo y mandaba inventory_id) no debe volver.
   assert.ok(!/billableFromOrderItems/.test(s), 'no debe quedar el armado anterior')

@@ -1,16 +1,41 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import {
+  fetchOrderLineAmounts,
+  mergeItemAmounts,
+  mergePartAmounts,
+  ORDER_ITEM_OPERATIONAL_COLUMNS,
+  ORDER_PART_OPERATIONAL_COLUMNS,
+} from '../lib/orderLineAmounts'
 import { OrderStatus, StatusHistoryEntry } from '../types/orderStatus'
+
+/**
+ * SEC-08A — columnas de `public.orders` que el browser puede leer. La lista es
+ * explícita a propósito: `select('*')` responde 42501 desde que las columnas
+ * financieras y `device_password` dejaron de estar concedidas.
+ */
+// Una sola cadena literal a propósito: si se arma concatenando, TypeScript la
+// ensancha a `string` y supabase-js pierde el tipado de la fila.
+const ORDER_OPERATIONAL_COLUMNS =
+  'id, business_id, customer_id, device_id, technician_id, assigned_profile_id, created_by, comprobante_id, status, priority, notes, access_mode, created_at, updated_at, completed_at'
 
 export interface OrderDetailSimple {
   id: string
   status: OrderStatus
   priority: string
-  estimated_total: number
-  labor_cost: number
-  total_cost: number
-  amount_paid: number
-  balance_pending: number
+  /**
+   * SEC-08A — importes de la orden. Son opcionales porque llegan por la ruta
+   * autorizada `get_order_financial_amounts`: sin `orders_view_financials` la
+   * DB no los entrega y quedan `undefined`. `undefined` significa "no
+   * autorizado", NO "cero".
+   */
+  estimated_total?: number
+  labor_cost?: number
+  total_cost?: number
+  amount_paid?: number
+  balance_pending?: number
+  /** ¿El servidor autorizó los importes de esta orden? */
+  amountsAuthorized: boolean
   created_at: string
   updated_at: string
   notes?: string
@@ -35,17 +60,22 @@ export interface OrderDetailSimple {
     due_date?: string
     notes?: string
   }[]
-  // Repuestos usados en la orden
+  /**
+   * Repuestos usados en la orden.
+   * SEC-08A Fase B — los importes son OPCIONALES: llegan por
+   * `get_order_line_amounts` y sólo con `orders_view_financials`. `undefined`
+   * significa "no autorizado", nunca "cero".
+   */
   parts?: {
     id: string
     name: string
     description?: string
     part_number?: string
-    internal_cost: number
-    sale_price: number
+    internal_cost?: number
+    sale_price?: number
     quantity: number
-    margin_amount: number
-    margin_percentage: number
+    margin_amount?: number
+    margin_percentage?: number
     status: string
     deduct_from_inventory: boolean
     /** false = internal/consumed, not billed to customer */
@@ -53,14 +83,18 @@ export interface OrderDetailSimple {
     notes?: string
     added_at: string
   }[]
-  // Ítems de trabajo (servicios + repuestos) — fuente de verdad para facturación
+  /**
+   * Ítems de trabajo (servicios + repuestos) — fuente de verdad para facturación.
+   * SEC-08A Fase B — `precio_unitario` y `costo_unitario` son OPCIONALES por el
+   * mismo motivo: sumados reconstruyen `estimated_total` y `total_cost` exactos.
+   */
   orderItems?: {
     id: string
     tipo: 'servicio' | 'repuesto' | string
     descripcion: string
     cantidad: number
-    precio_unitario: number
-    costo_unitario: number
+    precio_unitario?: number
+    costo_unitario?: number
     /** false = repuesto interno, no se factura al cliente */
     cliente_paga_repuesto: boolean
     product_id?: string | null
@@ -94,6 +128,31 @@ export interface OrderDetailSimple {
   } | null
 }
 
+type AuthorizedAmounts = {
+  authorized: boolean
+  row?: {
+    estimated_total?: number
+    labor_cost?: number
+    total_cost?: number
+    amount_paid?: number
+    saldo_pendiente?: number
+  }
+}
+
+/**
+ * SEC-08A — única ruta a los importes de la orden. Nunca devuelve ceros
+ * inventados: si el servidor no autoriza, `authorized` es false y no hay fila.
+ */
+async function fetchAuthorizedAmounts(businessId: string | null | undefined, orderId: string): Promise<AuthorizedAmounts> {
+  if (!businessId) return { authorized: false }
+  const { data, error } = await supabase.rpc('get_order_financial_amounts', {
+    p_business_id: businessId, p_order_ids: [orderId],
+  })
+  const res = data as { ok?: boolean; authorized?: boolean; rows?: AuthorizedAmounts['row'][] } | null
+  if (error || res?.ok === false || res?.authorized !== true) return { authorized: false }
+  return { authorized: true, row: res.rows?.[0] }
+}
+
 export function useOrderSimple(orderId: string | undefined) {
   const [order, setOrder] = useState<OrderDetailSimple | null>(null)
   const [loading, setLoading] = useState(true)
@@ -113,7 +172,7 @@ export function useOrderSimple(orderId: string | undefined) {
         // Primero, intentar cargar solo la orden (sin joins)
         const { data: orderData, error: orderError } = await supabase
           .from('orders')
-          .select('*')
+          .select(ORDER_OPERATIONAL_COLUMNS)
           .eq('id', orderId)
           .single()
 
@@ -127,9 +186,24 @@ export function useOrderSimple(orderId: string | undefined) {
           return
         }
 
+        const montos = await fetchAuthorizedAmounts(orderData.business_id, orderId!)
+        // SEC-08A Fase B — importes de LÍNEA por la ruta autorizada. Una sola
+        // llamada para ítems y repuestos; sin capacidad, los mapas van vacíos.
+        const lineAmounts = await fetchOrderLineAmounts(orderData.business_id, [orderId!])
 
         const result: OrderDetailSimple = {
           ...orderData,
+          amountsAuthorized: montos.authorized,
+          estimated_total: montos.row?.estimated_total,
+          labor_cost: montos.row?.labor_cost,
+          total_cost: montos.row?.total_cost,
+          amount_paid: montos.row?.amount_paid,
+          // Se conserva la fórmula histórica (`total_cost - amount_paid`). El
+          // saldo CANÓNICO de la orden no es éste: vive en
+          // `useOrderCanonicalBalance`, que ya sale de la misma RPC.
+          balance_pending: montos.authorized
+            ? (montos.row?.total_cost || 0) - (montos.row?.amount_paid || 0)
+            : undefined,
           customer: null,
           device: null,
           technician: null,
@@ -188,12 +262,12 @@ export function useOrderSimple(orderId: string | undefined) {
         try {
           const { data: partsData } = await supabase
             .from('order_parts')
-            .select('*')
+            .select(ORDER_PART_OPERATIONAL_COLUMNS)
             .eq('order_id', orderId)
             .order('added_at', { ascending: false })
 
           if (partsData) {
-            result.parts = partsData
+            result.parts = mergePartAmounts(partsData as { id: string }[], lineAmounts) as OrderDetailSimple['parts']
           }
         } catch (err) {
           if (import.meta.env.DEV) console.warn('Could not load parts:', err)
@@ -203,12 +277,12 @@ export function useOrderSimple(orderId: string | undefined) {
         try {
           const { data: itemsData } = await supabase
             .from('order_items')
-            .select('id, tipo, descripcion, cantidad, precio_unitario, costo_unitario, cliente_paga_repuesto, product_id')
+            .select(ORDER_ITEM_OPERATIONAL_COLUMNS)
             .eq('order_id', orderId)
             .order('created_at', { ascending: true })
 
           if (itemsData) {
-            result.orderItems = itemsData as OrderDetailSimple['orderItems']
+            result.orderItems = mergeItemAmounts(itemsData as { id: string }[], lineAmounts) as OrderDetailSimple['orderItems']
           }
         } catch (err) {
           if (import.meta.env.DEV) console.warn('Could not load order items:', err)
@@ -224,10 +298,15 @@ export function useOrderSimple(orderId: string | undefined) {
           
           if (paymentsData) {
             result.payments = paymentsData
-            // Recalcular balance
-            const totalPaid = paymentsData.filter((p: any) => p.payment_status === 'completed').reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
-            result.amount_paid = totalPaid
-            result.balance_pending = (result.total_cost || 0) - totalPaid
+            // SEC-08A: `order_payments` ya está gateado por
+            // `orders_view_financials` en su RLS, así que un rol sin permiso
+            // recibe CERO filas. Sin este guard, ese conjunto vacío se
+            // convertía en `amount_paid = 0`: un importe inventado.
+            if (montos.authorized) {
+              const totalPaid = paymentsData.filter((p: any) => p.payment_status === 'completed').reduce((sum: number, p: any) => sum + (p.amount || 0), 0)
+              result.amount_paid = totalPaid
+              result.balance_pending = (result.total_cost || 0) - totalPaid
+            }
           }
         } catch (err) {
           if (import.meta.env.DEV) console.warn('Could not load payments:', err)
@@ -288,7 +367,7 @@ export function useOrderSimple(orderId: string | undefined) {
       // Recargar orden
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
-        .select('*')
+        .select(ORDER_OPERATIONAL_COLUMNS)
         .eq('id', orderId)
         .single()
 
@@ -298,10 +377,19 @@ export function useOrderSimple(orderId: string | undefined) {
         return
       }
 
+      const montos = await fetchAuthorizedAmounts(orderData.business_id, orderId)
+      const lineAmounts = await fetchOrderLineAmounts(orderData.business_id, [orderId])
+
       const result: OrderDetailSimple = {
         ...orderData,
-        amount_paid: orderData.amount_paid || 0,
-        balance_pending: (orderData.total_cost || 0) - (orderData.amount_paid || 0),
+        amountsAuthorized: montos.authorized,
+        estimated_total: montos.row?.estimated_total,
+        labor_cost: montos.row?.labor_cost,
+        total_cost: montos.row?.total_cost,
+        amount_paid: montos.row?.amount_paid,
+        balance_pending: montos.authorized
+          ? (montos.row?.total_cost || 0) - (montos.row?.amount_paid || 0)
+          : undefined,
         customer: null,
         device: null,
         technician: null,
@@ -329,11 +417,11 @@ export function useOrderSimple(orderId: string | undefined) {
       try {
         const { data: partsData } = await supabase
           .from('order_parts')
-          .select('*')
+          .select(ORDER_PART_OPERATIONAL_COLUMNS)
           .eq('order_id', orderId)
           .order('added_at', { ascending: false })
         if (partsData) {
-          result.parts = partsData
+          result.parts = mergePartAmounts(partsData as { id: string }[], lineAmounts) as OrderDetailSimple['parts']
         }
       } catch (err) {
         if (import.meta.env.DEV) console.warn('Could not load parts:', err)
@@ -343,11 +431,11 @@ export function useOrderSimple(orderId: string | undefined) {
       try {
         const { data: itemsData } = await supabase
           .from('order_items')
-          .select('id, tipo, descripcion, cantidad, precio_unitario, costo_unitario, cliente_paga_repuesto, product_id')
+          .select(ORDER_ITEM_OPERATIONAL_COLUMNS)
           .eq('order_id', orderId)
           .order('created_at', { ascending: true })
         if (itemsData) {
-          result.orderItems = itemsData as OrderDetailSimple['orderItems']
+          result.orderItems = mergeItemAmounts(itemsData as { id: string }[], lineAmounts) as OrderDetailSimple['orderItems']
         }
       } catch (err) {
         if (import.meta.env.DEV) console.warn('Could not load order items:', err)
@@ -362,9 +450,13 @@ export function useOrderSimple(orderId: string | undefined) {
           .order('payment_date', { ascending: false })
         if (paymentsData) {
           result.payments = paymentsData
-          const totalPaid = paymentsData.reduce((sum, p) => sum + (p.amount || 0), 0)
-          result.amount_paid = totalPaid
-          result.balance_pending = (result.total_cost || 0) - totalPaid
+          // SEC-08A: mismo guard que en la carga inicial — sin autorización,
+          // un conjunto vacío no se convierte en `amount_paid = 0`.
+          if (montos.authorized) {
+            const totalPaid = paymentsData.reduce((sum, p) => sum + (p.amount || 0), 0)
+            result.amount_paid = totalPaid
+            result.balance_pending = (result.total_cost || 0) - totalPaid
+          }
         }
       } catch (err) {
         if (import.meta.env.DEV) console.warn('Could not load payments:', err)

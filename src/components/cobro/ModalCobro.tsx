@@ -6,6 +6,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { X, Plus, Trash2, ChevronRight, ChevronLeft, Check, Search, ExternalLink } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
+import { fetchOrderLineAmounts } from '../../lib/orderLineAmounts'
 import { useAuth } from '../../contexts/AuthContext'
 import { invalidateStatsCache } from '../../hooks/useDashboardStats'
 import { formatDisplayMessage } from '../../utils/formatMessage'
@@ -112,6 +113,25 @@ const METODO_MAP = Object.fromEntries(
 const newItem = (): CobroItem => ({ id: crypto.randomUUID(), nombre: '', cantidad: 1, precio: 0 })
 const newPago = (metodo: MetodoPago = 'efectivo'): PagoEntry => ({ metodo, montoARS: 0, montoUSD: 0, usaUSD: false })
 const fmt = (n: number) => '$' + Math.round(n).toLocaleString('es-AR')
+
+/**
+ * SEC-08A — importes de órdenes por la única ruta autorizada. Devuelve un mapa
+ * vacío cuando el servidor no autoriza: el consumidor no debe inventar ceros.
+ */
+async function fetchOrderAmounts(
+  businessId: string | null | undefined,
+  orderIds: string[],
+): Promise<Record<string, { total_cost: number | null; amount_paid: number | null }>> {
+  if (!businessId || orderIds.length === 0) return {}
+  const { data, error } = await supabase.rpc('get_order_financial_amounts', {
+    p_business_id: businessId, p_order_ids: orderIds,
+  })
+  const res = data as { ok?: boolean; authorized?: boolean; rows?: { order_id: string; total_cost?: number; amount_paid?: number }[] } | null
+  if (error || res?.ok === false || res?.authorized !== true) return {}
+  const mapa: Record<string, { total_cost: number | null; amount_paid: number | null }> = {}
+  for (const row of res.rows ?? []) mapa[row.order_id] = { total_cost: row.total_cost ?? null, amount_paid: row.amount_paid ?? null }
+  return mapa
+}
 
 // ─── Componente ──────────────────────────────────────────────────────────────
 
@@ -223,22 +243,41 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
   }
 
   const prefillOrden = async (id: string) => {
+    // SEC-08A: `total_cost` y `amount_paid` ya no son seleccionables desde el
+    // browser. La orden aporta lo operativo; los importes, la ruta autorizada.
+    // SEC-08A Fase B: `order_parts.sale_price` tampoco es seleccionable. La
+    // relación anidada aporta sólo lo operativo; el precio del repuesto llega
+    // por `get_order_line_amounts`, con la misma capacidad que los importes.
     const { data } = await supabase
       .from('orders')
-      .select('id, device_id, customer_id, total_cost, amount_paid, customers(name, phone, email), order_parts(name, quantity, sale_price, status)')
+      .select('id, device_id, customer_id, business_id, customers(name, phone, email), order_parts(id, name, quantity, status)')
       .eq('id', id).single()
     if (!data) return
-    const saldo = (data.total_cost || 0) - (data.amount_paid || 0)
-    setOrdenSelec({ id: data.id, titulo: `Orden #${data.id.slice(0, 6).toUpperCase()}`, total_cost: data.total_cost, amount_paid: data.amount_paid, customer_name: (data.customers as any)?.name ?? null, customer_id: data.customer_id })
+    const montos = await fetchOrderAmounts(data.business_id, [id])
+    const fila = montos[id]
+    const totalCost = fila?.total_cost ?? null
+    const amountPaidValor = fila?.amount_paid ?? null
+    setOrdenSelec({ id: data.id, titulo: `Orden #${data.id.slice(0, 6).toUpperCase()}`, total_cost: totalCost, amount_paid: amountPaidValor, customer_name: (data.customers as any)?.name ?? null, customer_id: data.customer_id })
     if (data.customers) setClienteSelec({ id: data.customer_id, name: (data.customers as any).name, phone: (data.customers as any).phone, email: (data.customers as any).email })
+
+    // Sin autorización NO se prellena ningún importe. Antes se caía en
+    // `saldo = 0` y el modal anunciaba "Orden ya cobrada completa": una verdad
+    // financiera FABRICADA a partir de una denegación. Denegado no es cobrado.
+    if (totalCost === null && amountPaidValor === null) {
+      setItems([{ id: crypto.randomUUID(), nombre: 'Importes restringidos — cargá el detalle a mano', cantidad: 1, precio: 0 }])
+      return
+    }
+
+    const saldo = (totalCost || 0) - (amountPaidValor || 0)
+    const lineAmounts = await fetchOrderLineAmounts(data.business_id, [id])
     const parts = ((data.order_parts as any[]) || []).filter(p => p.status === 'used' || p.status === 'sold')
-    const amountPaid = data.amount_paid || 0
+    const amountPaid = amountPaidValor || 0
     if (saldo <= 0) {
       setItems([{ id: crypto.randomUUID(), nombre: 'Orden ya cobrada completa', cantidad: 1, precio: 0 }])
     } else if (parts.length > 0 && amountPaid > 0) {
       setItems([{ id: crypto.randomUUID(), nombre: `Saldo pendiente Orden #${id.slice(0, 6).toUpperCase()}`, cantidad: 1, precio: saldo }])
     } else if (parts.length > 0) {
-      setItems(parts.map((p: any) => ({ id: crypto.randomUUID(), nombre: p.name || 'Repuesto', cantidad: p.quantity || 1, precio: p.sale_price || 0 })))
+      setItems(parts.map((p: any) => ({ id: crypto.randomUUID(), nombre: p.name || 'Repuesto', cantidad: p.quantity || 1, precio: lineAmounts.parts.get(p.id)?.sale_price ?? 0 })))
     } else if (saldo > 0) {
       setItems([{ id: crypto.randomUUID(), nombre: 'Servicio técnico', cantidad: 1, precio: saldo }])
     }
@@ -276,13 +315,21 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
     if (!businessId) { setOrdenes([]); return }
     ordenTimer.current = setTimeout(async () => {
 
-      const { data } = await supabase.from('orders').select('id, total_cost, amount_paid, status, customers(name, id)').eq('business_id', businessId).neq('status', 'cancelled').order('created_at', { ascending: false }).limit(50)
-      const filtered = (data || []).filter(o => {
-        const saldo = (o.total_cost || 0) - (o.amount_paid || 0)
+      // SEC-08A: la búsqueda trae lo operativo; el saldo, que es lo que decide
+      // si la orden se ofrece para cobrar, sale de la ruta autorizada. Un actor
+      // sin `orders_view_financials` no recibe importes y no ve órdenes: no se
+      // le muestra una lista con saldos inventados en 0.
+      const { data } = await supabase.from('orders').select('id, status, customers(name, id)').eq('business_id', businessId).neq('status', 'cancelled').order('created_at', { ascending: false }).limit(50)
+      const filas = data || []
+      const montos = await fetchOrderAmounts(businessId, filas.map(o => o.id))
+      const filtered = filas.filter(o => {
+        const fila = montos[o.id]
+        if (!fila) return false
+        const saldo = (fila.total_cost || 0) - (fila.amount_paid || 0)
         const matchesQ = !q.trim() || o.id.slice(0, 6).toUpperCase().includes(q.toUpperCase()) || ((o.customers as any)?.name || '').toLowerCase().includes(q.toLowerCase())
         return saldo > 0.5 && matchesQ
       })
-      setOrdenes(filtered.slice(0, 8).map(o => ({ id: o.id, titulo: `Orden #${o.id.slice(0, 6).toUpperCase()}`, total_cost: o.total_cost, amount_paid: o.amount_paid, customer_name: (o.customers as any)?.name ?? null, customer_id: (o.customers as any)?.id ?? null })))
+      setOrdenes(filtered.slice(0, 8).map(o => ({ id: o.id, titulo: `Orden #${o.id.slice(0, 6).toUpperCase()}`, total_cost: montos[o.id]?.total_cost ?? null, amount_paid: montos[o.id]?.amount_paid ?? null, customer_name: (o.customers as any)?.name ?? null, customer_id: (o.customers as any)?.id ?? null })))
 
     }, 250)
   }, [businessId])

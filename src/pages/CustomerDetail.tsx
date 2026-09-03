@@ -19,11 +19,14 @@ import { usePermissions } from '../hooks/usePermissions'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+/**
+ * SEC-08A — forma OPERATIVA. `customersService.getById` ya no puede anidar
+ * columnas financieras de `orders`: la DB no se las concede al browser. Los
+ * importes se piden aparte, por la ruta autorizada.
+ */
 interface CustomerOrderSummary {
   id: string
   status: string
-  total_cost?: number
-  estimated_total?: number
   created_at: string
   device?: { brand?: string; model?: string } | null
 }
@@ -305,6 +308,19 @@ export function CustomerDetail() {
   const [waLogs,   setWaLogs]   = useState<WhatsAppLogEntry[]>([])
   const [waLoading,setWaLoading]= useState(false)
 
+  /**
+   * SEC-08A — importes por orden, resueltos por `get_order_financial_amounts`.
+   * Vacío significa "el servidor no los autorizó" y la columna no se dibuja:
+   * nunca se rellena con ceros.
+   */
+  const [orderAmounts, setOrderAmounts] = useState<Record<string, { total_cost?: number; estimated_total?: number }>>({})
+  const [orderAmountsAuthorized, setOrderAmountsAuthorized] = useState(false)
+  /**
+   * La columna "Total" de las órdenes se dibuja sólo si el SERVIDOR autorizó
+   * los importes. `can(...)` es una pista de UI; la autoridad es la DB.
+   */
+  const showOrderTotals = canViewPurchaseFinancials && orderAmountsAuthorized
+
   // Load customer
   useEffect(() => {
     if (!id) { setError('Cliente no encontrado'); setLoading(false); return }
@@ -313,6 +329,25 @@ export function CustomerDetail() {
       .catch((e: any) => setError(e.message || 'Error al cargar cliente'))
       .finally(() => setLoading(false))
   }, [id])
+
+  // Load authorized order amounts
+  useEffect(() => {
+    const ids = (customer?.orders ?? []).map(o => o.id)
+    if (!businessId || ids.length === 0) { setOrderAmounts({}); setOrderAmountsAuthorized(false); return }
+    let vivo = true
+    void supabase.rpc('get_order_financial_amounts', { p_business_id: businessId, p_order_ids: ids })
+      .then(({ data, error: rpcError }) => {
+        if (!vivo) return
+        const res = data as { ok?: boolean; authorized?: boolean; rows?: { order_id: string; total_cost?: number; estimated_total?: number }[] } | null
+        if (rpcError || res?.ok === false || res?.authorized !== true) {
+          setOrderAmounts({}); setOrderAmountsAuthorized(false); return
+        }
+        const mapa: Record<string, { total_cost?: number; estimated_total?: number }> = {}
+        for (const row of res.rows ?? []) mapa[row.order_id] = { total_cost: row.total_cost, estimated_total: row.estimated_total }
+        setOrderAmounts(mapa); setOrderAmountsAuthorized(true)
+      })
+    return () => { vivo = false }
+  }, [businessId, customer])
 
   // Load CC account
   const loadCcAccount = useCallback(async () => {
@@ -551,21 +586,25 @@ export function CustomerDetail() {
                     <th>Orden</th>
                     <th>Dispositivo</th>
                     <th>Estado</th>
-                    {canViewPurchaseFinancials && <th>Total</th>}
+                    {showOrderTotals && <th>Total</th>}
                     <th>Fecha</th>
                   </tr>
                 </thead>
                 <tbody>
                   {!customer.orders || customer.orders.length === 0 ? (
                     <tr>
-                      <td colSpan={canViewPurchaseFinancials ? 5 : 4} style={{ textAlign: 'center', padding: '2.5rem', color: '#64748b' }}>
+                      <td colSpan={showOrderTotals ? 5 : 4} style={{ textAlign: 'center', padding: '2.5rem', color: '#64748b' }}>
                         Este cliente no tiene órdenes de servicio registradas.
                       </td>
                     </tr>
                   ) : customer.orders.map(order => {
-                    const amount = typeof order.total_cost === 'number' && order.total_cost > 0
-                      ? order.total_cost
-                      : order.estimated_total || 0
+                    // SEC-08A: el importe sale del mapa autorizado por el
+                    // servidor; la regla (total_cost si es positivo, si no el
+                    // presupuesto) no cambia.
+                    const montos = orderAmounts[order.id]
+                    const amount = typeof montos?.total_cost === 'number' && montos.total_cost > 0
+                      ? montos.total_cost
+                      : montos?.estimated_total || 0
                     const deviceLabel = order.device
                       ? `${order.device.brand || ''} ${order.device.model || ''}`.trim()
                       : 'Dispositivo asociado'
@@ -582,7 +621,7 @@ export function CustomerDetail() {
                             {STATUS_CONFIG[order.status as keyof typeof STATUS_CONFIG]?.label || order.status}
                           </span>
                         </td>
-                        {canViewPurchaseFinancials && <td style={{ fontWeight: 600 }}>{fmt(amount)}</td>}
+                        {showOrderTotals && <td style={{ fontWeight: 600 }}>{fmt(amount)}</td>}
                         <td style={{ color: '#64748b' }}>{new Date(order.created_at).toLocaleDateString('es-AR')}</td>
                       </tr>
                     )

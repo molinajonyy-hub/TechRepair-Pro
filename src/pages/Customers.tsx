@@ -45,8 +45,17 @@ type CustomerStats = {
 type CustomerStatsOrderRow = {
   id: string
   customer_id: string | null
-  total_cost: number | null
-  estimated_total: number | null
+}
+
+/**
+ * SEC-08A — importes de una orden tal como los devuelve
+ * `get_order_financial_amounts`. Se piden aparte porque las columnas
+ * financieras de `orders` ya no son seleccionables desde el browser.
+ */
+type OrderAmountRow = {
+  order_id: string
+  total_cost?: number | null
+  estimated_total?: number | null
 }
 
 const formatCurrency = (value: number) =>
@@ -63,6 +72,9 @@ export function Customers() {
   const searchTimer = useRef<ReturnType<typeof setTimeout>>()
   const [customers, setCustomers] = useState<CustomerSummary[]>([])
   const [orders, setOrders] = useState<CustomerStatsOrderRow[]>([])
+  /** Mapa order_id → importes, sólo si el servidor los autorizó. */
+  const [orderAmounts, setOrderAmounts] = useState<Record<string, OrderAmountRow>>({})
+  const [amountsAuthorized, setAmountsAuthorized] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const { showLoading, hideLoading } = useLoading()
@@ -146,13 +158,12 @@ export function Customers() {
       // Cargar clientes con un conteo de órdenes embebido — evita traer todas las órdenes
       const [customersResult, ordersCountResult] = await Promise.allSettled([
         customersService.getAll(),
-        // Query liviana para estadísticas. `estimated_total` es obligatorio:
-        // el valor de una orden es `total_cost` cuando es positivo y si no el
-        // presupuesto estimado. Sin traerlo, toda orden aún sin costo final
-        // sumaba 0 aunque tuviera presupuesto.
+        // SEC-08A — query OPERATIVA: `total_cost` y `estimated_total` ya no son
+        // seleccionables desde el browser. Acá sólo se trae el vínculo
+        // orden→cliente, que es lo que necesita el contador de órdenes.
         supabase
           .from('orders')
-          .select('id, customer_id, total_cost, estimated_total')
+          .select('id, customer_id')
           .eq('business_id', businessId)
           .limit(2000),
       ])
@@ -164,10 +175,31 @@ export function Customers() {
       setCustomers((customersResult.value || []) as CustomerSummary[])
 
       if (ordersCountResult.status === 'fulfilled') {
-        setOrders((ordersCountResult.value.data || []) as CustomerStatsOrderRow[])
+        const filas = (ordersCountResult.value.data || []) as CustomerStatsOrderRow[]
+        setOrders(filas)
+
+        // Importes por la ruta autorizada. Si el servidor no autoriza, el mapa
+        // queda vacío y la columna "Total" no se muestra: nunca $0 inventado.
+        const ids = filas.map(f => f.id)
+        if (ids.length > 0) {
+          const { data, error: amtError } = await supabase.rpc('get_order_financial_amounts', {
+            p_business_id: businessId, p_order_ids: ids,
+          })
+          const res = data as { ok?: boolean; authorized?: boolean; rows?: OrderAmountRow[] } | null
+          if (amtError || res?.ok === false || res?.authorized !== true) {
+            setOrderAmounts({}); setAmountsAuthorized(false)
+          } else {
+            const mapa: Record<string, OrderAmountRow> = {}
+            for (const row of res.rows ?? []) mapa[row.order_id] = row
+            setOrderAmounts(mapa); setAmountsAuthorized(true)
+          }
+        } else {
+          setOrderAmounts({}); setAmountsAuthorized(false)
+        }
       } else {
         console.error('Error loading customer stats:', ordersCountResult.reason)
         setOrders([])
+        setOrderAmounts({}); setAmountsAuthorized(false)
       }
     } catch (err: any) {
       setError(err.message || 'Error al cargar clientes')
@@ -316,10 +348,13 @@ export function Customers() {
       }
 
       const currentStats = stats[customerId] || { orders: 0, total: 0 }
+      // SEC-08A: los importes salen del mapa autorizado. Sin autorización el
+      // mapa está vacío y el total queda en 0, pero la UI no lo muestra.
+      const montos = orderAmounts[order.id]
       const total =
-        typeof order.total_cost === 'number' && order.total_cost > 0
-          ? order.total_cost
-          : order.estimated_total || 0
+        typeof montos?.total_cost === 'number' && montos.total_cost > 0
+          ? montos.total_cost
+          : montos?.estimated_total || 0
 
       stats[customerId] = {
         orders: currentStats.orders + 1,
@@ -328,7 +363,7 @@ export function Customers() {
 
       return stats
     }, {})
-  }, [orders])
+  }, [orders, orderAmounts])
 
   if (error) {
     return (
@@ -451,7 +486,12 @@ export function Customers() {
                       </td>
                       <td>{stats.orders}</td>
                       <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {formatCurrency(stats.total)}
+                        {/* SEC-08A: sin autorización del servidor no se muestra
+                            un importe. Un guion dice "no lo podés ver"; un $0
+                            mentiría sobre el valor del cliente. */}
+                        {amountsAuthorized
+                          ? formatCurrency(stats.total)
+                          : <span data-testid="customer-total-restricted" style={{ color: 'var(--text-subtle)', fontWeight: 400 }}>—</span>}
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: '0.375rem', justifyContent: 'flex-end' }}>

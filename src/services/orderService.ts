@@ -1,5 +1,12 @@
 import { supabase } from '../lib/supabase';
 
+// SEC-08A — columnas de `public.orders` concedidas al browser. `*` responde
+// 42501: los importes salen de `get_order_financial_amounts` y el secreto del
+// equipo de `reveal_order_device_access`. Una sola cadena literal: concatenada,
+// TypeScript la ensancha a `string` y supabase-js pierde el tipado de la fila.
+const ORDER_OPERATIONAL_COLUMNS =
+  'id, business_id, customer_id, device_id, technician_id, assigned_profile_id, created_by, comprobante_id, status, priority, notes, access_mode, created_at, updated_at, completed_at';
+
 export interface Order {
   id: string;
   customer_id: string;
@@ -24,7 +31,7 @@ export const orderService = {
     const { data, error } = await supabase
       .from('orders')
       .select(`
-        *,
+        ${ORDER_OPERATIONAL_COLUMNS},
         customer:customers(name, phone, email),
         device:devices(type, brand, model)
       `)
@@ -45,7 +52,7 @@ export const orderService = {
     const { data, error } = await supabase
       .from('orders')
       .select(`
-        *,
+        ${ORDER_OPERATIONAL_COLUMNS},
         customer:customers(*),
         device:devices(*)
       `)
@@ -75,7 +82,7 @@ export const orderService = {
         business_id: businessId,
         created_by: userId,
       })
-      .select()
+      .select(ORDER_OPERATIONAL_COLUMNS)
       .single();
 
     if (error || !data) {
@@ -98,7 +105,7 @@ export const orderService = {
       .update(order)
       .eq('id', orderId)
       .eq('business_id', businessId)
-      .select()
+      .select(ORDER_OPERATIONAL_COLUMNS)
       .single();
 
     if (error || !data) {
@@ -134,7 +141,7 @@ export const orderService = {
     const { data, error } = await supabase
       .from('orders')
       .select(`
-        *,
+        ${ORDER_OPERATIONAL_COLUMNS},
         customer:customers(name, phone, email),
         device:devices(type, brand, model)
       `)

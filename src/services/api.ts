@@ -198,7 +198,11 @@ const isMissingColumnError = (error: unknown, columnName: string) => {
 const insertWithOptionalColumns = async (
   table: string,
   payload: Record<string, unknown>,
-  optionalColumns: string[] = []
+  optionalColumns: string[] = [],
+  // SEC-08A: qué columnas devolver. Por defecto `*`, pero una tabla con GRANT
+  // por columna (como `orders`) tiene que pedir su lista explícita o el
+  // RETURNING responde 42501.
+  returning = '*'
 ) => {
   const insertPayload = { ...payload }
   const remainingColumns = new Set(optionalColumns)
@@ -207,7 +211,10 @@ const insertWithOptionalColumns = async (
     const { data, error } = await supabase
       .from(table)
       .insert(insertPayload)
-      .select()
+      // El cast conserva el tipado laxo que tenía `.select()` sin argumentos:
+      // `table` ya es un `string` genérico, así que la fila no está tipada de
+      // todos modos y el helper devuelve un objeto suelto, como siempre.
+      .select(returning as '*')
       .single()
 
     if (!error) {
@@ -326,8 +333,19 @@ const isMissingRelationError = (error: unknown, relationName: string) => {
 // ============================================
 // Orders Service
 // ============================================
+/**
+ * SEC-08A — columnas de `public.orders` concedidas al browser. `select('*')`
+ * sobre esta tabla responde 42501: las columnas financieras (O1) y
+ * `device_password` (O2) sólo salen por sus rutas autorizadas
+ * (`get_order_financial_amounts` y `reveal_order_device_access`).
+ */
+// Una sola cadena literal a propósito: concatenada, TypeScript la ensancha a
+// `string` y supabase-js pierde el tipado de la fila.
+const ORDER_OPERATIONAL_COLUMNS =
+  'id, business_id, customer_id, device_id, technician_id, assigned_profile_id, created_by, comprobante_id, status, priority, notes, access_mode, created_at, updated_at, completed_at'
+
 export const ordersService = {
-  async getAll(options?: { 
+  async getAll(options?: {
     status?: string
     priority?: string
     limit?: number
@@ -337,7 +355,7 @@ export const ordersService = {
     let query = supabase
       .from('orders')
       .select(`
-        *,
+        ${ORDER_OPERATIONAL_COLUMNS},
         customer:customers(id, name, phone, email),
         device:devices(id, brand, model, type),
         technician:users(id, name)
@@ -358,7 +376,9 @@ export const ordersService = {
     const { data, error } = await query
     
     if (error) throw error
-    return data as (Order & {
+    // `as unknown` porque supabase-js tipa las relaciones embebidas como
+    // arrays; en runtime `customer`/`device`/`technician` son objetos.
+    return data as unknown as (Order & {
       customer: Customer
       device: Device
       technician: User | null
@@ -369,7 +389,7 @@ export const ordersService = {
     const { data, error } = await supabase
       .from('orders')
       .select(`
-        *,
+        ${ORDER_OPERATIONAL_COLUMNS},
         customer:customers(*),
         device:devices(*),
         technician:users(id, name),
@@ -381,7 +401,7 @@ export const ordersService = {
       .single()
     
     if (error) throw error
-    return data as Order & {
+    return data as unknown as Order & {
       customer: Customer
       device: Device
       technician: User | null
@@ -405,7 +425,8 @@ export const ordersService = {
           created_by: userId,
           updated_at: new Date().toISOString(),
         },
-        ['business_id', 'created_by']
+        ['business_id', 'created_by'],
+        ORDER_OPERATIONAL_COLUMNS
       )
 
       return data as Order
@@ -419,7 +440,8 @@ export const ordersService = {
       .from('orders')
       .update({ ...order, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .select()
+      // SEC-08A: `.select()` sin argumentos es `*`, y `*` sobre orders es 42501.
+      .select(ORDER_OPERATIONAL_COLUMNS)
       .single()
     
     if (error) throw error
@@ -479,6 +501,10 @@ export const customersService = {
   async getById(id: string) {
     const { businessId } = await getCurrentCustomerContext()
 
+    // SEC-08A — la relación anidada `orders(...)` NO puede pedir columnas
+    // financieras: cerrar /orders y dejar abierto /customers?select=orders(...)
+    // no cierra nada. Los importes de estas órdenes los resuelve
+    // `get_order_financial_amounts`, que verifica `orders_view_financials`.
     const { data, error } = await supabase
       .from('customers')
       .select(`
@@ -486,8 +512,6 @@ export const customersService = {
         orders:orders(
           id,
           status,
-          total_cost,
-          estimated_total,
           created_at,
           device:devices(brand, model)
         ),

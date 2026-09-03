@@ -1,0 +1,48 @@
+{
+  "note": "SEC-08A - preflight de PRODUCCION, SOLO metadata de catalogo. Read-only: ninguna escritura, ningun dato de negocio salvo dos conteos agregados (119 ordenes, 50 con shadow legacy no vacio). Capturado ANTES de aplicar 20260911120000.",
+  "project_ref": "vrdxxmjzxhfgqlnxmbwx",
+  "captured_at": "2026-09-02T19:10:45.063976+00:00",
+  "migrations": { "count": 252, "latest": "20260910120000" },
+  "orders_columns": [
+    "id", "customer_id", "device_id", "technician_id", "status", "priority",
+    "estimated_total", "labor_cost", "total_cost", "notes", "created_at", "updated_at",
+    "amount_paid", "created_by", "comprobante_id", "business_id", "device_password",
+    "completed_at", "paid_at", "estimated_total_currency", "access_mode", "assigned_profile_id"
+  ],
+  "orders_table_grants": {
+    "anon": ["DELETE", "INSERT", "REFERENCES", "SELECT", "TRIGGER", "TRUNCATE", "UPDATE"],
+    "authenticated": ["DELETE", "INSERT", "REFERENCES", "SELECT", "TRIGGER", "TRUNCATE", "UPDATE"],
+    "postgres": ["DELETE", "INSERT", "REFERENCES", "SELECT", "TRIGGER", "TRUNCATE", "UPDATE"]
+  },
+  "orders_column_select_denied": null,
+  "orders_column_select_denied_meaning": "null = NINGUNA columna esta denegada hoy. anon y authenticated pueden seleccionar las 22, incluidas las 6 financieras y device_password. La fuga esta VIVA en produccion.",
+  "orders_policies": [
+    { "name": "orders_delete", "cmd": "DELETE", "roles": "{authenticated}", "qual": "((business_id = current_business_id()) AND can_manage())" },
+    { "name": "orders_insert", "cmd": "INSERT", "roles": "{authenticated}", "qual": null },
+    { "name": "orders_select", "cmd": "SELECT", "roles": "{authenticated}", "qual": "((business_id = current_business_id()) AND is_staff())" },
+    { "name": "orders_update", "cmd": "UPDATE", "roles": "{authenticated}", "qual": "((business_id = current_business_id()) AND current_user_can('orders_change_status'::text))" }
+  ],
+  "orders_dependent_views": ["v_finance_order_cogs_gaps", "v_order_financial_status", "v_order_payment_state"],
+  "realtime_publication_supabase_realtime": ["notifications"],
+  "realtime_meaning": "public.orders NO esta publicada: no hay lector Realtime alcanzable de ordenes.",
+  "canonical_routes": {
+    "public.get_order_financial_amounts(p_business_id uuid, p_order_ids uuid[])": { "secdef": true, "anon": false, "authenticated": true, "service_role": true },
+    "public.user_can_view_order_amounts(p_business_id uuid, p_user_id uuid)": { "secdef": true, "anon": false, "authenticated": false, "service_role": true },
+    "public.reveal_order_device_access(p_order_id uuid)": { "secdef": true, "anon": false, "authenticated": true, "service_role": false },
+    "public.set_order_device_access_secret(p_order_id uuid, p_mode text, p_secret text)": { "secdef": true, "anon": false, "authenticated": true, "service_role": false },
+    "public.delete_order_device_access_secret(p_order_id uuid)": { "secdef": true, "anon": false, "authenticated": true, "service_role": false },
+    "public.current_user_can(p_key text)": { "secdef": true, "anon": false, "authenticated": true, "service_role": false }
+  },
+  "device_secret_store": {
+    "private_table": true,
+    "audit_table": true,
+    "orders_total": 119,
+    "legacy_shadow_rows": 50
+  },
+  "capability_defaults_from_current_user_can": {
+    "orders": ["admin", "manager", "tech", "sales", "cashier", "viewer"],
+    "orders_view_financials": ["admin", "manager", "sales", "cashier"],
+    "device_access_secret": ["admin", "manager", "tech"],
+    "owner": "short-circuit a true ANTES de mirar profiles.permissions: un override false NO aplica al owner"
+  }
+}
