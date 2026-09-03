@@ -25,7 +25,13 @@ const project = readFileSync('supabase/config.toml', 'utf8').match(/^project_id 
 if (!project) throw new Error('No se pudo identificar el proyecto Supabase local')
 const dbContainer = process.env.SEC08B_DB_CONTAINER || `supabase_db_${project}`
 if (!/^supabase_db_[a-z0-9-]+$/.test(dbContainer)) throw new Error('Se requiere el contenedor de base local')
-const MIGRATION = 'supabase/migrations/20260914120000_sec08b_inventory_cost_visibility.sql'
+// Las DOS migraciones del lote: la Fase A abre la frontera de columnas y la
+// Fase B pone la autoridad de escritura. Restaurar sólo la A dejaría la base sin
+// el trigger de preservación y las mediciones siguientes mentirían.
+const MIGRATIONS = [
+  'supabase/migrations/20260914120000_sec08b_inventory_cost_visibility.sql',
+  'supabase/migrations/20260915120000_sec08b_b_cost_write_authority.sql',
+]
 
 const docker = (args, input) => execFileSync('docker', args, { input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 32 * 1024 * 1024 })
 const sql = q => docker(['exec', '-i', dbContainer, 'psql', '-X', '-U', 'postgres', '-d', 'postgres', '-Atq', '-v', 'ON_ERROR_STOP=1'], q).trim()
@@ -93,6 +99,45 @@ const main = async () => {
   })
   const linea = (n, r) => `    ${n.padEnd(22)} ${String(r.status).padEnd(5)} ${r.text.slice(0, 110).replace(/\s+/g, ' ')}`
 
+  const costoEnBase = () => sql(`SELECT COALESCE(cost_price::text,'NULL') FROM public.inventory WHERE id='${ids.prod}';`)
+
+  /**
+   * INTEGRIDAD DEL DATO en la ventana de despliegue.
+   *
+   * Es el punto más importante de esta matriz: el P0 que encontró la revisión
+   * arrancaba con el despliegue del FRONTEND, antes del db push. Se reproduce
+   * el flujo del frontend NUEVO —leer columnas operativas, pedir el costo por
+   * la vista autorizada, mandar costo SÓLO si lo recibió— y se comprueba que el
+   * costo real sobrevive con y sin la migración aplicada.
+   */
+  const integridad = async etiqueta => {
+    sql(`UPDATE public.inventory SET cost_price=${COST} WHERE id='${ids.prod}';`)
+    const antes = costoEnBase()
+    const opsRes = await req('owner', `/inventory?id=eq.${ids.prod}&select=id,code,name,sale_price,stock_quantity`)
+    const item = JSON.parse(opsRes.text)[0] ?? {}
+    // El frontend nuevo pide el costo por la vista autorizada; si no existe
+    // (DB vieja) o no está autorizado, NO manda la columna.
+    const costRes = await req('owner', `/v_inventory_costs?inventory_id=eq.${ids.prod}&select=cost_price,cost_price_usd`)
+    const autorizado = costRes.status === 200 && JSON.parse(costRes.text).length > 0
+    const payload = { name: `${item.name ?? 'Compat'} (editado)` }
+    if (autorizado) payload.cost_price = Number(JSON.parse(costRes.text)[0].cost_price)
+    // `select` EXPLÍCITO: un `return=representation` sin proyección es
+    // RETURNING *, que con las columnas de costo revocadas responde 42501 y
+    // aborta el UPDATE entero. Sin esto la prueba de integridad pasaría por la
+    // razón equivocada —el costo «sobrevive» porque la edición nunca ocurrió—.
+    const r = await fetch(`${apiUrl}/inventory?id=eq.${ids.prod}&select=id,name`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Prefer: 'return=representation', Authorization: `Bearer ${token('owner')}` },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(15000),
+    })
+    const despues = costoEnBase()
+    const ok = despues === antes
+    console.log(`    INTEGRIDAD ${etiqueta.padEnd(12)} costo ${antes} → ${despues}  ${ok ? 'PRESERVADO' : '*** DESTRUIDO ***'}  (PATCH ${r.status}, costo enviado: ${autorizado})`)
+    assert(r.status === 200, `${etiqueta}: la edición operativa tiene que APLICARSE, no fallar — ${r.status} ${await r.text()}`)
+    assert(ok, `${etiqueta}: el flujo del frontend NUEVO destruyó el costo (${antes} → ${despues})`)
+  }
+
   // ═══ A. DB NUEVA (estado final) ═════════════════════════════════════════
   await reloadRest()
   const nueva = await medir('DB NUEVA')
@@ -110,6 +155,7 @@ const main = async () => {
     `FE viejo + DB nueva: se esperaba que select(*) ROMPA con 403 y dio ${nueva.feViejoLista.status}`)
   assert(nueva.feViejoCosto.status === 403,
     `FE viejo + DB nueva: se esperaba que la columna de costo ROMPA con 403 y dio ${nueva.feViejoCosto.status}`)
+  await integridad('DB NUEVA')
 
   // ═══ B. DB VIEJA (pre-SEC-08B) ══════════════════════════════════════════
   // Se repone el GRANT de tabla y se esconden las proyecciones autorizadas.
@@ -121,6 +167,10 @@ const main = async () => {
     GRANT SELECT ON public.inventory_movements TO authenticated;
     GRANT SELECT ON public.comprobante_items TO authenticated;
     ALTER VIEW public.v_inventory_costs RENAME TO v_inventory_costs__compat_hidden;
+    -- La DB vieja tampoco tiene el trigger de preservación de la Fase B: si se
+    -- dejara activo, la ventana «frontend primero» se mediría con una red de
+    -- seguridad que en producción todavía no existe.
+    ALTER TABLE public.inventory DISABLE TRIGGER trig_inventory_guard_cost_write;
   `)
   await reloadRest()
   const vieja = await medir('DB VIEJA')
@@ -136,6 +186,7 @@ const main = async () => {
     'FE nuevo + DB vieja: la proyección autorizada todavía no existe, y eso es lo que degrada el costo')
   assert(vieja.feViejoLista.status === 200,
     'FE viejo + DB vieja: es el estado de producción de hoy y tiene que funcionar')
+  await integridad('DB VIEJA')
 
   // ── Restauración: re-aplicar la migración ─────────────────────────────────
   restore()
@@ -171,8 +222,11 @@ const restore = () => {
   try {
     sql(`ALTER VIEW IF EXISTS public.v_inventory_costs__compat_hidden RENAME TO v_inventory_costs;`)
   } catch { /* ya estaba con el nombre bueno */ }
-  const migration = readFileSync(MIGRATION, 'utf8')
-  docker(['exec', '-i', dbContainer, 'psql', '-X', '-U', 'postgres', '-d', 'postgres', '-q', '-v', 'ON_ERROR_STOP=1'], migration)
+  try { sql(`ALTER TABLE public.inventory ENABLE TRIGGER trig_inventory_guard_cost_write;`) } catch { /* aun no existe */ }
+  for (const m of MIGRATIONS) {
+    docker(['exec', '-i', dbContainer, 'psql', '-X', '-U', 'postgres', '-d', 'postgres', '-q', '-v', 'ON_ERROR_STOP=1'],
+      readFileSync(m, 'utf8'))
+  }
 }
 
 const cleanup = () => {

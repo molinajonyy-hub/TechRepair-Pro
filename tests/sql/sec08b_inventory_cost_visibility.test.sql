@@ -279,5 +279,123 @@ BEGIN
 END
 $t6$;
 
+-- ── 7. FASE B · el costo CRUDO de línea NO lo habilita `finance` ────────────
+-- La suite original probaba el override sólo contra `v_inventory_costs` y daba
+-- por cerrado todo el lote. La revisión independiente reprodujo que
+-- `v_comprobante_item_costs` seguía entregando `inventory_id + costo_unitario`
+-- a cualquiera con `finance`. Una vista segura NO puede usarse como proxy de
+-- las demás: acá se prueba CADA superficie de costo por separado.
+SET session_replication_role = replica;
+INSERT INTO public.customers(id,business_id,name,phone)
+  VALUES ('5ec08b00-0000-0000-0000-0000000000d9','5ec08b00-0000-0000-0000-0000000000a0','Cli','1');
+INSERT INTO public.comprobantes(id,business_id,customer_id,tipo,estado,subtotal,impuestos,total,total_bruto,total_cobrado,saldo_pendiente,currency,total_ars,total_usd,exchange_rate,tax,status,fecha)
+  VALUES ('5ec08b00-0000-0000-0000-0000000000e9','5ec08b00-0000-0000-0000-0000000000a0','5ec08b00-0000-0000-0000-0000000000d9','factura_c','emitido',74044,0,74044,74044,0,74044,'ARS',74044,0,1,0,'issued',now());
+INSERT INTO public.comprobante_items(id,comprobante_id,business_id,inventory_id,descripcion,cantidad,precio_unitario,subtotal,costo_unitario,costo_total,tipo_linea)
+  VALUES ('5ec08b00-0000-0000-0000-0000000000f9','5ec08b00-0000-0000-0000-0000000000e9','5ec08b00-0000-0000-0000-0000000000a0','5ec08b00-0000-0000-0000-0000000000c1','linea',1,74044,74044,79099,79099,'producto');
+SET session_replication_role = origin;
+
+DO $t7$
+DECLARE
+  q text := 'SELECT costo_unitario::text FROM public.v_comprobante_item_costs WHERE comprobante_item_id = ''5ec08b00-0000-0000-0000-0000000000f9''';
+BEGIN
+  PERFORM pg_temp.assert(pg_temp.read_expr('authenticated','5ec08b00-0000-0000-0000-000000000001',q) = '79099.00',
+    'owner recibe el costo crudo de la línea de venta');
+  PERFORM pg_temp.assert(pg_temp.read_expr('authenticated','5ec08b00-0000-0000-0000-000000000003',q) = '79099.00',
+    'manager (inventory_view_costs) recibe el costo crudo de la línea');
+
+  -- El corazón del bloqueante 2: `finance` NO alcanza.
+  PERFORM pg_temp.assert(pg_temp.read_expr('authenticated','5ec08b00-0000-0000-0000-000000000005',q) = 'NO_ROWS',
+    'cashier (finance, SIN inventory_view_costs) NO recibe el costo crudo de la línea');
+  PERFORM pg_temp.assert(pg_temp.read_expr('authenticated','5ec08b00-0000-0000-0000-000000000004',q) = 'NO_ROWS',
+    'sales NO recibe el costo crudo de la línea');
+  PERFORM pg_temp.assert(pg_temp.read_expr('authenticated','5ec08b00-0000-0000-0000-000000000006',q) = 'NO_ROWS',
+    'tech NO recibe el costo crudo de la línea');
+
+  -- Un override a false deniega en ESTA superficie también, no sólo en la otra.
+  UPDATE public.profiles SET permissions = '{"inventory_view_costs": false}'::jsonb
+   WHERE id = '5ec08b00-0000-0000-0000-000000000002';
+  PERFORM pg_temp.assert(pg_temp.read_expr('authenticated','5ec08b00-0000-0000-0000-000000000002',q) = 'NO_ROWS',
+    'override false sobre admin deniega TAMBIÉN el costo crudo de línea');
+  UPDATE public.profiles SET permissions = NULL WHERE id = '5ec08b00-0000-0000-0000-000000000002';
+
+  -- Un override de `finance` sobre sales tampoco lo habilita.
+  UPDATE public.profiles SET permissions = '{"finance": true}'::jsonb
+   WHERE id = '5ec08b00-0000-0000-0000-000000000004';
+  PERFORM pg_temp.assert(pg_temp.read_expr('authenticated','5ec08b00-0000-0000-0000-000000000004',q) = 'NO_ROWS',
+    'sales + finance=true sigue SIN costo crudo de línea');
+  UPDATE public.profiles SET permissions = NULL WHERE id = '5ec08b00-0000-0000-0000-000000000004';
+END
+$t7$;
+
+-- ── 8. FASE B · el agregado que `finance` sí recibe ─────────────────────────
+DO $t8$
+DECLARE
+  q text := 'SELECT cogs_amount_ars::text FROM public.v_finance_period_cogs LIMIT 1';
+BEGIN
+  PERFORM pg_temp.assert(pg_temp.read_expr('authenticated','5ec08b00-0000-0000-0000-000000000005',q) = '79099.00',
+    'cashier SÍ recibe el COGS AGREGADO de período (el P&L no se rompe)');
+  PERFORM pg_temp.assert(pg_temp.read_expr('authenticated','5ec08b00-0000-0000-0000-000000000004',q) = 'NO_ROWS',
+    'sales no recibe ni el agregado');
+  -- Y el agregado no tiene por dónde estrecharse hasta un producto.
+  PERFORM pg_temp.assert(
+    NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema='public' AND table_name='v_finance_period_cogs'
+                   AND column_name IN ('inventory_id','comprobante_id','comprobante_item_id','descripcion')),
+    'v_finance_period_cogs no expone dimensión de producto ni de línea');
+END
+$t8$;
+
+-- ── 9. FASE B · autoridad de ESCRITURA del costo ────────────────────────────
+-- Quien no puede LEER el costo tampoco puede REEMPLAZARLO. Es lo que cierra la
+-- destrucción silenciosa que reprodujo la revisión: 51101 → 0 al editar el
+-- nombre. No se aborta la operación —eso rompería la edición operativa
+-- legítima—: se conserva el valor anterior.
+CREATE OR REPLACE FUNCTION pg_temp.write_as(p_actor uuid, p_sql text)
+RETURNS text LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM set_config('role', 'authenticated', true);
+  PERFORM pg_temp.act_as(p_actor);
+  BEGIN
+    EXECUTE p_sql;
+  EXCEPTION WHEN insufficient_privilege THEN
+    PERFORM set_config('role','none',true); RETURN 'DENIED';
+  END;
+  PERFORM set_config('role','none',true);
+  RETURN 'OK';
+END;
+$$;
+
+DO $t9$
+DECLARE
+  v_prod text := '5ec08b00-0000-0000-0000-0000000000c1';
+  v_cost text;
+BEGIN
+  -- `sales` edita un campo operativo y de paso manda cost_price = 0.
+  UPDATE public.inventory SET cost_price = 71011 WHERE id = v_prod::uuid;
+  PERFORM pg_temp.write_as('5ec08b00-0000-0000-0000-000000000004',
+    format('UPDATE public.inventory SET name=''editado'', cost_price=0 WHERE id=%L', v_prod));
+  SELECT cost_price::text INTO v_cost FROM public.inventory WHERE id = v_prod::uuid;
+  PERFORM pg_temp.assert(v_cost = '71011.00',
+    'sales NO puede reemplazar el costo (quedó ' || v_cost || ', esperado 71011.00)');
+
+  -- …ni inventarlo hacia arriba.
+  PERFORM pg_temp.write_as('5ec08b00-0000-0000-0000-000000000004',
+    format('UPDATE public.inventory SET cost_price=999999 WHERE id=%L', v_prod));
+  SELECT cost_price::text INTO v_cost FROM public.inventory WHERE id = v_prod::uuid;
+  PERFORM pg_temp.assert(v_cost = '71011.00', 'sales NO puede inventar un costo (quedó ' || v_cost || ')');
+
+  -- El autorizado sí, y su 0 explícito es un valor real.
+  PERFORM pg_temp.write_as('5ec08b00-0000-0000-0000-000000000003',
+    format('UPDATE public.inventory SET cost_price=71234 WHERE id=%L', v_prod));
+  SELECT cost_price::text INTO v_cost FROM public.inventory WHERE id = v_prod::uuid;
+  PERFORM pg_temp.assert(v_cost = '71234.00', 'manager SÍ puede cambiar el costo (quedó ' || v_cost || ')');
+
+  PERFORM pg_temp.write_as('5ec08b00-0000-0000-0000-000000000003',
+    format('UPDATE public.inventory SET cost_price=0 WHERE id=%L', v_prod));
+  SELECT cost_price::text INTO v_cost FROM public.inventory WHERE id = v_prod::uuid;
+  PERFORM pg_temp.assert(v_cost = '0.00', 'el 0 EXPLÍCITO de un autorizado SÍ se respeta (quedó ' || v_cost || ')');
+END
+$t9$;
+
 ROLLBACK;
 

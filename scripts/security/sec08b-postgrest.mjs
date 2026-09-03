@@ -345,8 +345,15 @@ const main = async () => {
   // ahora también en la proyección de costo.
   denyValue(await request('tech', `/v_comprobante_item_costs?select=costo_unitario`),
     [CI_COST_ORDER, CI_COST_FREE], 'tech (sin orders_view_financials ni costo) · costo de línea')
-  const ordCost = await request('cashier', `/v_comprobante_item_costs?comprobante_item_id=eq.${ids.itemOrder}&select=costo_unitario`)
-  expectValue(ordCost, CI_COST_ORDER, 'cashier (con orders_view_financials) · costo de línea de orden')
+  // FASE B — el cashier YA NO recibe el costo crudo de línea. Esta aserción
+  // exigía lo contrario, y por eso el lote pasaba sus propios tests mientras
+  // `finance` seguía habilitando el costo por producto: la revisión
+  // independiente lo reprodujo como bypass. El positivo se toma ahora de un
+  // actor que sí tiene `inventory_view_costs`.
+  denyValue(await request('cashier', `/v_comprobante_item_costs?comprobante_item_id=eq.${ids.itemOrder}&select=costo_unitario`),
+    [CI_COST_ORDER], 'cashier (finance, sin inventory_view_costs) · costo de línea de orden')
+  const ordCost = await request('manager', `/v_comprobante_item_costs?comprobante_item_id=eq.${ids.itemOrder}&select=costo_unitario`)
+  expectValue(ordCost, CI_COST_ORDER, 'manager (inventory_view_costs + orders_view_financials) · costo de línea de orden')
   // Y las rutas canónicas de SEC-08A siguen respondiendo.
   const oa = await request('owner', `/rpc/get_order_financial_amounts?p_order_id=${ids.order}`)
   expect(oa.status === 200 || oa.status === 404, `SEC-08A get_order_financial_amounts respondió ${oa.status}`)

@@ -30,7 +30,7 @@ import { ExcelService, ExcelRow } from '../services/excelService'
 import { supabase } from '../lib/supabase'
 import { ProductMovementsModal } from '../components/inventory/ProductMovementsModal'
 import { ProductFormModalSafe as ProductFormModal } from '../components/products/ProductFormModal'
-import { INVENTORY_OPERATIONAL_COLUMNS } from '../services/inventoryCostAccess'
+import { INVENTORY_OPERATIONAL_COLUMNS, fetchInventoryCosts } from '../services/inventoryCostAccess'
 
 const CATEGORIES = [
   'Pantallas',
@@ -436,8 +436,12 @@ export function Inventory() {
       min_stock: tipo === 'service' ? 0 : 1,
       precio_mayorista: (parentItem as any)?.precio_mayorista ?? null,
       mayorista_currency: 'ARS' as 'ARS' | 'USD',
-      cost_price: parentItem?.cost_price || 0,
-      cost_price_usd: parentItem?.cost_price_usd || 0,
+      // SEC-08B: el costo del padre ya no llega en la lectura operativa. Se deja
+      // en 0 y NO se fabrica nada: al insertar la variante, el trigger
+      // `trig_inventory_guard_cost_write` hereda el costo real del padre
+      // server-side cuando el actor no tiene autoridad para verlo.
+      cost_price: parentItem?.cost_price ?? 0,
+      cost_price_usd: parentItem?.cost_price_usd ?? 0,
       sale_price: parentItem?.sale_price || 0,
       location: '',
       base_currency: parentItem?.base_currency || 'ARS',
@@ -1135,6 +1139,13 @@ export function Inventory() {
 
   const handleExportInventory = async () => {
     try {
+      /**
+       * SEC-08B — el costo no viaja en la lectura operativa, así que se pide por
+       * la vista autorizada. Sin autoridad las DOS columnas de costo se OMITEN
+       * del archivo: exportarlas vacías y reimportarlas convertiría todo el
+       * catálogo en costo 0 de una sola pasada.
+       */
+      const { costs, authorized } = await fetchInventoryCosts(items.map(i => i.id))
       const exportData = items.map(item => ({
         'Código/SKU': item.code,
         'Nombre del producto': item.name,
@@ -1142,8 +1153,10 @@ export function Inventory() {
         'Categoría': item.category,
         'Stock actual': item.stock_quantity,
         'Stock mínimo': item.min_stock,
-        'Precio de costo (ARS)': item.cost_price,
-        'Precio de costo (USD)': item.cost_price_usd || 0,
+        ...(authorized ? {
+          'Precio de costo (ARS)': costs.get(item.id)?.cost_price ?? 0,
+          'Precio de costo (USD)': costs.get(item.id)?.cost_price_usd ?? 0,
+        } : {}),
         'Precio de venta (ARS)': item.sale_price,
         'Ubicación': item.location || '',
         'Moneda base': item.base_currency || 'ARS',
@@ -1180,6 +1193,20 @@ export function Inventory() {
           .eq('business_id', businessId)
           .single()
 
+        /**
+         * SEC-08B — una celda de costo AUSENTE o VACÍA significa
+         * «no lo modifiques», nunca «vale cero».
+         *
+         * El export de un actor sin autoridad no trae esas columnas; si el
+         * import las interpretara como 0, un round-trip sin cambios destruiría
+         * el costo de todo el catálogo. Un 0 ESCRITO a propósito sí se respeta:
+         * por eso se mira la celda cruda, no `Number(... || 0)`.
+         */
+        const rawCostArs = row['Precio de costo (ARS)'] ?? row['costo']
+        const rawCostUsd = row['Precio de costo (USD)'] ?? row['costo_usd']
+        const hasCostArs = rawCostArs !== undefined && rawCostArs !== null && String(rawCostArs).trim() !== ''
+        const hasCostUsd = rawCostUsd !== undefined && rawCostUsd !== null && String(rawCostUsd).trim() !== ''
+
         const itemData = {
           code,
           name: row['Nombre del producto'] || row['nombre'] || row['name'] || '',
@@ -1187,8 +1214,8 @@ export function Inventory() {
           category: row['Categoría'] || row['categoria'] || row['category'] || '',
           stock_quantity: Number(row['Stock actual'] || row['stock'] || 0),
           min_stock: Number(row['Stock mínimo'] || row['stock_minimo'] || 1),
-          cost_price: Number(row['Precio de costo (ARS)'] || row['costo'] || 0),
-          cost_price_usd: Number(row['Precio de costo (USD)'] || row['costo_usd'] || 0),
+          ...(hasCostArs ? { cost_price: Number(rawCostArs) } : {}),
+          ...(hasCostUsd ? { cost_price_usd: Number(rawCostUsd) } : {}),
           sale_price: Number(row['Precio de venta (ARS)'] || row['precio_venta'] || 0),
           location: row['Ubicación'] || row['ubicacion'] || row['location'] || '',
           base_currency: row['Moneda base'] || row['moneda'] || 'ARS',
@@ -1198,15 +1225,20 @@ export function Inventory() {
         }
 
         if (existingItem) {
+          // UPDATE: si la celda de costo no vino, `itemData` no la trae y la
+          // base conserva el valor que ya tenía.
           await supabase
             .from('inventory')
             .update(itemData)
             .eq('id', existingItem.id)
           updated++
         } else {
+          // INSERT: `inventory.cost_price` es NOT NULL sin default, así que un
+          // producto nuevo necesita un valor. 0 acá es «sin costo cargado», no
+          // un costo destruido: no había ninguno.
           await supabase
             .from('inventory')
-            .insert([itemData])
+            .insert([{ cost_price: 0, ...itemData }])
           created++
         }
       }

@@ -24,6 +24,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const MIGRATION = 'supabase/migrations/20260914120000_sec08b_inventory_cost_visibility.sql'
+const MIGRATION_B = 'supabase/migrations/20260915120000_sec08b_b_cost_write_authority.sql'
 
 /** Columnas revocadas, por tabla. */
 const REVOKED = {
@@ -130,8 +131,112 @@ function walk(dir, out = []) {
   return out
 }
 
-export function inspect({ migration, later, sources }) {
+/**
+ * Reglas de la FASE B — preservación del costo y contención del COGS crudo.
+ *
+ * Las clases que se vigilan acá salieron de una revisión adversarial que
+ * reprodujo, de punta a punta, `51101 → 0` al editar el nombre de un producto,
+ * y la lectura enumerable del costo por producto con sólo tener `finance`.
+ */
+function inspectPhaseB({ migrationB, later, sources }) {
   const failures = []
+  const mB = stripSqlComments(migrationB)
+
+  // ── El costo CRUDO de línea no puede volver a habilitarse con `finance` ────
+  const itemCosts = mB.match(/CREATE OR REPLACE VIEW public\.v_comprobante_item_costs\b[\s\S]*?;/)?.[0] ?? ''
+  if (!itemCosts) failures.push('la Fase B no redefine v_comprobante_item_costs')
+  if (/can_view_cogs\s*\(/.test(itemCosts)) {
+    failures.push('v_comprobante_item_costs volvió al gate can_view_cogs: `finance` habilitaría de nuevo el costo por producto y la capacidad «Ver precios de costo» quedaría sin efecto')
+  }
+  if (!/can_view_inventory_cost\s*\(/.test(itemCosts)) {
+    failures.push('v_comprobante_item_costs perdió el gate de inventory_view_costs')
+  }
+  if (!/comprobante_is_order_linked/.test(itemCosts) || !/orders_view_financials/.test(itemCosts)) {
+    failures.push('v_comprobante_item_costs perdió el predicado de orden vinculada de SEC-08A')
+  }
+
+  // ── El agregado de período no puede ganar dimensión de producto ────────────
+  const period = mB.match(/CREATE OR REPLACE VIEW public\.v_finance_period_cogs\b[\s\S]*?;/)?.[0] ?? ''
+  if (!period) failures.push('la Fase B no define v_finance_period_cogs')
+  if (!/GROUP BY\s+business_id\s*,\s*period_date/i.test(period)) {
+    failures.push('v_finance_period_cogs dejó de agrupar por negocio y período: podría estrecharse hasta un costo unitario')
+  }
+  for (const dim of ['inventory_id', 'comprobante_item_id']) {
+    if (new RegExp(`\\bAS\\s+${dim}\\b|\\b${dim}\\s*,\\s*$`, 'm').test(period.split('SELECT business_id,')[1] ?? '')) {
+      failures.push(`v_finance_period_cogs expone la dimensión ${dim}`)
+    }
+  }
+  if (!/can_view_cogs\s*\(/.test(period)) failures.push('v_finance_period_cogs perdió su gate can_view_cogs')
+  if (!/REVOKE ALL ON public\.v_finance_period_cogs FROM anon/.test(mB)) {
+    failures.push('v_finance_period_cogs no le está revocada a anon')
+  }
+
+  // ── El trigger de preservación del costo ──────────────────────────────────
+  if (!/CREATE TRIGGER trig_inventory_guard_cost_write[\s\S]*?ON public\.inventory/.test(mB)) {
+    failures.push('la Fase B no monta trig_inventory_guard_cost_write sobre inventory')
+  }
+  const tg = mB.match(/CREATE OR REPLACE FUNCTION public\.tg_inventory_guard_cost_write[\s\S]*?\$\$;/)?.[0] ?? ''
+  if (!/SECURITY DEFINER/.test(tg)) failures.push('el trigger de costo no es SECURITY DEFINER')
+  if (!/NEW\.cost_price\s*:=\s*OLD\.cost_price/.test(tg)) {
+    failures.push('el trigger ya no PRESERVA el costo anterior en UPDATE: volvería la destrucción silenciosa')
+  }
+  if (!/can_view_inventory_cost/.test(tg)) failures.push('el trigger de costo no consulta la autoridad tenant-bound')
+  if (!/auth\.uid\(\)\s+IS\s+NULL/.test(tg)) {
+    failures.push('el trigger no exime a los caminos server-side (auth.uid() NULL): rompería el checkout y las RPC canónicas')
+  }
+  const laterClean = stripSqlComments(later)
+  if (/DROP\s+TRIGGER[^;]*trig_inventory_guard_cost_write/i.test(laterClean)
+    || /DISABLE\s+TRIGGER\s+trig_inventory_guard_cost_write/i.test(laterClean)) {
+    failures.push('una migración posterior desactiva o elimina el trigger de preservación del costo')
+  }
+  const laterItemCosts = laterClean.match(/CREATE OR REPLACE VIEW public\.v_comprobante_item_costs\b[\s\S]*?;/)?.[0] ?? ''
+  if (laterItemCosts && /can_view_cogs\s*\(/.test(laterItemCosts)) {
+    failures.push('una migración posterior devuelve v_comprobante_item_costs al gate can_view_cogs')
+  }
+
+  // ── Frontend: el payload de EDICIÓN no puede llevar costo incondicional ────
+  for (const [path, raw] of sources) {
+    const p = path.replace(/\\/g, '/')
+    const src = stripTsComments(raw)
+
+    if (p.endsWith('src/components/products/ProductFormModal.tsx')) {
+      // El bloque de edición tiene que mandar el costo por la vía condicional.
+      const edit = src.slice(src.indexOf('isEditMode && editItem'))
+      if (edit && !/\.\.\.costFields/.test(edit)) {
+        failures.push(`${path}: el payload de EDICIÓN no usa el spread condicional de costo`)
+      }
+      if (/updateProduct\([\s\S]{0,1400}?cost_price:\s*costARS/.test(src)) {
+        failures.push(`${path}: updateProduct manda cost_price incondicionalmente — un formulario que nunca recibió el costo escribiría 0 sobre el real`)
+      }
+      if (/editItem\.cost_price\s*\?\?\s*0|editItem\.cost_price\s*\|\|\s*0/.test(src)) {
+        failures.push(`${path}: se vuelve a inventar 0 cuando el costo del ítem no vino — es exactamente la causa raíz del P0`)
+      }
+      if (!/costLoaded/.test(src) || !/costAuthorized/.test(src)) {
+        failures.push(`${path}: perdió el gate de «el costo llegó y estoy autorizado» antes de escribirlo`)
+      }
+    }
+
+    if (p.endsWith('src/pages/Inventory.tsx')) {
+      // El import de Excel no puede leer una celda ausente como cero.
+      if (/cost_price:\s*Number\(row\[[^\]]*\]\s*\|\|/.test(src)) {
+        failures.push(`${path}: el import de Excel interpreta una celda de costo ausente como 0 — un round-trip destruiría el costo de todo el catálogo`)
+      }
+      if (!/hasCostArs/.test(src)) {
+        failures.push(`${path}: el import de Excel perdió la distinción entre «celda ausente» y «cero escrito a propósito»`)
+      }
+      // El export no puede publicar un costo que el actor no recibió.
+      if (/'Precio de costo \(ARS\)':\s*item\.cost_price\b/.test(src)) {
+        failures.push(`${path}: el export de Excel toma el costo de la lectura operativa, que ya no lo trae`)
+      }
+    }
+  }
+
+  return failures
+}
+
+export function inspect({ migration, later, sources, migrationB }) {
+  const failures = []
+  if (migrationB !== undefined) failures.push(...inspectPhaseB({ migrationB, later, sources }))
 
   // ── 1. Las columnas de costo quedan revocadas ──────────────────────────────
   if (!/REVOKE SELECT ON public\.%I FROM authenticated/.test(migration)) {
@@ -262,9 +367,13 @@ export function inspect({ migration, later, sources }) {
 const load = () => {
   const all = readdirSync('supabase/migrations').filter(n => n.endsWith('.sql')).sort()
   const base = MIGRATION.split('/').at(-1)
+  const baseB = MIGRATION_B.split('/').at(-1)
   return {
     migration: readFileSync(MIGRATION, 'utf8'),
-    later: all.filter(n => n > base).map(n => readFileSync(`supabase/migrations/${n}`, 'utf8')).join('\n'),
+    migrationB: readFileSync(MIGRATION_B, 'utf8'),
+    // «posteriores» se cuenta desde la Fase B: la propia Fase B redefine objetos
+    // de la Fase A a propósito y no puede contarse como una reversión.
+    later: all.filter(n => n > baseB).map(n => readFileSync(`supabase/migrations/${n}`, 'utf8')).join('\n'),
     sources: walk('src').map(p => [p, readFileSync(p, 'utf8')]),
   }
 }
@@ -308,6 +417,49 @@ if (process.argv.includes('--self-test')) {
       'relación anidada pide costo'],
     [{ ...src, sources: [['src/fake.ts', "supabase.from('inventory').insert(x).select().single()"]] },
       '.select() sin argumento sobre inventory'],
+
+    // ── FASE B ──────────────────────────────────────────────────────────────
+    [mut('migrationB', 'AND public.can_view_inventory_cost(ci.business_id);', 'AND public.can_view_cogs(ci.business_id);'),
+      'volvió al gate can_view_cogs'],
+    [mut('migrationB', /AND public\.can_view_inventory_cost\(ci\.business_id\);/, ';'),
+      'perdió el gate de inventory_view_costs'],
+    [mut('migrationB', /AND \( NOT public\.comprobante_is_order_linked\(ci\.comprobante_id\)[\s\S]*?'orders_view_financials'\) \)/, 'AND true'),
+      'predicado de orden vinculada de SEC-08A'],
+    [mut('migrationB', '  GROUP BY business_id, period_date;', '  GROUP BY business_id;'),
+      'dejó de agrupar por negocio y período'],
+    [mut('migrationB', /AND public\.can_view_cogs\(business_id\)\n/, '\n'),
+      'perdió su gate can_view_cogs'],
+    [mut('migrationB', 'REVOKE ALL ON public.v_finance_period_cogs FROM anon;', '-- sin revoke'),
+      'v_finance_period_cogs no le está revocada a anon'],
+    [mut('migrationB', /CREATE TRIGGER trig_inventory_guard_cost_write[\s\S]*?FOR EACH ROW EXECUTE FUNCTION public\.tg_inventory_guard_cost_write\(\);/, '-- sin trigger'),
+      'no monta trig_inventory_guard_cost_write'],
+    [mut('migrationB', '    NEW.cost_price     := OLD.cost_price;', '    -- sin preservación'),
+      'ya no PRESERVA el costo anterior'],
+    [mut('migrationB', /IF auth\.uid\(\) IS NULL THEN\n    RETURN NEW;\n  END IF;/, '-- sin exención server-side'),
+      'no exime a los caminos server-side'],
+    [{ ...src, later: src.later + '\nDROP TRIGGER trig_inventory_guard_cost_write ON public.inventory;' },
+      'desactiva o elimina el trigger'],
+    [{ ...src, later: src.later + "\nCREATE OR REPLACE VIEW public.v_comprobante_item_costs AS SELECT 1 WHERE public.can_view_cogs(x);" },
+      'devuelve v_comprobante_item_costs al gate can_view_cogs'],
+
+    // Frontend — las tres formas del P0.
+    [{ ...src, sources: [['src/components/products/ProductFormModal.tsx',
+      "const x = isEditMode && editItem; await productService.updateProduct(id, { name, cost_price: costARS, cost_price_usd: costUSD }); const costLoaded=1, costAuthorized=1"]] },
+      'manda cost_price incondicionalmente'],
+    [{ ...src, sources: [['src/components/products/ProductFormModal.tsx',
+      "const c = editItem.cost_price ?? 0; isEditMode && editItem; const y = '...costFields'; const costLoaded=1, costAuthorized=1"]] },
+      'se vuelve a inventar 0 cuando el costo del ítem no vino'],
+    [{ ...src, sources: [['src/components/products/ProductFormModal.tsx',
+      "isEditMode && editItem; const z = 1"]] },
+      'perdió el gate de «el costo llegó y estoy autorizado»'],
+    [{ ...src, sources: [['src/pages/Inventory.tsx',
+      "const d = { cost_price: Number(row['Precio de costo (ARS)'] || 0) }; const hasCostArs = 1"]] },
+      'interpreta una celda de costo ausente como 0'],
+    [{ ...src, sources: [['src/pages/Inventory.tsx', "const d = { a: 1 }"]] },
+      'perdió la distinción entre «celda ausente»'],
+    [{ ...src, sources: [['src/pages/Inventory.tsx',
+      "const e = { 'Precio de costo (ARS)': item.cost_price }; const hasCostArs = 1"]] },
+      'export de Excel toma el costo de la lectura operativa'],
   ]
   for (const [mutated, label] of mutations) {
     if (!inspect(mutated).some(f => f.includes(label))) throw new Error(`self-test no detectó: ${label}`)
