@@ -21,6 +21,7 @@ import {
 } from '../portal/services/portalService'
 import { ORDER_STATUS_LABEL, ORDER_STATUS_COLOR, type WholesaleCustomer, type WholesaleOrder } from '../portal/types'
 import { getPortalUrl } from '../portal/PortalRouter'
+import { attachInventoryCosts } from '../services/inventoryCostAccess'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -497,12 +498,13 @@ export function Mayorista() {
     try {
       const { data, error: e } = await supabase
         .from('inventory')
-        .select('id, code, name, category, subcategory, stock_quantity, min_stock, cost_price, sale_price, precio_mayorista, visible_in_wholesale, supplier_code, is_active')
+        .select('id, code, name, category, subcategory, stock_quantity, min_stock, sale_price, precio_mayorista, visible_in_wholesale, supplier_code, is_active')
         .eq('business_id', businessId)
         .eq('is_active', true)
         .order('name')
       if (e) throw e
-      setProducts(data || [])
+      // SEC-08B: el costo se repone por la vista autorizada.
+      setProducts((await attachInventoryCosts(data || [])) as WholesaleProduct[])
     } catch (err: any) {
       setError(err.message || 'Error al cargar productos')
     } finally {

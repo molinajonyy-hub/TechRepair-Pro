@@ -30,6 +30,7 @@ import { ExcelService, ExcelRow } from '../services/excelService'
 import { supabase } from '../lib/supabase'
 import { ProductMovementsModal } from '../components/inventory/ProductMovementsModal'
 import { ProductFormModalSafe as ProductFormModal } from '../components/products/ProductFormModal'
+import { INVENTORY_OPERATIONAL_COLUMNS } from '../services/inventoryCostAccess'
 
 const CATEGORIES = [
   'Pantallas',
@@ -1174,7 +1175,7 @@ export function Inventory() {
         // Buscar si existe por código
         const { data: existingItem } = await supabase
           .from('inventory')
-          .select('*')
+          .select(INVENTORY_OPERATIONAL_COLUMNS)
           .eq('code', code)
           .eq('business_id', businessId)
           .single()

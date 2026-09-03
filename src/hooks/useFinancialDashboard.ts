@@ -68,7 +68,7 @@ const supabasePort: FinanceDashboardPort = {
   stockBajo: async (businessId) => {
     const { count, error } = await supabase
       .from('inventory')
-      .select('*', { count: 'exact', head: true })
+      .select('id', { count: 'exact', head: true })
       .eq('business_id', businessId)
       .eq('is_active', true)
       .lte('stock_quantity', 5)

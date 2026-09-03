@@ -54,6 +54,7 @@ const REF_LABELS: Record<string, string> = {
 }
 
 import { fmtDate, fmtTime, isToday } from '../utils/dateUtils'
+import { INVENTORY_MOVEMENT_OPERATIONAL_COLUMNS } from '../services/inventoryCostAccess'
 
 // ─── InventoryMovements ───────────────────────────────────────────────────────
 
@@ -83,7 +84,7 @@ export function InventoryMovements() {
     try {
       let q = supabase
         .from('inventory_movements')
-        .select('*')
+        .select(INVENTORY_MOVEMENT_OPERATIONAL_COLUMNS)
         .eq('business_id', businessId)
         .order('created_at', { ascending: false })
         .limit(PAGE_SIZE)

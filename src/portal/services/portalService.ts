@@ -353,7 +353,7 @@ export async function logoutCustomer(): Promise<void> {
 export async function getCatalog(businessId: string): Promise<PortalProduct[]> {
   const { data, error } = await supabase
     .from('inventory')
-    .select('id, code, name, category, subcategory, stock_quantity, sale_price, precio_mayorista, visible_in_wholesale, cost_price, description')
+    .select('id, code, name, category, subcategory, stock_quantity, sale_price, precio_mayorista, visible_in_wholesale, description')
     .eq('business_id', businessId)
     .eq('is_active', true)
     .eq('visible_in_wholesale', true)

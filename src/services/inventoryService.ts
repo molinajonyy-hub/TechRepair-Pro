@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { inventoryMovementsService, MovementType } from './inventoryMovementsService';
+import { INVENTORY_OPERATIONAL_COLUMNS } from './inventoryCostAccess'
 
 export interface InventoryItem {
   id: string;
@@ -10,7 +11,8 @@ export interface InventoryItem {
   stock_quantity: number;
   reserved_quantity: number;
   min_stock: number;
-  cost_price: number;
+  /** SEC-08B: puede faltar. Ausente = RESTRINGIDO o sin cargar, nunca 0. */
+  cost_price?: number | null;
   sale_price: number;
   location?: string;
   is_active: boolean;
@@ -189,7 +191,7 @@ export const inventoryService = {
   async getItemById(inventoryItemId: string, businessId?: string): Promise<InventoryItem | null> {
     let query = supabase
       .from('inventory')
-      .select('*')
+      .select(INVENTORY_OPERATIONAL_COLUMNS)
       .eq('id', inventoryItemId);
 
     if (businessId) {
@@ -208,7 +210,7 @@ export const inventoryService = {
   async searchItems(query: string, businessId?: string): Promise<InventoryItem[]> {
     let request = supabase
       .from('inventory')
-      .select('*')
+      .select(INVENTORY_OPERATIONAL_COLUMNS)
       .eq('is_active', true)
       .or(`name.ilike.%${query}%,code.ilike.%${query}%,description.ilike.%${query}%,category.ilike.%${query}%`)
       .order('name');
@@ -229,7 +231,7 @@ export const inventoryService = {
   async getLowStockItems(businessId?: string): Promise<InventoryItem[]> {
     let request = supabase
       .from('inventory')
-      .select('*')
+      .select(INVENTORY_OPERATIONAL_COLUMNS)
       .eq('is_active', true)
       .order('stock_quantity');
 
@@ -249,7 +251,7 @@ export const inventoryService = {
   async getOutOfStockItems(businessId?: string): Promise<InventoryItem[]> {
     let request = supabase
       .from('inventory')
-      .select('*')
+      .select(INVENTORY_OPERATIONAL_COLUMNS)
       .eq('is_active', true)
       .eq('stock_quantity', 0)
       .order('name');

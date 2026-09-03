@@ -322,7 +322,7 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
     searchTimers.current[key] = setTimeout(async () => {
       const dbQ = buildSupabaseQuery(q)
       const { data } = await supabase
-        .from('inventory').select('id, name, variant_name, code, cost_price, stock_quantity')
+        .from('inventory').select('id, name, variant_name, code, stock_quantity')
         .eq('business_id', businessId).eq('is_active', true)
         .not('has_variants', 'is', true)
         .or(`name.ilike.${dbQ},code.ilike.${dbQ}`)

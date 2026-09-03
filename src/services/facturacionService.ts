@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { resolverCbteTipo } from '../lib/fiscalIdentity';
+import { COMPROBANTE_ITEM_OPERATIONAL_COLUMNS } from './inventoryCostAccess'
 
 // ============================================
 // TIPOS DE COMPROBANTES
@@ -198,7 +199,7 @@ export const facturacionService = {
     // Cargar items por separado
     const { data: items, error: itemsError } = await supabase
       .from('comprobante_items')
-      .select('*')
+      .select(COMPROBANTE_ITEM_OPERATIONAL_COLUMNS)
       .eq('comprobante_id', id)
       .order('orden', { ascending: true });
 

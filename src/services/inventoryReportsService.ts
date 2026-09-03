@@ -1,10 +1,12 @@
 import { supabase } from '../lib/supabase';
 import { inventoryService } from './inventoryService';
+import { INVENTORY_MOVEMENT_OPERATIONAL_COLUMNS, fetchInventoryCosts } from './inventoryCostAccess'
 
 export interface InventoryReport {
   lowStockItems: any[];
   outOfStockItems: any[];
-  totalValue: number;
+  /** SEC-08B — null = costo restringido para este actor. NO es 0. */
+  totalValue: number | null;
   mostUsedInOrders: any[];
   mostSoldProducts: any[];
   topSuppliers: any[];
@@ -54,10 +56,17 @@ export const inventoryReportsService = {
     };
   },
 
-  async calculateTotalValue(businessId?: string): Promise<number> {
+  /**
+   * Valor del inventario a costo.
+   *
+   * SEC-08B: devuelve `null` cuando el actor no tiene autoridad de costo, en vez
+   * de sumar ceros y entregar un total que se leería como «no hay capital».
+   * Quien lo consuma tiene que mostrar «—», no `$0`.
+   */
+  async calculateTotalValue(businessId?: string): Promise<number | null> {
     let query = supabase
       .from('inventory')
-      .select('stock_quantity, cost_price')
+      .select('id, stock_quantity')
       .eq('is_active', true);
 
     if (businessId) {
@@ -70,7 +79,16 @@ export const inventoryReportsService = {
       throw new Error('Error al calcular valor del inventario');
     }
 
-    return data?.reduce((sum, item) => sum + (item.stock_quantity * (item.cost_price || 0)), 0) || 0;
+    const rows = data ?? [];
+    if (rows.length === 0) return 0;
+
+    const { costs, authorized } = await fetchInventoryCosts(rows.map(r => r.id as string));
+    if (!authorized) return null;
+
+    return rows.reduce(
+      (sum, item) => sum + (item.stock_quantity * (costs.get(item.id as string)?.cost_price ?? 0)),
+      0,
+    );
   },
 
   async getMostUsedInOrders(businessId?: string, limit: number = 10): Promise<any[]> {
@@ -228,7 +246,7 @@ export const inventoryReportsService = {
     let query = supabase
       .from('inventory_movements')
       .select(`
-        *,
+        ${INVENTORY_MOVEMENT_OPERATIONAL_COLUMNS},
         inventory:inventory(name, code)
       `)
       .eq('movement_type', 'sale')
@@ -251,7 +269,7 @@ export const inventoryReportsService = {
   async getItemMovementHistory(inventoryItemId: string): Promise<any[]> {
     const { data, error } = await supabase
       .from('inventory_movements')
-      .select('*')
+      .select(INVENTORY_MOVEMENT_OPERATIONAL_COLUMNS)
       .eq('inventory_item_id', inventoryItemId)
       .order('created_at', { ascending: false });
 
@@ -265,7 +283,7 @@ export const inventoryReportsService = {
   async getMovementsByReference(referenceType: string, referenceId: string): Promise<any[]> {
     const { data, error } = await supabase
       .from('inventory_movements')
-      .select('*')
+      .select(INVENTORY_MOVEMENT_OPERATIONAL_COLUMNS)
       .eq('reference_type', referenceType)
       .eq('reference_id', referenceId)
       .order('created_at', { ascending: false });

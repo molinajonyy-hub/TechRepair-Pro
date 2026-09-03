@@ -128,7 +128,7 @@ export function TabCatalogoPortal({ businessId, portalSlug, readOnly = true }: P
       .from('inventory')
       .select(`
         id, code, name, category, subcategory,
-        stock_quantity, min_stock, cost_price, sale_price,
+        stock_quantity, min_stock, sale_price,
         precio_mayorista, visible_in_wholesale, is_active,
         portal_title, portal_description, portal_description_full,
         portal_compatibility, portal_tags, portal_featured,

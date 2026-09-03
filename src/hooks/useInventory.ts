@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { inventoryService } from '../services/inventoryService'
 import { useRefreshOnWakeUp } from './useAppWakeUp'
+import { INVENTORY_OPERATIONAL_COLUMNS } from '../services/inventoryCostAccess'
 
 // Normaliza cualquier error (Supabase PostgrestError, Error nativo, string, objeto)
 // a una instancia de Error que además conserva los metadatos relevantes
@@ -41,7 +42,8 @@ export interface InventoryItem {
   reserved_quantity: number
   min_stock: number
   max_stock?: number
-  cost_price: number
+  /** SEC-08B: puede faltar. Ausente = RESTRINGIDO o sin cargar, nunca 0. */
+  cost_price?: number | null
   sale_price: number
   supplier_id?: string
   supplier_code?: string
@@ -79,7 +81,7 @@ export function useInventory() {
 
       const { data, error: fetchError } = await supabase
         .from('inventory')
-        .select('*')
+        .select(INVENTORY_OPERATIONAL_COLUMNS)
         .eq('business_id', businessId)
         .eq('is_active', true)
         .order('name', { ascending: true })
@@ -106,7 +108,7 @@ export function useInventory() {
           business_id: businessId,
           created_by: user?.id,
         })
-        .select()
+        .select(INVENTORY_OPERATIONAL_COLUMNS)
         .single()
 
       if (insertError) throw insertError
