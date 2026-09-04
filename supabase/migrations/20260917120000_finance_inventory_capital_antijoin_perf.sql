@@ -57,7 +57,12 @@
 -- Un arreglo que depende de que el planner tenga suerte no es un arreglo.
 --
 --   antes  32.786 ms
---   ahora     150 ms   (219×, con `Heap Blocks: exact=84` y loops=1)
+--   ahora     203 ms   (161×, con `Heap Blocks: exact=84` y loops=1)
+--
+-- Los dos números salen de la MISMA forma de consulta: la vista acotada por
+-- `business_id`, que es la que ejecuta el RPC. Sin ese filtro el plan es otro
+-- y da ~141 ms; compararlo contra un baseline filtrado sería mentir. Margen
+-- contra el statement_timeout de 8s de `authenticated`: ~39×.
 --
 -- Equivalencia verificada en producción sobre TODOS los negocios y las diez
 -- métricas: 0 filas divergentes.
@@ -149,6 +154,7 @@ DECLARE
                   || 'units_missing_cost, products_negative_stock, '
                   || 'usd_based_products, usd_rate_min_applied, usd_rate_max_applied';
   v_div bigint;
+  v_filas_universo bigint;
   v_reloptions text;
 BEGIN
   -- P1. El contrato publicado no se movio: mismas columnas, mismo orden.
@@ -190,16 +196,30 @@ BEGIN
     RAISE EXCEPTION 'POSTCONDICION P4b: la vista volvio a leer inventory.cost_price crudo';
   END IF;
 
-  -- P5. EQUIVALENCIA. Se recalcula el universo con la forma ANTERIOR
-  -- (NOT EXISTS correlacionado) y se compara metrica por metrica. Ambas
-  -- consultas corren bajo el mismo rol, asi que la visibilidad es la misma y
-  -- la comparacion es valida.
-  WITH referencia AS (
-    SELECT i.business_id, i.stock_quantity,
-           COALESCE(c.cost_price, 0)::numeric AS cost_price,
-           i.base_currency, i.exchange_rate_used
+  -- ──────────────────────────────────────────────────────────────────────
+  -- P5 — EQUIVALENCIA DE UNIVERSO.
+  --
+  -- Lo unico que esta migracion cambia es QUE FILAS DE INVENTARIO ENTRAN.
+  -- La aritmetica no se toca, asi que P5 prueba exactamente eso: que la
+  -- semantica de exclusion vieja y la nueva incluyen las MISMAS filas.
+  --
+  -- Se compara contra `public.inventory` DIRECTAMENTE, sin pasar por
+  -- `v_inventory_costs` ni por `can_view_inventory_cost`. Es deliberado.
+  -- Una version anterior de esta postcondicion comparaba metricas leyendo
+  -- el costo por la vista autorizada, y en contexto de migracion
+  -- (`current_user = postgres`, `auth.uid()` NULL) ese gate da false: las
+  -- dos ramas devolvian CERO FILAS y la comparacion pasaba SIEMPRE. Se
+  -- verifico poniendo una vista deliberadamente rota —costo x2 y sin
+  -- ninguna exclusion— y la postcondicion la aprobaba igual.
+  --
+  -- Las metricas financieras las certifica la suite autenticada
+  -- (tests/sql/finance_inventory_capital_perf.test.sql), que si tiene
+  -- autoridad de costo. Esta postcondicion NO afirma probarlas.
+  -- ──────────────────────────────────────────────────────────────────────
+  WITH universo_viejo AS (
+    -- Semantica ANTERIOR: dos NOT EXISTS correlacionados.
+    SELECT i.business_id, i.id
       FROM public.inventory i
-      JOIN public.v_inventory_costs c ON c.inventory_id = i.id
      WHERE i.is_active = true
        AND COALESCE(i.tipo, 'product') = 'product'
        AND NOT EXISTS (SELECT 1 FROM public.inventory v
@@ -207,29 +227,51 @@ BEGIN
        AND NOT EXISTS (SELECT 1 FROM public.inventory v
                         WHERE v.business_id = i.business_id
                           AND v.supplier_code = 'VPREF-' || i.id::text)
-  ), esperado AS (
-    SELECT business_id,
-           round(COALESCE(sum(stock_quantity::numeric * cost_price) FILTER (WHERE stock_quantity <> 0), 0), 2) AS inventory_at_cost,
-           round(COALESCE(sum(stock_quantity::numeric * cost_price) FILTER (WHERE stock_quantity > 0 AND cost_price > 0), 0), 2) AS inventory_at_cost_valued,
-           count(*) FILTER (WHERE stock_quantity > 0) AS products_total,
-           count(*) FILTER (WHERE stock_quantity > 0 AND cost_price > 0) AS products_valued,
-           count(*) FILTER (WHERE stock_quantity > 0 AND cost_price <= 0) AS products_missing_cost,
-           COALESCE(sum(stock_quantity) FILTER (WHERE stock_quantity > 0 AND cost_price <= 0), 0) AS units_missing_cost,
-           count(*) FILTER (WHERE stock_quantity < 0) AS products_negative_stock,
-           count(*) FILTER (WHERE stock_quantity > 0 AND base_currency = 'USD') AS usd_based_products,
-           round(min(exchange_rate_used) FILTER (WHERE stock_quantity > 0 AND base_currency = 'USD' AND exchange_rate_used > 0), 2) AS usd_rate_min_applied,
-           round(max(exchange_rate_used) FILTER (WHERE stock_quantity > 0 AND base_currency = 'USD' AND exchange_rate_used > 0), 2) AS usd_rate_max_applied
-      FROM referencia GROUP BY business_id
-  ), obtenido AS (
-    SELECT * FROM public.v_finance_inventory_capital
+  ), vp AS (
+    SELECT DISTINCT v.business_id,
+           substring(v.supplier_code FROM 7)::uuid AS parent_id
+      FROM public.inventory v
+     WHERE v.supplier_code ~ '^VPREF-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  ), pa AS (
+    SELECT DISTINCT v.business_id, v.parent_id
+      FROM public.inventory v
+     WHERE v.parent_id IS NOT NULL
+  ), universo_nuevo AS (
+    -- Semantica NUEVA: los mismos dos conjuntos, materializados y anti-
+    -- joineados por igualdad. Es la que quedo dentro de la vista.
+    SELECT i.business_id, i.id
+      FROM public.inventory i
+      LEFT JOIN pa p  ON p.business_id  = i.business_id AND p.parent_id = i.id
+      LEFT JOIN vp    ON vp.business_id = i.business_id AND vp.parent_id = i.id
+     WHERE i.is_active = true
+       AND COALESCE(i.tipo, 'product') = 'product'
+       AND p.parent_id IS NULL
+       AND vp.parent_id IS NULL
   )
   SELECT count(*) INTO v_div
-    FROM ((SELECT * FROM esperado EXCEPT ALL SELECT * FROM obtenido)
+    FROM ((SELECT business_id, id FROM universo_viejo
+           EXCEPT ALL
+           SELECT business_id, id FROM universo_nuevo)
           UNION ALL
-          (SELECT * FROM obtenido EXCEPT ALL SELECT * FROM esperado)) d;
+          (SELECT business_id, id FROM universo_nuevo
+           EXCEPT ALL
+           SELECT business_id, id FROM universo_viejo)) d;
   IF v_div <> 0 THEN
-    RAISE EXCEPTION 'POSTCONDICION P5: la reescritura cambio % filas de capital en stock', v_div;
+    RAISE EXCEPTION 'POSTCONDICION P5: la reescritura cambio el universo de inventario '
+      'en % fila(s). La exclusion vieja y la nueva no incluyen lo mismo.', v_div;
   END IF;
 
-  RAISE NOTICE 'v_finance_inventory_capital: anti-join hoisted, contrato y valores intactos';
+  -- P6. P5 no puede pasar por vacuidad: si no hay filas que comparar, no
+  -- probo nada y hay que decirlo en vez de festejar un 0.
+  SELECT count(*) INTO v_filas_universo
+    FROM public.inventory i
+   WHERE i.is_active = true AND COALESCE(i.tipo, 'product') = 'product';
+  IF v_filas_universo = 0 THEN
+    RAISE WARNING 'POSTCONDICION P5: no habia ningun producto activo, la equivalencia '
+      'de universo no se pudo ejercitar (base vacia). No es una prueba.';
+  ELSE
+    RAISE NOTICE 'P5 ok: universo identico sobre % producto(s) activo(s)', v_filas_universo;
+  END IF;
+
+  RAISE NOTICE 'v_finance_inventory_capital: anti-join hoisted, contrato intacto, universo equivalente';
 END $post$;

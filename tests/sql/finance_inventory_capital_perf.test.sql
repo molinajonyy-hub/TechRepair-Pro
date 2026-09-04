@@ -19,8 +19,36 @@
 -- `inventory` una vez por producto, y cada fila interna reevalua la policy RLS,
 -- que llama a `current_user_can('inventory')` (plpgsql). Cuadratico.
 --
--- El fixture usa N productos a proposito: con la forma vieja el costo crece
--- como N^2 y la cota de V07 se rompe sola. Con la forma correcta crece como N.
+-- El fixture usa N productos a proposito: con la forma vieja el trabajo sobre
+-- `inventory` crece como N^2 y con la correcta como N. V07 mide exactamente eso.
+--
+-- ── POR QUE V07 NO ES UN CRONOMETRO ────────────────────────────────────────
+--
+-- Dos razones, las dos medidas:
+--
+-- 1. La FORMA de la consulta importa. El RPC siempre lee la vista acotada por
+--    `business_id`; medir la vista SIN ese filtro ejercita otro plan. Sobre el
+--    mismo fixture: sin filtro ~98 ms, con filtro ~8.135 ms. Un test que mide
+--    la forma global aprueba aunque el camino del producto este roto.
+--
+-- 2. El reloj no es comparable entre maquinas. Este Docker cuesta ~9 ms por
+--    llamada plpgsql contra ~0,07 ms en produccion: dos ordenes de magnitud.
+--    Una cota fija en milisegundos rechazaria un plan correcto en un runner
+--    lento, o aprobaria uno cuadratico en uno rapido.
+--
+-- Por eso V07 asevera la FORMA DEL PLAN sobre la consulta REAL (con filtro de
+-- tenant, como `authenticated`, con autoridad de costo). Dos aserciones
+-- independientes del reloj:
+--
+--   V07a  los scans de `inventory` DENTRO de las CTE de exclusion corren UNA
+--         vez (loops ~ 1), no una por producto.
+--   V07b  el costo de la EXCLUSION es O(N), no O(N^2): se suman las filas que
+--         los ANTI JOIN descartan, por sus loops. Mira el TIPO DE NODO, no la
+--         sintaxis, asi que cualquier reescritura equivalente —operandos
+--         invertidos, concat(), format(), NOT IN— que vuelva a excluir por
+--         fila la rompe igual.
+--
+-- El tiempo queda como techo secundario y generoso, nunca como unico gate.
 --
 -- ── QUE SE VERIFICA ────────────────────────────────────────────────────────
 --   V01  el capital y el conteo de productos son los correctos
@@ -29,7 +57,7 @@
 --   V04  aislamiento de tenant: el otro negocio no entra en el agregado
 --   V05  sin autoridad de costo la vista devuelve CERO FILAS (no un 0 falso)
 --   V06  la vista no publica costo por producto: solo agregados por negocio
---   V07  cota de ejecucion con N productos (la clase de regresion medida)
+--   V07  forma del plan sobre la consulta REAL, con filtro de tenant
 --   V08  estructural: la definicion vigente no correlaciona el anti-join
 -- ============================================================================
 
@@ -176,32 +204,124 @@ BEGIN
 END
 $v6$;
 
--- ── V07 — cota de ejecucion. ES la regresion medida ───────────────────────
--- La cota es deliberadamente generosa: no mide "rapido", mide "no cuadratico".
--- Con 402 productos la forma vieja hacia ~160k reevaluaciones de una funcion
--- plpgsql dentro de la policy RLS; en produccion, con 611, tardaba 32.786 ms.
-DO $v7$
-DECLARE t0 timestamptz; v_ms numeric; v_filas bigint;
+-- ── V07 — forma del plan sobre la consulta REAL ───────────────────────────
+
+-- Recorre el arbol de un plan en FORMAT JSON y devuelve cada nodo.
+CREATE OR REPLACE FUNCTION pg_temp.plan_nodes(p jsonb)
+RETURNS SETOF jsonb LANGUAGE plpgsql AS $$
+DECLARE hijo jsonb;
 BEGIN
+  RETURN NEXT p;
+  IF p ? 'Plans' THEN
+    FOR hijo IN SELECT jsonb_array_elements(p->'Plans') LOOP
+      RETURN QUERY SELECT * FROM pg_temp.plan_nodes(hijo);
+    END LOOP;
+  END IF;
+END;
+$$;
+
+DO $v7$
+DECLARE
+  a          uuid := 'cab17a10-0000-0000-0000-0000000000a0';
+  v_plan     jsonb;
+  v_raiz     jsonb;
+  v_ms       numeric;
+  v_prod     bigint;
+  v_touch    numeric;
+  v_cota     numeric;
+  v_cte      text;
+  v_loops    numeric;
+  v_faltante text;
+BEGIN
+  SELECT count(*) INTO v_prod
+    FROM public.inventory WHERE business_id = a AND is_active;
+
   PERFORM set_config('role','authenticated',true);
   PERFORM pg_temp.act_as('cab17a10-0000-0000-0000-000000000001');
-  t0 := clock_timestamp();
-  SELECT count(*) INTO v_filas FROM public.v_finance_inventory_capital;
-  v_ms := extract(epoch FROM (clock_timestamp() - t0)) * 1000;
+
+  -- La consulta es EXACTAMENTE la forma que ejecuta el RPC: la vista acotada
+  -- por business_id, como authenticated, con autoridad de costo. Un plan
+  -- catastrofico se corta solo en vez de colgar CI; el corte ES la falla.
+  BEGIN
+    PERFORM set_config('statement_timeout','60s',true);
+    EXECUTE format(
+      'EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) '
+      'SELECT * FROM public.v_finance_inventory_capital WHERE business_id = %L', a)
+      INTO v_plan;
+  EXCEPTION WHEN query_canceled THEN
+    PERFORM set_config('role','none',true);
+    RAISE EXCEPTION 'V07: la consulta REAL (con filtro de tenant) no termino en 60s '
+      'con % productos. Es el sintoma del plan cuadratico.', v_prod;
+  END;
+  PERFORM set_config('statement_timeout','0',true);
   PERFORM set_config('role','none',true);
 
-  IF v_filas <> 1 THEN
-    RAISE EXCEPTION 'V07: el fixture no devolvio 1 negocio (dio %)', v_filas;
+  v_raiz := v_plan -> 0 -> 'Plan';
+  v_ms   := (v_plan -> 0 ->> 'Execution Time')::numeric;
+
+  -- V07b — costo de la EXCLUSION: O(N), no O(N^2). Va PRIMERO porque es la
+  -- asercion de COMPORTAMIENTO y no depende de como se llamen los nodos: si el
+  -- plan volvio a ser cuadratico, que la falla lo diga con el numero medido.
+  --
+  -- Se suman las filas que los ANTI JOIN descartan, por sus loops. Ese numero
+  -- ES la regresion: con la forma correlacionada el plan descartaba 440.531
+  -- (611 productos x 721 filas reescaneadas); con la forma materializada
+  -- descarta ~1 por producto.
+  --
+  -- Mira el TIPO DE NODO, no la sintaxis del SQL: da igual si alguien reescribe
+  -- el NOT EXISTS con operandos invertidos, con concat(), con format() o con
+  -- NOT IN — si el plan vuelve a excluir por fila, falla.
+  --
+  -- Se acota a los anti-join a proposito. El JOIN a `v_inventory_costs` puede
+  -- planificarse como nested loop con reescaneo del lado interno segun las
+  -- estadisticas (medido en este contenedor: 81.406 descartes con 404
+  -- productos), y eso es un riesgo SEPARADO —de SEC-08B, no de esta
+  -- migracion—. Meterlo en la misma cota obligaria a aflojarla tanto que
+  -- dejaria de detectar los 440.531.
+  SELECT COALESCE(sum(COALESCE((n->>'Rows Removed by Join Filter')::numeric,0)
+                      * COALESCE((n->>'Actual Loops')::numeric,1)), 0)
+    INTO v_touch
+    FROM pg_temp.plan_nodes(v_raiz) n
+   WHERE n->>'Join Type' = 'Anti';
+
+  v_cota := 25 * GREATEST(v_prod, 1);
+  IF v_touch > v_cota THEN
+    RAISE EXCEPTION 'V07b: los anti-join descartan % filas con % productos (cota %). '
+      'Eso es crecimiento cuadratico: el conjunto de exclusion se evalua por fila.',
+      v_touch, v_prod, v_cota;
   END IF;
-  -- 800 ms discrimina con margen en las dos direcciones. Medido local:
-  -- forma correcta 68 ms (11x por debajo), forma vieja 2.615 ms (3,3x por
-  -- encima). Una maquina de CI mas lenta mueve los DOS numeros: el cociente
-  -- entre ambos, que es ~38x, es lo que la cota aprovecha.
-  IF v_ms > 800 THEN
-    RAISE EXCEPTION 'V07: v_finance_inventory_capital tardo % ms con 402 productos. '
-      'Volvio el anti-join cuadratico: el planner esta reescaneando inventory por fila.', round(v_ms);
+
+  -- V07a — ademas, las CTE de exclusion tienen que EXISTIR y correr UNA vez.
+  FOREACH v_cte IN ARRAY ARRAY['CTE variant_parents','CTE vpref_parents'] LOOP
+    -- Se ubica el subarbol de la CTE y se miran los scans de inventory dentro.
+    SELECT max((d->>'Actual Loops')::numeric) INTO v_loops
+      FROM pg_temp.plan_nodes(v_raiz) c,
+           LATERAL pg_temp.plan_nodes(c) d
+     WHERE c->>'Subplan Name' = v_cte
+       AND d->>'Relation Name' = 'inventory';
+
+    IF v_loops IS NULL THEN
+      v_faltante := COALESCE(v_faltante || ', ', '') || v_cte;
+    ELSIF v_loops > 2 THEN
+      RAISE EXCEPTION 'V07a: el scan de inventory dentro de «%» corre % veces. '
+        'El conjunto de exclusion se esta recalculando por fila: volvio el anti-join correlacionado.',
+        v_cte, v_loops;
+    END IF;
+  END LOOP;
+
+  IF v_faltante IS NOT NULL THEN
+    RAISE EXCEPTION 'V07a: el plan de la consulta REAL no materializa las CTE de exclusion (falta: %). '
+      'Sin ellas el universo se excluye fila por fila, que es la regresion.', v_faltante;
   END IF;
-  RAISE NOTICE 'V07 ok: % ms con 402 productos', round(v_ms);
+
+  -- Techo secundario. Deliberadamente flojo: el reloj de este contenedor no es
+  -- comparable con produccion (~2 ordenes de magnitud). No es el gate.
+  IF v_ms > 30000 THEN
+    RAISE EXCEPTION 'V07c: la consulta REAL tardo % ms con % productos', round(v_ms), v_prod;
+  END IF;
+
+  RAISE NOTICE 'V07 ok: % productos · CTE de exclusion con loops<=2 · descartes de anti-join % (cota %) · % ms',
+    v_prod, v_touch, v_cota, round(v_ms);
 END
 $v7$;
 

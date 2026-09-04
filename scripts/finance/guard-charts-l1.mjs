@@ -36,11 +36,23 @@
 //        REPOSICIÓN o que está ajustado al dólar de hoy. La métrica es
 //        stock x costo REGISTRADO, y no hay fuente FX server-side que pueda
 //        respaldar esa afirmación.
-//   R20. una vista del alcance define un anti-join CORRELACIONADO contra una
-//        cadena construida (`NOT EXISTS (... col = 'PREFIJO-' || externa.id)`).
-//        No hashea ni indexa: reescanea la tabla interna una vez por fila
-//        externa, y en `inventory` cada fila interna reevalúa además la policy
-//        RLS. Medido en producción: 32.786 ms y 57014 en get_finance_charts_l1.
+//   R20. una vista del alcance reintroduce la FORMA HISTORICA CONOCIDA del
+//        anti-join correlacionado: `NOT EXISTS (... col = 'PREFIJO-' || ext.id)`.
+//        No hashea ni indexa; reescanea la tabla interna una vez por fila
+//        externa y en `inventory` cada fila reevalúa la policy RLS. Medido en
+//        producción: 32.786 ms y 57014 en get_finance_charts_l1.
+//
+//        ALCANCE REAL, medido: R20 detecta ESA escritura, no la clase
+//        semántica. Reformulaciones equivalentes se le escapan —operandos
+//        invertidos, `concat()`, `format()`, `NOT IN`—. Es un tripwire
+//        estático barato, NO un detector de equivalencia SQL.
+//
+//        La protección autoritativa contra reescrituras equivalentes es
+//        V07 de tests/sql/finance_inventory_capital_perf.test.sql: corre la
+//        consulta REAL (vista acotada por business_id, como authenticated) y
+//        asevera sobre el PLAN —descartes de anti-join y loops de las CTE—,
+//        que no mira sintaxis. Medido: 326.024 descartes con la forma vieja
+//        contra 805 con la nueva, sobre 404 productos.
 //
 //   node scripts/finance/guard-charts-l1.mjs [archivo|dir ...]
 //   node scripts/finance/guard-charts-l1.mjs --self-test
@@ -284,16 +296,20 @@ export function revisarSql(ruta, src) {
     f.push(`R19 ${nombre}: promete "${t}"; el contrato valua a costo REGISTRADO, no de reposición`)
   }
 
-  // R20 — anti-join correlacionado contra una cadena CONSTRUIDA.
+  // R20 — tripwire de la FORMA HISTORICA del anti-join correlacionado.
   //
   // Un `NOT EXISTS (... WHERE col = 'PREFIJO-' || externa.id)` no se puede
   // hashear ni indexar: el término de comparación depende de la fila externa,
   // así que el planner reescanea la tabla interna una vez por fila externa.
   // Es CUADRÁTICO, y en `inventory` cada fila interna reevalúa además la
   // policy RLS (una función plpgsql). Con 611 productos medimos 32.786 ms y
-  // `get_finance_charts_l1` expiraba con 57014 contra el statement_timeout de
-  // 8s de `authenticated`. La forma correcta es materializar el conjunto de
-  // exclusión UNA vez y anti-joinear por igualdad.
+  // `get_finance_charts_l1` expiraba con 57014.
+  //
+  // ESTO DETECTA UNA ESCRITURA, NO LA CLASE. Se probó: operandos invertidos,
+  // `concat()`, `format()` y `NOT IN` pasan. No se intenta cubrirlas con más
+  // regex —sería un parser de SQL a medias, con la falsa confianza que eso
+  // trae—. La protección real contra reescrituras equivalentes es V07 del
+  // test SQL, que asevera sobre el PLAN de la consulta real.
   // Se mira SÓLO el cuerpo de las vistas. Una postcondición que recalcula el
   // universo con la forma vieja para comparar valores es legítima y no debe
   // acusarse: el guard vigila lo que queda DEFINIDO, no lo que se verifica.
@@ -668,6 +684,27 @@ function selfTest() {
     !revisarSql('m.sql', VISTA_BUENA).some(x => /R20/.test(x)))
   chk('r20 detecta cualquier prefijo, no solo VPREF-',
     revisarSql('m.sql', VISTA_MALA.replace(/VPREF-/g, 'OTRO-')).some(x => /R20/.test(x)))
+
+  // ALCANCE DECLARADO: estas reformulaciones son equivalentes y R20 NO las ve.
+  // Se aseveran como LIMITACION CONOCIDA, no como cobertura. Si alguna vez se
+  // cubren, estos checks fallan y obligan a actualizar el contrato del guard.
+  const EVASIONES = [
+    ['operandos invertidos',
+      `NOT EXISTS (SELECT 1 FROM public.inventory v WHERE 'VPREF-' || i.id::text = v.supplier_code)`],
+    ['concat()',
+      `NOT EXISTS (SELECT 1 FROM public.inventory v WHERE v.supplier_code = concat('VPREF-', i.id::text))`],
+    ['format()',
+      `NOT EXISTS (SELECT 1 FROM public.inventory v WHERE v.supplier_code = format('VPREF-%s', i.id))`],
+    ['NOT IN',
+      `i.id NOT IN (SELECT substring(v.supplier_code from 7)::uuid FROM public.inventory v
+                     WHERE v.supplier_code LIKE 'VPREF-%')`],
+  ]
+  for (const [nombre, pred] of EVASIONES) {
+    chk(`r20 LIMITACION declarada: no detecta la reformulacion por ${nombre}`,
+      !revisarSql('m.sql',
+        `CREATE OR REPLACE VIEW public.v_x AS SELECT i.id FROM public.inventory i WHERE ${pred};`,
+      ).some(x => /R20/.test(x)))
+  }
   chk('r20 NO acusa a una postcondicion que recalcula con la forma vieja',
     !revisarSql('m.sql',
       `${VISTA_BUENA}\nDO $p$ BEGIN\n  PERFORM 1 FROM public.inventory i\n` +
