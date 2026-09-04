@@ -52,6 +52,7 @@
     "guard:sec08b": "node scripts/guards/sec08b-inventory-cost.mjs",
   "guard:sec08b:self-test": "node scripts/guards/sec08b-inventory-cost.mjs --self-test",
   "test:sql:sec08b": "docker cp tests/sql/sec08b_inventory_cost_visibility.test.sql supabase_db_techrepair-vite:/tmp/sec08b_cost.sql && docker exec supabase_db_techrepair-vite psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/sec08b_cost.sql",
+  "test:sql:capital-perf": "docker cp tests/sql/finance_inventory_capital_perf.test.sql supabase_db_techrepair-vite:/tmp/capperf.sql && docker exec supabase_db_techrepair-vite psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/capperf.sql",
   "test:postgrest:sec08b": "node scripts/security/sec08b-postgrest.mjs",
   "test:compat:sec08b": "node scripts/security/sec08b-compat-matrix.mjs",
   "test:preservation:sec08b": "node scripts/security/sec08b-cost-preservation.mjs",  "guard:sec08a-phase-c": "node scripts/guards/sec08a-phase-c-payments.mjs",
