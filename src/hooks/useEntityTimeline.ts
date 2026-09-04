@@ -103,10 +103,17 @@ async function loadCustomerAccount(accountId: string, limit: number): Promise<Ti
   })
 }
 
+// SEC-08C — proyección explícita. La fila entera de supplier_account_movements
+// es verdad financiera (debe, haber, saldo) y la RLS ya la gatea con
+// can_view_supplier_finance; el `select('*')` quedaba además como una API que
+// habría expuesto en silencio cualquier columna futura.
+const SUPPLIER_ACCOUNT_MOVEMENT_COLUMNS =
+  'id,movement_date,created_at,type,description,debit,credit,balance_after'
+
 async function loadSupplierAccount(supplierId: string, businessId: string, limit: number): Promise<TimelineEvent[]> {
   const { data, error } = await supabase
     .from('supplier_account_movements')
-    .select('*')
+    .select(SUPPLIER_ACCOUNT_MOVEMENT_COLUMNS)
     .eq('supplier_id', supplierId)
     .eq('business_id', businessId)
     .order('created_at', { ascending: false })

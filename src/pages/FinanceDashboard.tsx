@@ -12,6 +12,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { AccountingChangeBanner } from '../components/finance/AccountingChangeBanner'
 import { FinanceInsightsPanel } from '../components/finance/FinanceInsightsPanel'
 import type { FinanceInsight } from '../services/insightsService'
+import { suppliersService } from '../services/suppliersService'
 
 // Charts L1 — Recharts pesa lo suyo, así que el bloque entero se carga bajo
 // demanda: sólo lo baja quien abre Finanzas, y en su propio chunk.
@@ -205,7 +206,9 @@ export function FinanceDashboard() {
   const [loading,      setLoading]      = useState(false)
   const [error,        setError]        = useState<string | null>(null)
   const [movements,    setMovements]    = useState<LatestMovement[]>([])
-  const [supplierDebt, setSupplierDebt] = useState(0)
+  // SEC-08C — `null` = restringido, y NO es lo mismo que 0. Arrancar en 0 era
+  // afirmar "no hay deuda" antes de haber leído nada.
+  const [supplierDebt, setSupplierDebt] = useState<number | null>(null)
 
   // ── Health check (lazy — only when Auditoría tab is visited) ──
   const [healthData,    setHealthData]    = useState<HealthResult | null>(null)
@@ -244,7 +247,14 @@ export function FinanceDashboard() {
       // employee_salaries EN JAVASCRIPT. Eso es reconstruir el P&L en el
       // cliente. La serie ahora la entrega get_finance_charts_l1 ya calculada,
       // así que la consulta se retiró junto con el gráfico que la consumía.
-      const [rpcRes, { data: mvmts }, { data: debt }] = await Promise.all([
+      //
+      // SEC-08C: la deuda con proveedores se leía acá con una cuarta consulta
+      // cruda a `supplier_purchases` y se sumaba con un reduce(). Dos defectos
+      // en una línea: dinero canónico calculado en el browser, y —peor— un
+      // actor sin autoridad recibía [] y la tarjeta afirmaba "$0", en verde,
+      // con deuda real. Ahora la agrega `v_finance_supplier_debt`, que devuelve
+      // NULL (restringido) en vez de cero.
+      const [rpcRes, { data: mvmts }, debt] = await Promise.all([
         supabase.rpc('finance_dashboard_summary', { p_business_id: businessId, p_date_from: from, p_date_to: to }),
         supabase
           .from('financial_movements')
@@ -252,11 +262,7 @@ export function FinanceDashboard() {
           .eq('business_id', businessId)
           .gte('date', from).lte('date', to)
           .order('created_at', { ascending: false }).limit(50),
-        supabase
-          .from('supplier_purchases')
-          .select('pending_amount')
-          .eq('business_id', businessId)
-          .neq('payment_status', 'paid'),
+        suppliersService.getSupplierDebt(businessId),
       ])
       const v2 = rpcRes.data as any
       if (rpcRes.error) throw new Error(rpcRes.error.message)
@@ -299,7 +305,7 @@ export function FinanceDashboard() {
 
       setData(adapted)
       setMovements((mvmts || []) as LatestMovement[])
-      setSupplierDebt((debt || []).reduce((s: number, r: { pending_amount: number }) => s + (r.pending_amount || 0), 0))
+      setSupplierDebt(debt.outstanding)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Error al cargar finanzas')
     } finally { setLoading(false) }
@@ -638,14 +644,27 @@ export function FinanceDashboard() {
           {data && (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
-                {[
-                  { label: 'Total egresos', value: fmtShort(data.summary.expenses), color: '#ef4444' },
-                  { label: 'Pagos a proveedores', value: fmtShort(data.summary.supplier_payments), color: '#fb923c' },
-                  { label: 'Deuda proveedores', value: fmtShort(supplierDebt), color: supplierDebt > 0 ? '#f87171' : '#34d399' },
-                ].map(c => (
+                {([
+                  { label: 'Total egresos', value: fmtShort(data.summary.expenses), color: '#ef4444', restricted: false },
+                  { label: 'Pagos a proveedores', value: fmtShort(data.summary.supplier_payments), color: '#fb923c', restricted: false },
+                  // SEC-08C — restringido se muestra como restringido. El verde
+                  // de "$0" afirmaba que NO había deuda: era la lectura más
+                  // tranquilizadora posible del dato que no se pudo leer.
+                  supplierDebt === null
+                    ? { label: 'Deuda proveedores', value: '—', color: 'var(--text-muted)', restricted: true }
+                    : { label: 'Deuda proveedores', value: fmtShort(supplierDebt), color: supplierDebt > 0 ? '#f87171' : '#34d399', restricted: false },
+                ] as { label: string; value: string; color: string; restricted: boolean }[]).map(c => (
                   <div key={c.label} style={{ background: 'var(--bg-card-solid)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '1rem' }}>
                     <div style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '0.3rem' }}>{c.label}</div>
-                    <div style={{ fontSize: '1.4rem', fontWeight: 800, fontFamily: 'monospace', color: c.color }}>{c.value}</div>
+                    <div
+                      data-testid={c.restricted ? 'finance-supplier-debt-restricted' : undefined}
+                      style={{ fontSize: '1.4rem', fontWeight: 800, fontFamily: 'monospace', color: c.color }}
+                    >{c.value}</div>
+                    {c.restricted && (
+                      <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                        Sin acceso a este dato
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
