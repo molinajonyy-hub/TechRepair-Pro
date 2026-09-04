@@ -296,7 +296,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
       category:       product.category,
       stock_quantity: product.stock_quantity,
       sale_price:     product.sale_price,
-      cost_price:     product.cost_price,
+      cost_price:     product.cost_price ?? undefined,
     })
     setShowProductForm(false)
   }

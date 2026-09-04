@@ -44,6 +44,7 @@ const fmtARS = (n: number) =>
   '$' + Math.round(n).toLocaleString('es-AR')
 
 import { fmtDateCompact as fmtDate } from '../utils/dateUtils'
+import { COST_RESTRICTED_LABEL } from '../services/inventoryCostAccess'
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
@@ -287,10 +288,13 @@ export function Dashboard() {
                 <RevenueIcon size={18} />
               </div>
             </div>
-            <div className="stat-card-value" style={{ color: 'var(--success)' }}>
-              {stats ? fmtARS(stats.realProfitToday) : '—'}
+            {/* SEC-08B: sin autoridad de COGS el importe llega en null. Se dice
+                que está restringido — mostrar $0 sería afirmar que hoy no hubo
+                ganancia, que es falso y además indistinguible de una pérdida. */}
+            <div className="stat-card-value" style={{ color: stats?.realProfitToday == null ? 'var(--text-subtle)' : 'var(--success)', fontSize: stats && stats.realProfitToday == null ? '1.1rem' : undefined }}>
+              {!stats ? '—' : stats.realProfitToday == null ? COST_RESTRICTED_LABEL : fmtARS(stats.realProfitToday)}
             </div>
-            {stats && <div style={{ fontSize: '0.78rem', color: 'var(--text-subtle)' }}>{stats.averageMarginPct.toFixed(1)}% margen</div>}
+            {stats && stats.averageMarginPct != null && <div style={{ fontSize: '0.78rem', color: 'var(--text-subtle)' }}>{stats.averageMarginPct.toFixed(1)}% margen</div>}
           </div>
           )}
 

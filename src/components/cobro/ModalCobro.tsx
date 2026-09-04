@@ -347,7 +347,7 @@ export function ModalCobro({ isOpen, onClose, orderId, clienteId }: ModalCobroPr
       const dbQ = buildSupabaseQuery(q)
       const { data } = await supabase
         .from('inventory')
-        .select('id, name, variant_name, code, sale_price, precio_mayorista, cost_price, stock_quantity')
+        .select('id, name, variant_name, code, sale_price, precio_mayorista, stock_quantity')
         .eq('business_id', businessId)
         .eq('is_active', true)
         .not('has_variants', 'is', true)

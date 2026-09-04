@@ -9,6 +9,7 @@ import { SimplePieChart } from '../components/charts/SimplePieChart'
 import { inventoryReportsService } from '../services/inventoryReportsService'
 import { inventoryService } from '../services/inventoryService'
 import { STATUS_CONFIG } from '../types/orderStatus'
+import { COST_RESTRICTED_LABEL } from '../services/inventoryCostAccess'
 
 type ReportsPeriod = 'today' | 'week' | 'month' | 'quarter' | 'year'
 
@@ -27,7 +28,8 @@ type ReportSnapshot = {
   newCustomersPrevious: number
   lowStockCount: number
   outOfStockCount: number
-  inventoryValue: number
+  /** SEC-08B: null = costo restringido para este actor. Se muestra «—», nunca 0. */
+  inventoryValue: number | null
   revenueSeries: ChartPoint[]
   revenueSeriesTitle: string
   deviceTypesData: ChartPoint[]
@@ -563,7 +565,7 @@ export function Reports() {
           newCustomersPrevious: previousCustomersResult.status === 'fulfilled' ? previousCustomersResult.value : 0,
           lowStockCount: lowStockResult.status === 'fulfilled' ? lowStockResult.value.length : 0,
           outOfStockCount: outOfStockResult.status === 'fulfilled' ? outOfStockResult.value.length : 0,
-          inventoryValue: inventoryValueResult.status === 'fulfilled' ? inventoryValueResult.value : 0,
+          inventoryValue: inventoryValueResult.status === 'fulfilled' ? inventoryValueResult.value : null,
           revenueSeries,
           revenueSeriesTitle: revenueConfig.title,
           deviceTypesData,
@@ -634,7 +636,9 @@ export function Reports() {
       {
         label: 'Stock bajo',
         value: reportData.lowStockCount.toString(),
-        change: `${reportData.outOfStockCount} sin stock · ${formatCurrency(reportData.inventoryValue)}`,
+        // SEC-08B: sin autoridad de costo el valor no se sustituye por $0 —eso
+        // se leería como «inventario sin valor»—, se dice que está restringido.
+        change: `${reportData.outOfStockCount} sin stock · ${reportData.inventoryValue === null ? COST_RESTRICTED_LABEL : formatCurrency(reportData.inventoryValue)}`,
         trend: reportData.outOfStockCount === 0 ? 'up' : 'down',
         icon: Package,
         color: '#f59e0b',
@@ -664,7 +668,7 @@ export function Reports() {
       ['Ordenes completadas', reportData.completedOrdersCurrent.toString(), `${formatDifference(reportData.completedOrdersCurrent, reportData.completedOrdersPrevious, 'count')} ${reportData.comparisonLabel}`],
       ['Clientes nuevos', reportData.newCustomersCurrent.toString(), `${formatDifference(reportData.newCustomersCurrent, reportData.newCustomersPrevious, 'count')} ${reportData.comparisonLabel}`],
       ['Items con stock bajo', reportData.lowStockCount.toString(), `${reportData.outOfStockCount} sin stock`],
-      ['Valor total del inventario', formatCurrency(reportData.inventoryValue), reportData.periodLabel],
+      ['Valor total del inventario', reportData.inventoryValue === null ? COST_RESTRICTED_LABEL : formatCurrency(reportData.inventoryValue), reportData.periodLabel],
     ]
 
     const doc = new jsPDF()

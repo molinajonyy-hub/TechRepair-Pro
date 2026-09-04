@@ -31,6 +31,7 @@ import {
   type ProductVariant,
 } from '../../services/productService'
 import type { InventoryItem } from '../../hooks/useInventory'
+import { fetchInventoryCosts, hasInventoryCostAuthority } from '../../services/inventoryCostAccess'
 
 // ─── Categorías ───────────────────────────────────────────────────────────────
 
@@ -302,6 +303,44 @@ export function ProductFormModal({
     try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
   }, [DRAFT_KEY])
 
+  /**
+   * SEC-08B — el costo NO viaja en la lectura operativa del producto.
+   *
+   * `editItem` llega SIN `cost_price`/`cost_price_usd`, así que hay que pedirlo
+   * por la vista autorizada. Hasta que se resuelva, `costLoaded` es false y el
+   * submit OMITE las columnas de costo: mandar el 0 de un formulario que nunca
+   * recibió el valor es exactamente lo que destruía el costo real en la base.
+   */
+  const [costAuthorized, setCostAuthorized] = useState(false)
+  const [costLoaded, setCostLoaded] = useState(false)
+
+  useEffect(() => {
+    if (!isOpen) { setCostLoaded(false); setCostAuthorized(false); return }
+    let alive = true
+    if (!editItem?.id) {
+      // Alta: no hay costo previo que preservar; sólo importa si puede cargarlo.
+      void hasInventoryCostAuthority().then(ok => {
+        if (!alive) return
+        setCostAuthorized(ok); setCostLoaded(true)
+      })
+      return () => { alive = false }
+    }
+    void fetchInventoryCosts([editItem.id]).then(({ costs, authorized }) => {
+      if (!alive) return
+      setCostAuthorized(authorized)
+      const c = costs.get(editItem.id)
+      if (c) {
+        setForm(f => ({
+          ...f,
+          cost_ars: c.cost_price != null ? String(c.cost_price) : f.cost_ars,
+          cost_usd: c.cost_price_usd != null && c.cost_price_usd > 0 ? String(c.cost_price_usd) : f.cost_usd,
+        }))
+      }
+      setCostLoaded(true)
+    })
+    return () => { alive = false }
+  }, [isOpen, editItem?.id])
+
   // ── Pre-rellenar desde contexto al abrir ────────────────────────────────────
   useEffect(() => {
     if (!isOpen) return
@@ -326,9 +365,12 @@ export function ProductFormModal({
         supplier_id:   editItem.supplier_id ?? '',
         base_currency: baseCur,
         exchange_rate: itemRate || currentRate,
-        cost_ars:      String(baseCur === 'USD'
+        // SEC-08B: el costo NO llega en la lectura operativa. Ausente es
+        // DESCONOCIDO, así que se deja vacío —nunca "0"—; el efecto de arriba
+        // lo repone por la vista autorizada si el actor puede verlo.
+        cost_ars:      String((baseCur === 'USD'
                           ? (ei.cost_price_ars ?? editItem.cost_price)
-                          : editItem.cost_price ?? 0),
+                          : editItem.cost_price) ?? ''),
         cost_usd:      String(editItem.cost_price_usd ?? ''),
         sale_price_ars:String(editItem.sale_price ?? 0),
         // base_price = precio de venta USD cuando base_currency='USD'
@@ -640,6 +682,22 @@ export function ProductFormModal({
     try {
       const costARS = deriveCostARS(form)
       const costUSD = form.base_currency === 'USD' ? (parseFloat(form.cost_usd) || 0) : undefined
+
+      /**
+       * SEC-08B — el costo sólo se ESCRIBE si este formulario llegó a
+       * conocerlo. Sin autoridad, o antes de que la vista autorizada responda,
+       * `form.cost_ars` vale "" y `deriveCostARS` devuelve 0: mandarlo
+       * reemplazaría el costo real por cero sin que nadie lo pidiera.
+       *
+       * `undefined` desaparece del JSON, así que la columna no viaja y la base
+       * conserva su valor. El trigger `trig_inventory_guard_cost_write` es el
+       * respaldo server-side para cualquier caller que se olvide de esto.
+       */
+      const canWriteCost = costLoaded && costAuthorized
+      const costFields: { cost_price: number | undefined; cost_price_usd: number | undefined } =
+        canWriteCost
+          ? { cost_price: costARS, cost_price_usd: costUSD }
+          : { cost_price: undefined, cost_price_usd: undefined }
       const saleARS = parseFloat(form.sale_price_ars) || 0
       const qty     = parseInt(form.stock_quantity) || 0
       const catName = showCatInput && form.newCategory.trim()
@@ -674,6 +732,9 @@ export function ProductFormModal({
         base_price:     form.base_currency === 'USD'
           ? (parseFloat(form.sale_price_usd) || saleARSFinal)
           : saleARSFinal,
+        // ALTA: no hay costo previo que destruir. Sin autoridad queda en 0, que
+        // en este modelo YA significa «sin costo cargado» —lo cuentan
+        // `products_missing_cost` y el estado 'sin_costo'—, no un costo real.
         cost_price:     costARS,
         cost_price_usd: costUSD,
         sale_price:     saleARSFinal,
@@ -708,8 +769,7 @@ export function ProductFormModal({
           base_price:     form.base_currency === 'USD'
             ? (parseFloat(form.sale_price_usd) || saleARSEdit)
             : saleARSEdit,
-          cost_price:     costARS,
-          cost_price_usd: costUSD,
+          ...costFields,
           sale_price:     saleARSEdit,
           wholesale_price_ars: wholesaleARSEdit,
           exchange_rate_used:  form.base_currency === 'USD' ? rate : undefined,
@@ -729,8 +789,7 @@ export function ProductFormModal({
           subcategory:    form.subcategory.trim() || undefined,
           supplier_id:    form.supplier_id || undefined,
           base_currency:  form.base_currency,
-          cost_price:     costARS,
-          cost_price_usd: costUSD,
+          ...costFields,
           sale_price:     saleARS,
           min_stock:      parseInt(form.min_stock) || 0,
           stock_quantity: editItem.stock_quantity,  // no se modifica el stock desde edición

@@ -6,6 +6,7 @@
 import { supabase } from '../lib/supabase'
 import { inventoryMovementsService } from './inventoryMovementsService'
 import type { InventoryItem } from '../hooks/useInventory'
+import { INVENTORY_OPERATIONAL_COLUMNS } from './inventoryCostAccess'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -145,7 +146,7 @@ export const productService = {
 
     let q = supabase
       .from('inventory')
-      .select('id, name, code, category, stock_quantity, sale_price, cost_price, tipo')
+      .select('id, name, code, category, stock_quantity, sale_price, tipo')
       .eq('business_id', businessId)
       .eq('is_active', true)
 
@@ -228,7 +229,7 @@ export const productService = {
       const { data, error } = await supabase
         .from('inventory')
         .insert({ ...baseRow, code })
-        .select()
+        .select(INVENTORY_OPERATIONAL_COLUMNS)
         .single()
 
       if (!error) {
@@ -355,7 +356,7 @@ export const productService = {
       const { data, error } = await supabase
         .from('inventory')
         .insert({ ...baseInvRow, code })
-        .select()
+        .select(INVENTORY_OPERATIONAL_COLUMNS)
         .single()
 
       if (!error) { invData = data; break }

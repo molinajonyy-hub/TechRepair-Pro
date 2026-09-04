@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { INVENTORY_MOVEMENT_OPERATIONAL_COLUMNS } from './inventoryCostAccess'
 
 export type MovementType =
   | 'in'
@@ -126,7 +127,11 @@ export const inventoryMovementsService = {
         supplier_id:       extras?.supplier_id  ?? null,
         variant_id:        extras?.variant_id   ?? null,
       })
-      .select()
+      // SEC-08B: `.select()` a secas es RETURNING *, que ahora incluye la
+      // columna revocada `unit_cost` y responde 42501 a TODOS. Escribir el
+      // costo sigue permitido —el INSERT no se tocó—; lo que no se puede es
+      // leerlo de vuelta.
+      .select(INVENTORY_MOVEMENT_OPERATIONAL_COLUMNS)
       .single()
 
     if (movementError || !movement) {
@@ -146,7 +151,7 @@ export const inventoryMovementsService = {
   async getMovementsByItem(inventoryItemId: string): Promise<InventoryMovement[]> {
     const { data, error } = await supabase
       .from('inventory_movements')
-      .select('*')
+      .select(INVENTORY_MOVEMENT_OPERATIONAL_COLUMNS)
       .eq('inventory_item_id', inventoryItemId)
       .order('created_at', { ascending: false })
 
@@ -160,7 +165,7 @@ export const inventoryMovementsService = {
   ): Promise<InventoryMovement[]> {
     const { data, error } = await supabase
       .from('inventory_movements')
-      .select('*')
+      .select(INVENTORY_MOVEMENT_OPERATIONAL_COLUMNS)
       .eq('reference_type', referenceType)
       .eq('reference_id', referenceId)
       .order('created_at', { ascending: false })
@@ -172,7 +177,7 @@ export const inventoryMovementsService = {
   async revertMovement(movementId: string): Promise<void> {
     const { data: movement, error } = await supabase
       .from('inventory_movements')
-      .select('*')
+      .select(INVENTORY_MOVEMENT_OPERATIONAL_COLUMNS)
       .eq('id', movementId)
       .single()
 

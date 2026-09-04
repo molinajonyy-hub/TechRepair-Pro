@@ -29,6 +29,12 @@ const estado = vi.hoisted(() => ({
   hijosDePadres: [] as Array<Record<string, unknown>>,
   /** Fuerza un error SOLO en la consulta de padres estructurales. */
   errorPadres: null as { message: string } | null,
+  /**
+   * SEC-08B — filas de `v_inventory_costs` que el servidor autoriza.
+   * Vacío = el actor no tiene autoridad de costo, que es el caso por defecto
+   * y el que más importa: el buscador tiene que seguir funcionando igual.
+   */
+  costos: [] as Array<Record<string, unknown>>,
 }))
 
 vi.mock('../../src/lib/supabase', () => {
@@ -52,6 +58,13 @@ vi.mock('../../src/lib/supabase', () => {
       or: (filtro: string) => { registro.or.push(filtro); return q },
       order: (col: string, opts: unknown) => { registro.order.push([col, opts]); return q },
       abortSignal: () => q,
+      // SEC-08B: el costo ya no viaja en el `select` del catálogo —esas columnas
+      // están revocadas para el navegador— y se repone al final leyendo la
+      // vista autorizada `v_inventory_costs` con `.in(...)`. El mock la resuelve
+      // con lo que el caso haya declarado en `estado.costos`; vacío significa
+      // «este actor no tiene autoridad de costo», que es el caso por defecto.
+      in: (_col: string, _vals: unknown[]) =>
+        Promise.resolve({ data: estado.costos, error: null }),
       limit: (n: number) => {
         registro.limit = n
         // El await sobre el query builder resuelve acá.
@@ -92,6 +105,7 @@ beforeEach(() => {
   estado.queries = []
   estado.hijosDePadres = []
   estado.errorPadres = null
+  estado.costos = []
 })
 
 describe('searchSellableProducts — forma de la query', () => {
@@ -294,5 +308,46 @@ describe('searchSellableProducts — resultado', () => {
     const res = await searchSellableProducts({ businessId: NEGOCIO, query: 'SRCH-FUN-IP15-VAR-01' })
 
     expect(res.items[0].id).toBe('exacto')
+  })
+})
+
+describe('searchSellableProducts — SEC-08B: costo de inventario', () => {
+  it('NO pide columnas de costo al catálogo: están revocadas para el navegador', async () => {
+    estado.filas = [producto()]
+    await searchSellableProducts({ businessId: NEGOCIO, query: 'funda negro' })
+
+    const catalogo = estado.queries.find(q => q.tabla === 'inventory' && q.select.includes('sale_price'))
+    expect(catalogo).toBeDefined()
+    // Pedirlas devolvería 42501 para TODOS los roles —owner incluido— y el
+    // buscador del POS dejaría de responder.
+    expect(catalogo!.select).not.toContain('cost_price')
+    // Y lo operativo tiene que seguir viajando.
+    expect(catalogo!.select).toContain('sale_price')
+    expect(catalogo!.select).toContain('stock_quantity')
+  })
+
+  it('sin autoridad de costo el buscador funciona igual y no inventa un costo de 0', async () => {
+    estado.filas = [producto({ id: 'p1' })]
+    estado.costos = []   // el servidor no autorizó ninguna fila
+
+    const res = await searchSellableProducts({ businessId: NEGOCIO, query: 'funda negro' })
+
+    expect(res.status).toBe('ok')
+    expect(res.items).toHaveLength(1)
+    // Ausencia de costo es DESCONOCIDO, no cero: quien muestre margen tiene que
+    // apagar el bloque, no calcularlo con 0 y publicar «100 % de margen».
+    expect(res.items[0].cost_price).toBeNull()
+  })
+
+  it('con autoridad de costo, el costo real llega por la vista autorizada', async () => {
+    estado.filas = [producto({ id: 'p1' })]
+    estado.costos = [{ inventory_id: 'p1', cost_price: 6000, cost_price_usd: 5 }]
+
+    const res = await searchSellableProducts({ businessId: NEGOCIO, query: 'funda negro' })
+
+    expect(res.items[0].cost_price).toBe(6000)
+    expect(res.items[0].cost_price_usd).toBe(5)
+    // El costo se pide a la VISTA autorizada, nunca a la tabla.
+    expect(estado.queries.some(q => q.tabla === 'v_inventory_costs')).toBe(true)
   })
 })

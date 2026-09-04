@@ -62,7 +62,7 @@ export async function getAdminProducts(businessId: string): Promise<AdminProduct
   const [invRes, settingsRes] = await Promise.all([
     supabase
       .from('inventory')
-      .select('id, code, name, category, stock_quantity, sale_price, precio_mayorista, cost_price')
+      .select('id, code, name, category, stock_quantity, sale_price, precio_mayorista')
       .eq('business_id', businessId)
       .eq('is_active', true)
       .order('category')

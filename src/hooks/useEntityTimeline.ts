@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import type { TimelineEvent, TimelineEventType } from '../components/shared/TimelineView'
+import { INVENTORY_MOVEMENT_OPERATIONAL_COLUMNS } from '../services/inventoryCostAccess'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -131,7 +132,7 @@ async function loadSupplierAccount(supplierId: string, businessId: string, limit
 async function loadInventoryItem(itemId: string, businessId: string, limit: number): Promise<TimelineEvent[]> {
   const { data, error } = await supabase
     .from('inventory_movements')
-    .select('*')
+    .select(INVENTORY_MOVEMENT_OPERATIONAL_COLUMNS)
     .eq('inventory_item_id', itemId)
     .eq('business_id', businessId)
     .order('created_at', { ascending: false })

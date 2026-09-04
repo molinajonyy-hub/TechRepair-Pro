@@ -137,10 +137,24 @@ export default function ComprobantePage() {
   // toda línea sin inventory_id — justo el caso de las órdenes, cuyo costo de
   // repuestos absorbidos viaja plegado en la línea de servicio. Ahora esta
   // tarjeta muestra exactamente lo mismo que Finanzas: sin motor paralelo.
+  //
+  // SEC-08B: el costo de línea sólo llega si el actor tiene
+  // `inventory_view_costs`. Sin autoridad, `costo_total` y `costo_unitario`
+  // vienen en NULL, y `Number(null) || 0` los convertiría en 0 — con eso la
+  // tarjeta publicaría «ganancia = lo cobrado» y «margen 100 %», que es
+  // exactamente la verdad falsa que este lote prohíbe. Así que la tarjeta NO se
+  // calcula: se apaga. Todo lo operativo del comprobante sigue en pantalla.
   useEffect(() => {
     if (!comprobanteActual) { setProfitInfo(null); return; }
     const items: any[] = (comprobanteActual as any)?.items ?? [];
     if (!items.length) { setProfitInfo(null); return; }
+
+    // «Autorizado» = alguna línea trajo el costo. Con autoridad y sin costo
+    // cargado el valor es 0, que sí es un número real; sin autoridad es null.
+    const costAuthorized = items.some(
+      (i: any) => i.costo_total !== null && i.costo_total !== undefined,
+    );
+    if (!costAuthorized) { setProfitInfo(null); return; }
 
     const totalRevenue = items.reduce((s: number, i: any) => s + (i.subtotal || i.precio_unitario * i.cantidad || 0), 0);
     const totalCost = items.reduce(

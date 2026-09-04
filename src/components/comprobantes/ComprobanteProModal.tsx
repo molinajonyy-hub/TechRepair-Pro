@@ -57,7 +57,7 @@ import { formatearNumeroComprobante } from '../../lib/fiscalDisplay'
 
 interface InventoryResult {
   id: string; code: string; name: string; variant_name?: string | null
-  category: string; stock_quantity: number; cost_price: number
+  category: string; stock_quantity: number; cost_price: number | null
   cost_price_usd?: number | null
   sale_price: number; precio_mayorista?: number | null
   base_price?: number | null; base_currency?: string | null; has_variants?: boolean | null
@@ -823,7 +823,7 @@ export function ComprobanteProModal({
   useEffect(() => {
     if (!isOpen || !businessId) return
     supabase.from('comprobante_items')
-      .select('inventory_id, inventory:inventory_id(id,name,variant_name,sale_price,stock_quantity,cost_price,cost_price_usd,precio_mayorista,base_price,base_currency,auto_update_price,exchange_rate_used,code,category,has_variants,is_active)')
+      .select('inventory_id, inventory:inventory_id(id,name,variant_name,sale_price,stock_quantity,precio_mayorista,base_price,base_currency,auto_update_price,exchange_rate_used,code,category,has_variants,is_active)')
       .eq('business_id', businessId)
       .not('inventory_id', 'is', null)
       .order('created_at', { ascending: false })
@@ -1094,7 +1094,7 @@ export function ComprobanteProModal({
 
     const { data, error: scanErr } = await supabase
       .from('inventory')
-      .select('id,code,name,variant_name,category,stock_quantity,cost_price,cost_price_usd,sale_price,precio_mayorista,base_price,base_currency,auto_update_price,exchange_rate_used,has_variants')
+      .select('id,code,name,variant_name,category,stock_quantity,sale_price,precio_mayorista,base_price,base_currency,auto_update_price,exchange_rate_used,has_variants')
       .eq('business_id', businessId)
       .eq('is_active', true)
       .not('has_variants', 'is', true)
@@ -2423,7 +2423,7 @@ export function ComprobanteProModal({
       isOpen={showPFM}
       onClose={() => { setShowPFM(false); setPfmLineIdx(null) }}
       onCreated={(product: InventoryItemFull) => {
-        const inv: InventoryResult = { id: product.id, code: product.code ?? '', name: product.name, category: product.category ?? '', stock_quantity: product.stock_quantity, cost_price: product.cost_price, cost_price_usd: product.cost_price_usd ?? null, sale_price: product.sale_price, base_price: product.base_price ?? null, base_currency: product.base_currency ?? null, auto_update_price: product.auto_update_price ?? null, exchange_rate_used: product.exchange_rate_used ?? null, has_variants: false }
+        const inv: InventoryResult = { id: product.id, code: product.code ?? '', name: product.name, category: product.category ?? '', stock_quantity: product.stock_quantity, cost_price: product.cost_price ?? null, cost_price_usd: product.cost_price_usd ?? null, sale_price: product.sale_price, base_price: product.base_price ?? null, base_currency: product.base_currency ?? null, auto_update_price: product.auto_update_price ?? null, exchange_rate_used: product.exchange_rate_used ?? null, has_variants: false }
         if (pfmLineIdx !== null) selectInventoryItem(pfmLineIdx, inv)
         else addOrIncrement(inv)
         setShowPFM(false); setPfmLineIdx(null)

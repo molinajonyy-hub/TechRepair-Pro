@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { getFinancialSummary } from '../services/financialMetricsService'
 import { todayAR, daysAgoAR } from '../utils/dateUtils'
+import { hasCogsAuthority } from '../services/inventoryCostAccess'
 
 export interface RecentOrder {
   id: string
@@ -34,11 +35,13 @@ export interface DashboardStats {
 
   // Ganancia real (margen devengado de comprobantes efectivos, vía
   // finance_dashboard_summary → v_finance_pnl — NO de órdenes abiertas)
-  realProfitToday: number
-  realProfitThisWeek: number
-  realProfitThisMonth: number
-  averageMarginPct: number
-  profitPerOperation: number
+  // SEC-08B — null = el actor NO tiene autoridad de COGS. No es 0: mostrar
+  // "Costo restringido", nunca una ganancia de cero que se leería como pérdida.
+  realProfitToday: number | null
+  realProfitThisWeek: number | null
+  realProfitThisMonth: number | null
+  averageMarginPct: number | null
+  profitPerOperation: number | null
   topProfitableItems: { name: string; profit: number; margin: number; count: number }[]
 
   // Clientes
@@ -292,7 +295,7 @@ export function useDashboardStats() {
         // 12. comprobante_items emitidos últimos 90 días (ventas directas sin orden)
         supabase
           .from('comprobante_items')
-          .select('precio_unitario, costo_unitario, cantidad, descripcion, created_at, tipo_linea, comprobante:comprobantes!inner(status, order_id)')
+          .select('precio_unitario, cantidad, descripcion, created_at, tipo_linea, comprobante:comprobantes!inner(status, order_id)')
           .eq('business_id', businessId)
           .in('tipo_linea', ['producto', 'repuesto', 'servicio'])
           .gte('created_at', ninetyDaysAgo),
@@ -407,13 +410,26 @@ export function useDashboardStats() {
       // reconocía prematuramente (bug "Ganancia Real Hoy" con órdenes sin cobrar).
       // Ahora hoy/semana/mes salen del MISMO origen devengado. Corte diario en AR.
       const popularDeviceTypes: { type: string; count: number }[] = []
-      let realProfitToday    = 0
-      let realProfitThisWeek = 0
-      let realProfitThisMonth = 0
-      let averageMarginPct   = 0
-      let profitPerOperation = 0
+      let realProfitToday: number | null    = 0
+      let realProfitThisWeek: number | null = 0
+      let realProfitThisMonth: number | null = 0
+      let averageMarginPct: number | null   = 0
+      let profitPerOperation: number | null = 0
 
-      try {
+      // SEC-08B: sin autoridad de COGS, `v_finance_pnl` no devuelve filas y el
+      // resumen canónico responde 0. Ese cero se leería como «hoy no ganaste
+      // nada», que es exactamente el número falso que este lote prohíbe. Se
+      // resuelve la autoridad ANTES y se marca como restringido (null), sin
+      // recalcular nada en el cliente.
+      const cogsAuthorized = await hasCogsAuthority(businessId)
+
+      if (!cogsAuthorized) {
+        realProfitToday = null
+        realProfitThisWeek = null
+        realProfitThisMonth = null
+        averageMarginPct = null
+        profitPerOperation = null
+      } else try {
         const todayStr     = todayAR()
         const firstOfMonth = todayStr.slice(0, 7) + '-01'
         const weekStart    = daysAgoAR(6)   // últimos 7 días AR (hoy + 6 previos)

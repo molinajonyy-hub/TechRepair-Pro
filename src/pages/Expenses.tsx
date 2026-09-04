@@ -157,7 +157,7 @@ function ItemRow({ item, businessId, onUpdate, onRemove, isOnly, onOpenProductFo
     const t = setTimeout(async () => {
       const { data } = await supabase
         .from('inventory')
-        .select('id, name, cost_price')
+        .select('id, name')
         .eq('business_id', businessId)
         .ilike('name', `%${q}%`)
         .not('has_variants', 'is', true)

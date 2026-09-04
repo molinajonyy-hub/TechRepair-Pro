@@ -315,7 +315,7 @@ export function ModalCrearComprobante({
       const dbQ = buildSupabaseQuery(q);
       const { data } = await supabase
         .from('inventory')
-        .select('id, code, name, variant_name, category, stock_quantity, cost_price, sale_price, precio_mayorista, base_price, base_currency, has_variants')
+        .select('id, code, name, variant_name, category, stock_quantity, sale_price, precio_mayorista, base_price, base_currency, has_variants')
         .eq('business_id', businessId)
         .eq('is_active', true)
         .not('has_variants', 'is', true)

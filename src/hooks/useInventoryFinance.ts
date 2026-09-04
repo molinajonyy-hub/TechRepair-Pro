@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { attachInventoryCosts } from '../services/inventoryCostAccess'
 
 export interface InventoryFinanceItem {
   id: string
@@ -8,7 +9,8 @@ export interface InventoryFinanceItem {
   category: string
   subcategory?: string
   stock_quantity: number
-  cost_price: number
+  /** SEC-08B: null = costo restringido para este actor; el estado pasa a 'sin_costo'. */
+  cost_price: number | null
   sale_price: number
   capital_invertido: number
   valor_venta: number
@@ -86,13 +88,16 @@ export function useInventoryFinance(businessId?: string | null) {
       // 1. Cargar items del inventario (incluyendo supplier_code para distinguir padres de variantes)
       const { data: inventoryData, error: invError } = await supabase
         .from('inventory')
-        .select('id, code, name, category, subcategory, stock_quantity, cost_price, sale_price, supplier_code')
+        .select('id, code, name, category, subcategory, stock_quantity, sale_price, supplier_code')
         .eq('business_id', businessId)
         .eq('is_active', true)
 
       if (invError) throw invError
 
-      const rawInventory = inventoryData || []
+      // SEC-08B: el costo ya no viaja en la fila de inventory. Se repone por
+      // la vista autorizada; sin autoridad llega vacío y los márgenes de abajo
+      // quedan en sin_costo, que es el estado honesto (no «margen 100 %»).
+      const rawInventory = await attachInventoryCosts(inventoryData || [])
 
       // Excluir productos-padre que tienen variantes (su stock/precio vive en las variantes)
       // Las variantes tienen supplier_code = 'VPREF-{parent_id}'
@@ -130,7 +135,7 @@ export function useInventoryFinance(businessId?: string | null) {
 
       // 3. Calcular métricas por producto
       const processedItems: InventoryFinanceItem[] = inventory
-        .filter(item => item.stock_quantity > 0 || item.cost_price > 0)
+        .filter(item => item.stock_quantity > 0 || (item.cost_price ?? 0) > 0)
         .map(item => {
           const cost = item.cost_price || 0
           const sale = item.sale_price || 0
@@ -182,7 +187,7 @@ export function useInventoryFinance(businessId?: string | null) {
 
       const processedCategories: CategoryCapital[] = Object.values(categoryMap)
         .map((cat, idx) => {
-          const catItems = processedItems.filter(i => (i.category || 'Sin categoría') === cat.category && i.cost_price > 0)
+          const catItems = processedItems.filter(i => (i.category || 'Sin categoría') === cat.category && (i.cost_price ?? 0) > 0)
           const margenPromedio = catItems.length > 0
             ? catItems.reduce((s, i) => s + i.margen_venta, 0) / catItems.length
             : 0
@@ -249,7 +254,7 @@ export function useInventoryFinance(businessId?: string | null) {
       }
 
       // 8. Resumen global
-      const itemsWithCost = processedItems.filter(i => i.cost_price > 0)
+      const itemsWithCost = processedItems.filter(i => (i.cost_price ?? 0) > 0)
       const margenCostoPromedio = itemsWithCost.length > 0
         ? itemsWithCost.reduce((s, i) => s + i.margen_costo, 0) / itemsWithCost.length
         : 0

@@ -2,6 +2,7 @@ import { supabase, type Order, type Customer, type Device, type Note,
   type PartUsed, type InventoryItem, type Supplier, type Expense,
   type User, type StatusHistory } from '../lib/supabase'
 import { getProfileCacheKey } from '../lib/profileCache'
+import { INVENTORY_OPERATIONAL_COLUMNS } from './inventoryCostAccess'
 
 type CustomerPayload = Omit<Customer, 'id' | 'created_at' | 'updated_at' | 'business_id' | 'created_by'>
 
@@ -733,14 +734,14 @@ export const inventoryService = {
     const { data, error } = await supabase
       .from('inventory')
       .select(`
-        *,
+        ${INVENTORY_OPERATIONAL_COLUMNS},
         supplier:suppliers(id, name)
       `)
       .eq('business_id', businessId)
       .order('name', { ascending: true })
     
     if (error) throw error
-    return data as (InventoryItem & { supplier: Supplier | null })[]
+    return data as unknown as (InventoryItem & { supplier: Supplier | null })[]
   },
 
   async getLowStock() {
@@ -748,23 +749,23 @@ export const inventoryService = {
     
     const { data, error } = await supabase
       .from('inventory')
-      .select('*')
+      .select(INVENTORY_OPERATIONAL_COLUMNS)
       .eq('business_id', businessId)
       .lte('stock', 5)
     
     if (error) throw error
-    return data as InventoryItem[]
+    return data as unknown as InventoryItem[]
   },
 
   async create(item: Omit<InventoryItem, 'id' | 'created_at' | 'updated_at'>) {
     const { data, error } = await supabase
       .from('inventory')
       .insert(item)
-      .select()
+      .select(INVENTORY_OPERATIONAL_COLUMNS)
       .single()
     
     if (error) throw error
-    return data as InventoryItem
+    return data as unknown as InventoryItem
   },
 
   async update(id: string, item: Partial<InventoryItem>) {
@@ -772,11 +773,11 @@ export const inventoryService = {
       .from('inventory')
       .update({ ...item, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .select()
+      .select(INVENTORY_OPERATIONAL_COLUMNS)
       .single()
     
     if (error) throw error
-    return data as InventoryItem
+    return data as unknown as InventoryItem
   },
 
   async updateStock(id: string, quantity: number) {
@@ -784,11 +785,11 @@ export const inventoryService = {
       .from('inventory')
       .update({ stock: quantity, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .select()
+      .select(INVENTORY_OPERATIONAL_COLUMNS)
       .single()
     
     if (error) throw error
-    return data as InventoryItem
+    return data as unknown as InventoryItem
   },
 
   async delete(id: string) {
@@ -856,13 +857,13 @@ export const expensesService = {
     const { data, error } = await supabase
       .from('expenses')
       .select(`
-        *,
+        ${INVENTORY_OPERATIONAL_COLUMNS},
         supplier:suppliers(id, name)
       `)
       .order('date', { ascending: false })
     
     if (error) throw error
-    return data as (Expense & { supplier: Supplier | null })[]
+    return data as unknown as (Expense & { supplier: Supplier | null })[]
   },
 
   // create()/update()/delete() eliminados (M6 Fase 9): eran writes directos

@@ -107,7 +107,7 @@ export async function prefetchInventory(businessId: string): Promise<LightInvent
   try {
     const { data, error } = await supabase
       .from('inventory')
-      .select('id, name, variant_name, code, category, stock_quantity, sale_price, cost_price, precio_mayorista')
+      .select('id, name, variant_name, code, category, stock_quantity, sale_price, precio_mayorista')
       .eq('business_id', businessId)
       .eq('is_active', true)
       .not('has_variants', 'is', true)
