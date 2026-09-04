@@ -36,6 +36,11 @@
 //        REPOSICIÓN o que está ajustado al dólar de hoy. La métrica es
 //        stock x costo REGISTRADO, y no hay fuente FX server-side que pueda
 //        respaldar esa afirmación.
+//   R20. una vista del alcance define un anti-join CORRELACIONADO contra una
+//        cadena construida (`NOT EXISTS (... col = 'PREFIJO-' || externa.id)`).
+//        No hashea ni indexa: reescanea la tabla interna una vez por fila
+//        externa, y en `inventory` cada fila interna reevalúa además la policy
+//        RLS. Medido en producción: 32.786 ms y 57014 en get_finance_charts_l1.
 //
 //   node scripts/finance/guard-charts-l1.mjs [archivo|dir ...]
 //   node scripts/finance/guard-charts-l1.mjs --self-test
@@ -52,6 +57,8 @@ const L1_SQL = [
   // P1-D extendio el contrato: las mismas reglas (FX, denominacion, backfill,
   // formato monetario, promesas de reposicion) tienen que alcanzarlo.
   'supabase/migrations/20260810150000_finance_charts_l1_supplier_purchase_context.sql',
+  // Hotfix post-rollout: saca el anti-join cuadratico que hacia expirar el RPC.
+  'supabase/migrations/20260917120000_finance_inventory_capital_antijoin_perf.sql',
 ]
 
 /** Módulos que forman el bloque de gráficos. */
@@ -180,6 +187,57 @@ function listarArchivos(ruta) {
 
 // ── Revisión de SQL ─────────────────────────────────────────────────────────
 
+/**
+ * Cuerpos de las vistas declaradas en un archivo: desde `CREATE [OR REPLACE]
+ * VIEW` hasta el `;` que la cierra. Sirve para distinguir lo que queda
+ * DEFINIDO en el esquema de lo que sólo se ejecuta una vez (postcondiciones,
+ * comparaciones de equivalencia, fixtures).
+ */
+export function cuerposDeVista(sql) {
+  const out = []
+  const re = /CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\b/gi
+  let m
+  while ((m = re.exec(sql)) !== null) {
+    const desde = m.index
+    // El `;` de cierre: el primero fuera de literales de cadena.
+    let i = desde
+    let enCadena = false
+    for (; i < sql.length; i++) {
+      const ch = sql[i]
+      if (ch === "'") {
+        if (enCadena && sql[i + 1] === "'") { i++; continue }
+        enCadena = !enCadena
+      } else if (ch === ';' && !enCadena) break
+    }
+    out.push(sql.slice(desde, i))
+    re.lastIndex = i
+  }
+  return out
+}
+
+/** Migración que redefine `v_finance_inventory_capital` sin el anti-join. */
+const HOTFIX_CAPITAL =
+  'supabase/migrations/20260917120000_finance_inventory_capital_antijoin_perf.sql'
+
+/**
+ * ¿Sigue vigente el hotfix que saca el anti-join cuadrático? Es la condición
+ * que habilita la excepción histórica de R20: si el hotfix desaparece o vuelve
+ * a la forma correlacionada, la excepción se cae sola y el guard acusa otra vez.
+ * Se inyecta `leer` en el self-test para poder simular las dos situaciones.
+ */
+export function hotfixDeCapitalVigente(leer = null) {
+  let src
+  try {
+    src = leer ? leer(HOTFIX_CAPITAL) : readFileSync(HOTFIX_CAPITAL, 'utf8')
+  } catch { return false }
+  if (src === null || src === undefined) return false
+  const cuerpos = cuerposDeVista(sinComentarios(src, true))
+  const capital = cuerpos.find(b => /v_finance_inventory_capital/i.test(b))
+  if (!capital) return false
+  // Redefine la vista Y no reintroduce la forma correlacionada.
+  return !/NOT\s+EXISTS\s*\([\s\S]{0,400}?=\s*'[A-Za-z0-9_-]+-'\s*\|\|/i.test(capital)
+}
+
 export function revisarSql(ruta, src) {
   const f = []
   const c = sinComentarios(src, true)
@@ -224,6 +282,41 @@ export function revisarSql(ruta, src) {
     const antes = c.slice(Math.max(0, idx - 80), idx)
     if (NEGACION.test(antes)) continue
     f.push(`R19 ${nombre}: promete "${t}"; el contrato valua a costo REGISTRADO, no de reposición`)
+  }
+
+  // R20 — anti-join correlacionado contra una cadena CONSTRUIDA.
+  //
+  // Un `NOT EXISTS (... WHERE col = 'PREFIJO-' || externa.id)` no se puede
+  // hashear ni indexar: el término de comparación depende de la fila externa,
+  // así que el planner reescanea la tabla interna una vez por fila externa.
+  // Es CUADRÁTICO, y en `inventory` cada fila interna reevalúa además la
+  // policy RLS (una función plpgsql). Con 611 productos medimos 32.786 ms y
+  // `get_finance_charts_l1` expiraba con 57014 contra el statement_timeout de
+  // 8s de `authenticated`. La forma correcta es materializar el conjunto de
+  // exclusión UNA vez y anti-joinear por igualdad.
+  // Se mira SÓLO el cuerpo de las vistas. Una postcondición que recalcula el
+  // universo con la forma vieja para comparar valores es legítima y no debe
+  // acusarse: el guard vigila lo que queda DEFINIDO, no lo que se verifica.
+  //
+  // `20260810120000` es donde NACIÓ el anti-join y ya está aplicada a
+  // producción: las migraciones son forward-only, editarla haría divergir un
+  // `db reset` de lo que producción tiene. Queda exceptuada, pero la excepción
+  // se AUTOINVALIDA: sólo vale mientras el hotfix que redefine la vista siga
+  // presente y con la forma materializada. Si alguien borra el hotfix, este
+  // archivo vuelve a acusar.
+  const historico = nombre === '20260810120000_finance_charts_l1_contracts.sql'
+  if (!(historico && hotfixDeCapitalVigente())) {
+  for (const cuerpo of cuerposDeVista(c)) {
+    for (const m2 of cuerpo.matchAll(
+      /NOT\s+EXISTS\s*\([\s\S]{0,400}?=\s*'[A-Za-z0-9_-]+-'\s*\|\|[\s\S]{0,80}?\)/gi,
+    )) {
+      f.push(
+        `R20 ${nombre}: anti-join correlacionado contra una cadena construida ` +
+          `(${m2[0].replace(/\s+/g, ' ').slice(0, 90)}…) — es cuadrático; ` +
+          `materializá el conjunto de exclusión una vez y anti-joineá por igualdad`,
+      )
+    }
+  }
   }
 
   // R5 — FX aplicado en SQL sobre historia
@@ -555,6 +648,61 @@ function selfTest() {
   chk('r19 acepta la mencion NEGADA',
     !revisarSql('m.sql',
       `COMMENT ON VIEW v IS 'Costo registrado. NO es valor de reposicion.';`).some(x => /R19/.test(x)))
+
+  // R20 — el anti-join cuadratico que hizo expirar get_finance_charts_l1
+  const VISTA_MALA = `CREATE OR REPLACE VIEW public.v_x AS
+  SELECT i.id FROM public.inventory i
+   WHERE NOT EXISTS (SELECT 1 FROM public.inventory v
+                      WHERE v.business_id = i.business_id
+                        AND v.supplier_code = 'VPREF-' || i.id::text);`
+  const VISTA_BUENA = `CREATE OR REPLACE VIEW public.v_x AS
+  WITH vpref AS (SELECT DISTINCT business_id, supplier_code FROM public.inventory
+                  WHERE supplier_code LIKE 'VPREF-%')
+  SELECT i.id FROM public.inventory i
+    LEFT JOIN vpref vp ON vp.business_id = i.business_id
+                      AND vp.supplier_code = 'VPREF-' || i.id::text
+   WHERE vp.supplier_code IS NULL;`
+  chk('r20 detecta el anti-join correlacionado contra una cadena construida',
+    revisarSql('m.sql', VISTA_MALA).some(x => /R20/.test(x)))
+  chk('r20 acepta el conjunto de exclusion materializado (LEFT JOIN ... IS NULL)',
+    !revisarSql('m.sql', VISTA_BUENA).some(x => /R20/.test(x)))
+  chk('r20 detecta cualquier prefijo, no solo VPREF-',
+    revisarSql('m.sql', VISTA_MALA.replace(/VPREF-/g, 'OTRO-')).some(x => /R20/.test(x)))
+  chk('r20 NO acusa a una postcondicion que recalcula con la forma vieja',
+    !revisarSql('m.sql',
+      `${VISTA_BUENA}\nDO $p$ BEGIN\n  PERFORM 1 FROM public.inventory i\n` +
+      `   WHERE NOT EXISTS (SELECT 1 FROM public.inventory v\n` +
+      `                      WHERE v.supplier_code = 'VPREF-' || i.id::text);\nEND $p$;`)
+      .some(x => /R20/.test(x)))
+  chk('r20 acepta un anti-join por igualdad de columnas',
+    !revisarSql('m.sql',
+      `CREATE VIEW public.v_y AS SELECT i.id FROM public.inventory i
+        WHERE NOT EXISTS (SELECT 1 FROM public.inventory v WHERE v.parent_id = i.id);`)
+      .some(x => /R20/.test(x)))
+  chk('cuerposDeVista corta en el ; y no se come el resto del archivo',
+    cuerposDeVista(`CREATE VIEW a AS SELECT 1; SELECT 'VPREF-' || x;`).length === 1)
+  // La excepcion historica de R20 tiene que AUTOINVALIDARSE.
+  chk('r20 la excepcion historica vale mientras el hotfix este vigente',
+    hotfixDeCapitalVigente() === true)
+  chk('r20 la excepcion se cae si el hotfix desaparece',
+    hotfixDeCapitalVigente(() => { throw new Error('no existe') }) === false)
+  chk('r20 la excepcion se cae si el hotfix ya no redefine la vista',
+    hotfixDeCapitalVigente(() => `CREATE VIEW public.v_otra AS SELECT 1;`) === false)
+  chk('r20 la excepcion se cae si el hotfix reintroduce el anti-join',
+    hotfixDeCapitalVigente(() =>
+      `CREATE OR REPLACE VIEW public.v_finance_inventory_capital AS
+       SELECT i.id FROM public.inventory i
+        WHERE NOT EXISTS (SELECT 1 FROM public.inventory v
+                           WHERE v.supplier_code = 'VPREF-' || i.id::text);`) === false)
+  // La excepcion es NOMINAL: alcanza sólo al archivo historico, no a cualquier
+  // migracion vieja que quiera colarse con la misma forma.
+  chk('r20 la excepcion NO se extiende a otra migracion del alcance',
+    revisarSql('20260810150000_finance_charts_l1_supplier_purchase_context.sql',
+      `CREATE OR REPLACE VIEW public.v_z AS
+       SELECT i.id FROM public.inventory i
+        WHERE NOT EXISTS (SELECT 1 FROM public.inventory v
+                           WHERE v.supplier_code = 'VPREF-' || i.id::text);`,
+    ).some(x => /R20/.test(x)))
 
   // Un comentario que menciona lo prohibido NO puede hacer fallar al guard.
   chk('los comentarios no disparan falsos positivos',
