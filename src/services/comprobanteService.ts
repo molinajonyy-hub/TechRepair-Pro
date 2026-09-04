@@ -11,6 +11,7 @@ import ArcaService from './arcaService';
 import { requireFeature } from '../utils/requireFeature';
 import { computeCheckoutRequestHash } from '../lib/checkoutIdempotency';
 import { logger } from '../lib/logger';
+import { COMPROBANTE_ITEM_OPERATIONAL_COLUMNS, canViewInventoryCostIn } from './inventoryCostAccess';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,8 +34,13 @@ export interface ComprobanteItem {
   precio_unitario: number;
   descuento_linea: number;    // porcentaje 0-100
   subtotal: number;
-  costo_unitario: number;
-  costo_total: number;
+  /**
+   * SEC-08B — null = el actor NO tiene autoridad para ver el costo de la línea.
+   * NO es cero: quien lo muestre tiene que decir «restringido», y nunca
+   * calcular margen ni ganancia con 0.
+   */
+  costo_unitario: number | null;
+  costo_total: number | null;
   currency: 'ARS' | 'USD';
   exchange_rate: number;
   inventory_id?: string | null;
@@ -276,21 +282,94 @@ export const comprobanteService = {
     return (data || []) as Comprobante[];
   },
 
+  /**
+   * Detalle de un comprobante.
+   *
+   * ── Por qué NO usa `items:comprobante_items(*)` ────────────────────────────
+   * SEC-08B revocó `costo_unitario` y `costo_total` para los roles del
+   * navegador. Un `*` anidado los pide igual, y como el GRANT de columna es
+   * ESTÁTICO responde 42501 hasta al owner. `getById` devolvía `null` ante
+   * cualquier error, así que un fallo de PERMISO se presentaba como
+   * «comprobante inexistente» y la pantalla de detalle entera desaparecía —
+   * sin widget de cobro, sin pagos, sin impresión—.
+   *
+   * Se resuelve en tres pasos, y el orden importa: lo OPERATIVO no puede
+   * depender de la autoridad sobre el costo.
+   *
+   *   1. comprobante + cliente + pagos (sin líneas)
+   *   2. líneas con columnas OPERATIVAS
+   *   3. costo de línea SÓLO si el actor tiene autoridad, por la vista
+   *      autorizada, que ya aplica tenant, capacidad y el predicado de orden
+   *      vinculada de SEC-08A
+   *
+   * Ausencia de costo queda como `null` —DESCONOCIDO—, nunca 0.
+   */
   async getById(id: string, businessId: string): Promise<Comprobante | null> {
+    // ── 1. Cabecera, cliente y pagos ────────────────────────────────────────
     const { data, error } = await supabase
       .from('comprobantes')
       .select(`
         *,
         customer:customers(id, name, phone, email, address),
-        items:comprobante_items(*),
         pagos:comprobante_payments(*)
       `)
       .eq('id', id)
       .eq('business_id', businessId)
-      .single();
+      .maybeSingle();
 
-    if (error) return null;
-    return data as Comprobante;
+    if (error) {
+      // Un fallo de consulta NO es un «no existe». Confundirlos fue justamente
+      // lo que escondió esta regresión detrás de una pantalla vacía.
+      logger.error('POS', 'No se pudo leer el comprobante', error);
+      throw new Error(error.message);
+    }
+    if (!data) return null;
+
+    // ── 2. Líneas, sólo columnas operativas ─────────────────────────────────
+    const { data: itemRows, error: itemsError } = await supabase
+      .from('comprobante_items')
+      .select(COMPROBANTE_ITEM_OPERATIONAL_COLUMNS)
+      .eq('comprobante_id', id)
+      .eq('business_id', businessId)
+      .order('orden', { ascending: true });
+
+    if (itemsError) {
+      logger.error('POS', 'No se pudieron leer las líneas del comprobante', itemsError);
+      throw new Error(itemsError.message);
+    }
+
+    const items = (itemRows ?? []).map(r => ({
+      ...(r as unknown as ComprobanteItem),
+      costo_unitario: null,
+      costo_total: null,
+    })) as ComprobanteItem[];
+
+    // ── 3. Costo de línea, sólo con autoridad ───────────────────────────────
+    // La autoridad se pregunta al servidor de forma EXPLÍCITA. No se deduce de
+    // que la vista devuelva filas: un comprobante sin líneas costeadas, o una
+    // línea que SEC-08A oculta, darían «sin autoridad» siendo falso.
+    if (await canViewInventoryCostIn(businessId)) {
+      const { data: costRows, error: costError } = await supabase
+        .from('v_comprobante_item_costs')
+        .select('comprobante_item_id, costo_unitario, costo_total')
+        .eq('comprobante_id', id);
+
+      if (costError) {
+        // El costo es accesorio: su fallo NO puede tumbar el detalle operativo.
+        logger.error('POS', 'No se pudo leer el costo de las líneas', costError);
+      } else {
+        const byId = new Map((costRows ?? []).map(c => [c.comprobante_item_id as string, c]));
+        for (const it of items) {
+          const c = it.id ? byId.get(it.id) : undefined;
+          if (c) {
+            it.costo_unitario = c.costo_unitario as number | null;
+            it.costo_total = c.costo_total as number | null;
+          }
+        }
+      }
+    }
+
+    return { ...(data as Comprobante), items } as Comprobante;
   },
 
   // ── Recuperación de checkout incierto (fase 9 — timeout/refresh/cierre) ────

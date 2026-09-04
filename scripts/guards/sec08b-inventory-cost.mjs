@@ -119,6 +119,25 @@ function scanSourceFile(path, rawSrc) {
   if (nested) {
     for (const n of nested) found.push(`${path}: relación anidada pide costo — ${n.slice(0, 80)}`)
   }
+
+  // ── El `*` ANIDADO ────────────────────────────────────────────────────────
+  // Esta clase se escapó y llegó a CI: `items:comprobante_items(*)` colgado de
+  // `.from('comprobantes')` no nombra ninguna columna de costo y no pasa por un
+  // `.from()` de la tabla revocada, así que ninguna de las reglas de arriba lo
+  // veía. Pide igual las columnas revocadas y responde 42501 incluso al owner —
+  // y como el caller convertía el error en «no encontrado», la pantalla de
+  // detalle del comprobante desaparecía entera.
+  for (const table of Object.keys(REVOKED)) {
+    const re = new RegExp(`(?:\\w+\\s*:\\s*)?${table}\\s*\\(\\s*\\*\\s*\\)`, 'g')
+    let m
+    while ((m = re.exec(src)) !== null) {
+      // `.from('<tabla>').select('*')` ya lo reporta la regla de arriba con un
+      // mensaje más preciso; acá sólo interesa la relación ANIDADA.
+      const before = src.slice(Math.max(0, m.index - 60), m.index)
+      if (/\.from\(\s*['"`]$/.test(before)) continue
+      found.push(`${path}: relación anidada ${m[0]} — un '*' anidado pide las columnas de costo revocadas y responde 42501 a TODOS, owner incluido`)
+    }
+  }
   return found
 }
 
@@ -488,6 +507,13 @@ if (process.argv.includes('--self-test')) {
       'relación anidada pide costo'],
     [{ ...src, sources: [['src/fake.ts', "supabase.from('inventory').insert(x).select().single()"]] },
       '.select() sin argumento sobre inventory'],
+    // La clase que llegó a CI: el `*` ANIDADO.
+    [{ ...src, sources: [['src/fake.ts',
+      "supabase.from('comprobantes').select(`*, items:comprobante_items(*), pagos:comprobante_payments(*)`)"]] },
+      'relación anidada items:comprobante_items(*)'],
+    [{ ...src, sources: [['src/fake.ts',
+      "supabase.from('inventory_movements_log').select('*, inventory(*)')"]] },
+      'relación anidada inventory(*)'],
 
     // ── FASE B ──────────────────────────────────────────────────────────────
     [mut('migrationB', 'AND public.can_view_inventory_cost(ci.business_id);', 'AND public.can_view_cogs(ci.business_id);'),

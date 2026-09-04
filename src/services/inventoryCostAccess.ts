@@ -97,12 +97,30 @@ export async function fetchInventoryCosts(
 }
 
 /**
- * ¿Este actor puede ver costo de inventario en su negocio?
+ * ¿Este actor puede ver el costo de inventario en un negocio CONCRETO?
  *
- * Se pregunta al servidor —una fila cualquiera de la vista autorizada— en vez
- * de reproducir la matriz de capacidades en el cliente. La autoridad vive en
- * `can_view_inventory_cost`, y duplicarla acá sería una segunda fuente de
- * verdad que se desincroniza en el primer override.
+ * Pregunta a la autoridad canónica del servidor. No reproduce la matriz de
+ * capacidades en el cliente —duplicarla sería una segunda fuente de verdad que
+ * se desincroniza en el primer override— y, sobre todo, no la INFIERE de si
+ * volvieron filas: un negocio sin productos, o un comprobante cuyas líneas no
+ * están autorizadas por SEC-08A, darían «sin autoridad» siendo falso.
+ */
+export async function canViewInventoryCostIn(businessId: string | null | undefined): Promise<boolean> {
+  if (!businessId) return false
+  const { data, error } = await supabase.rpc('can_view_inventory_cost', { p_business_id: businessId })
+  if (error) {
+    logger.error('INVENTORY', 'No se pudo resolver la autoridad de costo de inventario', error)
+    return false
+  }
+  return data === true
+}
+
+/**
+ * Variante sin negocio explícito, para las superficies que no lo tienen a mano.
+ *
+ * Se apoya en la misma vista autorizada. Preferir `canViewInventoryCostIn`
+ * cuando el `business_id` esté disponible: es explícita y no depende de que
+ * exista al menos un producto.
  */
 export async function hasInventoryCostAuthority(): Promise<boolean> {
   const { data, error } = await supabase
