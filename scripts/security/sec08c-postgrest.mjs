@@ -235,9 +235,16 @@ const main = async () => {
   // conservar la deuda del proveedor al que le compra.
   expectValue(await request('manager', `/v_finance_supplier_debt?business_id=eq.${ids.A}&select=outstanding_ars`),
     DEBT_TOTAL, 'manager (inventory_view_costs, sin finance) · conserva la deuda agregada')
-  for (const actor of ['owner', 'admin', 'manager', 'cashier']) {
+  // FASE B: la TABLA BASE volvió a exigir autoridad de COSTO, así que el saldo
+  // de una compra lo leen ahí sólo quienes la tienen. El actor de finanzas lo
+  // recibe por la PROYECCIÓN, que no arrastra los campos operativos.
+  for (const actor of ['owner', 'admin', 'manager']) {
     expectValue(await request(actor, `/supplier_purchases?id=eq.${ids.purA}&select=pending_amount`),
-      SP_PENDING, `${actor} · saldo real de la compra`)
+      SP_PENDING, `${actor} · saldo real de la compra (tabla base)`)
+  }
+  expectValue(await request('cashier', `/v_finance_payables_due?supplier_purchase_id=eq.${ids.purA}&select=pending_amount`),
+    SP_PENDING, 'cashier · saldo real de la compra por la proyección financiera')
+  for (const actor of ['owner', 'admin', 'manager', 'cashier']) {
     expectValue(await request(actor, `/supplier_payments?id=eq.${ids.payA}&select=amount`),
       PAY_AMOUNT, `${actor} · importe real del pago`)
     expectValue(await request(actor, `/supplier_account_movements?id=eq.${ids.movA}&select=debit,balance_after`),
@@ -299,21 +306,22 @@ const main = async () => {
   }
 
   // ── Autoridad de escritura de PAGOS ──
-  // Se MIDE, no se asume. Hoy las RPC de pago exigen `inventory`, no `finance`.
-  // Este lote NO cambia esa autoridad (sería rediseñar quién puede pagar), pero
-  // la fija por test para que cualquier cambio futuro sea deliberado.
+  // FASE B invirtió este contrato. La fase A lo dejaba en `inventory` y lo
+  // fijaba por test; la revisión independiente lo marcó como incoherente —
+  // mover dinero no es una operación de inventario— y ahora exige `finance`.
+  // La matriz completa vive en sec08c-phase-b-postgrest.mjs; acá queda el
+  // testigo mínimo para que este archivo no siga afirmando lo contrario.
   const paid = await rpc('sales', 'pay_supplier_free_atomic', {
     p_business_id: ids.A, p_supplier_id: ids.supA, p_user_id: ids.sales,
     p_supplier_name: 'Prov-Uno', p_payment_date: sql(`SELECT current_date::text`),
     p_amount: 9137, p_payment_method: 'transferencia', p_notes: 'pago-w', p_idempotency_key: null,
   })
-  expect(paid.status === 200 && JSON.parse(paid.text)?.ok === true,
-    `sales · la RPC de pago exige inventory y hoy la tiene — ${paid.status} ${paid.text.slice(0, 300)}`)
-  // Pero NO puede leer el pago que creó: la asimetría queda explícita.
-  denyValue(await request('sales', `/supplier_payments?id=eq.${JSON.parse(paid.text).payment_id}&select=amount`),
-    9137, 'sales · no puede leer el pago que acaba de registrar')
-  // Un actor sin `inventory` NO puede pagar.
-  for (const actor of ['tech', 'viewer']) {
+  expect(paid.status >= 400 || JSON.parse(paid.text)?.ok !== true,
+    `sales (inventory sin finance) · YA NO puede pagar — ${paid.status} ${paid.text.slice(0, 300)}`)
+  expect(sql(`SELECT count(*) FROM public.supplier_payments WHERE business_id='${ids.A}' AND amount=9137;`) === '0',
+    'sales · el pago denegado no dejó ninguna fila')
+  // Ningún actor sin `finance` puede pagar; el de finanzas sí.
+  for (const actor of ['tech', 'viewer', 'manager']) {
     const r = await rpc(actor, 'pay_supplier_free_atomic', {
       p_business_id: ids.A, p_supplier_id: ids.supA, p_user_id: ids[actor],
       p_supplier_name: 'Prov-Uno', p_payment_date: sql(`SELECT current_date::text`),
@@ -322,6 +330,13 @@ const main = async () => {
     expect(r.status >= 400 || JSON.parse(r.text)?.ok !== true,
       `${actor} · NO puede registrar un pago a proveedor — ${r.status} ${r.text.slice(0, 200)}`)
   }
+  const paidOk = await rpc('cashier', 'pay_supplier_free_atomic', {
+    p_business_id: ids.A, p_supplier_id: ids.supA, p_user_id: ids.cashier,
+    p_supplier_name: 'Prov-Uno', p_payment_date: sql(`SELECT current_date::text`),
+    p_amount: 9137, p_payment_method: 'transferencia', p_notes: 'pago-ok', p_idempotency_key: null,
+  })
+  expect(paidOk.status === 200 && JSON.parse(paidOk.text)?.ok === true,
+    `cashier (finance) · SÍ puede pagar — ${paidOk.status} ${paidOk.text.slice(0, 300)}`)
 
   // La sección 5 escribió una compra nueva, así que la deuda canónica cambió.
   // A partir de acá se compara contra la verdad VIVA de la base, no contra la
@@ -462,7 +477,7 @@ const main = async () => {
                            FROM public.businesses b
                            LEFT JOIN (SELECT sp.business_id, round(sum(sp.pending_amount),2) AS outstanding,
                                              count(*) AS documents
-                                        FROM public.supplier_purchases sp
+                                        FROM public.finance_supplier_purchases() sp
                                        WHERE sp.pending_amount > 0.01 AND sp.payment_status <> 'paid'
                                        GROUP BY sp.business_id) d ON d.business_id = b.id;`),
       // El testigo del cero falso es el CERO mismo llegándole a `sales`.
@@ -478,7 +493,7 @@ const main = async () => {
                            FROM public.businesses b
                            LEFT JOIN (SELECT sp.business_id, round(sum(sp.pending_amount),2) AS outstanding,
                                              count(*) AS documents
-                                        FROM public.supplier_purchases sp
+                                        FROM public.finance_supplier_purchases() sp
                                        WHERE sp.pending_amount > 0.01 AND sp.payment_status <> 'paid'
                                        GROUP BY sp.business_id) d ON d.business_id = b.id;`),
     },
@@ -496,35 +511,45 @@ const main = async () => {
                                  AND public.can_view_inventory_cost(business_id));`),
     },
     {
-      name: 'NC4 — quitar el predicado de tenant de la deuda agregada',
-      open: () => sql(`CREATE OR REPLACE VIEW public.v_finance_supplier_debt WITH (security_invoker=false) AS
-                         SELECT b.id AS business_id,
-                                COALESCE(d.outstanding,0)::numeric AS outstanding_ars,
-                                COALESCE(d.documents,0)::bigint AS documents, true AS is_authorized
-                           FROM public.businesses b
-                           LEFT JOIN (SELECT sp.business_id, round(sum(sp.pending_amount),2) AS outstanding,
-                                             count(*) AS documents
-                                        FROM public.supplier_purchases sp
-                                       WHERE sp.pending_amount > 0.01 AND sp.payment_status <> 'paid'
-                                       GROUP BY sp.business_id) d ON d.business_id = b.id;`),
-      probe: () => request('ownerB', `/v_finance_supplier_debt?business_id=eq.${ids.A}&select=outstanding_ars`),
-      witness: liveDebt,
-      close: () => sql(`CREATE OR REPLACE VIEW public.v_finance_supplier_debt WITH (security_invoker=true) AS
-                         SELECT b.id AS business_id,
-                                CASE WHEN public.can_view_supplier_finance(b.id)
-                                     THEN COALESCE(d.outstanding,0)::numeric ELSE NULL::numeric END AS outstanding_ars,
-                                CASE WHEN public.can_view_supplier_finance(b.id)
-                                     THEN COALESCE(d.documents,0)::bigint ELSE NULL::bigint END AS documents,
-                                public.can_view_supplier_finance(b.id) AS is_authorized
-                           FROM public.businesses b
-                           LEFT JOIN (SELECT sp.business_id, round(sum(sp.pending_amount),2) AS outstanding,
-                                             count(*) AS documents
-                                        FROM public.supplier_purchases sp
-                                       WHERE sp.pending_amount > 0.01 AND sp.payment_status <> 'paid'
-                                       GROUP BY sp.business_id) d ON d.business_id = b.id;`),
+      // FASE B: el tenant ya NO se defiende en la vista sino DENTRO de la
+      // proyección SECURITY DEFINER. Quitarlo de la vista dejó de filtrar nada
+      // —defensa en profundidad que funcionó— y el control se volvió inútil:
+      // lo detectó él mismo, avisando que no probaba nada. Ahora ataca la
+      // frontera REAL, que es el predicado de tenant de la proyección.
+      name: 'NC4 — quitar el predicado de tenant de la PROYECCIÓN financiera',
+      open: () => sql(`CREATE OR REPLACE FUNCTION public.finance_supplier_purchases()
+                         RETURNS TABLE (supplier_purchase_id uuid, business_id uuid, supplier_id uuid,
+                                        purchase_date date, due_date date, payment_status text,
+                                        total_amount numeric, paid_amount numeric, pending_amount numeric)
+                         LANGUAGE sql STABLE SECURITY DEFINER
+                         SET search_path TO 'pg_catalog', 'public', 'pg_temp'
+                         AS $f$
+                           SELECT sp.id, sp.business_id, sp.supplier_id, sp.purchase_date, sp.due_date,
+                                  sp.payment_status, sp.total_amount, sp.paid_amount, sp.pending_amount
+                             FROM public.supplier_purchases sp;
+                         $f$;`),
+      probe: () => request('ownerB', `/v_finance_payables_due?supplier_purchase_id=eq.${ids.purA}&select=pending_amount`),
+      witness: SP_PENDING,
+      close: () => sql(`CREATE OR REPLACE FUNCTION public.finance_supplier_purchases()
+                         RETURNS TABLE (supplier_purchase_id uuid, business_id uuid, supplier_id uuid,
+                                        purchase_date date, due_date date, payment_status text,
+                                        total_amount numeric, paid_amount numeric, pending_amount numeric)
+                         LANGUAGE sql STABLE SECURITY DEFINER
+                         SET search_path TO 'pg_catalog', 'public', 'pg_temp'
+                         AS $f$
+                           SELECT sp.id, sp.business_id, sp.supplier_id, sp.purchase_date, sp.due_date,
+                                  sp.payment_status, sp.total_amount, sp.paid_amount, sp.pending_amount
+                             FROM public.supplier_purchases sp
+                            WHERE sp.business_id = public.current_user_business_id()
+                              AND public.can_view_supplier_finance(sp.business_id);
+                         $f$;`),
     },
   ]
 
+  // OJO: los cuerpos de vista de estos controles tienen que reflejar la
+  // definicion VIGENTE (fase B, que lee la proyeccion financiera). Un close()
+  // que restaure una definicion vieja no restaura: REGRESA el esquema, y el
+  // siguiente test falla lejos de la causa. Paso exactamente eso.
   console.log('\n--- Controles negativos ---')
   for (const c of controls) {
     c.open()

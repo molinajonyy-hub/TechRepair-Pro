@@ -55,7 +55,8 @@ export function AgingChart({ section, documentLabel, height = 190 }: AgingChartP
               if (!p.active || !p.payload?.length) return null
               const d = p.payload[0]?.payload
               if (!d) return null
-              const share = section.total > 0 ? (d.amount / section.total) * 100 : 0
+              const share = section.total !== null && section.total > 0
+                ? (d.amount / section.total) * 100 : 0
               return (
                 <FinanceTooltip
                   title={d.label}
@@ -81,7 +82,11 @@ export function AgingChart({ section, documentLabel, height = 190 }: AgingChartP
   )
 }
 
+/** SEC-08C fase B: restringido no se resume, se dice. */
+const RESTRINGIDO = 'No tenés acceso a este dato.'
+
 export function receivablesSummaryText(section: AgingSection): string {
+  if (section.total === null || section.documents === null) return RESTRINGIDO
   if (section.total <= 0) return 'No tenés saldos pendientes de cobro.'
   const viejo = section.buckets
     .filter(b => b.bucket === '31-60' || b.bucket === '60+')
@@ -97,6 +102,11 @@ export function receivablesSummaryText(section: AgingSection): string {
 }
 
 export function payablesSummaryText(section: AgingSection): string {
+  // Sin autoridad NO se puede afirmar «no tenés deuda»: es exactamente la
+  // lectura tranquilizadora que este lote prohíbe.
+  if (section.is_authorized === false || section.total === null || section.documents === null) {
+    return 'No tenés acceso a la deuda con proveedores.'
+  }
   if (section.total <= 0) return 'No tenés deuda pendiente con proveedores.'
   return (
     `Debés ${formatARS(section.total)} en ${formatNumber(section.documents, 0)} ` +
@@ -107,6 +117,34 @@ export function payablesSummaryText(section: AgingSection): string {
 // ─── Vencimientos reales — superficie SEPARADA ───────────────────────────────
 
 export function PayablesDueBlock({ due }: { due: PayablesDue }) {
+  // Restringido primero: sin autoridad no se puede decir ni «no hay
+  // vencimientos» ni «todavía no cargaste fechas».
+  //
+  // Los cuatro importes viajan como un todo —la RPC los pone en NULL juntos—,
+  // así que se los comprueba juntos: además de ser el contrato real, es lo que
+  // le permite a TypeScript estrechar los tipos para el resto del componente.
+  if (
+    due.is_authorized === false ||
+    due.overdue_amount === null || due.due_soon_amount === null ||
+    due.undated_amount === null || due.undated_count === null
+  ) {
+    return (
+      <div
+        data-testid="payables-due-restricted"
+        style={{
+          display: 'flex', gap: '0.55rem', alignItems: 'flex-start',
+          padding: '0.6rem 0.7rem', borderRadius: radius.sm,
+          background: colors.bg.card, border: `1px solid ${colors.border.subtle}`,
+        }}
+      >
+        <CalendarClock size={14} style={{ color: colors.text.muted, flexShrink: 0, marginTop: 1 }} />
+        <span style={{ fontSize: fontSize.xs, color: colors.text.muted, lineHeight: 1.45 }}>
+          No tenés acceso a los vencimientos con proveedores.
+        </span>
+      </div>
+    )
+  }
+
   if (!due.has_due_dates) {
     return (
       <div style={{

@@ -24,6 +24,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const MIGRATION = 'supabase/migrations/20260918120000_sec08c_supplier_finance_visibility.sql'
+const MIGRATION_B = 'supabase/migrations/20260919120000_sec08c_b_payment_authority_and_finance_projection.sql'
 const AUTHORITY = 'can_view_supplier_finance'
 
 /** Tablas cuya fila mezcla operativo y verdad financiera: nada de `*`. */
@@ -123,16 +124,27 @@ function walk(dir, acc = []) {
 }
 
 // ─── SQL ─────────────────────────────────────────────────────────────────────
-export function scanMigration(path, rawSql) {
+/**
+ * `requirePolicies` distingue dos trabajos que NO son el mismo:
+ *   · sobre la migración del lote, exigir que las policies existan y tengan la
+ *     forma correcta;
+ *   · sobre las migraciones POSTERIORES, sólo detectar que ninguna REABRA la
+ *     frontera. Una migración posterior no tiene por qué redefinirlas, y
+ *     exigírselo convertía al guard en ruido.
+ */
+export function scanMigration(path, rawSql, { requirePolicies = true } = {}) {
   const sqlText = stripSqlComments(rawSql)
   const found = []
 
   const policyBody = name => sqlText.match(new RegExp(`CREATE POLICY ${name}\\b[\\s\\S]*?;`))?.[0] ?? ''
 
-  for (const p of ['supplier_payments_select', 'supplier_account_movements_select',
-    'supplier_purchases_inventory_select']) {
+  // FASE B: `supplier_purchases_inventory_select` sale de esta lista. Su fila
+  // mezcla importes con datos operativos, asi que la tabla base volvio a la
+  // autoridad de COSTO y el actor de finanzas recibe una proyeccion. Eso se
+  // vigila en scanPhaseB().
+  for (const p of ['supplier_payments_select', 'supplier_account_movements_select']) {
     const body = policyBody(p)
-    if (!body) { found.push(`${path}: falta la policy ${p}`); continue }
+    if (!body) { if (requirePolicies) found.push(`${path}: falta la policy ${p}`); continue }
     if (!body.includes(AUTHORITY)) {
       found.push(`${path}: la policy ${p} no exige ${AUTHORITY} — vuelve el defecto D/E`)
     }
@@ -171,6 +183,87 @@ export function scanMigration(path, rawSql) {
   while ((m = grantRe.exec(sqlText)) !== null) {
     if (/\banon\b/.test(m[2])) {
       found.push(`${path}: GRANT a anon sobre public.${m[1]} — anon no tiene ninguna policy sobre proveedores`)
+    }
+  }
+  return found
+}
+
+/**
+ * FASE B — las tres correcciones de la revisión independiente.
+ *
+ *   B1 pagar exige `finance`; comprar CON pago inicial exige además `finance`.
+ *   B2 los payables restringidos no pueden volver a fabricar un 0.
+ *   B3 la tabla base no entrega la fila cruda al actor de finanzas, y la
+ *      proyección financiera no publica campos operativos.
+ */
+export function scanPhaseB(path, rawSql) {
+  const sqlText = stripSqlComments(rawSql)
+  const found = []
+
+  // B3 · la tabla base vuelve a la autoridad de costo.
+  const basePolicy = sqlText.match(/CREATE POLICY supplier_purchases_inventory_select\b[\s\S]*?;/)?.[0] ?? ''
+  if (!basePolicy) {
+    found.push(`${path}: falta la policy supplier_purchases_inventory_select`)
+  } else {
+    if (basePolicy.includes(AUTHORITY)) {
+      found.push(`${path}: supplier_purchases volvió a ${AUTHORITY} — un actor finance-only se llevaría la fila cruda (invoice_number, notes, attachment_url, created_by)`)
+    }
+    if (!basePolicy.includes('can_view_inventory_cost')) {
+      found.push(`${path}: supplier_purchases perdió el gate de costo de SEC-08B`)
+    }
+    if (!basePolicy.includes('current_user_business_id')) {
+      found.push(`${path}: supplier_purchases perdió el predicado de tenant`)
+    }
+  }
+
+  // B3 · la proyección no publica campos operativos.
+  const proj = sqlText.match(/CREATE OR REPLACE FUNCTION public\.finance_supplier_purchases\(\)[\s\S]*?\$function\$;/)?.[0]
+  if (!proj) {
+    found.push(`${path}: falta la proyección finance_supplier_purchases()`)
+  } else {
+    for (const col of ['invoice_number', 'payment_method', 'notes', 'attachment_url', 'created_by']) {
+      if (new RegExp(`\\b${col}\\b`).test(proj)) {
+        found.push(`${path}: la proyección financiera expone el campo operativo '${col}'`)
+      }
+    }
+    if (!proj.includes('current_user_business_id')) found.push(`${path}: la proyección no liga el tenant`)
+    if (!proj.includes(AUTHORITY)) found.push(`${path}: la proyección no exige ${AUTHORITY}`)
+    if (!/SET\s+search_path/i.test(proj)) found.push(`${path}: la proyección SECDEF no fija search_path`)
+  }
+  if (proj && !/REVOKE\s+ALL\s+ON\s+FUNCTION\s+public\.finance_supplier_purchases\(\)\s+FROM\s+PUBLIC/i.test(sqlText)) {
+    found.push(`${path}: la proyección SECDEF nace abierta (falta REVOKE ... FROM PUBLIC)`)
+  }
+
+  // B1 · autoridad de escritura de pagos.
+  for (const fn of ['pay_supplier_free_atomic', 'pay_supplier_purchase_atomic']) {
+    const body = sqlText.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${fn}\\b[\\s\\S]*?\\$function\\$;`))?.[0]
+    if (!body) { found.push(`${path}: falta el wrapper de ${fn}`); continue }
+    if (/require_action_authority\(\s*p_business_id\s*,\s*'inventory'/.test(body)) {
+      found.push(`${path}: ${fn} volvió a exigir 'inventory' — mover dinero no es una operación de inventario`)
+    }
+    if (!/require_action_authority\(\s*p_business_id\s*,\s*'finance'/.test(body)) {
+      found.push(`${path}: ${fn} no exige 'finance'`)
+    }
+  }
+  // B1 · comprar CON pago inicial exige ademas finance.
+  for (const [fn, param] of [['create_supplier_purchase_atomic', 'p_paid_amount'],
+    ['create_quick_inventory_purchase_atomic', 'p_paid_ars']]) {
+    const body = sqlText.match(new RegExp(`CREATE OR REPLACE FUNCTION public\\.${fn}\\b[\\s\\S]*?\\$function\\$;`))?.[0]
+    if (!body) { found.push(`${path}: falta el wrapper de ${fn}`); continue }
+    if (!body.includes(`'inventory'`)) found.push(`${path}: ${fn} dejó de exigir 'inventory'`)
+    if (!(body.includes(`'finance'`) && new RegExp(`${param}[\\s\\S]{0,40}> 0`).test(body))) {
+      found.push(`${path}: ${fn} no exige 'finance' cuando ${param} > 0 — el pago inicial movería caja sin autoridad financiera`)
+    }
+  }
+
+  // B2 · la RPC de charts tiene que transportar la autorización.
+  const l1 = sqlText.match(/CREATE OR REPLACE FUNCTION public\.get_finance_charts_l1\b[\s\S]*?\$function\$;/)?.[0]
+  if (l1) {
+    if (!l1.includes(`'is_authorized', v_pay_auth`)) {
+      found.push(`${path}: get_finance_charts_l1 no transporta is_authorized en payables`)
+    }
+    if (/'total',\s*\(SELECT round\(COALESCE\(sum\(amount\), 0\), 2\) FROM pay\)/.test(l1)) {
+      found.push(`${path}: get_finance_charts_l1 volvió al COALESCE que fabrica un 0 en payables_aging`)
     }
   }
   return found
@@ -240,6 +333,17 @@ function selfTest() {
       `CREATE OR REPLACE FUNCTION public.can_view_supplier_finance(p_business_id uuid) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'pg_catalog','public','pg_temp' AS $$ SELECT current_user_can_in_business(p_business_id,'finance') OR current_user_can_in_business(p_business_id,'inventory_view_costs'); $$;`)],
     ['autoridad ciega al tenant', () => scanAuthority(
       `CREATE OR REPLACE FUNCTION public.can_view_supplier_finance(p_business_id uuid) RETURNS boolean LANGUAGE sql STABLE SET search_path TO 'pg_catalog','public','pg_temp' AS $$ SELECT current_user_can('finance') OR current_user_can('inventory_view_costs'); $$;`)],
+    // ── Fase B ──
+    ['B1 pago vuelve a inventory', () => scanPhaseB('b.sql',
+      `CREATE OR REPLACE FUNCTION public.pay_supplier_free_atomic(a uuid) RETURNS jsonb LANGUAGE plpgsql AS $function$ BEGIN PERFORM private.require_action_authority(p_business_id, 'inventory', NULL, NULL); END; $function$;`)],
+    ['B1 comprar con pago sin finance', () => scanPhaseB('b.sql',
+      `CREATE OR REPLACE FUNCTION public.create_supplier_purchase_atomic(a uuid) RETURNS jsonb LANGUAGE plpgsql AS $function$ BEGIN PERFORM private.require_action_authority(p_business_id, 'inventory', NULL, NULL); END; $function$;`)],
+    ['B3 base vuelve a la autoridad financiera', () => scanPhaseB('b.sql',
+      `CREATE POLICY supplier_purchases_inventory_select ON public.supplier_purchases FOR SELECT TO authenticated USING (business_id = public.current_user_business_id() AND public.can_view_supplier_finance(business_id));`)],
+    ['B3 proyeccion filtra campo operativo', () => scanPhaseB('b.sql',
+      `CREATE OR REPLACE FUNCTION public.finance_supplier_purchases() RETURNS TABLE (id uuid, notes text) LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'pg_catalog','public','pg_temp' AS $function$ SELECT sp.id, sp.notes FROM public.supplier_purchases sp WHERE sp.business_id = public.current_user_business_id() AND public.can_view_supplier_finance(sp.business_id); $function$;`)],
+    ['B2 vuelve el cero fabricado', () => scanPhaseB('b.sql',
+      `CREATE OR REPLACE FUNCTION public.get_finance_charts_l1(a uuid) RETURNS jsonb LANGUAGE plpgsql AS $function$ BEGIN RETURN jsonb_build_object('payables_aging', jsonb_build_object('total', (SELECT round(COALESCE(sum(amount), 0), 2) FROM pay))); END; $function$;`)],
     ['capability inventada', () => scanAuthority(
       `CREATE OR REPLACE FUNCTION public.can_view_supplier_finance(p_business_id uuid) RETURNS boolean LANGUAGE sql STABLE SET search_path TO 'pg_catalog','public','pg_temp' AS $$ SELECT current_user_can_in_business(p_business_id,'supplier_finance') OR current_user_can_in_business(p_business_id,'finance') OR current_user_can_in_business(p_business_id,'inventory_view_costs'); $$;`)],
   ]
@@ -260,11 +364,13 @@ const problems = []
 const migrationSql = readFileSync(MIGRATION, 'utf8')
 problems.push(...scanMigration(MIGRATION, migrationSql))
 problems.push(...scanAuthority(migrationSql))
+problems.push(...scanPhaseB(MIGRATION_B, readFileSync(MIGRATION_B, 'utf8')))
 
 // Migraciones POSTERIORES: una que reabra la frontera importa tanto como ésta.
 for (const f of readdirSync('supabase/migrations').filter(f => f.endsWith('.sql'))) {
   if (f >= '20260918120000' && !f.startsWith('20260918120000')) {
-    problems.push(...scanMigration(`supabase/migrations/${f}`, readFileSync(join('supabase/migrations', f), 'utf8')))
+    problems.push(...scanMigration(`supabase/migrations/${f}`,
+      readFileSync(join('supabase/migrations', f), 'utf8'), { requirePolicies: false }))
   }
 }
 

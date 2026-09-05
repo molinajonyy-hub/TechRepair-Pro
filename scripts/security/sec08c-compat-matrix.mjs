@@ -111,12 +111,21 @@ const main = async () => {
     }
     console.log(`  ✓ ${actor} — las 7 formas viejas responden 200`)
   }
-  // El actor de finanzas MEJORA con la DB nueva: la consulta vieja del
-  // dashboard le empieza a devolver la deuda real en vez de lista vacía.
+  // FASE B: la tabla base volvió a exigir autoridad de COSTO, así que la
+  // consulta VIEJA del dashboard le sigue devolviendo lista vacía al actor de
+  // finanzas. No es una regresión del lote: es el defecto original, que se
+  // arregla con el frontend nuevo (que lee v_finance_supplier_debt). Lo que
+  // importa es que NO responde 403 ni filtra nada.
   const cashierOld = await request('cashier', `/supplier_purchases?business_id=eq.${ids.A}&payment_status=neq.paid&select=pending_amount`)
-  expect(cashierOld.text.includes(String(SP_PENDING)),
-    `FE viejo + DB nueva · el cashier tiene que empezar a ver la deuda real — ${cashierOld.text.slice(0, 200)}`)
-  console.log('  ✓ cashier — la consulta vieja del dashboard deja de dar el cero falso')
+  expect(cashierOld.status === 200 && cashierOld.text.trim() === '[]',
+    `FE viejo + DB nueva · el cashier recibe 200 [] (no 403) — ${cashierOld.status} ${cashierOld.text.slice(0, 200)}`)
+  console.log('  ✓ cashier — la consulta vieja no rompe; el cero falso lo cierra el frontend nuevo')
+
+  // Y el frontend NUEVO, contra la DB nueva, sí recibe la deuda real.
+  expect((await request('cashier', `/v_finance_supplier_debt?business_id=eq.${ids.A}&select=outstanding_ars`))
+    .text.includes(String(SP_PENDING)),
+    'FE nuevo + DB nueva · el cashier recibe la deuda real por la vista canónica')
+  console.log('  ✓ FE nuevo + DB nueva — la deuda real llega por la vista canónica')
 
   // ═══ FE NUEVO + DB VIEJA ═════════════════════════════════════════════════
   // En la DB vieja las dos vistas del lote NO existen. Se simula pidiendo un
@@ -137,17 +146,28 @@ const main = async () => {
   // una multiplicacion de strings: la conclusion se imprimia como "NaN".
   console.log('')
   console.log('=== CONCLUSION DE ROLLOUT ===')
-  console.log('  FE viejo + DB nueva : COMPATIBLE. Ninguna forma actual recibe 403;')
-  console.log('                        solo se filtran filas. El cashier incluso mejora.')
-  console.log('  FE nuevo + DB vieja : DEGRADADO. Las dos vistas no existen y todo se')
-  console.log('                        muestra como restringido. No hay cero falso, pero')
-  console.log('                        el negocio se queda sin ver su deuda.')
+  console.log('  FE viejo + DB nueva : COMPATIBLE. Ninguna forma actual recibe 403; solo se')
+  console.log('                        filtran filas. El cashier sigue viendo el cero falso')
+  console.log('                        del dashboard viejo: es el defecto ORIGINAL, no una')
+  console.log('                        regresion, y lo cierra el frontend nuevo.')
+  console.log('  FE nuevo + DB vieja : DEGRADADO. Falta la proyeccion financiera y las')
+  console.log('                        vistas leen la tabla base, asi que el actor de')
+  console.log('                        finanzas ve todo restringido. Sin cero falso, pero')
+  console.log('                        sin poder ver la deuda.')
+  console.log('  FE nuevo + DB nueva : CORRECTO. Deuda real al autorizado, restringido al')
+  console.log('                        resto, y ningun campo operativo en la proyeccion.')
   console.log('')
-  console.log('  ORDEN REQUERIDO: DB PRIMERO, despues frontend.')
+  console.log('  ORDEN REQUERIDO: DB PRIMERO, despues frontend. Sin cambios respecto de la')
+  console.log('  fase A, y por el mismo motivo medido: la DB nueva no rompe ninguna forma')
+  console.log('  del frontend viejo, mientras que el frontend nuevo contra la DB vieja se')
+  console.log('  queda ciego. La fase B agrega un matiz: entre las dos mitades del rollout')
+  console.log('  el cero falso del cashier SIGUE presente, asi que la ventana entre db push')
+  console.log('  y deploy del frontend tiene que ser corta y el smoke se corre en las DOS.')
   console.log('')
-  console.log('  Es la INVERSA de SEC-08A y SEC-08B, que exigian frontend-primero porque')
-  console.log('  revocaban COLUMNAS y el asterisco del cliente viejo devolvia 42501. Este')
-  console.log('  lote no revoca ninguna columna: mueve predicados de RLS, que filtran FILAS.')
+  console.log('  Sigue siendo la INVERSA de SEC-08A y SEC-08B, que exigian frontend-primero')
+  console.log('  porque revocaban COLUMNAS y el asterisco del cliente viejo devolvia 42501.')
+  console.log('  Este lote no revoca ninguna columna: mueve predicados de RLS y agrega una')
+  console.log('  proyeccion, o sea que filtra FILAS.')
   console.log('')
   console.log(`  ${checks} aserciones.`)
 }

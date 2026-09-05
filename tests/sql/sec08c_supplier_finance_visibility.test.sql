@@ -92,7 +92,11 @@ END $$;
 DO $$
 DECLARE t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['supplier_payments','supplier_account_movements','supplier_purchases'] LOOP
+  -- FASE B: `supplier_purchases` SALE de esta lista. Su fila mezcla importes
+  -- con datos operativos, asi que la tabla base volvio a la autoridad de costo
+  -- y el actor de finanzas la recibe por una proyeccion (bloque 2b). Estas dos
+  -- tablas, en cambio, son verdad financiera de punta a punta.
+  FOREACH t IN ARRAY ARRAY['supplier_payments','supplier_account_movements'] LOOP
     PERFORM pg_temp.assert(
       EXISTS (SELECT 1 FROM pg_policies
                WHERE schemaname='public' AND tablename=t AND cmd='SELECT'
@@ -118,6 +122,88 @@ BEGIN
       (SELECT relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
         WHERE n.nspname='public' AND c.relname=t),
       format('%s: RLS activo', t));
+  END LOOP;
+END $$;
+
+-- ═══ 2b. FASE B — la tabla BASE no se gobierna con la autoridad financiera ══
+-- La fase A la abrio a can_view_supplier_finance y con eso un actor
+-- finance-only se llevaba la fila entera (invoice_number, notes,
+-- attachment_url, created_by). Vuelve a exigir autoridad de COSTO.
+DO $$
+BEGIN
+  PERFORM pg_temp.assert(
+    EXISTS (SELECT 1 FROM pg_policies
+             WHERE schemaname='public' AND tablename='supplier_purchases'
+               AND cmd='SELECT' AND qual LIKE '%can_view_inventory_cost%'),
+    'supplier_purchases: SELECT vuelve a exigir can_view_inventory_cost');
+  PERFORM pg_temp.assert(
+    NOT EXISTS (SELECT 1 FROM pg_policies
+                 WHERE schemaname='public' AND tablename='supplier_purchases'
+                   AND cmd='SELECT' AND qual LIKE '%can_view_supplier_finance%'),
+    'supplier_purchases: la tabla base NO entrega la fila cruda al actor de finanzas');
+
+  -- La proyeccion financiera existe, es la ruta autorizada, y NO publica
+  -- ningun campo operativo.
+  PERFORM pg_temp.assert(
+    EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+             WHERE n.nspname='public' AND p.proname='finance_supplier_purchases'),
+    'existe la proyeccion finance_supplier_purchases');
+  PERFORM pg_temp.assert(
+    NOT EXISTS (
+      SELECT 1
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        JOIN unnest(p.proargnames) AS argname ON true
+       WHERE n.nspname='public' AND p.proname='finance_supplier_purchases'
+         AND argname IN ('invoice_number','payment_method','notes','attachment_url',
+                         'created_by','created_at','updated_at')),
+    'la proyeccion NO publica campos operativos');
+  PERFORM pg_temp.assert(
+    NOT has_function_privilege('anon', 'public.finance_supplier_purchases()', 'EXECUTE'),
+    'anon NO puede ejecutar la proyeccion');
+
+  -- Las vistas de finanzas leen la PROYECCION, no la tabla base: si leyeran la
+  -- base, un actor finance-only veria cero filas y el agregado fabricaria un 0.
+  PERFORM pg_temp.assert(
+    pg_get_viewdef('public.v_finance_supplier_debt'::regclass, true) LIKE '%finance_supplier_purchases%',
+    'v_finance_supplier_debt lee la proyeccion');
+  PERFORM pg_temp.assert(
+    pg_get_viewdef('public.v_finance_payables_aging'::regclass, true) LIKE '%finance_supplier_purchases%',
+    'v_finance_payables_aging lee la proyeccion');
+  PERFORM pg_temp.assert(
+    pg_get_viewdef('public.v_finance_payables_due'::regclass, true) LIKE '%finance_supplier_purchases%',
+    'v_finance_payables_due lee la proyeccion');
+END $$;
+
+-- ═══ 2c. FASE B — pagar exige `finance` ═══════════════════════════════════
+-- Mover dinero a un proveedor no es una operacion de inventario. Comprar A
+-- CREDITO si lo es y conserva la excepcion ratificada de SEC-08B.
+DO $$
+DECLARE v_def text;
+BEGIN
+  FOR v_def IN
+    SELECT pg_get_functiondef(p.oid)
+      FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+     WHERE n.nspname='public' AND p.prokind='f'
+       AND p.proname IN ('pay_supplier_free_atomic','pay_supplier_purchase_atomic')
+  LOOP
+    PERFORM pg_temp.assert(v_def LIKE '%require_action_authority(p_business_id, ''finance''%',
+      'una RPC de pago exige finance');
+    PERFORM pg_temp.assert(v_def NOT LIKE '%require_action_authority(p_business_id, ''inventory''%',
+      'esa RPC de pago ya NO exige inventory');
+  END LOOP;
+
+  -- Comprar: inventory siempre; finance ADEMAS cuando hay pago inicial. Sin
+  -- esta conjuncion, p_paid_amount > 0 seguiria moviendo caja con inventory.
+  FOR v_def IN
+    SELECT pg_get_functiondef(p.oid)
+      FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+     WHERE n.nspname='public' AND p.prokind='f'
+       AND p.proname IN ('create_supplier_purchase_atomic','create_quick_inventory_purchase_atomic')
+  LOOP
+    PERFORM pg_temp.assert(v_def LIKE '%''inventory''%', 'comprar sigue exigiendo inventory');
+    PERFORM pg_temp.assert(v_def LIKE '%''finance''%' AND v_def LIKE '%> 0 THEN%',
+      'comprar CON pago inicial exige ademas finance');
   END LOOP;
 END $$;
 
