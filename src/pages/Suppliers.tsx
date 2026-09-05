@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 import { smartSearch, buildSupabaseQuery } from '../utils/searchUtils'
 import { ProductFormModalSafe as ProductFormModal } from '../components/products/ProductFormModal'
 import type { InventoryItem } from '../hooks/useInventory'
@@ -40,6 +41,20 @@ const cardS: React.CSSProperties = {
 }
 
 const fmtARS = (n: number) => '$' + Math.round(n).toLocaleString('es-AR')
+
+// SEC-08C — un importe financiero de proveedor puede llegar RESTRINGIDO (null).
+// Restringido no es cero: no se formatea como $0 ni habilita frases como
+// "Sin deuda" o "Al día", que serían la afirmación más tranquilizadora posible
+// sobre un dato que justamente no se pudo leer.
+const RESTRICTED = '—'
+const fmtMoneyOrRestricted = (n: number | null | undefined) =>
+  n === null || n === undefined ? RESTRICTED : fmtARS(n)
+/** true sólo si hay dato Y es deuda. null (restringido) NUNCA es "sin deuda". */
+const hasDebt = (n: number | null | undefined, min = 0) =>
+  n !== null && n !== undefined && n > min
+/** true sólo si el dato existe y afirma que no hay deuda. */
+const isSettled = (n: number | null | undefined, min = 0) =>
+  n !== null && n !== undefined && n <= min
 import { fmtDateFull as _fmtDateFull } from '../utils/dateUtils'
 const fmtDate = (d: string | null) => d ? _fmtDateFull(d) : '—'
 const daysSince = (d: string | null) => {
@@ -280,9 +295,11 @@ interface ModalNuevaCompraProps {
   supplier: SupplierWithStats
   businessId: string
   userId: string
+  /** `finance` del actor. Sin él la compra sólo puede ser A CRÉDITO. */
+  canFinance: boolean
 }
 
-function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: ModalNuevaCompraProps) {
+function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId, canFinance }: ModalNuevaCompraProps) {
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0])
   const [dueDate, setDueDate] = useState('')
   const [invoiceNumber, setInvoiceNumber] = useState('')
@@ -301,7 +318,11 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
   }
 
   const totalAmount = rows.reduce((s, r) => s + r.quantity * r.unit_cost, 0)
-  const pendingAmount = Math.max(0, totalAmount - paidAmount)
+  // Sin `finance` el pago inicial es SIEMPRE 0, no importa qué haya quedado en
+  // el estado: los controles están ocultos, pero el valor efectivo se fija acá
+  // para que no dependa de que la UI haya sido la única puerta.
+  const effectivePaid = canFinance ? paidAmount : 0
+  const pendingAmount = Math.max(0, totalAmount - effectivePaid)
   // Métodos del grid visual (no cambia lógica de guardado)
   const PROV_METHODS = [
     { id: 'efectivo',      label: 'Efectivo',      short: 'Efec.',    color: '#22c55e' },
@@ -347,7 +368,7 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
     setSaving(true); setError('')
     try {
       await suppliersService.createPurchase(
-        { supplier_id: supplier.id, purchase_date: purchaseDate, due_date: dueDate || null, invoice_number: invoiceNumber, total_amount: totalAmount, paid_amount: paidAmount, payment_method: paymentMethod, notes, items: validRows.map(r => ({ inventory_id: r.inventory_id, product_name: r.product_name, quantity: r.quantity, unit_cost: r.unit_cost })) },
+        { supplier_id: supplier.id, purchase_date: purchaseDate, due_date: dueDate || null, invoice_number: invoiceNumber, total_amount: totalAmount, paid_amount: effectivePaid, payment_method: canFinance ? paymentMethod : '', notes, items: validRows.map(r => ({ inventory_id: r.inventory_id, product_name: r.product_name, quantity: r.quantity, unit_cost: r.unit_cost })) },
         businessId, userId, supplier.name
       )
       onSaved()
@@ -530,13 +551,17 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ color: '#f1f5f9', fontWeight: 700, fontSize: '0.9rem' }}>{supplier.name}</div>
-                  {supplier.pending_amount > 0 ? (
+                  {hasDebt(supplier.pending_amount) ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.72rem', color: '#f59e0b', marginTop: '0.1rem' }}>
-                      <Wallet size={11} /> Deuda previa: {fmtARS(supplier.pending_amount)}
+                      <Wallet size={11} /> Deuda previa: {fmtMoneyOrRestricted(supplier.pending_amount)}
                     </div>
-                  ) : (
+                  ) : isSettled(supplier.pending_amount) ? (
                     <div style={{ fontSize: '0.72rem', color: '#22c55e', marginTop: '0.1rem', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
                       <CheckCircle size={11} /> Sin deuda pendiente
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>
+                      Deuda previa: {RESTRICTED} (sin acceso)
                     </div>
                   )}
                 </div>
@@ -557,6 +582,14 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
             {/* ESTADO + MÉTODOS + RESUMEN */}
             <div style={{ padding: '0.875rem 1rem', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
 
+              {/* SEC-08C fase C — comprar A CRÉDITO sigue siendo una operación
+                  de inventario (excepción ratificada en SEC-08B), pero un pago
+                  inicial mueve caja y el servidor exige `inventory` Y `finance`.
+                  Sin Finanzas se retiran los controles de pago en vez de dejar
+                  que el actor complete el formulario y choque con un 42501. La
+                  compra a crédito —que es lo que SÍ puede hacer— queda intacta. */}
+              {canFinance ? (
+              <>
               {/* 3 estados de pago */}
               <div>
                 <div style={{ fontSize: '0.6rem', color: 'var(--text-tertiary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.375rem' }}>Estado de pago</div>
@@ -611,6 +644,20 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
                   </div>
                 </div>
               )}
+              </>
+              ) : (
+                <div data-testid="purchase-no-finance-note" style={{
+                  display: 'flex', gap: '0.5rem', alignItems: 'flex-start',
+                  padding: '0.6rem 0.7rem', borderRadius: '0.5rem',
+                  background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)',
+                }}>
+                  <Wallet size={14} style={{ color: '#818cf8', flexShrink: 0, marginTop: 1 }} />
+                  <span style={{ fontSize: '0.72rem', color: '#c7d2fe', lineHeight: 1.45 }}>
+                    Sin permiso de Finanzas, la compra se registrará pendiente:
+                    el total va a la cuenta corriente del proveedor.
+                  </span>
+                </div>
+              )}
 
               {/* Resumen financiero — siempre visible */}
               <div style={{ background: 'rgba(0,0,0,0.25)', borderRadius: '0.625rem', padding: '0.625rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.225rem' }}>
@@ -643,10 +690,12 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
                         <CheckCircle size={12} /> Factura saldada completamente
                       </div>
                     )}
-                    {pendingAmount > 0 && supplier.pending_amount > 0 && (
+                    {/* Sin la deuda previa no se puede afirmar la deuda TOTAL:
+                        se omite la línea en vez de mostrar un total incompleto. */}
+                    {pendingAmount > 0 && hasDebt(supplier.pending_amount) && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '0.2rem', borderTop: '1px solid rgba(245,158,11,0.15)', marginTop: '0.1rem' }}>
                         <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Nueva deuda con {supplier.name}</span>
-                        <span style={{ fontSize: '0.8rem', color: '#f59e0b', fontWeight: 900 }}>{fmtARS(supplier.pending_amount + pendingAmount)}</span>
+                        <span style={{ fontSize: '0.8rem', color: '#f59e0b', fontWeight: 900 }}>{fmtARS(supplier.pending_amount! + pendingAmount)}</span>
                       </div>
                     )}
                   </>
@@ -801,7 +850,7 @@ function ModalRegistrarPago({ onClose, onSaved, supplier, purchases, businessId,
       <ModalBody>
         <div style={{ ...cardS, background: 'rgba(239,68,68,0.06)', borderColor: 'rgba(239,68,68,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Saldo pendiente con proveedor</span>
-          <span style={{ fontSize: '1.25rem', fontWeight: 800, color: '#ef4444' }}>{fmtARS(supplier.pending_amount)}</span>
+          <span style={{ fontSize: '1.25rem', fontWeight: 800, color: hasDebt(supplier.pending_amount) ? '#ef4444' : 'var(--text-muted)' }}>{fmtMoneyOrRestricted(supplier.pending_amount)}</span>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -970,6 +1019,18 @@ const SupplierTimeline = memo(function SupplierTimeline({
 
 export function Suppliers() {
   const { businessId, user } = useAuth()
+  // SEC-08C fase C — desde la fase B, registrar un pago a proveedor exige
+  // `finance` server-side. Sin este gate la pantalla seguía ofreciendo la
+  // acción a cualquiera que entrara al módulo, y el actor recorría el modal
+  // entero para chocarse con un 42501 al final.
+  //
+  // Se resuelve por la autoridad canónica del cliente (`usePermissions`), que
+  // ya contempla owner, overrides de perfil y payload roto → DENY_ALL. NO se
+  // reimplementa la matriz de roles: sería una segunda fuente de verdad que se
+  // desincroniza con el primer override. Esto es alineación de UX; la autoridad
+  // sigue siendo el servidor, y una llamada directa a la RPC falla igual.
+  const { can } = usePermissions()
+  const canFinance = can('finance')
 
   // ── Vista ──
   const [view, setView] = useState<'list' | 'detail'>('list')
@@ -1000,14 +1061,23 @@ export function Suppliers() {
   const [deletePurchaseError, setDeletePurchaseError] = useState<string | null>(null)
   // Datos tab inline-edit
   const [editForm, setEditForm] = useState<Partial<SupplierWithStats>>({})
+  // Deuda canónica del negocio. null = restringido, NO «sin deuda».
+  const [supplierDebt, setSupplierDebt] = useState<number | null>(null)
 
   // ── Carga lista ──
   const loadList = useCallback(async () => {
     if (!businessId) return
     setLoadingList(true)
     try {
-      const data = await suppliersService.getSuppliersWithStats(businessId)
+      // SEC-08C — la deuda TOTAL viene del agregado canónico, no de un reduce
+      // sobre el listado. Es el mismo número que muestra el FinanceDashboard y
+      // lo calcula la base.
+      const [data, debt] = await Promise.all([
+        suppliersService.getSuppliersWithStats(businessId),
+        suppliersService.getSupplierDebt(businessId),
+      ])
       setSuppliers(data)
+      setSupplierDebt(debt.outstanding)
     } catch (e) { console.error(e) }
     finally { setLoadingList(false) }
   }, [businessId])
@@ -1074,8 +1144,10 @@ export function Suppliers() {
 
     if (filterStatus === 'active') list = list.filter(s => s.active)
     if (filterStatus === 'inactive') list = list.filter(s => !s.active)
-    if (filterStatus === 'with_debt') list = list.filter(s => s.pending_amount > 0)
-    if (filterStatus === 'no_debt') list = list.filter(s => s.pending_amount <= 0)
+    // Restringido no entra en NINGUNO de los dos filtros: no se puede afirmar
+    // que tenga deuda ni que no la tenga.
+    if (filterStatus === 'with_debt') list = list.filter(s => hasDebt(s.pending_amount))
+    if (filterStatus === 'no_debt') list = list.filter(s => isSettled(s.pending_amount))
 
     if (searchTerm.trim()) {
       list = smartSearch(list, searchTerm, [
@@ -1094,8 +1166,10 @@ export function Suppliers() {
     if (!searchTerm.trim()) {
       list.sort((a, b) => {
         if (sortBy === 'name') return a.name.localeCompare(b.name)
-        if (sortBy === 'total_purchases') return b.total_purchases - a.total_purchases
-        if (sortBy === 'pending_amount') return b.pending_amount - a.pending_amount
+        // Ordenar por un importe restringido no tiene sentido: esas filas van
+        // al final en vez de comportarse como si valieran 0.
+        if (sortBy === 'total_purchases') return (b.total_purchases ?? -1) - (a.total_purchases ?? -1)
+        if (sortBy === 'pending_amount') return (b.pending_amount ?? -1) - (a.pending_amount ?? -1)
         if (sortBy === 'last_purchase_date') {
           if (!a.last_purchase_date) return 1
           if (!b.last_purchase_date) return -1
@@ -1109,9 +1183,22 @@ export function Suppliers() {
   }, [suppliers, searchTerm, filterStatus, sortBy])
 
   // ── Stats lista ──
-  const totalDeuda = suppliers.filter(s => s.active).reduce((sum, s) => sum + s.pending_amount, 0)
-  const totalVolumen = suppliers.filter(s => s.active).reduce((sum, s) => sum + s.total_purchases, 0)
-  const conDeuda = suppliers.filter(s => s.pending_amount > 0).length
+  // SEC-08C — roll-up de PRESENTACIÓN sobre agregados que ya calculó la base
+  // (v_finance_supplier_stats), no una reconstrucción desde filas crudas. La
+  // autoridad financiera es por negocio, así que o están todos los importes o
+  // no está ninguno: si falta autoridad, el encabezado dice "—", no "$0".
+  const financeAuthorized = suppliers.length === 0 || suppliers.some(s => s.finance_authorized)
+  const activos = suppliers.filter(s => s.active)
+  // La DEUDA no se suma acá: es el agregado canónico de la base.
+  const totalDeuda = supplierDebt
+  // El volumen comprado es un roll-up de PRESENTACIÓN del listado (no es un
+  // saldo). Se filtran los restringidos en vez de contarlos como 0.
+  const totalVolumen = financeAuthorized
+    ? activos.filter(s => s.total_purchases !== null)
+             .reduce((sum, s) => sum + (s.total_purchases as number), 0)
+    : null
+  const conDeuda = financeAuthorized
+    ? suppliers.filter(s => hasDebt(s.pending_amount)).length : null
 
   const handleToggleActive = async (s: SupplierWithStats) => {
     if (!businessId) return
@@ -1185,8 +1272,8 @@ export function Suppliers() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
         {[
           { label: 'Total proveedores', value: suppliers.filter(s => s.active).length, color: '#818cf8', icon: <Truck size={16} /> },
-          { label: 'Con deuda pendiente', value: conDeuda, color: '#f59e0b', icon: <AlertCircle size={16} />, suffix: conDeuda > 0 ? `(${fmtARS(totalDeuda)})` : '' },
-          { label: 'Volumen total comprado', value: fmtARS(totalVolumen), color: '#22c55e', icon: <TrendingUp size={16} />, isARS: true },
+          { label: 'Con deuda pendiente', value: conDeuda === null ? RESTRICTED : conDeuda, color: '#f59e0b', icon: <AlertCircle size={16} />, suffix: hasDebt(conDeuda) ? `(${fmtMoneyOrRestricted(totalDeuda)})` : '' },
+          { label: 'Volumen total comprado', value: fmtMoneyOrRestricted(totalVolumen), color: '#22c55e', icon: <TrendingUp size={16} />, isARS: true },
         ].map((stat, i) => (
           <div key={i} style={cardS}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', color: stat.color }}>
@@ -1280,14 +1367,19 @@ export function Suppliers() {
                       </div>
                     </td>
                     <td style={{ padding: '0.875rem 1rem', textAlign: 'right' }}>
-                      <div style={{ fontWeight: 700, color: '#e2e8f0', fontSize: '0.9rem' }}>{fmtARS(s.total_purchases)}</div>
-                      <div style={{ fontSize: '0.7rem', color: '#475569' }}>{s.purchases_count} compra{s.purchases_count !== 1 ? 's' : ''}</div>
+                      <div style={{ fontWeight: 700, color: '#e2e8f0', fontSize: '0.9rem' }}>{fmtMoneyOrRestricted(s.total_purchases)}</div>
+                      <div style={{ fontSize: '0.7rem', color: '#475569' }}>
+                        {s.purchases_count === null ? RESTRICTED : `${s.purchases_count} compra${s.purchases_count !== 1 ? 's' : ''}`}
+                      </div>
                     </td>
                     <td style={{ padding: '0.875rem 1rem', textAlign: 'right' }}>
-                      {s.pending_amount > 0 ? (
-                        <div style={{ fontWeight: 700, color: '#f59e0b', fontSize: '0.9rem' }}>{fmtARS(s.pending_amount)}</div>
-                      ) : (
+                      {hasDebt(s.pending_amount) ? (
+                        <div style={{ fontWeight: 700, color: '#f59e0b', fontSize: '0.9rem' }}>{fmtMoneyOrRestricted(s.pending_amount)}</div>
+                      ) : isSettled(s.pending_amount) ? (
                         <span style={{ fontSize: '0.8rem', color: '#22c55e', display: 'flex', alignItems: 'center', gap: '0.3rem', justifyContent: 'flex-end' }}><CheckCircle size={12} /> Al día</span>
+                      ) : (
+                        // Restringido: NO se puede decir "Al día".
+                        <span data-testid="supplier-debt-restricted" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{RESTRICTED}</span>
                       )}
                     </td>
                     <td style={{ padding: '0.875rem 1rem' }}>
@@ -1345,7 +1437,7 @@ export function Suppliers() {
   )
 
   const days = daysSince(s.last_purchase_date)
-  const hasBigDebt = s.pending_amount > 50000
+  const hasBigDebt = hasDebt(s.pending_amount, 50000)
   const noRecentPurchase = days !== null && days > 30
   const mostBoughtProduct = (() => {
     const freq: Record<string, number> = {}
@@ -1404,10 +1496,12 @@ export function Suppliers() {
             <button className="btn btn-ghost" onClick={() => { setEditingSupplier(s); setShowModalSupplier(true) }}>
               <Edit2 size={14} /> Editar
             </button>
-            <button className="btn btn-ghost btn-sm" style={{ color: '#22c55e' }} onClick={() => { setDefaultPurchaseId(null); setShowModalPayment(true) }}>
-              <Banknote size={14} /> Registrar pago
-            </button>
-            <button className="btn btn-primary btn-lift" onClick={() => setShowModalPurchase(true)}>
+            {canFinance && (
+              <button data-testid="supplier-pay-header" className="btn btn-ghost btn-sm" style={{ color: '#22c55e' }} onClick={() => { setDefaultPurchaseId(null); setShowModalPayment(true) }}>
+                <Banknote size={14} /> Registrar pago
+              </button>
+            )}
+            <button data-testid="supplier-new-purchase" className="btn btn-primary btn-lift" onClick={() => setShowModalPurchase(true)}>
               <Plus size={14} /> Nueva compra
             </button>
           </div>
@@ -1420,7 +1514,7 @@ export function Suppliers() {
           {hasBigDebt && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', borderRadius: '0.625rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
               <AlertCircle size={16} style={{ color: '#ef4444', flexShrink: 0 }} />
-              <span style={{ color: '#fca5a5', fontSize: '0.875rem' }}>Este proveedor tiene <strong>{fmtARS(s.pending_amount)}</strong> pendientes de pago.</span>
+              <span style={{ color: '#fca5a5', fontSize: '0.875rem' }}>Este proveedor tiene <strong>{fmtMoneyOrRestricted(s.pending_amount)}</strong> pendientes de pago.</span>
             </div>
           )}
           {noRecentPurchase && (
@@ -1441,10 +1535,14 @@ export function Suppliers() {
       {/* Cards resumen */}
       <div data-testid="supplier-summary" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
         {[
-          { label: 'Total comprado',  value: fmtARS(s.total_purchases), color: '#818cf8', icon: <TrendingUp size={16} /> },
-          { label: 'Total pagado',    value: fmtARS(s.total_paid),      color: '#22c55e', icon: <CheckCircle size={16} /> },
-          { label: 'Saldo pendiente', value: fmtARS(s.pending_amount),  color: s.pending_amount > 0 ? '#f59e0b' : '#22c55e', icon: <AlertCircle size={16} />, testId: 'supplier-balance' },
-          { label: 'Compras',         value: s.purchases_count,         color: '#38bdf8', icon: <ShoppingCart size={16} /> },
+          { label: 'Total comprado',  value: fmtMoneyOrRestricted(s.total_purchases), color: '#818cf8', icon: <TrendingUp size={16} /> },
+          { label: 'Total pagado',    value: fmtMoneyOrRestricted(s.total_paid),      color: '#22c55e', icon: <CheckCircle size={16} /> },
+          // Sin autoridad el saldo va en gris y con guión: ni ámbar de deuda ni
+          // verde de "saldado".
+          { label: 'Saldo pendiente', value: fmtMoneyOrRestricted(s.pending_amount),
+            color: s.pending_amount === null ? 'var(--text-muted)' : (s.pending_amount > 0 ? '#f59e0b' : '#22c55e'),
+            icon: <AlertCircle size={16} />, testId: 'supplier-balance' },
+          { label: 'Compras',         value: s.purchases_count === null ? RESTRICTED : s.purchases_count, color: '#38bdf8', icon: <ShoppingCart size={16} /> },
         ].map((c, i) => (
           <div key={i} style={cardS} data-testid={c.testId}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', color: c.color }}>{c.icon}<span style={{ fontSize: '0.68rem', color: '#475569', fontWeight: 600, textTransform: 'uppercase' }}>{c.label}</span></div>
@@ -1463,7 +1561,10 @@ export function Suppliers() {
         </div>
         <div style={cardS}>
           <div style={{ fontSize: '0.68rem', color: '#475569', fontWeight: 600, textTransform: 'uppercase', marginBottom: '0.375rem' }}>Promedio por compra</div>
-          <div style={{ fontWeight: 700, color: '#e2e8f0' }}>{s.purchases_count > 0 ? fmtARS(s.total_purchases / s.purchases_count) : '—'}</div>
+          <div style={{ fontWeight: 700, color: '#e2e8f0' }}>{
+            s.purchases_count !== null && s.purchases_count > 0 && s.total_purchases !== null
+              ? fmtARS(s.total_purchases / s.purchases_count) : RESTRICTED
+          }</div>
         </div>
       </div>
 
@@ -1528,8 +1629,8 @@ export function Suppliers() {
                       <td style={{ padding: '0.75rem 0.625rem' }}>
                         <div style={{ display: 'flex', gap: '0.25rem' }}>
                           <button className="icon-btn icon-btn-primary" title="Ver detalle" onClick={() => setViewingPurchase(p)}><Eye size={14} /></button>
-                          {p.payment_status !== 'paid' && (
-                            <button className="icon-btn" style={{ color: '#22c55e' }} title="Registrar pago" onClick={() => { setDefaultPurchaseId(p.id); setShowModalPayment(true) }}><Banknote size={14} /></button>
+                          {p.payment_status !== 'paid' && canFinance && (
+                            <button data-testid="supplier-pay-row" className="icon-btn" style={{ color: '#22c55e' }} title="Registrar pago" onClick={() => { setDefaultPurchaseId(p.id); setShowModalPayment(true) }}><Banknote size={14} /></button>
                           )}
                           <button className="icon-btn icon-btn-danger" title={p.paid_amount > 0 ? 'No se puede eliminar (tiene pagos)' : 'Eliminar compra'} onClick={() => handleDeletePurchase(p)} style={{ opacity: p.paid_amount > 0 ? 0.4 : 1 }}><Trash2 size={14} /></button>
                         </div>
@@ -1549,8 +1650,17 @@ export function Suppliers() {
           {/* Saldo total sticky */}
           <div style={{ padding: '0.875rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)' }}>
             <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Saldo proveedor</span>
-            <span style={{ fontSize: '1.125rem', fontWeight: 800, fontFamily: 'monospace', color: s.pending_amount > 0.01 ? '#f59e0b' : '#34d399' }}>
-              {s.pending_amount > 0.01 ? `$${Math.round(s.pending_amount).toLocaleString('es-AR')} a pagar` : 'Al día'}
+            {/* "Al día" es una AFIRMACIÓN sobre la deuda. Sin autoridad para
+                leerla no se puede hacer, así que va el guión. */}
+            <span
+              data-testid={s.pending_amount === null ? 'supplier-account-balance-restricted' : 'supplier-account-balance'}
+              style={{ fontSize: '1.125rem', fontWeight: 800, fontFamily: 'monospace', color: s.pending_amount === null ? 'var(--text-muted)' : (s.pending_amount > 0.01 ? '#f59e0b' : '#34d399') }}
+            >
+              {s.pending_amount === null
+                ? `${RESTRICTED} sin acceso`
+                : s.pending_amount > 0.01
+                  ? `$${Math.round(s.pending_amount).toLocaleString('es-AR')} a pagar`
+                  : 'Al día'}
             </span>
           </div>
           <SupplierTimeline supplierId={s.id} businessId={businessId!} refreshTick={movements.length} />
@@ -1561,9 +1671,17 @@ export function Suppliers() {
       {activeTab === 'pagos' && (
         <div data-testid="supplier-payments-tab">
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
-            <button className="btn btn-success btn-lift" onClick={() => { setDefaultPurchaseId(null); setShowModalPayment(true) }}>
-              <Plus size={13} /> Registrar pago
-            </button>
+            {canFinance ? (
+              <button data-testid="supplier-pay-tab" className="btn btn-success btn-lift" onClick={() => { setDefaultPurchaseId(null); setShowModalPayment(true) }}>
+                <Plus size={13} /> Registrar pago
+              </button>
+            ) : (
+              // El historial se sigue viendo —leer lo que se debe es una
+              // operación de compras—; lo que no se ofrece es la acción.
+              <span data-testid="supplier-pay-no-permission" style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                Registrar pagos requiere permiso de Finanzas.
+              </span>
+            )}
           </div>
           {payments.length === 0 ? (
             <div style={{ ...cardS, textAlign: 'center', padding: '3rem', color: '#475569' }}>
@@ -1665,10 +1783,13 @@ export function Suppliers() {
         <div data-testid="supplier-invoice-modal">
           <ModalNuevaCompra onClose={() => setShowModalPurchase(false)}
             onSaved={() => { setShowModalPurchase(false); refreshDetail() }}
-            supplier={s} businessId={businessId || ''} userId={user?.id || ''} />
+            supplier={s} businessId={businessId || ''} userId={user?.id || ''}
+            canFinance={canFinance} />
         </div>
       )}
-      {showModalPayment && (
+      {/* El modal NO se monta sin autoridad, ni siquiera si algo pusiera el
+          flag en true: es la última barrera de UX antes del servidor. */}
+      {showModalPayment && canFinance && (
         <div data-testid="supplier-payment-modal">
           <ModalRegistrarPago onClose={() => { setShowModalPayment(false); setDefaultPurchaseId(null) }}
             onSaved={() => { setShowModalPayment(false); setDefaultPurchaseId(null); refreshDetail() }}

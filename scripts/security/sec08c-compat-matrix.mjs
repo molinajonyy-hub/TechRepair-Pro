@@ -1,0 +1,239 @@
+#!/usr/bin/env node
+// SEC-08C — MATRIZ DE COMPATIBILIDAD. Determina el ORDEN DE ROLLOUT.
+//
+// SEC-08A y SEC-08B tuvieron que salir FRONTEND-PRIMERO porque revocaban
+// columnas y el frontend viejo, que pedía `*`, se habría comido un 42501 y la
+// pantalla habría desaparecido. Este lote NO revoca ninguna columna: mueve
+// predicados de RLS, que filtran FILAS. Eso invierte la conclusión, y por eso
+// se mide en vez de asumirse.
+//
+// Se prueban las dos combinaciones peligrosas:
+//
+//   FE VIEJO + DB NUEVA — se ejecutan las formas EXACTAS que hoy tiene
+//   origin/main (select('*'), el embed de stats, la consulta de deuda del
+//   dashboard). Ninguna puede responder 403 ni filtrar un importe prohibido.
+//
+//   FE NUEVO + DB VIEJA — el frontend nuevo lee dos vistas que en la DB vieja
+//   NO EXISTEN. Se comprueba que eso da un error de lectura (no datos), que es
+//   la rama que el service traduce a «restringido» y NO a «$0».
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { createHmac, randomUUID } from 'node:crypto'
+import assert from 'node:assert/strict'
+
+const project = readFileSync('supabase/config.toml', 'utf8').match(/^project_id = "([a-z0-9-]+)"/m)?.[1]
+const dbContainer = process.env.SEC08C_DB_CONTAINER || `supabase_db_${project}`
+if (!/^supabase_db_[a-z0-9-]+$/.test(dbContainer)) throw new Error('Se requiere el contenedor de base local')
+
+const docker = (args, input) => execFileSync('docker', args, { input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 32 * 1024 * 1024 })
+const sql = q => docker(['exec', '-i', dbContainer, 'psql', '-X', '-U', 'postgres', '-d', 'postgres', '-Atq', '-v', 'ON_ERROR_STOP=1'], q).trim()
+
+const ACTORS = ['owner', 'admin', 'manager', 'sales', 'cashier', 'tech', 'viewer']
+const ids = Object.fromEntries([...ACTORS, 'A', 'supA', 'purA'].map(n => [n, randomUUID()]))
+
+const SP_TOTAL = 73191, SP_PENDING = 51988, PAY_AMOUNT = 11837, MOV_DEBIT = 68429, ITEM_COST = 4173
+const FORBIDDEN = [SP_TOTAL, SP_PENDING, PAY_AMOUNT, MOV_DEBIT, ITEM_COST]
+const TAG = 'sec08c-compat.invalid'
+
+let seeded = false, checks = 0
+
+const main = async () => {
+  const rest = JSON.parse(docker(['inspect', `supabase_rest_${project}`]))[0]
+  const kong = JSON.parse(docker(['inspect', `supabase_kong_${project}`]))[0]
+  const vars = Object.fromEntries(rest.Config.Env.map(s => { const i = s.indexOf('='); return [s.slice(0, i), s.slice(i + 1)] }))
+  const hostPort = kong.NetworkSettings.Ports?.['8000/tcp']?.[0]?.HostPort
+  const apiUrl = `http://127.0.0.1:${hostPort}/rest/v1`
+  let signingKey = Buffer.from(vars.PGRST_JWT_SECRET)
+  if (vars.PGRST_JWT_SECRET.trim().startsWith('{')) {
+    const k = JSON.parse(vars.PGRST_JWT_SECRET).keys.find(x => x.kty === 'oct')
+    signingKey = Buffer.from(k.k, 'base64url')
+  }
+  const token = actor => {
+    const h = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
+    const c = Buffer.from(JSON.stringify({ role: 'authenticated', aud: 'authenticated', sub: ids[actor], exp: Math.floor(Date.now() / 1000) + 900 })).toString('base64url')
+    return `${h}.${c}.${createHmac('sha256', signingKey).update(`${h}.${c}`).digest('base64url')}`
+  }
+  const request = async (actor, path, init) => {
+    const r = await fetch(apiUrl + path, {
+      method: init?.method || 'GET',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token(actor)}` },
+      body: init?.body,
+      signal: AbortSignal.timeout(15000),
+    })
+    return { status: r.status, text: await r.text() }
+  }
+  const rpc = (actor, fn, args) => request(actor, `/rpc/${fn}`, { method: 'POST', body: JSON.stringify(args) })
+  const expect = (cond, label) => { checks++; assert(cond, label) }
+
+  const profiles = ACTORS.map(n => `('${ids[n]}','${ids.A}','${n}',true,'${n}@${TAG}')`).join(',')
+  sql(`
+    BEGIN;
+    SET session_replication_role=replica;
+    INSERT INTO auth.users(id,email,email_confirmed_at) VALUES ${ACTORS.map(n => `('${ids[n]}','${n}@${TAG}',now())`).join(',')};
+    INSERT INTO public.businesses(id,name,owner_user_id,subscription_plan,subscription_status)
+      VALUES ('${ids.A}','B-compat','${ids.owner}','pro','active');
+    INSERT INTO public.profiles(id,business_id,role,is_active,email) VALUES ${profiles};
+    INSERT INTO public.suppliers(id,business_id,name,active) VALUES ('${ids.supA}','${ids.A}','Prov-compat',true);
+    INSERT INTO public.supplier_purchases(id,business_id,supplier_id,purchase_date,total_amount,paid_amount,pending_amount,payment_status)
+      VALUES ('${ids.purA}','${ids.A}','${ids.supA}',current_date,${SP_TOTAL},21203,${SP_PENDING},'partial');
+    INSERT INTO public.supplier_purchase_items(id,business_id,purchase_id,supplier_id,product_name,quantity,unit_cost,subtotal)
+      VALUES (gen_random_uuid(),'${ids.A}','${ids.purA}','${ids.supA}','l',1,${ITEM_COST},${ITEM_COST});
+    INSERT INTO public.supplier_payments(id,business_id,supplier_id,purchase_id,payment_date,amount,payment_method)
+      VALUES (gen_random_uuid(),'${ids.A}','${ids.supA}','${ids.purA}',current_date,${PAY_AMOUNT},'transferencia');
+    INSERT INTO public.supplier_account_movements(id,business_id,supplier_id,purchase_id,movement_date,type,description,debit,credit,balance_after)
+      VALUES (gen_random_uuid(),'${ids.A}','${ids.supA}','${ids.purA}',current_date,'purchase','m',${MOV_DEBIT},0,${MOV_DEBIT});
+    COMMIT;
+  `)
+  seeded = true
+
+  // ═══ FE VIEJO + DB NUEVA ═════════════════════════════════════════════════
+  // Las formas literales de origin/main (51afe27a).
+  const OLD_SHAPES = [
+    ['listado con stats embebidas', `/suppliers?business_id=eq.${ids.A}&select=*,supplier_purchases(total_amount,paid_amount,pending_amount,purchase_date)`],
+    ['compras con lineas',          `/supplier_purchases?supplier_id=eq.${ids.supA}&business_id=eq.${ids.A}&select=*,items:supplier_purchase_items(*)`],
+    ['pagos select=*',              `/supplier_payments?supplier_id=eq.${ids.supA}&business_id=eq.${ids.A}&select=*`],
+    ['cuenta corriente select=*',   `/supplier_account_movements?supplier_id=eq.${ids.supA}&business_id=eq.${ids.A}&select=*`],
+    ['deuda del dashboard',         `/supplier_purchases?business_id=eq.${ids.A}&payment_status=neq.paid&select=pending_amount`],
+    ['proveedores select=*',        `/suppliers?business_id=eq.${ids.A}&select=*`],
+    ['timeline de proveedor',       `/supplier_account_movements?supplier_id=eq.${ids.supA}&business_id=eq.${ids.A}&select=*&order=created_at.desc&limit=50`],
+  ]
+  console.log('\n── FE VIEJO + DB NUEVA ──')
+  for (const actor of ACTORS) {
+    for (const [label, path] of OLD_SHAPES) {
+      const r = await request(actor, path)
+      // Lo que NO puede pasar: que la pantalla vieja se rompa.
+      expect(r.status === 200,
+        `FE viejo + DB nueva · ${actor} · ${label}: el frontend actual recibiría ${r.status} — ${r.text.slice(0, 200)}`)
+      // Y lo que tampoco puede pasar: que siga filtrando.
+      if (!['owner', 'admin', 'manager', 'cashier'].includes(actor)) {
+        for (const v of FORBIDDEN) {
+          expect(!r.text.includes(String(v)),
+            `FE viejo + DB nueva · ${actor} · ${label}: filtró ${v}`)
+        }
+      }
+    }
+    console.log(`  ✓ ${actor} — las 7 formas viejas responden 200`)
+  }
+  // FASE B: la tabla base volvió a exigir autoridad de COSTO, así que la
+  // consulta VIEJA del dashboard le sigue devolviendo lista vacía al actor de
+  // finanzas. No es una regresión del lote: es el defecto original, que se
+  // arregla con el frontend nuevo (que lee v_finance_supplier_debt). Lo que
+  // importa es que NO responde 403 ni filtra nada.
+  const cashierOld = await request('cashier', `/supplier_purchases?business_id=eq.${ids.A}&payment_status=neq.paid&select=pending_amount`)
+  expect(cashierOld.status === 200 && cashierOld.text.trim() === '[]',
+    `FE viejo + DB nueva · el cashier recibe 200 [] (no 403) — ${cashierOld.status} ${cashierOld.text.slice(0, 200)}`)
+  console.log('  ✓ cashier — la consulta vieja no rompe; el cero falso lo cierra el frontend nuevo')
+
+  // Y el frontend NUEVO, contra la DB nueva, sí recibe la deuda real.
+  expect((await request('cashier', `/v_finance_supplier_debt?business_id=eq.${ids.A}&select=outstanding_ars`))
+    .text.includes(String(SP_PENDING)),
+    'FE nuevo + DB nueva · el cashier recibe la deuda real por la vista canónica')
+  console.log('  ✓ FE nuevo + DB nueva — la deuda real llega por la vista canónica')
+
+  // ═══ FE NUEVO + DB VIEJA ═════════════════════════════════════════════════
+  // En la DB vieja las dos vistas del lote NO existen. Se simula pidiendo un
+  // nombre inexistente: PostgREST responde 404, que es la rama de ERROR del
+  // service — y el service la traduce a «restringido», nunca a 0.
+  console.log('\n── FE NUEVO + DB VIEJA ──')
+  for (const view of ['v_finance_supplier_debt_missing', 'v_finance_supplier_stats_missing']) {
+    const r = await request('owner', `/${view}?select=*`)
+    expect(r.status >= 400,
+      `FE nuevo + DB vieja · ${view}: una vista ausente tiene que dar error (dio ${r.status}), no datos`)
+  }
+  console.log('  ✓ las vistas ausentes dan error de lectura, no filas vacías')
+  console.log('    → el service lo mapea a outstanding=null (restringido), cubierto por')
+  console.log('      tests/components/sec08cSupplierFinanceTruth.test.tsx')
+
+  // OJO: nada de backticks dentro de este bloque. Un '*' entre backticks
+  // cerraba el template literal antes de tiempo y el resto se evaluaba como
+  // una multiplicacion de strings: la conclusion se imprimia como "NaN".
+  console.log('')
+  console.log('=== CONCLUSION DE ROLLOUT ===')
+  // ═══ ESCRITURA · el FE viejo ofrece una accion que la DB nueva rechaza ═══
+  // La fase B cambio la autoridad de pago a proposito. Llamar a esto
+  // "totalmente compatible" seria falso: es compatible en LECTURA y NO en
+  // ESCRITURA, y la diferencia se mide en vez de describirse.
+  console.log('\n── FE VIEJO + DB NUEVA · ESCRITURA ──')
+  const today = sql(`SELECT current_date::text`)
+  const payAttempt = async actor => rpc(actor, 'pay_supplier_free_atomic', {
+    p_business_id: ids.A, p_supplier_id: ids.supA, p_user_id: ids[actor],
+    p_supplier_name: 'Prov-compat', p_payment_date: today, p_amount: 4242,
+    p_payment_method: 'transferencia', p_notes: 'compat', p_idempotency_key: null,
+  })
+  for (const actor of ['manager', 'sales']) {
+    const r = await payAttempt(actor)
+    expect(r.status >= 400 || JSON.parse(r.text)?.ok !== true,
+      `FE viejo + DB nueva · ${actor} · el pago que el FE viejo ofrece es RECHAZADO — ${r.status}`)
+    console.log(`  · ${actor} — el FE viejo ofrece "Registrar pago" y la DB nueva lo RECHAZA`)
+  }
+  const okPay = await payAttempt('cashier')
+  expect(okPay.status === 200 && JSON.parse(okPay.text)?.ok === true,
+    `FE viejo + DB nueva · cashier · el pago legitimo SIGUE funcionando — ${okPay.text.slice(0, 200)}`)
+  console.log('  ✓ cashier — el pago legitimo no se rompe')
+  expect(sql(`SELECT count(*) FROM public.supplier_payments WHERE business_id='${ids.A}' AND amount=4242;`) === '1',
+    'solo quedo el pago del actor autorizado')
+
+  console.log('')
+  console.log('                          SEGURIDAD   LECTURA      ESCRITURA')
+  console.log('  FE viejo + DB nueva :   SEGURA      COMPATIBLE   *DESALINEADA*')
+  console.log('  FE nuevo + DB vieja :   SEGURA      DEGRADADA    DESALINEADA')
+  console.log('  FE nuevo + DB nueva :   SEGURA      CORRECTA     ALINEADA')
+  console.log('')
+  console.log('  FE viejo + DB nueva')
+  console.log('    seguridad : ninguna forma actual recibe 403 y nada se filtra.')
+  console.log('    lectura   : compatible. El cashier sigue viendo el cero falso del')
+  console.log('                dashboard viejo — es el defecto ORIGINAL, no una regresion,')
+  console.log('                y lo cierra el frontend nuevo.')
+  console.log('    ESCRITURA : DESALINEADA A PROPOSITO. El FE viejo sigue ofreciendo')
+  console.log('                "Registrar pago" a manager y sales, y la DB nueva lo rechaza')
+  console.log('                con 42501. NO es inseguro —el rechazo es el comportamiento')
+  console.log('                correcto— pero es una accion que falla. Medido arriba.')
+  console.log('')
+  console.log('  FE nuevo + DB vieja')
+  console.log('    falta la proyeccion financiera y las vistas leen la tabla base, asi que')
+  console.log('    el actor de finanzas ve todo restringido. Y el FE nuevo esconde la')
+  console.log('    accion de pago a manager, que en la DB VIEJA todavia podia pagar.')
+  console.log('')
+  console.log('  ORDEN REQUERIDO: DB PRIMERO, despues frontend.')
+  console.log('')
+  console.log('  Se elige por comportamiento medido, no por prolijidad de la matriz: la DB')
+  console.log('  es la frontera de autoridad y tiene que endurecerse primero. El costo')
+  console.log('  aceptado y explicito es la ventana entre las dos mitades, donde manager y')
+  console.log('  sales ven un boton de pago que falla, y el cashier sigue con el cero falso')
+  console.log('  del dashboard viejo. Ninguno de los dos es un problema de SEGURIDAD; los')
+  console.log('  dos son UX. Por eso la ventana tiene que ser corta y el smoke se corre en')
+  console.log('  las DOS mitades, no solo al final.')
+  console.log('')
+  console.log('  El orden inverso —frontend primero— seria PEOR: escondería el pago a')
+  console.log('  manager mientras la DB todavia se lo permite, o sea que quitaria una')
+  console.log('  capacidad vigente sin ninguna ganancia de seguridad.')
+  console.log('')
+  console.log('  Sigue siendo la INVERSA de SEC-08A y SEC-08B, que exigian frontend-primero')
+  console.log('  porque revocaban COLUMNAS y el asterisco del cliente viejo devolvia 42501.')
+  console.log('  Este lote no revoca ninguna columna: mueve predicados de RLS y agrega una')
+  console.log('  proyeccion, o sea que filtra FILAS.')
+  console.log('')
+  console.log(`  ${checks} aserciones.`)
+}
+
+const cleanup = () => {
+  if (!seeded) return
+  try {
+    sql(`
+      BEGIN;
+      SET session_replication_role=replica;
+      DELETE FROM public.supplier_account_movements WHERE business_id='${ids.A}';
+      DELETE FROM public.supplier_payments WHERE business_id='${ids.A}';
+      DELETE FROM public.supplier_purchase_items WHERE business_id='${ids.A}';
+      DELETE FROM public.supplier_purchases WHERE business_id='${ids.A}';
+      DELETE FROM public.suppliers WHERE business_id='${ids.A}';
+      DELETE FROM public.profiles WHERE business_id='${ids.A}';
+      DELETE FROM public.businesses WHERE id='${ids.A}';
+      DELETE FROM auth.users WHERE email LIKE '%@${TAG}';
+      COMMIT;
+    `)
+  } catch (e) { console.error('cleanup:', e.message) }
+}
+
+main().then(() => { cleanup(); process.exit(0) })
+  .catch(e => { cleanup(); console.error('\nSEC-08C compat FALLÓ:', e.message); process.exit(1) })

@@ -71,19 +71,33 @@ export interface AgingBucket {
   documents: number
 }
 
+/**
+ * SEC-08C fase B — `total`/`documents` son `null` cuando el actor NO tiene
+ * autoridad para conocer la cartera. `null` NO es 0: 0 afirma que no hay deuda
+ * (o no hay saldo por cobrar) y es verdad del negocio; `null` dice que no se
+ * puede saber. La RPC devuelve además `is_authorized` para que la UI no tenga
+ * que deducirlo de un número ausente.
+ *
+ * Hoy sólo `payables_aging` puede venir restringido; `receivables_aging` viaja
+ * siempre con números. Comparten tipo a propósito: si mañana se gatea la
+ * cartera de clientes, el compilador va a exigir el mismo tratamiento en vez de
+ * dejar pasar un cero falso.
+ */
 export interface AgingSection {
-  total: number
-  documents: number
+  total: number | null
+  documents: number | null
   buckets: AgingBucket[]
+  is_authorized?: boolean
 }
 
 export interface PayablesDue {
-  due_soon_amount: number
-  overdue_amount: number
-  undated_amount: number
-  undated_count: number
+  due_soon_amount: number | null
+  overdue_amount: number | null
+  undated_amount: number | null
+  undated_count: number | null
   /** false = todavía no se cargó ninguna fecha de vencimiento. NO es un error. */
   has_due_dates: boolean
+  is_authorized?: boolean
 }
 
 export interface InventoryCapital {

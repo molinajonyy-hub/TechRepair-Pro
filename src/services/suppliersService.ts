@@ -33,12 +33,27 @@ export interface Supplier {
   updated_at: string;
 }
 
+/**
+ * SEC-08C — las stats financieras de un proveedor pueden NO estar disponibles
+ * para el actor. `null` significa RESTRINGIDO, y es un estado distinto de 0.
+ * Un 0 acá es una afirmación del negocio ("no debe nada"); un null es "no
+ * tenés autoridad para saberlo". Colapsarlos fue el defecto original.
+ */
 export interface SupplierWithStats extends Supplier {
-  total_purchases: number;
-  total_paid: number;
-  pending_amount: number;
-  purchases_count: number;
+  total_purchases: number | null;
+  total_paid: number | null;
+  pending_amount: number | null;
+  purchases_count: number | null;
   last_purchase_date: string | null;
+  /** false → los importes de arriba son null por autoridad, no por ausencia. */
+  finance_authorized: boolean;
+}
+
+/** Deuda con proveedores, agregada server-side. `outstanding` null = restringido. */
+export interface SupplierDebtSummary {
+  outstanding: number | null;
+  documents: number | null;
+  authorized: boolean;
 }
 
 export interface SupplierPurchase {
@@ -130,15 +145,28 @@ export interface CreatePaymentInput {
   notes?: string;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Proyecciones explícitas (SEC-08C) ───────────────────────────────────────
+//
+// Ninguna de estas tablas es 100 % operativa: todas mezclan datos de contacto o
+// de documento con verdad financiera. Un `select('*')` sobre ellas es una API
+// que expone en silencio cualquier columna que se agregue después, así que la
+// forma que cruza la red queda escrita y auditable.
 
-function computeRunningBalance(movements: AccountMovement[]): AccountMovement[] {
-  let balance = 0;
-  return movements.map(m => {
-    balance = balance + m.debit - m.credit;
-    return { ...m, balance_after: balance };
-  });
-}
+// `as const` y en una sola línea a propósito: supabase-js infiere el tipo de la
+// fila desde el LITERAL de la proyección. Partirlas con `+` las degrada a
+// `string` y la respuesta vuelve sin tipar.
+const PURCHASE_COLUMNS = 'id,business_id,supplier_id,purchase_date,due_date,invoice_number,total_amount,paid_amount,pending_amount,payment_status,payment_method,notes,attachment_url,created_by,created_at,updated_at' as const;
+
+// unit_cost y subtotal siguen gateados por `inventory_view_costs` (SEC-08B):
+// pedirlos no los entrega, la RLS filtra la fila. Se los nombra igual para que
+// la dependencia sea visible en el código y no un efecto lateral.
+const PURCHASE_ITEM_COLUMNS = 'id,business_id,purchase_id,supplier_id,inventory_id,product_name,quantity,unit_cost,subtotal,created_at' as const;
+
+const PAYMENT_COLUMNS = 'id,business_id,supplier_id,purchase_id,payment_date,amount,payment_method,notes,created_by,created_at' as const;
+
+const ACCOUNT_MOVEMENT_COLUMNS = 'id,business_id,supplier_id,purchase_id,payment_id,movement_date,type,description,debit,credit,balance_after,created_at' as const;
+
+const SUPPLIER_STATS_COLUMNS = 'supplier_id,total_purchases,total_paid,pending_amount,purchases_count,last_purchase_date,is_authorized' as const;
 
 // ─── Service ─────────────────────────────────────────────────────────────────
 
@@ -146,31 +174,59 @@ export const suppliersService = {
 
   // ── Listado con estadísticas ────────────────────────────────────────────────
 
+  // SEC-08C — el listado ya NO trae supplier_purchases embebida ni suma en el
+  // browser. Los importes los agrega `v_finance_supplier_stats` server-side y
+  // llegan en null cuando el actor no tiene autoridad financiera: un proveedor
+  // sin autoridad muestra "—", nunca "$0" ni "Al día".
   async getSuppliersWithStats(businessId: string): Promise<SupplierWithStats[]> {
-    const { data, error } = await supabase
-      .from('suppliers')
-      .select(`*, supplier_purchases(total_amount, paid_amount, pending_amount, purchase_date)`)
-      .eq('business_id', businessId)
-      .order('name');
+    const [{ data, error }, { data: stats, error: statsError }] = await Promise.all([
+      supabase.from('suppliers').select('*').eq('business_id', businessId).order('name'),
+      supabase.from('v_finance_supplier_stats').select(SUPPLIER_STATS_COLUMNS).eq('business_id', businessId),
+    ]);
 
     if (error) throw new Error(error.message);
+    // Las stats son opcionales: si fallan, el listado operativo tiene que
+    // seguir funcionando, pero NO se inventa un 0 — se marca restringido.
+    if (statsError) logger.error('SUPPLIERS', 'No se pudieron leer las stats de proveedor', statsError);
+
+    const byId = new Map((stats || []).map((r: any) => [r.supplier_id, r]));
 
     return (data || []).map((s: any) => {
-      const purchases: any[] = s.supplier_purchases || [];
-      const total_purchases = purchases.reduce((sum: number, p: any) => sum + (p.total_amount || 0), 0);
-      const total_paid = purchases.reduce((sum: number, p: any) => sum + (p.paid_amount || 0), 0);
-      const pending_amount = purchases.reduce((sum: number, p: any) => sum + (p.pending_amount || 0), 0);
-      const sorted = [...purchases].sort((a: any, b: any) => b.purchase_date > a.purchase_date ? 1 : -1);
+      const st = byId.get(s.id);
+      const authorized = st?.is_authorized === true;
+      const num = (v: unknown) => (authorized && v !== null && v !== undefined ? Number(v) : null);
       return {
         ...s,
-        supplier_purchases: undefined,
-        total_purchases,
-        total_paid,
-        pending_amount,
-        purchases_count: purchases.length,
-        last_purchase_date: sorted[0]?.purchase_date || null,
-      };
+        total_purchases:    num(st?.total_purchases),
+        total_paid:         num(st?.total_paid),
+        pending_amount:     num(st?.pending_amount),
+        purchases_count:    num(st?.purchases_count),
+        last_purchase_date: authorized ? (st?.last_purchase_date ?? null) : null,
+        finance_authorized: authorized,
+      } as SupplierWithStats;
     });
+  },
+
+  // Fuente canónica de la tarjeta «Deuda proveedores». El agregado lo hace la
+  // base; acá no se suma nada.
+  async getSupplierDebt(businessId: string): Promise<SupplierDebtSummary> {
+    const { data, error } = await supabase
+      .from('v_finance_supplier_debt')
+      .select('outstanding_ars,documents,is_authorized')
+      .eq('business_id', businessId)
+      .maybeSingle();
+
+    // Un fallo de lectura NO puede convertirse en «no hay deuda».
+    if (error) {
+      logger.error('SUPPLIERS', 'No se pudo leer la deuda de proveedores', error);
+      return { outstanding: null, documents: null, authorized: false };
+    }
+    const authorized = data?.is_authorized === true;
+    return {
+      outstanding: authorized && data?.outstanding_ars !== null ? Number(data?.outstanding_ars) : null,
+      documents:   authorized && data?.documents !== null ? Number(data?.documents) : null,
+      authorized,
+    };
   },
 
   // ── CRUD proveedores ────────────────────────────────────────────────────────
@@ -234,7 +290,7 @@ export const suppliersService = {
   async getPurchases(supplierId: string, businessId: string): Promise<SupplierPurchase[]> {
     const { data, error } = await supabase
       .from('supplier_purchases')
-      .select('*, items:supplier_purchase_items(*)')
+      .select(`${PURCHASE_COLUMNS}, items:supplier_purchase_items(${PURCHASE_ITEM_COLUMNS})`)
       .eq('supplier_id', supplierId)
       .eq('business_id', businessId)
       .order('purchase_date', { ascending: false });
@@ -245,7 +301,7 @@ export const suppliersService = {
   async getPurchaseWithItems(purchaseId: string, businessId: string): Promise<SupplierPurchase | null> {
     const { data } = await supabase
       .from('supplier_purchases')
-      .select('*, items:supplier_purchase_items(*)')
+      .select(`${PURCHASE_COLUMNS}, items:supplier_purchase_items(${PURCHASE_ITEM_COLUMNS})`)
       .eq('id', purchaseId).eq('business_id', businessId).single();
     return data as SupplierPurchase | null;
   },
@@ -305,7 +361,7 @@ export const suppliersService = {
 
     const purchase = await supabase
       .from('supplier_purchases')
-      .select('*, items:supplier_purchase_items(*)')
+      .select(`${PURCHASE_COLUMNS}, items:supplier_purchase_items(${PURCHASE_ITEM_COLUMNS})`)
       .eq('id', data.purchase_id)
       .single();
 
@@ -317,7 +373,9 @@ export const suppliersService = {
       .from('supplier_purchases')
       .update({ ...updates, updated_at: new Date().toISOString() })
       .eq('id', id).eq('business_id', businessId)
-      .select().single();
+      // `.select()` a secas es RETURNING *: la misma forma cruda que este lote
+      // quitó de las lecturas, sólo que por la puerta del UPDATE.
+      .select(PURCHASE_COLUMNS).single();
     if (error || !data) throw new Error(error?.message || 'Error al actualizar compra');
     return data as SupplierPurchase;
   },
@@ -348,7 +406,7 @@ export const suppliersService = {
   async getPayments(supplierId: string, businessId: string): Promise<SupplierPayment[]> {
     const { data, error } = await supabase
       .from('supplier_payments')
-      .select('*')
+      .select(PAYMENT_COLUMNS)
       .eq('supplier_id', supplierId).eq('business_id', businessId)
       .order('payment_date', { ascending: false });
     if (error) throw new Error(error.message);
@@ -373,7 +431,7 @@ export const suppliersService = {
     const fetchPayment = async (paymentId: string, replay: boolean) => {
       const { data: payment } = await supabase
         .from('supplier_payments')
-        .select('*')
+        .select(PAYMENT_COLUMNS)
         .eq('id', paymentId)
         .single();
       return { ...(payment || { id: paymentId }), replay } as SupplierPayment & { replay: boolean };
@@ -429,12 +487,18 @@ export const suppliersService = {
   async getAccountMovements(supplierId: string, businessId: string): Promise<AccountMovement[]> {
     const { data, error } = await supabase
       .from('supplier_account_movements')
-      .select('*')
+      .select(ACCOUNT_MOVEMENT_COLUMNS)
       .eq('supplier_id', supplierId).eq('business_id', businessId)
       .order('movement_date', { ascending: true })
       .order('created_at', { ascending: true });
     if (error) throw new Error(error.message);
-    return computeRunningBalance((data || []) as AccountMovement[]);
+    // SEC-08C — antes se recalculaba `balance_after` en el browser y se pisaba
+    // el valor canónico. `balance_after` lo calcula server-side el trigger
+    // `trig_supplier_account_movement_balance` con su advisory lock: el cliente
+    // no tiene por qué reconstruirlo, y de hecho ninguna superficie lo mostraba
+    // (Suppliers.tsx sólo usa la cantidad de movimientos). Se devuelve el valor
+    // de la base tal cual.
+    return (data || []) as AccountMovement[];
   },
 };
 

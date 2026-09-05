@@ -48,6 +48,8 @@ function isEmptyPayload(d: FinanceChartsL1): boolean {
     d.summary.operating_expenses === 0 &&
     d.summary.collections === 0 &&
     d.receivables_aging.total === 0 &&
+    // SEC-08C fase B: `null` es RESTRINGIDO, no cero. Un período con deuda que
+    // no se puede ver NO es un período vacío, así que no cuenta como tal.
     d.payables_aging.total === 0 &&
     d.inventory_capital.inventory_at_cost === 0
   )
