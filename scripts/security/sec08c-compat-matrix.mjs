@@ -53,13 +53,16 @@ const main = async () => {
     const c = Buffer.from(JSON.stringify({ role: 'authenticated', aud: 'authenticated', sub: ids[actor], exp: Math.floor(Date.now() / 1000) + 900 })).toString('base64url')
     return `${h}.${c}.${createHmac('sha256', signingKey).update(`${h}.${c}`).digest('base64url')}`
   }
-  const request = async (actor, path) => {
+  const request = async (actor, path, init) => {
     const r = await fetch(apiUrl + path, {
+      method: init?.method || 'GET',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token(actor)}` },
+      body: init?.body,
       signal: AbortSignal.timeout(15000),
     })
     return { status: r.status, text: await r.text() }
   }
+  const rpc = (actor, fn, args) => request(actor, `/rpc/${fn}`, { method: 'POST', body: JSON.stringify(args) })
   const expect = (cond, label) => { checks++; assert(cond, label) }
 
   const profiles = ACTORS.map(n => `('${ids[n]}','${ids.A}','${n}',true,'${n}@${TAG}')`).join(',')
@@ -146,23 +149,64 @@ const main = async () => {
   // una multiplicacion de strings: la conclusion se imprimia como "NaN".
   console.log('')
   console.log('=== CONCLUSION DE ROLLOUT ===')
-  console.log('  FE viejo + DB nueva : COMPATIBLE. Ninguna forma actual recibe 403; solo se')
-  console.log('                        filtran filas. El cashier sigue viendo el cero falso')
-  console.log('                        del dashboard viejo: es el defecto ORIGINAL, no una')
-  console.log('                        regresion, y lo cierra el frontend nuevo.')
-  console.log('  FE nuevo + DB vieja : DEGRADADO. Falta la proyeccion financiera y las')
-  console.log('                        vistas leen la tabla base, asi que el actor de')
-  console.log('                        finanzas ve todo restringido. Sin cero falso, pero')
-  console.log('                        sin poder ver la deuda.')
-  console.log('  FE nuevo + DB nueva : CORRECTO. Deuda real al autorizado, restringido al')
-  console.log('                        resto, y ningun campo operativo en la proyeccion.')
+  // ═══ ESCRITURA · el FE viejo ofrece una accion que la DB nueva rechaza ═══
+  // La fase B cambio la autoridad de pago a proposito. Llamar a esto
+  // "totalmente compatible" seria falso: es compatible en LECTURA y NO en
+  // ESCRITURA, y la diferencia se mide en vez de describirse.
+  console.log('\n── FE VIEJO + DB NUEVA · ESCRITURA ──')
+  const today = sql(`SELECT current_date::text`)
+  const payAttempt = async actor => rpc(actor, 'pay_supplier_free_atomic', {
+    p_business_id: ids.A, p_supplier_id: ids.supA, p_user_id: ids[actor],
+    p_supplier_name: 'Prov-compat', p_payment_date: today, p_amount: 4242,
+    p_payment_method: 'transferencia', p_notes: 'compat', p_idempotency_key: null,
+  })
+  for (const actor of ['manager', 'sales']) {
+    const r = await payAttempt(actor)
+    expect(r.status >= 400 || JSON.parse(r.text)?.ok !== true,
+      `FE viejo + DB nueva · ${actor} · el pago que el FE viejo ofrece es RECHAZADO — ${r.status}`)
+    console.log(`  · ${actor} — el FE viejo ofrece "Registrar pago" y la DB nueva lo RECHAZA`)
+  }
+  const okPay = await payAttempt('cashier')
+  expect(okPay.status === 200 && JSON.parse(okPay.text)?.ok === true,
+    `FE viejo + DB nueva · cashier · el pago legitimo SIGUE funcionando — ${okPay.text.slice(0, 200)}`)
+  console.log('  ✓ cashier — el pago legitimo no se rompe')
+  expect(sql(`SELECT count(*) FROM public.supplier_payments WHERE business_id='${ids.A}' AND amount=4242;`) === '1',
+    'solo quedo el pago del actor autorizado')
+
   console.log('')
-  console.log('  ORDEN REQUERIDO: DB PRIMERO, despues frontend. Sin cambios respecto de la')
-  console.log('  fase A, y por el mismo motivo medido: la DB nueva no rompe ninguna forma')
-  console.log('  del frontend viejo, mientras que el frontend nuevo contra la DB vieja se')
-  console.log('  queda ciego. La fase B agrega un matiz: entre las dos mitades del rollout')
-  console.log('  el cero falso del cashier SIGUE presente, asi que la ventana entre db push')
-  console.log('  y deploy del frontend tiene que ser corta y el smoke se corre en las DOS.')
+  console.log('                          SEGURIDAD   LECTURA      ESCRITURA')
+  console.log('  FE viejo + DB nueva :   SEGURA      COMPATIBLE   *DESALINEADA*')
+  console.log('  FE nuevo + DB vieja :   SEGURA      DEGRADADA    DESALINEADA')
+  console.log('  FE nuevo + DB nueva :   SEGURA      CORRECTA     ALINEADA')
+  console.log('')
+  console.log('  FE viejo + DB nueva')
+  console.log('    seguridad : ninguna forma actual recibe 403 y nada se filtra.')
+  console.log('    lectura   : compatible. El cashier sigue viendo el cero falso del')
+  console.log('                dashboard viejo — es el defecto ORIGINAL, no una regresion,')
+  console.log('                y lo cierra el frontend nuevo.')
+  console.log('    ESCRITURA : DESALINEADA A PROPOSITO. El FE viejo sigue ofreciendo')
+  console.log('                "Registrar pago" a manager y sales, y la DB nueva lo rechaza')
+  console.log('                con 42501. NO es inseguro —el rechazo es el comportamiento')
+  console.log('                correcto— pero es una accion que falla. Medido arriba.')
+  console.log('')
+  console.log('  FE nuevo + DB vieja')
+  console.log('    falta la proyeccion financiera y las vistas leen la tabla base, asi que')
+  console.log('    el actor de finanzas ve todo restringido. Y el FE nuevo esconde la')
+  console.log('    accion de pago a manager, que en la DB VIEJA todavia podia pagar.')
+  console.log('')
+  console.log('  ORDEN REQUERIDO: DB PRIMERO, despues frontend.')
+  console.log('')
+  console.log('  Se elige por comportamiento medido, no por prolijidad de la matriz: la DB')
+  console.log('  es la frontera de autoridad y tiene que endurecerse primero. El costo')
+  console.log('  aceptado y explicito es la ventana entre las dos mitades, donde manager y')
+  console.log('  sales ven un boton de pago que falla, y el cashier sigue con el cero falso')
+  console.log('  del dashboard viejo. Ninguno de los dos es un problema de SEGURIDAD; los')
+  console.log('  dos son UX. Por eso la ventana tiene que ser corta y el smoke se corre en')
+  console.log('  las DOS mitades, no solo al final.')
+  console.log('')
+  console.log('  El orden inverso —frontend primero— seria PEOR: escondería el pago a')
+  console.log('  manager mientras la DB todavia se lo permite, o sea que quitaria una')
+  console.log('  capacidad vigente sin ninguna ganancia de seguridad.')
   console.log('')
   console.log('  Sigue siendo la INVERSA de SEC-08A y SEC-08B, que exigian frontend-primero')
   console.log('  porque revocaban COLUMNAS y el asterisco del cliente viejo devolvia 42501.')

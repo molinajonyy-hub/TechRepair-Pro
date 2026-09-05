@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 import { smartSearch, buildSupabaseQuery } from '../utils/searchUtils'
 import { ProductFormModalSafe as ProductFormModal } from '../components/products/ProductFormModal'
 import type { InventoryItem } from '../hooks/useInventory'
@@ -294,9 +295,11 @@ interface ModalNuevaCompraProps {
   supplier: SupplierWithStats
   businessId: string
   userId: string
+  /** `finance` del actor. Sin él la compra sólo puede ser A CRÉDITO. */
+  canFinance: boolean
 }
 
-function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: ModalNuevaCompraProps) {
+function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId, canFinance }: ModalNuevaCompraProps) {
   const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0])
   const [dueDate, setDueDate] = useState('')
   const [invoiceNumber, setInvoiceNumber] = useState('')
@@ -315,7 +318,11 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
   }
 
   const totalAmount = rows.reduce((s, r) => s + r.quantity * r.unit_cost, 0)
-  const pendingAmount = Math.max(0, totalAmount - paidAmount)
+  // Sin `finance` el pago inicial es SIEMPRE 0, no importa qué haya quedado en
+  // el estado: los controles están ocultos, pero el valor efectivo se fija acá
+  // para que no dependa de que la UI haya sido la única puerta.
+  const effectivePaid = canFinance ? paidAmount : 0
+  const pendingAmount = Math.max(0, totalAmount - effectivePaid)
   // Métodos del grid visual (no cambia lógica de guardado)
   const PROV_METHODS = [
     { id: 'efectivo',      label: 'Efectivo',      short: 'Efec.',    color: '#22c55e' },
@@ -361,7 +368,7 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
     setSaving(true); setError('')
     try {
       await suppliersService.createPurchase(
-        { supplier_id: supplier.id, purchase_date: purchaseDate, due_date: dueDate || null, invoice_number: invoiceNumber, total_amount: totalAmount, paid_amount: paidAmount, payment_method: paymentMethod, notes, items: validRows.map(r => ({ inventory_id: r.inventory_id, product_name: r.product_name, quantity: r.quantity, unit_cost: r.unit_cost })) },
+        { supplier_id: supplier.id, purchase_date: purchaseDate, due_date: dueDate || null, invoice_number: invoiceNumber, total_amount: totalAmount, paid_amount: effectivePaid, payment_method: canFinance ? paymentMethod : '', notes, items: validRows.map(r => ({ inventory_id: r.inventory_id, product_name: r.product_name, quantity: r.quantity, unit_cost: r.unit_cost })) },
         businessId, userId, supplier.name
       )
       onSaved()
@@ -575,6 +582,14 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
             {/* ESTADO + MÉTODOS + RESUMEN */}
             <div style={{ padding: '0.875rem 1rem', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
 
+              {/* SEC-08C fase C — comprar A CRÉDITO sigue siendo una operación
+                  de inventario (excepción ratificada en SEC-08B), pero un pago
+                  inicial mueve caja y el servidor exige `inventory` Y `finance`.
+                  Sin Finanzas se retiran los controles de pago en vez de dejar
+                  que el actor complete el formulario y choque con un 42501. La
+                  compra a crédito —que es lo que SÍ puede hacer— queda intacta. */}
+              {canFinance ? (
+              <>
               {/* 3 estados de pago */}
               <div>
                 <div style={{ fontSize: '0.6rem', color: 'var(--text-tertiary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.375rem' }}>Estado de pago</div>
@@ -627,6 +642,20 @@ function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId }: Mo
                       <Wallet size={13} color="#818cf8" /> {fmtARS(pendingAmount)}
                     </div>
                   </div>
+                </div>
+              )}
+              </>
+              ) : (
+                <div data-testid="purchase-no-finance-note" style={{
+                  display: 'flex', gap: '0.5rem', alignItems: 'flex-start',
+                  padding: '0.6rem 0.7rem', borderRadius: '0.5rem',
+                  background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)',
+                }}>
+                  <Wallet size={14} style={{ color: '#818cf8', flexShrink: 0, marginTop: 1 }} />
+                  <span style={{ fontSize: '0.72rem', color: '#c7d2fe', lineHeight: 1.45 }}>
+                    Sin permiso de Finanzas, la compra se registrará pendiente:
+                    el total va a la cuenta corriente del proveedor.
+                  </span>
                 </div>
               )}
 
@@ -990,6 +1019,18 @@ const SupplierTimeline = memo(function SupplierTimeline({
 
 export function Suppliers() {
   const { businessId, user } = useAuth()
+  // SEC-08C fase C — desde la fase B, registrar un pago a proveedor exige
+  // `finance` server-side. Sin este gate la pantalla seguía ofreciendo la
+  // acción a cualquiera que entrara al módulo, y el actor recorría el modal
+  // entero para chocarse con un 42501 al final.
+  //
+  // Se resuelve por la autoridad canónica del cliente (`usePermissions`), que
+  // ya contempla owner, overrides de perfil y payload roto → DENY_ALL. NO se
+  // reimplementa la matriz de roles: sería una segunda fuente de verdad que se
+  // desincroniza con el primer override. Esto es alineación de UX; la autoridad
+  // sigue siendo el servidor, y una llamada directa a la RPC falla igual.
+  const { can } = usePermissions()
+  const canFinance = can('finance')
 
   // ── Vista ──
   const [view, setView] = useState<'list' | 'detail'>('list')
@@ -1455,10 +1496,12 @@ export function Suppliers() {
             <button className="btn btn-ghost" onClick={() => { setEditingSupplier(s); setShowModalSupplier(true) }}>
               <Edit2 size={14} /> Editar
             </button>
-            <button className="btn btn-ghost btn-sm" style={{ color: '#22c55e' }} onClick={() => { setDefaultPurchaseId(null); setShowModalPayment(true) }}>
-              <Banknote size={14} /> Registrar pago
-            </button>
-            <button className="btn btn-primary btn-lift" onClick={() => setShowModalPurchase(true)}>
+            {canFinance && (
+              <button data-testid="supplier-pay-header" className="btn btn-ghost btn-sm" style={{ color: '#22c55e' }} onClick={() => { setDefaultPurchaseId(null); setShowModalPayment(true) }}>
+                <Banknote size={14} /> Registrar pago
+              </button>
+            )}
+            <button data-testid="supplier-new-purchase" className="btn btn-primary btn-lift" onClick={() => setShowModalPurchase(true)}>
               <Plus size={14} /> Nueva compra
             </button>
           </div>
@@ -1586,8 +1629,8 @@ export function Suppliers() {
                       <td style={{ padding: '0.75rem 0.625rem' }}>
                         <div style={{ display: 'flex', gap: '0.25rem' }}>
                           <button className="icon-btn icon-btn-primary" title="Ver detalle" onClick={() => setViewingPurchase(p)}><Eye size={14} /></button>
-                          {p.payment_status !== 'paid' && (
-                            <button className="icon-btn" style={{ color: '#22c55e' }} title="Registrar pago" onClick={() => { setDefaultPurchaseId(p.id); setShowModalPayment(true) }}><Banknote size={14} /></button>
+                          {p.payment_status !== 'paid' && canFinance && (
+                            <button data-testid="supplier-pay-row" className="icon-btn" style={{ color: '#22c55e' }} title="Registrar pago" onClick={() => { setDefaultPurchaseId(p.id); setShowModalPayment(true) }}><Banknote size={14} /></button>
                           )}
                           <button className="icon-btn icon-btn-danger" title={p.paid_amount > 0 ? 'No se puede eliminar (tiene pagos)' : 'Eliminar compra'} onClick={() => handleDeletePurchase(p)} style={{ opacity: p.paid_amount > 0 ? 0.4 : 1 }}><Trash2 size={14} /></button>
                         </div>
@@ -1628,9 +1671,17 @@ export function Suppliers() {
       {activeTab === 'pagos' && (
         <div data-testid="supplier-payments-tab">
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
-            <button className="btn btn-success btn-lift" onClick={() => { setDefaultPurchaseId(null); setShowModalPayment(true) }}>
-              <Plus size={13} /> Registrar pago
-            </button>
+            {canFinance ? (
+              <button data-testid="supplier-pay-tab" className="btn btn-success btn-lift" onClick={() => { setDefaultPurchaseId(null); setShowModalPayment(true) }}>
+                <Plus size={13} /> Registrar pago
+              </button>
+            ) : (
+              // El historial se sigue viendo —leer lo que se debe es una
+              // operación de compras—; lo que no se ofrece es la acción.
+              <span data-testid="supplier-pay-no-permission" style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                Registrar pagos requiere permiso de Finanzas.
+              </span>
+            )}
           </div>
           {payments.length === 0 ? (
             <div style={{ ...cardS, textAlign: 'center', padding: '3rem', color: '#475569' }}>
@@ -1732,10 +1783,13 @@ export function Suppliers() {
         <div data-testid="supplier-invoice-modal">
           <ModalNuevaCompra onClose={() => setShowModalPurchase(false)}
             onSaved={() => { setShowModalPurchase(false); refreshDetail() }}
-            supplier={s} businessId={businessId || ''} userId={user?.id || ''} />
+            supplier={s} businessId={businessId || ''} userId={user?.id || ''}
+            canFinance={canFinance} />
         </div>
       )}
-      {showModalPayment && (
+      {/* El modal NO se monta sin autoridad, ni siquiera si algo pusiera el
+          flag en true: es la última barrera de UX antes del servidor. */}
+      {showModalPayment && canFinance && (
         <div data-testid="supplier-payment-modal">
           <ModalRegistrarPago onClose={() => { setShowModalPayment(false); setDefaultPurchaseId(null) }}
             onSaved={() => { setShowModalPayment(false); setDefaultPurchaseId(null); refreshDetail() }}

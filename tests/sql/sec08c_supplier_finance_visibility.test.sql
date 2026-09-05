@@ -65,6 +65,15 @@ BEGIN
   -- pg_temp AL FINAL: omitirlo lo pone PRIMERO y habilita shadowing.
   PERFORM pg_temp.assert(r.cfg LIKE '%pg_temp', 'search_path termina en pg_temp');
 
+  -- FASE C: el segundo termino es una CONJUNCION. `inventory_view_costs` es una
+  -- sub-permission del modulo de inventario y por si sola no describe a un
+  -- actor de compras; ademas v_inventory_costs (SEC-08B) ya exige las dos.
+  PERFORM pg_temp.assert(
+    EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+             WHERE n.nspname='public' AND p.proname='can_view_supplier_finance'
+               AND pg_get_functiondef(p.oid) LIKE '%''inventory''%'),
+    'la autoridad exige `inventory` junto con los costos (no solo-costos)');
+
   -- Compone capabilities EXISTENTES. No se invento `supplier_finance`.
   PERFORM pg_temp.assert(
     EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -389,6 +398,27 @@ BEGIN
   v_out := pg_temp.read_expr('authenticated', v_cashier,
     format('SELECT COALESCE(outstanding_ars::text,''IS_NULL'') FROM public.v_finance_supplier_debt WHERE business_id=%L', v_biz));
   PERFORM pg_temp.assert(v_out = 'IS_NULL', 'override finance=false sobre cashier: deniega, y con NULL');
+
+  -- FASE C: `inventory_view_costs` A SOLAS —sin `inventory`— NO alcanza. Es la
+  -- unica combinacion que cierra el endurecimiento, y solo se puede fabricar
+  -- con un override: ningun rol nace solo-costos.
+  UPDATE public.profiles
+     SET permissions = '{"inventory": false, "inventory_view_costs": true, "finance": false}'::jsonb
+   WHERE id = v_sales;
+  v_out := pg_temp.read_expr('authenticated', v_sales,
+    format('SELECT COALESCE(outstanding_ars::text,''IS_NULL'') FROM public.v_finance_supplier_debt WHERE business_id=%L', v_biz));
+  PERFORM pg_temp.assert(v_out = 'IS_NULL',
+    format('solo-costos (inventory=false) NO alcanza la deuda - llego %s', v_out));
+
+  -- …y con `inventory` puesto, la misma combinacion SI alcanza: la denegacion
+  -- de arriba es por la conjuncion, no porque la superficie este rota.
+  UPDATE public.profiles
+     SET permissions = '{"inventory": true, "inventory_view_costs": true, "finance": false}'::jsonb
+   WHERE id = v_sales;
+  v_out := pg_temp.read_expr('authenticated', v_sales,
+    format('SELECT outstanding_ars::text FROM public.v_finance_supplier_debt WHERE business_id=%L', v_biz));
+  PERFORM pg_temp.assert(v_out::numeric = v_debt,
+    format('inventory + costos SI alcanza la deuda (llego %s)', v_out));
 
   -- Un payload roto NO puede ampliar privilegio.
   UPDATE public.profiles SET permissions = '{"finance": "true"}'::jsonb WHERE id = v_sales;
