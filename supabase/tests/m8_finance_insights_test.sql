@@ -202,23 +202,55 @@ INSERT INTO supplier_purchases(business_id,supplier_id,purchase_date,due_date,
   total_amount,paid_amount,pending_amount,payment_status) VALUES
   (:'bizB',:'supB', public.ar_today()-40, NULL, 900000,0,900000,'pending');
 
+-- -a- Los vencimientos de proveedor dejaron de ser una lectura anonima.
+--    Desde SEC-08C (20260919120000_sec08c_b_payment_authority_and_finance_projection)
+--    `v_finance_payables_due` no lee `supplier_purchases` directo: lee de
+--    `public.finance_supplier_purchases()`, una proyeccion SECURITY DEFINER que
+--    filtra con
+--        sp.business_id = public.current_user_business_id()
+--        AND public.can_view_supplier_finance(sp.business_id)
+--
+--    Un SELECT como `postgres` SIN JWT no tiene negocio actual, asi que recibe
+--    CERO filas. Eso es el modelo de autoridad nuevo funcionando, no un bug de
+--    la vista: por eso la reparacion es del TEST y no de la vista.
+--
+--    Se lee entonces con un actor autorizado que el fixture ya sembraba: ownA,
+--    owner ACTIVO de bizA. Y se aplica el patron obligatorio del encabezado de
+--    este archivo -la vista entra a una SECURITY DEFINER-: el cambio de rol y
+--    la lectura van a NIVEL PSQL, jamas dentro de un DO; el resultado se guarda
+--    en m8_out y se asevera despues, ya con RESET ROLE hecho.
+SET LOCAL ROLE authenticated;
+SET LOCAL "request.jwt.claim.sub" = '00000000-0000-0000-0000-0000000a8009';
+
+INSERT INTO m8_out
+SELECT 'payablesA',
+       jsonb_build_object(
+         'overdue',   COALESCE(SUM(pending_amount) FILTER (WHERE due_status='overdue'),  0),
+         'due_soon',  COALESCE(SUM(pending_amount) FILTER (WHERE due_status='due_soon'), 0),
+         'future',    COALESCE(SUM(pending_amount) FILTER (WHERE due_status='future'),   0),
+         'undated',   COALESCE(SUM(pending_amount) FILTER (WHERE due_status='undated'),  0),
+         'paid_rows', count(*) FILTER (WHERE payment_status='paid'))
+  FROM v_finance_payables_due
+ WHERE business_id='00000000-0000-0000-0000-0000000a8001';
+
+RESET ROLE;
+
 DO $$
-DECLARE v_over numeric; v_soon numeric; v_fut numeric; v_und numeric; v_paid int;
+DECLARE j jsonb; v_over numeric; v_soon numeric; v_fut numeric; v_und numeric; v_paid int;
 BEGIN
-  SELECT COALESCE(SUM(pending_amount) FILTER (WHERE due_status='overdue'),0),
-         COALESCE(SUM(pending_amount) FILTER (WHERE due_status='due_soon'),0),
-         COALESCE(SUM(pending_amount) FILTER (WHERE due_status='future'),0),
-         COALESCE(SUM(pending_amount) FILTER (WHERE due_status='undated'),0)
-    INTO v_over, v_soon, v_fut, v_und
-    FROM v_finance_payables_due WHERE business_id='00000000-0000-0000-0000-0000000a8001';
+  SELECT m8_out.j INTO j FROM m8_out WHERE tag='payablesA';
+  -- Si la autoridad denegara, el agregado llega en cero y los asserts fallan:
+  -- el contrato sigue dependiendo de la frontera real de SEC-08C.
+  v_over := (j->>'overdue')::numeric;
+  v_soon := (j->>'due_soon')::numeric;
+  v_fut  := (j->>'future')::numeric;
+  v_und  := (j->>'undated')::numeric;
+  v_paid := (j->>'paid_rows')::int;
 
   PERFORM pg_temp.assert(v_over = 200000, 'T02 compra vencida entra como overdue ('||v_over||')');
   PERFORM pg_temp.assert(v_soon = 150000, 'T03f compra dentro de 14 dias entra como due_soon ('||v_soon||')');
   PERFORM pg_temp.assert(v_fut  = 900000, 'T04 compra a 15 dias NO entra al horizonte (queda future)');
   PERFORM pg_temp.assert(v_und  = 700000, 'T01b compra sin due_date queda undated ('||v_und||')');
-
-  SELECT count(*) INTO v_paid FROM v_finance_payables_due
-   WHERE business_id='00000000-0000-0000-0000-0000000a8001' AND payment_status='paid';
   PERFORM pg_temp.assert(v_paid = 0, 'T05 compra pagada no entra en la vista de vencimientos');
 END $$;
 
@@ -230,8 +262,32 @@ INSERT INTO m8_out VALUES ('inverted',
   public.generate_finance_insights('00000000-0000-0000-0000-0000000a8001','2026-08-31','2026-08-01'));
 INSERT INTO m8_out VALUES ('too_long',
   public.generate_finance_insights('00000000-0000-0000-0000-0000000a8001','2020-01-01','2026-08-31'));
+-- -a- CROSS-TENANT: la denegacion dejo de ser un jsonb y paso a ser EXCEPCION.
+--    Desde LOTE 3 (20260908120000_lote3_secdef_action_authority)
+--    `generate_finance_insights` esta envuelta en
+--        private.require_action_authority(p_business_id,'finance',NULL,'advancedFinance')
+--    que falla cerrado ANTES de la implementacion privada y hace
+--        RAISE EXCEPTION 'FORBIDDEN' USING ERRCODE = '42501'
+--    El contrato canonico de hoy es ese 42501, no un `{ok:false}` devuelto.
+--
+--    La llamada va a NIVEL PSQL, nunca dentro de un DO: entrar a una SECURITY
+--    DEFINER con el rol cambiado dentro de un DO crashea el backend en 17.6.
+--    Y va envuelta en SAVEPOINT para que el error esperado no deje la
+--    transaccion abortada: el genA1 legitimo tiene que poder correr despues.
+SAVEPOINT sp_cross_tenant;
+\set ON_ERROR_STOP off
+SELECT public.generate_finance_insights('00000000-0000-0000-0000-0000000b8001','2026-08-01','2026-08-31');
+\set ON_ERROR_STOP on
+-- Se captura ANTES del ROLLBACK: `ROLLBACK TO` es SQL y pisaria :ERROR.
+\set xt_error    :ERROR
+\set xt_sqlstate :LAST_ERROR_SQLSTATE
+ROLLBACK TO SAVEPOINT sp_cross_tenant;
+RELEASE SAVEPOINT sp_cross_tenant;
+
 INSERT INTO m8_out VALUES ('cross_tenant',
-  public.generate_finance_insights('00000000-0000-0000-0000-0000000b8001','2026-08-01','2026-08-31'));
+  jsonb_build_object('errored', :'xt_error', 'sqlstate', :'xt_sqlstate'));
+
+-- Si esto corre, la transaccion sobrevivio al error esperado.
 INSERT INTO m8_out VALUES ('genA1',
   public.generate_finance_insights('00000000-0000-0000-0000-0000000a8001',
     date_trunc('month', public.ar_today())::date, public.ar_today()));
@@ -239,7 +295,7 @@ INSERT INTO m8_out VALUES ('genA1',
 RESET ROLE;
 
 DO $$
-DECLARE j jsonb;
+DECLARE j jsonb; n_b int;
 BEGIN
   SELECT m8_out.j INTO j FROM m8_out WHERE tag='inverted';
   PERFORM pg_temp.assert((j->>'ok')='false', 'T08 periodo invertido rechazado');
@@ -247,12 +303,24 @@ BEGIN
   SELECT m8_out.j INTO j FROM m8_out WHERE tag='too_long';
   PERFORM pg_temp.assert((j->>'ok')='false', 'T08b periodo demasiado largo rechazado');
 
+  -- Denegacion EXACTA: 42501. Cualquier otro SQLSTATE -incluido '00000', que
+  -- es lo que quedaria si la llamada no hubiera fallado- rompe el assert.
   SELECT m8_out.j INTO j FROM m8_out WHERE tag='cross_tenant';
-  PERFORM pg_temp.assert((j->>'ok')='false' AND (j->>'error') ILIKE '%acceso%',
-    'T04b cross-tenant bloqueado: owner A no genera para negocio B');
+  PERFORM pg_temp.assert(
+    (j->>'errored') = 'true' AND (j->>'sqlstate') = '42501',
+    'T04b cross-tenant bloqueado: owner A no genera para negocio B (errored='
+      ||COALESCE(j->>'errored','null')||' sqlstate='||COALESCE(j->>'sqlstate','null')||')');
 
   SELECT m8_out.j INTO j FROM m8_out WHERE tag='genA1';
   PERFORM pg_temp.assert((j->>'ok')='true', 'T05b owner legitimo puede generar');
+
+  -- El intento denegado no puede dejar rastro en el negocio ajeno. Se cuenta
+  -- como postgres (la RLS no aplica), y en este punto del archivo todavia nadie
+  -- genero para B, asi que el cero es determinista.
+  SELECT count(*) INTO n_b FROM finance_insights
+   WHERE business_id='00000000-0000-0000-0000-0000000b8001';
+  PERFORM pg_temp.assert(n_b = 0,
+    'T04b-side el cross-tenant denegado no dejo ninguna fila en el negocio B ('||n_b||')');
 END $$;
 
 -- -"-"- 6. supplier_crunch -"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-
@@ -435,12 +503,30 @@ INSERT INTO m8_out VALUES ('readB_of_A',
     date_trunc('month', public.ar_today())::date, public.ar_today(), 'active', 10));
 RESET ROLE;
 
+-- -a- SIN MEMBRESIA: misma deuda y mismo mecanismo que el cross-tenant de T04b.
+--    `nomem` no tiene perfil en ningun negocio, asi que require_action_authority
+--    falla cerrado antes de la implementacion privada y la denegacion canonica
+--    vuelve a ser la EXCEPCION 42501, no un `{ok:false}` devuelto.
+--    Se reusa el mismo harness: llamada a nivel psql -jamas dentro de un DO- y
+--    SAVEPOINT para que el error esperado no deje la transaccion abortada.
 SET LOCAL ROLE authenticated;
 SET LOCAL "request.jwt.claim.sub" = '00000000-0000-0000-0000-0000000c8009';
-INSERT INTO m8_out VALUES ('genNoMem',
-  public.generate_finance_insights('00000000-0000-0000-0000-0000000a8001',
-    date_trunc('month', public.ar_today())::date, public.ar_today()));
+
+SAVEPOINT sp_nomem;
+\set ON_ERROR_STOP off
+SELECT public.generate_finance_insights('00000000-0000-0000-0000-0000000a8001',
+  date_trunc('month', public.ar_today())::date, public.ar_today());
+\set ON_ERROR_STOP on
+-- Se captura ANTES del ROLLBACK: `ROLLBACK TO` es SQL y pisaria :ERROR.
+\set nm_error    :ERROR
+\set nm_sqlstate :LAST_ERROR_SQLSTATE
+ROLLBACK TO SAVEPOINT sp_nomem;
+RELEASE SAVEPOINT sp_nomem;
+
 RESET ROLE;
+
+INSERT INTO m8_out VALUES ('genNoMem',
+  jsonb_build_object('errored', :'nm_error', 'sqlstate', :'nm_sqlstate'));
 
 DO $$
 DECLARE j jsonb;
@@ -453,8 +539,12 @@ BEGIN
   PERFORM pg_temp.assert(jsonb_array_length(COALESCE(j->'insights','[]'::jsonb)) = 0,
     'T04d owner B no lee insights del negocio A (RLS)');
 
+  -- Denegacion EXACTA: 42501. Ni "algun error", ni NULL, ni un {ok:false}.
   SELECT m8_out.j INTO j FROM m8_out WHERE tag='genNoMem';
-  PERFORM pg_temp.assert((j->>'ok')='false', 'T05c usuario sin membresia no puede generar');
+  PERFORM pg_temp.assert(
+    (j->>'errored') = 'true' AND (j->>'sqlstate') = '42501',
+    'T05c usuario sin membresia no puede generar (errored='
+      ||COALESCE(j->>'errored','null')||' sqlstate='||COALESCE(j->>'sqlstate','null')||')');
 END $$;
 
 -- -"-"- 11. Textos -"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-"-
