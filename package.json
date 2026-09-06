@@ -13,6 +13,7 @@
     "lint:errors": "eslint src --ext .ts,.tsx --quiet",
     "lint:ci": "eslint src --ext .ts,.tsx --max-warnings 100",
     "typecheck": "tsc --noEmit",
+    "test:sec08e": "node scripts/security/sec08e-local.mjs && vitest run --config vitest.config.ts tests/components/sec08ePartsUsedAccess.test.ts",
     "guard:ui-governance": "node scripts/guards/ui-governance-authority.mjs",
     "preguards": "npm run guard:ui-governance",
     "guard:finance-writes": "node scripts/guards/no-direct-finance-writes.mjs",

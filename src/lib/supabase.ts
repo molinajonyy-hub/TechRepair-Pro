@@ -106,8 +106,9 @@ export type PartUsed = {
   code: string
   description: string
   quantity: number
-  unit_price: number
-  subtotal: number
+  /** SEC-08E: absent when orders_view_financials is not authorized. */
+  unit_price?: number
+  subtotal?: number
   created_at: string
 }
 
