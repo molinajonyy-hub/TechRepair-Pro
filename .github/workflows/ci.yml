@@ -40,6 +40,9 @@ jobs:
       - name: MOBILE-2A — unit/component + secret/write guards
         run: npm run test:mobile2a
 
+      - name: SEC-08E R1 — client contract and compatibility
+        run: npm run test:components -- tests/components/sec08eClientContract.test.ts tests/components/sec08eUpdateUx.test.tsx tests/components/sec08eReload.test.ts tests/components/sec08ePartsUsedAccess.test.ts tests/components/mobileFoundations.test.tsx tests/components/portalUpdateDetector.test.tsx
+
       # P0-P1: invariantes de provisioning. Es estático —lee migraciones y
       # `src/`— así que no necesita DB ni credenciales y puede correr acá, en
       # PRs y en forks. El self-test va primero: un guard que no puede fallar no

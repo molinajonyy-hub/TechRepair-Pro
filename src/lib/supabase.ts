@@ -1,5 +1,6 @@
 // v3.0.1
 import { createClient } from '@supabase/supabase-js'
+import { createClientContractFetch, TECHREPAIR_CLIENT_HEADERS } from './clientContract'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
@@ -11,6 +12,10 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export const supabase = createClient(supabaseUrl as string, supabaseAnonKey as string, {
+  global: {
+    headers: TECHREPAIR_CLIENT_HEADERS,
+    fetch: createClientContractFetch(supabaseUrl),
+  },
   auth: {
     persistSession: true,
     autoRefreshToken: true,
@@ -106,8 +111,9 @@ export type PartUsed = {
   code: string
   description: string
   quantity: number
-  unit_price: number
-  subtotal: number
+  /** SEC-08E: absent when orders_view_financials is not authorized. */
+  unit_price?: number
+  subtotal?: number
   created_at: string
 }
 
