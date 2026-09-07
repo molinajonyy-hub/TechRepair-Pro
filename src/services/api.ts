@@ -3,7 +3,7 @@ import { supabase, type Order, type Customer, type Device, type Note,
   type User, type StatusHistory } from '../lib/supabase'
 import { getProfileCacheKey } from '../lib/profileCache'
 import { INVENTORY_OPERATIONAL_COLUMNS } from './inventoryCostAccess'
-import { PARTS_USED_OPERATIONAL_COLUMNS, hydratePartsUsedAmounts } from './partsUsedAccess'
+import { PARTS_USED_OPERATIONAL_COLUMNS, hydratePartsUsedAmounts, isPreSec08eSchema } from './partsUsedAccess'
 
 type CustomerPayload = Omit<Customer, 'id' | 'created_at' | 'updated_at' | 'business_id' | 'created_by'>
 
@@ -725,7 +725,10 @@ export const partsService = {
       .select('subtotal')
       .eq('order_id', orderId)
     
-    if (error) throw error
+    if (error) {
+      if (await isPreSec08eSchema(error)) return null
+      throw error
+    }
     return data?.reduce((sum, part) => sum + (part.subtotal || 0), 0) || 0
   }
 }

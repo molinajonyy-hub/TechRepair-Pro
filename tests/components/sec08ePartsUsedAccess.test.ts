@@ -2,12 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   amounts: [] as { id: string; unit_price: number; subtotal: number }[],
-  error: null as { message: string } | null,
+  error: null as { code?: string; message: string } | null,
+  markerError: null as { code?: string; message: string } | null,
+  markerCalls: 0,
   selects: [] as { table: string; columns: string }[],
   inserts: [] as unknown[],
 }))
 vi.mock('../../src/lib/supabase', () => ({
   supabase: {
+    rpc: () => { mocks.markerCalls++; return Promise.resolve({ data: false, error: mocks.markerError }) },
     from: (table: string) => {
       const operational = { id: 'part-1', order_id: 'order-1', code: 'SCREEN', description: 'Screen', quantity: 3, created_at: '2026-09-01' }
       const result = () => table === 'v_parts_used_amounts'
@@ -26,11 +29,49 @@ vi.mock('../../src/lib/supabase', () => ({
   },
 }))
 
-import { hydratePartsUsedAmounts } from '../../src/services/partsUsedAccess'
+import { hydratePartsUsedAmounts, isPreSec08eSchema } from '../../src/services/partsUsedAccess'
 import { ordersService, partsService } from '../../src/services/api'
 
 describe('SEC-08E parts data flow', () => {
-  beforeEach(() => { mocks.amounts=[]; mocks.error=null; mocks.selects=[]; mocks.inserts=[] })
+  beforeEach(() => { mocks.amounts=[]; mocks.error=null; mocks.markerError=null; mocks.markerCalls=0; mocks.selects=[]; mocks.inserts=[] })
+
+  const missingView={code:'PGRST205',message:"Could not find the table 'public.v_parts_used_amounts' in the schema cache"}
+  const missingMarker={code:'PGRST202',message:'Could not find the function public.can_view_payment_allocations(p_business_id) in the schema cache'}
+
+  it('preserves operational data only when both migration objects are absent', async () => {
+    mocks.error=missingView
+    mocks.markerError=missingMarker
+    const part=(await partsService.getByOrder('order-1'))[0]
+    expect(part.quantity).toBe(3)
+    expect(part).not.toHaveProperty('unit_price')
+    expect(part).not.toHaveProperty('subtotal')
+    expect(mocks.markerCalls).toBe(1)
+    expect(mocks.selects.filter(s=>s.table==='parts_used').every(s=>!s.columns.match(/unit_price|subtotal|\*/))).toBe(true)
+  })
+
+  it('propagates a missing view when the migration helper exists', async () => {
+    mocks.error=missingView
+    await expect(partsService.getByOrder('order-1')).rejects.toEqual(missingView)
+  })
+
+  it.each([
+    {code:'42501',message:'permission denied'},
+    {code:'PGRST301',message:'JWT expired'},
+    {code:'42P01',message:'relation does not exist'},
+    {code:'08006',message:'connection failure'},
+    {code:'XX000',message:'server failure'},
+    {code:'',message:'TypeError: Failed to fetch'},
+    {code:'PGRST205',message:"Could not find the table 'public.other_view' in the schema cache"},
+  ])('propagates real errors without a compatibility probe: $code', async error => {
+    mocks.error=error
+    await expect(partsService.getByOrder('order-1')).rejects.toEqual(error)
+    expect(mocks.markerCalls).toBe(0)
+  })
+
+  it('propagates an authorization failure on the deployment probe', async () => {
+    mocks.markerError={code:'42501',message:'permission denied'}
+    await expect(isPreSec08eSchema(missingView)).rejects.toEqual(mocks.markerError)
+  })
 
   it('keeps the operational order detail and omits restricted amounts', async () => {
     const order = await ordersService.getById('order-1')

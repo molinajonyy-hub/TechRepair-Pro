@@ -79,6 +79,7 @@ CREATE FUNCTION`)
     check(queryAs(2,`SELECT unit_price FROM public.parts_used WHERE id='${id(401)}'`) === '7103.19', 'baseline parts leak reproduced')
     check(queryAs(2,`SELECT amount FROM public.customer_account_payment_allocations WHERE id='${id(701)}'`) === '3719.31', 'baseline allocation leak reproduced')
     check(queryAs(2,`SELECT reverted_cogs_ars FROM public.comprobante_annulments WHERE id='${id(601)}'`) === '6197.29', 'baseline annulment leak reproduced')
+    if (process.argv.includes('--setup-pre-only')) return
     sql('SET ROLE postgres;\n'+readFileSync(`supabase/migrations/${migration}`,'utf8'))
     const after = snapshot()
     check(before === after, 'SEC-08A/B/C/D canonical RPC definitions unchanged')
@@ -227,7 +228,7 @@ main().catch(error=>{
   console.error(error.stderr?.toString() || error.message)
   process.exitCode=1
 }).finally(()=>{
-  if(!process.argv.includes('--setup-only')) {
+  if(!process.argv.includes('--setup-only') && !process.argv.includes('--setup-pre-only')) {
     try { docker(['rm','-f',restName]) } catch { /* already stopped */ }
     if(process.exitCode!==1) docker(['exec',source,'dropdb','-U','supabase_admin',database])
   }
