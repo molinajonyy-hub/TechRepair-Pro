@@ -1,12 +1,26 @@
 import { RefreshCw, X } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { useUpdateDetector } from '../hooks/useUpdateDetector'
+import { clientUpdateSignal } from '../lib/clientUpdateSignal'
 
 export function UpdateBanner() {
   const { updateAvailable, reload } = useUpdateDetector()
   const [dismissed, setDismissed] = useState(false)
+  const mandatory = useSyncExternalStore(clientUpdateSignal.subscribe, clientUpdateSignal.getSnapshot)
+  const [updating, setUpdating] = useState(false)
+  const [reloadError, setReloadError] = useState(false)
 
-  if (!updateAvailable || dismissed) return null
+  if (!mandatory && (!updateAvailable || dismissed)) return null
+
+  const update = async () => {
+    if (updating) return
+    setUpdating(true)
+    setReloadError(false)
+    try { await reload() } catch {
+      setReloadError(true)
+      setUpdating(false)
+    }
+  }
 
   return (
     // Isla dark: el banner es deliberadamente oscuro sobre ambos temas.
@@ -16,8 +30,9 @@ export function UpdateBanner() {
       className="update-banner"
       data-testid="update-banner"
       data-theme="dark"
-      role="status"
-      aria-live="polite"
+      role={mandatory ? 'alert' : 'status'}
+      aria-live={mandatory ? 'assertive' : 'polite'}
+      data-update-mode={mandatory ? 'mandatory' : 'optional'}
       style={{
       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.625rem', flexWrap: 'wrap',
       padding: '0.75rem 1rem',
@@ -32,11 +47,13 @@ export function UpdateBanner() {
       <style>{`@keyframes slideUp { from { opacity:0; transform:translateX(-50%) translateY(12px) } to { opacity:1; transform:translateX(-50%) translateY(0) } }`}</style>
 
       <span data-testid="update-banner-message" style={{ fontSize: '0.8125rem', color: '#e2e8f0' }}>
-        Hay una nueva versión disponible
+        {reloadError ? 'No se pudo actualizar. Volvé a intentarlo.'
+          : mandatory ? 'Actualizá la aplicación para continuar.' : 'Hay una nueva versión disponible'}
       </span>
 
       <button
-        onClick={reload}
+        onClick={() => { void update() }}
+        disabled={updating}
         className="mobile-touch-target"
         style={{
           display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
@@ -47,10 +64,10 @@ export function UpdateBanner() {
         }}
       >
         <RefreshCw size={13} />
-        Actualizar
+        {updating ? 'Actualizando…' : 'Actualizar'}
       </button>
 
-      <button
+      {!mandatory && <button
         onClick={() => setDismissed(true)}
         className="mobile-touch-target"
         aria-label="Cerrar aviso de actualización"
@@ -58,7 +75,7 @@ export function UpdateBanner() {
         title="Cerrar"
       >
         <X size={14} />
-      </button>
+      </button>}
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { supabase, type Order, type Customer, type Device, type Note,
   type User, type StatusHistory } from '../lib/supabase'
 import { getProfileCacheKey } from '../lib/profileCache'
 import { INVENTORY_OPERATIONAL_COLUMNS } from './inventoryCostAccess'
+import { PARTS_USED_OPERATIONAL_COLUMNS, hydratePartsUsedAmounts, isPreSec08eSchema, canReadPartsAmounts } from './partsUsedAccess'
 
 type CustomerPayload = Omit<Customer, 'id' | 'created_at' | 'updated_at' | 'business_id' | 'created_by'>
 
@@ -395,14 +396,14 @@ export const ordersService = {
         device:devices(*),
         technician:users(id, name),
         notes(*),
-        parts_used(*),
+        parts_used(id, order_id, code, description, quantity, created_at, created_by, business_id),
         status_history(*)
       `)
       .eq('id', id)
       .single()
     
     if (error) throw error
-    return data as unknown as Order & {
+    const order = data as unknown as Order & {
       customer: Customer
       device: Device
       technician: User | null
@@ -410,6 +411,7 @@ export const ordersService = {
       parts_used: PartUsed[]
       status_history: StatusHistory[]
     }
+    return { ...order, parts_used: await hydratePartsUsedAmounts(order.parts_used) }
   },
 
   async create(order: OrderPayload) {
@@ -683,25 +685,23 @@ export const partsService = {
   async getByOrder(orderId: string) {
     const { data, error } = await supabase
       .from('parts_used')
-      .select('*')
+      .select(PARTS_USED_OPERATIONAL_COLUMNS)
       .eq('order_id', orderId)
     
     if (error) throw error
-    return data as PartUsed[]
+    return hydratePartsUsedAmounts(data as PartUsed[])
   },
 
-  async create(part: Omit<PartUsed, 'id' | 'created_at' | 'subtotal'>) {
+  async create(part: Omit<PartUsed, 'id' | 'created_at' | 'subtotal'> & { unit_price: number }) {
     const { data, error } = await supabase
       .from('parts_used')
-      .insert({
-        ...part,
-        subtotal: part.quantity * part.unit_price
-      })
-      .select()
+      .insert(part) // subtotal is GENERATED ALWAYS by PostgreSQL.
+      .select(PARTS_USED_OPERATIONAL_COLUMNS)
       .single()
     
     if (error) throw error
-    return data as PartUsed
+    const [created] = await hydratePartsUsedAmounts([data as PartUsed])
+    return created
   },
 
   async delete(id: string) {
@@ -714,12 +714,24 @@ export const partsService = {
   },
 
   async calculateTotal(orderId: string) {
+    // Resolve the row's tenant through RLS, not a cached customer profile.
+    const { data: order, error: orderError } = await supabase.from('orders')
+      .select('business_id').eq('id', orderId).maybeSingle()
+    if (orderError) throw orderError
+    if (!order?.business_id || !await canReadPartsAmounts(order.business_id)) return null
     const { data, error } = await supabase
-      .from('parts_used')
+      .from('v_parts_used_amounts')
       .select('subtotal')
       .eq('order_id', orderId)
+      .eq('business_id', order.business_id)
     
-    if (error) throw error
+    if (error) {
+      if (!await isPreSec08eSchema(error)) throw error
+      const { data: legacy, error: legacyError } = await supabase.from('parts_used')
+        .select('subtotal').eq('order_id', orderId).eq('business_id', order.business_id)
+      if (legacyError) throw legacyError
+      return (legacy ?? []).reduce((sum, part) => sum + part.subtotal, 0)
+    }
     return data?.reduce((sum, part) => sum + (part.subtotal || 0), 0) || 0
   }
 }
