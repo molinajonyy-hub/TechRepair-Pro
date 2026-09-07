@@ -3,7 +3,7 @@ import { supabase, type Order, type Customer, type Device, type Note,
   type User, type StatusHistory } from '../lib/supabase'
 import { getProfileCacheKey } from '../lib/profileCache'
 import { INVENTORY_OPERATIONAL_COLUMNS } from './inventoryCostAccess'
-import { PARTS_USED_OPERATIONAL_COLUMNS, hydratePartsUsedAmounts, isPreSec08eSchema } from './partsUsedAccess'
+import { PARTS_USED_OPERATIONAL_COLUMNS, hydratePartsUsedAmounts, isPreSec08eSchema, canReadPartsAmounts } from './partsUsedAccess'
 
 type CustomerPayload = Omit<Customer, 'id' | 'created_at' | 'updated_at' | 'business_id' | 'created_by'>
 
@@ -714,20 +714,23 @@ export const partsService = {
   },
 
   async calculateTotal(orderId: string) {
-    const { businessId } = await getCurrentCustomerContext()
-    const { data: authorized, error: authorityError } = await supabase.rpc('current_user_can_in_business', {
-      p_business_id: businessId, p_key: 'orders_view_financials',
-    })
-    if (authorityError) throw authorityError
-    if (authorized !== true) return null
+    // Resolve the row's tenant through RLS, not a cached customer profile.
+    const { data: order, error: orderError } = await supabase.from('orders')
+      .select('business_id').eq('id', orderId).maybeSingle()
+    if (orderError) throw orderError
+    if (!order?.business_id || !await canReadPartsAmounts(order.business_id)) return null
     const { data, error } = await supabase
       .from('v_parts_used_amounts')
       .select('subtotal')
       .eq('order_id', orderId)
+      .eq('business_id', order.business_id)
     
     if (error) {
-      if (await isPreSec08eSchema(error)) return null
-      throw error
+      if (!await isPreSec08eSchema(error)) throw error
+      const { data: legacy, error: legacyError } = await supabase.from('parts_used')
+        .select('subtotal').eq('order_id', orderId).eq('business_id', order.business_id)
+      if (legacyError) throw legacyError
+      return (legacy ?? []).reduce((sum, part) => sum + part.subtotal, 0)
     }
     return data?.reduce((sum, part) => sum + (part.subtotal || 0), 0) || 0
   }

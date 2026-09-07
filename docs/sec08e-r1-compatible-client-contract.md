@@ -19,15 +19,17 @@ security authority. RLS and capabilities remain authoritative.**
 
 ## B. Frontend extraction
 
-Only #110's `partsUsedAccess.ts`, scoped `api.ts` service changes, optional
-`PartUsed` monetary fields and its 15 compatibility unit tests are reused.
+The initial R1 reused #110's `partsUsedAccess.ts`, scoped `api.ts` changes,
+optional monetary fields and 15 unit tests. The transition correction preserves
+authorized pre-schema amounts and expands the compatibility suite to 37 tests.
 There are no R1 changes under `supabase/`, no copied migration, backend gate,
 minimum-client config, grants/revokes, policies or capability changes.
 
 Order detail's parts embed, parts list and INSERT returning use explicit
-operational columns. Hydration reads only `v_parts_used_amounts`, discards stale
-monetary fields and attaches actual authorized projected values (including a
-real zero). There is no fallback to raw monetary columns. Existing other order
+operational columns. Hydration first reads `v_parts_used_amounts`, discards stale
+monetary fields and attaches actual authorized values (including a real zero).
+Only after the exact paired absence below may it read legacy monetary columns,
+and only for businesses explicitly authorized by the existing backend RPC. Existing other order
 embeds are unchanged. INSERT no longer supplies generated `subtotal`; callers
 still supply `unit_price` for writing, but cannot infer a readable price from it.
 
@@ -38,8 +40,31 @@ Only this paired absence is accepted as a transitional schema:
 
 The helper probe uses `p_business_id: null`. Missing-view errors on a migrated
 schema, authorization, network, unexpected SQL and server errors propagate.
-Pre-schema monetary fields remain absent and total is `null`. A limited tech's
-total is also `null` when the existing capability RPC denies financial access.
+The original R1 returned absent amounts/null totals even for an authorized owner
+before R3. That was a product regression during the transition window. Now,
+`current_user_can_in_business(business_id, 'orders_view_financials')` must return
+literal `true` before any legacy monetary request. This existing backend helper
+checks owner or active profile membership and capability overrides in that
+specific business. No client role matrix, cached profile or client marker grants
+access. Any capability error propagates.
+
+Hydration groups the operational rows by business and reads only
+`id, unit_price, subtotal`, filtered by that business and the current part IDs.
+A missing row business fails closed. Total resolves the order's business through
+a minimal RLS-protected `orders(business_id)` lookup, checks the same capability,
+and uses either the projection or, after exact paired absence, a legacy
+`subtotal` query filtered by business and order. Invisible orders and limited
+actors return `null` without selecting monetary subtotal. Generated INSERT
+subtotal remains untouched; create returning is hydrated through this same path.
+
+Pre-schema authorized actors keep real prices/subtotals/totals. Limited actors
+never issue legacy monetary queries. Post-schema always uses the protected view;
+missing view with existing helper, missing helper with an existing view, 42501,
+PGRST116, timeout, network/500 or different schema-cache messages never enable
+legacy access. A lockdown racing an already-authorized legacy read produces its
+normal database error; it is not swallowed. No deployment/permission result is
+cached. This transitional client behavior does not repair pre-existing raw DB
+column exposure; the later DB lockdown remains necessary and authoritative.
 
 ## C. Compiled contract and actual HTTP coverage
 
@@ -104,12 +129,15 @@ retirement is future R2 rollout work. The R1 UI alone does not retire them.
 
 | Frontend | Disposable DB | Owner | Limited tech |
 | --- | --- | --- | --- |
-| R1 | pre-SEC-08E, through SEC-08D | Detail/list/create work; amounts absent; total `null` | Same operational behavior; amounts absent; total `null` |
+| R1 | pre-SEC-08E, through SEC-08D | Detail/list/create preserve legitimate prices/subtotals; exact total | Operational behavior; amounts absent; total `null`; zero legacy monetary queries |
 | R1 | post-SEC-08E | Detail/list/create work; authorized projected amounts; exact total | Detail/list/create work; amounts absent; total `null` |
 
 The same real central client and services execute against real PostgREST and
 PostgreSQL. Only session identity and local gateway path routing are supplied
-by the test adapter. Every HTTP request asserts both headers. Witness values:
+by the test adapter. Every HTTP request asserts both headers. The pre-schema owner issues exactly
+four minimal, scoped legacy monetary queries across detail/list/create/total;
+the tech issues zero. Neither actor issues any legacy monetary query post-schema.
+Witness values:
 existing price `7103.19`, subtotal `21309.57`; synthetic create `2 × 17.25`,
 subtotal `34.50`; authorized total including that insertion `21344.07`.
 Cross-tenant parts return no rows, order detail rejects with `PGRST116`, and
@@ -139,11 +167,12 @@ compatibility test of a future schema, not a production migration runner.
 
 ## F. Validation and known baseline debt
 
-- Focused R1/affected banner, mobile foundation and portal suites: **49 passed**.
+- Focused R1/affected banner, mobile foundation and portal suites: **71 passed**.
   Covers exact error matching and all requested negative controls, real central
   SDK headers/error propagation/no logout, mandatory override of dismissal,
   pre-mount/remount latch, local data preservation, retry and SW reload ordering.
-- Affected customer core/edit/surfaces and intake wizard: **65 passed**.
+- Initial R1 customer core/edit/surfaces and intake wizard: **65 passed**; these
+  unrelated surfaces are unchanged by the transition correction.
 - Real local pre-schema: **3 passed**, one post-only authorization test skipped
   deliberately. Post-schema: **4 passed**, no skips.
 - `node node_modules/typescript/bin/tsc --noEmit`: passed.
@@ -161,7 +190,7 @@ compatibility test of a future schema, not a production migration runner.
   reproduced on that file extracted from `origin/main`; migration and guard
   are unchanged. Later relevant guards were executed independently.
 - React Router v7 future-flag warnings remain in existing component tests.
-- Browser via agent-browser: real local app loaded without runtime errors or
+- Initial R1 browser verification via agent-browser (UX unchanged by this correction): real local app loaded without runtime errors or
   Vite overlay; injected future response retained its readable 409 body and
   showed the mandatory notice. Desktop and 390×844 light/dark captures inspected;
   mobile banner fits 366 px, button height 44 px, no horizontal overflow.
@@ -177,10 +206,13 @@ runner is a separate explicit local test; it is not silently skipped in CI.
 
 ## G. Git delivery
 
-Single commit subject: `feat(platform): add compatible client contract for sec-08e rollout`.
+Initial commit: `c01260583221951bdc7e16de13db300d8a7f55c2`,
+`feat(platform): add compatible client contract for sec-08e rollout`.
+Second commit: `fix(platform): preserve authorized amounts during sec-08e transition`.
+Both belong to existing PR #111; no replacement PR or history rewrite.
 PR title: `feat(platform): add SEC-08E compatible client contract`, targeting main.
 Only the R1 branch is pushed. PR/commit/check identifiers are recorded in the
-delivery response; no change is made to #110.
+delivery response after CI for the new head completes; no change is made to #110.
 
 ## H. Integrity and sequencing
 

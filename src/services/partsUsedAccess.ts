@@ -17,15 +17,46 @@ export async function isPreSec08eSchema(error: { code?: string; message: string 
   throw markerError
 }
 
-/** Financial fields exist only when the backend projection authorizes them. */
-export async function hydratePartsUsedAmounts(parts: PartUsed[]): Promise<PartUsed[]> {
+/** Backend checks active membership and capability in this exact business. */
+export async function canReadPartsAmounts(businessId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('current_user_can_in_business', {
+    p_business_id: businessId, p_key: 'orders_view_financials',
+  })
+  if (error) throw error
+  return data === true
+}
+
+/** Transitional read only after BOTH missing-object checks, never after denial. */
+async function readPreSchemaAmounts(parts: (PartUsed & { business_id?: string })[]) {
+  const groups = new Map<string, string[]>()
+  for (const part of parts) {
+    if (!part.business_id) throw new Error('Falta el negocio del repuesto para verificar sus importes.')
+    groups.set(part.business_id, [...(groups.get(part.business_id) ?? []), part.id])
+  }
+  const amounts: { id: string; unit_price: number; subtotal: number }[] = []
+  for (const [businessId, ids] of groups) {
+    if (!await canReadPartsAmounts(businessId)) continue
+    const { data, error } = await supabase.from('parts_used')
+      .select('id, unit_price, subtotal').eq('business_id', businessId).in('id', ids)
+    if (error) throw error
+    amounts.push(...(data ?? []))
+  }
+  return amounts
+}
+
+/** Prefer the protected projection; preserve authorized pre-schema amounts. */
+export async function hydratePartsUsedAmounts(parts: (PartUsed & { business_id?: string })[]): Promise<PartUsed[]> {
   if (!parts.length) return parts
   const { data, error } = await supabase
     .from('v_parts_used_amounts')
     .select('id, unit_price, subtotal')
     .in('id', parts.map(part => part.id))
-  if (error && !await isPreSec08eSchema(error)) throw error
-  const amounts = new Map((data ?? []).map(row => [row.id as string, row]))
+  let rows = data ?? []
+  if (error) {
+    if (!await isPreSec08eSchema(error)) throw error
+    rows = await readPreSchemaAmounts(parts)
+  }
+  const amounts = new Map(rows.map(row => [row.id as string, row]))
   return parts.map(part => {
     // Do not retain stale financial values after a permission change.
     const { unit_price: _price, subtotal: _subtotal, ...operational } = part

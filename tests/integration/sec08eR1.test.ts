@@ -4,7 +4,7 @@ const id = (n: number) => `e0800000-0000-0000-0000-${String(n).padStart(12, '0')
 const base = process.env.SEC08E_R1_URL || ''
 if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) throw Error('Use the disposable Docker R1 runner')
 let actor = 1
-const requests: { url: URL; headers: Headers }[] = []
+const requests: { url: URL; headers: Headers; actor: number }[] = []
 type Services = typeof import('../../src/services/api')
 let services: Services
 let client: typeof import('../../src/lib/supabase')['supabase']
@@ -20,7 +20,7 @@ describe('R1 actual central SDK + real PostgREST', () => {
       const url = new URL(input instanceof Request ? input.url : String(input))
       if (url.origin !== base || !url.pathname.startsWith('/rest/v1/')) throw Error('Non-local Data API request rejected')
       const headers = new Headers(init?.headers)
-      requests.push({ url: new URL(url), headers: new Headers(headers) })
+      requests.push({ url: new URL(url), headers: new Headers(headers), actor })
       const tokens = { 1: process.env.SEC08E_R1_OWNER, 2: process.env.SEC08E_R1_TECH, 5: process.env.SEC08E_R1_OTHER }
       headers.set('Authorization', `Bearer ${tokens[actor as keyof typeof tokens]}`)
       url.pathname = url.pathname.replace('/rest/v1', '')
@@ -34,12 +34,22 @@ describe('R1 actual central SDK + real PostgREST', () => {
     actor = 1
     const { error } = await client.from('parts_used').delete().eq('code', 'R1-MATRIX')
     if (error) throw error
-    for (const { url, headers } of requests) {
+    for (const { url, headers, actor: requestActor } of requests) {
       expect(headers.get('x-techrepair-client-contract')).toBe('1')
       expect(headers.get('x-techrepair-client-build')).toBe('r1-testsha')
       const select = url.searchParams.get('select') || ''
-      if (url.pathname.endsWith('/parts_used')) expect(select).not.toMatch(/unit_price|subtotal|\*/)
-      if (url.pathname.endsWith('/orders')) expect(select.match(/parts_used\(([^)]+)\)/)?.[1]).not.toMatch(/unit_price|subtotal|\*/)
+      if (url.pathname.endsWith('/parts_used')) {
+        expect(select).not.toContain('*')
+        if (/unit_price|subtotal/.test(select)) {
+          expect(process.env.SEC08E_R1_SCHEMA).toBe('pre')
+          expect(requestActor).toBe(1)
+          expect(['id,unit_price,subtotal','subtotal']).toContain(select)
+          expect(url.searchParams.get('business_id')).toBe(`eq.${id(101)}`)
+          expect(url.searchParams.has('id') || url.searchParams.get('order_id') === `eq.${id(301)}`).toBe(true)
+        }
+      }
+      const embed = select.match(/parts_used\(([^)]+)\)/)?.[1]
+      if (embed) expect(embed).not.toMatch(/unit_price|subtotal|\*/)
     }
     requests.length = 0
   })
@@ -47,7 +57,10 @@ describe('R1 actual central SDK + real PostgREST', () => {
 
   for (const role of [1, 2]) it(`schema ${process.env.SEC08E_R1_SCHEMA}, actor ${role}: detail/list/create/total`, async () => {
     actor = role
-    const financial = role === 1 && process.env.SEC08E_R1_SCHEMA === 'post'
+    const financial = role === 1
+    const authority = await client.rpc('current_user_can_in_business', {p_business_id:id(101),p_key:'orders_view_financials'})
+    expect(authority.error).toBeNull()
+    expect(authority.data).toBe(financial)
     const { ordersService, partsService } = services
     const detail = await ordersService.getById(id(301))
     const parts = await partsService.getByOrder(id(301))
@@ -63,13 +76,16 @@ describe('R1 actual central SDK + real PostgREST', () => {
     if (financial) expect(created).toMatchObject({ unit_price: 17.25, subtotal: 34.5 })
     else { expect(created).not.toHaveProperty('unit_price'); expect(created).not.toHaveProperty('subtotal') }
     expect(await partsService.calculateTotal(id(301))).toBe(financial ? 21344.07 : null)
-    console.log('MATRIX', process.env.SEC08E_R1_SCHEMA, role === 1 ? 'owner' : 'tech', 'operational PASS; amounts', financial ? 'projected; total=21344.07 (includes synthetic insert)' : 'absent; total=null')
+    const legacy = requests.filter(r => r.url.pathname.endsWith('/parts_used') && /unit_price|subtotal/.test(r.url.searchParams.get('select') || ''))
+    expect(legacy).toHaveLength(financial && process.env.SEC08E_R1_SCHEMA === 'pre' ? 4 : 0)
+    console.log('MATRIX', process.env.SEC08E_R1_SCHEMA, role === 1 ? 'owner' : 'tech', 'operational PASS; amounts', financial ? 'authorized; total=21344.07 (includes synthetic insert)' : 'absent; total=null', 'legacy queries', legacy.length)
   })
 
   it('denies cross-tenant operational and projected data', async () => {
     actor = 5
     expect(await services.partsService.getByOrder(id(301))).toEqual([])
     await expect(services.ordersService.getById(id(301))).rejects.toMatchObject({ code: 'PGRST116' })
+    expect(await services.partsService.calculateTotal(id(301))).toBeNull()
     if (process.env.SEC08E_R1_SCHEMA === 'post') {
       const { data, error } = await client.from('v_parts_used_amounts').select('id,unit_price').eq('order_id', id(301))
       expect(error).toBeNull()
