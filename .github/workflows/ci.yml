@@ -56,6 +56,9 @@ jobs:
       - name: Guard — Lote 3 action/write authority
         run: npm run guard:lote3-authority:self-test && npm run guard:lote3-authority
 
+      - name: Guard — SEC-08E R2A remains explicitly disabled
+        run: npm run guard:sec08e-r2a:self-test && npm run guard:sec08e-r2a
+
       - name: Production build
         run: npm run build
         env:

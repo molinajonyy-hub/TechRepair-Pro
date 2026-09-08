@@ -20,6 +20,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { createClient } from '@supabase/supabase-js'
 import { consultarJSON } from '../setup/sqlLocal.ts'
 import { assertDestinoLocalSeguro } from '../setup/assertLocalTarget.ts'
+import { createCompatibleUserClient } from '../setup/compatibleUserClient.ts'
 
 test.use({ storageState: { cookies: [], origins: [] } })
 
@@ -226,7 +227,7 @@ test('@m7 3. un invitado NO pasa por el onboarding de owner', async ({ page }) =
 
   // Owner con negocio, por la autoridad canónica.
   const d = await assertDestinoLocalSeguro()
-  const sb = createClient(d.supabaseUrl, d.anonKey)
+  const sb = createCompatibleUserClient(d)
   await sb.auth.signInWithPassword({ email: emailOwner, password: PASSWORD })
   await sb.rpc('provision_my_business', { p_business_name: 'Taller E2E Tres' })
   const token = ((await sb.rpc('create_business_invitation', {
@@ -267,11 +268,11 @@ test('@m7 4. cross-tenant: la RPC no acepta business_id', async () => {
 
   const d = await assertDestinoLocalSeguro()
 
-  const sbA = createClient(d.supabaseUrl, d.anonKey)
+  const sbA = createCompatibleUserClient(d)
   await sbA.auth.signInWithPassword({ email: emailA, password: PASSWORD })
   await sbA.rpc('provision_my_business', { p_business_name: 'Taller A4' })
 
-  const sbB = createClient(d.supabaseUrl, d.anonKey)
+  const sbB = createCompatibleUserClient(d)
   await sbB.auth.signInWithPassword({ email: emailB, password: PASSWORD })
   await sbB.rpc('provision_my_business', { p_business_name: 'Taller B4' })
   const bizB = negocioDe(idDe(emailB)!).business_id!
