@@ -1,22 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Camera, Check, ChevronLeft, ChevronRight, ScanLine, ShieldCheck, Trash2, UserPlus } from 'lucide-react'
+import { ArrowLeft, Camera, ChevronLeft, ChevronRight, ScanLine, ShieldCheck, Trash2 } from 'lucide-react'
 import { customersService } from '../services/api'
-import { DEFAULT_BRANDS, DEFAULT_MODELS_BY_BRAND } from '../services/deviceCatalogService'
+import { ensureBrandAndModel } from '../services/deviceCatalogService'
 import type { Customer } from '../lib/supabase'
 import { AppButton, AppInput, AppSelect, AppTextarea, FormGrid, MobileActionBar, ResponsiveDialog } from '../ui'
+import { useAuth } from '../contexts/AuthContext'
 import { effectivePermissions, usePermissions } from '../hooks/usePermissions'
 import { BarcodeScannerDialog } from '../features/order-intake/BarcodeScannerDialog'
+import { ChecklistField } from '../features/order-intake/ChecklistField'
 import { PatternGrid } from '../features/order-intake/PatternGrid'
-import { INITIAL_INTAKE_DRAFT, isValidImei, normalizeImei, parseLocalizedAmount, type AccessMode, type CheckResult, type IntakeDraft } from '../features/order-intake/model'
+import { useDeviceCatalog } from '../features/order-intake/useDeviceCatalog'
+import { INITIAL_INTAKE_DRAFT, isValidImei, normalizeImei, parseLocalizedAmount, type AccessMode, type IntakeDraft } from '../features/order-intake/model'
 import { createOrderIntake, loadAssignableProfiles, uploadIntakePhotos } from '../features/order-intake/service'
-import { CustomerCreateFields, documentSearchTokens, firstCustomerCoreError, useCustomerCore } from '../features/customer-core'
+import { CustomerCreateFields, CustomerPicker, firstCustomerCoreError, useCustomerCore, type CustomerPickerOption } from '../features/customer-core'
 
 const STEPS = ['Cliente','Equipo','Identificación','Estado y fotos','Checklist','Acceso','Problema','Asignación','Presupuesto','Resumen'] as const
 const CHECKS = [['display','Pantalla'],['touch','Táctil'],['cameras','Cámaras'],['audio','Audio'],['charging','Carga'],['wifi','Wi‑Fi'],['buttons','Botones'],['biometrics','Biometría']] as const
-const CHECK_OPTIONS: { value: CheckResult; label: string }[] = [
-  { value:'ok',label:'OK' },{ value:'fail',label:'Falla' },{ value:'not_tested',label:'No probado' },{ value:'not_applicable',label:'No aplica' },
-]
 const ACCESS: { value: AccessMode; label: string; hint: string }[] = [
   {value:'none',label:'Sin bloqueo',hint:'El equipo no tiene bloqueo'},
   {value:'pin',label:'PIN',hint:'Código numérico'}, {value:'pattern',label:'Patrón',hint:'Secuencia 3 × 3'},
@@ -27,26 +27,22 @@ const ACCESS: { value: AccessMode; label: string; hint: string }[] = [
 type PhotoDraft = { file: File; preview: string }
 type ProfileOption = { id:string; full_name?:string|null; email?:string|null; role?:string|null; permissions?:unknown }
 
-/**
- * Una carga iniciada antes de un alta rápida no puede reclamar autoridad sobre
- * clientes que ya fueron confirmados localmente. El estado vigente gana por
- * `id`; la respuesta agrega únicamente filas que todavía no conocemos.
- */
-function reconcileLoadedCustomers(current: Customer[], loaded: Customer[]): Customer[] {
-  const currentIds = new Set(current.map(customer => customer.id))
-  return [...current, ...loaded.filter(customer => !currentIds.has(customer.id))]
-}
-
 function StepCard({ children }: { children: React.ReactNode }) { return <section className="card intake-step-card"><div className="card-body">{children}</div></section> }
 function ChoiceGrid({ children }: { children: React.ReactNode }) { return <div className="intake-choice-grid">{children}</div> }
 
 export function NewOrder() {
   const navigate = useNavigate()
   const { can } = usePermissions()
+  const { businessId } = useAuth()
   const [step,setStep] = useState(0)
   const [draft,setDraft] = useState<IntakeDraft>(INITIAL_INTAKE_DRAFT)
-  const [customers,setCustomers] = useState<Customer[]>([])
-  const [search,setSearch] = useState('')
+  /**
+   * ORDERS-V2-0 — la lista completa de clientes ya no vive en el browser.
+   * Sólo se conserva el cliente ELEGIDO (para el resumen) y los creados en
+   * esta sesión, que se anteponen a los resultados del servidor.
+   */
+  const [selectedCustomer,setSelectedCustomer] = useState<CustomerPickerOption|null>(null)
+  const [createdCustomers,setCreatedCustomers] = useState<CustomerPickerOption[]>([])
   const [profiles,setProfiles] = useState<ProfileOption[]>([])
   const [photos,setPhotos] = useState<PhotoDraft[]>([])
   const [quickOpen,setQuickOpen] = useState(false)
@@ -64,10 +60,9 @@ export function NewOrder() {
   const update = (patch: Partial<IntakeDraft>) => { setDraft(previous => ({...previous,...patch})); setDirty(true); setError('') }
   const updateDevice = (patch: Partial<IntakeDraft['device']>) => update({device:{...draft.device,...patch}})
 
-  useEffect(() => { Promise.all([customersService.getAll(),loadAssignableProfiles()]).then(([c,p])=>{
-    setCustomers(previous=>reconcileLoadedCustomers(previous,c))
-    setProfiles(p.filter(profile=>effectivePermissions(profile.role,profile.role==='owner',profile.permissions).orders_create))
-  }).catch(e=>setError(e.message)) },[])
+  useEffect(() => { loadAssignableProfiles()
+    .then(p=>setProfiles(p.filter(profile=>effectivePermissions(profile.role,profile.role==='owner',profile.permissions).orders_create)))
+    .catch(e=>setError(e.message)) },[])
   useEffect(() => { headingRef.current?.focus() },[step])
   useEffect(() => {
     const handler=(event:BeforeUnloadEvent)=>{if(dirty&&!submitting){event.preventDefault();event.returnValue=''}}
@@ -76,20 +71,7 @@ export function NewOrder() {
   useEffect(()=>{photosRef.current=photos},[photos])
   useEffect(() => () => { photosRef.current.forEach(photo=>URL.revokeObjectURL(photo.preview)) },[])
 
-  const selectedCustomer=customers.find(customer=>customer.id===draft.customerId)
-  const filteredCustomers=useMemo(()=>{
-    const q=search.trim().toLowerCase(); if(!q)return customers.slice(0,20)
-    // El documento se busca contra TODAS sus representaciones. En la tabla
-    // conviven filas canónicas (`DNI 30123456`) con históricas (`DNI: 30.123.456`)
-    // y este lote no las migra, así que la búsqueda tiene que encontrar ambas
-    // se tipee con separadores o sin ellos.
-    const qDoc=q.replace(/[^a-z0-9]/g,'')
-    return customers.filter(customer=>
-      [customer.name,customer.phone,customer.business_name].some(value=>value?.toLowerCase().includes(q))
-      ||(qDoc!==''&&documentSearchTokens(customer.document).some(token=>token.toLowerCase().replace(/[^a-z0-9]/g,'').includes(qDoc)))
-    ).slice(0,20)
-  },[customers,search])
-  const models=DEFAULT_MODELS_BY_BRAND[Object.keys(DEFAULT_MODELS_BY_BRAND).find(key=>key.toLowerCase()===draft.device.brand.toLowerCase())||'']||[]
+  const {brands,models}=useDeviceCatalog(draft.device.brand)
 
   const stepError = () => {
     if(step===0&&!draft.customerId)return 'Seleccioná o creá un cliente.'
@@ -121,7 +103,20 @@ export function NewOrder() {
     submitLock.current=true;setSubmitting(true);setError('')
     let orderId=createdOrderId
     try{
-      if(!orderId){const created=await createOrderIntake(requestIdRef.current,draft);orderId=created.order_id;setCreatedOrderId(orderId)}
+      if(!orderId){
+        const created=await createOrderIntake(requestIdRef.current,draft);orderId=created.order_id;setCreatedOrderId(orderId)
+        /**
+         * ORDERS-V2-0 — el catálogo del negocio se autoalimenta con lo que se
+         * carga a mano. Va DESPUÉS de la creación y sin `await`: la orden ya
+         * existe y es lo que importa; el catálogo es una conveniencia y su
+         * RPC no puede demorar ni hacer fallar una recepción. `ensureBrandAndModel`
+         * deduplica server-side por `normalized_name` y devuelve null ante error.
+         *
+         * Sólo dentro de este `if`: en el reintento de fotos la orden ya existe
+         * y no hay que volver a tocar el catálogo.
+         */
+        void ensureBrandAndModel(draft.device.brand,draft.device.model)
+      }
       const upload=await uploadIntakePhotos(orderId,photos.map(photo=>photo.file))
       setDraft(previous=>({...previous,accessSecret:'',pattern:[]}));setDirty(false)
       if(upload.failed.length){
@@ -145,14 +140,10 @@ export function NewOrder() {
     <div className="intake-progress" role="progressbar" aria-label="Progreso de la recepción" aria-valuemin={1} aria-valuemax={STEPS.length} aria-valuenow={step+1}><span style={{width:`${((step+1)/STEPS.length)*100}%`}}/></div>
     {error&&<div className="alert-inline alert-error" role="alert">{error}</div>}
 
-    {step===0&&<StepCard><AppInput semantic="search" label="Buscar cliente" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Nombre, teléfono, DNI/CUIT o empresa"/>
-      <div className="intake-customer-list">{filteredCustomers.map(customer=><button type="button" key={customer.id} className={draft.customerId===customer.id?'is-selected':''} onClick={()=>update({customerId:customer.id})}><span>{customer.business_name||customer.name}</span><small>{customer.name} · {customer.phone}</small>{draft.customerId===customer.id&&<Check size={18}/>}</button>)}</div>
-      {!filteredCustomers.length&&<p className="form-hint">No encontramos coincidencias.</p>}
-      <AppButton variant="secondary" fullWidth leftIcon={<UserPlus size={18}/>} onClick={()=>setQuickOpen(true)}>Crear cliente rápido</AppButton>
-    </StepCard>}
+    {step===0&&<StepCard><CustomerPicker businessId={businessId} selectedId={draft.customerId} pinned={createdCustomers} onCreateNew={()=>setQuickOpen(true)} onSelect={customer=>{setSelectedCustomer(customer);update({customerId:customer.id})}}/></StepCard>}
 
     {step===1&&<StepCard><AppSelect label="Tipo de equipo" value={draft.device.type} onChange={e=>updateDevice({type:e.target.value as IntakeDraft['device']['type']})} options={[{value:'smartphone',label:'Teléfono'},{value:'tablet',label:'Tablet'},{value:'laptop',label:'Notebook'},{value:'smartwatch',label:'Smartwatch'},{value:'other',label:'Otro'}]}/>
-      <FormGrid><div><AppInput label="Marca" required value={draft.device.brand} onChange={e=>updateDevice({brand:e.target.value,model:''})} list="intake-brands"/><datalist id="intake-brands">{DEFAULT_BRANDS.map(item=><option key={item} value={item}/>)}</datalist></div><div><AppInput label="Modelo" required value={draft.device.model} onChange={e=>updateDevice({model:e.target.value})} list="intake-models"/><datalist id="intake-models">{models.map(item=><option key={item} value={item}/>)}</datalist></div></FormGrid>
+      <FormGrid><div><AppInput label="Marca" required value={draft.device.brand} onChange={e=>updateDevice({brand:e.target.value,model:''})} list="intake-brands"/><datalist id="intake-brands">{brands.map(item=><option key={item} value={item}/>)}</datalist></div><div><AppInput label="Modelo" required value={draft.device.model} onChange={e=>updateDevice({model:e.target.value})} list="intake-models"/><datalist id="intake-models">{models.map(item=><option key={item} value={item}/>)}</datalist></div></FormGrid>
     </StepCard>}
 
     {step===2&&<StepCard><div className="intake-field-action"><AppInput label="Número de serie" value={draft.device.serial} onChange={e=>updateDevice({serial:e.target.value})} autoCapitalize="characters"/><AppButton variant="secondary" leftIcon={<ScanLine size={17}/>} onClick={()=>setScanner('serial')}>Escanear</AppButton></div>
@@ -166,7 +157,7 @@ export function NewOrder() {
       <div className="intake-photo-grid">{photos.map((photo,index)=><div key={photo.preview}><img src={photo.preview} alt={`Foto de recepción ${index+1}`}/><button type="button" onClick={()=>removePhoto(index)} aria-label={`Quitar foto ${index+1}`}><Trash2 size={16}/></button></div>)}</div>
     </StepCard>}
 
-    {step===4&&<StepCard><p className="form-hint">Marcá qué se verificó al recibir el equipo. “No probado” evita asumir que algo funciona.</p>{CHECKS.map(([key,label])=><AppSelect key={key} label={label} value={draft.checklist[key]||'not_tested'} onChange={e=>update({checklist:{...draft.checklist,[key]:e.target.value as CheckResult}})} options={CHECK_OPTIONS}/>)}</StepCard>}
+    {step===4&&<StepCard><p className="form-hint">Marcá qué se verificó al recibir el equipo. “No probado” evita asumir que algo funciona.</p><div className="intake-check-list">{CHECKS.map(([key,label])=><ChecklistField key={key} name={key} label={label} value={draft.checklist[key]||'not_tested'} onChange={result=>update({checklist:{...draft.checklist,[key]:result}})}/>)}</div></StepCard>}
 
     {step===5&&<StepCard><div className="intake-security-note"><ShieldCheck size={20}/><span>El acceso se cifra en Vault. No aparece en el resumen ni se guarda en el navegador.</span></div><ChoiceGrid>{ACCESS.map(option=><button type="button" key={option.value} className={`intake-choice ${draft.accessMode===option.value?'is-selected':''}`} onClick={()=>update({accessMode:option.value,accessSecret:'',pattern:[]})}><strong>{option.label}</strong><small>{option.hint}</small></button>)}</ChoiceGrid>
       {draft.accessMode==='pin' && (
@@ -184,7 +175,7 @@ export function NewOrder() {
     {step===8&&<StepCard><p className="form-hint">El presupuesto es opcional y no registra pagos ni movimientos financieros.</p><FormGrid><AppInput semantic="decimal" label="Presupuesto estimado" value={draft.budgetAmount} onChange={e=>update({budgetAmount:e.target.value})} placeholder="Ej. 100.000,50"/><AppSelect label="Moneda" value={draft.budgetCurrency} onChange={e=>update({budgetCurrency:e.target.value as 'ARS'|'USD'})} options={[{value:'ARS',label:'ARS — Pesos'},{value:'USD',label:'USD — Dólares'}]}/></FormGrid></StepCard>}
 
     {step===9&&<StepCard><div className="intake-summary">
-      <Summary title="Cliente" onEdit={()=>setStep(0)}>{selectedCustomer?.business_name||selectedCustomer?.name}</Summary>
+      <Summary title="Cliente" onEdit={()=>setStep(0)}>{selectedCustomer?.name}</Summary>
       <Summary title="Equipo" onEdit={()=>setStep(1)}>{draft.device.brand} {draft.device.model} · {draft.device.type}</Summary>
       <Summary title="Identificación" onEdit={()=>setStep(2)}>Serie: {draft.device.serial||'No informada'} · IMEI: {draft.device.imei||'No informado'}</Summary>
       <Summary title="Estado y fotos" onEdit={()=>setStep(3)}>{draft.condition.general} · {photos.length} foto(s)</Summary>
@@ -198,7 +189,13 @@ export function NewOrder() {
     <div className="intake-desktop-actions"><AppButton variant="secondary" onClick={step===0?cancel:back} leftIcon={<ChevronLeft size={18}/>}>{step===0?'Cancelar':'Anterior'}</AppButton>{step<9?<AppButton variant="primary" onClick={next} rightIcon={<ChevronRight size={18}/>}>Continuar</AppButton>:<AppButton variant="primary" loading={submitting} onClick={submit}>{createdOrderId?'Reintentar fotos':'Crear orden'}</AppButton>}</div>
     </div>
     <MobileActionBar secondaryAction={<AppButton variant="secondary" fullWidth onClick={step===0?cancel:back}>{step===0?'Cancelar':'Anterior'}</AppButton>} primaryAction={step<9?<AppButton variant="primary" fullWidth onClick={next}>Continuar</AppButton>:<AppButton variant="primary" fullWidth loading={submitting} onClick={submit}>{createdOrderId?'Reintentar fotos':'Crear orden'}</AppButton>}/>
-    <QuickCustomerDialog open={quickOpen} onClose={()=>setQuickOpen(false)} onCreated={customer=>{setCustomers(previous=>[customer,...previous]);update({customerId:customer.id});setQuickOpen(false)}}/>
+    <QuickCustomerDialog open={quickOpen} onClose={()=>setQuickOpen(false)} onCreated={customer=>{
+      // El alta se antepone a los resultados del servidor y queda elegida:
+      // el usuario acaba de crearla para ESTA orden.
+      const option:CustomerPickerOption={id:customer.id,name:customer.name,phone:customer.phone,document:customer.document,customer_type:customer.customer_type}
+      setCreatedCustomers(previous=>[option,...previous.filter(item=>item.id!==option.id)])
+      setSelectedCustomer(option);update({customerId:customer.id});setQuickOpen(false)
+    }}/>
     <BarcodeScannerDialog open={scanner!==null} onClose={()=>setScanner(null)} onDetected={value=>scanner&&updateDevice({[scanner]:scanner==='imei'?normalizeImei(value):value} as Partial<IntakeDraft['device']>)}/>
   </>
 }

@@ -189,6 +189,59 @@ export async function ensureModel(
  * Returns { brandId, modelId } or null on failure.
  * Non-blocking: caller should handle null gracefully.
  */
+// ─── Opciones combinadas para el selector de recepción ───────────────────────
+
+/**
+ * ORDERS-V2-0 — combina el catálogo persistido con los fallbacks hardcodeados.
+ *
+ * `catalog` va primero a propósito: lo que el taller ya usó tiene prioridad
+ * sobre la lista genérica. La deduplicación es case-insensitive y conserva la
+ * grafía del catálogo («Motorola» del taller le gana a «motorola» tipeado).
+ *
+ * Esta función es el ÚNICO lugar donde se decide la precedencia entre capas.
+ * ORDERS-V2-1 va a sumar la capa global (`business_id IS NULL`) modificando
+ * `loadBrandOptions`/`loadModelOptions` y este merge — no las pantallas, que
+ * sólo consumen nombres.
+ */
+export function mergeCatalogNames(catalog: string[], fallback: string[]): string[] {
+  const seen = new Set<string>()
+  const merged: string[] = []
+  for (const name of [...catalog, ...fallback]) {
+    const clean = normalizeText(name)
+    if (!isValidName(clean)) continue
+    const key = clean.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(clean)
+  }
+  return merged
+}
+
+/** Marcas del catálogo del negocio + fallbacks. Nunca lanza. */
+export async function loadBrandOptions(): Promise<string[]> {
+  const catalog = await getBrands()
+  return mergeCatalogNames(catalog.map(brand => brand.name), DEFAULT_BRANDS)
+}
+
+/**
+ * Modelos de una marca. Acepta el nombre tipeado (no un id) porque el campo
+ * admite texto libre: la marca puede no existir todavía en ninguna capa.
+ */
+export async function loadModelOptions(brandName: string): Promise<string[]> {
+  const clean = normalizeText(brandName)
+  if (!isValidName(clean)) return []
+
+  const fallbackKey = Object.keys(DEFAULT_MODELS_BY_BRAND)
+    .find(key => key.toLowerCase() === clean.toLowerCase())
+  const fallback = fallbackKey ? DEFAULT_MODELS_BY_BRAND[fallbackKey] : []
+
+  const brand = await getBrandByName(clean)
+  if (!brand) return mergeCatalogNames([], fallback)
+
+  const models = await getModels(brand.id)
+  return mergeCatalogNames(models.map(model => model.name), fallback)
+}
+
 export async function ensureBrandAndModel(
   brandName: string,
   modelName: string
