@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PatternGrid } from '../../src/features/order-intake/PatternGrid'
 import { BarcodeScannerDialog } from '../../src/features/order-intake/BarcodeScannerDialog'
 
@@ -31,6 +31,25 @@ describe('MOBILE-2A · patrón accesible', () => {
  * se decodifica con el motor de respaldo.
  */
 describe('ORDERS-V2-0.1 · scanner cross-browser', () => {
+  /**
+   * `HTMLMediaElement.prototype.play` es un global del entorno, compartido por
+   * todos los tests del mismo worker. Pisarlo sin restaurarlo hacía que este
+   * archivo pasara solo y fallara cuando corría junto a otros: el stub se
+   * filtraba, o llegaba pisado, y `play()` rechazaba — el scanner terminaba en
+   * estado de error en vez de escanear.
+   *
+   * jsdom no reproduce video; alcanza con que `play()` resuelva.
+   */
+  const originalPlay = HTMLMediaElement.prototype.play
+  const stubMediaPlay = () => {
+    Object.defineProperty(HTMLMediaElement.prototype, 'play',
+      { configurable: true, writable: true, value: vi.fn().mockResolvedValue(undefined) })
+  }
+  afterEach(() => {
+    Object.defineProperty(HTMLMediaElement.prototype, 'play',
+      { configurable: true, writable: true, value: originalPlay })
+  })
+
   const setEnv = (
     detector: unknown,
     getUserMedia: ReturnType<typeof vi.fn>,
@@ -62,10 +81,7 @@ describe('ORDERS-V2-0.1 · scanner cross-browser', () => {
     const getUserMedia = vi.fn().mockResolvedValue(stream)
     const enumerateDevices = vi.fn().mockResolvedValue([])   // «no veo cámaras»
     setEnv(undefined, getUserMedia, enumerateDevices)
-
-    // jsdom no reproduce video; alcanza con que `play()` resuelva.
-    Object.defineProperty(HTMLMediaElement.prototype,'play',
-      {configurable:true,value:vi.fn().mockResolvedValue(undefined)})
+    stubMediaPlay()
 
     render(<BarcodeScannerDialog open onClose={()=>{}} onDetected={()=>{}}/>)
     fireEvent.click(screen.getByTestId('scanner-start'))
