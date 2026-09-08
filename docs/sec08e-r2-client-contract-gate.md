@@ -1,4 +1,4 @@
-# SEC-08E R2 — Backend client contract gate
+# SEC-08E R2A — Backend client contract gate infrastructure
 
 ## A. Baseline
 
@@ -53,10 +53,34 @@ later returns a sanitized 503 only for authenticated Data API traffic. Anonymous
 behavior and signed service-role work remain available, avoiding a whole-platform
 outage while failing safe for the browser surface.
 
-R2B is `20260923121000_sec08e_r2b_client_contract_gate_minimum_1.sql`. It locks
-and verifies the exact R2A disabled state, then atomically sets `enabled` and
-minimum 1. R2B must be promoted in a separate operator-controlled release after
-R2A is healthy. This work did not apply either migration to production.
+R2B has no executable migration in this PR. It must be created later, with a new
+timestamp, from `main` after R2A has been applied and passed production smoke.
+The future migration must lock and verify the exact disabled state, then perform
+the atomic transition below:
+
+```sql
+BEGIN;
+DO $$
+DECLARE
+  v_state text;
+  v_minimum bigint;
+BEGIN
+  SELECT enforcement_state, minimum_contract INTO v_state, v_minimum
+    FROM private.client_contract_config WHERE singleton IS TRUE FOR UPDATE;
+  IF NOT FOUND OR v_state <> 'disabled' OR v_minimum IS NOT NULL THEN
+    RAISE EXCEPTION 'SEC-08E R2B expected the explicit R2A disabled state';
+  END IF;
+
+  UPDATE private.client_contract_config
+     SET enforcement_state = 'enabled', minimum_contract = 1, updated_at = now()
+   WHERE singleton IS TRUE;
+END $$;
+NOTIFY pgrst, 'reload config';
+COMMIT;
+```
+
+That SQL is documentation only. It does not exist under `supabase/migrations`
+and this work did not apply R2A or R2B to production.
 
 R3 remains the later SEC-08E financial lockdown. It is independent from R2B and
 must not be combined with client-contract activation.
@@ -78,11 +102,13 @@ NOTIFY pgrst, 'reload config';
 
 A request whose pre-request check completed before activation may finish its
 existing transaction. Every new request sees the current config and is checked.
-The real concurrent test held an admitted RPC open, activated R2B, observed that
-RPC complete, and observed a new headerless request fail immediately. There is
-no timer, tab count, grace wait, or delayed security mechanism.
+The earlier real-stack R2 validation held an admitted RPC open, simulated the
+future R2B transition, observed that RPC complete, and observed a new headerless
+request fail immediately. There is no timer, tab count, grace wait, or delayed
+security mechanism. The final R2A-only candidate does not contain or execute
+that activation.
 
-## D. Error contract
+## D. Future R2B error contract
 
 PostgREST 14.5 requires `DETAIL` to contain both `status` and `headers`. The
 productive exception is a `PGRST` SQLSTATE with sanitized JSON and produced:
@@ -99,10 +125,15 @@ Content-Type: application/json
 }
 ```
 
-The matrix checks the complete JSON object and verifies it contains no function,
-schema, SQL, or claim detail.
+The earlier ON-state matrix checked the complete JSON object and verified it
+contains no function, schema, SQL, or claim detail. R2A leaves enforcement OFF,
+so absence or malformed contract metadata does not produce this 409 yet.
 
-## E. Coverage
+## E. Hook coverage
+
+The following boundary was demonstrated with the same gate function during the
+earlier ON-state validation. The final R2A-only matrix separately proves that
+these paths remain available while the installed hook is OFF.
 
 | Surface | Covered | Evidence |
 | --- | --- | --- |
@@ -163,7 +194,11 @@ complete Edge entrypoints pass `deno check`.
 
 ## I. Tests
 
-- R2 real PostgreSQL/PostgREST matrix: **33/33 passed**.
+- Earlier full R2 PostgreSQL/PostgREST mechanism matrix: **33/33 passed**.
+- Final R2A-only matrix applies every candidate migration and requires the
+  resulting state to remain exactly `disabled/NULL`: **24/24 passed**. This
+  includes an injected failure after hook configuration that proves PostgreSQL
+  rolls back the config row, function, `ALTER ROLE`, and transactional `NOTIFY`.
 - Edge contract forwarding: **3/3 passed**.
 - R1 focused component contract/update/reload regression: **22/22 passed**.
 - R1 real pre-SEC-08E matrix: **3 passed, 1 intentional post-only skip**.
@@ -210,8 +245,9 @@ then revoke or retire `public.users` in a separate change.
 
 ## K. Changed files
 
-- Two R2 migrations: disabled infrastructure and explicit activation.
+- One executable R2 migration: R2A disabled infrastructure only.
 - R2 disposable real-stack runner and production read-only discovery SQL.
+- Source-tree plus runtime semantic guard against accidental activation.
 - Shared Edge forwarding helper, two necessary callers, and three Deno tests.
 - Shared R1-compatible helper for direct authenticated E2E test clients.
 - `package.json` adds the focused `test:sec08e-r2` command.
@@ -222,13 +258,13 @@ print cleanup, customer edit, or R3 SQL changed.
 
 ## L. Git and CI
 
-The implementation is intended as two commits: R2A infrastructure first, then
-R2B activation plus evidence. The branch is pushed and proposed to `main` for
-review only. CI status is recorded in the PR; no merge, deploy, or tag is part
-of this block.
+The branch is pushed and proposed to `main` as R2A infrastructure only. R2B is
+documented for a future branch and PR after production R2A smoke. CI status is
+recorded in PR #114; no merge, deploy, or tag is part of this block.
 
 ## M. Integrity
 
+- No executable R2B migration in the candidate tree.
 - No production migration, gate activation, deploy, merge, or tag.
 - No application of SEC-08E R3.
 - No changes to PR #110.
