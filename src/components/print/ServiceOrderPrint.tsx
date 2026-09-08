@@ -41,8 +41,19 @@ export interface ServiceOrderData {
     serial?: string
     color?: string
     accessories?: string
-    password?: string
     aesthetic_condition?: string
+    /**
+     * ORDERS-V2-0 — `password` fue RETIRADO de este contrato a propósito.
+     *
+     * Desde MOBILE-2A el acceso del equipo vive cifrado en
+     * `private.order_device_access_secrets` y sólo se revela por
+     * `reveal_order_device_access`, que audita cada lectura. Una hoja impresa
+     * no tiene trazabilidad: no se sabe quién la leyó ni se puede retirar.
+     *
+     * Se quita del TIPO, no se oculta con CSS, para que ningún llamador pueda
+     * volver a pasarle una credencial a la impresión sin que TypeScript lo
+     * rechace. No reintroducir: ni password, ni PIN, ni patrón.
+     */
   }
   reported_issue?: string
   diagnosis?: string
@@ -217,9 +228,17 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
     })
     const statusInfo = getStatus(order.status)
 
-    // QR URL para seguimiento (usa servicio público)
-    const qrData = `ORD-${orderNumber}`
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=56x56&data=${encodeURIComponent(qrData)}&bgcolor=ffffff&color=0f172a&margin=2`
+    // ORDERS-V2-0 — el QR de esta hoja fue RETIRADO.
+    //
+    // Codificaba `ORD-<n>` contra `api.qrserver.com`: le mandaba el
+    // identificador de la orden a un tercero en cada impresión y en cada
+    // preview de Ajustes, a cambio de un payload que no resuelve a ninguna
+    // página. Escanearlo devolvía un texto suelto, no un seguimiento.
+    //
+    // No se reemplazó por un encoder local porque no habría nada útil que
+    // codificar todavía: el número de orden ya se imprime como texto, arriba.
+    // El QR vuelve recién con el seguimiento público real (V2 futuro), y ahí
+    // se genera client-side. No reintroducir un servicio externo.
 
     // Footer contact items
     const footerItems: string[] = []
@@ -263,8 +282,6 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
           <div style={{ fontSize: '9px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>ORDEN DE SERVICIO</div>
           <div style={{ fontSize: '19px', fontWeight: 700, color: '#0f172a', letterSpacing: '-0.5px', lineHeight: 1.1 }}>N° {orderNumber}</div>
           <div style={{ fontSize: '9px', color: '#64748b', marginTop: '2px' }}>{orderDate} · {orderTime}</div>
-          {/* QR */}
-          <img src={qrUrl} alt={qrData} style={{ width: '42px', height: '42px', marginTop: '3px', borderRadius: '3px', border: '1px solid #e2e8f0' }} />
         </div>
       </div>
     )
@@ -480,7 +497,6 @@ export const ServiceOrderPrint = React.forwardRef<HTMLDivElement, ServiceOrderPr
             {order.device.color && <Row label="Color" value={order.device.color} />}
             {order.device.imei && <Row label="IMEI" value={order.device.imei} />}
             {order.device.serial && <Row label="Serie" value={order.device.serial} />}
-            {order.device.password && <Row label="Contraseña" value={order.device.password} />}
             {order.device.aesthetic_condition && <Row label="Estado estético" value={order.device.aesthetic_condition} />}
             {order.device.accessories && <Row label="Accesorios" value={order.device.accessories} />}
           </Section>

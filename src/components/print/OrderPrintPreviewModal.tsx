@@ -39,7 +39,9 @@ function mapOrderToServiceData(order: OrderDetailSimple, orderItems?: PrintOrder
       serial: order.device?.serial,
       imei: order.device?.imei,
       color: (order.device as any)?.color,
-      password: (order.device as any)?.password,
+      // ORDERS-V2-0: la impresión ya no acepta credenciales del equipo.
+      // El acceso vive en Vault y sólo se revela auditado por
+      // `reveal_order_device_access`. No volver a mapearlo acá.
       accessories: (order.device as any)?.accessories,
       aesthetic_condition: (order.device as any)?.aesthetic_condition,
     },

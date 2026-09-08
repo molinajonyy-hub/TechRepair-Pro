@@ -24,7 +24,6 @@ techrepair-vite/
 │   │   ├── Finance.tsx
 │   │   ├── Reports.tsx
 │   │   ├── Users.tsx
-│   │   ├── CustomerPortal.tsx
 │   │   └── Login.tsx
 │   ├── layouts/
 │   │   └── MainLayout.tsx
@@ -58,7 +57,6 @@ techrepair-vite/
 - `/finance` - Finanzas
 - `/reports` - Reportes
 - `/users` - Usuarios
-- `/customer-portal` - Portal del cliente
 - `/login` - Login
 
 ## Características

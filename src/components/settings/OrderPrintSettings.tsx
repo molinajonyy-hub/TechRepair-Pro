@@ -19,7 +19,7 @@ const SAMPLE_ORDER: ServiceOrderData = {
   status: 'in_repair',
   technician: 'Juan Técnico',
   customer: { name: 'María García', phone: '11 4567-8901', dni: '30.123.456', email: 'maria@email.com', address: 'Calle Falsa 123' },
-  device: { type: 'Celular', brand: 'Apple', model: 'iPhone 14 Pro', color: 'Negro espacial', imei: '352345678901234', serial: 'F4GT56XXXXX', password: '1234', accessories: 'Cargador, funda', aesthetic_condition: 'Pantalla rayada' },
+  device: { type: 'Celular', brand: 'Apple', model: 'iPhone 14 Pro', color: 'Negro espacial', imei: '352345678901234', serial: 'F4GT56XXXXX', accessories: 'Cargador, funda', aesthetic_condition: 'Pantalla rayada' },
   reported_issue: 'No enciende después de caída. Pantalla no responde al tacto.',
   diagnosis: 'Conector de carga dañado y batería defectuosa.',
   labor: 'Cambio de batería y conector de carga.',
