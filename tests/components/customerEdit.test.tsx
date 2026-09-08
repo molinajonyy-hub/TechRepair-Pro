@@ -1,4 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
+// ORDERS-V2-0 — los selectores pasaron de `customer-edit-*` a los canónicos
+// `customer-*`: la edición dejó de tener inputs propios y monta
+// `CustomerCreateFields`, el mismo cuerpo que las dos altas. Las aserciones no
+// cambiaron; sólo el nombre del control que ahora es compartido.
+// `customer-edit-save-button` sí se conserva: la ACCIÓN de guardar cambios es
+// propia de la edición y no se comparte con el alta.
+//
 // UI-CONSISTENCY-1 · Edición de cliente conectada al core.
 //
 // Antes esta pantalla no conocía razón social, persona de contacto ni documento.
@@ -60,6 +67,16 @@ async function openEditor(row: Record<string, unknown> = WHOLESALE_ROW) {
 
 const saveButton = () => screen.getByTestId('customer-edit-save-button')
 
+/** El error pertenece al CAMPO: un solo nodo, referenciado por el input. */
+function expectFieldError(fieldLabel: string, message: string) {
+  const input = screen.getByLabelText(fieldLabel)
+  expect(input).toHaveAttribute('aria-invalid', 'true')
+  const describedBy = input.getAttribute('aria-describedby')
+  expect(describedBy).toBeTruthy()
+  expect(document.getElementById(describedBy!)).toHaveTextContent(message)
+  expect(screen.getAllByText(message)).toHaveLength(1)
+}
+
 beforeEach(() => {
   mocks.getAll.mockReset()
   mocks.update.mockReset().mockResolvedValue({ id: 'c1' })
@@ -70,21 +87,25 @@ describe('UI-CONSISTENCY-1 · edición de cliente', () => {
   it('hidrata los campos que la pantalla antes ni conocía', async () => {
     await openEditor()
 
-    expect(screen.getByTestId('customer-edit-business-name-input')).toHaveValue('Demo SRL')
-    expect(screen.getByTestId('customer-edit-contact-person-input')).toHaveValue('Ana')
-    expect(screen.getByTestId('customer-edit-document-input')).toHaveValue('20301234567')
-    expect(screen.getByTestId('customer-edit-document-type-cuit')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('customer-business-name-input')).toHaveValue('Demo SRL')
+    expect(screen.getByTestId('customer-contact-person-input')).toHaveValue('Ana')
+    expect(screen.getByTestId('customer-document-input')).toHaveValue('20301234567')
+    expect(screen.getByTestId('customer-document-type-cuit')).toHaveAttribute('aria-pressed', 'true')
     // Y no pierde lo que ya mostraba.
-    expect(screen.getByTestId('customer-edit-address-input')).toHaveValue('Av. Corrientes 1234')
-    expect(screen.getByTestId('customer-edit-notes-input')).toHaveValue('Cliente viejo')
+    expect(screen.getByTestId('customer-address-input')).toHaveValue('Av. Corrientes 1234')
+    expect(screen.getByTestId('customer-notes-input')).toHaveValue('Cliente viejo')
   })
 
   it('NO deja guardar un mayorista sin razón social', async () => {
     await openEditor()
 
-    fireEvent.change(screen.getByTestId('customer-edit-business-name-input'), { target: { value: '' } })
+    fireEvent.change(screen.getByTestId('customer-business-name-input'), { target: { value: '' } })
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Un cliente mayorista necesita razón social.')
+    // ORDERS-V2-0 — el error ahora lo renderiza `AppInput`, que lo cuelga del
+    // `aria-describedby` del campo en vez de gritarlo como resumen. Es el
+    // mismo patrón que ya usaban las dos altas; se afirma el cableado, no el
+    // rol, para no volver a tener dos mensajes para un solo error.
+    expectFieldError('Razón social', 'Un cliente mayorista necesita razón social.')
     expect(saveButton()).toBeDisabled()
 
     fireEvent.click(saveButton())
@@ -96,16 +117,20 @@ describe('UI-CONSISTENCY-1 · edición de cliente', () => {
     // "Mayorista" y no tenía dónde cargar la razón social.
     await openEditor(RETAIL_ROW)
 
-    fireEvent.click(screen.getByTestId('customer-edit-type-mayorista'))
+    fireEvent.click(screen.getByTestId('customer-type-mayorista'))
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Un cliente mayorista necesita razón social.')
+    // ORDERS-V2-0 — el error ahora lo renderiza `AppInput`, que lo cuelga del
+    // `aria-describedby` del campo en vez de gritarlo como resumen. Es el
+    // mismo patrón que ya usaban las dos altas; se afirma el cableado, no el
+    // rol, para no volver a tener dos mensajes para un solo error.
+    expectFieldError('Razón social', 'Un cliente mayorista necesita razón social.')
     expect(saveButton()).toBeDisabled()
 
     fireEvent.click(saveButton())
     expect(mocks.update).not.toHaveBeenCalled()
 
     // Y con razón social vuelve a poder guardarse.
-    fireEvent.change(screen.getByTestId('customer-edit-business-name-input'), { target: { value: 'Demo SRL' } })
+    fireEvent.change(screen.getByTestId('customer-business-name-input'), { target: { value: 'Demo SRL' } })
     expect(saveButton()).not.toBeDisabled()
   })
 
@@ -122,7 +147,7 @@ describe('UI-CONSISTENCY-1 · edición de cliente', () => {
   it('pasar de mayorista a minorista BORRA la razón social en la fila', async () => {
     await openEditor()
 
-    fireEvent.click(screen.getByTestId('customer-edit-type-minorista'))
+    fireEvent.click(screen.getByTestId('customer-type-minorista'))
     fireEvent.click(saveButton())
 
     await waitFor(() => expect(mocks.update).toHaveBeenCalled())
@@ -138,7 +163,7 @@ describe('UI-CONSISTENCY-1 · edición de cliente', () => {
   it('normaliza el documento igual que las dos altas', async () => {
     await openEditor()
 
-    fireEvent.change(screen.getByTestId('customer-edit-document-input'), { target: { value: '20-30123456-7' } })
+    fireEvent.change(screen.getByTestId('customer-document-input'), { target: { value: '20-30123456-7' } })
     fireEvent.click(saveButton())
 
     await waitFor(() => expect(mocks.update).toHaveBeenCalled())

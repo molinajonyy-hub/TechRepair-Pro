@@ -11,14 +11,17 @@ import { ExcelService, ExcelRow } from '../services/excelService'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { useRefreshOnWakeUp } from '../hooks/useAppWakeUp'
+import { AppButton, ResponsiveDialog } from '../ui'
 import {
-  CUSTOMER_TYPES,
-  DOCUMENT_TYPES,
+  CustomerCreateFields,
   documentSearchTokens,
   firstCustomerCoreError,
   useCustomerCore,
   type CustomerCoreRecord,
 } from '../features/customer-core'
+
+/** El CTA vive en el footer del diálogo, fuera del `<form>`. */
+const CUSTOMER_EDIT_FORM_ID = 'customer-edit-form'
 
 // `customersService.getAll()` hace `select('*')`: la fila trae estos campos.
 // Declararlos evita hidratar el formulario de edición desde un `any` y perder
@@ -525,134 +528,63 @@ export function Customers() {
         downloadTemplate={handleDownloadTemplate}
       />
 
-      {/* ── Modal Editar Cliente ─────────────────────────────── */}
-      {editingCustomer && (
-        <div className="modal-overlay-dark" onClick={() => setEditingCustomer(null)}>
-          <div className="modal-card" onClick={e => e.stopPropagation()}>
-            <div className="modal-hdr">
-              <h2>Editar Cliente</h2>
-              <CloseButton onClick={() => setEditingCustomer(null)} />
-            </div>
-            <div className="modal-body-scroll">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-                {([
-                  { label: 'Nombre *', key: 'name', placeholder: 'Nombre y apellido' },
-                  { label: 'Teléfono', key: 'phone', placeholder: 'Ej: 5493512345678' },
-                  { label: 'Email', key: 'email', placeholder: 'correo@ejemplo.com' },
-                  { label: 'Dirección', key: 'address', placeholder: 'Av. Corrientes 1234, CABA' },
-                  { label: 'Notas', key: 'notes', placeholder: 'Observaciones...' },
-                ] as const).map(f => (
-                  <div key={f.key}>
-                    <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>{f.label}</label>
-                    <input
-                      type="text"
-                      data-testid={`customer-edit-${f.key}-input`}
-                      value={editForm[f.key]}
-                      onChange={e => setEditField(f.key, e.target.value)}
-                      placeholder={f.placeholder}
-                      className="form-control"
-                    />
-                  </div>
-                ))}
-                {/* DNI / CUIT — la edición no lo conocía y no había forma de
-                    corregir un documento sin volver a dar de alta al cliente. */}
-                <div>
-                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>DNI / CUIT</label>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <div className="seg-field">
-                      {DOCUMENT_TYPES.map(t => (
-                        <button
-                          key={t}
-                          type="button"
-                          className="seg-field-option"
-                          data-testid={`customer-edit-document-type-${t}`}
-                          aria-pressed={editForm.documentType === t}
-                          onClick={() => setEditField('documentType', t)}
-                        >
-                          {t.toUpperCase()}
-                        </button>
-                      ))}
-                    </div>
-                    <input
-                      type="text"
-                      data-testid="customer-edit-document-input"
-                      value={editForm.document}
-                      onChange={e => setEditField('document', e.target.value)}
-                      placeholder={editForm.documentType === 'dni' ? 'Ej: 30.123.456' : 'Ej: 20-30123456-7'}
-                      className="form-control"
-                      style={{ flex: 1 }}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Tipo de cliente</label>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    {CUSTOMER_TYPES.map(tipo => (
-                      <button key={tipo} type="button"
-                        data-testid={`customer-edit-type-${tipo}`}
-                        aria-pressed={editForm.customerType === tipo}
-                        onClick={() => setEditCustomerType(tipo)}
-                        style={{ flex: 1, padding: '0.625rem', borderRadius: '0.5rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: editForm.customerType === tipo ? 700 : 400,
-                          border: `2px solid ${editForm.customerType === tipo ? tipo === 'mayorista' ? 'rgba(99,102,241,0.5)' : 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.08)'}`,
-                          background: editForm.customerType === tipo ? tipo === 'mayorista' ? 'rgba(99,102,241,0.12)' : 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.03)',
-                          color: editForm.customerType === tipo ? tipo === 'mayorista' ? '#c7d2fe' : '#4ade80' : 'var(--text-muted)',
-                        }}>
-                        {tipo === 'mayorista' ? 'Mayorista' : 'Minorista'}
-                      </button>
-                    ))}
-                  </div>
-                  {editForm.customerType === 'mayorista' && (
-                    <>
-                      <div style={{ marginTop: '0.875rem' }}>
-                        <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Razón social *</label>
-                        <input
-                          type="text"
-                          data-testid="customer-edit-business-name-input"
-                          value={editForm.businessName}
-                          onChange={e => setEditField('businessName', e.target.value)}
-                          aria-invalid={Boolean(editErrors.businessName)}
-                          placeholder="Nombre fiscal de la empresa"
-                          className="form-control"
-                        />
-                        {editErrors.businessName && (
-                          <p className="body-sm" role="alert" style={{ margin: '0.35rem 0 0', color: 'var(--danger, #f87171)' }}>
-                            {editErrors.businessName}
-                          </p>
-                        )}
-                      </div>
-                      <div style={{ marginTop: '0.875rem' }}>
-                        <label className="label-caps" style={{ display: 'block', marginBottom: '0.375rem' }}>Persona de contacto</label>
-                        <input
-                          type="text"
-                          data-testid="customer-edit-contact-person-input"
-                          value={editForm.contactPerson}
-                          onChange={e => setEditField('contactPerson', e.target.value)}
-                          className="form-control"
-                        />
-                      </div>
-                      <p className="body-sm" style={{ margin: '0.35rem 0 0', color: 'var(--accent-primary)' }}>
-                        Se usarán precios mayoristas automáticamente al cobrarle
-                      </p>
-                    </>
-                  )}
-                </div>
-                {editError && <div className="alert-inline alert-error">{editError}</div>}
-              </div>
-            </div>
-            <div className="modal-ftr">
-              <button onClick={() => setEditingCustomer(null)} className="btn btn-ghost">Cancelar</button>
-              <button
-                onClick={handleEditSave}
-                data-testid="customer-edit-save-button"
-                disabled={editLoading || Object.keys(editErrors).length > 0}
-                className="btn btn-primary btn-lift"
-              >
-                {editLoading ? <><Loader2 size={15} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</> : 'Guardar cambios'}
-              </button>
-            </div>
+      {/* ── Editar cliente ────────────────────────────────────────────
+          ORDERS-V2-0 — esto era un overlay propio: `modal-overlay-dark` a
+          mano, `<input className="form-control">`, colores `rgba()` en línea y
+          una copia de los botones de tipo de cliente y de tipo de documento.
+
+          Compartía el ESTADO con las altas (`useCustomerCore`) pero no la
+          presentación, y por eso crear y editar el mismo cliente se veían como
+          dos productos distintos.
+
+          Ahora monta el mismo cuerpo canónico que las dos altas dentro del
+          diálogo global. Las acciones siguen siendo propias de la edición
+          —«Guardar cambios» no es «Crear cliente»—; lo unificado es el sistema
+          visual y el de validación, que es donde estaba la inconsistencia.
+      */}
+      <ResponsiveDialog
+        isOpen={Boolean(editingCustomer)}
+        onClose={() => setEditingCustomer(null)}
+        title="Editar Cliente"
+        subtitle={editingCustomer?.name}
+        size="lg"
+        mobilePresentation="fullscreen"
+        footer={(
+          <div className="customer-create-dialog-actions">
+            <AppButton variant="secondary" onClick={() => setEditingCustomer(null)}>
+              Cancelar
+            </AppButton>
+            <AppButton
+              type="submit"
+              form={CUSTOMER_EDIT_FORM_ID}
+              variant="primary"
+              loading={editLoading}
+              disabled={editLoading || Object.keys(editErrors).length > 0}
+              data-testid="customer-edit-save-button"
+            >
+              Guardar cambios
+            </AppButton>
           </div>
-        </div>
-      )}
+        )}
+      >
+        <form
+          id={CUSTOMER_EDIT_FORM_ID}
+          className="customer-create-form"
+          onSubmit={event => { event.preventDefault(); void handleEditSave() }}
+          noValidate
+        >
+          {editError && (
+            <p className="form-error customer-create-server-error" role="alert">{editError}</p>
+          )}
+          <CustomerCreateFields
+            values={editForm}
+            errors={editErrors}
+            setField={setEditField}
+            setCustomerType={setEditCustomerType}
+            additionalInitiallyOpen
+          />
+        </form>
+      </ResponsiveDialog>
 
       {/* ── Modal Confirmar Eliminación ──────────────────────── */}
       {deletingCustomer && (
