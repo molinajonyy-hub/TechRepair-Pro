@@ -40,6 +40,9 @@ jobs:
       - name: MOBILE-2A — unit/component + secret/write guards
         run: npm run test:mobile2a
 
+      - name: Order detail — history render regression
+        run: npm run test:components -- tests/components/orderDetailHistory.test.tsx tests/components/orderChecklistAusente.test.tsx
+
       - name: SEC-08E R1 — client contract and compatibility
         run: npm run test:components -- tests/components/sec08eClientContract.test.ts tests/components/sec08eUpdateUx.test.tsx tests/components/sec08eReload.test.ts tests/components/sec08ePartsUsedAccess.test.ts tests/components/mobileFoundations.test.tsx tests/components/portalUpdateDetector.test.tsx
 
