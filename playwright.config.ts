@@ -102,5 +102,27 @@ export default defineConfig({
         serviceWorkers: 'block',
       },
     },
+    /**
+     * ORDERS-V2-0.1 — WebKit real, no Chromium emulando un iPhone.
+     *
+     * El human smoke falló por dos divergencias de motor que Chromium con
+     * viewport chico NO puede reproducir: `BarcodeDetector` no existe en
+     * WebKit, y `<datalist>` no despliega sus opciones. Un proyecto "mobile
+     * Chromium" habría dado verde con los dos bugs presentes — de hecho el
+     * E2E responsive que ya existía los dejó pasar.
+     *
+     * Sólo corre los specs marcados `webkit/`: el resto de la suite sigue
+     * siendo Chromium y no se duplica el tiempo de CI.
+     */
+    {
+      name: 'webkit-mobile',
+      testMatch: /webkit\/.*\.spec\.ts/,
+      use: {
+        ...devices['iPhone 13'],
+        browserName: 'webkit',
+        storageState: 'tests/e2e/.auth/owner.json',
+        serviceWorkers: 'block',
+      },
+    },
   ],
 })

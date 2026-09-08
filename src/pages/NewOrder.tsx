@@ -4,7 +4,8 @@ import { ArrowLeft, Camera, ChevronLeft, ChevronRight, ScanLine, ShieldCheck, Tr
 import { customersService } from '../services/api'
 import { ensureBrandAndModel } from '../services/deviceCatalogService'
 import type { Customer } from '../lib/supabase'
-import { AppButton, AppInput, AppSelect, AppTextarea, FormGrid, MobileActionBar, ResponsiveDialog } from '../ui'
+import { AppButton, AppCombobox, AppInput, AppMoneyInput, AppSelect, AppTextarea, FormGrid, MobileActionBar, ResponsiveDialog } from '../ui'
+import { formatMoney } from '../lib/money'
 import { useAuth } from '../contexts/AuthContext'
 import { effectivePermissions, usePermissions } from '../hooks/usePermissions'
 import { BarcodeScannerDialog } from '../features/order-intake/BarcodeScannerDialog'
@@ -71,7 +72,7 @@ export function NewOrder() {
   useEffect(()=>{photosRef.current=photos},[photos])
   useEffect(() => () => { photosRef.current.forEach(photo=>URL.revokeObjectURL(photo.preview)) },[])
 
-  const {brands,models}=useDeviceCatalog(draft.device.brand)
+  const {brands,models,loading:catalogLoading}=useDeviceCatalog(draft.device.brand)
 
   const stepError = () => {
     if(step===0&&!draft.customerId)return 'Seleccioná o creá un cliente.'
@@ -143,7 +144,19 @@ export function NewOrder() {
     {step===0&&<StepCard><CustomerPicker businessId={businessId} selectedId={draft.customerId} pinned={createdCustomers} onCreateNew={()=>setQuickOpen(true)} onSelect={customer=>{setSelectedCustomer(customer);update({customerId:customer.id})}}/></StepCard>}
 
     {step===1&&<StepCard><AppSelect label="Tipo de equipo" value={draft.device.type} onChange={e=>updateDevice({type:e.target.value as IntakeDraft['device']['type']})} options={[{value:'smartphone',label:'Teléfono'},{value:'tablet',label:'Tablet'},{value:'laptop',label:'Notebook'},{value:'smartwatch',label:'Smartwatch'},{value:'other',label:'Otro'}]}/>
-      <FormGrid><div><AppInput label="Marca" required value={draft.device.brand} onChange={e=>updateDevice({brand:e.target.value,model:''})} list="intake-brands"/><datalist id="intake-brands">{brands.map(item=><option key={item} value={item}/>)}</datalist></div><div><AppInput label="Modelo" required value={draft.device.model} onChange={e=>updateDevice({model:e.target.value})} list="intake-models"/><datalist id="intake-models">{models.map(item=><option key={item} value={item}/>)}</datalist></div></FormGrid>
+      {/* ORDERS-V2-0.1 — `<datalist>` no despliega sugerencias en WebKit móvil:
+          en el celular esto era un campo de texto pelado. AppCombobox dibuja la
+          lista con marcado propio y sigue aceptando texto libre. */}
+      <FormGrid>
+        <AppCombobox label="Marca" required value={draft.device.brand} options={brands} loading={catalogLoading}
+          data-testid="intake-brand" autoCapitalize="words"
+          emptyHint="No está en el catálogo. Podés escribirla igual."
+          onChange={value=>updateDevice({brand:value,model:''})}/>
+        <AppCombobox label="Modelo" required value={draft.device.model} options={models} loading={catalogLoading}
+          data-testid="intake-model" autoCapitalize="words"
+          emptyHint="No está en el catálogo. Podés escribirlo igual."
+          onChange={value=>updateDevice({model:value})}/>
+      </FormGrid>
     </StepCard>}
 
     {step===2&&<StepCard><div className="intake-field-action"><AppInput label="Número de serie" value={draft.device.serial} onChange={e=>updateDevice({serial:e.target.value})} autoCapitalize="characters"/><AppButton variant="secondary" leftIcon={<ScanLine size={17}/>} onClick={()=>setScanner('serial')}>Escanear</AppButton></div>
@@ -172,7 +185,15 @@ export function NewOrder() {
 
     {step===7&&<StepCard><AppSelect label="Técnico / responsable" value={draft.assignedProfileId} onChange={e=>update({assignedProfileId:e.target.value})} placeholder="Sin asignar" options={profiles.map(profile=>({value:profile.id,label:profile.full_name||profile.email||'Integrante'}))}/><AppSelect label="Prioridad" value={draft.priority} onChange={e=>update({priority:e.target.value as IntakeDraft['priority']})} options={[{value:'medium',label:'Normal'},{value:'high',label:'Importante'},{value:'urgent',label:'Urgente'}]}/></StepCard>}
 
-    {step===8&&<StepCard><p className="form-hint">El presupuesto es opcional y no registra pagos ni movimientos financieros.</p><FormGrid><AppInput semantic="decimal" label="Presupuesto estimado" value={draft.budgetAmount} onChange={e=>update({budgetAmount:e.target.value})} placeholder="Ej. 100.000,50"/><AppSelect label="Moneda" value={draft.budgetCurrency} onChange={e=>update({budgetCurrency:e.target.value as 'ARS'|'USD'})} options={[{value:'ARS',label:'ARS — Pesos'},{value:'USD',label:'USD — Dólares'}]}/></FormGrid></StepCard>}
+    {/* ORDERS-V2-0.1 — moneda y monto eran dos controles sueltos y `85000` se
+        veía igual en pesos que en dólares. AppMoneyInput los une y pone el
+        prefijo adentro del campo. Cambiar de moneda NO convierte el importe. */}
+    {step===8&&<StepCard><p className="form-hint">El presupuesto es opcional y no registra pagos ni movimientos financieros.</p>
+      <AppMoneyInput label="Presupuesto estimado" data-testid="intake-budget"
+        value={draft.budgetAmount} onValueChange={value=>update({budgetAmount:value})}
+        currency={draft.budgetCurrency} onCurrencyChange={currency=>update({budgetCurrency:currency})}
+        hint="Sólo cambia la unidad: el número que cargaste queda como está."/>
+    </StepCard>}
 
     {step===9&&<StepCard><div className="intake-summary">
       <Summary title="Cliente" onEdit={()=>setStep(0)}>{selectedCustomer?.name}</Summary>
@@ -183,7 +204,9 @@ export function NewOrder() {
       <Summary title="Acceso" onEdit={()=>setStep(5)}>{['pin','pattern','password'].includes(draft.accessMode)?`${ACCESS.find(a=>a.value===draft.accessMode)?.label} configurado`:ACCESS.find(a=>a.value===draft.accessMode)?.label}</Summary>
       <Summary title="Problema" onEdit={()=>setStep(6)}>{draft.problem}</Summary>
       <Summary title="Asignación" onEdit={()=>setStep(7)}>{profiles.find(profile=>profile.id===draft.assignedProfileId)?.full_name||'Sin asignar'} · {draft.priority==='medium'?'Normal':draft.priority==='high'?'Importante':'Urgente'}</Summary>
-      <Summary title="Presupuesto" onEdit={()=>setStep(8)}>{draft.budgetAmount?`${draft.budgetCurrency} ${draft.budgetAmount}`:'Sin presupuesto'}</Summary>
+      {/* El resumen mostraba `ARS 85.000` como texto crudo. Con la autoridad
+          de formato la moneda se lee de un vistazo: `$ 85.000,00` / `US$ …`. */}
+      <Summary title="Presupuesto" onEdit={()=>setStep(8)}>{formatMoney(parseLocalizedAmount(draft.budgetAmount),draft.budgetCurrency,{fallback:'Sin presupuesto'})}</Summary>
     </div></StepCard>}
 
     <div className="intake-desktop-actions"><AppButton variant="secondary" onClick={step===0?cancel:back} leftIcon={<ChevronLeft size={18}/>}>{step===0?'Cancelar':'Anterior'}</AppButton>{step<9?<AppButton variant="primary" onClick={next} rightIcon={<ChevronRight size={18}/>}>Continuar</AppButton>:<AppButton variant="primary" loading={submitting} onClick={submit}>{createdOrderId?'Reintentar fotos':'Crear orden'}</AppButton>}</div>
@@ -196,7 +219,9 @@ export function NewOrder() {
       setCreatedCustomers(previous=>[option,...previous.filter(item=>item.id!==option.id)])
       setSelectedCustomer(option);update({customerId:customer.id});setQuickOpen(false)
     }}/>
-    <BarcodeScannerDialog open={scanner!==null} onClose={()=>setScanner(null)} onDetected={value=>scanner&&updateDevice({[scanner]:scanner==='imei'?normalizeImei(value):value} as Partial<IntakeDraft['device']>)}/>
+    {/* El IMEI escaneado pasa por la MISMA normalización que el tipeado; el
+        serial no hereda la validación de IMEI, que es otro identificador. */}
+    <BarcodeScannerDialog open={scanner!==null} target={scanner} onClose={()=>setScanner(null)} onDetected={value=>scanner&&updateDevice({[scanner]:scanner==='imei'?normalizeImei(value):value.trim()} as Partial<IntakeDraft['device']>)}/>
   </>
 }
 

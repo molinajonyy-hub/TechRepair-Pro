@@ -76,7 +76,9 @@ test.describe('@mobile2a MOBILE-2A · recepción OWNER',()=>{
     await continueStep(page)
 
     await page.getByRole('button',{name:'Escanear'}).first().click()
-    await expect(page.getByRole('dialog',{name:'Escanear identificación'})).toBeVisible()
+    // ORDERS-V2-0.1: el diálogo dice QUÉ se escanea. El primer botón
+    // «Escanear» es el del número de serie.
+    await expect(page.getByRole('dialog',{name:'Escanear número de serie'})).toBeVisible()
     await page.screenshot({path:`${EVIDENCE}/390x844-03-scanner-fallback.png`})
     await page.getByRole('dialog').getByRole('button',{name:'Cerrar'}).last().click()
     await page.getByLabel('Número de serie').fill('SERIAL-E2E-M2A')
@@ -114,8 +116,12 @@ test.describe('@mobile2a MOBILE-2A · recepción OWNER',()=>{
     await continueStep(page)
     await page.getByLabel('Prioridad').selectOption('high')
     await continueStep(page)
-    await page.getByLabel('Presupuesto estimado').fill('150,50')
-    await page.getByLabel('Moneda').selectOption('USD')
+    // ORDERS-V2-0.1: moneda y monto son una sola unidad (AppMoneyInput). El
+    // grupo lleva el nombre del campo, así que el monto se toma por testid.
+    await page.getByTestId('intake-budget').fill('150,50')
+    await expect(page.getByTestId('intake-budget')).toHaveValue('150,50')
+    await page.getByTestId('intake-budget-currency').selectOption('USD')
+    await expect(page.locator('.app-money-prefix')).toHaveText('US$')
     await page.screenshot({path:`${EVIDENCE}/390x844-08-presupuesto-usd.png`})
     await continueStep(page)
 
