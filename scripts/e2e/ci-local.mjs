@@ -193,6 +193,14 @@ console.log(`  ✓ destino API  : host=${api.hostname} puerto=${api.port} local=
 console.log(`  ✓ destino DB   : host=${db.hostname} puerto=${db.port} local=true`)
 console.log('  ✓ claves       : presentes (no se imprimen)')
 
+// R2A is intentionally an infrastructure-only rollout. Because `supabase start`
+// above applies every migration in the candidate tree, this semantic
+// postcondition catches any renamed or syntactically different migration that
+// accidentally activates the contract gate.
+console.log('  · validando SEC-08E R2A (hook instalado, enforcement disabled/NULL)…')
+correr(process.execPath, ['scripts/guards/sec08e-r2a-disabled.mjs', '--runtime'],
+  'El árbol candidato activa SEC-08E R2 antes del rollout separado de R2B.', { shell: false })
+
 // ─── 5. `.env.e2e` ──────────────────────────────────────────────────────────
 // En CI nunca existe (está gitignoreado) y se genera. En local se RESPETA el del
 // desarrollador salvo `--write-env`: pisarlo en silencio sería un modo excelente

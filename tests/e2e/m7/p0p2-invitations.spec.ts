@@ -28,6 +28,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { createClient } from '@supabase/supabase-js'
 import { consultarJSON } from '../setup/sqlLocal.ts'
 import { assertDestinoLocalSeguro } from '../setup/assertLocalTarget.ts'
+import { createCompatibleUserClient } from '../setup/compatibleUserClient.ts'
 
 // Sesión propia por test: este spec maneja varios actores y NO puede heredar el
 // storageState del owner sembrado.
@@ -106,7 +107,7 @@ const estadoInvitacion = (token: string) =>
 async function crearOwnerConNegocio(email: string, nombre: string): Promise<{ id: string; businessId: string }> {
   const id = await crearUsuarioConfirmado(email)
   const d = await assertDestinoLocalSeguro()
-  const sb = createClient(d.supabaseUrl, d.anonKey)
+  const sb = createCompatibleUserClient(d)
   const { error: errLogin } = await sb.auth.signInWithPassword({ email, password: PASSWORD })
   if (errLogin) throw new Error(`login de ${email}: ${errLogin.message}`)
 
@@ -120,7 +121,7 @@ async function crearOwnerConNegocio(email: string, nombre: string): Promise<{ id
 /** Emite una invitación como `emailOwner`, por la RPC canónica. */
 async function invitar(emailOwner: string, emailInvitado: string, rol: string): Promise<string> {
   const d = await assertDestinoLocalSeguro()
-  const sb = createClient(d.supabaseUrl, d.anonKey)
+  const sb = createCompatibleUserClient(d)
   const { error: errLogin } = await sb.auth.signInWithPassword({ email: emailOwner, password: PASSWORD })
   if (errLogin) throw new Error(`login de ${emailOwner}: ${errLogin.message}`)
 

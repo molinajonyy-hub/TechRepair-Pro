@@ -41,6 +41,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { authorizeArcaCaller, ArcaAuthorizationError } from '../_shared/arcaAuthorization.ts'
+import { userDataApiHeaders } from '../_shared/clientContract.ts'
 import {
   logStructured, todayYYYYMMDD, solicitarCAEConReconciliacion, consultarComprobante,
   getUltimoComprobante,
@@ -284,7 +285,7 @@ serve(async (req: Request) => {
     const caller = await authorizeArcaCaller(req.headers.get('Authorization'), {
       capability: 'comprobantes',
       createUserClient: (authorization) => createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
-        global: { headers: { Authorization: authorization } },
+        global: { headers: userDataApiHeaders(req, authorization) },
         auth: { persistSession: false, autoRefreshToken: false },
       }),
     })

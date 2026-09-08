@@ -11,6 +11,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import forge from 'npm:node-forge@1.3.1'
 import { resolveArcaPrivateKey, WsaaKeyError, type KeySource } from './keyResolver.ts'
 import { authorizeArcaCaller } from '../_shared/arcaAuthorization.ts'
+import { userDataApiHeaders } from '../_shared/clientContract.ts'
 import { withWsaaAuthorization } from './authorizationBoundary.ts'
 
 // ─────────────────────────────────────────────────────────────────
@@ -365,7 +366,7 @@ serve(async (req: Request) => {
       capability: 'settings_sensitive',
       serviceRoleKey: supabaseKey,
       createUserClient: (authorization) => createClient(supabaseUrl, anonKey, {
-        global: { headers: { Authorization: authorization } },
+        global: { headers: userDataApiHeaders(req, authorization) },
         auth: { persistSession: false, autoRefreshToken: false },
       }),
     }),
