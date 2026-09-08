@@ -9,6 +9,7 @@
 // ============================================================================
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { DestinoE2E } from './assertLocalTarget'
+import { createCompatibleUserClient } from './compatibleUserClient'
 
 // IDs determinísticos: el seed es re-ejecutable sin duplicar.
 export const E2E = {
@@ -113,9 +114,7 @@ export async function sembrarE2E(d: DestinoE2E): Promise<void> {
  * Se verifica con la ANON key + sesión real (no service role).
  */
 export async function verificarAislamiento(d: DestinoE2E): Promise<void> {
-  const sb = createClient(d.supabaseUrl, d.anonKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
+  const sb = createCompatibleUserClient(d)
   const { error: authErr } = await sb.auth.signInWithPassword({ email: d.email, password: d.password })
   if (authErr) throw new Error(`El usuario E2E no puede loguearse: ${authErr.message}`)
 
