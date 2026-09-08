@@ -1,4 +1,15 @@
-/** Fuente única de lectura de clientes para el selector del POS. */
+/**
+ * Fuente única de lectura de clientes para los selectores de la app.
+ *
+ * ORDERS-V2-0 — dejó de ser exclusiva del POS. `CustomerPicker` (recepción de
+ * órdenes) la consume tal cual, en lugar de la tercera implementación que había
+ * en Nueva Orden: `customersService.getAll()` traía la tabla entera al browser
+ * y filtraba en memoria.
+ *
+ * El nombre del módulo todavía dice `pos` por compatibilidad; renombrarlo
+ * mueve archivos del POS y no aporta comportamiento, así que queda como
+ * seguimiento aparte. La autoridad es esta, se llame como se llame.
+ */
 import { supabase } from '../lib/supabase'
 import { documentSearchTokens } from '../features/customer-core/document'
 import { normalizeText, smartSearch } from '../utils/searchUtils'
@@ -28,6 +39,15 @@ export interface PosCustomerSearchOptions {
   query: string
   limit?: number
   signal?: AbortSignal
+  /**
+   * Orden del listado SIN búsqueda. Con términos manda siempre el ranking de
+   * `smartSearch`, así que esto sólo decide qué se ve al abrir el selector.
+   *
+   * `name` (default) es el comportamiento histórico del POS y no cambia.
+   * `recent` lo pide la recepción de órdenes: al abrir Nueva Orden, los
+   * últimos clientes cargados son mejores candidatos que los alfabéticos.
+   */
+  orderBy?: 'name' | 'recent'
 }
 
 export const POS_CUSTOMER_RESULT_LIMIT = 25
@@ -42,7 +62,7 @@ function searchablePhone(phone: string | null | undefined): string {
 export async function searchPosCustomers(
   options: PosCustomerSearchOptions,
 ): Promise<PosCustomerSearchResult> {
-  const { businessId, query, limit = POS_CUSTOMER_RESULT_LIMIT, signal } = options
+  const { businessId, query, limit = POS_CUSTOMER_RESULT_LIMIT, signal, orderBy = 'name' } = options
 
   if (!businessId) return { status: 'ok', items: [], truncated: false }
 
@@ -68,7 +88,11 @@ export async function searchPosCustomers(
     if (filter) request = request.or(filter)
   }
 
-  request = request.order('name', { ascending: true }).order('id', { ascending: true })
+  // `id` desempata siempre: sin un orden total, dos páginas del mismo listado
+  // pueden devolver la misma fila dos veces.
+  request = orderBy === 'recent'
+    ? request.order('created_at', { ascending: false }).order('id', { ascending: true })
+    : request.order('name', { ascending: true }).order('id', { ascending: true })
   request = request.limit(limit + 1)
   if (signal) request = request.abortSignal(signal)
 

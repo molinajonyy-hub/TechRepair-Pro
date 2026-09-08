@@ -56,7 +56,6 @@ const CajaPage = lazy(() => import('./pages/CajaPage').then(m => ({ default: m.C
 const CuentasCorrientes = lazy(() => import('./pages/CuentasCorrientes').then(m => ({ default: m.CuentasCorrientes })))
 const CurrencySettings = lazy(() => import('./pages/CurrencySettings').then(m => ({ default: m.CurrencySettings })))
 const CustomerDetail = lazy(() => import('./pages/CustomerDetail').then(m => ({ default: m.CustomerDetail })))
-const CustomerPortal = lazy(() => import('./pages/CustomerPortal').then(m => ({ default: m.CustomerPortal })))
 const Customers = lazy(() => import('./pages/Customers').then(m => ({ default: m.Customers })))
 const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
 const Expenses = lazy(() => import('./pages/Expenses').then(m => ({ default: m.Expenses })))
@@ -172,7 +171,23 @@ function AppContent() {
           */}
           <Route path="/no-business" element={<RequireEmailConfirmed><NoBusiness /></RequireEmailConfirmed>} />
           <Route path="/onboarding" element={<RequireEmailConfirmed><Onboarding /></RequireEmailConfirmed>} />
-          <Route path="/customer-portal" element={<CustomerPortal />} />
+          {/*
+            ORDERS-V2-0 — `/customer-portal` fue RETIRADA.
+
+            Era una ruta PÚBLICA (sin sesión, antes del guard) que renderizaba
+            dos órdenes hardcodeadas — «iPhone 13 Pro · $450» — desde un array
+            literal en el componente. No tenía servicio, hook, query ni auth:
+            154 líneas de JSX con mocks. Nadie enlazaba a ella; se llegaba sólo
+            escribiendo la URL.
+
+            No es el seguimiento público: ése se construye en un bloque futuro
+            con su propia superficie de datos. Hasta entonces no debe existir
+            una URL productiva que muestre órdenes ficticias.
+
+            La página se eliminó junto con la ruta; queda en el historial
+            (`git show de2cb88:src/pages/CustomerPortal.tsx`) como referencia
+            visual para cuando se construya el seguimiento real.
+          */}
           {/*
             Legal — público, SIN sesión. La ruta canónica es /privacidad; /privacy
             queda como alias porque es la que espera el Chrome Web Store y la que

@@ -88,8 +88,12 @@ test.describe('@mobile2a MOBILE-2A · recepción OWNER',()=>{
     await page.screenshot({path:`${EVIDENCE}/390x844-04-estado-fotos.png`})
     await continueStep(page)
 
-    await page.getByLabel('Pantalla').selectOption('ok')
-    await page.getByLabel('Táctil').selectOption('fail')
+    // ORDERS-V2-0: el checklist dejó de ser `<select>` y pasó a radios en
+    // segmented control. El resultado guardado es el mismo `CheckResult`.
+    await page.getByRole('radio',{name:'Pantalla: OK'}).check()
+    await page.getByRole('radio',{name:'Táctil: Falla'}).check()
+    await expect(page.getByRole('radio',{name:'Pantalla: OK'})).toBeChecked()
+    await expect(page.getByRole('radio',{name:'Táctil: Falla'})).toBeChecked()
     await page.screenshot({path:`${EVIDENCE}/390x844-05-checklist.png`})
     await page.setViewportSize({width:320,height:568});await noOverflow(page)
     await page.screenshot({path:`${EVIDENCE}/320x568-checklist-denso.png`})

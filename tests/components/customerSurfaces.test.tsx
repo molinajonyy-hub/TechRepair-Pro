@@ -419,6 +419,10 @@ describe('selector DNI/CUIT · semántica de tema', () => {
     expect(screen.getByTestId('customer-document-type-cuit')).toHaveAttribute('aria-pressed', 'false')
   })
 
+  // ORDERS-V2-0: la edición ya no tiene chips propios — monta
+  // `CustomerCreateFields`, así que los testids son los canónicos. La aserción
+  // sigue sirviendo de guarda: si alguien vuelve a escribir un selector a mano
+  // con estilos en línea, esto falla.
   it('la edición usa la misma clase canónica, no una copia divergente', async () => {
     mocks.getAll.mockResolvedValue([{ ...CUSTOMERS[0], document: 'CUIT 20301234567', customer_type: 'mayorista', business_name: 'Demo SRL' }])
     render(<MemoryRouter><Customers /></MemoryRouter>)
@@ -426,7 +430,7 @@ describe('selector DNI/CUIT · semántica de tema', () => {
     await screen.findByText('Editar Cliente')
 
     for (const t of ['dni', 'cuit']) {
-      const chip = screen.getByTestId(`customer-edit-document-type-${t}`)
+      const chip = screen.getByTestId(`customer-document-type-${t}`)
       expect(chip).toHaveClass('seg-field-option')
       const inline = chip.getAttribute('style') || ''
       expect(inline).not.toContain('background')

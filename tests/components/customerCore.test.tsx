@@ -48,6 +48,18 @@ vi.mock('../../src/features/order-intake/service', () => ({
   uploadIntakePhotos: vi.fn(),
   loadAssignableProfiles: mocks.loadProfiles,
 }))
+// ORDERS-V2-0 — Nueva Orden dejó de traerse la tabla de clientes al browser:
+// el selector busca server-side y el catálogo de equipos sale de la DB.
+vi.mock('../../src/contexts/AuthContext', () => ({ useAuth: () => ({ businessId: 'biz-a' }) }))
+vi.mock('../../src/services/posCustomerSearchService', () => ({
+  searchPosCustomers: async () => ({ status: 'ok', items: [], truncated: false }),
+}))
+vi.mock('../../src/services/deviceCatalogService', () => ({
+  DEFAULT_BRANDS: ['Apple'],
+  loadBrandOptions: async () => ['Apple'],
+  loadModelOptions: async () => [],
+  ensureBrandAndModel: async () => null,
+}))
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
   return { ...actual, useNavigate: () => mocks.navigate }
