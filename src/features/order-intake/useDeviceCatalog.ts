@@ -26,17 +26,26 @@ const BRAND_SETTLE_MS = 300
 export interface DeviceCatalogOptions {
   brands: string[]
   models: string[]
+  /**
+   * ORDERS-V2-0.1 — el combobox lo muestra mientras espera al catálogo.
+   * `<datalist>` no tenía forma de expresar «estoy buscando», así que en una
+   * conexión lenta la lista simplemente aparecía vacía.
+   */
+  loading: boolean
 }
 
 export function useDeviceCatalog(brandName: string): DeviceCatalogOptions {
   const [brands, setBrands] = useState<string[]>(DEFAULT_BRANDS)
   const [models, setModels] = useState<string[]>([])
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     let active = true
+    setLoading(true)
     loadBrandOptions()
       .then(options => { if (active) setBrands(options) })
       .catch(() => { /* el service ya degrada a DEFAULT_BRANDS */ })
+      .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [])
 
@@ -47,14 +56,16 @@ export function useDeviceCatalog(brandName: string): DeviceCatalogOptions {
     // `active` cubre la carrera real de este campo: se tipea «S», «Sa», «Sam»…
     // y una respuesta vieja no puede pisar la sugerencia de la marca vigente.
     let active = true
+    setLoading(true)
     const timer = setTimeout(() => {
       loadModelOptions(trimmed)
         .then(options => { if (active) setModels(options) })
         .catch(() => { if (active) setModels([]) })
+        .finally(() => { if (active) setLoading(false) })
     }, BRAND_SETTLE_MS)
 
     return () => { active = false; clearTimeout(timer) }
   }, [brandName])
 
-  return { brands, models }
+  return { brands, models, loading }
 }
