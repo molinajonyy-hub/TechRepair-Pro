@@ -161,13 +161,16 @@ test.describe('@customer-core UI-CONSISTENCY-1 · paridad entre superficies de a
     await expect(listRow).toBeVisible()
     await listRow.getByTitle('Editar cliente').click()
     await expect(page.getByText('Editar Cliente')).toBeVisible()
-    await expect(page.getByTestId('customer-edit-name-input')).toHaveValue(name)
+    // ORDERS-V2-0: la edición dejó de tener inputs propios y monta
+    // `CustomerCreateFields`, así que los campos son los canónicos. La ACCIÓN
+    // sigue siendo suya, por eso `customer-edit-save-button` no cambia.
+    await expect(page.getByTestId('customer-name-input')).toHaveValue(name)
 
-    await page.getByTestId('customer-edit-type-mayorista').click()
+    await page.getByTestId('customer-type-mayorista').click()
     // El gate que faltaba: sin razón social, no se guarda.
     await expect(page.getByTestId('customer-edit-save-button')).toBeDisabled()
 
-    await page.getByTestId('customer-edit-business-name-input').fill('Editada SRL')
+    await page.getByTestId('customer-business-name-input').fill('Editada SRL')
     await expect(page.getByTestId('customer-edit-save-button')).toBeEnabled()
     await page.getByTestId('customer-edit-save-button').click()
 
