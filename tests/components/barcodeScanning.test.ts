@@ -19,7 +19,7 @@ import {
   DECODE_INTERVAL_MS,
   classifyCameraError,
   detectScannerCapability,
-  hasVideoInput,
+  probeVideoInput,
   releaseStream,
 } from '../../src/features/order-intake/barcodeScanning'
 
@@ -101,22 +101,42 @@ describe('ORDERS-V2-0.1 · causas de fallo de cámara', () => {
     expect(classifyCameraError(null)).toBe('unknown')
   })
 
-  it('detecta la ausencia de cámara ANTES de pedir permiso', () => {
-    // Sin permiso concedido los `label` vienen vacíos, pero el `kind` está:
-    // alcanza para no pedirle permiso a una máquina que no tiene cámara.
+  /**
+   * `probeVideoInput` es diagnóstico, NUNCA una compuerta. Reemplazar
+   * `!BarcodeDetector` por `!hasVideoInput()` habría sido el mismo bug con
+   * otra API: una comprobación indirecta abortando el intento que sí sabe la
+   * verdad. Por eso devuelve tres estados y no un booleano — «no sé» tiene
+   * que ser expresable.
+   */
+  it('afirma la ausencia sólo cuando enumeró dispositivos y ninguno es cámara', () => {
     setMediaDevices({
       getUserMedia: vi.fn(),
       enumerateDevices: vi.fn().mockResolvedValue([{ kind: 'audioinput', label: '' }]),
     })
-    return expect(hasVideoInput()).resolves.toBe(false)
+    return expect(probeVideoInput()).resolves.toBe('absent')
   })
 
-  it('ante duda no bloquea a un equipo que sí puede escanear', async () => {
+  it('una lista VACÍA es «no sé», no «no hay»', async () => {
+    // Sin permiso, varios navegadores devuelven la lista vacía aunque la
+    // cámara exista. Leer eso como ausencia es justamente el error.
+    setMediaDevices({ getUserMedia: vi.fn(), enumerateDevices: vi.fn().mockResolvedValue([]) })
+    expect(await probeVideoInput()).toBe('unknown')
+  })
+
+  it('sin la API, o si falla, tampoco afirma nada', async () => {
     setMediaDevices({ getUserMedia: vi.fn(), enumerateDevices: vi.fn().mockRejectedValue(new Error('x')) })
-    expect(await hasVideoInput()).toBe(true)
+    expect(await probeVideoInput()).toBe('unknown')
 
     setMediaDevices({ getUserMedia: vi.fn() })
-    expect(await hasVideoInput()).toBe(true)
+    expect(await probeVideoInput()).toBe('unknown')
+  })
+
+  it('reconoce la cámara cuando el navegador la lista', async () => {
+    setMediaDevices({
+      getUserMedia: vi.fn(),
+      enumerateDevices: vi.fn().mockResolvedValue([{ kind: 'videoinput', label: '' }]),
+    })
+    expect(await probeVideoInput()).toBe('present')
   })
 })
 

@@ -88,6 +88,20 @@ export function AppCombobox({
     }
   }, [open, active])
 
+  /**
+   * Salir del combobox con Tab tiene que cerrar la lista: si no, queda
+   * flotando sobre el campo siguiente y tapa lo que el usuario está por
+   * escribir. Se compara contra `relatedTarget` para NO cerrar cuando el foco
+   * se mueve dentro del propio componente.
+   */
+  const onBlurCapture = (event: React.FocusEvent<HTMLDivElement>) => {
+    const next = event.relatedTarget as Node | null
+    if (!next || !rootRef.current?.contains(next)) {
+      setOpen(false)
+      setActive(-1)
+    }
+  }
+
   const commit = (option: string) => {
     onChange(option)
     setOpen(false)
@@ -129,7 +143,7 @@ export function AppCombobox({
   const describedBy = error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined
 
   return (
-    <div className="app-combobox" ref={rootRef}>
+    <div className="app-combobox" ref={rootRef} onBlur={onBlurCapture}>
       {/* El asterisco de requerido va por CSS, no como nodo de texto: si
           entra al `<label>`, el nombre accesible pasa a ser «Marca *» y deja
           de coincidir con el label a secas. `AppInput` ya resuelve así, y la
@@ -177,7 +191,24 @@ export function AppCombobox({
           llamándose «Marca», cualquier consulta por nombre accesible resuelve
           a dos elementos y se vuelve ambigua. */}
       {open && (
-        <ul className="app-combobox-list" id={listId} role="listbox" ref={listRef} aria-label={`Sugerencias de ${label}`}>
+        <ul
+          className="app-combobox-list"
+          id={listId}
+          role="listbox"
+          ref={listRef}
+          aria-label={`Sugerencias de ${label}`}
+          /**
+           * `mousedown` con preventDefault mantiene el foco en el input, que
+           * es lo que evita que `focusout` cierre la lista antes de que llegue
+           * el `click`.
+           *
+           * Va en `mousedown` y NO en `pointerdown`: el navegador sintetiza
+           * `mousedown` sólo cuando ya decidió que el gesto fue un TAP, no
+           * mientras se scrollea. `pointerdown` se dispara al apoyar el dedo,
+           * así que hacer preventDefault ahí bloqueaba el desplazamiento.
+           */
+          onMouseDown={event => event.preventDefault()}
+        >
           {loading && !filtered.length && (
             <li className="app-combobox-status" role="presentation">Buscando…</li>
           )}
@@ -191,9 +222,18 @@ export function AppCombobox({
               role="option"
               aria-selected={option === value}
               className={`app-combobox-option${index === active ? ' is-active' : ''}${option === value ? ' is-selected' : ''}`}
-              // `pointerdown` corre antes del blur del input: con `click` la
-              // lista se desmontaba y el tap nunca llegaba a la opción.
-              onPointerDown={event => { event.preventDefault(); commit(option) }}
+              /**
+               * Se elige en `click`, no en `pointerdown`.
+               *
+               * Con `pointerdown`, apoyar el dedo sobre una opción para
+               * empezar a desplazar una lista de 50 elementos la seleccionaba
+               * y cerraba el desplegable: el scroll táctil era imposible.
+               *
+               * `click` sólo se dispara si el gesto terminó siendo un tap —
+               * el navegador ya lo suprime cuando hubo desplazamiento — y
+               * cubre mouse, touch y Enter con el mismo camino.
+               */
+              onClick={() => commit(option)}
             >
               <span>{option}</span>
               {option === value && <Check size={16} aria-hidden="true" />}

@@ -68,18 +68,29 @@ export function detectScannerCapability(): ScannerCapability {
 }
 
 /**
- * Antes de pedir permiso: ¿hay siquiera una cámara? Sin permiso concedido los
- * `label` vienen vacíos, pero el `kind` está, que es lo único que se necesita.
- * Ante cualquier duda devuelve `true` para no bloquear un equipo que sí puede
- * escanear.
+ * Diagnóstico ADVISORY. **Nunca una compuerta.**
+ *
+ * Reemplazar `!BarcodeDetector` por `!hasVideoInput()` habría sido el mismo
+ * bug con otro nombre: `enumerateDevices()` depende del permiso, de la
+ * Permission Policy, de las restricciones de privacidad del navegador y de la
+ * implementación. Que no devuelva un `videoinput` NO significa que no haya
+ * cámara — varios navegadores devuelven la lista vacía o sin `kind` hasta que
+ * el permiso está concedido.
+ *
+ * La autoridad para saber si se puede abrir la cámara es `getUserMedia()` y su
+ * excepción real. Esto sólo sirve para afinar el mensaje DESPUÉS de que
+ * `getUserMedia` ya falló.
  */
-export async function hasVideoInput(): Promise<boolean> {
-  if (!navigator.mediaDevices?.enumerateDevices) return true
+export async function probeVideoInput(): Promise<'present' | 'absent' | 'unknown'> {
+  if (!navigator.mediaDevices?.enumerateDevices) return 'unknown'
   try {
     const devices = await navigator.mediaDevices.enumerateDevices()
-    return devices.some(device => device.kind === 'videoinput')
+    if (devices.some(device => device.kind === 'videoinput')) return 'present'
+    // Sin permiso, varios navegadores devuelven una lista vacía aunque la
+    // cámara exista. Vacío es «no sé», no «no hay».
+    return devices.length ? 'absent' : 'unknown'
   } catch {
-    return true
+    return 'unknown'
   }
 }
 

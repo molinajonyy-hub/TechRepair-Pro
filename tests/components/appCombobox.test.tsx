@@ -119,12 +119,98 @@ describe('ORDERS-V2-0.1 · AppCombobox', () => {
     expect(input()).toHaveValue('Sam')
   })
 
-  it('elegir con el dedo funciona: pointerdown, no click', () => {
-    // Con `click` el blur del input desmontaba la lista y el tap nunca
-    // llegaba a la opción — el bug clásico de los desplegables táctiles.
+  // ── Táctil (corregido en el pre-merge review) ────────────────────────────
+  //
+  // La primera versión elegía en `pointerdown` para que el blur del input no
+  // desmontara la lista antes del tap. Pero `pointerdown` se dispara al APOYAR
+  // el dedo: apoyarlo sobre una opción para empezar a desplazar una lista de
+  // 50 elementos la seleccionaba y cerraba el desplegable. El scroll táctil
+  // era imposible.
+  //
+  // Ahora se elige en `click` —que el navegador suprime cuando hubo
+  // desplazamiento— y el foco se conserva con `mousedown` + preventDefault en
+  // la lista, que el navegador sintetiza sólo cuando ya decidió que fue un tap.
+
+  it('A · un tap sobre la opción la elige', () => {
     render(<Controlled />)
     fireEvent.focus(input())
-    fireEvent.pointerDown(screen.getByRole('option', { name: /Samsung/ }))
+    const option = screen.getByRole('option', { name: /Samsung/ })
+    fireEvent.pointerDown(option)
+    fireEvent.pointerUp(option)
+    fireEvent.click(option)
+    expect(input()).toHaveValue('Samsung')
+    expect(input()).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('B · apoyar el dedo y arrastrar NO selecciona', () => {
+    const onChange = vi.fn()
+    render(<Controlled onChange={onChange} />)
+    fireEvent.focus(input())
+    const option = screen.getByRole('option', { name: /Samsung/ })
+
+    // Gesto de scroll: baja el dedo sobre la opción, se mueve, y suelta.
+    // El navegador NO emite `click` en este caso.
+    fireEvent.pointerDown(option, { pointerType: 'touch' })
+    fireEvent.pointerMove(option, { pointerType: 'touch', clientY: -120 })
+    fireEvent.pointerUp(option, { pointerType: 'touch' })
+
+    expect(onChange).not.toHaveBeenCalled()
+    expect(input()).toHaveValue('')
+    expect(input()).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('B2 · la lista no cancela el gesto: no hace preventDefault en pointerdown', () => {
+    // Si algún handler llamara preventDefault en `pointerdown`, el navegador
+    // no scrollearía. `fireEvent` devuelve false cuando se canceló el evento.
+    render(<Controlled />)
+    fireEvent.focus(input())
+    const notCancelled = fireEvent.pointerDown(
+      screen.getByRole('option', { name: /Samsung/ }), { pointerType: 'touch', cancelable: true },
+    )
+    expect(notCancelled).toBe(true)
+  })
+
+  it('C · la lista es la que scrollea, y no arrastra la página', () => {
+    const { container } = render(<Controlled />)
+    fireEvent.focus(input())
+    const list = container.querySelector('.app-combobox-list')
+    expect(list).toBeInTheDocument()
+    // El alto acotado + overflow es lo que hace scrolleable a la lista; el
+    // CSS declara `overscroll-behavior: contain` y `touch-action: pan-y`.
+    expect(list).toHaveAttribute('role', 'listbox')
+  })
+
+  it('C2 · el foco se conserva al tocar la lista, sin bloquear el scroll', () => {
+    // `mousedown` sí se cancela: el navegador lo sintetiza recién cuando
+    // decidió que el gesto fue un tap, así que no afecta al desplazamiento.
+    const { container } = render(<Controlled />)
+    fireEvent.focus(input())
+    const list = container.querySelector('.app-combobox-list') as HTMLElement
+    const notCancelled = fireEvent.mouseDown(list, { cancelable: true })
+    expect(notCancelled).toBe(false)
+  })
+
+  it('D · salir con Tab cierra la lista', () => {
+    render(<><Controlled /><button type="button">Siguiente</button></>)
+    fireEvent.focus(input())
+    expect(input()).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.blur(input(), { relatedTarget: screen.getByRole('button', { name: 'Siguiente' }) })
+    expect(input()).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('D2 · mover el foco DENTRO del combobox no la cierra', () => {
+    const { container } = render(<Controlled />)
+    fireEvent.focus(input())
+    const toggle = container.querySelector('.app-combobox-toggle') as HTMLElement
+    fireEvent.blur(input(), { relatedTarget: toggle })
+    expect(input()).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('elegir con el mouse funciona', () => {
+    render(<Controlled />)
+    fireEvent.focus(input())
+    fireEvent.click(screen.getByRole('option', { name: /Samsung/ }))
     expect(input()).toHaveValue('Samsung')
   })
 

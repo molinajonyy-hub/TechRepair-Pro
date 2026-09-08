@@ -2,9 +2,22 @@
 
 Bloques C, D y E del pedido. Baseline `3b8406c`.
 
-> **Estado: DISEÑADO, NO IMPLEMENTADO.** Al final se explica por qué y qué
-> falta. El resto del lote (scanner cross-browser, combobox, money input) sí
-> está implementado.
+> ## PENDING CONFIRMED REQUIREMENT
+>
+> **Desktop QR → cámara del celular para IMEI/serial.**
+>
+> Es un requerimiento **confirmado y vigente**, no una idea descartada ni una
+> sugerencia. Está diferido, no diluido.
+>
+> - **Bloque asignado:** `ORDERS-V2-0.2 — REMOTE DEVICE CAPTURE`
+> - **Revisión de seguridad:** propia y separada, por ser superficie de
+>   producción sin autenticar.
+> - **Foundation compartida:** la misma sesión sirve después para el QR de
+>   captura de fotos. Cambia el payload y el destino, no el modelo de token.
+>
+> **Estado de este documento: DISEÑADO, NO IMPLEMENTADO.** Al final se explica
+> por qué y qué falta. El resto del lote (scanner cross-browser, combobox,
+> money input) sí está implementado.
 
 ---
 

@@ -7,7 +7,7 @@ import {
   classifyCameraError,
   createScanEngine,
   detectScannerCapability,
-  hasVideoInput,
+  probeVideoInput,
   releaseStream,
   type CameraFailure,
   type ScanEngine,
@@ -91,18 +91,26 @@ export function BarcodeScannerDialog({ open, onClose, onDetected, target = null 
     setError('')
     setPhase('starting')
 
-    if (!await hasVideoInput()) {
-      setPhase('idle')
-      setError(CAMERA_MESSAGE['not-found'])
-      return
-    }
-
+    /**
+     * `getUserMedia` es la ÚNICA autoridad para saber si se puede abrir la
+     * cámara. No se consulta `enumerateDevices` antes: hacerlo sería repetir
+     * el bug original con otra API — una comprobación indirecta abortando el
+     * intento que sí sabe la verdad.
+     */
     let stream: MediaStream
     try {
       stream = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS)
     } catch (cause) {
       setPhase('idle')
-      setError(CAMERA_MESSAGE[classifyCameraError(cause)])
+      const failure = classifyCameraError(cause)
+      // Recién acá `enumerateDevices` aporta algo: si el fallo fue genérico y
+      // además se puede afirmar que no hay ninguna cámara, el mensaje mejora.
+      // Si dice «no sé», se conserva el mensaje del error real.
+      if (failure === 'unknown' && await probeVideoInput() === 'absent') {
+        setError(CAMERA_MESSAGE['not-found'])
+        return
+      }
+      setError(CAMERA_MESSAGE[failure])
       return
     }
 

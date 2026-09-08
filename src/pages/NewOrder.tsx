@@ -72,7 +72,7 @@ export function NewOrder() {
   useEffect(()=>{photosRef.current=photos},[photos])
   useEffect(() => () => { photosRef.current.forEach(photo=>URL.revokeObjectURL(photo.preview)) },[])
 
-  const {brands,models,loading:catalogLoading}=useDeviceCatalog(draft.device.brand)
+  const {brands,models,brandsLoading,modelsLoading}=useDeviceCatalog(draft.device.brand)
 
   const stepError = () => {
     if(step===0&&!draft.customerId)return 'Seleccioná o creá un cliente.'
@@ -148,11 +148,11 @@ export function NewOrder() {
           en el celular esto era un campo de texto pelado. AppCombobox dibuja la
           lista con marcado propio y sigue aceptando texto libre. */}
       <FormGrid>
-        <AppCombobox label="Marca" required value={draft.device.brand} options={brands} loading={catalogLoading}
+        <AppCombobox label="Marca" required value={draft.device.brand} options={brands} loading={brandsLoading}
           data-testid="intake-brand" autoCapitalize="words"
           emptyHint="No está en el catálogo. Podés escribirla igual."
           onChange={value=>updateDevice({brand:value,model:''})}/>
-        <AppCombobox label="Modelo" required value={draft.device.model} options={models} loading={catalogLoading}
+        <AppCombobox label="Modelo" required value={draft.device.model} options={models} loading={modelsLoading}
           data-testid="intake-model" autoCapitalize="words"
           emptyHint="No está en el catálogo. Podés escribirlo igual."
           onChange={value=>updateDevice({model:value})}/>
