@@ -7,7 +7,8 @@ import {
   ORDER_ITEM_OPERATIONAL_COLUMNS,
   ORDER_PART_OPERATIONAL_COLUMNS,
 } from '../lib/orderLineAmounts'
-import { OrderStatus, StatusHistoryEntry } from '../types/orderStatus'
+import { OrderStatus } from '../types/orderStatus'
+import type { OrderHistoryRecord } from '../lib/orderHistory'
 
 /**
  * SEC-08A — columnas de `public.orders` que el browser puede leer. La lista es
@@ -47,7 +48,7 @@ export interface OrderDetailSimple {
   // montada en ninguna pantalla, así que el hook leía algo que nadie mostraba.
   // Ver tests/components/orderChecklistAusente.test.tsx.
   // Historial de estados
-  history?: StatusHistoryEntry[]
+  history?: OrderHistoryRecord[]
   // Pagos (con nuevos campos)
   payments?: {
     id: string

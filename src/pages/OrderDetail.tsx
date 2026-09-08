@@ -35,6 +35,7 @@ import { buildOrderComprobanteItems } from '../lib/orderBilling'
 import { OrderFinancialSummary } from '../components/orders/OrderFinancialSummary'
 import { OrderPrintPreviewModal } from '../components/print/OrderPrintPreviewModal'
 import { STATUS_CONFIG } from '../types/orderStatus'
+import { getOrderHistoryDisplay } from '../lib/orderHistory'
 import { DeviceLockCard } from '../components/order/DeviceLockCard'
 import { WarrantyFormModal } from '../components/warranties/WarrantyFormModal'
 import { useWarranties } from '../hooks/useWarranties'
@@ -591,30 +592,34 @@ export function OrderDetail() {
             <div className="card-body">
               {order.history && order.history.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  {order.history.map((entry, index) => (
+                  {order.history.map((entry, index) => {
+                    const history = getOrderHistoryDisplay(entry)
+                    return (
                     <div key={index} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
                       <div style={{
                         width: '32px',
                         height: '32px',
                         borderRadius: '50%',
-                        backgroundColor: `${STATUS_CONFIG[entry.to_status].color}20`,
+                        backgroundColor: `${history.to.color}20`,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        color: STATUS_CONFIG[entry.to_status].color,
+                        color: history.to.color,
                         flexShrink: 0
                       }}>
                         <ArrowRight size={16} />
                       </div>
                       <div style={{ flex: 1 }}>
                         <p style={{ fontWeight: 600, color: '#f8fafc', margin: 0 }}>
-                          {STATUS_CONFIG[entry.from_status].label} 
-                          <ArrowRight size={14} style={{ display: 'inline', margin: '0 0.5rem' }} />
-                          {STATUS_CONFIG[entry.to_status].label}
+                          {history.from && <>
+                            {history.from.label}
+                            <ArrowRight size={14} style={{ display: 'inline', margin: '0 0.5rem' }} />
+                          </>}
+                          {history.to.label}
                         </p>
-                        {entry.notes && (
+                        {history.note && (
                           <p style={{ color: '#a0aec0', margin: '0.25rem 0 0 0', fontSize: '0.875rem' }}>
-                            {entry.notes}
+                            {history.note}
                           </p>
                         )}
                         <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.25rem' }}>
@@ -622,7 +627,8 @@ export function OrderDetail() {
                         </p>
                       </div>
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               ) : (
                 <p style={{ color: '#64748b', textAlign: 'center', padding: '2rem' }}>
