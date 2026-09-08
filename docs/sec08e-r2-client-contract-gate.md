@@ -213,6 +213,7 @@ then revoke or retire `public.users` in a separate change.
 - Two R2 migrations: disabled infrastructure and explicit activation.
 - R2 disposable real-stack runner and production read-only discovery SQL.
 - Shared Edge forwarding helper, two necessary callers, and three Deno tests.
+- Shared R1-compatible helper for direct authenticated E2E test clients.
 - `package.json` adds the focused `test:sec08e-r2` command.
 - This audit/rollout report.
 

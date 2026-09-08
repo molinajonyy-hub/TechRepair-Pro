@@ -9,7 +9,7 @@
 // ============================================================================
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { DestinoE2E } from './assertLocalTarget'
-import { createCompatibleUserClient } from './compatibleUserClient'
+import { createCompatibleUserClient } from './compatibleUserClient.ts'
 
 // IDs determinísticos: el seed es re-ejecutable sin duplicar.
 export const E2E = {
