@@ -96,7 +96,10 @@ function runRuntimeGuard() {
 }
 
 function runSelfTest() {
-  const base = candidateFiles()
+  // R2A's self-test certifies the R2A artifact in isolation. Once a separately
+  // reviewed R2B exists, candidate-wide transition validation belongs to the
+  // R2B guard rather than this historical disabled-rollout guard.
+  const base = new Map([...candidateFiles()].filter(([name]) => name === r2a))
   assert.deepEqual(inspectCandidate(base), [])
 
   const variants = [
