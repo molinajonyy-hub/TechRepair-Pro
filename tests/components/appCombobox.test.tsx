@@ -170,23 +170,25 @@ describe('ORDERS-V2-0.1 · AppCombobox', () => {
     expect(notCancelled).toBe(true)
   })
 
+  // ORDERS-V2-0.1.1: la lista se portaléa a `document.body` para escapar del
+  // `overflow:hidden` de la card, así que ya no cuelga del contenedor que
+  // devuelve `render()`. Se consulta por rol, no por el subárbol.
+  const listbox = () => screen.getByRole('listbox')
+
   it('C · la lista es la que scrollea, y no arrastra la página', () => {
-    const { container } = render(<Controlled />)
+    render(<Controlled />)
     fireEvent.focus(input())
-    const list = container.querySelector('.app-combobox-list')
-    expect(list).toBeInTheDocument()
     // El alto acotado + overflow es lo que hace scrolleable a la lista; el
     // CSS declara `overscroll-behavior: contain` y `touch-action: pan-y`.
-    expect(list).toHaveAttribute('role', 'listbox')
+    expect(listbox()).toBeInTheDocument()
   })
 
   it('C2 · el foco se conserva al tocar la lista, sin bloquear el scroll', () => {
     // `mousedown` sí se cancela: el navegador lo sintetiza recién cuando
     // decidió que el gesto fue un tap, así que no afecta al desplazamiento.
-    const { container } = render(<Controlled />)
+    render(<Controlled />)
     fireEvent.focus(input())
-    const list = container.querySelector('.app-combobox-list') as HTMLElement
-    const notCancelled = fireEvent.mouseDown(list, { cancelable: true })
+    const notCancelled = fireEvent.mouseDown(listbox(), { cancelable: true })
     expect(notCancelled).toBe(false)
   })
 
@@ -226,6 +228,64 @@ describe('ORDERS-V2-0.1 · AppCombobox', () => {
     const selected = screen.getByRole('option', { name: /Samsung/ })
     expect(selected).toHaveAttribute('aria-selected', 'true')
     expect(selected).toHaveClass('is-selected')
+  })
+
+  // ── ORDERS-V2-0.1.1 · portal ──────────────────────────────────────────────
+  //
+  // La lista se saca del árbol del formulario porque `.intake-step-card` tiene
+  // `overflow:hidden` y la recortaba a 108 px de 256 en el iPhone. Al vivir en
+  // `document.body` deja de ser descendiente del contenedor del componente, y
+  // eso cambia la semántica de «click afuera»: si no se contempla, un tap sobre
+  // una opción se leería como click afuera y cerraría la lista antes de elegir.
+
+  it('E · la lista se renderiza fuera del contenedor del componente', () => {
+    const { container } = render(<Controlled />)
+    fireEvent.focus(input())
+    // No cuelga del subárbol…
+    expect(container.querySelector('[role="listbox"]')).toBeNull()
+    // …pero sí del documento.
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    expect(document.body.contains(screen.getByRole('listbox'))).toBe(true)
+  })
+
+  it('E2 · un tap en una opción portaleada NO se toma como click afuera', () => {
+    render(<Controlled />)
+    fireEvent.focus(input())
+    const option = screen.getByRole('option', { name: /Samsung/ })
+
+    // El handler de «afuera» escucha pointerdown en `document`; la opción
+    // está en el body, así que sin la comprobación explícita esto cerraría.
+    fireEvent.pointerDown(option)
+    expect(input()).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.click(option)
+    expect(input()).toHaveValue('Samsung')
+  })
+
+  it('F · un click afuera de verdad SÍ cierra', () => {
+    render(<><Controlled /><div data-testid="afuera">otra cosa</div></>)
+    fireEvent.focus(input())
+    expect(input()).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.pointerDown(screen.getByTestId('afuera'))
+    expect(input()).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('la lista se desmonta al cerrar: no queda flotando en el body', () => {
+    render(<Controlled />)
+    fireEvent.focus(input())
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+
+    fireEvent.keyDown(input(), { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  })
+
+  it('la lista declara hacia qué lado se abrió', () => {
+    render(<Controlled />)
+    fireEvent.focus(input())
+    // En jsdom todos los rects son 0, así que cae en `bottom`; lo que se fija
+    // acá es que el dato viaje al DOM para poder aseverarlo en WebKit.
+    expect(screen.getByRole('listbox')).toHaveAttribute('data-placement')
   })
 
   it('el chevron no es una parada extra del tabulador', () => {
