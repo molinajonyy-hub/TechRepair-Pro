@@ -23,7 +23,7 @@ import {
   AppPageHeader, AppButton, AppSearchInput, AppSelect, AppBadge,
   AppEmptyState, AppErrorState, AppLoadingState, AppConfirmDialog, AddIcon,
 } from '../ui'
-import { colors, radius } from '../lib/tokens'
+import { colors } from '../lib/tokens'
 import {
   taskService, getAvailableTransitions,
   type PersistedTaskStatus, type TaskRecord,
@@ -221,15 +221,9 @@ export function Tasks() {
   const scopeButton = (value: Scope, label: string) => (
     <button
       type="button"
+      className="tasks-scope__option"
       onClick={() => setScope(value)}
       aria-pressed={scope === value}
-      style={{
-        padding: '0.375rem 0.75rem', minHeight: 36,
-        background: scope === value ? 'var(--accent-primary)' : 'transparent',
-        color: scope === value ? '#fff' : colors.text.secondary,
-        border: 'none', borderRadius: radius.sm,
-        fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
-      }}
     >
       {label}
     </button>
@@ -239,17 +233,12 @@ export function Tasks() {
     const list = groups[key]
     if (list.length === 0) return null
     return (
-      <section key={key} style={{ marginBottom: '1.25rem' }}>
-        <h2 style={{
-          display: 'flex', alignItems: 'center', gap: '0.5rem',
-          margin: '0 0 0.5rem', fontSize: '0.72rem', fontWeight: 800,
-          textTransform: 'uppercase', letterSpacing: '0.06em',
-          color: key === 'overdue' ? 'var(--error)' : colors.text.muted,
-        }}>
+      <section key={key} className="tasks-group">
+        <h2 className={`tasks-group__header${key === 'overdue' ? ' tasks-group__header--overdue' : ''}`}>
           {TASK_GROUP_LABEL[key]}
-          <span style={{ fontWeight: 700, color: colors.text.subtle }}>{list.length}</span>
+          <span className="tasks-group__count">{list.length}</span>
         </h2>
-        <ul style={{ margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <ul className="tasks-list">
           {list.map(t => (
             <TaskListItem
               key={t.id}
@@ -282,8 +271,10 @@ export function Tasks() {
           : undefined}
         actions={
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <AppButton variant="ghost" size="sm" leftIcon={<RefreshCw size={14} />} onClick={loadData}>
-              Actualizar
+            {/* En mobile queda el ícono solo: el nombre accesible lo mantiene
+                `aria-label`, y así «Nueva tarea» no compite por el ancho. */}
+            <AppButton variant="ghost" size="sm" leftIcon={<RefreshCw size={14} />} onClick={loadData} aria-label="Actualizar">
+              <span className="tasks-label-optional">Actualizar</span>
             </AppButton>
             <AppButton variant="indigo" size="sm" leftIcon={<AddIcon size={14} />} onClick={() => setShowCreate(true)}>
               Nueva tarea
@@ -292,21 +283,21 @@ export function Tasks() {
         }
       />
 
-      {/* Barra: buscar + alcance + filtros. Envuelve sola a anchos chicos. */}
-      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '1rem' }}>
-        <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+      {/* Barra: buscar + alcance + filtros. En mobile la búsqueda toma su propia
+          fila y alcance/filtros comparten la siguiente, en vez de apilarse en
+          tres. Las reglas viven en `.tasks-toolbar` (index.css). */}
+      <div className="tasks-toolbar">
+        <div className="tasks-toolbar__search">
           <AppSearchInput value={search} onChange={setSearch} placeholder="Buscar tarea…" />
         </div>
         {canSeeTeam && (
-          <div
-            role="group" aria-label="Alcance"
-            style={{ display: 'flex', gap: '0.125rem', padding: '0.125rem', background: colors.bg.card, borderRadius: radius.md }}
-          >
+          <div className="tasks-scope" role="group" aria-label="Alcance">
             {scopeButton('mine', 'Mías')}
             {scopeButton('team', 'Equipo')}
           </div>
         )}
         <AppButton
+          className="tasks-toolbar__filters"
           variant={showFilters || priorityFilter !== 'all' ? 'secondary' : 'ghost'}
           size="sm"
           leftIcon={<SlidersHorizontal size={14} />}

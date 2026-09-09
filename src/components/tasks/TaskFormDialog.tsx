@@ -118,6 +118,8 @@ export function TaskFormDialog({ editing, profiles, businessId, userId, onSaved,
         </div>
       }
     >
+      {/* El anti-zoom de iOS (16px en inputs bajo 767px) ya lo garantiza la
+          foundation global de index.css; no hace falta repetirlo acá. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
         <AppInput
           label="Título" required autoFocus
