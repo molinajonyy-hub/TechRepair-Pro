@@ -193,13 +193,21 @@ console.log(`  ✓ destino API  : host=${api.hostname} puerto=${api.port} local=
 console.log(`  ✓ destino DB   : host=${db.hostname} puerto=${db.port} local=true`)
 console.log('  ✓ claves       : presentes (no se imprimen)')
 
-// R2A is intentionally an infrastructure-only rollout. Because `supabase start`
-// above applies every migration in the candidate tree, this semantic
-// postcondition catches any renamed or syntactically different migration that
-// accidentally activates the contract gate.
-console.log('  · validando SEC-08E R2A (hook instalado, enforcement disabled/NULL)…')
-correr(process.execPath, ['scripts/guards/sec08e-r2a-disabled.mjs', '--runtime'],
-  'El árbol candidato activa SEC-08E R2 antes del rollout separado de R2B.', { shell: false })
+// `supabase start` applies every migration in the candidate tree. Validate the
+// semantic postcondition that corresponds to the canonical rollout stage in
+// that tree: R2A must remain disabled/NULL until the exact R2B migration exists;
+// from R2B onward, the resulting state must be enabled/1 with the hook intact.
+const R2B_MIGRATION =
+  'supabase/migrations/20260924120000_sec08e_r2b_client_contract_gate_minimum_1.sql'
+const r2bPresente = existsSync(R2B_MIGRATION)
+const guardRuntime = r2bPresente
+  ? 'scripts/guards/sec08e-r2b-activation.mjs'
+  : 'scripts/guards/sec08e-r2a-disabled.mjs'
+const etapaR2 = r2bPresente ? 'R2B (enforcement enabled/minimum 1)' : 'R2A (enforcement disabled/NULL)'
+
+console.log(`  · validando SEC-08E ${etapaR2}…`)
+correr(process.execPath, [guardRuntime, '--runtime'],
+  `El stack local no satisface la postcondición canónica de SEC-08E ${etapaR2}.`, { shell: false })
 
 // ─── 5. `.env.e2e` ──────────────────────────────────────────────────────────
 // En CI nunca existe (está gitignoreado) y se genera. En local se RESPETA el del
