@@ -285,9 +285,14 @@ function AppContent() {
               </Route>
               </Route>
 
-              {/* ── Rutas PRO — tasks ── */}
-              <Route element={<ProtectedRouteByFeature feature="tasks" />}>
-                <Route path="/tasks" element={<Tasks />} />
+              {/* ── Rutas PRO — tasks ──
+                  Plan + capacidad operativa, alineado con el sidebar y con
+                  `mobileNavigation`. Tasks no tiene capability propia todavía:
+                  usa la de órdenes, que es lo que exige su RLS vigente. */}
+              <Route element={<ProtectedRouteByPermission permission="orders" />}>
+                <Route element={<ProtectedRouteByFeature feature="tasks" />}>
+                  <Route path="/tasks" element={<Tasks />} />
+                </Route>
               </Route>
 
               {/* ── Rutas PRO — mayorista ── */}

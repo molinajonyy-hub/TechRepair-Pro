@@ -226,7 +226,11 @@ const menuSections: NavSection[] = [
       { path: '/orders',      label: 'Ordenes',        icon: <OrdersIcon />,       permission: 'orders' },
       { path: '/comprobantes',label: 'Comprobantes',   icon: <ComprobantesIcon />, permission: 'comprobantes' },
       { path: '/warranties',  label: 'Garantías',      icon: <WarrantyIcon />,     permission: 'orders' },
-      { path: '/tasks',       label: 'Tareas',         icon: <TareasIcon />,       planFeature: 'tasks' },
+      // El gate combina plan + capacidad operativa, igual que `mobileNavigation`.
+      // Tasks todavía no tiene capability propia y toma prestada la de órdenes;
+      // antes el sidebar miraba sólo el plan, así que un rol sin `orders` veía el
+      // item y llegaba a una lista que la RLS le devolvía vacía.
+      { path: '/tasks',       label: 'Tareas',         icon: <TareasIcon />,       planFeature: 'tasks', permission: 'orders' },
       // El item '/whatsapp' se retiró de la navegación: esa pantalla es la del
       // módulo Cloud API (conexión con Meta, automatizaciones), que en el flujo
       // W1 Standard no se usa y confundía. La RUTA, la pantalla y todo el código
