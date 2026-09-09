@@ -46,7 +46,6 @@ vi.mock('../../src/services/taskService', async (importOriginal) => {
       getChecklist: async () => [],
       getComments: async () => [],
       getHistory: async () => [],
-      hasComment: async () => true,
       setTaskStatus: async (...a: unknown[]) => {
         track('setTaskStatus', a)
         if (mocks.setStatusError) throw mocks.setStatusError
@@ -197,6 +196,20 @@ describe('el estado en pantalla sigue al servidor', () => {
     expect(mocks.calls.find(c => c.fn === 'setTaskStatus')!.args[3]).toBe('completed')
   })
 
+  it('completar desde una card no pide comentario ni abre la pestaña Comentarios', async () => {
+    renderTasks()
+    await screen.findByText('Llamar a Juan')
+
+    fireEvent.click(document.querySelectorAll('.card-interactive button')[0])
+    fireEvent.click(await screen.findByText('→ Completada'))
+
+    await waitFor(() => {
+      expect(mocks.calls.filter(c => c.fn === 'setTaskStatus')).toHaveLength(1)
+    })
+    expect(screen.queryByText(/comentario de cierre/i)).not.toBeInTheDocument()
+    expect(mocks.calls.filter(c => c.fn === 'addComment')).toHaveLength(0)
+  })
+
   it('reabre una tarea completada', async () => {
     mocks.tasks = [task({ status: 'completed', completed_at: '2026-09-09T12:00:00Z' })]
     renderTasks()
@@ -300,15 +313,27 @@ describe('widget del dashboard', () => {
     expect(screen.queryByText('En proceso')).not.toBeInTheDocument()
   })
 
-  it('tocar una tarea pendiente pide la nota de cierre en vez de escribir un estado intermedio', async () => {
+  it('completa una tarea pendiente de un solo tap, sin pedir nota de cierre', async () => {
     renderWidget()
     await screen.findByText('Llamar a Juan')
 
     fireEvent.click(screen.getByTitle('Completar tarea'))
 
-    expect(await screen.findByText('Nota de cierre (obligatoria para completar)')).toBeInTheDocument()
-    // No se escribió ningún estado por el solo hecho de tocar el círculo.
-    expect(mocks.calls.filter(c => c.fn === 'setTaskStatus' || c.fn === 'completeTask')).toHaveLength(0)
+    await waitFor(() => {
+      expect(mocks.calls.filter(c => c.fn === 'completeTask')).toHaveLength(1)
+    })
+    // Ni formulario de nota, ni comentario fabricado.
+    expect(screen.queryByText(/Nota de cierre/)).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(/Describí brevemente/)).not.toBeInTheDocument()
+    expect(mocks.calls.filter(c => c.fn === 'addComment')).toHaveLength(0)
+  })
+
+  it('no expone ningún control de nota de cierre en el widget', async () => {
+    renderWidget()
+    await screen.findByText('Llamar a Juan')
+
+    expect(document.querySelector('textarea')).toBeNull()
+    expect(screen.queryByText(/comentario de cierre/i)).not.toBeInTheDocument()
   })
 
   it('un fallo de lectura muestra el error en vez de «Sin tareas asignadas»', async () => {
@@ -325,12 +350,21 @@ describe('widget del dashboard', () => {
     await screen.findByText('Llamar a Juan')
 
     fireEvent.click(screen.getByTitle('Completar tarea'))
-    fireEvent.change(await screen.findByPlaceholderText('Describí brevemente cómo se resolvió...'), {
-      target: { value: 'Listo' },
-    })
-    fireEvent.click(screen.getByText('Completar'))
 
     expect(await screen.findByText('No tenés permisos para realizar esta acción.')).toBeInTheDocument()
+    expect(screen.getByText('Llamar a Juan')).toBeInTheDocument()
+  })
+
+  it('un checklist incompleto bloquea la compleción y lo explica', async () => {
+    mocks.completeError = new TaskServiceError(
+      'validation', 'Completá todos los ítems del checklist primero.', { reason: 'checklist' },
+    )
+    renderWidget()
+    await screen.findByText('Llamar a Juan')
+
+    fireEvent.click(screen.getByTitle('Completar tarea'))
+
+    expect(await screen.findByText('Completá todos los ítems del checklist primero.')).toBeInTheDocument()
     expect(screen.getByText('Llamar a Juan')).toBeInTheDocument()
   })
 })

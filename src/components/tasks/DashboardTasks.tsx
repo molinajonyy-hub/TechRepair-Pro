@@ -3,9 +3,9 @@
  * Fuente de datos: taskService (source of truth único).
  * Read-only + acciones rápidas. Redirige al módulo /tasks para operaciones completas.
  */
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, ChevronRight, CheckCircle2, Circle, Clock, AlertTriangle, ListChecks, Send, X } from 'lucide-react'
+import { Plus, ChevronRight, CheckCircle2, Circle, Clock, AlertTriangle, ListChecks } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { taskService, isTaskServiceError, type TaskLite, type TaskSummary } from '../../services/taskService'
 
@@ -67,12 +67,10 @@ export function DashboardTasks() {
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState<string | null>(null)
 
-  // Completion flow inline
-  const [completingId, setCompletingId]   = useState<string | null>(null)
-  const [completionNote, setCompletionNote] = useState('')
-  const [savingComplete, setSavingComplete] = useState(false)
-  const [completeErr, setCompleteErr]     = useState('')
-  const noteRef = useRef<HTMLTextAreaElement>(null)
+  // Compleción: una sola acción, sin formulario intermedio.
+  // El error se ancla a la fila que lo produjo para no quedar huérfano.
+  const [busyId, setBusyId]           = useState<string | null>(null)
+  const [completeErr, setCompleteErr] = useState<{ taskId: string; message: string } | null>(null)
 
   const load = useCallback(async () => {
     if (!businessId || !user?.id) return
@@ -100,41 +98,31 @@ export function DashboardTasks() {
     return () => clearInterval(interval)
   }, [load])
 
-  // Focus textarea when completion form opens
-  useEffect(() => {
-    if (completingId) setTimeout(() => noteRef.current?.focus(), 80)
-  }, [completingId])
-
   // ── Handlers ───────────────────────────────────────────────────────────────
 
   /**
-   * `pending → completed` es la única transición disponible: el paso intermedio
-   * por `in_progress` no lo persistía la base. Completar exige nota de cierre,
-   * así que abre el formulario en vez de escribir directamente.
+   * `pending → completed` de una sola acción.
+   *
+   * No pide nota de cierre: una tarea de taller —«llamar al cliente», «pedir
+   * repuesto»— se completa con un tap. Los comentarios siguen disponibles en el
+   * detalle de la tarea, y son voluntarios.
+   *
+   * La única regla que puede rechazar la compleción es el checklist, y la valida
+   * `taskService`; acá sólo se muestra el error.
    */
-  const handleToggle = (task: TaskLite) => {
-    if (task.status !== 'pending') return
-    setCompletingId(task.id)
-    setCompletionNote('')
-    setCompleteErr('')
-  }
-
-  const handleComplete = async () => {
-    if (!completingId || !businessId || !user?.id) return
-    if (!completionNote.trim()) { setCompleteErr('Escribí una nota de cierre'); return }
-    setSavingComplete(true); setCompleteErr('')
+  const handleToggle = async (task: TaskLite) => {
+    if (task.status !== 'pending' || !businessId || !user?.id) return
+    setBusyId(task.id); setCompleteErr(null)
     try {
-      await taskService.addComment(completingId, businessId, user.id, completionNote.trim())
-      await taskService.completeTask(completingId, businessId, user.id)
-      // Sólo después de que el servidor aceptó ambas escrituras.
-      setTasks(prev => prev.filter(t => t.id !== completingId))
+      await taskService.completeTask(task.id, businessId, user.id)
+      // Sólo después de que el servidor lo aceptó.
+      setTasks(prev => prev.filter(t => t.id !== task.id))
       setSummary(prev => prev
         ? { ...prev, pending: Math.max(0, prev.pending - 1), completed: prev.completed + 1 }
         : prev)
-      setCompletingId(null); setCompletionNote('')
     } catch (e: unknown) {
-      setCompleteErr(toUserMessage(e, 'No pudimos completar la tarea.'))
-    } finally { setSavingComplete(false) }
+      setCompleteErr({ taskId: task.id, message: toUserMessage(e, 'No pudimos completar la tarea.') })
+    } finally { setBusyId(null) }
   }
 
   // ── Render helpers ──────────────────────────────────────────────────────────
@@ -246,7 +234,8 @@ export function DashboardTasks() {
             const pm     = PRIORITY_META[task.priority] || PRIORITY_META.medium
             const sm     = statusMeta(task.status)
             const over   = isOverdue(task)
-            const isComp = completingId === task.id
+            const isBusy = busyId === task.id
+            const rowErr = completeErr?.taskId === task.id ? completeErr.message : null
             const canComplete = task.status === 'pending'
 
             return (
@@ -255,14 +244,14 @@ export function DashboardTasks() {
                 <div style={{
                   display: 'flex', alignItems: 'flex-start', gap: '0.625rem',
                   padding: '0.625rem 1.25rem',
-                  background: isComp ? 'rgba(99,102,241,0.05)' : 'transparent',
+                  background: isBusy ? 'rgba(99,102,241,0.05)' : 'transparent',
                   transition: 'background 0.15s',
                   borderBottom: '1px solid rgba(255,255,255,0.03)',
                 }}>
-                  {/* Toggle button */}
-                  <button onClick={() => handleToggle(task)} disabled={!canComplete}
+                  {/* Toggle button — completa en una sola acción */}
+                  <button onClick={() => handleToggle(task)} disabled={!canComplete || isBusy}
                     title={canComplete ? 'Completar tarea' : sm.label}
-                    style={{ background: 'none', border: 'none', cursor: canComplete ? 'pointer' : 'default', padding: '0.125rem', flexShrink: 0, marginTop: '0.1rem', color: sm.color, display: 'flex', alignItems: 'center' }}>
+                    style={{ background: 'none', border: 'none', cursor: canComplete && !isBusy ? 'pointer' : 'default', padding: '0.125rem', flexShrink: 0, marginTop: '0.1rem', color: sm.color, display: 'flex', alignItems: 'center', opacity: isBusy ? 0.5 : 1 }}>
                     {task.status === 'completed' ? <CheckCircle2 size={18} /> : task.status === 'in_progress' ? <Clock size={18} /> : <Circle size={18} />}
                   </button>
 
@@ -296,24 +285,11 @@ export function DashboardTasks() {
                   </button>
                 </div>
 
-                {/* Inline completion form */}
-                {isComp && (
-                  <div style={{ padding: '0.625rem 1.25rem 0.875rem', background: 'rgba(99,102,241,0.04)', borderBottom: '1px solid rgba(99,102,241,0.1)' }}>
-                    <p style={{ margin: '0 0 0.5rem', fontSize: '0.75rem', color: '#818cf8', fontWeight: 600 }}>
-                      Nota de cierre (obligatoria para completar)
-                    </p>
-                    <textarea ref={noteRef} value={completionNote} onChange={e => setCompletionNote(e.target.value)}
-                      rows={2} placeholder="Describí brevemente cómo se resolvió..."
-                      style={{ width: '100%', padding: '0.5rem 0.75rem', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.375rem', color: 'var(--text-primary)', fontSize: '0.8rem', outline: 'none', resize: 'none' as const, boxSizing: 'border-box' as const }} />
-                    {completeErr && <p style={{ margin: '0.25rem 0 0', color: 'var(--error)', fontSize: '0.72rem' }}>{completeErr}</p>}
-                    <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', justifyContent: 'flex-end' }}>
-                      <button onClick={() => setCompletingId(null)} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.35rem 0.625rem', background: 'transparent', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.375rem', color: '#475569', fontSize: '0.75rem', cursor: 'pointer' }}>
-                        <X size={11} /> Cancelar
-                      </button>
-                      <button onClick={handleComplete} disabled={savingComplete} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.35rem 0.75rem', background: savingComplete ? 'rgba(52,211,153,0.1)' : 'rgba(52,211,153,0.18)', border: '1px solid rgba(52,211,153,0.35)', borderRadius: '0.375rem', color: '#34d399', fontSize: '0.75rem', fontWeight: 700, cursor: savingComplete ? 'not-allowed' : 'pointer' }}>
-                        <Send size={11} /> {savingComplete ? 'Guardando...' : 'Completar'}
-                      </button>
-                    </div>
+                {/* Error de compleción — p. ej. checklist incompleto. Sin formulario:
+                    completar no pide nota de cierre. */}
+                {rowErr && (
+                  <div role="alert" style={{ padding: '0.5rem 1.25rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.375rem', color: '#f87171', fontSize: '0.75rem', fontWeight: 600, borderBottom: '1px solid rgba(248,113,113,0.12)' }}>
+                    <AlertTriangle size={12} style={{ flexShrink: 0 }} /> {rowErr}
                   </div>
                 )}
               </div>

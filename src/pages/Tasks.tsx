@@ -432,9 +432,11 @@ function TaskDetailPanel({ task, profiles: _profiles, profileMap, isAdmin, busin
   }
 
   /**
-   * Las reglas de compleción (checklist completo + comentario de cierre) las
-   * valida `taskService`, no esta pantalla: así rigen también cuando se completa
-   * desde una card. Acá sólo se traduce el motivo a la pestaña correspondiente.
+   * La única regla de compleción —checklist completo— la valida `taskService`,
+   * no esta pantalla: así rige también cuando se completa desde una card. Acá
+   * sólo se traduce el motivo a la pestaña correspondiente.
+   *
+   * Completar NO pide comentario: los comentarios son voluntarios.
    */
   const handleStatusChange = async (s: PersistedTaskStatus) => {
     setCompletionErr(''); setBusyStatus(true)
@@ -443,7 +445,6 @@ function TaskDetailPanel({ task, profiles: _profiles, profileMap, isAdmin, busin
     } catch (e: unknown) {
       setCompletionErr(toUserMessage(e))
       if (isTaskServiceError(e) && e.reason === 'checklist') setTab('checklist')
-      if (isTaskServiceError(e) && e.reason === 'comment')   setTab('comments')
     } finally { setBusyStatus(false) }
   }
 
