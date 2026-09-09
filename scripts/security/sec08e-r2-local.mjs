@@ -152,6 +152,10 @@ CREATE FUNCTION`)
 
   const anonBaseline = await request('/businesses?select=id&limit=0')
   const migrationB = readFileSync(`supabase/migrations/${r2b}`, 'utf8')
+  const rollbackMatch = readFileSync('docs/sec08e-r2b-minimum-contract-activation.md', 'utf8')
+    .match(/## Rollback[\s\S]*?```sql\r?\n([\s\S]*?)```/)
+  assert(rollbackMatch, 'documented normal rollback SQL was not found')
+  const rollbackSql = rollbackMatch[1]
   const contractState = () => sql("SELECT enforcement_state||':'||coalesce(minimum_contract::text,'null') FROM private.client_contract_config")
   await scenario('STATE BEFORE is exactly disabled/NULL', async () => assert.equal(contractState(), 'disabled:null'))
   await scenario('authenticated / gate OFF / header absent passes', async () =>
@@ -213,6 +217,25 @@ CREATE FUNCTION`)
   sql(`SET ROLE postgres;
     DROP TRIGGER sec08e_r2_test_activation_delay ON private.client_contract_config;
     DROP FUNCTION private.sec08e_r2_test_activation_delay();`)
+  await scenario('documented normal rollback atomically restores disabled/NULL', async () => {
+    sql('SET ROLE postgres;\n' + rollbackSql)
+    assert.equal(contractState(), 'disabled:null')
+  })
+  await scenario('documented normal rollback rejects reapply and preserves disabled/NULL', async () => {
+    assert.throws(() => sql('SET ROLE postgres;\n' + rollbackSql))
+    assert.equal(contractState(), 'disabled:null')
+  })
+  sql("SET ROLE postgres; UPDATE private.client_contract_config SET enforcement_state='enabled', minimum_contract=2 WHERE singleton IS TRUE;")
+  await scenario('documented normal rollback rejects wrong state without changing it', async () => {
+    assert.throws(() => sql('SET ROLE postgres;\n' + rollbackSql))
+    assert.equal(contractState(), 'enabled:2')
+  })
+  sql('SET ROLE postgres; DELETE FROM private.client_contract_config;')
+  await scenario('documented normal rollback rejects a missing singleton row', async () => {
+    assert.throws(() => sql('SET ROLE postgres;\n' + rollbackSql))
+    assert.equal(sql('SELECT count(*) FROM private.client_contract_config'), '0')
+  })
+  sql("SET ROLE postgres; INSERT INTO private.client_contract_config(singleton,enforcement_state,minimum_contract) VALUES(true,'enabled',1);")
   await scenario('authenticated / gate ON / header absent rejects', async () => updateRequired(await request('/orders?select=id', { headers: auth(1) })))
   for (const [label, value] of [['zero', '0'], ['alphabetic', 'abc'], ['empty', ''], ['negative', '-1'],
     ['decimal', '1.5'], ['internal whitespace', '1 2'], ['leading zero', '01']]) {
