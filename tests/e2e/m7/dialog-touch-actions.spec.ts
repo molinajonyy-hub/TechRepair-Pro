@@ -132,7 +132,8 @@ test.describe('@dialogtouch DIALOG-TOUCH-1 · acciones del footer', () => {
     await continuar.click()
 
     await page.getByRole('button', { name: 'Escanear' }).first().click()
-    const scanner = page.getByRole('dialog', { name: 'Escanear identificación' })
+    // ORDERS-V2-0.1: el título nombra el identificador que se está escaneando.
+    const scanner = page.getByRole('dialog', { name: 'Escanear número de serie' })
     await expect(scanner).toBeVisible()
     await esperarAnimaciones(scanner)
 

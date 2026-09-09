@@ -22,6 +22,18 @@ export type { AppModalProps, ResponsiveDialogMode } from './components/AppModal'
 export { AppInput, AppSelect, AppTextarea, AppSearchInput, inputSemanticProps } from './components/AppInput'
 export type { AppInputProps, AppSelectProps, AppTextareaProps, SelectOption } from './components/AppInput'
 
+// ── Combobox ──────────────────────────────────────────────────────────────────
+// Sugerencias + texto libre. Reemplaza `<input list>` + `<datalist>`, que en
+// WebKit móvil no despliega la lista de opciones.
+export { AppCombobox }                         from './components/AppCombobox'
+export type { AppComboboxProps }               from './components/AppCombobox'
+
+// ── Importes ──────────────────────────────────────────────────────────────────
+// Autoridad única para CARGAR plata: moneda y monto como una sola unidad.
+// No crear inputs de dinero nuevos con `AppInput semantic="decimal"`.
+export { AppMoneyInput }                       from './components/AppMoneyInput'
+export type { AppMoneyInputProps }             from './components/AppMoneyInput'
+
 // ── Badges ────────────────────────────────────────────────────────────────────
 export { AppBadge, AppStatusBadge }            from './components/AppBadge'
 export type { BadgeVariant }                   from './components/AppBadge'

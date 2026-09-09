@@ -51,12 +51,21 @@ test.describe('@ordersv20 ORDERS-V2-0 · desktop', () => {
     await continuar(page)
 
     // ── Equipo · catálogo ──────────────────────────────────────────────────
-    const marca = page.getByLabel('Marca')
-    await expect(marca).toHaveAttribute('list', 'intake-brands')
-    // El catálogo real se resuelve en runtime; las marcas base siempre están.
-    await expect(page.locator('#intake-brands option').first()).toHaveCount(1)
+    // ORDERS-V2-0.1: dejó de ser `<input list>` + `<datalist>` — en WebKit
+    // móvil esa lista no se desplegaba. Ahora es un combobox con marcado
+    // propio, así que las opciones se pueden aseverar de verdad.
+    // Se toma por testid y no por etiqueta: `getByLabel` de Playwright hace
+    // match por SUBCADENA, así que «Marca» también resolvería a la lista
+    // «Sugerencias de Marca». (En testing-library el match es exacto, por eso
+    // los tests de componente sí pueden usar la etiqueta.)
+    const marca = page.getByTestId('intake-brand')
+    await expect(marca).toHaveAttribute('role', 'combobox')
+    await marca.click()
+    const listbox = page.getByRole('listbox', { name: 'Sugerencias de Marca' })
+    await expect(listbox).toBeVisible()
+    expect(await listbox.getByRole('option').count()).toBeGreaterThan(0)
     await marca.fill('Samsung')
-    await page.getByLabel('Modelo').fill('Galaxy A04e')
+    await page.getByTestId('intake-model').fill('Galaxy A04e')
     await noHorizontalOverflow(page)
     await page.screenshot({ path: `${EVIDENCE}/1440-02-catalogo.png` })
     await continuar(page)
