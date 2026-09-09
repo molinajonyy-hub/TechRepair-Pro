@@ -1,67 +1,57 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Plus, X, Check, Clock, CheckCircle2, Circle,
   ChevronRight, MoreHorizontal, Calendar, User, MessageSquare,
   History, ListChecks, Edit2, Trash2, RefreshCw, LayoutGrid, List,
-  BarChart3, Filter, Send,
+  BarChart3, Filter, Send, AlertTriangle,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
-import { requireFeature, getFeatureErrorMessage } from '../utils/requireFeature'
+import { requireFeature, getFeatureErrorMessage, isFeatureError } from '../utils/requireFeature'
+import {
+  taskService,
+  getAvailableTransitions,
+  isTaskServiceError,
+  PERSISTED_TASK_STATUSES_CURRENT,
+  type PersistedTaskStatus,
+  type TaskStatus,
+  type TaskPriority,
+  type TaskRecord,
+  type TaskChecklistItem,
+  type TaskCommentRow,
+  type TaskHistoryRow,
+} from '../services/taskService'
 import { AppPageHeader, AppButton, AppIconButton } from '../ui'
 import { AddIcon, DeleteIcon } from '../ui/icons'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type TaskStatus   = 'pending' | 'in_progress' | 'completed' | 'cancelled'
-type TaskPriority = 'low' | 'medium' | 'high'
+/**
+ * TASKS-V2-0 — toda escritura pasa por `taskService`. Esta página no escribe
+ * contra Supabase: sólo lee (tareas, perfiles) y muestra errores.
+ *
+ * Los estados `in_progress` y `cancelled` NO se ofrecen: la base sólo persiste
+ * `pending | completed` (CHECK `tasks_status_check`). Se siguen pudiendo RENDERIZAR
+ * por si existe alguna fila histórica. Contrato temporal hasta TASKS-V2-3.
+ */
 
-interface Task {
-  id: string
-  business_id: string
-  user_id: string | null
-  assigned_to: string | null
-  created_by: string | null
-  title: string
-  description: string | null
-  status: TaskStatus
-  priority: TaskPriority
-  due_date: string | null
-  started_at: string | null
-  completed_at: string | null
-  is_recurring: boolean
-  recurrence_type: string | null
-  created_at: string
-  updated_at: string
+/** Mensaje de error genérico para fallos que no vienen tipados del servicio. */
+const FALLBACK_ERROR = 'No pudimos guardar el cambio.'
+
+/** Traduce cualquier fallo a algo que el usuario pueda leer y accionar. */
+function toUserMessage(e: unknown): string {
+  if (isTaskServiceError(e)) return e.message
+  if (isFeatureError(e))     return getFeatureErrorMessage(e)
+  return FALLBACK_ERROR
 }
 
-interface TaskItem {
-  id: string
-  task_id: string
-  title: string
-  is_done: boolean
-  sort_order: number
-}
+/** La forma de la fila la define el servicio: una sola definición para todo el módulo. */
+type Task = TaskRecord
 
-interface TaskComment {
-  id: string
-  task_id: string
-  user_id: string
-  comment: string
-  created_at: string
-  user_name?: string
-}
-
-interface TaskHistory {
-  id: string
-  task_id: string
-  user_id: string | null
-  action: string
-  old_value: string | null
-  new_value: string | null
-  created_at: string
-  user_name?: string
-}
+type TaskItem = TaskChecklistItem
+type TaskComment = TaskCommentRow & { user_name?: string }
+type TaskHistory = TaskHistoryRow & { user_name?: string }
 
 interface Profile {
   id: string
@@ -79,12 +69,23 @@ const PRIORITY_META: Record<TaskPriority, { label: string; color: string; bg: st
   high:   { label: 'Alta',   color: '#f87171', bg: 'rgba(248,113,113,0.1)', border: 'rgba(248,113,113,0.35)' },
 }
 
-const STATUS_META: Record<TaskStatus, { label: string; color: string; bg: string; next?: TaskStatus[]; icon: React.ElementType }> = {
-  pending:     { label: 'Pendiente',  color: '#94a3b8', bg: 'rgba(148,163,184,0.12)', next: ['in_progress'],           icon: Circle       },
-  in_progress: { label: 'En proceso', color: '#818cf8', bg: 'rgba(99,102,241,0.12)',  next: ['completed', 'pending'],  icon: Clock        },
-  completed:   { label: 'Completada', color: '#34d399', bg: 'rgba(52,211,153,0.12)',  next: ['pending'],               icon: CheckCircle2 },
-  cancelled:   { label: 'Cancelada',  color: '#f87171', bg: 'rgba(248,113,113,0.12)', next: ['pending'],               icon: X            },
+/**
+ * Metadatos de presentación de los CUATRO estados.
+ *
+ * `in_progress` y `cancelled` siguen acá a propósito: si una fila histórica los
+ * tuviera, hay que poder mostrarla sin romperse. Lo que NO se deriva de acá son
+ * las acciones: para eso está `getAvailableTransitions`, que sólo devuelve
+ * estados que la base persiste hoy.
+ */
+const STATUS_META: Record<TaskStatus, { label: string; color: string; bg: string; icon: React.ElementType }> = {
+  pending:     { label: 'Pendiente',  color: '#94a3b8', bg: 'rgba(148,163,184,0.12)', icon: Circle       },
+  in_progress: { label: 'En proceso', color: '#818cf8', bg: 'rgba(99,102,241,0.12)',  icon: Clock        },
+  completed:   { label: 'Completada', color: '#34d399', bg: 'rgba(52,211,153,0.12)',  icon: CheckCircle2 },
+  cancelled:   { label: 'Cancelada',  color: '#f87171', bg: 'rgba(248,113,113,0.12)', icon: X            },
 }
+
+/** Fallback por si llega un estado desconocido desde la base. */
+const statusMeta = (s: string) => STATUS_META[s as TaskStatus] ?? STATUS_META.pending
 
 const ACTION_LABELS: Record<string, string> = {
   created: 'Tarea creada',
@@ -94,7 +95,8 @@ const ACTION_LABELS: Record<string, string> = {
   checklist: 'Checklist actualizado',
 }
 
-const KANBAN_COLUMNS: TaskStatus[] = ['pending', 'in_progress', 'completed']
+/** Columnas del kanban = estados que la base persiste. Hoy: Pendiente y Completada. */
+const KANBAN_COLUMNS: PersistedTaskStatus[] = [...PERSISTED_TASK_STATUSES_CURRENT]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -115,7 +117,7 @@ interface TaskCardProps {
   assigneeName: string | null
   isAdmin: boolean
   onSelect: () => void
-  onStatusChange: (s: TaskStatus) => void
+  onStatusChange: (s: PersistedTaskStatus) => void
   onDelete: () => void
 }
 
@@ -125,7 +127,7 @@ function TaskCard({ task, assigneeName, isAdmin, onSelect, onStatusChange, onDel
   const soon = isDueSoon(task)
   const [menuOpen, setMenuOpen] = useState(false)
 
-  const nextStatuses = STATUS_META[task.status]?.next || []
+  const nextStatuses = getAvailableTransitions(task.status)
 
   return (
     <div className="card-interactive" style={{
@@ -210,8 +212,8 @@ function TaskCard({ task, assigneeName, isAdmin, onSelect, onStatusChange, onDel
 
 // ─── CreateEditModal ──────────────────────────────────────────────────────────
 
-interface FormState { title: string; description: string; priority: TaskPriority; assigned_to: string; due_date: string; is_recurring: boolean; recurrence_type: string }
-const emptyForm = (): FormState => ({ title: '', description: '', priority: 'medium', assigned_to: '', due_date: '', is_recurring: false, recurrence_type: 'weekly' })
+interface FormState { title: string; description: string; priority: TaskPriority; assigned_to: string; due_date: string }
+const emptyForm = (): FormState => ({ title: '', description: '', priority: 'medium', assigned_to: '', due_date: '' })
 
 interface CreateEditModalProps {
   editing: Task | null
@@ -226,8 +228,7 @@ function CreateEditModal({ editing, profiles, businessId, userId, onSaved, onClo
   const [form, setForm] = useState<FormState>(editing ? {
     title: editing.title, description: editing.description || '',
     priority: editing.priority, assigned_to: editing.assigned_to || '',
-    due_date: editing.due_date || '', is_recurring: editing.is_recurring,
-    recurrence_type: editing.recurrence_type || 'weekly',
+    due_date: editing.due_date || '',
   } : emptyForm())
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
@@ -238,30 +239,33 @@ function CreateEditModal({ editing, profiles, businessId, userId, onSaved, onClo
     setSaving(true); setErr('')
     try {
       await requireFeature(businessId!, 'tasks', 'create_or_edit_task')
-      const payload = {
-        business_id: businessId,
-        title: form.title.trim(),
+      const input = {
+        title:       form.title.trim(),
         description: form.description || null,
-        priority: form.priority,
+        priority:    form.priority,
         assigned_to: form.assigned_to,
-        user_id: form.assigned_to,
-        due_date: form.due_date || null,
-        is_recurring: form.is_recurring,
-        recurrence_type: form.is_recurring ? form.recurrence_type : null,
-        status: editing?.status || 'pending' as TaskStatus,
-        updated_at: new Date().toISOString(),
+        due_date:    form.due_date || null,
       }
-      let result
-      if (editing) {
-        const { data } = await supabase.from('tasks').update(payload).eq('id', editing.id).select().single()
-        result = data
-      } else {
-        const { data } = await supabase.from('tasks').insert({ ...payload, created_by: userId }).select().single()
-        result = data
-      }
-      if (result) onSaved(result as Task)
-    } catch (e: any) { setErr(getFeatureErrorMessage(e)) }
-    finally { setSaving(false) }
+      // La recurrencia no viaja en el payload: el control está oculto hasta que
+      // exista el scheduler (TASKS V2 P1). En edición, omitirla preserva el
+      // valor histórico de la fila en vez de resetearlo.
+      const saved = editing
+        ? await taskService.updateTask(editing.id, input)
+        : await taskService.createTask(businessId, userId, input)
+      // Sólo después de que el servidor confirmó: nunca cerrar como si hubiera
+      // funcionado. Las columnas que el servicio no devuelve se toman de la fila
+      // que ya estaba en memoria, para no perder la recurrencia histórica.
+      onSaved({
+        business_id:     businessId,
+        created_by:      editing?.created_by ?? userId,
+        is_recurring:    editing?.is_recurring ?? false,
+        recurrence_type: editing?.recurrence_type ?? null,
+        updated_at:      new Date().toISOString(),
+        ...saved,
+      })
+    } catch (e: unknown) {
+      setErr(toUserMessage(e))
+    } finally { setSaving(false) }
   }
 
   const inputS: React.CSSProperties = { width: '100%', padding: '0.5625rem 0.875rem', background: 'var(--input-bg)', border: '1px solid var(--input-border)', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' as const }
@@ -313,21 +317,11 @@ function CreateEditModal({ editing, profiles, businessId, userId, onSaved, onClo
               ))}
             </select>
           </div>
-          <div style={{ padding: '0.75rem', background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-              <input type="checkbox" checked={form.is_recurring} onChange={e => setForm(p => ({ ...p, is_recurring: e.target.checked }))}
-                style={{ width: 16, height: 16, accentColor: 'var(--accent-primary)' }} />
-              <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Tarea recurrente</span>
-            </label>
-            {form.is_recurring && (
-              <select style={{ ...inputS, marginTop: '0.25rem' }} value={form.recurrence_type} onChange={e => setForm(p => ({ ...p, recurrence_type: e.target.value }))}>
-                <option value="daily">Diaria</option>
-                <option value="weekly">Semanal</option>
-                <option value="monthly">Mensual</option>
-              </select>
-            )}
-          </div>
-          {err && <p style={{ margin: 0, color: 'var(--error)', fontSize: '0.8rem', fontWeight: 600 }}>{err}</p>}
+          {/* La recurrencia está intencionalmente oculta hasta que exista el
+              scheduler (TASKS V2 P1). Las columnas siguen en la base y las filas
+              históricas se conservan; lo que no se hace es invitar al usuario a
+              crear algo que el sistema todavía no ejecuta. */}
+          {err && <p role="alert" style={{ margin: 0, color: 'var(--error)', fontSize: '0.8rem', fontWeight: 600 }}>{err}</p>}
         </div>
 
         <div style={{ flexShrink: 0, padding: '1rem 1.5rem', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', background: 'var(--bg-modal)', borderRadius: '0 0 var(--radius-2xl) var(--radius-2xl)' }}>
@@ -355,7 +349,8 @@ interface TaskDetailPanelProps {
   myName: string
   onClose: () => void
   onEdit: () => void
-  onStatusChange: (s: TaskStatus) => void
+  /** Lanza si el servidor rechaza el cambio: el panel muestra el error y no toca el estado local. */
+  onStatusChange: (s: PersistedTaskStatus) => Promise<void>
   onUpdated: (t: Task) => void
 }
 
@@ -369,6 +364,8 @@ function TaskDetailPanel({ task, profiles: _profiles, profileMap, isAdmin, busin
   const [newItem, setNewItem]   = useState('')
   const [savingComment, setSavingComment] = useState(false)
   const [completionErr, setCompletionErr] = useState('')
+  const [tabErr, setTabErr]     = useState('')
+  const [busyStatus, setBusyStatus] = useState(false)
 
   const pm       = PRIORITY_META[task.priority] || PRIORITY_META.medium
   const assignee = profileMap.get(task.assigned_to || '') || profileMap.get(task.user_id || '')
@@ -380,68 +377,74 @@ function TaskDetailPanel({ task, profiles: _profiles, profileMap, isAdmin, busin
   }, [task.id, tab])
 
   const loadTabData = async (t: DetailTab) => {
-    setLoadingTab(true)
+    setLoadingTab(true); setTabErr('')
     try {
       if (t === 'checklist') {
-        const { data } = await supabase.from('task_items').select('*').eq('task_id', task.id).order('sort_order')
-        setItems((data || []) as TaskItem[])
+        setItems(await taskService.getChecklist(task.id))
       } else if (t === 'comments') {
-        const { data } = await supabase.from('task_comments').select('*').eq('task_id', task.id).order('created_at')
-        setComments((data || []).map((c: any) => ({
-          ...c, user_name: profileMap.get(c.user_id)?.full_name || 'Usuario',
-        })) as TaskComment[])
+        const rows = await taskService.getComments(task.id)
+        setComments(rows.map(c => ({ ...c, user_name: profileMap.get(c.user_id)?.full_name || 'Usuario' })))
       } else if (t === 'history') {
-        const { data } = await supabase.from('task_history').select('*').eq('task_id', task.id).order('created_at')
-        setHistory((data || []).map((h: any) => ({
-          ...h, user_name: profileMap.get(h.user_id || '')?.full_name || 'Sistema',
-        })) as TaskHistory[])
+        const rows = await taskService.getHistory(task.id)
+        setHistory(rows.map(h => ({ ...h, user_name: profileMap.get(h.user_id || '')?.full_name || 'Sistema' })))
       }
+    } catch (e: unknown) {
+      setTabErr(toUserMessage(e))
     } finally { setLoadingTab(false) }
   }
 
   const handleAddComment = async () => {
     if (!newComment.trim()) return
-    setSavingComment(true)
+    setSavingComment(true); setTabErr('')
     try {
-      const { data } = await supabase.from('task_comments').insert({
-        task_id: task.id, business_id: businessId,
-        user_id: userId, comment: newComment.trim(),
-      }).select().single()
-      if (data) {
-        setComments(prev => [...prev, { ...(data as any), user_name: myName }])
-        await supabase.from('task_history').insert({ task_id: task.id, business_id: businessId, user_id: userId, action: 'commented', new_value: newComment.trim().slice(0, 100) })
-      }
+      const saved = await taskService.addComment(task.id, businessId, userId, newComment.trim())
+      setComments(prev => [...prev, { ...saved, user_name: myName }])
       setNewComment('')
+    } catch (e: unknown) {
+      setTabErr(toUserMessage(e))
     } finally { setSavingComment(false) }
   }
 
   const handleToggleItem = async (item: TaskItem) => {
-    await supabase.from('task_items').update({ is_done: !item.is_done }).eq('id', item.id)
-    setItems(prev => prev.map(i => i.id === item.id ? { ...i, is_done: !item.is_done } : i))
-    await supabase.from('task_history').insert({ task_id: task.id, business_id: businessId, user_id: userId, action: 'checklist', new_value: `${item.title}: ${!item.is_done ? 'completado' : 'pendiente'}` })
+    setTabErr('')
+    try {
+      const saved = await taskService.toggleChecklistItem(item, businessId, userId)
+      setItems(prev => prev.map(i => i.id === item.id ? saved : i))
+    } catch (e: unknown) { setTabErr(toUserMessage(e)) }
   }
 
   const handleAddItem = async () => {
     if (!newItem.trim()) return
-    const { data } = await supabase.from('task_items').insert({
-      task_id: task.id, business_id: businessId, title: newItem.trim(), sort_order: items.length,
-    }).select().single()
-    if (data) setItems(prev => [...prev, data as TaskItem])
-    setNewItem('')
+    setTabErr('')
+    try {
+      const saved = await taskService.addChecklistItem(task.id, businessId, newItem.trim(), items.length)
+      setItems(prev => [...prev, saved])
+      setNewItem('')
+    } catch (e: unknown) { setTabErr(toUserMessage(e)) }
   }
 
   const handleDeleteItem = async (id: string) => {
-    await supabase.from('task_items').delete().eq('id', id)
-    setItems(prev => prev.filter(i => i.id !== id))
+    setTabErr('')
+    try {
+      await taskService.deleteChecklistItem(id)
+      setItems(prev => prev.filter(i => i.id !== id))
+    } catch (e: unknown) { setTabErr(toUserMessage(e)) }
   }
 
-  const handleStatusChange = (s: TaskStatus) => {
-    setCompletionErr('')
-    if (s === 'completed') {
-      if (items.length > 0 && !allDone) { setCompletionErr('Completá todos los ítems del checklist primero'); setTab('checklist'); return }
-      if (comments.length === 0) { setCompletionErr('Agregá un comentario de cierre antes de completar'); setTab('comments'); return }
-    }
-    onStatusChange(s)
+  /**
+   * Las reglas de compleción (checklist completo + comentario de cierre) las
+   * valida `taskService`, no esta pantalla: así rigen también cuando se completa
+   * desde una card. Acá sólo se traduce el motivo a la pestaña correspondiente.
+   */
+  const handleStatusChange = async (s: PersistedTaskStatus) => {
+    setCompletionErr(''); setBusyStatus(true)
+    try {
+      await onStatusChange(s)
+    } catch (e: unknown) {
+      setCompletionErr(toUserMessage(e))
+      if (isTaskServiceError(e) && e.reason === 'checklist') setTab('checklist')
+      if (isTaskServiceError(e) && e.reason === 'comment')   setTab('comments')
+    } finally { setBusyStatus(false) }
   }
 
   const tabStyle = (t: DetailTab): React.CSSProperties => ({
@@ -450,7 +453,7 @@ function TaskDetailPanel({ task, profiles: _profiles, profileMap, isAdmin, busin
     color: tab === t ? 'var(--accent-primary)' : '#475569', transition: 'all 0.15s',
   })
 
-  const nextStatuses = STATUS_META[task.status]?.next || []
+  const nextStatuses = getAvailableTransitions(task.status)
 
   return (
     <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 440, background: 'var(--bg-modal)', borderLeft: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', zIndex: 888, boxShadow: '-8px 0 32px rgba(0,0,0,0.4)' }}>
@@ -461,7 +464,7 @@ function TaskDetailPanel({ task, profiles: _profiles, profileMap, isAdmin, busin
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.375rem' }}>
               <span className={`badge ${task.priority === 'high' ? 'badge-error' : task.priority === 'medium' ? 'badge-warning' : 'badge-success'}`} style={{ borderRadius: '0.25rem' }}>{pm.label}</span>
               <span className={`badge ${task.status === 'completed' ? 'badge-success' : task.status === 'cancelled' ? 'badge-error' : task.status === 'in_progress' ? 'badge-info' : 'badge-neutral'}`} style={{ borderRadius: '0.25rem' }}>
-                {STATUS_META[task.status].label}
+                {statusMeta(task.status).label}
               </span>
               {isOverdue(task) && <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.4rem', borderRadius: '0.25rem', background: 'rgba(248,113,113,0.12)', color: '#f87171' }}>Vencida</span>}
             </div>
@@ -476,13 +479,13 @@ function TaskDetailPanel({ task, profiles: _profiles, profileMap, isAdmin, busin
         {/* Status actions */}
         <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' as const }}>
           {nextStatuses.map(s => (
-            <button key={s} onClick={() => handleStatusChange(s)}
-              style={{ padding: '0.3rem 0.75rem', borderRadius: '0.375rem', border: `1px solid ${STATUS_META[s].color}44`, background: STATUS_META[s].bg, color: STATUS_META[s].color, fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>
+            <button key={s} onClick={() => handleStatusChange(s)} disabled={busyStatus}
+              style={{ padding: '0.3rem 0.75rem', borderRadius: '0.375rem', border: `1px solid ${STATUS_META[s].color}44`, background: STATUS_META[s].bg, color: STATUS_META[s].color, fontSize: '0.75rem', fontWeight: 700, cursor: busyStatus ? 'not-allowed' : 'pointer', opacity: busyStatus ? 0.6 : 1 }}>
               → {STATUS_META[s].label}
             </button>
           ))}
         </div>
-        {completionErr && <p style={{ margin: '0.5rem 0 0', color: 'var(--error)', fontSize: '0.75rem', fontWeight: 600 }}>{completionErr}</p>}
+        {completionErr && <p role="alert" style={{ margin: '0.5rem 0 0', color: 'var(--error)', fontSize: '0.75rem', fontWeight: 600 }}>{completionErr}</p>}
       </div>
 
       {/* Tabs */}
@@ -494,6 +497,11 @@ function TaskDetailPanel({ task, profiles: _profiles, profileMap, isAdmin, busin
 
       {/* Tab content */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 1.25rem' }}>
+        {tabErr && (
+          <p role="alert" style={{ margin: '0 0 0.75rem', padding: '0.5rem 0.75rem', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 'var(--radius-sm)', color: '#f87171', fontSize: '0.78rem', fontWeight: 600 }}>
+            {tabErr}
+          </p>
+        )}
         {loadingTab ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem' }}>
             <div style={{ width: 24, height: 24, border: '2px solid var(--accent-primary)', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'tr-spin 1s linear infinite' }} />
@@ -509,9 +517,18 @@ function TaskDetailPanel({ task, profiles: _profiles, profileMap, isAdmin, busin
             {[
               { label: 'Asignado a', value: assignee?.full_name || assignee?.email || '—', icon: <User size={13} /> },
               { label: 'Fecha límite', value: task.due_date ? fmtDate(task.due_date) : '—', icon: <Calendar size={13} /> },
-              { label: 'Iniciada',    value: task.started_at ? fmtFull(task.started_at) : '—', icon: <Clock size={13} /> },
+              // `started_at` sólo se escribía al pasar a «En proceso», que la base
+              // no persiste: hoy nunca se llena. Se muestra si la fila ya lo tiene,
+              // en vez de un «—» permanente. Vuelve con V2-3.
+              ...(task.started_at
+                ? [{ label: 'Iniciada', value: fmtFull(task.started_at), icon: <Clock size={13} /> }]
+                : []),
               { label: 'Completada',  value: task.completed_at ? fmtFull(task.completed_at) : '—', icon: <CheckCircle2 size={13} /> },
-              { label: 'Recurrencia', value: task.is_recurring ? (task.recurrence_type || '—') : 'No', icon: <RefreshCw size={13} /> },
+              // Sólo se muestra si la fila YA era recurrente (histórica). No se
+              // ofrece crear ni editar recurrencia hasta el scheduler de P1.
+              ...(task.is_recurring
+                ? [{ label: 'Recurrencia', value: task.recurrence_type || '—', icon: <RefreshCw size={13} /> }]
+                : []),
             ].map(r => (
               <div key={r.label} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.625rem 0.875rem', background: 'var(--bg-surface)', borderRadius: 'var(--radius-md)' }}>
                 <span style={{ color: '#475569', flexShrink: 0 }}>{r.icon}</span>
@@ -622,22 +639,23 @@ interface MetricsPanelProps {
 
 function MetricsPanel({ tasks, profileMap }: MetricsPanelProps) {
   const byUser = useMemo(() => {
-    const map: Record<string, { name: string; pending: number; in_progress: number; completed: number; overdue: number }> = {}
+    const map: Record<string, { name: string; pending: number; completed: number; overdue: number }> = {}
     tasks.forEach(t => {
       const uid  = t.assigned_to || t.user_id || 'sin-asignar'
       const name = profileMap.get(uid)?.full_name || profileMap.get(uid)?.email || 'Sin asignar'
-      if (!map[uid]) map[uid] = { name, pending: 0, in_progress: 0, completed: 0, overdue: 0 }
-      if (t.status === 'pending')     map[uid].pending++
-      if (t.status === 'in_progress') map[uid].in_progress++
-      if (t.status === 'completed')   map[uid].completed++
-      if (isOverdue(t))               map[uid].overdue++
+      if (!map[uid]) map[uid] = { name, pending: 0, completed: 0, overdue: 0 }
+      if (t.status === 'pending')   map[uid].pending++
+      if (t.status === 'completed') map[uid].completed++
+      if (isOverdue(t))             map[uid].overdue++
     })
-    return Object.values(map).sort((a, b) => (b.pending + b.in_progress) - (a.pending + a.in_progress))
+    return Object.values(map).sort((a, b) => b.pending - a.pending)
   }, [tasks, profileMap])
 
+  // Sin métrica de «En proceso»: ese estado no lo persiste la base, así que
+  // siempre sería 0. Vuelve en V2-3.
+  const totalPending   = tasks.filter(t => t.status === 'pending').length
   const totalCompleted = tasks.filter(t => t.status === 'completed').length
   const totalOverdue   = tasks.filter(t => isOverdue(t)).length
-  const totalInProgress = tasks.filter(t => t.status === 'in_progress').length
   const dueToday = tasks.filter(t => t.due_date === today() && t.status !== 'completed').length
 
   return (
@@ -648,7 +666,7 @@ function MetricsPanel({ tasks, profileMap }: MetricsPanelProps) {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginBottom: '1.25rem' }}>
         {[
-          { label: 'En proceso', value: totalInProgress, color: '#818cf8' },
+          { label: 'Pendientes', value: totalPending, color: '#94a3b8' },
           { label: 'Completadas', value: totalCompleted, color: '#34d399' },
           { label: 'Vencen hoy', value: dueToday, color: '#fbbf24' },
           { label: 'Vencidas', value: totalOverdue, color: '#f87171' },
@@ -663,7 +681,7 @@ function MetricsPanel({ tasks, profileMap }: MetricsPanelProps) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
           <thead>
             <tr>
-              {['Usuario', 'Pendientes', 'En proceso', 'Completadas', 'Vencidas'].map(h => (
+              {['Usuario', 'Pendientes', 'Completadas', 'Vencidas'].map(h => (
                 <th key={h} style={{ padding: '0.375rem 0.625rem', textAlign: h === 'Usuario' ? 'left' : 'center', color: '#334155', fontWeight: 700, fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>{h}</th>
               ))}
             </tr>
@@ -673,7 +691,6 @@ function MetricsPanel({ tasks, profileMap }: MetricsPanelProps) {
               <tr key={u.name}>
                 <td style={{ padding: '0.5rem 0.625rem', color: 'var(--text-primary)', fontWeight: 600 }}>{u.name}</td>
                 <td style={{ padding: '0.5rem 0.625rem', textAlign: 'center', color: '#94a3b8' }}>{u.pending}</td>
-                <td style={{ padding: '0.5rem 0.625rem', textAlign: 'center', color: '#818cf8', fontWeight: u.in_progress > 0 ? 700 : 400 }}>{u.in_progress}</td>
                 <td style={{ padding: '0.5rem 0.625rem', textAlign: 'center', color: '#34d399', fontWeight: u.completed > 0 ? 700 : 400 }}>{u.completed}</td>
                 <td style={{ padding: '0.5rem 0.625rem', textAlign: 'center', color: u.overdue > 0 ? '#f87171' : '#334155', fontWeight: u.overdue > 0 ? 700 : 400 }}>{u.overdue}</td>
               </tr>
@@ -689,10 +706,14 @@ function MetricsPanel({ tasks, profileMap }: MetricsPanelProps) {
 
 export function Tasks() {
   const { businessId, user } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
 
   const [tasks, setTasks]       = useState<Task[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [loading, setLoading]   = useState(true)
+  const [loadErr, setLoadErr]   = useState('')
+  const [actionErr, setActionErr] = useState('')
   const [view, setView]         = useState<'kanban' | 'list'>('kanban')
 
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
@@ -723,28 +744,47 @@ export function Tasks() {
 
   const loadData = useCallback(async () => {
     if (!businessId) return
-    setLoading(true)
+    setLoading(true); setLoadErr('')
     try {
-      const [tasksRes, profilesRes] = await Promise.all([
-        supabase.from('tasks').select('*').eq('business_id', businessId).order('created_at', { ascending: false }),
+      const [allTasksRaw, profilesRes] = await Promise.all([
+        taskService.getTasks(businessId),
         supabase.from('profiles').select('id, user_id, full_name, email, role').eq('business_id', businessId).eq('is_active', true),
       ])
-      let allTasks = (tasksRes.data || []) as Task[]
+      let allTasks = allTasksRaw
       const allProfiles = (profilesRes.data || []) as Profile[]
       setProfiles(allProfiles)
 
       const me = allProfiles.find(p => p.user_id === user?.id || p.id === user?.id)
       setMyProfile(me || null)
 
-      // Non-admins only see their assigned tasks
+      // Filtro de visibilidad para no-admins. Sigue siendo de CLIENTE: la RLS
+      // todavía deja leer todas las tareas del negocio. Cerrarlo server-side es
+      // TASKS-V2-4 y NO se toca en este lote.
       if (me && me.role !== 'owner' && me.role !== 'admin') {
         allTasks = allTasks.filter(t => t.assigned_to === user?.id || t.user_id === user?.id)
       }
       setTasks(allTasks)
+    } catch (e: unknown) {
+      // Antes un fallo de lectura dejaba la lista vacía: parecía «no hay tareas».
+      setLoadErr(toUserMessage(e))
+      setTasks([])
     } finally { setLoading(false) }
   }, [businessId, user?.id])
 
   useEffect(() => { loadData() }, [loadData])
+
+  // Handoff desde el dashboard: `navigate('/tasks', { state: { openCreate: true } })`.
+  // Antes nadie leía ese state y el botón «Nueva tarea» sólo cambiaba de página.
+  // Se limpia el state al consumirlo para que un refresh o un back no lo reabran.
+  const createHandoffDone = useRef(false)
+  useEffect(() => {
+    if (createHandoffDone.current) return
+    if ((location.state as { openCreate?: boolean } | null)?.openCreate) {
+      createHandoffDone.current = true
+      setShowCreate(true)
+      navigate(location.pathname, { replace: true, state: null })
+    }
+  }, [location.state, location.pathname, navigate])
 
   // ── Computed ───────────────────────────────────────────────────────────────
 
@@ -762,7 +802,8 @@ export function Tasks() {
   }, [tasks, filterStatus, filterPriority, filterUser, searchQ])
 
   const byStatus = useMemo(() => {
-    const m: Record<TaskStatus, Task[]> = { pending: [], in_progress: [], completed: [], cancelled: [] }
+    const m: Record<string, Task[]> = {}
+    KANBAN_COLUMNS.forEach(s => { m[s] = [] })
     filtered.forEach(t => { if (m[t.status]) m[t.status].push(t) })
     return m
   }, [filtered])
@@ -770,26 +811,42 @@ export function Tasks() {
   const alerts = useMemo(() => ({
     overdue: tasks.filter(isOverdue).length,
     pending: tasks.filter(t => t.status === 'pending').length,
-    inProgress: tasks.filter(t => t.status === 'in_progress').length,
   }), [tasks])
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  const handleStatusChange = async (task: Task, newStatus: TaskStatus) => {
-    const now = new Date().toISOString()
-    const updates: Partial<Task> = { status: newStatus, updated_at: now }
-    if (newStatus === 'in_progress' && !task.started_at) updates.started_at = now
-    if (newStatus === 'completed') updates.completed_at = now
-    await supabase.from('tasks').update(updates).eq('id', task.id)
-    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, ...updates } : t))
-    if (selectedTask?.id === task.id) setSelectedTask(prev => prev ? { ...prev, ...updates } : prev)
+  /**
+   * Único camino de cambio de estado. El estado local se actualiza SÓLO con lo
+   * que devolvió el servidor: si la escritura falla, nada cambia en pantalla.
+   * Propaga el error para que cada superficie lo muestre donde corresponde.
+   */
+  const applyStatusChange = useCallback(async (task: Task, newStatus: PersistedTaskStatus) => {
+    const updated = await taskService.setTaskStatus(
+      task.id, businessId || '', user?.id || '', newStatus, task.status,
+    )
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, ...updated } : t))
+    setSelectedTask(prev => prev && prev.id === task.id ? { ...prev, ...updated } : prev)
+  }, [businessId, user?.id])
+
+  const handleCardStatusChange = async (task: Task, newStatus: PersistedTaskStatus) => {
+    setActionErr('')
+    try {
+      await applyStatusChange(task, newStatus)
+    } catch (e: unknown) {
+      setActionErr(toUserMessage(e))
+    }
   }
 
   const handleDelete = async (taskId: string) => {
     if (!confirm('¿Eliminar esta tarea? No se puede deshacer.')) return
-    await supabase.from('tasks').delete().eq('id', taskId)
-    setTasks(prev => prev.filter(t => t.id !== taskId))
-    if (selectedTask?.id === taskId) setSelectedTask(null)
+    setActionErr('')
+    try {
+      await taskService.deleteTask(taskId)
+      setTasks(prev => prev.filter(t => t.id !== taskId))
+      if (selectedTask?.id === taskId) setSelectedTask(null)
+    } catch (e: unknown) {
+      setActionErr(toUserMessage(e))
+    }
   }
 
   const handleSaved = (task: Task) => {
@@ -844,7 +901,8 @@ export function Tasks() {
           <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="Buscar tarea..." style={{ flex: 1, padding: '0.5rem 0', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: '0.875rem', outline: 'none' }} />
         </div>
         {[
-          { value: filterStatus, set: setFilterStatus, opts: [['all','Todos los estados'],['pending','Pendiente'],['in_progress','En proceso'],['completed','Completada']] },
+          // Sólo estados persistibles: filtrar por uno inalcanzable daba siempre vacío.
+          { value: filterStatus, set: setFilterStatus, opts: [['all','Todos los estados'], ...PERSISTED_TASK_STATUSES_CURRENT.map(s => [s, STATUS_META[s].label] as [string, string])] },
           { value: filterPriority, set: setFilterPriority, opts: [['all','Toda prioridad'],['high','Alta'],['medium','Media'],['low','Baja']] },
         ].map((f, i) => (
           <select key={i} value={f.value} onChange={e => f.set(e.target.value)}
@@ -860,6 +918,19 @@ export function Tasks() {
           </select>
         )}
       </div>
+
+      {/* Errores de acción y de carga. Antes ambos fallaban en silencio: una
+          escritura denegada no decía nada y una lectura denegada se veía como
+          «sin tareas». */}
+      {(actionErr || loadErr) && (
+        <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', padding: '0.75rem 1rem', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 'var(--radius-md)', color: '#f87171', fontSize: '0.82rem', fontWeight: 600 }}>
+          <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>{actionErr || loadErr}</span>
+          {loadErr
+            ? <AppButton variant="ghost" size="sm" onClick={loadData}>Reintentar</AppButton>
+            : <AppIconButton icon={<X size={13} />} label="Cerrar" size="xs" onClick={() => setActionErr('')} />}
+        </div>
+      )}
 
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
@@ -893,7 +964,7 @@ export function Tasks() {
                       assigneeName={profileMap.get(t.assigned_to || t.user_id || '')?.full_name || null}
                       isAdmin={isAdmin}
                       onSelect={() => setSelectedTask(t)}
-                      onStatusChange={s => handleStatusChange(t, s)}
+                      onStatusChange={s => handleCardStatusChange(t, s)}
                       onDelete={() => handleDelete(t.id)}
                     />
                   ))
@@ -925,7 +996,7 @@ export function Tasks() {
               <tbody>
                 {filtered.map(t => {
                   const pm2  = PRIORITY_META[t.priority] || PRIORITY_META.medium
-                  const sm   = STATUS_META[t.status]
+                  const sm   = statusMeta(t.status)
                   const assignee = profileMap.get(t.assigned_to || t.user_id || '')
                   const over = isOverdue(t)
                   return (
@@ -980,7 +1051,7 @@ export function Tasks() {
           myName={myProfile?.full_name || myProfile?.email || 'Yo'}
           onClose={() => setSelectedTask(null)}
           onEdit={() => { setEditingTask(selectedTask); setSelectedTask(null) }}
-          onStatusChange={s => handleStatusChange(selectedTask, s)}
+          onStatusChange={s => applyStatusChange(selectedTask, s)}
           onUpdated={t => { setTasks(prev => prev.map(p => p.id === t.id ? t : p)); setSelectedTask(t) }}
         />
       )}

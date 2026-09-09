@@ -7,7 +7,11 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, ChevronRight, CheckCircle2, Circle, Clock, AlertTriangle, ListChecks, Send, X } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import { taskService, type TaskLite, type TaskSummary } from '../../services/taskService'
+import { taskService, isTaskServiceError, type TaskLite, type TaskSummary } from '../../services/taskService'
+
+/** Traduce cualquier fallo a un mensaje que el usuario pueda leer. */
+const toUserMessage = (e: unknown, fallback: string) =>
+  isTaskServiceError(e) ? e.message : fallback
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -17,12 +21,18 @@ const PRIORITY_META = {
   low:    { label: 'Baja',  color: '#34d399', dot: '#10b981' },
 } as const
 
-const STATUS_META = {
-  pending:     { label: 'Pendiente',  color: '#94a3b8', next: 'in_progress' as const },
-  in_progress: { label: 'En proceso', color: '#818cf8', next: 'completed'   as const },
-  completed:   { label: 'Completada', color: '#34d399', next: null                   },
-  cancelled:   { label: 'Cancelada',  color: '#f87171', next: null                   },
+/**
+ * TASKS-V2-0 — sólo `pending` y `completed` son persistibles hoy (CHECK
+ * `tasks_status_check`). `in_progress` y `cancelled` siguen acá únicamente para
+ * poder RENDERIZAR una fila histórica sin romperse; no se ofrecen como acción.
+ */
+const STATUS_META: Record<string, { label: string; color: string }> = {
+  pending:     { label: 'Pendiente',  color: '#94a3b8' },
+  in_progress: { label: 'En proceso', color: '#818cf8' },
+  completed:   { label: 'Completada', color: '#34d399' },
+  cancelled:   { label: 'Cancelada',  color: '#f87171' },
 }
+const statusMeta = (s: string) => STATUS_META[s] ?? STATUS_META.pending
 
 import { todayAR, fmtDateCompact } from '../../utils/dateUtils'
 const fmtDate = (d: string) => {
@@ -74,8 +84,10 @@ export function DashboardTasks() {
       setTasks(myTasks)
       setSummary(mySummary)
       setError(null)
-    } catch (e: any) {
-      setError(e.message || 'Error al cargar tareas')
+    } catch (e: unknown) {
+      // Un fallo de lectura ya no se ve como «sin tareas asignadas»: antes el
+      // servicio devolvía [] ante un error y el widget mostraba un cero falso.
+      setError(toUserMessage(e, 'No pudimos cargar las tareas.'))
     } finally {
       setLoading(false)
     }
@@ -95,37 +107,39 @@ export function DashboardTasks() {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  const handleToggle = async (task: TaskLite) => {
-    if (task.status === 'pending') {
-      // pending → in_progress: sin validación
-      await taskService.updateTaskStatus(task.id, 'in_progress')
-      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'in_progress' } : t))
-      setSummary(prev => prev ? { ...prev, pending: prev.pending - 1, in_progress: prev.in_progress + 1 } : prev)
-    } else if (task.status === 'in_progress') {
-      // in_progress → completed: requiere comentario
-      setCompletingId(task.id)
-      setCompletionNote('')
-      setCompleteErr('')
-    }
+  /**
+   * `pending → completed` es la única transición disponible: el paso intermedio
+   * por `in_progress` no lo persistía la base. Completar exige nota de cierre,
+   * así que abre el formulario en vez de escribir directamente.
+   */
+  const handleToggle = (task: TaskLite) => {
+    if (task.status !== 'pending') return
+    setCompletingId(task.id)
+    setCompletionNote('')
+    setCompleteErr('')
   }
 
   const handleComplete = async () => {
     if (!completingId || !businessId || !user?.id) return
     if (!completionNote.trim()) { setCompleteErr('Escribí una nota de cierre'); return }
-    setSavingComplete(true)
+    setSavingComplete(true); setCompleteErr('')
     try {
       await taskService.addComment(completingId, businessId, user.id, completionNote.trim())
-      await taskService.updateTaskStatus(completingId, 'completed')
+      await taskService.completeTask(completingId, businessId, user.id)
+      // Sólo después de que el servidor aceptó ambas escrituras.
       setTasks(prev => prev.filter(t => t.id !== completingId))
-      setSummary(prev => prev ? { ...prev, in_progress: Math.max(0, prev.in_progress - 1), completed: prev.completed + 1 } : prev)
+      setSummary(prev => prev
+        ? { ...prev, pending: Math.max(0, prev.pending - 1), completed: prev.completed + 1 }
+        : prev)
       setCompletingId(null); setCompletionNote('')
-    } catch (e: any) { setCompleteErr(e.message || 'Error al completar') }
-    finally { setSavingComplete(false) }
+    } catch (e: unknown) {
+      setCompleteErr(toUserMessage(e, 'No pudimos completar la tarea.'))
+    } finally { setSavingComplete(false) }
   }
 
   // ── Render helpers ──────────────────────────────────────────────────────────
 
-  const totalActive = (summary?.pending || 0) + (summary?.in_progress || 0)
+  const totalActive = summary?.pending || 0
   const isEmpty     = !loading && !error && tasks.length === 0
 
   // ── Modo compacto: sin tareas ─────────────────────────────────────────────
@@ -193,12 +207,11 @@ export function DashboardTasks() {
 
       {/* Summary strip */}
       {!loading && summary && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
           {[
-            { label: 'Pendientes',  value: summary.pending,     color: '#94a3b8' },
-            { label: 'En proceso',  value: summary.in_progress, color: '#818cf8' },
-            { label: 'Completadas', value: summary.completed,   color: '#34d399' },
-            { label: 'Vencidas',    value: summary.overdue,     color: summary.overdue > 0 ? '#f87171' : '#334155' },
+            { label: 'Pendientes',  value: summary.pending,   color: '#94a3b8' },
+            { label: 'Completadas', value: summary.completed, color: '#34d399' },
+            { label: 'Vencidas',    value: summary.overdue,   color: summary.overdue > 0 ? '#f87171' : '#334155' },
           ].map(s => (
             <div key={s.label} style={{ padding: '0.5rem 0.75rem', textAlign: 'center', cursor: 'pointer' }}
               onClick={() => navigate('/tasks')}>
@@ -231,9 +244,10 @@ export function DashboardTasks() {
         ) : (
           tasks.map(task => {
             const pm     = PRIORITY_META[task.priority] || PRIORITY_META.medium
-            const sm     = STATUS_META[task.status]
+            const sm     = statusMeta(task.status)
             const over   = isOverdue(task)
             const isComp = completingId === task.id
+            const canComplete = task.status === 'pending'
 
             return (
               <div key={task.id}>
@@ -246,8 +260,9 @@ export function DashboardTasks() {
                   borderBottom: '1px solid rgba(255,255,255,0.03)',
                 }}>
                   {/* Toggle button */}
-                  <button onClick={() => handleToggle(task)} title={`Avanzar a ${sm.next ? STATUS_META[sm.next].label : '—'}`}
-                    style={{ background: 'none', border: 'none', cursor: sm.next ? 'pointer' : 'default', padding: '0.125rem', flexShrink: 0, marginTop: '0.1rem', color: sm.color, display: 'flex', alignItems: 'center' }}>
+                  <button onClick={() => handleToggle(task)} disabled={!canComplete}
+                    title={canComplete ? 'Completar tarea' : sm.label}
+                    style={{ background: 'none', border: 'none', cursor: canComplete ? 'pointer' : 'default', padding: '0.125rem', flexShrink: 0, marginTop: '0.1rem', color: sm.color, display: 'flex', alignItems: 'center' }}>
                     {task.status === 'completed' ? <CheckCircle2 size={18} /> : task.status === 'in_progress' ? <Clock size={18} /> : <Circle size={18} />}
                   </button>
 
