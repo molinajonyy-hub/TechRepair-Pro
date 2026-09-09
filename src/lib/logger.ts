@@ -29,6 +29,7 @@ export type LogContext =
   | 'UI'           // renders, animaciones
   | 'PERSONAL'       // Mi Guita — finanzas personales
   | 'WHATSAPP'       // mensajería WhatsApp (service, Cloud API, plantillas)
+  | 'TASKS'          // módulo de tareas (taskService, página, widget)
   | 'GENERAL'
 
 export interface LogEntry {
