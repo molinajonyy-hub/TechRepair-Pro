@@ -134,60 +134,48 @@ beforeEach(() => {
 // ─── Estados fantasma ─────────────────────────────────────────────────────────
 
 describe('la UI no ofrece estados que la base no persiste', () => {
-  it('el filtro de estados no incluye En proceso ni Cancelada', async () => {
+  it('no ofrece En proceso ni Cancelada en ninguna superficie', async () => {
     renderTasks()
     await screen.findByText('Llamar a Juan')
 
+    expect(screen.queryByText('En proceso')).not.toBeInTheDocument()
+    expect(screen.queryByText('Cancelada')).not.toBeInTheDocument()
+    // Tampoco como opción de ningún select (prioridad, filtros…).
     const options = Array.from(document.querySelectorAll('option')).map(o => o.textContent)
-    expect(options).toContain('Pendiente')
-    expect(options).toContain('Completada')
     expect(options).not.toContain('En proceso')
     expect(options).not.toContain('Cancelada')
   })
 
-  it('el kanban no tiene columna En proceso', async () => {
+  it('la única acción de estado sobre una tarea pendiente es completarla', async () => {
     renderTasks()
     await screen.findByText('Llamar a Juan')
 
-    // «Pendiente» y «Completada» aparecen como columna y como opción de filtro.
-    expect(screen.getAllByText('Pendiente').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Completada').length).toBeGreaterThan(0)
-    expect(screen.queryByText('En proceso')).not.toBeInTheDocument()
-  })
-
-  it('desde una tarea pendiente sólo se ofrece completar', async () => {
-    renderTasks()
-    await screen.findByText('Llamar a Juan')
-
-    fireEvent.click(document.querySelectorAll('.card-interactive button')[0])
-    expect(await screen.findByText('→ Completada')).toBeInTheDocument()
-    expect(screen.queryByText('→ En proceso')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Completar Llamar a Juan' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /En proceso/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Cancelar Llamar a Juan/i })).not.toBeInTheDocument()
   })
 
   it('una fila histórica en in_progress se lista sin romperse y sin ofrecer acciones', async () => {
     // En la práctica no existen: el CHECK nunca aceptó ese valor. Igual la
-    // pantalla tiene que tolerarlo. En el kanban no aparece —no hay columna para
-    // ese estado— pero en la vista de lista sí, y ahí no ofrece transiciones.
+    // pantalla tiene que tolerarla: se agrupa por fecha como cualquier otra,
+    // pero sin transición disponible.
     mocks.tasks = [task({ status: 'in_progress', title: 'Fila vieja' })]
     renderTasks()
-    await waitFor(() => expect(screen.getByText('Lista')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByText('Lista'))
     expect(await screen.findByText('Fila vieja')).toBeInTheDocument()
-    expect(screen.queryByText('→ Completada')).not.toBeInTheDocument()
-    expect(screen.queryByText('→ En proceso')).not.toBeInTheDocument()
+    const toggle = screen.getByRole('button', { name: 'Completar Fila vieja' })
+    expect(toggle).toBeDisabled()
   })
 })
 
 // ─── Escrituras confirmadas por el servidor ───────────────────────────────────
 
 describe('el estado en pantalla sigue al servidor', () => {
-  it('completa una tarea pendiente y refleja el resultado confirmado', async () => {
+  it('completa una tarea pendiente de una sola acción y refleja el resultado confirmado', async () => {
     renderTasks()
     await screen.findByText('Llamar a Juan')
 
-    fireEvent.click(document.querySelectorAll('.card-interactive button')[0])
-    fireEvent.click(await screen.findByText('→ Completada'))
+    fireEvent.click(screen.getByRole('button', { name: 'Completar Llamar a Juan' }))
 
     await waitFor(() => {
       expect(mocks.calls.filter(c => c.fn === 'setTaskStatus')).toHaveLength(1)
@@ -196,12 +184,11 @@ describe('el estado en pantalla sigue al servidor', () => {
     expect(mocks.calls.find(c => c.fn === 'setTaskStatus')!.args[3]).toBe('completed')
   })
 
-  it('completar desde una card no pide comentario ni abre la pestaña Comentarios', async () => {
+  it('completar desde la lista no pide comentario', async () => {
     renderTasks()
     await screen.findByText('Llamar a Juan')
 
-    fireEvent.click(document.querySelectorAll('.card-interactive button')[0])
-    fireEvent.click(await screen.findByText('→ Completada'))
+    fireEvent.click(screen.getByRole('button', { name: 'Completar Llamar a Juan' }))
 
     await waitFor(() => {
       expect(mocks.calls.filter(c => c.fn === 'setTaskStatus')).toHaveLength(1)
@@ -210,31 +197,32 @@ describe('el estado en pantalla sigue al servidor', () => {
     expect(mocks.calls.filter(c => c.fn === 'addComment')).toHaveLength(0)
   })
 
-  it('reabre una tarea completada', async () => {
+  it('reabre una tarea completada desde la sección Completadas', async () => {
     mocks.tasks = [task({ status: 'completed', completed_at: '2026-09-09T12:00:00Z' })]
     renderTasks()
-    await screen.findByText('Llamar a Juan')
 
-    fireEvent.click(document.querySelectorAll('.card-interactive button')[0])
-    fireEvent.click(await screen.findByText('→ Pendiente'))
+    // Completadas es una sección secundaria colapsada: primero se despliega.
+    fireEvent.click(await screen.findByRole('button', { name: /Completadas/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Reabrir Llamar a Juan' }))
 
     await waitFor(() => {
       expect(mocks.calls.find(c => c.fn === 'setTaskStatus')!.args[3]).toBe('pending')
     })
   })
 
-  it('un cambio de estado rechazado muestra el error y NO cambia lo que se ve', async () => {
+  it('un cambio de estado rechazado muestra el error en su fila y NO cambia lo que se ve', async () => {
     mocks.setStatusError = new TaskServiceError('permission', 'No tenés permisos para realizar esta acción.')
     renderTasks()
     await screen.findByText('Llamar a Juan')
 
-    const card = document.querySelectorAll('.card-interactive')[0] as HTMLElement
-    fireEvent.click(within(card).getAllByRole('button')[0])
-    fireEvent.click(await screen.findByText('→ Completada'))
+    fireEvent.click(screen.getByRole('button', { name: 'Completar Llamar a Juan' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('No tenés permisos para realizar esta acción.')
-    // La tarjeta sigue en la columna Pendiente: no hubo update optimista.
-    expect(within(card).queryByText('Completada')).not.toBeInTheDocument()
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('No tenés permisos para realizar esta acción.')
+    // El error queda dentro de la fila afectada, no suelto en la página.
+    expect(alert.closest('[data-testid="task-item"]')).not.toBeNull()
+    // Y la tarea sigue ofreciendo completar: no hubo update optimista.
+    expect(screen.getByRole('button', { name: 'Completar Llamar a Juan' })).toBeInTheDocument()
   })
 })
 
