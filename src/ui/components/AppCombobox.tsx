@@ -1,6 +1,12 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Check, ChevronDown, Loader2 } from 'lucide-react'
 import { normalizeText } from '../../utils/searchUtils'
+import {
+  computeAnchoredPosition,
+  readViewport,
+  type AnchoredPosition,
+} from './anchoredPosition'
 
 /**
  * ORDERS-V2-0.1 — combobox editable: sugerencias + texto libre.
@@ -21,6 +27,27 @@ import { normalizeText } from '../../utils/searchUtils'
  * INVARIANTE: **el texto libre siempre gana**. La lista sugiere; nunca
  * restringe. Escribir un modelo que no está en el catálogo tiene que seguir
  * siendo posible, porque el taller recibe equipos que el catálogo no conoce.
+ *
+ * ── ORDERS-V2-0.1.1 · la lista va en un portal ────────────────────────────
+ * El human smoke en iPhone la encontró CORTADA. Medido a 390×844:
+ *
+ *     lista              top 341 → bottom 597  (alto 256)
+ *     .intake-step-card  overflow hidden/hidden, bottom 449
+ *
+ * La recortaba el `overflow:hidden` de la card del paso, no el viewport: había
+ * 327 px libres debajo del campo y la lista no se salía de pantalla. De ahí que
+ * subir `z-index` no sirviera —no se escapa de un clip de `overflow`— y que
+ * agrandar el alto lo empeorara.
+ *
+ * Ahora se renderiza con `createPortal` en `document.body` y se posiciona
+ * contra el viewport (ver `anchoredPosition.ts`), lo que la saca de CUALQUIER
+ * ancestro que recorte y, de paso, resuelve el caso real de falta de espacio:
+ * si abajo no entra, se abre hacia arriba.
+ *
+ * Consecuencia que hay que respetar: la lista deja de ser descendiente del
+ * `rootRef`, así que la detección de «click afuera» tiene que contemplarla
+ * explícitamente o un tap sobre una opción se leería como click afuera y
+ * cerraría el desplegable antes de elegir.
  */
 
 export interface AppComboboxProps {
@@ -55,7 +82,9 @@ export function AppCombobox({
 
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(-1)
+  const [position, setPosition] = useState<AnchoredPosition | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  const fieldRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
 
   const filtered = useMemo(() => {
@@ -66,16 +95,62 @@ export function AppCombobox({
     return pool.slice(0, MAX_VISIBLE)
   }, [options, value])
 
-  // Cerrar al tocar fuera. `pointerdown` y no `click` para que en touch la
-  // lista se cierre antes de que el tap llegue a lo que hay debajo.
+  /**
+   * Cerrar al tocar fuera.
+   *
+   * La lista vive en un portal, así que NO es descendiente de `rootRef`:
+   * comprobar sólo ese contenedor haría que un tap sobre una opción se leyera
+   * como click afuera y cerrara el desplegable antes de elegir. Por eso
+   * «adentro» son las dos cosas: el campo y la lista portaleada.
+   */
+  const isInside = useCallback((target: Node | null) =>
+    Boolean(target && (rootRef.current?.contains(target) || listRef.current?.contains(target))),
+  [])
+
   useEffect(() => {
     if (!open) return
     const onPointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+      if (!isInside(event.target as Node)) setOpen(false)
     }
     document.addEventListener('pointerdown', onPointerDown)
     return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [open])
+  }, [open, isInside])
+
+  /**
+   * Posición contra el viewport. `useLayoutEffect` para que la lista no se
+   * pinte un frame en (0,0) antes de ubicarse.
+   */
+  const reposition = useCallback(() => {
+    const anchor = fieldRef.current?.getBoundingClientRect()
+    if (!anchor) return
+    setPosition(computeAnchoredPosition(
+      { top: anchor.top, bottom: anchor.bottom, left: anchor.left, width: anchor.width },
+      readViewport(),
+    ))
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!open) { setPosition(null); return }
+    reposition()
+
+    // Sólo mientras está abierta: nada de listeners permanentes.
+    const vv = window.visualViewport
+    // `scroll` en captura para enterarse también del scroll de contenedores
+    // internos, no sólo del de la página.
+    window.addEventListener('scroll', reposition, true)
+    window.addEventListener('resize', reposition)
+    vv?.addEventListener('resize', reposition)
+    vv?.addEventListener('scroll', reposition)
+    return () => {
+      window.removeEventListener('scroll', reposition, true)
+      window.removeEventListener('resize', reposition)
+      vv?.removeEventListener('resize', reposition)
+      vv?.removeEventListener('scroll', reposition)
+    }
+  }, [open, reposition])
+
+  // Al filtrar cambia la altura necesaria, así que se recalcula el volteo.
+  useLayoutEffect(() => { if (open) reposition() }, [filtered.length, open, reposition])
 
   // El ítem activo tiene que quedar a la vista cuando se navega con flechas.
   // `scrollIntoView` se comprueba: no existe en jsdom y su ausencia no puede
@@ -95,8 +170,9 @@ export function AppCombobox({
    * se mueve dentro del propio componente.
    */
   const onBlurCapture = (event: React.FocusEvent<HTMLDivElement>) => {
-    const next = event.relatedTarget as Node | null
-    if (!next || !rootRef.current?.contains(next)) {
+    // `isInside` y no `rootRef` a secas: con la lista en un portal, el foco
+    // podría moverse hacia ella y eso no es «salir del combobox».
+    if (!isInside(event.relatedTarget as Node | null)) {
       setOpen(false)
       setActive(-1)
     }
@@ -150,7 +226,7 @@ export function AppCombobox({
           obligatoriedad se comunica además con `aria-required`. */}
       <label htmlFor={inputId} className={`form-label${required ? ' is-required' : ''}`}>{label}</label>
 
-      <div className="app-combobox-field">
+      <div className="app-combobox-field" ref={fieldRef}>
         <input
           id={inputId}
           className="form-control"
@@ -190,13 +266,26 @@ export function AppCombobox({
       {/* El nombre de la lista NO puede ser el del campo: con los dos
           llamándose «Marca», cualquier consulta por nombre accesible resuelve
           a dos elementos y se vuelve ambigua. */}
-      {open && (
+      {open && position && createPortal(
         <ul
-          className="app-combobox-list"
+          className={`app-combobox-list is-${position.placement}`}
           id={listId}
           role="listbox"
           ref={listRef}
           aria-label={`Sugerencias de ${label}`}
+          data-placement={position.placement}
+          /**
+           * `position: fixed` con coordenadas de `getBoundingClientRect()`:
+           * el mismo sistema de referencia, y ningún ancestro puede recortarla
+           * porque ya no cuelga del formulario.
+           */
+          style={{
+            position: 'fixed',
+            top: position.top,
+            left: position.left,
+            width: position.width,
+            maxHeight: position.maxHeight,
+          }}
           /**
            * `mousedown` con preventDefault mantiene el foco en el input, que
            * es lo que evita que `focusout` cierre la lista antes de que llegue
@@ -239,7 +328,8 @@ export function AppCombobox({
               {option === value && <Check size={16} aria-hidden="true" />}
             </li>
           ))}
-        </ul>
+        </ul>,
+        document.body,
       )}
 
       {error && <p id={`${inputId}-error`} className="form-error">{error}</p>}
