@@ -283,23 +283,35 @@ export function TaskDetailDialog({
                 }}>
                   {item.title}
                 </span>
+                {/* 44px como el resto de las acciones táctiles: con `padding`
+                    suelto quedaba en ~29px y era difícil de acertar con el pulgar. */}
                 <button
                   type="button" onClick={() => handleDeleteItem(item.id)} aria-label={`Eliminar ${item.title}`}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: colors.text.subtle, display: 'flex', padding: '0.5rem' }}
+                  style={{
+                    flexShrink: 0, minWidth: 44, minHeight: 44,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'none', border: 'none', cursor: 'pointer', color: colors.text.subtle,
+                  }}
                 >
-                  <X size={13} />
+                  <X size={15} />
                 </button>
               </div>
             ))}
-            <div style={{ display: 'flex', gap: '0.375rem' }}>
+            {/* Enter agrega sin cerrar el teclado: en un teléfono, tener que ir
+                al botón entre ítem e ítem hace la carga del checklist tediosa. */}
+            <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'stretch' }}>
               <input
                 value={newItem} onChange={e => setNewItem(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void handleAddItem() } }}
                 placeholder="Agregar ítem…" aria-label="Nuevo ítem del checklist"
+                enterKeyHint="done"
                 className="form-control" style={{ flex: 1, minWidth: 0 }}
               />
-              <AppButton variant="secondary" onClick={handleAddItem} aria-label="Agregar ítem">
-                <Plus size={14} />
+              <AppButton
+                variant="secondary" onClick={handleAddItem} aria-label="Agregar ítem"
+                style={{ minWidth: 44, minHeight: 44, flexShrink: 0 }}
+              >
+                <Plus size={16} />
               </AppButton>
             </div>
           </div>
@@ -340,7 +352,11 @@ export function TaskDetailDialog({
                 className="form-control" style={{ width: '100%', resize: 'vertical', boxSizing: 'border-box' }}
               />
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-                <AppButton variant="indigo" size="sm" loading={savingComment} onClick={handleAddComment} leftIcon={<Send size={12} />}>
+                <AppButton
+                  variant="indigo" size="sm" loading={savingComment} onClick={handleAddComment}
+                  leftIcon={<Send size={12} />}
+                  style={{ minHeight: 44 }}
+                >
                   Comentar
                 </AppButton>
               </div>
