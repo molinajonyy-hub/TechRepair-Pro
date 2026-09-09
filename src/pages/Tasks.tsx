@@ -517,7 +517,12 @@ function TaskDetailPanel({ task, profiles: _profiles, profileMap, isAdmin, busin
             {[
               { label: 'Asignado a', value: assignee?.full_name || assignee?.email || '—', icon: <User size={13} /> },
               { label: 'Fecha límite', value: task.due_date ? fmtDate(task.due_date) : '—', icon: <Calendar size={13} /> },
-              { label: 'Iniciada',    value: task.started_at ? fmtFull(task.started_at) : '—', icon: <Clock size={13} /> },
+              // `started_at` sólo se escribía al pasar a «En proceso», que la base
+              // no persiste: hoy nunca se llena. Se muestra si la fila ya lo tiene,
+              // en vez de un «—» permanente. Vuelve con V2-3.
+              ...(task.started_at
+                ? [{ label: 'Iniciada', value: fmtFull(task.started_at), icon: <Clock size={13} /> }]
+                : []),
               { label: 'Completada',  value: task.completed_at ? fmtFull(task.completed_at) : '—', icon: <CheckCircle2 size={13} /> },
               // Sólo se muestra si la fila YA era recurrente (histórica). No se
               // ofrece crear ni editar recurrencia hasta el scheduler de P1.
