@@ -60,10 +60,9 @@ const row = (over: Record<string, unknown> = {}) => ({
   started_at: null, completed_at: null, created_at: '2026-09-09T10:00:00Z', ...over,
 })
 
-/** Deja la tarea lista para completarse: checklist vacío y un comentario existente. */
+/** Deja la tarea lista para completarse: sin checklist pendiente. Ningún comentario hace falta. */
 function allowCompletion() {
-  mocks.responses['task_items:select']    = { data: [] }
-  mocks.responses['task_comments:count']  = { data: null, count: 1 }
+  mocks.responses['task_items:select'] = { data: [] }
 }
 
 const opsOn = (table: string, op: string) => mocks.ops.filter(o => o.table === table && o.op === op)
@@ -177,23 +176,46 @@ describe('reglas de compleción', () => {
     expect(opsOn('tasks', 'update')).toHaveLength(0)
   })
 
-  it('bloquea si no hay comentario de cierre y no escribe el estado', async () => {
-    mocks.responses['task_items:select']   = { data: [] }
-    mocks.responses['task_comments:count'] = { data: null, count: 0 }
-    const err = await taskService.completeTask(TASK, BIZ, USER).catch(e => e)
-    expect(err.reason).toBe('comment')
-    expect(opsOn('tasks', 'update')).toHaveLength(0)
-  })
+  it('completa una tarea SIN checklist y SIN ningún comentario', async () => {
+    // El comentario de cierre obligatorio se retiró en TASKS-V2-0.1: una tarea de
+    // taller se completa de una acción.
+    mocks.responses['task_items:select'] = { data: [] }
+    mocks.responses['tasks:update']      = { data: [row({ status: 'completed' })] }
 
-  it('completa cuando se cumplen las reglas', async () => {
-    allowCompletion()
-    mocks.responses['tasks:update'] = { data: [row({ status: 'completed' })] }
     const saved = await taskService.completeTask(TASK, BIZ, USER)
 
     expect(saved.status).toBe('completed')
     const patch = opsOn('tasks', 'update')[0].payload as Record<string, unknown>
     expect(patch.status).toBe('completed')
     expect(patch.completed_at).toEqual(expect.any(String))
+    // No se consulta si hay comentarios, ni se fabrica uno.
+    expect(opsOn('task_comments', 'count')).toHaveLength(0)
+    expect(opsOn('task_comments', 'insert')).toHaveLength(0)
+  })
+
+  it('completa con el checklist terminado y sin comentario', async () => {
+    mocks.responses['task_items:select'] = {
+      data: [
+        { id: 'i1', task_id: TASK, title: 'a', is_done: true, sort_order: 0 },
+        { id: 'i2', task_id: TASK, title: 'b', is_done: true, sort_order: 1 },
+      ],
+    }
+    mocks.responses['tasks:update'] = { data: [row({ status: 'completed' })] }
+
+    const saved = await taskService.completeTask(TASK, BIZ, USER)
+    expect(saved.status).toBe('completed')
+    expect(opsOn('task_comments', 'insert')).toHaveLength(0)
+  })
+
+  it('un comentario preexistente no cambia nada: completa igual', async () => {
+    mocks.responses['task_items:select'] = { data: [] }
+    mocks.responses['task_comments:select'] = {
+      data: [{ id: 'c1', task_id: TASK, user_id: USER, comment: 'ya estaba', created_at: 'x' }],
+    }
+    mocks.responses['tasks:update'] = { data: [row({ status: 'completed' })] }
+
+    const saved = await taskService.completeTask(TASK, BIZ, USER)
+    expect(saved.status).toBe('completed')
   })
 
   it('al reabrir limpia completed_at para no dejar la fila incoherente', async () => {
@@ -203,6 +225,33 @@ describe('reglas de compleción', () => {
     const patch = opsOn('tasks', 'update')[0].payload as Record<string, unknown>
     expect(patch.status).toBe('pending')
     expect(patch.completed_at).toBeNull()
+  })
+})
+
+// ─── Comentarios voluntarios ──────────────────────────────────────────────────
+
+describe('comentarios (voluntarios, no obligatorios)', () => {
+  it('sigue pudiendo crear un comentario y deja rastro en el historial', async () => {
+    mocks.responses['task_comments:insert'] = {
+      data: [{ id: 'c1', task_id: TASK, user_id: USER, comment: 'Cliente avisado', created_at: 'x' }],
+    }
+    const saved = await taskService.addComment(TASK, BIZ, USER, 'Cliente avisado')
+
+    expect(saved.comment).toBe('Cliente avisado')
+    const payload = opsOn('task_comments', 'insert')[0].payload as Record<string, unknown>
+    expect(payload.comment).toBe('Cliente avisado')
+    expect(payload.business_id).toBe(BIZ)
+    // El historial se sigue registrando.
+    const hist = opsOn('task_history', 'insert')[0].payload as Record<string, unknown>
+    expect(hist.action).toBe('commented')
+  })
+
+  it('completar no crea ningún comentario automático ni vacío', async () => {
+    allowCompletion()
+    mocks.responses['tasks:update'] = { data: [row({ status: 'completed' })] }
+    await taskService.completeTask(TASK, BIZ, USER)
+
+    expect(opsOn('task_comments', 'insert')).toHaveLength(0)
   })
 })
 

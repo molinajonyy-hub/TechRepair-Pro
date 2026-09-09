@@ -69,7 +69,7 @@ export function getAvailableTransitions(status: string): PersistedTaskStatus[] {
 export type TaskErrorKind = 'permission' | 'validation' | 'network' | 'unknown'
 
 /** Por qué falló una compleción, para que la UI pueda llevar al usuario al lugar correcto. */
-export type TaskBlockedReason = 'checklist' | 'comment'
+export type TaskBlockedReason = 'checklist'
 
 export class TaskServiceError extends Error {
   readonly kind:    TaskErrorKind
@@ -360,15 +360,6 @@ export const taskService = {
     return (data || []) as TaskHistoryRow[]
   },
 
-  async hasComment(taskId: string): Promise<boolean> {
-    const { count, error } = await supabase
-      .from('task_comments')
-      .select('id', { count: 'exact', head: true })
-      .eq('task_id', taskId)
-    assertNoError(error, 'hasComment', 'read')
-    return (count || 0) > 0
-  },
-
   // ── Escrituras ─────────────────────────────────────────────────────────────
 
   /**
@@ -423,16 +414,18 @@ export const taskService = {
   /**
    * Completar.
    *
-   * La regla de negocio vive acá, no en cada pantalla: antes sólo la aplicaba el
-   * panel de detalle, así que completar desde otra superficie la salteaba.
+   * La única regla es el checklist, y vive acá y no en cada pantalla: antes sólo
+   * la aplicaba el panel de detalle, así que completar desde otra superficie la
+   * salteaba.
+   *
+   * NO se exige comentario de cierre. Una tarea de taller —«llamar al cliente»,
+   * «pedir repuesto»— se completa de una acción. Los comentarios siguen existiendo
+   * y se pueden agregar antes o después, pero son voluntarios.
    */
   async completeTask(taskId: string, businessId: string, userId: string): Promise<TaskLite> {
     const items = await taskService.getChecklist(taskId)
     if (items.length > 0 && items.some(i => !i.is_done)) {
       throw new TaskServiceError('validation', 'Completá todos los ítems del checklist primero.', { reason: 'checklist' })
-    }
-    if (!(await taskService.hasComment(taskId))) {
-      throw new TaskServiceError('validation', 'Agregá un comentario de cierre antes de completar.', { reason: 'comment' })
     }
 
     const now = new Date().toISOString()
