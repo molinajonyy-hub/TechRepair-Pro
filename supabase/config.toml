@@ -463,10 +463,14 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 [functions.fetch-dollar-rate]
 verify_jwt = false
 
-# Lote 0 containment. Internal callers send the existing service-role JWT;
-# browser callers send a user JWT. In-function authorization remains mandatory.
+# Lote 0 containment + P0-ARCA-A (2026-09-10).
+# afip-cae: browser callers send a user JWT; the gateway check stays on.
+# afip-wsaa: the platform injects the secret API key (sb_secret_*, not a JWT) as
+# SUPABASE_SERVICE_ROLE_KEY, so a gateway JWT check rejects afip-cae's internal
+# call before the function runs. afip-wsaa authenticates every caller in code
+# (exact server credential, or user JWT + active membership + settings_sensitive).
 [functions.afip-wsaa]
-verify_jwt = true
+verify_jwt = false
 
 [functions.afip-cae]
 verify_jwt = true

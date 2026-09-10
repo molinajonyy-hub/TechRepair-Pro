@@ -18,6 +18,10 @@ export class ArcaAuthorizationError extends Error {
   }
 }
 
+// Shortest value accepted as a server credential, so a missing or placeholder
+// environment variable can never turn an empty string into a match.
+const MIN_SERVICE_CREDENTIAL_LENGTH = 32
+
 export async function matchesServiceCredential(token: string, configuredKey: string): Promise<boolean> {
   if (!token || !configuredKey) return false
   const bytes = new TextEncoder()
@@ -32,24 +36,66 @@ export async function matchesServiceCredential(token: string, configuredKey: str
   return difference === 0
 }
 
+/**
+ * Server credentials that identify a trusted internal caller (P0-ARCA-A).
+ *
+ * The platform injects the project's secret API key (sb_secret_*, not a JWT) as
+ * SUPABASE_SERVICE_ROLE_KEY and lists every secret key in SUPABASE_SECRET_KEYS.
+ * Both are accepted, by exact value only. Malformed JSON contributes nothing.
+ */
+export function configuredServiceCredentials(env: { get(name: string): string | undefined }): string[] {
+  const found = new Set<string>()
+  const serviceRole = env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim()
+  if (serviceRole) found.add(serviceRole)
+  const secretKeys = env.get('SUPABASE_SECRET_KEYS')
+  if (secretKeys) {
+    try {
+      const parsed: unknown = JSON.parse(secretKeys)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        for (const value of Object.values(parsed as Record<string, unknown>)) {
+          if (typeof value === 'string' && value.trim()) found.add(value.trim())
+        }
+      }
+    } catch { /* malformed: contributes nothing */ }
+  }
+  return [...found].filter((value) => value.length >= MIN_SERVICE_CREDENTIAL_LENGTH)
+}
+
+async function matchesAnyServiceCredential(presented: string, configured: readonly string[]): Promise<boolean> {
+  let matched = false
+  for (const credential of configured) {
+    if (credential.length >= MIN_SERVICE_CREDENTIAL_LENGTH && await matchesServiceCredential(presented, credential)) {
+      matched = true
+    }
+  }
+  return matched
+}
+
 export async function authorizeArcaCaller(
   authorization: string | null,
   options: {
     capability: 'settings_sensitive' | 'comprobantes'
-    serviceRoleKey?: string
+    /** Exact server credentials of a trusted internal caller. Omit to accept users only. */
+    serviceCredentials?: readonly string[]
+    /** Raw `apikey` header. supabase-js sends the server credential in both headers. */
+    presentedApiKey?: string | null
     createUserClient: (authorization: string) => ArcaUserClient
   },
 ): Promise<ArcaCaller> {
-  const match = authorization?.match(/^Bearer ([^\s]+)$/i)
-  if (!match) throw new ArcaAuthorizationError(401, 'UNAUTHENTICATED')
+  const bearer = authorization?.match(/^Bearer ([^\s]+)$/i)?.[1] ?? null
 
-  // Exact secret verification, not a decoded role claim or an x-internal header.
-  if (options.serviceRoleKey && await matchesServiceCredential(match[1], options.serviceRoleKey)) {
-    return { kind: 'internal' }
+  // Exact secret verification, never a decoded role claim or an x-internal header.
+  const configured = options.serviceCredentials ?? []
+  if (configured.length > 0) {
+    for (const presented of [bearer, options.presentedApiKey?.trim() || null]) {
+      if (presented && await matchesAnyServiceCredential(presented, configured)) return { kind: 'internal' }
+    }
   }
 
+  if (!bearer) throw new ArcaAuthorizationError(401, 'UNAUTHENTICATED')
+
   try {
-    const client = options.createUserClient(`Bearer ${match[1]}`)
+    const client = options.createUserClient(`Bearer ${bearer}`)
     const identity = await client.auth.getUser()
     if (identity.error || !identity.data.user?.id) {
       throw new ArcaAuthorizationError(401, 'UNAUTHENTICATED')
