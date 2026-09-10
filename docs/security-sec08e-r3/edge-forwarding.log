@@ -1,0 +1,8 @@
+Check tests/deno/clientContractForwarding.test.ts
+running 3 tests from ./tests/deno/clientContractForwarding.test.ts
+forwards the exact client contract on user-scoped Data API calls ... ok (39ms)
+does not invent a contract when the caller omitted it ... ok (0ms)
+forwards malformed values for the backend gate to reject ... ok (0ms)
+
+ok | 3 passed | 0 failed (47ms)
+

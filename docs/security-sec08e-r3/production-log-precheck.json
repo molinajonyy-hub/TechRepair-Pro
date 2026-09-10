@@ -1,0 +1,31 @@
+{
+  "project": "vrdxxmjzxhfgqlnxmbwx",
+  "checked_at": "2026-09-10T12:40:36Z",
+  "results": [
+    {
+      "query": "SELECT count(*) AS total, countif(r.status_code = 503) AS http_503, countif(r.status_code = 409) AS http_409 FROM edge_logs CROSS JOIN unnest(metadata) m CROSS JOIN unnest(m.response) r",
+      "result": {
+        "result": [
+          {
+            "http_409": 0,
+            "http_503": 0,
+            "total": 119
+          }
+        ]
+      }
+    },
+    {
+      "query": "SELECT count(*) AS total, countif(regexp_contains(event_message, 'CLIENT_UPDATE_REQUIRED')) AS client_update_required, countif(regexp_contains(event_message, 'CLIENT_CONTRACT_CONFIGURATION_ERROR')) AS configuration_error FROM postgres_logs",
+      "result": {
+        "result": [
+          {
+            "client_update_required": 0,
+            "configuration_error": 0,
+            "total": 8
+          }
+        ]
+      }
+    }
+  ],
+  "from": "2026-09-10T11:40:36Z"
+}

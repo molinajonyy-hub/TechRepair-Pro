@@ -1,0 +1,86 @@
+npm warn config optional Use `--omit=optional` to exclude optional dependencies, or
+npm warn config `--include=optional` to include them.
+npm warn config
+npm warn config       Default value does install optional deps unless otherwise omitted.
+
+> techrepair-pro@3.0.0 test:components
+> vitest run --config vitest.config.ts tests/components/sec08eClientContract.test.ts tests/components/sec08eUpdateUx.test.tsx tests/components/sec08eReload.test.ts tests/components/sec08ePartsUsedAccess.test.ts tests/components/allocationModal.test.tsx tests/components/allocationHistory.test.tsx tests/components/orderFinancialSummary.test.tsx
+
+
+ RUN  v2.1.9 C:/Users/molin/CascadeProjects/techrepair-vite/.worktrees/sec08e-r3-auxiliary-financial-lockdown
+
+ ✓ tests/components/sec08eReload.test.ts (3 tests) 16ms
+ ✓ tests/components/sec08ePartsUsedAccess.test.ts (37 tests) 98ms
+ ✓ tests/components/sec08eClientContract.test.ts (18 tests) 346ms
+stderr | tests/components/orderFinancialSummary.test.tsx > OrderFinancialSummary — permisos e importes > casos 1-2: un rol autorizado (owner/cashier) ve badge E importes
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ tests/components/allocationHistory.test.tsx (7 tests) 383ms
+stderr | tests/components/orderFinancialSummary.test.tsx > OrderFinancialSummary — permisos e importes > caso 10: mientras carga no se muestra ningún estado ni importe
+Warning: An update to OrderFinancialSummary inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at OrderFinancialSummary (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r3-auxiliary-financial-lockdown\src\components\orders\OrderFinancialSummary.tsx:51:34)
+    at Router (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r2b-minimum-contract-1\node_modules\.deno\react-router@6.30.4\node_modules\react-router\dist\umd\react-router.development.js:1203:17)
+    at MemoryRouter (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r2b-minimum-contract-1\node_modules\.deno\react-router@6.30.4\node_modules\react-router\dist\umd\react-router.development.js:1097:7)
+Warning: An update to OrderFinancialSummary inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at OrderFinancialSummary (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r3-auxiliary-financial-lockdown\src\components\orders\OrderFinancialSummary.tsx:51:34)
+    at Router (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r2b-minimum-contract-1\node_modules\.deno\react-router@6.30.4\node_modules\react-router\dist\umd\react-router.development.js:1203:17)
+    at MemoryRouter (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r2b-minimum-contract-1\node_modules\.deno\react-router@6.30.4\node_modules\react-router\dist\umd\react-router.development.js:1097:7)
+Warning: An update to OrderFinancialSummary inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at OrderFinancialSummary (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r3-auxiliary-financial-lockdown\src\components\orders\OrderFinancialSummary.tsx:51:34)
+    at Router (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r2b-minimum-contract-1\node_modules\.deno\react-router@6.30.4\node_modules\react-router\dist\umd\react-router.development.js:1203:17)
+    at MemoryRouter (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r2b-minimum-contract-1\node_modules\.deno\react-router@6.30.4\node_modules\react-router\dist\umd\react-router.development.js:1097:7)
+Warning: An update to OrderFinancialSummary inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at OrderFinancialSummary (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r3-auxiliary-financial-lockdown\src\components\orders\OrderFinancialSummary.tsx:51:34)
+    at Router (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r2b-minimum-contract-1\node_modules\.deno\react-router@6.30.4\node_modules\react-router\dist\umd\react-router.development.js:1203:17)
+    at MemoryRouter (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r2b-minimum-contract-1\node_modules\.deno\react-router@6.30.4\node_modules\react-router\dist\umd\react-router.development.js:1097:7)
+
+ ✓ tests/components/sec08eUpdateUx.test.tsx (1 test) 1042ms
+   ✓ SEC-08E R1 mandatory update > overrides dismissal, persists through remount, deduplicates, retries only on user action and preserves local data 1038ms
+ ✓ tests/components/orderFinancialSummary.test.tsx (19 tests) 1093ms
+ ✓ tests/components/allocationModal.test.tsx (19 tests) 3129ms
+   ✓ AllocationModal > caso 1: muestra el crédito disponible del cobro 351ms
+   ✓ AllocationModal > caso 6: asignar a un comprobante habilita la confirmación 508ms
+   ✓ AllocationModal > caso 7 y 8: distribuye entre dos comprobantes y deja remanente 339ms
+
+ Test Files  7 passed (7)
+      Tests  104 passed (104)
+   Start at  09:41:59
+   Duration  8.17s (transform 1.26s, setup 5.48s, collect 2.91s, tests 6.11s, environment 18.32s, prepare 2.94s)
+

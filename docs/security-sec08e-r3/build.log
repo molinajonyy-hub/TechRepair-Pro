@@ -1,0 +1,153 @@
+npm warn config optional Use `--omit=optional` to exclude optional dependencies, or
+npm warn config `--include=optional` to include them.
+npm warn config
+npm warn config       Default value does install optional deps unless otherwise omitted.
+
+> techrepair-pro@3.0.0 build
+> vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 3269 modules transformed.
+rendering chunks...
+[plugin:vite:reporter] [plugin vite:reporter]
+(!) C:/Users/molin/CascadeProjects/techrepair-vite/.worktrees/sec08e-r3-auxiliary-financial-lockdown/src/types/subscription.ts is dynamically imported by C:/Users/molin/CascadeProjects/techrepair-vite/.worktrees/sec08e-r3-auxiliary-financial-lockdown/src/services/subscriptionService.ts but also statically imported by C:/Users/molin/CascadeProjects/techrepair-vite/.worktrees/sec08e-r3-auxiliary-financial-lockdown/src/pages/AdminSubscriptions.tsx, C:/Users/molin/CascadeProjects/techrepair-vite/.worktrees/sec08e-r3-auxiliary-financial-lockdown/src/pages/LandingPage.tsx, C:/Users/molin/CascadeProjects/techrepair-vite/.worktrees/sec08e-r3-auxiliary-financial-lockdown/src/pages/Onboarding.tsx, C:/Users/molin/CascadeProjects/techrepair-vite/.worktrees/sec08e-r3-auxiliary-financial-lockdown/src/pages/Plans.tsx, C:/Users/molin/CascadeProjects/techrepair-vite/.worktrees/sec08e-r3-auxiliary-financial-lockdown/src/pages/Subscription.tsx, C:/Users/molin/CascadeProjects/techrepair-vite/.worktrees/sec08e-r3-auxiliary-financial-lockdown/src/pages/SubscriptionSuspended.tsx, dynamic import will not move module into another chunk.
+
+computing gzip size...
+dist/version.json                                       0.06 kB │ gzip:   0.08 kB
+dist/index.html                                         7.88 kB │ gzip:   2.72 kB
+dist/assets/LandingPage-CLwka486.css                   23.57 kB │ gzip:   5.11 kB
+dist/assets/index-CZ0tGAMk.css                         80.99 kB │ gzip:  15.60 kB
+dist/assets/contacto-C2ihTzs8.js                        0.06 kB │ gzip:   0.08 kB
+dist/assets/whatsappRetention-EsAwZXqX.js               0.16 kB │ gzip:   0.13 kB
+dist/assets/useKeyboardAwareBottomOffset-cDRkSCbv.js    0.42 kB │ gzip:   0.28 kB
+dist/assets/rlsError-J1YiSUxv.js                        0.44 kB │ gzip:   0.29 kB
+dist/assets/Loader-BzCj_xKE.js                          0.49 kB │ gzip:   0.34 kB
+dist/assets/purchaseIdempotency-BjQDjFrS.js             0.51 kB │ gzip:   0.35 kB
+dist/assets/printFilename-atntaDFi.js                   0.53 kB │ gzip:   0.35 kB
+dist/assets/document-BY52G9_s.js                        0.65 kB │ gzip:   0.38 kB
+dist/assets/MobileActionBar-xvsLRViu.js                 0.70 kB │ gzip:   0.37 kB
+dist/assets/formatMessage-BmL75LU5.js                   0.76 kB │ gzip:   0.33 kB
+dist/assets/WhatsAppActionButton-Bijna5vN.js            1.10 kB │ gzip:   0.70 kB
+dist/assets/CloseButton-CtsEYvWZ.js                     1.19 kB │ gzip:   0.63 kB
+dist/assets/comprobanteStatus-CAafXt1k.js               1.21 kB │ gzip:   0.54 kB
+dist/assets/fiscalIdentity-_nRb_5cZ.js                  1.25 kB │ gzip:   0.56 kB
+dist/assets/dateUtils-9u7Tg2YI.js                       1.36 kB │ gzip:   0.44 kB
+dist/assets/SubscriptionFailure-ItaTUIib.js             1.43 kB │ gzip:   0.75 kB
+dist/assets/EmptyState-Cmi3hM9S.js                      1.53 kB │ gzip:   0.67 kB
+dist/assets/toast-LbOr0_ku.js                           1.54 kB │ gzip:   0.91 kB
+dist/assets/FinanceReportsNotice-Sbkaw_Ab.js            1.59 kB │ gzip:   0.80 kB
+dist/assets/requireFeature-BzpvDH02.js                  1.61 kB │ gzip:   0.93 kB
+dist/assets/WholesaleRestrictedAccess-BE-nASfQ.js       1.62 kB │ gzip:   0.82 kB
+dist/assets/OrderFinancialBadge-Bbs5vSzr.js             1.69 kB │ gzip:   0.74 kB
+dist/assets/creditCards-BUAnjpUm.js                     1.77 kB │ gzip:   0.72 kB
+dist/assets/PersonalStubs-l1gQfQ1u.js                   1.87 kB │ gzip:   0.85 kB
+dist/assets/posCustomerSearchService-BRCh7uyy.js        1.91 kB │ gzip:   0.94 kB
+dist/assets/SubscriptionSuccess-C-W-4cJb.js             1.95 kB │ gzip:   1.05 kB
+dist/assets/budgetService-Bbwwc5T9.js                   2.16 kB │ gzip:   0.91 kB
+dist/assets/SubscriptionSuspended-BmmBdeyQ.js           2.16 kB │ gzip:   1.04 kB
+dist/assets/whatsappCloudService-Dz-YKg8X.js            2.18 kB │ gzip:   0.70 kB
+dist/assets/creditCardService-DlXISOKa.js               2.28 kB │ gzip:   0.82 kB
+dist/assets/inventoryMovementsService-DahQdc5j.js       2.43 kB │ gzip:   0.95 kB
+dist/assets/inventoryService-cTgStdph.js                2.58 kB │ gzip:   0.86 kB
+dist/assets/NewCustomer-BPjDqnLl.js                     2.66 kB │ gzip:   1.15 kB
+dist/assets/financeErrors-BOtOXyiG.js                   2.78 kB │ gzip:   1.34 kB
+dist/assets/paymentSurcharge-Di4YjGuz.js                2.80 kB │ gzip:   1.13 kB
+dist/assets/PersonalBottomSheet-OyNRZvqJ.js             2.86 kB │ gzip:   1.24 kB
+dist/assets/api-KlUT6jft.js                             2.94 kB │ gzip:   1.13 kB
+dist/assets/PaymentPending-4-DjdtgC.js                  2.97 kB │ gzip:   1.43 kB
+dist/assets/projectionService-C8UIRgEt.js               3.01 kB │ gzip:   1.41 kB
+dist/assets/useComprobantes-DFSm03RE.js                 3.04 kB │ gzip:   0.99 kB
+dist/assets/debtService-DU_BUdVA.js                     3.40 kB │ gzip:   1.27 kB
+dist/assets/AppModal-BaTnV3hS.js                        3.52 kB │ gzip:   1.54 kB
+dist/assets/PersonalMovements-Crn5VxY0.js               3.69 kB │ gzip:   1.73 kB
+dist/assets/useOrderPrintSettings-CWV8wcsT.js           3.74 kB │ gzip:   1.33 kB
+dist/assets/recurringExpenseService-Cvz6dsVS.js         3.76 kB │ gzip:   1.46 kB
+dist/assets/AppEmptyState-D7eEh2nH.js                   3.90 kB │ gzip:   1.24 kB
+dist/assets/service-D99b6DeS.js                         3.95 kB │ gzip:   1.83 kB
+dist/assets/AppInput-DA10tX7_.js                        4.49 kB │ gzip:   1.66 kB
+dist/assets/dollarRateService-D5I46UDq.js               4.50 kB │ gzip:   2.01 kB
+dist/assets/personalService-DejoiR9U.js                 5.18 kB │ gzip:   1.72 kB
+dist/assets/TransactionForm-BE_HuCfT.js                 5.19 kB │ gzip:   2.07 kB
+dist/assets/AllocationHistory-CIBKZt45.js               6.00 kB │ gzip:   2.26 kB
+dist/assets/Plans-DZnPgtCC.js                           6.23 kB │ gzip:   2.69 kB
+dist/assets/facturacionService-DYzRxXsl.js              6.79 kB │ gzip:   2.07 kB
+dist/assets/PersonalCategories-BVhsuhpt.js              7.23 kB │ gzip:   2.24 kB
+dist/assets/useDashboardStats-CnXEqV2g.js               7.38 kB │ gzip:   3.01 kB
+dist/assets/CustomerCreateFields-DdGGj35t.js            7.43 kB │ gzip:   2.32 kB
+dist/assets/suppliersService-B9u0m_oN.js                7.48 kB │ gzip:   2.03 kB
+dist/assets/AdminLeads-D44i_jx7.js                      8.02 kB │ gzip:   2.92 kB
+dist/assets/PersonalLayout-CfeGZAxe.js                  8.15 kB │ gzip:   3.20 kB
+dist/assets/OwnerWithdrawal-BH-1ver8.js                 8.25 kB │ gzip:   2.76 kB
+dist/assets/arcaService-jr8Jhify.js                     8.31 kB │ gzip:   2.73 kB
+dist/assets/ui-BXiuqWrg.js                              8.37 kB │ gzip:   2.49 kB
+dist/assets/PersonalSettings-BKerr09D.js                9.56 kB │ gzip:   2.66 kB
+dist/assets/ModalImportExcel-zYXqX23m.js                9.77 kB │ gzip:   3.19 kB
+dist/assets/WhatsApp-ZcV2296P.js                       10.05 kB │ gzip:   3.20 kB
+dist/assets/ModalPagarCC-asgWqoyV.js                   10.06 kB │ gzip:   3.57 kB
+dist/assets/taskService-qWL-5Jmu.js                    10.12 kB │ gzip:   3.40 kB
+dist/assets/insightService-BujSQwoa.js                 10.18 kB │ gzip:   3.24 kB
+dist/assets/PersonalAccounts-DaRhKjso.js               10.52 kB │ gzip:   3.46 kB
+dist/assets/AllocationModal-Dfdhawl9.js                10.63 kB │ gzip:   3.92 kB
+dist/assets/Privacidad-DiIC6fhF.js                     10.86 kB │ gzip:   3.90 kB
+dist/assets/PersonalInsights-DHZy72Es.js               11.13 kB │ gzip:   3.36 kB
+dist/assets/QuickExpensePopup-BSgD_ZB-.js              11.34 kB │ gzip:   3.83 kB
+dist/assets/Subscription-D2Wh0kj1.js                   11.87 kB │ gzip:   3.73 kB
+dist/assets/Customers-CWlWUnLv.js                      11.91 kB │ gzip:   4.44 kB
+dist/assets/useEntityTimeline-9NtW6BOX.js              12.56 kB │ gzip:   4.34 kB
+dist/assets/PersonalProjections-t61TrBhe.js            12.67 kB │ gzip:   3.65 kB
+dist/assets/AdminSubscriptions-BZZarXDJ.js             12.87 kB │ gzip:   4.05 kB
+dist/assets/Orders-rfTUurpJ.js                         14.41 kB │ gzip:   4.88 kB
+dist/assets/whatsappTemplate-D4xQFEOv.js               14.61 kB │ gzip:   5.04 kB
+dist/assets/PersonalBudgets-XOJrpfjw.js                15.00 kB │ gzip:   4.33 kB
+dist/assets/PersonalMonthlyPlan-CfSHpvGt.js            15.48 kB │ gzip:   4.63 kB
+dist/assets/UsersManagement-DavCCSC2.js                17.92 kB │ gzip:   5.38 kB
+dist/assets/WarrantyFormModal-Chxq1W-E.js              18.08 kB │ gzip:   5.76 kB
+dist/assets/Offers-Dq3fpJQg.js                         18.96 kB │ gzip:   5.49 kB
+dist/assets/FinanceHealthCheck-B5Y8pbY0.js             20.40 kB │ gzip:   6.39 kB
+dist/assets/ServiceOrderPrint-BWFVYd4s.js              20.51 kB │ gzip:   4.96 kB
+dist/assets/comprobanteService-CYe4Y_33.js             20.54 kB │ gzip:   6.90 kB
+dist/assets/WhatsAppPreviewModal-CR5M-hVC.js           20.56 kB │ gzip:   6.69 kB
+dist/assets/CuentasCorrientes-BLmUkj1H.js              21.19 kB │ gzip:   6.24 kB
+dist/assets/PersonalRecurringExpenses-B-hI7i70.js      22.02 kB │ gzip:   5.83 kB
+dist/assets/purify.es-BwoZCkIS.js                      22.03 kB │ gzip:   8.77 kB
+dist/assets/Reports-CoF78a88.js                        23.18 kB │ gzip:   7.22 kB
+dist/assets/CustomerDetail-BL-C7mTq.js                 23.54 kB │ gzip:   6.88 kB
+dist/assets/ComprobanteDocumento-UPpBGmaq.js           23.58 kB │ gzip:   5.26 kB
+dist/assets/CurrencySettings-DafoP-oN.js               24.86 kB │ gzip:   7.71 kB
+dist/assets/Tasks-Dy3DRM9w.js                          24.88 kB │ gzip:   7.99 kB
+dist/assets/AdminPortalClic-DD1Esbu4.js                26.45 kB │ gzip:   7.23 kB
+dist/assets/index-4oYbt_M2.js                          27.09 kB │ gzip:   7.01 kB
+dist/assets/PersonalDashboard-BQeTPFBi.js              27.43 kB │ gzip:   6.65 kB
+dist/assets/Comprobantes-B24cXJCP.js                   27.72 kB │ gzip:   7.01 kB
+dist/assets/LandingPage-BKE6DaBS.js                    28.72 kB │ gzip:   8.85 kB
+dist/assets/PersonalDebts-BNAjqCxd.js                  29.68 kB │ gzip:   7.32 kB
+dist/assets/NewOrder-DF5ypnXz.js                       33.34 kB │ gzip:  12.24 kB
+dist/assets/CajaPage-zrk59edY.js                       33.51 kB │ gzip:   8.82 kB
+dist/assets/PersonalSavings-DF9HvqCW.js                34.32 kB │ gzip:   7.87 kB
+dist/assets/PersonalCards-0dGCJDaz.js                  34.50 kB │ gzip:   8.47 kB
+dist/assets/FinanceChartsL1-C2R-deX4.js                37.35 kB │ gzip:  10.81 kB
+dist/assets/Warranties-CqEpqWJ5.js                     38.21 kB │ gzip:  12.05 kB
+dist/assets/Dashboard-D-hBB6ad.js                      39.98 kB │ gzip:  11.10 kB
+dist/assets/Expenses-Cx0K-9y-.js                       44.55 kB │ gzip:  11.24 kB
+dist/assets/Tutorials-BkUFdGaf.js                      46.96 kB │ gzip:   9.72 kB
+dist/assets/FinanceDashboard-zpqKv01n.js               47.30 kB │ gzip:  12.67 kB
+dist/assets/Comprobante-D2kvNcYc.js                    50.31 kB │ gzip:  13.30 kB
+dist/assets/lucide-DZBqs698.js                         54.36 kB │ gzip:   9.68 kB
+dist/assets/ProductFormModal-_Y7pnQqw.js               58.38 kB │ gzip:  13.59 kB
+dist/assets/Suppliers-C1FnYCnx.js                      75.62 kB │ gzip:  16.46 kB
+dist/assets/Mayorista-DoM74FxV.js                      77.46 kB │ gzip:  17.36 kB
+dist/assets/OrderDetail-COciKCgl.js                    86.89 kB │ gzip:  22.96 kB
+dist/assets/Inventory-cSfVvEUO.js                      89.46 kB │ gzip:  20.66 kB
+dist/assets/ComprobanteProModal-DnTpgoZO.js           101.15 kB │ gzip:  24.10 kB
+dist/assets/Settings-CxBSawrr.js                      101.89 kB │ gzip:  22.06 kB
+dist/assets/index.es-BbEHGFJt.js                      150.85 kB │ gzip:  51.62 kB
+dist/assets/react-vendor-B26dZwF1.js                  165.24 kB │ gzip:  53.90 kB
+dist/assets/html2canvas.esm-CBrSDip1.js               201.42 kB │ gzip:  48.03 kB
+dist/assets/supabase-D9z9Z-yd.js                      219.92 kB │ gzip:  57.44 kB
+dist/assets/index-BL6xFxsf.js                         298.44 kB │ gzip:  82.32 kB
+dist/assets/pdf-DYx--zsx.js                           398.89 kB │ gzip: 131.19 kB
+dist/assets/index-D3Mz4UNV.js                         415.76 kB │ gzip: 110.22 kB
+dist/assets/excel-D_0l8YDs.js                         429.03 kB │ gzip: 143.08 kB
+dist/assets/charts-CJD9LRX0.js                        434.00 kB │ gzip: 115.01 kB
+✓ built in 32.98s

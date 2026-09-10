@@ -1,0 +1,156 @@
+[
+  {
+    "scope": "main",
+    "head": "2e243d9332f0353efdd826e3653b290c5e7ce50b",
+    "script": "guard:secdef",
+    "status": 1,
+    "output": "\n[BLOQUEA] supabase/migrations/20260923120000_sec08e_r2a_client_contract_gate_disabled.sql - fuera del baseline (2 hallazgo(s)):\n   . public.check_client_contract(): OMITE pg_temp -> se busca PRIMERO (doc PG 5.9.3): shadowing por tabla temporal\n   . public.check_client_contract(): incluye 'public' Y tiene referencias sin calificar (private)\n\nGuard SECURITY DEFINER FALLO: 2 hallazgo(s) fuera del baseline, 0 regresion(es).\n"
+  },
+  {
+    "scope": "main",
+    "head": "2e243d9332f0353efdd826e3653b290c5e7ce50b",
+    "script": "guard:secdef-exposure",
+    "status": 1,
+    "output": "\n[BLOQUEA] supabase/migrations/20260912120000_sec08a_phase_b_financial_pivots.sql:\n   . R2 current_user_can: SECURITY DEFINER sin REVOKE ... FROM PUBLIC (nace abierta a anon)\n   . R2 get_order_financial_amounts: SECURITY DEFINER sin REVOKE ... FROM PUBLIC (nace abierta a anon)\n\n[BLOQUEA] supabase/migrations/20260923120000_sec08e_r2a_client_contract_gate_disabled.sql:\n   . R1 check_client_contract: GRANT EXECUTE a anon fuera de ALLOWLIST_ANON\n\nGuard SECDEF exposicion FALLO: 3 hallazgo(s).\n"
+  },
+  {
+    "scope": "main",
+    "head": "2e243d9332f0353efdd826e3653b290c5e7ce50b",
+    "script": "guard:view-invoker",
+    "status": 1,
+    "output": "❌ Guard security_invoker: hay vistas expuestas al cliente que corren con privilegios del owner.\n\n   public.v_comprobante_item_costs  →  GRANT SELECT a authenticated, sin security_invoker\n   public.v_finance_period_cogs  →  GRANT SELECT a authenticated, sin security_invoker\n   public.v_inventory_costs  →  GRANT SELECT a authenticated, sin security_invoker\n   public.v_inventory_movement_costs  →  GRANT SELECT a authenticated, sin security_invoker\n\nUna vista sin security_invoker se evalua con los privilegios de su OWNER. Si el\nowner es postgres, el RLS de las tablas base NO se aplica y la vista devuelve\nfilas de TODOS los negocios a cualquiera que tenga SELECT. El filtro por\nbusiness_id del frontend no es un limite de seguridad: el cliente elige el valor.\n\n    ALTER VIEW public.<vista> SET (security_invoker = true);\n\no, al crearla:\n\n    CREATE VIEW public.<vista> WITH (security_invoker = true) AS ...\n\n"
+  },
+  {
+    "scope": "main",
+    "head": "2e243d9332f0353efdd826e3653b290c5e7ce50b",
+    "script": "guard:sec08a",
+    "status": 0,
+    "output": "SEC-08A orders visibility guard OK: ningún lector de browser pide columnas O1/O2 de orders (directo ni anidado); la frontera de columnas y las rutas canónicas siguen en pie\n"
+  },
+  {
+    "scope": "main",
+    "head": "2e243d9332f0353efdd826e3653b290c5e7ce50b",
+    "script": "guard:sec08a-phase-b",
+    "status": 0,
+    "output": "SEC-08A Fase B pivots guard OK: ningún lector de browser pide importes de línea (directo ni anidado); autoridad tenant-bound, pivot de comprobantes cerrado y vista de COGS fuera del browser\n"
+  },
+  {
+    "scope": "main",
+    "head": "2e243d9332f0353efdd826e3653b290c5e7ce50b",
+    "script": "guard:sec08a-phase-c",
+    "status": 0,
+    "output": "SEC-08A Fase C payments guard OK: la lectura de pagos exige orders_view_financials en el negocio de la fila para lo vinculado a una orden, conserva el comprobante suelto, y el helper de relación es SECURITY DEFINER y alcanzable por authenticated sin abrir el esquema private\n"
+  },
+  {
+    "scope": "main",
+    "head": "2e243d9332f0353efdd826e3653b290c5e7ce50b",
+    "script": "guard:sec08b",
+    "status": 0,
+    "output": "SEC-08B inventory cost guard OK: las columnas de costo siguen revocadas para el navegador, las proyecciones autorizadas son DEFINER con tenant y capacidad, el override a false sigue denegando, y ningún caller del frontend vuelve a pedir costo\n"
+  },
+  {
+    "scope": "main",
+    "head": "2e243d9332f0353efdd826e3653b290c5e7ce50b",
+    "script": "guard:sec08c",
+    "status": 0,
+    "output": "SEC-08C guard OK — frontera de proveedores intacta en migración y frontend\n"
+  },
+  {
+    "scope": "main",
+    "head": "2e243d9332f0353efdd826e3653b290c5e7ce50b",
+    "script": "guard:sec08e-r2a:self-test",
+    "status": 0,
+    "output": "PASS SEC-08E R2A rollout guard self-test rejects renamed UPDATE, UPSERT, dynamic activation, R2A default activation, and appended activation\n"
+  },
+  {
+    "scope": "main",
+    "head": "2e243d9332f0353efdd826e3653b290c5e7ce50b",
+    "script": "guard:sec08e-r2b:self-test",
+    "status": 0,
+    "output": "PASS SEC-08E R2B guard self-test rejects unsafe migrations, rollback SQL, migration sweeps, and history reconciliation\n"
+  },
+  {
+    "scope": "main",
+    "head": "2e243d9332f0353efdd826e3653b290c5e7ce50b",
+    "script": "guard:sec08e-r2b",
+    "status": 0,
+    "output": "PASS SEC-08E R2B candidate and exact-file rollout documentation remain fail-closed\n"
+  },
+  {
+    "scope": "candidate",
+    "head": "28f074e38872c5a91f5ec9eb5e515937307c95c3",
+    "script": "guard:secdef",
+    "status": 1,
+    "output": "\n[BLOQUEA] supabase/migrations/20260923120000_sec08e_r2a_client_contract_gate_disabled.sql - fuera del baseline (2 hallazgo(s)):\n   . public.check_client_contract(): OMITE pg_temp -> se busca PRIMERO (doc PG 5.9.3): shadowing por tabla temporal\n   . public.check_client_contract(): incluye 'public' Y tiene referencias sin calificar (private)\n\nGuard SECURITY DEFINER FALLO: 2 hallazgo(s) fuera del baseline, 0 regresion(es).\n"
+  },
+  {
+    "scope": "candidate",
+    "head": "28f074e38872c5a91f5ec9eb5e515937307c95c3",
+    "script": "guard:secdef-exposure",
+    "status": 1,
+    "output": "\n[BLOQUEA] supabase/migrations/20260912120000_sec08a_phase_b_financial_pivots.sql:\n   . R2 current_user_can: SECURITY DEFINER sin REVOKE ... FROM PUBLIC (nace abierta a anon)\n   . R2 get_order_financial_amounts: SECURITY DEFINER sin REVOKE ... FROM PUBLIC (nace abierta a anon)\n\n[BLOQUEA] supabase/migrations/20260923120000_sec08e_r2a_client_contract_gate_disabled.sql:\n   . R1 check_client_contract: GRANT EXECUTE a anon fuera de ALLOWLIST_ANON\n\nGuard SECDEF exposicion FALLO: 3 hallazgo(s).\n"
+  },
+  {
+    "scope": "candidate",
+    "head": "28f074e38872c5a91f5ec9eb5e515937307c95c3",
+    "script": "guard:view-invoker",
+    "status": 1,
+    "output": "❌ Guard security_invoker: hay vistas expuestas al cliente que corren con privilegios del owner.\n\n   public.v_comprobante_annulment_amounts  →  GRANT SELECT a authenticated, sin security_invoker\n   public.v_comprobante_item_costs  →  GRANT SELECT a authenticated, sin security_invoker\n   public.v_finance_period_cogs  →  GRANT SELECT a authenticated, sin security_invoker\n   public.v_inventory_costs  →  GRANT SELECT a authenticated, sin security_invoker\n   public.v_inventory_movement_costs  →  GRANT SELECT a authenticated, sin security_invoker\n   public.v_parts_used_amounts  →  GRANT SELECT a authenticated, sin security_invoker\n\nUna vista sin security_invoker se evalua con los privilegios de su OWNER. Si el\nowner es postgres, el RLS de las tablas base NO se aplica y la vista devuelve\nfilas de TODOS los negocios a cualquiera que tenga SELECT. El filtro por\nbusiness_id del frontend no es un limite de seguridad: el cliente elige el valor.\n\n    ALTER VIEW public.<vista> SET (security_invoker = true);\n\no, al crearla:\n\n    CREATE VIEW public.<vista> WITH (security_invoker = true) AS ...\n\n"
+  },
+  {
+    "scope": "candidate",
+    "head": "28f074e38872c5a91f5ec9eb5e515937307c95c3",
+    "script": "guard:sec08a",
+    "status": 0,
+    "output": "SEC-08A orders visibility guard OK: ningún lector de browser pide columnas O1/O2 de orders (directo ni anidado); la frontera de columnas y las rutas canónicas siguen en pie\n"
+  },
+  {
+    "scope": "candidate",
+    "head": "28f074e38872c5a91f5ec9eb5e515937307c95c3",
+    "script": "guard:sec08a-phase-b",
+    "status": 0,
+    "output": "SEC-08A Fase B pivots guard OK: ningún lector de browser pide importes de línea (directo ni anidado); autoridad tenant-bound, pivot de comprobantes cerrado y vista de COGS fuera del browser\n"
+  },
+  {
+    "scope": "candidate",
+    "head": "28f074e38872c5a91f5ec9eb5e515937307c95c3",
+    "script": "guard:sec08a-phase-c",
+    "status": 0,
+    "output": "SEC-08A Fase C payments guard OK: la lectura de pagos exige orders_view_financials en el negocio de la fila para lo vinculado a una orden, conserva el comprobante suelto, y el helper de relación es SECURITY DEFINER y alcanzable por authenticated sin abrir el esquema private\n"
+  },
+  {
+    "scope": "candidate",
+    "head": "28f074e38872c5a91f5ec9eb5e515937307c95c3",
+    "script": "guard:sec08b",
+    "status": 0,
+    "output": "SEC-08B inventory cost guard OK: las columnas de costo siguen revocadas para el navegador, las proyecciones autorizadas son DEFINER con tenant y capacidad, el override a false sigue denegando, y ningún caller del frontend vuelve a pedir costo\n"
+  },
+  {
+    "scope": "candidate",
+    "head": "28f074e38872c5a91f5ec9eb5e515937307c95c3",
+    "script": "guard:sec08c",
+    "status": 0,
+    "output": "SEC-08C guard OK — frontera de proveedores intacta en migración y frontend\n"
+  },
+  {
+    "scope": "candidate",
+    "head": "28f074e38872c5a91f5ec9eb5e515937307c95c3",
+    "script": "guard:sec08e-r2a:self-test",
+    "status": 0,
+    "output": "PASS SEC-08E R2A rollout guard self-test rejects renamed UPDATE, UPSERT, dynamic activation, R2A default activation, and appended activation\n"
+  },
+  {
+    "scope": "candidate",
+    "head": "28f074e38872c5a91f5ec9eb5e515937307c95c3",
+    "script": "guard:sec08e-r2b:self-test",
+    "status": 0,
+    "output": "PASS SEC-08E R2B guard self-test rejects unsafe migrations, rollback SQL, migration sweeps, and history reconciliation\n"
+  },
+  {
+    "scope": "candidate",
+    "head": "28f074e38872c5a91f5ec9eb5e515937307c95c3",
+    "script": "guard:sec08e-r2b",
+    "status": 0,
+    "output": "PASS SEC-08E R2B candidate and exact-file rollout documentation remain fail-closed\n"
+  }
+]
