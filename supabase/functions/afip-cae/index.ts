@@ -49,6 +49,7 @@ import {
 } from './logic.ts'
 import { evaluarPreEnvio, type AttemptRow } from './preSend.ts'
 import { esNotaCreditoFiscal } from './cbtesAsoc.ts'
+import { confirmReservation, releasePreSendClaim } from './claimLifecycle.ts'
 
 // ─────────────────────────────────────────────────────────────────
 // CORS — single source of truth (buildCorsHeaders + jsonResponse)
@@ -152,20 +153,6 @@ function jsonResponse(req: Request, body: unknown, status = 200): Response {
 // fallo de estas llamadas se loguea pero no debe ocultar el resultado real de
 // ARCA al caller (que ya reclamó el attempt_id y espera una respuesta).
 // ──────────────────────────────────────────────
-
-async function reserveNumber(supabase: any, attemptId: string, numero: number, ctx: Record<string, unknown>): Promise<void> {
-  try {
-    const { data, error } = await supabase.rpc('reserve_arca_number', {
-      p_attempt_id: attemptId,
-      p_numero: numero,
-    })
-    if (error || !data?.success) {
-      logStructured({ ...ctx, stage: 'persistencia', classification: 'reserve_number_failed', error: error?.message ?? data?.error })
-    }
-  } catch (e) {
-    logStructured({ ...ctx, stage: 'persistencia', classification: 'reserve_number_failed', error: String((e as any)?.message ?? e) })
-  }
-}
 
 async function markAttemptSent(supabase: any, attemptId: string, ctx: Record<string, unknown>): Promise<void> {
   try {
@@ -279,6 +266,19 @@ serve(async (req: Request) => {
   const correlationId = crypto.randomUUID()
   let businessIdForLog: string | undefined
 
+  // P0-ARCA-B: un claim propio que todavía no reservó número se libera si esta
+  // invocación falla antes de reservar (ver ./claimLifecycle.ts). Se anula justo
+  // antes de la reserva: desde ahí decide confirmReservation.
+  let releasableAttemptId: string | null = null
+  let serviceClientForRelease: any = null
+  const releaseClaim = async (reason: string): Promise<boolean> => {
+    const attemptToRelease = releasableAttemptId
+    if (!attemptToRelease || !serviceClientForRelease) return false
+    releasableAttemptId = null
+    return releasePreSendClaim(serviceClientForRelease, attemptToRelease, reason,
+      (fields) => logStructured({ correlationId, attemptId: attemptToRelease, ...fields }))
+  }
+
   try {
     // WSAA trusts this Edge's service credential. Verify its human caller first
     // so afip-cae cannot act as a privileged relay for a foreign tenant.
@@ -291,6 +291,7 @@ serve(async (req: Request) => {
     })
     if (caller.kind !== 'user') return jsonResponse(req, { success: false, error: 'FORBIDDEN' }, 403)
     const supabase = createClient(supabaseUrl, supabaseKey)
+    serviceClientForRelease = supabase
     const body: FacturaData & { attempt_id?: string } = await req.json()
     const {
       comprobante_id,
@@ -352,6 +353,9 @@ serve(async (req: Request) => {
     // comprobante (ATTEMPT_MISMATCH). Además quedan tipados como string.
     const attemptIdOk: string     = attempt.id
     const comprobanteIdOk: string = attempt.comprobante_id
+    // Sólo un claim sin número es liberable: uno que reutilizó una fila
+    // pending_reconciliation trae número y se reconcilia, nunca se libera.
+    if (attempt.numero_intentado == null) releasableAttemptId = attemptIdOk
 
     const business_id = attempt.business_id
     const cuit         = attempt.cuit_emisor
@@ -380,9 +384,11 @@ serve(async (req: Request) => {
         identidad: cbtesAsoc.identidad!,
       }, logCtx)
       if (!snapshot.ok) {
+        const claimReleased = await releaseClaim('nc_snapshot_failed')
         return jsonResponse(req, {
           success: false,
           error: snapshot.error || 'No se pudo fijar CbtesAsoc en el attempt',
+          claim_released: claimReleased,
           correlation_id: correlationId,
         }, 409)
       }
@@ -397,7 +403,9 @@ serve(async (req: Request) => {
     if (wsaaRes.error || !wsaaRes.data?.success) {
       const errMsg = wsaaRes.data?.error || wsaaRes.error?.message || 'Error al autenticar con WSAA'
       logStructured({ ...logCtx, stage: 'auth', classification: 'fatal', error: errMsg })
-      return jsonResponse(req, { success: false, error: `WSAA: ${errMsg}`, correlation_id: correlationId }, 502)
+      // Nada salió hacia ARCA: el claim no puede quedar ocupando la serie (2026-09-01).
+      const claimReleased = await releaseClaim('wsaa_failed')
+      return jsonResponse(req, { success: false, error: `WSAA: ${errMsg}`, claim_released: claimReleased, correlation_id: correlationId }, 502)
     }
 
     const { token, sign } = wsaaRes.data as { token: string; sign: string }
@@ -455,7 +463,23 @@ serve(async (req: Request) => {
     // 4. Reservar el número (claimed → number_reserved) ANTES de considerar
     //    enviar nada — trazado incluso si el proceso cae antes de llegar a
     //    marcar 'sent'. No se infiere que fue ENVIADO solo porque se reservó.
-    await reserveNumber(supabase, attemptIdOk, proximoNro, logCtx)
+    //    P0-ARCA-B: nunca se envía sin reserva confirmada. Si otra invocación
+    //    recuperó este claim por viejo, reserve_arca_number ya no lo encuentra
+    //    'claimed' y esta invocación se detiene sin tocar ARCA.
+    releasableAttemptId = null
+    const reserva = await confirmReservation(supabase, attemptIdOk, proximoNro,
+      (fields) => logStructured({ ...logCtx, ...fields }))
+    if (reserva !== 'reserved') {
+      const claimReleased = await releasePreSendClaim(supabase, attemptIdOk, `reserve_${reserva}`,
+        (fields) => logStructured({ ...logCtx, ...fields }))
+      return jsonResponse(req, {
+        success: false,
+        error: 'No se pudo reservar el número fiscal. No se envió nada a ARCA; reintentá la emisión.',
+        outcome: 'not_sent',
+        claim_released: claimReleased,
+        correlation_id: correlationId,
+      }, 409)
+    }
 
     // 5. Recién ahora, confirmar que se va a invocar FECAESolicitar
     //    (number_reserved → sent) — si la respuesta a ESTE cliente se pierde
@@ -566,6 +590,8 @@ serve(async (req: Request) => {
       stage: 'unhandled',
       error: String(err?.message ?? err),
     })
+    // Falla antes de reservar (p. ej. al consultar el último número): nada se envió.
+    await releaseClaim('pre_reserve_exception')
     return jsonResponse(req, {
       success: false,
       error: err?.message || 'Error interno en CAE',
