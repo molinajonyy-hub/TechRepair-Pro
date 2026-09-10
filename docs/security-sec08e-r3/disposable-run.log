@@ -1,0 +1,108 @@
+PASS pre tests/sql/sec08a_orders_data_visibility.test.sql attempt 1
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 1
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 2
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 3
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 4
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 5
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 6
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 7
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 8
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 9
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 10
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 11
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 12
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 13
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 14
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 15
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 16
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 17
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 18
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 19
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 20
+PASS pre tests/sql/sec08a_phase_c_payment_visibility.test.sql attempt 1
+PASS pre tests/sql/sec08b_inventory_cost_visibility.test.sql attempt 1
+PASS pre tests/sql/sec08c_supplier_finance_visibility.test.sql attempt 1
+PASS pre tests/sql/sec08d_finance_insights_visibility.test.sql attempt 1
+PASS pre supabase/tests/p0a1u2_allocation_ui_contract_test.sql attempt 1
+PASS pre supabase/tests/etapa0_annulment_ledger_test.sql attempt 1
+FAIL pre supabase/tests/etapa1_pnl_exclusions_test.sql attempt 1
+FAIL pre supabase/tests/etapa7_rpc_integration_comprobante_annulment_test.sql attempt 1
+PASS pre-R3 all three financial leaks reproduced through real PostgREST/JWT with R2B enabled/1
+PASS pre R2B contract matrix
+
+ RUN  v2.1.9 C:/Users/molin/CascadeProjects/techrepair-vite/.worktrees/sec08e-r3-auxiliary-financial-lockdown
+
+stdout | tests/integration/sec08eR1.test.ts > R1 actual central SDK + real PostgREST > schema pre, actor 1: detail/list/create/total
+MATRIX pre owner operational PASS; amounts authorized; total=21344.07 (includes synthetic insert) legacy queries 4
+
+stdout | tests/integration/sec08eR1.test.ts > R1 actual central SDK + real PostgREST > schema pre, actor 2: detail/list/create/total
+MATRIX pre tech operational PASS; amounts absent; total=null legacy queries 0
+
+ ✓ tests/integration/sec08eR1.test.ts (4 tests | 1 skipped) 568ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed | 1 skipped (4)
+   Start at  17:31:51
+   Duration  1.13s (transform 157ms, setup 0ms, collect 64ms, tests 568ms, environment 0ms, prepare 182ms)
+
+
+PASS post R2B contract matrix
+
+ RUN  v2.1.9 C:/Users/molin/CascadeProjects/techrepair-vite/.worktrees/sec08e-r3-auxiliary-financial-lockdown
+
+stdout | tests/integration/sec08eR1.test.ts > R1 actual central SDK + real PostgREST > schema post, actor 1: detail/list/create/total
+MATRIX post owner operational PASS; amounts authorized; total=21344.07 (includes synthetic insert) legacy queries 0
+
+stdout | tests/integration/sec08eR1.test.ts > R1 actual central SDK + real PostgREST > schema post, actor 2: detail/list/create/total
+MATRIX post tech operational PASS; amounts absent; total=null legacy queries 0
+
+ ✓ tests/integration/sec08eR1.test.ts (4 tests) 455ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  17:31:55
+   Duration  998ms (transform 143ms, setup 0ms, collect 40ms, tests 455ms, environment 0ms, prepare 178ms)
+
+
+PASS post tests/sql/sec08a_orders_data_visibility.test.sql attempt 1
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 1
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 2
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 3
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 4
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 5
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 6
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 7
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 8
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 9
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 10
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 11
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 12
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 13
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 14
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 15
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 16
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 17
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 18
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 19
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 20
+PASS post tests/sql/sec08a_phase_c_payment_visibility.test.sql attempt 1
+PASS post tests/sql/sec08b_inventory_cost_visibility.test.sql attempt 1
+PASS post tests/sql/sec08c_supplier_finance_visibility.test.sql attempt 1
+PASS post tests/sql/sec08d_finance_insights_visibility.test.sql attempt 1
+PASS post supabase/tests/p0a1u2_allocation_ui_contract_test.sql attempt 1
+PASS post supabase/tests/etapa0_annulment_ledger_test.sql attempt 1
+FAIL post supabase/tests/etapa1_pnl_exclusions_test.sql attempt 1
+FAIL post supabase/tests/etapa7_rpc_integration_comprobante_annulment_test.sql attempt 1
+
+ RUN  v2.1.9 C:/Users/molin/CascadeProjects/techrepair-vite/.worktrees/sec08e-r3-auxiliary-financial-lockdown
+
+ ✓ tests/integration/sec08eR3Fault.test.ts (1 test) 529ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:32:12
+   Duration  1.47s (transform 157ms, setup 0ms, collect 40ms, tests 529ms, environment 0ms, prepare 215ms)
+
+
+PASS missing-view fault, reviewed rollback, and R3 reapplication; R2B unchanged throughout
+RESULT 274 assertions; real frontend pre/post and SQL regression comparison completed

@@ -1,0 +1,188 @@
+npm warn config optional Use `--omit=optional` to exclude optional dependencies, or
+npm warn config `--include=optional` to include them.
+npm warn config
+npm warn config       Default value does install optional deps unless otherwise omitted.
+
+> techrepair-pro@3.0.0 test:sec08e-r3
+> node scripts/security/sec08e-r3-local.mjs && vitest run --config vitest.config.ts tests/components/sec08ePartsUsedAccess.test.ts tests/components/allocationModal.test.tsx tests/components/allocationHistory.test.tsx tests/components/orderFinancialSummary.test.tsx
+
+PASS pre tests/sql/sec08a_orders_data_visibility.test.sql attempt 1
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 1
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 2
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 3
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 4
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 5
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 6
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 7
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 8
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 9
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 10
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 11
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 12
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 13
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 14
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 15
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 16
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 17
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 18
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 19
+PASS pre tests/sql/sec08a_phase_b_pivots.test.sql attempt 20
+PASS pre tests/sql/sec08a_phase_c_payment_visibility.test.sql attempt 1
+PASS pre tests/sql/sec08b_inventory_cost_visibility.test.sql attempt 1
+PASS pre tests/sql/sec08c_supplier_finance_visibility.test.sql attempt 1
+PASS pre tests/sql/sec08d_finance_insights_visibility.test.sql attempt 1
+PASS pre supabase/tests/p0a1u2_allocation_ui_contract_test.sql attempt 1
+PASS pre supabase/tests/etapa0_annulment_ledger_test.sql attempt 1
+FAIL pre supabase/tests/etapa1_pnl_exclusions_test.sql attempt 1
+FAIL pre supabase/tests/etapa7_rpc_integration_comprobante_annulment_test.sql attempt 1
+PASS pre-R3 all three financial leaks reproduced through real PostgREST/JWT with R2B enabled/1
+PASS pre R2B contract matrix
+
+ RUN  v2.1.9 C:/Users/molin/CascadeProjects/techrepair-vite/.worktrees/sec08e-r3-auxiliary-financial-lockdown
+
+stdout | tests/integration/sec08eR1.test.ts > R1 actual central SDK + real PostgREST > schema pre, actor 1: detail/list/create/total
+MATRIX pre owner operational PASS; amounts authorized; total=21344.07 (includes synthetic insert) legacy queries 4
+
+stdout | tests/integration/sec08eR1.test.ts > R1 actual central SDK + real PostgREST > schema pre, actor 2: detail/list/create/total
+MATRIX pre tech operational PASS; amounts absent; total=null legacy queries 0
+
+ ✓ tests/integration/sec08eR1.test.ts (4 tests | 1 skipped) 832ms
+   ✓ R1 actual central SDK + real PostgREST > schema pre, actor 1: detail/list/create/total 335ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed | 1 skipped (4)
+   Start at  09:38:55
+   Duration  1.66s (transform 191ms, setup 0ms, collect 49ms, tests 832ms, environment 0ms, prepare 281ms)
+
+
+PASS post R2B contract matrix
+
+ RUN  v2.1.9 C:/Users/molin/CascadeProjects/techrepair-vite/.worktrees/sec08e-r3-auxiliary-financial-lockdown
+
+stdout | tests/integration/sec08eR1.test.ts > R1 actual central SDK + real PostgREST > schema post, actor 1: detail/list/create/total
+MATRIX post owner operational PASS; amounts authorized; total=21344.07 (includes synthetic insert) legacy queries 0
+
+stdout | tests/integration/sec08eR1.test.ts > R1 actual central SDK + real PostgREST > schema post, actor 2: detail/list/create/total
+MATRIX post tech operational PASS; amounts absent; total=null legacy queries 0
+
+ ✓ tests/integration/sec08eR1.test.ts (4 tests) 509ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  09:38:59
+   Duration  1.52s (transform 221ms, setup 0ms, collect 105ms, tests 509ms, environment 0ms, prepare 269ms)
+
+
+PASS post tests/sql/sec08a_orders_data_visibility.test.sql attempt 1
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 1
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 2
+FAIL post tests/sql/sec08a_phase_b_pivots.test.sql attempt 3
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 4
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 5
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 6
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 7
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 8
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 9
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 10
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 11
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 12
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 13
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 14
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 15
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 16
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 17
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 18
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 19
+PASS post tests/sql/sec08a_phase_b_pivots.test.sql attempt 20
+PASS post tests/sql/sec08a_phase_c_payment_visibility.test.sql attempt 1
+PASS post tests/sql/sec08b_inventory_cost_visibility.test.sql attempt 1
+PASS post tests/sql/sec08c_supplier_finance_visibility.test.sql attempt 1
+PASS post tests/sql/sec08d_finance_insights_visibility.test.sql attempt 1
+PASS post supabase/tests/p0a1u2_allocation_ui_contract_test.sql attempt 1
+PASS post supabase/tests/etapa0_annulment_ledger_test.sql attempt 1
+FAIL post supabase/tests/etapa1_pnl_exclusions_test.sql attempt 1
+FAIL post supabase/tests/etapa7_rpc_integration_comprobante_annulment_test.sql attempt 1
+
+ RUN  v2.1.9 C:/Users/molin/CascadeProjects/techrepair-vite/.worktrees/sec08e-r3-auxiliary-financial-lockdown
+
+ ✓ tests/integration/sec08eR3Fault.test.ts (1 test) 342ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  09:39:14
+   Duration  1.23s (transform 152ms, setup 0ms, collect 42ms, tests 342ms, environment 0ms, prepare 273ms)
+
+
+PASS missing-view fault, reviewed rollback, and R3 reapplication; R2B unchanged throughout
+RESULT 274 assertions; real frontend pre/post and SQL regression comparison completed
+
+ RUN  v2.1.9 C:/Users/molin/CascadeProjects/techrepair-vite/.worktrees/sec08e-r3-auxiliary-financial-lockdown
+
+ ✓ tests/components/sec08ePartsUsedAccess.test.ts (37 tests) 62ms
+ ✓ tests/components/allocationHistory.test.tsx (7 tests) 257ms
+stderr | tests/components/orderFinancialSummary.test.tsx > OrderFinancialSummary — permisos e importes > casos 1-2: un rol autorizado (owner/cashier) ve badge E importes
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stderr | tests/components/orderFinancialSummary.test.tsx > OrderFinancialSummary — permisos e importes > caso 10: mientras carga no se muestra ningún estado ni importe
+Warning: An update to OrderFinancialSummary inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at OrderFinancialSummary (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r3-auxiliary-financial-lockdown\src\components\orders\OrderFinancialSummary.tsx:51:34)
+    at Router (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r2b-minimum-contract-1\node_modules\.deno\react-router@6.30.4\node_modules\react-router\dist\umd\react-router.development.js:1203:17)
+    at MemoryRouter (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r2b-minimum-contract-1\node_modules\.deno\react-router@6.30.4\node_modules\react-router\dist\umd\react-router.development.js:1097:7)
+Warning: An update to OrderFinancialSummary inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at OrderFinancialSummary (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r3-auxiliary-financial-lockdown\src\components\orders\OrderFinancialSummary.tsx:51:34)
+    at Router (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r2b-minimum-contract-1\node_modules\.deno\react-router@6.30.4\node_modules\react-router\dist\umd\react-router.development.js:1203:17)
+    at MemoryRouter (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r2b-minimum-contract-1\node_modules\.deno\react-router@6.30.4\node_modules\react-router\dist\umd\react-router.development.js:1097:7)
+Warning: An update to OrderFinancialSummary inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at OrderFinancialSummary (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r3-auxiliary-financial-lockdown\src\components\orders\OrderFinancialSummary.tsx:51:34)
+    at Router (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r2b-minimum-contract-1\node_modules\.deno\react-router@6.30.4\node_modules\react-router\dist\umd\react-router.development.js:1203:17)
+    at MemoryRouter (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r2b-minimum-contract-1\node_modules\.deno\react-router@6.30.4\node_modules\react-router\dist\umd\react-router.development.js:1097:7)
+Warning: An update to OrderFinancialSummary inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://reactjs.org/link/wrap-tests-with-act
+    at OrderFinancialSummary (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r3-auxiliary-financial-lockdown\src\components\orders\OrderFinancialSummary.tsx:51:34)
+    at Router (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r2b-minimum-contract-1\node_modules\.deno\react-router@6.30.4\node_modules\react-router\dist\umd\react-router.development.js:1203:17)
+    at MemoryRouter (C:\Users\molin\CascadeProjects\techrepair-vite\.worktrees\sec08e-r2b-minimum-contract-1\node_modules\.deno\react-router@6.30.4\node_modules\react-router\dist\umd\react-router.development.js:1097:7)
+
+ ✓ tests/components/orderFinancialSummary.test.tsx (19 tests) 777ms
+ ✓ tests/components/allocationModal.test.tsx (19 tests) 2687ms
+   ✓ AllocationModal > caso 7 y 8: distribuye entre dos comprobantes y deja remanente 329ms
+
+ Test Files  4 passed (4)
+      Tests  82 passed (82)
+   Start at  09:39:20
+   Duration  37.09s (transform 859ms, setup 31.00s, collect 4.22s, tests 3.78s, environment 93.63s, prepare 1.30s)

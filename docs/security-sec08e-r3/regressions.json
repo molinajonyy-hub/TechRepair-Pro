@@ -1,0 +1,104 @@
+{
+  "pre": {
+    "tests/sql/sec08a_orders_data_visibility.test.sql": [
+      "PASS"
+    ],
+    "tests/sql/sec08a_phase_b_pivots.test.sql": [
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS"
+    ],
+    "tests/sql/sec08a_phase_c_payment_visibility.test.sql": [
+      "PASS"
+    ],
+    "tests/sql/sec08b_inventory_cost_visibility.test.sql": [
+      "PASS"
+    ],
+    "tests/sql/sec08c_supplier_finance_visibility.test.sql": [
+      "PASS"
+    ],
+    "tests/sql/sec08d_finance_insights_visibility.test.sql": [
+      "PASS"
+    ],
+    "supabase/tests/p0a1u2_allocation_ui_contract_test.sql": [
+      "PASS"
+    ],
+    "supabase/tests/etapa0_annulment_ledger_test.sql": [
+      "PASS"
+    ],
+    "supabase/tests/etapa1_pnl_exclusions_test.sql": [
+      "NOTICE:  PASS: PX0a income comprobante -> revenue_collection_mirror\nNOTICE:  PASS: PX0b compras_proveedor -> supplier_liability_payment\nNOTICE:  PASS: PX0c inventario -> inventory_purchase\nNOTICE:  PASS: PX0d retiros -> owner_withdrawal\nNOTICE:  PASS: PX0e alquiler -> operating_expense\nNOTICE:  PASS: PX1 net_sales=0 (revenue_collection_mirror NO es venta)\nNOTICE:  PASS: PX2 cogs=0 (inventory_purchase NO es COGS)\nERROR:  FAIL: PX3 operating_expenses = SOLO el gasto operativo (20000)\nCONTEXT:  PL/pgSQL function pg_temp_N.assert(boolean,text) line 2 at RAISE\n"
+    ],
+    "supabase/tests/etapa7_rpc_integration_comprobante_annulment_test.sql": [
+      "NOTICE:  PASS: SC1 v_finance_sales_ledger existe\nNOTICE:  PASS: SC2 comprobante_annulments.annulment_date existe\nNOTICE:  PASS: SC3 comprobante_annulments.op existe\nNOTICE:  PASS: SC4 v_finance_pnl lee el ledger append-only\nNOTICE:  PASS: SC5 v_finance_product_margin lee el ledger\nNOTICE:  PASS: SC6 v_finance_effective_comprobantes conserva el filtro de anulados (estado actual)\nNOTICE:  PASS: SC7 aging sigue en estado actual (no migrado)\nNOTICE:  PASS: SC8 el ledger no usa fechas volatiles\nNOTICE:  PASS: SE1 sin auth -> UNAUTHORIZED\nNOTICE:  PASS: SE2 cross-tenant -> FORBIDDEN\nNOTICE:  PASS: SE3 comprobante inexistente -> COMPROBANTE_NOT_FOUND\nNOTICE:  PASS: SE4 modo invalido -> VALIDATION_ERROR\nNOTICE:  PASS: SE5 motivo vacio -> VALIDATION_ERROR (contrato exacto)\nNOTICE:  PASS: SE6 key vacia -> VALIDATION_ERROR\nNOTICE:  PASS: SE7 key > 200 -> VALIDATION_ERROR\nNOTICE:  PASS: SE8 sin overloads (una sola firma)\nNOTICE:  PASS: SE9 anon NO EXECUTE\nNOTICE:  PASS: SE10 authenticated EXECUTE (rol preservado)\nERROR:  FORBIDDEN\nCONTEXT:  PL/pgSQL function private.require_action_authority(uuid,text,text,text) line 6 at RAISE\nSQL statement \"SELECT private.require_action_authority(p_business_id, 'comprobantes', NULL, NULL)\"\nPL/pgSQL function public.create_comprobante_checkout_atomic(uuid,text,text,jsonb) line 3 at PERFORM\nPL/pgSQL function pg_temp_N.venta(text,jsonb,jsonb,numeric,uuid,uuid) line 6 at assignment\nPL/pgSQL function inline_code_block line 4 at assignment\n"
+    ]
+  },
+  "post": {
+    "tests/sql/sec08a_orders_data_visibility.test.sql": [
+      "PASS"
+    ],
+    "tests/sql/sec08a_phase_b_pivots.test.sql": [
+      "PASS",
+      "PASS",
+      "NOTICE:  PASS: fixture: recalculate_order_total define estimated_total/total_cost como suma de las líneas\nNOTICE:  PASS: multi es admin en A: SÍ ve importes de A\nNOTICE:  PASS: multi es tech en B: NO ve importes de B (la autoridad de A no cruza)\nNOTICE:  PASS: current_user_can (ciega al tenant) responde por el perfil de A, sin saber de qué negocio se habla\nNOTICE:  PASS: override true en el perfil de B habilita en B\nNOTICE:  PASS: el override de B no altera la respuesta de A\nNOTICE:  PASS: override false en el perfil de A deshabilita en A\nNOTICE:  PASS: perfil inactivo en B: fail-closed\nNOTICE:  PASS: negocio inexistente: fail-closed\nNOTICE:  PASS: business_id nulo: fail-closed\nNOTICE:  PASS: clave desconocida: false incluso para el owner\nNOTICE:  PASS: el owner del negocio ve los importes de su negocio\nNOTICE:  PASS: personal_finance sigue siendo false para todos\nNOTICE:  PASS: sin sesión: fail-closed\nNOTICE:  PASS: paridad con un solo perfil para la capacidad orders\nNOTICE:  PASS: paridad con un solo perfil para la capacidad orders_create\nNOTICE:  PASS: paridad con un solo perfil para la capacidad orders_view_financials\nNOTICE:  PASS: paridad con un solo perfil para la capacidad device_access_secret\nNOTICE:  PASS: paridad con un solo perfil para la capacidad inventory\nNOTICE:  PASS: paridad con un solo perfil para la capacidad inventory_view_costs\nNOTICE:  PASS: paridad con un solo perfil para la capacidad customers\nNOTICE:  PASS: paridad con un solo perfil para la capacidad finance\nNOTICE:  PASS: paridad con un solo perfil para la capacidad comprobantes\nNOTICE:  PASS: paridad con un solo perfil para la capacidad reports\nNOTICE:  PASS: paridad con un solo perfil para la capacidad settings\nNOTICE:  PASS: paridad con un solo perfil para la capacidad users\nNOTICE:  PASS: paridad con un solo perfil para la capacidad wholesale\nNOTICE:  PASS: paridad con un solo perfil para la capacidad subscription\nNOTICE:  PASS: paridad con un solo perfil para la capacidad personal_finance\nNOTICE:  PASS: order_items.precio_unitario denegado incluso para un admin\nNOTICE:  PASS: order_items.costo_unitario denegado\nNOTICE:  PASS: order_parts.internal_cost denegado\nNOTICE:  PASS: order_parts.sale_price denegado\nNOTICE:  PASS: order_parts.margin_amount denegado\nNOTICE:  PASS: order_items.cantidad sigue legible (dato operativo)\nNOTICE:  PASS: order_items.descripcion sigue legible\nERROR:  FAIL: order_parts.name sigue legible\nCONTEXT:  PL/pgSQL function pg_temp_N.assert(boolean,text) line 3 at RAISE\nSQL statement \"SELECT pg_temp.assert(v = 'parte', 'order_parts.name sigue legible')\"\nPL/pgSQL function inline_code_block line 23 at PERFORM\n",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS"
+    ],
+    "tests/sql/sec08a_phase_c_payment_visibility.test.sql": [
+      "PASS"
+    ],
+    "tests/sql/sec08b_inventory_cost_visibility.test.sql": [
+      "PASS"
+    ],
+    "tests/sql/sec08c_supplier_finance_visibility.test.sql": [
+      "PASS"
+    ],
+    "tests/sql/sec08d_finance_insights_visibility.test.sql": [
+      "PASS"
+    ],
+    "supabase/tests/p0a1u2_allocation_ui_contract_test.sql": [
+      "PASS"
+    ],
+    "supabase/tests/etapa0_annulment_ledger_test.sql": [
+      "PASS"
+    ],
+    "supabase/tests/etapa1_pnl_exclusions_test.sql": [
+      "NOTICE:  PASS: PX0a income comprobante -> revenue_collection_mirror\nNOTICE:  PASS: PX0b compras_proveedor -> supplier_liability_payment\nNOTICE:  PASS: PX0c inventario -> inventory_purchase\nNOTICE:  PASS: PX0d retiros -> owner_withdrawal\nNOTICE:  PASS: PX0e alquiler -> operating_expense\nNOTICE:  PASS: PX1 net_sales=0 (revenue_collection_mirror NO es venta)\nNOTICE:  PASS: PX2 cogs=0 (inventory_purchase NO es COGS)\nERROR:  FAIL: PX3 operating_expenses = SOLO el gasto operativo (20000)\nCONTEXT:  PL/pgSQL function pg_temp_N.assert(boolean,text) line 2 at RAISE\n"
+    ],
+    "supabase/tests/etapa7_rpc_integration_comprobante_annulment_test.sql": [
+      "NOTICE:  PASS: SC1 v_finance_sales_ledger existe\nNOTICE:  PASS: SC2 comprobante_annulments.annulment_date existe\nNOTICE:  PASS: SC3 comprobante_annulments.op existe\nNOTICE:  PASS: SC4 v_finance_pnl lee el ledger append-only\nNOTICE:  PASS: SC5 v_finance_product_margin lee el ledger\nNOTICE:  PASS: SC6 v_finance_effective_comprobantes conserva el filtro de anulados (estado actual)\nNOTICE:  PASS: SC7 aging sigue en estado actual (no migrado)\nNOTICE:  PASS: SC8 el ledger no usa fechas volatiles\nNOTICE:  PASS: SE1 sin auth -> UNAUTHORIZED\nNOTICE:  PASS: SE2 cross-tenant -> FORBIDDEN\nNOTICE:  PASS: SE3 comprobante inexistente -> COMPROBANTE_NOT_FOUND\nNOTICE:  PASS: SE4 modo invalido -> VALIDATION_ERROR\nNOTICE:  PASS: SE5 motivo vacio -> VALIDATION_ERROR (contrato exacto)\nNOTICE:  PASS: SE6 key vacia -> VALIDATION_ERROR\nNOTICE:  PASS: SE7 key > 200 -> VALIDATION_ERROR\nNOTICE:  PASS: SE8 sin overloads (una sola firma)\nNOTICE:  PASS: SE9 anon NO EXECUTE\nNOTICE:  PASS: SE10 authenticated EXECUTE (rol preservado)\nERROR:  FORBIDDEN\nCONTEXT:  PL/pgSQL function private.require_action_authority(uuid,text,text,text) line 6 at RAISE\nSQL statement \"SELECT private.require_action_authority(p_business_id, 'comprobantes', NULL, NULL)\"\nPL/pgSQL function public.create_comprobante_checkout_atomic(uuid,text,text,jsonb) line 3 at PERFORM\nPL/pgSQL function pg_temp_N.venta(text,jsonb,jsonb,numeric,uuid,uuid) line 6 at assignment\nPL/pgSQL function inline_code_block line 4 at assignment\n"
+    ]
+  }
+}

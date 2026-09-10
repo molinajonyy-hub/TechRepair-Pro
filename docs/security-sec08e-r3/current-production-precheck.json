@@ -1,0 +1,9 @@
+{
+  "checked_at": "2026-09-10T12:30:53.155972+00:00",
+  "project": "vrdxxmjzxhfgqlnxmbwx",
+  "gate": { "enforcement_state": "enabled", "minimum_contract": 1 },
+  "pgrst_db_pre_request": "public.check_client_contract",
+  "applied_versions": ["20260921120000", "20260923120000", "20260924120000"],
+  "absent_version": "20260922120000",
+  "r3_projection_present": false
+}
