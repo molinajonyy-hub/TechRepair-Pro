@@ -6,6 +6,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { createClient } from '@supabase/supabase-js'
 import {
   confirmReservation, releasePreSendClaim,
 } from '../../supabase/functions/afip-cae/claimLifecycle.ts'
@@ -92,6 +93,60 @@ test('reservation RPC throws and the row cannot be read -> unknown', async () =>
   }
 })
 
+// ── v21 against the CURRENT production DB (before migration 20260926120000) ───
+// Real supabase-js client, fake HTTP: proves the rollout order "afip-cae v21
+// first, migration second" is safe. The release RPC does not exist yet; the
+// reservation uses only the existing reserve_arca_number and the attempts table.
+
+const SECRET = `sb_secret_${'S'.repeat(22)}_abcd1234`
+function httpClient(handler: (path: string, init: RequestInit) => Response) {
+  return createClient('https://example.invalid', SECRET, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      return handler(new URL(url).pathname, init ?? {})
+    } },
+  })
+}
+const pgrst202 = () => new Response(JSON.stringify({
+  code: 'PGRST202', details: null, hint: null,
+  message: 'Could not find the function public.release_arca_presend_claim(p_attempt_id, p_reason) in the schema cache',
+}), { status: 404, headers: { 'content-type': 'application/json' } })
+
+test('v21 on the current DB: the release RPC does not exist yet (PGRST202) -> false, no throw', async () => {
+  const paths: string[] = []
+  const client = httpClient((path) => { paths.push(path); return pgrst202() })
+  const logs: Record<string, unknown>[] = []
+  assert.equal(await releasePreSendClaim(client, 'att-1', 'wsaa_failed', (x) => logs.push(x)), false)
+  assert.deepEqual(paths, ['/rest/v1/rpc/release_arca_presend_claim'])
+  assert.equal(logs[0].classification, 'release_claim_failed')
+})
+
+test('v21 on the current DB: confirmed reservation uses only the existing reserve RPC', async () => {
+  const paths: string[] = []
+  const client = httpClient((path) => { paths.push(path); return Response.json({ success: true }) })
+  assert.equal(await confirmReservation(client, 'att-1', 175, noLog), 'reserved')
+  assert.deepEqual(paths, ['/rest/v1/rpc/reserve_arca_number'])
+})
+
+test('v21 on the current DB: unconfirmed reservation reads the existing attempts table and never reports reserved by mistake', async () => {
+  for (const [row, expected] of [
+    [[{ status: 'abandoned', numero_intentado: null }], 'not_reserved'],
+    [[{ status: 'number_reserved', numero_intentado: 175 }], 'reserved'],
+    [[], 'unknown'],
+  ] as const) {
+    const paths: string[] = []
+    const client = httpClient((path) => {
+      paths.push(path)
+      return path === '/rest/v1/rpc/reserve_arca_number'
+        ? Response.json({ success: false, error: 'Intento no encontrado o ya no está en estado claimed' })
+        : Response.json(row)
+    })
+    assert.equal(await confirmReservation(client, 'att-1', 175, noLog), expected, JSON.stringify(row))
+    assert.deepEqual(paths, ['/rest/v1/rpc/reserve_arca_number', '/rest/v1/arca_emission_attempts'])
+  }
+})
+
 test('static: afip-cae never sends without a confirmed reservation and releases pre-send failures', () => {
   const src = readFileSync(new URL('../../supabase/functions/afip-cae/index.ts', import.meta.url), 'utf8')
   const at = (needle: string) => {
@@ -117,4 +172,18 @@ test('static: afip-cae never sends without a confirmed reservation and releases 
   assert.ok(at("await releaseClaim('nc_snapshot_failed')") < at("error: snapshot.error || 'No se pudo fijar CbtesAsoc en el attempt'"))
   const catchBlock = src.slice(at('} catch (err: any) {'))
   assert.match(catchBlock, /await releaseClaim\('pre_reserve_exception'\)/)
+})
+
+test('static: fiscal success never depends on the release RPC', () => {
+  const src = readFileSync(new URL('../../supabase/functions/afip-cae/index.ts', import.meta.url), 'utf8')
+  // Exactly four release call sites, all on failure paths.
+  assert.equal((src.match(/await releaseClaim\(/g) || []).length, 3)          // snapshot, WSAA, catch
+  assert.equal((src.match(/releasePreSendClaim\(supabase, attemptIdOk/g) || []).length, 1) // unconfirmed reservation
+  // Between the SOAP call and the end of the handler no release runs, and the
+  // release result never gates a success response.
+  const soap = src.indexOf('await solicitarCAEConReconciliacion({')
+  const handlerCatch = src.indexOf('} catch (err: any) {', soap)
+  const afterSend = src.slice(soap, handlerCatch)
+  assert.ok(!/releaseClaim\(|releasePreSendClaim\(/.test(afterSend), 'no release after the fiscal send')
+  assert.ok(!/claimReleased[\s\S]{0,40}success: true/.test(src), 'success never reads the release result')
 })

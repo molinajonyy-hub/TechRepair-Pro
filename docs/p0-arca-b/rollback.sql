@@ -1,11 +1,17 @@
 -- ============================================================================
 -- P0-ARCA-B — ROLLBACK de 20260926120000_p0_arca_presend_claim_recovery.sql
 --
--- ORDEN: primero volver a desplegar afip-cae SIN la llamada a
--- release_arca_presend_claim (la versión anterior de la Edge Function); recién
--- después correr este script. Si se invierte el orden, la Edge nueva llamaría a
--- una RPC inexistente: su helper lo loguea y devuelve false (no rompe la emisión),
--- pero el claim no se libera.
+-- ORDEN (inverso al despliegue, sin ventana insegura):
+--   1. Con afip-cae v21 TODAVÍA activa, correr este script. v21 tolera que
+--      release_arca_presend_claim no exista (su helper devuelve false y lo loguea;
+--      la emisión no depende de esa RPC) y sigue sin enviar nunca sin reserva
+--      confirmada, así que v21 + semántica vieja del claim es un estado seguro.
+--   2. Verificar: claim_comprobante_arca_emission idéntica a la definición previa
+--      y la RPC de liberación eliminada.
+--   3. Recién entonces, si hace falta, volver a desplegar afip-cae v20.
+-- NUNCA dejar v20 activa mientras la recuperación entre comprobantes de la
+-- migración siga vigente: v20 ignora una reserva fallida y podría enviar con un
+-- claim recuperado por otro comprobante.
 --
 -- Efecto: claim_comprobante_arca_emission vuelve EXACTAMENTE a la definición de
 -- producción previa (sin recuperación entre comprobantes) y se elimina la RPC de

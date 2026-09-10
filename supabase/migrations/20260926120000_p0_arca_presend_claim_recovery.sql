@@ -8,23 +8,27 @@
 -- bloqueó la serie para todo otro comprobante (serie_ocupada) durante 9 días.
 --
 -- Invariante: el flujo es claim → WSAA → último autorizado → reserve_arca_number
--- (claimed → number_reserved) → mark_arca_attempt_sent → FECAESolicitar. Un
--- intento 'claimed' con numero_intentado NULL y sent_at NULL nunca envió nada.
--- Sólo ESE estado se libera o recupera. number_reserved, sent y
--- pending_reconciliation NUNCA se liberan acá.
+-- (claimed → number_reserved) → mark_arca_attempt_sent → FECAESolicitar. Un intento
+-- sólo puede abandonarse automáticamente si TODO esto es cierto:
+--     status = 'claimed' AND numero_intentado IS NULL AND sent_at IS NULL
+--     AND started_at anterior al umbral (10 minutos, por encima de la vida máxima
+--     de una invocación Edge)
+-- El invariante rige IGUAL para la recuperación del mismo comprobante y para la
+-- recuperación entre comprobantes; la guarda se repite en el WHERE de cada UPDATE
+-- para que una transición concurrente nunca se pise. number_reserved, sent,
+-- pending_reconciliation y cualquier 'claimed' con número o sent_at NUNCA se liberan.
 --
 -- 1. release_arca_presend_claim: afip-cae libera su propio claim si falla antes
---    de reservar. Sólo service_role.
--- 2. claim_comprobante_arca_emission: si la serie está ocupada por un claim ajeno
---    pre-envío con más de 10 minutos (por encima de la vida máxima de una
---    invocación Edge), lo recupera y reintenta el INSERT una vez. El resto de la
---    lógica es idéntica a la definición de producción; sólo se endurece el
---    search_path (pg_catalog, pg_temp) y se califican las referencias, como el
---    resto de las SECURITY DEFINER del proyecto.
+--    de reservar. Sólo service_role. (No usa umbral: el llamador es el dueño vivo.)
+-- 2. claim_comprobante_arca_emission: misma lógica de producción, con (a) la
+--    recuperación del mismo comprobante endurecida al invariante (antes: 'claimed'
+--    y 2 minutos, sin mirar número ni sent_at) y (b) recuperación de un claim ajeno
+--    pre-envío viejo. search_path endurecido (pg_catalog, pg_temp) y referencias
+--    calificadas, como el resto de las SECURITY DEFINER del proyecto.
 --
--- Cinturón adicional (en afip-cae): nunca se envía sin reserva confirmada, así que
--- una invocación rezagada cuyo claim fue recuperado no puede llegar a ARCA:
--- reserve_arca_number exige status = 'claimed'.
+-- Orden de despliegue (ver PR): afip-cae v21 PRIMERO (nunca envía sin reserva
+-- confirmada y tolera que esta RPC todavía no exista), recién después esta
+-- migración. Así la recuperación nueva nunca convive con v20.
 -- ============================================================================
 BEGIN;
 
@@ -70,6 +74,9 @@ SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $$
 DECLARE
+  -- Umbral único para toda recuperación automática: mayor que la vida máxima de
+  -- una invocación Edge, así un claim vivo nunca se toma por abandonado.
+  c_stale_after      constant interval := interval '10 minutes';
   v_comp             public.comprobantes%ROWTYPE;
   v_has_access       boolean := false;
   v_tipo_comprobante integer;
@@ -152,24 +159,37 @@ BEGIN
       ORDER BY started_at DESC LIMIT 1;
 
     IF FOUND THEN
-      IF v_existing_mine.status = 'claimed' AND v_existing_mine.started_at < now() - INTERVAL '2 minutes' THEN
+      -- P0-ARCA-B: mismo invariante que la recuperación de la serie. Un claim con
+      -- número o con sent_at (p. ej. un pending_reconciliation retomado) nunca se
+      -- abandona solo: queda para conciliar.
+      IF v_existing_mine.status = 'claimed'
+         AND v_existing_mine.numero_intentado IS NULL AND v_existing_mine.sent_at IS NULL
+         AND v_existing_mine.started_at < now() - c_stale_after THEN
         UPDATE public.arca_emission_attempts
-          SET status = 'abandoned', completed_at = now(), updated_at = now()
-          WHERE id = v_existing_mine.id AND status = 'claimed';
+           SET status        = 'abandoned',
+               completed_at  = now(),
+               updated_at    = now(),
+               error_mensaje = 'stale pre-send claim recovered by the same comprobante'
+         WHERE id = v_existing_mine.id
+           AND status = 'claimed'
+           AND numero_intentado IS NULL
+           AND sent_at IS NULL;
 
-        BEGIN
-          INSERT INTO public.arca_emission_attempts (
-            comprobante_id, business_id, correlation_id,
-            ambiente, cuit_emisor, punto_venta, tipo_comprobante, status
-          ) VALUES (
-            p_comprobante_id, v_comp.business_id, p_correlation_id,
-            v_ambiente, v_cuit, v_punto_venta, v_tipo_comprobante, 'claimed'
-          ) RETURNING id INTO v_attempt_id;
+        IF FOUND THEN
+          BEGIN
+            INSERT INTO public.arca_emission_attempts (
+              comprobante_id, business_id, correlation_id,
+              ambiente, cuit_emisor, punto_venta, tipo_comprobante, status
+            ) VALUES (
+              p_comprobante_id, v_comp.business_id, p_correlation_id,
+              v_ambiente, v_cuit, v_punto_venta, v_tipo_comprobante, 'claimed'
+            ) RETURNING id INTO v_attempt_id;
 
-          RETURN jsonb_build_object('result', 'acquired', 'attempt_id', v_attempt_id, 'recovered_abandoned_attempt', true);
-        EXCEPTION WHEN unique_violation THEN
-          RETURN jsonb_build_object('result', 'already_in_progress');
-        END;
+            RETURN jsonb_build_object('result', 'acquired', 'attempt_id', v_attempt_id, 'recovered_abandoned_attempt', true);
+          EXCEPTION WHEN unique_violation THEN
+            RETURN jsonb_build_object('result', 'already_in_progress');
+          END;
+        END IF;
       END IF;
 
       RETURN jsonb_build_object(
@@ -187,13 +207,10 @@ BEGIN
         AND comprobante_id <> p_comprobante_id
       ORDER BY started_at DESC LIMIT 1;
 
-    -- P0-ARCA-B: claim ajeno que provablemente nunca salió hacia ARCA (claimed,
-    -- sin número, sin sent_at) y lleva más de 10 minutos: se recupera. La misma
-    -- guarda va en el WHERE, así que dos recuperaciones concurrentes no pisan un
-    -- estado que haya avanzado entre el SELECT y el UPDATE.
+    -- P0-ARCA-B: claim ajeno que provablemente nunca salió hacia ARCA: se recupera.
     IF FOUND AND v_existing_serie.status = 'claimed'
        AND v_existing_serie.numero_intentado IS NULL AND v_existing_serie.sent_at IS NULL
-       AND v_existing_serie.started_at < now() - INTERVAL '10 minutes' THEN
+       AND v_existing_serie.started_at < now() - c_stale_after THEN
       UPDATE public.arca_emission_attempts
          SET status        = 'abandoned',
              completed_at  = now(),
@@ -251,6 +268,10 @@ BEGIN
   IF has_function_privilege('anon', 'public.claim_comprobante_arca_emission(uuid,text)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.claim_comprobante_arca_emission(uuid,text)', 'EXECUTE') THEN
     RAISE EXCEPTION 'P0-ARCA-B: claim_comprobante_arca_emission grants changed';
+  END IF;
+  IF (SELECT proconfig FROM pg_proc WHERE oid = 'public.claim_comprobante_arca_emission(uuid,text)'::regprocedure)
+     IS DISTINCT FROM ARRAY['search_path=pg_catalog, pg_temp'] THEN
+    RAISE EXCEPTION 'P0-ARCA-B: claim_comprobante_arca_emission search_path not hardened';
   END IF;
 END;
 $postconditions$;

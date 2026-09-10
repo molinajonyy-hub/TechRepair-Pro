@@ -1,6 +1,7 @@
 -- ============================================================================
 -- P0-ARCA-B — recuperación de claims pre-envío (candidata 20260926120000).
 -- Aplica la migración candidata DENTRO de la tx del test y termina en ROLLBACK.
+-- Concurrencia real (dos sesiones): scripts/security/p0-arca-b-concurrency.mjs.
 --
 -- RUN (desde la raíz del repo, stack local techrepair-vite):
 --   docker cp supabase/migrations/20260926120000_p0_arca_presend_claim_recovery.sql supabase_db_techrepair-vite:/tmp/p0b_raw.sql
@@ -79,86 +80,147 @@ CREATE OR REPLACE FUNCTION pg_temp.live() RETURNS bigint LANGUAGE sql AS
   $$ SELECT count(*) FROM public.arca_emission_attempts
      WHERE business_id = '00000000-0000-0000-0000-0000009b0101'
        AND status IN ('claimed','number_reserved','sent','pending_reconciliation') $$;
+-- Una fila sigue exactamente como se sembró (status, número, sent_at, sin completar).
+CREATE OR REPLACE FUNCTION pg_temp.untouched(p_id uuid, p_status text, p_numero int, p_sent boolean) RETURNS boolean LANGUAGE sql AS
+  $$ SELECT status = p_status AND numero_intentado IS NOT DISTINCT FROM p_numero
+            AND (sent_at IS NOT NULL) = p_sent AND completed_at IS NULL
+     FROM public.arca_emission_attempts WHERE id = p_id $$;
 
--- ── S1: claim ajeno pre-envío, viejo (>10 min) → se recupera ────────────────
+SELECT pg_temp.assert(
+  (SELECT proconfig FROM pg_proc WHERE oid = 'public.claim_comprobante_arca_emission(uuid,text)'::regprocedure)
+    = ARRAY['search_path=pg_catalog, pg_temp'], 'M0 claim: search_path endurecido');
+
+-- ═══════════════ SAME-COMPROBANTE SAFETY ═══════════════════════════════════
+-- SC-A: claimed, sin número, sin sent_at, < 10 min → already_in_progress, intacto
+SELECT pg_temp.seed(:'C1', 'claimed', NULL, false, '3 minutes') AS s \gset
+SELECT pg_temp.claim_as(:'OWN', :'C1') AS r \gset
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'already_in_progress' AND pg_temp.untouched(:'s', 'claimed', NULL, false),
+  'SC-A mismo comprobante, pre-envío, 3 min -> already_in_progress, intacto');
+SELECT pg_temp.seed(:'C1', 'claimed', NULL, false, '9 minutes') AS s \gset
+SELECT pg_temp.claim_as(:'OWN', :'C1') AS r \gset
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'already_in_progress' AND pg_temp.untouched(:'s', 'claimed', NULL, false),
+  'SC-A2 9 min (antes se abandonaba a los 2) -> already_in_progress, intacto');
+
+-- SC-B: claimed, sin número, sin sent_at, > 10 min → abandonado y recuperado
+SELECT pg_temp.seed(:'C1', 'claimed', NULL, false, '11 minutes') AS s \gset
+SELECT pg_temp.claim_as(:'OWN', :'C1') AS r \gset
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'acquired' AND ((:'r'::jsonb)->>'recovered_abandoned_attempt')::boolean
+  AND pg_temp.st(:'s') = 'abandoned' AND pg_temp.live() = 1, 'SC-B mismo comprobante, pre-envío, 11 min -> recuperado, un vivo');
+SELECT pg_temp.assert((SELECT error_mensaje = 'stale pre-send claim recovered by the same comprobante' AND completed_at IS NOT NULL
+  FROM arca_emission_attempts WHERE id = :'s'), 'SC-B2 la recuperación queda trazada');
+
+-- SC-C: claimed CON número, sin sent_at, > 10 min → NUNCA
+SELECT pg_temp.seed(:'C1', 'claimed', 5, false, '11 minutes') AS s \gset
+SELECT pg_temp.claim_as(:'OWN', :'C1') AS r \gset
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'already_in_progress' AND pg_temp.untouched(:'s', 'claimed', 5, false),
+  'SC-C mismo comprobante, claimed con número -> nunca abandonado');
+
+-- SC-D: claimed sin número, CON sent_at, > 10 min → NUNCA
+SELECT pg_temp.seed(:'C1', 'claimed', NULL, true, '11 minutes') AS s \gset
+SELECT pg_temp.claim_as(:'OWN', :'C1') AS r \gset
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'already_in_progress' AND pg_temp.untouched(:'s', 'claimed', NULL, true),
+  'SC-D mismo comprobante, claimed con sent_at -> nunca abandonado');
+
+-- SC-E: claimed con número Y sent_at (p. ej. pending retomado), > 10 min → NUNCA
+SELECT pg_temp.seed(:'C1', 'claimed', 5, true, '11 minutes') AS s \gset
+SELECT pg_temp.claim_as(:'OWN', :'C1') AS r \gset
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'already_in_progress' AND pg_temp.untouched(:'s', 'claimed', 5, true),
+  'SC-E mismo comprobante, claimed con número y sent_at -> nunca abandonado');
+
+-- SC-F: number_reserved / sent propios, viejos → already_in_progress, intactos
+SELECT pg_temp.seed(:'C1', 'number_reserved', 5, false, '1 day') AS s \gset
+SELECT pg_temp.claim_as(:'OWN', :'C1') AS r \gset
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'already_in_progress' AND pg_temp.untouched(:'s', 'number_reserved', 5, false),
+  'SC-F1 mismo comprobante, number_reserved -> intacto');
+SELECT pg_temp.seed(:'C1', 'sent', 5, true, '1 day') AS s \gset
+SELECT pg_temp.claim_as(:'OWN', :'C1') AS r \gset
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'already_in_progress' AND pg_temp.untouched(:'s', 'sent', 5, true),
+  'SC-F2 mismo comprobante, sent -> intacto');
+
+-- SC-G: pending_reconciliation propio → se retoma para conciliar (comportamiento previo)
+SELECT pg_temp.seed(:'C1', 'pending_reconciliation', 5, true, '1 day') AS s \gset
+SELECT pg_temp.claim_as(:'OWN', :'C1') AS r \gset
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'acquired' AND ((:'r'::jsonb)->>'reconciliation_pending')::boolean
+  AND (:'r'::jsonb)->>'attempt_id' = :'s' AND pg_temp.st(:'s') = 'claimed'
+  AND (SELECT numero_intentado = 5 AND sent_at IS NOT NULL FROM arca_emission_attempts WHERE id = :'s'),
+  'SC-G pending_reconciliation propio -> retomado con su número (sin cambio)');
+
+-- ═══════════════ CROSS-COMPROBANTE SAFETY ══════════════════════════════════
+-- X1: claim ajeno pre-envío, > 10 min → recuperado
 SELECT pg_temp.seed(:'C1', 'claimed', NULL, false, '11 minutes') AS s1 \gset
 SELECT pg_temp.claim_as(:'OWN', :'C2') AS r \gset
 SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'acquired' AND ((:'r'::jsonb)->>'recovered_stale_serie_claim')::boolean
-  AND (:'r'::jsonb)->>'recovered_attempt_id' = :'s1', 'S1 claim ajeno sin número ni envío, >10 min -> recuperado, C2 adquiere');
-SELECT pg_temp.assert(pg_temp.st(:'s1') = 'abandoned', 'S1b el intento viejo queda abandoned');
-SELECT pg_temp.assert((SELECT error_mensaje LIKE 'stale pre-send claim recovered by comprobante %' AND completed_at IS NOT NULL
-  FROM arca_emission_attempts WHERE id = :'s1'), 'S1c la recuperación queda trazada');
-SELECT pg_temp.assert(pg_temp.live() = 1, 'S1d un solo intento vivo en la serie');
+  AND (:'r'::jsonb)->>'recovered_attempt_id' = :'s1', 'X1 claim ajeno pre-envío >10 min -> recuperado, C2 adquiere');
+SELECT pg_temp.assert(pg_temp.st(:'s1') = 'abandoned'
+  AND (SELECT error_mensaje LIKE 'stale pre-send claim recovered by comprobante %' AND completed_at IS NOT NULL
+       FROM arca_emission_attempts WHERE id = :'s1'), 'X1b abandonado con traza');
+SELECT pg_temp.assert(pg_temp.live() = 1, 'X1c un solo intento vivo en la serie');
 SELECT pg_temp.claim_as(:'OWN', :'C2') AS r \gset
-SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'already_in_progress', 'S1e C2 otra vez -> already_in_progress (idempotente)');
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'already_in_progress', 'X1d C2 otra vez -> already_in_progress (idempotente)');
 SELECT pg_temp.claim_as(:'OWN', :'C3') AS r \gset
-SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'serie_ocupada', 'S1f C3 mientras C2 está vivo y fresco -> serie_ocupada');
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'serie_ocupada' AND pg_temp.live() = 1, 'X1e C3 mientras C2 vive -> serie_ocupada, un vivo');
 
--- ── S2..S6: estados que NUNCA se recuperan desde otro comprobante ───────────
+-- X2..X8: estados ajenos que NUNCA se recuperan
 SELECT pg_temp.seed(:'C1', 'claimed', NULL, false, '3 minutes') AS s \gset
 SELECT pg_temp.claim_as(:'OWN', :'C2') AS r \gset
-SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'serie_ocupada' AND pg_temp.st(:'s') = 'claimed', 'S2 claim ajeno fresco (3 min) -> serie_ocupada, intacto');
-
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'serie_ocupada' AND pg_temp.untouched(:'s', 'claimed', NULL, false), 'X2 ajeno fresco (3 min) -> intacto');
 SELECT pg_temp.seed(:'C1', 'number_reserved', 5, false, '1 day') AS s \gset
 SELECT pg_temp.claim_as(:'OWN', :'C2') AS r \gset
-SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'serie_ocupada' AND pg_temp.st(:'s') = 'number_reserved', 'S3 number_reserved viejo -> nunca se libera');
-
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'serie_ocupada' AND pg_temp.untouched(:'s', 'number_reserved', 5, false), 'X3 ajeno number_reserved -> intacto');
 SELECT pg_temp.seed(:'C1', 'sent', 5, true, '1 day') AS s \gset
 SELECT pg_temp.claim_as(:'OWN', :'C2') AS r \gset
-SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'serie_ocupada' AND pg_temp.st(:'s') = 'sent', 'S4 sent viejo -> nunca se libera');
-
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'serie_ocupada' AND pg_temp.untouched(:'s', 'sent', 5, true), 'X4 ajeno sent -> intacto');
 SELECT pg_temp.seed(:'C1', 'pending_reconciliation', 5, true, '1 day') AS s \gset
 SELECT pg_temp.claim_as(:'OWN', :'C2') AS r \gset
-SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'serie_ocupada' AND pg_temp.st(:'s') = 'pending_reconciliation', 'S5 pending_reconciliation -> se retiene para conciliar');
-
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'serie_ocupada' AND pg_temp.untouched(:'s', 'pending_reconciliation', 5, true), 'X5 ajeno pending_reconciliation -> retenido');
 SELECT pg_temp.seed(:'C1', 'claimed', 5, false, '1 day') AS s \gset
 SELECT pg_temp.claim_as(:'OWN', :'C2') AS r \gset
-SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'serie_ocupada' AND pg_temp.st(:'s') = 'claimed', 'S6 claimed CON número (defensivo) -> nunca se libera');
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'serie_ocupada' AND pg_temp.untouched(:'s', 'claimed', 5, false), 'X6 ajeno claimed con número -> intacto');
+SELECT pg_temp.seed(:'C1', 'claimed', NULL, true, '1 day') AS s \gset
+SELECT pg_temp.claim_as(:'OWN', :'C2') AS r \gset
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'serie_ocupada' AND pg_temp.untouched(:'s', 'claimed', NULL, true), 'X7 ajeno claimed con sent_at -> intacto');
+SELECT pg_temp.seed(:'C1', 'claimed', 5, true, '1 day') AS s \gset
+SELECT pg_temp.claim_as(:'OWN', :'C2') AS r \gset
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'serie_ocupada' AND pg_temp.untouched(:'s', 'claimed', 5, true), 'X8 ajeno claimed con número y sent_at -> intacto');
 
--- ── S7/S8: mismo comprobante, comportamiento previo preservado ──────────────
-SELECT pg_temp.seed(:'C1', 'claimed', NULL, false, '3 minutes') AS s \gset
-SELECT pg_temp.claim_as(:'OWN', :'C1') AS r \gset
-SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'acquired' AND ((:'r'::jsonb)->>'recovered_abandoned_attempt')::boolean
-  AND pg_temp.st(:'s') = 'abandoned' AND pg_temp.live() = 1, 'S7 mismo comprobante, claim propio >2 min -> recuperación existente intacta');
-
-SELECT pg_temp.seed(:'C1', 'claimed', NULL, false, '30 seconds') AS s \gset
-SELECT pg_temp.claim_as(:'OWN', :'C1') AS r \gset
-SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'already_in_progress' AND pg_temp.st(:'s') = 'claimed', 'S8 mismo comprobante, claim propio fresco -> already_in_progress');
-
--- ── S9: release_arca_presend_claim sólo actúa sobre el estado pre-envío ──────
+-- ═══════════════ RELEASE RPC (afip-cae) ════════════════════════════════════
 SELECT pg_temp.seed(:'C1', 'claimed', NULL, false, '0 seconds') AS s \gset
 SELECT pg_temp.svc('release', :'s') AS r \gset
 SELECT pg_temp.assert(((:'r'::jsonb)->>'released')::boolean AND pg_temp.st(:'s') = 'abandoned'
-  AND (SELECT error_mensaje = 'pre-send claim released: test' FROM arca_emission_attempts WHERE id = :'s'), 'S9 claimed sin número ni envío -> liberado y trazado');
+  AND (SELECT error_mensaje = 'pre-send claim released: test' FROM arca_emission_attempts WHERE id = :'s'), 'R1 claimed pre-envío -> liberado y trazado');
+SELECT pg_temp.seed(:'C1', 'claimed', 5, false, '0 seconds') AS s \gset
+SELECT pg_temp.svc('release', :'s') AS r \gset
+SELECT pg_temp.assert(NOT ((:'r'::jsonb)->>'released')::boolean AND pg_temp.untouched(:'s', 'claimed', 5, false), 'R2 claimed con número -> no se libera');
+SELECT pg_temp.seed(:'C1', 'claimed', NULL, true, '0 seconds') AS s \gset
+SELECT pg_temp.svc('release', :'s') AS r \gset
+SELECT pg_temp.assert(NOT ((:'r'::jsonb)->>'released')::boolean AND pg_temp.untouched(:'s', 'claimed', NULL, true), 'R3 claimed con sent_at -> no se libera');
 SELECT pg_temp.seed(:'C1', 'number_reserved', 5, false, '0 seconds') AS s \gset
 SELECT pg_temp.svc('release', :'s') AS r \gset
-SELECT pg_temp.assert(NOT ((:'r'::jsonb)->>'released')::boolean AND pg_temp.st(:'s') = 'number_reserved', 'S9b number_reserved -> no se libera');
+SELECT pg_temp.assert(NOT ((:'r'::jsonb)->>'released')::boolean AND pg_temp.untouched(:'s', 'number_reserved', 5, false), 'R4 number_reserved -> no se libera');
 SELECT pg_temp.seed(:'C1', 'sent', 5, true, '0 seconds') AS s \gset
 SELECT pg_temp.svc('release', :'s') AS r \gset
-SELECT pg_temp.assert(NOT ((:'r'::jsonb)->>'released')::boolean AND pg_temp.st(:'s') = 'sent', 'S9c sent -> no se libera');
+SELECT pg_temp.assert(NOT ((:'r'::jsonb)->>'released')::boolean AND pg_temp.untouched(:'s', 'sent', 5, true), 'R5 sent -> no se libera');
 SELECT pg_temp.seed(:'C1', 'pending_reconciliation', 5, true, '0 seconds') AS s \gset
 SELECT pg_temp.svc('release', :'s') AS r \gset
-SELECT pg_temp.assert(NOT ((:'r'::jsonb)->>'released')::boolean AND pg_temp.st(:'s') = 'pending_reconciliation', 'S9d pending_reconciliation -> no se libera');
+SELECT pg_temp.assert(NOT ((:'r'::jsonb)->>'released')::boolean AND pg_temp.untouched(:'s', 'pending_reconciliation', 5, true), 'R6 pending_reconciliation -> no se libera');
 
--- ── S10: una invocación rezagada no puede avanzar un claim liberado ─────────
+-- Z: una invocación rezagada no puede avanzar un claim liberado
 SELECT pg_temp.seed(:'C1', 'claimed', NULL, false, '0 seconds') AS s \gset
 SELECT pg_temp.svc('release', :'s') AS r \gset
 SELECT pg_temp.svc('reserve', :'s') AS r \gset
-SELECT pg_temp.assert(NOT ((:'r'::jsonb)->>'success')::boolean, 'S10 reserva sobre un claim liberado -> rechazada');
+SELECT pg_temp.assert(NOT ((:'r'::jsonb)->>'success')::boolean, 'Z1 reserva sobre un claim liberado -> rechazada');
 SELECT pg_temp.svc('mark_sent', :'s') AS r \gset
 SELECT pg_temp.assert(NOT ((:'r'::jsonb)->>'success')::boolean AND pg_temp.st(:'s') = 'abandoned'
-  AND (SELECT numero_intentado IS NULL FROM arca_emission_attempts WHERE id = :'s'), 'S10b marca de envío rechazada, sin número');
+  AND (SELECT numero_intentado IS NULL FROM arca_emission_attempts WHERE id = :'s'), 'Z2 marca de envío rechazada, sin número');
 
--- ── S11: permisos ───────────────────────────────────────────────────────────
+-- P: permisos
 SELECT pg_temp.assert(NOT has_function_privilege('authenticated', 'public.release_arca_presend_claim(uuid,text)', 'EXECUTE')
   AND NOT has_function_privilege('anon', 'public.release_arca_presend_claim(uuid,text)', 'EXECUTE')
-  AND has_function_privilege('service_role', 'public.release_arca_presend_claim(uuid,text)', 'EXECUTE'), 'S11 release: sólo service_role');
+  AND has_function_privilege('service_role', 'public.release_arca_presend_claim(uuid,text)', 'EXECUTE'), 'P1 release: sólo service_role');
 SELECT pg_temp.assert(has_function_privilege('authenticated', 'public.claim_comprobante_arca_emission(uuid,text)', 'EXECUTE')
-  AND NOT has_function_privilege('anon', 'public.claim_comprobante_arca_emission(uuid,text)', 'EXECUTE'), 'S11b claim: grants sin cambio');
-
--- ── S12: un no miembro no ve ni recupera nada ───────────────────────────────
+  AND NOT has_function_privilege('anon', 'public.claim_comprobante_arca_emission(uuid,text)', 'EXECUTE'), 'P2 claim: grants sin cambio');
 SELECT pg_temp.seed(:'C1', 'claimed', NULL, false, '11 minutes') AS s \gset
 SELECT pg_temp.claim_as('00000000-0000-0000-0000-0000009b0999', :'C2') AS r \gset
-SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'not_found' AND pg_temp.st(:'s') = 'claimed', 'S12 no miembro -> not_found, el claim viejo queda intacto');
+SELECT pg_temp.assert((:'r'::jsonb)->>'result' = 'not_found' AND pg_temp.untouched(:'s', 'claimed', NULL, false), 'P3 no miembro -> not_found, nada recuperado');
 
 ROLLBACK;
