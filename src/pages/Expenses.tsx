@@ -20,6 +20,7 @@ import {
 import { suppliersService, type CreatePurchaseInput } from '../services/suppliersService'
 import { purchasePayloadHash, resolvePurchaseKey } from '../utils/purchaseIdempotency'
 import { financeErrorMessage } from '../lib/financeErrors'
+import { expenseCategoryKey, expenseFinanceType } from '../lib/expenseFinanceType'
 import { ProductFormModalSafe as ProductFormModal } from '../components/products/ProductFormModal'
 import type { InventoryItem } from '../hooks/useInventory'
 
@@ -345,9 +346,10 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
     if (!cajaIsOpen) { setError('No hay caja abierta. Abrí caja antes de registrar gastos.'); return }
     setSaving(true); setError('')
     try {
-      const catKey = categoria.toLowerCase().split(' ')[0]
-      const financeTypeMap: Record<string, string> = { inventario: 'variable_cost', sueldos: 'salary', impuestos: 'taxes' }
-      const financeType = financeTypeMap[catKey] || 'fixed_cost_local'
+      const catKey = expenseCategoryKey(categoria)
+      // El tipo BFE sale de un helper acotado al CHECK de la DB: el mapa inline
+      // mandaba para "Impuestos" un tipo inexistente y la RPC fallaba con INTERNAL_ERROR.
+      const financeType = expenseFinanceType(catKey)
 
       // M7 7D.3 — Key durable por INTENCIÓN de gasto, no por clic.
       //
