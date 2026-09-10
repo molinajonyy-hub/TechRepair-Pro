@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
 import {
-  authorizeArcaCaller, configuredServiceCredentials, type ArcaUserClient,
+  authorizeArcaCaller, configuredServiceCredentials, serverCredentialClass, type ArcaUserClient,
 } from '../../supabase/functions/_shared/arcaAuthorization.ts'
 import { withWsaaAuthorization } from '../../supabase/functions/afip-wsaa/authorizationBoundary.ts'
 import { evaluarPreEnvio } from '../../supabase/functions/afip-cae/preSend.ts'
@@ -11,14 +11,21 @@ import { evaluarPreEnvio } from '../../supabase/functions/afip-cae/preSend.ts'
 const BUSINESS_A = '00000000-0000-4000-8000-000000000001'
 const BUSINESS_B = '00000000-0000-4000-8000-000000000002'
 const USER = '00000000-0000-4000-8000-000000000003'
-const SERVICE = 'synthetic-internal-credential-not-a-real-key'
 // P0-ARCA-A: production injects the secret API key (sb_secret_*, not a JWT) as
-// SUPABASE_SERVICE_ROLE_KEY. Synthetic values with the same shapes:
+// SUPABASE_SERVICE_ROLE_KEY. Synthetic values with the documented shapes:
+const SERVICE = `sb_secret_${'I'.repeat(22)}_abcd1234`
 const SECRET_KEY = `sb_secret_${'S'.repeat(22)}_abcd1234`
 const PUBLISHABLE_KEY = `sb_publishable_${'P'.repeat(22)}_abcd1234`
 const b64u = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url')
-const LEGACY_SERVICE_JWT = `${b64u({ alg: 'HS256', typ: 'JWT' })}.${b64u({ iss: 'supabase', ref: 'syntheticref', role: 'service_role' })}.${'x'.repeat(43)}`
-const PLATFORM_JWT = `${b64u({ alg: 'ES256', typ: 'JWT' })}.${b64u({ role: 'service_role' })}.${'y'.repeat(86)}`
+const jwt = (header: unknown, payload: unknown, signature: string) => `${b64u(header)}.${b64u(payload)}.${signature}`
+const HS256 = { alg: 'HS256', typ: 'JWT' }
+const LEGACY_SERVICE_JWT = jwt(HS256, { iss: 'supabase', ref: 'syntheticref', role: 'service_role' }, 'x'.repeat(43))
+const FORGED_SERVICE_JWT = jwt(HS256, { iss: 'supabase', ref: 'syntheticref', role: 'service_role' }, 'z'.repeat(43))
+const ANON_JWT = jwt(HS256, { iss: 'supabase', ref: 'syntheticref', role: 'anon' }, 'a'.repeat(43))
+const USER_JWT = jwt(HS256, { sub: USER, role: 'authenticated', aud: 'authenticated' }, 'u'.repeat(43))
+const NONE_ALG_SERVICE_JWT = jwt({ alg: 'none', typ: 'JWT' }, { role: 'service_role' }, 'n'.repeat(10))
+const PLATFORM_JWT = jwt({ alg: 'ES256', typ: 'JWT' }, { role: 'service_role' }, 'y'.repeat(86))
+const ARBITRARY_64 = 'k'.repeat(64)
 
 function fixture(options: {
   role?: string; active?: boolean; capability?: boolean; identityValid?: boolean
@@ -87,7 +94,7 @@ for (const business of [BUSINESS_A, BUSINESS_B]) {
 }
 
 test('invalid JWT or forged service-role claim cannot use the internal path', async () => {
-  for (const token of ['invalid-jwt', 'synthetic.jwt-with-service-role-claim.signature', LEGACY_SERVICE_JWT, PLATFORM_JWT]) {
+  for (const token of ['invalid-jwt', 'synthetic.jwt-with-service-role-claim.signature', LEGACY_SERVICE_JWT, PLATFORM_JWT, FORGED_SERVICE_JWT]) {
     const f = fixture({ identityValid: false })
     const response = await f.request(`Bearer ${token}`, { business_id: BUSINESS_B })
     assert.equal(response.status, 401)
@@ -376,4 +383,48 @@ test('afip-cae supabase client with an sb_secret key reaches the internal WSAA p
   assert.equal(error, null)
   assert.equal(data.token, 'synthetic-ticket')
   assert.deepEqual(f.identityReads, [])
+})
+
+// ── Review hardening: explicit server-credential classes, fail closed ─────────
+
+test('credential classes: only sb_secret keys and structural service_role JWTs qualify', () => {
+  assert.equal(serverCredentialClass(SECRET_KEY), 'secret_key')
+  assert.equal(serverCredentialClass(LEGACY_SERVICE_JWT), 'legacy_service_role_jwt')
+  for (const value of [
+    PUBLISHABLE_KEY, ANON_JWT, USER_JWT, NONE_ALG_SERVICE_JWT, ARBITRARY_64, '', 'short',
+    'aaa.bbb.ccc', `${LEGACY_SERVICE_JWT}.extra`, `sb_secret_${'S'.repeat(21)}_abcd1234`,
+    `sb_secret_${'S'.repeat(22)}_abcd123!`, `SB_SECRET_${'S'.repeat(22)}_abcd1234`,
+  ]) {
+    assert.equal(serverCredentialClass(value), null, value.slice(0, 24))
+  }
+})
+
+test('miswired SUPABASE_SERVICE_ROLE_KEY is discarded: publishable, anon JWT, user JWT, arbitrary 64 chars', () => {
+  const env = (value: string) => ({ get: (name: string) => (name === 'SUPABASE_SERVICE_ROLE_KEY' ? value : undefined) })
+  for (const value of [PUBLISHABLE_KEY, ANON_JWT, USER_JWT, ARBITRARY_64, NONE_ALG_SERVICE_JWT, 'aaa.bbb.ccc']) {
+    assert.deepEqual(configuredServiceCredentials(env(value)), [], value.slice(0, 24))
+  }
+  assert.deepEqual(configuredServiceCredentials({ get: (name: string) => (name === 'SUPABASE_SECRET_KEYS'
+    ? JSON.stringify({ default: SECRET_KEY, pub: PUBLISHABLE_KEY, anon: ANON_JWT, junk: ARBITRARY_64 }) : undefined) }), [SECRET_KEY])
+})
+
+test('a public or arbitrary value configured as server credential never opens internal mode, even if presented exactly', async () => {
+  for (const miswired of [PUBLISHABLE_KEY, ANON_JWT, USER_JWT, ARBITRARY_64]) {
+    const f = fixture({ identityValid: false, serviceCredentials: [miswired] })
+    const response = await f.request(`Bearer ${miswired}`, { business_id: BUSINESS_A }, { apikey: miswired })
+    assert.equal(response.status, 401, miswired.slice(0, 24))
+    assert.deepEqual(f.effects, [])
+    assert.ok(f.identityReads.includes('getUser'), 'fell to the user path')
+  }
+})
+
+test('forged service_role JWT not matching the configured value is rejected; the exact configured legacy JWT is internal', async () => {
+  const forged = fixture({ identityValid: false, serviceCredentials: [LEGACY_SERVICE_JWT] })
+  assert.equal((await forged.request(`Bearer ${FORGED_SERVICE_JWT}`, { business_id: BUSINESS_A }, { apikey: FORGED_SERVICE_JWT })).status, 401)
+  assert.deepEqual(forged.effects, [])
+  const exact = fixture({ identityValid: false, serviceCredentials: [LEGACY_SERVICE_JWT] })
+  const response = await exact.request(`Bearer ${LEGACY_SERVICE_JWT}`, { business_id: BUSINESS_A })
+  assert.equal(response.status, 200)
+  assert.equal((await response.json()).token, 'synthetic-ticket')
+  assert.deepEqual(exact.identityReads, [])
 })
