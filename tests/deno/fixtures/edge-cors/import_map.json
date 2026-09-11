@@ -1,0 +1,7 @@
+{
+  "imports": {
+    "https://deno.land/std@0.177.0/http/server.ts": "./serve_stub.ts",
+    "https://esm.sh/@supabase/supabase-js@2": "./supabase_stub.ts",
+    "npm:node-forge@1.3.1": "./forge_stub.ts"
+  }
+}

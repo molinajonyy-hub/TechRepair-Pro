@@ -14,10 +14,13 @@
  */
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
+import { BROWSER_EDGE_REQUEST_HEADERS } from '../_shared/clientContract.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  // The official web client's full header set, so the browser reaches the
+  // sanitized 503 below instead of failing the preflight.
+  'Access-Control-Allow-Headers': BROWSER_EDGE_REQUEST_HEADERS.join(', '),
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 

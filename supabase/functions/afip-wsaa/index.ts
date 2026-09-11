@@ -10,8 +10,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 // @ts-ignore: node-forge en Deno via npm
 import forge from 'npm:node-forge@1.3.1'
 import { resolveArcaPrivateKey, WsaaKeyError, type KeySource } from './keyResolver.ts'
-import { authorizeArcaCaller } from '../_shared/arcaAuthorization.ts'
-import { userDataApiHeaders } from '../_shared/clientContract.ts'
+import { authorizeArcaCaller, configuredServiceCredentials } from '../_shared/arcaAuthorization.ts'
+import { BROWSER_CLIENT_METADATA_HEADERS, userDataApiHeaders } from '../_shared/clientContract.ts'
 import { withWsaaAuthorization } from './authorizationBoundary.ts'
 
 // ─────────────────────────────────────────────────────────────────
@@ -61,6 +61,8 @@ const ALLOWED_REQUEST_HEADERS = new Set<string>([
   'content-type',
   'cache-control',
   'pragma',
+  // The official web client's metadata headers. Transport only, never authority.
+  ...BROWSER_CLIENT_METADATA_HEADERS,
 ])
 
 // Fallback for non-preflight responses (where ACAH is ignored by the browser).
@@ -364,7 +366,11 @@ serve(async (req: Request) => {
   return withWsaaAuthorization(req, {
     authorize: () => authorizeArcaCaller(req.headers.get('Authorization'), {
       capability: 'settings_sensitive',
-      serviceRoleKey: supabaseKey,
+      // P0-ARCA-A: afip-cae's supabase client sends the runtime server credential
+      // (today an sb_secret_* key, not a JWT) as Bearer and as apikey. verify_jwt is
+      // off for this function because of that; this exact match is the authority.
+      serviceCredentials: configuredServiceCredentials(Deno.env),
+      presentedApiKey: req.headers.get('apikey'),
       createUserClient: (authorization) => createClient(supabaseUrl, anonKey, {
         global: { headers: userDataApiHeaders(req, authorization) },
         auth: { persistSession: false, autoRefreshToken: false },

@@ -59,6 +59,11 @@ jobs:
       - name: Guard — SEC-08E R2B activation stays canonical
         run: npm run guard:sec08e-r2a:self-test && npm run guard:sec08e-r2b:self-test && npm run guard:sec08e-r2b
 
+      # P0 EDGE CORS: the headers the official client sends must stay allowed by
+      # every browser-called Edge Function preflight (static guard + real SDK capture).
+      - name: Guard — browser Edge CORS contract
+        run: npm run guard:edge-cors-contract:self-test && npm run guard:edge-cors-contract && npm run test:components -- tests/components/edgeCorsClientContract.test.ts
+
       - name: Production build
         run: npm run build
         env:
