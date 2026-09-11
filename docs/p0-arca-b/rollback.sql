@@ -2,16 +2,20 @@
 -- P0-ARCA-B — ROLLBACK de 20260926120000_p0_arca_presend_claim_recovery.sql
 --
 -- ORDEN (inverso al despliegue, sin ventana insegura):
---   1. Con afip-cae v21 TODAVÍA activa, correr este script. v21 tolera que
+--   1. Con el build de afip-cae de P0-ARCA-B (ciclo de vida del claim) TODAVÍA
+--      activo, correr este script. Ese build tolera que
 --      release_arca_presend_claim no exista (su helper devuelve false y lo loguea;
 --      la emisión no depende de esa RPC) y sigue sin enviar nunca sin reserva
---      confirmada, así que v21 + semántica vieja del claim es un estado seguro.
+--      confirmada, así que ese build + semántica vieja del claim es un estado seguro.
 --   2. Verificar: claim_comprobante_arca_emission idéntica a la definición previa
 --      y la RPC de liberación eliminada.
---   3. Recién entonces, si hace falta, volver a desplegar afip-cae v20.
--- NUNCA dejar v20 activa mientras la recuperación entre comprobantes de la
--- migración siga vigente: v20 ignora una reserva fallida y podría enviar con un
--- claim recuperado por otro comprobante.
+--   3. Recién entonces, si hace falta, volver a desplegar el afip-cae previo a
+--      P0-ARCA-B (el de `main` antes del merge de este PR; al 2026-09-11 es la
+--      versión que dejó P0 EDGE CORS #126). Usar números de versión reales del
+--      proyecto, no los de este comentario.
+-- NUNCA dejar el afip-cae previo activo mientras la recuperación entre
+-- comprobantes de la migración siga vigente: ignora una reserva fallida y podría
+-- enviar con un claim recuperado por otro comprobante.
 --
 -- Efecto: claim_comprobante_arca_emission vuelve EXACTAMENTE a la definición de
 -- producción previa (sin recuperación entre comprobantes) y se elimina la RPC de

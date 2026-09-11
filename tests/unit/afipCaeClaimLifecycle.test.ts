@@ -93,10 +93,11 @@ test('reservation RPC throws and the row cannot be read -> unknown', async () =>
   }
 })
 
-// ── v21 against the CURRENT production DB (before migration 20260926120000) ───
-// Real supabase-js client, fake HTTP: proves the rollout order "afip-cae v21
-// first, migration second" is safe. The release RPC does not exist yet; the
-// reservation uses only the existing reserve_arca_number and the attempts table.
+// ── The P0-ARCA-B afip-cae build against the CURRENT production DB ────────────
+// (before migration 20260926120000). Real supabase-js client, fake HTTP: proves
+// the rollout order "this afip-cae build first, migration second" is safe. The
+// release RPC does not exist yet; the reservation uses only the existing
+// reserve_arca_number and the attempts table.
 
 const SECRET = `sb_secret_${'S'.repeat(22)}_abcd1234`
 function httpClient(handler: (path: string, init: RequestInit) => Response) {
@@ -113,7 +114,7 @@ const pgrst202 = () => new Response(JSON.stringify({
   message: 'Could not find the function public.release_arca_presend_claim(p_attempt_id, p_reason) in the schema cache',
 }), { status: 404, headers: { 'content-type': 'application/json' } })
 
-test('v21 on the current DB: the release RPC does not exist yet (PGRST202) -> false, no throw', async () => {
+test('lifecycle build on the current DB: the release RPC does not exist yet (PGRST202) -> false, no throw', async () => {
   const paths: string[] = []
   const client = httpClient((path) => { paths.push(path); return pgrst202() })
   const logs: Record<string, unknown>[] = []
@@ -122,14 +123,14 @@ test('v21 on the current DB: the release RPC does not exist yet (PGRST202) -> fa
   assert.equal(logs[0].classification, 'release_claim_failed')
 })
 
-test('v21 on the current DB: confirmed reservation uses only the existing reserve RPC', async () => {
+test('lifecycle build on the current DB: confirmed reservation uses only the existing reserve RPC', async () => {
   const paths: string[] = []
   const client = httpClient((path) => { paths.push(path); return Response.json({ success: true }) })
   assert.equal(await confirmReservation(client, 'att-1', 175, noLog), 'reserved')
   assert.deepEqual(paths, ['/rest/v1/rpc/reserve_arca_number'])
 })
 
-test('v21 on the current DB: unconfirmed reservation reads the existing attempts table and never reports reserved by mistake', async () => {
+test('lifecycle build on the current DB: unconfirmed reservation reads the existing attempts table and never reports reserved by mistake', async () => {
   for (const [row, expected] of [
     [[{ status: 'abandoned', numero_intentado: null }], 'not_reserved'],
     [[{ status: 'number_reserved', numero_intentado: 175 }], 'reserved'],

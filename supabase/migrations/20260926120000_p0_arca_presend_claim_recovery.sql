@@ -26,9 +26,10 @@
 --    pre-envío viejo. search_path endurecido (pg_catalog, pg_temp) y referencias
 --    calificadas, como el resto de las SECURITY DEFINER del proyecto.
 --
--- Orden de despliegue (ver PR): afip-cae v21 PRIMERO (nunca envía sin reserva
--- confirmada y tolera que esta RPC todavía no exista), recién después esta
--- migración. Así la recuperación nueva nunca convive con v20.
+-- Orden de despliegue (ver PR): el build de afip-cae de P0-ARCA-B PRIMERO (nunca
+-- envía sin reserva confirmada y tolera que esta RPC todavía no exista), recién
+-- después esta migración. Así la recuperación nueva nunca convive con un afip-cae
+-- previo a P0-ARCA-B (que ignora una reserva fallida).
 -- ============================================================================
 BEGIN;
 
