@@ -148,9 +148,54 @@ Deno.test('afip-cae computes CbteFch itself and never trusts fecha_cbte', () => 
   assert(!/fecha_cbte\s*\|\|/.test(src), 'a client date is used as the fiscal date again')
 })
 
-Deno.test('the browser no longer sends a fiscal date', () => {
-  for (const file of ['../../src/services/comprobanteService.ts', '../../src/services/arcaService.ts']) {
-    assert(!/fecha_cbte\s*\??\s*:/.test(code(file)), `${file} sends or declares fecha_cbte`)
+Deno.test('the browser sends an Argentina-date compatibility hint, never its own UTC day', () => {
+  const service = code('../../src/services/comprobanteService.ts')
+  assert(/from '\.\.\/lib\/fiscalCalendar'/.test(service), 'the sale path must use the canonical helper')
+  assert(/fecha_cbte:\s*arcaFiscalDate\(new Date\(\)\)/.test(service), 'the compatibility hint is not the Argentina day')
+  assert(!/toISOString\(\)\s*\.(slice|split|substring)/.test(service), 'a UTC-derived day came back')
+  assert(/fecha_cbte\?:\s*string/.test(code('../../src/services/arcaService.ts')), 'the compatibility field must stay declared')
+})
+
+// ── Rolling-deploy matrix ────────────────────────────────────────────────────
+// Production afip-cae v22 (the "old backend") resolves `fecha_cbte || UTC day`.
+// Reproduced here so every frontend/backend combination is proven, not assumed.
+function legacyBackendCbteFch(now: Date, clientValue: string | undefined): string {
+  return clientValue || now.toISOString().slice(0, 10).replace(/-/g, '')
+}
+
+Deno.test('rollout matrix at 2026-09-11 21:30 ART (UTC is already 12/09)', () => {
+  const now = new Date('2026-09-11T21:30:00-03:00')
+  const ARGENTINA_DAY = '20260911'
+  const UTC_DAY = '20260912'
+  const oldFrontend = now.toISOString().slice(0, 10).replace(/-/g, '')
+  const newFrontend = arcaFiscalDate(now)
+
+  assertEquals(oldFrontend, UTC_DAY)
+  assertEquals(newFrontend, ARGENTINA_DAY)
+
+  // 1) old frontend + old backend: the defect this PR removes. It is NOT fixed
+  //    retroactively; it disappears as soon as either side is deployed.
+  assertEquals(legacyBackendCbteFch(now, oldFrontend), UTC_DAY)
+
+  // 2) old frontend + new backend: the server overrides the stale UTC value.
+  const overridden = resolveCbteFch(now, oldFrontend)
+  assertEquals(overridden.fechaCbte, ARGENTINA_DAY)
+  assertEquals(overridden.client, 'overridden')
+
+  // 3) new frontend + old backend: the hint the old backend trusts is already
+  //    the Argentina day, so a Vercel deploy landing first is safe.
+  assertEquals(legacyBackendCbteFch(now, newFrontend), ARGENTINA_DAY)
+
+  // 4) new frontend + new backend: both agree and the server still decides.
+  const both = resolveCbteFch(now, newFrontend)
+  assertEquals(both.fechaCbte, ARGENTINA_DAY)
+  assertEquals(both.client, 'matches')
+})
+
+Deno.test('the server date is what reaches FECAESolicitar in every client case', () => {
+  const now = new Date('2026-09-11T21:30:00-03:00')
+  for (const clientValue of [undefined, '', '20260912', '20260911', '2026-09-11', 'DROP', 20260911]) {
+    assertEquals(resolveCbteFch(now, clientValue).fechaCbte, '20260911')
   }
 })
 

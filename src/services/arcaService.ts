@@ -292,8 +292,13 @@ export class ArcaService {
       importe_total:     number
       moneda?:           string
       cotizacion_moneda?: number
-      // Sin fecha_cbte: la fecha fiscal (CbteFch) la decide afip-cae con el día
-      // civil argentino. El navegador no tiene autoridad sobre ella.
+      /**
+       * Compatibilidad de despliegue ÚNICAMENTE, en día civil argentino
+       * (`arcaFiscalDate`). Lo usa un afip-cae viejo que todavía no calcula la
+       * fecha fiscal; el afip-cae nuevo la recalcula y la suya manda siempre.
+       * El navegador NO es autoridad sobre CbteFch. Se retira en la Parte 2.
+       */
+      fecha_cbte?:       string
       // Nota de Crédito: referencia al comprobante original (CbtesAsoc)
       cbte_asoc_tipo?:    number
       cbte_asoc_pto_vta?: number
