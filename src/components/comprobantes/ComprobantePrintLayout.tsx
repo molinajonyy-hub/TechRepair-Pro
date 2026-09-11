@@ -14,6 +14,7 @@ import {
   puntoVentaVisibleComprobante,
 } from '../../lib/fiscalDisplay'
 import { formatearFechaCalendario } from '../../lib/fechaCalendario'
+import { formatArgentinaCivilDate } from '../../lib/fiscalCalendar'
 import { resolveBusinessDisplayName } from '../../lib/businessIdentity'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -38,8 +39,9 @@ interface Props {
 const fmt = (v: number, currency: 'ARS' | 'USD' = 'ARS') =>
   new Intl.NumberFormat(currency === 'USD' ? 'en-US' : 'es-AR', { style: 'currency', currency }).format(v)
 
-const fmtFecha = (s: string) =>
-  new Date(s).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+// `comprobante.fecha` es la FECHA DE VENTA (timestamptz), en día civil argentino.
+// No es la fecha fiscal que aceptó ARCA: esa todavía no se persiste.
+const fmtFecha = (s: string) => formatArgentinaCivilDate(new Date(s))
 
 /**
  * Sello fiscal de la HOJA IMPRESA — el artefacto que se lleva el cliente.
@@ -269,7 +271,7 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
         <div className="cpl-doc-meta">
           <p className="cpl-label">Comprobante N°</p>
           <p className="cpl-doc-num">{formatearNumeroComprobante(comprobante)}</p>
-          <p className="cpl-doc-date">{fmtFecha(comprobante.fecha)}</p>
+          <p className="cpl-doc-date">Fecha de venta: {fmtFecha(comprobante.fecha)}</p>
           {puntoVentaVisible && <p className="cpl-muted">Pto. Venta {puntoVentaVisible}</p>}
           {esNumeroInternoFiscal && (
             <p className="cpl-muted">
@@ -306,7 +308,7 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
         <div className="cpl-info-col">
           <p className="cpl-label">Datos del comprobante</p>
           <div className="cpl-info-row">
-            <span className="cpl-muted">Fecha de emisión</span>
+            <span className="cpl-muted">Fecha de venta</span>
             <span className="cpl-info-val">{fmtFecha(comprobante.fecha)}</span>
           </div>
           {orden && (

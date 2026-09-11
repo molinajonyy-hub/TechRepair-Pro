@@ -16,6 +16,7 @@ import { OrderPrintSettings } from '../../hooks/useOrderPrintSettings'
 import { getComprobanteDisplayStatus, type DisplayStatusKey } from '../../utils/comprobanteStatus'
 import { formatearNumeroComprobante, muestraNumeroInternoFiscal } from '../../lib/fiscalDisplay'
 import { formatearFechaCalendario } from '../../lib/fechaCalendario'
+import { formatArgentinaCivilDate } from '../../lib/fiscalCalendar'
 import { resolveBusinessDisplayName } from '../../lib/businessIdentity'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -97,8 +98,9 @@ const fmt = (v: number, currency: 'ARS' | 'USD' = 'ARS') =>
     style: 'currency', currency
   }).format(v)
 
-const fmtFecha = (s: string) =>
-  new Date(s).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+// `comprobante.fecha` es la FECHA DE VENTA (timestamptz), en día civil argentino.
+// No es la fecha fiscal que aceptó ARCA: esa todavía no se persiste.
+const fmtFecha = (s: string) => formatArgentinaCivilDate(new Date(s))
 
 // El numero que se muestra lo decide `formatearNumeroComprobante`: si hay
 // identidad fiscal, gana. Ver src/lib/fiscalDisplay.ts.
@@ -261,7 +263,7 @@ function DocHeader({ comprobante, profile }: { comprobante: Comprobante; profile
           </p>
         )}
         <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', margin: '0.25rem 0' }}>
-          {fmtFecha(comprobante.fecha)}
+          Fecha de venta: {fmtFecha(comprobante.fecha)}
         </p>
         {/* Status badge */}
         <div style={{
@@ -328,7 +330,7 @@ function DocInfo({ comprobante, cliente, orden }: {
         <SectionLabel>Datos del comprobante</SectionLabel>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
           {[
-            ['Fecha de emisión', fmtFecha(comprobante.fecha)],
+            ['Fecha de venta', fmtFecha(comprobante.fecha)],
             orden ? ['Orden relacionada', `#${orden.order_number}`] : null,
             comprobante.cae ? ['CAE', comprobante.cae] : null,
             // `cae_vencimiento` es un DATE: se formatea sin pasar por Date,

@@ -357,9 +357,9 @@ export function ComprobantesTable({ comprobantes, onEdit, onNotaCredito, onElimi
                     textAlign: 'left', 
                     fontSize: '0.875rem', 
                     fontWeight: 500, 
-                    color: '#94a3b8' 
+                    color: '#94a3b8'
                   }}>
-                    Fecha
+                    Fecha de venta
                   </th>
                   <th style={{ 
                     padding: '1rem', 

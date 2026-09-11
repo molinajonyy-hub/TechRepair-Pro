@@ -12,6 +12,8 @@
  * en ese caso — ver solicitarCAEConReconciliacion().
  */
 
+import { ARCA_FISCAL_DATE_SHAPE, arcaFiscalDate, arcaFiscalDatePlusDays } from '../_shared/fiscalCalendar.ts'
+
 // ──────────────────────────────────────────────
 // Endpoint WSFEv1 — única fuente de verdad
 // ──────────────────────────────────────────────
@@ -188,7 +190,7 @@ export interface FacturaData {
   importe_total:     number
   moneda:            string // 'PES', 'DOL', etc.
   cotizacion_moneda: number // 1 para pesos
-  fecha_cbte?:       string // YYYYMMDD, default hoy
+  fecha_cbte?:       string // ignorado como autoridad: CbteFch lo decide resolveCbteFch()
   ambiente:          'homologacion' | 'produccion'
   // Condición IVA del receptor (RG 5616) — campo propio, NO es el objeto Iva.
   condicion_iva_receptor_id?: number
@@ -202,22 +204,32 @@ export interface FacturaData {
 // Helpers de fecha
 // ──────────────────────────────────────────────
 
-export function todayYYYYMMDD(): string {
-  const d = new Date()
-  return [
-    d.getFullYear(),
-    String(d.getMonth() + 1).padStart(2, '0'),
-    String(d.getDate()).padStart(2, '0'),
-  ].join('')
+export type ClientFiscalDate = 'absent' | 'matches' | 'overridden' | 'invalid'
+
+/**
+ * CbteFch del envío: SIEMPRE el día civil argentino de `now`, calculado acá.
+ * afip-cae es la autoridad de la fecha fiscal; lo que mande el navegador (los
+ * builds viejos la calculaban en UTC y entre 21:00 y 23:59 ART daban el día
+ * siguiente) nunca decide. Sólo se clasifica para poder registrar la diferencia,
+ * y `clientDate` sale únicamente si tiene la forma YYYYMMDD.
+ */
+export function resolveCbteFch(now: Date, clientValue: unknown): {
+  fechaCbte: string
+  client: ClientFiscalDate
+  clientDate: string | null
+} {
+  const fechaCbte = arcaFiscalDate(now)
+  if (clientValue === undefined || clientValue === null || clientValue === '') {
+    return { fechaCbte, client: 'absent', clientDate: null }
+  }
+  if (typeof clientValue !== 'string' || !ARCA_FISCAL_DATE_SHAPE.test(clientValue)) {
+    return { fechaCbte, client: 'invalid', clientDate: null }
+  }
+  return { fechaCbte, client: clientValue === fechaCbte ? 'matches' : 'overridden', clientDate: clientValue }
 }
 
 export function tenDaysLaterYYYYMMDD(): string {
-  const d = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000)
-  return [
-    d.getFullYear(),
-    String(d.getMonth() + 1).padStart(2, '0'),
-    String(d.getDate()).padStart(2, '0'),
-  ].join('')
+  return arcaFiscalDatePlusDays(new Date(), 10)
 }
 
 // ──────────────────────────────────────────────

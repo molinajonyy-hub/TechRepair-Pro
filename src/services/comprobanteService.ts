@@ -799,7 +799,7 @@ export const comprobanteService = {
           importe_total:            total,
           moneda:                   'PES',
           cotizacion_moneda:        1,
-          fecha_cbte:               new Date().toISOString().split('T')[0].replace(/-/g, ''),
+          // Sin fecha_cbte: afip-cae decide CbteFch con el día civil argentino.
           condicion_iva_receptor_id: condicionIvaId(condicion_fiscal),
         });
 
