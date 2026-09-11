@@ -27,6 +27,7 @@
  */
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { BROWSER_CLIENT_METADATA_HEADERS } from '../_shared/clientContract.ts'
 
 // ─────────────────────────────────────────────────────────────────
 // CORS — single source of truth (buildCorsHeaders + jsonResponse)
@@ -78,6 +79,8 @@ const ALLOWED_REQUEST_HEADERS = new Set<string>([
   'content-type',
   'cache-control',
   'pragma',
+  // The official web client's metadata headers. Transport only, never authority.
+  ...BROWSER_CLIENT_METADATA_HEADERS,
 ])
 
 // Fallback list for non-preflight responses (where ACAH is ignored by the browser).

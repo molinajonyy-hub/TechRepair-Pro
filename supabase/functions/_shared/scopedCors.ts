@@ -17,6 +17,8 @@
  * No Deno/npm/esm.sh imports and no top-level env access → importable in node.
  */
 
+import { BROWSER_CLIENT_METADATA_HEADERS } from './clientContract.ts'
+
 // Real production origins. The apex 307-redirects to www on Vercel, so the
 // browser's Origin on the live site is usually https://www.techrepairpro.app.
 const CANONICAL_ORIGINS: readonly string[] = [
@@ -32,6 +34,8 @@ const ALLOWED_REQUEST_HEADERS: ReadonlySet<string> = new Set<string>([
   'x-client-info',
   'cache-control',
   'pragma',
+  // The official web client's metadata headers. Transport only, never authority.
+  ...BROWSER_CLIENT_METADATA_HEADERS,
 ])
 
 // Fallback for non-preflight responses (where Allow-Headers is ignored anyway).
