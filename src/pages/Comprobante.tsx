@@ -24,6 +24,7 @@ import { resolveBusinessDisplayName } from '../lib/businessIdentity';
 import { isComprobanteAnnulled } from '../utils/comprobanteStatus';
 import { formatearNumeroComprobante, puntoVentaVisibleComprobante } from '../lib/fiscalDisplay';
 import { formatearFechaCalendario } from '../lib/fechaCalendario';
+import { formatArgentinaCivilDate } from '../lib/fiscalCalendar';
 import { logger } from '../lib/logger';
 
 const TIPO_LABELS: Record<string, string> = {
@@ -280,7 +281,8 @@ export default function ComprobantePage() {
       doc.setFontSize(12);
       doc.text(`N° ${formatearNumeroComprobante(comprobanteActual)}`, 14, 52);
       doc.setFontSize(10);
-      doc.text(`Fecha: ${new Date(comprobanteActual.fecha).toLocaleDateString('es-AR')}`, 14, 58);
+      // `fecha` es la fecha de venta; la fecha fiscal de ARCA todavía no se persiste.
+      doc.text(`Fecha de venta: ${formatArgentinaCivilDate(new Date(comprobanteActual.fecha))}`, 14, 58);
       if (comprobanteActual.cae) {
         doc.setTextColor(0, 128, 0);
         doc.text(`CAE: ${comprobanteActual.cae}`, 14, 68);
@@ -792,7 +794,7 @@ export default function ComprobantePage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {[
                   ['Tipo', TIPO_LABELS[comprobanteActual.tipo]],
-                  ['Fecha', new Date(comprobanteActual.fecha).toLocaleDateString('es-AR')],
+                  ['Fecha de venta', formatArgentinaCivilDate(new Date(comprobanteActual.fecha))],
                   ...(puntoVentaVisible ? [['Pto. Venta', puntoVentaVisible]] : []),
                   // Sin CAE no hay vencimiento que mostrar. Los 53 registros
                   // historicos conservaron `cae_vencimiento` del CAE simulado

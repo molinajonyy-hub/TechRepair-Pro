@@ -43,7 +43,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { authorizeArcaCaller, ArcaAuthorizationError } from '../_shared/arcaAuthorization.ts'
 import { BROWSER_CLIENT_METADATA_HEADERS, userDataApiHeaders } from '../_shared/clientContract.ts'
 import {
-  logStructured, todayYYYYMMDD, solicitarCAEConReconciliacion, consultarComprobante,
+  logStructured, resolveCbteFch, solicitarCAEConReconciliacion, consultarComprobante,
   getUltimoComprobante,
   type FacturaData, type EmissionOutcome,
 } from './logic.ts'
@@ -491,7 +491,16 @@ serve(async (req: Request) => {
     // 6. Armar y enviar SOAP FECAESolicitar, con reconciliación idempotente
     //    (matriz de 5 casos: ver logic.ts::decidirTrasAmbiguo) si el resultado
     //    es ambiguo (timeout/reset/502/503/504).
-    const fechaCbte = fecha_cbte || todayYYYYMMDD()
+    //    CbteFch = día civil argentino de AHORA, decidido acá (venta nueva,
+    //    reintento y Nota de Crédito). Un fecha_cbte del navegador nunca decide.
+    const fiscalDate = resolveCbteFch(new Date(), fecha_cbte)
+    if (fiscalDate.client === 'overridden' || fiscalDate.client === 'invalid') {
+      logStructured({
+        ...logCtx, stage: 'fiscal_date', classification: `client_date_${fiscalDate.client}`,
+        server_date: fiscalDate.fechaCbte, client_date: fiscalDate.clientDate,
+      })
+    }
+    const fechaCbte = fiscalDate.fechaCbte
     const outcome = await solicitarCAEConReconciliacion({
       token, sign, cuit,
       puntoVenta: punto_venta,

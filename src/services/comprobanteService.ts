@@ -7,6 +7,7 @@ import {
   fiscalIdentity,
   resolverCbteTipo,
 } from '../lib/fiscalIdentity';
+import { arcaFiscalDate } from '../lib/fiscalCalendar';
 import ArcaService from './arcaService';
 import { requireFeature } from '../utils/requireFeature';
 import { computeCheckoutRequestHash } from '../lib/checkoutIdempotency';
@@ -799,7 +800,10 @@ export const comprobanteService = {
           importe_total:            total,
           moneda:                   'PES',
           cotizacion_moneda:        1,
-          fecha_cbte:               new Date().toISOString().split('T')[0].replace(/-/g, ''),
+          // Compatibilidad de despliegue: día civil argentino, NUNCA el día UTC.
+          // Un afip-cae viejo todavía usa este valor; el nuevo recalcula la fecha
+          // fiscal y la suya manda. Se retira en la Parte 2.
+          fecha_cbte:               arcaFiscalDate(new Date()),
           condicion_iva_receptor_id: condicionIvaId(condicion_fiscal),
         });
 

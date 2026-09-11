@@ -127,7 +127,7 @@ export function ComprobanteInfo({ fecha, cliente, orden, cae, caeVencimiento, co
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
           <InfoRow
             icon={<Calendar size={13} />}
-            label="Fecha de emisión"
+            label="Fecha de venta"
             value={formatFecha(fecha)}
           />
 

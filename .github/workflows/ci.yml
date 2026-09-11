@@ -64,6 +64,12 @@ jobs:
       - name: Guard — browser Edge CORS contract
         run: npm run guard:edge-cors-contract:self-test && npm run guard:edge-cors-contract && npm run test:components -- tests/components/edgeCorsClientContract.test.ts
 
+      # FISCAL DATE ARGENTINA: the documents show `fecha` as the sale date (Argentina
+      # civil day) and never as the fiscal issue date. CbteFch itself is covered by
+      # tests/deno/fiscalCalendar.test.ts in `test:deno`.
+      - name: Fiscal date — sale vs fiscal issue date on document surfaces
+        run: npm run test:components -- tests/components/fiscalDateSaleLabel.test.tsx tests/components/fiscalPostReconciliacion.test.tsx
+
       - name: Production build
         run: npm run build
         env:
