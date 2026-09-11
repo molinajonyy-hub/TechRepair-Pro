@@ -41,7 +41,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { authorizeArcaCaller, ArcaAuthorizationError } from '../_shared/arcaAuthorization.ts'
-import { userDataApiHeaders } from '../_shared/clientContract.ts'
+import { BROWSER_CLIENT_METADATA_HEADERS, userDataApiHeaders } from '../_shared/clientContract.ts'
 import {
   logStructured, todayYYYYMMDD, solicitarCAEConReconciliacion, consultarComprobante,
   getUltimoComprobante,
@@ -97,6 +97,8 @@ const ALLOWED_REQUEST_HEADERS = new Set<string>([
   'content-type',
   'cache-control',
   'pragma',
+  // The official web client's metadata headers. Transport only, never authority.
+  ...BROWSER_CLIENT_METADATA_HEADERS,
 ])
 
 // Fallback for non-preflight responses (where ACAH is ignored by the browser).

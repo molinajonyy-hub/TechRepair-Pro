@@ -488,3 +488,19 @@ verify_jwt = false
 
 [functions.mp-payments]
 verify_jwt = false
+
+# P0 EDGE CORS (2026-09-11): browser-called functions redeployed for the client
+# metadata headers. Each value mirrors production as measured that day, so a
+# redeploy can never flip the gateway flag (the CLI default is verify_jwt = TRUE).
+# mp-subscription validates the user JWT in code; embedded-signup is a disabled 503 stub.
+[functions.mp-subscription]
+verify_jwt = false
+
+[functions.whatsapp-embedded-signup]
+verify_jwt = false
+
+[functions.whatsapp-send]
+verify_jwt = true
+
+[functions.whatsapp-send-message]
+verify_jwt = true

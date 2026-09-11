@@ -11,7 +11,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import forge from 'npm:node-forge@1.3.1'
 import { resolveArcaPrivateKey, WsaaKeyError, type KeySource } from './keyResolver.ts'
 import { authorizeArcaCaller, configuredServiceCredentials } from '../_shared/arcaAuthorization.ts'
-import { userDataApiHeaders } from '../_shared/clientContract.ts'
+import { BROWSER_CLIENT_METADATA_HEADERS, userDataApiHeaders } from '../_shared/clientContract.ts'
 import { withWsaaAuthorization } from './authorizationBoundary.ts'
 
 // ─────────────────────────────────────────────────────────────────
@@ -61,6 +61,8 @@ const ALLOWED_REQUEST_HEADERS = new Set<string>([
   'content-type',
   'cache-control',
   'pragma',
+  // The official web client's metadata headers. Transport only, never authority.
+  ...BROWSER_CLIENT_METADATA_HEADERS,
 ])
 
 // Fallback for non-preflight responses (where ACAH is ignored by the browser).

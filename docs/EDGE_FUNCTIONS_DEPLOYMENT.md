@@ -73,6 +73,32 @@ Rules:
 - Always send `Access-Control-Allow-Methods: POST, OPTIONS`,
   `Access-Control-Max-Age`, and `Vary: Origin, Access-Control-Request-Headers`.
 
+### Browser client headers (P0 EDGE CORS, 2026-09-11)
+
+The official web client sends `x-techrepair-client-contract` and
+`x-techrepair-client-build` on **every** Supabase request, `functions.invoke`
+included (`src/lib/clientContract.ts`). A browser-called function whose preflight
+omits them makes the browser drop the POST ("Failed to send a request to the Edge
+Function"). The allowed set is declared once in
+`supabase/functions/_shared/clientContract.ts` (`BROWSER_EDGE_REQUEST_HEADERS`) and
+every browser-called function takes it from there. These headers are metadata:
+they never authenticate, authorize, pick a tenant or unlock a capability.
+
+`npm run guard:edge-cors-contract` (CI) fails when a new global client header,
+a new browser-called function or a CORS wildcard appears without updating that
+contract. Browser-called today: `afip-wsaa`, `afip-cae`, `mp-subscription`,
+`whatsapp-send`, `whatsapp-send-message`, `whatsapp-embedded-signup` (SDK) and
+`infodolar-cordoba`, `fetch-dollar-rate` (plain fetch, no client headers).
+
+Deploy flags for the other SDK-called functions (all pinned in `config.toml`):
+
+```bash
+supabase functions deploy mp-subscription --no-verify-jwt --project-ref vrdxxmjzxhfgqlnxmbwx
+supabase functions deploy whatsapp-embedded-signup --no-verify-jwt --project-ref vrdxxmjzxhfgqlnxmbwx
+supabase functions deploy whatsapp-send --project-ref vrdxxmjzxhfgqlnxmbwx
+supabase functions deploy whatsapp-send-message --project-ref vrdxxmjzxhfgqlnxmbwx
+```
+
 ## Smoke test (production OPTIONS preflight)
 
 ```bash
@@ -96,6 +122,16 @@ curl -s -i -X OPTIONS "$BASE/afip-cae" \
 ```
 
 Repeat (1) and (3) for `afip-wsaa` and `generate-csr`.
+
+```bash
+# 4) What the real web client announces → allow-headers must list all six
+curl -s -i -X OPTIONS "$BASE/afip-wsaa" \
+  -H "Origin: https://www.techrepairpro.app" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: authorization, x-client-info, apikey, content-type, x-techrepair-client-contract, x-techrepair-client-build"
+```
+
+Repeat (4) for every browser-called function listed above.
 
 ## Verifying deployed source matches the repo
 
