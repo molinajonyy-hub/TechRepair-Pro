@@ -209,10 +209,13 @@ for (const [i, c] of (consultas as PlanEntry[]).entries()) {
     const body = await res.json().catch(() => null)
     if (!res.ok) {
       transporte = `HTTP ${res.status}`
+    } else if (body?.success !== true || !body?.consulta) {
+      // Fail-closed ante deriva de contrato: se exige el envoltorio real
+      // ({ success: true, consulta: {...} }). Caer al body entero haría que un
+      // cambio de forma pase como "campos ausentes" en vez de verse.
+      transporte = `respuesta sin objeto consulta (success=${JSON.stringify(body?.success)})`
     } else {
-      // El endpoint devuelve la ConsultaResult anidada o plana según operación;
-      // se acepta cualquiera de las dos formas sin inventar campos.
-      arca = (body?.consulta ?? body?.resultado ?? body) as ArcaConsultaResult
+      arca = body.consulta as ArcaConsultaResult
     }
   } catch (e) {
     // Timeout / red ambigua: NO se reintenta. Un resultado ambiguo se registra

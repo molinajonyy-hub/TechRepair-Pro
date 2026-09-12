@@ -25,18 +25,37 @@ export interface PlanEntry {
   importe_local?: number | null
 }
 
-/** Lo que devuelve afip-fe-query (operacion: 'consultar'). */
+/**
+ * El objeto `consulta` que devuelve afip-fe-query con operacion 'consultar'.
+ *
+ * Es el contrato DESPLEGADO, verificado en supabase/functions/afip-fe-query/
+ * index.ts: el endpoint mapea su resultado interno a `numero_desde` /
+ * `numero_hasta`. `numero_cbte` NO existe en la respuesta HTTP —vive sólo
+ * dentro de queryLogic.ts— así que modelarlo hacía que la identidad del número
+ * quedara SIEMPRE 'unknown' y todo cayera en REVIEW_REQUIRED aunque ARCA
+ * hubiera devuelto el comprobante correcto.
+ *
+ * Los campos ausentes llegan como `null`, no como `undefined`.
+ *
+ * OJO con lo que NO está acá: la respuesta también repite `punto_venta`,
+ * `tipo_comprobante` y `numero`, que son el ECO de lo que se pidió. No se
+ * modelan a propósito: compararlos contra lo pedido da 'match' siempre, porque
+ * se estaría comparando el request consigo mismo. La identidad se juzga
+ * únicamente contra lo que ARCA respondió (`*_arca`, `numero_desde`,
+ * `numero_hasta`, `cae`, `importe_total`).
+ */
 export interface ArcaConsultaResult {
   status?: 'found' | 'not_found' | 'query_failed'
-  cae?: string
+  cae?: string | null
   /** CbteFch que ARCA reporta, ya como 'YYYY-MM-DD' en el contrato del endpoint. */
-  fecha_comprobante?: string
-  punto_venta_arca?: number
-  tipo_comprobante_arca?: number
-  numero_cbte?: number
-  numero_hasta?: number
-  importe_total?: number
-  motivo?: string
+  fecha_comprobante?: string | null
+  punto_venta_arca?: number | null
+  tipo_comprobante_arca?: number | null
+  /** Rango que ARCA informa. Para una consulta puntual, ambos son el número. */
+  numero_desde?: number | null
+  numero_hasta?: number | null
+  importe_total?: number | null
+  motivo?: string | null
 }
 
 export type LookupVerdict = 'BACKFILLABLE' | 'REVIEW_REQUIRED'
@@ -100,7 +119,20 @@ export function evaluateLookup(entry: PlanEntry, result: ArcaConsultaResult | nu
     })(),
     punto_venta: cmpNum(entry.punto_venta, result?.punto_venta_arca),
     cbte_tipo: cmpNum(entry.cbte_tipo, result?.tipo_comprobante_arca),
-    numero: cmpNum(entry.numero, result?.numero_cbte),
+    // Una consulta puntual pide UN comprobante, así que ARCA tiene que
+    // devolver el rango [n, n]. Se exigen LAS DOS puntas: con sólo una, un
+    // rango como [87, 90] pasaría por coincidencia del extremo. Si falta
+    // cualquiera de las dos, es 'unknown' — nunca se cae al número pedido,
+    // que es justamente lo que haría match consigo mismo.
+    numero: (() => {
+      const desde = result?.numero_desde
+      const hasta = result?.numero_hasta
+      if (desde === null || desde === undefined) return 'unknown'
+      if (hasta === null || hasta === undefined) return 'unknown'
+      return Number(desde) === Number(entry.numero) && Number(hasta) === Number(entry.numero)
+        ? 'match'
+        : 'mismatch'
+    })(),
     importe: (() => {
       if (entry.importe_local === null || entry.importe_local === undefined) return 'unknown'
       if (result?.importe_total === null || result?.importe_total === undefined) return 'unknown'
