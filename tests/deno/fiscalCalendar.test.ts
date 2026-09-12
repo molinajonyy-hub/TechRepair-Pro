@@ -200,6 +200,10 @@ Deno.test('the server date is what reaches FECAESolicitar in every client case',
 })
 
 Deno.test('no surface labels the sale date as the fiscal issue date', () => {
+  // Part 1 banned the label "Fecha de emisión" outright: there was no stored
+  // fiscal date, so any such label was necessarily the sale date mislabelled.
+  // Part 2 stores the real CbteFch, so the label is allowed — but ONLY when it
+  // is fed by `fecha_comprobante_fiscal`, and never by `fecha`.
   for (const file of [
     '../../src/components/comprobantes/ComprobanteDocumento.tsx',
     '../../src/components/comprobantes/ComprobantePrintLayout.tsx',
@@ -207,7 +211,35 @@ Deno.test('no surface labels the sale date as the fiscal issue date', () => {
     '../../src/pages/Comprobante.tsx',
   ]) {
     const src = code(file)
-    assert(!/Fecha de emisi/.test(src), `${file} still calls comprobante.fecha "Fecha de emisión"`)
     assert(/Fecha de venta/.test(src), `${file} does not label the sale date`)
+
+    // Every occurrence of the fiscal label must resolve to the fiscal column.
+    for (const m of src.matchAll(/Fecha de emisi[oó]n/g)) {
+      const window = src.slice(m.index!, m.index! + 260)
+      assert(/fecha_comprobante_fiscal/.test(window),
+        `${file} labels something "Fecha de emisión" that is not fecha_comprobante_fiscal`)
+      assert(!/\bcomprobante(Actual)?\.fecha\b/.test(window),
+        `${file} feeds the fiscal label from the sale date`)
+    }
+  }
+})
+
+Deno.test('the fiscal date never falls back to the sale date', () => {
+  // A NULL fiscal date must read as unknown. Substituting the sale date would
+  // reintroduce the off-by-one for exactly the comprobantes whose real CbteFch
+  // is still unknown — the failure this whole phase exists to remove.
+  for (const file of [
+    '../../src/components/comprobantes/ComprobanteDocumento.tsx',
+    '../../src/components/comprobantes/ComprobantePrintLayout.tsx',
+    '../../src/pages/Comprobante.tsx',
+  ]) {
+    const src = code(file)
+    assert(/fecha_comprobante_fiscal/.test(src), `${file} does not read the fiscal date column`)
+    assert(/No informada/.test(src), `${file} lacks an explicit unknown state for the fiscal date`)
+    // No expression may turn an absent fiscal date into any date-bearing value.
+    assert(!/fecha_comprobante_fiscal[^\n]*\|\|[^\n]*\.fecha\b/.test(src),
+      `${file} falls back from the fiscal date to the sale date`)
+    assert(!/fecha_comprobante_fiscal\s*\?\?[^\n]*\.fecha\b/.test(src),
+      `${file} coalesces the fiscal date into the sale date`)
   }
 })

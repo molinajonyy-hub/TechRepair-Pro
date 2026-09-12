@@ -44,7 +44,7 @@ import { authorizeArcaCaller, ArcaAuthorizationError } from '../_shared/arcaAuth
 import { BROWSER_CLIENT_METADATA_HEADERS, userDataApiHeaders } from '../_shared/clientContract.ts'
 import {
   logStructured, resolveCbteFch, solicitarCAEConReconciliacion, consultarComprobante,
-  getUltimoComprobante,
+  getUltimoComprobante, persistCompleteAttempt,
   type FacturaData, type EmissionOutcome,
 } from './logic.ts'
 import { evaluarPreEnvio, type AttemptRow } from './preSend.ts'
@@ -172,20 +172,29 @@ async function completeAttempt(
   attemptId: string,
   status: 'authorized' | 'authorized_reconciled' | 'rejected' | 'pending_reconciliation',
   fields: { cae?: string; cae_vencimiento?: string; resultado?: string; observaciones?: string; error_mensaje?: string },
-  ctx: Record<string, unknown>
+  ctx: Record<string, unknown>,
+  // Parte 2: el MISMO CbteFch que se mandó en FECAESolicitar. Metadata opcional:
+  // la función lo parsea defensivamente y el CAE nunca depende de él.
+  fechaCbte?: string,
 ): Promise<void> {
   try {
-    const { data, error } = await supabase.rpc('complete_arca_attempt', {
-      p_attempt_id: attemptId,
-      p_status: status,
-      p_cae: fields.cae ?? null,
-      p_cae_vencimiento: fields.cae_vencimiento ?? null,
-      p_resultado: fields.resultado ?? null,
-      p_observaciones: fields.observaciones ?? null,
-      p_error_mensaje: fields.error_mensaje ?? null,
-    })
-    if (error || !data?.success) {
-      logStructured({ ...ctx, stage: 'persistencia', classification: 'complete_attempt_failed', error: error?.message ?? data?.error })
+    const outcome = await persistCompleteAttempt(
+      (args) => supabase.rpc('complete_arca_attempt', args),
+      attemptId, status, fields, fechaCbte,
+    )
+
+    if (outcome.usedLegacyFallback) {
+      // Ventana de rollout: la DB todavía no tiene la identidad de 8
+      // argumentos. El CAE se persistió con la firma vieja; la fecha fiscal
+      // queda NULL y la resuelve el backfill.
+      logStructured({ ...ctx, stage: 'persistencia', classification: 'complete_attempt_legacy_signature' })
+    }
+    if (!outcome.ok) {
+      logStructured({ ...ctx, stage: 'persistencia', classification: 'complete_attempt_failed', error: outcome.error })
+      return
+    }
+    if (outcome.fiscalDateStatus && outcome.fiscalDateStatus !== 'persisted' && outcome.fiscalDateStatus !== 'absent') {
+      logStructured({ ...ctx, stage: 'persistencia', classification: `fiscal_date_${outcome.fiscalDateStatus}` })
     }
   } catch (e) {
     logStructured({ ...ctx, stage: 'persistencia', classification: 'complete_attempt_failed', error: String((e as any)?.message ?? e) })
@@ -430,7 +439,11 @@ serve(async (req: Request) => {
           numero_cbte: consulta.numero_cbte ?? attempt.numero_intentado,
           resultado: consulta.resultado || '', observaciones: consulta.observaciones,
         }
-        await completeAttempt(supabase, attemptIdOk, 'authorized_reconciled', outcome, logCtx)
+        // El CAE lo obtuvo un intento ANTERIOR (otra invocación, quizá otro
+        // día), así que la fecha de HOY no sirve: sería inventarla. La única
+        // fuente válida acá es el CbteFch que ARCA reporta en FECompConsultar.
+        // Si la respuesta no lo trae, queda NULL y lo resuelve el backfill.
+        await completeAttempt(supabase, attemptIdOk, 'authorized_reconciled', outcome, logCtx, consulta.fecha_cbte)
         const finalizacionNc = await finalizarNotaCreditoAutorizada(supabase, comprobanteIdOk, tipo_comprobante, logCtx)
         const nroCbteFormateado = `${String(punto_venta).padStart(4, '0')}-${String(outcome.numero_cbte).padStart(8, '0')}`
         return jsonResponse(req, {
@@ -536,7 +549,12 @@ serve(async (req: Request) => {
     switch (outcome.kind) {
       case 'authorized':
       case 'authorized_reconciled': {
-        await completeAttempt(supabase, attemptIdOk, outcome.kind, outcome, logCtx)
+        // Única vía que persiste la fecha fiscal: el CAE que se está completando
+        // salió del FECAESolicitar que ESTA invocación mandó con `fechaCbte`
+        // (el reenvío del CASO A reusa el mismo soapBody, y el CASO C confirma
+        // por consulta ese mismo número recién enviado). Es el CbteFch que ARCA
+        // aceptó, no una reconstrucción.
+        await completeAttempt(supabase, attemptIdOk, outcome.kind, outcome, logCtx, fechaCbte)
         const finalizacionNc = await finalizarNotaCreditoAutorizada(supabase, comprobanteIdOk, tipo_comprobante, logCtx)
         const nroCbteFormateado = `${String(punto_venta).padStart(4, '0')}-${String(outcome.numero_cbte).padStart(8, '0')}`
         return jsonResponse(req, {

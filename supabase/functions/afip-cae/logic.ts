@@ -232,6 +232,113 @@ export function tenDaysLaterYYYYMMDD(): string {
   return arcaFiscalDatePlusDays(new Date(), 10)
 }
 
+/**
+ * ¿El error dice EXACTAMENTE que la base todavía tiene la identidad vieja de
+ * 7 argumentos de complete_arca_attempt? (Edge nuevo + DB sin la Parte 2.)
+ *
+ * PostgREST responde PGRST202 cuando no encuentra la función con esa firma.
+ * Se exige el código Y que el mensaje nombre a complete_arca_attempt: ninguna
+ * otra condición habilita el reintento. Timeouts, 401/403, 5xx genéricos,
+ * excepciones de la función o errores desconocidos NO son compatibilidad — un
+ * reintento ahí podría duplicar efectos o esconder un problema real.
+ */
+export function isLegacyCompleteSignatureError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const code = (error as { code?: unknown }).code
+  if (typeof code !== 'string' || code !== 'PGRST202') return false
+  const message = (error as { message?: unknown }).message
+  return typeof message === 'string' && message.includes('complete_arca_attempt')
+}
+
+export interface CompleteAttemptFields {
+  cae?: string
+  cae_vencimiento?: string
+  resultado?: string
+  observaciones?: string
+  error_mensaje?: string
+}
+
+/**
+ * Payload de complete_arca_attempt.
+ *
+ * Sin `fechaCbte` sale la forma LEGACY de 7 argumentos, byte por byte la que
+ * manda afip-cae v23 — es la que se usa también para el reintento cuando la DB
+ * todavía no tiene la Parte 2. Con `fechaCbte` se agrega p_fecha_cbte y nada
+ * más: los siete campos canónicos no cambian de nombre ni de orden.
+ */
+export function completeAttemptArgs(
+  attemptId: string,
+  status: string,
+  fields: CompleteAttemptFields,
+  fechaCbte?: string,
+): Record<string, unknown> {
+  const args: Record<string, unknown> = {
+    p_attempt_id: attemptId,
+    p_status: status,
+    p_cae: fields.cae ?? null,
+    p_cae_vencimiento: fields.cae_vencimiento ?? null,
+    p_resultado: fields.resultado ?? null,
+    p_observaciones: fields.observaciones ?? null,
+    p_error_mensaje: fields.error_mensaje ?? null,
+  }
+  if (fechaCbte) args.p_fecha_cbte = fechaCbte
+  return args
+}
+
+export type CompleteAttemptRpc = (args: Record<string, unknown>) => Promise<{ data?: unknown; error?: unknown }>
+
+export interface CompleteAttemptResult {
+  /** El completado fiscal quedó persistido. */
+  ok: boolean
+  /** Se reintentó con la firma vieja de 7 argumentos (DB sin la Parte 2). */
+  usedLegacyFallback: boolean
+  /** absent | invalid | persisted | already_set | metadata_failed, si la DB lo reporta. */
+  fiscalDateStatus?: string
+  error?: string
+}
+
+/**
+ * Completa el intento, con la compatibilidad de rollout como ÚNICA excepción.
+ *
+ * Se reintenta una sola vez, y sólo si el servidor dice exactamente que no
+ * existe la identidad de 8 argumentos (PGRST202 sobre complete_arca_attempt),
+ * o sea la ventana «Edge nuevo + DB sin la Parte 2». En ese caso se repite con
+ * el payload LEGACY, que sí resuelve: el CAE se persiste igual y la fecha
+ * fiscal queda NULL para el backfill.
+ *
+ * Cualquier otro error NO reintenta: un timeout, un 5xx, un 401, una excepción
+ * de la función o un error desconocido podrían haber aplicado efectos, y
+ * repetir la llamada a ciegas es peor que registrar la falla.
+ */
+export async function persistCompleteAttempt(
+  rpc: CompleteAttemptRpc,
+  attemptId: string,
+  status: string,
+  fields: CompleteAttemptFields,
+  fechaCbte?: string,
+): Promise<CompleteAttemptResult> {
+  const first = await rpc(completeAttemptArgs(attemptId, status, fields, fechaCbte))
+  const firstData = first.data as { success?: boolean; error?: string; fiscal_date_status?: string } | undefined
+
+  if (fechaCbte && first.error && isLegacyCompleteSignatureError(first.error)) {
+    const retry = await rpc(completeAttemptArgs(attemptId, status, fields))
+    const retryData = retry.data as { success?: boolean; error?: string; fiscal_date_status?: string } | undefined
+    return {
+      ok: !retry.error && retryData?.success === true,
+      usedLegacyFallback: true,
+      fiscalDateStatus: retryData?.fiscal_date_status,
+      error: (retry.error as { message?: string } | undefined)?.message ?? retryData?.error,
+    }
+  }
+
+  return {
+    ok: !first.error && firstData?.success === true,
+    usedLegacyFallback: false,
+    fiscalDateStatus: firstData?.fiscal_date_status,
+    error: (first.error as { message?: string } | undefined)?.message ?? firstData?.error,
+  }
+}
+
 // ──────────────────────────────────────────────
 // Obtener el último número de comprobante autorizado
 // (lectura idempotente → retryAmbiguous=true, default)
@@ -527,6 +634,13 @@ export interface ConsultaResult {
   numero_cbte?: number
   observaciones?: string
   motivo?: string
+  /**
+   * CbteFch que ARCA tiene registrado (YYYYMMDD), tal cual lo devuelve
+   * FECompConsultar. Es la fecha fiscal AUTORITATIVA de un comprobante ya
+   * autorizado: no se deriva de sent_at, ni de la fecha de venta, ni de now().
+   * `undefined` si la respuesta no lo trae o no tiene la forma YYYYMMDD.
+   */
+  fecha_cbte?: string
 }
 
 /** Código WSFEv1 para "comprobante inexistente" en FECompConsultar. */
@@ -550,6 +664,11 @@ export function parseFECompConsultarResponse(soapXml: string): ConsultaResult {
       ? `${caeVto.slice(0,4)}-${caeVto.slice(4,6)}-${caeVto.slice(6,8)}`
       : caeVto
 
+    // CbteFch: la fecha fiscal que ARCA tiene registrada. Se acepta sólo con la
+    // forma YYYYMMDD; cualquier otra cosa se descarta en vez de adivinarse.
+    const cbteFchRaw = soapXml.match(/<CbteFch>([\s\S]*?)<\/CbteFch>/i)?.[1]?.trim() || ''
+    const fechaCbte = ARCA_FISCAL_DATE_SHAPE.test(cbteFchRaw) ? cbteFchRaw : undefined
+
     return {
       status: 'found',
       cae,
@@ -557,6 +676,7 @@ export function parseFECompConsultarResponse(soapXml: string): ConsultaResult {
       resultado,
       numero_cbte: parseInt(cbteDesde, 10),
       observaciones: obs,
+      fecha_cbte: fechaCbte,
     }
   }
 

@@ -331,6 +331,13 @@ function DocInfo({ comprobante, cliente, orden }: {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
           {[
             ['Fecha de venta', fmtFecha(comprobante.fecha)],
+            // Fecha de emisión = CbteFch, la fecha fiscal que ARCA aceptó. Sale
+            // ÚNICAMENTE de fecha_comprobante_fiscal. Si está NULL se dice que
+            // no se conoce: la fecha de venta NO es un reemplazo válido (puede
+            // diferir un día, que es justo el problema que originó la Parte 2).
+            comprobante.cae
+              ? ['Fecha de emisión', formatearFechaCalendario(comprobante.fecha_comprobante_fiscal) || 'No informada']
+              : null,
             orden ? ['Orden relacionada', `#${orden.order_number}`] : null,
             comprobante.cae ? ['CAE', comprobante.cae] : null,
             // `cae_vencimiento` es un DATE: se formatea sin pasar por Date,

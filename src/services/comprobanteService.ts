@@ -97,6 +97,13 @@ export interface Comprobante {
   condicion_fiscal?: string | null;
   cae?: string | null;
   cae_vencimiento?: string | null;
+  /**
+   * CbteFch EXACTO que ARCA aceptó (columna `date`). Es la fecha de emisión
+   * fiscal, y no es ni `fecha` (venta) ni `fecha_emision_fiscal` (instante de
+   * completado). NULL = todavía desconocida: mostrar que no se conoce, nunca
+   * sustituirla por la fecha de venta.
+   */
+  fecha_comprobante_fiscal?: string | null;
   afip_response?: any;
   tipo_comprobante_fiscal?: string | null;
   comprobante_original_id?: string | null;
