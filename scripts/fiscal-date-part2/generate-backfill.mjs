@@ -45,20 +45,41 @@ const readJson = (p) => JSON.parse(readFileSync(p, 'utf8').replace(/^﻿/, ''))
 
 const manifest = readJson(manifestPath)
 
-// Resultados de ARCA: { "<comprobante_id>": "YYYYMMDD" }. Se valida la forma:
-// cualquier cosa que no sea YYYYMMDD se descarta, no se "arregla".
-let arca = {}
+// ── Resultados de ARCA ──────────────────────────────────────────────────────
+// SÓLO se acepta la salida del runner (execute-arca-lookup.ts), no un mapa
+// pelado { comprobante_id: YYYYMMDD }. Un mapa así no prueba NADA: no dice a
+// qué PV+CbteTipo+número+CAE corresponde esa fecha, y `numero_fiscal` por sí
+// solo es ambiguo — hay un 0010-00000001 factura y otro nota de crédito.
+//
+// Cada entrada tiene que traer:
+//   · verdict BACKFILLABLE (el runner ya validó identidad contra ARCA)
+//   · cae_match === 'match'
+//   · PV + CbteTipo + número idénticos a los del manifiesto para ese id
+//   · CbteFch con forma YYYYMMDD
+// Cualquier otra cosa se descarta con aviso. No se adivina.
+const arca = new Map()
+const rechazos = []
 if (arcaPath) {
   const raw = readJson(arcaPath)
-  for (const [id, fecha] of Object.entries(raw)) {
-    if (/^\d{8}$/.test(String(fecha))) arca[id] = String(fecha)
-    else console.error(`[backfill] descartado: ${id} trae un CbteFch sin forma YYYYMMDD (${JSON.stringify(fecha)})`)
+  const resultados = raw?.resultados
+  if (!Array.isArray(resultados)) {
+    console.error('[backfill] ABORTA: --arca debe ser la salida de execute-arca-lookup.ts (con `resultados`).')
+    console.error('           Un mapa { comprobante_id: YYYYMMDD } no prueba la identidad fiscal y no se acepta.')
+    process.exit(2)
+  }
+  for (const r of resultados) {
+    const id = r?.comprobante_id
+    if (!id) { rechazos.push('entrada sin comprobante_id'); continue }
+    if (r.verdict !== 'BACKFILLABLE') { rechazos.push(`${id}: verdict ${r.verdict}`); continue }
+    if (r.cae_match !== 'match') { rechazos.push(`${id}: cae_match ${r.cae_match}`); continue }
+    if (!/^\d{8}$/.test(String(r.cbte_fch ?? ''))) { rechazos.push(`${id}: CbteFch inválido (${JSON.stringify(r.cbte_fch)})`); continue }
+    arca.set(id, r)
   }
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const lineas = []
-const omitidos = { sin_fecha_arca: 0, inconsistente: 0, sin_forma: 0 }
+const omitidos = { sin_fecha_arca: 0, inconsistente: 0, sin_forma: 0, identidad_no_coincide: 0 }
 let incluidos = 0
 
 for (const f of manifest.filas) {
@@ -68,10 +89,24 @@ for (const f of manifest.filas) {
   let procedencia = null
   if (f.clase === 'PROVABLE_LOCAL') {
     fecha = f.cbte_fch_probado
-    procedencia = `día UTC = día civil AR en sent_at ${f.sent_at_utc}`
-  } else if (arca[f.id]) {
-    fecha = arca[f.id]
-    procedencia = 'CbteFch reportado por ARCA en FECompConsultar'
+    procedencia = `probado localmente: ventana [${f.authorized_sent_at} .. ${f.ventana_hasta}] ` +
+      'íntegramente post-Parte 1 y con día civil argentino constante'
+  } else if (arca.has(f.id)) {
+    const r = arca.get(f.id)
+    // La identidad del resultado tiene que coincidir con la del manifiesto.
+    // El runner ya la validó contra ARCA; acá se revalida contra la base, para
+    // que un archivo de resultados de otra corrida no pueda colarse.
+    if (Number(r.punto_venta) !== Number(f.pv_fiscal)
+      || Number(r.cbte_tipo) !== Number(f.cbte_tipo)
+      || Number(r.numero) !== Number(f.nro_fiscal)) {
+      omitidos.identidad_no_coincide++
+      rechazos.push(`${f.id}: identidad del resultado != manifiesto ` +
+        `(plan PV${f.pv_fiscal}/T${f.cbte_tipo}/N${f.nro_fiscal} vs resultado PV${r.punto_venta}/T${r.cbte_tipo}/N${r.numero})`)
+      continue
+    }
+    fecha = r.cbte_fch
+    procedencia = `CbteFch informado por ARCA (FECompConsultar), identidad verificada ` +
+      `PV${r.punto_venta}/CbteTipo${r.cbte_tipo}/N${r.numero}, CAE ${r.cae_match}`
   } else {
     omitidos.sin_fecha_arca++
     continue
@@ -97,11 +132,16 @@ const sqlOut = `-- =============================================================
 -- NO EJECUTADO. Aplicarlo es una acción de producción que requiere autorización
 -- explícita del owner.
 --
--- Comprobantes incluidos           : ${incluidos}
--- Omitidos por falta de dato ARCA  : ${omitidos.sin_fecha_arca}
--- Omitidos por INCONSISTENT        : ${omitidos.inconsistente}
--- Omitidos por forma inválida      : ${omitidos.sin_forma}
--- Manifiesto (sha256 del SQL)      : ${manifest.sql_sha256}
+-- Comprobantes incluidos              : ${incluidos}
+-- Omitidos por falta de dato ARCA     : ${omitidos.sin_fecha_arca}
+-- Omitidos por INCONSISTENT           : ${omitidos.inconsistente}
+-- Omitidos por forma inválida         : ${omitidos.sin_forma}
+-- Omitidos por identidad no coincidente: ${omitidos.identidad_no_coincide}
+-- Manifiesto (sha256 del SQL)         : ${manifest.sql_sha256}
+--
+-- Toda fecha de origen remoto pasó por: verdict BACKFILLABLE del runner,
+-- cae_match = match, y PV + CbteTipo + número idénticos entre el resultado y
+-- el manifiesto. Una fecha sin esa identidad probada NO entra.
 --
 -- Cada UPDATE es por id, exige CAE y exige que la fecha esté NULL: correrlo dos
 -- veces no cambia nada, y no puede pisar una fecha fiscal ya persistida.
@@ -141,6 +181,11 @@ console.log(`[backfill] incluidos                  : ${incluidos}`)
 console.log(`[backfill] omitidos (falta dato ARCA) : ${omitidos.sin_fecha_arca}`)
 console.log(`[backfill] omitidos (INCONSISTENT)    : ${omitidos.inconsistente}`)
 console.log(`[backfill] omitidos (forma inválida)  : ${omitidos.sin_forma}`)
+console.log(`[backfill] omitidos (identidad)       : ${omitidos.identidad_no_coincide}`)
+if (rechazos.length) {
+  console.log(`[backfill] resultados remotos rechazados: ${rechazos.length}`)
+  for (const r of rechazos.slice(0, 10)) console.log(`           · ${r}`)
+}
 console.log(`[backfill] ejecutado                  : NO`)
 console.log(`[backfill] salida                     : ${outPath}`)
 console.log(`[backfill] sha256(${outPath})         = ${sha}`)

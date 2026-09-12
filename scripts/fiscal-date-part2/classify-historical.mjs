@@ -60,16 +60,23 @@ const counts = Object.fromEntries(CLASSES.map(c => [c, 0]))
 const unknown = []
 const lookup = []
 const provable = []
-const inconsistent = []
 for (const r of rows) {
   if (!CLASSES.includes(r.clase)) { unknown.push(r); continue }
   counts[r.clase]++
   if (r.clase === 'REQUIRES_ARCA_LOOKUP') lookup.push(r)
-  if (r.clase === 'INCONSISTENT') inconsistent.push(r)
   if (r.clase === 'PROVABLE_LOCAL') {
     provable.push(r)
+    // Una fila probable tiene que traer la fecha probada Y la evidencia que la
+    // prueba: exactamente un intento autorizado, ventana post-corte y día
+    // civil argentino constante. Sin eso, "probable" sería una etiqueta vacía.
     if (!/^\d{8}$/.test(r.cbte_fch_probado ?? '')) {
       unknown.push({ ...r, _problema: 'PROVABLE_LOCAL sin cbte_fch_probado con forma YYYYMMDD' })
+    } else if (Number(r.autorizados_n) !== 1) {
+      unknown.push({ ...r, _problema: 'PROVABLE_LOCAL sin exactamente un intento autorizado' })
+    } else if (r.post_corte !== true || r.ar_constante !== true) {
+      unknown.push({ ...r, _problema: 'PROVABLE_LOCAL sin ventana post-corte y día argentino constante' })
+    } else if (r.dia_ar_desde !== r.cbte_fch_probado || r.dia_ar_hasta !== r.cbte_fch_probado) {
+      unknown.push({ ...r, _problema: 'PROVABLE_LOCAL cuya ventana no coincide con la fecha probada' })
     }
   }
 }
@@ -93,8 +100,9 @@ const manifest = {
   total: rows.length,
   conteos: counts,
   desglose_lookup: {
-    sin_sent_at: lookup.filter(r => !r.sent_at_utc).length,
-    utc_distinto_ar: lookup.filter(r => r.sent_at_utc && r.dia_utc !== r.dia_ar).length,
+    sin_intento_autorizado: lookup.filter(r => !r.authorized_attempt_id).length,
+    previa_al_corte_parte1: lookup.filter(r => r.authorized_attempt_id && r.post_corte !== true).length,
+    ventana_cruza_dia: lookup.filter(r => r.post_corte === true && r.ar_constante !== true).length,
   },
   consultas_arca_requeridas: lookup.length,
   filas: rows,
@@ -108,8 +116,9 @@ writeFileSync(join(OUT_DIR, 'classification.json.sha256'), `${sha}  classificati
 
 console.log(`[clasificador] total autorizados      : ${manifest.total}`)
 for (const c of CLASSES) console.log(`[clasificador] ${c.padEnd(21)}: ${counts[c]}`)
-console.log(`[clasificador]   sin sent_at          : ${manifest.desglose_lookup.sin_sent_at}`)
-console.log(`[clasificador]   UTC <> AR            : ${manifest.desglose_lookup.utc_distinto_ar}`)
+console.log(`[clasificador]   sin intento autorizado : ${manifest.desglose_lookup.sin_intento_autorizado}`)
+console.log(`[clasificador]   previa al corte P1     : ${manifest.desglose_lookup.previa_al_corte_parte1}`)
+console.log(`[clasificador]   ventana cruza día      : ${manifest.desglose_lookup.ventana_cruza_dia}`)
 console.log(`[clasificador] consultas ARCA a hacer : ${manifest.consultas_arca_requeridas}`)
 console.log(`[clasificador] sha256(classification.json) = ${sha}`)
 console.log(`[clasificador] sha256(classify-historical.sql) = ${manifest.sql_sha256}`)

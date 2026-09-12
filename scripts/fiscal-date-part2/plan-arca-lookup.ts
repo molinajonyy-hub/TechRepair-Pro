@@ -41,9 +41,12 @@ interface Fila {
   cbte_tipo: number
   nro_fiscal: number
   clase: string
-  dia_utc: string | null
-  dia_ar: string | null
-  dia_venta_ar: string | null
+  motivo?: string
+  cae_local?: string | null
+  importe_local?: number | null
+  dia_ar_desde?: string | null
+  dia_ar_hasta?: string | null
+  dia_venta_ar?: string | null
 }
 
 const manifest = JSON.parse(await Deno.readTextFile(MANIFEST))
@@ -87,11 +90,14 @@ const consultas = [...porClave.values()].map((f) => {
     cbte_tipo: f.cbte_tipo,
     numero: f.nro_fiscal,
     operacion: 'FECompConsultar',
-    // Lo que hay que leer de la respuesta. El resto se ignora: esta fase no
-    // toca CAE, ni importes, ni estado.
+    // Lo que hay que leer de la respuesta.
     campo_esperado: 'CbteFch',
-    // Contexto para que un humano pueda auditar el resultado sin volver a la DB.
-    contexto: { dia_utc: f.dia_utc, dia_ar: f.dia_ar, dia_venta_ar: f.dia_venta_ar },
+    // Testigos de identidad: el runner exige que la respuesta de ARCA coincida
+    // con ESTOS valores antes de que su CbteFch pueda alimentar un backfill.
+    cae_local: f.cae_local ?? null,
+    importe_local: f.importe_local ?? null,
+    // Contexto para auditar el resultado sin volver a la base.
+    contexto: { motivo: f.motivo, dia_venta_ar: f.dia_venta_ar },
     soap_bytes: new TextEncoder().encode(soap).length,
   }
 })
@@ -106,8 +112,13 @@ if (sonda.status !== 'found' || sonda.fecha_cbte !== '20260808') {
   Deno.exit(1)
 }
 
+// El plan es DETERMINÍSTICO a propósito: no lleva reloj. Si llevara
+// `generado_en`, su SHA-256 cambiaría en cada corrida y el hash no serviría
+// para lo único que importa —que el runner ejecute EXACTAMENTE el plan que se
+// revisó—. Misma clasificación, mismos bytes, mismo hash, verificable por
+// cualquiera. La marca de tiempo vive en el manifiesto de clasificación, que es
+// evidencia, no plan.
 const plan = {
-  generado_en: new Date().toISOString(),
   ejecutado: false,
   nota: 'PLAN. Ejecutar el lote contra ARCA requiere autorización explícita del owner.',
   operacion_unica: 'FECompConsultar',

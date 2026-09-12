@@ -61,38 +61,111 @@ se perdería por metadata.
 3. **La columna no se dropea**, y el trigger tampoco: conservan historia fiscal
    que no se puede reconstruir localmente, y son inertes para un llamador viejo.
 
+## El modelo de prueba
+
+`PROVABLE_LOCAL` significa una sola cosa:
+
+> **Todo algoritmo que realmente pudo haber producido el `CbteFch`, sobre todo
+> instante que la evidencia persistida permite, da el MISMO `YYYYMMDD`.**
+
+Cualquier cosa más débil es `REQUIRES_ARCA_LOOKUP`.
+
+### Por qué `sent_at` no prueba nada por sí solo
+
+El orden real en `afip-cae` es:
+
+```
+markAttemptSent(...)  ->  resolveCbteFch(...)  ->  FECAESolicitar
+```
+
+así que `sent_at` es una **cota inferior** del cálculo, no el cálculo. La
+ventana del cálculo server-side es `[sent_at, completed_at]`, y se ensancha con
+`fecha_emision_fiscal`. Tampoco se usa `MAX(sent_at)` sobre todos los intentos:
+la evidencia se ata al **único** intento `authorized`/`authorized_reconciled`,
+porque el máximo puede pertenecer a un intento que no obtuvo el CAE.
+
+### Los tres algoritmos candidatos
+
+| | Algoritmo | Instante |
+|---|---|---|
+| **A** | día civil argentino (`resolveCbteFch`, Parte 1+) | `[sent_at, completed_at]` |
+| **B** | día UTC (`todayYYYYMMDD()`, previo a la Parte 1) | `[sent_at, completed_at]` |
+| **C** | día UTC calculado por el **navegador** (previo a la Parte 1) | `(-∞, started_at]` |
+
+**C es el que arruina la prueba local.** El navegador calculaba `fecha_cbte`
+antes de que el request llegara al Edge, así que su instante sólo tiene cota
+superior y **ninguna cota inferior** en la evidencia. No se asume latencia
+("habrán sido segundos"). Y no se puede descartar C fila por fila:
+`request_data` y `response_data` están **NULL en los 178** autorizados, o sea
+que no hay registro de si el body traía la fecha.
+
+El corte es el despliegue de `afip-cae` v23 (Parte 1), medido en el proyecto:
+**2026-09-11T22:36:02.442Z**. Desde ahí el Edge ignora lo que manda el
+navegador, así que sólo aplica A.
+
 ## Estado del histórico (producción, sólo lectura, 2026-09-12)
 
 De 178 comprobantes autorizados:
 
 | Clase | N | Por qué |
 |---|---:|---|
-| `PROVABLE_LOCAL` | 128 | el día UTC y el día civil AR del `sent_at` coinciden |
-| `REQUIRES_ARCA_LOOKUP` | 50 | 48 sin `sent_at` + 2 enviados en la ventana 21:00–23:59 ART |
-| `INCONSISTENT` | 0 | — |
+| `PROVABLE_LOCAL` | **1** | `0010-00000177`: ventana íntegramente post-corte y día civil argentino constante |
+| `REQUIRES_ARCA_LOOKUP` | **177** | 129 previos al corte (C sin cota inferior) + 48 sin ningún intento |
+| `INCONSISTENT` | **0** | — |
 
-**Por qué «UTC = AR» alcanza como prueba.** Antes de la Parte 1 el `CbteFch`
-salía de una fecha calculada en UTC (el navegador con
-`toISOString().slice(0,10)`, y el Edge con su `todayYYYYMMDD()`, también UTC).
-Desde la Parte 1 lo decide el día civil argentino. Para un instante de envío hay
-entonces tres fórmulas candidatas, y **cuando el día UTC y el día civil AR
-coinciden, las tres dan el mismo valor**: ahí el `CbteFch` queda determinado sin
-necesidad de saber qué build estaba desplegado. Cuando difieren, el valor depende
-de la versión y hay que preguntarle a ARCA.
+Una versión anterior de este clasificador decía 128 / 50. Era **demasiado
+optimista**: tomaba `date(sent_at)` como la fecha del cálculo y pedía sólo que
+el día UTC y el día argentino coincidieran en ese instante. No modelaba la
+ventana del cálculo ni el algoritmo del navegador. 128 → 1 es el costo de
+exigir prueba real, y es el número correcto.
 
-Los 2 de la ventana son los casos donde el bug realmente pegó:
+Los dos casos donde el bug pegó de forma visible siguen siendo
+`0010-00000087` (UTC 2026-07-18 vs AR 2026-07-17) y `0010-00000138`
+(UTC 2026-08-09 vs AR 2026-08-08) — ahora dentro de los 177 a consultar.
 
-| Comprobante | UTC (lo que probablemente registró ARCA) | día civil AR |
-|---|---|---|
-| `0010-00000087` | 2026-07-18 | 2026-07-17 |
-| `0010-00000138` | 2026-08-09 | 2026-08-08 |
-
-La clave de consulta se deriva localmente para los 50: PV y número salen de
+La clave de consulta se deriva localmente para los 177: PV y número salen de
 `numero_fiscal` (**no** de la columna `punto_venta`, que en parte del histórico
 conserva su default `'0001'` mientras el número fiscal dice `0010-…`), y el
-`CbteTipo` sale de `tipo` cuando `tipo_comprobante_fiscal` es `NULL` (46 de 50).
-Sin `CbteTipo`, `numero_fiscal` es **ambiguo**: hay un `0010-00000001` factura y
+`CbteTipo` sale de `tipo` cuando `tipo_comprobante_fiscal` es `NULL`. Sin
+`CbteTipo`, `numero_fiscal` es **ambiguo**: hay un `0010-00000001` factura y
 otro nota de crédito.
+
+## El lookup contra ARCA
+
+Dos artefactos separados, y ninguno se ejecutó.
+
+`plan-arca-lookup.ts` convierte la clasificación en un **plan inmutable** con su
+SHA-256. `execute-arca-lookup.ts` consume ese plan y **verifica el SHA-256 antes
+de tocar la red**: un plan modificado no se ejecuta.
+
+El runner no habla con ARCA directamente: llama a la Edge ya desplegada
+`afip-fe-query`, que soporta exactamente dos operaciones, las dos de lectura, y
+no importa `afip-cae/logic.ts`. De ahí salen varias garantías gratis:
+
+- **nunca ve el token/sign de WSAA** — los resuelve la Edge desde Vault;
+- **no puede construir `FECAESolicitar`**: no está en su grafo de imports;
+- **el negocio lo resuelve la Edge desde el perfil** del usuario autenticado, así
+  que no hay `business_id` que falsificar;
+- proyecto y negocio están **fijados en el código**; un plan con otro negocio se
+  rechaza entero.
+
+Además: tope duro de 200 requests, ejecución secuencial con 1200 ms de
+espaciado, sin paralelismo, **sin reintento ciego** ante timeout o red ambigua
+(se registra como ambiguo), salida sanitizada, y credenciales sólo por prompt
+con eco apagado o `FDP2_OWNER_ACCESS_TOKEN` — nunca por argv, código o log.
+
+`scripts/guards/fiscal-date-part2-runner-readonly.mjs` recorre el grafo de
+imports locales y falla si aparece emisión, reserva de numeración, completado de
+intento, escritura a la base, `service_role`, o una operación distinta de
+`consultar`. Su self-test planta cada violación primero, así que un guard que
+dejó de detectar **falla** en vez de pasar. Corre en CI.
+
+### Identidad fiscal antes de cualquier backfill
+
+Un `CbteFch` sólo sirve si el resultado **es** del comprobante que se pidió. El
+backfill exige, por fila: `verdict` `BACKFILLABLE`, `cae_match = match`, y
+`PV + CbteTipo + número` idénticos entre el resultado y el manifiesto. Un mapa
+pelado `{ comprobante_id: YYYYMMDD }` se **rechaza**: no prueba identidad.
 
 ## Herramientas
 
@@ -104,7 +177,9 @@ ver `.gitignore`).
 | `run-sql-tests.mjs` | regresión SQL en una transacción que termina en `ROLLBACK` | sí, sólo local |
 | `postgrest-signature-gate.mjs` | hard gate de resolución de firma por HTTP; restaura la base local y lo verifica por `md5` | sí, sólo local |
 | `classify-historical.sql` / `.mjs` | clasifica el histórico; un único `SELECT`, con guardia que aborta si aparece una sentencia de escritura | sólo lectura |
-| `plan-arca-lookup.ts` | arma el plan de `FECompConsultar` y su SHA-256 | **no** — no abre red |
+| `plan-arca-lookup.ts` | clasificación → plan inmutable + SHA-256 | **no** — no abre red |
+| `execute-arca-lookup.ts` | plan verificado → resultados de `FECompConsultar` | **no ejecutado** — sin `--execute` no toca la red |
+| `arcaLookupIdentity.ts` | módulo puro: valida la identidad fiscal de un resultado | no, no tiene efectos |
 | `generate-backfill.mjs` | genera el `.sql` de backfill y su SHA-256 | **no** — no abre base |
 
 `plan-arca-lookup.ts` reusa `buildFECompConsultarSOAP` y
@@ -117,3 +192,10 @@ El backfill generado es idempotente y no puede pisar historia: cada `UPDATE` es
 por `id` y exige `cae IS NOT NULL AND fecha_comprobante_fiscal IS NULL`. Cada
 fila lleva su **procedencia** en un comentario. Una fecha de ARCA que no tenga
 forma `YYYYMMDD` se **descarta con aviso**, nunca se corrige.
+
+## Deuda separada, no de esta fase
+
+La suite de componentes (`npm run test:components`) está en **264 rojos sobre 35
+archivos**, idénticos en el commit base `205db2a2` — medido, no supuesto. Es
+deuda de la suite de pre-beta y **no** se arregla dentro de Fiscal Date Parte 2.
+Los archivos fiscales de esta fase sí pasan.
