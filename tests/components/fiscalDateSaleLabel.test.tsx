@@ -1,8 +1,14 @@
-// FISCAL DATE ARGENTINA (Part 1): the document surfaces show `comprobante.fecha`
-// for what it is — the SALE date, on Argentina's civil calendar — and never call
-// it "Fecha de emisión" while the fiscal date accepted by ARCA is not persisted.
+// FISCAL DATE ARGENTINA: the document surfaces show `comprobante.fecha` for what
+// it is — the SALE date, on Argentina's civil calendar — and never pass it off as
+// the fiscal issue date.
+//
+// Part 1 banned the label "Fecha de emisión" outright, because no fiscal date was
+// stored and any such label was necessarily the sale date mislabelled. Part 2
+// stores the real CbteFch, so the label is expected — but only ever fed by
+// `fecha_comprobante_fiscal`, and reading "No informada" when that is NULL.
+//
 // Fixtures mirror 0010-00000175 / 0010-00000176 (sold 10/09, issued 11/09) with
-// fake CAE values.
+// fake CAE values: exactly the case where the two dates differ.
 import { describe, test, expect } from 'vitest'
 import { render } from '@testing-library/react'
 
@@ -55,25 +61,53 @@ const props = (c: unknown) => ({
   comprobante: c as never, items: [], cliente: null, orden: null, profile: PERFIL,
 })
 
+const SURFACES = [
+  ['the screen document', ComprobanteDocumento],
+  ['the printed sheet', ComprobantePrintLayout],
+] as const
+
 describe('sale date vs fiscal issue date on the document surfaces', () => {
   for (const { nombre, issuedAt, comprobante } of FIXTURES) {
-    test(`${nombre}: the screen document shows the sale date, labelled as such`, () => {
-      const { container } = render(<ComprobanteDocumento {...props(comprobante)} />)
-      const text = container.textContent ?? ''
-      expect(text).toContain('Fecha de venta')
-      expect(text).toContain('10/09/2026')
-      expect(text).not.toMatch(/Fecha de emisi/)
-      expect(text).not.toContain('11/09/2026') // no guessed fiscal date
-    })
+    for (const [surface, Surface] of SURFACES) {
+      test(`${nombre}: ${surface} shows the sale date, labelled as such`, () => {
+        const { container } = render(<Surface {...props(comprobante)} />)
+        const text = container.textContent ?? ''
+        expect(text).toContain('Fecha de venta')
+        expect(text).toContain('10/09/2026')
+        // The sale day is never presented as the fiscal date, and no fiscal
+        // date is guessed while the column is NULL.
+        expect(text).not.toContain('11/09/2026')
+      })
 
-    test(`${nombre}: the printed sheet shows the sale date, labelled as such`, () => {
-      const { container } = render(<ComprobantePrintLayout {...props(comprobante)} />)
-      const text = container.textContent ?? ''
-      expect(text).toContain('Fecha de venta')
-      expect(text).toContain('10/09/2026')
-      expect(text).not.toMatch(/Fecha de emisi/)
-      expect(text).not.toContain('11/09/2026')
-    })
+      test(`${nombre}: ${surface} says the fiscal date is unknown when it is NULL`, () => {
+        const { container } = render(<Surface {...props(comprobante)} />)
+        const text = container.textContent ?? ''
+        expect(text).toMatch(/Fecha de emisi/)
+        expect(text).toContain('No informada')
+      })
+
+      test(`${nombre}: ${surface} shows the real fiscal date, distinct from the sale date`, () => {
+        // The 175/176 case: sold on the 10th, accepted by ARCA on the 11th.
+        // Both dates must be visible and must not be confused with each other.
+        const conFiscal = { ...comprobante, fecha_comprobante_fiscal: '2026-09-11' }
+        const { container } = render(<Surface {...props(conFiscal)} />)
+        const text = container.textContent ?? ''
+        expect(text).toContain('Fecha de venta')
+        expect(text).toContain('10/09/2026')
+        expect(text).toMatch(/Fecha de emisi/)
+        expect(text).toContain('11/09/2026')
+        expect(text).not.toContain('No informada')
+      })
+
+      test(`${nombre}: ${surface} does not shift the fiscal date a day (a DATE is not an instant)`, () => {
+        // PostgREST returns a `date` column as a UTC-midnight timestamp. Routed
+        // through `new Date(...)`, 2026-09-11 renders as 10/09 in Argentina —
+        // the very off-by-one this phase removes.
+        const comoPostgrest = { ...comprobante, fecha_comprobante_fiscal: '2026-09-11T00:00:00+00:00' }
+        const { container } = render(<Surface {...props(comoPostgrest)} />)
+        expect(container.textContent ?? '').toContain('11/09/2026')
+      })
+    }
 
     test(`${nombre}: its delayed issuance goes to ARCA with the issuance civil day`, () => {
       expect(arcaFiscalDate(new Date(issuedAt))).toBe('20260911')

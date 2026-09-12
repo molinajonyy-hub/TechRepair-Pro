@@ -311,6 +311,17 @@ export function ComprobantePrintLayout({ comprobante, items, cliente, orden, pro
             <span className="cpl-muted">Fecha de venta</span>
             <span className="cpl-info-val">{fmtFecha(comprobante.fecha)}</span>
           </div>
+          {comprobante.cae && (
+            <div className="cpl-info-row">
+              {/* CbteFch: la fecha fiscal que ARCA aceptó. Sólo de
+                  fecha_comprobante_fiscal; si no está, se dice. La fecha de
+                  venta no la reemplaza. */}
+              <span className="cpl-muted">Fecha de emisión</span>
+              <span className="cpl-info-val">
+                {formatearFechaCalendario(comprobante.fecha_comprobante_fiscal) || 'No informada'}
+              </span>
+            </div>
+          )}
           {orden && (
             <div className="cpl-info-row">
               <span className="cpl-muted">Orden relacionada</span>

@@ -70,6 +70,14 @@ jobs:
       - name: Fiscal date — sale vs fiscal issue date on document surfaces
         run: npm run test:components -- tests/components/fiscalDateSaleLabel.test.tsx tests/components/fiscalPostReconciliacion.test.tsx
 
+      # FISCAL DATE Part 2: the ARCA lookup runner must stay read-only. The guard
+      # walks its local import graph and fails if emission, number reservation,
+      # attempt completion, a DB write, service_role or any operation other than
+      # `consultar` becomes reachable. Its self-test plants each violation first,
+      # so a guard that stopped detecting anything fails instead of passing.
+      - name: Fiscal date Part 2 — ARCA lookup runner is read-only
+        run: npm run guard:fdp2-runner-readonly:self-test && npm run guard:fdp2-runner-readonly
+
       - name: Production build
         run: npm run build
         env:

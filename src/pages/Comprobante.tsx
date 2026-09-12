@@ -281,9 +281,14 @@ export default function ComprobantePage() {
       doc.setFontSize(12);
       doc.text(`N° ${formatearNumeroComprobante(comprobanteActual)}`, 14, 52);
       doc.setFontSize(10);
-      // `fecha` es la fecha de venta; la fecha fiscal de ARCA todavía no se persiste.
+      // `fecha` es la fecha de venta, NO la fecha fiscal.
       doc.text(`Fecha de venta: ${formatArgentinaCivilDate(new Date(comprobanteActual.fecha))}`, 14, 58);
       if (comprobanteActual.cae) {
+        // CbteFch aceptado por ARCA. La fuente va en la misma expresión, a
+        // propósito: la etiqueta fiscal no debe poder alimentarse de otra cosa.
+        doc.text(
+          `Fecha de emisión: ${formatearFechaCalendario(comprobanteActual.fecha_comprobante_fiscal) || 'No informada'}`,
+          14, 63);
         doc.setTextColor(0, 128, 0);
         doc.text(`CAE: ${comprobanteActual.cae}`, 14, 68);
         if (comprobanteActual.cae_vencimiento) {
@@ -795,6 +800,13 @@ export default function ComprobantePage() {
                 {[
                   ['Tipo', TIPO_LABELS[comprobanteActual.tipo]],
                   ['Fecha de venta', formatArgentinaCivilDate(new Date(comprobanteActual.fecha))],
+                  // CbteFch aceptado por ARCA. Sale SÓLO de
+                  // fecha_comprobante_fiscal: para los 50 comprobantes que
+                  // todavía no la tienen se muestra "No informada", nunca la
+                  // fecha de venta, que puede diferir un día.
+                  ...(comprobanteActual.cae
+                    ? [['Fecha de emisión', formatearFechaCalendario(comprobanteActual.fecha_comprobante_fiscal) || 'No informada']]
+                    : []),
                   ...(puntoVentaVisible ? [['Pto. Venta', puntoVentaVisible]] : []),
                   // Sin CAE no hay vencimiento que mostrar. Los 53 registros
                   // historicos conservaron `cae_vencimiento` del CAE simulado

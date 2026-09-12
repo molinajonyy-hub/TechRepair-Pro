@@ -58,3 +58,11 @@ test-results/
 # unpacked). NO va bajo dist/: el build de Vite lo vacia y Chrome marcaria la
 # extension como rota.
 .companion-local/
+
+# FISCAL DATE Parte 2 — salidas de las herramientas de clasificacion/backfill.
+# Llevan datos fiscales REALES (ids de comprobante, numeros fiscales, fechas de
+# ARCA) de un tenant productivo: las herramientas se versionan, sus salidas no.
+docs/fiscal-date-part2/classification.json
+docs/fiscal-date-part2/classification.json.sha256
+docs/fiscal-date-part2/arca-lookup-plan.json
+docs/fiscal-date-part2/backfill.sql
