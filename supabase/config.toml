@@ -517,3 +517,6 @@ verify_jwt = true
 
 [functions.arca-rotate-activate]
 verify_jwt = true
+
+[functions.arca-selfservice-setup]
+verify_jwt = true

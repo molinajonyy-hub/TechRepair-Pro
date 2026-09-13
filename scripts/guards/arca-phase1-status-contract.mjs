@@ -39,6 +39,8 @@ export const FORBIDDEN_KEYS = [
 const FORBIDDEN_READS = [
   'wsaa_token', 'wsaa_sign', 'decrypted_secret', 'csr_pem', 'certificate_pem', 'prev_', 'pfx_password',
   'ultimo_error', 'arca_get_private_key_for_signing', 'arca_get_credential_for_signing',
+  // ARCA Phase 2A: el ticket del par pendiente y la foto fiscal del setup no son estado de lectura.
+  'verified_wsaa', 'fiscal_snapshot',
 ]
 
 const stripSqlComments = (s) => s.replace(/--[^\n]*/g, '')
@@ -199,8 +201,11 @@ export function check(tree) {
 
 function selfTest() {
   const base = realTree()
-  const migFile = base.migrations().find((f) => f.includes('arca_selfservice_phase1_status_read_model'))
-  if (!migFile) throw new Error('self-test: falta la migración de Phase 1')
+  // Las mutaciones apuntan al archivo que el guard realmente evalúa: la ÚLTIMA definición de cada
+  // función (Phase 2A redefine la derivación; la RPC sigue en la migración de Phase 1).
+  const derFile = lastDefinition(base, DERIVE)?.file
+  const rpcFile = lastDefinition(base, RPC)?.file
+  if (!derFile || !rpcFile) throw new Error('self-test: faltan las definiciones de Phase 1')
   const clean = check(base)
   if (clean.length) throw new Error(`self-test: el árbol real no está limpio:\n${clean.join('\n')}`)
 
@@ -233,24 +238,36 @@ function selfTest() {
     'contrato nombra cert_file': 'S5 src/lib/arcaStatus.ts nombra material prohibido: cert_file',
   }
   const cases = [
-    ['devuelve cert_file', migFile, (s) => s.replace("'alias',            CASE WHEN v_cfg_found", "'cert_file', v_cfg.cert_file,\n    'alias',            CASE WHEN v_cfg_found")],
-    ['devuelve ultimo_error', migFile, (s) => s.replace("'can_manage',       v_can_manage,", "'can_manage',       v_can_manage,\n    'ultimo_error', 'x',")],
-    ['lee wsaa_token', migFile, (s) => s.replace('c.cert_file, c.pfx_file,', 'c.cert_file, c.pfx_file, c.wsaa_token,')],
-    ['descifra Vault', migFile, (s) => s.replace('FROM vault.secrets s WHERE s.id = k.private_key_secret_id) AS secret_present', 'FROM vault.decrypted_secrets s WHERE s.id = k.private_key_secret_id) AS secret_present')],
-    ['derivación SECURITY DEFINER', migFile, (s) => s.replace('RETURNS jsonb\nLANGUAGE plpgsql\nSTABLE\nSET search_path = pg_catalog, pg_temp\nAS $function$\nDECLARE\n  v_cfg ', 'RETURNS jsonb\nLANGUAGE plpgsql\nSTABLE\nSECURITY DEFINER\nSET search_path = pg_catalog, pg_temp\nAS $function$\nDECLARE\n  v_cfg ')],
-    ['RPC otorgada a anon', migFile, (s) => s.replace('TO authenticated;\n\nCOMMENT ON FUNCTION public.get_arca_selfservice_status', 'TO authenticated;\nGRANT EXECUTE ON FUNCTION public.get_arca_selfservice_status(uuid) TO anon;\n\nCOMMENT ON FUNCTION public.get_arca_selfservice_status')],
-    ['search_path con comillas', migFile, (s) => s.replace("SECURITY DEFINER\nSET search_path = pg_catalog, pg_temp", "SECURITY DEFINER\nSET search_path = 'pg_catalog, pg_temp'")],
-    ['acepta p_business_id como autoridad', migFile, (s) => s.replace('OR (p_business_id IS NOT NULL AND p_business_id <> v_tenant)', '').replace('private.arca_selfservice_status(v_tenant, v_actor, now())', 'private.arca_selfservice_status(p_business_id, v_actor, now())')],
-    ['can_manage por rol en vez de autoridad', migFile, (s) => s.replace('private.arca_actor_can_manage(p_business_id, p_actor) IS TRUE', "true")],
-    ['RPC VOLATILE', migFile, (s) => s.replace("RETURNS jsonb\nLANGUAGE plpgsql\nSTABLE\nSECURITY DEFINER", 'RETURNS jsonb\nLANGUAGE plpgsql\nSECURITY DEFINER')],
+    ['devuelve cert_file', derFile, (s) => s.replace("'alias',            CASE WHEN v_cfg_found", "'cert_file', v_cfg.cert_file,\n    'alias',            CASE WHEN v_cfg_found")],
+    ['devuelve ultimo_error', derFile, (s) => s.replace("'can_manage',       v_can_manage,", "'can_manage',       v_can_manage,\n    'ultimo_error', 'x',")],
+    ['lee wsaa_token', derFile, (s) => s.replace('c.cert_file, c.pfx_file,', 'c.cert_file, c.pfx_file, c.wsaa_token,')],
+    ['descifra Vault', derFile, (s) => s.replace('FROM vault.secrets s WHERE s.id = k.private_key_secret_id) AS secret_present', 'FROM vault.decrypted_secrets s WHERE s.id = k.private_key_secret_id) AS secret_present')],
+    ['derivación SECURITY DEFINER', derFile, (s) => s.replace('RETURNS jsonb\nLANGUAGE plpgsql\nSTABLE\nSET search_path = pg_catalog, pg_temp\nAS $function$\nDECLARE\n  v_cfg ', 'RETURNS jsonb\nLANGUAGE plpgsql\nSTABLE\nSECURITY DEFINER\nSET search_path = pg_catalog, pg_temp\nAS $function$\nDECLARE\n  v_cfg ')],
+    ['RPC otorgada a anon', rpcFile, (s) => s.replace('TO authenticated;\n\nCOMMENT ON FUNCTION public.get_arca_selfservice_status', 'TO authenticated;\nGRANT EXECUTE ON FUNCTION public.get_arca_selfservice_status(uuid) TO anon;\n\nCOMMENT ON FUNCTION public.get_arca_selfservice_status')],
+    ['search_path con comillas', rpcFile, (s) => s.replace("SECURITY DEFINER\nSET search_path = pg_catalog, pg_temp", "SECURITY DEFINER\nSET search_path = 'pg_catalog, pg_temp'")],
+    ['acepta p_business_id como autoridad', rpcFile, (s) => s.replace('OR (p_business_id IS NOT NULL AND p_business_id <> v_tenant)', '').replace('private.arca_selfservice_status(v_tenant, v_actor, now())', 'private.arca_selfservice_status(p_business_id, v_actor, now())')],
+    ['can_manage por rol en vez de autoridad', derFile, (s) => s.replace('private.arca_actor_can_manage(p_business_id, p_actor) IS TRUE', "true")],
+    ['RPC VOLATILE', rpcFile, (s) => s.replace("RETURNS jsonb\nLANGUAGE plpgsql\nSTABLE\nSECURITY DEFINER", 'RETURNS jsonb\nLANGUAGE plpgsql\nSECURITY DEFINER')],
     ['Settings vuelve a leer estado_conexion', 'src/pages/Settings.tsx', (s) => s.replace('<ArcaStatusCard status={arcaStatus}', "{arcaConfig.estado_conexion === 'conectado' && <p>ok</p>}\n<ArcaStatusCard status={arcaStatus}")],
     ['tarjeta habla con Supabase', 'src/components/settings/ArcaStatusCard.tsx', (s) => s.replace("import type { ReactNode } from 'react'", "import type { ReactNode } from 'react'\nimport { supabase } from '../../lib/supabase'")],
     ['contrato nombra cert_file', 'src/lib/arcaStatus.ts', (s) => s.replace('contract_version: 1\n  available: boolean', 'contract_version: 1\n  cert_file?: string\n  available: boolean')],
   ]
   for (const [label, file, fn] of cases) mutate(label, file, fn)
+
+  // Una migración POSTERIOR que redefine la derivación de forma insegura es la que se evalúa.
+  const laterFile = 'supabase/migrations/29991231120000_regresion_derivacion.sql'
+  const laterSql = base.read(derFile).replace(
+    'RETURNS jsonb\nLANGUAGE plpgsql\nSTABLE\nSET search_path = pg_catalog, pg_temp\nAS $function$\nDECLARE\n  v_cfg ',
+    'RETURNS jsonb\nLANGUAGE plpgsql\nSTABLE\nSECURITY DEFINER\nSET search_path = pg_catalog, pg_temp\nAS $function$\nDECLARE\n  v_cfg ')
+  if (laterSql === base.read(derFile)) throw new Error('self-test: la redefinición posterior no cambió nada')
+  const later = { ...base, migrations: () => [...base.migrations(), laterFile], read: (p) => (p === laterFile ? laterSql : base.read(p)) }
+  if (!check(later).some((g) => g.startsWith('S2 la derivación privada NO debe ser SECURITY DEFINER'))) {
+    throw new Error('self-test: una redefinición posterior insegura de la derivación no se detectó')
+  }
+
   const extra = { ...base, listSrc: () => [...base.listSrc(), 'src/pages/Otra.tsx'], read: (p) => (p === 'src/pages/Otra.tsx' ? "supabase.rpc('get_arca_selfservice_status')" : base.read(p)), exists: (p) => p === 'src/pages/Otra.tsx' || base.exists(p) }
   if (check(extra).length === 0) throw new Error('self-test: no detectó una segunda llamada a la RPC fuera de arcaService')
-  console.log(`✅ Self-test ARCA Phase 1: ${cases.length + 1} violaciones plantadas, todas detectadas.`)
+  console.log(`✅ Self-test ARCA Phase 1: ${cases.length + 2} violaciones plantadas, todas detectadas.`)
 }
 
 const isCLI = process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('arca-phase1-status-contract.mjs')

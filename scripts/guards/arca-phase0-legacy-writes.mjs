@@ -31,9 +31,12 @@ import { fileURLToPath } from 'node:url'
 const ROOT = fileURLToPath(new URL('../..', import.meta.url))
 const PHASE0_MIGRATION = 'supabase/migrations/20260928120000_arca_selfservice_phase0_hardening.sql'
 const PHASE0_VERSION = '20260928120000'
+// Una entrada puede ser un archivo o un grupo de archivos de la misma función (se evalúan juntos).
 const MANAGEMENT_EDGES = [
   'supabase/functions/arca-rotate-prepare/index.ts',
   'supabase/functions/arca-rotate-activate/index.ts',
+  // ARCA Self-Service Phase 2A: el cableado (index) y el handler puro comparten la autoridad.
+  ['supabase/functions/arca-selfservice-setup/index.ts', 'supabase/functions/arca-selfservice-setup/handler.ts'],
 ]
 const CREDENTIALS_STUB = ['supabase/functions/arca-credentials/index.ts', 'supabase/functions/arca-credentials/handler.ts']
 const SHARED_AUTHORITY = 'supabase/functions/_shared/arcaManagementAuthority.ts'
@@ -154,9 +157,12 @@ export function analyze(tree) {
   }
 
   // ── E3 Edge de gestión con autoridad canónica ──────────────────────────────
-  for (const file of MANAGEMENT_EDGES) {
-    if (!tree.exists(file)) { out.push(`E3 falta ${file}`); continue }
-    const code = stripJsComments(tree.read(file))
+  for (const entry of MANAGEMENT_EDGES) {
+    const files = Array.isArray(entry) ? entry : [entry]
+    const file = files.join(' + ')
+    const missing = files.filter((f) => !tree.exists(f))
+    if (missing.length) { out.push(`E3 falta ${missing.join(', ')}`); continue }
+    const code = files.map((f) => stripJsComments(tree.read(f))).join('\n')
     if (!/authorizeArcaManager\s*\(/.test(code)) out.push(`E3 ${file}: no usa authorizeArcaManager`)
     if (!/resolveManagedBusiness\s*\(/.test(code)) out.push(`E3 ${file}: no valida el business_id contra el tenant resuelto`)
     if (/auth\.getUser\s*\(/.test(code)) out.push(`E3 ${file}: valida identidad por su cuenta (auth.getUser) en vez de la autoridad canónica`)
@@ -271,6 +277,10 @@ function selfTest() {
       read(MANAGEMENT_EDGES[0]).replace('businessId = resolveManagedBusiness(body?.business_id, manager)', "businessId = String(body?.business_id ?? '')")],
     ['rotate-activate vuelve a auth.getUser', MANAGEMENT_EDGES[1],
       read(MANAGEMENT_EDGES[1]).replace(/authorizeArcaManager\(/g, 'userClient.auth.getUser(')],
+    ['selfservice-setup toma el tenant del body', MANAGEMENT_EDGES[2][1],
+      read(MANAGEMENT_EDGES[2][1]).replace('businessId = resolveManagedBusiness(body.business_id, manager)', 'businessId = String(body.business_id)')],
+    ['selfservice-setup pierde la defensa SQL', MANAGEMENT_EDGES[2][1],
+      read(MANAGEMENT_EDGES[2][1]).replace("deps.rpc('is_business_owner_or_admin'", "deps.rpc('noop'")],
     ['autoridad compartida acepta manager', SHARED_AUTHORITY,
       read(SHARED_AUTHORITY).replace("['owner', 'admin']", "['owner', 'admin', 'manager']")],
     ['autoridad compartida sin settings_sensitive', SHARED_AUTHORITY,
