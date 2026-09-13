@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase'
 import { sanitizeArcaError } from './arcaSanitize'
 import { logger } from '../lib/logger'
+import { parseArcaSelfServiceStatus, type ArcaSelfServiceStatus } from '../lib/arcaStatus'
 
 // ────────────────────────────────────────────────────────────────────────────
 // AFIP-S1B-A2: contratos tipados del frontend. NINGUNO expone `private_key`.
@@ -75,6 +76,20 @@ export class ArcaService {
 
     if (error) throw new Error('Error al obtener configuración ARCA')
     return data
+  }
+
+  /**
+   * ARCA Phase 1: estado canónico de autoservicio (get_arca_selfservice_status).
+   * El tenant lo resuelve el servidor por identidad; `businessId` sólo confirma
+   * (un tenant distinto es FORBIDDEN). Devuelve null si el payload no respeta el
+   * contrato: la UI no inventa un estado.
+   */
+  static async getSelfServiceStatus(businessId: string): Promise<ArcaSelfServiceStatus | null> {
+    const { data, error } = await supabase.rpc('get_arca_selfservice_status', {
+      p_business_id: businessId,
+    })
+    if (error) throw new Error('Error al obtener el estado de ARCA')
+    return parseArcaSelfServiceStatus(data)
   }
 
   /**
