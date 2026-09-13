@@ -13,7 +13,6 @@ import {
   Trash2,
   Edit,
   CheckCircle,
-  XCircle,
   X,
   AlertTriangle,
   Loader2,
@@ -31,11 +30,15 @@ import { WhatsAppTemplatesSettings } from '../components/settings/WhatsAppTempla
 import { useAuth } from '../contexts/AuthContext'
 import { usePermissions } from '../hooks/usePermissions'
 import { canManageArca, isArcaIdentityLocked } from '../lib/arcaAuthority'
+import type { ArcaSelfServiceStatus } from '../lib/arcaStatus'
 import { supabase } from '../lib/supabase'
 import ArcaService from '../services/arcaService'
+import { ArcaStatusCard } from '../components/settings/ArcaStatusCard'
+import { colors, radius } from '../lib/tokens'
 import { uploadBusinessLogo } from '../lib/storageSetup'
 import { businessSetupService, BusinessSetupError } from '../services/businessSetupService'
 import { CONDICIONES_FISCALES, normalizeCondicionFiscal } from '../lib/fiscalCondition'
+import { logger } from '../lib/logger'
 
 type TabType = 'datos' | 'puntos' | 'arca' | 'preferencias' | 'seguridad' | 'orden' | 'comprobante' | 'pagos' | 'comisiones' | 'whatsapp'
 
@@ -219,6 +222,17 @@ export default function Settings() {
   const [testingConnection, setTestingConnection] = useState(false)
   const [syncingParameters, setSyncingParameters] = useState(false)
   const identidadArcaBloqueada = isArcaIdentityLocked(arcaConfig)
+  // ARCA Phase 1: estado canónico server-side (get_arca_selfservice_status). La
+  // tarjeta NO reconstruye el estado desde arcaConfig.
+  const [arcaStatus, setArcaStatus] = useState<ArcaSelfServiceStatus | null>(null)
+  const [arcaStatusLoading, setArcaStatusLoading] = useState(false)
+  const [arcaStatusFailed, setArcaStatusFailed] = useState(false)
+  // Sin integración configurada no se muestra un formulario técnico vacío: el
+  // alta la hará el asistente (Phase 2). Si el estado no se pudo leer, se cae a
+  // los flags de presencia del contrato seguro para no ocultar una config vigente.
+  const mostrarConfiguracionArca = arcaStatus
+    ? arcaStatus.configured || identidadArcaBloqueada
+    : identidadArcaBloqueada
 
   // Logo upload
   const [uploadingLogo, setUploadingLogo] = useState(false)
@@ -310,6 +324,8 @@ export default function Settings() {
       } catch {
         // tabla no disponible aún
       }
+
+      await loadArcaStatus()
 
     } catch (error) {
       console.error('Error loading settings:', error)
@@ -431,6 +447,24 @@ export default function Settings() {
     }
   }
 
+  // ARCA Phase 1: relee el estado canónico. Un fallo no deja un estado viejo
+  // pintado como si fuera actual.
+  const loadArcaStatus = async () => {
+    if (!businessId) return
+    setArcaStatusLoading(true)
+    try {
+      const status = await ArcaService.getSelfServiceStatus(businessId)
+      setArcaStatus(status)
+      setArcaStatusFailed(status === null)
+    } catch (error) {
+      logger.error('GENERAL', 'No se pudo leer el estado de ARCA', error)
+      setArcaStatus(null)
+      setArcaStatusFailed(true)
+    } finally {
+      setArcaStatusLoading(false)
+    }
+  }
+
   // Relee la config por el contrato SEGURO (get_arca_config_safe: nunca PEM/clave/token).
   const refreshArcaConfig = async () => {
     if (!businessId) return
@@ -438,6 +472,7 @@ export default function Settings() {
     if (data) {
       setArcaConfig((prev) => ({ ...prev, ...(data as Partial<ArcaConfig>) }))
     }
+    await loadArcaStatus()
   }
 
   // ARCA Phase 0: solo configuración NO credencial. El certificado ya no se carga
@@ -1046,117 +1081,44 @@ export default function Settings() {
               </div>
             )}
 
-            {arcaConfig.estado_conexion === 'error' && arcaConfig.ultimo_error && (
-              <div style={{ marginBottom: '1.5rem', padding: '1rem 1.25rem', backgroundColor: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '0.625rem' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
-                  <XCircle size={18} style={{ color: '#f87171', flexShrink: 0, marginTop: 2 }} />
-                  <div>
-                    <p style={{ margin: '0 0 0.3rem', color: '#f87171', fontWeight: 700, fontSize: '0.875rem' }}>Error de conexión AFIP</p>
-                    <p style={{ margin: 0, color: '#fca5a5', fontSize: '0.8rem', lineHeight: 1.5, fontFamily: 'monospace', wordBreak: 'break-word' }}>
-                      {arcaConfig.ultimo_error}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
+            {/* ARCA Phase 1: una sola tarjeta alimentada por el read model canónico
+                (get_arca_selfservice_status). Reemplaza los banners y el panel que
+                interpretaban estado_conexion/ultimo_error en el navegador. */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '1.5rem' }}>
+              <ArcaStatusCard status={arcaStatus} loading={arcaStatusLoading} failed={arcaStatusFailed} />
 
-            {arcaConfig.estado_conexion === 'conectado' && (
-              <div style={{ marginBottom: '1.5rem', padding: '0.875rem 1.25rem', backgroundColor: 'rgba(52,211,153,0.07)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: '0.625rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <CheckCircle size={18} style={{ color: '#34d399' }} />
-                <p style={{ margin: 0, color: '#34d399', fontWeight: 600, fontSize: '0.875rem' }}>
-                  Conexión activa con AFIP — podés emitir comprobantes electrónicos
-                </p>
-              </div>
-            )}
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '2rem' }}>
-              {/* Panel izquierdo - Estado */}
-              <div style={{ backgroundColor: '#0b1120', borderRadius: '0.5rem', padding: '1.5rem', border: '1px solid rgba(255,255,255,0.06)' }}>
-                <h3 style={{ color: 'var(--text-primary)', fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Estado de Conexión</h3>
-                
-                <div style={{ marginBottom: '1rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Estado:</span>
-                    <span style={{ 
-                      color: arcaConfig.estado_conexion === 'conectado' ? '#10b981' : '#ef4444',
-                      fontWeight: 500,
-                      fontSize: '0.875rem'
-                    }}>
-                      {arcaConfig.estado_conexion === 'conectado' ? 'Conectado' : 'Desconectado'}
-                    </span>
-                  </div>
-                  {arcaConfig.estado_conexion === 'conectado' && <CheckCircle size={16} style={{ color: '#10b981' }} />}
-                  {arcaConfig.estado_conexion !== 'conectado' && <XCircle size={16} style={{ color: '#ef4444' }} />}
-                </div>
-
-                <div style={{ marginBottom: '1rem' }}>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Ambiente:</span>
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 500, fontSize: '0.875rem', marginLeft: '0.5rem' }}>
-                    {arcaConfig.ambiente === 'homologacion' ? 'Homologación' : 'Producción'}
-                  </span>
-                </div>
-
-                <div style={{ marginBottom: '1rem' }}>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Punto de Venta:</span>
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 500, fontSize: '0.875rem', marginLeft: '0.5rem' }}>
-                    {arcaConfig.punto_venta}
-                  </span>
-                </div>
-
-                <div style={{ marginBottom: '1rem' }}>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Certificado:</span>
-                  <span style={{ color: 'var(--text-primary)', fontWeight: 500, fontSize: '0.875rem', marginLeft: '0.5rem' }}>
-                    {arcaConfig.has_certificate ? '✓ Cargado' : 'No cargado'}
-                  </span>
-                </div>
-
-                {arcaConfig.expires_at && (
-                  <div style={{ marginBottom: '1rem' }}>
-                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Vencimiento:</span>
-                    <span style={{ color: 'var(--text-primary)', fontWeight: 500, fontSize: '0.875rem', marginLeft: '0.5rem' }}>
-                      {new Date(arcaConfig.expires_at).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', year: 'numeric' })}
-                    </span>
-                  </div>
-                )}
-
-                {!arcaConfig.has_certificate && (
-                  <p style={{ fontSize: '0.75rem', color: '#f59e0b', margin: '0.5rem 0 0 0' }}>
-                    ⚠️ No hay un certificado digital configurado
-                  </p>
-                )}
+              {mostrarConfiguracionArca && (
+              <div data-testid="arca-config-panel" style={{ backgroundColor: colors.bg.surface, borderRadius: radius.lg, padding: '1.5rem', border: `1px solid ${colors.border.default}` }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '1rem' }}>
+                <h3 style={{ color: 'var(--text-primary)', fontSize: '1rem', fontWeight: 600, margin: 0 }}>Configuración</h3>
                 {puedeGestionarArca && (
                 <button
                   data-testid="arca-test-connection"
                   onClick={handleTestArcaConnection}
                   disabled={testingConnection || (!arcaConfig.has_certificate)}
                   style={{
-                    width: '100%',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '0.5rem',
-                    padding: '0.75rem',
-                    backgroundColor: (!arcaConfig.has_certificate) ? '#374151' : testingConnection ? '#059669' : '#10b981',
-                    border: 'none',
+                    minHeight: 44,
+                    padding: '0.625rem 1rem',
+                    backgroundColor: 'transparent',
+                    border: `1px solid ${colors.border.medium}`,
                     color: 'var(--text-primary)',
                     borderRadius: '0.5rem',
                     cursor: (testingConnection || (!arcaConfig.has_certificate)) ? 'not-allowed' : 'pointer',
                     fontWeight: 500,
-                    marginTop: '0.5rem',
                     opacity: (!arcaConfig.has_certificate) ? 0.5 : testingConnection ? 0.8 : 1
                   }}
                 >
                   {testingConnection ? <Loader2 size={18} className="spin" /> : <CheckCircle size={18} />}
-                  {testingConnection ? 'Probando...' : 'Probar Conexión'}
+                  {testingConnection ? 'Probando...' : 'Probar conexión'}
                 </button>
                 )}
-              </div>
+                </div>
 
-              {/* Panel derecho - Configuración */}
-              <div style={{ backgroundColor: '#0b1120', borderRadius: '0.5rem', padding: '1.5rem', border: '1px solid rgba(255,255,255,0.06)' }}>
-                <h3 style={{ color: 'var(--text-primary)', fontSize: '1rem', fontWeight: 600, marginBottom: '1rem' }}>Configuración</h3>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: '1rem' }}>
                   <div>
                     <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>CUIT Emisor *</label>
                     <input
@@ -1245,7 +1207,7 @@ export default function Settings() {
                 </div>
 
                 {puedeGestionarArca && (
-                <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem' }}>
+                <div style={{ marginTop: '1.5rem', display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
                   <button
                     data-testid="arca-save-config"
                     onClick={handleSaveArcaConfig}
@@ -1294,6 +1256,7 @@ export default function Settings() {
                 </div>
                 )}
               </div>
+              )}
             </div>
           </div>
         )}

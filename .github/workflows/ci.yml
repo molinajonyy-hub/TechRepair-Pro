@@ -64,6 +64,13 @@ jobs:
       - name: Guard — ARCA Phase 0 legacy writes + canonical management authority
         run: npm run test:arca-phase0
 
+      # ARCA SELF-SERVICE PHASE 1: the ARCA status card reads ONE server-side read model.
+      # The RPC stays authenticated-only with the tenant resolved by identity, the private
+      # derivation never reads WSAA/Vault/CSR material, output keys stay inside the contract,
+      # and the UI never rebuilds state from estado_conexion/ultimo_error. Static + jsdom.
+      - name: Guard — ARCA Phase 1 status read model contract
+        run: npm run test:arca-phase1
+
       - name: Guard — SEC-08E R2B activation stays canonical
         run: npm run guard:sec08e-r2a:self-test && npm run guard:sec08e-r2b:self-test && npm run guard:sec08e-r2b
 
