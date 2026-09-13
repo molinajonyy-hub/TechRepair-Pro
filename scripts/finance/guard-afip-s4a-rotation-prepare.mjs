@@ -174,6 +174,9 @@ function analyze(migSql, rawEdgeTs, sqlTest = '', harness = '') {
     'el Edge NO debe invocar WSAA/CAE')
   // Valida owner/admin.
   req(/is_business_owner_or_admin/.test(edgeTs), 'el Edge debe validar membresía owner/admin')
+  // ARCA Phase 0: autoridad canónica de gestión y tenant resuelto por identidad.
+  req(/authorizeArcaManager\(/.test(edgeTs) && /resolveManagedBusiness\(/.test(edgeTs),
+    'el Edge debe usar la autoridad canónica de gestión ARCA y resolver el tenant por identidad')
   // Llama a la RPC de preparación.
   req(/arca_prepare_certificate_rotation/.test(edgeTs), 'el Edge debe delegar en la RPC de preparación')
   // La variable de la clave privada (keyPem) SOLO puede aparecer en formas
@@ -238,8 +241,8 @@ function selfTest() {
       "v_canon := lower(btrim(p_fingerprint)) || 'arca_prepare_certificate_rotation|'"), edgeTs],
     ['replay no devuelve el CSR almacenado', migSql.replace(/'csr_pem', v_prev\.csr_pem/g, "'csr_pem', p_csr_pem"), edgeTs],
     // ── S4B-1b ──
-    ['Edge exige razon_social', migSql, edgeTs.replace(/const businessId = String\(body\?\.business_id \?\? ''\)/,
-      "const razonSocial = String(body?.razon_social ?? '')\n  const businessId = String(body?.business_id ?? '')")],
+    ['Edge exige razon_social', migSql, edgeTs.replace(/let businessId: string/,
+      "const razonSocial = String(body?.razon_social ?? '')\n  let businessId: string")],
     ['Edge agrega C=AR por default', migSql,
       edgeTs.replace(/csr\.setSubject\(attrs\)/, "csr.setSubject([...attrs, { name: 'countryName', value: 'AR' }])")],
     ['sin resolver de subject del certificado', migSql.replace(/arca_get_rotation_subject_safe/g, 'noop_resolver'),

@@ -504,3 +504,16 @@ verify_jwt = true
 
 [functions.whatsapp-send-message]
 verify_jwt = true
+
+# ARCA Self-Service Phase 0 (2026-09-12): values mirror production as measured that
+# day, so redeploying the retired credentials stub or the rotation endpoints can
+# never flip the gateway flag. The rotation endpoints also authorize in code
+# (active profile + owner/admin + settings_sensitive); arca-credentials is a 410 stub.
+[functions.arca-credentials]
+verify_jwt = true
+
+[functions.arca-rotate-prepare]
+verify_jwt = true
+
+[functions.arca-rotate-activate]
+verify_jwt = true

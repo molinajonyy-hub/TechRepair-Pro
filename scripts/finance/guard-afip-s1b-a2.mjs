@@ -10,9 +10,11 @@
 //  · uploadCertificate (método cliente que aceptaba la clave privada);
 //  · spread (...) dentro de la llamada a save_arca_config_legacy (mass-assignment).
 //
-// Y exige que el frontend use las 4 RPC del contrato seguro:
-//  get_arca_config_safe, save_arca_config_legacy, save_arca_certificate_legacy,
-//  set_arca_estado_conexion.
+// Y exige que el frontend use las RPC vigentes del contrato seguro:
+//  get_arca_config_safe, save_arca_config_legacy.
+//
+// ARCA Phase 0: save_arca_certificate_legacy y set_arca_estado_conexion fueron
+// RETIRADAS; su sola aparición en el código del frontend es un hallazgo.
 //
 //   node scripts/finance/guard-afip-s1b-a2.mjs [--self-test]
 // ============================================================================
@@ -23,6 +25,8 @@ const SRC = 'src'
 const REQUIRED_RPCS = [
   'get_arca_config_safe',
   'save_arca_config_legacy',
+]
+const RETIRED_RPCS = [
   'save_arca_certificate_legacy',
   'set_arca_estado_conexion',
 ]
@@ -66,6 +70,11 @@ export function fileFindings(raw, label = '<mem>') {
 
   // 4. uploadCertificate (método cliente inseguro, retirado).
   if (/\buploadCertificate\b/.test(code)) out.push(`${label}: uploadCertificate cliente (retirado, aceptaba la clave)`)
+
+  // 4b. ARCA Phase 0: RPC retiradas (carga de cert sin validar, estado escrito por el cliente).
+  for (const rpc of RETIRED_RPCS) {
+    if (code.includes(rpc)) out.push(`${label}: uso de la RPC retirada ${rpc}`)
+  }
 
   // 5. spread dentro de save_arca_config_legacy (mass-assignment).
   const rpcIdx = code.indexOf('save_arca_config_legacy')
@@ -117,6 +126,9 @@ function selfTest() {
     { n: '10 flag de presencia NO es fuga', exp: 0, sql: "if (config.has_private_key_configured) doThing()" },
     { n: '11 arca_parametros NO es arca_config', exp: 0, sql: "supabase.from('arca_parametros').select('datos')" },
     { n: '12 comentario con private_key NO es fuga', exp: 0, sql: "// aceptaba private_key en el frontend" },
+    { n: '13 RPC retirada de certificado', min: 1, sql: "await supabase.rpc('save_arca_certificate_legacy', { p_business_id: id, p_cert_file: c })" },
+    { n: '14 RPC retirada de estado', min: 1, sql: "await supabase.rpc('set_arca_estado_conexion', { p_business_id: id, p_estado: 'error' })" },
+    { n: '15 mención en comentario NO es uso', exp: 0, sql: "// save_arca_certificate_legacy fue retirada" },
   ]
   let fail = 0
   for (const c of cases) {
@@ -138,5 +150,5 @@ if (isCLI) {
     for (const b of bad) console.error('  · ' + b)
     process.exit(1)
   }
-  console.log('✅ Guard AFIP-S1B-A2 OK: frontend sin DML directo a arca_config, sin private_key, sin uploadCertificate; usa las 4 RPC del contrato seguro.')
+  console.log('✅ Guard AFIP-S1B-A2 OK: frontend sin DML directo a arca_config, sin private_key, sin uploadCertificate; usa get_arca_config_safe/save_arca_config_legacy y ninguna RPC retirada.')
 }

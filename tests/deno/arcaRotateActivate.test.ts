@@ -119,7 +119,8 @@ Deno.test('la respuesta es sanitizada: sin certificado, clave, secret_id ni toke
 Deno.test('el Edge valida JWT y membresía, y NO escribe la config ni llama a WSAA', async () => {
   const raw = await Deno.readTextFile('supabase/functions/arca-rotate-activate/index.ts')
   const src = raw.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, ' ')
-  assert(/auth\.getUser\(\)/.test(src), 'valida el JWT del usuario')
+  assert(/authorizeArcaManager\(/.test(src), 'valida JWT + perfil activo + owner/admin + settings_sensitive')
+  assert(/resolveManagedBusiness\(/.test(src), 'el business_id del body solo confirma el tenant del actor')
   assert(/is_business_owner_or_admin/.test(src), 'valida membresía owner/admin')
   assert(/arca_activate_certificate_rotation/.test(src), 'delega en la RPC de activación')
   assert(/arca_rollback_certificate_rotation/.test(src), 'delega en la RPC de rollback')

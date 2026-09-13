@@ -4,16 +4,16 @@ import { logger } from '../lib/logger'
 
 // ────────────────────────────────────────────────────────────────────────────
 // AFIP-S1B-A2: contratos tipados del frontend. NINGUNO expone `private_key`.
-//   · ArcaConfigSafe          → lo que devuelve get_arca_config_safe (no secretos)
-//   · ArcaConfigEditable      → lo editable por save_arca_config_legacy
-//   · ArcaCertificateReplacement → solo el certificado PÚBLICO (save_arca_certificate_legacy)
+//   · ArcaConfigSafe     → lo que devuelve get_arca_config_safe (no secretos)
+//   · ArcaConfigEditable → lo editable por save_arca_config_legacy
 // El frontend NO hace SELECT/DML directo sobre arca_config: todo pasa por RPC.
+//
+// ARCA Phase 0: el navegador ya NO reemplaza el certificado
+// (save_arca_certificate_legacy, retirada) ni escribe estado_conexion
+// (set_arca_estado_conexion, retirada; lo registra afip-wsaa server-side).
 // ────────────────────────────────────────────────────────────────────────────
 
 export type ArcaAmbiente = 'homologacion' | 'produccion'
-/** Estados permitidos por set_arca_estado_conexion (validados server-side). */
-export type ArcaEstadoConexion =
-  | 'conectado' | 'desconectado' | 'error' | 'csr_generado' | 'no_configurado'
 
 /** Campos NO secretos que devuelve get_arca_config_safe. Nunca incluye PEM/clave. */
 export interface ArcaConfigSafe {
@@ -34,21 +34,20 @@ export interface ArcaConfigSafe {
   configured?: boolean
 }
 
-/** Campos editables por save_arca_config_legacy. Sin cert/clave/token/estado. */
+/**
+ * Campos editables por save_arca_config_legacy (ARCA Phase 0).
+ *
+ * razon_social y punto_venta son configuración del negocio. cuit, alias y
+ * ambiente son identidad fiscal: el servidor solo los acepta sin certificado ni
+ * credencial vigente (ARCA_FIELD_LOCKED); con identidad vigente deben ir en null.
+ * web_service y expires_at no son editables: siempre se envían en null.
+ */
 export interface ArcaConfigEditable {
   cuit?: string | null
   razon_social?: string | null
   ambiente?: ArcaAmbiente | null
   punto_venta?: number | null
-  web_service?: string | null
   alias?: string | null
-  expires_at?: string | null
-}
-
-/** Reemplazo del certificado PÚBLICO. Jamás lleva la clave privada. */
-export interface ArcaCertificateReplacement {
-  business_id: string
-  cert_file: string
 }
 
 export interface ArcaSaveResult { success: boolean; updated_at?: string }
@@ -100,9 +99,11 @@ export class ArcaService {
   }
 
   /**
-   * Guarda la configuración NO secreta vía save_arca_config_legacy (AFIP-S1B-A2).
+   * Guarda la configuración NO credencial vía save_arca_config_legacy.
    * Mapea cada parámetro explícitamente — NUNCA hace spread ni envía secretos
    * (cert/clave/token/estado). NULL = preservar el valor existente (server-side).
+   * La firma de la RPC no cambió en Phase 0: este payload es válido contra el
+   * backend anterior y contra el endurecido.
    */
   static async saveArcaConfig(
     businessId: string,
@@ -114,48 +115,13 @@ export class ArcaService {
       p_razon_social: editable.razon_social ?? null,
       p_ambiente:     editable.ambiente ?? null,
       p_punto_venta:  editable.punto_venta ?? null,
-      p_web_service:  editable.web_service ?? null,
+      p_web_service:  null,
       p_alias:        editable.alias ?? null,
-      p_expires_at:   editable.expires_at ?? null,
+      p_expires_at:   null,
     })
     if (error) throw new Error(error.message)
     const res = data as RpcSavePayload
     return { success: res?.success ?? false, updated_at: res?.updated_at }
-  }
-
-  /**
-   * Reemplaza el certificado PÚBLICO vía save_arca_certificate_legacy.
-   * Solo se llama cuando el usuario pegó un certificado nuevo y no vacío.
-   * Rechaza claves privadas (defensa cliente; el server también valida el header).
-   */
-  static async saveCertificate(businessId: string, certFile: string): Promise<ArcaSaveResult> {
-    const cert = (certFile ?? '').trim()
-    if (!cert) throw new Error('El certificado está vacío')
-    if (/PRIVATE KEY/i.test(cert)) throw new Error('El campo certificado no admite claves privadas')
-    if (!cert.startsWith('-----BEGIN CERTIFICATE-----')) {
-      throw new Error('El certificado no tiene el formato PEM público esperado')
-    }
-    const { data, error } = await supabase.rpc('save_arca_certificate_legacy', {
-      p_business_id: businessId,
-      p_cert_file: cert,
-    })
-    if (error) throw new Error(error.message)
-    const res = data as RpcSavePayload
-    return { success: res?.success ?? false, updated_at: res?.updated_at }
-  }
-
-  /** Actualiza el estado de conexión vía set_arca_estado_conexion (sin DML directo). */
-  static async setEstadoConexion(
-    businessId: string,
-    estado: ArcaEstadoConexion,
-    error?: unknown
-  ): Promise<void> {
-    const { error: rpcError } = await supabase.rpc('set_arca_estado_conexion', {
-      p_business_id: businessId,
-      p_estado: estado,
-      p_error: estado === 'error' ? sanitizeArcaError(error) : null,
-    })
-    if (rpcError) throw new Error(rpcError.message)
   }
 
   // ──────────────────────────────────────────────
@@ -226,18 +192,12 @@ export class ArcaService {
           ultimaSincronizacion: new Date().toISOString(),
         },
       }
-    } catch (error: any) {
-      console.error('Error testing ARCA connection:', error)
-
-      // AFIP-S1B-A2: estado por RPC (sin DML directo). El mensaje va sanitizado
-      // (sin PEM/XML/token); el server además lo trunca a 500.
-      try {
-        await this.setEstadoConexion(businessId, 'error', error)
-      } catch (persistErr) {
-        console.error('No se pudo registrar el estado de conexión ARCA:', persistErr)
-      }
-
-      return { success: false, message: error.message || 'Error al conectar con ARCA' }
+    } catch (error: unknown) {
+      logger.error('GENERAL', 'La prueba de conexión ARCA falló', error)
+      // ARCA Phase 0: el navegador ya NO escribe estado_conexion. afip-wsaa registra
+      // server-side el error autorizado; un fallo de red o de autorización del
+      // navegador no debe marcar como rota una configuración que funciona.
+      return { success: false, message: sanitizeArcaError(error) || 'Error al conectar con ARCA' }
     }
   }
 
@@ -556,9 +516,10 @@ export class ArcaService {
   // Certificados
   // ──────────────────────────────────────────────
   // AFIP-S1B-A2: `uploadCertificate` fue ELIMINADO. Aceptaba `private_key` en el
-  // frontend y escribía secretos vía DML directo — vector prohibido. La carga del
-  // certificado PÚBLICO ahora pasa por `saveCertificate` (RPC, solo cert_file). La
-  // clave privada la genera server-side `generate-csr` y NUNCA la toca el cliente.
+  // frontend y escribía secretos vía DML directo — vector prohibido.
+  // ARCA Phase 0: `saveCertificate` también fue ELIMINADO. El certificado solo se
+  // reemplaza por el flujo seguro de rotación; la clave privada la genera
+  // server-side `arca-rotate-prepare` y NUNCA la toca el cliente.
 }
 
 export default ArcaService
