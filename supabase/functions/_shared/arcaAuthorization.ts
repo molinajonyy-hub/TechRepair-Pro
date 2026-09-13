@@ -123,6 +123,11 @@ export async function authorizeArcaCaller(
   authorization: string | null,
   options: {
     capability: 'settings_sensitive' | 'comprobantes'
+    /**
+     * Roles allowed on the user path, checked on the SAME profile that resolved the
+     * tenant, in addition to the capability. Omit to keep capability-only authority.
+     */
+    roles?: readonly string[]
     /** Exact server credentials of a trusted internal caller. Omit to accept users only. */
     serviceCredentials?: readonly string[]
     /** Raw `apikey` header. supabase-js sends the server credential in both headers. */
@@ -159,6 +164,10 @@ export async function authorizeArcaCaller(
     const profile = candidate as Record<string, unknown>
     if ((profile.user_id ?? profile.id) !== identity.data.user.id
       || profile.is_active !== true || typeof profile.business_id !== 'string' || !profile.business_id) {
+      throw new ArcaAuthorizationError(403, 'FORBIDDEN')
+    }
+    if (options.roles !== undefined
+      && (typeof profile.role !== 'string' || !options.roles.includes(profile.role))) {
       throw new ArcaAuthorizationError(403, 'FORBIDDEN')
     }
 

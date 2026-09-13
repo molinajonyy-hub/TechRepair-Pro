@@ -7,6 +7,10 @@
  *     src/lib/supabase.ts, que lanza sin VITE_SUPABASE_URL bajo `node --test`, así
  *     que se verifica por texto fuente (como el resto de la suite ARCA).
  *
+ * ARCA Phase 0: save_arca_certificate_legacy y set_arca_estado_conexion fueron
+ * RETIRADAS; el panel ARCA solo guarda configuración no credencial y la gestión
+ * exige owner/admin + settings_sensitive.
+ *
  * Contexto: hasta A1 el guardado/estado/cert usaban DML directo sobre arca_config,
  * que depende de SELECT. A2 mueve todo a save_arca_config_legacy /
  * save_arca_certificate_legacy / set_arca_estado_conexion / get_arca_config_safe,
@@ -72,7 +76,7 @@ test('sanitizeArcaError: acepta string, Error y null (fallback)', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────
-// 2. Contrato de fuente — sin DML directo, todo por RPC
+// 2. Contrato de fuente — sin DML directo, todo por RPC (ARCA Phase 0)
 // ─────────────────────────────────────────────────────────────────────────
 
 test('arcaService y Settings NO hacen from(arca_config) (cero SELECT/DML directo)', () => {
@@ -87,7 +91,7 @@ test('saveArcaConfig llama save_arca_config_legacy con parámetros tipados (sin 
   const argObj = call.slice(call.indexOf('{'), call.indexOf('}') + 1)
   assert.doesNotMatch(argObj, /\.\.\./, 'no debe hacer spread hacia la RPC (mass-assignment)')
   for (const p of ['p_business_id', 'p_cuit', 'p_razon_social', 'p_ambiente', 'p_punto_venta', 'p_web_service', 'p_alias', 'p_expires_at']) {
-    assert.match(argObj, new RegExp(p), `falta el parámetro ${p}`)
+    assert.match(argObj, new RegExp(p), `falta el parámetro ${p} (la firma de la RPC no cambió)`)
   }
   // Ningún secreto en la firma de la llamada
   for (const secret of ['cert_file', 'private_key', 'wsaa_token', 'wsaa_sign', 'estado_conexion']) {
@@ -95,26 +99,31 @@ test('saveArcaConfig llama save_arca_config_legacy con parámetros tipados (sin 
   }
 })
 
-test('saveCertificate usa save_arca_certificate_legacy y rechaza claves privadas', () => {
+test('ARCA Phase 0: web_service y expires_at nunca son autoridad del cliente (siempre null)', () => {
   const s = stripComments(arca())
-  assert.match(s, /supabase\.rpc\(\s*['"]save_arca_certificate_legacy['"]/)
-  const fn = s.slice(s.indexOf('static async saveCertificate'), s.indexOf('static async setEstadoConexion'))
-  assert.match(fn, /PRIVATE KEY/i, 'debe rechazar contenido con encabezado de clave privada')
-  assert.match(fn, /BEGIN CERTIFICATE/, 'debe exigir el header público del certificado')
+  const call = s.slice(s.indexOf("save_arca_config_legacy"))
+  const argObj = call.slice(call.indexOf('{'), call.indexOf('}') + 1)
+  assert.match(argObj, /p_web_service:\s*null/)
+  assert.match(argObj, /p_expires_at:\s*null/)
 })
 
-test('setEstadoConexion usa set_arca_estado_conexion y sanitiza el error (nunca UPDATE directo)', () => {
-  const s = stripComments(arca())
-  assert.match(s, /supabase\.rpc\(\s*['"]set_arca_estado_conexion['"]/)
-  const fn = s.slice(s.indexOf('static async setEstadoConexion'))
-  assert.match(fn, /sanitizeArcaError/)
+test('ARCA Phase 0: el frontend ya no usa las RPC retiradas ni sus métodos cliente', () => {
+  for (const src of [arca(), settings()]) {
+    const code = stripComments(src)
+    assert.doesNotMatch(code, /save_arca_certificate_legacy/, 'carga de certificado sin validar: retirada')
+    assert.doesNotMatch(code, /set_arca_estado_conexion/, 'estado_conexion escrito por el cliente: retirado')
+    assert.doesNotMatch(code, /\bsaveCertificate\b/)
+    assert.doesNotMatch(code, /\bsetEstadoConexion\b/)
+    assert.doesNotMatch(code, /private_key_pem/)
+  }
 })
 
-test('testConnection registra el error por RPC (setEstadoConexion), no por DML directo', () => {
+test('testConnection NO escribe estado_conexion desde el navegador', () => {
   const s = stripComments(arca())
   const fn = s.slice(s.indexOf('static async testConnection'), s.indexOf('static async getPuntosVenta'))
-  assert.match(fn, /this\.setEstadoConexion\(businessId,\s*['"]error['"]/)
+  assert.doesNotMatch(fn, /estado_conexion|setEstado|\.rpc\(\s*['"]set_/)
   assert.doesNotMatch(fn, /\.update\(/, 'testConnection no debe hacer UPDATE directo a arca_config')
+  assert.match(fn, /sanitizeArcaError/, 'el mensaje mostrado sigue sanitizado')
 })
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -133,47 +142,48 @@ test('ninguna referencia de CÓDIGO a private_key en arcaService/Settings (solo 
 })
 
 // ─────────────────────────────────────────────────────────────────────────
-// 4. Settings: sin select(id)/DML, cert preservado, refresh seguro
+// 4. Settings: panel ARCA sin carga de certificado, gestión gateada
 // ─────────────────────────────────────────────────────────────────────────
 
-test('handleSaveArcaConfig: sin prelectura select(id), sin cert_file:null, con RPC + refresh seguro', () => {
+test('Settings ya no tiene textarea de certificado, cert_file ni el botón de CSR retirado', () => {
   const s = stripComments(settings())
-  const fn = s.slice(s.indexOf('const handleSaveArcaConfig'), s.indexOf('const handleGenerarCSR'))
-  assert.doesNotMatch(fn, /select\(\s*['"]id['"]\s*\)/, 'no debe usar prelectura select(id) de existencia')
-  assert.doesNotMatch(fn, /cert_file\s*:\s*null/, 'nunca debe mandar cert_file: null')
+  assert.doesNotMatch(s, /cert_file/, 'el navegador no maneja cert_file')
+  assert.doesNotMatch(s, /<textarea[^>]*arcaConfig/, 'sin textarea de certificado')
+  assert.doesNotMatch(s, /handleGenerarCSR|Generación de CSR retirada/, 'sin acción de CSR retirada')
+  assert.doesNotMatch(s, /csr_generado/, 'sin banner del flujo de CSR legacy')
+})
+
+test('Settings gatea la gestión ARCA con canManageArca (owner/admin + settings_sensitive)', () => {
+  const s = stripComments(settings())
+  assert.match(s, /canManageArca\(\{[\s\S]{0,200}settingsSensitive:\s*can\(['"]settings_sensitive['"]\)/)
+  for (const handler of ['handleSaveArcaConfig', 'handleTestArcaConnection', 'handleSyncParameters']) {
+    const fn = s.slice(s.indexOf(`const ${handler}`), s.indexOf(`const ${handler}`) + 400)
+    assert.match(fn, /puedeGestionarArca/, `${handler} debe cortar sin autoridad de gestión`)
+  }
+  assert.match(s, /\{puedeGestionarArca && \(\s*<button\s+data-testid="arca-test-connection"/)
+  assert.match(s, /\{puedeGestionarArca && \(\s*<div[^>]*>\s*<button\s+data-testid="arca-save-config"/)
+})
+
+test('handleSaveArcaConfig: con identidad vigente CUIT/ambiente/alias viajan en null', () => {
+  const s = stripComments(settings())
+  const fn = s.slice(s.indexOf('const handleSaveArcaConfig'), s.indexOf('const handleSaveArcaConfig') + 1200)
   assert.match(fn, /ArcaService\.saveArcaConfig\(/)
-  assert.match(fn, /ArcaService\.saveCertificate\(/)
+  assert.match(fn, /cuit:\s*identidadArcaBloqueada \? null/)
+  assert.match(fn, /ambiente:\s*identidadArcaBloqueada \? null/)
+  assert.match(fn, /alias:\s*identidadArcaBloqueada \? null/)
+  assert.doesNotMatch(fn, /expires_at|web_service/)
   assert.match(fn, /refreshArcaConfig\(/, 'debe refrescar por el contrato seguro')
 })
 
-test('refreshArcaConfig relee por get_arca_config_safe y limpia el input de cert', () => {
+test('refreshArcaConfig relee por get_arca_config_safe', () => {
   const s = stripComments(settings())
   const fn = s.slice(s.indexOf('const refreshArcaConfig'), s.indexOf('const handleSaveArcaConfig'))
   assert.match(fn, /get_arca_config_safe/, 'debe releer por el contrato seguro')
-  assert.match(fn, /cert_file:\s*''/, 'debe limpiar el textarea del certificado tras refrescar')
 })
 
-test('handleSaveArcaConfig: el certificado solo se envía si el usuario pegó uno no vacío', () => {
-  const s = stripComments(settings())
-  const fn = s.slice(s.indexOf('const handleSaveArcaConfig'), s.indexOf('const handleGenerarCSR'))
-  // La llamada a saveCertificate está guardada por un chequeo de contenido no vacío (trim()).
-  assert.match(fn, /cert_file\?\.trim\(\)/)
-  const idxGuard = fn.indexOf('nuevoCert')
-  const idxCall = fn.indexOf('ArcaService.saveCertificate(')
-  assert.ok(idxGuard >= 0 && idxCall > idxGuard, 'saveCertificate debe estar detrás del guard de certificado nuevo')
-})
-
-test('handleSaveArcaConfig: un fallo de certificado NO borra el anterior ni hace DML compensatorio', () => {
-  const s = stripComments(settings())
-  const fn = s.slice(s.indexOf('const handleSaveArcaConfig'), s.indexOf('const handleGenerarCSR'))
-  const idxCatch = fn.indexOf('catch (certErr')
-  assert.ok(idxCatch > 0, 'debe haber manejo explícito del fallo del certificado')
-  const afterCatch = fn.slice(idxCatch)
-  assert.doesNotMatch(afterCatch, /\.update\(|\.upsert\(|\.insert\(/, 'sin DML compensatorio tras fallo de cert')
-  assert.doesNotMatch(afterCatch, /cert_file\s*:\s*null/)
-})
-
-test('UI del certificado: el indicador de presencia usa has_certificate, no el contenido del textarea', () => {
+test('UI: CUIT, ambiente y alias quedan deshabilitados con identidad vigente', () => {
   const s = settings()
-  assert.match(s, /arcaConfig\.has_certificate\s*&&[\s\S]{0,120}Certificado configurado/)
+  for (const id of ['arca-cuit', 'arca-ambiente', 'arca-alias']) {
+    assert.match(s, new RegExp(`data-testid="${id}"[\\s\\S]{0,400}disabled=\\{!puedeGestionarArca \\|\\| identidadArcaBloqueada\\}`))
+  }
 })

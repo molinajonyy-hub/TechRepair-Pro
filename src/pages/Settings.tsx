@@ -29,6 +29,8 @@ import { PaymentMethodSettings } from '../components/payments/PaymentMethodSetti
 import { CommissionSettings } from '../components/settings/CommissionSettings'
 import { WhatsAppTemplatesSettings } from '../components/settings/WhatsAppTemplatesSettings'
 import { useAuth } from '../contexts/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
+import { canManageArca, isArcaIdentityLocked } from '../lib/arcaAuthority'
 import { supabase } from '../lib/supabase'
 import ArcaService from '../services/arcaService'
 import { uploadBusinessLogo } from '../lib/storageSetup'
@@ -83,12 +85,8 @@ interface ArcaConfig {
   ambiente: 'homologacion' | 'produccion'
   punto_venta: number
   web_service: string
-  // AFIP-S1A: `private_key` NO existe en el contrato del frontend. `cert_file`/`pfx_file`
-  // son SOLO campos de ENTRADA locales para subir una credencial nueva (nunca se leen
-  // desde el servidor). La presencia de credenciales se lee por los flags de abajo.
-  cert_file?: string
-  pfx_file?: string
-  pfx_password?: string
+  // AFIP-S1A: `private_key` NO existe en el contrato del frontend. ARCA Phase 0: el
+  // navegador tampoco carga certificados; la presencia se lee por los flags de abajo.
   alias?: string
   expires_at?: string
   estado_conexion: string
@@ -155,7 +153,15 @@ function MayoristaToggle() {
 }
 
 export default function Settings() {
-  const { businessId } = useAuth()
+  const { businessId, role, profile } = useAuth()
+  const { can } = usePermissions()
+  // ARCA Phase 0: la gestión ARCA exige perfil activo + owner/admin + settings_sensitive.
+  // Es solo presentación: la autoridad la vuelve a decidir el servidor.
+  const puedeGestionarArca = canManageArca({
+    role,
+    isActive: profile?.is_active,
+    settingsSensitive: can('settings_sensitive'),
+  })
   const [searchParams]  = useSearchParams()
   const [activeTab, setActiveTab] = useState<TabType>(
     (searchParams.get('tab') as TabType) ?? 'datos'
@@ -212,7 +218,7 @@ export default function Settings() {
   })
   const [testingConnection, setTestingConnection] = useState(false)
   const [syncingParameters, setSyncingParameters] = useState(false)
-  // AFIP-S4B-1: sin estado de carga — el flujo legacy de CSR ya no hace red.
+  const identidadArcaBloqueada = isArcaIdentityLocked(arcaConfig)
 
   // Logo upload
   const [uploadingLogo, setUploadingLogo] = useState(false)
@@ -373,6 +379,7 @@ export default function Settings() {
       alert('No hay negocio seleccionado')
       return
     }
+    if (!puedeGestionarArca) return
 
     setTestingConnection(true)
     try {
@@ -401,6 +408,7 @@ export default function Settings() {
       alert('No hay negocio seleccionado')
       return
     }
+    if (!puedeGestionarArca) return
 
     setSyncingParameters(true)
     try {
@@ -423,88 +431,37 @@ export default function Settings() {
     }
   }
 
-  // AFIP-S1B-A2: relee la config por el contrato SEGURO y limpia el input de cert
-  // (get_arca_config_safe nunca devuelve el PEM, así que el textarea queda vacío).
+  // Relee la config por el contrato SEGURO (get_arca_config_safe: nunca PEM/clave/token).
   const refreshArcaConfig = async () => {
     if (!businessId) return
     const { data } = await supabase.rpc('get_arca_config_safe', { p_business_id: businessId })
     if (data) {
-      setArcaConfig((prev) => ({ ...prev, ...(data as Partial<ArcaConfig>), cert_file: '' }))
+      setArcaConfig((prev) => ({ ...prev, ...(data as Partial<ArcaConfig>) }))
     }
   }
 
+  // ARCA Phase 0: solo configuración NO credencial. El certificado ya no se carga
+  // desde esta pantalla (save_arca_certificate_legacy retirada) y la identidad
+  // fiscal (CUIT/alias/ambiente) queda bloqueada en el servidor cuando hay un
+  // certificado o una credencial vigente: en ese caso viaja en null.
   const handleSaveArcaConfig = async () => {
-    if (!businessId) return
+    if (!businessId || !puedeGestionarArca) return
     setSaving(true)
     try {
-      // Validar de entrada un certificado nuevo (si lo hay) ANTES de escribir nada.
-      const nuevoCert = arcaConfig.cert_file?.trim() || ''
-      if (nuevoCert) {
-        if (/PRIVATE KEY/i.test(nuevoCert)) {
-          alert('❌ El campo Certificado solo admite el certificado PÚBLICO (.crt), no la clave privada.')
-          setSaving(false)
-          return
-        }
-        if (!nuevoCert.startsWith('-----BEGIN CERTIFICATE-----')) {
-          alert('❌ El certificado no tiene el formato esperado (-----BEGIN CERTIFICATE-----).')
-          setSaving(false)
-          return
-        }
-      }
-
-      // 1. Configuración NO secreta vía RPC (sin DML directo, sin cert/clave).
-      //    NUNCA se envía cert_file=null: el certificado se preserva salvo reemplazo explícito.
       await ArcaService.saveArcaConfig(businessId, {
-        cuit: arcaConfig.cuit,
         razon_social: arcaConfig.razon_social,
-        ambiente: arcaConfig.ambiente,
         punto_venta: arcaConfig.punto_venta,
-        web_service: arcaConfig.web_service || 'wsfev1',
-        alias: arcaConfig.alias,
-        expires_at: arcaConfig.expires_at,
+        cuit: identidadArcaBloqueada ? null : arcaConfig.cuit,
+        ambiente: identidadArcaBloqueada ? null : arcaConfig.ambiente,
+        alias: identidadArcaBloqueada ? null : arcaConfig.alias,
       })
-
-      // 2. Certificado PÚBLICO nuevo SOLO si el usuario pegó uno explícito.
-      //    Si falla, la config ya quedó guardada y el certificado anterior queda intacto
-      //    (no hay DML compensatorio ni cert_file=null).
-      if (nuevoCert) {
-        try {
-          await ArcaService.saveCertificate(businessId, nuevoCert)
-        } catch (certErr: any) {
-          await refreshArcaConfig()
-          alert('⚠️ Configuración guardada, pero el certificado NO se reemplazó: ' +
-                (certErr?.message || 'error') + '\nEl certificado anterior sigue intacto. Podés reintentar solo el certificado.')
-          return
-        }
-      }
-
       await refreshArcaConfig()
-      alert(nuevoCert
-        ? '✅ Configuración y certificado guardados correctamente.'
-        : '✅ Configuración ARCA guardada correctamente.')
-    } catch (e: any) {
-      alert('❌ Error al guardar: ' + (e.message || 'Error desconocido'))
+      alert('✅ Configuración ARCA guardada correctamente.')
+    } catch (e: unknown) {
+      alert('❌ Error al guardar: ' + (e instanceof Error ? e.message : 'Error desconocido'))
     } finally {
       setSaving(false)
     }
-  }
-
-  // AFIP-S4B-1: el flujo legacy de generación de CSR fue RETIRADO. Escribía la
-  // clave privada en arca_config, que es exactamente el patrón que la remediación
-  // AFIP eliminó (la clave vive en Vault). El endpoint `generate-csr` es hoy un
-  // stub fail-closed que responde 410, así que este handler ya NO lo invoca: no
-  // hace ninguna llamada de red y solo informa el estado al usuario.
-  // La rotación segura se opera por `arca-rotate-prepare` bajo procedimiento
-  // controlado; el frontend NO se conecta a ese contrato en este lote.
-  const handleGenerarCSR = () => {
-    alert(
-      'ℹ️ La generación de CSR desde esta pantalla fue retirada.\n\n' +
-      'El flujo anterior almacenaba la clave privada junto a la configuración. ' +
-      'Ahora la clave se genera y se guarda de forma segura del lado del servidor, ' +
-      'y solo se entrega el CSR público.\n\n' +
-      'Pedí la rotación del certificado por el procedimiento seguro para obtener ' +
-      'el CSR que hay que cargar en AFIP.'
-    )
   }
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1079,24 +1036,13 @@ export default function Settings() {
               Integración ARCA / AFIP
             </h2>
 
-            {/* Banner de estado por etapa */}
-            {arcaConfig.estado_conexion === 'csr_generado' && !arcaConfig.has_certificate && (
-              <div style={{ marginBottom: '1.5rem', padding: '1rem 1.25rem', backgroundColor: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.35)', borderRadius: '0.625rem' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
-                  <AlertTriangle size={18} style={{ color: '#fbbf24', flexShrink: 0, marginTop: 2 }} />
-                  <div>
-                    <p style={{ margin: '0 0 0.4rem', color: '#fbbf24', fontWeight: 700, fontSize: '0.9rem' }}>
-                      CSR generado — completá el proceso antes de salir de esta pantalla
-                    </p>
-                    <p style={{ margin: 0, color: '#d1a740', fontSize: '0.82rem', lineHeight: 1.6 }}>
-                      <strong>1.</strong> Subí el archivo <code style={{ background: 'rgba(0,0,0,0.3)', padding: '0 4px', borderRadius: 3 }}>.csr</code> descargado a AFIP → Administrador de Relaciones de Clave Fiscal → Crear alias.<br />
-                      <strong>2.</strong> En AFIP, autorizá el alias para el servicio <strong>"Facturación Electrónica"</strong> (wsfe).<br />
-                      <strong>3.</strong> Descargá el <code style={{ background: 'rgba(0,0,0,0.3)', padding: '0 4px', borderRadius: 3 }}>.crt</code> que AFIP te emite y pegalo en el campo de abajo.<br />
-                      <strong>4.</strong> Hacé clic en <strong>"Guardar Configuración"</strong>.<br />
-                      <strong style={{ color: '#f87171' }}>⚠️ No vuelvas a hacer clic en "Generar CSR" hasta terminar — genera una nueva clave y el certificado anterior quedará inválido.</strong>
-                    </p>
-                  </div>
-                </div>
+            {/* ARCA Phase 0: la gestión exige owner/admin + settings_sensitive. El resto ve el estado. */}
+            {!puedeGestionarArca && (
+              <div data-testid="arca-readonly-notice" style={{ marginBottom: '1.5rem', padding: '0.875rem 1.25rem', backgroundColor: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: '0.625rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Shield size={18} style={{ color: '#6366f1', flexShrink: 0 }} />
+                <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                  Solo el dueño o un administrador con permiso de configuración avanzada puede modificar la integración ARCA.
+                </p>
               </div>
             )}
 
@@ -1175,10 +1121,12 @@ export default function Settings() {
 
                 {!arcaConfig.has_certificate && (
                   <p style={{ fontSize: '0.75rem', color: '#f59e0b', margin: '0.5rem 0 0 0' }}>
-                    ⚠️ Cargá un certificado .crt para probar la conexión
+                    ⚠️ No hay un certificado digital configurado
                   </p>
                 )}
+                {puedeGestionarArca && (
                 <button
+                  data-testid="arca-test-connection"
                   onClick={handleTestArcaConnection}
                   disabled={testingConnection || (!arcaConfig.has_certificate)}
                   style={{
@@ -1201,6 +1149,7 @@ export default function Settings() {
                   {testingConnection ? <Loader2 size={18} className="spin" /> : <CheckCircle size={18} />}
                   {testingConnection ? 'Probando...' : 'Probar Conexión'}
                 </button>
+                )}
               </div>
 
               {/* Panel derecho - Configuración */}
@@ -1212,19 +1161,23 @@ export default function Settings() {
                     <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>CUIT Emisor *</label>
                     <input
                       type="text"
+                      data-testid="arca-cuit"
                       value={arcaConfig.cuit || ''}
                       onChange={(e) => setArcaConfig({ ...arcaConfig, cuit: e.target.value })}
                       placeholder="XX-XXXXXXXX-X"
                       className="form-control"
+                      disabled={!puedeGestionarArca || identidadArcaBloqueada}
                     />
                   </div>
 
                   <div>
                     <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Ambiente *</label>
                     <select
+                      data-testid="arca-ambiente"
                       value={arcaConfig.ambiente}
                       onChange={(e) => setArcaConfig({ ...arcaConfig, ambiente: e.target.value as 'homologacion' | 'produccion' })}
                       className="form-control"
+                      disabled={!puedeGestionarArca || identidadArcaBloqueada}
                     >
                       <option value="homologacion">Homologación (Testing)</option>
                       <option value="produccion">Producción</option>
@@ -1235,22 +1188,25 @@ export default function Settings() {
                     <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Punto de Venta *</label>
                     <input
                       type="number"
+                      data-testid="arca-punto-venta"
+                      min={1}
+                      max={99998}
                       value={arcaConfig.punto_venta}
                       onChange={(e) => setArcaConfig({ ...arcaConfig, punto_venta: parseInt(e.target.value) || 1 })}
                       className="form-control"
+                      disabled={!puedeGestionarArca}
                     />
                   </div>
 
                   <div>
                     <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Web Service</label>
-                    <select
-                      value={arcaConfig.web_service}
-                      onChange={(e) => setArcaConfig({ ...arcaConfig, web_service: e.target.value })}
+                    <input
+                      type="text"
+                      value="WSFEv1 (Factura Electrónica)"
                       className="form-control"
-                    >
-                      <option value="wsfev1">WSFEv1 (Factura Electrónica)</option>
-                      <option value="wsbfe">WSBFE (Bono Fiscal)</option>
-                    </select>
+                      disabled
+                      readOnly
+                    />
                   </div>
                 </div>
 
@@ -1258,93 +1214,40 @@ export default function Settings() {
                   <label className="label-caps" style={{ display: 'block', marginBottom: '0.5rem' }}>Alias del Certificado</label>
                   <input
                     type="text"
+                    data-testid="arca-alias"
                     value={arcaConfig.alias || ''}
                     onChange={(e) => setArcaConfig({ ...arcaConfig, alias: e.target.value })}
                     placeholder="Ej: Certificado Producción 2024"
                     className="form-control"
+                    disabled={!puedeGestionarArca || identidadArcaBloqueada}
                   />
                 </div>
+
+                {identidadArcaBloqueada && (
+                  <p data-testid="arca-identity-locked" style={{ margin: '0.5rem 0 0', fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                    CUIT, ambiente y alias corresponden al certificado vigente y no se pueden cambiar desde acá.
+                  </p>
+                )}
 
                 <div style={{ marginTop: '1.5rem', padding: '1rem', backgroundColor: 'rgba(99, 102, 241, 0.05)', borderRadius: '0.5rem', border: '1px solid rgba(99, 102, 241, 0.1)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
                     <AlertTriangle size={16} style={{ color: '#f59e0b' }} />
                     <span style={{ color: '#f59e0b', fontWeight: 500, fontSize: '0.875rem' }}>Certificado Digital</span>
                   </div>
-                  {/* AFIP-S4B-1: generación de CSR desde el navegador RETIRADA.
-                      El flujo anterior guardaba la clave privada junto a la configuración;
-                      ahora la clave se genera y queda resguardada del lado del servidor y
-                      solo se entrega el CSR público. */}
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: '0 0 0.5rem 0' }}>
-                    Para operar con AFIP necesitás un certificado digital. El CSR (Certificate Signing Request)
-                    que se presenta ante AFIP ahora se genera por el procedimiento seguro de rotación. Cuando
-                    tengas el .crt emitido por AFIP, pegalo en el campo de abajo.
-                  </p>
-                  <p style={{ color: '#64748b', fontSize: '0.78rem', margin: '0 0 0.75rem 0', lineHeight: 1.5 }}>
-                    La generación de CSR desde esta pantalla fue <strong style={{ color: '#fbbf24' }}>retirada</strong>:
-                    guardaba la clave privada junto a la configuración. Pedí la rotación del certificado por el
-                    procedimiento seguro para obtener el CSR.
-                  </p>
-                  <button
-                    onClick={handleGenerarCSR}
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
-                      padding: '0.5rem 1rem',
-                      backgroundColor: 'rgba(100,116,139,0.15)',
-                      border: '1px solid rgba(100,116,139,0.4)',
-                      borderRadius: '0.5rem',
-                      color: '#94a3b8',
-                      cursor: 'pointer',
-                      fontSize: '0.8rem',
-                      fontWeight: 600,
-                    }}
-                  >
-                    <FileText size={15} /> Generación de CSR retirada
-                  </button>
-                </div>
-
-                {/* Campo certificado .crt */}
-                <div style={{ marginTop: '1.25rem' }}>
-                  <label className="label-caps" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                    Certificado (.crt) emitido por AFIP
-                    {/* AFIP-S1B-A2: indicador de presencia por el contrato seguro (has_certificate),
-                        NO por el contenido del textarea (que arranca vacío y es solo para reemplazar). */}
-                    {arcaConfig.has_certificate && (
-                      <span style={{ color: '#34d399', fontSize: '0.7rem', fontWeight: 600 }}>✓ Certificado configurado</span>
-                    )}
-                  </label>
-                  <textarea
-                    value={arcaConfig.cert_file || ''}
-                    onChange={(e) => setArcaConfig({ ...arcaConfig, cert_file: e.target.value })}
-                    placeholder={arcaConfig.has_certificate
-                      ? 'Dejalo vacío para conservar el certificado actual. Pegá uno nuevo solo para reemplazarlo.'
-                      : '-----BEGIN CERTIFICATE-----\nMIID...\n-----END CERTIFICATE-----'}
-                    rows={5}
-                    style={{
-                      width: '100%',
-                      padding: '0.625rem 0.75rem',
-                      backgroundColor: 'rgba(15,23,42,0.8)',
-                      border: arcaConfig.cert_file ? '1px solid rgba(52,211,153,0.4)' : '1px solid rgba(51,65,85,0.6)',
-                      borderRadius: '0.5rem',
-                      color: '#f1f5f9',
-                      outline: 'none',
-                      fontFamily: 'monospace',
-                      fontSize: '0.75rem',
-                      resize: 'vertical',
-                      boxSizing: 'border-box',
-                    }}
-                  />
-                  <p style={{ margin: '0.3rem 0 0', fontSize: '0.75rem', color: '#64748b' }}>
-                    Abrí el archivo .crt con el Bloc de Notas, seleccioná todo (Ctrl+A) y pegalo acá.
-                    {arcaConfig.cert_file?.trim()
-                      ? <span style={{ color: '#fbbf24', marginLeft: '0.5rem' }}>Se reemplazará el certificado al guardar.</span>
-                      : arcaConfig.has_certificate
-                        ? <span style={{ color: '#64748b', marginLeft: '0.5rem' }}>Vacío = se conserva el certificado actual.</span>
-                        : null}
+                  {/* ARCA Phase 0: el certificado ya no se pega ni se reemplaza desde esta
+                      pantalla. La clave privada se genera y resguarda del lado del servidor. */}
+                  <p data-testid="arca-certificate-status" style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: 0, lineHeight: 1.5 }}>
+                    {arcaConfig.has_certificate
+                      ? 'Hay un certificado digital configurado para este negocio.'
+                      : 'Todavía no hay un certificado digital configurado para este negocio.'}
+                    {' '}La carga y la renovación del certificado se harán con un asistente seguro; por ahora no se pueden hacer desde esta pantalla.
                   </p>
                 </div>
 
+                {puedeGestionarArca && (
                 <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem' }}>
                   <button
+                    data-testid="arca-save-config"
                     onClick={handleSaveArcaConfig}
                     disabled={saving}
                     style={{
@@ -1389,6 +1292,7 @@ export default function Settings() {
                     {syncingParameters ? 'Sincronizando...' : 'Sincronizar Parámetros'}
                   </button>
                 </div>
+                )}
               </div>
             </div>
           </div>

@@ -56,6 +56,14 @@ jobs:
       - name: Guard — Lote 3 action/write authority
         run: npm run guard:lote3-authority:self-test && npm run guard:lote3-authority
 
+      # ARCA SELF-SERVICE PHASE 0: no browser path may upload a private key, replace the
+      # certificate without validation, write estado_conexion or write arca_config directly;
+      # ARCA management stays owner/admin + settings_sensitive with the tenant resolved by
+      # identity. Static (migrations + src + Edge), so it runs on PRs and forks. Every guard
+      # runs its self-test first: each one plants the violation it must detect.
+      - name: Guard — ARCA Phase 0 legacy writes + canonical management authority
+        run: npm run test:arca-phase0
+
       - name: Guard — SEC-08E R2B activation stays canonical
         run: npm run guard:sec08e-r2a:self-test && npm run guard:sec08e-r2b:self-test && npm run guard:sec08e-r2b
 

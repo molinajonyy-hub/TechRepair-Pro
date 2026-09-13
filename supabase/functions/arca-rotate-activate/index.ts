@@ -2,7 +2,9 @@
  * Edge Function: arca-rotate-activate  (AFIP-S4B-2A — DORMIDA: sin uso productivo)
  *
  * Activa de forma ATÓMICA una rotación previamente preparada:
- *   1. valida identidad (JWT real) + membresía owner/admin;
+ *   1. valida la autoridad canónica de gestión ARCA (JWT real, perfil activo,
+ *      owner/admin + settings_sensitive); el business_id del body solo confirma
+ *      el tenant del actor;
  *   2. acepta ÚNICAMENTE el certificado PÚBLICO nuevo emitido por ARCA;
  *   3. delega en la RPC service_role `arca_activate_certificate_rotation`, que
  *      valida SPKI y subject ANTES de escribir, guarda el checkpoint del par
@@ -23,6 +25,9 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { buildCorsHeaders, validateInput, buildActivationResponse, buildFinalizeResponse } from './validate.ts'
+import { ArcaAuthorizationError } from '../_shared/arcaAuthorization.ts'
+import { authorizeArcaManager, resolveManagedBusiness, type ArcaManager } from '../_shared/arcaManagementAuthority.ts'
+import { userDataApiHeaders } from '../_shared/clientContract.ts'
 
 function jsonResponse(req: Request, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -37,23 +42,36 @@ serve(async (req: Request) => {
   const url = Deno.env.get('SUPABASE_URL')!
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-  const authHeader = req.headers.get('Authorization') ?? ''
 
-  // 1. Identidad (cliente con el JWT del usuario, NUNCA service_role).
-  const userClient = createClient(url, anonKey, { global: { headers: { Authorization: authHeader } } })
-  const { data: userData, error: userErr } = await userClient.auth.getUser()
-  if (userErr || !userData?.user) return jsonResponse(req, { ok: false, error: 'UNAUTHORIZED' }, 401)
-  const actor = userData.user.id
+  // 1. Autoridad canónica de gestión ARCA (ARCA Phase 0): JWT del usuario, perfil
+  //    activo, rol owner/admin Y settings_sensitive. El tenant sale de la identidad.
+  let manager: ArcaManager
+  try {
+    manager = await authorizeArcaManager(req.headers.get('Authorization'), {
+      createUserClient: (authorization) => createClient(url, anonKey, {
+        global: { headers: userDataApiHeaders(req, authorization) },
+        auth: { persistSession: false, autoRefreshToken: false },
+      }),
+    })
+  } catch (err) {
+    if (err instanceof ArcaAuthorizationError) return jsonResponse(req, { ok: false, error: err.code }, err.status)
+    return jsonResponse(req, { ok: false, error: 'AUTHORIZATION_UNAVAILABLE' }, 503)
+  }
+  const actor = manager.userId
 
   let body: any
   try { body = await req.json() } catch { return jsonResponse(req, { ok: false, error: 'BAD_REQUEST' }, 400) }
 
   const v = validateInput(body)
   if (!v.ok) return jsonResponse(req, v.body, v.status)
+  // El business_id del body sólo puede CONFIRMAR el tenant del actor.
+  try { resolveManagedBusiness(v.businessId, manager) } catch {
+    return jsonResponse(req, { ok: false, error: 'FORBIDDEN' }, 403)
+  }
 
   const admin = createClient(url, serviceKey)
 
-  // 2. Membresía owner/admin (defensa en profundidad; la RPC vuelve a validarla).
+  // 2. Defensa en profundidad: la misma autoridad canónica en SQL (la RPC vuelve a validarla).
   const { data: isAdmin } = await admin.rpc('is_business_owner_or_admin', {
     p_business_id: v.businessId, p_user_id: actor,
   })

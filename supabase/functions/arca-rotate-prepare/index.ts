@@ -2,7 +2,8 @@
  * Edge Function: arca-rotate-prepare  (AFIP-S4A · subject mínimo por S4B-1b)
  *
  * Prepara una rotación de certificado de forma SEGURA:
- *   1. valida identidad (JWT) + membresía owner/admin del negocio;
+ *   1. valida la autoridad canónica de gestión ARCA (perfil activo + owner/admin +
+ *      settings_sensitive); el negocio sale de la identidad, nunca del body;
  *   2. resuelve el subject AUTORIZADO server-side (`arca_get_rotation_subject_safe`),
  *      derivado del CERTIFICADO VIGENTE y validado contra alias/CUIT;
  *   3. genera una NUEVA clave RSA en memoria (node-forge);
@@ -18,7 +19,8 @@
  *   - NO agrega C=AR, ST ni L por default;
  *   - NO convierte el alias en organización;
  *   - NO usa business_settings como fallback;
- *   - el navegador solo aporta `business_id` y (opcional) `idempotency_key`:
+ *   - el llamador solo aporta (opcional) `business_id`, que debe coincidir con su
+ *     tenant, y (opcional) `idempotency_key`:
  *     la identidad fiscal viene de la base y del certificado vigente.
  *
  * La clave privada NUNCA se devuelve, ni se escribe en arca_config, ni se loguea.
@@ -28,6 +30,9 @@ import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 // @ts-ignore: node-forge en Deno via npm
 import forge from 'npm:node-forge@1.3.1'
+import { ArcaAuthorizationError } from '../_shared/arcaAuthorization.ts'
+import { authorizeArcaManager, resolveManagedBusiness, type ArcaManager } from '../_shared/arcaManagementAuthority.ts'
+import { userDataApiHeaders } from '../_shared/clientContract.ts'
 
 const ALLOWED_REQUEST_HEADERS = new Set(['authorization', 'content-type', 'apikey', 'x-client-info'])
 function buildCorsHeaders(req: Request): Record<string, string> {
@@ -90,24 +95,36 @@ serve(async (req: Request) => {
   const url = Deno.env.get('SUPABASE_URL')!
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-  const authHeader = req.headers.get('Authorization') ?? ''
 
-  // 1. Identidad (cliente con el JWT del usuario, NUNCA service_role).
-  const userClient = createClient(url, anonKey, { global: { headers: { Authorization: authHeader } } })
-  const { data: userData, error: userErr } = await userClient.auth.getUser()
-  if (userErr || !userData?.user) return jsonResponse(req, { ok: false, error: 'UNAUTHORIZED' }, 401)
-  const actor = userData.user.id
+  // 1. Autoridad canónica de gestión ARCA (ARCA Phase 0): JWT del usuario, perfil
+  //    activo, rol owner/admin Y settings_sensitive. El tenant sale de la identidad.
+  let manager: ArcaManager
+  try {
+    manager = await authorizeArcaManager(req.headers.get('Authorization'), {
+      createUserClient: (authorization) => createClient(url, anonKey, {
+        global: { headers: userDataApiHeaders(req, authorization) },
+        auth: { persistSession: false, autoRefreshToken: false },
+      }),
+    })
+  } catch (err) {
+    if (err instanceof ArcaAuthorizationError) return jsonResponse(req, { ok: false, error: err.code }, err.status)
+    return jsonResponse(req, { ok: false, error: 'AUTHORIZATION_UNAVAILABLE' }, 503)
+  }
+  const actor = manager.userId
 
   let body: any
   try { body = await req.json() } catch { return jsonResponse(req, { ok: false, error: 'BAD_REQUEST' }, 400) }
-  const businessId = String(body?.business_id ?? '')
-  if (!businessId) {
-    return jsonResponse(req, { ok: false, error: 'MISSING_FIELDS', detail: 'business_id' }, 400)
+  let businessId: string
+  try {
+    businessId = resolveManagedBusiness(body?.business_id, manager)
+  } catch {
+    return jsonResponse(req, { ok: false, error: 'FORBIDDEN' }, 403)
   }
 
   const admin = createClient(url, serviceKey)
 
-  // 2. Membresía owner/admin (vía service_role; sin exponer datos).
+  // 2. Defensa en profundidad: la misma autoridad canónica en SQL (service_role;
+  //    is_business_owner_or_admin delega en private.arca_actor_can_manage).
   const { data: isAdmin } = await admin.rpc('is_business_owner_or_admin', {
     p_business_id: businessId, p_user_id: actor,
   })

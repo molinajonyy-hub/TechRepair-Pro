@@ -89,8 +89,8 @@ function analyze(migRaw, edgeRaw, validateRaw, sqlTest, harness, repoFiles) {
 
   // ── Edge ───────────────────────────────────────────────────────────────────
   req(!/from\(['"]arca_config['"]\)/.test(edge), 'el Edge NO debe escribir arca_config directamente')
-  req(/auth\.getUser\(\)/.test(edge) && /is_business_owner_or_admin/.test(edge),
-    'el Edge debe validar JWT y membresía owner/admin')
+  req(/authorizeArcaManager\(/.test(edge) && /resolveManagedBusiness\(/.test(edge) && /is_business_owner_or_admin/.test(edge),
+    'el Edge debe validar la autoridad canónica de gestión ARCA (authorizeArcaManager + tenant por identidad + owner/admin en SQL)')
   req(/arca_activate_certificate_rotation/.test(edge) && /arca_rollback_certificate_rotation/.test(edge),
     'el Edge debe delegar en las RPC de activación y rollback')
   req(!/console\.(log|error|warn|info)/.test(edge) && !/console\.(log|error|warn|info)/.test(val),
