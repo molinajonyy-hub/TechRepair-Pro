@@ -45,7 +45,7 @@ server-side `status` summary (so the UI never infers it), `certificate.matches_c
 | certificate.expires_at / days_remaining / renewal_state | `private.arca_cert_validity(private.arca_pem_to_der(cert_file)).not_after` vs `now()` |
 | certificate.matches_credential | SPKI SHA-256 of the cert (`arca_rsa_pubkey_from_cert` → `arca_rsa_public_key_fingerprint_sha256`) = `arca_private_key_credentials.private_key_fingerprint`. **Vault is never decrypted** |
 | credential.active | `arca_private_key_credentials.credential_status = 'active'` AND the `vault.secrets` row EXISTS |
-| connection.state / last_verified_at | `arca_config.estado_conexion` ∈ {`conectado`,`error`} + `ultima_sincronizacion`, both written server-side by `afip-wsaa`; evidence older than `coalesce(credential.rotated_at, created_at)` is ignored |
+| connection.state / last_verified_at | `arca_config.estado_conexion` ∈ {`conectado`,`error`} + `ultima_sincronizacion`, both written server-side by `afip-wsaa`. Success **and** error evidence count only when `ultima_sincronizacion` is non-null and ≥ `coalesce(credential.rotated_at, created_at)`; otherwise `unknown` with `last_verified_at = null` |
 | setup.* | `private.arca_credential_rotations` rows in `pending_rotation` / `activated_pending_verification` only |
 | can_manage | `private.arca_actor_can_manage(tenant, auth.uid())` (Phase 0 authority) |
 | available | `public.business_has_feature('arca')` |
@@ -151,9 +151,9 @@ Evidence (local stack, synthetic certificate): `evidence/owner-connected-{deskto
 
 | Suite | Result (local) |
 |---|---|
-| `tests/sql/arca_phase1_status.test.sql` (`npm run test:sql:arca-phase1`) | 20/20 — covers A–P of the brief plus C′ (credential without Vault secret), D′ (never verified), D″ (evidence older than credential), mismatch, unreadable, PFX, all terminal rotation states, bounded free-text `estado_conexion` |
-| Negative control: 8 mutants of the migration (completed counted as in progress, loose `estado_conexion`, raw `estado_conexion` in output, `can_manage=true`, foreign `p_business_id` accepted, cert-only = configured, urgent at 30 days, stale evidence counted) | 8/8 caught; a 9th (`ultimo_error` in output) is rejected by the migration post-condition itself |
-| `scripts/security/arca-phase1-postgrest.mjs` | 876 assertions / 53 HTTP requests / 0 failures |
+| `tests/sql/arca_phase1_status.test.sql` (`npm run test:sql:arca-phase1`) | 21/21 — covers A–P of the brief plus C′ (credential without Vault secret), D′ (never verified), D″ (success evidence older than credential), S15b (error evidence older than credential, error without timestamp, connected without timestamp), mismatch, unreadable, PFX, all terminal rotation states, bounded free-text `estado_conexion` |
+| Negative control: 9 mutants of the migration (completed counted as in progress, loose `estado_conexion`, stale error counted — the owner-review bug, raw `estado_conexion` in output, `can_manage=true`, foreign `p_business_id` accepted, cert-only = configured, urgent at 30 days, stale success counted) | 9/9 caught; `ultimo_error` in output is rejected by the migration post-condition itself. The pre-fix migration also fails S15b and the HTTP suite |
+| `scripts/security/arca-phase1-postgrest.mjs` | 1128 assertions / 65 HTTP requests / 0 failures (includes businesses with current error, stale error and error without timestamp) |
 | `tests/components/arcaPhase1Status.test.tsx` | 28/28 |
 | `scripts/guards/arca-phase1-status-contract.mjs` + `--self-test` | OK; 14 planted violations each caught by its own rule |
 | Phase 0 regressions: `test:arca-phase0`, `test:sql:arca-phase0`, `tests/unit/arcaConfigWriteContract` | green |

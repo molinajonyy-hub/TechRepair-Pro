@@ -39,8 +39,12 @@ const actors = {
   admin_inactive: ['A', 'admin', false, null, null],
   ownerB: ['B', 'owner', true, null, true],
   ownerF: ['F', 'owner', true, null, false],
+  // Evidencia de conexión: error de la credencial VIGENTE, error VIEJO (credencial anterior), error SIN fecha.
+  ownerE: ['E', 'owner', true, null, true],
+  ownerS: ['S', 'owner', true, null, true],
+  ownerN: ['N', 'owner', true, null, true],
 }
-const ids = Object.fromEntries(['A', 'B', 'F', ...Object.keys(actors)].map((n) => [n, randomUUID()]))
+const ids = Object.fromEntries(['A', 'B', 'F', 'E', 'S', 'N', ...Object.keys(actors)].map((n) => [n, randomUUID()]))
 const FORBIDDEN = ['cert_file', 'private_key', 'wsaa_token', 'wsaa_sign', 'secret_id', 'csr_pem', 'certificate_pem',
   'fingerprint', 'ultimo_error', 'estado_conexion', 'pfx', 'BEGIN CERTIFICATE', 'TOKEN-P1-HTTP', 'SIGN-P1-HTTP',
   'ERROR-P1-HTTP', 'CSR-P1-HTTP', FP.slice(0, 16)]
@@ -106,7 +110,10 @@ try {
     INSERT INTO public.businesses (id, name, owner_user_id, subscription_plan, subscription_status) VALUES
       ('${ids.A}','ARCA P1 HTTP A','${ids.owner}','pro','active'),
       ('${ids.B}','ARCA P1 HTTP B','${ids.ownerB}','pro','active'),
-      ('${ids.F}','ARCA P1 HTTP F','${ids.ownerF}','basico','active');
+      ('${ids.F}','ARCA P1 HTTP F','${ids.ownerF}','basico','active'),
+      ('${ids.E}','ARCA P1 HTTP E','${ids.ownerE}','pro','active'),
+      ('${ids.S}','ARCA P1 HTTP S','${ids.ownerS}','pro','active'),
+      ('${ids.N}','ARCA P1 HTTP N','${ids.ownerN}','pro','active');
     INSERT INTO public.profiles (id, user_id, business_id, role, is_active, permissions, email) VALUES ${profiles};
     INSERT INTO public.arca_config (business_id, cuit, cuit_emisor, razon_social, ambiente, punto_venta, web_service, alias,
       cert_file, wsaa_token, wsaa_sign, wsaa_token_expires, estado_conexion, ultima_sincronizacion, ultimo_error, expires_at) VALUES
@@ -118,6 +125,14 @@ try {
        NULL, NULL, NULL, NULL, 'desconectado', NULL, NULL, NULL);
     INSERT INTO private.arca_private_key_credentials (business_id, private_key_secret_id, private_key_fingerprint, credential_status, created_at, rotated_at)
       VALUES ('${ids.A}', vault.create_secret('KEY-P1-HTTP', 'arca-p1-http:${ids.A}'), '${FP}', 'active', now() - interval '1 day', now() - interval '1 day');
+    INSERT INTO public.arca_config (business_id, cuit, cuit_emisor, ambiente, punto_venta, web_service, alias,
+      cert_file, estado_conexion, ultima_sincronizacion, ultimo_error) VALUES
+      ('${ids.E}', '20111111112', '20111111112', 'produccion', 11, 'wsfe', 'fixture.alias', $cert$${CERT}$cert$, 'error', now(),'ERROR-P1-HTTP'),
+      ('${ids.S}', '20111111112', '20111111112', 'produccion', 12, 'wsfe', 'fixture.alias', $cert$${CERT}$cert$, 'error', now() - interval '3 days', 'ERROR-P1-HTTP'),
+      ('${ids.N}', '20111111112', '20111111112', 'produccion', 13, 'wsfe', 'fixture.alias', $cert$${CERT}$cert$, 'error', NULL, 'ERROR-P1-HTTP');
+    INSERT INTO private.arca_private_key_credentials (business_id, private_key_secret_id, private_key_fingerprint, credential_status, created_at, rotated_at)
+      SELECT b, vault.create_secret('KEY-P1-HTTP', 'arca-p1-http:' || b), '${FP}', 'active', now() - interval '1 day', now() - interval '1 day'
+        FROM unnest(ARRAY['${ids.E}', '${ids.S}', '${ids.N}']::uuid[]) AS b;
     INSERT INTO private.arca_credential_rotations (business_id, private_key_secret_id, private_key_fingerprint, csr_fingerprint,
       csr_pem, key_size, state, idempotency_key, request_hash, prev_status)
       VALUES ('${ids.A}', gen_random_uuid(), repeat('cd', 32), repeat('cd', 32), '-----BEGIN CERTIFICATE REQUEST-----CSR-P1-HTTP',
@@ -156,6 +171,13 @@ try {
           `${label}: A conectado, completed/purged no en curso, vencimiento del X.509`, r.text.slice(0, 300))
         }
         if (biz === 'B') expect(r.body.status === 'not_configured' && r.body.next_action === 'start_setup' && r.body.cuit === '20444444445', `${label}: B no configurado`, r.text)
+        if (biz === 'E') expect(r.body.status === 'attention' && r.body.connection.state === 'error' && r.body.connection.last_verified_at !== null
+          && JSON.stringify(r.body.attention) === '["connection_error"]' && r.body.next_action === 'verify_connection',
+        `${label}: E error vigente → error + connection_error`, r.text)
+        if (biz === 'S' || biz === 'N') expect(r.body.status === 'pending_verification' && r.body.configured === true
+          && r.body.connection.state === 'unknown' && r.body.connection.last_verified_at === null
+          && r.body.attention.length === 0 && r.body.next_action === 'verify_connection',
+        `${label}: ${biz} error ${biz === 'S' ? 'viejo' : 'sin fecha'} → unknown, sin connection_error`, r.text)
         if (biz === 'F') expect(r.body.available === false && r.body.cuit === null && r.body.punto_venta === null, `${label}: F sin feature arca, sin metadata`, r.text)
       }
     }
@@ -194,13 +216,13 @@ try {
     sql(`
       BEGIN;
       SET session_replication_role = replica;
-      DELETE FROM vault.secrets WHERE id IN (SELECT private_key_secret_id FROM private.arca_private_key_credentials WHERE business_id = '${ids.A}');
-      DELETE FROM private.arca_credential_rotations WHERE business_id IN (${list(['A', 'B', 'F'])});
-      DELETE FROM private.arca_private_key_credentials WHERE business_id IN (${list(['A', 'B', 'F'])});
-      DELETE FROM private.arca_credential_audit WHERE business_id IN (${list(['A', 'B', 'F'])});
-      DELETE FROM public.arca_config WHERE business_id IN (${list(['A', 'B', 'F'])});
+      DELETE FROM vault.secrets WHERE id IN (SELECT private_key_secret_id FROM private.arca_private_key_credentials WHERE business_id IN (${list(['A', 'E', 'S', 'N'])}));
+      DELETE FROM private.arca_credential_rotations WHERE business_id IN (${list(['A', 'B', 'F', 'E', 'S', 'N'])});
+      DELETE FROM private.arca_private_key_credentials WHERE business_id IN (${list(['A', 'B', 'F', 'E', 'S', 'N'])});
+      DELETE FROM private.arca_credential_audit WHERE business_id IN (${list(['A', 'B', 'F', 'E', 'S', 'N'])});
+      DELETE FROM public.arca_config WHERE business_id IN (${list(['A', 'B', 'F', 'E', 'S', 'N'])});
       DELETE FROM public.profiles WHERE id IN (${list(Object.keys(actors))});
-      DELETE FROM public.businesses WHERE id IN (${list(['A', 'B', 'F'])});
+      DELETE FROM public.businesses WHERE id IN (${list(['A', 'B', 'F', 'E', 'S', 'N'])});
       DELETE FROM auth.users WHERE id IN (${list(Object.keys(actors))});
       SET session_replication_role = origin;
       COMMIT;

@@ -152,20 +152,16 @@ BEGIN
   -- afip-wsaa escribe estado_conexion='conectado' + ultima_sincronizacion al
   -- obtener un token, y 'error' ante un error autorizado. Cualquier otro valor
   -- (texto libre, 'desconectado', 'activation_pending_wsaa_verification', NULL)
-  -- es 'unknown'. Una evidencia ANTERIOR a la puesta en uso de la credencial
-  -- vigente habla de otra clave: tampoco cuenta.
+  -- es 'unknown'. Una evidencia —éxito O error— ANTERIOR a la puesta en uso de
+  -- la credencial vigente habla de otra clave: no cuenta. Sin timestamp no hay
+  -- evidencia fechable: tampoco cuenta.
   IF v_configured THEN
     v_cred_since := coalesce(v_cred.rotated_at, v_cred.created_at);
-    IF v_cfg.estado_conexion = 'conectado'
+    IF v_cfg.estado_conexion IN ('conectado', 'error')
        AND v_cfg.ultima_sincronizacion IS NOT NULL
        AND (v_cred_since IS NULL OR v_cfg.ultima_sincronizacion >= v_cred_since) THEN
-      v_conn_state := 'connected';
+      v_conn_state := CASE v_cfg.estado_conexion WHEN 'conectado' THEN 'connected' ELSE 'error' END;
       v_conn_at := v_cfg.ultima_sincronizacion;
-    ELSIF v_cfg.estado_conexion = 'error' THEN
-      v_conn_state := 'error';
-      IF v_cred_since IS NULL OR v_cfg.ultima_sincronizacion >= v_cred_since THEN
-        v_conn_at := v_cfg.ultima_sincronizacion;
-      END IF;
     END IF;
   END IF;
 

@@ -27,6 +27,7 @@
 --   S13 H' activada pendiente de verificación → pending_verification
 --   S14 I  completed/purged                   → NO en curso
 --   S15 J  estado_conexion libre / error      → acotado, sin fugas de texto
+--   S15b   error/conectado viejo o sin fecha → unknown, sin connection_error
 --   S16    par clave↔certificado no coincide, cert ilegible, PFX legacy
 --   S17 K-N can_manage (owner/admin sí; admin sin capacidad, manager, inactivos no)
 --   S18 O  cross-tenant, anon, plan sin feature
@@ -398,13 +399,47 @@ BEGIN
     END IF;
   END LOOP;
 
-  PERFORM pg_temp.seed_a(pg_temp.fx('cert_old'), true, p_estado => 'error');
+  -- Error VIGENTE: evidencia posterior a la credencial actual.
+  PERFORM pg_temp.seed_a(pg_temp.fx('cert_old'), true, p_estado => 'error',
+    p_sync => now(), p_cred_since => now() - interval '1 day');
   r := pg_temp.status_as('owner')::jsonb;
-  PERFORM pg_temp.expect(pg_temp.summary(r), 'attention|true|healthy|error|completed|-|-|verify_connection|connection_error', 'S15 error');
+  PERFORM pg_temp.expect(pg_temp.summary(r), 'attention|true|healthy|error|completed|-|-|verify_connection|connection_error', 'S15 error vigente');
+  IF r #>> '{connection,last_verified_at}' IS NULL THEN RAISE EXCEPTION 'S15: error vigente sin timestamp'; END IF;
   IF position('ULTIMO-ERROR-SENTINELA' IN r::text) > 0 THEN
     RAISE EXCEPTION 'S15: ultimo_error crudo en la salida';
   END IF;
   RAISE NOTICE 'S15 OK - estado_conexion acotado a connected/error/unknown; ultimo_error nunca sale.';
+END $$;
+
+-- == S15b error viejo o sin fecha: no es evidencia de la credencial vigente ===
+DO $$
+DECLARE r jsonb;
+BEGIN
+  -- Error de la credencial ANTERIOR (evidencia previa a la rotación).
+  PERFORM pg_temp.seed_a(pg_temp.fx('cert_old'), true, p_estado => 'error',
+    p_sync => now() - interval '3 days', p_cred_since => now() - interval '1 day');
+  r := pg_temp.status_as('owner')::jsonb;
+  PERFORM pg_temp.expect(pg_temp.summary(r),
+    'pending_verification|true|healthy|unknown|completed|-|-|verify_connection|-', 'S15b error viejo');
+  IF r #>> '{connection,last_verified_at}' IS NOT NULL THEN RAISE EXCEPTION 'S15b: error viejo expone timestamp'; END IF;
+  IF position('ULTIMO-ERROR-SENTINELA' IN r::text) > 0 OR position('connection_error' IN r::text) > 0 THEN
+    RAISE EXCEPTION 'S15b: error viejo filtrado a la salida: %', r;
+  END IF;
+
+  -- Error sin ultima_sincronizacion: no fechable.
+  PERFORM pg_temp.seed_a(pg_temp.fx('cert_old'), true, p_estado => 'error', p_sync => NULL);
+  r := pg_temp.status_as('owner')::jsonb;
+  PERFORM pg_temp.expect(pg_temp.summary(r),
+    'pending_verification|true|healthy|unknown|completed|-|-|verify_connection|-', 'S15b error sin fecha');
+  IF r #>> '{connection,last_verified_at}' IS NOT NULL OR position('ULTIMO-ERROR-SENTINELA' IN r::text) > 0 THEN
+    RAISE EXCEPTION 'S15b: error sin fecha mal derivado: %', r;
+  END IF;
+
+  -- Conectado sin fecha tampoco cuenta (simetría con S08).
+  PERFORM pg_temp.seed_a(pg_temp.fx('cert_old'), true, p_estado => 'conectado', p_sync => NULL);
+  PERFORM pg_temp.expect(pg_temp.summary(pg_temp.status_as('owner')::jsonb),
+    'pending_verification|true|healthy|unknown|completed|-|-|verify_connection|-', 'S15b conectado sin fecha');
+  RAISE NOTICE 'S15b OK - error viejo o sin fecha → unknown / verify_connection, sin connection_error ni timestamp.';
 END $$;
 
 -- == S16 par, certificado ilegible, PFX ======================================
@@ -538,6 +573,6 @@ BEGIN
   RAISE NOTICE 'S20 OK - leer el estado no escribe filas, Vault ni auditoría.';
 END $$;
 
-DO $$ BEGIN RAISE NOTICE 'ARCA Phase 1 SQL: 20/20 OK'; END $$;
+DO $$ BEGIN RAISE NOTICE 'ARCA Phase 1 SQL: 21/21 OK'; END $$;
 
 ROLLBACK;
