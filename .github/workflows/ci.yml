@@ -143,7 +143,7 @@ jobs:
         run: |
           set -euo pipefail
           r3="supabase/migrations/20260922120000_sec08e_auxiliary_financial_reads.sql"
-          sec08f="supabase/migrations/20260930120000_sec08f_remaining_read_authority.sql"
+          sec08f="supabase/migrations/20261001120000_sec08f_remaining_read_authority.sql"
           mv "$r3" "$RUNNER_TEMP/"
           mv "$sec08f" "$RUNNER_TEMP/"
           supabase start
@@ -175,7 +175,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sec08f="supabase/migrations/20260930120000_sec08f_remaining_read_authority.sql"
+          sec08f="supabase/migrations/20261001120000_sec08f_remaining_read_authority.sql"
           mv "$sec08f" "$RUNNER_TEMP/"
           trap 'mv "$RUNNER_TEMP/$(basename "$sec08f")" "$sec08f"' EXIT
           supabase start

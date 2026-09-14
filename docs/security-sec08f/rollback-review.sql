@@ -97,7 +97,7 @@ USING (
   business_id = (
     SELECT profiles.business_id
       FROM public.profiles
-     WHERE profiles.id = auth.uid()
+     WHERE profiles.id = (SELECT auth.uid())
   )
 );
 

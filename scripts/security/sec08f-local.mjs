@@ -9,7 +9,7 @@ const source = 'supabase_db_techrepair-vite'
 const database = 'sec08f_certification'
 const restName = 'sec08f-rest'
 const ownership = 'SEC-08F current-main disposable certification'
-const migration = '20260930120000_sec08f_remaining_read_authority.sql'
+const migration = '20261001120000_sec08f_remaining_read_authority.sql'
 const version = migration.split('_')[0]
 const evidenceDir = 'docs/security-sec08f'
 const jwtSecret = 'sec08f-disposable-only-jwt-secret-32-chars'
@@ -261,6 +261,27 @@ const frontendR1 = () => {
   observations.r1 = { schema: 'post', tests: 4, status: 'passed' }
 }
 
+// Fresh Candidate #2: compare exact ACL/RLS state across the reviewed rollback,
+// and prove that the cycle preserves ARCA Phase 2A and the three tables' data.
+const preservationSnapshot = () => JSON.parse(sql(`SELECT jsonb_build_object(
+  'policies', (SELECT jsonb_agg(to_jsonb(p) ORDER BY tablename,policyname) FROM pg_policies p
+    WHERE schemaname='public' AND tablename IN ('recurring_expenses','cash_registers','payment_orders')),
+  'acl', (SELECT jsonb_agg(to_jsonb(a) ORDER BY table_name,grantee,privilege_type) FROM information_schema.table_privileges a
+    WHERE table_schema='public' AND table_name IN ('recurring_expenses','cash_registers','payment_orders')),
+  'column_acl', (SELECT jsonb_agg(to_jsonb(a) ORDER BY table_name,column_name,grantee,privilege_type) FROM information_schema.column_privileges a
+    WHERE table_schema='public' AND table_name IN ('recurring_expenses','cash_registers','payment_orders')),
+  'rls', (SELECT jsonb_agg(jsonb_build_object('table',relname,'enabled',relrowsecurity,'forced',relforcerowsecurity) ORDER BY relname)
+    FROM pg_class WHERE oid IN ('public.recurring_expenses'::regclass,'public.cash_registers'::regclass,'public.payment_orders'::regclass)),
+  'arca_functions', (SELECT jsonb_agg(jsonb_build_object('function',p.oid::regprocedure::text,'body',md5(p.prosrc),'config',p.proconfig,'acl',p.proacl) ORDER BY p.oid::regprocedure::text)
+    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public','private') AND p.prokind='f' AND p.proname ~ '(arca|afip)'),
+  'arca_constraints', (SELECT jsonb_agg(jsonb_build_object('table',c.conrelid::regclass::text,'name',c.conname,'definition',pg_get_constraintdef(c.oid)) ORDER BY c.conrelid::regclass::text,c.conname)
+    FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid WHERE t.relname ~ '(arca|afip)'),
+  'data', jsonb_build_object(
+    'recurring_expenses',(SELECT md5(coalesce(jsonb_agg(to_jsonb(t) ORDER BY id)::text,'[]')) FROM public.recurring_expenses t),
+    'cash_registers',(SELECT md5(coalesce(jsonb_agg(to_jsonb(t) ORDER BY id)::text,'[]')) FROM public.cash_registers t),
+    'payment_orders',(SELECT md5(coalesce(jsonb_agg(to_jsonb(t) ORDER BY id)::text,'[]')) FROM public.payment_orders t))
+);`))
+
 async function main() {
   mkdirSync(evidenceDir, { recursive: true })
   password = JSON.parse(docker(['inspect', source]))[0].Config.Env
@@ -346,11 +367,13 @@ CREATE FUNCTION`)
   await ready()
 
   await snapshot('pre'); assertPre()
+  const preservationBefore = preservationSnapshot()
   sql('SET ROLE postgres;\n' + file(`supabase/migrations/${migration}`))
   sql(`INSERT INTO supabase_migrations.schema_migrations(version) VALUES ('${version}'); NOTIFY pgrst, 'reload schema';`)
   await ready()
   regress('post')
   await snapshot('post'); await assertPost(); staticChecks()
+  const preservationAfter = preservationSnapshot()
   await contractAndR3(originalGate, originalWrapperBody)
   sql('BEGIN; SET LOCAL ROLE postgres;\n' + file('tests/fixtures/sec08e.sql') + '\nCOMMIT;')
   frontendR1()
@@ -360,6 +383,9 @@ CREATE FUNCTION`)
   sql('SET ROLE postgres;\n' + file('docs/security-sec08f/rollback-review.sql'))
   await ready()
   await snapshot('rollback'); assertPre('rollback')
+  const preservationRollback = preservationSnapshot()
+  check(JSON.stringify(preservationRollback) === JSON.stringify(preservationBefore),
+    'rollback restores exact fresh-main ACLs, column ACLs and RLS; ARCA and target data unchanged')
   check(sql(`SELECT jsonb_agg(version ORDER BY version) = '${JSON.stringify([...currentLedger, version].sort())}'::jsonb FROM supabase_migrations.schema_migrations`) === 't',
     'reviewed rollback does not alter migration history')
 
@@ -367,6 +393,15 @@ CREATE FUNCTION`)
   sql("NOTIFY pgrst, 'reload schema';")
   await ready()
   await snapshot('reapplied'); await assertPost('reapplied'); staticChecks()
+  const preservationReapplied = preservationSnapshot()
+  check(JSON.stringify(preservationReapplied) === JSON.stringify(preservationAfter),
+    'reapplication restores exact candidate ACLs and RLS; ARCA and target data unchanged')
+  for (const key of ['arca_functions', 'arca_constraints', 'data']) {
+    check(JSON.stringify(preservationBefore[key]) === JSON.stringify(preservationAfter[key]),
+      `candidate preserves fresh-main ${key}`)
+  }
+  observations.preservation = { before: preservationBefore, after: preservationAfter,
+    rollback_exact: true, reapplied_exact: true }
   await contractAndR3(originalGate, originalWrapperBody)
   check(sql(`SELECT jsonb_agg(version ORDER BY version) = '${JSON.stringify([...currentLedger, version].sort())}'::jsonb FROM supabase_migrations.schema_migrations`) === 't',
     'reviewed rollback and reapplication leave the certified ledger')

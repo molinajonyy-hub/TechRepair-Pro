@@ -1,5 +1,11 @@
 # SEC-08F — final discovery and remaining read-authority closure
 
+> Historical Candidate #1: `55a6cd19a276a99a7d8850c763e281dcda4401b8`, based on
+> `228d53081a174757fcd5a521e6704b0cde4cbb58`. OBSOLETE for production after
+> ARCA Phase 2A. The findings, migration name, counts and production snapshots
+> below describe that historical candidate. See [Fresh Candidate #2](fresh-candidate-2/report.md)
+> for the refreshed base, unique migration version and current certification.
+
 ## A. Current main
 
 The isolated worktree branch `codex/sec08f-final-security-sweep` is based on

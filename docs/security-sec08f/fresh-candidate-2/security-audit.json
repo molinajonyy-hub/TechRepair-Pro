@@ -1,0 +1,276 @@
+{
+    "rls": [
+        {
+            "table": "cash_registers",
+            "enabled": true
+        },
+        {
+            "table": "payment_orders",
+            "enabled": true
+        },
+        {
+            "table": "recurring_expenses",
+            "enabled": true
+        }
+    ],
+    "ledger": {
+        "max": "20261001120000",
+        "count": 272,
+        "arca_count": 1,
+        "duplicates": 0,
+        "sec08f_count": 1
+    },
+    "policies": [
+        {
+            "cmd": "INSERT",
+            "qual": null,
+            "roles": [
+                "public"
+            ],
+            "tablename": "cash_registers",
+            "permissive": "PERMISSIVE",
+            "policyname": "cash_registers_business_insert",
+            "schemaname": "public",
+            "with_check": "(business_id = ( SELECT profiles.business_id\n   FROM profiles\n  WHERE (profiles.id = ( SELECT auth.uid() AS uid))))"
+        },
+        {
+            "cmd": "UPDATE",
+            "qual": "(business_id = ( SELECT profiles.business_id\n   FROM profiles\n  WHERE (profiles.id = ( SELECT auth.uid() AS uid))))",
+            "roles": [
+                "public"
+            ],
+            "tablename": "cash_registers",
+            "permissive": "PERMISSIVE",
+            "policyname": "cash_registers_business_update",
+            "schemaname": "public",
+            "with_check": null
+        },
+        {
+            "cmd": "SELECT",
+            "qual": "((business_id = current_user_business_id()) AND current_user_can_in_business(business_id, 'finance'::text))",
+            "roles": [
+                "authenticated"
+            ],
+            "tablename": "cash_registers",
+            "permissive": "PERMISSIVE",
+            "policyname": "cash_registers_select_finance_capability",
+            "schemaname": "public",
+            "with_check": null
+        },
+        {
+            "cmd": "DELETE",
+            "qual": "(business_id = current_user_business_id())",
+            "roles": [
+                "authenticated"
+            ],
+            "tablename": "cash_registers",
+            "permissive": "PERMISSIVE",
+            "policyname": "cr_delete_same_tenant",
+            "schemaname": "public",
+            "with_check": null
+        },
+        {
+            "cmd": "INSERT",
+            "qual": null,
+            "roles": [
+                "authenticated"
+            ],
+            "tablename": "cash_registers",
+            "permissive": "PERMISSIVE",
+            "policyname": "cr_insert_same_tenant",
+            "schemaname": "public",
+            "with_check": "(business_id = current_user_business_id())"
+        },
+        {
+            "cmd": "UPDATE",
+            "qual": "(business_id = current_user_business_id())",
+            "roles": [
+                "authenticated"
+            ],
+            "tablename": "cash_registers",
+            "permissive": "PERMISSIVE",
+            "policyname": "cr_update_same_tenant",
+            "schemaname": "public",
+            "with_check": "(business_id = current_user_business_id())"
+        },
+        {
+            "cmd": "DELETE",
+            "qual": "(business_id = current_user_business_id())",
+            "roles": [
+                "authenticated"
+            ],
+            "tablename": "payment_orders",
+            "permissive": "PERMISSIVE",
+            "policyname": "po_delete_same_tenant",
+            "schemaname": "public",
+            "with_check": null
+        },
+        {
+            "cmd": "INSERT",
+            "qual": null,
+            "roles": [
+                "authenticated"
+            ],
+            "tablename": "payment_orders",
+            "permissive": "PERMISSIVE",
+            "policyname": "po_insert_same_tenant",
+            "schemaname": "public",
+            "with_check": "(business_id = current_user_business_id())"
+        },
+        {
+            "cmd": "UPDATE",
+            "qual": "(business_id = current_user_business_id())",
+            "roles": [
+                "authenticated"
+            ],
+            "tablename": "payment_orders",
+            "permissive": "PERMISSIVE",
+            "policyname": "po_update_same_tenant",
+            "schemaname": "public",
+            "with_check": "(business_id = current_user_business_id())"
+        },
+        {
+            "cmd": "DELETE",
+            "qual": "(business_id IN ( SELECT profiles.business_id\n   FROM profiles\n  WHERE (profiles.id = ( SELECT auth.uid() AS uid))))",
+            "roles": [
+                "public"
+            ],
+            "tablename": "recurring_expenses",
+            "permissive": "PERMISSIVE",
+            "policyname": "re_delete",
+            "schemaname": "public",
+            "with_check": null
+        },
+        {
+            "cmd": "INSERT",
+            "qual": null,
+            "roles": [
+                "public"
+            ],
+            "tablename": "recurring_expenses",
+            "permissive": "PERMISSIVE",
+            "policyname": "re_insert",
+            "schemaname": "public",
+            "with_check": "(business_id IN ( SELECT profiles.business_id\n   FROM profiles\n  WHERE (profiles.id = ( SELECT auth.uid() AS uid))))"
+        },
+        {
+            "cmd": "UPDATE",
+            "qual": "(business_id IN ( SELECT profiles.business_id\n   FROM profiles\n  WHERE (profiles.id = ( SELECT auth.uid() AS uid))))",
+            "roles": [
+                "public"
+            ],
+            "tablename": "recurring_expenses",
+            "permissive": "PERMISSIVE",
+            "policyname": "re_update",
+            "schemaname": "public",
+            "with_check": null
+        },
+        {
+            "cmd": "SELECT",
+            "qual": "((business_id = current_user_business_id()) AND current_user_can_in_business(business_id, 'finance'::text))",
+            "roles": [
+                "authenticated"
+            ],
+            "tablename": "recurring_expenses",
+            "permissive": "PERMISSIVE",
+            "policyname": "recurring_expenses_select_finance_capability",
+            "schemaname": "public",
+            "with_check": null
+        }
+    ],
+    "captured_at": "2026-09-14T23:34:17.390028+00:00",
+    "environment": "local Docker only",
+    "dependent_views": [
+    ],
+    "effective_select": [
+        {
+            "role": "anon",
+            "table": "recurring_expenses",
+            "table_select": false,
+            "any_column_select": false
+        },
+        {
+            "role": "authenticated",
+            "table": "recurring_expenses",
+            "table_select": true,
+            "any_column_select": true
+        },
+        {
+            "role": "service_role",
+            "table": "recurring_expenses",
+            "table_select": false,
+            "any_column_select": false
+        },
+        {
+            "role": "anon",
+            "table": "cash_registers",
+            "table_select": false,
+            "any_column_select": false
+        },
+        {
+            "role": "authenticated",
+            "table": "cash_registers",
+            "table_select": true,
+            "any_column_select": true
+        },
+        {
+            "role": "service_role",
+            "table": "cash_registers",
+            "table_select": false,
+            "any_column_select": false
+        },
+        {
+            "role": "anon",
+            "table": "payment_orders",
+            "table_select": false,
+            "any_column_select": false
+        },
+        {
+            "role": "authenticated",
+            "table": "payment_orders",
+            "table_select": false,
+            "any_column_select": false
+        },
+        {
+            "role": "service_role",
+            "table": "payment_orders",
+            "table_select": true,
+            "any_column_select": true
+        }
+    ],
+    "related_functions": [
+        {
+            "config": [
+                "search_path=pg_catalog, pg_temp"
+            ],
+            "definer": true,
+            "body_md5": "bb106a10325859dbafe247b74f41c2a7",
+            "function": "private.generate_finance_insights(uuid,date,date)",
+            "definition": "CREATE OR REPLACE FUNCTION private.generate_finance_insights(p_business_id uuid, p_period_start date, p_period_end date)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\nDECLARE\n  v_t0        timestamptz := clock_timestamp();\n  v_actor     uuid := auth.uid();\n  v_biz       uuid := p_business_id;\n  v_access    boolean := false;\n  v_ver       text := 'v1';\n  v_th        jsonb := public.finance_insight_thresholds();\n  v_today     date := public.ar_today();\n  v_len       integer;\n  v_cmp_start date;\n  v_cmp_end   date;\n  v_fired     jsonb := '[]'::jsonb;\n  v_skipped   jsonb := '[]'::jsonb;\n  v_keep      text[] := ARRAY[]::text[];\n\n  v_ns_cur numeric; v_ns_prev numeric; v_gp_cur numeric; v_gp_prev numeric;\n  v_cogs_cur numeric; v_cogs_prev numeric;\n  v_cash_cur numeric; v_cash_prev numeric; v_ar_delta numeric;\n  v_liquidity numeric;\nBEGIN\n  IF v_actor IS NULL THEN\n    RETURN jsonb_build_object('ok', false, 'error', 'No autenticado');\n  END IF;\n  IF v_biz IS NULL THEN\n    RETURN jsonb_build_object('ok', false, 'error', 'business_id requerido');\n  END IF;\n  SELECT (EXISTS (SELECT 1 FROM public.businesses WHERE id = v_biz AND owner_user_id = v_actor)\n       OR EXISTS (SELECT 1 FROM public.profiles WHERE business_id = v_biz\n                    AND COALESCE(user_id, id) = v_actor AND COALESCE(is_active, true)))\n    INTO v_access;\n  IF NOT v_access THEN\n    RETURN jsonb_build_object('ok', false, 'error', 'Sin acceso a este negocio');\n  END IF;\n\n  IF p_period_start IS NULL OR p_period_end IS NULL THEN\n    RETURN jsonb_build_object('ok', false, 'error', 'Periodo requerido');\n  END IF;\n  IF p_period_end < p_period_start THEN\n    RETURN jsonb_build_object('ok', false, 'error', 'Periodo invalido');\n  END IF;\n  v_len := (p_period_end - p_period_start) + 1;\n  IF v_len > 366 THEN\n    RETURN jsonb_build_object('ok', false, 'error', 'Periodo demasiado largo (max 366 dias)');\n  END IF;\n  IF p_period_start > v_today THEN\n    RETURN jsonb_build_object('ok', false, 'error', 'Periodo en el futuro');\n  END IF;\n\n  v_cmp_end   := p_period_start - 1;\n  v_cmp_start := v_cmp_end - (v_len - 1);\n\n  PERFORM pg_advisory_xact_lock(\n    hashtext('finance_insights:' || v_biz::text || ':' || p_period_start::text\n             || ':' || p_period_end::text || ':' || v_ver));\n\n  SELECT COALESCE(SUM(net_sales),0), COALESCE(SUM(gross_profit),0), COALESCE(SUM(cogs),0)\n    INTO v_ns_cur, v_gp_cur, v_cogs_cur\n    FROM public.v_finance_pnl\n   WHERE business_id = v_biz AND period_date BETWEEN p_period_start AND p_period_end;\n\n  SELECT COALESCE(SUM(net_sales),0), COALESCE(SUM(gross_profit),0), COALESCE(SUM(cogs),0)\n    INTO v_ns_prev, v_gp_prev, v_cogs_prev\n    FROM public.v_finance_pnl\n   WHERE business_id = v_biz AND period_date BETWEEN v_cmp_start AND v_cmp_end;\n\n  SELECT COALESCE(SUM(net_ars),0) INTO v_cash_cur\n    FROM public.v_finance_cashflow\n   WHERE business_id = v_biz AND cashflow_class = 'operating' AND is_reversal = false\n     AND movement_date_ar BETWEEN p_period_start AND p_period_end;\n\n  SELECT COALESCE(SUM(net_ars),0) INTO v_cash_prev\n    FROM public.v_finance_cashflow\n   WHERE business_id = v_biz AND cashflow_class = 'operating' AND is_reversal = false\n     AND movement_date_ar BETWEEN v_cmp_start AND v_cmp_end;\n\n  SELECT COALESCE(SUM(c.saldo_pendiente),0) INTO v_ar_delta\n    FROM public.comprobantes c\n    JOIN public.v_finance_effective_comprobantes e\n      ON e.id = c.id AND e.is_credit_note = false\n   WHERE c.business_id = v_biz AND e.period_date BETWEEN p_period_start AND p_period_end\n     AND c.saldo_pendiente > 0.01 AND c.customer_id IS NOT NULL;\n\n  SELECT COALESCE(cash_total,0) INTO v_liquidity\n    FROM public.v_finance_position WHERE business_id = v_biz;\n  v_liquidity := COALESCE(v_liquidity, 0);\n\n  -- R1. margin_drop_cost\n  IF v_ns_cur <= 0 OR v_ns_prev <= 0 THEN\n    v_skipped := v_skipped || jsonb_build_object('rule_id','margin_drop_cost','reason','no_sales_in_one_period');\n  ELSE\n    DECLARE\n      m_cur numeric := ROUND(v_gp_cur / NULLIF(v_ns_cur,0) * 100, 2);\n      m_prv numeric := ROUND(v_gp_prev / NULLIF(v_ns_prev,0) * 100, 2);\n      c_cur numeric := ROUND(v_cogs_cur / NULLIF(v_ns_cur,0) * 100, 2);\n      c_prv numeric := ROUND(v_cogs_prev / NULLIF(v_ns_prev,0) * 100, 2);\n    BEGIN\n      IF (m_cur - m_prv) <= -(v_th->'margin_drop_cost'->>'margin_drop_pp')::numeric\n         AND (c_cur - c_prv) >= (v_th->'margin_drop_cost'->>'cogs_rise_pp')::numeric THEN\n        v_fired := v_fired || jsonb_build_object(\n          'rule_id','margin_drop_cost','severity','warning',\n          'title','El margen bajó por aumento de costo',\n          'message','El margen bruto cayó respecto del período anterior y el costo de mercadería subió como proporción de cada venta. No se explica por vender menos.',\n          'impact_ars', ROUND(ABS(m_cur - m_prv) / 100 * v_ns_cur, 2),\n          'evidence', jsonb_build_object(\n            'metric','gross_margin_pct','current_value',m_cur,'comparison_value',m_prv,\n            'delta', ROUND(m_cur - m_prv, 2), 'delta_percent', NULL,\n            'cogs_ratio_current', c_cur, 'cogs_ratio_previous', c_prv,\n            'net_sales_current', v_ns_cur, 'net_sales_previous', v_ns_prev,\n            'threshold', v_th->'margin_drop_cost',\n            'period_start', p_period_start, 'period_end', p_period_end,\n            'comparison_period_start', v_cmp_start, 'comparison_period_end', v_cmp_end,\n            'sample_size', v_len, 'currency','ARS','source','v_finance_pnl',\n            'calculation_version', v_ver),\n          'action', jsonb_build_object('label','Ver cálculo','target_type','drawer','target','calculation','params', jsonb_build_object()));\n      END IF;\n    END;\n  END IF;\n\n  -- R2. cash_down_sales_up\n  IF v_ns_prev <= 0 OR v_cash_prev = 0 THEN\n    v_skipped := v_skipped || jsonb_build_object('rule_id','cash_down_sales_up','reason','no_comparison_base');\n  ELSE\n    DECLARE\n      s_delta numeric := ROUND((v_ns_cur - v_ns_prev) / NULLIF(ABS(v_ns_prev),0) * 100, 2);\n      c_delta numeric := ROUND((v_cash_cur - v_cash_prev) / NULLIF(ABS(v_cash_prev),0) * 100, 2);\n    BEGIN\n      IF s_delta >= (v_th->'cash_down_sales_up'->>'sales_up_pct')::numeric\n         AND c_delta <= (v_th->'cash_down_sales_up'->>'cash_down_pct')::numeric THEN\n        v_fired := v_fired || jsonb_build_object(\n          'rule_id','cash_down_sales_up','severity','warning',\n          'title','La facturación devengada subió, pero los cobros bajaron',\n          'message','La facturación devengada aumentó mientras los cobros operativos disminuyeron. Parte de las ventas del período quedó sin cobrar.',\n          'impact_ars', ROUND(v_ar_delta, 2),\n          'evidence', jsonb_build_object(\n            'metric','accrued_vs_collected',\n            'accrued_revenue', v_ns_cur, 'collected_cash', v_cash_cur,\n            'accounts_receivable_delta', v_ar_delta,\n            'current_value', v_cash_cur, 'comparison_value', v_cash_prev,\n            'delta', ROUND(v_cash_cur - v_cash_prev, 2), 'delta_percent', c_delta,\n            'sales_delta_percent', s_delta,\n            'accrued_revenue_previous', v_ns_prev,\n            'threshold', v_th->'cash_down_sales_up',\n            'period_start', p_period_start, 'period_end', p_period_end,\n            'comparison_period_start', v_cmp_start, 'comparison_period_end', v_cmp_end,\n            'sample_size', v_len, 'currency','ARS',\n            'source','v_finance_pnl + v_finance_cashflow',\n            'calculation_version', v_ver),\n          'action', jsonb_build_object('label','Ver cuentas corrientes','target_type','route','target','/cuentas','params', jsonb_build_object()));\n      END IF;\n    END;\n  END IF;\n\n  -- R3. dead_stock\n  DECLARE\n    v_dead_val numeric := 0; v_tot_val numeric := 0;\n    v_dead_cnt bigint := 0;  v_tot_cnt bigint := 0;\n    v_days int := (v_th->'dead_stock'->>'days')::int;\n  BEGIN\n    WITH universe AS (\n      SELECT i.id, (i.stock_quantity * COALESCE(i.cost_price,0))::numeric AS val\n        FROM public.inventory i\n       WHERE i.business_id = v_biz AND i.is_active = true\n         AND COALESCE(i.tipo,'product') = 'product'\n         AND i.stock_quantity > 0 AND COALESCE(i.cost_price,0) > 0\n         AND NOT EXISTS (SELECT 1 FROM public.inventory v\n                          WHERE v.business_id = i.business_id\n                            AND v.supplier_code = 'VPREF-' || i.id::text)\n    ),\n    last_sale AS (\n      SELECT ci.inventory_id AS iid, MAX(e.period_date) AS d\n        FROM public.comprobante_items ci\n        JOIN public.v_finance_effective_comprobantes e\n          ON e.id = ci.comprobante_id AND e.is_credit_note = false\n       WHERE ci.business_id = v_biz AND ci.inventory_id IS NOT NULL\n       GROUP BY 1\n    ),\n    last_mov AS (\n      SELECT im.inventory_item_id AS iid,\n             MAX((im.created_at AT TIME ZONE 'America/Argentina/Cordoba')::date) AS d\n        FROM public.inventory_movements im\n       WHERE im.business_id = v_biz\n         AND im.movement_type IN ('sale','out','order_usage')\n       GROUP BY 1\n    )\n    SELECT\n      COALESCE(SUM(u.val) FILTER (WHERE GREATEST(COALESCE(ls.d,'-infinity'::date),\n                                                 COALESCE(lm.d,'-infinity'::date))\n                                       < v_today - v_days), 0),\n      COALESCE(SUM(u.val), 0),\n      COUNT(*) FILTER (WHERE GREATEST(COALESCE(ls.d,'-infinity'::date),\n                                      COALESCE(lm.d,'-infinity'::date))\n                            < v_today - v_days),\n      COUNT(*)\n      INTO v_dead_val, v_tot_val, v_dead_cnt, v_tot_cnt\n      FROM universe u\n      LEFT JOIN last_sale ls ON ls.iid = u.id\n      LEFT JOIN last_mov  lm ON lm.iid = u.id;\n\n    IF v_tot_cnt < (v_th->'dead_stock'->>'min_products')::int OR v_tot_val <= 0 THEN\n      v_skipped := v_skipped || jsonb_build_object('rule_id','dead_stock','reason','insufficient_inventory');\n    ELSIF (v_dead_val / NULLIF(v_tot_val,0)) > (v_th->'dead_stock'->>'share')::numeric THEN\n      v_fired := v_fired || jsonb_build_object(\n        'rule_id','dead_stock','severity','warning',\n        'title','Tenés capital inmovilizado',\n        'message','Hay stock sin ventas ni consumo registrados en el plazo observado. Representa una porción significativa de tu inventario valorizado.',\n        'impact_ars', ROUND(v_dead_val, 2),\n        'evidence', jsonb_build_object(\n          'metric','dead_stock_share',\n          'current_value', ROUND(v_dead_val / NULLIF(v_tot_val,0), 4),\n          'comparison_value', NULL, 'delta', NULL, 'delta_percent', NULL,\n          'dead_value', ROUND(v_dead_val,2), 'inventory_at_cost', ROUND(v_tot_val,2),\n          'dead_product_count', v_dead_cnt, 'total_product_count', v_tot_cnt,\n          'days_threshold', v_days,\n          'threshold', v_th->'dead_stock',\n          'period_start', p_period_start, 'period_end', p_period_end,\n          'comparison_period_start', NULL, 'comparison_period_end', NULL,\n          'sample_size', v_tot_cnt, 'currency','ARS',\n          'source','inventory + comprobante_items + inventory_movements',\n          'calculation_version', v_ver),\n        'action', jsonb_build_object('label','Ver inventario','target_type','route','target','/inventory','params', jsonb_build_object()));\n    END IF;\n  END;\n\n  -- R4. withdrawals_vs_profit\n  DECLARE\n    v_win int := (v_th->'withdrawals_vs_profit'->>'window_days')::int;\n    v_w_start date := p_period_end - (v_win - 1);\n    v_res numeric; v_wd numeric;\n  BEGIN\n    SELECT COALESCE(SUM(operating_result),0) INTO v_res FROM public.v_finance_pnl\n     WHERE business_id = v_biz AND period_date BETWEEN v_w_start AND p_period_end;\n    SELECT COALESCE(SUM(amount),0) INTO v_wd FROM public.v_owner_flows\n     WHERE business_id = v_biz AND flow_type = 'withdrawal' AND status = 'completed'\n       AND date BETWEEN v_w_start AND p_period_end;\n\n    IF v_res <= 0 THEN\n      v_skipped := v_skipped || jsonb_build_object('rule_id','withdrawals_vs_profit','reason','non_positive_result');\n    ELSIF (v_wd / NULLIF(v_res,0)) > (v_th->'withdrawals_vs_profit'->>'share')::numeric THEN\n      v_fired := v_fired || jsonb_build_object(\n        'rule_id','withdrawals_vs_profit','severity','warning',\n        'title','Los retiros superaron la ganancia',\n        'message','Los retiros del dueño representan una proporción elevada del resultado operativo de la ventana observada.',\n        'impact_ars', ROUND(v_wd, 2),\n        'evidence', jsonb_build_object(\n          'metric','withdrawals_over_result',\n          'current_value', ROUND(v_wd / NULLIF(v_res,0), 4),\n          'comparison_value', NULL, 'delta', NULL, 'delta_percent', NULL,\n          'withdrawals_total', ROUND(v_wd,2), 'operating_result', ROUND(v_res,2),\n          'window_days', v_win,\n          'threshold', v_th->'withdrawals_vs_profit',\n          'period_start', v_w_start, 'period_end', p_period_end,\n          'comparison_period_start', NULL, 'comparison_period_end', NULL,\n          'sample_size', v_win, 'currency','ARS',\n          'source','v_owner_flows + v_finance_pnl',\n          'calculation_version', v_ver),\n        'action', jsonb_build_object('label','Ver cálculo','target_type','drawer','target','calculation','params', jsonb_build_object()));\n    END IF;\n  END;\n\n  -- R5. fixed_coverage\n  DECLARE\n    v_fixed numeric := 0; v_rec_n bigint := 0; v_unconv bigint := 0;\n    v_cov numeric;\n  BEGIN\n    SELECT COUNT(*),\n           COALESCE(SUM(CASE\n             WHEN COALESCE(re.currency,'ARS') = 'ARS' THEN re.amount\n             ELSE re.amount * COALESCE((SELECT er.rate FROM public.exchange_rates er\n                                         WHERE er.business_id = v_biz\n                                           AND er.base_currency = 'USD'\n                                           AND er.target_currency = 'ARS'\n                                         ORDER BY er.updated_at DESC LIMIT 1), 0)\n           END), 0),\n           COUNT(*) FILTER (WHERE COALESCE(re.currency,'ARS') <> 'ARS'\n             AND NOT EXISTS (SELECT 1 FROM public.exchange_rates er\n                              WHERE er.business_id = v_biz AND er.base_currency='USD'\n                                AND er.target_currency='ARS'))\n      INTO v_rec_n, v_fixed, v_unconv\n      FROM public.recurring_expenses re\n     WHERE re.business_id = v_biz AND re.is_active = true;\n\n    IF v_rec_n = 0 THEN\n      v_skipped := v_skipped || jsonb_build_object('rule_id','fixed_coverage','reason','no_recurring_expenses');\n    ELSIF v_unconv > 0 OR v_fixed <= 0 THEN\n      v_skipped := v_skipped || jsonb_build_object('rule_id','fixed_coverage','reason','missing_exchange_rate');\n    ELSE\n      v_cov := ROUND(v_liquidity / NULLIF(v_fixed,0), 2);\n      IF v_cov < (v_th->'fixed_coverage'->>'months_warning')::numeric THEN\n        v_fired := v_fired || jsonb_build_object(\n          'rule_id','fixed_coverage',\n          'severity', CASE WHEN v_cov < (v_th->'fixed_coverage'->>'months_critical')::numeric\n                           THEN 'critical' ELSE 'warning' END,\n          'title','Tu caja cubre poco de los gastos recurrentes',\n          'message','Tu caja cubre menos de un mes de los gastos recurrentes que cargaste.',\n          'impact_ars', ROUND(v_fixed, 2),\n          'evidence', jsonb_build_object(\n            'metric','fixed_coverage_months','current_value', v_cov,\n            'comparison_value', NULL, 'delta', NULL, 'delta_percent', NULL,\n            'cash_total', ROUND(v_liquidity,2), 'fixed_monthly', ROUND(v_fixed,2),\n            'recurring_count', v_rec_n,\n            'threshold', v_th->'fixed_coverage',\n            'period_start', p_period_start, 'period_end', p_period_end,\n            'comparison_period_start', NULL, 'comparison_period_end', NULL,\n            'sample_size', v_rec_n, 'currency','ARS',\n            'source','recurring_expenses + v_finance_position',\n            'calculation_version', v_ver),\n          'action', jsonb_build_object('label','Ver gastos','target_type','route','target','/expenses','params', jsonb_build_object()));\n      END IF;\n    END IF;\n\n    -- R6. breakeven_day\n    DECLARE\n      v_ms date := date_trunc('month', p_period_end)::date;\n      v_obs int := (p_period_end - date_trunc('month', p_period_end)::date) + 1;\n      v_cm numeric; v_be_sales numeric; v_be_day date; v_daily numeric;\n      v_mtd_sales numeric; v_mtd_gp numeric;\n    BEGIN\n      SELECT COALESCE(SUM(net_sales),0), COALESCE(SUM(gross_profit),0)\n        INTO v_mtd_sales, v_mtd_gp\n        FROM public.v_finance_pnl\n       WHERE business_id = v_biz AND period_date BETWEEN v_ms AND p_period_end;\n\n      v_cm := CASE WHEN v_mtd_sales > 0 THEN v_mtd_gp / v_mtd_sales ELSE NULL END;\n\n      IF v_rec_n = 0 OR v_fixed <= 0 THEN\n        v_skipped := v_skipped || jsonb_build_object('rule_id','breakeven_day','reason','no_recurring_expenses');\n      ELSIF v_obs < (v_th->'breakeven_day'->>'min_days_observed')::int THEN\n        v_skipped := v_skipped || jsonb_build_object('rule_id','breakeven_day','reason','insufficient_days_observed');\n      ELSIF v_cm IS NULL OR v_cm <= 0 THEN\n        v_skipped := v_skipped || jsonb_build_object('rule_id','breakeven_day','reason','non_positive_contribution_margin');\n      ELSE\n        v_be_sales := v_fixed / NULLIF(v_cm,0);\n        SELECT MIN(d) INTO v_be_day FROM (\n          SELECT period_date AS d,\n                 SUM(net_sales) OVER (ORDER BY period_date\n                                      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum\n            FROM public.v_finance_pnl\n           WHERE business_id = v_biz AND period_date BETWEEN v_ms AND p_period_end\n        ) s WHERE s.cum >= v_be_sales;\n\n        v_daily := v_mtd_sales / NULLIF(v_obs,0);\n        IF v_be_day IS NULL THEN\n          IF COALESCE(v_daily,0) <= 0 THEN\n            v_be_day := NULL;\n          ELSE\n            v_be_day := v_ms + LEAST(CEIL(v_be_sales / v_daily)::int - 1,\n                                     (v_th->'breakeven_day'->>'max_projection_days')::int);\n          END IF;\n        END IF;\n\n        IF v_be_day IS NULL\n           OR (v_be_day - v_ms) > (v_th->'breakeven_day'->>'max_projection_days')::int THEN\n          v_skipped := v_skipped || jsonb_build_object('rule_id','breakeven_day','reason','projection_out_of_range');\n        ELSE\n          v_fired := v_fired || jsonb_build_object(\n            'rule_id','breakeven_day','severity','info',\n            'title','Punto de equilibrio (estimación)',\n            'message','Estimación: según el ritmo de ventas observado, alcanzarías a cubrir los gastos recurrentes cargados dentro del mes en curso.',\n            'impact_ars', 0,\n            'evidence', jsonb_build_object(\n              'metric','breakeven_day','current_value', v_be_day,\n              'comparison_value', NULL, 'delta', NULL, 'delta_percent', NULL,\n              'is_estimate', true,\n              'days_observed', v_obs, 'fixed_monthly', ROUND(v_fixed,2),\n              'contribution_margin_pct', ROUND(v_cm * 100, 2),\n              'breakeven_sales', ROUND(v_be_sales,2),\n              'daily_avg_sales', ROUND(COALESCE(v_daily,0),2),\n              'month_to_date_sales', ROUND(v_mtd_sales,2),\n              'already_reached', (v_be_day <= p_period_end),\n              'threshold', v_th->'breakeven_day',\n              'period_start', v_ms, 'period_end', p_period_end,\n              'comparison_period_start', NULL, 'comparison_period_end', NULL,\n              'sample_size', v_obs, 'currency','ARS',\n              'source','v_finance_pnl + recurring_expenses',\n              'calculation_version', v_ver),\n            'action', jsonb_build_object('label','Ver cálculo','target_type','drawer','target','calculation','params', jsonb_build_object()));\n        END IF;\n      END IF;\n    END;\n  END;\n\n  -- R7. supplier_crunch\n  DECLARE\n    v_overdue numeric := 0; v_due14 numeric := 0; v_undated numeric := 0;\n    v_dated_cnt bigint := 0; v_purch_cnt bigint := 0;\n    v_near numeric; v_cov numeric; v_min numeric := (v_th->'supplier_crunch'->>'min_material_ars')::numeric;\n  BEGIN\n    SELECT\n      COALESCE(SUM(pending_amount) FILTER (WHERE due_status = 'overdue'), 0),\n      COALESCE(SUM(pending_amount) FILTER (WHERE due_status = 'due_soon'), 0),\n      COALESCE(SUM(pending_amount) FILTER (WHERE due_status = 'undated'), 0),\n      COUNT(*) FILTER (WHERE due_date IS NOT NULL),\n      COUNT(*)\n      INTO v_overdue, v_due14, v_undated, v_dated_cnt, v_purch_cnt\n      FROM public.v_finance_payables_due WHERE business_id = v_biz;\n\n    v_near := v_overdue + v_due14;\n    v_cov  := CASE WHEN v_near > 0 THEN ROUND(v_liquidity / v_near, 4) ELSE NULL END;\n\n    IF v_dated_cnt = 0 THEN\n      v_skipped := v_skipped || jsonb_build_object('rule_id','supplier_crunch','reason','insufficient_due_dates');\n    ELSIF v_near < v_min THEN\n      v_skipped := v_skipped || jsonb_build_object('rule_id','supplier_crunch','reason','below_materiality');\n    ELSIF v_near > v_liquidity OR v_cov < (v_th->'supplier_crunch'->>'coverage_warning')::numeric THEN\n      v_fired := v_fired || jsonb_build_object(\n        'rule_id','supplier_crunch',\n        'severity', CASE WHEN v_near > v_liquidity THEN 'critical' ELSE 'warning' END,\n        'title','Compromisos con proveedores próximos',\n        'message','Hay compromisos con proveedores vencidos o próximos a vencer en el horizonte definido que superan el nivel de cobertura esperado. La deuda sin fecha acordada no se cuenta como compromiso próximo.',\n        'impact_ars', ROUND(v_near, 2),\n        'evidence', jsonb_build_object(\n          'metric','near_term_commitments_coverage',\n          'current_value', v_cov, 'comparison_value', NULL, 'delta', NULL, 'delta_percent', NULL,\n          'overdue_amount', ROUND(v_overdue,2),\n          'due_next_14_days', ROUND(v_due14,2),\n          'total_near_term_commitments', ROUND(v_near,2),\n          'available_liquidity', ROUND(v_liquidity,2),\n          'coverage_ratio', v_cov,\n          'purchases_count', v_purch_cnt,\n          'dated_purchase_count', v_dated_cnt,\n          'dated_pending_amount', ROUND(v_overdue + v_due14, 2),\n          'undated_pending_amount', ROUND(v_undated,2),\n          'horizon_days', (v_th->'supplier_crunch'->>'horizon_days')::int,\n          'threshold', v_th->'supplier_crunch',\n          'period_start', v_today, 'period_end', v_today + (v_th->'supplier_crunch'->>'horizon_days')::int,\n          'comparison_period_start', NULL, 'comparison_period_end', NULL,\n          'sample_size', v_purch_cnt, 'currency','ARS',\n          'source','v_finance_payables_due',\n          'calculation_version', v_ver),\n        'action', jsonb_build_object('label','Ver proveedores','target_type','route','target','/suppliers','params', jsonb_build_object()));\n    END IF;\n  END;\n\n  -- R8. fx_stale_prices\n  DECLARE\n    v_rate numeric; v_rate_at timestamptz;\n    v_stale bigint := 0; v_usd_tot bigint := 0; v_avg_used numeric;\n  BEGIN\n    SELECT er.rate, er.updated_at INTO v_rate, v_rate_at\n      FROM public.exchange_rates er\n     WHERE er.business_id = v_biz AND er.base_currency = 'USD' AND er.target_currency = 'ARS'\n     ORDER BY er.updated_at DESC LIMIT 1;\n\n    IF v_rate IS NULL OR v_rate <= 0 THEN\n      v_skipped := v_skipped || jsonb_build_object('rule_id','fx_stale_prices','reason','no_reference_rate');\n    ELSIF v_rate_at < now() - ((v_th->'fx_stale_prices'->>'max_rate_age_days')::int || ' days')::interval THEN\n      v_skipped := v_skipped || jsonb_build_object('rule_id','fx_stale_prices','reason','stale_reference_rate');\n    ELSE\n      SELECT COUNT(*),\n             COUNT(*) FILTER (WHERE i.exchange_rate_used IS NOT NULL\n               AND i.exchange_rate_used < v_rate * (1 - (v_th->'fx_stale_prices'->>'rate_diff_pct')::numeric / 100)),\n             AVG(i.exchange_rate_used)\n        INTO v_usd_tot, v_stale, v_avg_used\n        FROM public.inventory i\n       WHERE i.business_id = v_biz AND i.is_active = true\n         AND i.base_currency = 'USD' AND COALESCE(i.base_price,0) > 0;\n\n      IF v_usd_tot = 0 THEN\n        v_skipped := v_skipped || jsonb_build_object('rule_id','fx_stale_prices','reason','no_usd_products');\n      ELSIF v_stale >= 1\n            AND (v_stale::numeric / NULLIF(v_usd_tot,0)) >= (v_th->'fx_stale_prices'->>'share')::numeric THEN\n        v_fired := v_fired || jsonb_build_object(\n          'rule_id','fx_stale_prices','severity','warning',\n          'title','Precios en dólares desactualizados',\n          'message','Hay productos en dólares con precios calculados a una cotización anterior a la que tenés cargada hoy.',\n          'impact_ars', 0,\n          'evidence', jsonb_build_object(\n            'metric','stale_usd_price_share',\n            'current_value', ROUND(v_stale::numeric / NULLIF(v_usd_tot,0), 4),\n            'comparison_value', NULL, 'delta', NULL,\n            'delta_percent', ROUND((v_rate - COALESCE(v_avg_used,0)) / NULLIF(v_rate,0) * 100, 2),\n            'stale_count', v_stale, 'total_usd_products', v_usd_tot,\n            'avg_rate_used', ROUND(COALESCE(v_avg_used,0),4),\n            'current_rate', v_rate, 'rate_updated_at', v_rate_at,\n            'threshold', v_th->'fx_stale_prices',\n            'period_start', p_period_start, 'period_end', p_period_end,\n            'comparison_period_start', NULL, 'comparison_period_end', NULL,\n            'sample_size', v_usd_tot, 'currency','ARS',\n            'source','inventory + exchange_rates',\n            'calculation_version', v_ver),\n          'action', jsonb_build_object('label','Ver cotización','target_type','route','target','/currency-settings','params', jsonb_build_object()));\n      END IF;\n    END IF;\n  END;\n\n  -- R9. data_quality\n  DECLARE\n    v_hc jsonb;\n    v_crit bigint; v_risk numeric; v_warn bigint; v_low bigint;\n  BEGIN\n    v_hc := public.finance_health_check_v2(v_biz, false);\n\n    IF COALESCE(v_hc->>'ok','false') <> 'true' THEN\n      v_skipped := v_skipped || jsonb_build_object('rule_id','data_quality','reason','health_check_unavailable');\n    ELSE\n      v_crit := COALESCE((v_hc->>'critical_count')::bigint, 0);\n      v_risk := COALESCE((v_hc->>'amount_at_risk')::numeric, 0);\n      v_warn := COALESCE((v_hc->>'warning_count')::bigint, 0);\n      v_low  := COALESCE((v_hc->>'low_count')::bigint, 0);\n\n      IF v_crit < (v_th->'data_quality'->>'critical_count_min')::bigint THEN\n        v_skipped := v_skipped || jsonb_build_object('rule_id','data_quality','reason','no_critical_issues');\n      ELSE\n        v_fired := v_fired || jsonb_build_object(\n          'rule_id','data_quality',\n          'severity', CASE WHEN v_risk > 0 THEN 'critical' ELSE 'warning' END,\n          'title','Hay inconsistencias que pueden distorsionar estos números',\n          'message','El chequeo de salud financiera encontró inconsistencias críticas. Mientras existan, los demás números de este panel pueden estar distorsionados.',\n          'impact_ars', ROUND(v_risk, 2),\n          'evidence', jsonb_build_object(\n            'metric','health_critical_count','current_value', v_crit,\n            'comparison_value', NULL, 'delta', NULL, 'delta_percent', NULL,\n            'critical_count', v_crit, 'amount_at_risk', ROUND(v_risk,2),\n            'warning_count', v_warn, 'low_count', v_low,\n            'checks_total', COALESCE((v_hc->>'checks_total')::bigint, 0),\n            'pass_count', COALESCE((v_hc->>'pass_count')::bigint, 0),\n            'overall_status', v_hc->>'overall_status',\n            'health_version', v_hc->>'version',\n            'threshold', v_th->'data_quality',\n            'period_start', p_period_start, 'period_end', p_period_end,\n            'comparison_period_start', NULL, 'comparison_period_end', NULL,\n            'sample_size', COALESCE((v_hc->>'checks_total')::bigint, 0),\n            'currency','ARS','source','finance_health_check_v2',\n            'calculation_version', v_ver),\n          'action', jsonb_build_object('label','Ver auditoría','target_type','route','target','/finance/health','params', jsonb_build_object()));\n      END IF;\n    END IF;\n  END;\n\n  -- R10. cc_aging\n  DECLARE\n    v_recv numeric := 0; v_old numeric := 0; v_b3160 numeric := 0; v_b60 numeric := 0;\n    v_top_n bigint := 0; v_top_share numeric; v_days int := (v_th->'cc_aging'->>'days')::int;\n  BEGIN\n    SELECT COALESCE(SUM(amount),0),\n           COALESCE(SUM(amount) FILTER (WHERE bucket IN ('31-60','60+')),0),\n           COALESCE(SUM(amount) FILTER (WHERE bucket = '31-60'),0),\n           COALESCE(SUM(amount) FILTER (WHERE bucket = '60+'),0)\n      INTO v_recv, v_old, v_b3160, v_b60\n      FROM public.v_finance_receivables_aging WHERE business_id = v_biz;\n\n    IF v_recv <= 0 THEN\n      v_skipped := v_skipped || jsonb_build_object('rule_id','cc_aging','reason','no_receivables');\n    ELSIF v_old > 0 AND (v_old / NULLIF(v_recv,0)) >= (v_th->'cc_aging'->>'share')::numeric THEN\n      WITH per_customer AS (\n        SELECT c.customer_id, SUM(c.saldo_pendiente) AS amt\n          FROM public.comprobantes c\n          JOIN public.v_finance_effective_comprobantes e\n            ON e.id = c.id AND e.is_credit_note = false\n         WHERE c.business_id = v_biz AND c.saldo_pendiente > 0.01\n           AND c.customer_id IS NOT NULL\n           AND (v_today - e.period_date) > v_days\n         GROUP BY 1\n      ), ranked AS (\n        SELECT SUM(amt) OVER (ORDER BY amt DESC\n                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum,\n               SUM(amt) OVER () AS tot,\n               ROW_NUMBER() OVER (ORDER BY amt DESC) AS rn\n          FROM per_customer\n      )\n      SELECT COALESCE(MIN(rn), 0),\n             COALESCE(ROUND(MIN(cum) / NULLIF(MIN(tot), 0), 4), 0)\n        INTO v_top_n, v_top_share\n        FROM ranked\n       WHERE cum >= tot * (v_th->'cc_aging'->>'concentration_share')::numeric;\n\n      v_fired := v_fired || jsonb_build_object(\n        'rule_id','cc_aging','severity','warning',\n        'title','Parte de tu cuenta corriente tiene mucha antigüedad',\n        'message','Parte de los saldos de cuenta corriente supera el umbral de antigüedad definido sobre el total que te deben.',\n        'impact_ars', ROUND(v_old, 2),\n        'evidence', jsonb_build_object(\n          'metric','receivables_aged_share',\n          'current_value', ROUND(v_old / NULLIF(v_recv,0), 4),\n          'comparison_value', NULL, 'delta', NULL, 'delta_percent', NULL,\n          'overdue_30plus', ROUND(v_old,2), 'receivables_total', ROUND(v_recv,2),\n          'bucket_31_60', ROUND(v_b3160,2), 'bucket_60plus', ROUND(v_b60,2),\n          'top_debtor_count', v_top_n, 'top_debtor_share', v_top_share,\n          'days_threshold', v_days,\n          'threshold', v_th->'cc_aging',\n          'period_start', p_period_start, 'period_end', p_period_end,\n          'comparison_period_start', NULL, 'comparison_period_end', NULL,\n          'sample_size', v_top_n, 'currency','ARS',\n          'source','v_finance_receivables_aging + comprobantes',\n          'calculation_version', v_ver),\n        'action', jsonb_build_object('label','Ver cuentas corrientes','target_type','route','target','/cuentas','params', jsonb_build_object()));\n    ELSE\n      v_skipped := v_skipped || jsonb_build_object('rule_id','cc_aging','reason','below_threshold');\n    END IF;\n  END;\n\n  -- PERSISTENCIA - identica a 216\n  INSERT INTO public.finance_insights AS fi (\n    business_id, rule_id, rule_version, period_start, period_end,\n    severity, title, message, evidence, action, status, impact_ars, fingerprint,\n    generated_at, resolved_at, updated_at)\n  SELECT\n    v_biz, r->>'rule_id', v_ver, p_period_start, p_period_end,\n    r->>'severity', r->>'title', r->>'message', r->'evidence', r->'action',\n    'active', COALESCE((r->>'impact_ars')::numeric, 0),\n    md5(v_biz::text || '|' || (r->>'rule_id') || '|' || v_ver || '|'\n        || p_period_start::text || '|' || p_period_end::text),\n    now(), NULL, now()\n  FROM jsonb_array_elements(v_fired) r\n  ON CONFLICT (fingerprint) DO UPDATE SET\n    severity     = EXCLUDED.severity,\n    title        = EXCLUDED.title,\n    message      = EXCLUDED.message,\n    evidence     = EXCLUDED.evidence,\n    action       = EXCLUDED.action,\n    impact_ars   = EXCLUDED.impact_ars,\n    status       = 'active',\n    resolved_at  = NULL,\n    generated_at = now(),\n    updated_at   = now();\n\n  SELECT COALESCE(array_agg(r->>'rule_id'), ARRAY[]::text[]) INTO v_keep\n    FROM jsonb_array_elements(v_fired) r;\n\n  UPDATE public.finance_insights\n     SET status = 'resolved', resolved_at = now(), updated_at = now()\n   WHERE business_id = v_biz AND rule_version = v_ver\n     AND period_start = p_period_start AND period_end = p_period_end\n     AND status = 'active' AND NOT (rule_id = ANY (v_keep));\n\n  RETURN jsonb_build_object(\n    'ok', true,\n    'business_id', v_biz,\n    'period_start', p_period_start,\n    'period_end', p_period_end,\n    'comparison_period_start', v_cmp_start,\n    'comparison_period_end', v_cmp_end,\n    'rule_version', v_ver,\n    'generated_at', now(),\n    'fired_count', jsonb_array_length(v_fired),\n    'fired', (SELECT COALESCE(jsonb_agg(r->>'rule_id'), '[]'::jsonb) FROM jsonb_array_elements(v_fired) r),\n    'skipped', v_skipped,\n    'thresholds', v_th,\n    'duration_ms', round(EXTRACT(epoch FROM (clock_timestamp() - v_t0)) * 1000)::int\n  );\n\nEXCEPTION\n  WHEN OTHERS THEN\n    RAISE WARNING 'generate_finance_insights fallo para business % : % (%)', v_biz, SQLERRM, SQLSTATE;\n    RETURN jsonb_build_object('ok', false, 'error', 'No se pudo generar el análisis');\nEND\n$function$\n",
+            "anon_execute": false,
+            "auth_execute": false
+        },
+        {
+            "config": [
+                "search_path=pg_catalog, pg_temp"
+            ],
+            "definer": true,
+            "body_md5": "e1dd7adacfee0e4a1f85996268d7045f",
+            "function": "generate_finance_insights(uuid,date,date)",
+            "definition": "CREATE OR REPLACE FUNCTION public.generate_finance_insights(p_business_id uuid, p_period_start date, p_period_end date)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n      BEGIN\n        PERFORM private.require_action_authority(p_business_id, 'finance', NULL, 'advancedFinance');\n        RETURN private.generate_finance_insights(p_business_id,p_period_start,p_period_end);\n      END;\n      $function$\n",
+            "anon_execute": false,
+            "auth_execute": true
+        },
+        {
+            "config": [
+                "search_path=pg_catalog, pg_temp"
+            ],
+            "definer": true,
+            "body_md5": "57938c5bdb5c18824b61d7d4ed684177",
+            "function": "current_user_can_in_business(uuid,text)",
+            "definition": "CREATE OR REPLACE FUNCTION public.current_user_can_in_business(p_business_id uuid, p_key text)\n RETURNS boolean\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\nDECLARE\n  v_uid uuid; v_role text; v_perms jsonb;\nBEGIN\n  v_uid := auth.uid();\n  IF v_uid IS NULL OR p_business_id IS NULL OR p_key IS NULL THEN RETURN false; END IF;\n\n  IF EXISTS (\n    SELECT 1 FROM public.businesses\n     WHERE id = p_business_id AND owner_user_id = v_uid\n  ) THEN\n    RETURN private.capability_resolve('owner', NULL::jsonb, p_key);\n  END IF;\n\n  SELECT p.role, p.permissions INTO v_role, v_perms\n    FROM public.profiles p\n   WHERE p.business_id = p_business_id\n     AND COALESCE(p.user_id, p.id) = v_uid\n     AND COALESCE(p.is_active, true)\n   ORDER BY COALESCE(p.updated_at, p.created_at, now()) DESC\n   LIMIT 1;\n\n  RETURN private.capability_resolve(v_role, v_perms, p_key);\nEND;\n$function$\n",
+            "anon_execute": false,
+            "auth_execute": true
+        }
+    ]
+}

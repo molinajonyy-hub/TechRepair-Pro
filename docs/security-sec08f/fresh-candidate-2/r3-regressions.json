@@ -13,6 +13,16 @@
       "PASS",
       "PASS",
       "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
       "PASS"
     ],
     "tests/sql/sec08a_phase_c_payment_visibility.test.sql": [
@@ -25,9 +35,6 @@
       "PASS"
     ],
     "tests/sql/sec08d_finance_insights_visibility.test.sql": [
-      "PASS"
-    ],
-    "tests/sql/sec08e_auxiliary_financial_reads.test.sql": [
       "PASS"
     ],
     "supabase/tests/p0a1u2_allocation_ui_contract_test.sql": [
@@ -50,7 +57,17 @@
     "tests/sql/sec08a_phase_b_pivots.test.sql": [
       "PASS",
       "PASS",
-      "NOTICE:  PASS: fixture: recalculate_order_total define estimated_total/total_cost como suma de las líneas\nNOTICE:  PASS: multi es admin en A: SÍ ve importes de A\nNOTICE:  PASS: multi es tech en B: NO ve importes de B (la autoridad de A no cruza)\nNOTICE:  PASS: current_user_can (ciega al tenant) responde por el perfil de A, sin saber de qué negocio se habla\nNOTICE:  PASS: override true en el perfil de B habilita en B\nNOTICE:  PASS: el override de B no altera la respuesta de A\nNOTICE:  PASS: override false en el perfil de A deshabilita en A\nNOTICE:  PASS: perfil inactivo en B: fail-closed\nNOTICE:  PASS: negocio inexistente: fail-closed\nNOTICE:  PASS: business_id nulo: fail-closed\nNOTICE:  PASS: clave desconocida: false incluso para el owner\nNOTICE:  PASS: el owner del negocio ve los importes de su negocio\nNOTICE:  PASS: personal_finance sigue siendo false para todos\nNOTICE:  PASS: sin sesión: fail-closed\nNOTICE:  PASS: paridad con un solo perfil para la capacidad orders\nNOTICE:  PASS: paridad con un solo perfil para la capacidad orders_create\nNOTICE:  PASS: paridad con un solo perfil para la capacidad orders_view_financials\nNOTICE:  PASS: paridad con un solo perfil para la capacidad device_access_secret\nNOTICE:  PASS: paridad con un solo perfil para la capacidad inventory\nNOTICE:  PASS: paridad con un solo perfil para la capacidad inventory_view_costs\nNOTICE:  PASS: paridad con un solo perfil para la capacidad customers\nNOTICE:  PASS: paridad con un solo perfil para la capacidad finance\nNOTICE:  PASS: paridad con un solo perfil para la capacidad comprobantes\nNOTICE:  PASS: paridad con un solo perfil para la capacidad reports\nNOTICE:  PASS: paridad con un solo perfil para la capacidad settings\nNOTICE:  PASS: paridad con un solo perfil para la capacidad users\nNOTICE:  PASS: paridad con un solo perfil para la capacidad wholesale\nNOTICE:  PASS: paridad con un solo perfil para la capacidad subscription\nNOTICE:  PASS: paridad con un solo perfil para la capacidad personal_finance\nNOTICE:  PASS: order_items.precio_unitario denegado incluso para un admin\nNOTICE:  PASS: order_items.costo_unitario denegado\nNOTICE:  PASS: order_parts.internal_cost denegado\nNOTICE:  PASS: order_parts.sale_price denegado\nNOTICE:  PASS: order_parts.margin_amount denegado\nNOTICE:  PASS: order_items.cantidad sigue legible (dato operativo)\nNOTICE:  PASS: order_items.descripcion sigue legible\nERROR:  FAIL: order_parts.name sigue legible\nCONTEXT:  PL/pgSQL function pg_temp_N.assert(boolean,text) line 3 at RAISE\nSQL statement \"SELECT pg_temp.assert(v = 'parte', 'order_parts.name sigue legible')\"\nPL/pgSQL function inline_code_block line 23 at PERFORM\n",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
+      "PASS",
       "PASS",
       "PASS",
       "PASS",
@@ -69,9 +86,6 @@
       "PASS"
     ],
     "tests/sql/sec08d_finance_insights_visibility.test.sql": [
-      "PASS"
-    ],
-    "tests/sql/sec08e_auxiliary_financial_reads.test.sql": [
       "PASS"
     ],
     "supabase/tests/p0a1u2_allocation_ui_contract_test.sql": [
