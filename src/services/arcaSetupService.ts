@@ -14,6 +14,9 @@ import { supabase } from '../lib/supabase'
  * (`newArcaSetupIdempotencyKey()`). Un reintento de red reusa la MISMA clave. Después de
  * cancelar, la clave queda consumida: hay que generar una nueva.
  *
+ * Esperas: `retryAfterSeconds` sólo se muestra. Después de cualquier falla de verify, la pantalla se
+ * vuelve a derivar de Phase 1 (`setup.verification_hold`), que es la autoridad de la espera.
+ *
  * Contrato de UI: docs/arca-selfservice-phase2a/README.md (sección W).
  */
 
@@ -28,7 +31,7 @@ export interface ArcaSetupFiscalData {
 }
 
 export type ArcaSetupResult =
-  | { ok: true; state: string; csr?: { pem: string; filename: string }; expiresAt?: string | null; connection?: 'connected' | 'pending_verification' | null }
+  | { ok: true; state: string; csr?: { pem: string; filename: string }; expiresAt?: string | null; connection?: 'connected' | null; remoteTicketPossible?: boolean }
   | { ok: false; state: string; retryAfterSeconds?: number }
 
 /** Estados que el backend puede devolver; cualquier otro se trata como error genérico. */
@@ -42,19 +45,23 @@ export const ARCA_SETUP_STATES = [
   // flujo
   'ARCA_ALREADY_CONFIGURED', 'SETUP_IN_PROGRESS', 'NO_SETUP_IN_PROGRESS', 'IDEMPOTENCY_CONFLICT', 'IDEMPOTENCY_KEY_CONSUMED',
   'CERTIFICATE_REQUIRED', 'CERTIFICATE_LOCKED_VERIFIED', 'VERIFICATION_IN_PROGRESS', 'CERTIFICATE_CHANGED', 'NOT_VERIFIED',
+  // esperas decididas por la base (llevan retryAfterSeconds)
+  'WSAA_RESULT_UNKNOWN', 'VERIFICATION_EXPIRED', 'VERIFICATION_COOLDOWN',
   // certificado
   'KEY_MATERIAL_NOT_ACCEPTED', 'CERTIFICATE_INVALID', 'CERTIFICATE_KEY_MISMATCH', 'CERTIFICATE_CUIT_MISMATCH',
   'CERTIFICATE_ALIAS_MISMATCH', 'CERTIFICATE_SUBJECT_MISMATCH', 'CERTIFICATE_EXPIRED', 'CERTIFICATE_NOT_YET_VALID',
   'CERTIFICATE_ISSUER_UNEXPECTED', 'TOO_LARGE',
   // verificación ARCA
   'WSAA_TICKET_ALREADY_ISSUED', 'WSAA_SERVICE_NOT_AUTHORIZED', 'WSAA_CERTIFICATE_REJECTED', 'WSAA_REJECTED', 'WSAA_UNAVAILABLE',
-  'SIGNING_FAILED', 'VERIFICATION_RECORD_FAILED', 'ACTIVATION_PENDING', 'ACTIVATION_FAILED', 'FISCAL_IDENTITY_MISMATCH',
+  'SIGNING_FAILED', 'ACTIVATION_PENDING', 'ACTIVATION_FAILED', 'FISCAL_IDENTITY_MISMATCH',
   // borde
-  'FORBIDDEN', 'UNAUTHENTICATED', 'ARCA_FEATURE_REQUIRED', 'AUTHORIZATION_UNAVAILABLE', 'SETUP_UNAVAILABLE', 'BAD_REQUEST',
+  'FORBIDDEN', 'UNAUTHENTICATED', 'UNAUTHORIZED', 'KEY_GENERATION_FAILED', 'ARCA_FEATURE_REQUIRED', 'AUTHORIZATION_UNAVAILABLE', 'SETUP_UNAVAILABLE', 'BAD_REQUEST',
   'UNEXPECTED_FIELD', 'UNKNOWN_ACTION',
 ] as const
 
 const KNOWN = new Set<string>(ARCA_SETUP_STATES)
+/** Cota de presentación; la autoridad es la base. */
+const MAX_RETRY_AFTER_SECONDS = 90_000
 
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -65,7 +72,8 @@ export function parseArcaSetupResponse(raw: unknown): ArcaSetupResult {
   const code = typeof raw.state === 'string' ? raw.state : typeof raw.error === 'string' ? raw.error : ''
   const state = KNOWN.has(code) ? code : 'SETUP_UNAVAILABLE'
   if (raw.ok !== true || !KNOWN.has(code)) {
-    const retry = typeof raw.retry_after_seconds === 'number' && Number.isInteger(raw.retry_after_seconds) ? raw.retry_after_seconds : undefined
+    const retry = typeof raw.retry_after_seconds === 'number' && Number.isInteger(raw.retry_after_seconds)
+      && raw.retry_after_seconds >= 1 && raw.retry_after_seconds <= MAX_RETRY_AFTER_SECONDS ? raw.retry_after_seconds : undefined
     return retry === undefined ? { ok: false, state } : { ok: false, state, retryAfterSeconds: retry }
   }
   const result: Extract<ArcaSetupResult, { ok: true }> = { ok: true, state }
@@ -74,7 +82,8 @@ export function parseArcaSetupResponse(raw: unknown): ArcaSetupResult {
     result.csr = { pem: raw.csr.pem, filename: raw.csr.filename }
   }
   if (typeof raw.expires_at === 'string' || raw.expires_at === null) result.expiresAt = raw.expires_at as string | null
-  if (raw.connection === 'connected' || raw.connection === 'pending_verification') result.connection = raw.connection
+  if (raw.connection === 'connected') result.connection = raw.connection
+  if (typeof raw.remote_ticket_possible === 'boolean') result.remoteTicketPossible = raw.remote_ticket_possible
   return result
 }
 
@@ -111,6 +120,9 @@ export const arcaSetupService = {
   /** Verifica con ARCA (sin emitir nada) y, si funciona, activa. Reintentable con la misma clave. */
   verifyAndActivate: (idempotencyKey: string) => invoke({ action: 'verify', idempotency_key: idempotencyKey }),
 
-  /** Abandona la configuración en curso. Idempotente. */
+  /**
+   * Abandona la configuración en curso. Idempotente. No revoca nada en ARCA: si
+   * `remoteTicketPossible`, volver a configurar el mismo equipo puede requerir esperar.
+   */
   cancel: () => invoke({ action: 'cancel' }),
 }

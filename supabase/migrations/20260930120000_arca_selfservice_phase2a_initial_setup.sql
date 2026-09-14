@@ -33,6 +33,13 @@
 -- Por eso: verificar → persistir ticket en la fila pendiente → activar (reintentable
 -- sin WSAA) → el ticket pasa al cache activo.
 --
+-- Verificación ambigua (revisión del owner): el material de verificación deja una espera
+-- DURABLE en el mismo UPDATE que entrega la clave (verification_hold / verification_retry_not_before).
+-- Un LoginCms cuyo resultado no se conoce (timeout después del envío, transporte, TA recibido sin
+-- registro confirmado) nunca se repite antes de que venza la vida posible de ese TA. La espera
+-- sobrevive a la cancelación y la hereda cualquier configuración nueva del mismo equipo (CUIT+alias).
+-- Nunca se inventa un vencimiento WSAA: sólo se guarda el expirationTime exacto, validado.
+--
 -- Lo que NO toca: credenciales existentes, Vault ajeno a la configuración pendiente,
 -- cert_file/token/sign de negocios configurados, afip-wsaa, afip-cae, emisión.
 -- No hay DML sobre filas existentes.
@@ -55,7 +62,30 @@ ALTER TABLE private.arca_credential_rotations
   ADD COLUMN IF NOT EXISTS verification_started_at     timestamptz,
   ADD COLUMN IF NOT EXISTS verified_wsaa_token         text,
   ADD COLUMN IF NOT EXISTS verified_wsaa_sign          text,
-  ADD COLUMN IF NOT EXISTS verified_wsaa_token_expires timestamptz;
+  ADD COLUMN IF NOT EXISTS verified_wsaa_token_expires timestamptz,
+  ADD COLUMN IF NOT EXISTS verification_attempt_id       uuid,
+  ADD COLUMN IF NOT EXISTS verification_hold             text,
+  ADD COLUMN IF NOT EXISTS verification_retry_not_before timestamptz;
+
+-- Espera de verificación: la ÚNICA autoridad sobre cuándo puede salir otro LoginCms.
+ALTER TABLE private.arca_credential_rotations
+  DROP CONSTRAINT IF EXISTS arca_credential_rotations_verification_hold_check;
+ALTER TABLE private.arca_credential_rotations
+  ADD CONSTRAINT arca_credential_rotations_verification_hold_check
+  CHECK ((verification_hold IS NULL OR verification_hold IN ('in_flight', 'result_unknown', 'ticket_active', 'verification_expired', 'cooldown'))
+         AND ((verification_hold IS NULL) = (verification_retry_not_before IS NULL)));
+-- Un setup inicial vivo está verificado SI Y SÓLO SI tiene un ticket completo y coherente; verificado no espera.
+ALTER TABLE private.arca_credential_rotations
+  DROP CONSTRAINT IF EXISTS arca_credential_rotations_initial_verified_ticket_check;
+ALTER TABLE private.arca_credential_rotations
+  ADD CONSTRAINT arca_credential_rotations_initial_verified_ticket_check
+  CHECK (state <> 'pending_rotation' OR setup_kind IS DISTINCT FROM 'initial'
+         OR (wsaa_verified_at IS NULL AND verified_wsaa_token IS NULL AND verified_wsaa_sign IS NULL AND verified_wsaa_token_expires IS NULL)
+         OR (wsaa_verified_at IS NOT NULL AND btrim(coalesce(verified_wsaa_token, '')) <> '' AND btrim(coalesce(verified_wsaa_sign, '')) <> ''
+             AND verified_wsaa_token_expires IS NOT NULL AND verified_wsaa_token_expires > wsaa_verified_at
+             AND verification_hold IS NULL));
+CREATE UNIQUE INDEX IF NOT EXISTS arca_credential_rotations_verification_attempt_uidx
+  ON private.arca_credential_rotations (verification_attempt_id) WHERE verification_attempt_id IS NOT NULL;
 
 ALTER TABLE private.arca_credential_rotations
   DROP CONSTRAINT IF EXISTS arca_credential_rotations_setup_kind_check;
@@ -79,6 +109,11 @@ COMMENT ON COLUMN private.arca_credential_rotations.setup_kind IS
 COMMENT ON COLUMN private.arca_credential_rotations.certificate_der_sha256 IS
   'ARCA Phase 2A: SHA-256 de los BYTES DER del certificado adjunto. Identifica el certificado exacto que '
   'WSAA verificó (certificate_fingerprint es el SPKI y coincide con la clave: no distingue certificados).';
+COMMENT ON COLUMN private.arca_credential_rotations.verification_hold IS
+  'ARCA Phase 2A: espera de verificación decidida por la base (in_flight | result_unknown | ticket_active | '
+  'verification_expired | cooldown). Mientras verification_retry_not_before > now() no sale otro LoginCms.';
+COMMENT ON COLUMN private.arca_credential_rotations.verification_attempt_id IS
+  'ARCA Phase 2A: nonce del Edge para el intento de verificación. Nunca sale al navegador.';
 COMMENT ON COLUMN private.arca_credential_rotations.verified_wsaa_token IS
   'ARCA Phase 2A: ticket WSAA obtenido con el par PENDIENTE. Se mueve al cache activo al activar y se purga al cancelar.';
 
@@ -278,6 +313,79 @@ $own$;
 -- hechos de la fila: certificado adjunto (certificate_fingerprint) y ticket WSAA
 -- verificado (wsaa_verified_at). Nunca lee certificate_pem ni el ticket.
 -- Todo lo demás es idéntico a 20260929120000; contract_version sigue en 1.
+-- Vista acotada de una espera (una fila). in_flight con menos de 7 min (tope de reloj de
+-- pared de un Edge + margen) en la fila viva = verificación en curso; después, resultado desconocido.
+CREATE OR REPLACE FUNCTION private.arca_selfservice_hold_view(
+  p_hold text, p_started timestamptz, p_retry timestamptz, p_live boolean, p_now timestamptz)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SET search_path = pg_catalog, pg_temp
+AS $function$
+  SELECT CASE
+    WHEN p_hold IS NULL OR p_retry IS NULL OR p_now IS NULL OR p_retry <= p_now THEN NULL
+    ELSE jsonb_build_object(
+      'state', CASE
+                 WHEN p_hold = 'in_flight' AND p_live AND p_started > p_now - interval '7 minutes' THEN 'VERIFICATION_IN_PROGRESS'
+                 WHEN p_hold IN ('in_flight', 'result_unknown') THEN 'WSAA_RESULT_UNKNOWN'
+                 WHEN p_hold = 'ticket_active'        THEN 'WSAA_TICKET_ALREADY_ISSUED'
+                 WHEN p_hold = 'verification_expired' THEN 'VERIFICATION_EXPIRED'
+                 WHEN p_hold = 'cooldown'             THEN 'VERIFICATION_COOLDOWN'
+                 ELSE 'WSAA_RESULT_UNKNOWN'
+               END,
+      'hold', CASE
+                 WHEN p_hold = 'in_flight' AND p_live AND p_started > p_now - interval '7 minutes' THEN 'in_progress'
+                 WHEN p_hold IN ('in_flight', 'result_unknown') THEN 'result_unknown'
+                 WHEN p_hold IN ('ticket_active', 'verification_expired', 'cooldown') THEN p_hold
+                 ELSE 'result_unknown'
+               END,
+      'retry_not_before', p_retry,
+      'retry_after_seconds', greatest(1, ceil(extract(epoch FROM (p_retry - p_now))))::integer)
+  END
+$function$;
+
+-- Espera EFECTIVA de la configuración inicial viva de un negocio: la propia y la de cualquier
+-- configuración inicial CANCELADA del mismo equipo (mismo subject CN=alias + serialNumber=CUIT).
+-- Cancelar no revoca un TA en ARCA; un equipo nuevo con el mismo DN tampoco. Se toma la más larga.
+CREATE OR REPLACE FUNCTION private.arca_selfservice_verification_hold(p_business_id uuid, p_now timestamptz)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SET search_path = pg_catalog, pg_temp
+AS $function$
+DECLARE
+  v_live record;
+  v_best record;
+BEGIN
+  IF p_business_id IS NULL OR p_now IS NULL THEN
+    RETURN NULL;
+  END IF;
+  SELECT r.id, r.subject INTO v_live
+    FROM private.arca_credential_rotations r
+   WHERE r.business_id = p_business_id AND r.state = 'pending_rotation' AND r.setup_kind = 'initial';
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+  SELECT r.id, r.verification_hold, r.verification_started_at, r.verification_retry_not_before INTO v_best
+    FROM private.arca_credential_rotations r
+   WHERE r.business_id = p_business_id AND r.setup_kind = 'initial'
+     AND r.verification_hold IS NOT NULL AND r.verification_retry_not_before > p_now
+     AND (r.id = v_live.id OR (r.state = 'cancelled' AND r.subject = v_live.subject))
+   ORDER BY r.verification_retry_not_before DESC, (r.id = v_live.id) DESC
+   LIMIT 1;
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+  RETURN private.arca_selfservice_hold_view(v_best.verification_hold, v_best.verification_started_at,
+    v_best.verification_retry_not_before, v_best.id = v_live.id, p_now);
+END
+$function$;
+
+ALTER FUNCTION private.arca_selfservice_hold_view(text, timestamptz, timestamptz, boolean, timestamptz) OWNER TO postgres;
+ALTER FUNCTION private.arca_selfservice_verification_hold(uuid, timestamptz) OWNER TO postgres;
+REVOKE ALL ON FUNCTION private.arca_selfservice_hold_view(text, timestamptz, timestamptz, boolean, timestamptz) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION private.arca_selfservice_verification_hold(uuid, timestamptz) FROM PUBLIC, anon, authenticated, service_role;
+
 CREATE OR REPLACE FUNCTION private.arca_selfservice_status(
   p_business_id uuid,
   p_actor       uuid,
@@ -314,6 +422,7 @@ DECLARE
   v_setup_kind     text;
   v_setup_step     text;
   v_setup_since    timestamptz;
+  v_hold           jsonb;
 
   v_attention      text[] := '{}';
   v_status         text;
@@ -422,6 +531,9 @@ BEGIN
                        ELSE 'certificate'
                      END;
     v_setup_since := v_rot.created_at;
+    IF v_setup_kind = 'initial' THEN
+      v_hold := private.arca_selfservice_verification_hold(p_business_id, p_now);
+    END IF;
   ELSIF v_configured THEN
     v_setup_state := 'completed';
   END IF;
@@ -508,7 +620,9 @@ BEGIN
       'state',            v_setup_state,
       'kind',             v_setup_kind,
       'step',             v_setup_step,
-      'started_at',       v_setup_since),
+      'started_at',       v_setup_since,
+      'verification_hold', v_hold ->> 'hold',
+      'retry_not_before', (v_hold ->> 'retry_not_before')::timestamptz),
     'attention',        to_jsonb(v_attention),
     'can_manage',       v_can_manage,
     'next_action',      v_next
@@ -982,8 +1096,11 @@ BEGIN
   IF v_row.wsaa_verified_at IS NOT NULL THEN
     RETURN jsonb_build_object('ok', false, 'state', 'CERTIFICATE_LOCKED_VERIFIED');
   END IF;
-  IF v_row.verification_started_at IS NOT NULL AND v_row.verification_started_at > now() - interval '2 minutes' THEN
-    RETURN jsonb_build_object('ok', false, 'state', 'VERIFICATION_IN_PROGRESS');
+  -- Un Edge puede estar registrando el TA de ESTE certificado: no se lo cambia bajo sus pies.
+  -- Las demás esperas no bloquean reemplazar el certificado (tampoco se liberan al reemplazarlo).
+  IF v_row.verification_hold = 'in_flight' AND v_row.verification_started_at > clock_timestamp() - interval '7 minutes' THEN
+    RETURN jsonb_build_object('ok', false, 'state', 'VERIFICATION_IN_PROGRESS',
+      'retry_after_seconds', greatest(1, ceil(extract(epoch FROM (v_row.verification_started_at + interval '7 minutes' - clock_timestamp()))))::integer);
   END IF;
 
   v_val := private.arca_selfservice_validate_certificate(p_certificate_pem, v_row.private_key_fingerprint, v_row.subject);
@@ -1013,7 +1130,6 @@ BEGIN
     certificate_der_sha256  = v_sha,
     certificate_not_after   = (v_val ->> 'not_after')::timestamptz,
     certificate_issuer      = jsonb_build_object('c', v_issuer ->> 'c', 'o', v_issuer ->> 'o', 'cn', v_issuer ->> 'cn'),
-    verification_started_at = NULL,
     updated_at              = now()
   WHERE id = v_row.id;
 
@@ -1027,11 +1143,17 @@ BEGIN
 END
 $function$;
 
--- ── 10. RPC (d): material de verificación (sólo servidor, con lease) ────────
+-- ── 10. RPC (d): material de verificación (sólo servidor, con espera durable) ─
 -- Devuelve el certificado exacto y la clave pendiente descifrada al Edge (misma
 -- frontera que arca_get_credential_for_signing). La clave SÓLO sale si todavía hay
--- que firmar: nunca para un setup ya verificado ni para uno configurado.
-CREATE OR REPLACE FUNCTION public.arca_selfservice_verification_material(p_business_id uuid, p_actor uuid)
+-- que firmar y no hay ninguna espera activa (propia o heredada de una configuración
+-- cancelada del mismo equipo). En el MISMO UPDATE que entrega la clave queda una
+-- espera pesimista: desde que el material sale, ARCA pudo emitir un TA.
+--   ventana = 12 h (vida documentada de un TA) + 10 min (tolerancia de reloj)
+--           + ≤ 400 s (tope de reloj de pared de un Edge) + espera de lock/proceso → 12 h 30 min.
+-- Sólo una resolución explícita del MISMO intento (p_attempt_id, nonce del Edge) la acorta.
+DROP FUNCTION IF EXISTS public.arca_selfservice_verification_material(uuid, uuid);
+CREATE OR REPLACE FUNCTION public.arca_selfservice_verification_material(p_business_id uuid, p_actor uuid, p_attempt_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -1042,6 +1164,8 @@ DECLARE
   v_done     record;
   v_val      jsonb;
   v_pem      text;
+  v_hold     jsonb;
+  v_now      timestamptz;
 BEGIN
   IF auth.role() IS DISTINCT FROM 'service_role' THEN
     RAISE EXCEPTION 'solo service_role' USING ERRCODE = '42501';
@@ -1051,6 +1175,9 @@ BEGIN
   END IF;
   IF NOT public.is_business_owner_or_admin(p_business_id, p_actor) THEN
     RETURN private.arca_selfservice_reject('arca_selfservice_verification_failed', p_business_id, p_actor, 'UNAUTHORIZED');
+  END IF;
+  IF p_attempt_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'state', 'BAD_REQUEST');
   END IF;
 
   PERFORM pg_advisory_xact_lock(hashtext('arca_rotation:' || p_business_id::text));
@@ -1084,14 +1211,22 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'state', 'CERTIFICATE_REQUIRED');
   END IF;
 
+  -- Primero: ¿la verificación ya quedó registrada de forma durable?
   IF v_row.wsaa_verified_at IS NOT NULL THEN
     RETURN jsonb_build_object('ok', true, 'state', 'ALREADY_VERIFIED',
       'fingerprint', v_row.private_key_fingerprint,
       'certificate_sha256', v_row.certificate_der_sha256);
   END IF;
 
-  IF v_row.verification_started_at IS NOT NULL AND v_row.verification_started_at > now() - interval '2 minutes' THEN
-    RETURN jsonb_build_object('ok', false, 'state', 'VERIFICATION_IN_PROGRESS');
+  -- Después: ninguna espera activa (propia o heredada). Sin clave, sin WSAA.
+  v_hold := private.arca_selfservice_verification_hold(p_business_id, clock_timestamp());
+  IF v_hold IS NOT NULL THEN
+    RETURN jsonb_build_object('ok', false, 'state', v_hold ->> 'state',
+      'retry_after_seconds', (v_hold ->> 'retry_after_seconds')::integer);
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM private.arca_credential_rotations r WHERE r.verification_attempt_id = p_attempt_id) THEN
+    RETURN jsonb_build_object('ok', false, 'state', 'BAD_REQUEST');
   END IF;
 
   -- El certificado puede haber vencido desde que se adjuntó.
@@ -1107,9 +1242,15 @@ BEGIN
       'VAULT_READBACK_FAILED', v_row.private_key_fingerprint);
   END IF;
 
-  UPDATE private.arca_credential_rotations
-     SET verification_started_at = now(), updated_at = now()
-   WHERE id = v_row.id;
+  -- clock_timestamp(): el instante real en que la clave sale, no el inicio de la transacción.
+  v_now := clock_timestamp();
+  UPDATE private.arca_credential_rotations SET
+    verification_started_at       = v_now,
+    verification_attempt_id       = p_attempt_id,
+    verification_hold             = 'in_flight',
+    verification_retry_not_before = v_now + interval '12 hours 30 minutes',
+    updated_at                    = now()
+  WHERE id = v_row.id;
   PERFORM private.arca_audit('arca_selfservice_verification_started', p_business_id, p_actor,
     v_row.fiscal_snapshot ->> 'ambiente', left(v_row.private_key_fingerprint, 16), 'started', NULL);
 
@@ -1124,6 +1265,8 @@ END
 $function$;
 
 -- ── 11. RPC (e): registrar la verificación WSAA exitosa del par pendiente ───
+-- Atada al certificado exacto (fingerprint + SHA-256 del DER), no al intento: un TA válido
+-- para este certificado es la verdad aunque llegue tarde. Registrar libera la espera.
 CREATE OR REPLACE FUNCTION public.arca_selfservice_record_verification(
   p_business_id uuid, p_actor uuid, p_expected_fingerprint text, p_expected_certificate_sha256 text,
   p_token text, p_sign text, p_expires_at timestamptz)
@@ -1168,6 +1311,7 @@ BEGIN
     RETURN jsonb_build_object('ok', true, 'state', 'ALREADY_VERIFIED');
   END IF;
 
+  -- Vencimiento EXACTO de WSAA: nunca se completa; fuera de (ahora, ahora + 12 h 10 min] se rechaza.
   IF coalesce(btrim(p_token), '') = '' OR coalesce(btrim(p_sign), '') = ''
      OR length(p_token) > 16384 OR length(p_sign) > 4096
      OR p_expires_at IS NULL OR p_expires_at <= now() OR p_expires_at > now() + interval '12 hours 10 minutes' THEN
@@ -1176,12 +1320,14 @@ BEGIN
   END IF;
 
   UPDATE private.arca_credential_rotations SET
-    verified_wsaa_token         = p_token,
-    verified_wsaa_sign          = p_sign,
-    verified_wsaa_token_expires = p_expires_at,
-    wsaa_verified_at            = now(),
-    verification_started_at     = NULL,
-    updated_at                  = now()
+    verified_wsaa_token           = p_token,
+    verified_wsaa_sign            = p_sign,
+    verified_wsaa_token_expires   = p_expires_at,
+    wsaa_verified_at              = now(),
+    verification_started_at       = NULL,
+    verification_hold             = NULL,
+    verification_retry_not_before = NULL,
+    updated_at                    = now()
   WHERE id = v_row.id;
 
   PERFORM private.arca_audit('arca_selfservice_verification_succeeded', p_business_id, p_actor,
@@ -1191,15 +1337,32 @@ BEGIN
 END
 $function$;
 
--- ── 12. RPC (f): registrar una verificación fallida (sólo auditoría + lease) ─
+-- ── 12. RPC (f): desenlace de un intento que NO registró un TA ──────────────
+-- La base decide qué hace cada código (el Edge sólo informa):
+--   VERIFICATION_NOT_DISPATCHED   la clave nunca estuvo en un pedido → libera el intento.
+--   definitivos (fault de validación previo a emitir, firma) → espera corta anti-martilleo.
+--   WSAA_TICKET_ALREADY_ISSUED    hay un TA vigente ajeno → espera 12 h 30 min.
+--   ambiguos y CUALQUIER código desconocido → 'result_unknown' 12 h 30 min (o hasta el
+--     vencimiento observado de un TA rechazado + 10 min, con tope 24 h 10 min).
+-- Liberar o acortar sólo vale para el MISMO intento todavía 'in_flight'; extender vale siempre,
+-- también sobre la fila cancelada del intento. Nunca pisa una verificación registrada.
+DROP FUNCTION IF EXISTS public.arca_selfservice_record_verification_failure(uuid, uuid, text);
 CREATE OR REPLACE FUNCTION public.arca_selfservice_record_verification_failure(
-  p_business_id uuid, p_actor uuid, p_code text)
+  p_business_id uuid, p_actor uuid, p_attempt_id uuid, p_code text, p_observed_expires timestamptz DEFAULT NULL)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $function$
-DECLARE v_code text;
+DECLARE
+  v_row   record;
+  v_after record;
+  v_code  text;
+  v_kind  text;
+  v_now   timestamptz := clock_timestamp();
+  v_retry timestamptz;
+  v_hold  text;
+  v_view  jsonb;
 BEGIN
   IF auth.role() IS DISTINCT FROM 'service_role' THEN
     RAISE EXCEPTION 'solo service_role' USING ERRCODE = '42501';
@@ -1213,22 +1376,84 @@ BEGIN
 
   PERFORM pg_advisory_xact_lock(hashtext('arca_rotation:' || p_business_id::text));
 
-  v_code := CASE WHEN p_code IN ('WSAA_TICKET_ALREADY_ISSUED', 'WSAA_SERVICE_NOT_AUTHORIZED',
-                                 'WSAA_CERTIFICATE_REJECTED', 'WSAA_REJECTED', 'WSAA_UNAVAILABLE',
-                                 'VERIFICATION_RECORD_FAILED', 'SIGNING_FAILED')
-                 THEN p_code ELSE 'WSAA_REJECTED' END;
+  v_code := CASE WHEN p_code IN ('VERIFICATION_NOT_DISPATCHED', 'WSAA_SERVICE_NOT_AUTHORIZED', 'WSAA_CERTIFICATE_REJECTED',
+                                 'WSAA_REJECTED', 'WSAA_UNAVAILABLE', 'SIGNING_FAILED', 'WSAA_TICKET_ALREADY_ISSUED',
+                                 'WSAA_RESULT_UNKNOWN', 'WSAA_RESPONSE_INVALID', 'VERIFICATION_RECORD_FAILED')
+                 THEN p_code ELSE 'WSAA_RESULT_UNKNOWN' END;
+  v_kind := CASE
+              WHEN v_code = 'VERIFICATION_NOT_DISPATCHED' THEN 'not_dispatched'
+              WHEN v_code IN ('WSAA_SERVICE_NOT_AUTHORIZED', 'WSAA_CERTIFICATE_REJECTED', 'WSAA_REJECTED',
+                              'WSAA_UNAVAILABLE', 'SIGNING_FAILED') THEN 'definitive'
+              WHEN v_code = 'WSAA_TICKET_ALREADY_ISSUED' THEN 'ticket_active'
+              ELSE 'ambiguous'
+            END;
 
-  UPDATE private.arca_credential_rotations
-     SET verification_started_at = NULL, updated_at = now()
-   WHERE business_id = p_business_id AND state = 'pending_rotation' AND setup_kind = 'initial'
-     AND wsaa_verified_at IS NULL;
+  IF p_attempt_id IS NOT NULL THEN
+    SELECT r.* INTO v_row
+      FROM private.arca_credential_rotations r
+     WHERE r.business_id = p_business_id AND r.setup_kind = 'initial' AND r.verification_attempt_id = p_attempt_id
+     FOR UPDATE;
+  END IF;
+  IF p_attempt_id IS NULL OR NOT FOUND THEN
+    PERFORM private.arca_audit('arca_selfservice_verification_failed', p_business_id, p_actor, NULL, NULL, 'attempt_not_found', v_code);
+    RETURN jsonb_build_object('ok', false, 'state', 'ATTEMPT_NOT_FOUND', 'code', v_code);
+  END IF;
+  IF v_row.state = 'completed' THEN
+    RETURN jsonb_build_object('ok', true, 'state', 'SETUP_ALREADY_COMPLETED', 'code', v_code);
+  END IF;
+  IF v_row.state NOT IN ('pending_rotation', 'cancelled') THEN
+    RETURN jsonb_build_object('ok', false, 'state', 'ATTEMPT_NOT_FOUND', 'code', v_code);
+  END IF;
+  IF v_row.state = 'pending_rotation' AND v_row.wsaa_verified_at IS NOT NULL THEN
+    RETURN jsonb_build_object('ok', true, 'state', 'ALREADY_VERIFIED', 'code', v_code);
+  END IF;
 
-  PERFORM private.arca_audit('arca_selfservice_verification_failed', p_business_id, p_actor, NULL, NULL, v_code, v_code);
-  RETURN jsonb_build_object('ok', true, 'state', 'FAILURE_RECORDED', 'code', v_code);
+  IF v_kind IN ('not_dispatched', 'definitive') THEN
+    IF v_row.state = 'pending_rotation' AND v_row.verification_hold = 'in_flight' THEN
+      UPDATE private.arca_credential_rotations SET
+        verification_hold             = CASE WHEN v_kind = 'not_dispatched' THEN NULL ELSE 'cooldown' END,
+        verification_retry_not_before = CASE
+                                          WHEN v_kind = 'not_dispatched'    THEN NULL
+                                          WHEN v_code = 'WSAA_UNAVAILABLE'  THEN v_now + interval '5 minutes'
+                                          ELSE v_now + interval '60 seconds'
+                                        END,
+        verification_started_at       = NULL,
+        updated_at                    = now()
+      WHERE id = v_row.id;
+    END IF;
+  ELSE
+    v_retry := greatest(coalesce(v_row.verification_retry_not_before, v_now), v_now + interval '12 hours 30 minutes');
+    IF v_kind = 'ambiguous' AND p_observed_expires IS NOT NULL AND p_observed_expires > v_now THEN
+      v_retry := greatest(v_retry, least(p_observed_expires + interval '10 minutes', v_now + interval '24 hours 10 minutes'));
+    END IF;
+    v_hold := CASE WHEN v_kind = 'ticket_active' OR v_row.verification_hold = 'ticket_active'
+                   THEN 'ticket_active' ELSE 'result_unknown' END;
+    UPDATE private.arca_credential_rotations SET
+      verification_hold             = v_hold,
+      verification_retry_not_before = v_retry,
+      updated_at                    = now()
+    WHERE id = v_row.id;
+  END IF;
+
+  PERFORM private.arca_audit('arca_selfservice_verification_failed', p_business_id, p_actor,
+    v_row.fiscal_snapshot ->> 'ambiente', left(v_row.private_key_fingerprint, 16), v_kind, v_code);
+
+  SELECT r.state, r.verification_hold, r.verification_started_at, r.verification_retry_not_before INTO v_after
+    FROM private.arca_credential_rotations r WHERE r.id = v_row.id;
+  v_view := CASE WHEN v_after.state = 'pending_rotation'
+                 THEN private.arca_selfservice_verification_hold(p_business_id, clock_timestamp())
+                 ELSE private.arca_selfservice_hold_view(v_after.verification_hold, v_after.verification_started_at,
+                        v_after.verification_retry_not_before, false, clock_timestamp())
+            END;
+  RETURN jsonb_build_object('ok', true, 'state', 'FAILURE_RECORDED', 'code', v_code, 'hold', v_view);
 END
 $function$;
 
 -- ── 13. RPC (g): ACTIVACIÓN atómica de una configuración verificada ─────────
+-- Toda activación instala el TA verificado: sólo se activa con más de 90 min de vida
+-- (30 min de margen de afip-wsaa + 60 min utilizables). Con menos, o con un ticket
+-- inconsistente, NO se activa: la verificación se descarta en un solo UPDATE y la espera
+-- queda hasta el vencimiento EXACTO persistido + 10 min (ARCA no emite otro TA antes).
 CREATE OR REPLACE FUNCTION public.arca_selfservice_activate(
   p_business_id uuid, p_actor uuid, p_expected_fingerprint text, p_expected_certificate_sha256 text,
   p_idempotency_key text)
@@ -1247,8 +1472,11 @@ DECLARE
   v_cuit      text;
   v_hash      text;
   v_readback  text;
-  v_ticket_ok boolean;
   v_not_after timestamptz;
+  v_hold      jsonb;
+  v_now       timestamptz;
+  v_invalid   boolean;
+  v_retry     timestamptz;
 BEGIN
   IF auth.role() IS DISTINCT FROM 'service_role' THEN
     RAISE EXCEPTION 'solo service_role' USING ERRCODE = '42501';
@@ -1276,7 +1504,7 @@ BEGIN
       RETURN private.arca_selfservice_reject('arca_selfservice_activation_failed', p_business_id, p_actor, 'IDEMPOTENCY_CONFLICT');
     END IF;
     PERFORM private.arca_audit('arca_selfservice_activation_replayed', p_business_id, p_actor, NULL, left(v_fp, 16), 'replayed', NULL);
-    RETURN jsonb_build_object('ok', true, 'state', 'ALREADY_ACTIVATED', 'expires_at', v_prev.certificate_not_after);
+    RETURN jsonb_build_object('ok', true, 'state', 'ALREADY_ACTIVATED', 'connection', 'connected', 'expires_at', v_prev.certificate_not_after);
   END IF;
   SELECT r.* INTO v_prev
     FROM private.arca_credential_rotations r
@@ -1287,7 +1515,7 @@ BEGIN
    ORDER BY r.finalized_at DESC NULLS LAST LIMIT 1;
   IF FOUND THEN
     PERFORM private.arca_audit('arca_selfservice_activation_replayed', p_business_id, p_actor, NULL, left(v_fp, 16), 'replayed', NULL);
-    RETURN jsonb_build_object('ok', true, 'state', 'ALREADY_ACTIVATED', 'expires_at', v_prev.certificate_not_after);
+    RETURN jsonb_build_object('ok', true, 'state', 'ALREADY_ACTIVATED', 'connection', 'connected', 'expires_at', v_prev.certificate_not_after);
   END IF;
 
   IF private.arca_selfservice_is_configured(p_business_id) THEN
@@ -1301,12 +1529,46 @@ BEGIN
   IF NOT FOUND THEN
     RETURN jsonb_build_object('ok', false, 'state', 'NO_SETUP_IN_PROGRESS');
   END IF;
-  IF v_row.wsaa_verified_at IS NULL OR v_row.verified_wsaa_token IS NULL OR v_row.certificate_pem IS NULL THEN
+  IF v_row.wsaa_verified_at IS NULL THEN
+    -- Sin verificación: si hay una espera (p.ej. una verificación vencida recién descartada), se informa ésa.
+    v_hold := private.arca_selfservice_verification_hold(p_business_id, clock_timestamp());
+    IF v_hold IS NOT NULL THEN
+      RETURN jsonb_build_object('ok', false, 'state', v_hold ->> 'state',
+        'retry_after_seconds', (v_hold ->> 'retry_after_seconds')::integer);
+    END IF;
     RETURN private.arca_selfservice_reject('arca_selfservice_activation_failed', p_business_id, p_actor, 'NOT_VERIFIED', v_row.private_key_fingerprint);
   END IF;
-  IF v_row.private_key_fingerprint IS DISTINCT FROM v_fp OR v_row.certificate_der_sha256 IS DISTINCT FROM v_sha
+  IF v_row.certificate_pem IS NULL OR v_row.private_key_fingerprint IS DISTINCT FROM v_fp OR v_row.certificate_der_sha256 IS DISTINCT FROM v_sha
      OR encode(extensions.digest(private.arca_pem_to_der(v_row.certificate_pem), 'sha256'), 'hex') IS DISTINCT FROM v_sha THEN
     RETURN private.arca_selfservice_reject('arca_selfservice_activation_failed', p_business_id, p_actor, 'CERTIFICATE_CHANGED', v_row.private_key_fingerprint);
+  END IF;
+
+  -- ── Ticket verificado: completo, coherente y con vida útil suficiente ──
+  v_now := clock_timestamp();
+  v_invalid := coalesce(btrim(v_row.verified_wsaa_token), '') = '' OR coalesce(btrim(v_row.verified_wsaa_sign), '') = ''
+            OR v_row.verified_wsaa_token_expires IS NULL
+            OR v_row.verified_wsaa_token_expires <= v_row.wsaa_verified_at
+            OR v_row.verified_wsaa_token_expires > v_row.wsaa_verified_at + interval '12 hours 10 minutes';
+  IF v_invalid OR v_row.verified_wsaa_token_expires <= v_now + interval '90 minutes' THEN
+    v_retry := CASE WHEN v_invalid THEN v_now + interval '12 hours 30 minutes'
+                    ELSE v_row.verified_wsaa_token_expires + interval '10 minutes' END;
+    UPDATE private.arca_credential_rotations SET
+      wsaa_verified_at              = NULL,
+      verified_wsaa_token           = NULL,
+      verified_wsaa_sign            = NULL,
+      verified_wsaa_token_expires   = NULL,
+      verification_attempt_id       = NULL,
+      verification_started_at       = NULL,
+      verification_hold             = CASE WHEN v_retry > v_now THEN 'verification_expired' END,
+      verification_retry_not_before = CASE WHEN v_retry > v_now THEN v_retry END,
+      updated_at                    = now()
+    WHERE id = v_row.id;
+    PERFORM private.arca_audit('arca_selfservice_activation_failed', p_business_id, p_actor,
+      v_row.fiscal_snapshot ->> 'ambiente', left(v_fp, 16),
+      CASE WHEN v_invalid THEN 'VERIFICATION_STATE_INVALID' ELSE 'VERIFICATION_EXPIRED' END,
+      CASE WHEN v_invalid THEN 'VERIFICATION_STATE_INVALID' ELSE 'VERIFICATION_EXPIRED' END);
+    RETURN jsonb_build_object('ok', false, 'state', 'VERIFICATION_EXPIRED',
+      'retry_after_seconds', greatest(1, ceil(extract(epoch FROM (v_retry - v_now))))::integer);
   END IF;
 
   SELECT c.* INTO v_cfg FROM public.arca_config c WHERE c.business_id = p_business_id FOR UPDATE;
@@ -1340,9 +1602,6 @@ BEGIN
   END IF;
   v_readback := NULL;
 
-  -- afip-wsaa usa el cache sólo con más de 30 min de vigencia; con menos, pediría un
-  -- LoginCms nuevo mientras el ticket sigue vivo (coe.alreadyAuthenticated).
-  v_ticket_ok := v_row.verified_wsaa_token_expires > now() + interval '30 minutes';
   v_hash := encode(extensions.digest(
               'arca_selfservice_activate|' || p_business_id::text || '|' || v_row.id::text || '|' || v_fp || '|' || v_sha, 'sha256'), 'hex');
 
@@ -1358,29 +1617,31 @@ BEGIN
       expires_at            = v_not_after,
       web_service           = 'wsfe',
       cuit_emisor           = v_cuit,
-      wsaa_token            = CASE WHEN v_ticket_ok THEN v_row.verified_wsaa_token END,
-      wsaa_sign             = CASE WHEN v_ticket_ok THEN v_row.verified_wsaa_sign END,
-      wsaa_token_expires    = CASE WHEN v_ticket_ok THEN v_row.verified_wsaa_token_expires END,
-      estado_conexion       = CASE WHEN v_ticket_ok THEN 'conectado' ELSE 'desconectado' END,
-      ultima_sincronizacion = CASE WHEN v_ticket_ok THEN now() END,
+      wsaa_token            = v_row.verified_wsaa_token,
+      wsaa_sign             = v_row.verified_wsaa_sign,
+      wsaa_token_expires    = v_row.verified_wsaa_token_expires,
+      estado_conexion       = 'conectado',
+      ultima_sincronizacion = now(),
       ultimo_error          = NULL,
       updated_at            = now()
     WHERE business_id = p_business_id;
 
     UPDATE private.arca_credential_rotations SET
-      state                       = 'completed',
-      activated_at                = now(),
-      activated_by                = p_actor,
-      finalized_at                = now(),
-      finalized_by                = p_actor,
-      activation_idempotency_key  = p_idempotency_key,
-      activation_request_hash     = v_hash,
-      certificate_not_after       = v_not_after,
-      verified_wsaa_token         = NULL,
-      verified_wsaa_sign          = NULL,
-      verified_wsaa_token_expires = NULL,
-      verification_started_at     = NULL,
-      updated_at                  = now()
+      state                         = 'completed',
+      activated_at                  = now(),
+      activated_by                  = p_actor,
+      finalized_at                  = now(),
+      finalized_by                  = p_actor,
+      activation_idempotency_key    = p_idempotency_key,
+      activation_request_hash       = v_hash,
+      certificate_not_after         = v_not_after,
+      verified_wsaa_token           = NULL,
+      verified_wsaa_sign            = NULL,
+      verified_wsaa_token_expires   = NULL,
+      verification_started_at       = NULL,
+      verification_hold             = NULL,
+      verification_retry_not_before = NULL,
+      updated_at                    = now()
     WHERE id = v_row.id;
 
     -- Readback: la firma resuelve la clave nueva y el certificado activo le corresponde.
@@ -1405,7 +1666,7 @@ BEGIN
   UPDATE private.arca_credential_audit SET details = jsonb_build_object(
       'setup_ref', left(v_row.id::text, 8),
       'wsaa_verified_at', v_row.wsaa_verified_at,
-      'ticket_installed', v_ticket_ok,
+      'ticket_installed', true,
       'certificate_not_after', v_not_after,
       'issuer_cn', v_row.certificate_issuer ->> 'cn',
       'idempotency_ref', left(p_idempotency_key, 12))
@@ -1413,20 +1674,26 @@ BEGIN
                 WHERE business_id = p_business_id AND event = 'arca_selfservice_activated'
                 ORDER BY id DESC LIMIT 1);
 
-  RETURN jsonb_build_object('ok', true, 'state', 'ACTIVATED',
-    'connection', CASE WHEN v_ticket_ok THEN 'connected' ELSE 'pending_verification' END,
-    'expires_at', v_not_after);
+  RETURN jsonb_build_object('ok', true, 'state', 'ACTIVATED', 'connection', 'connected', 'expires_at', v_not_after);
 END
 $function$;
 
 -- ── 14. RPC (h): cancelar/abandonar la configuración viva ───────────────────
+-- Purga clave (Vault), certificado y ticket locales. NO revoca nada en ARCA: si un TA pudo
+-- quedar vigente allá, la espera queda en la fila cancelada y la hereda cualquier configuración
+-- nueva del mismo equipo (CUIT + alias). Mientras un intento está en vuelo (≤ 7 min) no se cancela.
 CREATE OR REPLACE FUNCTION public.arca_selfservice_cancel(p_business_id uuid, p_actor uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $function$
-DECLARE v_row record; v_last text;
+DECLARE
+  v_row   record;
+  v_last  text;
+  v_now   timestamptz := clock_timestamp();
+  v_hold  text;
+  v_retry timestamptz;
 BEGIN
   IF auth.role() IS DISTINCT FROM 'service_role' THEN
     RAISE EXCEPTION 'solo service_role' USING ERRCODE = '42501';
@@ -1451,7 +1718,13 @@ BEGIN
     IF v_last = 'completed' THEN
       RETURN jsonb_build_object('ok', false, 'state', 'SETUP_ALREADY_COMPLETED');
     END IF;
-    RETURN jsonb_build_object('ok', true, 'state', 'SETUP_NOT_IN_PROGRESS');
+    RETURN jsonb_build_object('ok', true, 'state', 'SETUP_NOT_IN_PROGRESS', 'remote_ticket_possible', false);
+  END IF;
+
+  -- Un Edge puede estar por registrar el TA de este intento: no se le quita la fila.
+  IF v_row.verification_hold = 'in_flight' AND v_row.verification_started_at > v_now - interval '7 minutes' THEN
+    RETURN jsonb_build_object('ok', false, 'state', 'VERIFICATION_IN_PROGRESS',
+      'retry_after_seconds', greatest(1, ceil(extract(epoch FROM (v_row.verification_started_at + interval '7 minutes' - v_now))))::integer);
   END IF;
 
   -- Defensa: nunca borrar un secreto que una credencial use.
@@ -1460,22 +1733,35 @@ BEGIN
     RETURN private.arca_selfservice_reject('arca_selfservice_setup_failed', p_business_id, p_actor, 'SETUP_STATE_INCONSISTENT');
   END IF;
 
+  -- La espera sobrevive a la cancelación.
+  IF v_row.wsaa_verified_at IS NOT NULL AND v_row.verified_wsaa_token_expires > v_now THEN
+    v_hold  := 'ticket_active';
+    v_retry := greatest(coalesce(v_row.verification_retry_not_before, v_now), v_row.verified_wsaa_token_expires + interval '10 minutes');
+  ELSIF v_row.verification_hold IS NOT NULL AND v_row.verification_retry_not_before > v_now THEN
+    v_hold  := CASE WHEN v_row.verification_hold = 'in_flight' THEN 'result_unknown' ELSE v_row.verification_hold END;
+    v_retry := v_row.verification_retry_not_before;
+  END IF;
+
   DELETE FROM vault.secrets WHERE id = v_row.private_key_secret_id;
   UPDATE private.arca_credential_rotations SET
-    state                       = 'cancelled',
-    cancelled_at                = now(),
-    private_key_secret_id       = NULL,
-    certificate_pem             = NULL,
-    verified_wsaa_token         = NULL,
-    verified_wsaa_sign          = NULL,
-    verified_wsaa_token_expires = NULL,
-    verification_started_at     = NULL,
-    updated_at                  = now()
+    state                         = 'cancelled',
+    cancelled_at                  = now(),
+    private_key_secret_id         = NULL,
+    certificate_pem               = NULL,
+    verified_wsaa_token           = NULL,
+    verified_wsaa_sign            = NULL,
+    verified_wsaa_token_expires   = NULL,
+    verification_started_at       = NULL,
+    verification_hold             = v_hold,
+    verification_retry_not_before = v_retry,
+    updated_at                    = now()
   WHERE id = v_row.id;
 
   PERFORM private.arca_audit('arca_selfservice_cancelled', p_business_id, p_actor,
-    v_row.fiscal_snapshot ->> 'ambiente', left(v_row.private_key_fingerprint, 16), 'SETUP_CANCELLED', NULL);
-  RETURN jsonb_build_object('ok', true, 'state', 'SETUP_CANCELLED');
+    v_row.fiscal_snapshot ->> 'ambiente', left(v_row.private_key_fingerprint, 16), 'SETUP_CANCELLED',
+    CASE WHEN v_hold IS NOT NULL AND v_hold <> 'cooldown' THEN 'REMOTE_TICKET_POSSIBLE' END);
+  RETURN jsonb_build_object('ok', true, 'state', 'SETUP_CANCELLED',
+    'remote_ticket_possible', v_hold IS NOT NULL AND v_hold <> 'cooldown');
 END
 $function$;
 
@@ -1487,9 +1773,9 @@ BEGIN
       'public.arca_selfservice_prepare_initial(uuid,uuid,text,text,text,text,integer,text,text,text,text)',
       'public.arca_selfservice_get_csr(uuid,uuid)',
       'public.arca_selfservice_attach_certificate(uuid,uuid,text)',
-      'public.arca_selfservice_verification_material(uuid,uuid)',
+      'public.arca_selfservice_verification_material(uuid,uuid,uuid)',
       'public.arca_selfservice_record_verification(uuid,uuid,text,text,text,text,timestamptz)',
-      'public.arca_selfservice_record_verification_failure(uuid,uuid,text)',
+      'public.arca_selfservice_record_verification_failure(uuid,uuid,uuid,text,timestamptz)',
       'public.arca_selfservice_activate(uuid,uuid,text,text,text)',
       'public.arca_selfservice_cancel(uuid,uuid)'] LOOP
     EXECUTE format('ALTER FUNCTION %s OWNER TO postgres', v_fn);
@@ -1503,9 +1789,12 @@ $grants$;
 COMMENT ON FUNCTION public.arca_selfservice_prepare_initial(uuid,uuid,text,text,text,text,integer,text,text,text,text) IS
   'ARCA Phase 2A: prepara la configuración INICIAL (datos fiscales + clave en Vault + CSR). service_role-only, '
   'idempotente, fail-closed para negocios configurados. Nunca devuelve la clave ni el secret_id.';
-COMMENT ON FUNCTION public.arca_selfservice_verification_material(uuid,uuid) IS
-  'ARCA Phase 2A: material de verificación para el Edge (certificado exacto + clave pendiente) con lease de 2 min. '
-  'service_role-only. La clave sólo sale si el setup todavía no está verificado.';
+COMMENT ON FUNCTION public.arca_selfservice_verification_material(uuid,uuid,uuid) IS
+  'ARCA Phase 2A: material de verificación para el Edge (certificado exacto + clave pendiente). service_role-only. '
+  'La clave sólo sale sin verificación registrada y sin espera activa; en el mismo UPDATE deja una espera pesimista de 12 h 30 min.';
+COMMENT ON FUNCTION public.arca_selfservice_record_verification_failure(uuid,uuid,uuid,text,timestamptz) IS
+  'ARCA Phase 2A: desenlace de un intento sin TA registrado. Libera sólo el mismo intento in_flight con un código definitivo; '
+  'ambiguo o desconocido extiende la espera. service_role-only.';
 COMMENT ON FUNCTION public.arca_selfservice_activate(uuid,uuid,text,text,text) IS
   'ARCA Phase 2A: activación atómica de una configuración inicial verificada contra WSAA. service_role-only.';
 
@@ -1523,9 +1812,9 @@ BEGIN
       'public.arca_selfservice_prepare_initial(uuid,uuid,text,text,text,text,integer,text,text,text,text)',
       'public.arca_selfservice_get_csr(uuid,uuid)',
       'public.arca_selfservice_attach_certificate(uuid,uuid,text)',
-      'public.arca_selfservice_verification_material(uuid,uuid)',
+      'public.arca_selfservice_verification_material(uuid,uuid,uuid)',
       'public.arca_selfservice_record_verification(uuid,uuid,text,text,text,text,timestamptz)',
-      'public.arca_selfservice_record_verification_failure(uuid,uuid,text)',
+      'public.arca_selfservice_record_verification_failure(uuid,uuid,uuid,text,timestamptz)',
       'public.arca_selfservice_activate(uuid,uuid,text,text,text)',
       'public.arca_selfservice_cancel(uuid,uuid)'] LOOP
     IF NOT has_function_privilege('service_role', v_fn, 'EXECUTE') THEN v_bad := v_bad || format('sin_service_role:%s', v_fn); END IF;
@@ -1550,7 +1839,8 @@ BEGIN
   FOR b IN SELECT p.oid::regprocedure::text AS sig FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
             WHERE n.nspname = 'private' AND p.proname IN ('arca_cuit_is_valid', 'arca_cert_issuer', 'arca_selfservice_issuer_ok',
               'arca_der_to_certificate_pem', 'arca_selfservice_validate_certificate', 'arca_selfservice_is_configured',
-              'arca_selfservice_reject', 'arca_selfservice_status') LOOP
+              'arca_selfservice_reject', 'arca_selfservice_status', 'arca_selfservice_hold_view',
+              'arca_selfservice_verification_hold') LOOP
     FOREACH v_role IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
       IF has_function_privilege(v_role, b.sig, 'EXECUTE') THEN v_bad := v_bad || format('%s:%s', v_role, b.sig); END IF;
     END LOOP;
@@ -1560,9 +1850,23 @@ BEGIN
   SELECT prosrc INTO v_src FROM pg_proc WHERE oid = 'private.arca_selfservice_status(uuid,uuid,timestamptz)'::regprocedure;
   FOREACH v_key IN ARRAY ARRAY['wsaa_token', 'wsaa_sign', 'decrypted_secret', 'csr_pem', 'certificate_pem',
                                'prev_', 'pfx_password', 'ultimo_error', 'arca_get_private_key_for_signing',
-                               'verified_wsaa', 'fiscal_snapshot'] LOOP
+                               'verified_wsaa', 'fiscal_snapshot', 'verification_attempt_id'] LOOP
     IF position(v_key IN v_src) > 0 THEN v_bad := v_bad || format('derivacion_lee:%s', v_key); END IF;
   END LOOP;
+  -- La espera efectiva tampoco lee material.
+  SELECT string_agg(prosrc, ' ') INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'private' AND p.proname IN ('arca_selfservice_verification_hold', 'arca_selfservice_hold_view');
+  FOREACH v_key IN ARRAY ARRAY['wsaa_token', 'wsaa_sign', 'decrypted_secret', 'csr_pem', 'certificate_pem',
+                               'verified_wsaa', 'fiscal_snapshot', 'verification_attempt_id', 'private_key'] LOOP
+    IF position(v_key IN v_src) > 0 THEN v_bad := v_bad || format('espera_lee:%s', v_key); END IF;
+  END LOOP;
+  -- Una sola firma por RPC de verificación (sin sobrecargas viejas sin intento).
+  IF (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public' AND p.proname = 'arca_selfservice_verification_material') <> 1
+     OR (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'public' AND p.proname = 'arca_selfservice_record_verification_failure') <> 1 THEN
+    v_bad := v_bad || 'sobrecarga_vieja'::text;
+  END IF;
   IF (SELECT prosecdef FROM pg_proc WHERE oid = 'private.arca_selfservice_status(uuid,uuid,timestamptz)'::regprocedure) THEN
     v_bad := v_bad || 'derivacion_secdef'::text;
   END IF;

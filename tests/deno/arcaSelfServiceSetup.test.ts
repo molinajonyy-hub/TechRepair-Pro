@@ -7,8 +7,10 @@
  *     identidad, plan, defensa en profundidad SQL — antes de tocar cualquier RPC de datos;
  *   · prepare: el probe evita generar claves en un replay; la clave va sólo a la RPC;
  *   · certificate: PEM/DER normalizado, clave privada rechazada sin RPC;
- *   · verify: WSAA con el material exacto, fallas acotadas (faults reales vía HTTP 500),
- *     reintento del registro del ticket, activación reintentable, ninguna respuesta con material;
+ *   · verify: WSAA con el material exacto y un nonce de intento; NUNCA un vencimiento inventado;
+ *     un resultado ambiguo (timeout, transporte, TA sin registro confirmado) deja la espera a la
+ *     base y el verify inmediato NO vuelve a WSAA; faults Axis reales clasificados por allowlist
+ *     exacta; ninguna respuesta con material, nonce ni texto crudo de ARCA;
  *   · crypto real (node-forge, mismo runtime que producción).
  *
  * RUN: deno test -A --node-modules-dir=auto tests/deno/arcaSelfServiceSetup.test.ts
@@ -23,12 +25,13 @@ import {
   generateSetupKeyAndCsr, isAuthorizedSubject, normalizeCertificateInput, spkiFingerprint,
 } from '../../supabase/functions/arca-selfservice-setup/crypto.ts'
 import {
-  classifyWsaaFailure, WsaaLoginError, wsaaLoginWithPendingPair,
+  classifyWsaaFailure, parseWsaaInstant, validateWsaaTicket, WsaaLoginError, wsaaFaultCode, wsaaLoginWithPendingPair,
 } from '../../supabase/functions/arca-selfservice-setup/wsaa.ts'
 
 const BIZ = '00000000-0000-4000-8000-0000000a2a01'
 const OTHER = '00000000-0000-4000-8000-0000000a2a02'
 const USER = '00000000-0000-4000-8000-0000000a2a03'
+const ATTEMPT = '0e0e0e0e-0e0e-4e0e-8e0e-0e0e0e0e0a2a'
 const ORIGIN = 'https://www.techrepairpro.app'
 const FP = 'a'.repeat(64)
 const SHA = 'b'.repeat(64)
@@ -67,6 +70,7 @@ function makeDeps(opts: {
       wsaaCalls.push(input)
       return opts.wsaa ? opts.wsaa() : { token: TOKEN_SENTINEL, sign: SIGN_SENTINEL, expirationTime: new Date(Date.now() + 11 * 3600_000).toISOString() }
     },
+    newAttemptId: () => ATTEMPT,
     sleep: async () => {},
     now: () => Date.now(),
   }
@@ -259,19 +263,72 @@ Deno.test('certificate: clave privada 400 y certificado inválido 409 sin RPC; D
 // ── verify ──────────────────────────────────────────────────────────────────
 const MATERIAL = { ok: true, state: 'VERIFICATION_MATERIAL', ambiente: 'homologacion', service: 'wsfe', fingerprint: FP, certificate_sha256: SHA, certificate_pem: 'CERT-PEM', signing_key_pem: KEY_SENTINEL }
 const VERIFY = { action: 'verify', idempotency_key: 'wizard-verify-0001' }
+const inHours = (h: number) => new Date(Date.now() + h * 3600_000).toISOString()
+const HOLD_UNKNOWN = { state: 'WSAA_RESULT_UNKNOWN', hold: 'result_unknown', retry_after_seconds: 44990 }
+const HOLD_TICKET = { state: 'WSAA_TICKET_ALREADY_ISSUED', hold: 'ticket_active', retry_after_seconds: 45000 }
+const FAULT_SENTINEL = 'FAULT-TEXT-SENTINEL-P2A'
+const axisFault = (code: string, text: string) => `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body><soapenv:Fault><faultcode xmlns:ns1="http://xml.apache.org/axis/">ns1:${code}</faultcode><faultstring>${text}</faultstring><detail><ns2:hostname xmlns:ns2="http://xml.apache.org/axis/">wsaahomo</ns2:hostname></detail></soapenv:Fault></soapenv:Body></soapenv:Envelope>`
 
-Deno.test('verify: material → WSAA con el par exacto → registro → activación; respuesta sin material', async () => {
-  const x = makeDeps({ rpc: (name) => {
-    if (name === 'arca_selfservice_verification_material') return { data: MATERIAL, error: null }
-    if (name === 'arca_selfservice_record_verification') return { data: { ok: true, state: 'VERIFIED' }, error: null }
-    if (name === 'arca_selfservice_activate') return { data: { ok: true, state: 'ACTIVATED', connection: 'connected', expires_at: '2035-01-01T00:00:00Z' }, error: null }
+/**
+ * Base simulada con la semántica de espera de la migración: el material deja una espera
+ * pesimista; un reporte definitivo del MISMO intento la libera; uno ambiguo la extiende;
+ * un registro la borra. Sirve para probar "el segundo verify inmediato NO llama a WSAA".
+ */
+function fakeDb(opts: { recordFails?: number; recordState?: string; activate?: () => { data: unknown; error: unknown }; materialError?: boolean; reportFails?: boolean } = {}) {
+  const db = { hold: null as null | { reason: string }, attempt: null as string | null, verified: false, recordCalls: 0, reports: [] as Array<Record<string, unknown>> }
+  const rpc = (name: string, args: Record<string, unknown>) => {
+    if (name === 'arca_selfservice_verification_material') {
+      if (opts.materialError) return { data: null, error: { message: 'lost' } }
+      if (db.verified) return { data: { ok: true, state: 'ALREADY_VERIFIED', fingerprint: FP, certificate_sha256: SHA }, error: null }
+      if (db.hold) return { data: { ok: false, state: db.hold.reason === 'ticket_active' ? HOLD_TICKET.state : HOLD_UNKNOWN.state, retry_after_seconds: 44990 }, error: null }
+      db.hold = { reason: 'in_flight' }
+      db.attempt = String(args.p_attempt_id)
+      return { data: MATERIAL, error: null }
+    }
+    if (name === 'arca_selfservice_record_verification_failure') {
+      db.reports.push(args)
+      if (opts.reportFails) return { data: null, error: { message: 'down' } }
+      if (db.verified) return { data: { ok: true, state: 'ALREADY_VERIFIED', code: args.p_code }, error: null }
+      if (args.p_attempt_id !== db.attempt) return { data: { ok: false, state: 'ATTEMPT_NOT_FOUND' }, error: null }
+      const code = String(args.p_code)
+      if (['VERIFICATION_NOT_DISPATCHED'].includes(code)) db.hold = null
+      else if (['WSAA_SERVICE_NOT_AUTHORIZED', 'WSAA_CERTIFICATE_REJECTED', 'WSAA_REJECTED', 'WSAA_UNAVAILABLE', 'SIGNING_FAILED'].includes(code)) db.hold = { reason: 'cooldown' }
+      else if (code === 'WSAA_TICKET_ALREADY_ISSUED') db.hold = { reason: 'ticket_active' }
+      else db.hold = { reason: 'result_unknown' }
+      const hold = db.hold === null ? null : db.hold.reason === 'ticket_active' ? HOLD_TICKET : db.hold.reason === 'cooldown' ? { state: 'VERIFICATION_COOLDOWN', hold: 'cooldown', retry_after_seconds: 60 } : HOLD_UNKNOWN
+      return { data: { ok: true, state: 'FAILURE_RECORDED', code, hold }, error: null }
+    }
+    if (name === 'arca_selfservice_record_verification') {
+      db.recordCalls++
+      if (opts.recordFails && db.recordCalls <= opts.recordFails) return { data: null, error: { message: 'transport' } }
+      if (opts.recordState) return { data: { ok: false, state: opts.recordState }, error: null }
+      db.verified = true
+      db.hold = null
+      return { data: { ok: true, state: 'VERIFIED' }, error: null }
+    }
+    if (name === 'arca_selfservice_activate') {
+      return opts.activate ? opts.activate() : { data: { ok: true, state: 'ACTIVATED', connection: 'connected', expires_at: '2035-01-01T00:00:00Z' }, error: null }
+    }
     return { data: null, error: { message: 'unexpected' } }
-  } })
+  }
+  return {
+    db, rpc,
+    get reports(): Array<Record<string, unknown>> { return db.reports },
+    get recordCalls(): number { return db.recordCalls },
+  }
+}
+
+Deno.test('verify: material (con nonce) → WSAA con el par exacto → registro con el vencimiento EXACTO → activación', async () => {
+  const exp = new Date(Date.now() + 11 * 3600_000 + 123).toISOString().replace('Z', '+00:00')
+  const f = fakeDb()
+  const x = makeDeps({ rpc: (name, args) => f.rpc(name, args), wsaa: async () => ({ token: TOKEN_SENTINEL, sign: SIGN_SENTINEL, expirationTime: exp }) })
   const r = await read(await handleSetupRequest(post(VERIFY), x.deps))
   assertEquals([r.status, r.body], [200, { ok: true, state: 'ACTIVATED', connection: 'connected', expires_at: '2035-01-01T00:00:00Z' }])
   assertEquals(x.wsaaCalls, [{ certificatePem: 'CERT-PEM', signingKeyPem: KEY_SENTINEL, ambiente: 'homologacion', service: 'wsfe' }])
+  const material = dataRpcs(x.calls).find((c) => c.name === 'arca_selfservice_verification_material')!
+  assertEquals(material.args.p_attempt_id, ATTEMPT)
   const record = dataRpcs(x.calls).find((c) => c.name === 'arca_selfservice_record_verification')!
-  assertEquals([record.args.p_expected_fingerprint, record.args.p_expected_certificate_sha256, record.args.p_token], [FP, SHA, TOKEN_SENTINEL])
+  assertEquals([record.args.p_expected_fingerprint, record.args.p_expected_certificate_sha256, record.args.p_token, record.args.p_expires_at], [FP, SHA, TOKEN_SENTINEL, exp])
   const activate = dataRpcs(x.calls).find((c) => c.name === 'arca_selfservice_activate')!
   assertEquals([activate.args.p_idempotency_key, activate.args.p_expected_certificate_sha256], ['wizard-verify-0001', SHA])
   assertNoMaterial(r.text, 'verify')
@@ -280,98 +337,295 @@ Deno.test('verify: material → WSAA con el par exacto → registro → activaci
   }
 })
 
-Deno.test('verify: ALREADY_VERIFIED no vuelve a ARCA; SETUP_ALREADY_COMPLETED responde sin tocar nada', async () => {
+Deno.test('B1: vencimiento vacío, malformado, sin zona, pasado o fuera de cota → fail-closed: sin registro, sin activación, espera durable', async () => {
+  const bad: Array<[string, string | undefined, boolean]> = [
+    ['vacío', '', false],
+    ['ausente', undefined, false],
+    ['sin zona horaria (ambiguo)', '2030-01-01T10:00:00', false],
+    ['formato libre', 'mañana 10hs', false],
+    ['fecha imposible', '2030-02-30T10:00:00-03:00', false],
+    ['espacio en vez de T', inHours(6).replace('T', ' '), false],
+    ['ya vencido', inHours(-1), true],
+    ['más allá de 12 h 10 min', inHours(13), true],
+  ]
+  for (const [label, expirationTime, parseable] of bad) {
+    const f = fakeDb()
+    const x = makeDeps({ rpc: (name, args) => f.rpc(name, args), wsaa: async () => ({ token: TOKEN_SENTINEL, sign: SIGN_SENTINEL, expirationTime: expirationTime as string }) })
+    const r = await read(await handleSetupRequest(post(VERIFY), x.deps))
+    assertEquals([r.status, r.body.state, r.body.retry_after_seconds], [409, 'WSAA_RESULT_UNKNOWN', 44990], label)
+    const names = dataRpcs(x.calls).map((c) => c.name)
+    assertFalse(names.includes('arca_selfservice_record_verification'), `${label}: no registra`)
+    assertFalse(names.includes('arca_selfservice_activate'), `${label}: no activa`)
+    assertEquals(f.reports.length === 0 ? null : f.reports[0].p_code, 'WSAA_RESPONSE_INVALID', label)
+    assertEquals(f.reports[0].p_attempt_id, ATTEMPT)
+    assertEquals(typeof f.reports[0].p_observed_expires === 'string', parseable, `${label}: vencimiento observado sólo si era un instante`)
+    assertNoMaterial(r.text, label)
+    // Segundo verify inmediato: la base mantiene la espera → sin WSAA.
+    const again = await read(await handleSetupRequest(post(VERIFY), x.deps))
+    assertEquals([again.status, again.body.state], [409, 'WSAA_RESULT_UNKNOWN'], `${label}: segundo intento`)
+    assertEquals(x.wsaaCalls.length, 1, `${label}: un solo LoginCms`)
+  }
+})
+
+Deno.test('B1: token o sign vacíos con vencimiento válido → WSAA_RESPONSE_INVALID, sin registro', async () => {
+  for (const ticket of [{ token: '', sign: SIGN_SENTINEL }, { token: TOKEN_SENTINEL, sign: '  ' }]) {
+    const f = fakeDb()
+    const x = makeDeps({ rpc: (name, args) => f.rpc(name, args), wsaa: async () => ({ ...ticket, expirationTime: inHours(11) }) })
+    const r = await read(await handleSetupRequest(post(VERIFY), x.deps))
+    assertEquals([r.status, r.body.state], [409, 'WSAA_RESULT_UNKNOWN'])
+    assertEquals(f.recordCalls, 0)
+    assertEquals(f.reports[0].p_code, 'WSAA_RESPONSE_INVALID')
+  }
+})
+
+Deno.test('B2: timeout y transporte después del envío son ambiguos: espera durable y el verify inmediato NO llama a WSAA', async () => {
+  for (const err of [new WsaaLoginError('timeout'), new WsaaLoginError('transport'), new Error('algo inesperado'),
+    new WsaaLoginError('http', 'WSAA HTTP 502: <html>Bad Gateway</html>'),
+    new WsaaLoginError('http', `WSAA HTTP 500: ${axisFault('wsaa.internalError', FAULT_SENTINEL)}`),
+    new WsaaLoginError('http', `WSAA HTTP 500: ${axisFault('coe.somethingNew', FAULT_SENTINEL)}`)]) {
+    const f = fakeDb()
+    const x = makeDeps({ rpc: (name, args) => f.rpc(name, args), wsaa: async () => { throw err } })
+    const r = await read(await handleSetupRequest(post(VERIFY), x.deps))
+    assertEquals([r.status, r.body], [409, { ok: false, state: 'WSAA_RESULT_UNKNOWN', retry_after_seconds: 44990 }], String(err))
+    assertEquals(f.reports.map((p) => p.p_code), ['WSAA_RESULT_UNKNOWN'])
+    assertFalse(dataRpcs(x.calls).some((c) => c.name === 'arca_selfservice_record_verification' || c.name === 'arca_selfservice_activate'))
+    const again = await read(await handleSetupRequest(post({ ...VERIFY, idempotency_key: 'wizard-verify-0002' }), x.deps))
+    assertEquals([again.status, again.body.state], [409, 'WSAA_RESULT_UNKNOWN'])
+    assertEquals(x.wsaaCalls.length, 1, 'nunca un segundo LoginCms a ciegas')
+    assertFalse(r.text.includes(FAULT_SENTINEL) || again.text.includes(FAULT_SENTINEL), 'texto crudo de ARCA')
+  }
+})
+
+Deno.test('B2: TA recibido y los 3 registros fallan → ambiguo, sin activación, y el verify inmediato NO llama a WSAA', async () => {
+  const f = fakeDb({ recordFails: 3 })
+  const x = makeDeps({ rpc: (name, args) => f.rpc(name, args) })
+  const r = await read(await handleSetupRequest(post(VERIFY), x.deps))
+  assertEquals([r.status, r.body.state, r.body.retry_after_seconds], [409, 'WSAA_RESULT_UNKNOWN', 44990])
+  assertEquals(f.recordCalls, 3)
+  assertEquals(f.reports.map((p) => p.p_code), ['VERIFICATION_RECORD_FAILED'])
+  assertFalse(dataRpcs(x.calls).some((c) => c.name === 'arca_selfservice_activate'))
+  assertNoMaterial(r.text, 'record ambiguo')
+  const again = await read(await handleSetupRequest(post(VERIFY), x.deps))
+  assertEquals([again.status, again.body.state], [409, 'WSAA_RESULT_UNKNOWN'])
+  assertEquals(x.wsaaCalls.length, 1)
+})
+
+Deno.test('B2: si el registro sí quedó (respuesta perdida) el reporte dice ALREADY_VERIFIED y se activa sin volver a ARCA', async () => {
+  const f = fakeDb({ recordFails: 3 })
+  const x = makeDeps({ rpc: (name, args) => {
+    // El 1er registro commiteó pero su respuesta se perdió.
+    if (name === 'arca_selfservice_record_verification') { f.db.verified = true; f.db.hold = null; f.db.recordCalls++; return { data: null, error: { message: 'lost' } } }
+    return f.rpc(name, args)
+  } })
+  const r = await read(await handleSetupRequest(post(VERIFY), x.deps))
+  assertEquals([r.status, r.body.state], [200, 'ACTIVATED'])
+  assertEquals(f.reports.map((p) => p.p_code), ['VERIFICATION_RECORD_FAILED'])
+  assertEquals(x.wsaaCalls.length, 1)
+})
+
+Deno.test('B2: registro rechazado por la base con un TA en mano → ambiguo (el TA quedó vigente en ARCA), sin activar', async () => {
+  for (const state of ['WSAA_TICKET_INVALID', 'CERTIFICATE_CHANGED', 'NO_SETUP_IN_PROGRESS']) {
+    const f = fakeDb({ recordState: state })
+    const x = makeDeps({ rpc: (name, args) => f.rpc(name, args) })
+    const r = await read(await handleSetupRequest(post(VERIFY), x.deps))
+    assertEquals([r.status, r.body.state], [409, 'WSAA_RESULT_UNKNOWN'], state)
+    assertEquals(f.recordCalls, 1, `${state}: un rechazo de negocio no se reintenta`)
+    assertEquals(f.reports.map((p) => p.p_code), ['VERIFICATION_RECORD_FAILED'])
+    assertFalse(dataRpcs(x.calls).some((c) => c.name === 'arca_selfservice_activate'))
+  }
+})
+
+Deno.test('coe.alreadyAuthenticated → espera acotada informada por la base, un solo LoginCms, sin reintento automático', async () => {
+  const f = fakeDb()
+  const x = makeDeps({ rpc: (name, args) => f.rpc(name, args), wsaa: async () => { throw new WsaaLoginError('http', `WSAA HTTP 500: ${axisFault('coe.alreadyAuthenticated', 'El CEE ya posee un TA valido para el acceso al WSN solicitado')}`) } })
+  const r = await read(await handleSetupRequest(post(VERIFY), x.deps))
+  assertEquals([r.status, r.body], [409, { ok: false, state: 'WSAA_TICKET_ALREADY_ISSUED', retry_after_seconds: 45000 }])
+  assertEquals(x.wsaaCalls.length, 1)
+  assertEquals(f.reports.map((p) => p.p_code), ['WSAA_TICKET_ALREADY_ISSUED'])
+  const again = await read(await handleSetupRequest(post(VERIFY), x.deps))
+  assertEquals([again.status, again.body.state], [409, 'WSAA_TICKET_ALREADY_ISSUED'])
+  assertEquals(x.wsaaCalls.length, 1)
+  assertFalse(r.text.includes('TA valido'))
+})
+
+Deno.test('fallas definitivas (faults de validación exactos, firma) → código acotado y espera corta de la base; sin texto crudo', async () => {
+  const cases: Array<[unknown, string, number]> = [
+    [new WsaaLoginError('http', `WSAA HTTP 500: ${axisFault('coe.notAuthorized', FAULT_SENTINEL)}`), 'WSAA_SERVICE_NOT_AUTHORIZED', 409],
+    [new WsaaLoginError('http', `WSAA HTTP 500: ${axisFault('cms.cert.untrusted', FAULT_SENTINEL)}`), 'WSAA_CERTIFICATE_REJECTED', 409],
+    [new WsaaLoginError('http', `WSAA HTTP 500: ${axisFault('xml.generationTime.invalid', FAULT_SENTINEL)}`), 'WSAA_REJECTED', 409],
+    [new WsaaLoginError('http', `WSAA HTTP 500: ${axisFault('wsn.unavailable', FAULT_SENTINEL)}`), 'WSAA_UNAVAILABLE', 503],
+    [new WsaaLoginError('signing'), 'SIGNING_FAILED', 409],
+  ]
+  for (const [err, code, status] of cases) {
+    const f = fakeDb()
+    const x = makeDeps({ rpc: (name, args) => f.rpc(name, args), wsaa: async () => { throw err } })
+    const r = await read(await handleSetupRequest(post(VERIFY), x.deps))
+    assertEquals([r.status, r.body], [status, { ok: false, state: code }], code)
+    assertEquals(f.reports.map((p) => [p.p_code, p.p_attempt_id]), [[code, ATTEMPT]])
+    assertNoMaterial(r.text, code)
+    assertFalse(r.text.includes(FAULT_SENTINEL), 'texto crudo de ARCA en la respuesta')
+    assertEquals(f.db.hold?.reason, 'cooldown')
+  }
+})
+
+Deno.test('material perdido o malformado: sin clave en memoria → VERIFICATION_NOT_DISPATCHED con el nonce; si el reporte no llega, espera', async () => {
+  let f = fakeDb({ materialError: true })
+  let x = makeDeps({ rpc: (name, args) => f.rpc(name, args) })
+  let r = await read(await handleSetupRequest(post(VERIFY), x.deps))
+  assertEquals([r.status, r.body.error], [503, 'SETUP_UNAVAILABLE'])
+  assertEquals(f.reports.map((p) => [p.p_code, p.p_attempt_id]), [['VERIFICATION_NOT_DISPATCHED', ATTEMPT]])
+  assertEquals(x.wsaaCalls.length, 0)
+
+  // Un cliente que LANZA en vez de devolver error recibe el mismo trato (nunca un 500 sin reporte).
+  f = fakeDb()
+  x = makeDeps({ rpc: (name, args) => { if (name === 'arca_selfservice_verification_material') throw new Error('socket hang up'); return f.rpc(name, args) } })
+  x.deps.rpc = async (name, args) => {
+    x.calls.push({ name, args })
+    if (name === 'is_business_owner_or_admin') return { data: true, error: null }
+    if (name === 'arca_selfservice_verification_material') throw new Error('socket hang up')
+    return f.rpc(name, args)
+  }
+  r = await read(await handleSetupRequest(post(VERIFY), x.deps))
+  assertEquals([r.status, r.body.error], [503, 'SETUP_UNAVAILABLE'])
+  assertEquals(f.reports.map((p) => p.p_code), ['VERIFICATION_NOT_DISPATCHED'])
+  assertEquals(x.wsaaCalls.length, 0)
+
+  f = fakeDb({ materialError: true, reportFails: true })
+  x = makeDeps({ rpc: (name, args) => f.rpc(name, args) })
+  r = await read(await handleSetupRequest(post(VERIFY), x.deps))
+  assertEquals([r.status, r.body], [409, { ok: false, state: 'WSAA_RESULT_UNKNOWN', retry_after_seconds: 45000 }])
+  assertEquals(f.reports.length, 3, 'el reporte se reintenta ante transporte')
+
+  for (const broken of [{ ...MATERIAL, ambiente: 'staging' }, { ...MATERIAL, signing_key_pem: null }, { ...MATERIAL, fingerprint: 'x' }]) {
+    const g = fakeDb()
+    const y = makeDeps({ rpc: (name, args) => name === 'arca_selfservice_verification_material' ? { data: broken, error: null } : g.rpc(name, args) })
+    r = await read(await handleSetupRequest(post(VERIFY), y.deps))
+    assertEquals(r.status, 503)
+    assertEquals(y.wsaaCalls.length, 0)
+    assertEquals(g.reports.map((p) => p.p_code), ['VERIFICATION_NOT_DISPATCHED'])
+  }
+})
+
+Deno.test('esperas de la base: el material rechazado no llama a WSAA y la respuesta lleva sólo estado + retry acotado', async () => {
+  for (const [state, retry, want] of [
+    ['VERIFICATION_IN_PROGRESS', 30, 30], ['WSAA_RESULT_UNKNOWN', 44000, 44000], ['WSAA_TICKET_ALREADY_ISSUED', 45000, 45000],
+    ['VERIFICATION_EXPIRED', 600, 600], ['VERIFICATION_COOLDOWN', 60, 60], ['WSAA_RESULT_UNKNOWN', -1, 45000], ['WSAA_RESULT_UNKNOWN', 'x', 45000],
+  ] as const) {
+    const x = makeDeps({ rpc: () => ({ data: { ok: false, state, retry_after_seconds: retry, hold: 'in_flight', attempt_id: ATTEMPT }, error: null }) })
+    const r = await read(await handleSetupRequest(post(VERIFY), x.deps))
+    assertEquals([r.status, r.body], [409, { ok: false, state, retry_after_seconds: want }], `${state} ${retry}`)
+    assertEquals(x.wsaaCalls.length, 0)
+  }
+})
+
+Deno.test('activación: VERIFICATION_EXPIRED con espera acotada; ALREADY_VERIFIED no vuelve a ARCA; activación caída → ACTIVATION_PENDING', async () => {
   let x = makeDeps({ rpc: (name) => name === 'arca_selfservice_verification_material'
     ? { data: { ok: true, state: 'ALREADY_VERIFIED', fingerprint: FP, certificate_sha256: SHA }, error: null }
-    : { data: { ok: true, state: 'ALREADY_ACTIVATED', connection: 'connected' }, error: null } })
+    : { data: { ok: false, state: 'VERIFICATION_EXPIRED', retry_after_seconds: 600 }, error: null } })
   let r = await read(await handleSetupRequest(post(VERIFY), x.deps))
+  assertEquals([r.status, r.body], [409, { ok: false, state: 'VERIFICATION_EXPIRED', retry_after_seconds: 600 }])
+  assertEquals(x.wsaaCalls.length, 0)
+
+  x = makeDeps({ rpc: (name) => name === 'arca_selfservice_verification_material'
+    ? { data: { ok: true, state: 'ALREADY_VERIFIED', fingerprint: FP, certificate_sha256: SHA }, error: null }
+    : { data: { ok: true, state: 'ALREADY_ACTIVATED', connection: 'connected' }, error: null } })
+  r = await read(await handleSetupRequest(post(VERIFY), x.deps))
   assertEquals([r.status, r.body.state], [200, 'ALREADY_ACTIVATED'])
   assertEquals(x.wsaaCalls.length, 0)
 
   x = makeDeps({ rpc: () => ({ data: { ok: true, state: 'SETUP_ALREADY_COMPLETED' }, error: null }) })
   r = await read(await handleSetupRequest(post(VERIFY), x.deps))
   assertEquals([r.status, r.body.state], [200, 'SETUP_ALREADY_COMPLETED'])
-  assertEquals(x.wsaaCalls.length, 0)
   assertEquals(dataRpcs(x.calls).map((c) => c.name), ['arca_selfservice_verification_material'])
-})
-
-const axisFault = (code: string, text: string) => `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body><soapenv:Fault><faultcode xmlns:ns1="http://xml.apache.org/axis/">ns1:${code}</faultcode><faultstring>${text}</faultstring><detail><ns2:hostname xmlns:ns2="http://xml.apache.org/axis/">wsaahomo</ns2:hostname></detail></soapenv:Fault></soapenv:Body></soapenv:Envelope>`
-
-Deno.test('verify: fallas WSAA → código acotado, auditoría acotada, sin registro ni activación, sin texto crudo', async () => {
-  const cases: Array<[unknown, string, number]> = [
-    [new WsaaLoginError('http', `WSAA HTTP 500: ${axisFault('coe.alreadyAuthenticated', 'El CEE ya posee un TA valido para el acceso al WSN solicitado')}`), 'WSAA_TICKET_ALREADY_ISSUED', 409],
-    [new WsaaLoginError('http', `WSAA HTTP 500: ${axisFault('coe.notAuthorized', 'Computador no autorizado a acceder al servicio')}`), 'WSAA_SERVICE_NOT_AUTHORIZED', 409],
-    [new WsaaLoginError('http', `WSAA HTTP 500: ${axisFault('cms.cert.untrusted', 'Certificado no emitido por AC de confianza')}`), 'WSAA_CERTIFICATE_REJECTED', 409],
-    [new WsaaLoginError('http', `WSAA HTTP 500: ${axisFault('xml.bad', 'No se pudo interpretar el XML')}`), 'WSAA_REJECTED', 409],
-    [new WsaaLoginError('http', `WSAA HTTP 500: ${axisFault('wsn.unavailable', 'El servicio no está disponible')}`), 'WSAA_UNAVAILABLE', 503],
-    [new WsaaLoginError('http', 'WSAA HTTP 502: <html>Bad Gateway</html>'), 'WSAA_UNAVAILABLE', 503],
-    [new WsaaLoginError('transport'), 'WSAA_UNAVAILABLE', 503],
-    [new WsaaLoginError('timeout'), 'WSAA_UNAVAILABLE', 503],
-    [new WsaaLoginError('signing'), 'SIGNING_FAILED', 409],
-    [new Error('algo inesperado'), 'WSAA_UNAVAILABLE', 503],
-  ]
-  for (const [err, code, status] of cases) {
-    const x = makeDeps({
-      wsaa: async () => { throw err },
-      rpc: (name) => name === 'arca_selfservice_verification_material' ? { data: MATERIAL, error: null } : { data: { ok: true, state: 'FAILURE_RECORDED' }, error: null },
-    })
-    const r = await read(await handleSetupRequest(post(VERIFY), x.deps))
-    assertEquals([r.status, r.body.state], [status, code], code)
-    const names = dataRpcs(x.calls).map((c) => c.name)
-    assertEquals(names, ['arca_selfservice_verification_material', 'arca_selfservice_record_verification_failure'])
-    assertEquals(dataRpcs(x.calls)[1].args.p_code, code)
-    assertNoMaterial(r.text, code)
-    assertFalse(r.text.includes('TA valido') || r.text.includes('Computador'), 'texto crudo de ARCA en la respuesta')
-    if (code === 'WSAA_TICKET_ALREADY_ISSUED') assertEquals(r.body.retry_after_seconds, 43200)
-  }
-})
-
-Deno.test('verify: el registro del ticket se reintenta ante errores de transporte; un rechazo de negocio no se reintenta', async () => {
-  let x = makeDeps({ rpc: (name, _a, n) => {
-    if (name === 'arca_selfservice_verification_material') return { data: MATERIAL, error: null }
-    if (name === 'arca_selfservice_record_verification') return n < 3 ? { data: null, error: { message: 'timeout' } } : { data: { ok: true, state: 'VERIFIED' }, error: null }
-    return { data: { ok: true, state: 'ACTIVATED', connection: 'connected' }, error: null }
-  } })
-  let r = await read(await handleSetupRequest(post(VERIFY), x.deps))
-  assertEquals([r.status, r.body.state], [200, 'ACTIVATED'])
-  assertEquals(dataRpcs(x.calls).filter((c) => c.name === 'arca_selfservice_record_verification').length, 3)
-
-  x = makeDeps({ rpc: (name) => {
-    if (name === 'arca_selfservice_verification_material') return { data: MATERIAL, error: null }
-    if (name === 'arca_selfservice_record_verification') return { data: null, error: { message: 'down' } }
-    return { data: { ok: true, state: 'FAILURE_RECORDED' }, error: null }
-  } })
-  r = await read(await handleSetupRequest(post(VERIFY), x.deps))
-  assertEquals([r.status, r.body.state], [503, 'VERIFICATION_RECORD_FAILED'])
-  assertFalse(dataRpcs(x.calls).some((c) => c.name === 'arca_selfservice_activate'))
-
-  x = makeDeps({ rpc: (name) => {
-    if (name === 'arca_selfservice_verification_material') return { data: MATERIAL, error: null }
-    if (name === 'arca_selfservice_record_verification') return { data: { ok: false, state: 'CERTIFICATE_CHANGED' }, error: null }
-    return { data: null, error: { message: 'unexpected' } }
-  } })
-  r = await read(await handleSetupRequest(post(VERIFY), x.deps))
-  assertEquals([r.status, r.body.state], [409, 'CERTIFICATE_CHANGED'])
-  assertEquals(dataRpcs(x.calls).filter((c) => c.name === 'arca_selfservice_record_verification').length, 1)
-  assertFalse(dataRpcs(x.calls).some((c) => c.name === 'arca_selfservice_activate'))
-})
-
-Deno.test('verify: lease ocupado, material malformado y activación caída → acotados', async () => {
-  let x = makeDeps({ rpc: () => ({ data: { ok: false, state: 'VERIFICATION_IN_PROGRESS' }, error: null }) })
-  let r = await read(await handleSetupRequest(post(VERIFY), x.deps))
-  assertEquals([r.status, r.body.state], [409, 'VERIFICATION_IN_PROGRESS'])
-  assertEquals(x.wsaaCalls.length, 0)
-
-  x = makeDeps({ rpc: () => ({ data: { ...MATERIAL, ambiente: 'staging' }, error: null }) })
-  r = await read(await handleSetupRequest(post(VERIFY), x.deps))
-  assertEquals(r.status, 503)
-  assertEquals(x.wsaaCalls.length, 0)
 
   x = makeDeps({ rpc: (name) => name === 'arca_selfservice_verification_material'
     ? { data: { ok: true, state: 'ALREADY_VERIFIED', fingerprint: FP, certificate_sha256: SHA }, error: null }
     : { data: null, error: { message: 'down' } } })
   r = await read(await handleSetupRequest(post(VERIFY), x.deps))
   assertEquals([r.status, r.body.state], [503, 'ACTIVATION_PENDING'])
+})
+
+Deno.test('cancel: informa remote_ticket_possible acotado, nunca dice que se revocó nada; en vuelo → espera', async () => {
+  for (const flag of [true, false, 'yes']) {
+    const x = makeDeps({ rpc: () => ({ data: { ok: true, state: 'SETUP_CANCELLED', remote_ticket_possible: flag, secret_id: 'x' }, error: null }) })
+    const r = await read(await handleSetupRequest(post({ action: 'cancel' }), x.deps))
+    assertEquals([r.status, r.body], [200, { ok: true, state: 'SETUP_CANCELLED', remote_ticket_possible: flag === true }])
+    assertFalse(/revoc/i.test(r.text))
+  }
+  const x = makeDeps({ rpc: () => ({ data: { ok: false, state: 'VERIFICATION_IN_PROGRESS', retry_after_seconds: 300 }, error: null }) })
+  const r = await read(await handleSetupRequest(post({ action: 'cancel' }), x.deps))
+  assertEquals([r.status, r.body], [409, { ok: false, state: 'VERIFICATION_IN_PROGRESS', retry_after_seconds: 300 }])
+})
+
+Deno.test('nonce del intento: nunca en respuestas; un nonce inválido no llega a la base', async () => {
+  const f = fakeDb()
+  const x = makeDeps({ rpc: (name, args) => f.rpc(name, args), wsaa: async () => { throw new WsaaLoginError('timeout') } })
+  const r = await read(await handleSetupRequest(post(VERIFY), x.deps))
+  assertFalse(r.text.includes(ATTEMPT))
+  const y = makeDeps()
+  y.deps.newAttemptId = () => 'not-a-uuid'
+  const s = await read(await handleSetupRequest(post(VERIFY), y.deps))
+  assertEquals(s.status, 503)
+  assertEquals(dataRpcs(y.calls).length, 0)
+})
+
+// ── WSAA: vencimiento y clasificación (unidad) ──────────────────────────────
+Deno.test('parseWsaaInstant: formato real de WSAA (milisegundos + -03:00), Z, fracciones largas; rechaza lo ambiguo', () => {
+  assertEquals(parseWsaaInstant('2026-09-14T22:10:54.622-03:00'), Date.UTC(2026, 8, 15, 1, 10, 54, 622))
+  assertEquals(parseWsaaInstant('2026-09-15T01:10:54Z'), Date.UTC(2026, 8, 15, 1, 10, 54))
+  assertEquals(parseWsaaInstant('2026-09-15T01:10:54.123456789+00:00'), Date.UTC(2026, 8, 15, 1, 10, 54, 123))
+  for (const bad of ['', '2026-09-15T01:10:54', '2026-09-15 01:10:54-03:00', '2026-13-01T00:00:00Z', '2026-02-29T00:00:00Z',
+    '2026-09-15T24:00:00Z', '2026-09-15T01:10:54-15:00', '15/09/2026', null, 1789355560760]) {
+    assertEquals(parseWsaaInstant(bad), null, String(bad))
+  }
+})
+
+Deno.test('validateWsaaTicket: nunca completa; cotas (ahora, ahora + 12 h 10 min]; vencimiento observado en el error', () => {
+  const now = Date.UTC(2026, 8, 14, 12, 0, 0)
+  const ok = validateWsaaTicket({ token: ' T ', sign: 'S', expirationTime: '2026-09-14T21:00:00.000-03:00' }, now)
+  assertEquals(ok, { token: 'T', sign: 'S', expirationTime: '2026-09-14T21:00:00.000-03:00' })
+  const edge = new Date(now + 12 * 3600_000 + 10 * 60_000).toISOString()
+  assertEquals(validateWsaaTicket({ token: 'T', sign: 'S', expirationTime: edge }, now).expirationTime, edge)
+  for (const [raw, observed] of [
+    [{ token: 'T', sign: 'S', expirationTime: '' }, null],
+    [{ token: 'T', sign: 'S' }, null],
+    [{ token: 'T', sign: 'S', expirationTime: new Date(now).toISOString() }, now],
+    [{ token: 'T', sign: 'S', expirationTime: new Date(now + 12 * 3600_000 + 10 * 60_000 + 1).toISOString() }, now + 12 * 3600_000 + 10 * 60_000 + 1],
+    [{ token: '', sign: 'S', expirationTime: new Date(now + 3600_000).toISOString() }, now + 3600_000],
+  ] as const) {
+    let caught: unknown = null
+    try { validateWsaaTicket(raw as never, now) } catch (e) { caught = e }
+    assert(caught instanceof WsaaLoginError, JSON.stringify(raw))
+    const f = classifyWsaaFailure(caught)
+    assertEquals([f.code, f.disposition, f.observedExpiresAt], ['WSAA_RESPONSE_INVALID', 'ambiguous', observed === null ? null : new Date(observed).toISOString()])
+  }
+})
+
+Deno.test('faultcode: sobres Axis reales (xmlns + prefijo), allowlist exacta, truncado/duplicado/desconocido → ambiguo; el error no guarda texto', () => {
+  const fault = (code: string) => new WsaaLoginError('http', `WSAA HTTP 500: ${axisFault(code, FAULT_SENTINEL)}`)
+  const expect = (err: unknown, code: string, disposition: string) => {
+    const f = classifyWsaaFailure(err)
+    assertEquals([f.code, f.disposition], [code, disposition], String((err as WsaaLoginError).fault))
+  }
+  expect(fault('coe.alreadyAuthenticated'), 'WSAA_TICKET_ALREADY_ISSUED', 'ticket_active')
+  expect(fault('coe.notAuthorized'), 'WSAA_SERVICE_NOT_AUTHORIZED', 'definitive')
+  for (const c of ['cms.bad', 'cms.bad.base64', 'cms.cert.notFound', 'cms.cert.expired', 'cms.cert.untrusted', 'cms.cert.invalid', 'cms.sign.invalid']) expect(fault(c), 'WSAA_CERTIFICATE_REJECTED', 'definitive')
+  for (const c of ['xml.bad', 'xml.source.invalid', 'xml.destination.invalid', 'xml.version.notSupported', 'xml.generationTime.invalid', 'xml.expirationTime.expired', 'xml.expirationTime.invalid', 'wsn.notFound']) expect(fault(c), 'WSAA_REJECTED', 'definitive')
+  expect(fault('xml.CEE.notAuthorized'), 'WSAA_SERVICE_NOT_AUTHORIZED', 'definitive')
+  expect(fault('wsn.unavailable'), 'WSAA_UNAVAILABLE', 'definitive')
+  for (const c of ['wsaa.internalError', 'wsaa.unavailable', 'coe.other', 'cms.somethingElse', 'cert.expired', 'Server.userException', 'coe.notAuthorizedX']) expect(fault(c), 'WSAA_RESULT_UNKNOWN', 'ambiguous')
+  const full = `WSAA HTTP 500: ${axisFault('coe.alreadyAuthenticated', 'x')}`
+  expect(new WsaaLoginError('http', full.slice(0, full.indexOf('alreadyAuth') + 5)), 'WSAA_RESULT_UNKNOWN', 'ambiguous')
+  expect(new WsaaLoginError('http', `WSAA HTTP 500: ${axisFault('coe.notAuthorized', 'x')}${axisFault('coe.alreadyAuthenticated', 'x')}`), 'WSAA_RESULT_UNKNOWN', 'ambiguous')
+  expect(new WsaaLoginError('http', 'WSAA HTTP 503: <html>maintenance coe.notAuthorized</html>'), 'WSAA_RESULT_UNKNOWN', 'ambiguous')
+  expect(new WsaaLoginError('parse', axisFault('coe.notAuthorized', 'x')), 'WSAA_SERVICE_NOT_AUTHORIZED', 'definitive')
+  expect(new WsaaLoginError('parse', '<html>200 OK pero sin TA</html>'), 'WSAA_RESPONSE_INVALID', 'ambiguous')
+  expect(new WsaaLoginError('parse', '<faultcode>'), 'WSAA_RESPONSE_INVALID', 'ambiguous')
+  const err = fault('coe.notAuthorized')
+  assertEquals(wsaaFaultCode(`WSAA HTTP 500: ${axisFault('coe.notAuthorized', 'x')}`), 'coe.notAuthorized')
+  assertFalse(JSON.stringify(err).includes(FAULT_SENTINEL))
+  assertFalse(Deno.inspect(err).includes(FAULT_SENTINEL), 'el error no guarda el texto crudo de ARCA')
+  assertFalse(Object.keys(err).includes('fault'))
 })
 
 // ── crypto real ─────────────────────────────────────────────────────────────
@@ -408,10 +662,22 @@ Deno.test('crypto: normalización de certificado (PEM con espacios, DER, basura,
   assertEquals(normalizeCertificateInput({ pem: 'A'.repeat(70 * 1024) }), { ok: false, state: 'CERTIFICATE_TOO_LARGE' })
 })
 
-Deno.test('WSAA real (fetch simulado): firma PKCS#7 del par, LoginCms de homologación, fault HTTP 500 y TA OK', async () => {
+Deno.test('WSAA real (fetch simulado): firma PKCS#7 del par, LoginCms de homologación, fault HTTP 500, TA real validado y TA sin vencimiento rechazado', async () => {
   const sc = selfSigned()
   const originalFetch = globalThis.fetch
   const seen: Array<{ url: string; body: string; signerCertPem: string; hasTra: boolean }> = []
+  const beyond = new Date(Date.now() + 13 * 3600_000).toISOString()
+  const realShape = (() => {
+    const t = new Date(Date.now() + 12 * 3600_000 - 3 * 3600_000)
+    const p = (n: number, w = 2) => String(n).padStart(w, '0')
+    return `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())}T${p(t.getUTCHours())}:${p(t.getUTCMinutes())}:${p(t.getUTCSeconds())}.${p(t.getUTCMilliseconds(), 3)}-03:00`
+  })()
+  const replies = [
+    () => new Response(axisFault('coe.alreadyAuthenticated', 'El CEE ya posee un TA valido'), { status: 500 }),
+    () => new Response(taEnvelope(realShape), { status: 200 }),
+    () => new Response(taEnvelope(''), { status: 200 }),
+    () => new Response(taEnvelope(beyond), { status: 200 }),
+  ]
   try {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const body = String(init?.body ?? '')
@@ -425,33 +691,47 @@ Deno.test('WSAA real (fetch simulado): firma PKCS#7 del par, LoginCms de homolog
         hasTra = der.includes('<service>wsfe</service>') && der.includes('loginTicketRequest')
       } catch { /* se asierta afuera */ }
       seen.push({ url: String(input), body, signerCertPem, hasTra })
-      if (seen.length === 1) return new Response(axisFault('coe.alreadyAuthenticated', 'El CEE ya posee un TA valido'), { status: 500 })
-      const ta = `&lt;loginTicketResponse&gt;&lt;header&gt;&lt;expirationTime&gt;2030-01-01T00:00:00-03:00&lt;/expirationTime&gt;&lt;/header&gt;&lt;credentials&gt;&lt;token&gt;TKN&lt;/token&gt;&lt;sign&gt;SGN&lt;/sign&gt;&lt;/credentials&gt;&lt;/loginTicketResponse&gt;`
-      return new Response(`<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body><loginCmsResponse><loginCmsReturn>${ta}</loginCmsReturn></loginCmsResponse></soapenv:Body></soapenv:Envelope>`, { status: 200 })
+      return replies[seen.length - 1]()
     }) as typeof fetch
 
-    let caught: unknown = null
-    try {
-      await wsaaLoginWithPendingPair({ certificatePem: sc.pem, signingKeyPem: sc.keyPem, ambiente: 'homologacion', service: 'wsfe' })
-    } catch (e) { caught = e }
-    assertEquals(classifyWsaaFailure(caught), 'WSAA_TICKET_ALREADY_ISSUED')
-    assertEquals((caught as WsaaLoginError).message, 'WSAA_LOGIN_HTTP')
+    const attempt = async (ambiente: 'homologacion' | 'produccion' = 'homologacion', key = sc.keyPem) => {
+      try {
+        return { ticket: await wsaaLoginWithPendingPair({ certificatePem: sc.pem, signingKeyPem: key, ambiente, service: 'wsfe' }), error: null }
+      } catch (e) { return { ticket: null, error: e } }
+    }
 
-    const ticket = await wsaaLoginWithPendingPair({ certificatePem: sc.pem, signingKeyPem: sc.keyPem, ambiente: 'homologacion', service: 'wsfe' })
-    assertEquals([ticket.token, ticket.sign, ticket.expirationTime], ['TKN', 'SGN', '2030-01-01T00:00:00-03:00'])
+    let r = await attempt()
+    assertEquals(classifyWsaaFailure(r.error).code, 'WSAA_TICKET_ALREADY_ISSUED')
+    assertEquals((r.error as WsaaLoginError).message, 'WSAA_LOGIN_HTTP')
+
+    r = await attempt()
+    assertEquals([r.ticket?.token, r.ticket?.sign, r.ticket?.expirationTime], ['TKN', 'SGN', realShape], 'TA con la forma real de WSAA (ms + -03:00)')
+
+    r = await attempt()
+    assertEquals(r.ticket, null)
+    assertEquals([classifyWsaaFailure(r.error).code, classifyWsaaFailure(r.error).disposition], ['WSAA_RESPONSE_INVALID', 'ambiguous'], 'TA sin expirationTime: nunca se completa')
+
+    r = await attempt()
+    assertEquals(r.ticket, null)
+    assertEquals([classifyWsaaFailure(r.error).code, classifyWsaaFailure(r.error).observedExpiresAt], ['WSAA_RESPONSE_INVALID', beyond], 'TA fuera de cota: el vencimiento observado viaja a la base')
+
     assert(seen.every((s) => s.url === 'https://wsaahomo.afip.gov.ar/ws/services/LoginCms'), 'sólo LoginCms de homologación')
     assert(seen.every((s) => s.signerCertPem === sc.pem), 'el CMS lleva el certificado exacto del par')
     assert(seen.every((s) => s.hasTra), 'el CMS firma un TRA de wsfe')
     assertFalse(seen.some((s) => /wsfe\.afip|FECAESolicitar|FECompConsultar/i.test(s.url + s.body)), 'nunca WSFE')
 
     const other = selfSigned()
-    let signingError: unknown = null
-    try {
-      await wsaaLoginWithPendingPair({ certificatePem: sc.pem, signingKeyPem: other.keyPem, ambiente: 'produccion', service: 'wsfe' })
-    } catch (e) { signingError = e }
-    assertEquals(classifyWsaaFailure(signingError), 'SIGNING_FAILED')
-    assertEquals(seen.length, 2, 'una clave que no corresponde nunca llega a WSAA')
+    const before = seen.length
+    r = await attempt('produccion', other.keyPem)
+    assertEquals(classifyWsaaFailure(r.error).code, 'SIGNING_FAILED')
+    assertEquals(seen.length, before, 'una clave que no corresponde nunca llega a WSAA')
   } finally {
     globalThis.fetch = originalFetch
   }
 })
+
+function taEnvelope(expirationTime: string): string {
+  const header = expirationTime === '' ? '' : `&lt;expirationTime&gt;${expirationTime}&lt;/expirationTime&gt;`
+  const ta = `&lt;loginTicketResponse version="1.0"&gt;&lt;header&gt;&lt;source&gt;CN=wsaahomo&lt;/source&gt;&lt;generationTime&gt;2026-09-14T10:10:54.622-03:00&lt;/generationTime&gt;${header}&lt;/header&gt;&lt;credentials&gt;&lt;token&gt;TKN&lt;/token&gt;&lt;sign&gt;SGN&lt;/sign&gt;&lt;/credentials&gt;&lt;/loginTicketResponse&gt;`
+  return `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body><loginCmsResponse><loginCmsReturn>${ta}</loginCmsReturn></loginCmsResponse></soapenv:Body></soapenv:Envelope>`
+}

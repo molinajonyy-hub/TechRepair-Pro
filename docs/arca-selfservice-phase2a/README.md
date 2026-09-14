@@ -9,6 +9,9 @@ fiscal data → server-side RSA key (Vault only) → PKCS#10 CSR → user submit
 issued certificate → structural validation → **non-fiscal** WSAA LoginCms with the PENDING pair →
 atomic activation. **PENDING → VERIFY → ACTIVATE**, never "activate and hope".
 
+A WSAA expiration is never invented, and an ambiguous LoginCms is never blindly repeated. The database holds a
+durable, equipo-scoped wait that survives cancel (sections L1–L3, owner review 2).
+
 Renewal is out of scope. Any business with a credential row (any status), a loaded certificate/PFX, or
 a live renewal row is refused with `ARCA_ALREADY_CONFIGURED` by every setup RPC. Clic is excluded by
 construction and was never touched.
@@ -43,7 +46,9 @@ Measured production facts used (read-only): the live certificate subject is exac
 
 No new state values. One additive column set on `private.arca_credential_rotations`
 (`setup_kind`, `fiscal_snapshot`, `certificate_der_sha256`, `certificate_issuer`,
-`verification_started_at`, `verified_wsaa_token/_sign/_token_expires`).
+`verification_started_at`, `verified_wsaa_token/_sign/_token_expires`, `verification_attempt_id`,
+`verification_hold`, `verification_retry_not_before`). Holds (L3) are orthogonal to the step: a row at step
+`certificate` or `verification` can carry one (own or inherited); a verified row never does (CHECK).
 
 | `state` | `setup_kind` | certificate | `wsaa_verified_at` | Phase 1 `setup.step` | `next_action` |
 |---|---|---|---|---|---|
@@ -51,8 +56,8 @@ No new state values. One additive column set on `private.arca_credential_rotatio
 | `pending_rotation` | `initial` | none | NULL | `certificate` | `continue_setup` |
 | `pending_rotation` | `initial` | attached | NULL | `verification` | `continue_setup` |
 | `pending_rotation` | `initial` | attached | set (ticket stored) | `activation` | `continue_setup` |
-| `completed` | `initial` | installed | set | `completed` | `none` (or `verify_connection` if ticket < 30 min) |
-| `cancelled` | `initial` | purged | — | history | `start_setup` |
+| `completed` | `initial` | installed | set | `completed` | `none` (every activation installs a TA with > 90 min) |
+| `cancelled` | `initial` | purged | — | history (keeps its hold) | `start_setup` |
 
 Why the ticket is stored *before* activation: WSAA refuses a second LoginCms for the same certificate
 and service while a ticket is valid (`coe.alreadyAuthenticated`, up to 12 h). Discarding it would break
@@ -107,7 +112,7 @@ fingerprint; a declared fingerprint that does not match is `KEY_GENERATION_FAILE
 | Event | Vault |
 |---|---|
 | prepare | `vault.create_secret(name 'arca-private-key-setup:<business>:<setup>')` + decrypted readback fingerprint check, in one savepoint with the config upsert and the row insert. Any failure rolls all three back (Q06: induced insert failure → 0 new secrets, `arca_config` byte-identical) |
-| attach / verify | read-only; `verification_material` decrypts the pending secret for the Edge only while unverified |
+| attach / verify | read-only; `verification_material` decrypts the pending secret for the Edge only while unverified and with no active hold, and records the pessimistic hold in the same UPDATE |
 | activate | the same secret id becomes `private.arca_private_key_credentials.private_key_secret_id` (no copy) |
 | cancel | `DELETE FROM vault.secrets`, row `private_key_secret_id := NULL` (column now nullable; CHECK keeps it NOT NULL while pending) — no dangling reference for renewal finalize check #11 |
 
@@ -133,7 +138,8 @@ any `PRIVATE KEY` block → `400 KEY_MATERIAL_NOT_ACCEPTED`, exactly one CERTIFI
 node-forge and re-emitted. SQL is the authority: validation wrapped so a hostile DER returns
 `CERTIFICATE_INVALID` instead of aborting; stored as canonical PEM re-encoded from the validated DER;
 identity = SHA-256 of the DER bytes. Same bytes → `CERTIFICATE_ALREADY_ATTACHED`; same key, other bytes →
-`CERTIFICATE_REPLACED` (only before verification and outside a verification lease).
+`CERTIFICATE_REPLACED` (only before verification and never while an attempt is in flight (< 7 min); replacing
+never releases a hold).
 
 ## J. Certificate ↔ key
 
@@ -156,47 +162,179 @@ swapped between reading the material and recording the ticket is `CERTIFICATE_CH
 | `cuit_emisor` used by emission | set at activation to the verified certificate CUIT; a different stale value → `FISCAL_IDENTITY_MISMATCH` (Q17); the emission claim snapshots it (Q16) |
 | `business_settings.cuit` | configured metadata; enforced equal when present |
 
-## L. Pending WSAA verification
+## L. Pending WSAA verification (fail-closed, never blindly repeated)
 
-`verify` action: `verification_material` (2-minute single-flight lease; returns the exact certificate PEM,
-its DER SHA-256, the pending fingerprint and the decrypted pending key **only if not yet verified**) →
-`buildTRA('wsfe')` → `signTRAWithPEM(cert, pending key)` → `callWSAA(cms, ambiente)` (30 s race) →
-`parseWSAAResponse` → `record_verification(fp, cert sha, token, sign, expires)` retried ×3 on transport
-errors → `activate`. Never FECAESolicitar / FECompConsultar / WSFE (guard E2; the local E2E counts exactly one
-LoginCms). Nothing is written to `arca_config` before activation (Q12, Q14).
+`verify` action, at most **one** LoginCms per request and never an automatic retry:
 
-Failure classification (the verbatim `callWSAA` throws on HTTP 500, which is how WSAA returns faults):
-`coe.alreadyAuthenticated` → `WSAA_TICKET_ALREADY_ISSUED` (409, `retry_after_seconds: 43200`);
-`coe.notAuthorized` → `WSAA_SERVICE_NOT_AUTHORIZED`; `cms.*` → `WSAA_CERTIFICATE_REJECTED`;
-`wsn/wsaa.unavailable`, non-SOAP 5xx, network, timeout → `WSAA_UNAVAILABLE` (503); signing → `SIGNING_FAILED`;
-anything else → `WSAA_REJECTED`. The raw fault text is never returned, logged or audited; the audit gets the code.
+1. The Edge mints an attempt nonce (`crypto.randomUUID()`) and calls
+   `verification_material(business, actor, attempt)`. It checks, in this order:
+   - a durably recorded verification returns `ALREADY_VERIFIED` (no key);
+   - any active **effective hold** (own row, or a cancelled initial row of the same equipo) refuses with
+     its bounded state plus `retry_after_seconds` (no key);
+   - otherwise it revalidates the certificate and Vault, and in the **same UPDATE that releases the key**
+     stores `verification_hold='in_flight'` and `verification_retry_not_before = clock_timestamp() + 12 h 30 min`.
+2. `buildTRA('wsfe')` → `signTRAWithPEM` → `callWSAA` (90 s race; the verbatim `callWSAA` cannot be aborted,
+   so a short timeout adds ambiguity and no safety) → `parseWSAAResponse` → **`validateWsaaTicket`**.
+3. With a valid TA, `record_verification(fp, cert sha, token, sign, exact expirationTime)` is tried up to 3
+   times on transport errors. Success clears the hold, then activation runs.
+4. Every other outcome is reported with `record_verification_failure(attempt, code, observed_expires)`,
+   also up to 3 tries. The database decides the hold.
+
+Never FECAESolicitar / FECompConsultar / WSFE (guard E2). Nothing is written to `arca_config` before
+activation (Q12, Q14).
+
+### L1. Expiration is never invented (owner blocker 1)
+
+The previous `Date.parse(expirationTime) || now + 12 h` fallback was removed (guard E4 forbids `Date.parse` and
+`12 * 60 * 60 * 1000` in the handler). A TA is eligible only when **all** of these hold:
+
+- `token` and `sign` are non-blank (≤ 16384 / 4096 chars);
+- `expirationTime` matches `YYYY-MM-DDTHH:MM:SS(.fraction)?(Z|±HH:MM)` with real calendar fields. That covers
+  WSAA's real shape `2026-09-14T22:10:54.622-03:00`; a value without an offset is ambiguous local time and is
+  rejected;
+- `now < E ≤ now + 12 h 10 min`. The upper bound is the documented TA lifetime (12 h, ARCA WSAA technical
+  spec) plus 10 min clock tolerance, identical to SQL.
+
+The check runs in `wsaa.ts` (`wsaaLoginWithPendingPair` returns only validated TAs) **and** again at the
+handler boundary; SQL re-checks the bounds with the DB clock. Missing, empty, unparsable, past or
+out-of-bound → `WSAA_RESPONSE_INVALID`: no record, no activation, no cache write. Because a TA *was* issued, it
+is an ambiguous outcome (hold below). A parseable but rejected E is passed as `p_observed_expires`.
+
+### L2. Outcome classification
+
+| Outcome | Code | Disposition | Durable hold |
+|---|---|---|---|
+| Material RPC error / malformed material (key never in memory) | `VERIFICATION_NOT_DISPATCHED` | not dispatched | cleared only for the same `in_flight` attempt |
+| Signing failed (before `callWSAA`) | `SIGNING_FAILED` | definitive | `cooldown` 60 s |
+| SOAP fault on the exact spec allowlist: `coe.notAuthorized`, `cms.bad`, `cms.bad.base64`, `cms.cert.notFound/expired/untrusted/invalid`, `cms.sign.invalid`, `xml.bad`, `xml.source.invalid`, `xml.destination.invalid`, `xml.version.notSupported`, `xml.CEE.notAuthorized`, `xml.generationTime.invalid`, `xml.expirationTime.expired/invalid`, `wsn.notFound`, `wsn.unavailable` | `WSAA_SERVICE_NOT_AUTHORIZED` / `WSAA_CERTIFICATE_REJECTED` / `WSAA_REJECTED` / `WSAA_UNAVAILABLE` | definitive (validated before a TA is issued) | `cooldown` 60 s (5 min for unavailable), same `in_flight` attempt only |
+| `coe.alreadyAuthenticated` | `WSAA_TICKET_ALREADY_ISSUED` | ticket_active | `ticket_active`, ≥ now + 12 h 30 min |
+| Timeout after dispatch, transport error, 5xx/HTML without a SOAP fault, `wsaa.internalError`, `wsaa.unavailable`, **any unknown/duplicated/truncated faultcode**, unreadable 200 | `WSAA_RESULT_UNKNOWN` | ambiguous | `result_unknown`, ≥ now + 12 h 30 min |
+| TA received but invalid (L1) | `WSAA_RESPONSE_INVALID` | ambiguous | `result_unknown`, ≥ max(now + 12 h 30 min, min(E + 10 min, now + 24 h 10 min)) |
+| TA received, DB record rejected or all 3 tries failed | `VERIFICATION_RECORD_FAILED` | ambiguous | same as above |
+| Anything the database does not recognise | normalized to `WSAA_RESULT_UNKNOWN` | ambiguous | `result_unknown` |
+
+The faultcode is extracted from the raw reply (Axis form `<faultcode xmlns:ns1="…">ns1:coe.x</faultcode>`). The
+closing tag is required, there must be exactly one element, and matching is exact. `WsaaLoginError` keeps only
+that validated token, as a non-enumerable property; the raw ARCA text never leaves `wsaa.ts` and never reaches a
+response, a log or the audit.
+
+## L3. Durable retry authority (owner blocker 2)
+
+Columns on `private.arca_credential_rotations`: `verification_attempt_id` (Edge nonce, unique),
+`verification_hold` (`in_flight | result_unknown | ticket_active | verification_expired | cooldown`) and
+`verification_retry_not_before`.
+
+CHECKs:
+- hold NULL ⇔ retry NULL;
+- for a live initial row, verified ⇔ token + sign + expires present, `expires > verified_at`, and no hold.
+
+**Why 12 h 30 min.** The ARCA WSAA technical specification states that a TA is valid for 12 h from issuance, and
+`coe.alreadyAuthenticated` means "El CEE ya posee un TA válido". The window measured from the moment the key
+leaves is:
+
+| Component | Time |
+|---|---|
+| TA lifetime | 12 h |
+| DB↔WSAA clock tolerance (same as the ticket bound) | 10 min |
+| Supabase Edge wall-clock ceiling (the request cannot reach WSAA later) | ≤ 400 s |
+| Lock wait and WSAA processing slack | remainder |
+| **Total** | **12 h 30 min** |
+
+No tighter bound is used without proof. The only shorter wait is `E + 10 min` for a TA whose **exact** expiration
+WSAA itself returned and the database persisted (`verification_expired`, cancel of a verified setup). The only
+longer one is a rejected TA's observed `E + 10 min`, capped at 24 h 10 min (TRA maximum).
+
+**Rules.**
+- Only an explicit resolution of the **same** attempt while it is still `in_flight` can shorten the pessimistic
+  hold: `NOT_DISPATCHED` clears it, a definitive fault turns it into `cooldown`.
+- `result_unknown` and `ticket_active` are monotonic. Only expiry or a successful record ends them (Q12).
+- Reports are bound to the attempt row in any state, so a late report extends a **cancelled** row too (Q22).
+- A report for an already-verified row returns `ALREADY_VERIFIED` and the Edge proceeds to activation. The
+  "committed but response lost" record is resolved without WSAA.
+- If the report RPC never answers, the pessimistic hold from dispense stays, and the Edge answers
+  `WSAA_RESULT_UNKNOWN` with the conservative 45 000 s.
+
+**The hold is scoped to the equipo, not the row.** `private.arca_selfservice_verification_hold(business, now)`
+takes the longest active hold among:
+- the live initial row;
+- every **cancelled** initial row of the same business with the same subject (`CN=alias, serialNumber=CUIT`).
+
+Cancel keeps the hold columns:
+- `in_flight` becomes `result_unknown`;
+- a verified but not activated setup becomes `ticket_active` until `E + 10 min`.
+
+A new setup for the same equipo therefore inherits the wait, and a different alias does not (Q22, local E2E).
+
+**In-flight window 7 min** (above the 400 s Edge ceiling). While the live row is `in_flight` and younger than
+7 min:
+- verify, attach and **cancel** are refused with `VERIFICATION_IN_PROGRESS`, so an Edge that is about to record
+  a TA is never pulled from under;
+- `retry_after_seconds` for verify is still the real bound (`retry_not_before − now`), never the 7-min label flip;
+- attach and cancel report seconds to the 7-min mark.
+
+After 7 min the same hold reads `WSAA_RESULT_UNKNOWN`. Other holds do not block attaching a certificate, and
+attaching never releases a hold.
+
+**Cancel cannot revoke a TA.** It purges the key (Vault), certificate and ticket locally and answers
+`remote_ticket_possible` (a bounded boolean, true for an active non-cooldown hold). It never claims revocation.
 
 ## M. Activation transaction
 
-Inside one savepoint after all gates (verified row, fp + DER sha match, certificate revalidated incl. expiry,
-issuer, fiscal identity == certificate identity, Vault readback):
-INSERT credential (active, pending secret id, SPKI fps) → UPDATE `arca_config` (cert_file canonical PEM,
-expires_at = notAfter, web_service, cuit_emisor, ticket only if > 30 min remain else `desconectado`) →
-UPDATE row `completed` (activated/finalized, ticket purged) → readback (`arca_get_private_key_for_signing`
-fingerprint, key↔cert match, exactly one credential). Any exception → `ACTIVATION_FAILED`, nothing persisted,
-setup stays at step `activation` (Q15, induced trigger failure). Replays: same key → `ALREADY_ACTIVATED`;
-other key for the same fp/cert → `ALREADY_ACTIVATED`; retried `verify` → `SETUP_ALREADY_COMPLETED`.
-Existing renewal rollback on an initial row returns `PREVIOUS_CHECKPOINT_MISSING` (no previous pair).
+**Gates.**
+1. Replays.
+2. Configured exclusion.
+3. Live row.
+4. **Not verified**: return the effective hold's bounded state if any, else `NOT_VERIFIED`.
+5. fp + DER sha binding.
+6. **Verified TA gate, before every other gate**:
+   - an inconsistent ticket (blank token or sign, NULL expires, `expires ≤ verified_at`,
+     `expires > verified_at + 12 h 10 min`) → `VERIFICATION_STATE_INVALID` in the audit;
+   - or a TA with ≤ **90 min** left (afip-wsaa reuses its cache only with > 30 min left, plus 60 usable min)
+   - → **no activation**. One UPDATE discards the verification and sets hold `verification_expired` until the
+     exact `E + 10 min` (no hold if already past) → `VERIFICATION_EXPIRED` + `retry_after_seconds`.
+   - The user re-verifies with the **same** certificate; no new ARCA certificate is needed.
+   - The CHECK makes an inconsistent state unreachable; Q21 proves the RPC guard also holds with the CHECK
+     dropped.
+7. arca_config present, certificate revalidated, issuer, fiscal identity == certificate identity, Vault readback.
+
+**Savepoint**, in order:
+1. Insert the credential (active, pending secret id, SPKI fps).
+2. Update `arca_config`: `cert_file`, `expires_at`, `web_service`, `cuit_emisor`, and **always** the verified TA
+   with its exact expiration, `estado_conexion='conectado'`, `ultima_sincronizacion`.
+3. Mark the row `completed` (ticket and hold purged).
+4. Readback.
+
+Any exception → `ACTIVATION_FAILED`, nothing persisted. **Every `ACTIVATED` is `connection: connected`**, so a
+normal setup ends `configured / connected / completed / next_action none` (Q16, Q17, E2E).
 
 ## N. Cancel / abandon
 
-`cancel` → `arca_selfservice_cancel`: live initial row only; refuses if a credential uses that secret;
-deletes the pending Vault secret; nulls secret id, certificate PEM and ticket; `cancelled`. `arca_config`
-fiscal data stays (identity unlocks). Idempotent (`SETUP_NOT_IN_PROGRESS`); after completion →
-`SETUP_ALREADY_COMPLETED`. The consumed idempotency key returns `IDEMPOTENCY_KEY_CONSUMED` (mint a new one).
-The legacy S4A cancel RPC now ignores initial rows and also nulls the secret id it deletes.
+`cancel` → `arca_selfservice_cancel`:
+- live initial row only;
+- refused while `in_flight` < 7 min;
+- refuses if a credential uses that secret.
+
+It deletes the pending Vault secret and nulls the secret id, certificate PEM and ticket. It **keeps** the hold
+(L3) and answers `SETUP_CANCELLED` + `remote_ticket_possible`.
+- `arca_config` fiscal data stays (identity unlocks).
+- Repeating it is harmless (`SETUP_NOT_IN_PROGRESS`); after completion it returns `SETUP_ALREADY_COMPLETED`.
+- The consumed idempotency key returns `IDEMPOTENCY_KEY_CONSUMED` (mint a new one).
+- The legacy S4A cancel RPC ignores initial rows and nulls the secret id it deletes.
 
 ## O. Phase 1 status integration
 
-Proven at every transition (SQL Q07/Q11/Q14/Q15/Q16/Q17/Q18 and the local E2E):
+Proven at every transition (SQL Q07/Q11/Q12/Q14–Q18/Q22 and the local E2E):
 `not_configured/start_setup` → `setup_in_progress/initial/certificate` → `…/verification` → `…/activation`
-→ `connected/completed/none`. `contract_version` unchanged (1). Guard + migration post-condition still
-forbid the derivation from reading ticket, snapshot, PEMs or decrypted Vault.
+→ `connected/completed/none`.
+
+Additive, `contract_version` unchanged (1): `setup.verification_hold` (`in_progress | result_unknown |
+ticket_active | verification_expired | cooldown`, always the helper's label, never the raw column) and
+`setup.retry_not_before` (the stored server bound).
+- The deployed Phase 1 parser copies known fields only (extra keys ignored).
+- The updated parser reads absent keys as null (a DB without 2A, or the "plan without ARCA" branch).
+- It rejects unknown values and a hold without a bound.
+- The guard and migration postcondition still forbid the derivation from reading the ticket, snapshot, PEMs,
+  decrypted Vault or the attempt id.
 
 ## P. API surface
 
@@ -207,16 +345,40 @@ Edge `arca-selfservice-setup` (POST JSON):
 | `prepare` | `idempotency_key, cuit, razon_social, ambiente, punto_venta, alias` | `SETUP_PREPARED`, `SETUP_ALREADY_PREPARED` (+ `csr {pem, filename}`) |
 | `csr` | — | `CSR_AVAILABLE` |
 | `certificate` | `certificate_pem` \| `certificate_der_base64` | `CERTIFICATE_ATTACHED`, `CERTIFICATE_ALREADY_ATTACHED`, `CERTIFICATE_REPLACED` |
-| `verify` | `idempotency_key` | `ACTIVATED`, `ALREADY_ACTIVATED`, `SETUP_ALREADY_COMPLETED` (+ `connection`, `expires_at`) |
-| `cancel` | — | `SETUP_CANCELLED`, `SETUP_NOT_IN_PROGRESS` |
+| `verify` | `idempotency_key` | `ACTIVATED`, `ALREADY_ACTIVATED`, `SETUP_ALREADY_COMPLETED` (+ `connection: connected`, `expires_at`) |
+| `cancel` | — | `SETUP_CANCELLED`, `SETUP_NOT_IN_PROGRESS` (+ `remote_ticket_possible`) |
 
-HTTP: 200 success · 400 body · 401/403 authority/plan/tenant · 409 business state · 413 size · 422 fiscal
-validation · 503 unavailable. All optional `business_id` may only confirm the tenant.
+**Hold states** (409, always with `retry_after_seconds`, an integer in [1, 90000]):
+- `VERIFICATION_IN_PROGRESS`;
+- `WSAA_RESULT_UNKNOWN`;
+- `WSAA_TICKET_ALREADY_ISSUED`;
+- `VERIFICATION_EXPIRED`;
+- `VERIFICATION_COOLDOWN`.
 
-SQL (service_role only): `arca_selfservice_prepare_initial`, `_get_csr`, `_attach_certificate`,
-`_verification_material`, `_record_verification`, `_record_verification_failure`, `_activate`, `_cancel`.
+**HTTP status codes:**
 
-Why a new function instead of reusing `arca-rotate-*`: those are renewal endpoints (identity from the current
+| Status | Meaning |
+|---|---|
+| 200 | success |
+| 400 | body |
+| 401/403 | authority / plan / tenant |
+| 409 | business state or hold |
+| 413 | size |
+| 422 | fiscal validation |
+| 503 | unavailable (`WSAA_UNAVAILABLE`, `ACTIVATION_PENDING`, a material error whose not-dispatched report landed) |
+
+Any optional `business_id` may only confirm the tenant. The attempt nonce never appears in a response.
+
+**SQL (service_role only):**
+- `arca_selfservice_prepare_initial`, `_get_csr`, `_attach_certificate`;
+- `_verification_material(uuid,uuid,uuid)`, `_record_verification`;
+- `_record_verification_failure(uuid,uuid,uuid,text,timestamptz)`;
+- `_activate`, `_cancel`.
+
+The old signatures `(uuid,uuid)` and `(uuid,uuid,text)` are dropped, and the postcondition asserts a single
+overload.
+
+**Why a new function instead of reusing `arca-rotate-*`.** Those are renewal endpoints (identity from the current
 certificate, activate → verify) and still carry the Phase 0 CORS-echo debt; changing them would mean
 redeploying renewal. Shared logic is reused (SQL helpers, authority, crypto parameters, WSAA helpers).
 `afip-wsaa` is **not** modified or redeployed: its helpers are copied verbatim and pinned by guard W1.
@@ -228,38 +390,71 @@ redeploying renewal. Shared logic is reused (SQL helpers, authority, crypto para
 | prepare | client key + semantic hash (business, cuit, alias, ambiente, PV, razón social, RSA-2048-65537) | replay → same CSR, no key generated, no secret; hash mismatch → `IDEMPOTENCY_CONFLICT`; other key while live → `SETUP_IN_PROGRESS`; key of a cancelled/completed setup → `IDEMPOTENCY_KEY_CONSUMED` |
 | concurrent prepares | advisory lock | second call replays; its key is discarded in memory (never stored) |
 | attach | DER SHA-256 | same bytes → no-op |
-| verify | 2-min lease + `wsaa_verified_at` | one LoginCms at a time; verified → never again |
+| verify / material | Edge nonce (unique) + hold | at most one dispatched attempt per hold window; a reused nonce → `BAD_REQUEST` |
+| failure report | attempt id | repeated reports never shorten a hold; definitive only resolves the same `in_flight` attempt |
 | record | fp + DER sha | replay → `ALREADY_VERIFIED` |
 | activate | client key + hash(business, setup, fp, sha) | replay → `ALREADY_ACTIVATED`; mismatch → `IDEMPOTENCY_CONFLICT` |
-| cancel | state | idempotent |
+| cancel | state | repeated calls are harmless; hold preserved |
 
 ## R. Secret-exposure proof
 
-- SQL Q20: 176+ browser-path RPC responses contain no `PRIVATE KEY`, `signing_key_pem`, secret ids, ticket
-  sentinels, fingerprints, `certificate_pem`, `wsaa_*`; audit rows contain no PEM/ticket and fingerprints ≤ 16 chars.
-- Material never leaves for a verified setup, a configured business or an unauthorized actor (Q02, Q14).
-- Deno: every response and every non-record RPC argument checked for key/ticket/fingerprint/fault text.
-- Local E2E: all Edge responses checked for key, ticket, secret ids and any 64-hex string.
-- Guards: Edge cannot log, spread RPC results or put material in responses; frontend cannot name
-  `signing_key_pem`, generate keys, or touch private tables.
+- SQL Q20: 214 browser-path responses carry no `PRIVATE KEY`, `signing_key_pem`, secret ids, attempt ids,
+  raw hold values (`in_flight`), ticket sentinels, fingerprints, `certificate_pem` or `wsaa_*`. Audit rows carry no
+  PEM, ticket or free text (the unknown code `texto libre <script>` is normalized, Q12), and fingerprints are
+  ≤ 16 chars.
+- Material never leaves for a verified setup, a held setup, a configured business or an unauthorized actor
+  (Q02, Q04, Q12, Q14, Q17, Q22).
+- Deno: every response and every non-record RPC argument is checked for key, ticket, fingerprint, nonce and the
+  raw fault text. `WsaaLoginError` does not serialize or inspect to the ARCA text.
+- Local E2E: all Edge responses are checked for key, ticket, secret ids, attempt ids, `Bad Gateway` text and any
+  64-hex string.
+- Guards: the Edge cannot log, spread RPC results, or put material, `.fault`/`.detail` or attempt ids in
+  responses (E1). The frontend cannot name `signing_key_pem`, generate keys or touch private tables.
 
 ## S. Tests and negative controls
 
 | Suite | Result (local) |
 |---|---|
-| `tests/sql/arca_phase2a_initial_setup.test.sql` (`npm run test:sql:arca-phase2a`) | 20/20 |
-| Negative control: 16 migration mutants | 16/16 rejected (15 by the suite, 1 by the migration's own post-condition) |
-| `tests/deno/arcaSelfServiceSetup.test.ts` (in `npm run test:deno`) | 18/18 |
-| `scripts/security/arca-phase2a-local.ts` (`npm run test:local:arca-phase2a`) | 54 assertions, 77 PostgREST requests, 1 simulated LoginCms, 0 failures, 0 residue |
-| `tests/components/arcaPhase2aSetupContract.test.ts` | 18/18 |
-| Phase 1 SQL (updated S12) / Phase 0 SQL | 21/21 / 13/13 |
-| Rollback → re-apply | Phase 0 13/13, Phase 1 21/21, Phase 2A 20/20 |
+| `tests/sql/arca_phase2a_initial_setup.test.sql` (`npm run test:sql:arca-phase2a`) | 22/22 |
+| Negative control: 29 migration mutants (incl. 14 for holds/expiry/cancel/inheritance) | 29/29 rejected (28 by the suite, 1 by the migration's own post-condition) |
+| `tests/deno/arcaSelfServiceSetup.test.ts` (in `npm run test:deno`) | 30/30 |
+| `scripts/security/arca-phase2a-local.ts` (`npm run test:local:arca-phase2a`) | 74 assertions, 102 PostgREST requests, 2 simulated LoginCms (one TA, one ambiguous 502), 0 failures, 0 residue |
+| `tests/components/arcaPhase2aSetupContract.test.ts` | 35/35 |
+| `tests/components/arcaPhase1Status.test.tsx` | 33/33 |
+| Phase 1 SQL (S12, S19 additive keys) / Phase 0 SQL | 21/21 / 13/13 |
+| Rollback → re-apply | Phase 0 13/13 on the rolled-back DB; re-apply → Phase 0 13/13, Phase 1 21/21, Phase 2A 22/22 |
+
+Owner-requested controls:
+
+| # | Control | Where |
+|---|---|---|
+| 1 | token + sign + empty expiration → fail closed, no record/activation | Deno B1 (empty, absent), `validateWsaaTicket` unit, real-fetch TA without `expirationTime` |
+| 2 | malformed expiration, no invented +12 h | Deno B1 (no offset, free text, impossible date, space), guard E4 |
+| 3 | expiration in the past | Deno B1, `validateWsaaTicket`, SQL Q14 |
+| 4 | valid expiration → happy path, exact value recorded | Deno happy path (ms + offset), real-fetch WSAA shape, SQL Q14/Q16, E2E |
+| 5 | timeout after dispatch → hold, immediate verify does not call WSAA | Deno B2 (stateful DB model), SQL Q12 |
+| 6 | ambiguous transport → no blind retry | Deno B2 (transport, gateway HTML, internalError, unknown coe), E2E (502) |
+| 7 | TA received + all records fail → hold, next verify no WSAA | Deno B2 record ×3, SQL Q13 |
+| 8 | after the boundary → eligible again | SQL Q12/Q14/Q17 (`elapse`), Deno fake DB |
+| 9 | `coe.alreadyAuthenticated` → bounded retry_after, no auto retry | Deno, SQL Q12 |
+| 10 | cancel during ambiguity → key cleanup, no revocation claim | SQL Q18/Q22, Deno cancel, E2E |
+| 11 | activation refuses missing sign/expiry/inconsistent state | SQL Q21 (CHECK + guard without CHECK), Q17 |
+| 12 | no leaks (token, sign, key, secret id, raw ARCA text) | SQL Q20, Deno, E2E, guards |
 
 ## T. Static guards
 
-- `scripts/guards/arca-phase2a-setup-contract.mjs` (F1–F3, E1–E3, W1, M1–M3): 21 planted violations, each caught by its own rule.
-- `arca-phase0-legacy-writes.mjs`: `arca-selfservice-setup` registered as a management Edge (index + handler), 2 new fixtures (23 total).
-- `arca-phase1-status-contract.mjs`: self-test now mutates the file holding the latest definition; new case for an insecure later redefinition; `verified_wsaa`/`fiscal_snapshot` forbidden reads (15 fixtures).
+- `scripts/guards/arca-phase2a-setup-contract.mjs`: rules F1–F3, E1–E4, W1, M1–M3, with 31 planted violations,
+  each caught by its own rule. New rules:
+  - E4: no invented or reinterpreted expiration; the TA is validated in `wsaa.ts` and at the handler boundary;
+    the error keeps no raw text;
+  - M3 material: effective hold consulted before the key, pessimistic hold in the same UPDATE;
+  - M3 failure: exact attempt lookup, unknown code → ambiguous, definitive only for `in_flight`;
+  - M3 cancel: hold survives, `remote_ticket_possible`;
+  - M3 activate: 90-min TA gate, no ticket-less branch;
+  - E1: no `.fault`/`.detail`/attempt id in responses.
+- `arca-phase0-legacy-writes.mjs`: `arca-selfservice-setup` registered as a management Edge (23 fixtures).
+- `arca-phase1-status-contract.mjs`: `ALLOWED_KEYS += verification_hold, retry_not_before`;
+  `FORBIDDEN_READS += verification_attempt_id` (15 fixtures).
 - `edge-cors-client-contract.mjs`: `arca-selfservice-setup` classified `sdk/scoped` (13/13 self-test).
 
 ## U. Rollout compatibility
@@ -267,47 +462,81 @@ redeploying renewal. Shared logic is reused (SQL helpers, authority, crypto para
 | Frontend | DB | Edge | Result |
 |---|---|---|---|
 | current | current | none | today |
-| current | **2A** | none | safe: nothing calls the RPCs; Phase 1 status identical for existing tenants (only NULL-kind *pending* rows change kind; prod has none); `save_arca_config_legacy` unchanged for configured tenants (already locked) |
+| current | **2A** | none | safe: nothing calls the RPCs; Phase 1 status gains two null keys (ignored by the deployed parser); `save_arca_config_legacy` unchanged for configured tenants |
 | current | 2A | **deployed** | safe: no browser caller until 2B; endpoint requires owner/admin + feature + unconfigured |
 | **2B** | 2A | deployed | target |
-| 2B | old | any | wizard actions fail closed (`SETUP_UNAVAILABLE`); status card unaffected |
+| 2B | old | any | wizard actions fail closed (`SETUP_UNAVAILABLE`); hold keys absent → null; status card unaffected |
 
-Order: 1) DB (additive) → 2) Edge `arca-selfservice-setup` → 3) production backend verification **without
-any Clic mutation** (catalog, grants, `ARCA_ALREADY_CONFIGURED` for Clic through a rolled-back probe, anon/
-authenticated denials over HTTP) → 4) Phase 2B frontend → 5) real smoke **only** with a dedicated fresh QA
-tenant in homologación (`«cuenta prieba» 3b52e902…` is the designated QA tenant; never Clic) → 6) production
-ARCA only after the owner approves.
+The hardening ships **inside** migration `20260930120000`, never as a later migration, so a 2A engine without
+durable holds cannot exist.
+
+**Rollout order:**
+1. DB (additive).
+2. Edge `arca-selfservice-setup`.
+3. Production backend verification **without any Clic mutation**:
+   - catalog and grants, no legacy overloads, hold CHECKs, zero live holds;
+   - `ARCA_ALREADY_CONFIGURED` for Clic through a rolled-back probe of prepare **and** material;
+   - anon/authenticated denials over HTTP.
+4. Phase 2B frontend.
+5. Real smoke **only** with a dedicated fresh QA tenant in homologación (`«cuenta prieba» 3b52e902…` is the
+   designated QA tenant; never Clic).
+6. Production ARCA only after the owner approves.
 
 ## V. Rollback
 
-- Edge: delete / stop `arca-selfservice-setup` (no browser caller before 2B).
-- DB: `rollback.sql` (generated by byte-exact extraction of the previous definitions; aborts if a live
-  initial setup exists; drops the 8 RPCs + helpers; restores the previous Phase 1 derivation,
-  `save_arca_config_legacy`, legacy cancel; keeps columns/audit/credentials) then
-  `supabase migration repair --status reverted 20260930120000`. Verified locally: rollback → Phase 0 13/13 →
-  re-apply → all suites green.
-- Credentials already activated by the flow remain ordinary active credentials (afip-wsaa uses them); rolling
-  back the engine does not deactivate them.
+- **Edge:** delete or stop `arca-selfservice-setup` (no browser caller before 2B).
+- **DB:** run `rollback.sql`, then `supabase migration repair --status reverted 20260930120000`. The script:
+  - is generated by byte-exact extraction of the previous definitions;
+  - aborts if a live initial setup exists;
+  - drops the 8 RPCs (new and old signatures), the helpers including the two hold helpers, the hold CHECKs and
+    the attempt index;
+  - restores the previous Phase 1 derivation, `save_arca_config_legacy` and the legacy cancel;
+  - keeps columns, audit and credentials.
+
+  Verified locally: rollback → Phase 0 13/13 → re-apply → all suites green.
+- **Credentials already activated by the flow** remain ordinary active credentials that afip-wsaa uses; rolling
+  back the engine does not deactivate them. Holds left on cancelled rows are inert without the RPCs.
 
 ## W. Phase 2B UI contract
 
-Screen authority: `deriveArcaSetupWizard(parseArcaSelfServiceStatus(get_arca_selfservice_status))`.
-Actions: `arcaSetupService` only. Never persist wizard progress locally.
+**Screen authority:** `deriveArcaSetupWizard(parseArcaSelfServiceStatus(get_arca_selfservice_status))`.
+Actions go through `arcaSetupService` only. Never persist wizard progress locally.
 
-| Phase 1 status | Screen | Step | Allowed actions |
-|---|---|---|---|
-| `available=false` | `no_disponible` | — | — |
-| configured, no live setup | `listo` | 6 | — |
-| `can_manage=false` | `solo_lectura` | — | — |
-| not started, no loose cert/credential | `datos_fiscales` | 1 (+2 on submit) | `prepare` |
-| in progress, initial, `certificate` | `presentar_en_arca` | 3–4 | `csr`, `certificate`, `cancel` |
-| in progress, initial, `verification` | `verificar_conexion` | 5 | `csr`, `certificate`, `verify`, `cancel` |
-| in progress, initial, `activation` | `finalizar_activacion` | 5 | `verify`, `cancel` |
-| anything else (renewal, attention with loose material, unreadable) | `fuera_de_alcance` | — | — |
+| Phase 1 status | Screen | Step | Allowed actions | `hold` / `confirmCancel` |
+|---|---|---|---|---|
+| `available=false` | `no_disponible` | — | — | — |
+| configured, not in progress, `status=connected` and `next_action=none` | `listo` | 6 | — | — |
+| configured otherwise (pending verification, attention, renew) | `fuera_de_alcance` | — | — (the Phase 1 card owns it) | — |
+| `can_manage=false` | `solo_lectura` | — | — | — |
+| not started, no loose cert/credential | `datos_fiscales` | 1 (+2 on submit) | `prepare` | — |
+| in progress, initial, `certificate` | `presentar_en_arca` | 3–4 | `csr`, `certificate`, `cancel` | inherited hold shown; confirm if hold ≠ cooldown |
+| in progress, initial, `verification`, no hold | `verificar_conexion` | 5 | `csr`, `certificate`, `verify`, `cancel` | — |
+| … `verification`, hold `in_progress` | `verificar_conexion` | 5 | `csr` | hold |
+| … `verification`, other hold | `verificar_conexion` | 5 | `csr`, `certificate`, `cancel` (**never** `verify`) | hold; confirm unless `cooldown` |
+| in progress, initial, `activation` | `finalizar_activacion` | 5 | `verify`, `cancel` | confirm (a valid ARCA access would be discarded) |
+| anything else (renewal, attention with loose material, unreadable) | `fuera_de_alcance` | — | — | — |
 
-User language (steps): 1 Datos fiscales · 2 Generar solicitud · 3 Presentarla en ARCA · 4 Cargar certificado ·
-5 Verificar conexión · 6 Listo. The CSR is "archivo de solicitud para presentar en ARCA"; never show private
-key, Vault, PKCS#10, WSAA or fingerprints. Suggested copy for bounded states:
+**Step labels (user language):** 1 Datos fiscales · 2 Generar solicitud · 3 Presentarla en ARCA ·
+4 Cargar certificado · 5 Verificar conexión · 6 Listo.
+
+**Hold rules for 2B:**
+- after **any** verify failure, refetch Phase 1 status and render the hold from status, not from the action
+  result;
+- refetch when `retryNotBefore` passes (one clamped timer) and on window focus;
+- the server stays the authority, so an early refetch just shows the hold again;
+- never show a retry time as a promise for `in_progress`.
+
+`ARCA_SETUP_HOLD_COPY` (in `src/lib/arcaSetupWizard.ts`):
+
+| Hold | Copy |
+|---|---|
+| `in_progress` | Estamos verificando la conexión con ARCA. Esto puede tardar unos minutos. |
+| `result_unknown` | ARCA puede haber procesado la verificación. Por seguridad vamos a esperar antes de repetirla. |
+| `ticket_active` | ARCA ya habilitó un acceso reciente para este equipo. Por seguridad vamos a esperar a que venza antes de volver a verificar. |
+| `verification_expired` | La verificación anterior venció antes de terminar la activación. Vamos a esperar a que ARCA la dé por vencida para verificar de nuevo, sin volver a pedir el certificado. |
+| `cooldown` | Esperá un momento antes de volver a intentar. |
+
+**Other bounded states:**
 
 | State | Copy intent |
 |---|---|
@@ -316,22 +545,49 @@ key, Vault, PKCS#10, WSAA or fingerprints. Suggested copy for bounded states:
 | `CERTIFICATE_CUIT_MISMATCH` / `_ALIAS_MISMATCH` | el certificado es de otro CUIT / de otro nombre de equipo |
 | `CERTIFICATE_KEY_MISMATCH` | ese certificado no corresponde a esta solicitud (subí el emitido para el archivo descargado) |
 | `CERTIFICATE_EXPIRED` / `_NOT_YET_VALID` | vencido / todavía no vigente |
-| `WSAA_SERVICE_NOT_AUTHORIZED` | falta autorizar "Facturación electrónica" para este equipo en ARCA |
-| `WSAA_TICKET_ALREADY_ISSUED` | ARCA ya emitió un acceso reciente; reintentá más tarde (hasta 12 h) |
-| `WSAA_UNAVAILABLE` / `VERIFICATION_RECORD_FAILED` / `ACTIVATION_PENDING` | reintentá; no hace falta volver a ARCA |
+| `WSAA_SERVICE_NOT_AUTHORIZED` | falta autorizar "Facturación electrónica" para este equipo en ARCA (se puede reintentar enseguida después de autorizar) |
+| `WSAA_CERTIFICATE_REJECTED` / `WSAA_REJECTED` | ARCA rechazó la verificación; revisá el certificado |
+| `WSAA_UNAVAILABLE` / `ACTIVATION_PENDING` | ARCA o el servicio no respondió; reintentá en unos minutos |
 | `IDEMPOTENCY_KEY_CONSUMED` | generar una clave nueva y volver a empezar |
+| cancel with `remoteTicketPossible` | cancelar no revoca el acceso en ARCA; volver a configurar el mismo equipo puede requerir esperar hasta ~12 h |
 
-Idempotency keys: one `newArcaSetupIdempotencyKey()` per user intent for `prepare`, one for `verify`; reuse on
-network retry; mint new after cancel.
+**Idempotency keys:** one `newArcaSetupIdempotencyKey()` per user intent for `prepare`, one for `verify`; reuse
+on network retry; mint a new one after cancel.
+
+## X. Owner review 2 — WSAA fail-closed + ambiguous login (summary)
+
+- **Blocker 1 closed:** there is no fabricated expiration anywhere (L1, guard E4, Deno B1 ×8 cases, SQL Q14).
+- **Blocker 2 closed:**
+  - durable, equipo-scoped holds decided by SQL (L3);
+  - one LoginCms per request, never repeated inside the window;
+  - cancel cannot bypass the hold (L2, L3, Q12/Q13/Q22, Deno B2, E2E).
+- **Activation:** it requires a complete, coherent verified TA with > 90 min of life, and every activation ends
+  connected (M, Q17, Q21).
 
 ## Known debt / decisions for owner review
 
-1. **WSAA timeout race**: a LoginCms that answers after the 30 s race issues a ticket the Edge never records;
-   the next verify gets `WSAA_TICKET_ALREADY_ISSUED` (bounded, retry after ≤ 12 h). Accepted for 2A.
-2. Homologación issuer CN not measured (soft); production CN measured.
-3. "Probar conexión" still forces a WSAA refresh; right after activation it would hit `coe.alreadyAuthenticated`
-   and mark `estado_conexion='error'` (afip-wsaa error path). Pre-existing Phase 1 debt; 2B should not offer it
-   while a valid cached ticket exists.
-4. `_shared/wsaaLogin.ts` duplicates afip-wsaa helpers verbatim (guard-pinned) until afip-wsaa adopts it in a
-   separately approved deploy.
-5. The renewal flow (`arca-rotate-*`) keeps its CORS echo debt; renewal is Phase 2C/3.
+1. **WSAA 30-s ambiguity: CLOSED.** The timeout is now 90 s. Any post-dispatch timeout or transport loss becomes a
+   durable 12 h 30 min hold (or a proven shorter/longer bound) that survives cancel and is inherited by the same
+   equipo. No LoginCms is repeated inside it.
+2. **Homologación issuer CN not measured: QA/homologation validation debt.** The label check is soft by design; the
+   cryptographic authority is WSAA LoginCms, which is mandatory before activation. Measure it during the 2B QA
+   smoke on the designated QA tenant.
+3. **"Probar conexión" after activation.**
+   - Settings calls afip-wsaa with `force_refresh=true`, which sends a LoginCms while the installed TA is valid.
+     That returns `coe.alreadyAuthenticated`, and afip-wsaa marks `estado_conexion='error'`.
+   - afip-wsaa also refreshes during the last 30 min of every TA.
+   - Neither can change in 2A (afip-wsaa untouched).
+   - **Phase 2B must hide or disable it** while Phase 1 reports connected with a valid cached TA, or route it
+     through a TA-honouring server path.
+   - The early-refresh behaviour is a separate afip-wsaa follow-up.
+4. **`_shared/wsaaLogin.ts` duplicates afip-wsaa helpers: accepted maintenance debt.** Guard W1 keeps them
+   token-identical until afip-wsaa adopts the module in a separately approved deploy.
+5. **Legacy renewal CORS debt: outside Phase 2A.** The renewal flow (`arca-rotate-*`) is not reused by this flow;
+   renewal is Phase 2C/3.
+6. **Residuals of the fail-closed choice:**
+   - a WSAA clock more than 10 min ahead would make every TA "beyond bound" (repeated holds, no terminal state);
+   - a deterministic ambiguous defect has no escalation counter;
+   - a lost material response whose not-dispatched report also fails locks for 12 h 30 min;
+   - the hold is per business + equipo, not shared across tenants that reuse the same CUIT + alias.
+
+   All are fail-closed and bounded, and they cost UX, not safety.

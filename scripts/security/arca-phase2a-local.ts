@@ -8,7 +8,8 @@
  *   · plan con `business_has_feature('arca')` usando el JWT REAL del owner;
  *   · clave + CSR con node-forge; firma PKCS#7 real con los helpers WSAA compartidos;
  *   · una CA sintética "Computadores Test / AFIP" firma el CSR (hace de ARCA);
- *   · `fetch` a WSAA simulado: comprueba que el CMS lleve el certificado exacto y emite un TA.
+ *   · `fetch` a WSAA simulado: comprueba que el CMS lleve el certificado exacto y emite un TA con
+ *     la forma real (milisegundos + -03:00); en modo "gateway" responde un 502 sin fault (ambiguo).
  * Más una matriz HTTP de las 8 RPC (anon y authenticated no; service_role sí).
  *
  * Nunca apunta a producción: sólo contenedores supabase_*_<project_id> locales. Siembra negocios
@@ -101,18 +102,22 @@ function arcaSigns(csrPem: string): string {
 // ── WSAA simulado sobre el fetch global ─────────────────────────────────────
 const realFetch = globalThis.fetch
 let attachedCertPem = ''
+let wsaaMode: 'ta' | 'gateway' = 'ta'
 const wsaaHits: string[] = []
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input)
   if (!/afip\.gov\.ar/.test(url)) return realFetch(input, init)
   wsaaHits.push(url)
   if (!url.endsWith('/ws/services/LoginCms')) return new Response('forbidden', { status: 599 })
+  if (wsaaMode === 'gateway') return new Response('<html><body>502 Bad Gateway</body></html>', { status: 502 })
   const cms = String(init?.body ?? '').match(/<ser:in0>([^<]+)<\/ser:in0>/)?.[1] ?? ''
   const p7 = forge.pkcs7.messageFromAsn1(forge.asn1.fromDer(forge.util.decode64(cms)))
   if (forge.pki.certificateToPem(p7.certificates[0]).trim() !== attachedCertPem) {
     return new Response('<soapenv:Envelope><soapenv:Body><soapenv:Fault><faultcode>ns1:cms.cert.untrusted</faultcode><faultstring>x</faultstring></soapenv:Fault></soapenv:Body></soapenv:Envelope>', { status: 500 })
   }
-  const exp = new Date(Date.now() + 12 * 3600_000).toISOString()
+  const t = new Date(Date.now() + 12 * 3600_000 - 3 * 3600_000)
+  const p = (n: number, w = 2) => String(n).padStart(w, '0')
+  const exp = `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())}T${p(t.getUTCHours())}:${p(t.getUTCMinutes())}:${p(t.getUTCSeconds())}.${p(t.getUTCMilliseconds(), 3)}-03:00`
   const ta = `&lt;loginTicketResponse&gt;&lt;header&gt;&lt;expirationTime&gt;${exp}&lt;/expirationTime&gt;&lt;/header&gt;&lt;credentials&gt;&lt;token&gt;LOCAL-E2E-TOKEN&lt;/token&gt;&lt;sign&gt;LOCAL-E2E-SIGN&lt;/sign&gt;&lt;/credentials&gt;&lt;/loginTicketResponse&gt;`
   return new Response(`<soapenv:Envelope><soapenv:Body><loginCmsResponse><loginCmsReturn>${ta}</loginCmsReturn></loginCmsResponse></soapenv:Body></soapenv:Envelope>`, { status: 200 })
 }) as typeof fetch
@@ -147,9 +152,9 @@ try {
     ['arca_selfservice_prepare_initial', { p_business_id: T.A, p_actor: T.owner, p_idempotency_key: 'matrix-0001', p_cuit: '20111111112', p_razon_social: 'x', p_ambiente: 'homologacion', p_punto_venta: 1, p_alias: 'matrix-alias' }],
     ['arca_selfservice_get_csr', { p_business_id: T.A, p_actor: T.owner }],
     ['arca_selfservice_attach_certificate', { p_business_id: T.A, p_actor: T.owner, p_certificate_pem: 'x' }],
-    ['arca_selfservice_verification_material', { p_business_id: T.A, p_actor: T.owner }],
+    ['arca_selfservice_verification_material', { p_business_id: T.A, p_actor: T.owner, p_attempt_id: id() }],
     ['arca_selfservice_record_verification', { p_business_id: T.A, p_actor: T.owner, p_expected_fingerprint: 'x', p_expected_certificate_sha256: 'x', p_token: 't', p_sign: 's', p_expires_at: new Date().toISOString() }],
-    ['arca_selfservice_record_verification_failure', { p_business_id: T.A, p_actor: T.owner, p_code: 'WSAA_REJECTED' }],
+    ['arca_selfservice_record_verification_failure', { p_business_id: T.A, p_actor: T.owner, p_attempt_id: id(), p_code: 'WSAA_REJECTED' }],
     ['arca_selfservice_activate', { p_business_id: T.A, p_actor: T.owner, p_expected_fingerprint: 'x', p_expected_certificate_sha256: 'x', p_idempotency_key: 'matrix-act-0001' }],
     ['arca_selfservice_cancel', { p_business_id: T.A, p_actor: T.owner }],
   ]
@@ -185,7 +190,8 @@ try {
       return r.status === 200 ? { data: r.data, error: null } : { data: null, error: { status: r.status } }
     },
     generateKeyAndCsr: generateSetupKeyAndCsr,
-    wsaaLogin: wsaaLoginWithPendingPair,
+    wsaaLogin: (input: Parameters<typeof wsaaLoginWithPendingPair>[0]) => wsaaLoginWithPendingPair(input),
+    newAttemptId: () => crypto.randomUUID(),
     sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
     now: () => Date.now(),
   })
@@ -203,6 +209,12 @@ try {
     const r = await rpc('get_arca_selfservice_status', { p_business_id: businessId }, await jwt('authenticated', userId))
     const s = r.data as any
     return `${s.status}|${s.configured}|${s.setup.state}|${s.setup.kind ?? '-'}|${s.setup.step ?? '-'}|${s.connection.state}|${s.next_action}`
+  }
+  const holdOf = async (userId: string, businessId: string) => {
+    requests++
+    const r = await rpc('get_arca_selfservice_status', { p_business_id: businessId }, await jwt('authenticated', userId))
+    const s = r.data as any
+    return `${s.setup.step ?? '-'}|${s.setup.verification_hold ?? '-'}|${s.setup.retry_not_before ? 'bound' : '-'}`
   }
 
   const A = makeDeps(T.owner, T.A)
@@ -265,25 +277,60 @@ try {
   expect(worldC === worldC2, 'el negocio configurado quedó byte-idéntico')
   expect(wsaaHits.length === 1, 'ningún LoginCms para el negocio configurado')
 
-  // ── 4. Cancelación con purga en X ──
+  // ── 4. LoginCms ambiguo en X: espera durable, sin repetir, sobrevive a cancelar ──
   r = await call(X, { action: 'prepare', idempotency_key: 'e2e-cancel-0001', cuit: '20-11111111-2', razon_social: 'X', ambiente: 'homologacion', punto_venta: 1, alias: 'qa-e2e-cancel' })
   expect(r.status === 200, 'prepare X', r.text)
+  const derX = arcaSigns(r.body.csr.pem as string)
+  attachedCertPem = forge.pki.certificateToPem(forge.pki.certificateFromAsn1(forge.asn1.fromDer(forge.util.decode64(derX)))).trim()
+  r = await call(X, { action: 'certificate', certificate_der_base64: derX })
+  expect(r.status === 200 && r.body.state === 'CERTIFICATE_ATTACHED', 'certificado X', r.text)
+  const hitsBefore = wsaaHits.length
+  wsaaMode = 'gateway'
+  r = await call(X, { action: 'verify', idempotency_key: 'e2e-ambiguous-0001' })
+  expect(r.status === 409 && r.body.state === 'WSAA_RESULT_UNKNOWN' && r.body.retry_after_seconds >= 44900, 'gateway 502 sin fault → resultado desconocido con espera', r.text)
+  expect(wsaaHits.length === hitsBefore + 1, 'un solo LoginCms para el intento ambiguo')
+  expect(await holdOf(T.ownerX, T.X) === 'verification|result_unknown|bound', 'Phase 1 muestra la espera ambigua')
+  wsaaMode = 'ta'
+  r = await call(X, { action: 'verify', idempotency_key: 'e2e-ambiguous-0002' })
+  expect(r.status === 409 && r.body.state === 'WSAA_RESULT_UNKNOWN', 'verify inmediato rechazado por la base', r.text)
+  expect(wsaaHits.length === hitsBefore + 1, 'el verify inmediato NO llama a WSAA')
+  const holdRow = await sql(`SELECT concat_ws('|', verification_hold, verification_retry_not_before > now() + interval '12 hours 29 minutes') FROM private.arca_credential_rotations WHERE business_id='${T.X}' AND state='pending_rotation'`)
+  expect(holdRow === 'result_unknown|t', 'espera durable de 12 h 30 min', holdRow)
   const secretX = await sql(`SELECT private_key_secret_id FROM private.arca_credential_rotations WHERE business_id='${T.X}' AND state='pending_rotation'`)
   r = await call(X, { action: 'cancel' })
-  expect(r.status === 200 && r.body.state === 'SETUP_CANCELLED', 'cancel X')
+  expect(r.status === 200 && r.body.state === 'SETUP_CANCELLED' && r.body.remote_ticket_possible === true, 'cancel X informa un TA posible', r.text)
+  expect(!/revoc/i.test(r.text), 'cancel no dice haber revocado nada')
   expect(await sql(`SELECT count(*) FROM vault.secrets WHERE id='${secretX}'`) === '0', 'secreto pendiente purgado')
   r = await call(X, { action: 'cancel' })
   expect(r.status === 200 && r.body.state === 'SETUP_NOT_IN_PROGRESS', 'cancel idempotente')
+  // Mismo equipo (CUIT + alias): la configuración nueva hereda la espera y no llama a WSAA.
+  r = await call(X, { action: 'prepare', idempotency_key: 'e2e-cancel-0002', cuit: '20-11111111-2', razon_social: 'X', ambiente: 'homologacion', punto_venta: 1, alias: 'qa-e2e-cancel' })
+  expect(r.status === 200 && r.body.state === 'SETUP_PREPARED', 're-prepare X', r.text)
+  expect(await holdOf(T.ownerX, T.X) === 'certificate|result_unknown|bound', 'Phase 1 muestra la espera heredada')
+  const derX2 = arcaSigns(r.body.csr.pem as string)
+  attachedCertPem = forge.pki.certificateToPem(forge.pki.certificateFromAsn1(forge.asn1.fromDer(forge.util.decode64(derX2)))).trim()
+  r = await call(X, { action: 'certificate', certificate_der_base64: derX2 })
+  expect(r.status === 200 && r.body.state === 'CERTIFICATE_ATTACHED', 'la espera heredada no bloquea subir el certificado', r.text)
+  r = await call(X, { action: 'verify', idempotency_key: 'e2e-ambiguous-0003' })
+  expect(r.status === 409 && r.body.state === 'WSAA_RESULT_UNKNOWN', 'verify del mismo equipo rechazado durante la ventana', r.text)
+  expect(wsaaHits.length === hitsBefore + 1, 'ningún LoginCms a ciegas después de cancelar')
+  r = await call(X, { action: 'cancel' })
+  // Esta configuración no despachó ningún intento propio; la espera sigue en la fila cancelada original.
+  expect(r.status === 200 && r.body.state === 'SETUP_CANCELLED' && r.body.remote_ticket_possible === false, 'cancel X (sin intento propio)', r.text)
+  const inherited = await sql(`SELECT count(*) FROM private.arca_credential_rotations WHERE business_id='${T.X}' AND state='cancelled' AND verification_hold = 'result_unknown' AND verification_retry_not_before > now() + interval '12 hours'`)
+  expect(inherited === '1', 'la espera original sigue vigente después de ambas cancelaciones', inherited)
 
   // ── 5. Exposición ──
   const all = transcript.join('\n')
   const secrets = (await sql(`SELECT string_agg(s::text, ',') FROM (SELECT private_key_secret_id s FROM private.arca_private_key_credentials WHERE business_id IN ('${T.A}','${T.C}') UNION ALL SELECT '${secretX}'::uuid) q`)).split(',')
-  for (const needle of ['PRIVATE KEY', 'LOCAL-E2E-TOKEN', 'LOCAL-E2E-SIGN', 'signing_key_pem', 'fingerprint', ...secrets]) {
+  const attempts = (await sql(`SELECT coalesce(string_agg(verification_attempt_id::text, ','), '') FROM private.arca_credential_rotations WHERE business_id IN ('${T.A}','${T.X}')`)).split(',').filter(Boolean)
+  expect(attempts.length >= 2, 'se registraron los nonces de intento')
+  for (const needle of ['PRIVATE KEY', 'LOCAL-E2E-TOKEN', 'LOCAL-E2E-SIGN', 'signing_key_pem', 'fingerprint', 'Bad Gateway', 'attempt', ...secrets, ...attempts]) {
     expect(!all.includes(needle), `ninguna respuesta del Edge contiene ${needle.slice(0, 20)}`)
   }
   assertFalse(/[0-9a-f]{64}/.test(all), 'ningún hash de 64 hex en las respuestas')
 
-  console.log(`✅ ARCA Phase 2A local E2E: ${checks} aserciones, ${requests} requests PostgREST, ${wsaaHits.length} LoginCms simulado, 0 fallas.`)
+  console.log(`✅ ARCA Phase 2A local E2E: ${checks} aserciones, ${requests} requests PostgREST, ${wsaaHits.length} LoginCms simulados, 0 fallas.`)
 } catch (error) {
   console.error(`❌ ARCA Phase 2A local E2E falló tras ${checks} aserciones:`, error instanceof Error ? error.message : error)
   Deno.exitCode = 1

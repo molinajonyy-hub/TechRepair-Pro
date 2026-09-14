@@ -17,7 +17,15 @@ SELECT jsonb_build_object(
            FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
           WHERE n.nspname = 'public' AND p.proname LIKE 'arca_selfservice_%'),
   'phase1_rpc_authenticated', has_function_privilege('authenticated', 'public.get_arca_selfservice_status(uuid)', 'EXECUTE'),
-  'derivation_private', NOT has_function_privilege('service_role', 'private.arca_selfservice_status(uuid,uuid,timestamptz)', 'EXECUTE')
+  'derivation_private', NOT has_function_privilege('service_role', 'private.arca_selfservice_status(uuid,uuid,timestamptz)', 'EXECUTE'),
+  -- Espera de verificación: helpers sin EXECUTE, sin firmas viejas sin intento, CHECKs presentes.
+  'hold_helpers_private', NOT has_function_privilege('service_role', 'private.arca_selfservice_verification_hold(uuid,timestamptz)', 'EXECUTE')
+                      AND NOT has_function_privilege('authenticated', 'private.arca_selfservice_verification_hold(uuid,timestamptz)', 'EXECUTE'),
+  'no_legacy_overloads', to_regprocedure('public.arca_selfservice_verification_material(uuid,uuid)') IS NULL
+                     AND to_regprocedure('public.arca_selfservice_record_verification_failure(uuid,uuid,text)') IS NULL,
+  'hold_checks', (SELECT count(*) FROM pg_constraint WHERE conname IN ('arca_credential_rotations_verification_hold_check',
+                   'arca_credential_rotations_initial_verified_ticket_check')),
+  'live_holds', (SELECT count(*) FROM private.arca_credential_rotations WHERE verification_hold IS NOT NULL)
 ) AS catalog;
 
 -- 2. Clic sigue connected/completed/none (sin tocar nada).
@@ -37,7 +45,9 @@ BEGIN
   PERFORM set_config('request.jwt.claims', '{"role":"service_role"}', true);
   v_r := public.arca_selfservice_prepare_initial(v_biz, v_owner, 'postdeploy-probe-0001', '20-11111111-2', 'probe',
            'homologacion', 1, 'probe-alias');
-  RAISE EXCEPTION 'PROBE_RESULT(rolled back): prepare=% is_configured=%', v_r ->> 'state', private.arca_selfservice_is_configured(v_biz);
+  RAISE EXCEPTION 'PROBE_RESULT(rolled back): prepare=% material=% is_configured=% hold=%', v_r ->> 'state',
+    public.arca_selfservice_verification_material(v_biz, v_owner, gen_random_uuid()) ->> 'state',
+    private.arca_selfservice_is_configured(v_biz), private.arca_selfservice_verification_hold(v_biz, now());
 END
 $probe$;
 
@@ -48,7 +58,8 @@ SELECT jsonb_build_object(
   'credentials_md5', (SELECT md5(string_agg(to_jsonb(k)::text, ',' ORDER BY k.business_id)) FROM private.arca_private_key_credentials k),
   'rotations_md5', (SELECT md5(string_agg((to_jsonb(r) - 'setup_kind' - 'fiscal_snapshot' - 'certificate_der_sha256' - 'certificate_issuer'
                                             - 'verification_started_at' - 'verified_wsaa_token' - 'verified_wsaa_sign'
-                                            - 'verified_wsaa_token_expires')::text, ',' ORDER BY r.id)) FROM private.arca_credential_rotations r),
+                                            - 'verified_wsaa_token_expires' - 'verification_attempt_id' - 'verification_hold'
+                                            - 'verification_retry_not_before')::text, ',' ORDER BY r.id)) FROM private.arca_credential_rotations r),
   'vault_count', (SELECT count(*) FROM vault.secrets),
   'vault_meta_md5', (SELECT md5(string_agg(concat_ws('|', id, name, created_at, updated_at), ',' ORDER BY id)) FROM vault.secrets),
   'audit_max_id', (SELECT max(id) FROM private.arca_credential_audit),

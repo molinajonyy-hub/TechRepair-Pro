@@ -13,7 +13,8 @@
 --   4. supabase migration repair --status reverted 20260930120000.
 --
 -- Lo que CONSERVA a propósito (aditivo, sin pérdida de historia):
---   · columnas nuevas de private.arca_credential_rotations y sus datos;
+--   · columnas nuevas de private.arca_credential_rotations y sus datos (incluidas las esperas de
+--     verificación de filas canceladas: sin las RPC del flujo inicial no hay quién emita un LoginCms);
 --   · eventos de auditoría ya escritos (el CHECK ampliado se mantiene: achicarlo rompería filas);
 --   · credenciales activadas por el flujo inicial: son credenciales normales que afip-wsaa usa;
 --   · private_key_secret_id nullable si alguna fila cancelada ya lo tiene en NULL.
@@ -33,8 +34,10 @@ $pre$;
 DROP FUNCTION IF EXISTS public.arca_selfservice_prepare_initial(uuid,uuid,text,text,text,text,integer,text,text,text,text);
 DROP FUNCTION IF EXISTS public.arca_selfservice_get_csr(uuid,uuid);
 DROP FUNCTION IF EXISTS public.arca_selfservice_attach_certificate(uuid,uuid,text);
+DROP FUNCTION IF EXISTS public.arca_selfservice_verification_material(uuid,uuid,uuid);
 DROP FUNCTION IF EXISTS public.arca_selfservice_verification_material(uuid,uuid);
 DROP FUNCTION IF EXISTS public.arca_selfservice_record_verification(uuid,uuid,text,text,text,text,timestamptz);
+DROP FUNCTION IF EXISTS public.arca_selfservice_record_verification_failure(uuid,uuid,uuid,text,timestamptz);
 DROP FUNCTION IF EXISTS public.arca_selfservice_record_verification_failure(uuid,uuid,text);
 DROP FUNCTION IF EXISTS public.arca_selfservice_activate(uuid,uuid,text,text,text);
 DROP FUNCTION IF EXISTS public.arca_selfservice_cancel(uuid,uuid);
@@ -46,6 +49,8 @@ DROP FUNCTION IF EXISTS private.arca_der_to_certificate_pem(bytea);
 DROP FUNCTION IF EXISTS private.arca_selfservice_issuer_ok(jsonb,text);
 DROP FUNCTION IF EXISTS private.arca_cert_issuer(bytea);
 DROP FUNCTION IF EXISTS private.arca_cuit_is_valid(text);
+DROP FUNCTION IF EXISTS private.arca_selfservice_verification_hold(uuid,timestamptz);
+DROP FUNCTION IF EXISTS private.arca_selfservice_hold_view(text,timestamptz,timestamptz,boolean,timestamptz);
 
 -- ── 2. Definiciones previas (extraídas) ─────────────────────────────────────
 CREATE OR REPLACE FUNCTION private.arca_selfservice_status(
@@ -434,6 +439,9 @@ GRANT  EXECUTE ON FUNCTION public.arca_cancel_certificate_rotation(uuid,text,uui
 
 -- ── 3. Restricción de la fila pendiente ─────────────────────────────────────
 ALTER TABLE private.arca_credential_rotations DROP CONSTRAINT IF EXISTS arca_credential_rotations_pending_secret_check;
+ALTER TABLE private.arca_credential_rotations DROP CONSTRAINT IF EXISTS arca_credential_rotations_initial_verified_ticket_check;
+ALTER TABLE private.arca_credential_rotations DROP CONSTRAINT IF EXISTS arca_credential_rotations_verification_hold_check;
+DROP INDEX IF EXISTS private.arca_credential_rotations_verification_attempt_uidx;
 DO $nn$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM private.arca_credential_rotations WHERE private_key_secret_id IS NULL) THEN
@@ -447,11 +455,15 @@ DO $post$
 DECLARE v_src text;
 BEGIN
   IF to_regprocedure('public.arca_selfservice_activate(uuid,uuid,text,text,text)') IS NOT NULL
-     OR to_regprocedure('private.arca_selfservice_is_configured(uuid)') IS NOT NULL THEN
+     OR to_regprocedure('private.arca_selfservice_is_configured(uuid)') IS NOT NULL
+     OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                 WHERE (n.nspname = 'public' AND p.proname LIKE 'arca\_selfservice\_%' AND p.proname <> 'arca_selfservice_status')
+                    OR (n.nspname = 'private' AND p.proname IN ('arca_selfservice_verification_hold', 'arca_selfservice_hold_view'))) THEN
     RAISE EXCEPTION 'rollback Phase 2A incompleto: quedan funciones del flujo inicial';
   END IF;
   SELECT prosrc INTO v_src FROM pg_proc WHERE oid = 'private.arca_selfservice_status(uuid,uuid,timestamptz)'::regprocedure;
-  IF position('certificate_attached' IN v_src) > 0 OR position('r.setup_kind' IN v_src) > 0 THEN
+  IF position('certificate_attached' IN v_src) > 0 OR position('r.setup_kind' IN v_src) > 0
+     OR position('verification_hold' IN v_src) > 0 THEN
     RAISE EXCEPTION 'rollback Phase 2A: la derivación de Phase 1 no volvió a su versión previa';
   END IF;
   IF NOT has_function_privilege('authenticated', 'public.get_arca_selfservice_status(uuid)', 'EXECUTE')

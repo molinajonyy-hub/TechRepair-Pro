@@ -30,6 +30,8 @@ export const ALLOWED_KEYS = new Set([
   'punto_venta', 'alias', 'certificate', 'present', 'expires_at', 'days_remaining', 'renewal_state',
   'matches_credential', 'credential', 'active', 'connection', 'state', 'last_verified_at', 'setup',
   'kind', 'step', 'started_at', 'attention', 'can_manage', 'next_action',
+  // ARCA Phase 2A (aditivo, contract_version 1): espera de verificación decidida por la base.
+  'verification_hold', 'retry_not_before',
 ])
 export const FORBIDDEN_KEYS = [
   'cert_file', 'private_key', 'private_key_pem', 'wsaa_token', 'wsaa_sign', 'secret_id',
@@ -40,7 +42,7 @@ const FORBIDDEN_READS = [
   'wsaa_token', 'wsaa_sign', 'decrypted_secret', 'csr_pem', 'certificate_pem', 'prev_', 'pfx_password',
   'ultimo_error', 'arca_get_private_key_for_signing', 'arca_get_credential_for_signing',
   // ARCA Phase 2A: el ticket del par pendiente y la foto fiscal del setup no son estado de lectura.
-  'verified_wsaa', 'fiscal_snapshot',
+  'verified_wsaa', 'fiscal_snapshot', 'verification_attempt_id',
 ]
 
 const stripSqlComments = (s) => s.replace(/--[^\n]*/g, '')

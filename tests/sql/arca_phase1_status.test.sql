@@ -535,8 +535,8 @@ DECLARE
                || '.certificate.expires_at,.certificate.matches_credential,.certificate.present,'
                || '.certificate.renewal_state,.configured,.connection,.connection.last_verified_at,'
                || '.connection.state,.contract_version,.credential,.credential.active,.cuit,.environment,'
-               || '.next_action,.punto_venta,.razon_social,.setup,.setup.kind,.setup.started_at,.setup.state,'
-               || '.setup.step,.status';
+               || '.next_action,.punto_venta,.razon_social,.setup,.setup.kind,.setup.retry_not_before,.setup.started_at,.setup.state,'
+               || '.setup.step,.setup.verification_hold,.status';
   r jsonb;
 BEGIN
   -- Estado con TODO el material sembrado: cert, token, sign, secreto, rotación con CSR.
@@ -545,7 +545,11 @@ BEGIN
   FOREACH v_forbidden IN ARRAY ARRAY['owner', 'tech', 'ownerF'] LOOP
     r := pg_temp.status_as(v_forbidden)::jsonb;
     SELECT string_agg(k, ',' ORDER BY k) INTO v_keys FROM pg_temp.all_keys(r) k;
-    PERFORM pg_temp.expect(v_keys, v_want, 'S19 conjunto EXACTO de claves (' || v_forbidden || ')');
+    -- Phase 2A agrega setup.verification_hold/retry_not_before en la derivación; la rama "plan sin ARCA"
+    -- de la RPC de Phase 1 (sin cambios) no los emite y el parser los lee como null.
+    PERFORM pg_temp.expect(v_keys,
+      CASE WHEN v_forbidden = 'ownerF' THEN replace(replace(v_want, '.setup.retry_not_before,', ''), '.setup.verification_hold,', '') ELSE v_want END,
+      'S19 conjunto EXACTO de claves (' || v_forbidden || ')');
     v_out := v_out || r::text;
   END LOOP;
 

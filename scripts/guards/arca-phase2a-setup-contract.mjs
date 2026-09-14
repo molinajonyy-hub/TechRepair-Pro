@@ -15,8 +15,13 @@
  *      canónica, EXECUTE sólo service_role (también en migraciones posteriores).
  *  M2  toda selección de la fila viva usa setup_kind = 'initial' (salvo el conflicto de prepare);
  *      las RPC que escriben o entregan material excluyen negocios configurados.
- *  M3  la clave pendiente sólo sale del material ANTES de verificar; la activación escribe
+ *  M3  la clave pendiente sólo sale del material ANTES de verificar y DESPUÉS de consultar la
+ *      espera efectiva, dejando una espera pesimista en el mismo UPDATE; el reporte de fallas
+ *      busca por intento, normaliza códigos desconocidos a ambiguo y sólo libera un intento in_flight;
+ *      la cancelación conserva la espera; la activación exige 90 min de vida del TA, escribe
  *      cuit_emisor y hace readback del par.
+ *  E4  el Edge nunca inventa un vencimiento WSAA (sin Date.parse ni now + 12 h) y valida el TA
+ *      en wsaa.ts y en el borde del handler; el error WSAA no guarda texto crudo.
  *
  *   node scripts/guards/arca-phase2a-setup-contract.mjs [--self-test]
  */
@@ -35,9 +40,9 @@ export const RPCS = [
   ['arca_selfservice_prepare_initial', 'uuid,uuid,text,text,text,text,integer,text,text,text,text'],
   ['arca_selfservice_get_csr', 'uuid,uuid'],
   ['arca_selfservice_attach_certificate', 'uuid,uuid,text'],
-  ['arca_selfservice_verification_material', 'uuid,uuid'],
+  ['arca_selfservice_verification_material', 'uuid,uuid,uuid'],
   ['arca_selfservice_record_verification', 'uuid,uuid,text,text,text,text,timestamptz'],
-  ['arca_selfservice_record_verification_failure', 'uuid,uuid,text'],
+  ['arca_selfservice_record_verification_failure', 'uuid,uuid,uuid,text,timestamptz'],
   ['arca_selfservice_activate', 'uuid,uuid,text,text,text'],
   ['arca_selfservice_cancel', 'uuid,uuid'],
 ]
@@ -131,11 +136,20 @@ export function check(tree) {
     if (/\bconsole\.|\blogger\./.test(code)) out.push(`E1 ${file}: no se loguea en la Edge de configuración`)
     if (/\.\.\.\s*(?:\w+\.)?data\b|\.\.\.\s*material\b|\.\.\.\s*(?:ticket|generated)\b/.test(code)) out.push(`E1 ${file}: spread de un resultado de RPC o material`)
     if (/json\([^)]*\b(material|ticket|generated|signingKeyPem|keyPem|certificatePem)\b/.test(code)) out.push(`E1 ${file}: material dentro de una respuesta`)
+    if (/json\([^)]*(\.fault\b|\.detail\b|\battemptId\b|attempt_id)/.test(code)) out.push(`E1 ${file}: detalle de WSAA o id de intento dentro de una respuesta`)
     if (/FECAESolicitar|FECompConsultar|FECompUltimoAutorizado|servicios1\.afip|wswhomo\.afip|\/wsfev1/i.test(code)) out.push(`E2 ${file}: habla con WSFE`)
   }
   if (tree.exists(`${EDGE_DIR}/handler.ts`)) {
     const h = stripJs(tree.read(`${EDGE_DIR}/handler.ts`))
     if ((h.match(/signing_key_pem/g) ?? []).length !== 1) out.push('E1 handler.ts: signing_key_pem debe leerse exactamente una vez')
+    if (/Date\.parse\(|12\s*\*\s*60\s*\*\s*60\s*\*\s*1000/.test(h)) out.push('E4 handler.ts: no se inventa ni se reinterpreta un vencimiento WSAA')
+    if (!/validateWsaaTicket\(\s*await\s+deps\.wsaaLogin\(/.test(h)) out.push('E4 handler.ts: el TA debe validarse en el borde del handler')
+  }
+  if (tree.exists(`${EDGE_DIR}/wsaa.ts`)) {
+    const w = stripJs(tree.read(`${EDGE_DIR}/wsaa.ts`))
+    if (!/return\s+validateWsaaTicket\(\s*parsed/.test(w)) out.push('E4 wsaa.ts: el LoginCms debe devolver sólo un TA validado')
+    if (/expirationTime\s*\|\|/.test(w) || /Date\.parse\(/.test(w)) out.push('E4 wsaa.ts: no se completa ni se reinterpreta un vencimiento')
+    if (/this\.detail\s*=|readonly\s+detail\b/.test(w)) out.push('E4 wsaa.ts: el error WSAA no guarda texto crudo')
   }
 
   // ── E3 config ──
@@ -193,12 +207,27 @@ export function check(tree) {
           || /signing_key_pem|certificate_pem/.test(alreadyReturn)) {
         out.push('M3 verification_material: la clave sólo puede salir una vez, después de descartar un setup verificado')
       }
-      if (!/verification_started_at\s*>\s*now\(\)\s*-\s*interval/.test(b)) out.push('M3 verification_material: sin lease de verificación')
+      const hold = b.indexOf('private.arca_selfservice_verification_hold(')
+      if (hold < 0 || key < hold) out.push('M3 verification_material: la clave sale sin consultar la espera efectiva')
+      if (!/verification_hold\s*=\s*'in_flight'/.test(b) || !/verification_retry_not_before\s*=\s*v_now\s*\+\s*interval\s*'12 hours 30 minutes'/.test(b)) {
+        out.push('M3 verification_material: sin espera pesimista en el UPDATE que entrega la clave')
+      }
+    }
+    if (name === 'arca_selfservice_record_verification_failure') {
+      if (!/verification_attempt_id\s*=\s*p_attempt_id/.test(b)) out.push('M3 record_verification_failure: no busca el intento exacto')
+      if (!/ELSE\s+'WSAA_RESULT_UNKNOWN'\s+END/.test(b)) out.push('M3 record_verification_failure: un código desconocido debe ser ambiguo')
+      if (!/v_row\.verification_hold\s*=\s*'in_flight'/.test(b)) out.push('M3 record_verification_failure: sólo un intento in_flight puede liberarse')
+    }
+    if (name === 'arca_selfservice_cancel') {
+      if (/verification_hold\s*=\s*NULL/.test(b) || !/verification_hold\s*=\s*v_hold/.test(b)) out.push('M3 cancel: la espera debe sobrevivir a la cancelación')
+      if (!/remote_ticket_possible/.test(b)) out.push('M3 cancel: debe informar si un TA pudo quedar vigente en ARCA')
     }
     if (name === 'arca_selfservice_activate') {
       if (!/cuit_emisor\s*=\s*v_cuit/.test(b)) out.push('M3 activate: no fija cuit_emisor al CUIT del certificado')
       if (!/arca_key_matches_certificate/.test(b) || !/arca_get_private_key_for_signing/.test(b)) out.push('M3 activate: sin readback del par activo')
       if (!/certificate_der_sha256\s+IS\s+DISTINCT\s+FROM\s+v_sha/.test(b)) out.push('M3 activate: no ata la activación al certificado verificado')
+      if (!/verified_wsaa_token_expires\s*<=\s*v_now\s*\+\s*interval\s*'90 minutes'/.test(b)) out.push('M3 activate: exige 90 min de vida del TA antes de instalarlo')
+      if (/v_ticket_ok/.test(b)) out.push('M3 activate: toda activación instala el TA (sin rama sin ticket)')
     }
     if (name === 'arca_selfservice_record_verification' && !/certificate_der_sha256/.test(b)) {
       out.push('M3 record_verification: no ata el ticket al certificado exacto')
@@ -235,7 +264,7 @@ function selfTest() {
     ['F1', 'frontend llama una RPC de configuración', overlay(new Map([['src/services/x.ts', "supabase.rpc('arca_selfservice_activate', {})"]]), ['src/services/x.ts'])],
     ['F1', 'frontend escribe rotaciones', overlay(new Map([['src/services/x.ts', "supabase.schema('private').from('arca_credential_rotations').insert({})"]]), ['src/services/x.ts'])],
     ['F2', 'otra pantalla invoca el Edge', overlay(new Map([['src/pages/Y.tsx', "supabase.functions.invoke('arca-selfservice-setup', { body: {} })"]]), ['src/pages/Y.tsx'])],
-    ['F3', 'el asistente guarda progreso propio', overlay(patch(WIZARD, "import type { ArcaSelfServiceStatus } from './arcaStatus'", "import type { ArcaSelfServiceStatus } from './arcaStatus'\nlocalStorage.setItem('paso', '3')"))],
+    ['F3', 'el asistente guarda progreso propio', overlay(patch(WIZARD, "import type { ArcaSelfServiceStatus, ArcaVerificationHold } from './arcaStatus'", "import type { ArcaSelfServiceStatus, ArcaVerificationHold } from './arcaStatus'\nlocalStorage.setItem('paso', '3')"))],
     ['E1', 'la Edge loguea', overlay(patch(`${EDGE_DIR}/handler.ts`, "if (req.method === 'OPTIONS') return cors.preflight(req)", "if (req.method === 'OPTIONS') return cors.preflight(req)\n  console.log(req)"))],
     ['E1', 'la Edge devuelve el material', overlay(patch(`${EDGE_DIR}/handler.ts`, "return json({ ok: true, state: 'SETUP_ALREADY_COMPLETED' })", "return json({ ok: true, state: 'SETUP_ALREADY_COMPLETED', material })"))],
     ['E1', 'la Edge hace spread del resultado', overlay(patch(`${EDGE_DIR}/handler.ts`, "return json({ ok: true, state: st, expires_at: str(r.data.expires_at) })", "return json({ ...r.data })"))],
@@ -251,6 +280,16 @@ function selfTest() {
     ['M3', 'la clave sale aunque ya esté verificado', overlay(patch(migration, /(FUNCTION public\.arca_selfservice_verification_material[\s\S]*?)'fingerprint', v_row\.private_key_fingerprint,\n      'certificate_sha256', v_row\.certificate_der_sha256\);/, "$1'fingerprint', v_row.private_key_fingerprint, 'signing_key_pem', 'x',\n      'certificate_sha256', v_row.certificate_der_sha256);"))],
     ['M3', 'activate sin cuit_emisor', overlay(patch(migration, 'cuit_emisor           = v_cuit,', ''))],
     ['M3', 'activate sin atarse al certificado', overlay(patch(migration, 'OR v_row.certificate_der_sha256 IS DISTINCT FROM v_sha', ''))],
+    ['M3', 'material entrega la clave sin espera pesimista', overlay(patch(migration, "verification_hold             = 'in_flight',", "verification_hold             = NULL,"))],
+    ['M3', 'material no consulta la espera', overlay(patch(migration, /(FUNCTION public\.arca_selfservice_verification_material[\s\S]*?)v_hold := private\.arca_selfservice_verification_hold\(p_business_id, clock_timestamp\(\)\);/, '$1v_hold := NULL;'))],
+    ['M3', 'un código desconocido libera la espera', overlay(patch(migration, "THEN p_code ELSE 'WSAA_RESULT_UNKNOWN' END;", "THEN p_code ELSE 'WSAA_REJECTED' END;"))],
+    ['M3', 'definitivo libera cualquier espera', overlay(patch(migration, "IF v_row.state = 'pending_rotation' AND v_row.verification_hold = 'in_flight' THEN", "IF v_row.state = 'pending_rotation' THEN"))],
+    ['M3', 'cancel borra la espera', overlay(patch(migration, /(FUNCTION public\.arca_selfservice_cancel[\s\S]*?)verification_hold             = v_hold,/, '$1verification_hold             = NULL,'))],
+    ['M3', 'activate instala un TA casi vencido', overlay(patch(migration, "v_row.verified_wsaa_token_expires <= v_now + interval '90 minutes'", "v_row.verified_wsaa_token_expires <= v_now"))],
+    ['E4', 'handler inventa el vencimiento', overlay(patch(`${EDGE_DIR}/handler.ts`, 'const attemptId = deps.newAttemptId()', 'const attemptId = deps.newAttemptId()\n  const fallback = new Date(Date.parse(\'x\') || deps.now() + 12 * 60 * 60 * 1000)'))],
+    ['E4', 'handler confía en el TA sin validar', overlay(patch(`${EDGE_DIR}/handler.ts`, 'ticket = validateWsaaTicket(await deps.wsaaLogin(', 'ticket = (await deps.wsaaLogin('))],
+    ['E4', 'wsaa.ts devuelve el TA crudo', overlay(patch(`${EDGE_DIR}/wsaa.ts`, 'return validateWsaaTicket(parsed, now())', 'return parsed'))],
+    ['E1', 'la Edge devuelve el id de intento', overlay(patch(`${EDGE_DIR}/handler.ts`, "return json({ ok: true, state: 'SETUP_ALREADY_COMPLETED' })", "return json({ ok: true, state: 'SETUP_ALREADY_COMPLETED', attemptId })"))],
   ]
   let failed = 0
   for (const [rule, label, tree] of cases) {

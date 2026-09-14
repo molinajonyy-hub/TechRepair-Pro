@@ -55,7 +55,8 @@ serve(async (req: Request) => {
       return { data, error }
     },
     generateKeyAndCsr: generateSetupKeyAndCsr,
-    wsaaLogin: wsaaLoginWithPendingPair,
+    wsaaLogin: (input) => wsaaLoginWithPendingPair(input),
+    newAttemptId: () => crypto.randomUUID(),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     now: () => Date.now(),
   })
