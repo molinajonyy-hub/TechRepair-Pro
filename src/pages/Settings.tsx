@@ -30,15 +30,15 @@ import { WhatsAppTemplatesSettings } from '../components/settings/WhatsAppTempla
 import { useAuth } from '../contexts/AuthContext'
 import { usePermissions } from '../hooks/usePermissions'
 import { canManageArca, isArcaIdentityLocked } from '../lib/arcaAuthority'
-import type { ArcaSelfServiceStatus } from '../lib/arcaStatus'
 import { supabase } from '../lib/supabase'
 import ArcaService from '../services/arcaService'
 import { ArcaStatusCard } from '../components/settings/ArcaStatusCard'
+import { ArcaSetupPanel } from '../components/settings/arca-setup/ArcaSetupPanel'
+import { useArcaSelfServiceStatus } from '../hooks/useArcaSelfServiceStatus'
 import { colors, radius } from '../lib/tokens'
 import { uploadBusinessLogo } from '../lib/storageSetup'
 import { businessSetupService, BusinessSetupError } from '../services/businessSetupService'
 import { CONDICIONES_FISCALES, normalizeCondicionFiscal } from '../lib/fiscalCondition'
-import { logger } from '../lib/logger'
 
 type TabType = 'datos' | 'puntos' | 'arca' | 'preferencias' | 'seguridad' | 'orden' | 'comprobante' | 'pagos' | 'comisiones' | 'whatsapp'
 
@@ -219,16 +219,19 @@ export default function Settings() {
     alias: '',
     estado_conexion: 'desconectado'
   })
-  const [testingConnection, setTestingConnection] = useState(false)
   const [syncingParameters, setSyncingParameters] = useState(false)
   const identidadArcaBloqueada = isArcaIdentityLocked(arcaConfig)
   // ARCA Phase 1: estado canónico server-side (get_arca_selfservice_status). La
-  // tarjeta NO reconstruye el estado desde arcaConfig.
-  const [arcaStatus, setArcaStatus] = useState<ArcaSelfServiceStatus | null>(null)
-  const [arcaStatusLoading, setArcaStatusLoading] = useState(false)
-  const [arcaStatusFailed, setArcaStatusFailed] = useState(false)
+  // tarjeta NO reconstruye el estado desde arcaConfig. Phase 2B: el hook lo relee al
+  // volver el foco, al recuperar la red, al vencer una espera y después de cada acción.
+  const {
+    status: arcaStatus,
+    loading: arcaStatusLoading,
+    failed: arcaStatusFailed,
+    refresh: loadArcaStatus,
+  } = useArcaSelfServiceStatus(businessId)
   // Sin integración configurada no se muestra un formulario técnico vacío: el
-  // alta la hará el asistente (Phase 2). Si el estado no se pudo leer, se cae a
+  // alta la hace el asistente (Phase 2B). Si el estado no se pudo leer, se cae a
   // los flags de presencia del contrato seguro para no ocultar una config vigente.
   const mostrarConfiguracionArca = arcaStatus
     ? arcaStatus.configured || identidadArcaBloqueada
@@ -325,7 +328,7 @@ export default function Settings() {
         // tabla no disponible aún
       }
 
-      await loadArcaStatus()
+      // El estado canónico de ARCA lo lee useArcaSelfServiceStatus al montar.
 
     } catch (error) {
       console.error('Error loading settings:', error)
@@ -390,35 +393,6 @@ export default function Settings() {
     }
   }
 
-  const handleTestArcaConnection = async () => {
-    if (!businessId) {
-      alert('No hay negocio seleccionado')
-      return
-    }
-    if (!puedeGestionarArca) return
-
-    setTestingConnection(true)
-    try {
-      const result = await ArcaService.testConnection(businessId)
-      
-      if (result.success) {
-        alert('✅ Conexión exitosa con ARCA\n\n' + 
-              `Ambiente: ${result.details?.ambiente}\n` +
-              `Puntos de venta: ${result.details?.puntosVenta?.join(', ') || 'N/A'}\n` +
-              `Última sincronización: ${new Date(result.details?.ultimaSincronizacion || '').toLocaleString('es-AR', { timeZone: 'America/Argentina/Cordoba', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`)
-        
-        // Recargar configuración actualizada
-        await loadSettings()
-      } else {
-        alert('❌ Error de conexión: ' + result.message)
-      }
-    } catch (error: any) {
-      alert('❌ Error al probar conexión: ' + (error.message || 'Error desconocido'))
-    } finally {
-      setTestingConnection(false)
-    }
-  }
-
   const handleSyncParameters = async () => {
     if (!businessId) {
       alert('No hay negocio seleccionado')
@@ -444,24 +418,6 @@ export default function Settings() {
       alert('❌ Error al sincronizar: ' + (error.message || 'Error desconocido'))
     } finally {
       setSyncingParameters(false)
-    }
-  }
-
-  // ARCA Phase 1: relee el estado canónico. Un fallo no deja un estado viejo
-  // pintado como si fuera actual.
-  const loadArcaStatus = async () => {
-    if (!businessId) return
-    setArcaStatusLoading(true)
-    try {
-      const status = await ArcaService.getSelfServiceStatus(businessId)
-      setArcaStatus(status)
-      setArcaStatusFailed(status === null)
-    } catch (error) {
-      logger.error('GENERAL', 'No se pudo leer el estado de ARCA', error)
-      setArcaStatus(null)
-      setArcaStatusFailed(true)
-    } finally {
-      setArcaStatusLoading(false)
     }
   }
 
@@ -1087,35 +1043,25 @@ export default function Settings() {
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '1.5rem' }}>
               <ArcaStatusCard status={arcaStatus} loading={arcaStatusLoading} failed={arcaStatusFailed} />
 
+              {/* ARCA Phase 2B: asistente de configuración inicial. "Actualizar estado" relee el
+                  estado canónico y NUNCA pide un ticket nuevo a ARCA (el viejo "Probar conexión"
+                  forzaba un LoginCms con un ticket vigente). */}
+              <ArcaSetupPanel
+                status={arcaStatus}
+                loading={arcaStatusLoading}
+                failed={arcaStatusFailed}
+                refresh={loadArcaStatus}
+                defaults={{
+                  cuit: businessSettings.cuit,
+                  razonSocial: businessSettings.razon_social,
+                  businessName: businessSettings.nombre_comercial,
+                }}
+              />
+
               {mostrarConfiguracionArca && (
               <div data-testid="arca-config-panel" style={{ backgroundColor: colors.bg.surface, borderRadius: radius.lg, padding: '1.5rem', border: `1px solid ${colors.border.default}` }}>
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '1rem' }}>
                 <h3 style={{ color: 'var(--text-primary)', fontSize: '1rem', fontWeight: 600, margin: 0 }}>Configuración</h3>
-                {puedeGestionarArca && (
-                <button
-                  data-testid="arca-test-connection"
-                  onClick={handleTestArcaConnection}
-                  disabled={testingConnection || (!arcaConfig.has_certificate)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '0.5rem',
-                    minHeight: 44,
-                    padding: '0.625rem 1rem',
-                    backgroundColor: 'transparent',
-                    border: `1px solid ${colors.border.medium}`,
-                    color: 'var(--text-primary)',
-                    borderRadius: '0.5rem',
-                    cursor: (testingConnection || (!arcaConfig.has_certificate)) ? 'not-allowed' : 'pointer',
-                    fontWeight: 500,
-                    opacity: (!arcaConfig.has_certificate) ? 0.5 : testingConnection ? 0.8 : 1
-                  }}
-                >
-                  {testingConnection ? <Loader2 size={18} className="spin" /> : <CheckCircle size={18} />}
-                  {testingConnection ? 'Probando...' : 'Probar conexión'}
-                </button>
-                )}
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: '1rem' }}>

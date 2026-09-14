@@ -118,12 +118,19 @@ test('ARCA Phase 0: el frontend ya no usa las RPC retiradas ni sus métodos clie
   }
 })
 
-test('testConnection NO escribe estado_conexion desde el navegador', () => {
-  const s = stripComments(arca())
-  const fn = s.slice(s.indexOf('static async testConnection'), s.indexOf('static async getPuntosVenta'))
-  assert.doesNotMatch(fn, /estado_conexion|setEstado|\.rpc\(\s*['"]set_/)
-  assert.doesNotMatch(fn, /\.update\(/, 'testConnection no debe hacer UPDATE directo a arca_config')
-  assert.match(fn, /sanitizeArcaError/, 'el mensaje mostrado sigue sanitizado')
+test('ARCA Phase 2B: el navegador no pide tickets WSAA (el "Probar conexión" forzado se retiró)', () => {
+  // El viejo testConnection llamaba afip-wsaa con force_refresh=true: un LoginCms nuevo aunque el
+  // ticket instalado siguiera vigente (ARCA responde coe.alreadyAuthenticated y la conexión quedaba
+  // marcada con error). Ahora la pantalla sólo relee el estado canónico.
+  for (const src of [arca(), settings()]) {
+    const code = stripComments(src)
+    assert.doesNotMatch(code, /\btestConnection\b|\bgetWSAAToken\b|handleTestArcaConnection/)
+    assert.doesNotMatch(code, /force_refresh|forceRefresh/)
+    assert.doesNotMatch(code, /invoke\(\s*['"]afip-wsaa['"]/)
+    // El estado de conexión lo escribe sólo el servidor (el default local de arcaConfig no es escritura).
+    assert.doesNotMatch(code, /setEstado|\.rpc\(\s*['"]set_/)
+  }
+  assert.doesNotMatch(settings(), /data-testid="arca-test-connection"/)
 })
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -156,11 +163,10 @@ test('Settings ya no tiene textarea de certificado, cert_file ni el botón de CS
 test('Settings gatea la gestión ARCA con canManageArca (owner/admin + settings_sensitive)', () => {
   const s = stripComments(settings())
   assert.match(s, /canManageArca\(\{[\s\S]{0,200}settingsSensitive:\s*can\(['"]settings_sensitive['"]\)/)
-  for (const handler of ['handleSaveArcaConfig', 'handleTestArcaConnection', 'handleSyncParameters']) {
+  for (const handler of ['handleSaveArcaConfig', 'handleSyncParameters']) {
     const fn = s.slice(s.indexOf(`const ${handler}`), s.indexOf(`const ${handler}`) + 400)
     assert.match(fn, /puedeGestionarArca/, `${handler} debe cortar sin autoridad de gestión`)
   }
-  assert.match(s, /\{puedeGestionarArca && \(\s*<button\s+data-testid="arca-test-connection"/)
   assert.match(s, /\{puedeGestionarArca && \(\s*<div[^>]*>\s*<button\s+data-testid="arca-save-config"/)
 })
 

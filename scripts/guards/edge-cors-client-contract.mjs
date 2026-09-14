@@ -27,7 +27,8 @@ const ROOT = fileURLToPath(new URL('../..', import.meta.url))
 // Every Edge Function reachable from browser code, classified by how it is called
 // and which CORS implementation answers its preflight.
 export const REGISTRY = {
-  'afip-wsaa': { transport: 'sdk', cors: 'local-allowlist' },
+  // afip-wsaa ya no se llama desde el navegador (ARCA Phase 2B: el "Probar conexión" que forzaba un
+  // LoginCms se reemplazó por una relectura del estado). Sólo la invocan otras Edge Functions.
   'afip-cae': { transport: 'sdk', cors: 'local-allowlist' },
   'mp-subscription': { transport: 'sdk', cors: 'local-allowlist' },
   'whatsapp-send': { transport: 'sdk', cors: 'scoped' },
@@ -237,14 +238,14 @@ function selfTest() {
     ['Edge metadata list drops a header', 'G2', [mutate('supabase/functions/_shared/clientContract.ts', '  CLIENT_BUILD_HEADER,\n]', ']')]],
     ['supabase.ts adds an inline global header', 'G1', [mutate('src/lib/supabase.ts', 'headers: TECHREPAIR_CLIENT_HEADERS,', "headers: { ...TECHREPAIR_CLIENT_HEADERS, 'x-extra': '1' },")]],
     ['afip-cae loses the metadata headers', 'G4', [mutate('supabase/functions/afip-cae/index.ts', '  ...BROWSER_CLIENT_METADATA_HEADERS,\n', '')]],
-    ['afip-wsaa loses the metadata headers', 'G4', [mutate('supabase/functions/afip-wsaa/index.ts', '  ...BROWSER_CLIENT_METADATA_HEADERS,\n', '')]],
+    ['the browser calls afip-wsaa again', 'G3', [['src/services/__edgeCorsSelfTest.ts', "await supabase.functions.invoke('afip-wsaa', { body: { force_refresh: true } })\n"]]],
     ['mp-subscription loses the metadata headers', 'G4', [mutate('supabase/functions/mp-subscription/index.ts', '  ...BROWSER_CLIENT_METADATA_HEADERS,\n', '')]],
     ['scopedCors loses the metadata headers', 'G4', [mutate('supabase/functions/_shared/scopedCors.ts', '  ...BROWSER_CLIENT_METADATA_HEADERS,\n', '')]],
     ['embedded-signup goes back to a literal list', 'G4', [mutate('supabase/functions/whatsapp-embedded-signup/index.ts', "BROWSER_EDGE_REQUEST_HEADERS.join(', ')", "'authorization, x-client-info, apikey, content-type'")]],
     ['a new browser-called function appears', 'G3', [['src/services/__edgeCorsSelfTest.ts', "await supabase.functions.invoke('brand-new-fn', {})\n"]]],
     ['a call uses a dynamic slug', 'G3', [mutate('src/services/subscriptionService.ts', "supabase.functions.invoke('mp-subscription'", 'supabase.functions.invoke(slugFromSomewhere')]],
     ['Allow-Headers wildcard', 'G6', [mutate('supabase/functions/mp-subscription/index.ts', "'Access-Control-Allow-Headers': pickAllowedRequestHeaders(req),", "'Access-Control-Allow-Headers': '*',")]],
-    ['Allow-Origin wildcard on an authenticated function', 'G6', [mutate('supabase/functions/afip-wsaa/index.ts', "headers['Access-Control-Allow-Origin'] = origin", "headers['Access-Control-Allow-Origin'] = origin\n  headers['x'] = { 'Access-Control-Allow-Origin': '*' } as never")]],
+    ['Allow-Origin wildcard on an authenticated function', 'G6', [mutate('supabase/functions/afip-cae/index.ts', "headers['Access-Control-Allow-Origin'] = origin", "headers['Access-Control-Allow-Origin'] = origin\n  headers['x'] = { 'Access-Control-Allow-Origin': '*' } as never")]],
     ['raw fetch starts sending the metadata', 'G5', [mutate('src/services/dollarRateService.ts', "headers: { 'apikey': key,", "headers: { ...TECHREPAIR_CLIENT_HEADERS, 'apikey': key,")]],
   ]
   let failed = 0

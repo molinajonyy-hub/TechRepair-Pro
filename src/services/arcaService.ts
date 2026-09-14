@@ -1,5 +1,4 @@
 import { supabase } from '../lib/supabase'
-import { sanitizeArcaError } from './arcaSanitize'
 import { logger } from '../lib/logger'
 import { parseArcaSelfServiceStatus, type ArcaSelfServiceStatus } from '../lib/arcaStatus'
 
@@ -139,82 +138,9 @@ export class ArcaService {
     return { success: res?.success ?? false, updated_at: res?.updated_at }
   }
 
-  // ──────────────────────────────────────────────
-  // Autenticación WSAA (via Edge Function)
-  // ──────────────────────────────────────────────
-
-  /**
-   * Comprueba WSAA sin traer credenciales operativas al navegador.
-   * Usa caché interno en arca_config (válido 12h con buffer de 30 min).
-   * Si force_refresh=true, siempre obtiene uno nuevo.
-   */
-  static async getWSAAToken(
-    businessId: string,
-    service = 'wsfe',
-    forceRefresh = false
-  ): Promise<{ tokenOk: boolean; signOk: boolean; cached: boolean }> {
-    const { data, error } = await supabase.functions.invoke('afip-wsaa', {
-      body: { business_id: businessId, service, force_refresh: forceRefresh },
-    })
-
-    if (error) throw new Error(error.message || 'Error al conectar con afip-wsaa')
-    if (!data?.success) throw new Error(data?.error || 'Error en WSAA')
-
-    return {
-      tokenOk: data.tokenOk === true,
-      signOk: data.signOk === true,
-      cached: data.cached as boolean,
-    }
-  }
-
-  // ──────────────────────────────────────────────
-  // Test de conexión
-  // ──────────────────────────────────────────────
-
-  static async testConnection(businessId: string): Promise<{
-    success: boolean
-    message: string
-    details?: any
-  }> {
-    try {
-      const config = await this.getArcaConfig(businessId)
-
-      // AFIP-S1A: presencia por indicadores del contrato seguro (nunca el PEM).
-      if (!config?.has_certificate) {
-        return { success: false, message: 'No hay certificado digital cargado' }
-      }
-      if (!config?.has_private_key_configured) {
-        return { success: false, message: 'No hay clave privada cargada' }
-      }
-      if (config.expires_at && new Date(config.expires_at) < new Date()) {
-        return { success: false, message: 'El certificado digital está vencido' }
-      }
-
-      // Obtener token fresco para testear
-      const { tokenOk, signOk } = await this.getWSAAToken(businessId, 'wsfe', true)
-
-      // Consultar puntos de venta con el token real
-      const puntosVenta = await this.getPuntosVenta(businessId)
-
-      return {
-        success: true,
-        message: 'Conexión exitosa con ARCA',
-        details: {
-          ambiente:             config.ambiente,
-          puntosVenta,
-          tokenOk,
-          signOk,
-          ultimaSincronizacion: new Date().toISOString(),
-        },
-      }
-    } catch (error: unknown) {
-      logger.error('GENERAL', 'La prueba de conexión ARCA falló', error)
-      // ARCA Phase 0: el navegador ya NO escribe estado_conexion. afip-wsaa registra
-      // server-side el error autorizado; un fallo de red o de autorización del
-      // navegador no debe marcar como rota una configuración que funciona.
-      return { success: false, message: sanitizeArcaError(error) || 'Error al conectar con ARCA' }
-    }
-  }
+  // ARCA Phase 2B: el navegador ya NO pide tickets WSAA. El viejo "Probar conexión" forzaba
+  // un LoginCms (force_refresh) aun con un ticket vigente; la pantalla ahora relee el estado
+  // canónico (getSelfServiceStatus) y la verificación inicial la hace arca-selfservice-setup.
 
   // ──────────────────────────────────────────────
   // Puntos de venta
