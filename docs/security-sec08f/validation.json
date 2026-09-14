@@ -1,5 +1,6 @@
 {
   "checked_on": "2026-09-14",
+  "pull_request": "https://github.com/molinajonyy-hub/TechRepair-Pro/pull/132",
   "candidate": "20260930120000_sec08f_remaining_read_authority.sql",
   "results": {
     "sec08f_real_postgrest_jwt_matrix": {

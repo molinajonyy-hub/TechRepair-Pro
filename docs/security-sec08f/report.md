@@ -230,7 +230,7 @@ unbounded projection, or missing-key scan introduced by SEC-08F.
 
 ## R. PR and CI
 
-The branch will be published as a fresh PR. CI moves the candidate migration
+Fresh PR #132 publishes this candidate. CI moves the candidate migration
 aside while Supabase starts at current main, restores it for the harness, runs
 `npm run test:sec08f`, and tears the stack down. This preserves a genuine
 pre-fix witness in CI instead of starting from an already-fixed schema.
