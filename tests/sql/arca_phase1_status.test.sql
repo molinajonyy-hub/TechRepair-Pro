@@ -189,14 +189,15 @@ BEGIN
   END IF;
 END $$;
 
-CREATE OR REPLACE FUNCTION pg_temp.add_rotation(p_biz text, p_state text) RETURNS void LANGUAGE plpgsql AS $$
+-- p_kind: NULL = fila legacy de renovación (S4A); 'initial' = configuración inicial (Phase 2A).
+CREATE OR REPLACE FUNCTION pg_temp.add_rotation(p_biz text, p_state text, p_kind text DEFAULT NULL) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
   SET LOCAL session_replication_role = replica;
   INSERT INTO private.arca_credential_rotations (business_id, private_key_secret_id, private_key_fingerprint,
-    csr_fingerprint, csr_pem, key_size, state, idempotency_key, request_hash, prev_status)
+    csr_fingerprint, csr_pem, key_size, state, idempotency_key, request_hash, prev_status, setup_kind)
   VALUES (pg_temp.id(p_biz), gen_random_uuid(), repeat('cd', 32), repeat('cd', 32),
     '-----BEGIN CERTIFICATE REQUEST-----CSR-SENTINELA-P1', 2048, p_state, gen_random_uuid()::text, 'h',
-    CASE WHEN p_state = 'completed' THEN 'purged' END);
+    CASE WHEN p_state = 'completed' THEN 'purged' END, p_kind);
   SET LOCAL session_replication_role = origin;
 END $$;
 
@@ -355,12 +356,18 @@ BEGIN
   PERFORM pg_temp.expect(pg_temp.summary(r), 'connected|true|healthy|connected|in_progress|renewal|certificate|continue_setup|-', 'S12 renewal');
   IF r #>> '{setup,started_at}' IS NULL THEN RAISE EXCEPTION 'S12: falta started_at'; END IF;
 
-  -- Alta inicial: sin credencial activa.
+  -- Alta inicial (Phase 2A): la fila declara setup_kind='initial'.
+  PERFORM pg_temp.seed_a(NULL, false, p_estado => NULL, p_sync => NULL);
+  PERFORM pg_temp.add_rotation('bizA', 'pending_rotation', 'initial');
+  PERFORM pg_temp.expect(pg_temp.summary(pg_temp.status_as('owner')::jsonb),
+    'setup_in_progress|false|not_configured|unknown|in_progress|initial|certificate|continue_setup|-', 'S12 initial');
+
+  -- Fila legacy sin setup_kind y sin credencial: es renovación por construcción, nunca "inicial".
   PERFORM pg_temp.seed_a(NULL, false, p_estado => NULL, p_sync => NULL);
   PERFORM pg_temp.add_rotation('bizA', 'pending_rotation');
   PERFORM pg_temp.expect(pg_temp.summary(pg_temp.status_as('owner')::jsonb),
-    'setup_in_progress|false|not_configured|unknown|in_progress|initial|certificate|continue_setup|-', 'S12 initial');
-  RAISE NOTICE 'S12 OK - rotación pendiente → in_progress / continue_setup (renewal e initial).';
+    'setup_in_progress|false|not_configured|unknown|in_progress|renewal|certificate|continue_setup|-', 'S12 legacy NULL-kind');
+  RAISE NOTICE 'S12 OK - rotación pendiente → in_progress / continue_setup (renewal, initial y legacy NULL-kind = renewal).';
 END $$;
 
 -- == S13 H': activada pendiente de verificación ==============================
@@ -528,8 +535,8 @@ DECLARE
                || '.certificate.expires_at,.certificate.matches_credential,.certificate.present,'
                || '.certificate.renewal_state,.configured,.connection,.connection.last_verified_at,'
                || '.connection.state,.contract_version,.credential,.credential.active,.cuit,.environment,'
-               || '.next_action,.punto_venta,.razon_social,.setup,.setup.kind,.setup.started_at,.setup.state,'
-               || '.setup.step,.status';
+               || '.next_action,.punto_venta,.razon_social,.setup,.setup.kind,.setup.retry_not_before,.setup.started_at,.setup.state,'
+               || '.setup.step,.setup.verification_hold,.status';
   r jsonb;
 BEGIN
   -- Estado con TODO el material sembrado: cert, token, sign, secreto, rotación con CSR.
@@ -538,7 +545,11 @@ BEGIN
   FOREACH v_forbidden IN ARRAY ARRAY['owner', 'tech', 'ownerF'] LOOP
     r := pg_temp.status_as(v_forbidden)::jsonb;
     SELECT string_agg(k, ',' ORDER BY k) INTO v_keys FROM pg_temp.all_keys(r) k;
-    PERFORM pg_temp.expect(v_keys, v_want, 'S19 conjunto EXACTO de claves (' || v_forbidden || ')');
+    -- Phase 2A agrega setup.verification_hold/retry_not_before en la derivación; la rama "plan sin ARCA"
+    -- de la RPC de Phase 1 (sin cambios) no los emite y el parser los lee como null.
+    PERFORM pg_temp.expect(v_keys,
+      CASE WHEN v_forbidden = 'ownerF' THEN replace(replace(v_want, '.setup.retry_not_before,', ''), '.setup.verification_hold,', '') ELSE v_want END,
+      'S19 conjunto EXACTO de claves (' || v_forbidden || ')');
     v_out := v_out || r::text;
   END LOOP;
 

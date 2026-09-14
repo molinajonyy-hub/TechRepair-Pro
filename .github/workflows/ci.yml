@@ -71,6 +71,14 @@ jobs:
       - name: Guard — ARCA Phase 1 status read model contract
         run: npm run test:arca-phase1
 
+      # ARCA SELF-SERVICE PHASE 2A: initial setup engine. The browser never generates keys or
+      # touches credential/rotation tables; the setup Edge never logs or returns key material and
+      # never calls WSFE; _shared/wsaaLogin.ts stays token-identical to afip-wsaa; the 8 setup RPCs
+      # stay service_role-only and scoped to setup_kind='initial'. Handler/crypto/WSAA Deno tests
+      # run in `npm run test:deno`. Static + jsdom here.
+      - name: Guard — ARCA Phase 2A initial setup engine contract
+        run: npm run test:arca-phase2a
+
       - name: Guard — SEC-08E R2B activation stays canonical
         run: npm run guard:sec08e-r2a:self-test && npm run guard:sec08e-r2b:self-test && npm run guard:sec08e-r2b
 
