@@ -135,9 +135,11 @@ jobs:
         run: |
           set -euo pipefail
           r3="supabase/migrations/20260922120000_sec08e_auxiliary_financial_reads.sql"
+          sec08f="supabase/migrations/20260930120000_sec08f_remaining_read_authority.sql"
           mv "$r3" "$RUNNER_TEMP/"
-          trap 'mv "$RUNNER_TEMP/$(basename "$r3")" "$r3"' EXIT
+          mv "$sec08f" "$RUNNER_TEMP/"
           supabase start
+          mv "$RUNNER_TEMP/$(basename "$r3")" "$r3"
       - name: Run real PostgreSQL/PostgREST R3 matrix
         run: npm run test:sec08e-r3
       - name: Tear down local Supabase

@@ -234,6 +234,8 @@ Fresh PR #132 publishes this candidate. CI moves the candidate migration
 aside while Supabase starts at current main, restores it for the harness, runs
 `npm run test:sec08f`, and tears the stack down. This preserves a genuine
 pre-fix witness in CI instead of starting from an already-fixed schema.
+The historical R3 job also keeps the later SEC-08F migration out of its
+pre-SEC-08F source stack, while restoring and testing R3 itself.
 
 The PR is review material only. It must not be merged or deployed without a
 separate explicit production rollout authorization.
