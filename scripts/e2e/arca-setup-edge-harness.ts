@@ -1,7 +1,8 @@
 /**
  * ARCA Self-Service Phase 2B — Edge LOCAL para los E2E del asistente.
  *
- *   deno run -A --node-modules-dir=auto scripts/e2e/arca-setup-edge-harness.ts
+ *   deno run -A --node-modules-dir=none scripts/e2e/arca-setup-edge-harness.ts
+ *   (nunca `auto`: instalaría las dependencias de package.json en node_modules ignorando el lockfile)
  *
  * El job E2E no levanta el edge-runtime de Supabase. Este proceso sirve el handler REAL de
  * `arca-selfservice-setup` con dependencias reales del stack local:

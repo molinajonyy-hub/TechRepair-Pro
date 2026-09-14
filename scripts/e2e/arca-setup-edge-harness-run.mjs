@@ -19,7 +19,10 @@ for (const k of ['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY', 'SUPABASE_SERVIC
   if (!env[k]) { console.error(`.env.e2e no define ${k}`); process.exit(2) }
 }
 
-const child = spawn('deno', ['run', '-A', '--node-modules-dir=auto', 'scripts/e2e/arca-setup-edge-harness.ts'], {
+// `--node-modules-dir=none` es obligatorio: con `auto`, Deno instala TODAS las dependencias de package.json en
+// node_modules con su propia resolución (ignora package-lock). En CI eso subió @playwright/test a una versión cuyo
+// navegador no estaba instalado y la suite E2E murió antes del primer test. node-forge sale del caché global.
+const child = spawn('deno', ['run', '-A', '--node-modules-dir=none', 'scripts/e2e/arca-setup-edge-harness.ts'], {
   stdio: 'inherit',
   shell: process.platform === 'win32',
   env: {
