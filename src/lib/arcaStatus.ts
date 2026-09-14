@@ -22,6 +22,11 @@ export const ARCA_SETUP_STATES = ['not_started', 'in_progress', 'completed'] as 
 export const ARCA_SETUP_KINDS = ['initial', 'renewal'] as const
 /** `csr` y `activation` quedan reservados para el asistente de Phase 2. */
 export const ARCA_SETUP_STEPS = ['csr', 'certificate', 'verification', 'activation'] as const
+/**
+ * Phase 2A (aditivo, contract_version 1): espera de verificación que decide la base. Mientras hay
+ * una, el servidor rechaza otro LoginCms; `retry_not_before` es la cota guardada, no un permiso del navegador.
+ */
+export const ARCA_VERIFICATION_HOLDS = ['in_progress', 'result_unknown', 'ticket_active', 'verification_expired', 'cooldown'] as const
 export const ARCA_NEXT_ACTIONS = ['start_setup', 'continue_setup', 'verify_connection', 'renew_certificate', 'none'] as const
 export const ARCA_ATTENTION_REASONS = [
   'certificate_expired', 'certificate_unreadable', 'credential_certificate_mismatch',
@@ -34,6 +39,7 @@ export type ArcaConnectionState = typeof ARCA_CONNECTION_STATES[number]
 export type ArcaSetupState = typeof ARCA_SETUP_STATES[number]
 export type ArcaSetupKind = typeof ARCA_SETUP_KINDS[number]
 export type ArcaSetupStep = typeof ARCA_SETUP_STEPS[number]
+export type ArcaVerificationHold = typeof ARCA_VERIFICATION_HOLDS[number]
 export type ArcaNextAction = typeof ARCA_NEXT_ACTIONS[number]
 export type ArcaAttentionReason = typeof ARCA_ATTENTION_REASONS[number]
 
@@ -61,6 +67,9 @@ export interface ArcaSelfServiceStatus {
     kind: ArcaSetupKind | null
     step: ArcaSetupStep | null
     started_at: string | null
+    /** null sin espera. Ausente en una base sin Phase 2A → null. */
+    verification_hold: ArcaVerificationHold | null
+    retry_not_before: string | null
   }
   attention: ArcaAttentionReason[]
   can_manage: boolean
@@ -90,6 +99,9 @@ export function parseArcaSelfServiceStatus(raw: unknown): ArcaSelfServiceStatus 
   const { certificate: c, credential: k, connection: n, setup: s } = raw
   if (!isObj(c) || !isObj(k) || !isObj(n) || !isObj(s)) return null
   if (!Array.isArray(raw.attention) || !raw.attention.every((a) => oneOf(ARCA_ATTENTION_REASONS, a))) return null
+  const hold = s.verification_hold === undefined ? null : s.verification_hold
+  const retryNotBefore = s.retry_not_before === undefined ? null : s.retry_not_before
+  if (!nullableOneOf(ARCA_VERIFICATION_HOLDS, hold) || !nullableDate(retryNotBefore) || (hold === null) !== (retryNotBefore === null)) return null
 
   if (
     !isBool(raw.available) || !oneOf(ARCA_STATUS_VALUES, raw.status) || !isBool(raw.configured)
@@ -125,7 +137,10 @@ export function parseArcaSelfServiceStatus(raw: unknown): ArcaSelfServiceStatus 
     },
     credential: { active: k.active },
     connection: { state: n.state, last_verified_at: n.last_verified_at },
-    setup: { state: s.state, kind: s.kind, step: s.step, started_at: s.started_at },
+    setup: {
+      state: s.state, kind: s.kind, step: s.step, started_at: s.started_at,
+      verification_hold: hold, retry_not_before: retryNotBefore as string | null,
+    },
     attention: [...raw.attention] as ArcaAttentionReason[],
     can_manage: raw.can_manage,
     next_action: raw.next_action,

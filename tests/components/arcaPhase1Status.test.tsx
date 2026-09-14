@@ -30,7 +30,7 @@ const connected = (): ArcaSelfServiceStatus => ({
   certificate: { present: true, expires_at: '2028-07-25T23:58:12+00:00', days_remaining: 682, renewal_state: 'healthy', matches_credential: true },
   credential: { active: true },
   connection: { state: 'connected', last_verified_at: '2026-09-11T13:31:12.597+00:00' },
-  setup: { state: 'completed', kind: null, step: null, started_at: null },
+  setup: { state: 'completed', kind: null, step: null, started_at: null, verification_hold: null, retry_not_before: null },
   attention: [],
   can_manage: true,
   next_action: 'none',
@@ -43,7 +43,7 @@ const notConfigured = (canManage: boolean): ArcaSelfServiceStatus => ({
   certificate: { present: false, expires_at: null, days_remaining: null, renewal_state: 'not_configured', matches_credential: false },
   credential: { active: false },
   connection: { state: 'unknown', last_verified_at: null },
-  setup: { state: 'not_started', kind: null, step: null, started_at: null },
+  setup: { state: 'not_started', kind: null, step: null, started_at: null, verification_hold: null, retry_not_before: null },
   can_manage: canManage,
   next_action: 'start_setup',
 })
@@ -85,8 +85,24 @@ describe('parseArcaSelfServiceStatus — fail-closed', () => {
     ['punto de venta fuera de rango', { punto_venta: 0 }],
     ['fecha inválida', { certificate: { ...connected().certificate, expires_at: 'mañana' } }],
     ['can_manage no booleano', { can_manage: 'true' }],
+    ['espera de verificación desconocida', { setup: { ...connected().setup, verification_hold: 'in_flight', retry_not_before: '2026-09-14T10:00:00Z' } }],
+    ['espera sin cota', { setup: { ...connected().setup, verification_hold: 'result_unknown', retry_not_before: null } }],
+    ['cota sin espera', { setup: { ...connected().setup, verification_hold: null, retry_not_before: '2026-09-14T10:00:00Z' } }],
+    ['cota inválida', { setup: { ...connected().setup, verification_hold: 'cooldown', retry_not_before: 'luego' } }],
   ])('%s → null', (_label, patch) => {
     expect(parseArcaSelfServiceStatus({ ...connected(), ...patch })).toBeNull()
+  })
+
+  it('Phase 2A aditivo: una base sin espera de verificación (campos ausentes) se lee como null', () => {
+    const legacySetup: Record<string, unknown> = { ...connected().setup }
+    delete legacySetup.verification_hold
+    delete legacySetup.retry_not_before
+    const parsed = parseArcaSelfServiceStatus({ ...connected(), setup: legacySetup })
+    expect(parsed?.setup.verification_hold).toBeNull()
+    expect(parsed?.setup.retry_not_before).toBeNull()
+    const held = parseArcaSelfServiceStatus({ ...connected(), setup: { state: 'in_progress', kind: 'initial', step: 'verification', started_at: null, verification_hold: 'result_unknown', retry_not_before: '2026-09-14T10:00:00Z' } })
+    expect(held?.setup.verification_hold).toBe('result_unknown')
+    expect(held?.setup.retry_not_before).toBe('2026-09-14T10:00:00Z')
   })
 
   it('no-objetos → null', () => {

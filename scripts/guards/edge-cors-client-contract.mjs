@@ -32,6 +32,8 @@ export const REGISTRY = {
   'mp-subscription': { transport: 'sdk', cors: 'local-allowlist' },
   'whatsapp-send': { transport: 'sdk', cors: 'scoped' },
   'whatsapp-send-message': { transport: 'sdk', cors: 'scoped' },
+  // ARCA Self-Service Phase 2A: asistente de configuración inicial.
+  'arca-selfservice-setup': { transport: 'sdk', cors: 'scoped' },
   // Disabled endpoint (always 503). Its Allow-Origin '*' predates this guard: recorded debt.
   'whatsapp-embedded-signup': { transport: 'sdk', cors: 'static-list', wildcardOriginDebt: true },
   // Plain fetch with their own headers; they never carry the client metadata.
