@@ -1,0 +1,1621 @@
+{
+  "generated_at": "2026-09-14T18:33:32.378Z",
+  "checks": 184,
+  "observations": {
+    "pre": {
+      "owner": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "limited_technician": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "limited_viewer": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "cashier": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "cross_tenant_owner": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": []
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": []
+        }
+      },
+      "inactive_admin": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": []
+        }
+      },
+      "sales": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "manager": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "admin_finance_override_false": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "admin": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "anonymous": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 401,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.cash_registers TO anon;",
+            "message": "permission denied for table cash_registers"
+          }
+        },
+        "payment_orders": {
+          "status": 401,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO anon;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "service_role": {
+        "recurring_expenses": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.recurring_expenses TO service_role;",
+            "message": "permission denied for table recurring_expenses"
+          }
+        },
+        "cash_registers": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.cash_registers TO service_role;",
+            "message": "permission denied for table cash_registers"
+          }
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "post": {
+      "owner": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "limited_technician": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": []
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "limited_viewer": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": []
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "cashier": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "cross_tenant_owner": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": []
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "inactive_admin": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": []
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "sales": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": []
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "manager": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": []
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "admin_finance_override_false": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": []
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "admin": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "anonymous": {
+        "recurring_expenses": {
+          "status": 401,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.recurring_expenses TO anon;",
+            "message": "permission denied for table recurring_expenses"
+          }
+        },
+        "cash_registers": {
+          "status": 401,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.cash_registers TO anon;",
+            "message": "permission denied for table cash_registers"
+          }
+        },
+        "payment_orders": {
+          "status": 401,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO anon;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "service_role": {
+        "recurring_expenses": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.recurring_expenses TO service_role;",
+            "message": "permission denied for table recurring_expenses"
+          }
+        },
+        "cash_registers": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.cash_registers TO service_role;",
+            "message": "permission denied for table cash_registers"
+          }
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "embed_probes": {
+        "recurring_expenses": {
+          "status": 400,
+          "body": {
+            "code": "PGRST200",
+            "details": "Searched for a foreign key relationship between 'businesses' and 'recurring_expenses' in the schema 'public', but no matches were found.",
+            "hint": "Perhaps you meant 'expenses' instead of 'recurring_expenses'.",
+            "message": "Could not find a relationship between 'businesses' and 'recurring_expenses' in the schema cache"
+          }
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000101",
+              "cash_registers": []
+            }
+          ]
+        }
+      }
+    },
+    "static": {
+      "grants": [
+        {
+          "acl": [
+            "postgres=arwdDxtm/postgres",
+            "authenticated=arwd/postgres"
+          ],
+          "table": "cash_registers"
+        },
+        {
+          "acl": [
+            "postgres=arwdDxtm/postgres",
+            "authenticated=awd/postgres",
+            "service_role=arwd/postgres"
+          ],
+          "table": "payment_orders"
+        },
+        {
+          "acl": [
+            "postgres=arwdDxtm/postgres",
+            "authenticated=arwd/postgres"
+          ],
+          "table": "recurring_expenses"
+        }
+      ],
+      "policies": [
+        {
+          "cmd": "INSERT",
+          "qual": null,
+          "roles": [
+            "public"
+          ],
+          "tablename": "cash_registers",
+          "permissive": "PERMISSIVE",
+          "policyname": "cash_registers_business_insert",
+          "schemaname": "public",
+          "with_check": "(business_id = ( SELECT profiles.business_id\n   FROM profiles\n  WHERE (profiles.id = ( SELECT uid() AS uid))))"
+        },
+        {
+          "cmd": "UPDATE",
+          "qual": "(business_id = ( SELECT profiles.business_id\n   FROM profiles\n  WHERE (profiles.id = ( SELECT uid() AS uid))))",
+          "roles": [
+            "public"
+          ],
+          "tablename": "cash_registers",
+          "permissive": "PERMISSIVE",
+          "policyname": "cash_registers_business_update",
+          "schemaname": "public",
+          "with_check": null
+        },
+        {
+          "cmd": "SELECT",
+          "qual": "((business_id = current_user_business_id()) AND current_user_can_in_business(business_id, 'finance'::text))",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "cash_registers",
+          "permissive": "PERMISSIVE",
+          "policyname": "cash_registers_select_finance_capability",
+          "schemaname": "public",
+          "with_check": null
+        },
+        {
+          "cmd": "DELETE",
+          "qual": "(business_id = current_user_business_id())",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "cash_registers",
+          "permissive": "PERMISSIVE",
+          "policyname": "cr_delete_same_tenant",
+          "schemaname": "public",
+          "with_check": null
+        },
+        {
+          "cmd": "INSERT",
+          "qual": null,
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "cash_registers",
+          "permissive": "PERMISSIVE",
+          "policyname": "cr_insert_same_tenant",
+          "schemaname": "public",
+          "with_check": "(business_id = current_user_business_id())"
+        },
+        {
+          "cmd": "UPDATE",
+          "qual": "(business_id = current_user_business_id())",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "cash_registers",
+          "permissive": "PERMISSIVE",
+          "policyname": "cr_update_same_tenant",
+          "schemaname": "public",
+          "with_check": "(business_id = current_user_business_id())"
+        },
+        {
+          "cmd": "DELETE",
+          "qual": "(business_id = current_user_business_id())",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "payment_orders",
+          "permissive": "PERMISSIVE",
+          "policyname": "po_delete_same_tenant",
+          "schemaname": "public",
+          "with_check": null
+        },
+        {
+          "cmd": "INSERT",
+          "qual": null,
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "payment_orders",
+          "permissive": "PERMISSIVE",
+          "policyname": "po_insert_same_tenant",
+          "schemaname": "public",
+          "with_check": "(business_id = current_user_business_id())"
+        },
+        {
+          "cmd": "UPDATE",
+          "qual": "(business_id = current_user_business_id())",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "payment_orders",
+          "permissive": "PERMISSIVE",
+          "policyname": "po_update_same_tenant",
+          "schemaname": "public",
+          "with_check": "(business_id = current_user_business_id())"
+        },
+        {
+          "cmd": "DELETE",
+          "qual": "(business_id IN ( SELECT profiles.business_id\n   FROM profiles\n  WHERE (profiles.id = ( SELECT uid() AS uid))))",
+          "roles": [
+            "public"
+          ],
+          "tablename": "recurring_expenses",
+          "permissive": "PERMISSIVE",
+          "policyname": "re_delete",
+          "schemaname": "public",
+          "with_check": null
+        },
+        {
+          "cmd": "INSERT",
+          "qual": null,
+          "roles": [
+            "public"
+          ],
+          "tablename": "recurring_expenses",
+          "permissive": "PERMISSIVE",
+          "policyname": "re_insert",
+          "schemaname": "public",
+          "with_check": "(business_id IN ( SELECT profiles.business_id\n   FROM profiles\n  WHERE (profiles.id = ( SELECT uid() AS uid))))"
+        },
+        {
+          "cmd": "UPDATE",
+          "qual": "(business_id IN ( SELECT profiles.business_id\n   FROM profiles\n  WHERE (profiles.id = ( SELECT uid() AS uid))))",
+          "roles": [
+            "public"
+          ],
+          "tablename": "recurring_expenses",
+          "permissive": "PERMISSIVE",
+          "policyname": "re_update",
+          "schemaname": "public",
+          "with_check": null
+        },
+        {
+          "cmd": "SELECT",
+          "qual": "((business_id = current_user_business_id()) AND current_user_can_in_business(business_id, 'finance'::text))",
+          "roles": [
+            "authenticated"
+          ],
+          "tablename": "recurring_expenses",
+          "permissive": "PERMISSIVE",
+          "policyname": "recurring_expenses_select_finance_capability",
+          "schemaname": "public",
+          "with_check": null
+        }
+      ],
+      "dependent_views": [],
+      "dependent_security_definers": [
+        "pay_recurring_expense(uuid,uuid,numeric,date,text)",
+        "private.generate_finance_insights(uuid,date,date)"
+      ]
+    },
+    "r2r3": {
+      "gate": {
+        "hook": "pgrst.db_pre_request=public.check_client_contract",
+        "state": "enabled:1"
+      },
+      "limited_technician": {
+        "status": 200,
+        "body": []
+      },
+      "owner": {
+        "status": 200,
+        "body": [
+          {
+            "id": "f0800000-0000-0000-0000-000000000701",
+            "unit_price": 7103.19
+          }
+        ]
+      }
+    },
+    "r1": {
+      "schema": "post",
+      "tests": 4,
+      "status": "passed"
+    },
+    "rollback": {
+      "owner": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "limited_technician": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "limited_viewer": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "cashier": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "cross_tenant_owner": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": []
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": []
+        }
+      },
+      "inactive_admin": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": []
+        }
+      },
+      "sales": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "manager": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "admin_finance_override_false": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "admin": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "anonymous": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 401,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.cash_registers TO anon;",
+            "message": "permission denied for table cash_registers"
+          }
+        },
+        "payment_orders": {
+          "status": 401,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO anon;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "service_role": {
+        "recurring_expenses": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.recurring_expenses TO service_role;",
+            "message": "permission denied for table recurring_expenses"
+          }
+        },
+        "cash_registers": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.cash_registers TO service_role;",
+            "message": "permission denied for table cash_registers"
+          }
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "reapplied": {
+      "owner": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "limited_technician": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": []
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "limited_viewer": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": []
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "cashier": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "cross_tenant_owner": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": []
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "inactive_admin": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": []
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "sales": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": []
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "manager": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": []
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "admin_finance_override_false": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": []
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": []
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "admin": {
+        "recurring_expenses": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000201",
+              "amount": 4812.34,
+              "notes": "SEC08F_RECURRING_WITNESS"
+            }
+          ]
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000301",
+              "ars_balance": 5823.45,
+              "usd_balance": 67.89,
+              "notes": "SEC08F_CASH_WITNESS"
+            }
+          ]
+        },
+        "payment_orders": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO authenticated;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "anonymous": {
+        "recurring_expenses": {
+          "status": 401,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.recurring_expenses TO anon;",
+            "message": "permission denied for table recurring_expenses"
+          }
+        },
+        "cash_registers": {
+          "status": 401,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.cash_registers TO anon;",
+            "message": "permission denied for table cash_registers"
+          }
+        },
+        "payment_orders": {
+          "status": 401,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.payment_orders TO anon;",
+            "message": "permission denied for table payment_orders"
+          }
+        }
+      },
+      "service_role": {
+        "recurring_expenses": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.recurring_expenses TO service_role;",
+            "message": "permission denied for table recurring_expenses"
+          }
+        },
+        "cash_registers": {
+          "status": 403,
+          "body": {
+            "code": "42501",
+            "details": null,
+            "hint": "Grant the required privileges to the current role with: GRANT SELECT ON public.cash_registers TO service_role;",
+            "message": "permission denied for table cash_registers"
+          }
+        },
+        "payment_orders": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000401",
+              "requested_amount": 6934.56,
+              "estimated_fee_amount": 234.56,
+              "raw_response": {
+                "marker": "SEC08F_RAW_PROVIDER_WITNESS"
+              }
+            }
+          ]
+        }
+      },
+      "embed_probes": {
+        "recurring_expenses": {
+          "status": 400,
+          "body": {
+            "code": "PGRST200",
+            "details": "Searched for a foreign key relationship between 'businesses' and 'recurring_expenses' in the schema 'public', but no matches were found.",
+            "hint": "Perhaps you meant 'expenses' instead of 'recurring_expenses'.",
+            "message": "Could not find a relationship between 'businesses' and 'recurring_expenses' in the schema cache"
+          }
+        },
+        "cash_registers": {
+          "status": 200,
+          "body": [
+            {
+              "id": "f0800000-0000-0000-0000-000000000101",
+              "cash_registers": []
+            }
+          ]
+        }
+      }
+    }
+  }
+}

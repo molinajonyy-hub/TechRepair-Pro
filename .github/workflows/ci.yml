@@ -144,6 +144,37 @@ jobs:
         if: always()
         run: supabase stop --no-backup || true
 
+  sec08f:
+    name: SEC-08F Security Matrix
+    runs-on: ubuntu-latest
+    needs: quality
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.109.1
+      - name: Start current main without the SEC-08F candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          sec08f="supabase/migrations/20260930120000_sec08f_remaining_read_authority.sql"
+          mv "$sec08f" "$RUNNER_TEMP/"
+          trap 'mv "$RUNNER_TEMP/$(basename "$sec08f")" "$sec08f"' EXIT
+          supabase start
+      - name: Run real PostgreSQL/PostgREST SEC-08F matrix
+        run: npm run test:sec08f
+      - name: Tear down local Supabase
+        if: always()
+        run: supabase stop --no-backup || true
+
   # ── E2E contra un Supabase LOCAL y descartable ────────────────────────────
   # Antes este job recibía `secrets.VITE_SUPABASE_URL` y abortaba en el guard de
   # M7 7D.2 antes del primer test ("E2E ABORTADO: el destino Supabase no es local

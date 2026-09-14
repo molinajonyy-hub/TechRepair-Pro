@@ -1,0 +1,15 @@
+{
+  "checked_at": "2026-09-14T18:14:33Z",
+  "from": "2026-09-14T17:14:33Z",
+  "edge": {
+    "http_409": 0,
+    "http_503": 0,
+    "total": 364
+  },
+  "postgres": {
+    "client_update_required": 0,
+    "configuration_error": 0,
+    "identity_error": 0,
+    "total": 13
+  }
+}
