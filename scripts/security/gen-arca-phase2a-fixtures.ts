@@ -13,7 +13,8 @@
 // @ts-ignore: node-forge en Deno via npm
 import forge from 'npm:node-forge@1.3.1'
 
-const ALIAS = 'qa-initial-setup'
+// Homologación (WSASS) sólo acepta letras y números en el nombre del equipo.
+const ALIAS = 'qainitialsetup'
 const CUIT = '20111111112'          // dígito verificador válido (mod 11)
 const OTHER_CUIT = '20222222223'
 
@@ -102,7 +103,7 @@ const rows: Array<[string, string]> = [
   ['cert_valid_prod', issue(pending.pub, subject(CUIT), PROD_ISSUER, Y(2020), Y(2035))],
   ['cert_wrong_key', issue(other.pub, subject(CUIT), HOMO_ISSUER, Y(2020), Y(2035))],
   ['cert_wrong_cuit', issue(pending.pub, subject(OTHER_CUIT), HOMO_ISSUER, Y(2020), Y(2035))],
-  ['cert_wrong_alias', issue(pending.pub, subject(CUIT, 'otro-alias'), HOMO_ISSUER, Y(2020), Y(2035))],
+  ['cert_wrong_alias', issue(pending.pub, subject(CUIT, 'otroalias'), HOMO_ISSUER, Y(2020), Y(2035))],
   ['cert_expired', issue(pending.pub, subject(CUIT), HOMO_ISSUER, Y(2019), Y(2021))],
   ['cert_not_yet_valid', issue(pending.pub, subject(CUIT), HOMO_ISSUER, Y(2034), Y(2036))],
   ['cert_rogue_issuer', issue(pending.pub, subject(CUIT), ROGUE_ISSUER, Y(2020), Y(2035))],

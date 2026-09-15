@@ -138,7 +138,7 @@ BEGIN INSERT INTO resp(label, body) VALUES (p_label, p_body); RETURN p_body; END
 
 CREATE OR REPLACE FUNCTION pg_temp.prep(p_actor text, p_biz text, p_key text, p_idem text DEFAULT 'idem-prepare-0001',
   p_cuit text DEFAULT '20-11111111-2', p_razon text DEFAULT 'QA Setup SRL', p_amb text DEFAULT 'homologacion',
-  p_pv int DEFAULT 7, p_alias text DEFAULT 'qa-initial-setup',
+  p_pv int DEFAULT 7, p_alias text DEFAULT 'qainitialsetup',
   p_key_pem text DEFAULT NULL, p_csr text DEFAULT NULL, p_fp text DEFAULT NULL)
 RETURNS jsonb LANGUAGE plpgsql AS $$
 BEGIN
@@ -152,7 +152,7 @@ END $$;
 CREATE OR REPLACE FUNCTION pg_temp.prep_ok(p_actor text, p_biz text, p_idem text DEFAULT 'idem-prepare-0001',
   p_amb text DEFAULT 'homologacion', p_pv int DEFAULT 7)
 RETURNS jsonb LANGUAGE sql AS $$
-  SELECT pg_temp.prep(p_actor, p_biz, 'ok', p_idem, '20-11111111-2', 'QA Setup SRL', p_amb, p_pv, 'qa-initial-setup',
+  SELECT pg_temp.prep(p_actor, p_biz, 'ok', p_idem, '20-11111111-2', 'QA Setup SRL', p_amb, p_pv, 'qainitialsetup',
     pg_temp.fx('key_pending'), pg_temp.fx('csr_pending'), pg_temp.fx('fp_pending'))
 $$;
 
@@ -303,19 +303,19 @@ DO $$
 DECLARE r record;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-    ('20111111113', 'homologacion', 7, 'qa-initial-setup', 'QA', 'idem-fiscal-0001', 'INVALID_CUIT'),       -- dígito verificador
-    ('99111111112', 'homologacion', 7, 'qa-initial-setup', 'QA', 'idem-fiscal-0001', 'INVALID_CUIT'),       -- prefijo
-    ('2011111111',  'homologacion', 7, 'qa-initial-setup', 'QA', 'idem-fiscal-0001', 'INVALID_CUIT'),       -- 10 dígitos
-    ('CUIT20111111112', 'homologacion', 7, 'qa-initial-setup', 'QA', 'idem-fiscal-0001', 'INVALID_CUIT'),   -- basura con dígitos
-    ('20111111112', 'produccion ', 7, 'qa-initial-setup', 'QA', 'idem-fiscal-0001', 'INVALID_AMBIENTE'),
-    ('20111111112', 'testing',     7, 'qa-initial-setup', 'QA', 'idem-fiscal-0001', 'INVALID_AMBIENTE'),
-    ('20111111112', 'homologacion', 0, 'qa-initial-setup', 'QA', 'idem-fiscal-0001', 'INVALID_PUNTO_VENTA'),
-    ('20111111112', 'homologacion', 99999, 'qa-initial-setup', 'QA', 'idem-fiscal-0001', 'INVALID_PUNTO_VENTA'),
+    ('20111111113', 'homologacion', 7, 'qainitialsetup', 'QA', 'idem-fiscal-0001', 'INVALID_CUIT'),       -- dígito verificador
+    ('99111111112', 'homologacion', 7, 'qainitialsetup', 'QA', 'idem-fiscal-0001', 'INVALID_CUIT'),       -- prefijo
+    ('2011111111',  'homologacion', 7, 'qainitialsetup', 'QA', 'idem-fiscal-0001', 'INVALID_CUIT'),       -- 10 dígitos
+    ('CUIT20111111112', 'homologacion', 7, 'qainitialsetup', 'QA', 'idem-fiscal-0001', 'INVALID_CUIT'),   -- basura con dígitos
+    ('20111111112', 'produccion ', 7, 'qainitialsetup', 'QA', 'idem-fiscal-0001', 'INVALID_AMBIENTE'),
+    ('20111111112', 'testing',     7, 'qainitialsetup', 'QA', 'idem-fiscal-0001', 'INVALID_AMBIENTE'),
+    ('20111111112', 'homologacion', 0, 'qainitialsetup', 'QA', 'idem-fiscal-0001', 'INVALID_PUNTO_VENTA'),
+    ('20111111112', 'homologacion', 99999, 'qainitialsetup', 'QA', 'idem-fiscal-0001', 'INVALID_PUNTO_VENTA'),
     ('20111111112', 'homologacion', 7, 'qa_initial', 'QA', 'idem-fiscal-0001', 'INVALID_ALIAS'),            -- '_' no es PrintableString
     ('20111111112', 'homologacion', 7, 'qa setup', 'QA', 'idem-fiscal-0001', 'INVALID_ALIAS'),
     ('20111111112', 'homologacion', 7, 'qa', 'QA', 'idem-fiscal-0001', 'INVALID_ALIAS'),
-    ('20111111112', 'homologacion', 7, 'qa-initial-setup', '   ', 'idem-fiscal-0001', 'INVALID_RAZON_SOCIAL'),
-    ('20111111112', 'homologacion', 7, 'qa-initial-setup', 'QA', 'short', 'INVALID_IDEMPOTENCY_KEY')
+    ('20111111112', 'homologacion', 7, 'qainitialsetup', '   ', 'idem-fiscal-0001', 'INVALID_RAZON_SOCIAL'),
+    ('20111111112', 'homologacion', 7, 'qainitialsetup', 'QA', 'short', 'INVALID_IDEMPOTENCY_KEY')
   ) AS t(cuit, amb, pv, alias, razon, idem, want) LOOP
     PERFORM pg_temp.expect(pg_temp.st(pg_temp.prep('owner', 'bizA', 'fiscal', r.idem, r.cuit, r.razon, r.amb, r.pv, r.alias)),
       r.want, format('Q03 %s/%s/%s/%s', r.cuit, r.amb, r.pv, r.alias));
@@ -326,10 +326,10 @@ BEGIN
   PERFORM pg_temp.expect(pg_temp.st(pg_temp.prep('ownerT', 'bizT', 'fiscal', 'idem-fiscal-0003', '20-11111111-2')), 'CUIT_TENANT_MISMATCH', 'Q03 CUIT del negocio');
   PERFORM pg_temp.expect(pg_temp.st(pg_temp.prep('ownerT', 'bizT', 'fiscal', 'idem-fiscal-0004', '20-22222222-3')), 'KEY_REQUIRED', 'Q03 CUIT del negocio coincide');
   IF (SELECT r2 ->> 'subject' FROM (SELECT pg_temp.prep('owner', 'bizA', 'fiscal', 'idem-fiscal-0005') AS r2) s)::jsonb
-     IS DISTINCT FROM '{"cn": "qa-initial-setup", "serialnumber": "CUIT 20111111112"}'::jsonb THEN
+     IS DISTINCT FROM '{"cn": "qainitialsetup", "serialnumber": "CUIT 20111111112"}'::jsonb THEN
     RAISE EXCEPTION 'Q03 el probe no devuelve el subject autorizado exacto';
   END IF;
-  RAISE NOTICE 'Q03 OK - CUIT (formato/verificador/prefijo), ambiente, PV, alias PrintableString, razón social, key, CUIT del negocio.';
+  RAISE NOTICE 'Q03 OK - CUIT (formato/verificador/prefijo), ambiente, PV, alias por ambiente, razón social, key, CUIT del negocio.';
 END $$;
 
 -- == Q04 negocios configurados: nunca ============================================
@@ -340,7 +340,7 @@ BEGIN
     v_before := pg_temp.world(b.biz);
     PERFORM pg_temp.expect(pg_temp.st(pg_temp.prep(b.owner, b.biz, 'cfg')), 'ARCA_ALREADY_CONFIGURED', 'Q04 probe ' || b.biz);
     PERFORM pg_temp.expect(pg_temp.st(pg_temp.prep(b.owner, b.biz, 'cfg', 'idem-cfg-0001', '20-11111111-2', 'QA Setup SRL',
-      'homologacion', 7, 'qa-initial-setup', pg_temp.fx('key_pending'), pg_temp.fx('csr_pending'), pg_temp.fx('fp_pending'))),
+      'homologacion', 7, 'qainitialsetup', pg_temp.fx('key_pending'), pg_temp.fx('csr_pending'), pg_temp.fx('fp_pending'))),
       'ARCA_ALREADY_CONFIGURED', 'Q04 prepare ' || b.biz);
     PERFORM pg_temp.expect(pg_temp.st(pg_temp.csr(b.owner, b.biz)), 'ARCA_ALREADY_CONFIGURED', 'Q04 csr ' || b.biz);
     PERFORM pg_temp.expect(pg_temp.st(pg_temp.attach(b.owner, b.biz, pg_temp.fx('cert_valid_homo'))), 'ARCA_ALREADY_CONFIGURED', 'Q04 attach ' || b.biz);
@@ -360,18 +360,18 @@ DO $$
 DECLARE v_before text := pg_temp.world('bizA');
 BEGIN
   PERFORM pg_temp.expect(pg_temp.st(pg_temp.prep('owner', 'bizA', 'k', 'idem-key-00001', '20-11111111-2', 'QA Setup SRL', 'homologacion', 7,
-    'qa-initial-setup', pg_temp.fx('key_pending'), pg_temp.fx('csr_extra_attrs'), pg_temp.fx('fp_pending'))), 'CSR_SUBJECT_MISMATCH', 'Q05 atributos extra');
+    'qainitialsetup', pg_temp.fx('key_pending'), pg_temp.fx('csr_extra_attrs'), pg_temp.fx('fp_pending'))), 'CSR_SUBJECT_MISMATCH', 'Q05 atributos extra');
   PERFORM pg_temp.expect(pg_temp.st(pg_temp.prep('owner', 'bizA', 'k', 'idem-key-00002', '20-11111111-2', 'QA Setup SRL', 'homologacion', 7,
-    'qa-initial-setup', pg_temp.fx('key_pending'), pg_temp.fx('csr_other_key'), pg_temp.fx('fp_pending'))), 'CSR_KEY_MISMATCH', 'Q05 CSR de otra clave');
+    'qainitialsetup', pg_temp.fx('key_pending'), pg_temp.fx('csr_other_key'), pg_temp.fx('fp_pending'))), 'CSR_KEY_MISMATCH', 'Q05 CSR de otra clave');
   PERFORM pg_temp.expect(pg_temp.st(pg_temp.prep('owner', 'bizA', 'k', 'idem-key-00003', '20-11111111-2', 'QA Setup SRL', 'homologacion', 7,
-    'qa-initial-setup', pg_temp.fx('key_small'), pg_temp.fx('csr_pending'), pg_temp.fx('fp_pending'))), 'KEY_GENERATION_FAILED', 'Q05 clave chica');
+    'qainitialsetup', pg_temp.fx('key_small'), pg_temp.fx('csr_pending'), pg_temp.fx('fp_pending'))), 'KEY_GENERATION_FAILED', 'Q05 clave chica');
   PERFORM pg_temp.expect(pg_temp.st(pg_temp.prep('owner', 'bizA', 'k', 'idem-key-00004', '20-11111111-2', 'QA Setup SRL', 'homologacion', 7,
-    'qa-initial-setup', pg_temp.fx('key_pending'), pg_temp.fx('csr_pending'), pg_temp.fx('fp_other'))), 'KEY_GENERATION_FAILED', 'Q05 fingerprint declarado falso');
+    'qainitialsetup', pg_temp.fx('key_pending'), pg_temp.fx('csr_pending'), pg_temp.fx('fp_other'))), 'KEY_GENERATION_FAILED', 'Q05 fingerprint declarado falso');
   PERFORM pg_temp.expect(pg_temp.st(pg_temp.prep('owner', 'bizA', 'k', 'idem-key-00005', '20-11111111-2', 'QA Setup SRL', 'homologacion', 7,
-    'qa-initial-setup', pg_temp.fx('cert_valid_homo'), pg_temp.fx('csr_pending'), pg_temp.fx('fp_pending'))), 'KEY_GENERATION_FAILED', 'Q05 certificado como clave');
+    'qainitialsetup', pg_temp.fx('cert_valid_homo'), pg_temp.fx('csr_pending'), pg_temp.fx('fp_pending'))), 'KEY_GENERATION_FAILED', 'Q05 certificado como clave');
   -- El CSR pertenece a la clave pero con otro alias en el pedido → subject distinto.
   PERFORM pg_temp.expect(pg_temp.st(pg_temp.prep('owner', 'bizA', 'k', 'idem-key-00006', '20-11111111-2', 'QA Setup SRL', 'homologacion', 7,
-    'otro-alias', pg_temp.fx('key_pending'), pg_temp.fx('csr_pending'), pg_temp.fx('fp_pending'))), 'CSR_SUBJECT_MISMATCH', 'Q05 alias del pedido ≠ CSR');
+    'otroalias', pg_temp.fx('key_pending'), pg_temp.fx('csr_pending'), pg_temp.fx('fp_pending'))), 'CSR_SUBJECT_MISMATCH', 'Q05 alias del pedido ≠ CSR');
   PERFORM pg_temp.expect(pg_temp.world('bizA'), v_before, 'Q05 sin escrituras');
   RAISE NOTICE 'Q05 OK - atributos extra, CSR de otra clave, clave chica, fingerprint falso, certificado como clave, alias distinto.';
 END $$;
@@ -403,12 +403,12 @@ BEGIN
   r := pg_temp.prep_ok('owner', 'bizA');
   PERFORM pg_temp.expect(pg_temp.st(r), 'SETUP_PREPARED', 'Q07 estado');
   IF r ->> 'csr_pem' IS DISTINCT FROM pg_temp.fx('csr_pending') OR (r #>> '{subject,cuit}') <> '20111111112'
-     OR (r #>> '{subject,alias}') <> 'qa-initial-setup' THEN
+     OR (r #>> '{subject,alias}') <> 'qainitialsetup' THEN
     RAISE EXCEPTION 'Q07 respuesta inesperada: %', r;
   END IF;
   SELECT * INTO v_rot FROM private.arca_credential_rotations WHERE business_id = pg_temp.id('bizA');
   IF v_rot.state <> 'pending_rotation' OR v_rot.setup_kind <> 'initial' OR v_rot.private_key_fingerprint <> pg_temp.fx('fp_pending')
-     OR v_rot.subject <> '{"cn": "qa-initial-setup", "serialnumber": "CUIT 20111111112"}'::jsonb THEN
+     OR v_rot.subject <> '{"cn": "qainitialsetup", "serialnumber": "CUIT 20111111112"}'::jsonb THEN
     RAISE EXCEPTION 'Q07 fila de configuración inesperada';
   END IF;
   PERFORM pg_temp.expect((SELECT count(*) FROM vault.secrets)::text, (v_secrets + 1)::text, 'Q07 un secreto nuevo');
@@ -417,7 +417,7 @@ BEGIN
   SELECT * INTO v_cfg FROM public.arca_config WHERE business_id = pg_temp.id('bizA');
   PERFORM pg_temp.expect(concat_ws('|', v_cfg.cuit, v_cfg.cuit_emisor, v_cfg.razon_social, v_cfg.ambiente, v_cfg.punto_venta, v_cfg.alias,
     v_cfg.web_service, coalesce(v_cfg.cert_file, '-'), v_cfg.estado_conexion),
-    '20111111112|20111111112|QA Setup SRL|homologacion|7|qa-initial-setup|wsfe|-|no_configurado', 'Q07 arca_config');
+    '20111111112|20111111112|QA Setup SRL|homologacion|7|qainitialsetup|wsfe|-|no_configurado', 'Q07 arca_config');
   PERFORM pg_temp.expect(pg_temp.phase1('bizA', 'owner'), 'setup_in_progress|false|in_progress|initial|certificate|unknown|continue_setup', 'Q07 Phase 1 después');
   RAISE NOTICE 'Q07 OK - clave en Vault (readback), fila initial pendiente, arca_config con cuit_emisor; Phase 1 paso certificate.';
 END $$;
@@ -472,7 +472,7 @@ BEGIN
   END;
   PERFORM public.save_arca_config_legacy(pg_temp.id('bizA'), NULL, NULL, NULL, 8);   -- PV sigue editable
   PERFORM pg_temp.expect((SELECT punto_venta || '|' || cuit || '|' || alias FROM public.arca_config WHERE business_id = pg_temp.id('bizA')),
-    '8|20111111112|qa-initial-setup', 'Q10 PV editable, identidad fija');
+    '8|20111111112|qainitialsetup', 'Q10 PV editable, identidad fija');
   RAISE NOTICE 'Q10 OK - CUIT/alias bloqueados mientras hay configuración viva; PV editable.';
 END $$;
 
