@@ -6,7 +6,10 @@
  * (ARCA_ALREADY_CONFIGURED). No es renovación y nunca toca una credencial activa.
  *
  * Cableado únicamente: la lógica vive en `handler.ts` (testeada sin red).
- *   - CORS: _shared/scopedCors.ts (allowlist canónica; APP_URL puede sumar un origen propio).
+ *   - CORS: _shared/scopedCors.ts (allowlist canónica y match EXACTO de origen; APP_URL puede sumar un
+ *     origen propio). ARCA_SETUP_EXTRA_ORIGINS es exclusiva de esta función: suma orígenes QA temporales
+ *     (p. ej. la Vercel Preview del smoke de homologación). Vacía = comportamiento de producción.
+ *     CORS no es autoridad: el request igual necesita JWT, manager, tenant y plan.
  *   - Autoridad: authorizeArcaManager + resolveManagedBusiness (handler) +
  *     is_business_owner_or_admin (defensa en profundidad SQL) + business_has_feature('arca')
  *     con el JWT del usuario.
@@ -24,7 +27,10 @@ import { generateSetupKeyAndCsr } from './crypto.ts'
 import { handleSetupRequest } from './handler.ts'
 import { wsaaLoginWithPendingPair } from './wsaa.ts'
 
-const cors = createCors(computeAllowedOrigins([Deno.env.get('APP_URL')]))
+const cors = createCors(computeAllowedOrigins([
+  Deno.env.get('APP_URL'),
+  Deno.env.get('ARCA_SETUP_EXTRA_ORIGINS'),
+]))
 
 serve(async (req: Request) => {
   const url = Deno.env.get('SUPABASE_URL')

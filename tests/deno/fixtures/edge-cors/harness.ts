@@ -5,7 +5,10 @@
 import { BROWSER_EDGE_REQUEST_HEADERS } from '../../../../supabase/functions/_shared/clientContract.ts'
 
 const slug = Deno.args[0] ?? ''
-if (!/^[a-z0-9-]+$/.test(slug)) throw new Error('usage: harness.ts <function-slug>')
+if (!/^[a-z0-9-]+$/.test(slug)) throw new Error('usage: harness.ts <function-slug> [ARCA_SETUP_EXTRA_ORIGINS value]')
+// Optional: value for ARCA_SETUP_EXTRA_ORIGINS (only arca-selfservice-setup may read it; the other
+// functions run with it set to prove they ignore it).
+const extraOrigins = Deno.args[1]
 
 const g = globalThis as {
   __edgeHandler?: (req: Request) => Response | Promise<Response>
@@ -21,9 +24,10 @@ globalThis.fetch = (input: RequestInfo | URL) => {
 Deno.env.set('SUPABASE_URL', 'http://stub.invalid')
 Deno.env.set('SUPABASE_ANON_KEY', `sb_publishable_${'a'.repeat(22)}_${'b'.repeat(8)}`)
 Deno.env.set('SUPABASE_SERVICE_ROLE_KEY', `sb_secret_${'c'.repeat(22)}_${'d'.repeat(8)}`)
-for (const name of ['MP_CORS_ORIGIN', 'APP_URL', 'WHATSAPP_CORS_ORIGIN', 'SUPABASE_SECRET_KEYS']) {
+for (const name of ['MP_CORS_ORIGIN', 'APP_URL', 'WHATSAPP_CORS_ORIGIN', 'SUPABASE_SECRET_KEYS', 'ARCA_SETUP_EXTRA_ORIGINS']) {
   Deno.env.delete(name)
 }
+if (extraOrigins !== undefined) Deno.env.set('ARCA_SETUP_EXTRA_ORIGINS', extraOrigins)
 
 await import(new URL(`../../../../supabase/functions/${slug}/index.ts`, import.meta.url).href)
 const handler = g.__edgeHandler
@@ -45,9 +49,26 @@ const preflight = (origin: string, requested: string) => new Request(url, {
   headers: { Origin: origin, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': requested },
 })
 
+// ARCA Phase 2B homologación smoke: the one QA Preview origin, plus look-alikes that must never match.
+const PREVIEW_HOST = 'tech-repair-pro-git-claude-arc-a20d96-molinajonyy-hubs-projects.vercel.app'
+const PREVIEW = `https://${PREVIEW_HOST}`
+
 const scenarios: Record<string, () => Request> = {
   preflight_official: () => preflight(WWW, OFFICIAL),
   preflight_apex: () => preflight('https://techrepairpro.app', OFFICIAL),
+  preflight_preview_exact: () => preflight(PREVIEW, OFFICIAL),
+  preflight_preview_other_vercel: () => preflight('https://tech-repair-pro-git-main-molinajonyy-hubs-projects.vercel.app', OFFICIAL),
+  preflight_preview_lookalike_subdomain: () => preflight(`https://evil.${PREVIEW_HOST}`, OFFICIAL),
+  preflight_preview_prefix: () => preflight(`https://x${PREVIEW_HOST}`, OFFICIAL),
+  preflight_preview_suffix: () => preflight(`${PREVIEW}.evil.example`, OFFICIAL),
+  preflight_preview_http: () => preflight(`http://${PREVIEW_HOST}`, OFFICIAL),
+  preflight_preview_port: () => preflight(`${PREVIEW}:8443`, OFFICIAL),
+  preflight_evil_plain: () => preflight('https://evil.example', OFFICIAL),
+  post_preview_without_auth: () => new Request(url, {
+    method: 'POST',
+    headers: { Origin: PREVIEW, 'Content-Type': 'application/json', 'x-techrepair-client-contract': '1' },
+    body,
+  }),
   preflight_hard_reload: () => preflight(WWW, `${OFFICIAL}, cache-control, pragma`),
   preflight_evil_origin: () => preflight('https://evil.example.com', OFFICIAL),
   preflight_unknown_headers: () => preflight(WWW, `${OFFICIAL}, x-evil-header, x-internal-caller`),

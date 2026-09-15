@@ -14,6 +14,8 @@
  *  G4  every SDK-called function builds its CORS allowlist from the shared contract.
  *  G5  raw-fetch callers never send the client metadata headers.
  *  G6  no Allow-Headers wildcard anywhere; no Allow-Origin wildcard beyond recorded debt.
+ *  G7  ARCA_SETUP_EXTRA_ORIGINS (temporary QA origins) is read ONLY by arca-selfservice-setup, only as an
+ *      exact-match entry of its CORS allowlist next to APP_URL; no other function, no src/, no wildcard/regex.
  *
  * CORS is transport only: these headers are metadata and never grant authority.
  * Usage: node scripts/guards/edge-cors-client-contract.mjs [--self-test]
@@ -217,6 +219,29 @@ export function check(tree) {
   }
   if (/['"]Access-Control-Allow-Origin['"]\s*:\s*['"]\*['"]/.test(scoped)) fail('G6', '_shared/scopedCors.ts answers Access-Control-Allow-Origin: *')
 
+  // G7 — ARCA_SETUP_EXTRA_ORIGINS belongs to arca-selfservice-setup's CORS allowlist and nothing else.
+  // Moving it anywhere else (another function, callbacks, MP back URLs, the browser) must be deliberate:
+  // change this rule first.
+  const EXTRA = 'ARCA_SETUP_EXTRA_ORIGINS'
+  const EXTRA_OWNER = 'supabase/functions/arca-selfservice-setup/index.ts'
+  const noComments = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
+  for (const file of [...tree.list('supabase/functions'), ...tree.list('src')]) {
+    if (file === EXTRA_OWNER) continue
+    if (tree.read(file).includes(EXTRA)) fail('G7', `${file} references ${EXTRA}; it is reserved to arca-selfservice-setup's CORS allowlist`)
+  }
+  if (!tree.exists(EXTRA_OWNER)) fail('G7', `${EXTRA_OWNER} is missing`)
+  else {
+    const owner = noComments(tree.read(EXTRA_OWNER))
+    const uses = owner.split(EXTRA).length - 1
+    const allowlist = /const cors = createCors\(computeAllowedOrigins\(\[\s*Deno\.env\.get\('APP_URL'\),\s*Deno\.env\.get\('ARCA_SETUP_EXTRA_ORIGINS'\),?\s*\]\)\)/
+    if (uses !== 1 || !allowlist.test(owner)) {
+      fail('G7', `${EXTRA_OWNER} must read ${EXTRA} exactly once, inside createCors(computeAllowedOrigins([APP_URL, ${EXTRA}]))`)
+    }
+    if (/vercel\.app|new RegExp|\.endsWith\(|\.startsWith\(|\.test\(\s*origin/.test(owner)) {
+      fail('G7', `${EXTRA_OWNER} must keep exact-origin matching (no *.vercel.app, regex, prefix or suffix origin checks)`)
+    }
+  }
+
   return { errors, found }
 }
 
@@ -245,6 +270,11 @@ function selfTest() {
     ['a call uses a dynamic slug', 'G3', [mutate('src/services/subscriptionService.ts', "supabase.functions.invoke('mp-subscription'", 'supabase.functions.invoke(slugFromSomewhere')]],
     ['Allow-Headers wildcard', 'G6', [mutate('supabase/functions/mp-subscription/index.ts', "'Access-Control-Allow-Headers': pickAllowedRequestHeaders(req),", "'Access-Control-Allow-Headers': '*',")]],
     ['Allow-Origin wildcard on an authenticated function', 'G6', [mutate('supabase/functions/afip-wsaa/index.ts', "headers['Access-Control-Allow-Origin'] = origin", "headers['Access-Control-Allow-Origin'] = origin\n  headers['x'] = { 'Access-Control-Allow-Origin': '*' } as never")]],
+    ['another function reads ARCA_SETUP_EXTRA_ORIGINS', 'G7', [mutate('supabase/functions/mp-subscription/index.ts', "...parseOrigins(Deno.env.get('APP_URL')),", "...parseOrigins(Deno.env.get('APP_URL')),\n    ...parseOrigins(Deno.env.get('ARCA_SETUP_EXTRA_ORIGINS')),")]],
+    ['the browser references ARCA_SETUP_EXTRA_ORIGINS', 'G7', [['src/services/__extraOriginsSelfTest.ts', "export const origins = import.meta.env.ARCA_SETUP_EXTRA_ORIGINS\n"]]],
+    ['arca-selfservice-setup reuses the variable outside the allowlist', 'G7', [mutate('supabase/functions/arca-selfservice-setup/index.ts', "serve(async (req: Request) => {", "const backUrl = Deno.env.get('ARCA_SETUP_EXTRA_ORIGINS')\nserve(async (req: Request) => {")]],
+    ['arca-selfservice-setup drops the extra origin from the allowlist', 'G7', [mutate('supabase/functions/arca-selfservice-setup/index.ts', "  Deno.env.get('ARCA_SETUP_EXTRA_ORIGINS'),\n", '')]],
+    ['arca-selfservice-setup matches any vercel.app preview', 'G7', [mutate('supabase/functions/arca-selfservice-setup/index.ts', "serve(async (req: Request) => {", "const isPreview = (o: string) => o.endsWith('.vercel.app')\nserve(async (req: Request) => {")]],
     ['raw fetch starts sending the metadata', 'G5', [mutate('src/services/dollarRateService.ts', "headers: { 'apikey': key,", "headers: { ...TECHREPAIR_CLIENT_HEADERS, 'apikey': key,")]],
   ]
   let failed = 0
