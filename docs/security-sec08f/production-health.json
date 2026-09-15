@@ -1,0 +1,27 @@
+{
+  "health": {
+    "gate": {
+      "state": "enabled",
+      "minimum": 1
+    },
+    "hook": "public.check_client_contract",
+    "ledger": [
+      "20260921120000",
+      "20260922120000",
+      "20260923120000",
+      "20260924120000",
+      "20260926120000",
+      "20260927120000",
+      "20260928120000",
+      "20260929120000"
+    ],
+    "checked_at": "2026-09-14T15:14:39.934435-03:00",
+    "r3_objects": {
+      "parts_view": true,
+      "private_impl": true,
+      "annulment_view": true,
+      "public_wrapper": true,
+      "private_body_md5": "72f9a16bec124d6588c23a4ce21685bf"
+    }
+  }
+}
