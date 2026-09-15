@@ -1,0 +1,92 @@
+{
+  "checked_on": "2026-09-14",
+  "pull_request": "https://github.com/molinajonyy-hub/TechRepair-Pro/pull/132",
+  "candidate": "20260930120000_sec08f_remaining_read_authority.sql",
+  "results": {
+    "sec08f_real_postgrest_jwt_matrix": {
+      "status": "pass",
+      "assertions": 184,
+      "includes": [
+        "pre-fix exact witnesses",
+        "post-fix actor matrix",
+        "R2 contract and hook invariants",
+        "R3 authority and wrapper invariants",
+        "rollback",
+        "reapplication",
+        "ledger integrity",
+        "R1 central SDK against current R3 schema"
+      ]
+    },
+    "typecheck": "pass",
+    "lint_errors": "pass",
+    "production_build": "pass_with_existing_chunk_size_warnings",
+    "git_diff_check": "pass",
+    "focused_frontend": {
+      "status": "pass",
+      "files": 7,
+      "tests": 104
+    },
+    "r2_edge_forwarding": {
+      "status": "pass",
+      "tests": 3
+    },
+    "arca_phase0": {
+      "status": "pass",
+      "component_tests": 15
+    },
+    "arca_phase1": {
+      "status": "pass",
+      "component_tests": 28
+    },
+    "fiscal_date_part2": {
+      "status": "pass",
+      "deno_tests": 34
+    },
+    "focused_guards": {
+      "status": "pass",
+      "guards": [
+        "ui-governance",
+        "SEC-08A",
+        "SEC-08A phase B",
+        "SEC-08A phase C",
+        "SEC-08B",
+        "SEC-08C",
+        "SEC-08E R2B",
+        "Edge CORS client contract",
+        "ARCA phase 0",
+        "ARCA phase 1",
+        "Fiscal Date Part 2 read-only runner"
+      ],
+      "self_tests": "pass"
+    },
+    "global_guard_clean_main_comparison": {
+      "status": "exact_match",
+      "current_main": "228d53081a174757fcd5a521e6704b0cde4cbb58",
+      "security_definer": {
+        "clean_main_findings": 2,
+        "candidate_findings": 2,
+        "same_findings": true
+      },
+      "security_definer_exposure": {
+        "clean_main_findings": 3,
+        "candidate_findings": 3,
+        "same_findings": true
+      },
+      "owner_privilege_views": {
+        "clean_main_findings": 6,
+        "candidate_findings": 6,
+        "same_findings": true
+      }
+    },
+    "historical_runner_compatibility": {
+      "sec08e_r2": "runner stops before tests because its source-ledger allowlist predates current-main migration 20260928120000",
+      "sec08e_r3": "runner stops before tests because it requires a historical current-main-minus-R3 source",
+      "disposition": "R2/R3 invariants are exercised directly by the current-main SEC-08F harness; focused frontend and Edge suites pass without changing the historical runners"
+    },
+    "known_clean_main_sql_outcomes": {
+      "etapa1_pnl_exclusions": "PX3 operating_expenses failure reproduced identically before and after",
+      "etapa7_annulment_integration": "existing checkout FORBIDDEN reproduced identically before and after",
+      "sec08a_phase_b": "ten attempts on each side; only the exact known intermittent order_parts.name fixture outcome is accepted"
+    }
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "candidate_shapes": {
+    "payments": {
+      "rows": 0,
+      "businesses": 0,
+      "raw_payload_keys": [],
+      "raw_payload_rows": 0
+    },
+    "checked_at": "2026-09-14T15:14:45.606026-03:00",
+    "cash_registers": {
+      "rows": 15,
+      "businesses": 1,
+      "notes_rows": 0,
+      "nonzero_balance_rows": 11
+    },
+    "payment_orders": {
+      "rows": 0,
+      "businesses": 0,
+      "raw_response_keys": [],
+      "nonzero_amount_rows": 0,
+      "payment_payload_rows": 0,
+      "provider_reference_rows": 0
+    },
+    "arca_parametros": {
+      "rows": 3,
+      "types": [
+        "alicuotas_iva",
+        "monedas",
+        "tipos_comprobante"
+      ],
+      "businesses": 1
+    },
+    "business_settings": {
+      "rows": 22,
+      "businesses": 22,
+      "commission_rows": 0,
+      "fiscal_identity_rows": 22
+    },
+    "operational_config": {
+      "sales_points": 2,
+      "payment_method_buttons": 30
+    },
+    "recurring_expenses": {
+      "rows": 5,
+      "businesses": 1,
+      "notes_rows": 0,
+      "nonzero_amount_rows": 5
+    },
+    "subscription_events": {
+      "rows": 1,
+      "businesses": 0,
+      "raw_payload_keys": [
+        "access_source",
+        "business_ids",
+        "classified_count",
+        "note"
+      ],
+      "raw_payload_rows": 1
+    }
+  }
+}

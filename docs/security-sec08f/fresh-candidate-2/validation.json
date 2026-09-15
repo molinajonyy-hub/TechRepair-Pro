@@ -1,0 +1,108 @@
+{
+  "candidate": "SEC-08F Fresh Candidate #2",
+  "main_sha": "2f4808bbdf4dc3b7ae64ed8739164e1dca0285d7",
+  "old_candidate_sha": "55a6cd19a276a99a7d8850c763e281dcda4401b8",
+  "refresh_merge_sha": "7033c56a4d9dca02c24df8e0333f939a911336cb",
+  "branch": "codex/sec08f-final-security-sweep",
+  "migration": "20261001120000_sec08f_remaining_read_authority.sql",
+  "migration_sql_unchanged": true,
+  "clean_reset": {
+    "status": "PASS",
+    "migrations": 272,
+    "duplicate_versions": 0
+  },
+  "sec08f_dynamic": {
+    "status": "PASS",
+    "assertions": 189,
+    "previous_assertions": 184,
+    "new_preservation_assertions": 5
+  },
+  "r1": {
+    "status": "PASS",
+    "tests": 4
+  },
+  "frontend": {
+    "status": "PASS",
+    "tests": 104,
+    "files": 7
+  },
+  "typecheck": "PASS",
+  "lint_errors": "PASS",
+  "build": {
+    "status": "PASS",
+    "warning": "Existing subscription.ts dynamic import also statically imported"
+  },
+  "e2e_candidate": {
+    "status": "PASS",
+    "passed": 163,
+    "failed": 0,
+    "duration": "7.8m",
+    "command": "npm.cmd run e2e:ci-local -- --reset --project=m7-local"
+  },
+  "e2e_preliminary_main_only": {
+    "status": "FAIL",
+    "passed": 162,
+    "failed": 1,
+    "failure": "replace-lost-response",
+    "certifies_candidate": false
+  },
+  "r3": {
+    "status": "PASS",
+    "assertions": 274,
+    "r1_pre_pass": 3,
+    "r1_pre_intended_skip": 1,
+    "r1_post_pass": 4,
+    "fault_tests": 1
+  },
+  "rollback": {
+    "status": "PASS",
+    "exact_main_acl_policies_rls": true,
+    "reapplication_exact": true,
+    "arca_preserved": true,
+    "target_data_preserved": true,
+    "ledger_preserved": true
+  },
+  "deno": {
+    "status": "PASS",
+    "tests": 220
+  },
+  "arca_phase0": {
+    "status": "PASS",
+    "components": 15,
+    "guard_self_test": "PASS"
+  },
+  "arca_phase1": {
+    "status": "PASS",
+    "components": 33,
+    "previous_components": 28,
+    "guard_self_test": "PASS"
+  },
+  "arca_phase2a": {
+    "status": "PASS",
+    "components": 35,
+    "guard_fixtures": 31
+  },
+  "other_local_guards": {
+    "edge_cors": "PASS",
+    "r2a_r2b": "PASS",
+    "fiscal_readonly": "PASS",
+    "ui_governance": "PASS"
+  },
+  "global_static_scanners": {
+    "status": "EXACT_MAIN_MATCH_WITH_EXISTING_FAILURES",
+    "search_path": 2,
+    "exposure": 20,
+    "owner_views": 6,
+    "new_relative_to_current_main": 0
+  },
+  "existing_sql_regression_debt": [
+    "Etapa 1 P&L PX3",
+    "Etapa 7 checkout FORBIDDEN",
+    "Known intermittent Phase B order_parts.name fixture"
+  ],
+  "remote_gates": {
+    "source": "https://github.com/molinajonyy-hub/TechRepair-Pro/pull/132",
+    "status": "See checks and final PR description on the committed candidate HEAD"
+  },
+  "production_actions": false
+}

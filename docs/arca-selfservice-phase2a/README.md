@@ -554,6 +554,37 @@ Actions go through `arcaSetupService` only. Never persist wizard progress locall
 **Idempotency keys:** one `newArcaSetupIdempotencyKey()` per user intent for `prepare`, one for `verify`; reuse
 on network retry; mint a new one after cancel.
 
+## W2. Temporary QA origin (`ARCA_SETUP_EXTRA_ORIGINS`)
+
+The Phase 2B homologación smoke runs from a Vercel Preview, but `arca-selfservice-setup` only allows the
+canonical origins. A dedicated variable adds exact QA origins **to this function only**:
+
+```ts
+const cors = createCors(computeAllowedOrigins([
+  Deno.env.get('APP_URL'),
+  Deno.env.get('ARCA_SETUP_EXTRA_ORIGINS'),
+]))
+```
+
+- It uses the existing exact-match helper (`_shared/scopedCors.ts`): no wildcard, no regex, no `*.vercel.app`.
+  Unset or empty means the current production behaviour (www + apex only).
+- No other function reads it, and neither does the browser (guard G7 in `edge-cors-client-contract`).
+  `APP_URL` is untouched; it also builds Mercado Pago back URLs and must not be used for QA origins.
+- CORS is transport, not authority: a request from the QA origin still needs `verify_jwt`, a valid JWT,
+  `authorizeArcaManager`, the tenant, `business_has_feature('arca')` and the SQL owner/admin checks.
+- Tests: `tests/deno/arcaSetupPreviewOrigin.test.ts` runs the real `index.ts` without the variable, with it empty,
+  and with the exact Preview. It checks look-alikes (another preview, prefix, suffix, subdomain, `http`, port,
+  `https://evil.example`), no `*`, a 401 without a JWT, and that the other scoped functions ignore the variable.
+
+Runbook (one origin, removed right after the smoke):
+
+1. `supabase secrets set ARCA_SETUP_EXTRA_ORIGINS=<exact preview origin> --project-ref <ref>`
+2. `supabase functions deploy arca-selfservice-setup --project-ref <ref>` (`verify_jwt = true` from `config.toml`)
+3. Unauthenticated OPTIONS matrix: www and apex allowed, the Preview echoed exactly, any other preview or origin
+   gets no `Access-Control-Allow-Origin`, never `*`.
+4. After the smoke, successful or not: `supabase secrets unset ARCA_SETUP_EXTRA_ORIGINS`, **redeploy** the
+   function so no warm isolate keeps the old allowlist, then repeat the matrix: the Preview must be blocked again.
+
 ## X. Owner review 2 — WSAA fail-closed + ambiguous login (summary)
 
 - **Blocker 1 closed:** there is no fabricated expiration anywhere (L1, guard E4, Deno B1 ×8 cases, SQL Q14).
