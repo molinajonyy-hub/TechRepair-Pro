@@ -3336,6 +3336,97 @@ tbody tr:hover td {
   .tasks-label-optional { display: none; }
 }
 
+/* ─── ARCA Self-Service Phase 2B — asistente de configuración ─────────────────
+   Alcance: sólo clases .arca-setup-*. Reusa tokens. El paso se indica UNA vez,
+   con un eyebrow chico sobre el título (sin barra de progreso). */
+.arca-setup-entry { display:flex; flex-direction:column; gap:1rem; padding:1.25rem 1.5rem; border:1px solid var(--border-subtle); border-radius:var(--radius-lg); background:var(--bg-card); }
+.arca-setup-entry--compact { padding:0; border:0; background:transparent; }
+.arca-setup-entry__body { display:flex; flex-direction:column; gap:.75rem; }
+.arca-setup-entry__title { margin:0; font-weight:700; font-size:.95rem; color:var(--text-primary); }
+.arca-setup-entry__list { margin:0; padding-left:1.1rem; display:grid; gap:.35rem; color:var(--text-secondary); font-size:.85rem; line-height:1.5; }
+.arca-setup-entry__actions { display:flex; flex-wrap:wrap; gap:.75rem; }
+.arca-setup-entry__actions .btn { min-height:44px; }
+
+.arca-setup { display:flex; flex-direction:column; gap:1rem; }
+.arca-setup-titles { display:flex; flex-direction:column; gap:.15rem; }
+.arca-setup-eyebrow { margin:0; color:var(--text-subtle); font-size:.75rem; font-weight:600; letter-spacing:.02em; font-variant-numeric:tabular-nums; }
+.arca-setup-heading { margin:0; font-size:1.1rem; font-weight:700; color:var(--text-primary); outline:none; }
+.arca-setup-heading:focus-visible { outline:2px solid var(--accent-primary); outline-offset:3px; border-radius:var(--radius-sm, 4px); }
+.arca-setup-stack { display:flex; flex-direction:column; gap:1rem; }
+.arca-setup-lead { margin:0; color:var(--text-secondary); font-size:.9rem; line-height:1.55; }
+.arca-setup-progress-note { margin:0; display:flex; align-items:center; gap:.5rem; color:var(--text-primary); font-weight:600; font-size:.9rem; }
+.arca-setup-footer { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.75rem; width:100%; }
+.arca-setup-footer .btn { min-height:44px; }
+.arca-setup-inline-actions { display:flex; flex-wrap:wrap; gap:.5rem; }
+.arca-setup-inline-actions .btn { min-height:44px; }
+
+.arca-setup-form { display:flex; flex-direction:column; gap:1rem; }
+.arca-setup-fieldset { margin:0; padding:0; border:0; min-width:0; }
+.arca-setup-choice-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.65rem; }
+.arca-setup-choice { position:relative; min-height:64px; padding:.7rem .8rem; display:flex; flex-direction:column; gap:.2rem; border:1px solid var(--border-subtle); border-radius:var(--radius-md); background:var(--bg-card); color:var(--text-primary); cursor:pointer; transition:border-color .15s ease, background .15s ease; }
+.arca-setup-choice input { position:absolute; inset:0; width:100%; height:100%; margin:0; opacity:0; cursor:pointer; }
+.arca-setup-choice:has(input:focus-visible) { outline:2px solid var(--accent-primary); outline-offset:2px; }
+.arca-setup-choice.is-selected { border-color:var(--accent-primary); background:var(--accent-primary-subtle); box-shadow:inset 0 0 0 1px var(--accent-primary); }
+.arca-setup-choice__title { font-weight:700; font-size:.9rem; }
+.arca-setup-choice__detail { font-size:.78rem; color:var(--text-subtle); line-height:1.35; }
+
+.arca-setup-notice { display:flex; gap:.65rem; align-items:flex-start; padding:.8rem .9rem; border:1px solid var(--border-subtle); border-radius:var(--radius-md); background:var(--bg-card); }
+.arca-setup-notice__icon { flex-shrink:0; margin-top:2px; }
+.arca-setup-notice__title { margin:0; font-weight:700; font-size:.9rem; color:var(--text-primary); }
+.arca-setup-notice__text { margin:.2rem 0 0; font-size:.85rem; line-height:1.5; color:var(--text-secondary); }
+.arca-setup-notice__meta { margin:.35rem 0 0; font-size:.8rem; line-height:1.45; color:var(--text-subtle); }
+.arca-setup-notice--info { border-color:var(--accent-primary-light); background:var(--accent-primary-subtle); }
+.arca-setup-notice--info .arca-setup-notice__icon { color:var(--accent-primary); }
+.arca-setup-notice--success { border-color:var(--success-border); background:var(--success-subtle); }
+.arca-setup-notice--success .arca-setup-notice__icon { color:var(--success); }
+.arca-setup-notice--warning { border-color:var(--warning-border); background:var(--warning-subtle); }
+.arca-setup-notice--warning .arca-setup-notice__icon { color:var(--warning); }
+.arca-setup-notice--danger { border-color:var(--error-border); background:var(--error-subtle); }
+.arca-setup-notice--danger .arca-setup-notice__icon { color:var(--error); }
+
+.arca-setup-identity { margin:0; display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr)); gap:.75rem 1rem; padding:.85rem .9rem; border:1px solid var(--border-subtle); border-radius:var(--radius-md); }
+.arca-setup-identity dt { font-size:.72rem; font-weight:600; color:var(--text-subtle); }
+.arca-setup-identity dd { margin:.1rem 0 0; font-size:.9rem; font-weight:600; color:var(--text-primary); overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+.arca-setup-identity__mono { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.85rem !important; }
+
+.arca-setup-download { display:flex; flex-direction:column; align-items:flex-start; gap:.35rem; }
+.arca-setup-download .btn { min-height:48px; }
+.arca-setup-guide { padding:1rem; border:1px solid var(--border-subtle); border-radius:var(--radius-md); background:var(--bg-tertiary, var(--bg-card)); }
+.arca-setup-guide__title { margin:0; font-size:.95rem; font-weight:700; color:var(--text-primary); }
+.arca-setup-guide__intro { margin:.3rem 0 0; font-size:.83rem; color:var(--text-subtle); line-height:1.45; }
+.arca-setup-guide__steps { margin:.85rem 0 0; padding-left:1.25rem; display:grid; gap:.8rem; }
+.arca-setup-guide__steps li::marker { font-weight:700; color:var(--accent-primary); }
+.arca-setup-guide__step-title { margin:0; font-weight:600; font-size:.88rem; color:var(--text-primary); }
+.arca-setup-guide__step-detail { margin:.15rem 0 0; font-size:.84rem; color:var(--text-secondary); line-height:1.5; }
+.arca-setup-guide__step-note { margin:.4rem 0 0; padding-left:.6rem; border-left:2px solid var(--border-subtle); font-size:.8rem; color:var(--text-subtle); line-height:1.45; }
+.arca-setup-guide__warning { margin:.9rem 0 0; font-size:.82rem; color:var(--warning); line-height:1.45; font-weight:600; }
+.arca-setup-guide__links { margin-top:.75rem; display:flex; flex-wrap:wrap; gap:.75rem; }
+.arca-setup-link { display:inline-flex; align-items:center; gap:.3rem; min-height:44px; color:var(--accent-primary); font-weight:600; font-size:.85rem; text-decoration:none; }
+.arca-setup-link:hover { text-decoration:underline; }
+.arca-setup-copy { margin-top:.45rem; display:flex; flex-wrap:wrap; align-items:center; gap:.4rem .6rem; }
+.arca-setup-copy__label { font-size:.75rem; color:var(--text-subtle); }
+.arca-setup-copy__value { padding:.2rem .45rem; border-radius:var(--radius-sm, 4px); background:var(--bg-card); border:1px solid var(--border-subtle); font-size:.85rem; overflow-wrap:anywhere; }
+.arca-setup-copy__button { min-height:44px; display:inline-flex; align-items:center; gap:.35rem; }
+
+.arca-setup-dropzone { display:flex; flex-direction:column; align-items:center; gap:.6rem; padding:1.5rem 1rem; text-align:center; border:2px dashed var(--border-strong, var(--border-subtle)); border-radius:var(--radius-lg); background:var(--bg-card); color:var(--text-subtle); transition:border-color .15s ease, background .15s ease; }
+.arca-setup-dropzone.is-dragging { border-color:var(--accent-primary); background:var(--accent-primary-subtle); color:var(--accent-primary); }
+.arca-setup-dropzone.is-accepted { border-color:var(--success-border); color:var(--success); }
+.arca-setup-dropzone.is-rejected { border-color:var(--error-border); color:var(--error); }
+.arca-setup-dropzone__title { margin:0; font-weight:600; font-size:.9rem; color:var(--text-primary); overflow-wrap:anywhere; }
+.arca-setup-dropzone .btn { min-height:44px; }
+
+@media (max-width: 480px) {
+  .arca-setup-choice-grid { grid-template-columns:minmax(0,1fr); }
+  .arca-setup-entry { padding:1rem; }
+  .arca-setup-entry__actions .btn, .arca-setup-download .btn { width:100%; justify-content:center; }
+  .arca-setup-footer { flex-direction:column-reverse; }
+  .arca-setup-footer .btn { width:100%; justify-content:center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arca-setup-choice, .arca-setup-dropzone { transition:none; }
+}
+
 @media print {
   .sidebar, .top-header, .btn { display: none !important; }
   .main-content { margin-left: 0; color: #000; background: #fff; }

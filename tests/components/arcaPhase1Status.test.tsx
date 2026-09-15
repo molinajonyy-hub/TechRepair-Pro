@@ -178,7 +178,9 @@ describe('ArcaStatusCard', () => {
     expect(empty.textContent).toContain('ARCA todavía no está configurado')
     expect(screen.getByTestId('arca-status-detail').textContent)
       .toBe('Conectá tu negocio con ARCA para emitir comprobantes electrónicos desde TechRepair Pro.')
-    expect(screen.getByTestId('arca-status-empty-hint').textContent).toMatch(/Próximamente/)
+    // Phase 2B: el asistente existe; la tarjeta lo menciona pero la acción la ofrece ArcaSetupPanel.
+    expect(screen.getByTestId('arca-status-empty-hint').textContent).toMatch(/asistente guiado/)
+    expect(screen.getByTestId('arca-status-empty-hint').textContent).not.toMatch(/Próximamente/)
     expect(screen.queryByTestId('arca-status-rows')).toBeNull()
     expect(document.querySelector('button, input, textarea, select')).toBeNull()
   })

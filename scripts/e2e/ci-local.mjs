@@ -27,7 +27,7 @@
 // el job no necesita ni un solo secret del repo — y por eso puede correr en PRs
 // de forks sin exponer nada.
 // ============================================================================
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { motivoDeRechazo, enmascarar } from '../../tests/e2e/setup/assertLocalTarget.ts'
 
@@ -285,6 +285,30 @@ console.log('  · preparando datos (npm run e2e:prepare)…')
 correr(process.execPath, ['scripts/e2e/prepare-local.mjs'],
   'La preparación del E2E local falló.', { shell: false })
 
+// ─── 7. Edge local del asistente ARCA (Phase 2B) ───────────────────────────
+// El edge-runtime está excluido: el spec del asistente usa el handler REAL de
+// `arca-selfservice-setup` servido por Deno contra este mismo stack (sólo WSAA es
+// simulado). En CI es obligatorio; en local, sin Deno el spec se saltea con motivo.
+const HARNESS_URL = 'http://127.0.0.1:5199/__e2e/stats'
+let harness = null
+const hayDeno = capturar('deno', ['--version']) !== null
+if (!hayDeno && process.env.CI) {
+  abortar('Deno no está instalado: el E2E del asistente ARCA necesita el Edge local (scripts/e2e/arca-setup-edge-harness.ts).')
+}
+if (hayDeno) {
+  console.log('  · levantando el Edge local del asistente ARCA…')
+  harness = spawn(process.execPath, ['scripts/e2e/arca-setup-edge-harness-run.mjs'], { stdio: ['ignore', 'inherit', 'inherit'] })
+  let listo = false
+  for (let i = 0; i < 180 && !listo; i++) {
+    try { listo = (await fetch(HARNESS_URL)).ok } catch { await new Promise((r) => setTimeout(r, 1000)) }
+  }
+  if (!listo) {
+    harness.kill()
+    abortar('El Edge local del asistente ARCA no respondió en 180 s.')
+  }
+  console.log('  ✓ Edge local del asistente ARCA listo (127.0.0.1:5199).')
+}
+
 // ─── 7. Playwright ──────────────────────────────────────────────────────────
 console.log(`  · corriendo Playwright: ${ARGS_PLAYWRIGHT.join(' ')}`)
 console.log('─'.repeat(72) + '\n')
@@ -292,6 +316,7 @@ const pw = spawnSync('npx', ['playwright', 'test', ...ARGS_PLAYWRIGHT], {
   stdio: 'inherit',
   shell: process.platform === 'win32',
 })
+harness?.kill()
 // El código de Playwright se propaga tal cual: el job debe ponerse rojo por
 // TESTS, no por otra cosa. La limpieza del stack la hace el workflow con
 // `if: always()` — un paso aparte, porque si esto falla igual hay que limpiar.

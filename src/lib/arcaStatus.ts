@@ -215,7 +215,8 @@ export function describeArcaStatus(s: ArcaSelfServiceStatus): ArcaStatusView {
   switch (s.status) {
     case 'connected':
       tone = 'success'; headline = 'Conectado'
-      detail = 'Podés emitir comprobantes electrónicos desde TechRepair Pro.'
+      // Conectado = conexión WSAA verificada, no una emisión probada: no prometer más que eso.
+      detail = 'La conexión con ARCA está configurada. TechRepair Pro la usa cuando emitís comprobantes electrónicos.'
       break
     case 'pending_verification':
       tone = 'warning'; headline = 'Configuración pendiente'

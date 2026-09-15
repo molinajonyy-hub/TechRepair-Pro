@@ -78,6 +78,8 @@ jobs:
       # run in `npm run test:deno`. Static + jsdom here.
       - name: Guard — ARCA Phase 2A initial setup engine contract
         run: npm run test:arca-phase2a
+      - name: ARCA Self-Service Phase 2B (asistente)
+        run: npm run test:arca-phase2b
 
       # ARCA WSASS HOMOLOGACIÓN (smoke real 2026-09-15): WSASS only accepts letters and digits as the
       # device name and stamps it into the certificate CN. prepare_initial stays the authority:
@@ -263,6 +265,12 @@ jobs:
       # no siembra: garantías, cuentas de Mi Guita). Es deuda real y acotada,
       # pero arreglarla es producto — otro lote. Gatear sobre ella hoy dejaría
       # el CI rojo de forma permanente, que es de donde venimos.
+      # ARCA Self-Service Phase 2B: `e2e:ci-local` levanta el Edge local del asistente ARCA
+      # (handler real de arca-selfservice-setup sobre Deno, WSAA simulado). Sin Deno aborta.
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Run E2E against local Supabase
         run: npm run e2e:ci-local -- --project=m7-local
         env:
