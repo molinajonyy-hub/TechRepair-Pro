@@ -1,6 +1,6 @@
 import { forwardRef, useImperativeHandle, useRef } from 'react'
 import { AppInput } from '../../../ui'
-import { formatCuitInput, type ArcaFiscalDraft, type ArcaFiscalField } from '../../../lib/arcaFiscalInput'
+import { ARCA_ALIAS_HINT, formatCuitInput, type ArcaFiscalDraft, type ArcaFiscalField } from '../../../lib/arcaFiscalInput'
 
 export interface ArcaFiscalStepHandle {
   /** Lleva el foco al primer campo con error. */
@@ -124,7 +124,7 @@ export const ArcaFiscalStep = forwardRef<ArcaFiscalStepHandle, ArcaFiscalStepPro
         onChange={(e) => set({ alias: e.target.value })}
         onBlur={() => onBlurField('alias')}
         error={errors.alias}
-        hint="Con este nombre ARCA identifica a TechRepair Pro. Te sugerimos uno; podés cambiarlo."
+        hint={ARCA_ALIAS_HINT}
         disabled={disabled}
         required
       />

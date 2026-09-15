@@ -19,6 +19,16 @@
  *      que Phase 2B no verificó (no emite, no pide CAE); (b) la entrada y la guía aclaran que la Clave Fiscal
  *      se usa en ARCA y que TechRepair Pro nunca la pide ni la guarda; (c) no existe ningún campo de
  *      Clave Fiscal ni de contraseña en el asistente.
+ *  B10 nombre del equipo por ambiente (smoke real WSASS 2026-09-15): arcaFiscalInput declara
+ *      ARCA_ALIAS_PATTERNS { homologacion, produccion } y, por COMPORTAMIENTO, homologación sólo acepta
+ *      letras y números (3..50) y producción conserva la regla anterior; aliasError recibe el ambiente;
+ *      la sugerencia automática no genera '.' ni '-'. (La comparación con el servidor la hace
+ *      scripts/guards/arca-wsass-alias-contract.mjs cuando la migración está en el árbol.)
+ *  B11 un solo indicador de paso: sin barra de progreso (intake-progress / progressbar) ni "Paso N de 6"
+ *      en el subtítulo del modal; "Paso … de" aparece una única vez en el asistente.
+ *  B12 guía de homologación y error del nombre: la guía dice que el nombre lleva sólo letras y números,
+ *      que un DN existente usa «agregar certificado a DN existente» y que la autorización WSFE se conserva;
+ *      CERTIFICATE_ALIAS_MISMATCH explica cómo generar el certificado y agrega el detalle de homologación.
  *
  *   node scripts/guards/arca-phase2b-wizard-contract.mjs [--self-test]
  */
@@ -32,6 +42,8 @@ const PANEL = `${UI_DIR}/ArcaSetupPanel.tsx`
 const SETTINGS = 'src/pages/Settings.tsx'
 const STATUS_LIB = 'src/lib/arcaStatus.ts'
 const GUIDE = 'src/lib/arcaSetupGuide.ts'
+const FISCAL_INPUT = 'src/lib/arcaFiscalInput.ts'
+const ERRORS_LIB = 'src/lib/arcaSetupErrors.ts'
 const PURE = ['src/lib/arcaSetupWizard.ts', 'src/lib/arcaSetupErrors.ts', 'src/lib/arcaFiscalInput.ts', 'src/lib/arcaCertificateFile.ts', 'src/lib/arcaSetupGuide.ts']
 
 const stripJs = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
@@ -163,6 +175,69 @@ export function check(tree) {
       out.push(`B9 ${file} tiene un campo de Clave Fiscal o contraseña`)
     }
   }
+
+  // ── B10 ──
+  const FISCAL = 'src/lib/arcaFiscalInput.ts'
+  if (!tree.exists(FISCAL)) out.push(`B10 falta ${FISCAL}`)
+  else {
+    const src = tree.read(FISCAL)
+    const decl = src.match(/export\s+const\s+ARCA_ALIAS_PATTERNS\b[^=]*=\s*\{([\s\S]*?)\n\}/)
+    const lit = (key) => {
+      const m = decl?.[1].match(new RegExp(`${key}\\s*:\\s*/((?:\\\\/|[^/\\n])+)/([a-z]*)`))
+      return m ? new RegExp(m[1], m[2]) : null
+    }
+    const homo = lit('homologacion')
+    const prod = lit('produccion')
+    if (!homo || !prod) out.push('B10 arcaFiscalInput debe declarar ARCA_ALIAS_PATTERNS con homologacion y produccion')
+    else {
+      const legacy = /^[A-Za-z0-9][A-Za-z0-9.-]{2,49}$/
+      const strict = /^[A-Za-z0-9]{3,50}$/
+      const samples = ['abc', 'ab', 'techrepairdemohomo', 'techrepair-demo', 'techrepair.demo', 'techrepair_demo', 'techrepair demo',
+        'técnico', 'demo/arca', 'a'.repeat(50), 'a'.repeat(51), '-abc', 'a.b', 'a-b', 'Demo2026', 'ｔｅｃｈ']
+      for (const s of samples) {
+        if (homo.test(s) !== strict.test(s)) out.push(`B10 homologación ${homo.test(s) ? 'acepta' : 'rechaza'} ${JSON.stringify(s)} (WSASS: sólo letras y números, 3..50)`)
+        if (prod.test(s) !== legacy.test(s)) out.push(`B10 producción cambió con ${JSON.stringify(s)} sin evidencia`)
+      }
+    }
+    const c = stripJs(src)
+    if (/export\s+const\s+ARCA_ALIAS_PATTERN\s*=/.test(c)) out.push('B10 no puede quedar una regex global única del alias')
+    if (!/export\s+function\s+aliasError\(\s*alias:\s*string,\s*ambiente\b/.test(c)) out.push('B10 aliasError debe recibir el ambiente')
+    if (!/aliasError\(\s*draft\.alias,\s*draft\.ambiente\s*\)/.test(c)) out.push('B10 fiscalDraftErrors debe validar el alias con el ambiente del borrador')
+    const suggest = c.slice(c.indexOf('export function suggestArcaAlias'))
+    const suggestBody = suggest.slice(0, suggest.indexOf('\n}') + 2)
+    if (!suggestBody || /`techrepair[-.]|replace\([^)]*,\s*'[-.]'\)/.test(suggestBody)) out.push('B10 la sugerencia automática no puede generar punto ni guion')
+  }
+
+  // ── B11 ──
+  if (tree.exists(WIZARD)) {
+    const c = code(WIZARD)
+    if (/intake-progress|role="progressbar"|aria-valuenow/.test(c)) out.push('B11 el asistente no usa barra de progreso')
+    if (/subtitle=\{[^}]*Paso/.test(c)) out.push('B11 el subtítulo del modal no repite el paso')
+    if ((c.match(/Paso\s*\{/g) ?? []).length + (c.match(/`Paso \$\{/g) ?? []).length !== 1) out.push('B11 "Paso N de 6" debe aparecer una sola vez en el asistente')
+  }
+
+  // ── B12 ──
+  if (tree.exists(GUIDE)) {
+    const g = code(GUIDE)
+    // Bloque de homologación: desde su `if` hasta el `return {` de producción (nivel de función).
+    const start = g.indexOf("ambiente === 'homologacion'")
+    const end = start < 0 ? -1 : g.indexOf('\n  return {', start)
+    const homoGuide = start < 0 ? '' : g.slice(start, end < 0 ? undefined : end)
+    if (!/letras y números/.test(homoGuide)) out.push('B12 la guía de homologación debe decir que el nombre lleva sólo letras y números')
+    if (!/agregar certificado a DN existente/.test(homoGuide)) out.push('B12 la guía de homologación debe explicar «agregar certificado a DN existente»')
+    if (!/autorización se conserva/.test(homoGuide)) out.push('B12 la guía debe aclarar que la autorización WSFE del DN se conserva')
+  }
+  const ERRORS = 'src/lib/arcaSetupErrors.ts'
+  if (tree.exists(ERRORS)) {
+    const e = code(ERRORS)
+    const entry = e.match(/CERTIFICATE_ALIAS_MISMATCH:\s*\{[\s\S]*?\},/)?.[0] ?? ''
+    if (!/exactamente el nombre que muestra TechRepair Pro/.test(entry)) out.push('B12 CERTIFICATE_ALIAS_MISMATCH debe decir cómo generar el certificado')
+    if (/letras y números/.test(entry)) out.push('B12 CERTIFICATE_ALIAS_MISMATCH no puede afirmar la regla de homologación para todos los ambientes')
+    const detail = e.match(/HOMOLOGACION_DETAIL[\s\S]*?\}/)?.[0] ?? ''
+    if (!/CERTIFICATE_ALIAS_MISMATCH:\s*'[^']*letras y números/.test(detail)) out.push('B12 falta el detalle de homologación para CERTIFICATE_ALIAS_MISMATCH')
+    if (!/ambiente === 'homologacion'/.test(e)) out.push('B12 el detalle de homologación debe depender del ambiente')
+  }
+  if (tree.exists(WIZARD) && !/arcaSetupErrorForAmbiente\(/.test(code(WIZARD))) out.push('B12 el asistente debe mostrar los errores con el detalle del ambiente')
   return out
 }
 
@@ -205,6 +280,17 @@ function selfTest() {
     ['B9', 'la entrada vuelve a sugerir que pedimos la Clave Fiscal', overlay(patch(PANEL, 'TechRepair Pro nunca te pide ni guarda tu Clave Fiscal.', 'Tené a mano la Clave Fiscal del negocio.'))],
     ['B9', 'la guía pierde la aclaración', overlay(patch(GUIDE, 'TechRepair Pro nunca te pide ni guarda tu Clave Fiscal.', 'Cargala cuando te la pidamos.'))],
     ['B9', 'aparece un campo de Clave Fiscal', overlay(new Map([[`${UI_DIR}/ClaveFiscal.tsx`, 'export const F = () => <input type="password" aria-label="Clave Fiscal" />']]), [`${UI_DIR}/ClaveFiscal.tsx`])],
+    ['B10', 'homologación vuelve a aceptar punto y guion', overlay(patch(FISCAL_INPUT, 'homologacion: /^[A-Za-z0-9]{3,50}$/,', 'homologacion: /^[A-Za-z0-9][A-Za-z0-9.-]{2,49}$/,'))],
+    ['B10', 'producción se endurece sin evidencia', overlay(patch(FISCAL_INPUT, 'produccion: /^[A-Za-z0-9][A-Za-z0-9.-]{2,49}$/,', 'produccion: /^[A-Za-z0-9]{3,50}$/,'))],
+    ['B10', 'vuelve una regex global única', overlay(patch(FISCAL_INPUT, 'export type ArcaAmbiente', "export const ARCA_ALIAS_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]{2,49}$/\nexport type ArcaAmbiente"))],
+    ['B10', 'el borrador valida el alias sin ambiente', overlay(patch(FISCAL_INPUT, 'aliasError(draft.alias, draft.ambiente)', 'aliasError(draft.alias)'))],
+    ['B10', 'la sugerencia vuelve a usar guiones', overlay(patch(FISCAL_INPUT, '`techrepair${slug}`', '`techrepair-${slug}`'))],
+    ['B11', 'vuelve la barra de progreso', overlay(patch(WIZARD, '<div className="arca-setup-titles">', '<div className="intake-progress" role="progressbar"><span /></div>\n        <div className="arca-setup-titles">'))],
+    ['B11', 'el subtítulo repite el paso', overlay(patch(WIZARD, 'title="Conectar ARCA"', 'title="Conectar ARCA"\n      subtitle={`Paso ${stepNumber} de ${ARCA_SETUP_TOTAL_STEPS}`}'))],
+    ['B12', 'la guía pierde el caso del DN existente', overlay(patch(GUIDE, 'agregar certificado a DN existente', 'crear otro certificado'))],
+    ['B12', 'la guía deja de aclarar que WSFE se conserva', overlay(patch(GUIDE, 'esa autorización se conserva', 'hay que autorizar de nuevo'))],
+    ['B12', 'el error del nombre afirma la regla para producción', overlay(patch(ERRORS_LIB, "message: 'El nombre del certificado no coincide con el nombre del equipo configurado.'", "message: 'El nombre del certificado no coincide. ARCA acepta sólo letras y números.'"))],
+    ['B12', 'el asistente muestra errores sin el ambiente', overlay(patch(WIZARD, 'arcaSetupErrorForAmbiente(error.view, errorAmbiente)', 'error.view'))],
   ]
   let failed = 0
   for (const [rule, label, tree] of cases) {

@@ -14,6 +14,8 @@ export interface ArcaGuideStep {
   detail: string
   /** Valor para copiar (alias, CUIT). */
   copyValue?: { label: string; value: string }
+  /** Aclaración para un caso particular del paso (se muestra debajo del detalle). */
+  note?: string
   /** Lugar reservado para una captura futura (ruta dentro de /public). */
   screenshot?: string
 }
@@ -51,6 +53,7 @@ export function buildArcaSetupGuide(input: {
   const file = input.filename ?? 'el archivo que descargaste'
   const aliasCopy = alias ? { label: 'Nombre del equipo', value: alias } : undefined
 
+  // Homologación: pasos confirmados en el smoke real con WSASS (2026-09-15).
   if (input.ambiente === 'homologacion') {
     return {
       intro: 'Homologación es el ambiente de pruebas de ARCA: los comprobantes no tienen validez fiscal.',
@@ -58,8 +61,19 @@ export function buildArcaSetupGuide(input: {
       steps: [
         { key: 'login', title: 'Ingresá a ARCA con tu Clave Fiscal', detail: `Usá el CUIT ${input.cuitLabel}.` },
         { key: 'wsass', title: 'Abrí el servicio de certificados de homologación (WSASS)', detail: 'Si no aparece en tu lista de servicios, primero tenés que adherirlo desde el Administrador de Relaciones de Clave Fiscal.' },
-        { key: 'certificate', title: 'Creá el certificado con el archivo', detail: `Usá exactamente este nombre de equipo y pegá o subí ${file}. Descargá el certificado que te devuelve ARCA.`, copyValue: aliasCopy },
-        { key: 'authorize', title: 'Autorizá la facturación electrónica', detail: 'En el mismo servicio, creá la autorización del servicio de facturación electrónica (wsfe) para ese nombre de equipo.' },
+        {
+          key: 'certificate',
+          title: 'Creá el certificado con el archivo',
+          detail: `Usá exactamente el mismo nombre de equipo que muestra TechRepair Pro: en homologación sólo lleva letras y números. Si es la primera vez que usás ese nombre, creá el certificado normalmente con el contenido de ${file}. Guardá el certificado que te devuelve ARCA.`,
+          copyValue: aliasCopy,
+          note: 'Si ese nombre ya existe en WSASS y estás cargando un archivo nuevo, no lo crees de nuevo: usá «agregar certificado a DN existente» con el archivo nuevo.',
+        },
+        {
+          key: 'authorize',
+          title: 'Autorizá la facturación electrónica',
+          detail: 'En el mismo servicio, creá la autorización del servicio de facturación electrónica (wsfe) para ese nombre de equipo.',
+          note: 'Si el DN ya tenía autorizado WSFE, esa autorización se conserva: no hace falta crearla otra vez.',
+        },
       ],
       warning: 'Si no autorizás la facturación electrónica para el equipo, ARCA rechaza la conexión aunque el certificado esté bien.',
       links: [CLAVE_FISCAL_LOGIN],

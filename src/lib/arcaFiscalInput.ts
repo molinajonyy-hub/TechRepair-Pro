@@ -11,8 +11,24 @@
 export const ARCA_CUIT_PREFIXES = ['20', '23', '24', '27', '30', '33', '34'] as const
 const CUIT_WEIGHTS = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2] as const
 
-/** Mismo formato de alias que acepta el servidor: es el nombre del equipo en ARCA (CN del certificado). */
-export const ARCA_ALIAS_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.-]{2,49}$/
+export type ArcaAmbiente = 'homologacion' | 'produccion'
+
+/**
+ * Nombre del equipo en ARCA (CN del certificado), por ambiente. Espejo EXACTO de
+ * `arca_selfservice_prepare_initial` (migración 20261002120000); el guard
+ * scripts/guards/arca-wsass-alias-contract.mjs compara ambos por comportamiento.
+ *   homologación: WSASS acepta sólo letras y números y usa ese nombre en el certificado
+ *                 (medido en el smoke real de 2026-09-15).
+ *   producción:   se conserva la regla anterior.
+ */
+export const ARCA_ALIAS_PATTERNS = {
+  homologacion: /^[A-Za-z0-9]{3,50}$/,
+  produccion: /^[A-Za-z0-9][A-Za-z0-9.-]{2,49}$/,
+} as const
+
+/** Ayuda fija bajo el campo del nombre del equipo. */
+export const ARCA_ALIAS_HINT = 'ARCA usa este nombre dentro del certificado. En homologación sólo puede contener letras y números.'
+
 export const ARCA_PUNTO_VENTA_MIN = 1
 export const ARCA_PUNTO_VENTA_MAX = 99998
 export const ARCA_RAZON_SOCIAL_MAX = 200
@@ -52,11 +68,24 @@ export const CUIT_CHECK_MESSAGE: Readonly<Record<Exclude<ArcaCuitCheck, 'valid'>
   invalid_check_digit: 'Revisá los números: el dígito verificador no coincide.',
 }
 
-export function aliasError(alias: string): string | null {
-  const value = alias.trim()
+/** Como `btrim(text)` del servidor: sólo recorta espacios. */
+const trimSpaces = (s: string) => s.replace(/^ +| +$/g, '')
+
+/**
+ * Error del nombre del equipo según el ambiente elegido. Sin ambiente todavía se usa la regla de
+ * producción (la más amplia): el formulario igual no se envía hasta elegir uno, y al elegir
+ * homologación el nombre se vuelve a evaluar.
+ */
+export function aliasError(alias: string, ambiente: ArcaAmbiente | '' = ''): string | null {
+  const value = trimSpaces(alias)
   if (value.length === 0) return 'Ingresá un nombre para identificar este equipo en ARCA.'
+  if (ambiente === 'homologacion') {
+    return ARCA_ALIAS_PATTERNS.homologacion.test(value)
+      ? null
+      : 'En homologación ARCA acepta únicamente letras y números. Usá entre 3 y 50 caracteres.'
+  }
   if (value.length < 3 || value.length > 50) return 'Usá entre 3 y 50 caracteres.'
-  if (!ARCA_ALIAS_PATTERN.test(value)) return 'Usá letras sin acentos, números, puntos o guiones, empezando con letra o número.'
+  if (!ARCA_ALIAS_PATTERNS.produccion.test(value)) return 'Usá letras sin acentos, números, puntos o guiones, empezando con letra o número.'
   return null
 }
 
@@ -77,18 +106,19 @@ export function razonSocialError(raw: string): string | null {
 }
 
 /**
- * Propuesta editable de alias a partir del nombre del negocio. Nunca usa datos que el usuario
- * no cargó: sin nombre ni CUIT propone un nombre genérico que igual pasa la validación.
+ * Propuesta editable de alias a partir del nombre del negocio (p. ej. `techrepairdemolocal`).
+ * Sólo minúsculas sin acentos y números, de 3 a 50: sirve en homologación (WSASS) y en producción.
+ * Nunca usa datos que el usuario no cargó: sin nombre ni CUIT propone `techrepair`.
  */
 export function suggestArcaAlias(businessName: string | null | undefined, cuit?: string | null): string {
   const slug = (businessName ?? '')
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  const base = slug.length >= 2 ? `techrepair-${slug}` : cuitDigits(cuit ?? '').length === 11 ? `techrepair-${cuitDigits(cuit ?? '')}` : 'techrepair'
-  const trimmed = base.slice(0, 50).replace(/[-.]+$/g, '')
-  return ARCA_ALIAS_PATTERN.test(trimmed) ? trimmed : 'techrepair'
+    .replace(/[^a-z0-9]/g, '')
+  const digits = cuitDigits(cuit ?? '')
+  const base = slug.length >= 2 ? `techrepair${slug}` : digits.length === 11 ? `techrepair${digits}` : 'techrepair'
+  const candidate = base.slice(0, 50)
+  return ARCA_ALIAS_PATTERNS.homologacion.test(candidate) && ARCA_ALIAS_PATTERNS.produccion.test(candidate) ? candidate : 'techrepair'
 }
 
 export interface ArcaFiscalDraft {
@@ -110,7 +140,7 @@ export function fiscalDraftErrors(draft: ArcaFiscalDraft): Partial<Record<ArcaFi
   if (draft.ambiente !== 'homologacion' && draft.ambiente !== 'produccion') errors.ambiente = 'Elegí dónde vas a emitir.'
   const pv = puntoVentaError(draft.puntoVenta)
   if (pv) errors.punto_venta = pv
-  const alias = aliasError(draft.alias)
+  const alias = aliasError(draft.alias, draft.ambiente)
   if (alias) errors.alias = alias
   return errors
 }

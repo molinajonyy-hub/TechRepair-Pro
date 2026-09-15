@@ -18,10 +18,10 @@ import {
   ARCA_HOLD_REFRESH_MAX_MS, ARCA_IN_PROGRESS_POLL_MS, arcaCancelCopy, arcaHoldCountdown, arcaSetupVisibleStep,
   deriveArcaSetupEntry, deriveArcaSetupWizard, nextArcaStatusRefreshMs,
 } from '../../src/lib/arcaSetupWizard'
-import { ARCA_SETUP_ERROR_CODES, describeArcaSetupError } from '../../src/lib/arcaSetupErrors'
+import { ARCA_SETUP_ERROR_CODES, arcaSetupErrorForAmbiente, describeArcaSetupError } from '../../src/lib/arcaSetupErrors'
 import { ARCA_SETUP_STATES } from '../../src/services/arcaSetupService'
 import {
-  aliasError, checkCuit, fiscalDraftErrors, formatCuitInput, puntoVentaError, razonSocialError, suggestArcaAlias,
+  ARCA_ALIAS_HINT, ARCA_ALIAS_PATTERNS, aliasError, checkCuit, fiscalDraftErrors, formatCuitInput, puntoVentaError, razonSocialError, suggestArcaAlias,
 } from '../../src/lib/arcaFiscalInput'
 import { ARCA_CERTIFICATE_MAX_BYTES, readArcaCertificateFile } from '../../src/lib/arcaCertificateFile'
 import { ARCA_CLAVE_FISCAL_NOTE, buildArcaSetupGuide } from '../../src/lib/arcaSetupGuide'
@@ -41,7 +41,7 @@ const base = (): ArcaSelfServiceStatus => ({
 const inProgress = (step: 'certificate' | 'verification' | 'activation', hold: ArcaVerificationHold | null = null,
   retryNotBefore = '2026-09-14T15:10:00Z'): ArcaSelfServiceStatus => ({
   ...base(), status: 'setup_in_progress', next_action: 'continue_setup',
-  environment: 'homologacion', cuit: '20123456786', razon_social: 'QA Demo', punto_venta: 3, alias: 'techrepair-qa',
+  environment: 'homologacion', cuit: '20123456786', razon_social: 'QA Demo', punto_venta: 3, alias: 'techrepairqa',
   setup: { state: 'in_progress', kind: 'initial', step, started_at: '2026-09-14T14:00:00Z',
     verification_hold: hold, retry_not_before: hold === null ? null : retryNotBefore },
 })
@@ -203,11 +203,7 @@ describe('datos fiscales — espejo de UX del servidor', () => {
     for (let d = 0; d <= 9; d++) expect(checkCuit(`${ten}${d}`)).toBe('invalid_check_digit')
   })
 
-  it('alias, punto de venta y razón social con los límites del servidor', () => {
-    expect(aliasError('techrepair-demo')).toBeNull()
-    expect(aliasError('ab')).toMatch(/entre 3 y 50/)
-    expect(aliasError('-demo')).toMatch(/empezando/)
-    expect(aliasError('demo ñandú')).toMatch(/sin acentos/)
+  it('punto de venta y razón social con los límites del servidor', () => {
     expect(puntoVentaError('0')).toMatch(/entre 1 y 99998/)
     expect(puntoVentaError('99999')).toMatch(/entre 1 y 99998/)
     expect(puntoVentaError('2.5')).toMatch(/entero/)
@@ -216,17 +212,101 @@ describe('datos fiscales — espejo de UX del servidor', () => {
     expect(razonSocialError('x'.repeat(201))).toMatch(/200/)
   })
 
-  it('el alias sugerido pasa la validación y nunca inventa un CUIT', () => {
-    expect(suggestArcaAlias('Técnico Ñandú & Cía.')).toBe('techrepair-tecnico-nandu-cia')
-    expect(suggestArcaAlias('', '20123456786')).toBe('techrepair-20123456786')
-    expect(suggestArcaAlias(null, null)).toBe('techrepair')
-    expect(suggestArcaAlias('x'.repeat(80))).toHaveLength(50)
-    for (const name of ['Técnico Ñandú & Cía.', '', 'x'.repeat(80), '---', '日本']) expect(aliasError(suggestArcaAlias(name))).toBeNull()
+  it('el ambiente hay que elegirlo explícitamente', () => {
+    const errors = fiscalDraftErrors({ cuit: '20-12345678-6', razonSocial: 'Demo', ambiente: '', puntoVenta: '2', alias: 'techrepairdemo' })
+    expect(Object.keys(errors)).toEqual(['ambiente'])
+  })
+})
+
+// Smoke real 2026-09-15: WSASS de homologación sólo acepta letras y números en el nombre del
+// equipo y lo escribe en el certificado. Producción conserva la regla anterior.
+describe('nombre del equipo por ambiente — espejo de prepare_initial', () => {
+  const HOMOLOGACION_MESSAGE = 'En homologación ARCA acepta únicamente letras y números. Usá entre 3 y 50 caracteres.'
+
+  it('homologación: sólo letras y números de 3 a 50', () => {
+    for (const ok of ['abc', 'techrepair', 'techrepairdemohomo', 'Demo2026', '123', 'a'.repeat(50), '  techrepair  ']) {
+      expect(aliasError(ok, 'homologacion'), ok).toBeNull()
+    }
+    for (const bad of ['ab', 'a'.repeat(51), 'techrepair-demo', 'techrepair.demo', 'techrepair_demo', 'techrepair demo',
+      'técnico', 'ñandu', 'demo/arca', 'demo@arca', 'tech\trepair', 'ｔｅｃｈ']) {
+      expect(aliasError(bad, 'homologacion'), bad).toBe(HOMOLOGACION_MESSAGE)
+    }
+    expect(aliasError('', 'homologacion')).toMatch(/Ingresá un nombre/)
   })
 
-  it('el ambiente hay que elegirlo explícitamente', () => {
-    const errors = fiscalDraftErrors({ cuit: '20-12345678-6', razonSocial: 'Demo', ambiente: '', puntoVenta: '2', alias: 'techrepair-demo' })
-    expect(Object.keys(errors)).toEqual(['ambiente'])
+  it('producción: se conserva el contrato anterior (punto y guion siguen valiendo)', () => {
+    expect(aliasError('techrepair-demo', 'produccion')).toBeNull()
+    expect(aliasError('demo.local2', 'produccion')).toBeNull()
+    expect(aliasError('techrepairdemohomo', 'produccion')).toBeNull()
+    expect(aliasError('ab', 'produccion')).toMatch(/entre 3 y 50/)
+    expect(aliasError('-demo', 'produccion')).toMatch(/empezando/)
+    expect(aliasError('demo ñandú', 'produccion')).toMatch(/sin acentos/)
+    expect(aliasError('qa_initial', 'produccion')).toMatch(/sin acentos/)
+  })
+
+  it('las regex por ambiente coinciden con las del servidor en un corpus', () => {
+    const legacy = /^[A-Za-z0-9][A-Za-z0-9.-]{2,49}$/
+    const strict = /^[A-Za-z0-9]{3,50}$/
+    const corpus = ['abc', 'ab', 'a.b', 'a-b', 'a_b', 'a b', '.ab', '-ab', 'ab.', 'ab-', 'Ab1', 'ÁBC', 'x/y', 'a'.repeat(50), 'a'.repeat(51), `a${'.'.repeat(49)}`]
+    for (const s of corpus) {
+      expect(ARCA_ALIAS_PATTERNS.homologacion.test(s), s).toBe(strict.test(s))
+      expect(ARCA_ALIAS_PATTERNS.produccion.test(s), s).toBe(legacy.test(s))
+    }
+  })
+
+  it('cambiar de producción a homologación invalida un nombre con punto o guion', () => {
+    const draft = { cuit: '20-12345678-6', razonSocial: 'Demo', ambiente: 'produccion' as const, puntoVenta: '2', alias: 'techrepair-demo' }
+    expect(fiscalDraftErrors(draft).alias).toBeUndefined()
+    expect(fiscalDraftErrors({ ...draft, ambiente: 'homologacion' }).alias).toBe(HOMOLOGACION_MESSAGE)
+    expect(fiscalDraftErrors({ ...draft, ambiente: 'homologacion', alias: 'techrepairdemo' }).alias).toBeUndefined()
+  })
+
+  it('la sugerencia automática sirve en homologación: minúsculas sin acentos y números, 3 a 50', () => {
+    expect(suggestArcaAlias('Clic.')).toBe('techrepairclic')
+    expect(suggestArcaAlias('Demo Local Pro')).toBe('techrepairdemolocalpro')
+    expect(suggestArcaAlias('Técnico Ñandú & Cía.')).toBe('techrepairtecniconanducia')
+    expect(suggestArcaAlias('', '20-30123456-7')).toBe('techrepair20301234567')
+    expect(suggestArcaAlias(null, null)).toBe('techrepair')
+    expect(suggestArcaAlias('x'.repeat(80))).toHaveLength(50)
+    for (const name of ['Clic.', 'Técnico Ñandú & Cía.', '', 'x'.repeat(80), '---', '日本', 'A.B-C_D E', 'Taller "El Rayo" 24/7']) {
+      const s = suggestArcaAlias(name)
+      expect(s, name).not.toMatch(/[.\-_\s]/)
+      expect(aliasError(s, 'homologacion'), name).toBeNull()
+      expect(aliasError(s, 'produccion'), name).toBeNull()
+    }
+  })
+
+  it('la ayuda del campo explica la regla sin hablar de regex ni de CN', () => {
+    expect(ARCA_ALIAS_HINT).toBe('ARCA usa este nombre dentro del certificado. En homologación sólo puede contener letras y números.')
+    expect(ARCA_ALIAS_HINT).not.toMatch(/regex|\bCN\b|DER|subject/i)
+  })
+})
+
+describe('CERTIFICATE_ALIAS_MISMATCH e INVALID_ALIAS — mensajes accionables', () => {
+  it('el nombre del certificado: explica y dice cómo generarlo, sin afirmar la regla de homologación en producción', () => {
+    const base = describeArcaSetupError('CERTIFICATE_ALIAS_MISMATCH')
+    expect(base.message).toBe('El nombre del certificado no coincide con el nombre del equipo configurado.')
+    expect(base.action).toBe('Generá el certificado usando exactamente el nombre que muestra TechRepair Pro.')
+    expect(arcaSetupErrorForAmbiente(base, 'produccion')).toEqual(base)
+    expect(arcaSetupErrorForAmbiente(base, null)).toEqual(base)
+    const homo = arcaSetupErrorForAmbiente(base, 'homologacion')
+    expect(homo.message).toBe('El nombre del certificado no coincide con el nombre del equipo configurado. En homologación, ARCA acepta sólo letras y números.')
+    for (const v of [base, homo]) {
+      expect(`${v.title} ${v.message} ${v.action}`).not.toMatch(/\bCN\b|DER|subject|SOAP|CERTIFICATE_ALIAS_MISMATCH/)
+    }
+  })
+
+  it('el alias rechazado por el servidor también suma el detalle de homologación', () => {
+    const base = describeArcaSetupError('INVALID_ALIAS')
+    expect(arcaSetupErrorForAmbiente(base, 'homologacion').message).toMatch(/En homologación ARCA acepta únicamente letras y números/)
+    expect(arcaSetupErrorForAmbiente(base, 'produccion').message).not.toMatch(/letras y números/)
+  })
+
+  it('el detalle nunca se agrega a otros códigos ni muestra el código', () => {
+    for (const code of ARCA_SETUP_ERROR_CODES) {
+      if (code === 'CERTIFICATE_ALIAS_MISMATCH' || code === 'INVALID_ALIAS') continue
+      expect(arcaSetupErrorForAmbiente(describeArcaSetupError(code), 'homologacion'), code).toEqual(describeArcaSetupError(code))
+    }
   })
 })
 
@@ -269,18 +349,41 @@ describe('readArcaCertificateFile — un archivo con clave nunca sale del navega
 describe('buildArcaSetupGuide — sin pasos ni datos inventados', () => {
   it('usa sólo lo que vino del estado y un único link oficial ya usado por el producto', () => {
     for (const ambiente of ['produccion', 'homologacion', null] as const) {
-      const guide = buildArcaSetupGuide({ ambiente, alias: 'techrepair-qa', cuitLabel: '20-12345678-6', filename: null })
+      const guide = buildArcaSetupGuide({ ambiente, alias: 'techrepairqa', cuitLabel: '20-12345678-6', filename: null })
       expect(guide.steps.length).toBeGreaterThanOrEqual(3)
       expect(guide.links.map((l) => new URL(l.href).host)).toEqual(['auth.afip.gob.ar'])
       expect(JSON.stringify(guide)).not.toMatch(TECHNICAL)
-      expect(guide.steps.some((s) => s.copyValue?.value === 'techrepair-qa')).toBe(true)
+      expect(guide.steps.some((s) => s.copyValue?.value === 'techrepairqa')).toBe(true)
     }
     const empty = buildArcaSetupGuide({ ambiente: 'produccion', alias: null, cuitLabel: '—', filename: null })
     expect(empty.steps.every((s) => s.copyValue === undefined)).toBe(true)
   })
 
   it('homologación se identifica como ambiente de pruebas', () => {
-    expect(buildArcaSetupGuide({ ambiente: 'homologacion', alias: 'a-b-c', cuitLabel: 'x', filename: null }).intro).toMatch(/pruebas/)
+    expect(buildArcaSetupGuide({ ambiente: 'homologacion', alias: 'abc', cuitLabel: 'x', filename: null }).intro).toMatch(/pruebas/)
+  })
+
+  it('homologación: lo aprendido en el smoke real con WSASS', () => {
+    const guide = buildArcaSetupGuide({ ambiente: 'homologacion', alias: 'techrepairdemohomo', cuitLabel: '20-12345678-6', filename: null })
+    const text = JSON.stringify(guide)
+    const certificate = guide.steps.find((s) => s.key === 'certificate')!
+    const authorize = guide.steps.find((s) => s.key === 'authorize')!
+    // A. letras y números; B. el mismo nombre que muestra TechRepair Pro.
+    expect(certificate.detail).toMatch(/sólo lleva letras y números/)
+    expect(certificate.detail).toMatch(/exactamente el mismo nombre de equipo que muestra TechRepair Pro/)
+    expect(certificate.copyValue).toEqual({ label: 'Nombre del equipo', value: 'techrepairdemohomo' })
+    // C. primera vez: flujo normal. D. DN existente: agregar certificado.
+    expect(certificate.detail).toMatch(/primera vez/)
+    expect(certificate.note).toMatch(/«agregar certificado a DN existente»/)
+    // La autorización WSFE del DN se conserva; no se pide crearla otra vez.
+    expect(authorize.note).toBe('Si el DN ya tenía autorizado WSFE, esa autorización se conserva: no hace falta crearla otra vez.')
+    expect(text).not.toMatch(/volv[eé] a autorizar|autoriz[aá] de nuevo/i)
+  })
+
+  it('producción no cambia: sin la regla de homologación ni pasos de WSASS', () => {
+    const text = JSON.stringify(buildArcaSetupGuide({ ambiente: 'produccion', alias: 'techrepair-demo', cuitLabel: 'x', filename: null }))
+    expect(text).not.toMatch(/letras y números|WSASS|DN existente/)
+    expect(text).toMatch(/Administración de Certificados Digitales/)
   })
 })
 

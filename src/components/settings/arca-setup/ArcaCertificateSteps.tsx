@@ -94,6 +94,7 @@ export function ArcaPresentStep({ status, downloading, canDownload, onDownload, 
               <p className="arca-setup-guide__step-title">{step.title}</p>
               <p className="arca-setup-guide__step-detail">{step.detail}</p>
               {step.copyValue && <CopyValue label={step.copyValue.label} value={step.copyValue.value} />}
+              {step.note && <p className="arca-setup-guide__step-note" data-testid={`arca-setup-guide-${step.key}-note`}>{step.note}</p>}
             </li>
           ))}
         </ol>

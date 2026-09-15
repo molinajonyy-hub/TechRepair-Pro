@@ -3,9 +3,10 @@ import { Loader2, RefreshCw, ShieldCheck } from 'lucide-react'
 import { AppButton, AppModal } from '../../../ui'
 import { formatArcaDate, formatCuit, type ArcaSelfServiceStatus } from '../../../lib/arcaStatus'
 import {
-  ARCA_SETUP_STEP_LABELS, ARCA_SETUP_TOTAL_STEPS, arcaCancelCopy, arcaSetupVisibleStep, deriveArcaSetupWizard,
+  ARCA_SETUP_TOTAL_STEPS, arcaCancelCopy, arcaSetupVisibleStep, deriveArcaSetupWizard,
   type ArcaCertificateStage,
 } from '../../../lib/arcaSetupWizard'
+import { arcaSetupErrorForAmbiente } from '../../../lib/arcaSetupErrors'
 import { fiscalDraftErrors, suggestArcaAlias, formatCuitInput, type ArcaFiscalDraft, type ArcaFiscalField } from '../../../lib/arcaFiscalInput'
 import type { UseArcaSetupActionsReturn } from '../../../hooks/useArcaSetupActions'
 import { ArcaFiscalStep, type ArcaFiscalStepHandle } from './ArcaFiscalStep'
@@ -81,16 +82,27 @@ export function ArcaSetupWizard({ isOpen, onClose, status, statusLoading, onRefr
   }, [focusKey, isOpen])
 
   const localErrors = fiscalDraftErrors(draft)
+  // El detalle de algunos errores depende del ambiente (en homologación WSASS sólo acepta letras y números).
+  const errorAmbiente = view.screen === 'datos_fiscales' ? draft.ambiente : status?.environment ?? ''
+  const actionError = (action: string) => (error && error.action === action ? arcaSetupErrorForAmbiente(error.view, errorAmbiente) : null)
   const serverField = error?.action === 'prepare' ? error.view.field : undefined
   const fieldErrors: Partial<Record<ArcaFiscalField, string>> = {}
   for (const field of FIELD_ORDER) {
     if ((submitted || touched[field]) && localErrors[field]) fieldErrors[field] = localErrors[field]
   }
-  if (serverField && serverField !== 'certificate' && !fieldErrors[serverField]) fieldErrors[serverField] = error?.view.message
+  if (serverField && serverField !== 'certificate' && !fieldErrors[serverField]) fieldErrors[serverField] = actionError('prepare')?.message
 
-  const visibleStep = busy === 'prepare' ? 2 : status ? arcaSetupVisibleStep(view, stage) : null
-  const stepForProgress = view.screen === 'verificar_conexion' && replacingCertificate ? 4 : visibleStep
-  const actionError = (action: string) => (error && error.action === action ? error.view : null)
+  // Cambiar el ambiente vuelve a evaluar el nombre del equipo en el momento: un nombre válido en
+  // producción (con punto o guion) se marca inválido al pasar a homologación, sin esperar al envío.
+  const changeDraft = (next: ArcaFiscalDraft) => {
+    if (next.ambiente !== draft.ambiente) setTouched((t) => ({ ...t, ambiente: true, alias: true }))
+    setDraft(next)
+  }
+
+  // Una sola referencia al número de paso: el eyebrow sobre el título. Mientras se genera el
+  // archivo el paso sigue siendo el 1 (la generación es la acción del formulario, no una pantalla).
+  const visibleStep = status ? arcaSetupVisibleStep(view, stage) : null
+  const stepNumber = view.screen === 'verificar_conexion' && replacingCertificate ? 4 : visibleStep
   const anyBusy = busy !== null
   const cancelCopy = arcaCancelCopy(view)
   const canCancel = view.actions.includes('cancel')
@@ -148,7 +160,7 @@ export function ArcaSetupWizard({ isOpen, onClose, status, statusLoading, onRefr
   } else {
     switch (view.screen) {
       case 'datos_fiscales':
-        heading = busy === 'prepare' ? 'Generando el archivo para ARCA' : 'Datos fiscales'
+        heading = 'Datos fiscales'
         body = (
           <div className="arca-setup-stack">
             <p className="arca-setup-lead">Completá los datos con los que vas a facturar. En el próximo paso generamos el archivo que tenés que presentar en ARCA.</p>
@@ -157,12 +169,12 @@ export function ArcaSetupWizard({ isOpen, onClose, status, statusLoading, onRefr
               draft={draft}
               errors={fieldErrors}
               disabled={anyBusy}
-              onChange={setDraft}
+              onChange={changeDraft}
               onBlurField={(field) => setTouched((t) => ({ ...t, [field]: true }))}
             />
             {busy === 'prepare' && (
               <p className="arca-setup-progress-note" role="status" data-testid="arca-setup-preparing">
-                <Loader2 size={16} className="animate-spin" aria-hidden /> Generando la clave segura y el archivo para ARCA…
+                <Loader2 size={16} className="animate-spin" aria-hidden /> Generando archivo para ARCA…
               </p>
             )}
             {actionError('prepare') && <ArcaSetupErrorNotice error={actionError('prepare')!} />}
@@ -348,34 +360,36 @@ export function ArcaSetupWizard({ isOpen, onClose, status, statusLoading, onRefr
     }
   }
 
-  const stepLabel = stepForProgress ? ARCA_SETUP_STEP_LABELS[stepForProgress] : null
+  const showStep = stepNumber !== null && !confirmingCancel
 
   return (
     <AppModal
       isOpen={isOpen}
       onClose={onClose}
       title="Conectar ARCA"
-      subtitle={stepForProgress && stepLabel ? `Paso ${stepForProgress} de ${ARCA_SETUP_TOTAL_STEPS} · ${stepLabel}` : undefined}
       icon={<ShieldCheck size={18} aria-hidden />}
       size="lg"
       mobilePresentation="fullscreen"
       closeOnBackdrop={false}
       footer={<div className="arca-setup-footer">{footer}</div>}
     >
-      <div className="arca-setup" data-testid="arca-setup-wizard" data-screen={status ? view.screen : 'unreadable'} data-step={stepForProgress ?? ''} data-stage={stage}>
-        {stepForProgress !== null && (
-          <div
-            className="intake-progress"
-            role="progressbar"
-            aria-label="Progreso de la configuración"
-            aria-valuemin={1}
-            aria-valuemax={ARCA_SETUP_TOTAL_STEPS}
-            aria-valuenow={stepForProgress}
+      <div className="arca-setup" data-testid="arca-setup-wizard" data-screen={status ? view.screen : 'unreadable'} data-step={stepNumber ?? ''} data-stage={stage}>
+        <div className="arca-setup-titles">
+          {showStep && (
+            <p id="arca-setup-step" className="arca-setup-eyebrow" data-testid="arca-setup-step">
+              Paso {stepNumber} de {ARCA_SETUP_TOTAL_STEPS}
+            </p>
+          )}
+          <h3
+            ref={headingRef}
+            tabIndex={-1}
+            className="arca-setup-heading"
+            data-testid="arca-setup-heading"
+            aria-describedby={showStep ? 'arca-setup-step' : undefined}
           >
-            <span style={{ width: `${(stepForProgress / ARCA_SETUP_TOTAL_STEPS) * 100}%` }} />
-          </div>
-        )}
-        <h3 ref={headingRef} tabIndex={-1} className="arca-setup-heading" data-testid="arca-setup-heading">{heading}</h3>
+            {heading}
+          </h3>
+        </div>
         {body}
       </div>
     </AppModal>

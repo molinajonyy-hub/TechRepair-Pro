@@ -94,7 +94,7 @@ No migration, no Edge change, no RLS/grant change. `contract_version` stays 1. `
 | Hook | `src/hooks/useArcaSetupActions.ts` | One action at a time (synchronous lock). Idempotency keys in memory only: `prepare` reuses its key while the payload is identical, `verify` keeps one key per setup, cancel/consumed/conflict discard them. Every action ends with a status re-read. The request file is fetched from the server on each download. Certificates go through `readArcaCertificateFile` first |
 | UI | `src/components/settings/arca-setup/*` | `ArcaSetupPanel` (entry under the status card; owns the actions so the lock survives closing the modal), `ArcaSetupWizard` (`AppModal` lg, fullscreen on mobile, no backdrop close), `ArcaFiscalStep`, `ArcaCertificateSteps` (identity, download + guide, drag-and-drop upload), `ArcaSetupNotices` (hold with countdown, error, info) |
 | Page | `src/pages/Settings.tsx` | Uses the hook, mounts the panel under `<ArcaStatusCard status={arcaStatus}`. The legacy "Probar conexión" is gone |
-| CSS | `src/index.css` | Scoped `.arca-setup-*` block on existing tokens; reuses `.intake-progress`; reduced-motion aware |
+| CSS | `src/index.css` | Scoped `.arca-setup-*` block on existing tokens; one small step eyebrow, no progress bar; reduced-motion aware |
 
 ### Screen contract (always derived from status)
 
@@ -137,6 +137,50 @@ CUIT) shows the inherited wait (E2E flow 6).
   call FECAESolicitar, so it no longer promises emission. The Phase 1 card's `connected` line was aligned the same way.
 - Pinned by guard B9 (5 planted violations), 5 unit/UI tests and E2E flow 1.
 
+### Smoke follow-up: WSASS device name and a single step indicator
+
+The real homologación smoke (§3) found that **WSASS only accepts letters and digits** as the device name
+("Nombre simbólico del DN") and writes that name into the certificate CN. The authoritative fix is in
+`arca_selfservice_prepare_initial` (separate PR #136, migration `20261002120000`). This PR is only the UX mirror.
+
+- **Alias rule per environment** (`src/lib/arcaFiscalInput.ts`):
+  - `ARCA_ALIAS_PATTERNS = { homologacion: /^[A-Za-z0-9]{3,50}$/, produccion: /^[A-Za-z0-9][A-Za-z0-9.-]{2,49}$/ }`
+    is an exact mirror of the server.
+  - `aliasError(alias, ambiente)` gives the homologación message: "En homologación ARCA acepta únicamente letras y
+    números. Usá entre 3 y 50 caracteres." Producción keeps its previous messages.
+  - The only global single regex was removed.
+- **Visible hint** under the field: "ARCA usa este nombre dentro del certificado. En homologación sólo puede contener
+  letras y números."
+- **Environment change:** switching the environment marks the alias as touched, so a producción-valid name with `.`
+  or `-` shows as invalid immediately in homologación. `prepare` is never sent while it is invalid.
+- **Suggestion:** lowercase, no accents, `a-z0-9` only, 3–50 (`techrepairclic`, `techrepairdemolocal`,
+  `techrepair20301234567`). It is valid in both environments.
+- **Guide (homologación)**, from what the smoke showed:
+  - use exactly the name TechRepair Pro shows, letters and digits only;
+  - first time: create the certificate normally;
+  - existing name/DN with a new file: «agregar certificado a DN existente»;
+  - "Si el DN ya tenía autorizado WSFE, esa autorización se conserva."
+  - The producción guide is unchanged.
+- **`CERTIFICATE_ALIAS_MISMATCH`:**
+  - "El nombre del certificado no coincide con el nombre del equipo configurado." + "Generá el certificado usando
+    exactamente el nombre que muestra TechRepair Pro."
+  - `arcaSetupErrorForAmbiente` appends "En homologación, ARCA acepta sólo letras y números." only in homologación,
+    so producción never gets that claim. `INVALID_ALIAS` gets the same treatment.
+  - No CN, DER, subject or raw code is ever shown.
+- **Step indicator:**
+  - The gradient `.intake-progress` bar and the modal subtitle "Paso N de 6 · label" are gone.
+  - Each screen shows one small eyebrow "Paso N de 6" (`arca-setup-step`, referenced by the heading's
+    `aria-describedby`) above its heading: one reference to the step number, no repeated label, no gradient,
+    percentage or animation.
+  - During `prepare` the step stays **1**, with "Generando archivo para ARCA…" as the status. There is no transient
+    "Paso 2" screen; the 6-step model stays in the docs and contract tests.
+- **Guard:**
+  - B10: per-environment rule by behavior, no global regex, `aliasError` receives the environment, suggestion without
+    `.`/`-`.
+  - B11: no progress bar or step subtitle; "Paso … de" exactly once.
+  - B12: guide copy, error copy and environment-aware errors.
+  - The server/frontend comparison is `scripts/guards/arca-wsass-alias-contract.mjs` (PR #136) once both are on `main`.
+
 ### Tutorial
 
 `src/pages/Tutorials.tsx` steps 3, 4 and 6 now describe the wizard (generate the file in the app, present it in
@@ -151,9 +195,9 @@ ARCA with the same device name, upload the `.crt` and verify). The removed "Gene
 
 | Suite | Covers |
 |---|---|
-| `scripts/guards/arca-phase2b-wizard-contract.mjs` (+ `--self-test`, 16 planted violations) | B1 no WSAA ticket from the browser (`afip-wsaa` invoke, `force_refresh`, "Probar conexión"); B2 no local progress / no backend outside services / components never call the Edge service; B3 screen from `deriveArcaSetupWizard(status)`, verify/activate only under `view.actions.includes('verify')`; B4 no secret material named in the UI; B5 errors through `describeArcaSetupError`, certificate classified before sending, no raw code rendered; B6 re-read on focus/online/visibility/hold expiry; B7 Settings mounts the panel with the hook; B8 fullscreen on mobile, no backdrop close |
-| `tests/components/arcaPhase2bWizardContract.test.ts` (34) | every entry state; hold never offers verify (5 reasons × 2 steps); countdown and refresh timing; cancel copy per risk; every backend failure state has a mapped, jargon-free message; unknown/injected codes → generic; CUIT mod-11 incl. the 11→0 and 10→invalid cases; alias suggestion always valid; certificate file rules (PEM/DER ok; key blocks, PKCS#12/#8, `.key/.pfx/.p12`, CSR, oversize, unsupported rejected); guide uses only status data and one allowlisted link |
-| `tests/components/arcaPhase2bWizardUi.test.tsx` (26) | no plan → nothing rendered and no Edge call; read-only → only "Actualizar estado"; connected → no CTA and no "Probar conexión"; CUIT prefill/format, explicit environment, error linked via `aria-describedby`; double click → one `prepare` / one `verify`, same verify key on retry; server error shown from the map, on the field, without the raw code; request file re-fetched on every download; key file rejected locally and never sent; PEM upload → re-read; 5 hold reasons → no verify button; inherited hold on the certificate step; ambiguous verify → hold replaces the action notice; activation step reuses verify; cancel confirmation strong/simple and nothing sent before confirming; "Listo" only for `connected` + `none`, no material in the DOM; status hook re-reads on mount/focus/online/visibility (bursts collapsed), at `retry_not_before`, ignores stale responses, never keeps a stale state after a failed read, no `localStorage`/`sessionStorage` |
+| `scripts/guards/arca-phase2b-wizard-contract.mjs` (+ `--self-test`, 32 planted violations) | B1 no WSAA ticket from the browser (`afip-wsaa` invoke, `force_refresh`, "Probar conexión"); B2 no local progress / no backend outside services / components never call the Edge service; B3 screen from `deriveArcaSetupWizard(status)`, verify/activate only under `view.actions.includes('verify')`; B4 no secret material named in the UI; B5 errors through `describeArcaSetupError`, certificate classified before sending, no raw code rendered; B6 re-read on focus/online/visibility/hold expiry; B7 Settings mounts the panel with the hook; B8 fullscreen on mobile, no backdrop close; B9 honest copy; B10 alias rule per environment (behavioral), no global regex, suggestion without `.`/`-`; B11 no progress bar, "Paso … de" once; B12 WSASS guide and alias-mismatch copy, environment-aware errors |
+| `tests/components/arcaPhase2bWizardContract.test.ts` (47; 13 new for the smoke follow-up: per-environment alias rule and corpus vs the server regexes, producción→homologación revalidation, suggestion, hint, WSASS guide, `CERTIFICATE_ALIAS_MISMATCH` / `INVALID_ALIAS` per environment) | every entry state; hold never offers verify (5 reasons × 2 steps); countdown and refresh timing; cancel copy per risk; every backend failure state has a mapped, jargon-free message; unknown/injected codes → generic; CUIT mod-11 incl. the 11→0 and 10→invalid cases; alias suggestion always valid; certificate file rules (PEM/DER ok; key blocks, PKCS#12/#8, `.key/.pfx/.p12`, CSR, oversize, unsupported rejected); guide uses only status data and one allowlisted link |
+| `tests/components/arcaPhase2bWizardUi.test.tsx` (45; 19 new: suggestion/hint; homologación with hyphen, dot, underscore, space, accent → field error and **no `prepare`**; `techrepairdemohomo` sent; producción still sends a hyphen alias; producción→homologación revalidates immediately; single step eyebrow on 4 screens + Listo, no progress bar, no repeated label, no step on the cancel confirmation; WSASS guide notes; alias mismatch message in homologación and producción) | no plan → nothing rendered and no Edge call; read-only → only "Actualizar estado"; connected → no CTA and no "Probar conexión"; CUIT prefill/format, explicit environment, error linked via `aria-describedby`; double click → one `prepare` / one `verify`, same verify key on retry; server error shown from the map, on the field, without the raw code; request file re-fetched on every download; key file rejected locally and never sent; PEM upload → re-read; 5 hold reasons → no verify button; inherited hold on the certificate step; ambiguous verify → hold replaces the action notice; activation step reuses verify; cancel confirmation strong/simple and nothing sent before confirming; "Listo" only for `connected` + `none`, no material in the DOM; status hook re-reads on mount/focus/online/visibility (bursts collapsed), at `retry_not_before`, ignores stale responses, never keeps a stale state after a failed read, no `localStorage`/`sessionStorage` |
 | Phase 1 / 2A suites | unchanged contracts still green; the Phase 1 card hint no longer says "Próximamente" |
 
 ### Local E2E (`tests/e2e/m7/arca-selfservice-wizard.spec.ts`)
@@ -177,6 +221,10 @@ Playwright routes `/functions/v1/arca-selfservice-setup` to it; the browser code
 | 8 | No permission (tech) | no wizard entry; direct Edge call → 401/403 `FORBIDDEN`/`UNAUTHORIZED`; 0 LoginCms |
 | 9 | No plan (`basico`) | card "No incluido en tu plan", no entry, 0 Edge calls |
 | 10 | Mobile 375 / 320 | fullscreen dialog, no horizontal scroll, radios usable with arrow keys, error linked to the field |
+| 11 | WSASS device name (smoke follow-up) | suggestion is `[a-z0-9]`; `techrepair-demo-homo` is valid in producción and flips to invalid the moment homologación is picked; prepare is blocked with **0 Edge prepare calls and 0 rotation rows**; the alphanumeric name continues; eyebrow "Paso 3 de 6" once, no progress bar; guide shows «agregar certificado a DN existente» and "esa autorización se conserva"; a certificate issued with another CN (what WSASS did) gives `CERTIFICATE_ALIAS_MISMATCH` with the homologación detail and **0 LoginCms**; the right certificate → verify → Listo with **1 LoginCms**; stored alias is alphanumeric; no leaks |
+
+Every screen in flows 1 and 11 also asserts a single step reference: `arca-setup-step` = "Paso N de 6", the heading
+text, no `[role=progressbar]` / `.intake-progress`, and exactly one "Paso N de 6" in the dialog.
 
 Server-side permission matrix (owner, admin, admin without `settings_sensitive`, manager with the capability,
 tech, sales, cashier, viewer, inactive owner/admin, other tenant) is enforced and tested by the Phase 2A SQL suite
@@ -239,15 +287,17 @@ so later E2E runs never overwrite versioned PNGs).
    - So an alias like `techrepair-demo-homo` can never pass upload in homologación.
    - The guide's "Usá exactamente este nombre de equipo" cannot be followed either.
    - The error "El certificado es de otro equipo" does not tell the user that ARCA rewrote the name.
-   - Fix before merge: restrict the alias to letters and digits in the UI, and decide per environment whether the server
-     does the same. Production "Administración de Certificados Digitales" accepted Clic's dotted alias. Also say in the
-     guide and in the error that ARCA only accepts letters and digits.
+   - **Addressed.** The server authority is PR #136 (homologación `^[A-Za-z0-9]{3,50}$`, producción unchanged). The
+     UX mirror, guide and error copy are in this PR (§2, "Smoke follow-up").
 2. **WSASS re-issue.** A new CSR for an existing device needs "agregar certificado a DN existente". "Nuevo certificado"
-   fails with "El ALIAS ya existe". The `wsfe` authorization survives because it is tied to the DN. The guide should say so.
-3. **UX: progress bar.** The gradient bar under the header repeats "Paso N de 6" and doesn't match the design system.
-   The owner wants it removed, or a single step indicator.
-4. **Out of scope.** "¿Olvidaste tu contraseña?" (PKCE link) lands on the dashboard without the new-password form.
-   Tracked separately.
+   fails with "El ALIAS ya existe". The `wsfe` authorization survives because it is tied to the DN.
+   - **Addressed:** the homologación guide says both.
+3. **UX: progress bar.** The gradient bar under the header repeated "Paso N de 6" and didn't match the design system.
+   - **Addressed:** removed; one "Paso N de 6" eyebrow above the heading.
+4. **Out of scope.** Tracked separately, not changed here:
+   - "¿Olvidaste tu contraseña?" (PKCE link) lands on the dashboard without the new-password form;
+   - `arca-rotate-prepare` / `arca-rotate-activate` echo any CORS origin;
+   - `afip-wsaa` refreshes in the last 30 minutes of a ticket.
 
 #### Temporary CORS closed (P0)
 

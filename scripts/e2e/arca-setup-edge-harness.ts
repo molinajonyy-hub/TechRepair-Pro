@@ -137,10 +137,15 @@ async function control(req: Request, path: string): Promise<Response> {
     case '/__e2e/stats':
       return json({ loginCms, actions, wsaaMode })
     case '/__e2e/sign': {
-      // ARCA emite el certificado para el CSR que presentó el usuario.
+      // ARCA emite el certificado para el CSR que presentó el usuario. Con `cn`, imita a WSASS de
+      // homologación: el certificado lleva el "Nombre simbólico del DN" cargado en ARCA, no el CN del CSR.
       const csr = forge.pki.certificationRequestFromPem(String(body.csrPem ?? ''))
       if (!csr.verify()) return json({ ok: false }, 400)
-      return json({ ok: true, certificatePem: issue(csr.publicKey, csr.subject.attributes) })
+      const serial = csr.subject.getField({ name: 'serialNumber' })?.value
+      const subject = typeof body.cn === 'string'
+        ? [{ name: 'commonName', value: body.cn }, { name: 'serialNumber', value: String(serial) }]
+        : csr.subject.attributes
+      return json({ ok: true, certificatePem: issue(csr.publicKey, subject) })
     }
     case '/__e2e/foreign': {
       // Certificado válido de la CA pero para OTRA clave (mismo subject): no corresponde.

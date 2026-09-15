@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import { createClient } from '@supabase/supabase-js'
 import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures'
-import { ejecutarSQL } from '../setup/sqlLocal.ts'
+import { consultarJSON, ejecutarSQL } from '../setup/sqlLocal.ts'
 import { assertDestinoLocalSeguro } from '../setup/assertLocalTarget.ts'
 import { createCompatibleUserClient } from '../setup/compatibleUserClient.ts'
 
@@ -100,7 +100,8 @@ async function seedOwner(plan: 'pro' | 'basico' = 'pro') {
   if (error) throw new Error(`provision: ${error.message}`)
   const businessId = (data as { business_id: string }).business_id
   ejecutarSQL(`UPDATE public.businesses SET subscription_plan = '${plan}', subscription_status = 'active' WHERE id = '${businessId}';`)
-  return { email, userId, businessId, cuit: validCuit(), alias: `e2e-arca-${rand()}` }
+  // Homologación (WSASS) sólo acepta letras y números en el nombre del equipo.
+  return { email, userId, businessId, cuit: validCuit(), alias: `e2earca${rand()}` }
 }
 
 async function seedMember(businessId: string, role: 'tech') {
@@ -127,6 +128,15 @@ async function openArcaTab(page: Page) {
 }
 
 const wizard = (page: Page) => page.getByTestId('arca-setup-wizard')
+
+/** Una sola referencia al paso: eyebrow «Paso N de 6» + título; sin barra de progreso ni subtítulo repetido. */
+async function expectSingleStep(page: Page, step: number, heading: string) {
+  const dialog = page.getByRole('dialog')
+  await expect(page.getByTestId('arca-setup-step')).toHaveText(`Paso ${step} de 6`)
+  await expect(page.getByTestId('arca-setup-heading')).toHaveText(heading)
+  await expect(dialog.locator('[role="progressbar"], .intake-progress')).toHaveCount(0)
+  expect((await dialog.innerText()).match(/Paso \d de 6/g)).toEqual([`Paso ${step} de 6`])
+}
 
 async function shot(page: Page, name: string) {
   mkdirSync(SHOTS, { recursive: true })
@@ -202,6 +212,7 @@ test('@m7 ARCA 2B 1. camino feliz: datos → archivo → certificado → verific
 
   await page.getByTestId('arca-setup-start').click()
   await expect(wizard(page)).toHaveAttribute('data-step', '1')
+  await expectSingleStep(page, 1, 'Datos fiscales')
   await shot(page, '02-datos-fiscales')
   // Validación local: un CUIT inválido no llega al servidor.
   await page.getByTestId('arca-setup-cuit').fill('20123456783')
@@ -214,6 +225,7 @@ test('@m7 ARCA 2B 1. camino feliz: datos → archivo → certificado → verific
   await page.getByTestId('arca-setup-prepare').click()
   await expect(wizard(page)).toHaveAttribute('data-screen', 'presentar_en_arca', { timeout: 30_000 })
   await expect(wizard(page)).toHaveAttribute('data-step', '3')
+  await expectSingleStep(page, 3, 'Presentá el archivo en ARCA')
   await expect(page.getByTestId('arca-setup-guide')).toHaveAttribute('data-ambiente', 'homologacion')
   await shot(page, '04-presentar-en-arca')
 
@@ -224,11 +236,13 @@ test('@m7 ARCA 2B 1. camino feliz: datos → archivo → certificado → verific
   await shot(page, '05-subir-certificado')
   await uploadCertificate(page, certificatePem)
   await expect(wizard(page)).toHaveAttribute('data-screen', 'verificar_conexion', { timeout: 30_000 })
+  await expectSingleStep(page, 5, 'Verificar la conexión')
   await shot(page, '06-verificar')
 
   await page.getByTestId('arca-setup-verify').click()
   await expect(page.getByTestId('arca-setup-done')).toBeVisible({ timeout: 60_000 })
   await expect(wizard(page)).toHaveAttribute('data-step', '6')
+  await expectSingleStep(page, 6, 'ARCA quedó conectado')
   await expect(page.getByTestId('arca-setup-done-summary')).toContainText(t.cuit.slice(0, 2))
   // El cierre describe la conexión configurada; no promete una emisión que el asistente no hizo.
   await expect(page.getByTestId('arca-setup-done-message')).toContainText('La conexión con ARCA quedó configurada correctamente')
@@ -415,6 +429,78 @@ test('@m7 ARCA 2B 9. plan sin ARCA: estado de producto y nunca llama al asistent
   await shot(page, '14-sin-plan')
   const s = await stats()
   expect(Object.values(s.actions).reduce((a, b) => a + b, 0)).toBe(0)
+})
+
+// Hallazgo del smoke REAL de homologación (2026-09-15): WSASS rechaza '.' y '-' en el nombre del
+// equipo y emite el certificado con el nombre cargado en ARCA. Acá se reproduce sin ARCA real.
+test('@m7 ARCA 2B 11. homologación: el nombre con guion no sale del navegador; alfanumérico sigue; certificado con otro nombre explica qué hacer', async ({ page }) => {
+  const t = await seedOwner('pro')
+  const transcript: string[] = []
+  await routeEdge(page, transcript)
+  await loginUI(page, t.email)
+  await openArcaTab(page)
+  await page.getByTestId('arca-setup-start').click()
+  await expect(wizard(page)).toHaveAttribute('data-screen', 'datos_fiscales')
+  // La sugerencia automática ya es compatible con WSASS.
+  await expect(page.getByTestId('arca-setup-alias')).toHaveValue(/^[a-z0-9]{3,50}$/)
+  await expect(page.getByTestId('arca-setup-fiscal')).toContainText('En homologación sólo puede contener letras y números.')
+
+  // Válido en producción, inválido apenas se elige homologación (sin esperar al envío).
+  await page.getByTestId('arca-setup-cuit').fill(t.cuit)
+  await page.getByTestId('arca-setup-razon-social').fill('QA E2E SRL')
+  await page.getByTestId('arca-setup-punto-venta').fill('1')
+  await page.getByTestId('arca-setup-ambiente-produccion').click()
+  await page.getByTestId('arca-setup-alias').fill('techrepair-demo-homo')
+  await expect(page.locator('#arca-setup-alias-error')).toHaveCount(0)
+  await page.getByTestId('arca-setup-ambiente-homologacion').click()
+  const aliasError = page.locator('#arca-setup-alias-error')
+  await expect(aliasError).toHaveText('En homologación ARCA acepta únicamente letras y números. Usá entre 3 y 50 caracteres.')
+  await expect(page.getByTestId('arca-setup-alias')).toHaveAttribute('aria-invalid', 'true')
+
+  // El navegador bloquea prepare: el Edge (y la base) reciben CERO pedidos.
+  await page.getByTestId('arca-setup-prepare').click()
+  await expect(wizard(page)).toHaveAttribute('data-screen', 'datos_fiscales')
+  await expect(aliasError).toBeVisible()
+  await aliasError.scrollIntoViewIfNeeded()
+  await shot(page, '19-alias-homologacion-invalido')
+  expect((await stats()).actions.prepare ?? 0).toBe(0)
+  expect(consultarJSON<{ n: number }>(`SELECT count(*)::int AS n FROM private.arca_credential_rotations WHERE business_id = '${t.businessId}'`).n).toBe(0)
+
+  // Con el nombre alfanumérico el flujo local sigue.
+  await page.getByTestId('arca-setup-alias').fill(t.alias)
+  await expect(aliasError).toHaveCount(0)
+  await page.getByTestId('arca-setup-prepare').click()
+  await expect(wizard(page)).toHaveAttribute('data-screen', 'presentar_en_arca', { timeout: 30_000 })
+  expect((await stats()).actions.prepare).toBe(1)
+  await expectSingleStep(page, 3, 'Presentá el archivo en ARCA')
+  await expect(page.getByTestId('arca-setup-guide-certificate')).toContainText('sólo lleva letras y números')
+  await expect(page.getByTestId('arca-setup-guide-certificate-note')).toContainText('agregar certificado a DN existente')
+  await expect(page.getByTestId('arca-setup-guide-authorize-note')).toContainText('esa autorización se conserva')
+  await page.getByTestId('arca-setup-guide-certificate').scrollIntoViewIfNeeded()
+  await shot(page, '21-guia-homologacion-dn-existente')
+
+  // ARCA emite el certificado con OTRO nombre (lo que pasó con WSASS en el smoke): rechazo accionable, sin ARCA.
+  const csrPem = await downloadCsr(page)
+  const renamed = await control<{ certificatePem: string }>('sign', { csrPem, cn: 'otronombre' })
+  await uploadCertificate(page, renamed.certificatePem, 'otronombre.crt')
+  const certError = page.getByTestId('arca-setup-certificate-error')
+  await expect(certError).toHaveAttribute('data-error-code', 'CERTIFICATE_ALIAS_MISMATCH', { timeout: 30_000 })
+  await expect(certError).toContainText('El nombre del certificado no coincide con el nombre del equipo configurado. En homologación, ARCA acepta sólo letras y números.')
+  await expect(certError).toContainText('Generá el certificado usando exactamente el nombre que muestra TechRepair Pro.')
+  await expect(certError).not.toContainText(/CERTIFICATE_ALIAS_MISMATCH|\bCN\b|subject/)
+  await expect(wizard(page)).toHaveAttribute('data-screen', 'presentar_en_arca')
+  await shot(page, '20-nombre-del-certificado-no-coincide')
+  expect((await stats()).loginCms).toBe(0)
+
+  // Certificado con el nombre correcto → verificar → Listo con UN LoginCms.
+  const { certificatePem } = await control<{ certificatePem: string }>('sign', { csrPem })
+  await uploadCertificate(page, certificatePem)
+  await expect(wizard(page)).toHaveAttribute('data-screen', 'verificar_conexion', { timeout: 30_000 })
+  await page.getByTestId('arca-setup-verify').click()
+  await expect(page.getByTestId('arca-setup-done')).toBeVisible({ timeout: 60_000 })
+  expect((await stats()).loginCms).toBe(1)
+  expect(consultarJSON<{ alias: string }>(`SELECT alias FROM public.arca_config WHERE business_id = '${t.businessId}'`).alias).toBe(t.alias)
+  for (const body of transcript) expect(body).not.toMatch(LEAK)
 })
 
 test('@m7 ARCA 2B 10. mobile 375 y 320: pantalla completa, sin scroll horizontal y usable con el teclado', async ({ page }) => {

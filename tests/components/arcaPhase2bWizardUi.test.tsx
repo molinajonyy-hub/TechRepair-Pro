@@ -48,7 +48,7 @@ const base = (): ArcaSelfServiceStatus => ({
 
 const inProgress = (step: 'certificate' | 'verification' | 'activation', hold: ArcaVerificationHold | null = null): ArcaSelfServiceStatus => ({
   ...base(), status: 'setup_in_progress', next_action: 'continue_setup',
-  environment: 'homologacion', cuit: '20123456786', razon_social: 'QA Demo SRL', punto_venta: 3, alias: 'techrepair-qa-demo',
+  environment: 'homologacion', cuit: '20123456786', razon_social: 'QA Demo SRL', punto_venta: 3, alias: 'techrepairqademo',
   setup: { state: 'in_progress', kind: 'initial', step, started_at: '2026-09-14T14:00:00Z',
     verification_hold: hold, retry_not_before: hold === null ? null : new Date(Date.now() + 3_600_000).toISOString() },
 })
@@ -114,7 +114,7 @@ describe('paso 1 — datos fiscales', () => {
     openWizard()
     const cuit = screen.getByTestId('arca-setup-cuit') as HTMLInputElement
     expect(cuit.value).toBe('20-12345678-6')
-    expect((screen.getByTestId('arca-setup-alias') as HTMLInputElement).value).toBe('techrepair-qa-demo')
+    expect((screen.getByTestId('arca-setup-alias') as HTMLInputElement).value).toBe('techrepairqademo')
     expect(screen.getAllByRole('radio').every((r) => !(r as HTMLInputElement).checked)).toBe(true)
 
     fireEvent.change(cuit, { target: { value: '20123456783' } })
@@ -136,8 +136,10 @@ describe('paso 1 — datos fiscales', () => {
     fireEvent.click(screen.getByTestId('arca-setup-prepare'))
     fireEvent.click(screen.getByTestId('arca-setup-prepare'))
     expect(service.prepare).toHaveBeenCalledTimes(1)
-    expect(service.prepare.mock.calls[0][0]).toEqual({ cuit: '20123456786', razon_social: 'QA Demo SRL', ambiente: 'homologacion', punto_venta: 3, alias: 'techrepair-qa-demo' })
-    expect(screen.getByTestId('arca-setup-wizard').dataset.step).toBe('2')
+    expect(service.prepare.mock.calls[0][0]).toEqual({ cuit: '20123456786', razon_social: 'QA Demo SRL', ambiente: 'homologacion', punto_venta: 3, alias: 'techrepairqademo' })
+    // Mientras se genera el archivo el paso sigue siendo el 1: no hay una pantalla fugaz de "Paso 2".
+    expect(screen.getByTestId('arca-setup-wizard').dataset.step).toBe('1')
+    expect(screen.getByTestId('arca-setup-preparing').textContent).toMatch(/Generando archivo para ARCA…/)
     await act(async () => { resolve({ ok: true, state: 'SETUP_PREPARED' }) })
     await waitFor(() => expect(refresh).toHaveBeenCalled())
   })
@@ -153,6 +155,150 @@ describe('paso 1 — datos fiscales', () => {
     expect(notice.textContent).toMatch(/El CUIT no coincide con tu negocio/)
     expect(notice.textContent).not.toMatch(/CUIT_TENANT_MISMATCH/)
     expect(document.getElementById('arca-setup-cuit-error')?.textContent).toMatch(/Datos del negocio/)
+  })
+})
+
+// Smoke real 2026-09-15: WSASS de homologación sólo acepta letras y números en el nombre del equipo.
+describe('paso 1 — nombre del equipo según el ambiente', () => {
+  const HOMOLOGACION_MESSAGE = 'En homologación ARCA acepta únicamente letras y números. Usá entre 3 y 50 caracteres.'
+  const alias = () => screen.getByTestId('arca-setup-alias') as HTMLInputElement
+  const chooseAmbiente = (value: 'homologacion' | 'produccion') =>
+    fireEvent.click(screen.getByTestId(`arca-setup-ambiente-${value}`).querySelector('input')!)
+  const aliasErrorText = () => document.getElementById('arca-setup-alias-error')?.textContent ?? null
+
+  it('la sugerencia no tiene punto ni guion y la ayuda explica la regla', () => {
+    renderPanel(base())
+    openWizard()
+    expect(alias().value).toBe('techrepairqademo')
+    expect(alias().value).not.toMatch(/[.-]/)
+    expect(screen.getByTestId('arca-setup-fiscal').textContent).toMatch(/ARCA usa este nombre dentro del certificado\. En homologación sólo puede contener letras y números\./)
+  })
+
+  it.each([
+    ['guion', 'techrepair-demo'], ['punto', 'techrepair.demo'], ['underscore', 'techrepair_demo'],
+    ['espacio', 'techrepair demo'], ['acento', 'técnico'],
+  ])('homologación con %s → error en el campo y prepare nunca se llama', async (_label, value) => {
+    renderPanel(base())
+    openWizard()
+    chooseAmbiente('homologacion')
+    fireEvent.change(screen.getByTestId('arca-setup-punto-venta'), { target: { value: '3' } })
+    fireEvent.change(alias(), { target: { value } })
+    fireEvent.click(screen.getByTestId('arca-setup-prepare'))
+    await waitFor(() => expect(alias().getAttribute('aria-invalid')).toBe('true'))
+    expect(aliasErrorText()).toBe(HOMOLOGACION_MESSAGE)
+    expect(service.prepare).not.toHaveBeenCalled()
+  })
+
+  it('homologación con techrepairdemohomo → prepare con ese nombre', async () => {
+    service.prepare.mockResolvedValue({ ok: true, state: 'SETUP_PREPARED' })
+    renderPanel(base())
+    openWizard()
+    chooseAmbiente('homologacion')
+    fireEvent.change(screen.getByTestId('arca-setup-punto-venta'), { target: { value: '1' } })
+    fireEvent.change(alias(), { target: { value: 'techrepairdemohomo' } })
+    fireEvent.click(screen.getByTestId('arca-setup-prepare'))
+    await waitFor(() => expect(service.prepare).toHaveBeenCalledTimes(1))
+    expect(service.prepare.mock.calls[0][0]).toMatchObject({ ambiente: 'homologacion', alias: 'techrepairdemohomo' })
+  })
+
+  it('producción conserva el contrato: un nombre con guion se envía', async () => {
+    service.prepare.mockResolvedValue({ ok: true, state: 'SETUP_PREPARED' })
+    renderPanel(base())
+    openWizard()
+    chooseAmbiente('produccion')
+    fireEvent.change(screen.getByTestId('arca-setup-punto-venta'), { target: { value: '10' } })
+    fireEvent.change(alias(), { target: { value: 'techrepair-demo.local' } })
+    fireEvent.click(screen.getByTestId('arca-setup-prepare'))
+    await waitFor(() => expect(service.prepare).toHaveBeenCalledTimes(1))
+    expect(service.prepare.mock.calls[0][0]).toMatchObject({ ambiente: 'produccion', alias: 'techrepair-demo.local' })
+  })
+
+  it('cambiar de producción a homologación reevalúa el nombre en el momento, sin esperar al envío', async () => {
+    renderPanel(base())
+    openWizard()
+    chooseAmbiente('produccion')
+    fireEvent.change(alias(), { target: { value: 'techrepair-demo' } })
+    expect(aliasErrorText()).toBeNull()
+    chooseAmbiente('homologacion')
+    await waitFor(() => expect(aliasErrorText()).toBe(HOMOLOGACION_MESSAGE))
+    expect(alias().getAttribute('aria-invalid')).toBe('true')
+    fireEvent.change(screen.getByTestId('arca-setup-punto-venta'), { target: { value: '1' } })
+    fireEvent.click(screen.getByTestId('arca-setup-prepare'))
+    expect(service.prepare).not.toHaveBeenCalled()
+    fireEvent.change(alias(), { target: { value: 'techrepairdemo' } })
+    await waitFor(() => expect(aliasErrorText()).toBeNull())
+  })
+})
+
+describe('indicador de paso — una sola referencia, sin barra', () => {
+  const dialogText = () => document.querySelector('[role="dialog"]')?.textContent ?? ''
+
+  it.each([
+    ['datos fiscales', () => base(), false, 1, 'Datos fiscales'],
+    ['presentar en ARCA', () => inProgress('certificate'), false, 3, 'Presentá el archivo en ARCA'],
+    ['subir certificado', () => inProgress('certificate'), true, 4, 'Subí el certificado'],
+    ['verificar', () => inProgress('verification'), false, 5, 'Verificar la conexión'],
+  ])('%s: eyebrow «Paso N de 6» una vez y el título del paso', (_label, status, upload, step, heading) => {
+    renderPanel(status())
+    openWizard()
+    if (upload) fireEvent.click(screen.getByTestId('arca-setup-have-certificate'))
+    expect(document.querySelector('[role="progressbar"]')).toBeNull()
+    expect(document.querySelector('.intake-progress')).toBeNull()
+    expect(screen.getByTestId('arca-setup-step').textContent).toBe(`Paso ${step} de 6`)
+    expect(dialogText().match(/Paso \d de 6/g)).toEqual([`Paso ${step} de 6`])
+    expect(screen.getByTestId('arca-setup-heading').textContent).toBe(heading)
+    // El nombre del paso no se repite como etiqueta (el subtítulo del modal ya no lo lleva).
+    const labels = Array.from(document.querySelector('[role="dialog"]')!.querySelectorAll('*'))
+      .filter((el) => el.children.length === 0 && el.textContent?.trim() === heading)
+    expect(labels).toHaveLength(1)
+    expect(screen.getByTestId('arca-setup-heading').getAttribute('aria-describedby')).toBe('arca-setup-step')
+  })
+
+  it('listo: paso 6 una sola vez; la confirmación de cancelar no muestra paso', () => {
+    const { rerender } = renderPanel(connected())
+    rerender(<ArcaSetupPanel status={inProgress('certificate')} loading={false} failed={false} refresh={vi.fn()} defaults={DEFAULTS} />)
+    openWizard()
+    fireEvent.click(screen.getByTestId('arca-setup-cancel'))
+    expect(screen.queryByTestId('arca-setup-step')).toBeNull()
+    rerender(<ArcaSetupPanel status={connected()} loading={false} failed={false} refresh={vi.fn()} defaults={DEFAULTS} />)
+    expect(dialogText().match(/Paso \d de 6/g)).toEqual(['Paso 6 de 6'])
+  })
+})
+
+describe('guía de homologación y nombre del certificado', () => {
+  it('la guía muestra el nombre a copiar, el caso del DN existente y que WSFE se conserva', () => {
+    renderPanel(inProgress('certificate'))
+    openWizard()
+    const guide = screen.getByTestId('arca-setup-guide')
+    expect(within(guide).getByTestId('arca-setup-copy-value').textContent).toBe('techrepairqademo')
+    expect(screen.getByTestId('arca-setup-guide-certificate').textContent).toMatch(/sólo lleva letras y números/)
+    expect(screen.getByTestId('arca-setup-guide-certificate-note').textContent).toMatch(/«agregar certificado a DN existente»/)
+    expect(screen.getByTestId('arca-setup-guide-authorize-note').textContent).toBe('Si el DN ya tenía autorizado WSFE, esa autorización se conserva: no hace falta crearla otra vez.')
+  })
+
+  it('CERTIFICATE_ALIAS_MISMATCH en homologación: mensaje accionable, sin código ni datos técnicos', async () => {
+    service.attachCertificatePem.mockResolvedValue({ ok: false, state: 'CERTIFICATE_ALIAS_MISMATCH' })
+    renderPanel(inProgress('certificate'))
+    openWizard()
+    fireEvent.click(screen.getByTestId('arca-setup-have-certificate'))
+    const pem = '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n'
+    fireEvent.change(screen.getByTestId('arca-setup-certificate-input'), { target: { files: [new File([pem], 'techrepairdemohomo.crt')] } })
+    const error = await screen.findByTestId('arca-setup-certificate-error')
+    expect(error.textContent).toMatch(/El nombre del certificado no coincide con el nombre del equipo configurado\. En homologación, ARCA acepta sólo letras y números\./)
+    expect(error.textContent).toMatch(/Generá el certificado usando exactamente el nombre que muestra TechRepair Pro\./)
+    expect(error.textContent).not.toMatch(/CERTIFICATE_ALIAS_MISMATCH|\bCN\b|DER|subject|SOAP/)
+  })
+
+  it('CERTIFICATE_ALIAS_MISMATCH en producción: no afirma la regla de homologación', async () => {
+    service.attachCertificatePem.mockResolvedValue({ ok: false, state: 'CERTIFICATE_ALIAS_MISMATCH' })
+    renderPanel({ ...inProgress('certificate'), environment: 'produccion', alias: 'techrepair-demo' })
+    openWizard()
+    fireEvent.click(screen.getByTestId('arca-setup-have-certificate'))
+    const pem = '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n'
+    fireEvent.change(screen.getByTestId('arca-setup-certificate-input'), { target: { files: [new File([pem], 'arca.crt')] } })
+    const error = await screen.findByTestId('arca-setup-certificate-error')
+    expect(error.textContent).toMatch(/El nombre del certificado no coincide con el nombre del equipo configurado\./)
+    expect(error.textContent).not.toMatch(/letras y números/)
   })
 })
 

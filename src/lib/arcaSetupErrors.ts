@@ -56,7 +56,7 @@ const ENTRIES: Readonly<Record<string, Entry>> = {
   INVALID_PUNTO_VENTA: { category: 'input', tone: 'danger', retry: 'after_fix', field: 'punto_venta',
     title: 'Revisá el punto de venta', message: 'Tiene que ser un número entre 1 y 99998.', action: 'Corregí el punto de venta y volvé a confirmar.' },
   INVALID_ALIAS: { category: 'input', tone: 'danger', retry: 'after_fix', field: 'alias',
-    title: 'Revisá el nombre del equipo', message: 'Usá entre 3 y 50 letras sin acentos, números, puntos o guiones.', action: 'Corregí el nombre y volvé a confirmar.' },
+    title: 'Revisá el nombre del equipo', message: 'El nombre del equipo no es válido para el ambiente elegido.', action: 'Corregí el nombre y volvé a confirmar.' },
   INVALID_RAZON_SOCIAL: { category: 'input', tone: 'danger', retry: 'after_fix', field: 'razon_social',
     title: 'Revisá la razón social', message: 'Completala tal como figura en ARCA (hasta 200 caracteres).', action: 'Corregila y volvé a confirmar.' },
   IDEMPOTENCY_CONFLICT: { category: 'flow', tone: 'warning', retry: 'now',
@@ -110,7 +110,7 @@ const ENTRIES: Readonly<Record<string, Entry>> = {
   CERTIFICATE_CUIT_MISMATCH: { category: 'certificate', tone: 'danger', retry: 'after_fix', field: 'certificate',
     title: 'El certificado es de otro CUIT', message: 'Pertenece a una identidad fiscal distinta de la de esta configuración.', action: 'Generá el certificado en ARCA con el CUIT del negocio.' },
   CERTIFICATE_ALIAS_MISMATCH: { category: 'certificate', tone: 'danger', retry: 'after_fix', field: 'certificate',
-    title: 'El certificado es de otro equipo', message: 'Fue emitido con otro nombre de equipo.', action: 'En ARCA usá exactamente el nombre de equipo de esta configuración.' },
+    title: 'El nombre del certificado no coincide', message: 'El nombre del certificado no coincide con el nombre del equipo configurado.', action: 'Generá el certificado usando exactamente el nombre que muestra TechRepair Pro.' },
   CERTIFICATE_SUBJECT_MISMATCH: { category: 'certificate', tone: 'danger', retry: 'after_fix', field: 'certificate',
     title: 'El certificado no corresponde a esta configuración', message: 'Sus datos no coinciden con los de esta configuración.', action: 'Generá el certificado en ARCA con el archivo de esta configuración.' },
   CERTIFICATE_EXPIRED: { category: 'certificate', tone: 'danger', retry: 'after_fix', field: 'certificate',
@@ -160,6 +160,21 @@ const ENTRIES: Readonly<Record<string, Entry>> = {
 export function describeArcaSetupError(code: string | null | undefined): ArcaSetupErrorView {
   const key = typeof code === 'string' && Object.prototype.hasOwnProperty.call(ENTRIES, code) ? code : 'SETUP_UNAVAILABLE'
   return { code: key, ...ENTRIES[key] }
+}
+
+/**
+ * Detalle por ambiente. En homologación WSASS acepta sólo letras y números en el nombre del equipo y
+ * lo escribe en el certificado (smoke real 2026-09-15); en producción no se afirma esa restricción.
+ * Sólo agrega una oración a la vista central: nunca muestra el código ni texto del servidor.
+ */
+const HOMOLOGACION_DETAIL: Readonly<Record<string, string>> = {
+  INVALID_ALIAS: 'En homologación ARCA acepta únicamente letras y números. Usá entre 3 y 50 caracteres.',
+  CERTIFICATE_ALIAS_MISMATCH: 'En homologación, ARCA acepta sólo letras y números.',
+}
+
+export function arcaSetupErrorForAmbiente(view: ArcaSetupErrorView, ambiente: string | null | undefined): ArcaSetupErrorView {
+  const detail = ambiente === 'homologacion' ? HOMOLOGACION_DETAIL[view.code] : undefined
+  return detail ? { ...view, message: `${view.message} ${detail}` } : view
 }
 
 /** Códigos con mensaje propio (para tests de cobertura del contrato). */

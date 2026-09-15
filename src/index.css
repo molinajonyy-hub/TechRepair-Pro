@@ -3337,8 +3337,8 @@ tbody tr:hover td {
 }
 
 /* ─── ARCA Self-Service Phase 2B — asistente de configuración ─────────────────
-   Alcance: sólo clases .arca-setup-*. Reusa tokens y la barra de progreso del
-   alta de órdenes (.intake-progress). */
+   Alcance: sólo clases .arca-setup-*. Reusa tokens. El paso se indica UNA vez,
+   con un eyebrow chico sobre el título (sin barra de progreso). */
 .arca-setup-entry { display:flex; flex-direction:column; gap:1rem; padding:1.25rem 1.5rem; border:1px solid var(--border-subtle); border-radius:var(--radius-lg); background:var(--bg-card); }
 .arca-setup-entry--compact { padding:0; border:0; background:transparent; }
 .arca-setup-entry__body { display:flex; flex-direction:column; gap:.75rem; }
@@ -3348,7 +3348,8 @@ tbody tr:hover td {
 .arca-setup-entry__actions .btn { min-height:44px; }
 
 .arca-setup { display:flex; flex-direction:column; gap:1rem; }
-.arca-setup .intake-progress { margin-bottom:0; }
+.arca-setup-titles { display:flex; flex-direction:column; gap:.15rem; }
+.arca-setup-eyebrow { margin:0; color:var(--text-subtle); font-size:.75rem; font-weight:600; letter-spacing:.02em; font-variant-numeric:tabular-nums; }
 .arca-setup-heading { margin:0; font-size:1.1rem; font-weight:700; color:var(--text-primary); outline:none; }
 .arca-setup-heading:focus-visible { outline:2px solid var(--accent-primary); outline-offset:3px; border-radius:var(--radius-sm, 4px); }
 .arca-setup-stack { display:flex; flex-direction:column; gap:1rem; }
@@ -3397,6 +3398,7 @@ tbody tr:hover td {
 .arca-setup-guide__steps li::marker { font-weight:700; color:var(--accent-primary); }
 .arca-setup-guide__step-title { margin:0; font-weight:600; font-size:.88rem; color:var(--text-primary); }
 .arca-setup-guide__step-detail { margin:.15rem 0 0; font-size:.84rem; color:var(--text-secondary); line-height:1.5; }
+.arca-setup-guide__step-note { margin:.4rem 0 0; padding-left:.6rem; border-left:2px solid var(--border-subtle); font-size:.8rem; color:var(--text-subtle); line-height:1.45; }
 .arca-setup-guide__warning { margin:.9rem 0 0; font-size:.82rem; color:var(--warning); line-height:1.45; font-weight:600; }
 .arca-setup-guide__links { margin-top:.75rem; display:flex; flex-wrap:wrap; gap:.75rem; }
 .arca-setup-link { display:inline-flex; align-items:center; gap:.3rem; min-height:44px; color:var(--accent-primary); font-weight:600; font-size:.85rem; text-decoration:none; }
