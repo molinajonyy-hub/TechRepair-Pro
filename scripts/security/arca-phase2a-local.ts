@@ -149,7 +149,7 @@ try {
 
   // ── 1. Matriz HTTP de las 8 RPC ──
   const RPCS: Array<[string, Record<string, unknown>]> = [
-    ['arca_selfservice_prepare_initial', { p_business_id: T.A, p_actor: T.owner, p_idempotency_key: 'matrix-0001', p_cuit: '20111111112', p_razon_social: 'x', p_ambiente: 'homologacion', p_punto_venta: 1, p_alias: 'matrix-alias' }],
+    ['arca_selfservice_prepare_initial', { p_business_id: T.A, p_actor: T.owner, p_idempotency_key: 'matrix-0001', p_cuit: '20111111112', p_razon_social: 'x', p_ambiente: 'homologacion', p_punto_venta: 1, p_alias: 'matrixalias' }],
     ['arca_selfservice_get_csr', { p_business_id: T.A, p_actor: T.owner }],
     ['arca_selfservice_attach_certificate', { p_business_id: T.A, p_actor: T.owner, p_certificate_pem: 'x' }],
     ['arca_selfservice_verification_material', { p_business_id: T.A, p_actor: T.owner, p_attempt_id: id() }],
@@ -220,11 +220,11 @@ try {
   const A = makeDeps(T.owner, T.A)
   expect(await statusOf(T.owner, T.A) === 'not_configured|false|not_started|-|-|unknown|start_setup', 'Phase 1 inicial')
 
-  let r = await call(A, { action: 'prepare', idempotency_key: 'e2e-wizard-0001', cuit: '20-11111111-2', razon_social: 'QA E2E SRL', ambiente: 'homologacion', punto_venta: 3, alias: 'qa-e2e-setup' })
+  let r = await call(A, { action: 'prepare', idempotency_key: 'e2e-wizard-0001', cuit: '20-11111111-2', razon_social: 'QA E2E SRL', ambiente: 'homologacion', punto_venta: 3, alias: 'qae2esetup' })
   expect(r.status === 200 && r.body.state === 'SETUP_PREPARED', 'prepare', r.text.slice(0, 200))
   const csrPem = r.body.csr.pem as string
   expect(r.body.csr.filename === 'techrepair-arca-20111111112.csr', 'nombre de archivo')
-  r = await call(A, { action: 'prepare', idempotency_key: 'e2e-wizard-0001', cuit: '20-11111111-2', razon_social: 'QA E2E SRL', ambiente: 'homologacion', punto_venta: 3, alias: 'qa-e2e-setup' })
+  r = await call(A, { action: 'prepare', idempotency_key: 'e2e-wizard-0001', cuit: '20-11111111-2', razon_social: 'QA E2E SRL', ambiente: 'homologacion', punto_venta: 3, alias: 'qae2esetup' })
   expect(r.status === 200 && r.body.state === 'SETUP_ALREADY_PREPARED' && r.body.csr.pem === csrPem, 'prepare replay devuelve el mismo CSR')
   expect(await statusOf(T.owner, T.A) === 'setup_in_progress|false|in_progress|initial|certificate|unknown|continue_setup', 'Phase 1 paso certificate')
 
@@ -258,7 +258,7 @@ try {
 
   r = await call(A, { action: 'verify', idempotency_key: 'e2e-verify-0002' })
   expect(r.status === 200 && r.body.state === 'SETUP_ALREADY_COMPLETED' && wsaaHits.length === 1, 'verify tardío no vuelve a ARCA')
-  r = await call(A, { action: 'prepare', idempotency_key: 'e2e-wizard-0002', cuit: '20-11111111-2', razon_social: 'QA', ambiente: 'homologacion', punto_venta: 3, alias: 'qa-e2e-setup' })
+  r = await call(A, { action: 'prepare', idempotency_key: 'e2e-wizard-0002', cuit: '20-11111111-2', razon_social: 'QA', ambiente: 'homologacion', punto_venta: 3, alias: 'qae2esetup' })
   expect(r.status === 409 && r.body.state === 'ARCA_ALREADY_CONFIGURED', 'segundo alta rechazado')
 
   // ── 3. Negocio ya configurado (el caso Clic): nunca ──
@@ -278,7 +278,7 @@ try {
   expect(wsaaHits.length === 1, 'ningún LoginCms para el negocio configurado')
 
   // ── 4. LoginCms ambiguo en X: espera durable, sin repetir, sobrevive a cancelar ──
-  r = await call(X, { action: 'prepare', idempotency_key: 'e2e-cancel-0001', cuit: '20-11111111-2', razon_social: 'X', ambiente: 'homologacion', punto_venta: 1, alias: 'qa-e2e-cancel' })
+  r = await call(X, { action: 'prepare', idempotency_key: 'e2e-cancel-0001', cuit: '20-11111111-2', razon_social: 'X', ambiente: 'homologacion', punto_venta: 1, alias: 'qae2ecancel' })
   expect(r.status === 200, 'prepare X', r.text)
   const derX = arcaSigns(r.body.csr.pem as string)
   attachedCertPem = forge.pki.certificateToPem(forge.pki.certificateFromAsn1(forge.asn1.fromDer(forge.util.decode64(derX)))).trim()
@@ -304,7 +304,7 @@ try {
   r = await call(X, { action: 'cancel' })
   expect(r.status === 200 && r.body.state === 'SETUP_NOT_IN_PROGRESS', 'cancel idempotente')
   // Mismo equipo (CUIT + alias): la configuración nueva hereda la espera y no llama a WSAA.
-  r = await call(X, { action: 'prepare', idempotency_key: 'e2e-cancel-0002', cuit: '20-11111111-2', razon_social: 'X', ambiente: 'homologacion', punto_venta: 1, alias: 'qa-e2e-cancel' })
+  r = await call(X, { action: 'prepare', idempotency_key: 'e2e-cancel-0002', cuit: '20-11111111-2', razon_social: 'X', ambiente: 'homologacion', punto_venta: 1, alias: 'qae2ecancel' })
   expect(r.status === 200 && r.body.state === 'SETUP_PREPARED', 're-prepare X', r.text)
   expect(await holdOf(T.ownerX, T.X) === 'certificate|result_unknown|bound', 'Phase 1 muestra la espera heredada')
   const derX2 = arcaSigns(r.body.csr.pem as string)

@@ -79,6 +79,13 @@ jobs:
       - name: Guard — ARCA Phase 2A initial setup engine contract
         run: npm run test:arca-phase2a
 
+      # ARCA WSASS HOMOLOGACIÓN (smoke real 2026-09-15): WSASS only accepts letters and digits as the
+      # device name and stamps it into the certificate CN. prepare_initial stays the authority:
+      # homologación alias is [A-Za-z0-9]{3,50}, producción keeps its previous rule, and once the
+      # wizard declares per-environment patterns they must behave exactly like the server's.
+      - name: Guard — ARCA WSASS homologación device name
+        run: npm run test:arca-wsass-alias
+
       - name: Guard — SEC-08E R2B activation stays canonical
         run: npm run guard:sec08e-r2a:self-test && npm run guard:sec08e-r2b:self-test && npm run guard:sec08e-r2b
 
