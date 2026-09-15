@@ -64,7 +64,7 @@ export function buildArcaSetupGuide(input: {
         {
           key: 'certificate',
           title: 'Creá el certificado con el archivo',
-          detail: `Usá exactamente el mismo nombre de equipo que muestra TechRepair Pro: en homologación sólo lleva letras y números. Si es la primera vez que usás ese nombre, creá el certificado normalmente con el contenido de ${file}. Guardá el certificado que te devuelve ARCA.`,
+          detail: `Usá exactamente el mismo nombre de equipo que muestra TechRepair Pro: en homologación sólo lleva letras y números. Si es la primera vez que usás ese nombre, creá el certificado normalmente con el contenido ${input.filename ? `de ${input.filename}` : 'del archivo que descargaste'}. Guardá el certificado que te devuelve ARCA.`,
           copyValue: aliasCopy,
           note: 'Si ese nombre ya existe en WSASS y estás cargando un archivo nuevo, no lo crees de nuevo: usá «agregar certificado a DN existente» con el archivo nuevo.',
         },
