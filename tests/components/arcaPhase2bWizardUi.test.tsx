@@ -316,6 +316,9 @@ describe('paso 6 — listo', () => {
     expect(done.textContent).toMatch(/QA Demo SRL/)
     expect(done.textContent).toMatch(/Homologación/)
     expect(done.textContent).toMatch(/Vigente · vence 13\/09\/2028/)
+    // Phase 2B verifica y activa la conexión; no emite ni obtiene CAE: el cierre no promete más que eso.
+    expect(screen.getByTestId('arca-setup-done-message').textContent).toMatch(/La conexión con ARCA quedó configurada correctamente\. TechRepair Pro usará esta conexión cuando emitas comprobantes electrónicos\./)
+    expect(screen.getByTestId('arca-setup-wizard').textContent).not.toMatch(EMISSION_PROMISE)
     expect(done.textContent).toMatch(/Conectada/)
     expect(screen.getByTestId('arca-setup-wizard').textContent).not.toMatch(LEAK)
   })
@@ -375,5 +378,41 @@ describe('useArcaSelfServiceStatus — relectura sin máquina de estados local',
     await act(async () => { await result.current.refresh() })
     expect(result.current.status).toBeNull()
     expect(result.current.failed).toBe(true)
+  })
+})
+
+const EMISSION_PROMISE = /(ya )?pod[eé]s (emitir|facturar)|emitir (ya|ahora)|\bCAE\b|emisi[oó]n (real|probada|verificada)|comprobante (emitido|autorizado)/i
+
+describe('Clave Fiscal: se usa en ARCA, TechRepair Pro nunca la pide ni la guarda', () => {
+  const noClaveFiscalInput = () => {
+    for (const el of Array.from(document.querySelectorAll('input, textarea, select'))) {
+      const id = el.getAttribute('id')
+      const label = id ? document.querySelector(`label[for="${id}"]`)?.textContent ?? '' : ''
+      const described = [el.getAttribute('name'), el.getAttribute('placeholder'), el.getAttribute('aria-label'), label, el.closest('label')?.textContent].join(' ')
+      expect(described).not.toMatch(/clave fiscal/i)
+      expect(el.getAttribute('type')).not.toBe('password')
+    }
+  }
+
+  it('la entrada conserva las dos ideas y no hay ningún campo de Clave Fiscal en todo el recorrido', () => {
+    service.getRequestFile.mockResolvedValue({ ok: false, state: 'SETUP_UNAVAILABLE' })
+    const { rerender } = renderPanel(base())
+    const line = screen.getByTestId('arca-setup-entry-clave-fiscal').textContent ?? ''
+    expect(line).toMatch(/acceso a ARCA con Clave Fiscal/)
+    expect(line).toMatch(/en el sitio de ARCA/)
+    expect(line).toMatch(/TechRepair Pro nunca te pide ni guarda tu Clave Fiscal/)
+    openWizard()
+    noClaveFiscalInput()
+    for (const status of [inProgress('certificate'), inProgress('verification'), inProgress('activation'), connected()]) {
+      rerender(<ArcaSetupPanel status={status} loading={false} failed={false} refresh={vi.fn()} defaults={DEFAULTS} />)
+      noClaveFiscalInput()
+    }
+  })
+
+  it('la guía del paso 3 repite la aclaración', () => {
+    renderPanel(inProgress('certificate'))
+    openWizard()
+    expect(screen.getByTestId('arca-setup-guide-clave-fiscal').textContent).toMatch(/nunca te pide ni guarda tu Clave Fiscal/)
+    expect(screen.getByTestId('arca-setup-wizard').textContent).not.toMatch(EMISSION_PROMISE)
   })
 })

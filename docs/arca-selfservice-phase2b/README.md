@@ -127,6 +127,16 @@ ARCA and does not end a wait; with `result_unknown` / `ticket_active` / `verific
 activation the strong copy is shown. After cancel the status is re-read; re-preparing the same device (alias +
 CUIT) shows the inherited wait (E2E flow 6).
 
+### Honest copy (review follow-up)
+
+- **Clave Fiscal:** the entry says the CUIT and access to ARCA with Clave Fiscal are needed for a step on the ARCA site, and that
+  TechRepair Pro never asks for or stores the Clave Fiscal. The step-3 guide and tutorial step 1 repeat it. There is no Clave Fiscal
+  or password field anywhere in the wizard.
+- **Final state:** "La conexión con ARCA quedó configurada correctamente. TechRepair Pro usará esta conexión cuando emitas
+  comprobantes electrónicos." The wizard verifies the WSAA connection and activates it; it does not emit, request a CAE or
+  call FECAESolicitar, so it no longer promises emission. The Phase 1 card's `connected` line was aligned the same way.
+- Pinned by guard B9 (5 planted violations), 5 unit/UI tests and E2E flow 1.
+
 ### Tutorial
 
 `src/pages/Tutorials.tsx` steps 3, 4 and 6 now describe the wizard (generate the file in the app, present it in

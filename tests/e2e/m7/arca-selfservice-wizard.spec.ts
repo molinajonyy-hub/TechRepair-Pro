@@ -197,6 +197,7 @@ test('@m7 ARCA 2B 1. camino feliz: datos → archivo → certificado → verific
   await loginUI(page, t.email)
   await openArcaTab(page)
   await expect(page.getByTestId('arca-setup-entry')).toHaveAttribute('data-entry-kind', 'start')
+  await expect(page.getByTestId('arca-setup-entry-clave-fiscal')).toContainText('TechRepair Pro nunca te pide ni guarda tu Clave Fiscal')
   await shot(page, '01-entrada-sin-configurar')
 
   await page.getByTestId('arca-setup-start').click()
@@ -229,6 +230,10 @@ test('@m7 ARCA 2B 1. camino feliz: datos → archivo → certificado → verific
   await expect(page.getByTestId('arca-setup-done')).toBeVisible({ timeout: 60_000 })
   await expect(wizard(page)).toHaveAttribute('data-step', '6')
   await expect(page.getByTestId('arca-setup-done-summary')).toContainText(t.cuit.slice(0, 2))
+  // El cierre describe la conexión configurada; no promete una emisión que el asistente no hizo.
+  await expect(page.getByTestId('arca-setup-done-message')).toContainText('La conexión con ARCA quedó configurada correctamente')
+  await expect(wizard(page)).not.toContainText(/pod[eé]s emitir|\bCAE\b/)
+  await expect(page.locator('input[type="password"]')).toHaveCount(0)
   await shot(page, '07-listo')
   expect((await stats()).loginCms).toBe(1)
 

@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('../../src/lib/supabase', () => ({ supabase: { functions: { invoke: vi.fn() } } }))
 
 import type { ArcaSelfServiceStatus, ArcaVerificationHold } from '../../src/lib/arcaStatus'
-import { ARCA_VERIFICATION_HOLDS } from '../../src/lib/arcaStatus'
+import { ARCA_VERIFICATION_HOLDS, describeArcaStatus } from '../../src/lib/arcaStatus'
 import {
   ARCA_HOLD_REFRESH_MAX_MS, ARCA_IN_PROGRESS_POLL_MS, arcaCancelCopy, arcaHoldCountdown, arcaSetupVisibleStep,
   deriveArcaSetupEntry, deriveArcaSetupWizard, nextArcaStatusRefreshMs,
@@ -24,7 +24,7 @@ import {
   aliasError, checkCuit, fiscalDraftErrors, formatCuitInput, puntoVentaError, razonSocialError, suggestArcaAlias,
 } from '../../src/lib/arcaFiscalInput'
 import { ARCA_CERTIFICATE_MAX_BYTES, readArcaCertificateFile } from '../../src/lib/arcaCertificateFile'
-import { buildArcaSetupGuide } from '../../src/lib/arcaSetupGuide'
+import { ARCA_CLAVE_FISCAL_NOTE, buildArcaSetupGuide } from '../../src/lib/arcaSetupGuide'
 
 const NOW = Date.parse('2026-09-14T15:00:00Z')
 
@@ -281,5 +281,34 @@ describe('buildArcaSetupGuide — sin pasos ni datos inventados', () => {
 
   it('homologación se identifica como ambiente de pruebas', () => {
     expect(buildArcaSetupGuide({ ambiente: 'homologacion', alias: 'a-b-c', cuitLabel: 'x', filename: null }).intro).toMatch(/pruebas/)
+  })
+})
+
+/** Promesas de emisión que Phase 2B NO verifica (no emite, no pide CAE, no llama FECAESolicitar). */
+const EMISSION_PROMISE = /(ya )?pod[eé]s (emitir|facturar)|emitir (ya|ahora)|\bCAE\b|emisi[oó]n (real|probada|verificada)|comprobante (emitido|autorizado)|factur[aá] ya/i
+
+describe('copy honesto — Clave Fiscal y alcance de la verificación', () => {
+  it('la guía aclara que la Clave Fiscal se usa en ARCA y que TechRepair Pro nunca la pide ni la guarda', () => {
+    expect(ARCA_CLAVE_FISCAL_NOTE).toMatch(/sitio de ARCA/)
+    expect(ARCA_CLAVE_FISCAL_NOTE).toMatch(/nunca te pide ni guarda tu Clave Fiscal/)
+    for (const ambiente of ['produccion', 'homologacion', null] as const) {
+      expect(buildArcaSetupGuide({ ambiente, alias: 'a-b-c', cuitLabel: 'x', filename: null }).claveFiscalNote).toBe(ARCA_CLAVE_FISCAL_NOTE)
+    }
+  })
+
+  it('"conectado" describe la conexión configurada, no una emisión probada', () => {
+    const detail = describeArcaStatus(connected()).detail
+    expect(detail).toMatch(/conexión con ARCA está configurada/)
+    expect(detail).not.toMatch(EMISSION_PROMISE)
+  })
+
+  it('ningún mensaje del asistente promete emisión', () => {
+    for (const code of ARCA_SETUP_ERROR_CODES) {
+      const v = describeArcaSetupError(code)
+      expect(`${v.title} ${v.message} ${v.action}`, code).not.toMatch(EMISSION_PROMISE)
+    }
+    for (const ambiente of ['produccion', 'homologacion'] as const) {
+      expect(JSON.stringify(buildArcaSetupGuide({ ambiente, alias: 'a-b-c', cuitLabel: 'x', filename: null }))).not.toMatch(EMISSION_PROMISE)
+    }
   })
 })

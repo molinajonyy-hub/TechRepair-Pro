@@ -15,6 +15,10 @@
  *  B6  el estado se relee al volver el foco, la red, la visibilidad y al vencer la espera.
  *  B7  Settings monta ArcaSetupPanel con useArcaSelfServiceStatus y no conserva arca-test-connection.
  *  B8  el modal del asistente es pantalla completa en mobile y no se cierra tocando el fondo.
+ *  B9  copy honesto: (a) ningún texto del asistente, la guía o la tarjeta de estado promete una emisión
+ *      que Phase 2B no verificó (no emite, no pide CAE); (b) la entrada y la guía aclaran que la Clave Fiscal
+ *      se usa en ARCA y que TechRepair Pro nunca la pide ni la guarda; (c) no existe ningún campo de
+ *      Clave Fiscal ni de contraseña en el asistente.
  *
  *   node scripts/guards/arca-phase2b-wizard-contract.mjs [--self-test]
  */
@@ -26,6 +30,8 @@ const ACTIONS_HOOK = 'src/hooks/useArcaSetupActions.ts'
 const WIZARD = `${UI_DIR}/ArcaSetupWizard.tsx`
 const PANEL = `${UI_DIR}/ArcaSetupPanel.tsx`
 const SETTINGS = 'src/pages/Settings.tsx'
+const STATUS_LIB = 'src/lib/arcaStatus.ts'
+const GUIDE = 'src/lib/arcaSetupGuide.ts'
 const PURE = ['src/lib/arcaSetupWizard.ts', 'src/lib/arcaSetupErrors.ts', 'src/lib/arcaFiscalInput.ts', 'src/lib/arcaCertificateFile.ts', 'src/lib/arcaSetupGuide.ts']
 
 const stripJs = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
@@ -141,6 +147,22 @@ export function check(tree) {
     if (!/mobilePresentation="fullscreen"/.test(c)) out.push('B8 el asistente debe ser pantalla completa en mobile')
     if (!/closeOnBackdrop=\{false\}/.test(c)) out.push('B8 el asistente no debe cerrarse tocando el fondo')
   }
+  // ── B9 ──
+  const EMISSION_PROMISE = /(ya\s+)?pod[eé]s\s+(emitir|facturar)|\bCAE\b|emisi[oó]n\s+(real|probada|verificada)|comprobante\s+(emitido|autorizado)/i
+  for (const file of [...tree.listUi(), GUIDE, STATUS_LIB, 'src/lib/arcaSetupErrors.ts']) {
+    if (!tree.exists(file)) continue
+    const m = code(file).match(EMISSION_PROMISE)
+    if (m) out.push(`B9 ${file} promete una emisión que el asistente no verificó: ${m[0]}`)
+  }
+  if (tree.exists(PANEL) && !/nunca te pide ni guarda tu Clave Fiscal/.test(code(PANEL))) out.push('B9 la entrada debe aclarar que TechRepair Pro nunca pide ni guarda la Clave Fiscal')
+  if (tree.exists(GUIDE) && !/sitio de ARCA[^']*nunca te pide ni guarda tu Clave Fiscal/.test(code(GUIDE))) out.push('B9 la guía debe aclarar que la Clave Fiscal se usa en ARCA y nunca en TechRepair Pro')
+  if (tree.exists(WIZARD) && !/quedó configurada correctamente/.test(code(WIZARD))) out.push('B9 el cierre debe describir la conexión configurada, no una emisión')
+  for (const file of tree.listUi()) {
+    const c = code(file)
+    if (/type=["']password["']|\bclave_?fiscal\b\s*[:=]|name=["'][^"']*clave|(label|placeholder|aria-label)=["'][^"']*Clave Fiscal/i.test(c)) {
+      out.push(`B9 ${file} tiene un campo de Clave Fiscal o contraseña`)
+    }
+  }
   return out
 }
 
@@ -178,6 +200,11 @@ function selfTest() {
     ['B6', 'no relee al vencer la espera', overlay(patch(STATUS_HOOK, 'nextArcaStatusRefreshMs(status, Date.now())', 'null'))],
     ['B7', 'Settings no monta el panel', overlay(patch(SETTINGS, '<ArcaSetupPanel', '<ArcaSetupPanelDisabled'))],
     ['B8', 'el asistente se cierra tocando el fondo', overlay(patch(WIZARD, 'closeOnBackdrop={false}', 'closeOnBackdrop'))],
+    ['B9', 'el cierre vuelve a prometer emisión', overlay(patch(WIZARD, 'La conexión con ARCA quedó configurada correctamente. TechRepair Pro usará esta conexión cuando emitas comprobantes electrónicos.', 'Ya podés emitir comprobantes electrónicos desde TechRepair Pro.'))],
+    ['B9', 'la tarjeta de estado promete un CAE', overlay(patch(STATUS_LIB, "TechRepair Pro la usa cuando emitís comprobantes electrónicos.'", "Tu primer CAE ya está listo.'"))],
+    ['B9', 'la entrada vuelve a sugerir que pedimos la Clave Fiscal', overlay(patch(PANEL, 'TechRepair Pro nunca te pide ni guarda tu Clave Fiscal.', 'Tené a mano la Clave Fiscal del negocio.'))],
+    ['B9', 'la guía pierde la aclaración', overlay(patch(GUIDE, 'TechRepair Pro nunca te pide ni guarda tu Clave Fiscal.', 'Cargala cuando te la pidamos.'))],
+    ['B9', 'aparece un campo de Clave Fiscal', overlay(new Map([[`${UI_DIR}/ClaveFiscal.tsx`, 'export const F = () => <input type="password" aria-label="Clave Fiscal" />']]), [`${UI_DIR}/ClaveFiscal.tsx`])],
   ]
   let failed = 0
   for (const [rule, label, tree] of cases) {
@@ -198,5 +225,5 @@ if (isCLI) {
     for (const p of problems) console.error(`  - ${p}`)
     process.exit(1)
   }
-  console.log('✅ Guard ARCA Phase 2B OK: sin tickets WSAA desde el navegador, asistente derivado del estado canónico, sin progreso local ni material secreto, errores centralizados y relectura por foco/red/espera.')
+  console.log('✅ Guard ARCA Phase 2B OK: sin tickets WSAA desde el navegador, asistente derivado del estado canónico, sin progreso local ni material secreto, errores centralizados, relectura por foco/red/espera y copy honesto (Clave Fiscal, sin promesa de emisión).')
 }

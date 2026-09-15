@@ -153,7 +153,13 @@ function TutorialARCA() {
           tu CUIT y Clave Fiscal. Si es la primera vez, vas a necesitar nivel 3 para acceder a los web services.
         </p>
 
-        <Screenshot label="Portal de ingreso de ARCA">
+        <div style={{ marginLeft: '3rem' }}>
+          <Callout type="info">
+            Este paso se hace en el sitio oficial de ARCA. <strong>TechRepair nunca te pide ni guarda tu Clave Fiscal.</strong>
+          </Callout>
+        </div>
+
+        <Screenshot label="Portal de ingreso de ARCA (sitio de ARCA, no TechRepair)">
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', maxWidth: 380 }}>
             <div style={{ textAlign: 'center', marginBottom: '0.5rem' }}>
               <div style={{

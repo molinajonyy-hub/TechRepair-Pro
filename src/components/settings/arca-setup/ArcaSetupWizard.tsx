@@ -312,7 +312,10 @@ export function ArcaSetupWizard({ isOpen, onClose, status, statusLoading, onRefr
         heading = 'ARCA quedó conectado'
         body = (
           <div className="arca-setup-stack" data-testid="arca-setup-done">
-            <ArcaSetupInfoNotice tone="success" title="Todo listo">Ya podés emitir comprobantes electrónicos desde TechRepair Pro.</ArcaSetupInfoNotice>
+            {/* Phase 2B verifica la conexión (WSAA) y la activa; NO emite ni pide CAE. No prometer más que eso. */}
+            <ArcaSetupInfoNotice tone="success" title="Conexión configurada" testId="arca-setup-done-message">
+              La conexión con ARCA quedó configurada correctamente. TechRepair Pro usará esta conexión cuando emitas comprobantes electrónicos.
+            </ArcaSetupInfoNotice>
             <dl className="arca-setup-identity" data-testid="arca-setup-done-summary">
               <div><dt>CUIT</dt><dd>{formatCuit(status.cuit)}</dd></div>
               <div><dt>Razón social</dt><dd>{status.razon_social ?? '—'}</dd></div>

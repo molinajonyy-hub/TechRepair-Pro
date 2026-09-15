@@ -49,8 +49,11 @@ export function ArcaSetupPanel({ status, loading, failed, refresh, defaults }: A
         <div className="arca-setup-entry__body">
           <p className="arca-setup-entry__title">Conectá ARCA en pocos pasos</p>
           <ul className="arca-setup-entry__list">
-            <li>Vas a necesitar el CUIT y la Clave Fiscal del negocio.</li>
-            <li>La clave segura se genera y se guarda en TechRepair Pro: no tenés que manejar archivos de clave.</li>
+            <li data-testid="arca-setup-entry-clave-fiscal">
+              Vas a necesitar el CUIT y acceso a ARCA con Clave Fiscal para completar un paso en el sitio de ARCA.
+              TechRepair Pro nunca te pide ni guarda tu Clave Fiscal.
+            </li>
+            <li>La clave del certificado se genera y se guarda en TechRepair Pro: no tenés que manejar archivos de clave.</li>
             <li>Podés cerrar el asistente y seguir después desde donde quedaste.</li>
           </ul>
         </div>

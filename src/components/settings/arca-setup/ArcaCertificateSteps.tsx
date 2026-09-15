@@ -87,6 +87,7 @@ export function ArcaPresentStep({ status, downloading, canDownload, onDownload, 
       <section className="arca-setup-guide" aria-labelledby="arca-setup-guide-title" data-testid="arca-setup-guide" data-ambiente={status.environment ?? ''}>
         <h3 id="arca-setup-guide-title" className="arca-setup-guide__title">Qué hacer en ARCA</h3>
         <p className="arca-setup-guide__intro">{guide.intro}</p>
+        <p className="arca-setup-guide__intro" data-testid="arca-setup-guide-clave-fiscal">{guide.claveFiscalNote}</p>
         <ol className="arca-setup-guide__steps">
           {guide.steps.map((step) => (
             <li key={step.key} data-testid={`arca-setup-guide-${step.key}`}>

@@ -23,8 +23,13 @@ export interface ArcaGuideLink {
   href: string
 }
 
+/** La Clave Fiscal se usa sólo en el sitio de ARCA. TechRepair Pro nunca la pide ni la guarda. */
+export const ARCA_CLAVE_FISCAL_NOTE = 'Estos pasos se hacen en el sitio de ARCA, con tu Clave Fiscal. TechRepair Pro nunca te pide ni guarda tu Clave Fiscal.'
+
 export interface ArcaSetupGuide {
   intro: string
+  /** Aclaración fija sobre la Clave Fiscal (ARCA_CLAVE_FISCAL_NOTE). */
+  claveFiscalNote: string
   steps: ArcaGuideStep[]
   warning: string
   links: ArcaGuideLink[]
@@ -49,6 +54,7 @@ export function buildArcaSetupGuide(input: {
   if (input.ambiente === 'homologacion') {
     return {
       intro: 'Homologación es el ambiente de pruebas de ARCA: los comprobantes no tienen validez fiscal.',
+      claveFiscalNote: ARCA_CLAVE_FISCAL_NOTE,
       steps: [
         { key: 'login', title: 'Ingresá a ARCA con tu Clave Fiscal', detail: `Usá el CUIT ${input.cuitLabel}.` },
         { key: 'wsass', title: 'Abrí el servicio de certificados de homologación (WSASS)', detail: 'Si no aparece en tu lista de servicios, primero tenés que adherirlo desde el Administrador de Relaciones de Clave Fiscal.' },
@@ -62,6 +68,7 @@ export function buildArcaSetupGuide(input: {
 
   return {
     intro: 'Vas a necesitar Clave Fiscal nivel 3 o superior del CUIT que va a facturar.',
+    claveFiscalNote: ARCA_CLAVE_FISCAL_NOTE,
     steps: [
       { key: 'login', title: 'Ingresá a ARCA con tu Clave Fiscal', detail: `Usá el CUIT ${input.cuitLabel}.` },
       { key: 'certificate', title: 'Abrí «Administración de Certificados Digitales»', detail: `Elegí «Agregar alias», usá exactamente este nombre de equipo y subí ${file}. Después descargá el certificado (.crt) que emite ARCA.`, copyValue: aliasCopy },
