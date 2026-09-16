@@ -289,7 +289,7 @@ criterio del smoke es el **delta**, no el absoluto: debe quedar en 9.
 
 ## 10. Smoke humano — preparado, NO ejecutado
 
-**Owner**: `molina.jonyy@gmail.com` · negocio **Clic** · plan `full` · estado `active` ·
+**Owner**: titular del negocio productivo usado para el smoke (email omitido) · negocio **Clic** · plan `full` · estado `active` ·
 1 miembro activo · `check_user_limit_before_invite` = **OK** (el gate de plan no va a bloquear).
 
 **Email invitado sugerido**: `techrepairpro.soporte+invite01@gmail.com` — verificado como **no

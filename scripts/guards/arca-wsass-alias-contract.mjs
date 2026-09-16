@@ -54,7 +54,7 @@ const ascii = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 export const CORPUS = (() => {
   const out = new Set(['abc', 'ab', 'a', '', 'techrepair', 'techrepairdemohomo', 'techrepair-demo-homo', 'techrepair.demo',
     'techrepair_demo', 'techrepair demo', 'técnico', 'ñandu', 'ÁBC', 'demo/arca', 'demo@arca', 'demo#1', 'demo+1', "demo'1",
-    'molina.jonyy2', 'qa-initial-setup', 'Demo2026', '123', 'ｔｅｃｈ', '١٢٣abc', 'tech\trepair', 'tech\nrepair', 'demo😀',
+    'demo.alias2', 'qa-initial-setup', 'Demo2026', '123', 'ｔｅｃｈ', '١٢٣abc', 'tech\trepair', 'tech\nrepair', 'demo😀',
     'a'.repeat(50), 'a'.repeat(51), '9'.repeat(50), '9'.repeat(51), `a${'.'.repeat(49)}`, `a${'-'.repeat(50)}`, 'a..', 'a--', '.ab', '-ab'])
   const c1 = ['a', 'Z', '0', '.', '-', '_', ' ', 'é']
   const c2 = ['b', '9', '.', '-', '_']

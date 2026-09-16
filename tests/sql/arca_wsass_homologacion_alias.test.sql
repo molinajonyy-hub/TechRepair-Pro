@@ -119,7 +119,7 @@ DECLARE a text;
 BEGIN
   FOREACH a IN ARRAY ARRAY['ab', 'a', repeat('a', 51), repeat('1', 51),
                            'techrepair-demo', 'techrepair.demo', 'techrepair_demo', 'techrepair demo',
-                           'techrepair-demo-homo', 'molina.jonyy2', '-techrepair', 'techrepair-', '.techrepair',
+                           'techrepair-demo-homo', 'demo.alias2', '-techrepair', 'techrepair-', '.techrepair',
                            'técnico', 'tecnicoñ', 'ÁBCDEF', 'demo/arca', 'demo@arca', 'demo#1', 'demo+1', 'demo,1', 'demo:1',
                            'demo''1', 'demo"1', 'demo\1', 'demo*', 'tech' || chr(9) || 'repair', 'tech' || chr(10) || 'repair',
                            'ｔｅｃｈ', '١٢٣abc', 'demo😀', ''] LOOP
@@ -152,7 +152,7 @@ BEGIN
     SELECT DISTINCT s FROM (
       SELECT unnest(ARRAY['abc', 'ab', 'a.b', 'a-b', 'a_b', 'a b', '.ab', '-ab', 'ab.', 'ab-', 'Ab1', '1ab', 'ÁBC', 'ñandu', 'x/y', 'x@y',
                           'a' || repeat('b', 48), 'a' || repeat('b', 49), 'a' || repeat('b', 50), 'a' || repeat('.', 49), 'a' || repeat('-', 50),
-                          'tech' || chr(9) || 'x', 'qa-initial-setup', 'molina.jonyy2']) AS s
+                          'tech' || chr(9) || 'x', 'qa-initial-setup', 'demo.alias2']) AS s
       UNION ALL
       -- combinaciones cortas de un alfabeto con letras, dígitos y separadores
       SELECT c1 || c2 || c3 || c4
