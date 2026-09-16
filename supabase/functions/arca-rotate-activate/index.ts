@@ -24,19 +24,24 @@
  */
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { buildCorsHeaders, validateInput, buildActivationResponse, buildFinalizeResponse } from './validate.ts'
+import { validateInput, buildActivationResponse, buildFinalizeResponse } from './validate.ts'
 import { ArcaAuthorizationError } from '../_shared/arcaAuthorization.ts'
 import { authorizeArcaManager, resolveManagedBusiness, type ArcaManager } from '../_shared/arcaManagementAuthority.ts'
 import { userDataApiHeaders } from '../_shared/clientContract.ts'
+import { computeAllowedOrigins, createCors } from '../_shared/scopedCors.ts'
+
+// BETA-GATE-1 · Lote A — CORS fail-closed y origin-scoped (ver arca-rotate-prepare).
+// El helper local reflejaba cualquier `Origin` y caía a `*`; ahora manda la allowlist
+// exacta de `_shared/scopedCors.ts`. CORS no es autoridad: la validación de entrada
+// (validate.ts), el JWT, el manager y la RPC atómica siguen siendo las barreras.
+const cors = createCors(computeAllowedOrigins([Deno.env.get('APP_URL')]))
 
 function jsonResponse(req: Request, body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status, headers: { ...buildCorsHeaders(req), 'Content-Type': 'application/json' },
-  })
+  return cors.json(req, body, status)
 }
 
 serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: buildCorsHeaders(req) })
+  if (req.method === 'OPTIONS') return cors.preflight(req)
   if (req.method !== 'POST') return jsonResponse(req, { ok: false, error: 'METHOD_NOT_ALLOWED' }, 405)
 
   const url = Deno.env.get('SUPABASE_URL')!
