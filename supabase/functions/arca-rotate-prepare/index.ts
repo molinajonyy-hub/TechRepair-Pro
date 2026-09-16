@@ -33,25 +33,25 @@ import forge from 'npm:node-forge@1.3.1'
 import { ArcaAuthorizationError } from '../_shared/arcaAuthorization.ts'
 import { authorizeArcaManager, resolveManagedBusiness, type ArcaManager } from '../_shared/arcaManagementAuthority.ts'
 import { userDataApiHeaders } from '../_shared/clientContract.ts'
+import { computeAllowedOrigins, createCors } from '../_shared/scopedCors.ts'
 
-const ALLOWED_REQUEST_HEADERS = new Set(['authorization', 'content-type', 'apikey', 'x-client-info'])
-function buildCorsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get('Origin') ?? '*'
-  const requested = req.headers.get('Access-Control-Request-Headers')
-  const allow = requested
-    ? requested.split(',').map((h) => h.trim().toLowerCase()).filter((h) => ALLOWED_REQUEST_HEADERS.has(h)).join(', ')
-    : 'authorization, content-type'
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': allow,
-    'Vary': 'Origin',
-  }
-}
+// BETA-GATE-1 · Lote A — CORS fail-closed y origin-scoped.
+//
+// Antes esta función reflejaba CUALQUIER `Origin` (y caía a `*` cuando no venía
+// ninguno): deuda de ARCA Phase 0, anterior a `_shared/scopedCors.ts`. Ahora usa
+// el mismo módulo puro que arca-selfservice-setup y whatsapp-send: allowlist
+// EXACTA (los dos orígenes canónicos + lo que agregue APP_URL), sin wildcard y
+// sin reflejo ciego. Un origen no autorizado no recibe Access-Control-Allow-Origin.
+//
+// CORS no es autoridad: el request igual necesita JWT, manager, tenant y la RPC
+// service_role. Esto sólo cierra superficie que no hacía falta abrir.
+//
+// La variable de orígenes QA temporales del asistente de configuración inicial NO
+// se lee acá: está reservada a esa función (ver G7 del guard de CORS).
+const cors = createCors(computeAllowedOrigins([Deno.env.get('APP_URL')]))
+
 function jsonResponse(req: Request, body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status, headers: { ...buildCorsHeaders(req), 'Content-Type': 'application/json' },
-  })
+  return cors.json(req, body, status)
 }
 
 /** SPKI SHA-256 canónico (n+e) — byte-idéntico a `openssl rsa -pubout -outform DER`
@@ -89,7 +89,7 @@ function toForgeAttrs(subject: Record<string, string>): any[] {
 }
 
 serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: buildCorsHeaders(req) })
+  if (req.method === 'OPTIONS') return cors.preflight(req)
   if (req.method !== 'POST') return jsonResponse(req, { ok: false, error: 'METHOD_NOT_ALLOWED' }, 405)
 
   const url = Deno.env.get('SUPABASE_URL')!

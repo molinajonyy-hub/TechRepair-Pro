@@ -1,29 +1,16 @@
 /**
- * arca-rotate-activate — CORS y validación de entrada PURAS (AFIP-S4B-2A).
+ * arca-rotate-activate — validación de entrada PURA (AFIP-S4B-2A).
  *
- * Separadas de `index.ts` para poder testearlas sin red ni base. Este módulo no
+ * Separada de `index.ts` para poder testearla sin red ni base. Este módulo no
  * importa cliente Supabase ni criptografía: solo decide si un pedido es
  * aceptable ANTES de delegar en la RPC atómica.
+ *
+ * BETA-GATE-1 · Lote A: el helper de CORS que vivía acá reflejaba cualquier
+ * `Origin`. Se retiró; la función responde CORS por `_shared/scopedCors.ts`
+ * (allowlist exacta, fail-closed), igual que el resto de las superficies ARCA.
  */
 
 export const MAX_PEM_BYTES = 64 * 1024
-
-const ALLOWED_REQUEST_HEADERS = new Set(['authorization', 'content-type', 'apikey', 'x-client-info'])
-
-export function buildCorsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get('Origin') ?? '*'
-  const requested = req.headers.get('Access-Control-Request-Headers')
-  const allow = requested
-    ? requested.split(',').map((h) => h.trim().toLowerCase())
-        .filter((h) => ALLOWED_REQUEST_HEADERS.has(h)).join(', ')
-    : 'authorization, content-type'
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': allow,
-    'Vary': 'Origin',
-  }
-}
 
 export type ActivateInput = {
   business_id?: unknown
