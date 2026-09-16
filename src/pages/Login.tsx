@@ -145,10 +145,12 @@ export function Login() {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
         redirectTo: getAuthCallbackUrl(),
       })
-      // BETA-GATE-1 · Lote B — no revelar si la cuenta existe. MEDIDO: GoTrue
+      // BETA-GATE-1 · Lote B — la UI no revela si la cuenta existe. MEDIDO: GoTrue
       // responde 200 para un email inexistente, pero 429 cuando el MISMO email
       // (existente) pide dos enlaces seguidos. Sólo un fallo de red se informa
-      // como error; todo lo demás recibe el mismo mensaje neutro.
+      // como error; todo lo demás recibe el mismo mensaje neutro. El endpoint
+      // Auth directo y sus rate limits son de Supabase/GoTrue: riesgo residual
+      // de infraestructura, fuera del alcance de esta pantalla.
       if (resetError && classifyRecoveryRequestError(resetError) === 'network') {
         setError('No pudimos enviar el pedido. Revisá tu conexión e intentá de nuevo.')
         return

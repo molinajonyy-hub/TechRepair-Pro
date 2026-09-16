@@ -27,15 +27,21 @@
 // --------------
 // 1. `captureRecoveryAtBoot` corre en `src/lib/supabase.ts` ANTES de crear el
 //    cliente. Si la URL trae un fragmento de recovery:
-//      · reescribe la entrada ACTUAL del historial a `/reset-password` con
-//        `replaceState` (no agrega entradas: el fragmento con tokens no queda
-//        ni en la barra ni detrás del botón «atrás»);
-//      · guarda los tokens SÓLO en memoria de este módulo.
+//      · elimina el fragmento de la URL ANTES de crear el cliente: reescribe la
+//        entrada ACTUAL del historial a `/reset-password` con `replaceState`
+//        (no agrega entradas: el fragmento con tokens no queda ni en la barra
+//        ni detrás del botón «atrás»);
+//      · los tokens recibidos en el fragmento quedan sólo en memoria de este
+//        módulo DURANTE el handoff.
 //    Como supabase-js lee la URL de forma asíncrona, ya no encuentra nada que
 //    procesar.
 // 2. `completeRecoveryHandoff` entrega esos tokens a `auth.setSession` (la API
 //    documentada para una sesión recibida fuera de la URL), borra la copia en
 //    memoria y marca la sesión como «de recovery» para ese usuario.
+//    `setSession` instala una sesión NORMAL de Supabase, que el cliente persiste
+//    con su storage habitual (`persistSession: true`), igual que cualquier login.
+//    Este módulo nunca guarda a mano los tokens del fragmento (ni en
+//    sessionStorage ni en ningún otro lado) y nunca los loguea.
 // 3. `/reset-password` muestra el formulario SÓLO con sesión vigente + marca del
 //    MISMO usuario. Sin eso, muestra «enlace inválido». Nunca el Dashboard.
 //
@@ -218,7 +224,7 @@ export async function completeRecoveryHandoff(auth: RecoveryAuthClient, now: () 
   }
 }
 
-/** Sólo para tests: si todavía quedan tokens en memoria. */
+/** Sólo para tests: si la copia en memoria de los tokens del fragmento sigue pendiente de entrega. */
 export function hasPendingRecoveryTokens(): boolean {
   return pendingTokens !== null
 }
@@ -226,7 +232,8 @@ export function hasPendingRecoveryTokens(): boolean {
 // ── Marca «esta sesión vino de un enlace de recovery» ───────────────────────────
 //
 // sessionStorage (por pestaña) y NUNCA con tokens: sólo el id del usuario y la
-// hora. Sirve para que un reload de `/reset-password` siga mostrando el
+// hora. (La sesión en sí la persiste supabase-js con su storage habitual; esta
+// marca es aparte y no la reemplaza.) Sirve para que un reload de `/reset-password` siga mostrando el
 // formulario, y para que una sesión normal NO lo muestre. La copia en memoria
 // cubre navegadores donde el storage tira (modo privado estricto).
 
@@ -324,7 +331,8 @@ export function validateNewPassword(password: string, confirm: string): Password
   } else if (password.trim().length === 0) {
     errors.password = 'La contraseña no puede ser sólo espacios.'
   } else if (new TextEncoder().encode(password).length > PASSWORD_MAX_BYTES) {
-    errors.password = 'Usá una contraseña más corta (hasta 72 caracteres).'
+    // El límite es de 72 BYTES UTF-8 (bcrypt), no de caracteres: el copy no da un número.
+    errors.password = 'Usá una contraseña más corta.'
   }
   if (!confirm) {
     errors.confirm = 'Repetí la contraseña.'
@@ -378,9 +386,14 @@ export function classifyPasswordUpdateError(error: unknown): PasswordUpdateFailu
 /**
  * Pedido de «olvidé mi contraseña». Sólo un fallo de RED se informa como error:
  * MEDIDO en GoTrue, un email inexistente responde 200 y el MISMO email pedido
- * dos veces seguidas responde 429 `over_email_send_rate_limit`. Mostrar ese 429
- * (o un 500 del envío, que sólo ocurre si la cuenta existe) revelaría que la
- * cuenta existe, así que todo lo demás se presenta con el mismo mensaje neutro.
+ * dos veces seguidas responde 429 `over_email_send_rate_limit`. Si la UI
+ * mostrara ese 429 (o un 500 del envío), la pantalla delataría que la cuenta
+ * existe; por eso todo lo que no es red se presenta con el mismo mensaje neutro.
+ *
+ * Alcance: la UI no revela existencia de cuenta. El comportamiento observable
+ * del endpoint Auth directo (`/auth/v1/recover`) y sus rate limits pertenece a
+ * Supabase/GoTrue y queda como riesgo residual de infraestructura: este módulo
+ * no lo resuelve ni pretende hacerlo.
  */
 export function classifyRecoveryRequestError(error: unknown): 'network' | 'neutral' {
   if (!error) return 'neutral'

@@ -28,8 +28,8 @@ Con eso, el flujo anterior era:
    sesión, navegaba a `/dashboard` (o `/no-business` si el usuario no tiene negocio): **logueado y sin formulario**.
 3. `ResetPassword` esperaba `sessionStorage['is_password_recovery']`, **que ningún archivo escribía**.
 4. Un link usado caía en `/login` sin ningún mensaje.
-5. La UI mostraba "Enviamos un enlace a {email}" y, si GoTrue fallaba, el texto crudo del servidor. El 429 de
-   un pedido repetido **revelaba que la cuenta existía**.
+5. La UI mostraba "Enviamos un enlace a {email}" y, si GoTrue fallaba, el texto crudo del servidor. Al mostrar
+   el 429 de un pedido repetido, **la pantalla revelaba que la cuenta existía**.
 
 **Control negativo (E2E real):** con `src/lib/supabase.ts` vuelto a la versión de `main`, el spec falla
 exactamente así:
@@ -47,10 +47,12 @@ Login → «¿Olvidaste tu contraseña?» → email
   → «Si existe una cuenta asociada a ese correo, te enviamos instrucciones.»   (siempre; sólo la red es error)
   → correo → link → GoTrue 303 → /auth/callback#access_token=…&type=recovery
   → src/lib/supabase.ts, ANTES de createClient:
-       captureRecoveryAtBoot → replaceState('/reset-password') en la MISMA entrada del historial,
-                               tokens sólo en memoria del módulo
+       captureRecoveryAtBoot → el fragmento sale de la URL: replaceState('/reset-password') en la MISMA entrada
+                               del historial; los tokens del fragmento quedan en memoria sólo durante el handoff
   → createClient (supabase-js ya no encuentra fragmento)
-  → completeRecoveryHandoff → auth.setSession(tokens) → marca {userId, at} en sessionStorage, borra tokens
+  → completeRecoveryHandoff → auth.setSession(tokens) instala una sesión NORMAL de Supabase (el cliente la persiste
+                               con su storage habitual) → se borra la copia en memoria → marca {userId, at} en
+                               sessionStorage (sin tokens)
   → /reset-password: formulario SÓLO con sesión vigente + marca del MISMO usuario
   → updateUser({ password }) → «Contraseña actualizada» → /dashboard (con sesión) o /login (sin sesión)
 ```
@@ -86,20 +88,31 @@ Decisiones:
 | `invalido:sin_sesion` | entrar directo, o con una sesión normal | "Abrí el enlace desde tu correo" |
 | `listo` | contraseña guardada | confirmación + redirección en 3 s |
 
-Validación: mínimo 8 caracteres, no sólo espacios, máximo 72 bytes (límite de bcrypt en GoTrue, que trunca en
-silencio) y que las dos coincidan. Errores de `updateUser` mapeados (`same_password`, `weak_password`, sesión,
+Validación: mínimo 8 caracteres, no sólo espacios, máximo 72 **bytes UTF-8** (límite de bcrypt en GoTrue, que
+trunca en silencio) y que las dos coincidan. Como el límite es en bytes y no en caracteres, el mensaje no da un
+número: «Usá una contraseña más corta.» Errores de `updateUser` mapeados (`same_password`, `weak_password`, sesión,
 429, red), **nunca el texto crudo del servidor**. Anti doble envío con ref + botón deshabilitado.
 
 ## 4. Seguridad de tokens, códigos y URL
 
 - El fragmento con tokens se reemplaza **antes** de que corra cualquier código de auth, en la misma entrada del
   historial. E2E: la barra no tiene `#` ni `access_token`, y ninguna entrada detrás de "atrás" tampoco.
-- Los tokens viven sólo en una variable del módulo hasta `setSession` y se borran antes de la llamada.
-- La marca en `sessionStorage` no contiene tokens. E2E: el `access_token` real no aparece ni en `sessionStorage`
-  ni en la consola del navegador.
+- Los tokens recibidos en el fragmento quedan en una variable del módulo **sólo durante el handoff**, y esa copia
+  se borra antes de llamar a `setSession`.
+- `auth.setSession()` instala una **sesión normal de Supabase**. El cliente la persiste con su storage habitual
+  (`persistSession: true`), exactamente igual que después de cualquier login. Este lote no cambia ese
+  comportamiento.
+- Nosotros **nunca** persistimos a mano los tokens del fragmento, ni en `sessionStorage` ni en ningún otro
+  lado, y nunca los logueamos. La marca en `sessionStorage` sólo tiene id de usuario + hora. E2E: el
+  `access_token` real no aparece ni en `sessionStorage` ni en la consola del navegador.
 - El módulo no loguea nada (test unitario que lo verifica) y no importa el cliente.
-- El pedido de enlace no revela si la cuenta existe: el 429 y cualquier otro error del servidor muestran el
-  mismo mensaje neutro. Sólo un fallo de red se informa como error.
+- **La UI no revela existencia de cuenta:** email inexistente, rate limit (429) y cualquier error de Auth que no
+  sea de red muestran el mismo mensaje neutro. Sólo un fallo de red se informa como error.
+- **Alcance de lo anterior:** la UI no revela existencia de cuenta. El comportamiento observable del endpoint
+  Auth directo y sus rate limits pertenece a Supabase/GoTrue y queda como riesgo residual de infraestructura.
+  (MEDIDO: `POST /auth/v1/recover` repetido para un email existente responde 429 y para uno inexistente 200;
+  quien llame al endpoint directo, sin la UI, puede observar esa diferencia.) Este PR no agrega proxy, Edge
+  Function, CAPTCHA, migraciones ni cambios de Auth.
 - Analytics (GA4/Clarity) sólo se inicializa en `/landing` y `/onboarding`, así que no ve estas URLs. El logger
   no tiene sink remoto.
 
@@ -122,6 +135,10 @@ silencio) y que las dos coincidan. Errores de `updateUser` mapeados (`same_passw
 - La plantilla de recovery usa `{{ .ConfirmationURL }}`, que se consume con un `GET`: un escáner de correo que
   pre-visite el link lo invalida. Pasarla a `token_hash` lo evitaría, pero es un cambio de config de Auth y no
   hace falta para que el flujo funcione.
+- Enumeración contra el endpoint Auth directo (`/auth/v1/recover`) y sus rate limits: riesgo residual de
+  infraestructura de Supabase/GoTrue (ver §4). Sin proxy, Edge Function ni CAPTCHA en este lote.
+
+Todo lo de esta sección son decisiones separadas y no bloquean el lote.
 
 ## 7. Validación
 

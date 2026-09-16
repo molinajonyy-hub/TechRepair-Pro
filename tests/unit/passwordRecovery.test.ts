@@ -154,9 +154,10 @@ test('handoff OK: setSession con los tokens, marca al usuario, borra los tokens 
   assert.deepEqual(seen, [{ access_token: ACCESS, refresh_token: REFRESH }])
   assert.equal(r.getRecoveryPhase(), 'ready')
   assert.deepEqual(fases, ['ready'])
-  assert.equal(r.hasPendingRecoveryTokens(), false, 'los tokens no quedan en memoria')
+  assert.equal(r.hasPendingRecoveryTokens(), false, 'la copia en memoria de los tokens del fragmento se borra tras el handoff')
   assert.equal(r.hasRecoverySession(USER, 1_000), true)
-  assert.ok(!storage.dump().includes(ACCESS) && !storage.dump().includes(REFRESH), 'la marca nunca guarda tokens')
+  // La sesión la persiste supabase-js (acá, el fake de setSession); el módulo nunca escribe los tokens.
+  assert.ok(!storage.dump().includes(ACCESS) && !storage.dump().includes(REFRESH), 'el módulo nunca guarda tokens en sessionStorage')
 
   // Idempotente: una segunda llamada no vuelve a crear sesión.
   await r.completeRecoveryHandoff({ setSession: async () => { throw new Error('no debería llamarse') } })
@@ -265,10 +266,13 @@ test('validación de la nueva contraseña', async () => {
   assert.deepEqual(r.validateNewPassword('segura-123', 'segura-123'), {})
   assert.match(r.validateNewPassword('corta', 'corta').password ?? '', /al menos 8/)
   assert.match(r.validateNewPassword('        ', '        ').password ?? '', /espacios/)
-  assert.match(r.validateNewPassword('a'.repeat(73), 'a'.repeat(73)).password ?? '', /más corta/)
-  // 72 bytes exactos es válido; 25 «ñ» son 50 bytes, 37 son 74.
+  // El límite es de 72 BYTES UTF-8: el mensaje no puede hablar de caracteres ni dar un número.
+  assert.equal(r.validateNewPassword('a'.repeat(73), 'a'.repeat(73)).password, 'Usá una contraseña más corta.')
+  // 72 bytes exactos es válido; 37 «ñ» son sólo 37 caracteres pero 74 bytes.
   assert.deepEqual(r.validateNewPassword('a'.repeat(72), 'a'.repeat(72)), {})
-  assert.match(r.validateNewPassword('ñ'.repeat(37), 'ñ'.repeat(37)).password ?? '', /más corta/)
+  const multibyte = r.validateNewPassword('ñ'.repeat(37), 'ñ'.repeat(37)).password ?? ''
+  assert.equal(multibyte, 'Usá una contraseña más corta.')
+  assert.doesNotMatch(multibyte, /caracter|72/)
   assert.match(r.validateNewPassword('segura-123', 'segura-124').confirm ?? '', /no coinciden/)
   assert.match(r.validateNewPassword('segura-123', '').confirm ?? '', /Repetí/)
 })
@@ -294,7 +298,7 @@ test('errores de updateUser: nunca el texto crudo del servidor', async () => {
   assert.equal(r.classifyPasswordUpdateError(null).kind, 'retry')
 })
 
-test('pedido de enlace: sólo la red es error; 429/500/otros son neutros (anti-enumeración)', async () => {
+test('pedido de enlace: sólo la red es error; 429/500/otros son neutros (la UI no revela si la cuenta existe)', async () => {
   const r = await fresh()
   assert.equal(r.classifyRecoveryRequestError(null), 'neutral')
   assert.equal(r.classifyRecoveryRequestError({ name: 'AuthRetryableFetchError', status: 0 }), 'network')

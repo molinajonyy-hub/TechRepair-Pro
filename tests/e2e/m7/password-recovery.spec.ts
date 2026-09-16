@@ -8,7 +8,9 @@
 //
 //   1. flujo completo por UI + la URL con tokens no queda ni en la barra ni
 //      detrás de «atrás» + el enlace usado dos veces cae en «vencido»
-//   2. anti-enumeración: email inexistente y pedido repetido (429) → mismo mensaje
+//   2. la UI no revela si la cuenta existe: email inexistente y pedido repetido
+//      (429) → mismo mensaje. El endpoint Auth directo y sus rate limits son de
+//      Supabase/GoTrue: riesgo residual de infraestructura, fuera de este spec.
 //   3. /reset-password sin enlace no muestra el formulario (sin sesión y con
 //      una sesión normal)
 //   4. enlaces rotos: otp_expired y tokens basura → pantallas propias
@@ -193,7 +195,7 @@ test('@m7 1. recovery real: correo → nueva contraseña → la vieja deja de se
   await borrarUsuario(email)
 })
 
-test('@m7 2. anti-enumeración: email inexistente y pedido repetido reciben el mismo mensaje', async ({ page }) => {
+test('@m7 2. la UI no revela si la cuenta existe: email inexistente y pedido repetido reciben el mismo mensaje', async ({ page }) => {
   const inexistente = unico('nadie')
   await borrarUsuario(inexistente)
   await pedirEnlacePorUI(page, inexistente)
