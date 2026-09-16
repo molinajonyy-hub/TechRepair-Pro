@@ -16,6 +16,7 @@
  *  G6  no Allow-Headers wildcard anywhere; no Allow-Origin wildcard beyond recorded debt.
  *  G7  ARCA_SETUP_EXTRA_ORIGINS (temporary QA origins) is read ONLY by arca-selfservice-setup, only as an
  *      exact-match entry of its CORS allowlist next to APP_URL; no other function, no src/, no wildcard/regex.
+ *  G8  no Edge Function — browser-called or not — echoes an arbitrary Origin (BETA-GATE-1 Lote A).
  *
  * CORS is transport only: these headers are metadata and never grant authority.
  * Usage: node scripts/guards/edge-cors-client-contract.mjs [--self-test]
@@ -243,6 +244,50 @@ export function check(tree) {
     }
   }
 
+  // G8 — BETA-GATE-1 (Lote A): NO Edge Function may echo an arbitrary Origin.
+  //
+  // This rule covers EVERY function, not just the browser-called ones in REGISTRY:
+  // arca-rotate-prepare and arca-rotate-activate had no browser caller and still
+  // reflected any Origin (falling back to '*' when none was sent). Reflection is
+  // strictly worse than a wildcard on a credentialed endpoint, because the browser
+  // will then expose the response to that origin.
+  //
+  // A file that sets Access-Control-Allow-Origin must either delegate to
+  // _shared/scopedCors.ts or gate the assignment on an exact allowlist
+  // (`ALLOWED_ORIGINS.includes(origin)` / `.has(origin)`).
+  //
+  // The wildcards below are RECORDED debt: public anonymous endpoints (dollar rate)
+  // and disabled stubs, none of which read credentials. A new one must be added here
+  // deliberately — that is the point of the list.
+  const WILDCARD_ORIGIN_DEBT = new Set([
+    'supabase/functions/_shared/cors.ts',
+    'supabase/functions/_shared/mpPosBetaDisabled.ts',
+    'supabase/functions/whatsapp-embedded-signup/index.ts',
+    'supabase/functions/fetch-dollar-rate/index.ts',
+    'supabase/functions/infodolar-cordoba/index.ts',
+  ])
+  const setsAllowOrigin = /['"]Access-Control-Allow-Origin['"]\s*(?::|\]\s*=)/
+  const wildcardOrigin = /['"]Access-Control-Allow-Origin['"]\s*:\s*['"]\*['"]/
+  const originFallback = /headers\.get\(\s*['"]origin['"]\s*\)\s*(?:\?\?|\|\|)\s*['"][^'"]/i
+  const gatedByAllowlist = /\.includes\(\s*origin\s*\)|\.has\(\s*origin\s*\)/
+  const delegatesToScoped = /from\s*'(?:\.\.\/)?_shared\/scopedCors\.ts'/
+  for (const file of tree.list('supabase/functions')) {
+    const text = noComments(tree.read(file))
+    if (originFallback.test(text)) {
+      fail('G8', `${file} falls back to a literal Access-Control-Allow-Origin when the request sends no Origin; answer with no Allow-Origin instead`)
+    }
+    if (!setsAllowOrigin.test(text)) continue
+    if (wildcardOrigin.test(text)) {
+      if (!WILDCARD_ORIGIN_DEBT.has(file)) {
+        fail('G8', `${file} answers Access-Control-Allow-Origin: *; use _shared/scopedCors.ts (recorded wildcards live in WILDCARD_ORIGIN_DEBT)`)
+      }
+      continue
+    }
+    if (!delegatesToScoped.test(text) && !gatedByAllowlist.test(text)) {
+      fail('G8', `${file} sets Access-Control-Allow-Origin without an exact-origin allowlist; use _shared/scopedCors.ts`)
+    }
+  }
+
   return { errors, found }
 }
 
@@ -277,6 +322,21 @@ function selfTest() {
     ['arca-selfservice-setup drops the extra origin from the allowlist', 'G7', [mutate('supabase/functions/arca-selfservice-setup/index.ts', "  Deno.env.get('ARCA_SETUP_EXTRA_ORIGINS'),\n", '')]],
     ['arca-selfservice-setup matches any vercel.app preview', 'G7', [mutate('supabase/functions/arca-selfservice-setup/index.ts', "serve(async (req: Request) => {", "const isPreview = (o: string) => o.endsWith('.vercel.app')\nserve(async (req: Request) => {")]],
     ['raw fetch starts sending the metadata', 'G5', [mutate('src/services/dollarRateService.ts', "headers: { 'apikey': key,", "headers: { ...TECHREPAIR_CLIENT_HEADERS, 'apikey': key,")]],
+    // G8 — the Phase 0 reflection must not come back, in any function.
+    ['arca-rotate-prepare echoes the request Origin again', 'G8', [mutate(
+      'supabase/functions/arca-rotate-prepare/index.ts',
+      "import { computeAllowedOrigins, createCors } from '../_shared/scopedCors.ts'",
+      "const computeAllowedOrigins = (_e) => []\nconst createCors = (_o) => ({\n  headers: (req) => ({ 'Access-Control-Allow-Origin': req.headers.get('Origin') ?? '*' }),\n  preflight: (req) => new Response(null, { status: 204 }),\n  json: (req, body, status = 200) => new Response(JSON.stringify(body), { status }),\n})",
+    )]],
+    ['arca-rotate-activate brings its reflecting helper back', 'G8', [mutate(
+      'supabase/functions/arca-rotate-activate/validate.ts',
+      'export const MAX_PEM_BYTES = 64 * 1024',
+      "export const MAX_PEM_BYTES = 64 * 1024\n\nexport function buildCorsHeaders(req) {\n  return { 'Access-Control-Allow-Origin': req.headers.get('Origin') ?? '*' }\n}",
+    )]],
+    ['a new function answers a wildcard origin', 'G8', [['supabase/functions/brand-new-fn/index.ts',
+      "serve(() => new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*' } }))\n"]]],
+    ['a function sets Allow-Origin with no allowlist at all', 'G8', [['supabase/functions/brand-new-fn/index.ts',
+      "const origin = req.headers.get('Origin')\nconst headers = { 'Access-Control-Allow-Origin': origin }\n"]]],
   ]
   let failed = 0
   for (const [name, code, overrides] of cases) {

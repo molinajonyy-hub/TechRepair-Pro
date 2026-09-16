@@ -12,7 +12,7 @@
  */
 import { assert, assertEquals } from 'jsr:@std/assert@1'
 import {
-  buildCorsHeaders, validateInput, buildActivationResponse, buildFinalizeResponse, MAX_PEM_BYTES,
+  validateInput, buildActivationResponse, buildFinalizeResponse, MAX_PEM_BYTES,
 } from '../../supabase/functions/arca-rotate-activate/validate.ts'
 
 const BIZ = '00000000-0000-4000-8000-0000000054f1'
@@ -22,16 +22,9 @@ const FP = 'a'.repeat(64)
 // no parsea ASN.1; eso lo hace la DB).
 const CERT = '-----BEGIN CERTIFICATE-----\nZm9vYmFy\n-----END CERTIFICATE-----'
 
-Deno.test('OPTIONS/CORS devuelve los headers esperados', () => {
-  const req = new Request('https://x/functions/v1/arca-rotate-activate', {
-    method: 'OPTIONS',
-    headers: { Origin: 'https://www.techrepairpro.app', 'Access-Control-Request-Headers': 'authorization, content-type' },
-  })
-  const h = buildCorsHeaders(req)
-  assertEquals(h['Access-Control-Allow-Origin'], 'https://www.techrepairpro.app')
-  assertEquals(h['Access-Control-Allow-Methods'], 'POST, OPTIONS')
-  assertEquals(h['Access-Control-Allow-Headers'], 'authorization, content-type')
-})
+// BETA-GATE-1 · Lote A: el CORS de esta función ya no vive en validate.ts. La
+// matriz de orígenes (canónicos permitidos, arbitrario SIN Allow-Origin, sin
+// wildcard) corre sobre el HANDLER REAL en `edgeCorsClientContract.test.ts`.
 
 Deno.test('faltan campos obligatorios → 400 MISSING_FIELDS', () => {
   for (const body of [{}, { business_id: BIZ }, { idempotency_key: IDEM }]) {

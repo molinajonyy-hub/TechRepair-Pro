@@ -14,7 +14,15 @@ const HARNESS = new URL('./fixtures/edge-cors/harness.ts', import.meta.url).href
 const IMPORT_MAP = new URL('./fixtures/edge-cors/import_map.json', import.meta.url).href
 
 // Authenticated functions with an exact-origin allowlist.
-const SCOPED = ['afip-wsaa', 'afip-cae', 'mp-subscription', 'whatsapp-send', 'whatsapp-send-message']
+//
+// BETA-GATE-1 · Lote A: arca-rotate-prepare and arca-rotate-activate join the list.
+// They are NOT browser-called (that is why they are absent from the static guard's
+// REGISTRY), but they used to echo ANY Origin — including '*' when none was sent —
+// so their allowlist is proven here against the real handler, not by reading code.
+const SCOPED = [
+  'afip-wsaa', 'afip-cae', 'mp-subscription', 'whatsapp-send', 'whatsapp-send-message',
+  'arca-rotate-prepare', 'arca-rotate-activate',
+]
 // Disabled endpoint (always 503) with a pre-existing '*' origin: recorded debt.
 const DISABLED = 'whatsapp-embedded-signup'
 
