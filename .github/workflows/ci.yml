@@ -96,6 +96,14 @@ jobs:
       - name: Guard — browser Edge CORS contract
         run: npm run guard:edge-cors-contract:self-test && npm run guard:edge-cors-contract && npm run test:components -- tests/components/edgeCorsClientContract.test.ts
 
+      # BETA-GATE-1 · LOTE D: the repository is public. The real owner's email, the production ARCA alias
+      # and CUIT were removed from HEAD and must not come back (rules are SHA-256 digests, never plaintext).
+      # The only exception is the archived _legacy data migration, pinned by exact path + content hash.
+      # verify-removed reads the pre-sanitization commit from git (fetched by SHA; the checkout is shallow)
+      # and proves the REAL rules block each removed value and its variants. Nothing is printed.
+      - name: Guard — no real personal/fiscal data (BETA-GATE-1 Lote D)
+        run: npm run guard:no-real-data:self-test && npm run guard:no-real-data && git fetch --no-tags --depth=1 origin c90a4edf875ac3877f33e297543ff49246a869c0 && npm run guard:no-real-data:verify-removed
+
       # FISCAL DATE ARGENTINA: the documents show `fecha` as the sale date (Argentina
       # civil day) and never as the fiscal issue date. CbteFch itself is covered by
       # tests/deno/fiscalCalendar.test.ts in `test:deno`.

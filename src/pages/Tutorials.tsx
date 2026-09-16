@@ -392,9 +392,9 @@ function TutorialARCA() {
           <Screenshot label="Administrador de Relaciones de Clave Fiscal — nueva relación">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxWidth: 420 }}>
               {[
-                { label: 'Representante (alias)', value: 'molina.jonyy2', ok: true },
+                { label: 'Representante (alias)', value: 'techrepairdemo', ok: true },
                 { label: 'Servicio', value: 'WSFE — Factura Electrónica', ok: true },
-                { label: 'Representado (CUIT)', value: '20-37629616-5', ok: true },
+                { label: 'Representado (CUIT)', value: '20-00000000-0', ok: true },
               ].map(({ label, value, ok }) => (
                 <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                   <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 500 }}>{label}</label>

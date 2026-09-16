@@ -219,7 +219,7 @@ baseline as already-applied on remote (additive — keep the 133 rows as audit h
 
 ## Owner activation — data migration already applied (do NOT reapply)
 
-The System Owner activation (`molina.jonyy@gmail.com` → business "Clic" `aa930802…`:
+The System Owner activation (owner account, email omitted → business "Clic" `aa930802…`:
 `pending_activation → active`, plan `full`, permanent `manual_grandfathered` override) was
 already applied to **production** via MCP `apply_migration`, recorded remotely as version
 **`20260626174811`**, name `owner_system_owner_activation` — the **newest of the 133** remote
