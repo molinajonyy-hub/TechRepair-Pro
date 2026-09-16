@@ -40,7 +40,7 @@ test('hasActiveOverride: permanente / vigente / vencido / fuente inválida', () 
   assert.equal(hasActiveOverride('admin_override', 'no-es-fecha', NOW), false)
 })
 
-// ── CASO A — System Owner (molina): Full permanente vía override ─────────────
+// ── CASO A — System Owner (titular): Full permanente vía override ────────────
 test('CASO A — owner Full + override permanente: acceso total, Mayorista visible', () => {
   const r = resolveEntitlement({
     subscription_status: 'active',
