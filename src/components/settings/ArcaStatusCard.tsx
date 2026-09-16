@@ -102,7 +102,7 @@ export function ArcaStatusCard({ status, loading, failed, actions }: ArcaStatusC
           )}
           <p data-testid="arca-status-empty-hint" style={{ margin: '0.25rem 0 0', color: colors.text.secondary, fontSize: '0.825rem', lineHeight: 1.5 }}>
             {status.can_manage
-              ? 'Próximamente vas a poder configurarlo desde acá con un asistente guiado, sin cargar archivos técnicos.'
+              ? 'Configuralo con el asistente guiado: te acompaña paso a paso y no tenés que manejar archivos de clave.'
               : 'Pedile al dueño o a un administrador del negocio que configure la integración.'}
           </p>
         </div>
