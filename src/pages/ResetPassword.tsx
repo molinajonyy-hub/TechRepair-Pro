@@ -1,244 +1,379 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Lock, Eye, EyeOff, Loader2, CheckCircle } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle, Eye, EyeOff, Loader2, Lock } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { S, blurOn, focusOn } from '../components/auth/authCardStyles'
+import { colors } from '../lib/tokens'
+import { PORTAL_DOMAINS } from '../portal/portalDomains'
+import {
+  PASSWORD_MIN_LENGTH,
+  classifyPasswordUpdateError,
+  finishRecovery,
+  getRecoveryPhase,
+  hasRecoverySession,
+  subscribeRecoveryPhase,
+  validateNewPassword,
+  type PasswordFieldErrors,
+} from '../lib/passwordRecovery'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BETA-GATE-1 · Lote B — «Nueva contraseña».
+//
+// El formulario aparece SÓLO con una sesión vigente marcada como de recovery
+// para ese mismo usuario (ver src/lib/passwordRecovery.ts). Una sesión normal,
+// un enlace vencido o usado, o no tener sesión muestran «enlace no válido» con
+// la salida para pedir otro. Nunca se redirige al Dashboard sin pasar por acá.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type Vista =
+  | { tipo: 'verificando' }
+  | { tipo: 'formulario'; userId: string }
+  | { tipo: 'invalido'; motivo: 'vencido' | 'invalido' | 'sin_sesion' }
+  | { tipo: 'listo'; destino: string }
+
+/** Si crear la sesión con los tokens del enlace tarda más que esto, se asume inválido. */
+const VERIFYING_TIMEOUT_MS = 20_000
+const REDIRECT_DELAY_MS = 3_000
+
+const TEXTO_INVALIDO: Record<'vencido' | 'invalido' | 'sin_sesion', { titulo: string; detalle: string }> = {
+  vencido: {
+    titulo: 'El enlace ya no es válido',
+    detalle: 'Venció o ya se usó. Cada enlace para restablecer la contraseña sirve una sola vez. Pedí uno nuevo y abrilo desde el último correo.',
+  },
+  invalido: {
+    titulo: 'No pudimos validar el enlace',
+    detalle: 'El enlace está incompleto o tu sesión venció antes de terminar. Pedí uno nuevo para restablecer la contraseña.',
+  },
+  sin_sesion: {
+    titulo: 'Abrí el enlace desde tu correo',
+    detalle: 'Para elegir una nueva contraseña tenés que entrar desde el enlace que te enviamos. Si no lo encontrás o venció, pedí uno nuevo.',
+  },
+}
+
+function destinoTrasGuardar(conSesion: boolean): string {
+  if (!conSesion) return '/login'
+  // En el dominio del portal todo cuelga de la raíz (ver AuthCallback).
+  return PORTAL_DOMAINS[window.location.hostname] ? '/' : '/dashboard'
+}
 
 export function ResetPassword() {
   const navigate = useNavigate()
-  const [password, setPassword]     = useState('')
-  const [confirm, setConfirm]       = useState('')
-  const [showPwd, setShowPwd]       = useState(false)
-  const [showCfm, setShowCfm]       = useState(false)
-  const [loading, setLoading]       = useState(false)
-  const [error, setError]           = useState('')
-  const [done, setDone]             = useState(false)
-  const [ready, setReady]           = useState(false)
+  const phase = useSyncExternalStore(subscribeRecoveryPhase, getRecoveryPhase)
 
+  const [vista, setVista] = useState<Vista>({ tipo: 'verificando' })
+  const [authTick, setAuthTick] = useState(0)
+  const [timedOut, setTimedOut] = useState(false)
+
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [showPwd, setShowPwd] = useState(false)
+  const [showCfm, setShowCfm] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState<PasswordFieldErrors>({})
+  const [formError, setFormError] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const savingRef = useRef(false)
+  const completedRef = useRef(false)
+  const passwordRef = useRef<HTMLInputElement>(null)
+  const confirmRef = useRef<HTMLInputElement>(null)
+
+  // Cualquier cambio de sesión (SIGNED_OUT, PASSWORD_RECOVERY, SIGNED_IN) vuelve a evaluar.
   useEffect(() => {
-    // Activar formulario cuando Supabase dispara PASSWORD_RECOVERY
-    // (ocurre cuando el usuario llega desde el link del email)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        setReady(true)
-      }
-    })
-
-    // En algunos flujos PKCE el evento ya ocurrió antes de montar el componente.
-    // Verificar si hay sesión Y si la URL contiene indicadores de recovery.
-    const hash   = window.location.hash
-    const search = window.location.search
-    const isRecovery =
-      hash.includes('type=recovery') ||
-      hash.includes('access_token') ||
-      search.includes('code=')       ||
-      sessionStorage.getItem('is_password_recovery') === '1'
-
-    if (isRecovery) {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session) {
-          sessionStorage.removeItem('is_password_recovery')
-          setReady(true)
-        }
-      })
-    }
-
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => setAuthTick(t => t + 1))
     return () => subscription.unsubscribe()
   }, [])
 
+  useEffect(() => {
+    if (phase !== 'verifying') return
+    const t = setTimeout(() => setTimedOut(true), VERIFYING_TIMEOUT_MS)
+    return () => clearTimeout(t)
+  }, [phase])
+
+  useEffect(() => {
+    if (completedRef.current) return
+    if (phase === 'expired_link') { setVista({ tipo: 'invalido', motivo: 'vencido' }); return }
+    if (phase === 'invalid_link') { setVista({ tipo: 'invalido', motivo: 'invalido' }); return }
+    if (phase === 'verifying' && !timedOut) { setVista({ tipo: 'verificando' }); return }
+
+    let cancelado = false
+    void supabase.auth.getSession()
+      .then(({ data }) => {
+        if (cancelado || completedRef.current) return
+        const userId = data.session?.user?.id
+        if (userId && hasRecoverySession(userId)) {
+          setVista(v => (v.tipo === 'formulario' && v.userId === userId ? v : { tipo: 'formulario', userId }))
+        } else {
+          setVista({ tipo: 'invalido', motivo: phase === 'verifying' ? 'invalido' : 'sin_sesion' })
+        }
+      })
+      .catch(() => {
+        if (!cancelado && !completedRef.current) setVista({ tipo: 'invalido', motivo: 'invalido' })
+      })
+    return () => { cancelado = true }
+  }, [phase, authTick, timedOut])
+
+  const enFormulario = vista.tipo === 'formulario'
+  useEffect(() => {
+    if (enFormulario) passwordRef.current?.focus()
+  }, [enFormulario])
+
+  useEffect(() => {
+    if (vista.tipo !== 'listo') return
+    const t = setTimeout(() => navigate(vista.destino, { replace: true }), REDIRECT_DELAY_MS)
+    return () => clearTimeout(t)
+  }, [vista, navigate])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (password.length < 8) { setError('La contraseña debe tener al menos 8 caracteres'); return }
-    if (password !== confirm)  { setError('Las contraseñas no coinciden'); return }
+    if (vista.tipo !== 'formulario' || savingRef.current) return
 
-    setLoading(true)
-    setError('')
+    const errores = validateNewPassword(password, confirm)
+    setFieldErrors(errores)
+    setFormError('')
+    if (errores.password) { passwordRef.current?.focus(); return }
+    if (errores.confirm) { confirmRef.current?.focus(); return }
 
-    const { error: updateError } = await supabase.auth.updateUser({ password })
+    savingRef.current = true
+    setSaving(true)
+    try {
+      const { error } = await supabase.auth.updateUser({ password })
+      if (error) {
+        const fallo = classifyPasswordUpdateError(error)
+        if (fallo.kind === 'session') {
+          setVista({ tipo: 'invalido', motivo: 'invalido' })
+        } else if (fallo.kind === 'field') {
+          setFieldErrors({ password: fallo.message })
+          passwordRef.current?.focus()
+        } else {
+          setFormError(fallo.message)
+        }
+        return
+      }
 
-    if (updateError) {
-      setError(updateError.message)
-      setLoading(false)
-      return
+      const { data } = await supabase.auth.getSession()
+      completedRef.current = true
+      setPassword('')
+      setConfirm('')
+      setVista({ tipo: 'listo', destino: destinoTrasGuardar(Boolean(data.session)) })
+      finishRecovery()
+    } catch {
+      setFormError('No pudimos guardar la contraseña. Revisá tu conexión e intentá de nuevo.')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
     }
-
-    setDone(true)
-    setTimeout(() => navigate('/dashboard', { replace: true }), 2500)
   }
 
-  const pageStyle: React.CSSProperties = {
-    minHeight: '100dvh',
-    background: '#09090b',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    padding: '1.5rem',
-    fontFamily: "'Inter', -apple-system, sans-serif",
-  }
-
-  const cardStyle: React.CSSProperties = {
-    width: '100%', maxWidth: '400px',
-    background: 'rgba(255,255,255,0.025)',
-    backdropFilter: 'blur(24px)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: '1.5rem',
-    padding: '2rem',
-    boxShadow: '0 32px 80px rgba(0,0,0,0.6)',
-  }
-
-  const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '0.875rem 3rem 0.875rem 3rem',
-    background: 'rgba(255,255,255,0.05)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '0.875rem', color: '#f1f5f9',
-    fontSize: '0.9375rem', outline: 'none', boxSizing: 'border-box',
-  }
-
-  if (done) {
-    return (
-      <div style={pageStyle}>
-        <div style={{ ...cardStyle, textAlign: 'center' }}>
-          <CheckCircle size={48} style={{ color: '#22c55e', margin: '0 auto 1rem' }} />
-          <h2 style={{ color: '#f1f5f9', margin: '0 0 0.5rem', fontSize: '1.2rem', fontWeight: 700 }}>
-            ¡Contraseña actualizada!
-          </h2>
-          <p style={{ color: '#64748b', fontSize: '0.875rem', margin: 0 }}>
-            Redirigiendo al panel...
-          </p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!ready) {
-    return (
-      <div style={pageStyle}>
-        <div style={{ ...cardStyle, textAlign: 'center' }}>
-          <div style={{
-            width: '48px', height: '48px', borderRadius: '50%',
-            border: '3px solid rgba(99,102,241,0.15)',
-            borderTop: '3px solid #6366f1',
-            animation: 'tr-spin 0.8s linear infinite',
-            margin: '0 auto 1.25rem',
-          }} />
-          <p style={{ color: '#64748b', fontSize: '0.875rem', margin: 0 }}>
-            Verificando enlace...
-          </p>
-        </div>
-      </div>
-    )
-  }
+  const estado = vista.tipo === 'invalido' ? `invalido:${vista.motivo}` : vista.tipo
 
   return (
-    <div style={pageStyle}>
-      {/* Blobs de fondo */}
-      <div style={{ position: 'fixed', top: '-15%', left: '-10%', width: '55vw', height: '55vw', maxWidth: '600px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(99,102,241,0.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
-      <div style={{ position: 'fixed', bottom: '-15%', right: '-10%', width: '50vw', height: '50vw', maxWidth: '550px', borderRadius: '50%', background: 'radial-gradient(circle, rgba(168,85,247,0.09) 0%, transparent 70%)', pointerEvents: 'none' }} />
+    <div style={S.page} data-testid="reset-password-page" data-estado={estado}>
+      <div style={S.blob1} />
+      <div style={S.blob2} />
+      <div style={S.blob3} />
 
-      <div style={{ width: '100%', maxWidth: '400px', position: 'relative', zIndex: 1 }}>
-        <div style={cardStyle}>
-          {/* Glow top */}
-          <div style={{ position: 'absolute', top: 0, left: '20%', right: '20%', height: '1px', background: 'linear-gradient(90deg, transparent, rgba(99,102,241,0.6), transparent)' }} />
+      <div style={S.shell}>
+        <div style={S.card}>
+          <div style={S.cardTopGlow} />
 
-          {/* Ícono */}
-          <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
-            <div style={{
-              width: '56px', height: '56px', borderRadius: '1rem',
-              background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              margin: '0 auto 1rem',
-              boxShadow: '0 8px 24px rgba(99,102,241,0.4)',
-            }}>
-              <Lock size={24} color="white" />
-            </div>
-            <h1 style={{ fontSize: '1.375rem', fontWeight: 800, color: '#f8fafc', margin: '0 0 0.3rem', letterSpacing: '-0.03em' }}>
-              Nueva contraseña
-            </h1>
-            <p style={{ color: '#475569', fontSize: '0.875rem', margin: 0 }}>
-              Ingresá tu nueva contraseña para continuar
-            </p>
-          </div>
-
-          {error && (
-            <div style={{
-              padding: '0.75rem 1rem', borderRadius: '0.75rem',
-              background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)',
-              color: '#f87171', fontSize: '0.875rem', marginBottom: '1.25rem',
-            }}>
-              ⚠️ {error}
+          {vista.tipo === 'verificando' && (
+            <div style={{ textAlign: 'center', padding: '1.5rem 0' }} role="status" data-testid="reset-password-checking">
+              <Loader2 size={36} style={{ color: colors.indigo, animation: 'tr-spin 1s linear infinite', margin: '0 auto 1rem' }} />
+              <p style={{ color: colors.text.secondary, fontSize: '0.9375rem', margin: 0 }}>
+                Verificando el enlace…
+              </p>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {/* Nueva contraseña */}
-            <div>
-              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#94a3b8', marginBottom: '0.5rem' }}>
-                Nueva contraseña
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Lock size={17} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#334155', pointerEvents: 'none' }} />
-                <input
-                  type={showPwd ? 'text' : 'password'}
-                  value={password}
-                  onChange={e => { setPassword(e.target.value); setError('') }}
-                  placeholder="Mínimo 8 caracteres"
-                  autoComplete="new-password"
-                  required
-                  style={inputStyle}
-                  onFocus={e => { e.target.style.borderColor = 'rgba(99,102,241,0.7)'; e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.15)' }}
-                  onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; e.target.style.boxShadow = 'none' }}
-                />
-                <button type="button" onClick={() => setShowPwd(v => !v)} style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#334155', display: 'flex' }}>
-                  {showPwd ? <EyeOff size={17} /> : <Eye size={17} />}
+          {vista.tipo === 'invalido' && (
+            <div data-testid="reset-password-invalid" style={{ textAlign: 'center' }}>
+              <div style={badge(colors.warningBg, colors.warningBorder)}>
+                <AlertTriangle size={26} style={{ color: colors.warning }} />
+              </div>
+              <h1 style={titulo}>{TEXTO_INVALIDO[vista.motivo].titulo}</h1>
+              <p style={{ ...subtitulo, marginBottom: '1.75rem' }}>{TEXTO_INVALIDO[vista.motivo].detalle}</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <button
+                  type="button"
+                  data-testid="reset-password-request-new"
+                  style={S.btnPrimary(false)}
+                  onClick={() => navigate('/login?modo=recuperar', { replace: true })}
+                >
+                  Pedir un enlace nuevo
+                </button>
+                <button
+                  type="button"
+                  data-testid="reset-password-back-login"
+                  style={linkButton}
+                  onClick={() => navigate('/login', { replace: true })}
+                >
+                  <ArrowLeft size={14} /> Volver al inicio de sesión
                 </button>
               </div>
             </div>
+          )}
 
-            {/* Confirmar */}
-            <div>
-              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: '#94a3b8', marginBottom: '0.5rem' }}>
-                Confirmar contraseña
-              </label>
-              <div style={{ position: 'relative' }}>
-                <Lock size={17} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#334155', pointerEvents: 'none' }} />
-                <input
-                  type={showCfm ? 'text' : 'password'}
-                  value={confirm}
-                  onChange={e => { setConfirm(e.target.value); setError('') }}
-                  placeholder="Repetí la contraseña"
-                  autoComplete="new-password"
-                  required
-                  style={inputStyle}
-                  onFocus={e => { e.target.style.borderColor = 'rgba(99,102,241,0.7)'; e.target.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.15)' }}
-                  onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; e.target.style.boxShadow = 'none' }}
-                />
-                <button type="button" onClick={() => setShowCfm(v => !v)} style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#334155', display: 'flex' }}>
-                  {showCfm ? <EyeOff size={17} /> : <Eye size={17} />}
-                </button>
+          {vista.tipo === 'listo' && (
+            <div data-testid="reset-password-done" style={{ textAlign: 'center' }} role="status">
+              <div style={badge(colors.successBg, colors.successBorder)}>
+                <CheckCircle size={26} style={{ color: colors.success }} />
               </div>
+              <h1 style={titulo}>Contraseña actualizada</h1>
+              <p style={{ ...subtitulo, marginBottom: '1.75rem' }}>
+                {vista.destino === '/login'
+                  ? 'Ya podés iniciar sesión con tu nueva contraseña.'
+                  : 'Listo. Te llevamos a tu cuenta en unos segundos.'}
+              </p>
+              <button
+                type="button"
+                data-testid="reset-password-continue"
+                style={S.btnPrimary(false)}
+                onClick={() => navigate(vista.destino, { replace: true })}
+              >
+                {vista.destino === '/login' ? 'Ir a iniciar sesión' : 'Continuar'}
+              </button>
             </div>
+          )}
 
-            <button
-              type="submit"
-              disabled={loading || !password || !confirm}
-              style={{
-                width: '100%', padding: '0.9375rem',
-                background: loading || !password || !confirm
-                  ? 'rgba(99,102,241,0.4)'
-                  : 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-                border: 'none', borderRadius: '0.875rem',
-                color: '#fff', fontWeight: 700, fontSize: '0.9375rem',
-                cursor: loading || !password || !confirm ? 'not-allowed' : 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                boxShadow: '0 4px 20px rgba(99,102,241,0.4)',
-                marginTop: '0.25rem',
-              }}
-            >
-              {loading
-                ? <><Loader2 size={18} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando...</>
-                : 'Guardar nueva contraseña'
-              }
-            </button>
-          </form>
+          {vista.tipo === 'formulario' && (
+            <>
+              <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
+                <div style={badge(colors.indigoBg, colors.indigoBorder)}>
+                  <Lock size={24} style={{ color: colors.indigo }} />
+                </div>
+                <h1 style={titulo}>Nueva contraseña</h1>
+                <p style={subtitulo}>Elegí una contraseña nueva para tu cuenta.</p>
+              </div>
+
+              {formError && (
+                <div role="alert" data-testid="reset-password-error" style={alerta}>
+                  {formError}
+                </div>
+              )}
+
+              <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '1.125rem' }}>
+                <div>
+                  <label htmlFor="reset-password-new" style={S.label}>Nueva contraseña</label>
+                  <div style={{ position: 'relative' }}>
+                    <Lock size={17} style={{ ...S.iconLeft, color: fieldErrors.password ? colors.error : colors.text.muted }} />
+                    <input
+                      id="reset-password-new"
+                      data-testid="reset-password-new"
+                      ref={passwordRef}
+                      type={showPwd ? 'text' : 'password'}
+                      value={password}
+                      placeholder={`Mínimo ${PASSWORD_MIN_LENGTH} caracteres`}
+                      autoComplete="new-password"
+                      disabled={saving}
+                      aria-invalid={Boolean(fieldErrors.password)}
+                      aria-describedby={fieldErrors.password ? 'reset-password-new-error' : undefined}
+                      style={S.inputWithRight(Boolean(fieldErrors.password), saving)}
+                      onChange={e => { setPassword(e.target.value); setFieldErrors(f => ({ ...f, password: undefined })); setFormError('') }}
+                      onFocus={e => focusOn(e, Boolean(fieldErrors.password))}
+                      onBlur={e => blurOn(e, Boolean(fieldErrors.password))}
+                    />
+                    <button
+                      type="button"
+                      data-testid="reset-password-toggle-new"
+                      onClick={() => setShowPwd(v => !v)}
+                      disabled={saving}
+                      aria-label={showPwd ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                      aria-pressed={showPwd}
+                      style={toggle}
+                    >
+                      {showPwd ? <EyeOff size={17} /> : <Eye size={17} />}
+                    </button>
+                  </div>
+                  {fieldErrors.password && (
+                    <p id="reset-password-new-error" data-testid="reset-password-new-error" style={S.errorText}>{fieldErrors.password}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label htmlFor="reset-password-confirm" style={S.label}>Confirmar contraseña</label>
+                  <div style={{ position: 'relative' }}>
+                    <Lock size={17} style={{ ...S.iconLeft, color: fieldErrors.confirm ? colors.error : colors.text.muted }} />
+                    <input
+                      id="reset-password-confirm"
+                      data-testid="reset-password-confirm"
+                      ref={confirmRef}
+                      type={showCfm ? 'text' : 'password'}
+                      value={confirm}
+                      placeholder="Repetí la contraseña"
+                      autoComplete="new-password"
+                      disabled={saving}
+                      aria-invalid={Boolean(fieldErrors.confirm)}
+                      aria-describedby={fieldErrors.confirm ? 'reset-password-confirm-error' : undefined}
+                      style={S.inputWithRight(Boolean(fieldErrors.confirm), saving)}
+                      onChange={e => { setConfirm(e.target.value); setFieldErrors(f => ({ ...f, confirm: undefined })); setFormError('') }}
+                      onFocus={e => focusOn(e, Boolean(fieldErrors.confirm))}
+                      onBlur={e => blurOn(e, Boolean(fieldErrors.confirm))}
+                    />
+                    <button
+                      type="button"
+                      data-testid="reset-password-toggle-confirm"
+                      onClick={() => setShowCfm(v => !v)}
+                      disabled={saving}
+                      aria-label={showCfm ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                      aria-pressed={showCfm}
+                      style={toggle}
+                    >
+                      {showCfm ? <EyeOff size={17} /> : <Eye size={17} />}
+                    </button>
+                  </div>
+                  {fieldErrors.confirm && (
+                    <p id="reset-password-confirm-error" data-testid="reset-password-confirm-error" style={S.errorText}>{fieldErrors.confirm}</p>
+                  )}
+                </div>
+
+                <button type="submit" data-testid="reset-password-submit" disabled={saving} style={S.btnPrimary(saving)}>
+                  {saving
+                    ? <><Loader2 size={18} style={{ animation: 'tr-spin 1s linear infinite' }} /> Guardando…</>
+                    : 'Guardar nueva contraseña'}
+                </button>
+              </form>
+            </>
+          )}
         </div>
       </div>
     </div>
   )
+}
+
+// ── Estilos locales (sobre las variables del tema) ────────────────────────────
+
+function badge(background: string, border: string): React.CSSProperties {
+  return {
+    width: '56px', height: '56px', borderRadius: '1rem',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    margin: '0 auto 1rem', background, border: `1px solid ${border}`,
+  }
+}
+
+const titulo: React.CSSProperties = {
+  fontSize: '1.375rem', fontWeight: 800, letterSpacing: '-0.03em',
+  color: colors.text.primary, margin: '0 0 0.375rem',
+}
+
+const subtitulo: React.CSSProperties = {
+  color: colors.text.secondary, fontSize: '0.875rem', lineHeight: 1.55, margin: 0,
+}
+
+const alerta: React.CSSProperties = {
+  padding: '0.875rem 1rem', borderRadius: '0.75rem', marginBottom: '1.25rem',
+  background: colors.errorBg, border: `1px solid ${colors.errorBorder}`,
+  color: colors.error, fontSize: '0.875rem',
+}
+
+const toggle: React.CSSProperties = {
+  position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)',
+  width: '44px', height: '44px',
+  background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+  color: colors.text.muted, display: 'flex', alignItems: 'center', justifyContent: 'center',
+}
+
+const linkButton: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem',
+  minHeight: '44px', background: 'none', border: 'none', cursor: 'pointer',
+  color: colors.text.secondary, fontSize: '0.875rem', fontWeight: 500,
 }
