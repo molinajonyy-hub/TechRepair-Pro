@@ -181,7 +181,7 @@ con nadie).
 | PR | Alcance | Archivos | Gates |
 |---|---|---|---|
 | A | `scopedCors` en las dos funciones de rotación + guard nuevo (ninguna Edge Function refleja un origen arbitrario) | 2 Edge + 1 guard + 2 tests | `test:deno`, guard + self-test, `tsc`, build |
-| B | Recovery end-to-end (captura de intención, marca por evento, ruteo, estados de error, copy anti-enumeración) | `supabase.ts`, `authRedirect`/nuevo `passwordRecovery.ts`, `AuthCallback`, `ResetPassword`, `Login` | unit + components + E2E local con Inbucket |
+| B | Recovery end-to-end (captura de intención, marca por evento, ruteo, estados de error, copy que no revela en la UI si la cuenta existe) | `supabase.ts`, `authRedirect`/nuevo `passwordRecovery.ts`, `AuthCallback`, `ResetPassword`, `Login` | unit + components + E2E local con Inbucket |
 | D | Sanitizar tutorial y fixtures + guard por digest | `Tutorials.tsx`, guard alias, test SQL, guard nuevo | guards + `test:arca-wsass-alias` + components |
 | C | Reuso de TA + retiro de `force_refresh` + manejo de `alreadyAuthenticated` | `afip-wsaa/*` + tests | unit + deno, simulaciones (fresco, >30 min, 29 min, 5 min, vencido, force_refresh, concurrencia, alreadyAuthenticated) |
 
