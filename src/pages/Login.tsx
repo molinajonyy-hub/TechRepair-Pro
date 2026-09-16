@@ -4,254 +4,8 @@ import { Lock, Mail, Eye, EyeOff, Loader2, User, ArrowLeft } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { sanitizeInternalPath, getAuthCallbackUrl } from '../lib/authRedirect'
-
-// ── Inline styles (misma estética que la landing page) ──────────────
-
-const S = {
-  // Fondo global
-  page: {
-    minHeight: '100dvh',
-    background: 'var(--auth-bg)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '1.5rem',
-    position: 'relative' as const,
-    overflow: 'hidden',
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  },
-
-  // Blobs de fondo
-  blob1: {
-    position: 'fixed' as const,
-    top: '-15%', left: '-10%',
-    width: '55vw', height: '55vw',
-    maxWidth: '650px', maxHeight: '650px',
-    borderRadius: '50%',
-    background: 'radial-gradient(circle, rgba(99,102,241,0.14) 0%, transparent 70%)',
-    pointerEvents: 'none' as const,
-  },
-  blob2: {
-    position: 'fixed' as const,
-    bottom: '-15%', right: '-10%',
-    width: '50vw', height: '50vw',
-    maxWidth: '580px', maxHeight: '580px',
-    borderRadius: '50%',
-    background: 'radial-gradient(circle, rgba(168,85,247,0.1) 0%, transparent 70%)',
-    pointerEvents: 'none' as const,
-  },
-  blob3: {
-    position: 'fixed' as const,
-    top: '40%', right: '10%',
-    width: '30vw', height: '30vw',
-    maxWidth: '350px', maxHeight: '350px',
-    borderRadius: '50%',
-    background: 'radial-gradient(circle, rgba(6,182,212,0.07) 0%, transparent 70%)',
-    pointerEvents: 'none' as const,
-  },
-
-  // Envoltorio del card
-  shell: {
-    width: '100%',
-    maxWidth: '420px',
-    position: 'relative' as const,
-    zIndex: 1,
-  },
-
-  // Card de glass
-  card: {
-    background: 'var(--auth-card-bg)',
-    backdropFilter: 'blur(24px)',
-    WebkitBackdropFilter: 'blur(24px)',
-    border: '1px solid var(--border-color)',
-    borderRadius: '1.5rem',
-    padding: 'clamp(1.75rem, 5vw, 2.5rem)',
-    boxShadow: 'var(--shadow-xl)',
-    position: 'relative' as const,
-    overflow: 'hidden',
-  },
-
-  // Línea top del card (glow)
-  cardTopGlow: {
-    position: 'absolute' as const,
-    top: 0, left: '20%', right: '20%',
-    height: '1px',
-    background: 'linear-gradient(90deg, transparent, rgba(99,102,241,0.6), transparent)',
-  },
-
-  // Logo icon
-  logoIcon: {
-    width: '68px', height: '68px',
-    borderRadius: '1.125rem',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    margin: '0 auto 1.25rem',
-    boxShadow: '0 12px 32px rgba(99,102,241,0.45)',
-    overflow: 'hidden',
-  },
-
-  // Input field wrapper
-  inputWrap: { position: 'relative' as const, display: 'flex', flexDirection: 'column' as const },
-
-  // Input base
-  input: (hasError: boolean, disabled: boolean): React.CSSProperties => ({
-    width: '100%',
-    padding: '0.875rem 1rem 0.875rem 3rem',
-    background: 'var(--input-bg)',
-    border: `1px solid ${hasError ? 'rgba(248,113,113,0.6)' : 'var(--input-border)'}`,
-    borderRadius: '0.875rem',
-    color: 'var(--text-primary)',
-    fontSize: '0.9375rem',
-    outline: 'none',
-    transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
-    opacity: disabled ? 0.55 : 1,
-    caretColor: 'var(--accent-primary)',
-    boxSizing: 'border-box',
-  }),
-
-  // Input derecho (para contraseña con ojo)
-  inputWithRight: (hasError: boolean, disabled: boolean): React.CSSProperties => ({
-    width: '100%',
-    padding: '0.875rem 3rem 0.875rem 3rem',
-    background: 'var(--input-bg)',
-    border: `1px solid ${hasError ? 'rgba(248,113,113,0.6)' : 'var(--input-border)'}`,
-    borderRadius: '0.875rem',
-    color: 'var(--text-primary)',
-    fontSize: '0.9375rem',
-    outline: 'none',
-    transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
-    opacity: disabled ? 0.55 : 1,
-    caretColor: 'var(--accent-primary)',
-    boxSizing: 'border-box',
-  }),
-
-  iconLeft: {
-    position: 'absolute' as const,
-    left: '1rem',
-    top: '50%',
-    transform: 'translateY(-50%)',
-    pointerEvents: 'none' as const,
-  },
-
-  label: {
-    display: 'block',
-    fontSize: '0.8125rem',
-    fontWeight: 600,
-    color: 'var(--text-muted)',
-    marginBottom: '0.5rem',
-    letterSpacing: '0.01em',
-  },
-
-  errorText: {
-    color: 'var(--error)',
-    fontSize: '0.75rem',
-    marginTop: '0.375rem',
-    marginLeft: '0.25rem',
-  },
-
-  // Botón principal (gradient)
-  btnPrimary: (disabled: boolean): React.CSSProperties => ({
-    width: '100%',
-    padding: '0.9375rem',
-    background: disabled
-      ? 'rgba(99,102,241,0.4)'
-      : 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
-    border: 'none',
-    borderRadius: '0.875rem',
-    color: '#fff',
-    fontWeight: 700,
-    fontSize: '0.9375rem',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '0.5rem',
-    transition: 'all 0.22s ease',
-    boxShadow: disabled ? 'none' : '0 4px 20px rgba(99,102,241,0.4)',
-  }),
-
-  // Botón Google
-  btnGoogle: (disabled: boolean): React.CSSProperties => ({
-    width: '100%',
-    padding: '0.875rem',
-    background: 'var(--input-bg)',
-    border: '1px solid var(--input-border)',
-    borderRadius: '0.875rem',
-    color: 'var(--text-secondary)',
-    fontWeight: 600,
-    fontSize: '0.9375rem',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '0.75rem',
-    transition: 'all 0.2s ease',
-    opacity: disabled ? 0.55 : 1,
-  }),
-
-  // Toggle tabs
-  tabTrack: {
-    display: 'flex',
-    background: 'var(--input-bg)',
-    border: '1px solid var(--border-color)',
-    borderRadius: '0.875rem',
-    padding: '0.25rem',
-    marginBottom: '1.75rem',
-    gap: '0.25rem',
-  },
-
-  tab: (active: boolean, disabled: boolean): React.CSSProperties => ({
-    flex: 1,
-    padding: '0.625rem',
-    background: active
-      ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)'
-      : 'transparent',
-    border: 'none',
-    borderRadius: '0.625rem',
-    color: active ? '#fff' : 'var(--text-muted)',
-    fontWeight: 600,
-    fontSize: '0.875rem',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    transition: 'all 0.2s ease',
-    boxShadow: active ? '0 2px 12px rgba(99,102,241,0.35)' : 'none',
-    opacity: disabled ? 0.6 : 1,
-  }),
-
-  dividerWrap: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '1rem',
-    margin: '1.5rem 0',
-  },
-
-  dividerLine: {
-    flex: 1,
-    height: '1px',
-    background: 'var(--border-color)',
-  },
-
-  dividerText: {
-    color: 'var(--text-subtle)',
-    fontSize: '0.78rem',
-    fontWeight: 500,
-    whiteSpace: 'nowrap' as const,
-  },
-}
-
-// ── Helpers de foco ──────────────────────────────────────────────────
-
-function focusOn(e: React.FocusEvent<HTMLInputElement>, hasError: boolean) {
-  e.target.style.borderColor = hasError ? 'rgba(248,113,113,0.8)' : 'var(--input-focus-border)'
-  e.target.style.boxShadow = hasError
-    ? '0 0 0 3px rgba(248,113,113,0.12)'
-    : 'var(--input-focus-shadow)'
-}
-
-function blurOn(e: React.FocusEvent<HTMLInputElement>, hasError: boolean) {
-  e.target.style.borderColor = hasError ? 'rgba(248,113,113,0.6)' : 'var(--input-border)'
-  e.target.style.boxShadow = 'none'
-}
+import { classifyRecoveryRequestError, RECOVERY_REQUEST_SENT_MESSAGE } from '../lib/passwordRecovery'
+import { S, focusOn, blurOn } from '../components/auth/authCardStyles'
 
 // ── Componente ───────────────────────────────────────────────────────
 
@@ -261,7 +15,11 @@ export function Login() {
   const { signIn, signUp, signInWithGoogle, resendConfirmation, isAuthenticated, emailConfirmed, isLoading: authLoading } = useAuth()
   const emailInputRef = useRef<HTMLInputElement>(null)
 
-  const [mode, setMode]                         = useState<'login' | 'register' | 'forgot'>('login')
+  // `?modo=recuperar` abre directo el pedido de enlace: lo usa «Pedir un enlace
+  // nuevo» desde /reset-password cuando el anterior venció.
+  const [mode, setMode]                         = useState<'login' | 'register' | 'forgot'>(
+    () => new URLSearchParams(location.search).get('modo') === 'recuperar' ? 'forgot' : 'login',
+  )
   const [email, setEmail]                       = useState('')
   const [password, setPassword]                 = useState('')
   const [confirmPassword, setConfirmPassword]   = useState('')
@@ -327,6 +85,11 @@ export function Login() {
 
   useEffect(() => {
     if (!isAuthenticated) return
+    // BETA-GATE-1 · Lote B — pidiendo un enlace nuevo no se redirige. Caso real:
+    // el mismo enlace abierto dos veces. La primera pestaña crea la sesión de
+    // recovery (compartida por localStorage) y la segunda ve «enlace vencido»;
+    // su «Pedir un enlace nuevo» no puede terminar en el Dashboard.
+    if (mode === 'forgot') return
 
     // Sesión sin correo confirmado: el destino es la pantalla de verificación,
     // no el producto. Si se navegara al destino guardado, ProtectedRoute
@@ -339,7 +102,7 @@ export function Login() {
     const stored = sessionStorage.getItem('post_login_redirect')
     sessionStorage.removeItem('post_login_redirect')
     navigate(sanitizeInternalPath(stored, from), { replace: true })
-  }, [isAuthenticated, emailConfirmed, from, navigate])
+  }, [isAuthenticated, emailConfirmed, from, navigate, mode])
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -382,10 +145,19 @@ export function Login() {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
         redirectTo: getAuthCallbackUrl(),
       })
-      if (resetError) throw resetError
-      setSuccess(`Enviamos un enlace a ${email}. Revisá tu bandeja de entrada (y spam).`)
-    } catch (err: any) {
-      setError(err.message || 'Error al enviar el email.')
+      // BETA-GATE-1 · Lote B — la UI no revela si la cuenta existe. MEDIDO: GoTrue
+      // responde 200 para un email inexistente, pero 429 cuando el MISMO email
+      // (existente) pide dos enlaces seguidos. Sólo un fallo de red se informa
+      // como error; todo lo demás recibe el mismo mensaje neutro. El endpoint
+      // Auth directo y sus rate limits son de Supabase/GoTrue: riesgo residual
+      // de infraestructura, fuera del alcance de esta pantalla.
+      if (resetError && classifyRecoveryRequestError(resetError) === 'network') {
+        setError('No pudimos enviar el pedido. Revisá tu conexión e intentá de nuevo.')
+        return
+      }
+      setSuccess(RECOVERY_REQUEST_SENT_MESSAGE)
+    } catch {
+      setError('No pudimos enviar el pedido. Revisá tu conexión e intentá de nuevo.')
     } finally {
       setIsLoading(false)
     }
@@ -557,7 +329,7 @@ export function Login() {
               }}>Pro</span>
             </h1>
             <p style={{ color: 'var(--text-subtle)', fontSize: '0.875rem', margin: 0 }}>
-              {mode === 'login' ? 'Ingresá a tu panel de gestión' : mode === 'register' ? 'Creá tu cuenta gratuita' : 'Te enviamos un enlace por email'}
+              {mode === 'login' ? 'Ingresá a tu panel de gestión' : mode === 'register' ? 'Creá tu cuenta gratuita' : 'Recuperá el acceso a tu cuenta'}
             </p>
           </div>
 
@@ -627,7 +399,7 @@ export function Login() {
               color: '#10b981', fontSize: '0.875rem',
               marginBottom: '1.25rem',
               display: 'flex', alignItems: 'flex-start', gap: '0.5rem',
-            }} role="status">
+            }} role="status" data-testid="login-success">
               <span style={{ fontSize: '1rem', flexShrink: 0 }}>✅</span>
               {success}
             </div>
@@ -635,13 +407,13 @@ export function Login() {
 
           {/* Formulario de recuperación de contraseña */}
           {mode === 'forgot' && (
-            <form onSubmit={handleForgotPassword} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '1.125rem' }}>
+            <form onSubmit={handleForgotPassword} noValidate data-testid="login-forgot-form" style={{ display: 'flex', flexDirection: 'column', gap: '1.125rem' }}>
               <div>
                 <label htmlFor="forgot-email" style={S.label}>Email de tu cuenta</label>
                 <div style={{ position: 'relative' }}>
                   <Mail size={17} style={{ ...S.iconLeft, color: emailError ? '#f87171' : '#334155' }} />
                   <input
-                    id="forgot-email" type="email" value={email}
+                    id="forgot-email" data-testid="login-forgot-email" type="email" value={email}
                     placeholder="tu@email.com" autoComplete="email" disabled={isLoading}
                     style={S.input(!!emailError, isLoading)}
                     onChange={e => { setEmail(e.target.value); setEmailError(''); setError('') }}
@@ -653,7 +425,7 @@ export function Login() {
                 {emailError && <p style={S.errorText}>{emailError}</p>}
               </div>
 
-              <button type="submit" disabled={isLoading} style={S.btnPrimary(isLoading)}>
+              <button type="submit" data-testid="login-forgot-submit" disabled={isLoading} style={S.btnPrimary(isLoading)}>
                 {isLoading
                   ? <><Loader2 size={18} style={{ animation: 'tr-spin 1s linear infinite' }} /> Enviando...</>
                   : 'Enviar enlace de recuperación'
@@ -662,6 +434,7 @@ export function Login() {
 
               <button
                 type="button"
+                data-testid="login-forgot-back"
                 onClick={() => handleModeChange('login')}
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem',
@@ -850,6 +623,7 @@ export function Login() {
               <div style={{ textAlign: 'center', marginTop: '1.25rem' }}>
                 <button
                   type="button"
+                  data-testid="login-forgot-link"
                   onClick={() => handleModeChange('forgot')}
                   style={{
                     background: 'none', border: 'none', padding: 0, cursor: 'pointer',

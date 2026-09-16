@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { sanitizeInternalPath } from '../lib/authRedirect'
+import { markRecoveryLinkRejected, markRecoverySession } from '../lib/passwordRecovery'
 import { acceptInviteePath, peekInviteToken } from '../lib/pendingInvite'
 import { PORTAL_DOMAINS } from '../portal/portalDomains'
 
@@ -24,6 +25,11 @@ import { PORTAL_DOMAINS } from '../portal/portalDomains'
  *      cross-device.
  *
  *   C. Error del proveedor `?error=...`
+ *
+ *   (Recovery por fragmento `#access_token=…&type=recovery`, y su error
+ *   `#error_code=otp_expired`, NUNCA llegan a este componente: los captura
+ *   `src/lib/passwordRecovery.ts` al arrancar, antes de crear el cliente, y la
+ *   URL ya es `/reset-password` cuando monta el router. BETA-GATE-1 · Lote B.)
  *
  * Nada de esto confía en un query param como autoridad: el estado final
  * siempre se relee de la sesión/servidor. No existe `?verified=true`.
@@ -116,16 +122,25 @@ export function AuthCallback() {
       // ya consumido (que daría un "link inválido" engañoso).
       window.history.replaceState({}, '', window.location.pathname)
 
-      const { error } = await supabase.auth.verifyOtp({
+      const { data: verificado, error } = await supabase.auth.verifyOtp({
         token_hash: tokenHash,
         type: tipo,
       })
 
+      // BETA-GATE-1 · Lote B — recovery por `token_hash`. /reset-password sólo
+      // muestra el formulario con una sesión MARCADA como de recovery; sin la
+      // marca quedaba en «Verificando enlace…» para siempre. Si el enlace no
+      // sirvió, la pantalla lo dice en vez de caer al circuito de confirmación
+      // de alta (que no aplica a quien olvidó su contraseña).
+      if (tipo === 'recovery') {
+        const userId = verificado?.user?.id
+        if (!error && userId) markRecoverySession(userId)
+        else markRecoveryLinkRejected()
+        navigate('/reset-password', { replace: true })
+        return
+      }
+
       if (!error) {
-        if (tipo === 'recovery') {
-          navigate('/reset-password', { replace: true })
-          return
-        }
         setFase('listo')
         return
       }

@@ -1,6 +1,12 @@
 // v3.0.1
 import { createClient } from '@supabase/supabase-js'
 import { createClientContractFetch, TECHREPAIR_CLIENT_HEADERS } from './clientContract'
+import {
+  captureRecoveryAtBoot,
+  completeRecoveryHandoff,
+  installRecoveryAuthListener,
+} from './passwordRecovery'
+import { PORTAL_DOMAINS } from '../portal/portalDomains'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
@@ -9,6 +15,18 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error(
     'Faltan variables de entorno de Supabase. Asegurate de configurar VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en tu archivo .env'
   )
+}
+
+// BETA-GATE-1 · Lote B — el enlace de «olvidé mi contraseña» vuelve con los
+// tokens en el fragmento. Se capturan ANTES de crear el cliente: así supabase-js
+// no los procesa por su cuenta (y no manda al Dashboard), y la URL con tokens se
+// reemplaza por `/reset-password` en la misma entrada del historial.
+// El orden importa: esta llamada tiene que quedar arriba de `createClient`.
+// Ver src/lib/passwordRecovery.ts.
+if (typeof window !== 'undefined') {
+  captureRecoveryAtBoot(window.location, window.history, {
+    isPortalHost: Boolean(PORTAL_DOMAINS[window.location.hostname]),
+  })
 }
 
 export const supabase = createClient(supabaseUrl as string, supabaseAnonKey as string, {
@@ -22,6 +40,9 @@ export const supabase = createClient(supabaseUrl as string, supabaseAnonKey as s
     detectSessionInUrl: true,
   }
 })
+
+installRecoveryAuthListener(supabase.auth)
+void completeRecoveryHandoff(supabase.auth)
 
 // M7 7D.2 — Publica la URL horneada en el bundle para que el globalSetup de E2E
 // pueda PROBAR contra qué backend se construyó la app (leer .env.e2e no alcanza:
