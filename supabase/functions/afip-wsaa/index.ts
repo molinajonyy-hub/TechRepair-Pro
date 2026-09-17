@@ -13,6 +13,8 @@ import { resolveArcaPrivateKey, WsaaKeyError, type KeySource } from './keyResolv
 import { authorizeArcaCaller, configuredServiceCredentials } from '../_shared/arcaAuthorization.ts'
 import { BROWSER_CLIENT_METADATA_HEADERS, userDataApiHeaders } from '../_shared/clientContract.ts'
 import { withWsaaAuthorization } from './authorizationBoundary.ts'
+import { WsaaLoginFailure } from './ticketPolicy.ts'
+import { createWsaaTicketService, type LoginOutcome } from './ticketService.ts'
 
 // ─────────────────────────────────────────────────────────────────
 // CORS — single source of truth (buildCorsHeaders + jsonResponse)
@@ -350,6 +352,10 @@ async function auditWsaaKeySource(
 // Handler principal
 // ──────────────────────────────────────────────
 
+// BETA-GATE-1 · Lote C — decisión reuse/refresh, dedupe y recuperación viven en ticketService.ts (política pura en
+// ticketPolicy.ts). Una instancia por worker: pedidos concurrentes del mismo negocio comparten un único LoginCms.
+const ticketService = createWsaaTicketService()
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     // Preflight — CORS headers only, no body.
@@ -387,105 +393,124 @@ serve(async (req: Request) => {
       // Identity, active membership and action authority have already passed.
       const supabase = createClient(supabaseUrl, supabaseKey)
 
-    // 1. Cargar configuración ARCA
-    const { data: config, error: configError } = await supabase
-      .from('arca_config')
-      .select('*')
-      .eq('business_id', business_id)
-      .single()
+      const outcome = await ticketService.getTicket(business_id, { forceRefresh: force_refresh }, {
+        now: () => Date.now(),
 
-    if (configError || !config) {
-      return jsonResponse(req, { success: false, error: 'Configuración ARCA no encontrada para este negocio' }, 404)
-    }
+        // 1. Configuración ARCA (incluye el TA cacheado). Sólo service_role puede leerla.
+        readConfig: async () => {
+          const { data, error } = await supabase
+            .from('arca_config')
+            .select('*')
+            .eq('business_id', business_id)
+            .single()
+          return { row: data ?? null, error: Boolean(error) }
+        },
 
-    // 2. Verificar si el token en caché sigue siendo válido (con buffer de 30 min)
-    if (!force_refresh && config.wsaa_token && config.wsaa_sign && config.wsaa_token_expires) {
-      const expiresAt = new Date(config.wsaa_token_expires)
-      const bufferMs  = 30 * 60 * 1000 // 30 minutos
-      if (expiresAt.getTime() - Date.now() > bufferMs) {
-        return jsonResponse(req, {
-          success: true,
-          token: config.wsaa_token,
-          sign:  config.wsaa_sign,
-          cached: true,
-        })
-      }
-    }
+        // 2. Un intento de LoginCms. Las funciones WSAA de arriba quedan intactas (guard W1): acá sólo se etiqueta
+        //    la etapa que falló. El texto crudo de ARCA no sale de WsaaLoginFailure (sólo el faultcode validado).
+        loginCms: async (config): Promise<LoginOutcome> => {
+          if (!config.pfx_file && !config.cert_file) {
+            return { kind: 'precondition', status: 422, error: 'No hay certificado digital configurado. Cargá el PFX o el certificado en Configuración > ARCA.' }
+          }
+          if (config.expires_at && new Date(config.expires_at) < new Date()) {
+            return { kind: 'precondition', status: 422, error: 'El certificado digital está vencido. Renovalo en AFIP.' }
+          }
 
-    // 3. Validar que haya certificado
-    if (!config.pfx_file && !config.cert_file) {
-      return jsonResponse(req, { success: false, error: 'No hay certificado digital configurado. Cargá el PFX o el certificado en Configuración > ARCA.' }, 422)
-    }
+          const traXml = buildTRA(service)
+          let signedCms: string
 
-    // 4. Verificar vencimiento del certificado
-    if (config.expires_at && new Date(config.expires_at) < new Date()) {
-      return jsonResponse(req, { success: false, error: 'El certificado digital está vencido. Renovalo en AFIP.' }, 422)
-    }
+          if (config.pfx_file) {
+            // PFX: la clave viaja dentro del propio PFX (no usa arca_config.private_key
+            // ni el contrato Vault, que es PEM). Fuera del alcance de S2.
+            const pfxData   = await decryptField(supabase, config.pfx_file)
+            const pfxPass   = config.pfx_password ? await decryptField(supabase, config.pfx_password) : ''
+            try {
+              signedCms = signTRAWithPFX(traXml, pfxData, pfxPass)
+            } catch {
+              throw new WsaaLoginFailure('signing')
+            }
+          } else {
+            const certPem = await decryptField(supabase, config.cert_file)
 
-    // 5. Generar y firmar TRA
-    const traXml = buildTRA(service)
-    let signedCms: string
+            // AFIP-S4C: la clave privada se resuelve EXCLUSIVAMENTE desde Vault
+            // (contrato S1A). El fallback a la plaintext de arca_config fue retirado y
+            // esa columna ya no existe: cualquier problema de Vault falla visible.
+            let keyPem: string
+            let keySource: KeySource
+            try {
+              const resolved = await resolveArcaPrivateKey({
+                getVaultCredential: async () => {
+                  const { data, error } = await supabase.rpc('arca_get_credential_for_signing', { p_business_id: business_id })
+                  if (error) throw new Error('vault_rpc_error') // sin detalle crudo
+                  return data
+                },
+              })
+              keyPem = resolved.privateKey
+              keySource = resolved.source
+            } catch (keyErr) {
+              if (keyErr instanceof WsaaKeyError) {
+                await auditWsaaKeySource(supabase, business_id, 'wsaa_private_key_resolution_failed', null, keyErr.state)
+                return { kind: 'precondition', status: 422, error: keyErr.publicMessage }
+              }
+              throw keyErr
+            }
 
-    if (config.pfx_file) {
-      // PFX: la clave viaja dentro del propio PFX (no usa arca_config.private_key
-      // ni el contrato Vault, que es PEM). Fuera del alcance de S2.
-      const pfxData   = await decryptField(supabase, config.pfx_file)
-      const pfxPass   = config.pfx_password ? await decryptField(supabase, config.pfx_password) : ''
-      signedCms = signTRAWithPFX(traXml, pfxData, pfxPass)
-    } else {
-      const certPem = await decryptField(supabase, config.cert_file)
+            await auditWsaaKeySource(supabase, business_id, 'wsaa_private_key_resolved_vault', keySource, null)
 
-      // AFIP-S4C: la clave privada se resuelve EXCLUSIVAMENTE desde Vault
-      // (contrato S1A). El fallback a la plaintext de arca_config fue retirado y
-      // esa columna ya no existe: cualquier problema de Vault falla visible.
-      let keyPem: string
-      let keySource: KeySource
-      try {
-        const resolved = await resolveArcaPrivateKey({
-          getVaultCredential: async () => {
-            const { data, error } = await supabase.rpc('arca_get_credential_for_signing', { p_business_id: business_id })
-            if (error) throw new Error('vault_rpc_error') // sin detalle crudo
-            return data
-          },
-        })
-        keyPem = resolved.privateKey
-        keySource = resolved.source
-      } catch (keyErr) {
-        if (keyErr instanceof WsaaKeyError) {
-          await auditWsaaKeySource(supabase, business_id, 'wsaa_private_key_resolution_failed', null, keyErr.state)
-          return jsonResponse(req, { success: false, error: keyErr.publicMessage }, 422)
-        }
-        throw keyErr
-      }
+            try {
+              signedCms = signTRAWithPEM(traXml, certPem, keyPem)
+            } catch {
+              throw new WsaaLoginFailure('signing')
+            }
+          }
 
-      await auditWsaaKeySource(supabase, business_id, 'wsaa_private_key_resolved_vault', keySource, null)
+          // Llamar al WSAA. `callWSAA` lanza "WSAA HTTP <status>: <cuerpo>" ante un no-2xx (los faults SOAP llegan con 500).
+          const ambiente  = config.ambiente || 'homologacion'
+          let soapReply: string
+          try {
+            soapReply = await callWSAA(signedCms, ambiente)
+          } catch (err) {
+            throw new WsaaLoginFailure('http', err instanceof Error ? err.message : '')
+          }
 
-      signedCms = signTRAWithPEM(traXml, certPem, keyPem)
-    }
+          // Parsear. El vencimiento NO se completa acá: si falta o no es exacto, ticketService no persiste nada.
+          try {
+            const { token, sign, expirationTime } = parseWSAAResponse(soapReply)
+            return { kind: 'issued', token, sign, expirationTime }
+          } catch {
+            throw new WsaaLoginFailure('parse')
+          }
+        },
 
-    // 6. Llamar al WSAA
-    const ambiente  = config.ambiente || 'homologacion'
-    const soapReply = await callWSAA(signedCms, ambiente)
+        // 3. Cachear el TA validado.
+        persistTicket: async ({ token, sign, expiresAtIso }) => {
+          const { error } = await supabase
+            .from('arca_config')
+            .update({
+              wsaa_token:         token,
+              wsaa_sign:          sign,
+              wsaa_token_expires: expiresAtIso,
+              estado_conexion:    'conectado',
+              ultima_sincronizacion: new Date().toISOString(),
+              ultimo_error:       null,
+            })
+            .eq('business_id', business_id)
+          return !error
+        },
 
-    // 7. Parsear respuesta
-    const { token, sign, expirationTime } = parseWSAAResponse(soapReply)
+        // Sólo estado de conexión; nunca token/sign/vencimiento.
+        markConnectionError: async (message) => {
+          await supabase
+            .from('arca_config')
+            .update({ estado_conexion: 'error', ultimo_error: message })
+            .eq('business_id', business_id)
+        },
 
-    // 8. Cachear en DB
-    const expiresAt = expirationTime ? new Date(expirationTime).toISOString() : new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString()
-    await supabase
-      .from('arca_config')
-      .update({
-        wsaa_token:         token,
-        wsaa_sign:          sign,
-        wsaa_token_expires: expiresAt,
-        estado_conexion:    'conectado',
-        ultima_sincronizacion: new Date().toISOString(),
-        ultimo_error:       null,
+        // Observabilidad sin secretos: decisión, motivo, resultado, clase de falla y minutos restantes.
+        log: (event) => console.log(JSON.stringify({ fn: 'afip-wsaa', ...event })),
       })
-      .eq('business_id', business_id)
 
-    return jsonResponse(req, { success: true, token, sign, cached: false, expires_at: expiresAt })
-
+      return jsonResponse(req, outcome.body, outcome.status)
     },
   })
 })

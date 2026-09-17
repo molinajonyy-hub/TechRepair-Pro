@@ -38,6 +38,12 @@ export async function withWsaaAuthorization(req: Request, deps: {
       || (input.force_refresh !== undefined && typeof input.force_refresh !== 'boolean')) {
       return deps.json({ success: false, error: 'INVALID_REQUEST' }, 400)
     }
+    // BETA-GATE-1 · Lote C: forzar un LoginCms es una operación de servidor. Un usuario del navegador —aun con
+    // settings_sensitive y en su propio negocio— no puede pedirlo: 403 antes de leer arca_config, tocar WSAA o
+    // escribir estado (sin `context`, el catch de abajo tampoco escribe error).
+    if (input.force_refresh === true && caller.kind !== 'internal') {
+      return deps.json({ success: false, error: 'FORCE_REFRESH_FORBIDDEN' }, 403)
+    }
     context = { caller, businessId, service: 'wsfe', forceRefresh: input.force_refresh === true }
     const response = await deps.run(context)
     if (caller.kind === 'internal') return response
