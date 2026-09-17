@@ -15,6 +15,7 @@
  *   K TA recién renovado → 0    L exactamente 10:00 → 1
  *   M alreadyAuthenticated + TA vigente → recupera, sin error   N alreadyAuthenticated sin TA vigente → falla
  *   O TA recibido sin expirationTime válido → no se persiste
+ *   P1 wsn.unavailable + TA vigente → sirve el TA, sin error   P2 wsn.unavailable sin TA vigente → falla segura
  *
  * RUN: deno test -A --node-modules-dir=auto tests/deno/afipWsaaTicketRefresh.test.ts
  */
@@ -476,6 +477,40 @@ Deno.test('O · WSAA responde 200 con TA sin expirationTime válido → no se pe
   assertEquals(w.counts, { configReads: 2, loginCms: 1, persists: 0, errorWrites: 0 })
 })
 
+Deno.test('P1 · wsn.unavailable con TA todavía vigente → transitoria: sirve ese TA, sin error, y el worker no reintenta', async () => {
+  const w = world({ expiresMs: NOW + 5 * MIN })
+  w.plan.push(w.fail(axisFault('wsn.unavailable', 'Servicio momentaneamente fuera de servicio')))
+  const service = createWsaaTicketService()
+  const r = await internal(w, service)
+  assertEquals(r.body, { success: true, token: 'tok-old', sign: 'sign-tok-old', cached: true })
+  assertEquals(w.counts, { configReads: 2, loginCms: 1, persists: 0, errorWrites: 0 })
+  assertEquals(w.db.row.estado_conexion, 'conectado')
+  assertEquals(w.logs.at(-1)?.result, 'cached_after_failure')
+  assertEquals(w.logs.at(-1)?.failure, 'ambiguous')
+
+  // Backoff: mientras siga ese mismo TA, la próxima llamada normal no vuelve a pedir LoginCms.
+  w.setClock(NOW + MIN)
+  const again = await internal(w, service)
+  assertEquals(again.body, { success: true, token: 'tok-old', sign: 'sign-tok-old', cached: true })
+  assertEquals(w.counts.loginCms, 1)
+  assertEquals(w.logs.at(-1)?.reason, 'refresh_backoff')
+})
+
+Deno.test('P2 · wsn.unavailable sin TA vigente (vencido o inexistente) → falla segura, sin TA ni vencimiento inventado', async () => {
+  for (const ticket of [{ expiresMs: NOW - MIN }, { token: null, expiresMs: null }]) {
+    const w = world(ticket)
+    const before = structuredClone(w.db.row)
+    w.plan.push(w.fail(axisFault('wsn.unavailable')))
+    const r = await internal(w, createWsaaTicketService())
+    assertEquals(r.body, { success: false, error: WSAA_GENERIC_ERROR, error_code: 'WSAA_RESULT_UNKNOWN' })
+    assertEquals(w.counts, { configReads: 2, loginCms: 1, persists: 0, errorWrites: 1 })
+    assertEquals(w.db.row.estado_conexion, 'error', 'sin TA utilizable sí corresponde marcar error')
+    assertEquals(w.db.row.wsaa_token, before.wsaa_token)
+    assertEquals(w.db.row.wsaa_sign, before.wsaa_sign)
+    assertEquals(w.db.row.wsaa_token_expires, before.wsaa_token_expires, 'no se fabrica vencimiento')
+  }
+})
+
 // ── Bordes complementarios ────────────────────────────────────────────────────
 
 Deno.test('precondición (certificado vencido, sin clave) → contrato previo: 422, 0 LoginCms, sin escribir estado', async () => {
@@ -499,6 +534,13 @@ Deno.test('clasificación estricta: sólo un faultcode inequívoco habilita la r
   assertEquals(classifyWsaaLoginFailure(new WsaaLoginFailure('http', truncated)).kind, 'ambiguous')
   assertEquals(classifyWsaaLoginFailure(new WsaaLoginFailure('parse', axisFault('coe.alreadyAuthenticated'))).kind, 'ambiguous')
   assertEquals(classifyWsaaLoginFailure(new WsaaLoginFailure('signing')).kind, 'definitive')
+  // Indisponibilidad transitoria según la especificación de ARCA → ambigua; los rechazos reales siguen definitivos.
+  for (const code of ['wsn.unavailable', 'wsaa.unavailable', 'wsaa.internalError']) {
+    assertEquals(classifyWsaaLoginFailure(new WsaaLoginFailure('http', axisFault(code))), { kind: 'ambiguous', code: 'WSAA_RESULT_UNKNOWN' }, code)
+  }
+  for (const code of ['coe.notAuthorized', 'cms.cert.expired', 'cms.cert.untrusted', 'xml.bad', 'wsn.notFound']) {
+    assertEquals(classifyWsaaLoginFailure(new WsaaLoginFailure('http', axisFault(code))).kind, 'definitive', code)
+  }
   // El texto crudo no queda en el error.
   const failure = new WsaaLoginFailure('http', axisFault('coe.alreadyAuthenticated', 'texto crudo'))
   assert(!JSON.stringify(failure).includes('texto crudo'))
@@ -532,7 +574,15 @@ Deno.test('paridad Phase 2A: wsaaFaultCode, parseWsaaInstant y allowlist definit
   for (const raw of faults) assertEquals(wsaaFaultCode(raw), setupWsaa.wsaaFaultCode(raw), raw.slice(0, 80))
   const instants = ['2026-09-17T03:00:00-03:00', '2026-09-17T06:00:00.123Z', '2026-09-17T03:00:00', '2026-02-30T00:00:00Z', 'x', '', null]
   for (const value of instants) assertEquals(parseWsaaInstant(value), setupWsaa.parseWsaaInstant(value), String(value))
-  assertEquals(Object.keys(WSAA_DEFINITIVE_FAULTS).sort(), Object.keys(setupWsaa.WSAA_DEFINITIVE_FAULTS).sort())
+  // Única divergencia DELIBERADA con Phase 2A: afip-wsaa excluye `wsn.unavailable` de las fallas definitivas porque la
+  // especificación de ARCA lo define como indisponibilidad transitoria (con un TA vigente, marcarla como definitiva
+  // pondría estado_conexion='error' sobre un estado todavía utilizable). NO agregarlo de vuelta "por paridad": este
+  // test falla si alguien lo hace. El resto de la allowlist (faultcode y código) tiene que seguir idéntico.
+  const DELIBERATELY_TRANSIENT_IN_AFIP_WSAA = ['wsn.unavailable']
+  for (const code of DELIBERATELY_TRANSIENT_IN_AFIP_WSAA) assertEquals(Object.hasOwn(WSAA_DEFINITIVE_FAULTS, code), false, code)
+  const setupDefinitive = Object.entries(setupWsaa.WSAA_DEFINITIVE_FAULTS)
+    .filter(([code]) => !DELIBERATELY_TRANSIENT_IN_AFIP_WSAA.includes(code))
+  assertEquals(Object.entries(WSAA_DEFINITIVE_FAULTS).sort(), setupDefinitive.sort())
 })
 
 Deno.test('paridad Phase 2A: validateIssuedTicket acepta y rechaza lo mismo que validateWsaaTicket', () => {

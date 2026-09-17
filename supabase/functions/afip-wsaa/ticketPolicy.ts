@@ -166,7 +166,12 @@ export class WsaaLoginFailure extends Error {
   }
 }
 
-/** Faults que WSAA evalúa ANTES de emitir un TA (coincidencia exacta). Misma allowlist que Phase 2A. */
+/**
+ * Faults que WSAA evalúa ANTES de emitir un TA (coincidencia exacta). Misma allowlist que Phase 2A salvo UNA
+ * divergencia deliberada: `wsn.unavailable` NO está acá. La especificación de ARCA lo define como servicio
+ * momentáneamente fuera de servicio (grupo transitorio, junto con `wsaa.*`), así que es ambiguo: con un TA vigente se
+ * sigue sirviendo sin marcar `estado_conexion='error'`. No volver a agregarlo "por paridad" con Phase 2A.
+ */
 export const WSAA_DEFINITIVE_FAULTS: Readonly<Record<string, string>> = {
   'coe.notAuthorized': 'WSAA_SERVICE_NOT_AUTHORIZED',
   'cms.bad': 'WSAA_CERTIFICATE_REJECTED',
@@ -184,7 +189,6 @@ export const WSAA_DEFINITIVE_FAULTS: Readonly<Record<string, string>> = {
   'xml.generationTime.invalid': 'WSAA_REJECTED',
   'xml.expirationTime.expired': 'WSAA_REJECTED',
   'xml.expirationTime.invalid': 'WSAA_REJECTED',
-  'wsn.unavailable': 'WSAA_UNAVAILABLE',
   'wsn.notFound': 'WSAA_REJECTED',
 }
 

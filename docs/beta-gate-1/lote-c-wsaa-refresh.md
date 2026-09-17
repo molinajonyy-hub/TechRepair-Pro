@@ -47,7 +47,7 @@ Sin hallazgos de STOP salvo la carrera entre workers, que el owner decidió acep
 | `force_refresh=true` de un **usuario**, aun con `settings_sensitive` | **403 `FORCE_REFRESH_FORBIDDEN`** antes de leer `arca_config`, tocar WSAA o escribir estado |
 | Pedidos concurrentes del mismo negocio en el **mismo worker** (normales o force) | comparten **un** intento |
 | `coe.alreadyAuthenticated` (faultcode SOAP inequívoco) | relee `arca_config`: si hay un TA válido lo reutiliza, **sin** marcar error ni hacer fallar la emisión; si no hay, falla y marca error |
-| Falla **ambigua** (timeout, red, 5xx, fault desconocido, TA sin vencimiento exacto) | nunca se guarda un TA ni se inventa vencimiento ni se pisan token/sign. Con un TA todavía válido se sirve ése **sin** marcar error; sin TA válido, falla y marca error |
+| Falla **ambigua** (timeout, red, 5xx, `wsaa.*`, `wsn.unavailable`, fault desconocido, TA sin vencimiento exacto) | nunca se guarda un TA ni se inventa vencimiento ni se pisan token/sign. Con un TA todavía válido se sirve ése **sin** marcar error; sin TA válido, falla y marca error |
 | Falla **definitiva** (certificado o autorización rechazados, firma) | igual, pero **sí** marca error aunque se sirva el TA vigente: es un problema real que va a cortar la emisión cuando ese TA venza |
 | Después de servir el TA vigente por una renovación fallida o rechazada | este worker no vuelve a pedir LoginCms por la ventana hasta que **ese** TA venza. `force_refresh` no respeta el backoff |
 
@@ -91,14 +91,21 @@ verifica.
 | M2 | carrera entre 2 workers | **2** (aceptado) | 1 | **0** | el segundo recupera el TA del primero |
 | N | `alreadyAuthenticated` sin TA vigente | **1** | 0 | 1 | falla, sin recuperación inventada |
 | O | 200 con `expirationTime` vacío, sin offset, pasado, >12h10m o fecha imposible | **1** | **0** | 1 (0 si hay TA vigente) | no se persiste |
+| P1 | `wsn.unavailable` + TA vigente | **1**, y la siguiente normal **0** | 0 | **0** | sirve el TA vigente (`cached_after_failure`), estado `conectado` |
+| P2 | `wsn.unavailable` sin TA vigente (vencido o inexistente) | **1** | 0 | 1 | falla segura (`WSAA_RESULT_UNKNOWN`), sin TA ni vencimiento inventado |
+
+**Divergencia deliberada con Phase 2A:** `afip-wsaa` excluye `wsn.unavailable` de `WSAA_DEFINITIVE_FAULTS`. La
+especificación de ARCA lo define como servicio momentáneamente fuera de servicio, dentro del grupo transitorio junto
+con `wsaa.*`. El resto de la allowlist (faultcode y código) mantiene paridad exacta con `arca-selfservice-setup`, que
+no se toca en este lote. El test de paridad fija esa única excepción y falla si alguien vuelve a agregarla.
 
 Además:
 - precondición (certificado vencido o sin clave): 422, 0 LoginCms, sin escribir estado (contrato previo);
 - clasificación estricta: un `Error` cualquiera, un faultstring que menciona el código, faultcodes duplicados o
   truncados, o una falla fuera de la etapa HTTP **no** habilitan la recuperación;
 - logs sin secretos;
-- **paridad con Phase 2A**: `wsaaFaultCode`, `parseWsaaInstant`, la allowlist definitiva y `validateIssuedTicket`
-  contra `validateWsaaTicket`;
+- **paridad con Phase 2A**: `wsaaFaultCode`, `parseWsaaInstant`, la allowlist definitiva (salvo `wsn.unavailable`) y
+  `validateIssuedTicket` contra `validateWsaaTicket`;
 - tests de fuente: `index.ts` usa `ticketService` y no tiene ventana de 30 min ni vencimiento inventado; el rechazo
   de force está antes de fijar contexto y antes de `deps.run`.
 
@@ -116,8 +123,9 @@ Cada mutación se aplicó al código productivo, se corrió la suite y se restau
 | cualquier fault HTTP = alreadyAuthenticated | I, I2, J, clasificación |
 | TA sin vencimiento → ahora+12h | O, paridad |
 | falla ambigua con TA vigente marca error | J2, M, M2, O |
+| `wsn.unavailable` vuelve a la allowlist definitiva | P1, P2, clasificación, paridad |
 
-**8/8 detectadas por comportamiento.**
+**9/9 detectadas por comportamiento.**
 
 ## 4. Concurrencia y errores ambiguos
 
@@ -128,6 +136,13 @@ Cada mutación se aplicó al código productivo, se corrió la suite y se restau
 - **Ambiguos:** nunca se inventa éxito, TA ni vencimiento, y nunca se pisan token/sign. Si todavía hay un TA válido,
   un fallo transitorio no cambia `estado_conexion`.
 
+### Riesgo residual — `persistTicket()` falla
+
+Si WSAA emite un TA válido pero el `update` de `arca_config` falla, la respuesta devuelve ese TA a la invocación actual
+y el log registra `code:"PERSIST_FAILED"`, pero el TA no queda guardado para las siguientes. La versión anterior
+también ignoraba el error del `update`, sin dejar rastro; este lote lo hace observable. No se resuelve acá: no hay
+almacenamiento alternativo ni arquitectura distribuida en este alcance.
+
 ## 5. Archivos
 
 | Archivo | Cambio |
@@ -136,7 +151,7 @@ Cada mutación se aplicó al código productivo, se corrió la suite y se restau
 | `supabase/functions/afip-wsaa/ticketService.ts` | **nuevo**: reuse/refresh, dedupe por worker, recuperación, backoff, log sin secretos |
 | `supabase/functions/afip-wsaa/authorizationBoundary.ts` | `force_refresh` sólo internal (403 antes de `run`) |
 | `supabase/functions/afip-wsaa/index.ts` | el `run` delega en `ticketService`. Las funciones WSAA fijadas por el guard W1 (`toAfipDate`, `buildTRA`, `verifyCertKeyMatch`, `signTRAWithPEM`, `callWSAA`, `parseWSAAResponse`) quedan **idénticas** |
-| `tests/deno/afipWsaaTicketRefresh.test.ts` | **nuevo**, 27 tests (corre en CI dentro de `npm run test:deno`) |
+| `tests/deno/afipWsaaTicketRefresh.test.ts` | **nuevo**, 29 tests (corre en CI dentro de `npm run test:deno`) |
 
 **Migraciones:** ninguna. **Edge Functions a desplegar:** sólo `afip-wsaa`.
 
