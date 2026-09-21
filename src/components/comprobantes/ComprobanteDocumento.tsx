@@ -18,6 +18,7 @@ import { formatearNumeroComprobante, muestraNumeroInternoFiscal } from '../../li
 import { formatearFechaCalendario } from '../../lib/fechaCalendario'
 import { formatArgentinaCivilDate } from '../../lib/fiscalCalendar'
 import { resolveBusinessDisplayName } from '../../lib/businessIdentity'
+import { COMPROBANTE_TIPO_DOC_LABEL, COMPROBANTE_TIPO_LABEL_SHORT } from '../../lib/comprobanteTipoLabel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -48,7 +49,7 @@ const TIPO_CONFIG: Record<TipoComprobante, {
 }> = {
   factura_a:    { docLabel: 'FACTURA', letra: 'A',  color: '#3b82f6', bg: 'rgba(59,130,246,0.12)',  border: 'rgba(59,130,246,0.40)',  accentBg: 'rgba(59,130,246,0.06)'  },
   factura_c:    { docLabel: 'FACTURA', letra: 'C',  color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.40)', accentBg: 'rgba(139,92,246,0.06)' },
-  remito:       { docLabel: 'REMITO',  letra: 'R',  color: '#10b981', bg: 'rgba(16,185,129,0.12)', border: 'rgba(16,185,129,0.40)', accentBg: 'rgba(16,185,129,0.06)' },
+  remito:       { docLabel: COMPROBANTE_TIPO_DOC_LABEL.remito,  letra: COMPROBANTE_TIPO_LABEL_SHORT.remito,  color: '#6366f1', bg: 'rgba(99,102,241,0.12)', border: 'rgba(99,102,241,0.40)', accentBg: 'rgba(99,102,241,0.06)' },
   nota_credito: { docLabel: 'NOTA DE CRÉDITO', letra: 'NC', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.40)', accentBg: 'rgba(245,158,11,0.06)' },
 }
 
@@ -59,6 +60,14 @@ const ESTADO_CONFIG: Record<string, { label: string; dot: string; text: string; 
   sin_autorizacion_fiscal: {
     label: 'Sin autorización fiscal',
     dot:  '#f59e0b', text: '#f59e0b', bg: 'rgba(245,158,11,0.1)',
+  },
+  // G2-A — Una Nota de Pedido está cerrada y es válida COMERCIALMENTE, pero no
+  // es fiscal. No puede compartir el verde de `emitido` (que acá significa
+  // «autorizado por ARCA») ni el gris de `borrador` (que significa «todavía no
+  // pasó nada»): ninguna de las dos la describe.
+  no_fiscal: {
+    label: 'Documento interno',
+    dot:  'var(--accent-primary)', text: 'var(--accent-primary)', bg: 'var(--accent-primary-subtle)',
   },
 }
 
@@ -85,6 +94,9 @@ const CLAVE_VISUAL: Record<DisplayStatusKey, string> = {
   error_arca:              'borrador',
   cobrado_pendiente_arca:  'borrador',
   borrador:                'borrador',
+  // G2-A — clave propia: no es 'emitido' (nunca fue a ARCA) ni 'borrador'
+  // (no está pendiente de nada).
+  no_fiscal:               'no_fiscal',
 }
 
 function claveDeEstado(c: { estado?: string | null; estado_fiscal?: string | null; cae?: string | null }): string {

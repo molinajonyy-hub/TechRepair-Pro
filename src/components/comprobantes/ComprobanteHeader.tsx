@@ -1,5 +1,6 @@
 import { TipoComprobante } from '../../hooks/useComprobantes';
 import { getComprobanteDisplayStatus } from '../../utils/comprobanteStatus';
+import { COMPROBANTE_TIPO_DOC_LABEL, COMPROBANTE_TIPO_LABEL_SHORT } from '../../lib/comprobanteTipoLabel';
 import {
   formatearNumeroComprobante,
   muestraNumeroInternoFiscal,
@@ -43,12 +44,12 @@ const TIPO_CONFIG: Record<TipoComprobante, {
     border: 'rgba(139,92,246,0.35)',
   },
   remito: {
-    label: 'REMITO',
-    docLabel: 'REMITO',
-    letra: 'R',
-    color: '#10b981',
-    bg: 'rgba(16,185,129,0.10)',
-    border: 'rgba(16,185,129,0.35)',
+    label: COMPROBANTE_TIPO_DOC_LABEL.remito,
+    docLabel: COMPROBANTE_TIPO_DOC_LABEL.remito,
+    letra: COMPROBANTE_TIPO_LABEL_SHORT.remito,
+    color: '#6366f1',
+    bg: 'rgba(99,102,241,0.10)',
+    border: 'rgba(99,102,241,0.35)',
   },
   nota_credito: {
     label: 'NOTA DE CRÉDITO',

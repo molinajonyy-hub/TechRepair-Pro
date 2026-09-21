@@ -26,13 +26,9 @@ import { formatearNumeroComprobante, puntoVentaVisibleComprobante } from '../lib
 import { formatearFechaCalendario } from '../lib/fechaCalendario';
 import { formatArgentinaCivilDate } from '../lib/fiscalCalendar';
 import { logger } from '../lib/logger';
+import { COMPROBANTE_TIPO_LABEL, COMPROBANTE_TIPO_DOC_LABEL } from '../lib/comprobanteTipoLabel';
 
-const TIPO_LABELS: Record<string, string> = {
-  factura_a: 'Factura A',
-  factura_c: 'Factura C',
-  remito: 'Remito',
-  nota_credito: 'Nota de Crédito',
-};
+const TIPO_LABELS: Record<string, string> = COMPROBANTE_TIPO_LABEL;
 
 export default function ComprobantePage() {
   const { id } = useParams<{ id: string }>();
@@ -273,11 +269,7 @@ export default function ComprobantePage() {
       if (profile.domicilio_fiscal) doc.text(profile.domicilio_fiscal, 14, 28);
       doc.setFontSize(16);
       doc.setTextColor(0, 0, 0);
-      const tipoLabels: Record<string, string> = {
-        factura_a: 'FACTURA A', factura_c: 'FACTURA C',
-        remito: 'REMITO', nota_credito: 'NOTA DE CRÉDITO',
-      };
-      doc.text(tipoLabels[comprobanteActual.tipo] || comprobanteActual.tipo, 14, 45);
+      doc.text(COMPROBANTE_TIPO_DOC_LABEL[comprobanteActual.tipo] || comprobanteActual.tipo, 14, 45);
       doc.setFontSize(12);
       doc.text(`N° ${formatearNumeroComprobante(comprobanteActual)}`, 14, 52);
       doc.setFontSize(10);

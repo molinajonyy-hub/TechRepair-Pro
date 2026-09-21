@@ -32,7 +32,7 @@ const TIPO_LABELS: Record<string, string> = {
   factura_a:    'Factura A',
   factura_b:    'Factura B',
   factura_c:    'Factura C',
-  remito:       'Remito',
+  remito:       COMPROBANTE_TIPO_LABEL.remito,
   nota_credito: 'Nota de Crédito',
   presupuesto:  'Presupuesto',
   ticket:       'Ticket',
@@ -45,6 +45,7 @@ const fmtARS = (n: number) =>
 
 import { fmtDateCompact as fmtDate } from '../utils/dateUtils'
 import { COST_RESTRICTED_LABEL } from '../services/inventoryCostAccess'
+import { COMPROBANTE_TIPO_LABEL } from '../lib/comprobanteTipoLabel'
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 

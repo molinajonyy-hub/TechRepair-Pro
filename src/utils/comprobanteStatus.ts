@@ -1,3 +1,8 @@
+// Extensión explícita: estos módulos también se ejecutan bajo el runner de
+// `node --test`, que no resuelve imports sin extensión. Mismo patrón que
+// `src/lib/fiscalIdentity.ts`.
+import { esTipoFiscal } from '../lib/fiscalIdentity.ts'
+
 export type DisplayStatusKey =
   | 'borrador'
   | 'cobrado_pendiente_arca'
@@ -5,6 +10,7 @@ export type DisplayStatusKey =
   | 'error_arca'
   | 'anulado'
   | 'sin_autorizacion_fiscal'
+  | 'no_fiscal'
 
 export interface ComprobanteForDisplay {
   estado?: string | null
@@ -14,6 +20,24 @@ export interface ComprobanteForDisplay {
   cae?: string | null
   numero_fiscal?: string | null
   total_cobrado?: number | null
+  /** G2-A: el TIPO es la fuente de fiscalidad server-side (`v_tipo_es_fiscal`). */
+  tipo?: string | null
+  es_fiscal?: boolean | null
+}
+
+/**
+ * ¿Este comprobante está FUERA del circuito fiscal por naturaleza?
+ *
+ * G2-A — Una Nota de Pedido (`tipo='remito'`) nace `estado='emitido'` +
+ * `estado_fiscal='no_fiscal'` y NUNCA pide CAE. Cualquiera de las tres señales
+ * alcanza; se consultan las tres para no depender de una sola columna, igual
+ * que `isComprobanteAnnulled`.
+ */
+export function esComprobanteNoFiscal(c: ComprobanteForDisplay): boolean {
+  if (c.estado_fiscal === 'no_fiscal') return true
+  if (c.es_fiscal === false) return true
+  if (c.tipo != null && c.tipo !== '' && !esTipoFiscal(c.tipo)) return true
+  return false
 }
 
 /**
@@ -75,6 +99,9 @@ export function comprobanteStatusDetalle(key: DisplayStatusKey): string | null {
   if (key === 'sin_autorizacion_fiscal') {
     return 'Este registro histórico no posee una autorización válida en ARCA.'
   }
+  if (key === 'no_fiscal') {
+    return 'Documento interno del comercio. No se emite en ARCA ni lleva CAE.'
+  }
   return null
 }
 
@@ -91,6 +118,10 @@ export function comprobanteStatusDetalle(key: DisplayStatusKey): string | null {
  *     estado comercial 'borrador' y CAE real despues de la reconciliacion.
  *   · `sin_autorizacion_fiscal` — TERMINAL. No es un error reintentable.
  *   · `anulado` — se compensa con una NC, no reemitiendo.
+ *   · `no_fiscal` (G2-A) — una Nota de Pedido no tiene camino a ARCA. El
+ *     servidor ya lo rechaza (`remito` + `emitir_en_arca` => error en
+ *     `create_comprobante_checkout_atomic`); ofrecerlo en la UI sería ofrecer
+ *     un botón que sólo puede fallar.
  *
  * `error_arca` y `cobrado_pendiente_arca` SI admiten emision: son justamente
  * los estados que esperan un reintento.
@@ -99,6 +130,7 @@ export function permiteAccionesDeEmision(key: DisplayStatusKey): boolean {
   return key !== 'sin_autorizacion_fiscal'
     && key !== 'anulado'
     && key !== 'emitido_arca'
+    && key !== 'no_fiscal'
 }
 
 /** Arma el contrato completo a partir de la clave. */
@@ -126,13 +158,22 @@ function construir(
  *
  *   1. anulado.
  *   2. sin_autorizacion_fiscal — TERMINAL. Va antes que cualquier inferencia
- *      por `estado='emitido'` o por presencia/ausencia de CAE, porque estos
- *      registros conservan `estado='emitido'` (la venta ocurrió y se cobró) y
- *      cualquier regla de abajo los declararía autorizados por ARCA.
- *   3. emitido en ARCA.
- *   4. error de emisión.
- *   5. cobrado y pendiente.
- *   6. borrador.
+ *      por presencia/ausencia de CAE, porque estos registros conservan
+ *      `estado='emitido'` (la venta ocurrió y se cobró) y cualquier regla de
+ *      abajo los declararía autorizados por ARCA.
+ *   3. no_fiscal (G2-A) — el documento está fuera del circuito fiscal por su
+ *      TIPO. Va antes que `emitido_arca` por el mismo motivo que el anterior.
+ *   4. emitido en ARCA.
+ *   5. error de emisión.
+ *   6. cobrado y pendiente.
+ *   7. borrador.
+ *
+ * G2-A — `estado === 'emitido'` DEJÓ de ser evidencia de autorización fiscal.
+ * Era la tercera condición de la regla 4 y es la causa medida de G2-P1-A: el
+ * checkout crea toda Nota de Pedido con `estado='emitido'` (es su estado
+ * COMERCIAL), así que la ficha anunciaba «Emitido y válido / Autorizado por
+ * ARCA» con escudo verde sobre un documento que nunca fue a ARCA ni tiene CAE.
+ * La autorización fiscal sólo la prueban `cae` o `estado_fiscal='emitido'`.
  */
 export function getComprobanteDisplayStatus(c: ComprobanteForDisplay): ComprobanteDisplayStatus {
   if (isComprobanteAnnulled(c)) {
@@ -141,7 +182,10 @@ export function getComprobanteDisplayStatus(c: ComprobanteForDisplay): Comproban
   if (c.estado_fiscal === 'sin_autorizacion_fiscal') {
     return construir('sin_autorizacion_fiscal', 'Sin autorización fiscal', '#f59e0b', 'rgba(245,158,11,0.1)')
   }
-  if (c.cae || c.estado_fiscal === 'emitido' || c.estado === 'emitido') {
+  if (esComprobanteNoFiscal(c)) {
+    return construir('no_fiscal', 'Documento interno', '#818cf8', 'rgba(99,102,241,0.1)')
+  }
+  if (c.cae || c.estado_fiscal === 'emitido') {
     return construir('emitido_arca', 'Emitido ARCA', '#34d399', 'rgba(16,185,129,0.1)')
   }
   if (c.estado_fiscal === 'error_emision') {

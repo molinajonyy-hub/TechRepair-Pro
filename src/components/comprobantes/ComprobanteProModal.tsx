@@ -17,7 +17,7 @@ import {
   Wallet, RefreshCw, Zap, ChevronDown,
   Keyboard, Minus, Printer, MessageCircle,
   Check, CreditCard, Banknote, ArrowRightLeft,
-  Volume2, VolumeX,
+  Volume2, VolumeX, Landmark,
 } from 'lucide-react'
 import { soundSystem } from '../../lib/sounds'
 import { posLogger } from '../../lib/logger'
@@ -52,6 +52,7 @@ import {
 } from '../../lib/checkoutIdempotency'
 import { esTipoFiscal } from '../../lib/fiscalIdentity'
 import { formatearNumeroComprobante } from '../../lib/fiscalDisplay'
+import { COMPROBANTE_TIPO_LABEL, COMPROBANTE_TIPO_LABEL_SHORT } from '../../lib/comprobanteTipoLabel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -81,13 +82,34 @@ interface PagoLinea {
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const TIPO_CONFIG: Record<TipoComprobante, { label: string; short: string; color: string; bg: string; border: string }> = {
-  factura_a:    { label: 'Factura A',       short: 'A',     color: 'var(--pos-accent-2)', bg: 'rgba(99,102,241,0.12)',  border: 'rgba(99,102,241,0.4)' },
-  factura_c:    { label: 'Factura C',       short: 'C',     color: 'var(--pos-success)', bg: 'rgba(52,211,153,0.12)',  border: 'rgba(52,211,153,0.4)' },
-  nota_credito: { label: 'Nota Crédito',    short: 'NC',    color: 'var(--pos-danger)', bg: 'rgba(239,68,68,0.12)',   border: 'rgba(239,68,68,0.4)' },
-  remito:       { label: 'Remito',          short: 'REM',   color: 'var(--pos-warning)', bg: 'rgba(245,158,11,0.12)',  border: 'rgba(245,158,11,0.4)' },
+  factura_a:    { label: COMPROBANTE_TIPO_LABEL.factura_a,    short: COMPROBANTE_TIPO_LABEL_SHORT.factura_a,    color: 'var(--pos-accent-2)', bg: 'rgba(99,102,241,0.12)',  border: 'rgba(99,102,241,0.4)' },
+  factura_c:    { label: COMPROBANTE_TIPO_LABEL.factura_c,    short: COMPROBANTE_TIPO_LABEL_SHORT.factura_c,    color: 'var(--pos-success)', bg: 'rgba(52,211,153,0.12)',  border: 'rgba(52,211,153,0.4)' },
+  nota_credito: { label: COMPROBANTE_TIPO_LABEL.nota_credito, short: COMPROBANTE_TIPO_LABEL_SHORT.nota_credito, color: 'var(--pos-danger)', bg: 'rgba(239,68,68,0.12)',   border: 'rgba(239,68,68,0.4)' },
+  remito:       { label: COMPROBANTE_TIPO_LABEL.remito,       short: COMPROBANTE_TIPO_LABEL_SHORT.remito,       color: 'var(--pos-accent-2)', bg: 'rgba(99,102,241,0.12)',  border: 'rgba(99,102,241,0.4)' },
 }
 type TipoPosGenerico = Exclude<TipoComprobante, 'nota_credito'>
-const TIPOS_POS_GENERICOS = ['factura_a', 'factura_c', 'remito'] as const satisfies readonly TipoPosGenerico[]
+
+/**
+ * G2-A — Default del POS: `remito`, presentado como «Nota de Pedido».
+ *
+ * La venta corriente de un taller no se emite en ARCA. Antes el POS abría en
+ * `factura_c` con el check de ARCA apagado, y como el checkout deriva el estado
+ * documental del TIPO (`v_tipo_es_fiscal`), TODA venta por defecto quedaba en
+ * `estado='borrador'` + `estado_fiscal='pendiente_emision'` esperando un CAE
+ * que nadie iba a pedir — y por lo tanto editable para siempre (G2-P0-1).
+ */
+const TIPO_POS_DEFAULT: TipoPosGenerico = 'remito'
+
+/**
+ * Tipos ofrecidos en el selector del POS, en orden de uso.
+ *
+ * G2-A — `factura_a` sale del selector de beta: su flujo fiscal (receptor con
+ * CUIT, IVA discriminado) todavía no está certificado. NO se elimina el soporte
+ * ni la constante: sigue siendo un `TipoPosGenerico` válido, el backend lo
+ * acepta y un `tipoInicial='factura_a'` sigue funcionando. Sólo deja de ser
+ * alcanzable por el usuario beta desde la UI.
+ */
+const TIPOS_POS_GENERICOS = ['remito', 'factura_c'] as const satisfies readonly TipoPosGenerico[]
 const CONDICIONES = ['Consumidor Final','Responsable Inscripto','Monotributo','Exento','Responsable No Inscripto']
 const emptyLinea = (): LineaItem => ({
   _key: Math.random().toString(36).slice(2),
@@ -340,7 +362,7 @@ export function ComprobanteProModal({
   const { flatMethods } = usePaymentCommissions()
 
   // ── Encabezado ───────────────────────────────────────────────────────────
-  const [tipo, setTipo]             = useState<TipoPosGenerico>(tipoInicial ?? 'factura_c')
+  const [tipo, setTipo]             = useState<TipoPosGenerico>(tipoInicial ?? TIPO_POS_DEFAULT)
   const [puntoVenta, setPuntoVenta] = useState(puntoVentaInicial ?? '0001')
   /** PV fiscal leído de arca_config. Sólo informativo: manda el servidor. */
   const [pvFiscal, setPvFiscal] = useState<string | null>(null)
@@ -354,7 +376,18 @@ export function ComprobanteProModal({
   const [selectedClienteCache, setSelectedClienteCache] = useState<ClienteOption | null>(null)
   const [observaciones, setObservaciones] = useState('')
   const [exchangeRate, setExchangeRate]   = useState(1)
-  const [emitirEnArca, setEmitirEnArca]   = useState(false)
+  /**
+   * G2-A — DERIVADO del tipo, ya no es un estado con checkbox propio.
+   *
+   * Elegir Factura C ES la intención fiscal: no hace falta un segundo
+   * consentimiento. Y al derivarlo desaparece por construcción la combinación
+   * `factura_c + emitir_en_arca=false`, que era la que dejaba comprobantes
+   * fiscales esperando un CAE que nadie pedía.
+   *
+   * El campo booleano se sigue enviando en el payload porque el contrato del
+   * checkout no cambia en este lote; lo que cambia es quién lo decide.
+   */
+  const emitirEnArca = esTipoFiscal(tipo)
 
   // ── Ítems ────────────────────────────────────────────────────────────────
   const [lineas, setLineas] = useState<LineaItem[]>([emptyLinea()])
@@ -664,9 +697,11 @@ export function ComprobanteProModal({
 
   useEffect(() => {
     if (!isOpen) return
-    setTipo(tipoInicial ?? 'factura_c'); setPuntoVenta(puntoVentaInicial ?? '0001')
+    // G2-A: el reset vuelve a Nota de Pedido, igual que la apertura. `emitirEnArca`
+    // ya no se resetea porque se deriva del tipo.
+    setTipo(tipoInicial ?? TIPO_POS_DEFAULT); setPuntoVenta(puntoVentaInicial ?? '0001')
     setCondicion(condicionFiscalInicial ?? 'Consumidor Final'); setClienteId(initialClienteId ?? '')
-    setClienteQuery(''); setSelectedClienteCache(null); setObservaciones(''); setEmitirEnArca(false)
+    setClienteQuery(''); setSelectedClienteCache(null); setObservaciones('')
     setSubmitError(null); setShowSuccess(false); setArcaWarning(null)
     setComprobanteCreado(null); setShowWaModal(false)
     setPagos([]); setSpotQ(''); setSpotResults([]); setSpotKeyIdx(-1); setSpotlightMode(false)
@@ -1340,10 +1375,8 @@ export function ComprobanteProModal({
               const cfg = TIPO_CONFIG[k]
               const sel = k === tipo
               return (
-                <button key={k} onClick={() => {
-                  setTipo(k)
-                  if (k === 'remito') setEmitirEnArca(false)
-                }} aria-pressed={sel} title={cfg.label}
+                <button key={k} data-testid={`pos-tipo-${k}`} onClick={() => setTipo(k)}
+                  aria-pressed={sel} title={cfg.label}
                   style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.35rem 0.875rem', borderRadius: '0.5rem', border: `1px solid ${sel ? cfg.border : 'transparent'}`, background: sel ? cfg.bg : 'transparent', color: sel ? cfg.color : 'var(--pos-text-secondary)', fontSize: '0.78rem', fontWeight: sel ? 800 : 500, cursor: 'pointer', transition: 'all 0.15s', fontFamily: F }}>
                   {/* Indicador no-cromático: check para el tipo activo */}
                   {sel && <Check size={12} style={{ flexShrink: 0 }} />}
@@ -1778,11 +1811,15 @@ export function ComprobanteProModal({
                   style={{ flex: 1, padding: '0.4rem 0.625rem', background: 'var(--pos-soft-bg)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem', color: 'var(--pos-text-secondary)', fontSize: '0.78rem', cursor: 'pointer', outline: 'none', fontFamily: F }}>
                   {CONDICIONES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
+                {/* G2-A — Elegir Factura C YA ES la intención fiscal. Esto informa
+                    la consecuencia; no vuelve a pedir permiso con un checkbox que
+                    permitía dejar una factura sin emitir. */}
                 {tipoEsFiscal && (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', color: 'var(--pos-text-secondary)', fontSize: '0.78rem', cursor: 'pointer', fontFamily: F, whiteSpace: 'nowrap' }}>
-                    <input type="checkbox" checked={emitirEnArca} onChange={e => setEmitirEnArca(e.target.checked)} />
-                    Emitir en ARCA
-                  </label>
+                  <span data-testid="pos-arca-aviso"
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.3rem 0.625rem', background: 'var(--pos-inset-bg)', border: '1px solid var(--pos-border)', borderRadius: '0.5rem', color: 'var(--pos-text-secondary)', fontSize: '0.75rem', fontFamily: F, whiteSpace: 'nowrap' }}>
+                    <Landmark size={13} style={{ flexShrink: 0 }} />
+                    Se emitirá electrónicamente en ARCA
+                  </span>
                 )}
               </div>
               {/* Aviso Factura A: requiere CUIT del receptor */}
@@ -2498,7 +2535,10 @@ export function ComprobanteProModal({
                 setErrorShakeKey(k => k + 1)
                 return
               }
-              if (TIPOS_POS_GENERICOS.includes(d.tipo as TipoPosGenerico)) setTipo(d.tipo as TipoPosGenerico)
+              // G2-A: sólo se restaura un tipo que el selector siga ofreciendo.
+              // Un borrador viejo con `factura_a` no debe reaparecer en beta como
+              // un tipo que el usuario ya no puede ver ni cambiar.
+              if ((TIPOS_POS_GENERICOS as readonly string[]).includes(d.tipo)) setTipo(d.tipo as TipoPosGenerico)
               if (d.puntoVenta) setPuntoVenta(d.puntoVenta)
               if (d.condicion) setCondicion(d.condicion)
               if (d.clienteId) { setClienteId(d.clienteId); setClienteQuery(d.clienteQuery || '') }

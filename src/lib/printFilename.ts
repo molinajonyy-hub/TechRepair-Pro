@@ -17,7 +17,7 @@ export function sanitizeFilenamePart(value: string): string {
 const TIPO_COMPROBANTE_FILE: Record<string, string> = {
   factura_a:   'Factura-A',
   factura_c:   'Factura-C',
-  remito:      'Remito',
+  remito:      'Nota-de-Pedido',
   nota_credito:'Nota-de-Credito',
 }
 

@@ -16,6 +16,7 @@ import { cuentasService, getAccountStatus, type Account } from '../services/cuen
 import { ModalPagarCC } from '../components/comprobantes/ModalPagarCC'
 import { useAuth } from '../contexts/AuthContext'
 import { usePermissions } from '../hooks/usePermissions'
+import { COMPROBANTE_TIPO_LABEL } from '../lib/comprobanteTipoLabel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -112,10 +113,7 @@ const WA_RESULT_LABELS: Record<string, { label: string; color: string }> = {
 const fmt = (v: number) =>
   new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(Number.isFinite(v) ? v : 0)
 
-const TIPO_LABEL: Record<string, string> = {
-  factura_a: 'Factura A', factura_c: 'Factura C',
-  nota_credito: 'Nota de Crédito', remito: 'Remito',
-}
+const TIPO_LABEL: Record<string, string> = COMPROBANTE_TIPO_LABEL
 
 const ESTADO_COM_META: Record<string, { label: string; color: string; bg: string }> = {
   pagado:   { label: 'Pagado',   color: '#34d399', bg: 'rgba(52,211,153,0.1)' },
@@ -677,7 +675,7 @@ export function CustomerDetail() {
                     {([
                       { key: 'todos',    label: 'Todos'   },
                       { key: 'facturas', label: 'Facturas' },
-                      { key: 'remitos',  label: 'Remitos' },
+                      { key: 'remitos',  label: 'Notas de Pedido' },
                       { key: 'nc',       label: 'NC'      },
                     ] as const).map(f => (
                       <button key={f.key} onClick={() => setFilterTipo(f.key)}
