@@ -14,7 +14,12 @@ test.describe('@mp-pos-beta preservation', () => {
       forbidden.push(route.request().url()); return route.abort()
     })
     await openComprobanteModal(page)
-    await page.getByRole('button', { name: 'Remito', exact: true }).click()
+    // G2-A — la venta interna se llama «Nota de Pedido» (`tipo='remito'`) y es
+    // el default del POS. Se seleccciona igual, de forma explícita: lo que este
+    // test afirma es que una venta NO fiscal con MercadoPago manual impacta
+    // pagos/Caja/finanzas sin tocar la red de MP, y eso no puede depender de
+    // cuál sea el default del día.
+    await page.getByRole('button', { name: 'Nota de Pedido', exact: true }).click()
     await searchAndAddProduct(page, 'Producto E2E')
     await page.getByRole('button', { name: 'MercadoPago', exact: true }).click()
     await page.getByRole('group', { name: 'Opciones de MercadoPago' }).getByRole('button', { name: 'Débito' }).click()

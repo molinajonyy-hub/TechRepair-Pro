@@ -138,30 +138,40 @@ test.describe('@pos-mobile POS — layout responsive y punto de venta', () => {
           'el tema debe estar aplicado en <html>').toBe(tema)
 
         // ── E · PUNTO DE VENTA: fiscal vs local ──────────────────────────────
-        // El tipo por defecto es fiscal (factura_c), así que el POS debe mostrar
-        // el PV de ARCA (0003) en modo lectura — nunca el local (0007), que es
-        // lo que se persistía y se imprimía como identidad fiscal.
+        // G2-A invirtió el punto de partida: el POS abre en Nota de Pedido
+        // (`remito`, no fiscal), así que lo primero que se ve es el PV LOCAL.
+        // El contrato que este bloque protege no cambió — sigue verificando las
+        // dos direcciones, ahora en el orden real del producto.
         const pvFiscal = page.locator('[data-testid="comprobante-pv-fiscal"]')
+        const pvLocal = page.locator('[data-testid="comprobante-pv-local"]')
+
+        // Por defecto (Nota de Pedido) manda el PV local: 0007, el que
+        // salesPointService leyó con las columnas correctas — ni el señuelo
+        // 0003 más antiguo ni el default 0001.
+        await expect(pvLocal, 'una Nota de Pedido usa el PV local')
+          .toBeVisible({ timeout: 10_000 })
+        await expect(pvLocal).toHaveValue(POS_MOBILE_FIXTURE.puntoVentaFormateado)
+        await expect(pvFiscal,
+          'un documento no fiscal no puede mostrar PV de ARCA').toHaveCount(0)
+
+        // Al pasar a Factura C aparece el PV de ARCA (0003) en modo lectura, y
+        // el local desaparece: nunca se persiste ni se imprime el local como
+        // identidad fiscal.
+        await page.getByRole('button', { name: 'Factura C', exact: true }).click()
         await expect(pvFiscal, 'un comprobante fiscal muestra el PV de ARCA')
           .toBeVisible({ timeout: 10_000 })
         await expect(pvFiscal).toContainText(POS_MOBILE_FIXTURE.puntoVentaFiscalFormateado)
         await expect(pvFiscal,
           'el PV local no puede presentarse como fiscal')
           .not.toContainText(POS_MOBILE_FIXTURE.puntoVentaFormateado)
-        await expect(page.locator('[data-testid="comprobante-pv-local"]'),
+        await expect(pvLocal,
           'en un fiscal el PV local no debe ser editable').toHaveCount(0)
 
-        // Al pasar a Remito (no fiscal) el PV local vuelve, y es el que
-        // salesPointService leyó con las columnas correctas: 0007, no el
-        // señuelo 0003 más antiguo ni el default 0001.
-        await page.getByRole('button', { name: 'Remito' }).click()
-        const pvLocal = page.locator('[data-testid="comprobante-pv-local"]')
-        await expect(pvLocal, 'un remito usa el PV local').toBeVisible()
-        await expect(pvLocal).toHaveValue(POS_MOBILE_FIXTURE.puntoVentaFormateado)
-        await expect(page.locator('[data-testid="comprobante-pv-fiscal"]')).toHaveCount(0)
-
-        // Se vuelve al tipo fiscal para el resto del gate.
-        await page.getByRole('button', { name: 'Factura C' }).click()
+        // Se vuelve a Nota de Pedido y de nuevo a Factura C para dejar el gate
+        // en el tipo fiscal, comprobando que el ida y vuelta es estable.
+        await page.getByRole('button', { name: 'Nota de Pedido', exact: true }).click()
+        await expect(pvLocal).toBeVisible()
+        await page.getByRole('button', { name: 'Factura C', exact: true }).click()
         await expect(pvFiscal).toBeVisible()
 
         // ── HEADER · nada recortado (el defecto del owner) ───────────────────

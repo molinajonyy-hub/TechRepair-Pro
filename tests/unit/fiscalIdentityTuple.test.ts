@@ -236,13 +236,22 @@ test('NEG · checkout genérico deriva fiscalidad del tipo y no ofrece Nota de C
 
   const modal = stripComments(read('../../src/components/comprobantes/ComprobanteProModal.tsx'))
   const tiposPos = /const TIPOS_POS_GENERICOS\s*=\s*\[[^\]]+\]/.exec(modal)?.[0] ?? ''
-  assert.match(tiposPos, /factura_a/)
+  // G2-A — `factura_a` sale del selector de beta (su flujo fiscal no está
+  // certificado). El soporte de backend y el tipo siguen existiendo; lo que
+  // cambia es que el usuario no puede llegar ahí desde la UI.
+  assert.doesNotMatch(tiposPos, /factura_a/,
+    'Factura A está fuera del selector productivo de beta')
   assert.match(tiposPos, /factura_c/)
   assert.match(tiposPos, /remito/)
   assert.doesNotMatch(tiposPos, /nota_credito/,
     'la NC sólo puede nacer desde un comprobante original')
-  assert.match(modal, /if \(k === 'remito'\) setEmitirEnArca\(false\)/,
-    'cambiar a remito debe limpiar un flag ARCA previo')
+  // G2-A — antes se LIMPIABA un flag ARCA previo al cambiar a remito. Ahora no
+  // hay flag que limpiar: se deriva del tipo, así que el estado inconsistente
+  // es inexpresable. Es la misma garantía, una capa más abajo.
+  assert.match(modal, /const emitirEnArca = esTipoFiscal\(tipo\)/,
+    '`emitir_en_arca` debe derivarse del tipo, no ser un estado independiente')
+  assert.doesNotMatch(modal, /setEmitirEnArca/,
+    'ningún setter puede desacoplar `emitir_en_arca` del tipo')
 
   const restore = modal.slice(modal.indexOf('const d = draftInfo.data'), modal.indexOf('Restaurar borrador'))
   const guardNc = restore.indexOf("if (d.tipo === 'nota_credito')")
@@ -317,11 +326,25 @@ test('NEG · el CbtesAsoc no vuelve a inferir tipo ni punto de venta', () => {
   assert.match(src, /fiscalIdentity\(original\)/)
 })
 
-test('NEG · el resolvedor de estado atiende sin_autorizacion_fiscal antes que emitido', () => {
+test('NEG · el resolvedor de estado nunca infiere autorizacion fiscal desde `estado`', () => {
   const src = stripComments(read('../../src/utils/comprobanteStatus.ts'))
-  const iSin = src.indexOf("'sin_autorizacion_fiscal'")
-  const iEmi = src.indexOf("c.estado === 'emitido'")
-  assert.ok(iSin > -1 && iEmi > -1)
-  assert.ok(iSin < iEmi,
-    'si se evalua despues, un registro con estado=emitido se muestra como Emitido ARCA')
+
+  // G2-A — Este test protegía el ORDEN de evaluación porque `c.estado ===
+  // 'emitido'` contaba como evidencia de ARCA y había que atenderlo después de
+  // `sin_autorizacion_fiscal`. Ahora esa inferencia NO EXISTE, así que la
+  // garantía es más fuerte que un orden: no hay nada que ordenar.
+  assert.doesNotMatch(src, /c\.estado === 'emitido'/,
+    '`estado` es el estado COMERCIAL: no puede volver a probar autorizacion fiscal (G2-P1-A)')
+
+  // La única evidencia fiscal admitida.
+  assert.match(src, /if \(c\.cae \|\| c\.estado_fiscal === 'emitido'\)/)
+
+  // Y el orden que sí sigue importando: lo terminal y lo no-fiscal van ANTES
+  // que la rama de ARCA.
+  const iSin   = src.indexOf("'sin_autorizacion_fiscal'")
+  const iNoFis = src.indexOf('esComprobanteNoFiscal(c)')
+  const iArca  = src.indexOf("construir('emitido_arca'")
+  assert.ok(iSin > -1 && iNoFis > -1 && iArca > -1)
+  assert.ok(iSin < iArca, 'sin_autorizacion_fiscal se evalua antes que emitido_arca')
+  assert.ok(iNoFis < iArca, 'un documento no fiscal se resuelve antes que la rama de ARCA')
 })

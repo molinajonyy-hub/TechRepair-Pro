@@ -41,6 +41,7 @@ import { WarrantyFormModal } from '../components/warranties/WarrantyFormModal'
 import { useWarranties } from '../hooks/useWarranties'
 import { useOrderCanonicalBalance } from '../hooks/useOrderCanonicalBalance'
 import { formatImporteWhatsApp } from '../services/whatsappTemplate'
+import { comprobanteTipoLabel } from '../lib/comprobanteTipoLabel'
 
 interface Document {
   id: string
@@ -421,9 +422,7 @@ export function OrderDetail() {
                     <div>
                       <p style={{ fontSize: '0.875rem', color: '#64748b' }}>
                         Tipo: <span style={{ color: '#f8fafc', fontWeight: 500 }}>
-                          {comprobantes[0].tipo === 'factura_a' ? 'Factura A' :
-                           comprobantes[0].tipo === 'factura_c' ? 'Factura C' :
-                           comprobantes[0].tipo === 'remito' ? 'Remito' : 'Nota de Crédito'}
+                          {comprobanteTipoLabel(comprobantes[0].tipo, 'Nota de Crédito')}
                         </span>
                       </p>
                       {comprobantes[0].numero && (

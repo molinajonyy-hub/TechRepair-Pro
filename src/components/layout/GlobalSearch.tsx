@@ -4,6 +4,7 @@ import { Search, X, User, Package, FileText, Wrench, Loader2 } from 'lucide-reac
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { tokenize } from '../../utils/searchUtils'
+import { COMPROBANTE_TIPO_LABEL } from '../../lib/comprobanteTipoLabel'
 
 interface SearchResult {
   id: string
@@ -230,12 +231,7 @@ export function GlobalSearch() {
         // Build comprobante results
         if (comprobantesRes.data && comprobantesRes.data.length > 0) {
           for (const c of comprobantesRes.data) {
-            const tipoLabel: Record<string, string> = {
-              remito: 'Remito',
-              factura_a: 'Factura A',
-              factura_c: 'Factura C',
-              nota_credito: 'Nota de Crédito',
-            }
+            const tipoLabel: Record<string, string> = COMPROBANTE_TIPO_LABEL
             grouped.push({
               id: c.id,
               type: 'comprobante',

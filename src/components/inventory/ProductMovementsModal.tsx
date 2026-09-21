@@ -103,13 +103,14 @@ type FilterKey = typeof FILTER_OPTIONS[number]['key']
 
 const TIPO_COMP_LABELS: Record<string, string> = {
   factura_a: 'Factura A', factura_c: 'Factura C',
-  nota_credito: 'NC', remito: 'Remito',
+  nota_credito: 'NC', remito: COMPROBANTE_TIPO_LABEL.remito,
 }
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n)
 
 import { fmtDate, fmtTime } from '../../utils/dateUtils'
+import { COMPROBANTE_TIPO_LABEL } from '../../lib/comprobanteTipoLabel'
 
 // ─── Main component ───────────────────────────────────────────────────────────
 

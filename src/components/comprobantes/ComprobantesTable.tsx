@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { TipoComprobante, Comprobante } from '../../hooks/useComprobantes';
 import { getComprobanteDisplayStatus } from '../../utils/comprobanteStatus';
+import { COMPROBANTE_TIPO_LABEL } from '../../lib/comprobanteTipoLabel';
 import { smartSearch } from '../../utils/searchUtils';
 
 interface ComprobantesTableProps {
@@ -47,10 +48,10 @@ const tipoConfig: Record<TipoComprobante, {
     bgColor: 'rgba(16, 185, 129, 0.1)'
   },
   remito: {
-    label: 'Remito',
+    label: COMPROBANTE_TIPO_LABEL.remito,
     icon: FileText,
-    color: '#fbbf24',
-    bgColor: 'rgba(245, 158, 11, 0.1)'
+    color: '#818cf8',
+    bgColor: 'rgba(99, 102, 241, 0.1)'
   },
   nota_credito: {
     label: 'Nota Crédito',
@@ -276,7 +277,7 @@ export function ComprobantesTable({ comprobantes, onEdit, onNotaCredito, onElimi
                   <option value="todos">Todos los tipos</option>
                   <option value="factura_a">Factura A</option>
                   <option value="factura_c">Factura C</option>
-                  <option value="remito">Remito</option>
+                  <option value="remito">{COMPROBANTE_TIPO_LABEL.remito}</option>
                   <option value="nota_credito">Nota de Crédito</option>
                 </select>
               </div>

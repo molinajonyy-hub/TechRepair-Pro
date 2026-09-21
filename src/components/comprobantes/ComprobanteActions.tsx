@@ -51,6 +51,17 @@ export function ComprobanteActions({
   const esAnulado = isComprobanteAnnulled(comprobante);
   const esBorrador = !esAnulado && !sinAutorizacionFiscal && comprobante.estado === 'borrador';
   const esEmitido = estadoFiscalCanonico.fiscalmenteEmitido;
+  /**
+   * G2-A — Una Nota de Pedido está VIGENTE como documento comercial aunque no
+   * sea fiscal. Hay que distinguir las dos cosas: `esEmitido` responde «¿ARCA lo
+   * autorizó?» y gatea lo FISCAL (nota de crédito); `esDocumentoVigente`
+   * responde «¿este documento existe y opera?» y gatea lo OPERATIVO (PDF,
+   * anulación). Antes coincidían porque el remito entraba por la puerta
+   * equivocada de `estado='emitido'`; al corregir esa inferencia, colgar PDF y
+   * Anular de `esEmitido` se los habría sacado a toda Nota de Pedido.
+   */
+  const esNoFiscal = estadoFiscalCanonico.key === 'no_fiscal';
+  const esDocumentoVigente = esEmitido || esNoFiscal;
   const esPendienteConciliacion = esBorrador && comprobante.estado_fiscal === 'pendiente_conciliacion';
   const esCobradoPendienteArca = esBorrador && !esPendienteConciliacion && (comprobante.total_cobrado || 0) > 0 && !comprobante.cae && comprobante.estado_fiscal !== 'emitido';
 
@@ -65,14 +76,19 @@ export function ComprobanteActions({
   };
 
   // Status colors
-  const statusColor = esAnulado ? 'var(--error)' : sinAutorizacionFiscal ? 'var(--warning)' : esEmitido ? 'var(--success)' : esPendienteConciliacion ? '#a78bfa' : esCobradoPendienteArca ? '#60a5fa' : 'var(--warning)';
-  const statusBg = esAnulado ? 'var(--error-subtle)' : sinAutorizacionFiscal ? 'var(--warning-light)' : esEmitido ? 'var(--success-subtle)' : esPendienteConciliacion ? 'rgba(167,139,250,0.1)' : esCobradoPendienteArca ? 'rgba(96,165,250,0.1)' : 'var(--warning-light)';
-  const statusBorder = esAnulado ? 'var(--error)' : sinAutorizacionFiscal ? 'var(--warning)' : esEmitido ? 'var(--success)' : esPendienteConciliacion ? 'rgba(167,139,250,0.4)' : esCobradoPendienteArca ? 'rgba(96,165,250,0.4)' : 'var(--warning)';
-  const statusLabel = esAnulado ? 'Comprobante anulado' : sinAutorizacionFiscal ? estadoFiscalCanonico.label : esEmitido ? 'Emitido y válido' : esPendienteConciliacion ? 'Pendiente de verificación' : esCobradoPendienteArca ? 'Cobrado / Pendiente ARCA' : 'Pendiente de emisión';
+  const statusColor = esAnulado ? 'var(--error)' : sinAutorizacionFiscal ? 'var(--warning)' : esNoFiscal ? 'var(--accent-primary)' : esEmitido ? 'var(--success)' : esPendienteConciliacion ? '#a78bfa' : esCobradoPendienteArca ? '#60a5fa' : 'var(--warning)';
+  const statusBg = esAnulado ? 'var(--error-subtle)' : sinAutorizacionFiscal ? 'var(--warning-light)' : esNoFiscal ? 'var(--accent-primary-subtle)' : esEmitido ? 'var(--success-subtle)' : esPendienteConciliacion ? 'rgba(167,139,250,0.1)' : esCobradoPendienteArca ? 'rgba(96,165,250,0.1)' : 'var(--warning-light)';
+  const statusBorder = esAnulado ? 'var(--error)' : sinAutorizacionFiscal ? 'var(--warning)' : esNoFiscal ? 'var(--accent-primary)' : esEmitido ? 'var(--success)' : esPendienteConciliacion ? 'rgba(167,139,250,0.4)' : esCobradoPendienteArca ? 'rgba(96,165,250,0.4)' : 'var(--warning)';
+  // G2-A: `esNoFiscal` va ANTES que `esEmitido` en toda la cadena. Un documento
+  // interno nunca debe heredar el copy fiscal («Emitido y válido / Autorizado
+  // por ARCA») ni el escudo verde.
+  const statusLabel = esAnulado ? 'Comprobante anulado' : sinAutorizacionFiscal ? estadoFiscalCanonico.label : esNoFiscal ? estadoFiscalCanonico.label : esEmitido ? 'Emitido y válido' : esPendienteConciliacion ? 'Pendiente de verificación' : esCobradoPendienteArca ? 'Cobrado / Pendiente ARCA' : 'Pendiente de emisión';
   const statusSub = esAnulado
     ? 'Sin validez fiscal'
     : sinAutorizacionFiscal
     ? (estadoFiscalCanonico.detail ?? '')
+    : esNoFiscal
+    ? 'Documento interno · no se emite en ARCA'
     : esEmitido
     ? comprobante.cae ? `CAE: ${comprobante.cae.slice(0, 12)}…` : 'Autorizado por ARCA'
     : esPendienteConciliacion
@@ -80,7 +96,7 @@ export function ComprobanteActions({
     : esCobradoPendienteArca
     ? 'Cobro registrado · sin emisión fiscal'
     : 'Debe emitirse en ARCA';
-  const StatusIcon = esAnulado ? Ban : sinAutorizacionFiscal ? AlertTriangle : esEmitido ? Shield : esPendienteConciliacion ? AlertTriangle : esCobradoPendienteArca ? CheckCircle : Clock;
+  const StatusIcon = esAnulado ? Ban : sinAutorizacionFiscal ? AlertTriangle : esNoFiscal ? FileText : esEmitido ? Shield : esPendienteConciliacion ? AlertTriangle : esCobradoPendienteArca ? CheckCircle : Clock;
 
   return (
     <>
@@ -138,8 +154,8 @@ export function ComprobanteActions({
             </button>
           )}
 
-          {/* Descargar PDF */}
-          {esEmitido && (
+          {/* Descargar PDF — operativo, no fiscal: también para Nota de Pedido. */}
+          {esDocumentoVigente && (
             <button onClick={onDescargarPDF} className="btn btn-outline" disabled={pdfLoading} style={{ width: '100%', justifyContent: 'center' }}>
               <Download size={15} /> {pdfLoading ? 'Generando...' : 'Descargar PDF'}
             </button>
@@ -165,7 +181,7 @@ export function ComprobanteActions({
           {/* Anular — solo si NUNCA fue autorizado por ARCA. Un comprobante con
               CAE no puede anularse cambiando estado local (regla fiscal); para
               eso está el botón "Nota de crédito" de arriba. */}
-          {esEmitido && !comprobante.cae && (
+          {esDocumentoVigente && !comprobante.cae && (
             <button
               onClick={() => setShowAnularModal(true)}
               className="btn"

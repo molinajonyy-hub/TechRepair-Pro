@@ -8,6 +8,7 @@
 import type { Comprobante, ComprobanteItem } from '../../hooks/useComprobantes'
 import type { OrderPrintSettings } from '../../hooks/useOrderPrintSettings'
 import { getComprobanteDisplayStatus, type DisplayStatusKey } from '../../utils/comprobanteStatus'
+import { COMPROBANTE_TIPO_DOC_LABEL, COMPROBANTE_TIPO_LABEL_SHORT } from '../../lib/comprobanteTipoLabel'
 import {
   formatearNumeroComprobante,
   muestraNumeroInternoFiscal,
@@ -65,18 +66,15 @@ const SELLO: Record<DisplayStatusKey, { texto: string; color: string; fondo: str
   error_arca:             null,
   cobrado_pendiente_arca: null,
   borrador:               null,
+  // G2-A — La hoja de una Nota de Pedido SÍ lleva sello, pero para decir lo
+  // contrario que el verde: que es un documento interno y no una factura. El
+  // cliente se lo lleva en la mano; callarlo es lo que lo haría parecer fiscal.
+  no_fiscal:              { texto: '● Documento no fiscal', color: '#4f46e5', fondo: '#eef2ff' },
 }
 
-const TIPO_LABEL: Record<string, string> = {
-  factura_a: 'FACTURA A',
-  factura_c: 'FACTURA C',
-  remito: 'REMITO',
-  nota_credito: 'NOTA DE CRÉDITO',
-}
+const TIPO_LABEL: Record<string, string> = COMPROBANTE_TIPO_DOC_LABEL
 
-const TIPO_LETRA: Record<string, string> = {
-  factura_a: 'A', factura_c: 'C', remito: 'R', nota_credito: 'NC',
-}
+const TIPO_LETRA: Record<string, string> = COMPROBANTE_TIPO_LABEL_SHORT
 
 // ─── Main component ───────────────────────────────────────────────────────────
 

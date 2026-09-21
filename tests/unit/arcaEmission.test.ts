@@ -705,7 +705,28 @@ test('anular() no ejecuta NINGUNA escritura financiera ni de stock client-side',
 
 test('UI: el botón "Anular" se oculta cuando el comprobante ya tiene CAE (dirige a Nota de Crédito)', () => {
   const actions = read('../../src/components/comprobantes/ComprobanteActions.tsx');
-  assert.match(actions, /esEmitido && !comprobante\.cae/);
+  // G2-A — el gate pasó de `esEmitido` a `esDocumentoVigente` para que una Nota
+  // de Pedido (vigente pero NO fiscal) conserve su anulación. La regla fiscal
+  // que este test protege es la OTRA mitad y no cambió: con CAE, no se anula.
+  assert.match(actions, /esDocumentoVigente && !comprobante\.cae/);
+  // Y se refuerza: el bloque de Anular tiene que seguir siendo el ÚNICO que
+  // abre el modal, y seguir naciendo detrás del guard de CAE.
+  const anular = actions.slice(actions.indexOf('{esDocumentoVigente && !comprobante.cae'),
+                               actions.indexOf('Anular comprobante'));
+  assert.match(anular, /setShowAnularModal\(true\)/,
+    'el botón Anular debe vivir dentro del guard de CAE');
+  assert.equal((actions.match(/setShowAnularModal\(true\)/g) ?? []).length, 1,
+    'no puede haber una segunda vía de anulación fuera del guard');
+});
+
+test('G2-A: una Nota de Pedido conserva PDF y anulación aunque no sea fiscal', () => {
+  const actions = read('../../src/components/comprobantes/ComprobanteActions.tsx');
+  // `esEmitido` responde "¿ARCA lo autorizó?"; `esDocumentoVigente` responde
+  // "¿el documento opera?". Colgar lo operativo de lo fiscal le habría sacado
+  // el PDF y la anulación a toda Nota de Pedido.
+  assert.match(actions, /const esDocumentoVigente = esEmitido \|\| esNoFiscal/);
+  // La Nota de Crédito, en cambio, SIGUE siendo sólo para comprobantes fiscales.
+  assert.match(actions, /esEmitido && \['factura_a','factura_c'\]\.includes\(comprobante\.tipo\)/);
 });
 
 test('crearNotaCredito no anula el original si ARCA queda pendiente de conciliación', () => {

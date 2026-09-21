@@ -1,4 +1,5 @@
 import { TipoComprobante } from '../../hooks/useComprobantes';
+import { COMPROBANTE_TIPO_LABEL } from '../../lib/comprobanteTipoLabel';
 
 interface ComprobanteTotalesProps {
   subtotal: number;
@@ -57,7 +58,7 @@ export function ComprobanteTotales({ subtotal, impuestos, total, tipo, currency 
         )}
         {tipo === 'remito' && (
           <p style={{ color: 'var(--text-subtle)', fontSize: '0.72rem', fontStyle: 'italic', padding: '0.375rem 0', borderBottom: '1px solid var(--border-subtle)' }}>
-            Remito — sin impuestos
+            {COMPROBANTE_TIPO_LABEL.remito} — sin impuestos
           </p>
         )}
 
