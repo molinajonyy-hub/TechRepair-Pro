@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { resolvePurchaseKey } from '../utils/purchaseIdempotency';
 import { financeErrorMessage } from '../lib/financeErrors';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, AlertCircle, CheckCircle, Loader2, ExternalLink, TrendingUp, Wallet, Edit2, X, FileText } from 'lucide-react';
+import { ArrowLeft, AlertCircle, CheckCircle, Loader2, ExternalLink, TrendingUp, Wallet, Edit2, X, FileText, Lock } from 'lucide-react';
 import { WhatsAppActionButton } from '../components/whatsapp/WhatsAppActionButton';
 import { facturacionService } from '../services/facturacionService';
 import { AllocationModal } from '../components/finance/AllocationModal';
@@ -39,6 +39,11 @@ export default function ComprobantePage() {
   // POS (ComprobanteProModal). Antes esta página usaba el hook legacy useComprobantes
   // (facturacionService/afipService), que emitía un CAE simulado sin llamar a ARCA.
   const [comprobanteActual, setComprobanteActual] = useState<Comprobante | null>(null);
+  /**
+   * G2-B — ¿la venta ya produjo efectos económicos? Arranca en `true`
+   * (fail-closed): mientras no se sepa, no se ofrece editar.
+   */
+  const [impactoEconomico, setImpactoEconomico] = useState(true);
   const [loading, setLoading] = useState(true);
   const [emitiendo, setEmitiendo] = useState(false);
   // M7 7D: key durable por INTENCIÓN de anulación (no por clic). Ver handleAnular.
@@ -59,6 +64,10 @@ export default function ComprobantePage() {
       const comp = await comprobanteService.getById(compId, businessId);
       setComprobanteActual(comp);
       if (!comp) setError('Comprobante no encontrado');
+      // G2-B: el mismo predicado que aplica el guard de DB. Se consulta acá y
+      // no se deriva de `comp` para que la UI no pueda opinar distinto que la
+      // autoridad.
+      setImpactoEconomico(comp ? await comprobanteService.tieneImpactoEconomico(compId, businessId) : false);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error al cargar el comprobante');
     } finally {
@@ -462,7 +471,18 @@ export default function ComprobantePage() {
       setNotaCreditoLoading(false);
     }
   };
-  const puedeEditar = comprobanteActual?.estado === 'borrador';
+  /**
+   * G2-B — El estado documental ya NO alcanza para habilitar la edición.
+   *
+   * Antes esto era sólo `estado === 'borrador'`, y desde G2-A toda Factura C
+   * nace en `borrador` con la venta ya cobrada, el stock descontado y la Caja
+   * movida. Editar ahí reescribía el revenue devengado y dejaba Caja, saldo y
+   * `estado_comercial` mintiendo (G2-P0-1).
+   *
+   * La autoridad real es el trigger de DB; esto sólo evita ofrecer una acción
+   * que el servidor va a rechazar.
+   */
+  const puedeEditar = comprobanteActual?.estado === 'borrador' && !impactoEconomico;
 
   // ── Loading ───────────────────────────────────────────────────────────────
   if (loading || loadingProfile) {
@@ -622,6 +642,27 @@ export default function ComprobantePage() {
 
           {/* Document */}
           <div style={{ flex: 1, minWidth: 0 }}>
+            {/* G2-B — Por qué no se pueden tocar los ítems. Se muestra sólo
+                cuando la venta ya tiene efectos: en un borrador genuino la
+                edición sigue disponible y este aviso sobraría. */}
+            {impactoEconomico && !isComprobanteAnnulled(comprobanteActual as any) && (
+              <div
+                data-testid="comprobante-items-bloqueados"
+                style={{
+                  display: 'flex', gap: '0.5rem', alignItems: 'flex-start',
+                  padding: '0.625rem 0.75rem', marginBottom: '0.75rem',
+                  background: 'var(--accent-primary-subtle)',
+                  border: '1px solid var(--accent-primary)',
+                  borderRadius: 'var(--radius-sm)',
+                }}
+              >
+                <Lock size={13} style={{ color: 'var(--accent-primary)', flexShrink: 0, marginTop: 2 }} />
+                <p style={{ margin: 0, fontSize: '0.72rem', lineHeight: 1.45, color: 'var(--text-secondary)' }}>
+                  Esta venta ya registró movimientos. Sus ítems no se modifican: para corregirla,
+                  anulá el comprobante y emití uno nuevo.
+                </p>
+              </div>
+            )}
             <ComprobanteDocumento
               comprobante={comprobanteActual as any}
               items={items}

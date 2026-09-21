@@ -312,6 +312,33 @@ export const comprobanteService = {
    *
    * Ausencia de costo queda como `null` —DESCONOCIDO—, nunca 0.
    */
+  /**
+   * G2-B — ¿este comprobante ya produjo impacto económico real?
+   *
+   * Delega en la MISMA función que usa el guard de DB
+   * (`comprobante_impacto_economico`), así que la UI y la autoridad no pueden
+   * divergir: si esto dice `true`, el trigger va a rechazar cualquier escritura
+   * sobre sus ítems, y viceversa. No se reimplementa el predicado en el cliente.
+   *
+   * Ante un fallo de consulta devuelve `true` (FAIL-CLOSED): preferimos ocultar
+   * una edición legítima antes que ofrecer una que la DB va a rechazar y que
+   * antes de G2-B corrompía la venta en silencio.
+   */
+  async tieneImpactoEconomico(id: string, businessId: string): Promise<boolean> {
+    const { data, error } = await supabase
+      .rpc('comprobante_impacto_economico', {
+        p_business_id: businessId,
+        p_comprobante_id: id,
+      })
+      .maybeSingle();
+
+    if (error) {
+      logger.error('FINANCE', 'G2-B: no se pudo evaluar el impacto económico del comprobante', error);
+      return true;
+    }
+    return (data as { tiene_impacto?: boolean } | null)?.tiene_impacto !== false;
+  },
+
   async getById(id: string, businessId: string): Promise<Comprobante | null> {
     // ── 1. Cabecera, cliente y pagos ────────────────────────────────────────
     const { data, error } = await supabase
