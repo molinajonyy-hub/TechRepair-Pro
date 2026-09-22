@@ -21,6 +21,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { permiteAccionesDeEmision } from '../../src/utils/comprobanteStatus.ts'
 import {
   resolveWsfeUrl,
   classifyFetchError,
@@ -459,9 +460,32 @@ test('comprobanteService.emitir tiene un atajo rápido si ya tiene CAE (además 
   assert.match(service, /if \(comp\.cae \|\| comp\.estado_fiscal === 'emitido'\)/)
 })
 
-test('_descontarStock tiene guard de idempotencia (stock_processed) — no descuenta dos veces', () => {
+test('G2-B: el navegador ya NO descuenta stock — `_descontarStock` fue eliminado', () => {
+  // Este test protegía el guard de idempotencia (`stock_processed`) de una
+  // rutina de descuento client-side. G2-B la elimina, así que la garantía pasa
+  // a ser más fuerte que un guard: el navegador no escribe el libro de
+  // inventario, punto. Su secuencia (UPDATE inventory -> INSERT
+  // inventory_movements -> UPDATE comprobante_items) era además imposible de
+  // completar bajo el guard de inmutabilidad, y dejaba el marcador apagado con
+  // el stock ya descontado.
   const service = read('../../src/services/comprobanteService.ts')
-  assert.match(service, /stock_processed/)
+  assert.doesNotMatch(service, /async _descontarStock\s*\(/,
+    'no debe volver una rutina de descuento de stock client-side')
+  assert.doesNotMatch(service, /from\('inventory_movements'\)\s*\.insert/,
+    'el navegador no puede insertar movimientos de inventario')
+  assert.doesNotMatch(service, /from\('inventory'\)\s*\n?\s*\.update/,
+    'el navegador no puede mover `inventory.stock_quantity`')
+})
+
+test('G2-B: la rama de emisión no fiscal es inalcanzable — `permiteEmision` la excluye', () => {
+  // Es la evidencia de alcanzabilidad que justifica haber eliminado el segundo
+  // llamador de `_descontarStock` (la rama remito de `emitir()`): el botón
+  // «Emitir en ARCA» se renderiza con `esBorrador && permiteEmision`, y un
+  // documento interno resuelve a la clave `no_fiscal`.
+  assert.equal(permiteAccionesDeEmision('no_fiscal'), false)
+  const actions = read('../../src/components/comprobantes/ComprobanteActions.tsx')
+  assert.match(actions, /esBorrador && estadoFiscalCanonico\.permiteEmision/,
+    'el gate del botón Emitir debe seguir dependiendo de permiteEmision')
 })
 
 test('complete_arca_attempt (RPC) nunca pisa un comprobante ya resuelto (guard AND cae IS NULL)', () => {

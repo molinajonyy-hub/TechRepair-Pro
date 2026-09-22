@@ -161,8 +161,21 @@ jobs:
           set -euo pipefail
           r3="supabase/migrations/20260922120000_sec08e_auxiliary_financial_reads.sql"
           sec08f="supabase/migrations/20261001120000_sec08f_remaining_read_authority.sql"
+          # G2-B es una migracion CANDIDATA, igual que SEC-08F: se aparta antes
+          # de levantar y NO se devuelve. R3 hace dos comprobaciones acopladas
+          # (sec08e-r3-local.mjs): el ledger de la fuente debe ser exactamente
+          # el contenido de supabase/migrations (linea 123) y el catalogo local
+          # debe coincidir con production-discovery.json (linea 137). Aplicar el
+          # candidato rompe la segunda; dejar el archivo sin aplicar romperia la
+          # primera. Apartar el archivo satisface ambas sin tocar el baseline de
+          # produccion ni relajar la comparacion: R3 sigue comparando el catalogo
+          # COMPLETO, funcion por funcion, sin exclusiones. Su contrato es
+          # certificar "current main menos los candidatos"; el contrato de G2-B
+          # lo certifica el job g2b-immutability, que si lo aplica.
+          g2b="supabase/migrations/20261003120000_g2b_comprobante_items_immutability.sql"
           mv "$r3" "$RUNNER_TEMP/"
           mv "$sec08f" "$RUNNER_TEMP/"
+          mv "$g2b" "$RUNNER_TEMP/"
           supabase start
           mv "$RUNNER_TEMP/$(basename "$r3")" "$r3"
       - name: Run real PostgreSQL/PostgREST R3 matrix
@@ -198,6 +211,39 @@ jobs:
           supabase start
       - name: Run real PostgreSQL/PostgREST SEC-08F matrix
         run: npm run test:sec08f
+      - name: Tear down local Supabase
+        if: always()
+        run: supabase stop --no-backup || true
+
+  # ── G2-B · inmutabilidad de comprobante_items ─────────────────────────────
+  # SEC-08E R3 aparta este candidato porque su contrato es certificar main SIN
+  # candidatos contra el catalogo de produccion. Ese aislamiento deja un hueco:
+  # nadie ejecutaria la migracion G2-B en CI. Este job es la contraparte —
+  # levanta una DB limpia CON G2-B aplicada y corre su matriz completa.
+  g2b-immutability:
+    name: G2-B Comprobante Items Immutability
+    runs-on: ubuntu-latest
+    needs: quality
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.109.1
+      # En un runner limpio `supabase start` aplica TODAS las migraciones desde
+      # cero, G2-B incluida. Ademas es un replay fresco real: si la migracion no
+      # fuera reproducible desde vacio, el job falla aca y no en los tests.
+      - name: Start local Supabase with the G2-B candidate applied
+        run: supabase start
+      - name: Run the G2-B immutability matrix (guard self-test + guard + SQL)
+        run: npm run test:g2b
       - name: Tear down local Supabase
         if: always()
         run: supabase stop --no-backup || true

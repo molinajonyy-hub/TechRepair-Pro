@@ -312,6 +312,33 @@ export const comprobanteService = {
    *
    * Ausencia de costo queda como `null` —DESCONOCIDO—, nunca 0.
    */
+  /**
+   * G2-B — ¿este comprobante ya produjo impacto económico real?
+   *
+   * Delega en la MISMA función que usa el guard de DB
+   * (`comprobante_impacto_economico`), así que la UI y la autoridad no pueden
+   * divergir: si esto dice `true`, el trigger va a rechazar cualquier escritura
+   * sobre sus ítems, y viceversa. No se reimplementa el predicado en el cliente.
+   *
+   * Ante un fallo de consulta devuelve `true` (FAIL-CLOSED): preferimos ocultar
+   * una edición legítima antes que ofrecer una que la DB va a rechazar y que
+   * antes de G2-B corrompía la venta en silencio.
+   */
+  async tieneImpactoEconomico(id: string, businessId: string): Promise<boolean> {
+    const { data, error } = await supabase
+      .rpc('comprobante_impacto_economico', {
+        p_business_id: businessId,
+        p_comprobante_id: id,
+      })
+      .maybeSingle();
+
+    if (error) {
+      logger.error('FINANCE', 'G2-B: no se pudo evaluar el impacto económico del comprobante', error);
+      return true;
+    }
+    return (data as { tiene_impacto?: boolean } | null)?.tiene_impacto !== false;
+  },
+
   async getById(id: string, businessId: string): Promise<Comprobante | null> {
     // ── 1. Cabecera, cliente y pagos ────────────────────────────────────────
     const { data, error } = await supabase
@@ -873,7 +900,13 @@ export const comprobanteService = {
   async emitir(
     comprobanteId: string,
     businessId: string,
-    userId: string,
+    /**
+     * G2-B — quedó sin uso al eliminar `_descontarStock` (era el `created_by`
+     * del movimiento de inventario que el navegador ya no escribe). Se conserva
+     * en la firma, que es POSICIONAL: sacarlo correría `emitirArcaAhora` un
+     * lugar y silenciaría el cambio en cada llamador.
+     */
+    _userId: string,
     emitirArcaAhora = false
   ): Promise<{ success: boolean; cae?: string; error?: string; pendingReconciliation?: boolean; finalizationPending?: boolean; alreadyInProgress?: boolean; serieOcupada?: boolean }> {
     const comp = await this.getById(comprobanteId, businessId);
@@ -1011,11 +1044,12 @@ export const comprobanteService = {
               finalizationPending: true,
             };
           }
-        } else if (comp.items) {
-          const stockItems = comp.items
-            .filter(i => i.inventory_id && ['producto','repuesto'].includes(i.tipo_linea || 'producto'));
-          await this._descontarStock(stockItems, comprobanteId, businessId, userId);
         }
+        // G2-B — acá vivía una llamada a `_descontarStock`, un descuento de
+        // stock DESDE EL NAVEGADOR. Se eliminó: ver la nota al final de este
+        // archivo. El stock de una venta lo mueve `create_comprobante_checkout_atomic`
+        // al crearla; para un hueco histórico existe `repair_missing_stock_movements`,
+        // que es SECDEF y está gateada por `_require_business_member`.
         return { success: true, cae: arcaResult.cae };
       }
 
@@ -1045,12 +1079,11 @@ export const comprobanteService = {
       return { success: false, error: issueResult?.error_code || 'No se pudo emitir el remito' };
     }
 
-    if (comp.items) {
-      const stockItems = comp.items
-        .filter(i => i.inventory_id && ['producto','repuesto'].includes(i.tipo_linea || 'producto'));
-      await this._descontarStock(stockItems, comprobanteId, businessId, userId);
-    }
-
+    // G2-B — ídem: acá había otro `_descontarStock`. Además, esta rama es
+    // INALCANZABLE desde la UI desde G2-A: el botón «Emitir en ARCA» se
+    // renderiza con `esBorrador && permiteEmision`, y para un documento no
+    // fiscal `getComprobanteDisplayStatus` devuelve la clave `no_fiscal`, que
+    // `permiteAccionesDeEmision` excluye. Hay un test que lo fija.
     return { success: true };
   },
 
@@ -1371,72 +1404,36 @@ export const comprobanteService = {
 
   // ── Internos ──────────────────────────────────────────────────────────────────
 
-  async _descontarStock(
-    items: { id?: string; inventory_id?: string | null; cantidad: number; tipo_linea?: string }[],
-    comprobanteId: string,
-    businessId: string,
-    userId?: string
-  ) {
-    for (const item of items) {
-      if (!item.inventory_id) continue;
-      if (!['producto', 'repuesto', undefined, null].includes(item.tipo_linea as any)) continue;
-
-      // ── Idempotencia: buscar el comprobante_item para verificar si ya fue procesado ──
-      const { data: ciRow } = await supabase
-        .from('comprobante_items')
-        .select('id, stock_processed')
-        .eq('comprobante_id', comprobanteId)
-        .eq('inventory_id', item.inventory_id)
-        .maybeSingle();
-
-      if (ciRow?.stock_processed === true) continue; // Ya descontado, saltar
-
-      const { data: inv } = await supabase
-        .from('inventory')
-        .select('stock_quantity')
-        .eq('id', item.inventory_id)
-        .eq('business_id', businessId)
-        .single();
-
-      if (!inv) continue;
-
-      const prevStock = inv.stock_quantity ?? 0;
-      const newStock  = prevStock - item.cantidad;
-
-      await supabase.from('inventory')
-        .update({ stock_quantity: Math.max(0, newStock), updated_at: new Date().toISOString() })
-        .eq('id', item.inventory_id)
-        .eq('business_id', businessId);
-
-      const { data: mov } = await supabase.from('inventory_movements').insert({
-        business_id:       businessId,
-        inventory_item_id: item.inventory_id,
-        movement_type:     'sale',
-        quantity:          -item.cantidad,
-        previous_stock:    prevStock,
-        new_stock:         Math.max(0, newStock),
-        reference_type:    'comprobante',
-        reference_id:      comprobanteId,
-        note:              'Salida por venta en comprobante',
-        created_by:        userId || null,
-      }).select('id').maybeSingle();
-
-      // Marcar item como procesado para evitar doble descuento
-      if (ciRow?.id) {
-        await supabase.from('comprobante_items')
-          .update({
-            stock_processed:    true,
-            stock_processed_at: new Date().toISOString(),
-            stock_movement_id:  mov?.id ?? null,
-          })
-          .eq('id', ciRow.id);
-      }
-    }
-  },
-
-  // La reposición de stock por anulación vive dentro de la RPC
-  // annul_comprobante_atomic (server-side, FOR UPDATE + marcador
-  // stock_processed = exactamente una vez) — Etapa 0.
+  // ── `_descontarStock` — ELIMINADO en G2-B ─────────────────────────────────
+  //
+  // Era un descuento de stock DESDE EL NAVEGADOR, con esta secuencia por ítem:
+  //   1. leer `stock_processed` (guard de idempotencia)
+  //   2. UPDATE inventory
+  //   3. INSERT inventory_movements
+  //   4. UPDATE comprobante_items SET stock_processed = true, stock_movement_id
+  //
+  // G2-B la vuelve IMPOSIBLE de completar, y no por accidente: el paso 3 crea
+  // un `inventory_movement` imputado al comprobante, que es una de las señales
+  // de impacto económico, así que en el paso 4 el guard rechaza la escritura.
+  // Quedaría stock descontado + movimiento creado + `stock_processed` en false
+  // — es decir, el guard de idempotencia apagado y un reintento descontando de
+  // nuevo. Una corrupción peor que la que G2-B viene a cerrar.
+  //
+  // No se "adaptó" el orden porque el problema no es el orden: un cliente no
+  // puede escribir el libro de inventario. La autoridad ya existe server-side:
+  //   · `create_comprobante_checkout_atomic` descuenta el stock al crear la
+  //     venta, con `FOR UPDATE` y marcador por ítem;
+  //   · `annul_comprobante_atomic` lo restituye exactamente una vez;
+  //   · `repair_missing_stock_movements` (SECDEF, gateada por
+  //     `_require_business_member`) es el camino canónico para un hueco
+  //     histórico.
+  //
+  // Sus dos llamadores vivían en `emitir()`:
+  //   · rama fiscal — el comprobante lo creó el checkout, que YA procesó el
+  //     stock de cada ítem con `inventory_id`, así que el guard de idempotencia
+  //     hacía `continue` en todos: era un no-op;
+  //   · rama remito — inalcanzable desde la UI desde G2-A (`permiteEmision` es
+  //     false para la clave `no_fiscal`). Hay un test que lo fija.
 };
 
 export default comprobanteService;
