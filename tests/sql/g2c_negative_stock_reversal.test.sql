@@ -79,8 +79,13 @@ END; $$;
 \set INVE  '00000000-0000-0000-0000-00000000c2d5'
 \set INVF  '00000000-0000-0000-0000-00000000c2d6'
 \set INVG  '00000000-0000-0000-0000-00000000c2d7'
+\set INVH  '00000000-0000-0000-0000-00000000c2d8'
+\set INVI  '00000000-0000-0000-0000-00000000c2d9'
+\set INVJ  '00000000-0000-0000-0000-00000000c2da'
 \set INVX  '00000000-0000-0000-0000-00000000c2df'
 \set ORD   '00000000-0000-0000-0000-00000000c2e1'
+\set PROV  '00000000-0000-0000-0000-00000000c2f1'
+\set PROV2 '00000000-0000-0000-0000-00000000c2f2'
 
 -- ── Semilla ─────────────────────────────────────────────────────────────────
 SET LOCAL session_replication_role='replica';
@@ -104,7 +109,13 @@ VALUES
   (:'INVE',:'biz','Prod E','G2C-E','Rep', 2, 2,600,1000,1000,'ARS',false,1,true),
   (:'INVF',:'biz','Prod F','G2C-F','Rep',100,100,300,500,500,'ARS',false,1,true),
   (:'INVG',:'biz','Prod G','G2C-G','Rep', 2, 2,600,1000,1000,'ARS',false,1,true),
+  -- H: 0 (compra con deficit). I: 5 (compra sin deficit). J: 3 (compra pagada).
+  (:'INVH',:'biz','Prod H','G2C-H','Rep', 0, 0,600,1000,1000,'ARS',false,1,true),
+  (:'INVI',:'biz','Prod I','G2C-I','Rep', 5, 5,600,1000,1000,'ARS',false,1,true),
+  (:'INVJ',:'biz','Prod J','G2C-J','Rep', 3, 3,600,1000,1000,'ARS',false,1,true),
   (:'INVX',:'biz2','Prod ajeno','G2C-X','Rep',7,7,600,1000,1000,'ARS',false,1,true);
+INSERT INTO suppliers(id, business_id, name)
+  VALUES (:'PROV',:'biz','Proveedor G2C'), (:'PROV2',:'biz2','Proveedor ajeno');
 SET LOCAL session_replication_role='origin';
 
 -- ============================================================================
@@ -481,6 +492,209 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- 19 · ELIMINAR UNA COMPRA YA CONSUMIDA  ·  0 -> +5 -> -5 (venta) -> -5 (delete)
+--
+-- BLOCKER 1 de la revision humana del PR #143. El discovery inicial habia
+-- dejado este camino fuera de alcance por ser "reversion de una compra"; era
+-- una lectura equivocada. Es el MISMO P0 y es un camino VIVO:
+--   src/pages/Suppliers.tsx -> suppliersService.deletePurchaseSafe()
+--                           -> rpc('delete_supplier_purchase_safe')
+--
+-- La secuencia economica completa: compro 5, vendo esas 5, y despues elimino
+-- la compra. El stock DEBE quedar en -5: las 5 unidades salieron de verdad,
+-- pero ya no hay una compra que las haya traido.
+-- ============================================================================
+DO $$
+DECLARE r jsonb; d jsonb; v_purchase uuid; v_stock int; v_mov uuid;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-00000000c209', true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+
+  -- B. Compra IMPAGA de 5 por el camino canonico: 0 -> 5.
+  r := create_supplier_purchase_atomic(
+        '00000000-0000-0000-0000-00000000c201'::uuid,
+        '00000000-0000-0000-0000-00000000c2f1'::uuid,
+        '00000000-0000-0000-0000-00000000c209'::uuid,
+        -- paid=0 => compra a deuda; el metodo de pago admite NULL (no hay pago).
+        'Proveedor G2C', current_date, 'FC-G2C-1', 3000, 0, NULL, 'G2C',
+        jsonb_build_array(jsonb_build_object(
+          'inventory_id','00000000-0000-0000-0000-00000000c2d8',
+          'product_name','Prod H','quantity',5,'unit_cost',600)),
+        'g2c-compra-1');
+  RESET ROLE;
+  RAISE NOTICE '   compra -> %', COALESCE(r->>'ok', r->>'success', r::text);
+
+  SELECT stock_quantity INTO v_stock FROM inventory WHERE id='00000000-0000-0000-0000-00000000c2d8';
+  PERFORM pg_temp.assert(v_stock = 5, '19 · B. la compra de 5 deja el stock en 5 (obtenido ' || v_stock || ')');
+
+  SELECT id INTO v_purchase FROM supplier_purchases
+   WHERE business_id='00000000-0000-0000-0000-00000000c201' AND invoice_number='FC-G2C-1';
+  PERFORM pg_temp.assert(v_purchase IS NOT NULL, '19 · B. la compra existe');
+
+  -- C. Consumir esas 5 por el camino canonico de venta: 5 -> 0.
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-00000000c209', true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  r := create_comprobante_checkout_atomic('00000000-0000-0000-0000-00000000c201'::uuid,'G2C-H','hg2ch',
+    jsonb_build_object('tipo','remito','punto_venta','0001','condicion_fiscal','Consumidor Final',
+      'customer_id','00000000-0000-0000-0000-00000000c2c1','cc_total',0,'emitir_en_arca',false,
+      'items', jsonb_build_array(jsonb_build_object(
+        'inventory_id','00000000-0000-0000-0000-00000000c2d8','descripcion','Consumo',
+        'tipo_linea','producto','cantidad',5,'precio_unitario',1000)),
+      'pagos', jsonb_build_array(jsonb_build_object(
+        'amount',5000,'amount_ars',5000,'payment_method','efectivo'))));
+  RESET ROLE;
+  PERFORM pg_temp.assert(r->>'status' = 'created', '19 · C. la venta de las 5 unidades se registra');
+
+  SELECT stock_quantity INTO v_stock FROM inventory WHERE id='00000000-0000-0000-0000-00000000c2d8';
+  PERFORM pg_temp.assert(v_stock = 0, '19 · C. tras vender las 5, el stock queda en 0 (obtenido ' || v_stock || ')');
+
+  -- D. Eliminar la compra. E. El stock tiene que quedar en -5.
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-00000000c209', true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  d := delete_supplier_purchase_safe('00000000-0000-0000-0000-00000000c201'::uuid, v_purchase,
+                                     '00000000-0000-0000-0000-00000000c209'::uuid);
+  RESET ROLE;
+  RAISE NOTICE '   delete compra -> %', d::text;
+  PERFORM pg_temp.assert(COALESCE((d->>'ok')::boolean, false),
+    '19 · D. la eliminacion de la compra corre (error=' || COALESCE(d->>'error','-') || ')');
+
+  SELECT stock_quantity INTO v_stock FROM inventory WHERE id='00000000-0000-0000-0000-00000000c2d8';
+  PERFORM pg_temp.assert(v_stock = -5,
+    '19 · E. eliminar la compra ya consumida deja el stock en -5 (obtenido ' || v_stock || ')');
+
+  -- El movimiento de cancelacion tiene que cerrar.
+  SELECT id INTO v_mov FROM inventory_movements
+   WHERE reference_id = v_purchase AND inventory_item_id='00000000-0000-0000-0000-00000000c2d8'
+     AND movement_type='cancellation';
+  PERFORM pg_temp.assert_movimiento(v_mov, 0, -5, -5, '19 · movimiento de cancelacion');
+END $$;
+
+-- ============================================================================
+-- 20 · ELIMINAR UNA COMPRA SIN DEFICIT  ·  5 -> +5 -> 10 -> delete -> 5
+-- ============================================================================
+DO $$
+DECLARE r jsonb; d jsonb; v_purchase uuid; v_stock int; v_mov uuid;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-00000000c209', true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  r := create_supplier_purchase_atomic(
+        '00000000-0000-0000-0000-00000000c201'::uuid,
+        '00000000-0000-0000-0000-00000000c2f1'::uuid,
+        '00000000-0000-0000-0000-00000000c209'::uuid,
+        'Proveedor G2C', current_date, 'FC-G2C-2', 3000, 0, NULL, 'G2C',
+        jsonb_build_array(jsonb_build_object(
+          'inventory_id','00000000-0000-0000-0000-00000000c2d9',
+          'product_name','Prod I','quantity',5,'unit_cost',600)),
+        'g2c-compra-2');
+  RESET ROLE;
+
+  SELECT stock_quantity INTO v_stock FROM inventory WHERE id='00000000-0000-0000-0000-00000000c2d9';
+  PERFORM pg_temp.assert(v_stock = 10, '20 · la compra lleva el stock de 5 a 10 (obtenido ' || v_stock || ')');
+
+  SELECT id INTO v_purchase FROM supplier_purchases
+   WHERE business_id='00000000-0000-0000-0000-00000000c201' AND invoice_number='FC-G2C-2';
+
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-00000000c209', true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  d := delete_supplier_purchase_safe('00000000-0000-0000-0000-00000000c201'::uuid, v_purchase,
+                                     '00000000-0000-0000-0000-00000000c209'::uuid);
+  RESET ROLE;
+  PERFORM pg_temp.assert(COALESCE((d->>'ok')::boolean, false),
+    '20 · la eliminacion corre (error=' || COALESCE(d->>'error','-') || ')');
+
+  SELECT stock_quantity INTO v_stock FROM inventory WHERE id='00000000-0000-0000-0000-00000000c2d9';
+  PERFORM pg_temp.assert(v_stock = 5,
+    '20 · sin deficit, eliminar la compra devuelve 10 - 5 = 5 (obtenido ' || v_stock || ')');
+
+  SELECT id INTO v_mov FROM inventory_movements
+   WHERE reference_id = v_purchase AND inventory_item_id='00000000-0000-0000-0000-00000000c2d9'
+     AND movement_type='cancellation';
+  PERFORM pg_temp.assert_movimiento(v_mov, 10, -5, 5, '20 · movimiento de cancelacion sin deficit');
+
+  -- Y el ciclo completo compra + eliminacion neteo en cero.
+  PERFORM pg_temp.assert(
+    (SELECT SUM(quantity) FROM inventory_movements
+      WHERE inventory_item_id='00000000-0000-0000-0000-00000000c2d9') = 0,
+    '20 · suma neta compra + eliminacion = 0');
+END $$;
+
+-- ============================================================================
+-- 21 · UNA COMPRA CON PAGOS SIGUE BLOQUEADA  ·  el parche no aflojo el guard
+-- ============================================================================
+DO $$
+DECLARE r jsonb; d jsonb; v_purchase uuid; v_stock int;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-00000000c209', true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  r := create_supplier_purchase_atomic(
+        '00000000-0000-0000-0000-00000000c201'::uuid,
+        '00000000-0000-0000-0000-00000000c2f1'::uuid,
+        '00000000-0000-0000-0000-00000000c209'::uuid,
+        'Proveedor G2C', current_date, 'FC-G2C-3', 3000, 3000, 'efectivo', 'G2C pagada',
+        jsonb_build_array(jsonb_build_object(
+          'inventory_id','00000000-0000-0000-0000-00000000c2da',
+          'product_name','Prod J','quantity',5,'unit_cost',600)),
+        'g2c-compra-3');
+  RESET ROLE;
+
+  SELECT id INTO v_purchase FROM supplier_purchases
+   WHERE business_id='00000000-0000-0000-0000-00000000c201' AND invoice_number='FC-G2C-3';
+  SELECT stock_quantity INTO v_stock FROM inventory WHERE id='00000000-0000-0000-0000-00000000c2da';
+  PERFORM pg_temp.assert(v_stock = 8, '21 · la compra pagada deja el stock en 8 (obtenido ' || v_stock || ')');
+
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-00000000c209', true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  d := delete_supplier_purchase_safe('00000000-0000-0000-0000-00000000c201'::uuid, v_purchase,
+                                     '00000000-0000-0000-0000-00000000c209'::uuid);
+  RESET ROLE;
+  RAISE NOTICE '   delete compra pagada -> %', d::text;
+
+  PERFORM pg_temp.assert(d->>'error_code' = 'BLOCKED_PAID',
+    '21 · eliminar una compra con pagos sigue BLOQUEADO (obtenido ' || COALESCE(d->>'error_code','-') || ')');
+
+  SELECT stock_quantity INTO v_stock FROM inventory WHERE id='00000000-0000-0000-0000-00000000c2da';
+  PERFORM pg_temp.assert(v_stock = 8,
+    '21 · y el stock no se toco (sigue en ' || v_stock || ')');
+  PERFORM pg_temp.assert(
+    NOT EXISTS (SELECT 1 FROM inventory_movements
+                 WHERE reference_id = v_purchase AND movement_type='cancellation'),
+    '21 · tampoco se escribio un movimiento de cancelacion');
+END $$;
+
+-- ============================================================================
+-- 22 · TENANT · no se puede eliminar la compra de otro negocio
+-- ============================================================================
+DO $$
+DECLARE v_purchase uuid := gen_random_uuid(); v_res text; v_stock int;
+BEGIN
+  SET LOCAL session_replication_role='replica';
+  INSERT INTO supplier_purchases(id, business_id, supplier_id, invoice_number, total_amount, paid_amount)
+    VALUES (v_purchase,'00000000-0000-0000-0000-00000000c202',
+            '00000000-0000-0000-0000-00000000c2f2','FC-AJENA',3000,0);
+  INSERT INTO supplier_purchase_items(business_id, purchase_id, supplier_id, inventory_id,
+                                      product_name, quantity, unit_cost)
+    VALUES ('00000000-0000-0000-0000-00000000c202', v_purchase,
+            '00000000-0000-0000-0000-00000000c2f2','00000000-0000-0000-0000-00000000c2df',
+            'Prod ajeno',5,600);
+  SET LOCAL session_replication_role='origin';
+
+  v_res := pg_temp.como_authenticated('00000000-0000-0000-0000-00000000c209',
+    format($q$SELECT delete_supplier_purchase_safe(
+               '00000000-0000-0000-0000-00000000c202'::uuid, %L::uuid,
+               '00000000-0000-0000-0000-00000000c209'::uuid)$q$, v_purchase));
+  RAISE NOTICE '   delete compra cross-tenant -> %', v_res;
+  PERFORM pg_temp.assert(v_res LIKE '42501%',
+    '22 · eliminar una compra ajena es FORBIDDEN (obtenido ' || v_res || ')');
+
+  SELECT stock_quantity INTO v_stock FROM inventory WHERE id='00000000-0000-0000-0000-00000000c2df';
+  PERFORM pg_temp.assert(v_stock = 7,
+    '22 · el inventario del otro negocio no se movio (sigue en ' || v_stock || ')');
+  PERFORM pg_temp.assert(
+    EXISTS (SELECT 1 FROM supplier_purchases WHERE id = v_purchase),
+    '22 · y la compra ajena sigue existiendo');
+END $$;
+
+-- ============================================================================
 -- 18 · CATALOGO · ningun writer ACTIVO de salida reversible clampa a cero
 --
 -- Es la prueba que impide que el clamp vuelva por un `CREATE OR REPLACE`
@@ -489,21 +703,25 @@ END $$;
 -- global que prohiba GREATEST en todo inventario (hay usos legitimos).
 -- ============================================================================
 DO $$
-DECLARE r record; v_n int := 0;
+DECLARE f text; v_oid oid; v_src text; v_n int := 0;
 BEGIN
-  FOR r IN
-    SELECT n.nspname || '.' || p.proname AS fn, p.prosrc
-    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE (n.nspname, p.proname) IN
-          (('private','create_comprobante_checkout_atomic'),
-           ('public','adjust_stock_on_order_item'))
-  LOOP
+  -- Por FIRMA EXACTA, no por nombre: hay dos `create_comprobante_checkout_atomic`
+  -- (la publica envoltorio y la privada que corre), y buscar por nombre
+  -- inspeccionaria la equivocada.
+  FOREACH f IN ARRAY ARRAY[
+    'private.create_comprobante_checkout_atomic(uuid,text,text,jsonb)',
+    'public.adjust_stock_on_order_item()',
+    'public.delete_supplier_purchase_safe(uuid,uuid,uuid)'
+  ] LOOP
+    v_oid := to_regprocedure(f);
+    PERFORM pg_temp.assert(v_oid IS NOT NULL, '18 · la firma exacta ' || f || ' existe');
+    SELECT p.prosrc INTO v_src FROM pg_proc p WHERE p.oid = v_oid;
     v_n := v_n + 1;
     PERFORM pg_temp.assert(
-      r.prosrc !~* 'GREATEST\s*\([^;]{0,90}?(v_prev_stock|v_new_stock|stock_quantity)',
-      '18 · ' || r.fn || ' no clampa la salida de stock a cero');
+      v_src !~* 'GREATEST\s*\([^;]{0,90}?(v_prev_stock|v_prev_stk|v_new_stock|stock_quantity)',
+      '18 · ' || f || ' no clampa la salida de stock a cero');
   END LOOP;
-  PERFORM pg_temp.assert(v_n = 2, '18 · se inspeccionaron los 2 writers del contrato (vistos ' || v_n || ')');
+  PERFORM pg_temp.assert(v_n = 3, '18 · se inspeccionaron los 3 writers del contrato (vistos ' || v_n || ')');
 END $$;
 
 SELECT 'G2-C: todas las aserciones pasaron' AS resultado;

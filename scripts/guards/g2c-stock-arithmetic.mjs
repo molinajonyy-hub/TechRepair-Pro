@@ -20,12 +20,29 @@
 //      funciones.
 //   4. El POS sigue permitiendo la sobreventa (el aviso «se agrega de todas
 //      formas» es parte del contrato de producto, no un detalle estético).
-//   5. No reaparece una escritura de stock desde el navegador en el camino de
-//      venta — la línea que G2-B ya había cerrado.
+//   5. `comprobanteService` —el camino POS— no reintroduce la escritura de
+//      stock client-side que G2-B eliminó.
+//
+// LÍMITE HONESTO DEL PUNTO 5. Este guard NO demuestra, ni afirma, que no
+// existan escrituras de stock desde el navegador en el resto de la app. Existe
+// una, activa y conocida:
+//
+//     src/portal/services/portalService.ts · _processWholesaleStock()
+//         const newStock = Math.max(0, prevStock + delta)
+//         UPDATE inventory / INSERT inventory_movements / UPDATE wholesale_order_items
+//
+// alcanzable desde `updateOrderStatus()` (`approved` → deduct,
+// `cancelled`/`rejected` → revert). Tiene EXACTAMENTE el mismo defecto que
+// G2-C corrige en la DB: 2 − 5 → 0 y después 0 + 5 → 5.
+//
+// Queda como **G2-C.1** y BLOQUEA el cierre definitivo de BETA-GATE-2. No se
+// parchea acá cambiando `Math.max` por una resta: eso dejaría el resto
+// client-side, sin lock, sin atomicidad y sin autoridad server-side. La
+// corrección correcta es moverlo server-side y es un lote propio.
 //
 // NO es un grep global que prohíba `GREATEST` en inventario: hay usos
 // legítimos (saldos, límites, fechas) y varios writers que este lote
-// deliberadamente NO toca. El alcance son las dos funciones del contrato.
+// deliberadamente NO toca. El alcance son las tres funciones del contrato.
 //
 // `--self-test` muta cada invariante en memoria y exige que el guard lo detecte.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -38,10 +55,23 @@ const SVC      = 'src/services/comprobanteService.ts'
 
 const VERSION_G2C = '20261004120000'
 
-// Las dos funciones del contrato y el clamp que no puede volver a ellas.
+// Las TRES funciones del contrato y el clamp que no puede volver a ellas.
+// La tercera entró en la revisión humana del PR #143: eliminar una compra ya
+// consumida tenía el mismo defecto y es un camino vivo
+// (Suppliers.tsx → suppliersService.deletePurchaseSafe → la RPC).
 const CLAMPS_PROHIBIDOS = [
   { fn: 'create_comprobante_checkout_atomic', re: /GREATEST\s*\(\s*0\s*,\s*v_prev_stock/i },
   { fn: 'adjust_stock_on_order_item',         re: /GREATEST\s*\(\s*v_prev_stock\s*-/i },
+  { fn: 'delete_supplier_purchase_safe',      re: /GREATEST\s*\(\s*0\s*,\s*COALESCE\(v_prev_stk/i },
+]
+
+// Firmas exactas que la migración debe apuntar. Buscar por schema+nombre es
+// ambiguo: ya existen DOS `create_comprobante_checkout_atomic` (el wrapper
+// público y la implementación privada, que es la que corre).
+const FIRMAS_EXACTAS = [
+  'private.create_comprobante_checkout_atomic(uuid,text,text,jsonb)',
+  'public.adjust_stock_on_order_item()',
+  'public.delete_supplier_purchase_safe(uuid,uuid,uuid)',
 ]
 
 const read = (p) => readFileSync(p, 'utf8')
@@ -49,9 +79,27 @@ const read = (p) => readFileSync(p, 'utf8')
 function inspectMigracion(mig) {
   const findings = []
 
-  // 1. Parchea las dos funciones.
+  // 1. Parchea las tres funciones, y las apunta por FIRMA EXACTA.
   for (const { fn } of CLAMPS_PROHIBIDOS) {
     if (!mig.includes(fn)) findings.push(`la migracion G2-C dejo de parchear ${fn}`)
+  }
+  for (const firma of FIRMAS_EXACTAS) {
+    if (!mig.includes(firma)) {
+      findings.push(`la migracion dejo de apuntar la firma exacta ${firma} (buscar por nombre es ambiguo ante overloads)`)
+    }
+  }
+  if (!/to_regprocedure/.test(mig)) {
+    findings.push('la migracion dejo de resolver el objetivo con to_regprocedure: vuelve a ser ambigua')
+  }
+
+  // 1b. Y verifica que CREATE OR REPLACE conservo la configuracion.
+  for (const [campo, etiqueta] of [
+    ['prosecdef', 'SECURITY DEFINER'], ['proowner', 'owner'],
+    ['proconfig', 'search_path'],      ['proacl', 'ACL'],
+  ]) {
+    if (!mig.includes(campo)) {
+      findings.push(`la migracion dejo de comprobar que el parche preserva ${etiqueta} (${campo})`)
+    }
   }
 
   // 2. Los parches son fail-closed ante un patron que no aparece.
@@ -112,12 +160,14 @@ function inspectFrontend(pos, svc) {
     findings.push(`${POS}: la falta de stock volvio a cortar el alta de la linea`)
   }
 
-  // 5. El navegador no vuelve a escribir stock en el camino de venta (G2-B).
+  // 5. El camino POS no vuelve a escribir stock desde el navegador (G2-B).
+  //    Alcance deliberado: SOLO `comprobanteService`. El portal mayorista tiene
+  //    su propio writer client-side (G2-C.1) y este guard no pretende cubrirlo.
   if (/from\('inventory'\)[\s\S]{0,120}?\.update\(/.test(svc)) {
-    findings.push(`${SVC}: reaparecio una escritura de inventory desde el navegador`)
+    findings.push(`${SVC}: reaparecio la escritura de inventory desde el navegador que G2-B elimino`)
   }
   if (/from\('inventory_movements'\)[\s\S]{0,120}?\.insert\(/.test(svc)) {
-    findings.push(`${SVC}: reaparecio un INSERT de inventory_movements desde el navegador`)
+    findings.push(`${SVC}: reaparecio el INSERT de inventory_movements desde el navegador que G2-B elimino`)
   }
   return findings
 }
@@ -157,6 +207,21 @@ function selfTest() {
       s => ({ ...s, mig: s.mig.replace(/create_comprobante_checkout_atomic/g, 'otra_funcion') })],
     ['la migracion deja de parchear el trigger de repuestos',
       s => ({ ...s, mig: s.mig.replace(/adjust_stock_on_order_item/g, 'otro_trigger') })],
+    ['la migracion deja de parchear la eliminacion de compra (Blocker 1)',
+      s => ({ ...s, mig: s.mig.replace(/delete_supplier_purchase_safe/g, 'otra_rpc') })],
+    ['la migracion vuelve a apuntar por nombre en vez de firma exacta',
+      s => ({ ...s, mig: s.mig.replace(/to_regprocedure/g, 'buscar_por_nombre') })],
+    ['la migracion deja de comprobar que se preserva el ACL',
+      s => ({ ...s, mig: s.mig.replace(/proacl/g, 'otra_cosa') })],
+    ['la migracion deja de comprobar que se preserva el owner',
+      s => ({ ...s, mig: s.mig.replace(/proowner/g, 'otra_cosa') })],
+    ['la migracion deja de comprobar que se preserva el search_path',
+      s => ({ ...s, mig: s.mig.replace(/proconfig/g, 'otra_cosa') })],
+    ['una migracion POSTERIOR reintroduce el clamp al eliminar una compra',
+      s => ({ ...s, posteriores: [...s.posteriores, {
+        nombre: '20261007120000_regresion_hipotetica.sql',
+        sql: `CREATE OR REPLACE FUNCTION public.delete_supplier_purchase_safe(uuid,uuid,uuid) RETURNS jsonb AS $$
+              BEGIN v_new_stk := GREATEST(0, COALESCE(v_prev_stk, 0) - 1); END $$;` }] })],
     ['los parches pierden el aborto fail-closed',
       s => ({ ...s, mig: s.mig.replace(/RAISE EXCEPTION\s*\n?\s*'G2-C:/g, "RAISE NOTICE 'G2C:") })],
     ['se pierde el chequeo de exactamente 1 ocurrencia',
@@ -220,7 +285,11 @@ if (process.argv.includes('--self-test')) {
     findings.forEach(f => console.error('  · ' + f))
     process.exit(1)
   }
-  console.log('GUARD G2-C OK · parches fail-closed sobre los 2 writers del contrato '
+  console.log('GUARD G2-C OK · parches fail-closed por firma exacta sobre los 3 writers del contrato '
+    + '(checkout, repuestos de orden, eliminar compra) · preservan secdef/owner/search_path/ACL '
     + '· ninguna migracion posterior reintroduce el clamp · el POS permite sobreventa '
-    + '· sin escrituras de stock desde el navegador.')
+    + '· comprobanteService no reintroduce el writer client-side que elimino G2-B.')
+  console.log('NOTA · alcance: este guard NO cubre el resto de la app. '
+    + 'portalService._processWholesaleStock sigue escribiendo stock desde el navegador con el mismo '
+    + 'clamp (Math.max(0, prev + delta)). Es G2-C.1 y BLOQUEA el cierre de BETA-GATE-2.')
 }

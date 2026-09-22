@@ -50,14 +50,26 @@ operación + su reversa exacta => stock_final == stock_inicial
 | 3b | Repuesto de orden · DELETE | idem | — | `prev + qty` | no | — | — | ninguno | `return`, `qty=+n` | Sí |
 | 3c | Repuesto de orden · UPDATE | idem | `GREATEST(prev − Δ, 0)` | idem | **Sí** | no | — | ninguno | según signo de Δ | Sí |
 | 4 | Reparación histórica | `public.repair_missing_stock_movements` | `prev − qty` + *skip* si insuficiente | — | no | opt-in (`p_allow_negative`) | sí | `FOR UPDATE SKIP LOCKED` | `sale` | manual |
-| 5 | Borrado de compra | `public.delete_supplier_purchase_safe` | `GREATEST(0, prev − qty)` | — | **Sí** | no | — | `FOR UPDATE` | `cancellation` | Sí |
+| 5 | Borrado de compra | `public.delete_supplier_purchase_safe` | `GREATEST(0, prev − qty)` | — | **Sí** | no | tombstone | `FOR UPDATE` (compra) | `cancellation` | **Sí — `Suppliers.tsx`** |
 | 6 | Portal mayorista | `portalService._processWholesaleStock` (**cliente**) | `Math.max(0, prev + delta)` | misma expresión | **Sí** | no | sí | ninguno | `sale` / `return` | sólo con portal habilitado |
 | 7 | Alta / ajuste manual | `inventoryMovementsService.registerMovement` (**cliente**) | `prev + qty`, **bloquea** `< 0` | — | no | bloqueada | — | ninguno | varios | Sí |
 
 ### Qué corrige G2-C
 
-Sólo **#1 y #3** — los dos que representan una salida reversible que admite
-sobreventa, que es el P0 declarado.
+**#1, #3 y #5** — los tres writers que restan stock por un camino alcanzable
+desde producto y pueden quedar en déficit legítimo.
+
+**#5 entró en la revisión humana del PR #143.** El discovery inicial lo había
+dejado fuera por ser «reversión de una compra y no una venta con sobreventa», y
+esa lectura era **equivocada**: es exactamente el mismo P0, y además es un
+camino vivo del módulo core de Proveedores
+(`Suppliers.tsx` → `suppliersService.deletePurchaseSafe()` → la RPC).
+
+```
+stock 0 → comprar 5 → 5 → vender 5 → 0 → eliminar la compra
+ANTES:   GREATEST(0, 0 − 5) = 0     ← fabrica 5 respecto de la historia económica
+AHORA:            0 − 5    = −5
+```
 
 ### Qué NO corrige, y por qué
 
@@ -67,26 +79,49 @@ sobreventa, que es el P0 declarado.
   `items_sin_stock_suficiente`. Es una herramienta manual conservadora: no
   fabrica unidades ni rompe el invariante. Se dejó igual y se prueban sus dos
   ramas (caso 17 de la matriz).
-- **#5** clampa igual, pero es la reversión de una **compra**, no una venta con
-  sobreventa. Fuera del alcance declarado de G2-C. **Hallazgo abierto** — ver abajo.
-- **#6** tiene el mismo defecto, pero es una escritura **client-side** de un
-  dominio aparte, apagado por `wholesale_portal_enabled`. Arreglarlo bien
-  implica moverlo server-side: es otro lote, no un cambio de clamp.
-  **Hallazgo abierto.**
+- **#6** tiene el mismo defecto → **G2-C.1**, ver abajo.
 - **#7** no clampa; **bloquea** el negativo de forma explícita. Es alta de
   producto y ajuste manual, no una venta.
 
-### Hallazgos abiertos (no se tocan en este lote)
+---
 
-1. **`delete_supplier_purchase_safe` fabrica stock al borrar una compra ya
-   vendida.** Comprar 5 (0→5), vender 5 (5→0), borrar la compra: `GREATEST(0,
-   0−5)` = 0 cuando debería ser −5. Mismo invariante roto.
-2. **El portal mayorista escribe stock desde el navegador** y con el mismo
-   clamp en ambas direcciones.
-3. **`adjust_stock_on_order_item` no toma `FOR UPDATE`.** Es independiente del
-   clamp y preexistente: dos altas concurrentes del mismo repuesto pueden leer
-   el mismo `prev_stock` y perder una actualización. G2-C no lo empeora ni lo
-   arregla.
+## G2-C.1 — BLOCKER pendiente antes del cierre de BETA-GATE-2
+
+**El portal mayorista escribe stock desde el navegador, con el mismo clamp.**
+
+`src/portal/services/portalService.ts` · `_processWholesaleStock()`:
+
+```ts
+const delta    = mode === 'deduct' ? -item.quantity : item.quantity
+const newStock = Math.max(0, prevStock + delta)     // ← el clamp, en AMBAS direcciones
+await supabase.from('inventory').update({ stock_quantity: newStock })...
+await supabase.from('inventory_movements').insert({ quantity: delta, previous_stock: prevStock, new_stock: newStock })...
+```
+
+Alcanzable desde `updateOrderStatus()`: `approved` → *deduct*,
+`cancelled`/`rejected` → *revert*. Reproduce el P0 completo: `2 − 5 → 0` y
+después `0 + 5 → 5`. Y escribe el movimiento con `quantity = delta` sin clampar,
+así que rompe el mismo invariante.
+
+**No se parchea en este lote, y no por olvido.** Cambiar `Math.max(0, …)` por
+`prevStock + delta` dejaría el resto tal cual: client-side, sin lock, sin
+atomicidad entre las tres escrituras y sin autoridad server-side. Sería una
+corrección cosmética sobre una arquitectura que G2-B ya declaró incorrecta para
+el camino POS.
+
+La corrección correcta es **moverlo server-side**: atómico, con lock sobre la
+fila de inventario, idempotente y con autoridad de tenant — igual que el
+checkout. Es un lote propio.
+
+> **G2-C.1 bloquea el cierre definitivo de BETA-GATE-2.**
+
+## Otros riesgos registrados (no se expanden en este PR)
+
+- **`adjust_stock_on_order_item` no toma `FOR UPDATE`.** Independiente del clamp
+  y preexistente: dos altas concurrentes del mismo repuesto pueden leer el mismo
+  `prev_stock` y perder una actualización. G2-C no lo empeora ni lo arregla.
+- **`delete_supplier_purchase_safe` bloquea la fila de `supplier_purchases` pero
+  no la de `inventory`.** Misma clase de riesgo, también preexistente.
 
 ## Diagnóstico histórico
 
