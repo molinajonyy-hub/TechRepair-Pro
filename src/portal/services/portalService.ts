@@ -489,90 +489,54 @@ export async function getWholesaleOrders(
   return (data || []) as WholesaleOrder[]
 }
 
+/** RPC canónica de cambio de estado de un pedido mayorista (G2-C.1). */
+export const WHOLESALE_ORDER_STATUS_RPC = 'update_wholesale_order_status_atomic'
+
+/** Lo que devuelve la RPC. `changed` es false cuando se repitió el mismo estado. */
+export interface WholesaleOrderStatusChange {
+  ok: true
+  order_id: string
+  business_id: string
+  status: WholesaleOrder['status']
+  previous_status: WholesaleOrder['status']
+  admin_notes: string | null
+  changed: boolean
+  updated_at: string
+}
+
+/**
+ * G2-C.1 — cambia el estado administrativo de un pedido mayorista.
+ *
+ * PEDIDO MAYORISTA = ESTADO COMERCIAL. COMPROBANTE = MOVIMIENTO DE STOCK.
+ * Ningún estado mueve inventario: la salida real ocurre sólo al convertir el
+ * pedido en comprobante por el checkout canónico. Este servicio no lee ni
+ * escribe `inventory`, `inventory_movements` ni los marcadores `stock_*`.
+ *
+ * La base es la única autoridad: la RPC valida identidad (auth.uid()),
+ * capability `wholesale` y plan del MISMO negocio, bloquea el pedido y
+ * actualiza status/admin_notes en una transacción. El UPDATE directo sobre
+ * `wholesale_orders` está cerrado para el navegador.
+ *
+ * `businessId` es obligatorio: sin él no hay tenant que autorizar. Los errores
+ * se propagan (42501 sin autoridad, 22023 estado inválido, P0002 pedido
+ * inexistente en ese negocio). `adminNotes` undefined conserva las notas.
+ */
 export async function updateOrderStatus(
+  businessId: string,
   orderId: string,
   status: WholesaleOrder['status'],
   adminNotes?: string,
-  businessId?: string,
-): Promise<void> {
-  let q = supabase
-    .from('wholesale_orders')
-    .update({ status, admin_notes: adminNotes || null, updated_at: new Date().toISOString() })
-    .eq('id', orderId)
-  if (businessId) q = q.eq('business_id', businessId)
-  await q
+): Promise<WholesaleOrderStatusChange> {
+  if (!businessId) throw new Error('No hay negocio activo para cambiar el estado del pedido.')
 
-  if (!businessId) return
-
-  const DEDUCT_ON  = ['approved'] as WholesaleOrder['status'][]
-  const REVERT_ON  = ['cancelled', 'rejected'] as WholesaleOrder['status'][]
-
-  if (DEDUCT_ON.includes(status)) {
-    await _processWholesaleStock(orderId, businessId, 'deduct')
-  } else if (REVERT_ON.includes(status)) {
-    await _processWholesaleStock(orderId, businessId, 'revert')
-  }
-}
-
-async function _processWholesaleStock(
-  orderId: string,
-  businessId: string,
-  mode: 'deduct' | 'revert',
-): Promise<void> {
-  const { data: items } = await supabase
-    .from('wholesale_order_items')
-    .select('id, inventory_item_id, quantity, stock_processed')
-    .eq('order_id', orderId)
-    .eq('business_id', businessId)
-
-  if (!items?.length) return
-
-  for (const item of items) {
-    if (!item.inventory_item_id || !item.quantity) continue
-
-    if (mode === 'deduct' && item.stock_processed) continue   // idempotencia
-    if (mode === 'revert' && !item.stock_processed) continue  // nada que revertir
-
-    const { data: inv } = await supabase
-      .from('inventory')
-      .select('stock_quantity')
-      .eq('id', item.inventory_item_id)
-      .eq('business_id', businessId)
-      .single()
-
-    if (!inv) continue
-
-    const prevStock = inv.stock_quantity ?? 0
-    const delta     = mode === 'deduct' ? -item.quantity : item.quantity
-    const newStock  = Math.max(0, prevStock + delta)
-
-    await supabase.from('inventory')
-      .update({ stock_quantity: newStock, updated_at: new Date().toISOString() })
-      .eq('id', item.inventory_item_id)
-      .eq('business_id', businessId)
-
-    const { data: mov } = await supabase.from('inventory_movements').insert({
-      business_id:       businessId,
-      inventory_item_id: item.inventory_item_id,
-      movement_type:     mode === 'deduct' ? 'sale' : 'return',
-      quantity:          delta,
-      previous_stock:    prevStock,
-      new_stock:         newStock,
-      reference_type:    'wholesale_order',
-      reference_id:      orderId,
-      note:              mode === 'deduct'
-        ? 'Salida por pedido mayorista aprobado'
-        : 'Devolución por pedido mayorista cancelado/rechazado',
-    }).select('id').maybeSingle()
-
-    await supabase.from('wholesale_order_items')
-      .update({
-        stock_processed:    mode === 'deduct',
-        stock_processed_at: mode === 'deduct' ? new Date().toISOString() : null,
-        stock_movement_id:  mode === 'deduct' ? (mov?.id ?? null) : null,
-      })
-      .eq('id', item.id)
-  }
+  const { data, error } = await supabase.rpc(WHOLESALE_ORDER_STATUS_RPC, {
+    p_business_id: businessId,
+    p_order_id:    orderId,
+    p_status:      status,
+    p_admin_notes: adminNotes ?? null,
+  })
+  if (error) throw new Error(error.message)
+  return data as WholesaleOrderStatusChange
 }
 
 /**
