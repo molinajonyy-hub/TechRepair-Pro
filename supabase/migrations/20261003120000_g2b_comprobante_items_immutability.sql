@@ -98,53 +98,88 @@ SET LOCAL statement_timeout = '60s';
 --
 -- Devuelve tambien la fecha economica para no obligar al trigger INVOKER a leer
 -- `comprobantes` por su cuenta (misma razon de visibilidad).
+-- AUTORIDAD DE TENANT (revision humana, Blocker 2): es SECDEF y `authenticated`
+-- puede invocarla por PostgREST, asi que sin gate seria un oraculo cross-tenant
+-- («¿el comprobante X de otro negocio ya cobro?»). Se exige pertenencia ACTIVA
+-- al negocio con el helper canonico `_require_business_member` —el mismo que usa
+-- `repair_missing_stock_movements`— y ademas se scopea CADA huella por
+-- `business_id`: la pertenencia autoriza el negocio, el scope impide que un
+-- comprobante ajeno conteste a traves de un negocio propio.
+--
+-- El gate es de PERTENENCIA, no de capacidad financiera: un rol sin
+-- `finance`/`inventory_view_costs` debe seguir obteniendo la respuesta, porque
+-- la UI la necesita para decidir si ofrece editar.
 CREATE OR REPLACE FUNCTION public.comprobante_impacto_economico(
   p_business_id    uuid,
   p_comprobante_id uuid
 ) RETURNS TABLE (tiene_impacto boolean, fecha_economica date)
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 -- `pg_temp` explicito y AL FINAL: omitirlo no lo saca del path, lo pone PRIMERO.
 SET search_path = pg_catalog, public, pg_temp
-AS $$
+AS $fn$
+BEGIN
+  -- Fail-closed. `_require_business_member` lanza 42501 'Not authenticated' sin
+  -- auth.uid() y 42501 'Forbidden' si el actor no es miembro activo, con mensaje
+  -- deliberadamente generico (no confirma si el negocio existe).
+  PERFORM public._require_business_member(p_business_id, NULL);
+
+  -- El comprobante tiene que ser DE ese negocio. Si no lo es, se responde igual
+  -- que si no existiera: sin revelar existencia ni impacto.
+  IF NOT EXISTS (SELECT 1 FROM public.comprobantes c
+                  WHERE c.id = p_comprobante_id AND c.business_id = p_business_id) THEN
+    RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
   SELECT
     (
       -- 1. Cobros registrados sobre el documento. Se cuentan TAMBIEN los
       --    reemplazados (`replaced_at IS NOT NULL`): la plata se movio igual.
+      -- Cada huella va scopeada por business_id ademas de por comprobante.
       EXISTS (SELECT 1 FROM public.comprobante_payments p
-               WHERE p.comprobante_id = p_comprobante_id)
+               WHERE p.comprobante_id = p_comprobante_id
+                 AND p.business_id    = p_business_id)
       -- 2. Caja / tesoreria.
       OR EXISTS (SELECT 1 FROM public.financial_movements fm
-                  WHERE fm.comprobante_id = p_comprobante_id)
+                  WHERE fm.comprobante_id = p_comprobante_id
+                    AND fm.business_id    = p_business_id)
       -- 3. Clasificacion economica y COGS devengado.
       OR EXISTS (SELECT 1 FROM public.business_finance_entries bfe
-                  WHERE bfe.reference_comprobante_id = p_comprobante_id)
+                  WHERE bfe.reference_comprobante_id = p_comprobante_id
+                    AND bfe.business_id              = p_business_id)
       -- 4. Deuda de cuenta corriente del cliente.
       OR EXISTS (SELECT 1 FROM public.account_movements am
                   WHERE am.reference_type = 'comprobante'
-                    AND am.reference_id   = p_comprobante_id)
+                    AND am.reference_id   = p_comprobante_id
+                    AND am.business_id    = p_business_id)
       -- 5. Movimiento de inventario imputado al comprobante.
       OR EXISTS (SELECT 1 FROM public.inventory_movements im
                   WHERE im.reference_type = 'comprobante'
-                    AND im.reference_id   = p_comprobante_id)
+                    AND im.reference_id   = p_comprobante_id
+                    AND im.business_id    = p_business_id)
       -- 6. Marcador de stock ya procesado en alguna linea.
       OR EXISTS (SELECT 1 FROM public.comprobante_items ci
                   WHERE ci.comprobante_id = p_comprobante_id
+                    AND ci.business_id    = p_business_id
                     AND ci.stock_processed = true)
       -- 7. Imputaciones de pago de cuenta corriente contra este documento.
       OR EXISTS (SELECT 1 FROM public.customer_account_payment_allocations al
-                  WHERE al.comprobante_id = p_comprobante_id)
+                  WHERE al.comprobante_id = p_comprobante_id
+                    AND al.business_id    = p_business_id)
       -- 8. Anulacion registrada: el documento ya es historia compensada.
       OR EXISTS (SELECT 1 FROM public.comprobante_annulments an
-                  WHERE an.comprobante_id = p_comprobante_id)
+                  WHERE an.comprobante_id = p_comprobante_id
+                    AND an.business_id    = p_business_id)
     ) AS tiene_impacto,
     (SELECT (COALESCE(c.fecha, c.date, c.created_at)
                AT TIME ZONE 'America/Argentina/Cordoba')::date
        FROM public.comprobantes c
       WHERE c.id = p_comprobante_id AND c.business_id = p_business_id)
       AS fecha_economica;
-$$;
+END;
+$fn$;
 
 ALTER FUNCTION public.comprobante_impacto_economico(uuid, uuid) OWNER TO postgres;
 
@@ -213,7 +248,10 @@ ALTER FUNCTION public.assert_comprobante_items_mutable(uuid, uuid, text) OWNER T
 COMMENT ON FUNCTION public.assert_comprobante_items_mutable(uuid, uuid, text) IS
   'G2-B — lanza si el comprobante ya produjo impacto economico, y exige que su '
   'periodo financiero siga abierto. SECDEF porque `assert_period_open` no es '
-  'ejecutable por `authenticated` y el guard que la llama es INVOKER.';
+  'ejecutable por `authenticated` y el guard que la llama es INVOKER. La '
+  'autoridad de tenant NO se duplica: la primera sentencia delega en '
+  'comprobante_impacto_economico, que exige pertenencia activa al negocio y que '
+  'el comprobante sea de ese negocio (fail-closed, 42501).';
 
 REVOKE ALL ON FUNCTION public.assert_comprobante_items_mutable(uuid, uuid, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.assert_comprobante_items_mutable(uuid, uuid, text) FROM anon;
@@ -231,16 +269,85 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
-  v_business uuid := COALESCE(NEW.business_id, OLD.business_id);
-  v_comp     uuid := COALESCE(NEW.comprobante_id, OLD.comprobante_id);
+  -- Se evalua SIEMPRE el documento de ORIGEN (OLD) en UPDATE/DELETE. Tomar NEW
+  -- era el bypass del Blocker 1: ver el bloque A2.
+  v_business uuid := COALESCE(OLD.business_id, NEW.business_id);
+  v_comp     uuid := COALESCE(OLD.comprobante_id, NEW.comprobante_id);
 BEGIN
   -- ── A. Contexto que NO es el navegador ────────────────────────────────────
   -- Dentro de una SECDEF canonica (checkout, anulacion, notas de credito) la
   -- autoridad ya se resolvio por capacidad, con idempotencia y auditoria. Ahi
   -- este guard no tiene nada que agregar — y si opinara, romperia la segunda
   -- linea de toda venta multi-item.
+  --
+  -- AUDITADO (revision humana): los UNICOS escritores de `comprobante_items` son
+  -- private.create_comprobante_checkout_atomic, private.create_credit_note_from_comprobante,
+  -- private.delete_comprobante_with_finance, private.sec08e_annul_comprobante_impl
+  -- —los cuatro en el schema `private`, sin USAGE para authenticated/anon, y
+  -- alcanzables solo por su wrapper publico gateado (require_action_authority /
+  -- current_user_can)— y public.repair_missing_stock_movements, gateada por
+  -- `_require_business_member`. No hay writer SECDEF generico, asi que el
+  -- discriminador por `current_user` alcanza y no hace falta un scope
+  -- transaction-local.
   IF auth.uid() IS NULL OR current_user NOT IN ('authenticated', 'anon') THEN
     RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  END IF;
+
+  -- ── A2. Reparenting: la linea no se muda de documento ni de negocio ───────
+  -- BLOCKER 1. Antes se evaluaba `COALESCE(NEW..., OLD...)`, y en UPDATE NEW
+  -- gana siempre. Eso permitia: comprobante A con impacto (inmutable) y B
+  -- borrador limpio del mismo negocio; el actor hacia
+  -- `UPDATE comprobante_items SET comprobante_id = B WHERE id = <item de A>`,
+  -- el guard evaluaba B —mutable— y dejaba pasar la operacion, retirando de
+  -- hecho una linea de A. Eso vacia una venta ya cobrada y ademas evade el
+  -- period lock del ORIGEN.
+  --
+  -- Ningun escritor canonico reparenta lineas (el checkout y la nota de credito
+  -- INSERTAN filas nuevas; la anulacion y el borrado operan sobre el mismo
+  -- documento), asi que la pertenencia de un item es INMUTABLE.
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW.comprobante_id IS DISTINCT FROM OLD.comprobante_id THEN
+      RAISE EXCEPTION
+        'COMPROBANTE_ITEMS_REPARENT_PROHIBIDO: un item no puede cambiar de comprobante '
+        '(% -> %). Para mover una linea, anula el comprobante y emiti uno nuevo.',
+        OLD.comprobante_id, NEW.comprobante_id
+        USING ERRCODE = '0A000';
+    END IF;
+    IF NEW.business_id IS DISTINCT FROM OLD.business_id THEN
+      RAISE EXCEPTION
+        'COMPROBANTE_ITEMS_REPARENT_PROHIBIDO: un item no puede cambiar de negocio (% -> %).',
+        OLD.business_id, NEW.business_id
+        USING ERRCODE = '0A000';
+    END IF;
+  END IF;
+
+  -- ── A3. Marcadores de stock: son SERVER-OWNED ─────────────────────────────
+  -- Los escribe el checkout al descontar y la anulacion al restituir. Si el
+  -- navegador pudiera fabricarlos sobre un borrador limpio —donde el guard de
+  -- impacto todavia no aplica— el daño seria real y silencioso:
+  -- `stock_processed = true` es una de las senales de
+  -- `v_finance_effective_comprobantes`, asi que un borrador SIN venta entraria
+  -- al ledger devengado como venta efectiva; ademas haria que cualquier rutina
+  -- de descuento lo saltee por idempotencia y el stock nunca baje.
+  -- "Es un borrador" no habilita a inventar estado del servidor.
+  IF TG_OP = 'INSERT' THEN
+    IF COALESCE(NEW.stock_processed, false) IS TRUE
+       OR NEW.stock_processed_at IS NOT NULL
+       OR NEW.stock_movement_id IS NOT NULL THEN
+      RAISE EXCEPTION
+        'COMPROBANTE_ITEMS_MARCADOR_SERVER_OWNED: stock_processed / stock_processed_at / '
+        'stock_movement_id los escribe el servidor al procesar el stock; no se pueden declarar.'
+        USING ERRCODE = '0A000';
+    END IF;
+  ELSIF TG_OP = 'UPDATE' THEN
+    IF NEW.stock_processed    IS DISTINCT FROM OLD.stock_processed
+       OR NEW.stock_processed_at IS DISTINCT FROM OLD.stock_processed_at
+       OR NEW.stock_movement_id  IS DISTINCT FROM OLD.stock_movement_id THEN
+      RAISE EXCEPTION
+        'COMPROBANTE_ITEMS_MARCADOR_SERVER_OWNED: stock_processed / stock_processed_at / '
+        'stock_movement_id los escribe el servidor al procesar el stock; no se pueden modificar.'
+        USING ERRCODE = '0A000';
+    END IF;
   END IF;
 
   -- Una fila sin comprobante no puede evaluarse; que la rechace el FK.
@@ -348,6 +455,41 @@ BEGIN
   END IF;
   IF has_function_privilege('anon', 'public.assert_comprobante_items_mutable(uuid,uuid,text)', 'EXECUTE') THEN
     RAISE EXCEPTION 'POSTCONDICION 8b: anon conserva EXECUTE sobre la asercion';
+  END IF;
+
+  -- [9] BLOCKER 2 — el predicado exige autoridad de tenant ANTES de leer nada.
+  --     Sin esto vuelve a ser un oraculo cross-tenant.
+  --     Se exige la LLAMADA, no la mencion: `prosrc` incluye los comentarios
+  --     del cuerpo, y uno de ellos nombra el helper. Buscar solo el nombre
+  --     dejaria pasar un cuerpo al que le sacaron el PERFORM y le dejaron el
+  --     comentario — medido con el self-test del guard estructural.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'comprobante_impacto_economico'
+      AND p.prosrc LIKE '%PERFORM public._require_business_member(p_business_id%'
+  ) THEN
+    RAISE EXCEPTION 'POSTCONDICION 9: el predicado perdio la autoridad de tenant';
+  END IF;
+
+  -- [10] BLOCKER 1 — el guard rechaza el reparenting de una linea.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'tg_comprobante_items_immutability_guard'
+      AND p.prosrc LIKE '%COMPROBANTE_ITEMS_REPARENT_PROHIBIDO%'
+  ) THEN
+    RAISE EXCEPTION 'POSTCONDICION 10: el guard dejo de rechazar el reparenting de items';
+  END IF;
+
+  -- [11] Y evalua el documento de ORIGEN, no el destino.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'tg_comprobante_items_immutability_guard'
+      AND p.prosrc LIKE '%COALESCE(OLD.comprobante_id, NEW.comprobante_id)%'
+  ) THEN
+    RAISE EXCEPTION 'POSTCONDICION 11: el guard volvio a evaluar el comprobante DESTINO';
   END IF;
 
   RAISE NOTICE 'G2-B OK · inmutabilidad de comprobante_items + period lock instalados';
