@@ -440,6 +440,25 @@ export function Mayorista() {
     }
   }
 
+  // G2-C.1 — aprobar/suspender/reactivar un cliente lo decide la base (RPC
+  // canónica). El estado local se toma de lo que devolvió el servidor y un
+  // rechazo se muestra.
+  const handleCambiarCliente = async (
+    cliente: WholesaleCustomer,
+    patch: { approved?: boolean; suspended?: boolean },
+  ) => {
+    if (!businessId) return
+    try {
+      const res = await updateCustomerStatus(businessId, cliente.id, patch)
+      setPortalCustomers(prev => prev.map(x => x.id === cliente.id
+        ? { ...x, approved: res.approved, suspended: res.suspended }
+        : x))
+    } catch (err) {
+      setConvertError(`No se pudo actualizar al cliente ${cliente.name}: ${err instanceof Error ? err.message : 'error desconocido'}`)
+      setTimeout(() => setConvertError(''), 5000)
+    }
+  }
+
   // Portal config
   const [portalConfig, setPortalConfig]   = useState<PortalConfig>({ wholesale_portal_enabled: false, wholesale_portal_slug: '', wholesale_whatsapp: '' })
   const [configSaving, setConfigSaving]   = useState(false)
@@ -1035,10 +1054,7 @@ export function Mayorista() {
                         <div style={{ display: 'flex', gap: '0.375rem' }}>
                           {canManage && !c.approved && !c.suspended && (
                             <button
-                              onClick={async () => {
-                                await updateCustomerStatus(c.id, { approved: true })
-                                setPortalCustomers(prev => prev.map(x => x.id === c.id ? { ...x, approved: true } : x))
-                              }}
+                              onClick={() => handleCambiarCliente(c, { approved: true })}
                               style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.3rem 0.625rem', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '0.375rem', color: '#22c55e', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
                             >
                               <UserCheck size={12} /> Aprobar
@@ -1046,10 +1062,7 @@ export function Mayorista() {
                           )}
                           {canManage && c.approved && !c.suspended && (
                             <button
-                              onClick={async () => {
-                                await updateCustomerStatus(c.id, { suspended: true })
-                                setPortalCustomers(prev => prev.map(x => x.id === c.id ? { ...x, suspended: true } : x))
-                              }}
+                              onClick={() => handleCambiarCliente(c, { suspended: true })}
                               style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.3rem 0.625rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '0.375rem', color: '#f87171', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
                             >
                               <UserX size={12} /> Suspender
@@ -1057,10 +1070,7 @@ export function Mayorista() {
                           )}
                           {canManage && c.suspended && (
                             <button
-                              onClick={async () => {
-                                await updateCustomerStatus(c.id, { suspended: false })
-                                setPortalCustomers(prev => prev.map(x => x.id === c.id ? { ...x, suspended: false } : x))
-                              }}
+                              onClick={() => handleCambiarCliente(c, { suspended: false })}
                               style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.3rem 0.625rem', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.375rem', color: '#818cf8', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
                             >
                               <UserCheck size={12} /> Reactivar

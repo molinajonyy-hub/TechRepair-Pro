@@ -37,9 +37,20 @@
 --      administrativa de status/admin_notes. SECURITY DEFINER porque, cerrado
 --      el UPDATE directo, `authenticated` ya no puede escribir la fila.
 --   2. Cierra el UPDATE directo de wholesale_orders y wholesale_order_items.
---   3. El alta del cliente queda obligada al estado inicial canonico
---      (`pending_whatsapp`, el DEFAULT de la columna) y a marcadores neutros.
+--   3. RPC public.create_wholesale_order_atomic: unica alta de pedidos. La base
+--      decide tenant, cliente habilitado, productos, PRECIO y totales, y crea
+--      pedido + items en una transaccion. El INSERT directo se cierra entero.
 --   4. CHECK (quantity > 0) en wholesale_order_items.
+--   5. wholesale_customers: el cliente solo escribe last_login y el alta neutra;
+--      approved/suspended/notes los administra el staff por
+--      public.update_wholesale_customer_status_atomic.
+--
+-- REVISION HUMANA DEL PR #144 (blockers que cierran las secciones 3 y 5)
+--   B1. wholesale_customers permitia autoaprobarse, des-suspenderse, mudar la
+--       fila de negocio y escribir estadisticas.
+--   B2. el INSERT de un pedido no ataba order.business_id al negocio del cliente.
+--   B3. el INSERT de items no ataba item -> pedido -> inventario al mismo tenant.
+--   B4. precio, subtotales y total del pedido los decidia el navegador.
 --
 -- QUE NO HACE (explicito)
 -- -----------------------
@@ -70,12 +81,38 @@ BEGIN
     RAISE EXCEPTION 'G2-C.1: falta public.business_has_feature(text)';
   END IF;
 
-  -- Ningun overload previo con el mismo nombre: haria ambiguo el contrato.
+  -- La autoridad del portal que reusa el alta.
+  IF to_regprocedure('public.get_wholesale_portal_features(text)') IS NULL THEN
+    RAISE EXCEPTION 'G2-C.1: falta public.get_wholesale_portal_features(text)';
+  END IF;
+
+  -- Ningun overload previo con los mismos nombres: haria ambiguo el contrato.
   SELECT count(*) INTO v_n
     FROM pg_catalog.pg_proc p
-   WHERE p.proname = 'update_wholesale_order_status_atomic';
+   WHERE p.proname IN ('update_wholesale_order_status_atomic',
+                       'create_wholesale_order_atomic',
+                       'update_wholesale_customer_status_atomic');
   IF v_n > 0 THEN
-    RAISE EXCEPTION 'G2-C.1: ya existe una funcion update_wholesale_order_status_atomic (%): revisar a mano', v_n;
+    RAISE EXCEPTION 'G2-C.1: ya existe alguna de las RPC de G2-C.1 (%): revisar a mano', v_n;
+  END IF;
+
+  -- El slug del portal identifica UN negocio: el alta resuelve el tenant por el.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_index x
+      JOIN pg_catalog.pg_attribute a ON a.attrelid = x.indrelid AND a.attnum = ANY (x.indkey)
+     WHERE x.indrelid = 'public.businesses'::regclass
+       AND x.indisunique AND x.indnatts = 1
+       AND a.attname = 'wholesale_portal_slug'
+  ) THEN
+    RAISE EXCEPTION 'G2-C.1: wholesale_portal_slug dejo de ser UNIQUE';
+  END IF;
+
+  -- El alta del cliente nace neutra por DEFAULT: approved y suspended en false.
+  IF (SELECT count(*) FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'wholesale_customers'
+         AND column_name IN ('approved', 'suspended', 'whatsapp_verified')
+         AND column_default = 'false') <> 3 THEN
+    RAISE EXCEPTION 'G2-C.1: cambiaron los DEFAULT administrativos de wholesale_customers';
   END IF;
 
   -- Sin legado: la decision de producto se tomo sobre 0 filas procesadas.
@@ -244,8 +281,8 @@ COMMENT ON FUNCTION public.update_wholesale_order_status_atomic(uuid, uuid, text
 -- Discovery: el UNICO UPDATE legitimo desde el navegador sobre estas dos
 -- tablas era portalService.updateOrderStatus (status/admin_notes/updated_at) y
 -- _processWholesaleStock (marcadores). Los dos se reemplazan en este lote.
--- Ninguna Edge Function escribe estas tablas. wholesale_customers NO se toca
--- (last_login y la aprobacion de clientes siguen siendo UPDATE legitimos).
+-- Ninguna Edge Function escribe estas tablas. wholesale_customers tiene su
+-- propio cierre, por columnas, en la seccion 5.
 -- Se quitan grant Y policy: una policy sin grant es una puerta que el proximo
 -- GRANT reabre sin que nadie lo note.
 DROP POLICY IF EXISTS wo_staff_update  ON public.wholesale_orders;
@@ -253,74 +290,386 @@ DROP POLICY IF EXISTS woi_staff_update ON public.wholesale_order_items;
 REVOKE UPDATE ON TABLE public.wholesale_orders      FROM PUBLIC, anon, authenticated;
 REVOKE UPDATE ON TABLE public.wholesale_order_items FROM PUBLIC, anon, authenticated;
 
--- ── 3. Alta: estado inicial canonico y marcadores neutros ───────────────────
--- Dos capas, a proposito:
---   a) privilegio por COLUMNA: el navegador ni siquiera puede nombrar `status`,
---      `admin_notes` ni los marcadores en un INSERT (42501). Las columnas
---      concedidas son exactamente las que manda portalService.createOrder.
---   b) policy: aunque un GRANT futuro devolviera esas columnas, la fila nueva
---      tiene que nacer en `pending_whatsapp`, sin notas administrativas y con
---      marcadores neutros.
+-- ── 3. Alta canonica del pedido: RPC atomica, la base es autoridad ──────────
+-- Revision humana del PR #144 (Blockers 2, 3 y 4). El INSERT directo desde el
+-- navegador dejaba en manos del cliente:
+--   · el tenant: wo_customer_insert validaba el customer_id propio pero NO que
+--     order.business_id fuera el negocio de ese cliente (A podia dejar un
+--     pedido en B);
+--   · el ata item -> pedido -> inventario: woi_customer_insert no probaba
+--     item.business_id = order.business_id ni inventory.business_id;
+--   · el PRECIO y los totales: unit_price/subtotal/total/product_name/
+--     product_code viajaban desde el navegador como verdad;
+--   · la aprobacion: un cliente no aprobado o suspendido podia pedir llamando
+--     directo aunque la UI lo bloqueara;
+--   · la atomicidad: encabezado e items eran dos INSERT separados; si fallaba
+--     el segundo quedaba un pedido huerfano sin items.
+--
+-- public.create_wholesale_order_atomic(p_portal_slug, p_items, p_notes):
+--   · identidad por auth.uid(); no recibe customer_id ni business_id.
+--   · negocio: se resuelve por el SLUG del portal (UNIQUE en businesses), con
+--     la MISMA autoridad que usa el portal para decidir si toma pedidos:
+--     public.get_wholesale_portal_features(p_slug) -> mayorista AND active
+--     (portal encendido + plan + suscripcion no suspendida). No se replica la
+--     tabla de planes.
+--   · cliente: el wholesale_customers del actor EN ESE negocio, exactamente
+--     uno, approved = true y suspended = false. Bloqueado FOR UPDATE.
+--   · items: array no vacio de {inventory_item_id, quantity}; quantity entero
+--     > 0; sin repetidos. Cualquier otra clave (unit_price, product_name, ...)
+--     se IGNORA: no es autoridad.
+--   · cada producto: del MISMO negocio, is_active y visible_in_wholesale (el
+--     contrato del catalogo, PortalCatalog/getCatalog). El stock NO se exige:
+--     el pedido no reserva stock y la sobreventa esta permitida (G2-C); la
+--     disponibilidad se confirma en la revision.
+--   · precio: la regla del catalogo, en la base:
+--       precio_mayorista > 0 ? precio_mayorista : sale_price
+--     nombre y codigo salen de inventory. Subtotal por linea y total del
+--     pedido se calculan aca.
+--   · order_number server-side. status = DEFAULT (pending_whatsapp),
+--     admin_notes NULL, marcadores en sus defaults (false/NULL/NULL).
+--   · last_order_at del cliente lo escribe la RPC (el navegador ya no puede).
+--     total_orders/total_spent NO se tocan: la RPC que el cliente llamaba para
+--     eso (increment_wholesale_customer_stats) no existe en ninguna migracion,
+--     asi que hoy nunca se actualizan; darles semantica nueva queda fuera.
+--   · todo en UNA transaccion: cualquier fallo revierte pedido e items.
+CREATE FUNCTION public.create_wholesale_order_atomic(
+  p_portal_slug text,
+  p_items       jsonb,
+  p_notes       text DEFAULT NULL
+) RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_actor    uuid := auth.uid();
+  v_features jsonb;
+  v_business uuid;
+  v_n        bigint;
+  v_customer record;
+  v_elem     jsonb;
+  v_inv_id   uuid;
+  v_qty      numeric;
+  v_inv      record;
+  v_price    numeric;
+  v_seen     uuid[] := ARRAY[]::uuid[];
+  v_lines    jsonb := '[]'::jsonb;
+  v_total    numeric := 0;
+  v_order    record;
+  v_number   text;
+BEGIN
+  IF v_actor IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '42501';
+  END IF;
+  IF p_portal_slug IS NULL OR btrim(p_portal_slug) = '' THEN
+    RAISE EXCEPTION 'portal_slug es obligatorio' USING ERRCODE = '22023';
+  END IF;
+
+  -- El portal acepta pedidos: la misma decision que toma el portal.
+  v_features := public.get_wholesale_portal_features(p_portal_slug);
+  IF v_features IS NULL
+     OR (v_features->>'mayorista') IS DISTINCT FROM 'true'
+     OR (v_features->>'active')    IS DISTINCT FROM 'true' THEN
+    RAISE EXCEPTION 'PORTAL_NOT_ACCEPTING_ORDERS' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT b.id INTO v_business
+    FROM public.businesses b
+   WHERE b.wholesale_portal_enabled = true
+     AND b.wholesale_portal_slug = p_portal_slug;
+  IF v_business IS NULL THEN
+    RAISE EXCEPTION 'PORTAL_NOT_ACCEPTING_ORDERS' USING ERRCODE = '42501';
+  END IF;
+
+  -- El cliente del actor EN ESTE negocio. Ninguno o mas de uno: fail-closed.
+  SELECT count(*) INTO v_n
+    FROM public.wholesale_customers wc
+   WHERE wc.auth_user_id = v_actor
+     AND wc.business_id = v_business;
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'Forbidden: no es cliente mayorista de este portal' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT wc.id, wc.approved, wc.suspended
+    INTO v_customer
+    FROM public.wholesale_customers wc
+   WHERE wc.auth_user_id = v_actor
+     AND wc.business_id = v_business
+   FOR UPDATE;
+
+  IF v_customer.approved IS NOT TRUE THEN
+    RAISE EXCEPTION 'CUSTOMER_NOT_APPROVED' USING ERRCODE = '42501';
+  END IF;
+  IF v_customer.suspended IS TRUE THEN
+    RAISE EXCEPTION 'CUSTOMER_SUSPENDED' USING ERRCODE = '42501';
+  END IF;
+
+  IF p_items IS NULL OR jsonb_typeof(p_items) IS DISTINCT FROM 'array'
+     OR jsonb_array_length(p_items) = 0 THEN
+    RAISE EXCEPTION 'EMPTY_ORDER' USING ERRCODE = '22023';
+  END IF;
+
+  FOR v_elem IN SELECT e.value FROM jsonb_array_elements(p_items) AS e LOOP
+    IF jsonb_typeof(v_elem) IS DISTINCT FROM 'object'
+       OR jsonb_typeof(v_elem->'inventory_item_id') IS DISTINCT FROM 'string'
+       OR (v_elem->>'inventory_item_id') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+       OR jsonb_typeof(v_elem->'quantity') IS DISTINCT FROM 'number' THEN
+      RAISE EXCEPTION 'INVALID_ITEM: cada item necesita inventory_item_id y quantity' USING ERRCODE = '22023';
+    END IF;
+
+    v_inv_id := (v_elem->>'inventory_item_id')::uuid;
+    v_qty    := (v_elem->>'quantity')::numeric;
+
+    IF v_qty <= 0 OR v_qty <> trunc(v_qty) OR v_qty > 2147483647 THEN
+      RAISE EXCEPTION 'INVALID_QUANTITY: %', v_qty USING ERRCODE = '22023';
+    END IF;
+    IF v_inv_id = ANY (v_seen) THEN
+      RAISE EXCEPTION 'DUPLICATE_ITEM: %', v_inv_id USING ERRCODE = '22023';
+    END IF;
+    v_seen := v_seen || v_inv_id;
+
+    -- Mismo negocio, activo y visible en el catalogo mayorista. Un producto de
+    -- otro tenant es indistinguible de uno inexistente.
+    SELECT i.id, i.name, i.code, i.sale_price, i.precio_mayorista
+      INTO v_inv
+      FROM public.inventory i
+     WHERE i.id = v_inv_id
+       AND i.business_id = v_business
+       AND i.is_active IS TRUE
+       AND i.visible_in_wholesale IS TRUE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'PRODUCT_NOT_AVAILABLE: %', v_inv_id USING ERRCODE = 'P0002';
+    END IF;
+
+    v_price := CASE WHEN COALESCE(v_inv.precio_mayorista, 0) > 0
+                    THEN v_inv.precio_mayorista
+                    ELSE v_inv.sale_price END;
+
+    v_lines := v_lines || jsonb_build_array(jsonb_build_object(
+      'inventory_item_id', v_inv.id,
+      'product_name',      v_inv.name,
+      'product_code',      v_inv.code,
+      'quantity',          v_qty::integer,
+      'unit_price',        v_price,
+      'subtotal',          v_price * v_qty));
+    v_total := v_total + v_price * v_qty;
+  END LOOP;
+
+  v_number := 'PW-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10));
+
+  INSERT INTO public.wholesale_orders(business_id, customer_id, order_number, subtotal, total, notes)
+  VALUES (v_business, v_customer.id, v_number, v_total, v_total, NULLIF(btrim(p_notes), ''))
+  RETURNING id, order_number, status, subtotal, total, notes, created_at INTO v_order;
+
+  INSERT INTO public.wholesale_order_items(order_id, business_id, inventory_item_id, product_name,
+                                           product_code, quantity, unit_price, subtotal)
+  SELECT v_order.id, v_business, (l.value->>'inventory_item_id')::uuid, l.value->>'product_name',
+         l.value->>'product_code', (l.value->>'quantity')::integer,
+         (l.value->>'unit_price')::numeric, (l.value->>'subtotal')::numeric
+    FROM jsonb_array_elements(v_lines) AS l;
+
+  UPDATE public.wholesale_customers
+     SET last_order_at = now()
+   WHERE id = v_customer.id;
+
+  RETURN jsonb_build_object(
+    'ok',           true,
+    'order_id',     v_order.id,
+    'order_number', v_order.order_number,
+    'business_id',  v_business,
+    'customer_id',  v_customer.id,
+    'status',       v_order.status,
+    'subtotal',     v_order.subtotal,
+    'total',        v_order.total,
+    'notes',        v_order.notes,
+    'created_at',   v_order.created_at,
+    'items',        v_lines
+  );
+END;
+$$;
+
+ALTER FUNCTION public.create_wholesale_order_atomic(text, jsonb, text) OWNER TO postgres;
+
+REVOKE ALL ON FUNCTION public.create_wholesale_order_atomic(text, jsonb, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.create_wholesale_order_atomic(text, jsonb, text) FROM anon;
+REVOKE ALL ON FUNCTION public.create_wholesale_order_atomic(text, jsonb, text) FROM service_role;
+GRANT EXECUTE ON FUNCTION public.create_wholesale_order_atomic(text, jsonb, text) TO authenticated;
+
+COMMENT ON FUNCTION public.create_wholesale_order_atomic(text, jsonb, text) IS
+  'G2-C.1 — unica alta de pedidos mayoristas. Identidad por auth.uid(); negocio por '
+  'slug con get_wholesale_portal_features; cliente propio aprobado y no suspendido; '
+  'productos del mismo negocio, activos y visibles; precio, nombre, codigo, subtotales '
+  'y total calculados en la base (precio_mayorista > 0 ? precio_mayorista : sale_price). '
+  'Pedido + items en una transaccion, en pending_whatsapp y con marcadores neutros. '
+  'NO mueve stock.';
+
+-- Con la RPC como unica alta, el INSERT directo se cierra ENTERO. Discovery de
+-- callers: el unico INSERT legitimo en src/ era portalService.createOrder (que
+-- pasa a la RPC); ninguna Edge Function escribe estas tablas; ningun flujo de
+-- staff crea pedidos o items a mano. Se quitan grant Y policies.
+DROP POLICY IF EXISTS wo_customer_insert  ON public.wholesale_orders;
+DROP POLICY IF EXISTS wo_staff_insert     ON public.wholesale_orders;
+DROP POLICY IF EXISTS woi_customer_insert ON public.wholesale_order_items;
+DROP POLICY IF EXISTS woi_staff_insert    ON public.wholesale_order_items;
+REVOKE INSERT ON TABLE public.wholesale_orders      FROM PUBLIC, anon, authenticated;
+REVOKE INSERT ON TABLE public.wholesale_order_items FROM PUBLIC, anon, authenticated;
 -- Por que no un CHECK de tabla sobre los marcadores: aplicaria tambien a
 -- public.repair_missing_stock_movements (SECDEF), que hoy puede marcarlos, y
 -- la haria abortar entera. Esa herramienta queda fuera de G2-C.1 por decision
 -- explicita; se registra como riesgo residual.
-REVOKE INSERT ON TABLE public.wholesale_orders FROM PUBLIC, anon, authenticated;
-GRANT INSERT (business_id, customer_id, order_number, subtotal, total, notes)
-  ON TABLE public.wholesale_orders TO authenticated;
-
-REVOKE INSERT ON TABLE public.wholesale_order_items FROM PUBLIC, anon, authenticated;
-GRANT INSERT (order_id, business_id, inventory_item_id, product_name, product_code,
-              quantity, unit_price, subtotal)
-  ON TABLE public.wholesale_order_items TO authenticated;
-
--- Mismas condiciones de identidad/tenant que antes; solo se AGREGA el estado
--- inicial. Ningun actor gana permisos.
-ALTER POLICY wo_customer_insert ON public.wholesale_orders
-  WITH CHECK (
-    customer_id IN (
-      SELECT wc.id FROM public.wholesale_customers wc
-       WHERE wc.auth_user_id = auth.uid())
-    AND status = 'pending_whatsapp'
-    AND admin_notes IS NULL
-  );
-
-ALTER POLICY wo_staff_insert ON public.wholesale_orders
-  WITH CHECK (
-    business_id = public.current_user_business_id()
-    AND public.business_has_feature('mayorista')
-    AND public.can_manage_wholesale()
-    AND status = 'pending_whatsapp'
-    AND admin_notes IS NULL
-  );
-
-ALTER POLICY woi_customer_insert ON public.wholesale_order_items
-  WITH CHECK (
-    order_id IN (
-      SELECT o.id
-        FROM public.wholesale_orders o
-        JOIN public.wholesale_customers c ON c.id = o.customer_id
-       WHERE c.auth_user_id = auth.uid())
-    AND stock_processed IS NOT TRUE
-    AND stock_processed_at IS NULL
-    AND stock_movement_id IS NULL
-  );
-
-ALTER POLICY woi_staff_insert ON public.wholesale_order_items
-  WITH CHECK (
-    business_id = public.current_user_business_id()
-    AND public.business_has_feature('mayorista')
-    AND public.can_manage_wholesale()
-    AND stock_processed IS NOT TRUE
-    AND stock_processed_at IS NULL
-    AND stock_movement_id IS NULL
-  );
 
 -- ── 4. Cantidad estrictamente positiva ──────────────────────────────────────
 ALTER TABLE public.wholesale_order_items
   ADD CONSTRAINT wholesale_order_items_quantity_positive CHECK (quantity > 0);
 
--- ── 5. POSTCONDICIONES — contra el catalogo, que es lo que corre ────────────
+-- ── 5. wholesale_customers: el cliente no administra su propia cuenta ───────
+-- Revision humana del PR #144 (Blocker 1). `authenticated` tenia UPDATE e
+-- INSERT de TABLA y la policy wc_own_update solo ataba la fila al actor
+-- (auth_user_id = auth.uid()), sin limitar columnas. Un cliente del portal
+-- podia autoaprobarse, quitarse la suspension, mudar su fila a otro negocio o
+-- escribir sus estadisticas; y al registrarse podia nacer approved = true.
+--
+-- Discovery de escrituras legitimas desde el navegador:
+--   · loginCustomer ............ UPDATE last_login          (el propio cliente)
+--   · insertWholesaleCustomer .. INSERT del alta            (el propio cliente)
+--   · updateCustomerStatus ..... UPDATE approved/suspended  (staff, Mayorista.tsx)
+--   · createOrder .............. UPDATE last_order_at       (pasa a la RPC de alta)
+--   · otpService ............... UPDATE whatsapp_code/verified — codigo MUERTO:
+--     ningun archivo lo importa. Tras este cierre queda denegado, que es lo
+--     correcto: una verificacion por OTP no puede decidirse en el navegador.
+-- Ninguna UI de staff crea clientes a mano.
+--
+-- Cierre por COLUMNAS (el privilegio es por rol, igual para cliente y staff):
+--   · UPDATE: solo last_login. La policy wc_own_update la limita a la fila
+--     propia. La administracion del staff pasa a una RPC (abajo) y se quita
+--     wc_staff_update.
+--   · INSERT: solo las columnas del alta. approved, suspended, notes, tags,
+--     estadisticas, last_* y whatsapp_* no se pueden nombrar: nacen en su
+--     DEFAULT (false/false/NULL/NULL/0/0/...). wc_own_insert ademas exige ese
+--     estado neutro. wc_staff_insert se quita: ningun flujo lo usa.
+-- SELECT no cambia.
+CREATE FUNCTION public.update_wholesale_customer_status_atomic(
+  p_business_id uuid,
+  p_customer_id uuid,
+  p_approved    boolean DEFAULT NULL,
+  p_suspended   boolean DEFAULT NULL,
+  p_notes       text    DEFAULT NULL
+) RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_actor     uuid := auth.uid();
+  v_c         record;
+  v_approved  boolean;
+  v_suspended boolean;
+  v_notes     text;
+  v_changed   boolean;
+  v_updated   timestamptz;
+BEGIN
+  IF v_actor IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '42501';
+  END IF;
+  IF p_business_id IS NULL OR p_customer_id IS NULL THEN
+    RAISE EXCEPTION 'business_id y customer_id son obligatorios' USING ERRCODE = '22023';
+  END IF;
+
+  -- Misma autoridad que el cambio de estado de pedidos.
+  IF NOT public.current_user_can_in_business(p_business_id, 'wholesale') THEN
+    RAISE EXCEPTION 'Forbidden' USING ERRCODE = '42501';
+  END IF;
+  IF public.current_user_business_id() IS DISTINCT FROM p_business_id
+     OR NOT public.business_has_feature('mayorista') THEN
+    RAISE EXCEPTION 'Forbidden: el plan del negocio no incluye el modulo mayorista'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT wc.id, wc.approved, wc.suspended, wc.notes, wc.updated_at
+    INTO v_c
+    FROM public.wholesale_customers wc
+   WHERE wc.id = p_customer_id
+     AND wc.business_id = p_business_id
+   FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'WHOLESALE_CUSTOMER_NOT_FOUND' USING ERRCODE = 'P0002';
+  END IF;
+
+  -- NULL conserva; notas en blanco se borran.
+  v_approved  := COALESCE(p_approved,  v_c.approved);
+  v_suspended := COALESCE(p_suspended, v_c.suspended);
+  v_notes     := CASE WHEN p_notes IS NULL THEN v_c.notes ELSE NULLIF(btrim(p_notes), '') END;
+  v_changed   := v_approved  IS DISTINCT FROM v_c.approved
+              OR v_suspended IS DISTINCT FROM v_c.suspended
+              OR v_notes     IS DISTINCT FROM v_c.notes;
+
+  IF v_changed THEN
+    UPDATE public.wholesale_customers
+       SET approved   = v_approved,
+           suspended  = v_suspended,
+           notes      = v_notes,
+           updated_at = now()
+     WHERE id = v_c.id
+    RETURNING updated_at INTO v_updated;
+  ELSE
+    v_updated := v_c.updated_at;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'ok',          true,
+    'customer_id', v_c.id,
+    'business_id', p_business_id,
+    'approved',    v_approved,
+    'suspended',   v_suspended,
+    'notes',       v_notes,
+    'changed',     v_changed,
+    'updated_at',  v_updated
+  );
+END;
+$$;
+
+ALTER FUNCTION public.update_wholesale_customer_status_atomic(uuid, uuid, boolean, boolean, text) OWNER TO postgres;
+
+REVOKE ALL ON FUNCTION public.update_wholesale_customer_status_atomic(uuid, uuid, boolean, boolean, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.update_wholesale_customer_status_atomic(uuid, uuid, boolean, boolean, text) FROM anon;
+REVOKE ALL ON FUNCTION public.update_wholesale_customer_status_atomic(uuid, uuid, boolean, boolean, text) FROM service_role;
+GRANT EXECUTE ON FUNCTION public.update_wholesale_customer_status_atomic(uuid, uuid, boolean, boolean, text) TO authenticated;
+
+COMMENT ON FUNCTION public.update_wholesale_customer_status_atomic(uuid, uuid, boolean, boolean, text) IS
+  'G2-C.1 — unica escritura administrativa de wholesale_customers (approved, suspended, '
+  'notes). Autoridad: current_user_can_in_business(p_business_id, ''wholesale'') + feature '
+  'mayorista del mismo negocio. Bloquea la fila. Idempotente.';
+
+DROP POLICY IF EXISTS wc_staff_update ON public.wholesale_customers;
+DROP POLICY IF EXISTS wc_staff_insert ON public.wholesale_customers;
+
+REVOKE UPDATE ON TABLE public.wholesale_customers FROM PUBLIC, anon, authenticated;
+GRANT UPDATE (last_login) ON TABLE public.wholesale_customers TO authenticated;
+
+REVOKE INSERT ON TABLE public.wholesale_customers FROM PUBLIC, anon, authenticated;
+GRANT INSERT (business_id, auth_user_id, name, business_name, email, whatsapp,
+              province, city, instagram)
+  ON TABLE public.wholesale_customers TO authenticated;
+
+ALTER POLICY wc_own_insert ON public.wholesale_customers
+  WITH CHECK (
+    auth_user_id = auth.uid()
+    AND approved IS FALSE
+    AND suspended IS FALSE
+    AND whatsapp_verified IS FALSE
+    AND whatsapp_code IS NULL
+    AND whatsapp_code_expires_at IS NULL
+    AND notes IS NULL
+    AND tags IS NULL
+    AND total_orders = 0
+    AND total_spent = 0
+    AND last_order_at IS NULL
+  );
+
+-- ── 6. POSTCONDICIONES — contra el catalogo, que es lo que corre ────────────
 DO $post$
 DECLARE
   v_fn   oid := to_regprocedure('public.update_wholesale_order_status_atomic(uuid,uuid,text,text)');
@@ -409,32 +758,32 @@ BEGIN
     RAISE EXCEPTION 'POSTCONDICION 5: queda una policy de UPDATE sobre las tablas mayoristas';
   END IF;
 
-  -- [6] El alta no puede nombrar estado, notas administrativas ni marcadores...
-  FOREACH v_col IN ARRAY ARRAY['id','status','admin_notes','whatsapp_sent_at','created_at','updated_at'] LOOP
-    IF pg_catalog.has_column_privilege('authenticated', 'public.wholesale_orders', v_col, 'INSERT') THEN
-      RAISE EXCEPTION 'POSTCONDICION 6: authenticated puede insertar wholesale_orders.%', v_col;
+  -- [6] Nadie del lado cliente puede hacer INSERT directo de pedidos ni items,
+  --     en ninguna columna, y no queda policy de INSERT: la RPC es la unica alta.
+  FOR v_col IN
+    SELECT a.attname FROM pg_catalog.pg_attribute a
+     WHERE a.attrelid = 'public.wholesale_orders'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+  LOOP
+    IF pg_catalog.has_column_privilege('authenticated', 'public.wholesale_orders', v_col, 'INSERT')
+       OR pg_catalog.has_column_privilege('anon', 'public.wholesale_orders', v_col, 'INSERT') THEN
+      RAISE EXCEPTION 'POSTCONDICION 6: queda INSERT directo sobre wholesale_orders.%', v_col;
     END IF;
   END LOOP;
-  FOREACH v_col IN ARRAY ARRAY['id','stock_processed','stock_processed_at','stock_movement_id','created_at'] LOOP
-    IF pg_catalog.has_column_privilege('authenticated', 'public.wholesale_order_items', v_col, 'INSERT') THEN
-      RAISE EXCEPTION 'POSTCONDICION 6: authenticated puede insertar wholesale_order_items.%', v_col;
+  FOR v_col IN
+    SELECT a.attname FROM pg_catalog.pg_attribute a
+     WHERE a.attrelid = 'public.wholesale_order_items'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+  LOOP
+    IF pg_catalog.has_column_privilege('authenticated', 'public.wholesale_order_items', v_col, 'INSERT')
+       OR pg_catalog.has_column_privilege('anon', 'public.wholesale_order_items', v_col, 'INSERT') THEN
+      RAISE EXCEPTION 'POSTCONDICION 6: queda INSERT directo sobre wholesale_order_items.%', v_col;
     END IF;
   END LOOP;
-  -- ...pero conserva exactamente las columnas que usa createOrder.
-  FOREACH v_col IN ARRAY ARRAY['business_id','customer_id','order_number','subtotal','total','notes'] LOOP
-    IF NOT pg_catalog.has_column_privilege('authenticated', 'public.wholesale_orders', v_col, 'INSERT') THEN
-      RAISE EXCEPTION 'POSTCONDICION 6: el alta de pedidos perdio la columna %', v_col;
-    END IF;
-  END LOOP;
-  FOREACH v_col IN ARRAY ARRAY['order_id','business_id','inventory_item_id','product_name',
-                               'product_code','quantity','unit_price','subtotal'] LOOP
-    IF NOT pg_catalog.has_column_privilege('authenticated', 'public.wholesale_order_items', v_col, 'INSERT') THEN
-      RAISE EXCEPTION 'POSTCONDICION 6: el alta de items perdio la columna %', v_col;
-    END IF;
-  END LOOP;
-  IF pg_catalog.has_table_privilege('anon', 'public.wholesale_orders', 'INSERT')
-     OR pg_catalog.has_table_privilege('anon', 'public.wholesale_order_items', 'INSERT') THEN
-    RAISE EXCEPTION 'POSTCONDICION 6: anon puede insertar en tablas mayoristas';
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_policy p
+     WHERE p.polrelid IN ('public.wholesale_orders'::regclass, 'public.wholesale_order_items'::regclass)
+       AND p.polcmd = 'a'
+  ) THEN
+    RAISE EXCEPTION 'POSTCONDICION 6: queda una policy de INSERT sobre pedidos o items';
   END IF;
 
   -- [7] La lectura sigue abierta a quien ya la tenia (la RLS decide filas).
@@ -443,21 +792,42 @@ BEGIN
     RAISE EXCEPTION 'POSTCONDICION 7: authenticated perdio SELECT sobre las tablas mayoristas';
   END IF;
 
-  -- [8] Las policies de alta exigen estado inicial y marcadores neutros.
-  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy p
-                  WHERE p.polrelid = 'public.wholesale_orders'::regclass AND p.polname = 'wo_customer_insert'
-                    AND pg_catalog.pg_get_expr(p.polwithcheck, p.polrelid) LIKE '%pending_whatsapp%')
-     OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy p
-                  WHERE p.polrelid = 'public.wholesale_orders'::regclass AND p.polname = 'wo_staff_insert'
-                    AND pg_catalog.pg_get_expr(p.polwithcheck, p.polrelid) LIKE '%pending_whatsapp%') THEN
-    RAISE EXCEPTION 'POSTCONDICION 8: una policy de alta de pedidos no fuerza pending_whatsapp';
+  -- [8] La RPC de alta: firma exacta, SECDEF, owner postgres, search_path
+  --     minimo, solo authenticated; autoridad del portal, cliente aprobado,
+  --     precio de la base; y NINGUNA escritura de inventario ni marcadores.
+  v_fn := to_regprocedure('public.create_wholesale_order_atomic(text,jsonb,text)');
+  IF v_fn IS NULL THEN
+    RAISE EXCEPTION 'POSTCONDICION 8: no existe la firma exacta de create_wholesale_order_atomic';
   END IF;
-  IF (SELECT count(*) FROM pg_catalog.pg_policy p
-       WHERE p.polrelid = 'public.wholesale_order_items'::regclass
-         AND p.polname IN ('woi_customer_insert', 'woi_staff_insert')
-         AND pg_catalog.pg_get_expr(p.polwithcheck, p.polrelid) LIKE '%stock_processed%'
-         AND pg_catalog.pg_get_expr(p.polwithcheck, p.polrelid) LIKE '%stock_movement_id%') <> 2 THEN
-    RAISE EXCEPTION 'POSTCONDICION 8: una policy de alta de items no fuerza marcadores neutros';
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_proc p
+     WHERE p.oid = v_fn
+       AND p.prosecdef
+       AND pg_catalog.pg_get_userbyid(p.proowner) = 'postgres'
+       AND p.proconfig = ARRAY['search_path=pg_catalog, pg_temp']
+  ) THEN
+    RAISE EXCEPTION 'POSTCONDICION 8: la RPC de alta no es SECDEF/postgres/search_path minimo';
+  END IF;
+  IF pg_catalog.has_function_privilege('anon', v_fn, 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', v_fn, 'EXECUTE')
+     OR NOT pg_catalog.has_function_privilege('authenticated', v_fn, 'EXECUTE') THEN
+    RAISE EXCEPTION 'POSTCONDICION 8: la RPC de alta tiene grants distintos de solo-authenticated';
+  END IF;
+  SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p WHERE p.oid = v_fn;
+  IF v_src NOT LIKE '%public.get_wholesale_portal_features(p_portal_slug)%'
+     OR v_src NOT LIKE '%auth.uid()%'
+     OR v_src NOT LIKE '%approved IS NOT TRUE%'
+     OR v_src NOT LIKE '%suspended IS TRUE%'
+     OR v_src NOT LIKE '%precio_mayorista%'
+     OR v_src NOT LIKE '%visible_in_wholesale IS TRUE%'
+     OR v_src NOT LIKE '%i.business_id = v_business%' THEN
+    RAISE EXCEPTION 'POSTCONDICION 8: la RPC de alta perdio una de sus autoridades';
+  END IF;
+  IF v_src !~* 'FOR\s+UPDATE' THEN
+    RAISE EXCEPTION 'POSTCONDICION 8: la RPC de alta no bloquea al cliente';
+  END IF;
+  IF v_src ~* '(inventory_movements|stock_processed|stock_movement_id|stock_quantity|UPDATE\s+public\.inventory\M|INSERT\s+INTO\s+public\.inventory\M)' THEN
+    RAISE EXCEPTION 'POSTCONDICION 8: la RPC de alta escribe inventario o marcadores';
   END IF;
 
   -- [9] CHECK de cantidad instalado y validado.
@@ -479,8 +849,80 @@ BEGIN
     RAISE EXCEPTION 'POSTCONDICION 10: aparecio un trigger sobre las tablas mayoristas';
   END IF;
 
-  RAISE NOTICE 'G2-C.1 OK · RPC canonica de estado · UPDATE directo cerrado · alta en pending_whatsapp '
-    '· marcadores neutros · quantity > 0 · ningun estado mueve stock';
+  -- [11] La RPC de administracion de clientes: firma exacta, SECDEF, owner,
+  --      search_path minimo, solo authenticated, autoridad tenant-bound, lock.
+  v_fn := to_regprocedure('public.update_wholesale_customer_status_atomic(uuid,uuid,boolean,boolean,text)');
+  IF v_fn IS NULL THEN
+    RAISE EXCEPTION 'POSTCONDICION 11: no existe la firma exacta de update_wholesale_customer_status_atomic';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_proc p
+     WHERE p.oid = v_fn
+       AND p.prosecdef
+       AND pg_catalog.pg_get_userbyid(p.proowner) = 'postgres'
+       AND p.proconfig = ARRAY['search_path=pg_catalog, pg_temp']
+  ) THEN
+    RAISE EXCEPTION 'POSTCONDICION 11: la RPC de clientes no es SECDEF/postgres/search_path minimo';
+  END IF;
+  IF pg_catalog.has_function_privilege('anon', v_fn, 'EXECUTE')
+     OR pg_catalog.has_function_privilege('public', v_fn, 'EXECUTE')
+     OR NOT pg_catalog.has_function_privilege('authenticated', v_fn, 'EXECUTE') THEN
+    RAISE EXCEPTION 'POSTCONDICION 11: la RPC de clientes tiene grants distintos de solo-authenticated';
+  END IF;
+  SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p WHERE p.oid = v_fn;
+  IF v_src NOT LIKE '%public.current_user_can_in_business(p_business_id, ''wholesale'')%'
+     OR v_src !~* 'FOR\s+UPDATE' THEN
+    RAISE EXCEPTION 'POSTCONDICION 11: la RPC de clientes perdio su autoridad o su lock';
+  END IF;
+
+  -- [12] wholesale_customers: el unico UPDATE directo que queda es last_login.
+  FOR v_col IN
+    SELECT a.attname FROM pg_catalog.pg_attribute a
+     WHERE a.attrelid = 'public.wholesale_customers'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+  LOOP
+    IF pg_catalog.has_column_privilege('anon', 'public.wholesale_customers', v_col, 'UPDATE')
+       OR (v_col <> 'last_login'
+           AND pg_catalog.has_column_privilege('authenticated', 'public.wholesale_customers', v_col, 'UPDATE')) THEN
+      RAISE EXCEPTION 'POSTCONDICION 12: queda UPDATE directo sobre wholesale_customers.%', v_col;
+    END IF;
+  END LOOP;
+  IF NOT pg_catalog.has_column_privilege('authenticated', 'public.wholesale_customers', 'last_login', 'UPDATE') THEN
+    RAISE EXCEPTION 'POSTCONDICION 12: loginCustomer perdio el UPDATE de last_login';
+  END IF;
+
+  -- [13] El alta del cliente: exactamente las columnas del registro.
+  FOR v_col IN
+    SELECT a.attname FROM pg_catalog.pg_attribute a
+     WHERE a.attrelid = 'public.wholesale_customers'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+  LOOP
+    IF pg_catalog.has_column_privilege('anon', 'public.wholesale_customers', v_col, 'INSERT')
+       OR (pg_catalog.has_column_privilege('authenticated', 'public.wholesale_customers', v_col, 'INSERT')
+           <> (v_col IN ('business_id','auth_user_id','name','business_name','email','whatsapp',
+                         'province','city','instagram'))) THEN
+      RAISE EXCEPTION 'POSTCONDICION 13: el INSERT de wholesale_customers.% no es el del registro', v_col;
+    END IF;
+  END LOOP;
+  IF NOT pg_catalog.has_table_privilege('authenticated', 'public.wholesale_customers', 'SELECT') THEN
+    RAISE EXCEPTION 'POSTCONDICION 13: authenticated perdio SELECT sobre wholesale_customers';
+  END IF;
+
+  -- [14] Policies de clientes: sin escritura de staff directa; el alta propia
+  --      exige estado administrativo neutro.
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_policy p
+              WHERE p.polrelid = 'public.wholesale_customers'::regclass
+                AND p.polname IN ('wc_staff_update', 'wc_staff_insert')) THEN
+    RAISE EXCEPTION 'POSTCONDICION 14: sigue una policy de escritura directa de staff sobre clientes';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy p
+                  WHERE p.polrelid = 'public.wholesale_customers'::regclass AND p.polname = 'wc_own_insert'
+                    AND pg_catalog.pg_get_expr(p.polwithcheck, p.polrelid) LIKE '%approved IS FALSE%'
+                    AND pg_catalog.pg_get_expr(p.polwithcheck, p.polrelid) LIKE '%suspended IS FALSE%'
+                    AND pg_catalog.pg_get_expr(p.polwithcheck, p.polrelid) LIKE '%total_spent = %') THEN
+    RAISE EXCEPTION 'POSTCONDICION 14: wc_own_insert no exige el estado administrativo neutro';
+  END IF;
+
+  RAISE NOTICE 'G2-C.1 OK · RPC canonica de estado · alta atomica con precio de la base · UPDATE/INSERT '
+    'directo de pedidos cerrado · clientes sin autoadministracion · quantity > 0 · ningun estado mueve stock';
 END
 $post$;
 
@@ -491,14 +933,20 @@ COMMIT;
 --
 --   BEGIN;
 --   DROP FUNCTION public.update_wholesale_order_status_atomic(uuid, uuid, text, text);
+--   DROP FUNCTION public.create_wholesale_order_atomic(text, jsonb, text);
+--   DROP FUNCTION public.update_wholesale_customer_status_atomic(uuid, uuid, boolean, boolean, text);
 --   ALTER TABLE public.wholesale_order_items DROP CONSTRAINT wholesale_order_items_quantity_positive;
 --   GRANT INSERT, UPDATE ON TABLE public.wholesale_orders      TO authenticated;
 --   GRANT INSERT, UPDATE ON TABLE public.wholesale_order_items TO authenticated;
---   -- policies de UPDATE y de alta: recrearlas como en
---   -- 20260629115920_caso_e_wholesale_rls_hardening.sql (wo_staff_update,
---   -- woi_staff_update) y el baseline (wo_customer_insert, woi_customer_insert).
+--   GRANT INSERT, UPDATE ON TABLE public.wholesale_customers   TO authenticated;
+--   -- policies: recrearlas como en 20260629115920_caso_e_wholesale_rls_hardening.sql
+--   -- (wo/woi/wc_staff_update, wo/woi/wc_staff_insert) y el baseline
+--   -- (wo_customer_insert, woi_customer_insert, wc_own_insert sin estado neutro).
 --   COMMIT;
 --
--- OJO: el frontend de G2-C.1 llama a la RPC. Revertir la base sin revertir el
--- frontend deja los cambios de estado del modulo Mayorista sin camino.
+-- OJO: revertir REABRE los cuatro blockers de la revision humana (autoaprobacion,
+-- pedido en otro tenant, items/inventario de otro tenant, precio del navegador).
+-- Y el frontend de G2-C.1 llama a las RPC: revertir la base sin revertir el
+-- frontend deja al portal sin alta de pedidos y al modulo Mayorista sin
+-- cambios de estado ni aprobacion de clientes.
 -- ============================================================================

@@ -205,32 +205,116 @@ sentidos. Sólo cambia algo para quien tenga un override explícito de
   una policy muerta es una puerta que el próximo GRANT reabre.
 - Discovery de UPDATE legítimos: en `src/` sólo existían `updateOrderStatus` y
   `_processWholesaleStock`, los dos reemplazados. Ninguna Edge Function escribe
-  estas tablas. `wholesale_customers` **no** se toca.
+  estas tablas. `wholesale_customers` tiene su propio cierre (§5.3b).
 
-### 5.3 Alta: estado inicial y marcadores neutros
+### 5.3 Alta del pedido: RPC atómica, la base es autoridad
 
-Dos capas:
+> Reemplaza a la primera versión de este lote (INSERT por columnas + policies
+> con estado inicial). La revisión humana del PR #144 encontró que el INSERT
+> directo seguía dejando en manos del navegador el **tenant**, el **ata item →
+> pedido → inventario**, la **aprobación del cliente** y, sobre todo, el
+> **precio y los totales** (§7).
 
-1. **Privilegio por columna.** `REVOKE INSERT` de tabla y `GRANT INSERT` sólo
-   de las columnas que manda `createOrder`:
-   - pedidos: `business_id, customer_id, order_number, subtotal, total, notes`;
-   - items: `order_id, business_id, inventory_item_id, product_name,
-     product_code, quantity, unit_price, subtotal`.
+```sql
+public.create_wholesale_order_atomic(
+  p_portal_slug text,
+  p_items       jsonb,          -- [{ inventory_item_id, quantity }, ...]
+  p_notes       text DEFAULT NULL
+) RETURNS jsonb
+```
 
-   Nombrar `status`, `admin_notes` o un marcador en un INSERT da 42501. El
-   estado nace del DEFAULT (`pending_whatsapp`, verificado en la
-   precondición); los marcadores, de sus defaults (`false/NULL/NULL`).
-2. **Policy.** `wo_customer_insert` y `wo_staff_insert` exigen además
-   `status = 'pending_whatsapp' AND admin_notes IS NULL`; `woi_customer_insert`
-   y `woi_staff_insert`, `stock_processed IS NOT TRUE AND stock_processed_at IS
-   NULL AND stock_movement_id IS NULL`. Si un GRANT futuro devolviera las
-   columnas, la fila igual tiene que nacer neutra. Las condiciones de identidad
-   y tenant de cada policy no cambian: nadie gana permisos.
+- `SECURITY DEFINER`, owner `postgres`, `search_path = pg_catalog, pg_temp`,
+  ACL `{postgres, authenticated}` (REVOKE a PUBLIC, `anon`, `service_role`).
+- **Identidad**: `auth.uid()`. No recibe `customer_id` ni `business_id`.
+- **Negocio**: se resuelve por el **slug** del portal (`UNIQUE`, verificado en
+  una precondición), con la **misma autoridad** que usa el portal para decidir
+  si toma pedidos: `public.get_wholesale_portal_features(p_slug)` →
+  `mayorista AND active` (portal encendido + plan + suscripción no suspendida).
+  No se replica la tabla de planes.
+- **Cliente**: el `wholesale_customers` del actor **en ese negocio**; tiene que
+  haber exactamente uno (`auth_user_id = auth.uid() AND business_id = negocio`),
+  `approved = true` y `suspended = false`. Se bloquea `FOR UPDATE`.
+- **Items**: array no vacío; por línea sólo `inventory_item_id` (uuid) y
+  `quantity` (entero > 0); sin repetidos. **Cualquier otra clave** del
+  navegador (`unit_price`, `product_name`, `business_id`, `stock_processed`,
+  …) **se ignora**.
+- **Producto**: del **mismo negocio**, `is_active` y `visible_in_wholesale` —
+  el contrato del catálogo (`getCatalog`). El stock **no** se exige: el pedido
+  no reserva stock, la sobreventa está permitida (G2-C) y la disponibilidad se
+  confirma en la revisión. Un producto de otro tenant es indistinguible de uno
+  inexistente (`PRODUCT_NOT_AVAILABLE`, P0002).
+- **Precio**: la regla del catálogo (`PortalCatalog.tsx`), ahora en la base:
+  `precio_mayorista > 0 ? precio_mayorista : sale_price`. `product_name` y
+  `product_code` salen de `inventory`. Subtotal por línea y subtotal/total del
+  pedido se calculan en la base.
+- `order_number` server-side (`PW-` + 10 hex). `status` = DEFAULT
+  (`pending_whatsapp`), `admin_notes` NULL, marcadores en sus defaults.
+- `last_order_at` del cliente lo escribe la RPC. `total_orders/total_spent`
+  **no**: la RPC que el navegador llamaba para eso
+  (`increment_wholesale_customer_stats`) no existe en ninguna migración, así
+  que hoy nunca se actualizan; darles semántica nueva queda fuera.
+- **Atomicidad**: una sola función, una sola transacción. Todo el pedido se
+  valida antes de insertar; cualquier fallo (incluido uno después de insertar
+  encabezado e items) revierte todo.
+- Devuelve `{ok, order_id, order_number, business_id, customer_id, status,
+  subtotal, total, notes, created_at, items[]}` con las líneas canónicas.
+
+Con la RPC como única alta, el INSERT directo se cierra **entero**:
+`REVOKE INSERT` de `wholesale_orders` y `wholesale_order_items` y
+`DROP POLICY wo_customer_insert, wo_staff_insert, woi_customer_insert,
+woi_staff_insert`. Discovery de callers: el único INSERT en `src/` era
+`createOrder`; ninguna Edge Function escribe estas tablas; ningún flujo de staff
+crea pedidos o items a mano.
 
 Por qué **no** un CHECK de tabla sobre los marcadores: también aplicaría a
 `repair_missing_stock_movements` (SECDEF), que hoy puede marcarlos, y la haría
 abortar entera. Esa herramienta queda fuera de G2-C.1 por decisión explícita
 (§6).
+
+### 5.3b `wholesale_customers`: el cliente no se administra a sí mismo
+
+Antes: `authenticated` con INSERT y UPDATE **de tabla**, y `wc_own_update`
+(roles PUBLIC) sólo ataba la fila al actor. Un cliente podía autoaprobarse,
+quitarse la suspensión, mudar su fila a otro negocio, escribir estadísticas o
+verificar su propio WhatsApp; y podía **registrarse** ya aprobado.
+
+Discovery de escrituras legítimas desde el navegador:
+
+| Escritura | Quién | Destino |
+|---|---|---|
+| `loginCustomer` → `last_login` | cliente | se conserva |
+| `insertWholesaleCustomer` → alta | cliente | se conserva, sin campos administrativos |
+| `updateCustomerStatus` → `approved/suspended/notes` | staff | pasa a RPC |
+| `createOrder` → `last_order_at` | cliente | pasa a la RPC de alta |
+| `otpService` → `whatsapp_code/whatsapp_verified` | cliente | **código muerto** (ningún importador); se elimina |
+
+Cierre por **columnas** (el privilegio es por rol, igual para cliente y staff):
+
+- `UPDATE`: sólo `last_login`; `wc_own_update` la limita a la fila propia. Se
+  quita `wc_staff_update`.
+- `INSERT`: sólo `business_id, auth_user_id, name, business_name, email,
+  whatsapp, province, city, instagram`. Todo lo demás nace en su DEFAULT
+  (`approved=false`, `suspended=false`, `whatsapp_verified=false`, totales en 0,
+  …, verificado en una precondición). `wc_own_insert` además exige ese estado
+  neutro (defensa en profundidad). Se quita `wc_staff_insert`: ninguna UI de
+  staff crea clientes.
+- Administración del staff:
+
+```sql
+public.update_wholesale_customer_status_atomic(
+  p_business_id uuid,
+  p_customer_id uuid,
+  p_approved    boolean DEFAULT NULL,
+  p_suspended   boolean DEFAULT NULL,
+  p_notes       text    DEFAULT NULL
+) RETURNS jsonb
+```
+
+  Misma autoridad que la RPC de estado de pedidos
+  (`current_user_can_in_business(p_business_id, 'wholesale')` + plan del mismo
+  negocio), fila `FOR UPDATE`, sólo `approved/suspended/notes/updated_at`
+  (NULL conserva), idempotente. SECDEF, `search_path = pg_catalog, pg_temp`,
+  ACL `{postgres, authenticated}`.
 
 ### 5.4 Cantidad
 
@@ -248,7 +332,21 @@ también para `postgres`.
 - `Mayorista.tsx`: los botones de estado pasan por `handleCambiarEstado`, que
   manda `businessId`, usa el estado que devolvió el servidor y muestra el
   rechazo en vez de tragarlo. El `onCreado` de la conversión marca `invoiced`
-  con la RPC y, si falla, avisa que el comprobante **sí** se creó.
+  con la RPC y, si falla, avisa que el comprobante **sí** se creó. Aprobar,
+  suspender y reactivar clientes pasan por `handleCambiarCliente` →
+  `updateCustomerStatus(businessId, …)` → RPC.
+- `portalService.createOrder({ portalSlug, items, notes })`: deja de insertar
+  en `wholesale_orders`/`wholesale_order_items`, deja de escribir
+  `last_order_at` y de llamar a la RPC de estadísticas inexistente; manda a la
+  RPC sólo el slug y, por línea, producto + cantidad. Los rechazos se traducen
+  con un mapa cerrado (el texto del servidor no llega a la pantalla).
+  `portalFeatureAllowsOrders` queda como pre-chequeo de UX; la autoridad es la
+  RPC.
+- `PortalCart.tsx`: el mensaje de WhatsApp y el `trackEvent` usan el pedido que
+  devolvió la base (líneas, precios y total canónicos), no el carrito.
+- `otpService.ts`: eliminado (código muerto que decidía la verificación de
+  WhatsApp en el navegador; tras el cierre por columnas, además, ya no podía
+  escribir).
 
 ### 5.6 Postcondiciones de la migración
 
@@ -256,34 +354,70 @@ también para `postgres`.
 2. `anon` y `PUBLIC` sin EXECUTE; `authenticated` con EXECUTE.
 3. Autoridad tenant-bound, `FOR UPDATE`, y ninguna mención a inventario ni marcadores.
 4. Los 7 estados de la RPC son exactamente los del CHECK.
-5. Ninguna columna de las dos tablas admite UPDATE de `authenticated`/`anon`;
+5. Ninguna columna de pedidos ni items admite UPDATE de `authenticated`/`anon`;
    no queda policy de UPDATE.
-6. El alta no puede nombrar estado, notas administrativas ni marcadores, y
-   conserva exactamente las columnas de `createOrder`; `anon` no inserta.
+6. Ninguna columna de pedidos ni items admite INSERT directo; no queda policy
+   de INSERT.
 7. `authenticated` conserva SELECT.
-8. Las policies de alta fuerzan `pending_whatsapp` y marcadores neutros.
+8. La RPC de alta: firma exacta, SECDEF, owner, `search_path`, ACL; usa
+   `get_wholesale_portal_features`, `auth.uid()`, exige cliente aprobado y no
+   suspendido, precio de la base y producto visible del mismo negocio; bloquea
+   al cliente; **no** escribe inventario ni marcadores.
 9. CHECK `quantity > 0` instalado y validado.
-10. Ningún trigger sobre las tablas mayoristas.
+10. Ningún trigger sobre las tablas de pedidos.
+11. La RPC de clientes: firma exacta, SECDEF, owner, `search_path`, ACL,
+    autoridad tenant-bound y lock.
+12. `wholesale_customers`: el único UPDATE directo es `last_login`.
+13. `wholesale_customers`: el INSERT directo es exactamente el del registro;
+    SELECT intacto.
+14. Sin `wc_staff_update`/`wc_staff_insert`; `wc_own_insert` exige estado neutro.
+
+Precondiciones nuevas: existe `get_wholesale_portal_features(text)`, ninguna
+de las tres RPC existe todavía, `wholesale_portal_slug` es `UNIQUE` y los
+DEFAULT administrativos de `wholesale_customers` son `false`.
 
 ### 5.7 Pruebas
 
-- `tests/sql/g2c1_wholesale_stock_authority.test.sql` — **146 aserciones**,
-  dentro de `BEGIN … ROLLBACK`: los 23 casos del contrato, más RBAC (tech,
-  override `wholesale=false`, plan sin mayorista, sin `auth.uid()`), la
-  defensa en profundidad de las policies con la columna concedida a propósito,
-  un fallo forzado **después** de la escritura (rollback total) y el flujo de
-  conversión completo (el stock sale una vez, del comprobante, con la
-  aritmética de G2-C).
+- `tests/sql/g2c1_wholesale_stock_authority.test.sql` — **271 aserciones**,
+  dentro de `BEGIN … ROLLBACK`:
+  - catálogo de las tres RPC y de los cierres de pedidos, items y clientes;
+  - A–E: el cliente no se autoaprueba, no se des-suspende, no cambia
+    `business_id` ni `auth_user_id`, no escribe estadísticas, notas, tags,
+    `whatsapp_verified` ni `last_order_at`; sí su `last_login`; el alta nace
+    neutra; con la columna concedida a propósito la policy sigue rechazando;
+  - administración de clientes sólo por la RPC (tech, override, otro tenant y
+    el propio cliente rechazados; aprobar/suspender/reactivar; idempotencia);
+  - F–H: cliente de A en el portal de B, INSERT directo en B, cliente no
+    aprobado, suspendido, staff que no es cliente, portal apagado, plan sin
+    mayorista, slug inexistente, sin identidad, `anon`;
+  - I, J, N: inventario de B, producto oculto, inactivo o inexistente, items
+    malformados (vacío, `NULL`, 0, negativo, fraccionario, texto, sin producto,
+    repetido), INSERT directo de items, y un **fallo forzado en el último paso
+    del alta** (después de insertar encabezado e items): rollback total;
+  - K, L, M, O, P, Q: precio `$1` → 700 / 1000 / 450 según la regla,
+    nombre/código canónicos, el item no puede declarar otro negocio, totales
+    de la base (8400), pedido + items juntos, `pending_whatsapp`, marcadores
+    neutros, `last_order_at` escrito por la RPC, estadísticas intactas;
+  - los casos de estado 9–23 (sobre pedidos creados por la RPC);
+  - R: alta por la RPC → aprobado → checkout canónico → `invoiced`: el stock
+    sale **una** vez, del comprobante, con la aritmética de G2-C.
 - `scripts/guards/g2c1-wholesale-authority.mjs` — guard estático con
-  **35 mutaciones** en el self-test.
-- `tests/components/g2c1WholesaleOrderStatus.test.ts` — 5 tests de runtime del
-  servicio: sólo la RPC, ninguna tabla, falla sin `businessId`, propaga el
-  rechazo.
+  **69 mutaciones** en el self-test.
+- `tests/components/g2c1WholesaleOrderStatus.test.ts` — **10 tests** de runtime
+  del servicio: estado, alta (sólo slug + producto + cantidad; total del
+  servidor; mapa cerrado de errores) y administración de clientes.
+- `tests/sql/owner_portal_isolation.test.sql` (suite preexistente, fuera de CI):
+  CASO 3/4/5/6 adaptados al contrato nuevo (el staff administra por RPC; el
+  UPDATE directo ahora falla por privilegio en vez de afectar 0 filas). Sigue
+  cortando en el CASO 4 por la lectura de `tech`, igual que en `main`
+  (preexistente, Lote 3); con esa única aserción salteada en una copia local,
+  los CASOS 1–10 pasan.
 - Verificación HTTP manual (no versionada): `@supabase/supabase-js` real contra
-  PostgREST de un stack local aislado — alta del cliente con el INSERT masivo
-  de items (`?columns=`) bajo los grants por columna, rechazo de `status` y de
-  marcadores, PATCH directo rechazado, RPC y recorrido completo de estados con
-  el stock intacto: 19 aserciones OK.
+  PostgREST de un stack local aislado — registro neutro, autoaprobación
+  rechazada, `last_login`, pedido de no aprobado rechazado, aprobación por RPC,
+  INSERT directo de pedido e items rechazado, alta con precio adulterado
+  guardada al precio canónico, estados, `anon` afuera y stock intacto:
+  18 aserciones OK.
 - Concurrencia: la RPC sólo escribe la fila del pedido y la bloquea con
   `FOR UPDATE`; no toca inventario, así que no hay orden de locks que
   coordinar. Se cubre estructuralmente (postcondición 3, caso 0 de la matriz y
@@ -317,14 +451,41 @@ también para `postgres`.
    pero el pedido `invoiced` puede describir otra cosa. Después de G2-C.1 los
    items del pedido **no** se pueden editar desde el navegador (no había UI que
    lo hiciera); el comprobante sigue su propio contrato (G2-B).
-5. **Tenant del alta del cliente (preexistente).** `wo_customer_insert` no
-   verifica que `business_id` sea el negocio del cliente, y los items no están
-   atados al negocio del pedido. G2-C.1 no reescribe esa condición: ningún
-   estado mueve stock, así que ya no puede tocar inventario ajeno, pero un
-   cliente puede dejar un pedido en la bandeja de otro negocio.
+5. **~~Tenant del alta del pedido~~ — CERRADO en la revisión humana (§7).** El
+   alta ya no es un INSERT: la RPC resuelve el negocio por slug y el cliente
+   por `auth.uid()` en ese negocio, y ata cada producto al mismo negocio.
+   Queda, preexistente y **fuera** de este lote: el **registro** del cliente
+   (`wc_own_insert`) no exige que el `business_id` tenga el portal encendido.
+   Un usuario puede crear su ficha no aprobada en cualquier negocio; no puede
+   pedir ni verse aprobado sin que el staff de ese negocio lo apruebe.
 6. **Grafo de transiciones.** La base acepta cualquiera de los 7 estados, como
    antes. El grafo vive en la UI.
 7. **Override de capability.** Quien tenga `wholesale: true` explícito sin ser
    `owner/admin/manager/sales` ahora puede cambiar estados por la RPC (la UI,
    que decide por rol, no le muestra los botones); quien tenga
    `wholesale: false` pierde un acceso que la policy por rol le daba.
+
+---
+
+## 7. Revisión humana del PR #144 — blockers cerrados
+
+La revisión aprobó el núcleo de estados (Opción A, RPC de estado, UPDATE
+directo cerrado, frontend de estados, `quantity > 0`) y encontró cuatro
+blockers en la **alta del pedido** y la **cuenta del cliente**, que seguían
+confiando en escrituras del navegador:
+
+| # | Blocker | Cómo quedó |
+|---|---|---|
+| B1 | `wholesale_customers` permitía autoaprobarse, des-suspenderse, cambiar `business_id`/`auth_user_id` y escribir estadísticas | UPDATE sólo de `last_login`; INSERT sólo del registro con estado neutro; staff por `update_wholesale_customer_status_atomic` (§5.3b) |
+| B2 | el INSERT de pedidos no ataba `order.business_id` al negocio del cliente; no exigía aprobado/no suspendido | alta por `create_wholesale_order_atomic`: negocio por slug, cliente del actor en ese negocio, aprobado y no suspendido; INSERT directo cerrado |
+| B3 | el INSERT de items no ataba item → pedido → inventario | la RPC deriva `business_id` del pedido e ignora el del navegador; cada producto del mismo negocio, activo y visible |
+| B4 | precio, subtotales y total los decidía el navegador | la base aplica `precio_mayorista > 0 ? precio_mayorista : sale_price`, toma nombre/código de `inventory` y calcula subtotales y total |
+
+La RPC de estado y el cierre del UPDATE directo **no** se reescribieron (la
+sección 1 y 2 de la migración quedan iguales salvo un comentario que decía que
+`wholesale_customers` no se tocaba).
+
+Siguen siendo follow-ups **separados**, antes del cierre definitivo de
+BETA-GATE-2 (no se mezclan en #144): G2-C.2, `StockRepairTool`, el vínculo
+persistente pedido ↔ comprobante y el reintento / doble conversión cuando el
+comprobante se crea pero el `invoiced` falla (§6).
