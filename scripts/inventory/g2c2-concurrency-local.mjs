@@ -144,30 +144,69 @@ SELECT 'MON', a.application_name, coalesce(a.wait_event_type,'-'), coalesce(a.wa
 
 const deadlocks = async () => Number(await val(`SELECT deadlocks FROM pg_stat_database WHERE datname = current_database();`))
 
-// Estado de cada producto: stock, SUM(quantity), cadena continua, filas rotas.
+// Estado de cada producto: stock, SUM(quantity), filas rotas y CADENA continua.
+//
+// La cadena se valida de dos formas, ambas acotadas en costo:
+//   · balance euleriano (siempre, O(n)): los movimientos son aristas
+//     previous_stock -> new_stock. Si las operaciones se serializaron, forman UN
+//     camino que usa todas las aristas desde el stock inicial al actual: cada
+//     valor tiene tantas entradas como salidas, salvo el inicial (+1) y el final
+//     (-1). Un lost update deja un valor con DOS salidas (dos operaciones que
+//     leyeron el mismo previous_stock) y rompe el balance.
+//   · recorrido exacto (solo hasta 12 movimientos): busca el camino concreto.
+//     Es exponencial en el peor caso: con miles de movimientos (pgbench) llenaba
+//     pgsql_tmp hasta "No space left on device". Por eso NO se usa en carga.
 async function estado(ids, inicial) {
-  const out = await q(`WITH RECURSIVE m AS (
+  const lista = ids.map((i) => `'${i}'`).join(',')
+  const ini = `(VALUES ${ids.map((i) => `('${i}'::uuid, ${inicial[i]})`).join(',')}) s(k, v)`
+  const base = await q(`WITH e AS (
+  SELECT inventory_item_id AS item, previous_stock AS p, new_stock AS n FROM public.inventory_movements
+   WHERE inventory_item_id IN (${lista})
+), deg AS (
+  SELECT item, v, sum(o) - sum(x) AS d
+    FROM (SELECT item, p AS v, 1 AS o, 0 AS x FROM e UNION ALL SELECT item, n, 0, 1 FROM e) t
+   GROUP BY item, v
+)
+SELECT i.id, i.stock_quantity, i.stock,
+       coalesce((SELECT sum(quantity) FROM public.inventory_movements WHERE inventory_item_id = i.id), 0),
+       (SELECT count(*) FROM e WHERE e.item = i.id),
+       (SELECT count(*) FROM public.inventory_movements WHERE inventory_item_id = i.id AND new_stock - previous_stock <> quantity),
+       NOT EXISTS (
+         SELECT 1 FROM deg, ${ini}
+          WHERE deg.item = i.id AND s.k = i.id
+            AND deg.d <> (CASE WHEN s.v = i.stock_quantity THEN 0
+                               WHEN deg.v = s.v THEN 1
+                               WHEN deg.v = i.stock_quantity THEN -1 ELSE 0 END))
+       AND ((SELECT count(*) FROM e WHERE e.item = i.id) = 0
+            OR (SELECT v FROM ${ini} WHERE s.k = i.id) = i.stock_quantity
+            OR EXISTS (SELECT 1 FROM deg, ${ini} WHERE deg.item = i.id AND s.k = i.id AND deg.v = s.v AND deg.d = 1))
+  FROM public.inventory i WHERE i.id IN (${lista});`)
+  const r = {}
+  for (const line of base.split('\n').filter(Boolean)) {
+    const [id, stock, alias, suma, movs, rotas, balance] = line.split('|')
+    r[id] = { stock: Number(stock), alias: Number(alias), suma: Number(suma), movs: Number(movs), rotas: Number(rotas),
+              balance: balance === 't', cadena: balance === 't', exacta: null }
+  }
+  const chicos = ids.filter((i) => r[i] && r[i].movs > 0 && r[i].movs <= 12)
+  if (chicos.length) {
+    const out = await q(`WITH RECURSIVE m AS (
   SELECT id, inventory_item_id AS item, previous_stock, new_stock FROM public.inventory_movements
-   WHERE inventory_item_id IN (${ids.map((i) => `'${i}'`).join(',')})
+   WHERE inventory_item_id IN (${chicos.map((i) => `'${i}'`).join(',')})
 ), walk AS (
   SELECT item, ARRAY[id] AS path, new_stock AS last_new FROM m
-   WHERE previous_stock = (SELECT v FROM (VALUES ${ids.map((i) => `('${i}'::uuid, ${inicial[i]})`).join(',')}) s(k, v) WHERE s.k = m.item)
+   WHERE previous_stock = (SELECT v FROM ${ini} WHERE s.k = m.item)
   UNION ALL
   SELECT w.item, w.path || m.id, m.new_stock FROM walk w
     JOIN m ON m.item = w.item AND m.previous_stock = w.last_new AND NOT m.id = ANY (w.path)
 )
-SELECT i.id, i.stock_quantity, i.stock,
-       coalesce((SELECT sum(quantity) FROM public.inventory_movements WHERE inventory_item_id = i.id), 0),
-       (SELECT count(*) FROM m WHERE m.item = i.id),
-       (SELECT count(*) FROM public.inventory_movements WHERE inventory_item_id = i.id AND new_stock - previous_stock <> quantity),
-       ((SELECT count(*) FROM m WHERE m.item = i.id) = 0
-         OR EXISTS (SELECT 1 FROM walk w WHERE w.item = i.id AND w.last_new = i.stock_quantity
-                     AND cardinality(w.path) = (SELECT count(*) FROM m WHERE m.item = i.id)))
-  FROM public.inventory i WHERE i.id IN (${ids.map((i) => `'${i}'`).join(',')});`)
-  const r = {}
-  for (const line of out.split('\n').filter(Boolean)) {
-    const [id, stock, alias, suma, movs, rotas, cadena] = line.split('|')
-    r[id] = { stock: Number(stock), alias: Number(alias), suma: Number(suma), movs: Number(movs), rotas: Number(rotas), cadena: cadena === 't' }
+SELECT i.id, EXISTS (SELECT 1 FROM walk w WHERE w.item = i.id AND w.last_new = i.stock_quantity
+                      AND cardinality(w.path) = (SELECT count(*) FROM m WHERE m.item = i.id))
+  FROM public.inventory i WHERE i.id IN (${chicos.map((i) => `'${i}'`).join(',')});`)
+    for (const line of out.split('\n').filter(Boolean)) {
+      const [id, ok] = line.split('|')
+      r[id].exacta = ok === 't'
+      r[id].cadena = r[id].balance && r[id].exacta
+    }
   }
   return r
 }
@@ -178,7 +217,7 @@ function verificar(label, est, esperado, inicial) {
     const tag = `${label} · ${id.slice(0, 8)}`
     check(e.stock === exp, `${tag} stock final ${e.stock} == esperado ${exp}`)
     check(e.stock === inicial[id] + e.suma, `${tag} stock == inicial ${inicial[id]} + SUM(quantity) ${e.suma}`)
-    check(e.cadena, `${tag} cadena continua previous(N+1) = new(N) (${e.movs} movimientos)`)
+    check(e.cadena, `${tag} cadena continua previous(N+1) = new(N) (${e.movs} movimientos; balance euleriano${e.exacta === null ? '' : ' + recorrido exacto'})`)
     check(e.rotas === 0, `${tag} invariante por fila new - previous = quantity`)
     check(e.alias === e.stock, `${tag} alias stock == stock_quantity`)
   }
@@ -531,6 +570,7 @@ E['S1'] = async () => {
   const est = await estado([p], { [p]: 10 })
   check(est[p].movs > 100, `S1 carga real: ${est[p].movs} movimientos concurrentes`)
   check(est[p].stock === 10 + est[p].suma, `S1 SIN lost update: stock ${est[p].stock} == 10 + SUM(quantity) ${est[p].suma}`)
+  check(est[p].balance, 'S1 cadena continua (balance euleriano: ningun previous_stock con dos salidas)')
   check(est[p].rotas === 0, 'S1 invariante por fila en todos los movimientos')
 }
 
@@ -556,6 +596,7 @@ E['S2'] = async () => {
   for (const id of [a, b]) {
     check(est[id].stock === 10 + est[id].suma, `S2 ${id === a ? 'A' : 'B'} SIN lost update: ${est[id].stock} == 10 + ${est[id].suma}`)
     check(est[id].rotas === 0, `S2 ${id === a ? 'A' : 'B'} invariante por fila`)
+    check(est[id].balance, `S2 ${id === a ? 'A' : 'B'} cadena continua (balance euleriano)`)
   }
 }
 

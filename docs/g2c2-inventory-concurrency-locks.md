@@ -150,7 +150,7 @@ Todas en verde localmente. Cubre:
 | 11 | productos distintos, writers sin advisory | — | sin espera de lock, 17–33 ms ✔ |
 | 12 | A descuenta el producto de B mientras B vende | A lo logra; B termina en 7 (esperado 8) | A: `42501`; B: 8; cero filtración ✔ |
 | 16 | misma key de compra en paralelo | — | crea + replay, una sola compra ✔ |
-| S1/S2 | pgbench sin sleeps (lost update / [A,B] ∥ [B,A]) | discovery: −1415 esperado vs 382 real · 14 deadlocks en 15 s | **pendiente: corre en CI** (§6) |
+| S1/S2 | pgbench sin sleeps (lost update / [A,B] ∥ [B,A]) | discovery: −1415 esperado vs 382 real · 14 deadlocks en 15 s | CI, S2: **0 deadlocks** y 0 checkouts fallidos en 3951 transacciones; stock exacto de S1/S2: lo verifica la corrida con el chequeo lineal (§6) |
 
 **Resultados:**
 - **Después:** escenarios 1–12 y 16, **276 aserciones, 0 fallas.** La primera corrida del escenario 11 falló por un error del test (los dos repuestos estaban en la misma orden, y `orders` se serializa por `recalculate_order_total`, que es previo a G2-C.2). Se corrigió usando otra orden: 12/12.
@@ -182,20 +182,27 @@ Todas en verde localmente. Cubre:
 | `lint:errors` | 0 |
 | Unit (`node --test`) | OK |
 | Components (vitest) | 35 archivos / 264 tests en rojo, **idénticos por nombre a main** (jest-dom no se registra en worktrees; ambiental, previo) |
-| Build | CI (`quality`) |
-| Fresh replay por CLI + G2-C.2 / G2-C / G2-C.1 / G2-B / R3 / SEC-08F / S1–S2 | **CI**: el disco local se llenó (§6) |
+| Build | CI `quality` ✔ · preview de Vercel ✔ |
+| Replay limpio + G2-C.2 / G2-C / G2-C.1 / G2-B / R3 / SEC-08F / E2E | CI ✔ (§6) |
 
 Para `guard:secdef-exposure`, W4, W5 y W6 llevan un `REVOKE ALL … FROM PUBLIC` explícito. Es un no-op sobre su ACL, que ya está materializada y sin PUBLIC; la postcondición 1 lo verifica contra el snapshot. W7 queda exento por ser función de trigger.
 
-## 6. Qué no se pudo correr local
+## 6. Incidente de disco y qué corrió dónde
 
-Durante la medición de línea base, el disco C: quedó con **0,24 GB libres**. Postgres cortó las conexiones (no podía escribir WAL) y **Docker Desktop no volvió a arrancar**. Eso afecta también a los stacks de otras sesiones. No se borró nada del usuario.
+Durante la medición de línea base, el disco C: local quedó con **0,24 GB libres**. Postgres cortó las conexiones y **Docker Desktop no volvió a arrancar**, lo que también bajó los stacks de otras sesiones. No se borró nada del usuario.
 
-Pendiente por eso, y cubierto por los jobs de CI que replayan desde cero con la migración:
-- replay limpio por CLI;
-- S1/S2 después de G2-C.2;
-- matrices de G2-C, G2-C.1, G2-B y SEC-08F con G2-C.2 aplicada;
-- R3 con el candidato apartado.
+**Causa: el propio harness.** Su chequeo de "cadena continua" era un CTE recursivo que explora caminos. Con los miles de movimientos de pgbench (S1/S2) crece de forma combinatoria y llena `pgsql_tmp`. El CI mostró exactamente ese síntoma en S1/S2 (`could not write to file "base/pgsql_tmp/…": No space left on device`). En local, cada byte que crecía el disco virtual de Docker lo pagaba el disco del host, que ya estaba justo.
+
+**Corregido:**
+- La cadena se valida con un **balance euleriano**, de costo lineal: un lost update deja un `previous_stock` con dos salidas.
+- El recorrido exacto se usa sólo hasta 12 movimientos.
+
+**Corrido en CI**, con replay desde cero y G2-C.2 aplicada:
+- `quality` (TypeScript, lint y **build**);
+- G2-B, G2-C, G2-C.1 y SEC-08F con G2-C.2 aplicada;
+- R3 con el candidato apartado;
+- E2E;
+- el job de G2-C.2: migración, guard, SQL y escenarios 1–12 y 16 en verde. En S2, bajo carga con 8 clientes y 3951 transacciones: **0 deadlocks** y ningún checkout fallido.
 
 ## 7. G2-C.2R BLOCKER · inventory FK lock graph (reproducido)
 
