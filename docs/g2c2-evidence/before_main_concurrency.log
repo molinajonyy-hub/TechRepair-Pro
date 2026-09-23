@@ -1,0 +1,367 @@
+G2-C.2 concurrencia · contenedor supabase_db_g2c2-impl · PostgreSQL 17.6 · postgres
+AVISO: LINEA BASE · G2-C.2 NO aplicada: las fallas de abajo son el comportamiento previo.
+
+── escenario 1 ──
+   PASS  1 A-primero holder sin error (ok)
+   PASS  1 A-primero late sin error (ok)
+   PASS  1 A-primero el segundo order_item ESPERO el lock del producto
+   PASS  1 A-primero cero deadlocks
+   FAIL  1 A-primero · a17c7912 stock final 7 == esperado 5
+   FAIL  1 A-primero · a17c7912 stock == inicial 10 + SUM(quantity) -5
+   FAIL  1 A-primero · a17c7912 cadena continua previous(N+1) = new(N) (2 movimientos)
+   PASS  1 A-primero · a17c7912 invariante por fila new - previous = quantity
+   PASS  1 A-primero · a17c7912 alias stock == stock_quantity
+   PASS  1 B-primero holder sin error (ok)
+   PASS  1 B-primero late sin error (ok)
+   PASS  1 B-primero el segundo order_item ESPERO el lock del producto
+   PASS  1 B-primero cero deadlocks
+   FAIL  1 B-primero · cb905093 stock final 8 == esperado 5
+   FAIL  1 B-primero · cb905093 stock == inicial 10 + SUM(quantity) -5
+   FAIL  1 B-primero · cb905093 cadena continua previous(N+1) = new(N) (2 movimientos)
+   PASS  1 B-primero · cb905093 invariante por fila new - previous = quantity
+   PASS  1 B-primero · cb905093 alias stock == stock_quantity
+
+── escenario 2 ──
+   PASS  2 item-primero holder sin error (ok)
+   PASS  2 item-primero late sin error (ok)
+   PASS  2 item-primero el late ESPERO el lock
+   PASS  2 item-primero cero deadlocks
+   FAIL  2 item-primero · 5a4665d1 stock final 15 == esperado 13
+   FAIL  2 item-primero · 5a4665d1 stock == inicial 10 + SUM(quantity) 3
+   FAIL  2 item-primero · 5a4665d1 cadena continua previous(N+1) = new(N) (2 movimientos)
+   PASS  2 item-primero · 5a4665d1 invariante por fila new - previous = quantity
+   PASS  2 item-primero · 5a4665d1 alias stock == stock_quantity
+   PASS  2 compra-primero holder sin error (ok)
+   PASS  2 compra-primero late sin error (ok)
+   PASS  2 compra-primero el late ESPERO el lock
+   PASS  2 compra-primero cero deadlocks
+   FAIL  2 compra-primero · 6df459af stock final 8 == esperado 13
+   FAIL  2 compra-primero · 6df459af stock == inicial 10 + SUM(quantity) 3
+   FAIL  2 compra-primero · 6df459af cadena continua previous(N+1) = new(N) (2 movimientos)
+   PASS  2 compra-primero · 6df459af invariante por fila new - previous = quantity
+   PASS  2 compra-primero · 6df459af alias stock == stock_quantity
+
+── escenario 3 ──
+   PASS  3 checkout-primero holder sin error (ok)
+   PASS  3 checkout-primero late sin error (ok)
+   PASS  3 checkout-primero el late ESPERO el lock
+   PASS  3 checkout-primero checkout created ({"status":"created","comprobante_id":"9c6cd0c7-6a53-4ab7-b310-ec9bf9b5106a"})
+   PASS  3 checkout-primero cero deadlocks
+   FAIL  3 checkout-primero · 98d73d7b stock final 7 == esperado 5
+   FAIL  3 checkout-primero · 98d73d7b stock == inicial 10 + SUM(quantity) -5
+   FAIL  3 checkout-primero · 98d73d7b cadena continua previous(N+1) = new(N) (2 movimientos)
+   PASS  3 checkout-primero · 98d73d7b invariante por fila new - previous = quantity
+   PASS  3 checkout-primero · 98d73d7b alias stock == stock_quantity
+   PASS  3 item-primero holder sin error (ok)
+   PASS  3 item-primero late sin error (ok)
+   PASS  3 item-primero el late ESPERO el lock
+   PASS  3 item-primero checkout created ({"status":"created","comprobante_id":"3691f15b-7545-4f73-9706-82eea379b7fb"})
+   PASS  3 item-primero cero deadlocks
+   PASS  3 item-primero · 8673780d stock final 5 == esperado 5
+   PASS  3 item-primero · 8673780d stock == inicial 10 + SUM(quantity) -5
+   PASS  3 item-primero · 8673780d cadena continua previous(N+1) = new(N) (2 movimientos)
+   PASS  3 item-primero · 8673780d invariante por fila new - previous = quantity
+   PASS  3 item-primero · 8673780d alias stock == stock_quantity
+
+── escenario 4 ──
+   PASS  4 anterior-primero holder sin error (ok)
+   PASS  4 anterior-primero late sin error (ok)
+   PASS  4 anterior-primero el late ESPERO el lock de la fila (no hay advisory comun)
+   PASS  4 anterior-primero cero deadlocks
+   FAIL  4 anterior-primero · d825c5b6 stock final 13 == esperado 18
+   FAIL  4 anterior-primero · d825c5b6 stock == inicial 10 + SUM(quantity) 8
+   FAIL  4 anterior-primero · d825c5b6 cadena continua previous(N+1) = new(N) (2 movimientos)
+   PASS  4 anterior-primero · d825c5b6 invariante por fila new - previous = quantity
+   PASS  4 anterior-primero · d825c5b6 alias stock == stock_quantity
+   PASS  4 actual-primero holder sin error (ok)
+   PASS  4 actual-primero late sin error (ok)
+   PASS  4 actual-primero el late ESPERO el lock de la fila (no hay advisory comun)
+   PASS  4 actual-primero cero deadlocks
+   FAIL  4 actual-primero · ee3201f5 stock final 15 == esperado 18
+   FAIL  4 actual-primero · ee3201f5 stock == inicial 10 + SUM(quantity) 8
+   FAIL  4 actual-primero · ee3201f5 cadena continua previous(N+1) = new(N) (2 movimientos)
+   PASS  4 actual-primero · ee3201f5 invariante por fila new - previous = quantity
+   PASS  4 actual-primero · ee3201f5 alias stock == stock_quantity
+
+── escenario 5 ──
+   PASS  5 borrar-primero holder sin error (ok)
+   PASS  5 borrar-primero late sin error (ok)
+   PASS  5 borrar-primero borrado ok ({"ok":true,"replay":false})
+   PASS  5 borrar-primero el late ESPERO el lock
+   PASS  5 borrar-primero cero deadlocks
+   FAIL  5 borrar-primero · 7940ddf1 stock final 19 == esperado 15
+   FAIL  5 borrar-primero · 7940ddf1 stock == inicial 10 + SUM(quantity) 5
+   FAIL  5 borrar-primero · 7940ddf1 cadena continua previous(N+1) = new(N) (3 movimientos)
+   PASS  5 borrar-primero · 7940ddf1 invariante por fila new - previous = quantity
+   PASS  5 borrar-primero · 7940ddf1 alias stock == stock_quantity
+   PASS  5 compra-primero holder sin error (ok)
+   PASS  5 compra-primero late sin error (ok)
+   PASS  5 compra-primero borrado ok ({"ok":true,"replay":false})
+   PASS  5 compra-primero el late ESPERO el lock
+   PASS  5 compra-primero cero deadlocks
+   FAIL  5 compra-primero · 734b7695 stock final 10 == esperado 15
+   FAIL  5 compra-primero · 734b7695 stock == inicial 10 + SUM(quantity) 5
+   FAIL  5 compra-primero · 734b7695 cadena continua previous(N+1) = new(N) (3 movimientos)
+   PASS  5 compra-primero · 734b7695 invariante por fila new - previous = quantity
+   PASS  5 compra-primero · 734b7695 alias stock == stock_quantity
+
+── escenario 6 ──
+   PASS  6 reparacion-primero holder sin error (ok)
+   PASS  6 reparacion-primero late sin error (ok)
+   PASS  6 reparacion-primero la reparacion proceso 1 linea ({"comprobantes_procesados":1,"items_sin_stock_suficiente":0,"total_unidades_descontadas":2,"items_producto_no_encontrado":0,"pedidos_mayoristas_procesados":0})
+   PASS  6 reparacion-primero el late ESPERO el lock
+   PASS  6 reparacion-primero cero deadlocks
+   FAIL  6 reparacion-primero · 8935b8a8 stock final 15 == esperado 13
+   FAIL  6 reparacion-primero · 8935b8a8 stock == inicial 10 + SUM(quantity) 3
+   FAIL  6 reparacion-primero · 8935b8a8 cadena continua previous(N+1) = new(N) (2 movimientos)
+   PASS  6 reparacion-primero · 8935b8a8 invariante por fila new - previous = quantity
+   PASS  6 reparacion-primero · 8935b8a8 alias stock == stock_quantity
+   PASS  6 compra-primero holder sin error (ok)
+   PASS  6 compra-primero late sin error (ok)
+   PASS  6 compra-primero la reparacion proceso 1 linea ({"comprobantes_procesados":1,"items_sin_stock_suficiente":0,"total_unidades_descontadas":2,"items_producto_no_encontrado":0,"pedidos_mayoristas_procesados":0})
+   PASS  6 compra-primero el late ESPERO el lock
+   PASS  6 compra-primero cero deadlocks
+   FAIL  6 compra-primero · 0757c3a5 stock final 8 == esperado 13
+   FAIL  6 compra-primero · 0757c3a5 stock == inicial 10 + SUM(quantity) 3
+   FAIL  6 compra-primero · 0757c3a5 cadena continua previous(N+1) = new(N) (2 movimientos)
+   PASS  6 compra-primero · 0757c3a5 invariante por fila new - previous = quantity
+   PASS  6 compra-primero · 0757c3a5 alias stock == stock_quantity
+
+── escenario 7 ──
+   PASS  7a holder sin error (ok)
+   PASS  7a late sin error (ok)
+   PASS  7a el INSERT ESPERO al UPDATE de cantidad
+   PASS  7a cero deadlocks
+   FAIL  7a UPDATE||INSERT · 746ad521 stock final 7 == esperado 4
+   FAIL  7a UPDATE||INSERT · 746ad521 stock == inicial 10 + SUM(quantity) -6
+   FAIL  7a UPDATE||INSERT · 746ad521 cadena continua previous(N+1) = new(N) (3 movimientos)
+   PASS  7a UPDATE||INSERT · 746ad521 invariante por fila new - previous = quantity
+   PASS  7a UPDATE||INSERT · 746ad521 alias stock == stock_quantity
+   PASS  7b holder sin error (ok)
+   PASS  7b late sin error (ok)
+   PASS  7b el INSERT ESPERO al DELETE
+   PASS  7b cero deadlocks
+   FAIL  7b DELETE||INSERT · 72241b88 stock final 5 == esperado 7
+   FAIL  7b DELETE||INSERT · 72241b88 stock == inicial 10 + SUM(quantity) -3
+   FAIL  7b DELETE||INSERT · 72241b88 cadena continua previous(N+1) = new(N) (3 movimientos)
+   PASS  7b DELETE||INSERT · 72241b88 invariante por fila new - previous = quantity
+   PASS  7b DELETE||INSERT · 72241b88 alias stock == stock_quantity
+   PASS  7c holder sin error (ok)
+   PASS  7c late sin error (ok)
+   PASS  7c el DELETE ESPERO al UPDATE
+   PASS  7c cero deadlocks
+   FAIL  7c UPDATE||DELETE · 4fc9d493 stock final 8 == esperado 9
+   FAIL  7c UPDATE||DELETE · 4fc9d493 stock == inicial 10 + SUM(quantity) -1
+   FAIL  7c UPDATE||DELETE · 4fc9d493 cadena continua previous(N+1) = new(N) (4 movimientos)
+   PASS  7c UPDATE||DELETE · 4fc9d493 invariante por fila new - previous = quantity
+   PASS  7c UPDATE||DELETE · 4fc9d493 alias stock == stock_quantity
+
+── escenario 8 ──
+   PASS  8 holder sin error (ok)
+   PASS  8 late sin error (ok)
+   PASS  8 el late ESPERO el lock
+   PASS  8 cero deadlocks
+   PASS  8 negativo · fb876c72 stock final -4 == esperado -4
+   PASS  8 negativo · fb876c72 stock == inicial 1 + SUM(quantity) -5
+   PASS  8 negativo · fb876c72 cadena continua previous(N+1) = new(N) (2 movimientos)
+   PASS  8 negativo · fb876c72 invariante por fila new - previous = quantity
+   PASS  8 negativo · fb876c72 alias stock == stock_quantity
+
+── escenario 9 ──
+   PASS  9 anulacion-primero holder sin error (ok)
+   PASS  9 anulacion-primero late sin error (ok)
+   PASS  9 anulacion-primero anulacion con reversa de stock ({"ok":true,"mode":"refund_current_session","replay":false,"annulment_id":"bb214c32-fb9c-4a)
+   PASS  9 anulacion-primero el late ESPERO el lock
+   PASS  9 anulacion-primero cero deadlocks
+   FAIL  9 anulacion-primero · c71156e0 stock final 5 == esperado 7
+   FAIL  9 anulacion-primero · c71156e0 stock == inicial 10 + SUM(quantity) -3
+   FAIL  9 anulacion-primero · c71156e0 cadena continua previous(N+1) = new(N) (3 movimientos)
+   PASS  9 anulacion-primero · c71156e0 invariante por fila new - previous = quantity
+   PASS  9 anulacion-primero · c71156e0 alias stock == stock_quantity
+   PASS  9 item-primero holder sin error (ok)
+   PASS  9 item-primero late sin error (ok)
+   PASS  9 item-primero anulacion con reversa de stock ({"ok":true,"mode":"refund_current_session","replay":false,"annulment_id":"ed717612-c62a-4a)
+   PASS  9 item-primero el late ESPERO el lock
+   PASS  9 item-primero cero deadlocks
+   PASS  9 item-primero · 8022bdf5 stock final 7 == esperado 7
+   PASS  9 item-primero · 8022bdf5 stock == inicial 10 + SUM(quantity) -3
+   PASS  9 item-primero · 8022bdf5 cadena continua previous(N+1) = new(N) (3 movimientos)
+   PASS  9 item-primero · 8022bdf5 invariante por fila new - previous = quantity
+   PASS  9 item-primero · 8022bdf5 alias stock == stock_quantity
+
+── escenario 10 ──
+   PASS  10 compra (mes anterior) · compuerta en X compuerta sin error (ok)
+   PASS  10 compra (mes anterior) · compuerta en X checkout sin error (ok)
+   PASS  10 compra (mes anterior) · compuerta en X compra (mes anterior) sin error (ok)
+   PASS  10 compra (mes anterior) · compuerta en X CERO deadlocks (pg_stat_database.deadlocks +0)
+   PASS  10 compra (mes anterior) · compuerta en X el checkout del POS no fue victima ({"status":"created","comprobante_id":"bd7a46bd-62e9-48f2-9748-68ee2879d693"})
+   PASS  10 compra (mes anterior) · compuerta en X compra (mes anterior) no devolvio error ({"ok":true,"replay":false,"purchase_id":"4eac9a50-aefb-409b-8131-25a9becb6aef"})
+   FAIL  10 compra (mes anterior) · compuerta en X · X cadena continua e invariante por fila
+   PASS  10 compra (mes anterior) · compuerta en X · Y cadena continua e invariante por fila
+   PASS  10 compra (mes anterior) · compuerta en Y compuerta sin error (ok)
+   PASS  10 compra (mes anterior) · compuerta en Y checkout sin error (ok)
+   PASS  10 compra (mes anterior) · compuerta en Y compra (mes anterior) sin error (ok)
+   FAIL  10 compra (mes anterior) · compuerta en Y CERO deadlocks (pg_stat_database.deadlocks +1)
+   FAIL  10 compra (mes anterior) · compuerta en Y el checkout del POS no fue victima ({"error":"No se pudo completar la operacion","status":"failed_retryable","error_code":"INTERNAL_ERROR"})
+   PASS  10 compra (mes anterior) · compuerta en Y compra (mes anterior) no devolvio error ({"ok":true,"replay":false,"purchase_id":"3e68a118-a9a3-4097-99c5-21b4a6e3ac91"})
+   PASS  10 compra (mes anterior) · compuerta en Y · X cadena continua e invariante por fila
+   FAIL  10 compra (mes anterior) · compuerta en Y · Y cadena continua e invariante por fila
+   PASS  10 borrar compra · compuerta en X compuerta sin error (ok)
+   PASS  10 borrar compra · compuerta en X checkout sin error (ok)
+   PASS  10 borrar compra · compuerta en X borrar compra sin error (ok)
+   FAIL  10 borrar compra · compuerta en X CERO deadlocks (pg_stat_database.deadlocks +1)
+   PASS  10 borrar compra · compuerta en X el checkout del POS no fue victima ({"status":"created","comprobante_id":"2f3906c6-3bb8-43f4-9ad8-6d7e4224fd11"})
+   FAIL  10 borrar compra · compuerta en X borrar compra no devolvio error ({"ok":false,"error":"No se pudo eliminar la compra","error_code":"INTERNAL_ERROR"})
+   PASS  10 borrar compra · compuerta en X · X cadena continua e invariante por fila
+   PASS  10 borrar compra · compuerta en X · Y cadena continua e invariante por fila
+   PASS  10 borrar compra · compuerta en Y compuerta sin error (ok)
+   PASS  10 borrar compra · compuerta en Y checkout sin error (ok)
+   PASS  10 borrar compra · compuerta en Y borrar compra sin error (ok)
+   PASS  10 borrar compra · compuerta en Y CERO deadlocks (pg_stat_database.deadlocks +0)
+   PASS  10 borrar compra · compuerta en Y el checkout del POS no fue victima ({"status":"created","comprobante_id":"a821f0f1-c7e8-4023-bec4-de742cf83b0c"})
+   PASS  10 borrar compra · compuerta en Y borrar compra no devolvio error ({"ok":true,"replay":false})
+   PASS  10 borrar compra · compuerta en Y · X cadena continua e invariante por fila
+   FAIL  10 borrar compra · compuerta en Y · Y cadena continua e invariante por fila
+   PASS  10 reparacion · compuerta en X compuerta sin error (ok)
+   PASS  10 reparacion · compuerta en X checkout sin error (ok)
+   PASS  10 reparacion · compuerta en X reparacion sin error (ok)
+   FAIL  10 reparacion · compuerta en X CERO deadlocks (pg_stat_database.deadlocks +1)
+   FAIL  10 reparacion · compuerta en X el checkout del POS no fue victima ({"error":"No se pudo completar la operacion","status":"failed_retryable","error_code":"INTERNAL_ERROR"})
+   PASS  10 reparacion · compuerta en X reparacion no devolvio error ({"comprobantes_procesados":2,"items_sin_stock_suficiente":0,"total_unidades_descontadas":2,"items_pr)
+   FAIL  10 reparacion · compuerta en X · X cadena continua e invariante por fila
+   PASS  10 reparacion · compuerta en X · Y cadena continua e invariante por fila
+   PASS  10 reparacion · compuerta en Y compuerta sin error (ok)
+   PASS  10 reparacion · compuerta en Y checkout sin error (ok)
+   PASS  10 reparacion · compuerta en Y reparacion sin error (ok)
+   PASS  10 reparacion · compuerta en Y CERO deadlocks (pg_stat_database.deadlocks +0)
+   PASS  10 reparacion · compuerta en Y el checkout del POS no fue victima ({"status":"created","comprobante_id":"376db34b-5de1-469f-896f-4b90c7c98c51"})
+   PASS  10 reparacion · compuerta en Y reparacion no devolvio error ({"comprobantes_procesados":2,"items_sin_stock_suficiente":0,"total_unidades_descontadas":2,"items_pr)
+   PASS  10 reparacion · compuerta en Y · X cadena continua e invariante por fila
+   FAIL  10 reparacion · compuerta en Y · Y cadena continua e invariante por fila
+   PASS  10 borrar orden (cascada) · compuerta en X compuerta sin error (ok)
+   PASS  10 borrar orden (cascada) · compuerta en X checkout sin error (ok)
+   FAIL  10 borrar orden (cascada) · compuerta en X borrar orden (cascada) sin error (ERROR:  deadlock detected)
+   FAIL  10 borrar orden (cascada) · compuerta en X CERO deadlocks (pg_stat_database.deadlocks +1)
+   PASS  10 borrar orden (cascada) · compuerta en X el checkout del POS no fue victima ({"status":"created","comprobante_id":"5a3f0528-ec31-4721-8318-29bca42863d5"})
+   FAIL  10 borrar orden (cascada) · compuerta en X la orden se borro de verdad (la cascada corrio)
+   PASS  10 borrar orden (cascada) · compuerta en X · X cadena continua e invariante por fila
+   PASS  10 borrar orden (cascada) · compuerta en X · Y cadena continua e invariante por fila
+   PASS  10 borrar orden (cascada) · compuerta en Y compuerta sin error (ok)
+   PASS  10 borrar orden (cascada) · compuerta en Y checkout sin error (ok)
+   PASS  10 borrar orden (cascada) · compuerta en Y borrar orden (cascada) sin error (ok)
+   PASS  10 borrar orden (cascada) · compuerta en Y CERO deadlocks (pg_stat_database.deadlocks +0)
+   PASS  10 borrar orden (cascada) · compuerta en Y el checkout del POS no fue victima ({"status":"created","comprobante_id":"c1c15d6e-2dde-4731-ac63-2fee748ce978"})
+   PASS  10 borrar orden (cascada) · compuerta en Y la orden se borro de verdad (la cascada corrio)
+   PASS  10 borrar orden (cascada) · compuerta en Y · X cadena continua e invariante por fila
+   FAIL  10 borrar orden (cascada) · compuerta en Y · Y cadena continua e invariante por fila
+
+── escenario 12 ──
+   PASS  12 venta de B sin error (ok)
+   FAIL  12 A no puede descontar el producto de B ()
+   FAIL  12 producto de B · 8b2f68fa stock final 7 == esperado 8
+   FAIL  12 producto de B · 8b2f68fa stock == inicial 10 + SUM(quantity) -5
+   FAIL  12 producto de B · 8b2f68fa cadena continua previous(N+1) = new(N) (2 movimientos)
+   PASS  12 producto de B · 8b2f68fa invariante por fila new - previous = quantity
+   PASS  12 producto de B · 8b2f68fa alias stock == stock_quantity
+   FAIL  12 cero inventory_movements de A sobre el producto de B
+   FAIL  12 el order_item cross-tenant no quedo
+
+── escenario S1 ──
+   pgbench lost update (repuestos + compras de otro mes): number of transactions actually processed: 2698, number of failed transactions: 0
+   FAIL  excepcion: SQL fallo: 
+WITH RECURSIVE m AS (
+  SELECT id, inventory_item_id AS item, previous_stock, new_stock FROM public.inventory_movements
+   WHERE inventory_item_id IN ('a019f943-1db0-46ec-a15a-ceec7e47f321')
+), walk AS (
+  SELECT item, ARRAY[id] AS path, new_stock AS last_new FROM m
+   WHERE previous_stock = (SELECT v FROM (VALUES ('a019f943-1db0-46ec-a15a-ceec7e47f321'::uuid, 10)) s(k, v) WHERE s.k = m.item)
+  UN
+
+── escenario S2 ──
+   FAIL  excepcion: SQL fallo: failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine; check if the path is correct and if the daemon is running: open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.
+BEGIN;
+SET LOCAL session_replication_role = 'replica';
+INSERT INTO auth.users(id) VALUES ('fcd3b89e-7086-4fbb-8626-0661155f857f'), ('5ef3bd43-bbd9-4ffe-ad78-4b719e823966');
+INSERT INTO public.businesses(id, name, owner_user_id, subscription_plan, subscription_status,
+                              wholesale_portal_enabled, wholesale_portal_slug)
+  VALUES ('cff1433e-3909-440f-bc92-06ce7b212fe7', 'G2
+
+── escenario WS ──
+   FAIL  excepcion: SQL fallo: failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine; check if the path is correct and if the daemon is running: open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.
+BEGIN;
+SET LOCAL session_replication_role = 'replica';
+INSERT INTO auth.users(id) VALUES ('8f12f528-7a6d-4c11-9ab3-992cffd9c117'), ('dee9f1d0-2d55-4243-9c59-2f308e34155d');
+INSERT INTO public.businesses(id, name, owner_user_id, subscription_plan, subscription_status,
+                              wholesale_portal_enabled, wholesale_portal_slug)
+  VALUES ('691ac81d-b959-44d9-ab92-9429692085fb', 'G2
+
+243 aserciones · 69 fallas
+  · 1 A-primero · a17c7912 stock final 7 == esperado 5
+  · 1 A-primero · a17c7912 stock == inicial 10 + SUM(quantity) -5
+  · 1 A-primero · a17c7912 cadena continua previous(N+1) = new(N) (2 movimientos)
+  · 1 B-primero · cb905093 stock final 8 == esperado 5
+  · 1 B-primero · cb905093 stock == inicial 10 + SUM(quantity) -5
+  · 1 B-primero · cb905093 cadena continua previous(N+1) = new(N) (2 movimientos)
+  · 2 item-primero · 5a4665d1 stock final 15 == esperado 13
+  · 2 item-primero · 5a4665d1 stock == inicial 10 + SUM(quantity) 3
+  · 2 item-primero · 5a4665d1 cadena continua previous(N+1) = new(N) (2 movimientos)
+  · 2 compra-primero · 6df459af stock final 8 == esperado 13
+  · 2 compra-primero · 6df459af stock == inicial 10 + SUM(quantity) 3
+  · 2 compra-primero · 6df459af cadena continua previous(N+1) = new(N) (2 movimientos)
+  · 3 checkout-primero · 98d73d7b stock final 7 == esperado 5
+  · 3 checkout-primero · 98d73d7b stock == inicial 10 + SUM(quantity) -5
+  · 3 checkout-primero · 98d73d7b cadena continua previous(N+1) = new(N) (2 movimientos)
+  · 4 anterior-primero · d825c5b6 stock final 13 == esperado 18
+  · 4 anterior-primero · d825c5b6 stock == inicial 10 + SUM(quantity) 8
+  · 4 anterior-primero · d825c5b6 cadena continua previous(N+1) = new(N) (2 movimientos)
+  · 4 actual-primero · ee3201f5 stock final 15 == esperado 18
+  · 4 actual-primero · ee3201f5 stock == inicial 10 + SUM(quantity) 8
+  · 4 actual-primero · ee3201f5 cadena continua previous(N+1) = new(N) (2 movimientos)
+  · 5 borrar-primero · 7940ddf1 stock final 19 == esperado 15
+  · 5 borrar-primero · 7940ddf1 stock == inicial 10 + SUM(quantity) 5
+  · 5 borrar-primero · 7940ddf1 cadena continua previous(N+1) = new(N) (3 movimientos)
+  · 5 compra-primero · 734b7695 stock final 10 == esperado 15
+  · 5 compra-primero · 734b7695 stock == inicial 10 + SUM(quantity) 5
+  · 5 compra-primero · 734b7695 cadena continua previous(N+1) = new(N) (3 movimientos)
+  · 6 reparacion-primero · 8935b8a8 stock final 15 == esperado 13
+  · 6 reparacion-primero · 8935b8a8 stock == inicial 10 + SUM(quantity) 3
+  · 6 reparacion-primero · 8935b8a8 cadena continua previous(N+1) = new(N) (2 movimientos)
+  · 6 compra-primero · 0757c3a5 stock final 8 == esperado 13
+  · 6 compra-primero · 0757c3a5 stock == inicial 10 + SUM(quantity) 3
+  · 6 compra-primero · 0757c3a5 cadena continua previous(N+1) = new(N) (2 movimientos)
+  · 7a UPDATE||INSERT · 746ad521 stock final 7 == esperado 4
+  · 7a UPDATE||INSERT · 746ad521 stock == inicial 10 + SUM(quantity) -6
+  · 7a UPDATE||INSERT · 746ad521 cadena continua previous(N+1) = new(N) (3 movimientos)
+  · 7b DELETE||INSERT · 72241b88 stock final 5 == esperado 7
+  · 7b DELETE||INSERT · 72241b88 stock == inicial 10 + SUM(quantity) -3
+  · 7b DELETE||INSERT · 72241b88 cadena continua previous(N+1) = new(N) (3 movimientos)
+  · 7c UPDATE||DELETE · 4fc9d493 stock final 8 == esperado 9
+  · 7c UPDATE||DELETE · 4fc9d493 stock == inicial 10 + SUM(quantity) -1
+  · 7c UPDATE||DELETE · 4fc9d493 cadena continua previous(N+1) = new(N) (4 movimientos)
+  · 9 anulacion-primero · c71156e0 stock final 5 == esperado 7
+  · 9 anulacion-primero · c71156e0 stock == inicial 10 + SUM(quantity) -3
+  · 9 anulacion-primero · c71156e0 cadena continua previous(N+1) = new(N) (3 movimientos)
+  · 10 compra (mes anterior) · compuerta en X · X cadena continua e invariante por fila
+  · 10 compra (mes anterior) · compuerta en Y CERO deadlocks (pg_stat_database.deadlocks +1)
+  · 10 compra (mes anterior) · compuerta en Y el checkout del POS no fue victima ({"error":"No se pudo completar la operacion","status":"failed_retryable","error_code":"INTERNAL_ERROR"})
+  · 10 compra (mes anterior) · compuerta en Y · Y cadena continua e invariante por fila
+  · 10 borrar compra · compuerta en X CERO deadlocks (pg_stat_database.deadlocks +1)
+  · 10 borrar compra · compuerta en X borrar compra no devolvio error ({"ok":false,"error":"No se pudo eliminar la compra","error_code":"INTERNAL_ERROR"})
+  · 10 borrar compra · compuerta en Y · Y cadena continua e invariante por fila
+  · 10 reparacion · compuerta en X CERO deadlocks (pg_stat_database.deadlocks +1)
+  · 10 reparacion · compuerta en X el checkout del POS no fue victima ({"error":"No se pudo completar la operacion","status":"failed_retryable","error_code":"INTERNAL_ERROR"})
+  · 10 reparacion · compuerta en X · X cadena continua e invariante por fila
+  · 10 reparacion · compuerta en Y · Y cadena continua e invariante por fila
+  · 10 borrar orden (cascada) · compuerta en X borrar orden (cascada) sin error (ERROR:  deadlock detected)
+  · 10 borrar orden (cascada) · compuerta en X CERO deadlocks (pg_stat_database.deadlocks +1)
+  · 10 borrar orden (cascada) · compuerta en X la orden se borro de verdad (la cascada corrio)
+  · 10 borrar orden (cascada) · compuerta en Y · Y cadena continua e invariante por fila
+  · 12 A no puede descontar el producto de B ()
+  · 12 producto de B · 8b2f68fa stock final 7 == esperado 8
+  · 12 producto de B · 8b2f68fa stock == inicial 10 + SUM(quantity) -5
+  · 12 producto de B · 8b2f68fa cadena continua previous(N+1) = new(N) (2 movimientos)
+  · 12 cero inventory_movements de A sobre el producto de B
+  · 12 el order_item cross-tenant no quedo
+  · S1: excepcion SQL fallo: 
+  · S2: excepcion SQL fallo: failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine; check if the path is correct and if the daemon is running: open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.
+  · WS: excepcion SQL fallo: failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine; check if the path is correct and if the daemon is running: open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.

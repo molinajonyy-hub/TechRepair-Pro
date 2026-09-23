@@ -1,0 +1,109 @@
+
+══════ D1 · checkout(-2, FOR UPDATE) holds  ×  order_item INSERT(-3) late ══════
+  checkout | {"status": "created", "comprobante_id": "3d185547-9abc-4216-8882-8f1acd9dd05c"}
+  order_item | 1086d211-e232-49b6-b503-664b1f2c0fec
+  A_checkout | 15:45:54.301 | BEGIN
+  A_checkout | 15:45:54.355 | writer returned; holding row lock (uncommitted)
+  B_orderitem | 15:45:55.306 | BEGIN
+  MON | 15:45:56.306 | g2c2-A_checkout | active | Timeout/PgSleep | 
+  MON | 15:45:56.306 | g2c2-B_orderitem | active | Lock/transactionid | g2c2-A_checkout
+  A_checkout | 15:45:57.356 | COMMIT…
+  A_checkout | 15:45:57.361 | committed
+  B_orderitem | 15:45:57.375 | writer returned
+  B_orderitem | 15:45:57.377 | committed
+  STOCK | 00000000-0000-0000-0000-0000000c2217 | 7 | 7
+  MOV | 00000000-0000-0000-0000-0000000c2217 | sale | 10 | -2 | 8 | row-invariant OK | comprobante
+  MOV | 00000000-0000-0000-0000-0000000c2217 | order_usage | 10 | -3 | 7 | row-invariant OK | order
+  CHAIN | 00000000-0000-0000-0000-0000000c2217 | 2 | 1 | TWO MOVEMENTS STARTED FROM THE SAME previous_stock (lost update)
+  EXPECTED (serialized) final stock: {"00000000-0000-0000-0000-0000000c2217":5}
+
+══════ D2 · order_item INSERT(-3) holds  ×  checkout(-2, FOR UPDATE) late ══════
+  checkout | {"status": "created", "comprobante_id": "3df272f8-249d-4e93-acc6-8f13217110ac"}
+  A_orderitem | 15:45:57.864 | BEGIN
+  A_orderitem | 15:45:57.876 | writer returned; holding row lock (uncommitted)
+  B_checkout | 15:45:58.865 | BEGIN
+  MON | 15:45:59.865 | g2c2-A_orderitem | active | Timeout/PgSleep | 
+  MON | 15:45:59.865 | g2c2-B_checkout | active | Lock/transactionid | g2c2-A_orderitem
+  A_orderitem | 15:46:00.878 | COMMIT…
+  A_orderitem | 15:46:00.883 | committed
+  B_checkout | 15:46:00.907 | writer returned
+  B_checkout | 15:46:00.910 | committed
+  order_item | 494e20d7-3468-48da-ae76-c10458f0f58d
+  STOCK | 00000000-0000-0000-0000-0000000c2218 | 5 | 5
+  MOV | 00000000-0000-0000-0000-0000000c2218 | order_usage | 10 | -3 | 7 | row-invariant OK | order
+  MOV | 00000000-0000-0000-0000-0000000c2218 | sale | 7 | -2 | 5 | row-invariant OK | comprobante
+  CHAIN | 00000000-0000-0000-0000-0000000c2218 | 2 | 2 | each movement started from a distinct snapshot
+  EXPECTED (serialized) final stock: {"00000000-0000-0000-0000-0000000c2218":5}
+
+══════ E · CONTROL checkout(-2) holds  ×  checkout(-3) late ══════
+  checkout | {"status": "created", "comprobante_id": "cf5cf37b-40e4-41d6-8399-043f862fd71a"}
+  checkout | {"status": "created", "comprobante_id": "e0bee547-b574-417f-9ecb-31afa5cc8f8a"}
+  A_checkout | 15:46:01.428 | BEGIN
+  A_checkout | 15:46:01.473 | writer returned; holding row lock (uncommitted)
+  B_checkout | 15:46:02.428 | BEGIN
+  MON | 15:46:03.428 | g2c2-A_checkout | active | Timeout/PgSleep | 
+  MON | 15:46:03.429 | g2c2-B_checkout | active | Lock/advisory | g2c2-A_checkout
+  A_checkout | 15:46:04.477 | COMMIT…
+  A_checkout | 15:46:04.480 | committed
+  B_checkout | 15:46:04.512 | writer returned
+  B_checkout | 15:46:04.515 | committed
+  STOCK | 00000000-0000-0000-0000-0000000c2219 | 5 | 5
+  MOV | 00000000-0000-0000-0000-0000000c2219 | sale | 10 | -2 | 8 | row-invariant OK | comprobante
+  MOV | 00000000-0000-0000-0000-0000000c2219 | sale | 8 | -3 | 5 | row-invariant OK | comprobante
+  CHAIN | 00000000-0000-0000-0000-0000000c2219 | 2 | 2 | each movement started from a distinct snapshot
+  EXPECTED (serialized) final stock: {"00000000-0000-0000-0000-0000000c2219":5}
+
+══════ F · annul(+2 restore, FOR UPDATE) holds  ×  purchase(+5) late ══════
+  annul | {"ok": true, "mode": "refund_current_session", "replay": false, "annulment_id": "e167398b-0fb5-4737-8c24-1913c6f9f23c", "refund_caja_id": "00000000-0000-0000-0000-00000000c226", "reverted_cc_ars": 0, "reverted_cash_ars": 2000.00, "reverted_cogs_ars": 1200.00, "stock_restored_count": 1, "reverted_commissions_ars": 0.00}
+  purchase | {"ok": true, "replay": false, "purchase_id": "a8d8adc1-ee59-4188-994b-3c1fc908a20c"}
+  A_annul | 15:46:05.325 | BEGIN
+  A_annul | 15:46:05.357 | writer returned; holding row lock (uncommitted)
+  B_purchase | 15:46:06.327 | BEGIN
+  MON | 15:46:07.331 | g2c2-A_annul | active | Timeout/PgSleep | 
+  MON | 15:46:07.331 | g2c2-B_purchase | active | Lock/advisory | g2c2-A_annul
+  A_annul | 15:46:08.359 | COMMIT…
+  A_annul | 15:46:08.361 | committed
+  B_purchase | 15:46:08.379 | writer returned
+  B_purchase | 15:46:08.382 | committed
+  STOCK | 00000000-0000-0000-0000-0000000c221a | 15 | 15
+  MOV | 00000000-0000-0000-0000-0000000c221a | sale | 10 | -2 | 8 | row-invariant OK | comprobante
+  MOV | 00000000-0000-0000-0000-0000000c221a | return | 8 | 2 | 10 | row-invariant OK | comprobante
+  MOV | 00000000-0000-0000-0000-0000000c221a | purchase | 10 | 5 | 15 | row-invariant OK | supplier_purchase
+  CHAIN | 00000000-0000-0000-0000-0000000c221a | 3 | 2 | TWO MOVEMENTS STARTED FROM THE SAME previous_stock (lost update)
+  EXPECTED (serialized) final stock: {"00000000-0000-0000-0000-0000000c221a":15}
+
+══════ G · quick_purchase(+5, pre-lock) holds  ×  order_item INSERT(-2) late ══════
+  quick | {"ok": true, "replay": false, "purchase_id": "cfab4cc5-abf1-49ab-b79d-cd5953b5d008"}
+  A_quick | 15:46:08.888 | BEGIN
+  A_quick | 15:46:08.914 | writer returned; holding row lock (uncommitted)
+  B_orderitem | 15:46:09.891 | BEGIN
+  MON | 15:46:10.891 | g2c2-A_quick | active | Timeout/PgSleep | 
+  MON | 15:46:10.891 | g2c2-B_orderitem | active | Lock/transactionid | g2c2-A_quick
+  A_quick | 15:46:11.917 | COMMIT…
+  A_quick | 15:46:11.930 | committed
+  B_orderitem | 15:46:11.942 | writer returned
+  B_orderitem | 15:46:11.944 | committed
+  order_item | 1c15357d-96c2-4fa2-b64c-6c217a26003f
+  STOCK | 00000000-0000-0000-0000-0000000c221b | 8 | 8
+  MOV | 00000000-0000-0000-0000-0000000c221b | purchase | 10 | 5 | 15 | row-invariant OK | supplier_purchase
+  MOV | 00000000-0000-0000-0000-0000000c221b | order_usage | 10 | -2 | 8 | row-invariant OK | order
+  CHAIN | 00000000-0000-0000-0000-0000000c221b | 2 | 1 | TWO MOVEMENTS STARTED FROM THE SAME previous_stock (lost update)
+  EXPECTED (serialized) final stock: {"00000000-0000-0000-0000-0000000c221b":13}
+
+══════ H · repair_missing_stock_movements(-2) holds  ×  purchase(+5) late ══════
+  repair | {"comprobantes_procesados": 1, "items_sin_stock_suficiente": 0, "total_unidades_descontadas": 2.00, "items_producto_no_encontrado": 0, "pedidos_mayoristas_procesados": 0}
+  purchase | {"ok": true, "replay": false, "purchase_id": "2ed51d65-02b8-47ca-98c3-1a73866217b6"}
+  A_repair | 15:46:12.989 | BEGIN
+  A_repair | 15:46:13.006 | writer returned; holding row lock (uncommitted)
+  B_purchase | 15:46:13.991 | BEGIN
+  MON | 15:46:14.992 | g2c2-A_repair | active | Timeout/PgSleep | 
+  MON | 15:46:14.992 | g2c2-B_purchase | active | Lock/transactionid | g2c2-A_repair
+  A_repair | 15:46:16.010 | COMMIT…
+  A_repair | 15:46:16.022 | committed
+  B_purchase | 15:46:16.032 | writer returned
+  B_purchase | 15:46:16.034 | committed
+  STOCK | 00000000-0000-0000-0000-0000000c221c | 15 | 15
+  MOV | 00000000-0000-0000-0000-0000000c221c | sale | 10 | -2 | 8 | row-invariant OK | comprobante
+  MOV | 00000000-0000-0000-0000-0000000c221c | purchase | 10 | 5 | 15 | row-invariant OK | supplier_purchase
+  CHAIN | 00000000-0000-0000-0000-0000000c221c | 2 | 1 | TWO MOVEMENTS STARTED FROM THE SAME previous_stock (lost update)
+  EXPECTED (serialized) final stock: {"00000000-0000-0000-0000-0000000c221c":13}
