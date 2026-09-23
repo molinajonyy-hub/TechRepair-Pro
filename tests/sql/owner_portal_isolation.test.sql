@@ -170,26 +170,38 @@ BEGIN
   RAISE NOTICE 'CASO 2 OK — admin/manager/sales no leen ni modifican clic settings.';
 
   -- ── CASO 3 — sales SÍ opera mayorista ─────────────────────────────────────
+  -- G2-C.1 (revisión humana del PR #144): el staff administra clientes y
+  -- pedidos por las RPC canónicas, no por escritura directa de tabla. Los
+  -- pedidos los crea el cliente (create_wholesale_order_atomic) y ningún flujo
+  -- de staff crea clientes ni pedidos a mano.
   PERFORM set_config('role','authenticated',true);
   PERFORM set_config('request.jwt.claims', json_build_object('sub',v_clic_sales,'role','authenticated')::text, true);
 
   SELECT count(*) INTO v_cnt FROM public.wholesale_customers WHERE business_id=v_clic;
   IF v_cnt < 1 THEN RAISE EXCEPTION 'CASO 3 FAIL: sales no lee clientes mayoristas (%)', v_cnt; END IF;
 
-  INSERT INTO public.wholesale_customers (business_id, name, email, approved)
-  VALUES (v_clic, 'Nuevo x Sales', 'wc_sales_new_t@example.com', true) RETURNING id INTO v_tmp;
+  PERFORM public.update_wholesale_customer_status_atomic(v_clic, v_wc_clic, NULL, NULL, 'tocado por sales');
 
-  UPDATE public.wholesale_customers SET notes='tocado por sales' WHERE id=v_wc_clic;
-  GET DIAGNOSTICS v_cnt = ROW_COUNT;
-  IF v_cnt <> 1 THEN RAISE EXCEPTION 'CASO 3 FAIL: sales no pudo UPDATE cliente (%)', v_cnt; END IF;
+  v_blocked := false;
+  BEGIN
+    UPDATE public.wholesale_customers SET notes='directo' WHERE id=v_wc_clic;
+  EXCEPTION WHEN insufficient_privilege THEN v_blocked := true;
+  END;
+  IF NOT v_blocked THEN RAISE EXCEPTION 'CASO 3 FAIL: sales pudo UPDATE directo de un cliente'; END IF;
 
-  INSERT INTO public.wholesale_orders (business_id, customer_id, order_number, subtotal, total)
-  VALUES (v_clic, v_wc_clic, 'TEST-WO-SALES', 50, 50) RETURNING id INTO v_tmp;
-  INSERT INTO public.wholesale_order_items (order_id, business_id, product_name, quantity, unit_price, subtotal)
-  VALUES (v_tmp, v_clic, 'Item x Sales', 1, 50, 50);
+  v_blocked := false;
+  BEGIN
+    INSERT INTO public.wholesale_orders (business_id, customer_id, order_number, subtotal, total)
+    VALUES (v_clic, v_wc_clic, 'TEST-WO-SALES', 50, 50);
+  EXCEPTION WHEN insufficient_privilege THEN v_blocked := true;
+  END;
+  IF NOT v_blocked THEN RAISE EXCEPTION 'CASO 3 FAIL: sales pudo INSERT directo de un pedido'; END IF;
 
   PERFORM set_config('role','postgres',true);
-  RAISE NOTICE 'CASO 3 OK — sales opera customers/orders/items.';
+  IF (SELECT notes FROM public.wholesale_customers WHERE id=v_wc_clic) IS DISTINCT FROM 'tocado por sales' THEN
+    RAISE EXCEPTION 'CASO 3 FAIL: la RPC de administración no actualizó el cliente';
+  END IF;
+  RAISE NOTICE 'CASO 3 OK — sales administra clientes por RPC; sin escritura directa de clientes ni pedidos.';
 
   -- ── CASO 4 — tech/cashier/viewer leen pero NO escriben; sin SaaS Admin ────
   FOREACH v_uid IN ARRAY ARRAY[v_clic_tech, v_clic_cash, v_clic_view] LOOP
@@ -200,8 +212,14 @@ BEGIN
     SELECT count(*) INTO v_cnt FROM public.wholesale_customers WHERE business_id=v_clic;
     IF v_cnt < 1 THEN RAISE EXCEPTION 'CASO 4 FAIL: % no puede LEER mayorista (%)', v_lbl, v_cnt; END IF;
 
-    UPDATE public.wholesale_customers SET notes='hack' WHERE id=v_wc_clic;
-    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    -- G2-C.1: el UPDATE directo de clientes ya no existe para nadie del lado
+    -- cliente/staff; antes lo frenaba la RLS (0 filas), ahora el privilegio.
+    v_cnt := 0;
+    BEGIN
+      UPDATE public.wholesale_customers SET notes='hack' WHERE id=v_wc_clic;
+      GET DIAGNOSTICS v_cnt = ROW_COUNT;
+    EXCEPTION WHEN insufficient_privilege THEN v_cnt := 0;
+    END;
     IF v_cnt <> 0 THEN RAISE EXCEPTION 'CASO 4 FAIL: % UPDATEó mayorista (% filas)', v_lbl, v_cnt; END IF;
 
     v_blocked := false;
@@ -229,8 +247,12 @@ BEGIN
   SELECT count(*) INTO v_cnt FROM public.wholesale_customers WHERE business_id=v_clic;
   IF v_cnt <> 0 THEN RAISE EXCEPTION 'CASO 5 FAIL: otro Full VE clientes de Clic (%)', v_cnt; END IF;
 
-  UPDATE public.wholesale_customers SET notes='cross' WHERE id=v_wc_clic;
-  GET DIAGNOSTICS v_cnt = ROW_COUNT;
+  v_cnt := 0;
+  BEGIN
+    UPDATE public.wholesale_customers SET notes='cross' WHERE id=v_wc_clic;
+    GET DIAGNOSTICS v_cnt = ROW_COUNT;
+  EXCEPTION WHEN insufficient_privilege THEN v_cnt := 0;  -- G2-C.1: sin UPDATE directo
+  END;
   IF v_cnt <> 0 THEN RAISE EXCEPTION 'CASO 5 FAIL: otro Full UPDATEó cliente de Clic (%)', v_cnt; END IF;
 
   v_blocked := false;
@@ -254,10 +276,14 @@ BEGIN
   SELECT count(*) INTO v_cnt FROM public.wholesale_customers;  -- solo ve los suyos
   IF v_cnt <> 1 THEN RAISE EXCEPTION 'CASO 6 FAIL: otro Full debería ver 1 cliente propio (vio %)', v_cnt; END IF;
 
-  INSERT INTO public.wholesale_customers (business_id, name, email, approved)
-  VALUES (v_other, 'Propio Otro', 'wc_other_new_t@example.com', true);  -- owner→can_manage, Full→feature
+  -- G2-C.1: el owner administra SU cliente por la RPC canónica (antes: INSERT
+  -- directo de staff, que ya no existe porque ningún flujo lo usa).
+  PERFORM public.update_wholesale_customer_status_atomic(v_other, v_wc_other, NULL, NULL, 'propio');
 
   PERFORM set_config('role','postgres',true);
+  IF (SELECT notes FROM public.wholesale_customers WHERE id=v_wc_other) IS DISTINCT FROM 'propio' THEN
+    RAISE EXCEPTION 'CASO 6 FAIL: el otro Full no pudo administrar su propio cliente';
+  END IF;
   RAISE NOTICE 'CASO 6 OK — otro Full opera su propio mayorista.';
 
   -- ── CASO 7 — Sin feature Mayorista (plan pro) ─────────────────────────────

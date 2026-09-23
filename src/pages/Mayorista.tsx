@@ -426,6 +426,39 @@ export function Mayorista() {
     setShowComprobante(true)
   }
 
+  // G2-C.1 — el cambio de estado lo decide la base (RPC canónica). Ningún
+  // estado mueve stock. El estado local se actualiza con lo que devolvió el
+  // servidor y un rechazo se muestra, no se traga.
+  const handleCambiarEstado = async (order: WholesaleOrder, status: WholesaleOrder['status']) => {
+    if (!businessId) return
+    try {
+      const res = await updateOrderStatus(businessId, order.id, status)
+      setPortalOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: res.status } : o))
+    } catch (err) {
+      setConvertError(`No se pudo cambiar el estado del pedido #${order.order_number}: ${err instanceof Error ? err.message : 'error desconocido'}`)
+      setTimeout(() => setConvertError(''), 5000)
+    }
+  }
+
+  // G2-C.1 — aprobar/suspender/reactivar un cliente lo decide la base (RPC
+  // canónica). El estado local se toma de lo que devolvió el servidor y un
+  // rechazo se muestra.
+  const handleCambiarCliente = async (
+    cliente: WholesaleCustomer,
+    patch: { approved?: boolean; suspended?: boolean },
+  ) => {
+    if (!businessId) return
+    try {
+      const res = await updateCustomerStatus(businessId, cliente.id, patch)
+      setPortalCustomers(prev => prev.map(x => x.id === cliente.id
+        ? { ...x, approved: res.approved, suspended: res.suspended }
+        : x))
+    } catch (err) {
+      setConvertError(`No se pudo actualizar al cliente ${cliente.name}: ${err instanceof Error ? err.message : 'error desconocido'}`)
+      setTimeout(() => setConvertError(''), 5000)
+    }
+  }
+
   // Portal config
   const [portalConfig, setPortalConfig]   = useState<PortalConfig>({ wholesale_portal_enabled: false, wholesale_portal_slug: '', wholesale_whatsapp: '' })
   const [configSaving, setConfigSaving]   = useState(false)
@@ -1021,10 +1054,7 @@ export function Mayorista() {
                         <div style={{ display: 'flex', gap: '0.375rem' }}>
                           {canManage && !c.approved && !c.suspended && (
                             <button
-                              onClick={async () => {
-                                await updateCustomerStatus(c.id, { approved: true })
-                                setPortalCustomers(prev => prev.map(x => x.id === c.id ? { ...x, approved: true } : x))
-                              }}
+                              onClick={() => handleCambiarCliente(c, { approved: true })}
                               style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.3rem 0.625rem', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '0.375rem', color: '#22c55e', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
                             >
                               <UserCheck size={12} /> Aprobar
@@ -1032,10 +1062,7 @@ export function Mayorista() {
                           )}
                           {canManage && c.approved && !c.suspended && (
                             <button
-                              onClick={async () => {
-                                await updateCustomerStatus(c.id, { suspended: true })
-                                setPortalCustomers(prev => prev.map(x => x.id === c.id ? { ...x, suspended: true } : x))
-                              }}
+                              onClick={() => handleCambiarCliente(c, { suspended: true })}
                               style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.3rem 0.625rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '0.375rem', color: '#f87171', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
                             >
                               <UserX size={12} /> Suspender
@@ -1043,10 +1070,7 @@ export function Mayorista() {
                           )}
                           {canManage && c.suspended && (
                             <button
-                              onClick={async () => {
-                                await updateCustomerStatus(c.id, { suspended: false })
-                                setPortalCustomers(prev => prev.map(x => x.id === c.id ? { ...x, suspended: false } : x))
-                              }}
+                              onClick={() => handleCambiarCliente(c, { suspended: false })}
                               style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.3rem 0.625rem', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: '0.375rem', color: '#818cf8', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
                             >
                               <UserCheck size={12} /> Reactivar
@@ -1180,10 +1204,7 @@ export function Mayorista() {
                       <div style={{ padding: '0.625rem 1rem', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                         {canManage && nextStatuses[order.status].map(s => (
                           <button key={s}
-                            onClick={async () => {
-                              await updateOrderStatus(order.id, s)
-                              setPortalOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: s } : o))
-                            }}
+                            onClick={() => handleCambiarEstado(order, s)}
                             style={{ padding: '0.3rem 0.75rem', background: `${ORDER_STATUS_COLOR[s]}12`, border: `1px solid ${ORDER_STATUS_COLOR[s]}35`, borderRadius: '0.375rem', color: ORDER_STATUS_COLOR[s], fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
                           >
                             {ORDER_STATUS_LABEL[s]}
@@ -1302,10 +1323,20 @@ export function Mayorista() {
           onClose={() => { setShowComprobante(false); setConvertOrder(null); setConvertClientId(null) }}
           onCreado={async () => {
             setShowComprobante(false)
-            // Marcar pedido como facturado
-            await updateOrderStatus(convertOrder.id, 'invoiced', undefined, businessId || undefined)
-            setPortalOrders(prev => prev.map(o => o.id === convertOrder.id ? { ...o, status: 'invoiced' as const } : o))
+            // El comprobante YA descontó el stock (checkout canónico). Marcar el
+            // pedido como facturado es sólo su estado comercial: la RPC no
+            // mueve inventario. Son dos operaciones separadas, así que si esta
+            // falla hay que decirlo — el comprobante quedó creado igual.
+            const order = convertOrder
             setConvertOrder(null); setConvertClientId(null)
+            if (!businessId) return
+            try {
+              const res = await updateOrderStatus(businessId, order.id, 'invoiced')
+              setPortalOrders(prev => prev.map(o => o.id === order.id ? { ...o, status: res.status } : o))
+            } catch (err) {
+              setConvertError(`El comprobante se creó, pero el pedido #${order.order_number} no se pudo marcar como facturado: ${err instanceof Error ? err.message : 'error desconocido'}`)
+              setTimeout(() => setConvertError(''), 6000)
+            }
           }}
           initialClienteId={convertClientId}
           usarPrecioMayorista={true}

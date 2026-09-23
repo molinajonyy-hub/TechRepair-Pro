@@ -24,8 +24,10 @@
 //      stock client-side que G2-B eliminó.
 //
 // LÍMITE HONESTO DEL PUNTO 5. Este guard NO demuestra, ni afirma, que no
-// existan escrituras de stock desde el navegador en el resto de la app. Existe
-// una, activa y conocida:
+// existan escrituras de stock desde el navegador en el resto de la app.
+// [G2-C.1: la que sigue ya NO existe — se eliminó y la vigila
+//  scripts/guards/g2c1-wholesale-authority.mjs. Se conserva el texto como
+//  historia del hallazgo.] Existía una, conocida:
 //
 //     src/portal/services/portalService.ts · _processWholesaleStock()
 //         const newStock = Math.max(0, prevStock + delta)
@@ -290,6 +292,6 @@ if (process.argv.includes('--self-test')) {
     + '· ninguna migracion posterior reintroduce el clamp · el POS permite sobreventa '
     + '· comprobanteService no reintroduce el writer client-side que elimino G2-B.')
   console.log('NOTA · alcance: este guard NO cubre el resto de la app. '
-    + 'portalService._processWholesaleStock sigue escribiendo stock desde el navegador con el mismo '
-    + 'clamp (Math.max(0, prev + delta)). Es G2-C.1 y BLOQUEA el cierre de BETA-GATE-2.')
+    + 'El writer client-side del portal mayorista (portalService._processWholesaleStock) lo elimino '
+    + 'G2-C.1 y lo vigila scripts/guards/g2c1-wholesale-authority.mjs.')
 }

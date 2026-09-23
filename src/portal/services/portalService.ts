@@ -7,7 +7,7 @@ import {
 } from '../portalPublicContract'
 import type {
   PortalBusiness, WholesaleCustomer, PortalProduct,
-  WholesaleOrder, WholesaleOrderItem, CartItem,
+  WholesaleOrder, CartItem,
 } from '../types'
 
 // ─── Business ────────────────────────────────────────────────────────────────
@@ -380,64 +380,84 @@ export async function portalFeatureAllowsOrders(slug: string): Promise<boolean> 
   return portalCanOrder(data as PortalFeatures | null)
 }
 
+/** RPC canónica de alta de pedidos mayoristas (G2-C.1). */
+export const WHOLESALE_CREATE_ORDER_RPC = 'create_wholesale_order_atomic'
+
+/** Una línea tal como la guardó la base: nombre, código y precio canónicos. */
+export interface CreatedWholesaleOrderItem {
+  inventory_item_id: string
+  product_name: string
+  product_code: string | null
+  quantity: number
+  unit_price: number
+  subtotal: number
+}
+
+/** Lo que devuelve la RPC de alta. Totales y líneas son los de la base. */
+export interface CreatedWholesaleOrder {
+  ok: true
+  order_id: string
+  order_number: string
+  business_id: string
+  customer_id: string
+  status: WholesaleOrder['status']
+  subtotal: number
+  total: number
+  notes: string | null
+  created_at: string
+  items: CreatedWholesaleOrderItem[]
+}
+
+/**
+ * Mensajes del alta. Mapa CERRADO, como PORTAL_ERROR_MESSAGE: el texto del
+ * servidor nunca llega a la pantalla, sólo el motivo que la RPC nombra.
+ */
+const CREATE_ORDER_ERROR: Array<[RegExp, string]> = [
+  [/PORTAL_NOT_ACCEPTING_ORDERS/, 'Este portal mayorista no está disponible en este momento.'],
+  [/CUSTOMER_NOT_APPROVED/,       'Tu cuenta todavía no fue aprobada. Te avisamos cuando puedas hacer pedidos.'],
+  [/CUSTOMER_SUSPENDED/,          'Tu cuenta está suspendida. Contactá al negocio para más información.'],
+  [/PRODUCT_NOT_AVAILABLE/,       'Uno de los productos ya no está disponible. Revisá tu pedido.'],
+  [/EMPTY_ORDER/,                 'Tu pedido está vacío.'],
+]
+
+/**
+ * G2-C.1 — alta de un pedido mayorista.
+ *
+ * El navegador sólo manda QUÉ se pide: el portal (slug), y por línea el
+ * producto y la cantidad. La RPC decide todo lo demás en una transacción:
+ * el negocio (por slug), el cliente del actor (aprobado y no suspendido), que
+ * cada producto sea de ese negocio y esté visible, el precio
+ * (precio_mayorista > 0 ? precio_mayorista : sale_price), nombre, código,
+ * subtotales, total y número de pedido. Pedido e items se crean juntos o no
+ * se crea nada. El total que muestra el carrito es sólo orientativo: el que
+ * vale es el que devuelve la base.
+ *
+ * `portalFeatureAllowsOrders` queda como pre-chequeo de UX (mensaje claro sin
+ * ida y vuelta); la autoridad es la RPC, que aplica la misma regla.
+ */
 export async function createOrder(input: {
-  businessId: string
   portalSlug: string
-  customerId: string
   items: CartItem[]
   notes?: string
-}): Promise<{ order: WholesaleOrder | null; error: string | null }> {
+}): Promise<{ order: CreatedWholesaleOrder | null; error: string | null }> {
   if (!(await portalFeatureAllowsOrders(input.portalSlug))) {
     return {
       order: null,
       error: 'Este portal mayorista no está disponible en este momento.',
     }
   }
-  const total = input.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0)
-  const orderNumber = `PW-${Date.now().toString(36).toUpperCase()}`
 
-  const { data: order, error: orderErr } = await supabase
-    .from('wholesale_orders')
-    .insert({
-      business_id:  input.businessId,
-      customer_id:  input.customerId,
-      order_number: orderNumber,
-      subtotal:     total,
-      total,
-      notes:        input.notes || null,
-    })
-    .select()
-    .single()
+  const { data, error } = await supabase.rpc(WHOLESALE_CREATE_ORDER_RPC, {
+    p_portal_slug: input.portalSlug,
+    p_items:       input.items.map(i => ({ inventory_item_id: i.inventoryItemId, quantity: i.quantity })),
+    p_notes:       input.notes?.trim() || null,
+  })
 
-  if (orderErr || !order) return { order: null, error: orderErr?.message || 'Error al crear el pedido' }
-
-  const itemsToInsert: Partial<WholesaleOrderItem>[] = input.items.map(i => ({
-    order_id:          order.id,
-    business_id:       input.businessId,
-    inventory_item_id: i.inventoryItemId,
-    product_name:      i.productName,
-    product_code:      i.productCode || null,
-    quantity:          i.quantity,
-    unit_price:        i.unitPrice,
-    subtotal:          i.unitPrice * i.quantity,
-  }))
-
-  await supabase.from('wholesale_order_items').insert(itemsToInsert)
-
-  // Update customer analytics — fire and forget
-  supabase
-    .from('wholesale_customers')
-    .update({ last_order_at: new Date().toISOString() })
-    .eq('id', input.customerId)
-    .then(() => {})
-
-  // Increment total_orders + total_spent via raw SQL increment
-  supabase.rpc('increment_wholesale_customer_stats' as any, {
-    p_customer_id: input.customerId,
-    p_amount:      total,
-  }).then(() => {}) // no-op if RPC not deployed yet
-
-  return { order: order as WholesaleOrder, error: null }
+  if (error) {
+    const motivo = CREATE_ORDER_ERROR.find(([re]) => re.test(error.message))
+    return { order: null, error: motivo ? motivo[1] : 'No se pudo crear el pedido. Intentá de nuevo.' }
+  }
+  return { order: data as CreatedWholesaleOrder, error: null }
 }
 
 export async function getCustomerOrders(
@@ -467,14 +487,46 @@ export async function getWholesaleCustomers(
   return (data || []) as WholesaleCustomer[]
 }
 
+/** RPC canónica de administración de clientes mayoristas (G2-C.1). */
+export const WHOLESALE_CUSTOMER_STATUS_RPC = 'update_wholesale_customer_status_atomic'
+
+/** Lo que devuelve la RPC de clientes. */
+export interface WholesaleCustomerStatusChange {
+  ok: true
+  customer_id: string
+  business_id: string
+  approved: boolean
+  suspended: boolean
+  notes: string | null
+  changed: boolean
+  updated_at: string
+}
+
+/**
+ * G2-C.1 — el staff aprueba, suspende o reactiva un cliente mayorista.
+ *
+ * La base es la autoridad: la RPC exige la capability `wholesale` y el plan
+ * del MISMO negocio y sólo toca approved/suspended/notes. El navegador ya no
+ * puede escribir esas columnas (tampoco el propio cliente: así no se puede
+ * autoaprobar). Un campo ausente del patch se conserva. Los errores se
+ * propagan.
+ */
 export async function updateCustomerStatus(
+  businessId: string,
   customerId: string,
-  patch: { approved?: boolean; suspended?: boolean; notes?: string }
-): Promise<void> {
-  await supabase
-    .from('wholesale_customers')
-    .update({ ...patch, updated_at: new Date().toISOString() })
-    .eq('id', customerId)
+  patch: { approved?: boolean; suspended?: boolean; notes?: string },
+): Promise<WholesaleCustomerStatusChange> {
+  if (!businessId) throw new Error('No hay negocio activo para administrar el cliente.')
+
+  const { data, error } = await supabase.rpc(WHOLESALE_CUSTOMER_STATUS_RPC, {
+    p_business_id: businessId,
+    p_customer_id: customerId,
+    p_approved:    patch.approved ?? null,
+    p_suspended:   patch.suspended ?? null,
+    p_notes:       patch.notes ?? null,
+  })
+  if (error) throw new Error(error.message)
+  return data as WholesaleCustomerStatusChange
 }
 
 export async function getWholesaleOrders(
@@ -489,90 +541,54 @@ export async function getWholesaleOrders(
   return (data || []) as WholesaleOrder[]
 }
 
+/** RPC canónica de cambio de estado de un pedido mayorista (G2-C.1). */
+export const WHOLESALE_ORDER_STATUS_RPC = 'update_wholesale_order_status_atomic'
+
+/** Lo que devuelve la RPC. `changed` es false cuando se repitió el mismo estado. */
+export interface WholesaleOrderStatusChange {
+  ok: true
+  order_id: string
+  business_id: string
+  status: WholesaleOrder['status']
+  previous_status: WholesaleOrder['status']
+  admin_notes: string | null
+  changed: boolean
+  updated_at: string
+}
+
+/**
+ * G2-C.1 — cambia el estado administrativo de un pedido mayorista.
+ *
+ * PEDIDO MAYORISTA = ESTADO COMERCIAL. COMPROBANTE = MOVIMIENTO DE STOCK.
+ * Ningún estado mueve inventario: la salida real ocurre sólo al convertir el
+ * pedido en comprobante por el checkout canónico. Este servicio no lee ni
+ * escribe `inventory`, `inventory_movements` ni los marcadores `stock_*`.
+ *
+ * La base es la única autoridad: la RPC valida identidad (auth.uid()),
+ * capability `wholesale` y plan del MISMO negocio, bloquea el pedido y
+ * actualiza status/admin_notes en una transacción. El UPDATE directo sobre
+ * `wholesale_orders` está cerrado para el navegador.
+ *
+ * `businessId` es obligatorio: sin él no hay tenant que autorizar. Los errores
+ * se propagan (42501 sin autoridad, 22023 estado inválido, P0002 pedido
+ * inexistente en ese negocio). `adminNotes` undefined conserva las notas.
+ */
 export async function updateOrderStatus(
+  businessId: string,
   orderId: string,
   status: WholesaleOrder['status'],
   adminNotes?: string,
-  businessId?: string,
-): Promise<void> {
-  let q = supabase
-    .from('wholesale_orders')
-    .update({ status, admin_notes: adminNotes || null, updated_at: new Date().toISOString() })
-    .eq('id', orderId)
-  if (businessId) q = q.eq('business_id', businessId)
-  await q
+): Promise<WholesaleOrderStatusChange> {
+  if (!businessId) throw new Error('No hay negocio activo para cambiar el estado del pedido.')
 
-  if (!businessId) return
-
-  const DEDUCT_ON  = ['approved'] as WholesaleOrder['status'][]
-  const REVERT_ON  = ['cancelled', 'rejected'] as WholesaleOrder['status'][]
-
-  if (DEDUCT_ON.includes(status)) {
-    await _processWholesaleStock(orderId, businessId, 'deduct')
-  } else if (REVERT_ON.includes(status)) {
-    await _processWholesaleStock(orderId, businessId, 'revert')
-  }
-}
-
-async function _processWholesaleStock(
-  orderId: string,
-  businessId: string,
-  mode: 'deduct' | 'revert',
-): Promise<void> {
-  const { data: items } = await supabase
-    .from('wholesale_order_items')
-    .select('id, inventory_item_id, quantity, stock_processed')
-    .eq('order_id', orderId)
-    .eq('business_id', businessId)
-
-  if (!items?.length) return
-
-  for (const item of items) {
-    if (!item.inventory_item_id || !item.quantity) continue
-
-    if (mode === 'deduct' && item.stock_processed) continue   // idempotencia
-    if (mode === 'revert' && !item.stock_processed) continue  // nada que revertir
-
-    const { data: inv } = await supabase
-      .from('inventory')
-      .select('stock_quantity')
-      .eq('id', item.inventory_item_id)
-      .eq('business_id', businessId)
-      .single()
-
-    if (!inv) continue
-
-    const prevStock = inv.stock_quantity ?? 0
-    const delta     = mode === 'deduct' ? -item.quantity : item.quantity
-    const newStock  = Math.max(0, prevStock + delta)
-
-    await supabase.from('inventory')
-      .update({ stock_quantity: newStock, updated_at: new Date().toISOString() })
-      .eq('id', item.inventory_item_id)
-      .eq('business_id', businessId)
-
-    const { data: mov } = await supabase.from('inventory_movements').insert({
-      business_id:       businessId,
-      inventory_item_id: item.inventory_item_id,
-      movement_type:     mode === 'deduct' ? 'sale' : 'return',
-      quantity:          delta,
-      previous_stock:    prevStock,
-      new_stock:         newStock,
-      reference_type:    'wholesale_order',
-      reference_id:      orderId,
-      note:              mode === 'deduct'
-        ? 'Salida por pedido mayorista aprobado'
-        : 'Devolución por pedido mayorista cancelado/rechazado',
-    }).select('id').maybeSingle()
-
-    await supabase.from('wholesale_order_items')
-      .update({
-        stock_processed:    mode === 'deduct',
-        stock_processed_at: mode === 'deduct' ? new Date().toISOString() : null,
-        stock_movement_id:  mode === 'deduct' ? (mov?.id ?? null) : null,
-      })
-      .eq('id', item.id)
-  }
+  const { data, error } = await supabase.rpc(WHOLESALE_ORDER_STATUS_RPC, {
+    p_business_id: businessId,
+    p_order_id:    orderId,
+    p_status:      status,
+    p_admin_notes: adminNotes ?? null,
+  })
+  if (error) throw new Error(error.message)
+  return data as WholesaleOrderStatusChange
 }
 
 /**

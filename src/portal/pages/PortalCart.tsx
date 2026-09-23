@@ -57,10 +57,9 @@ export function PortalCart() {
     if (items.length === 0) return
     setLoading(true); setError('')
 
+    // G2-C.1 — el pedido lo arma la base: el carrito sólo dice qué y cuánto.
     const { order, error: err } = await createOrder({
-      businessId: business.id,
       portalSlug: business.wholesale_portal_slug,
-      customerId: customer.id,
       items,
       notes,
     })
@@ -69,7 +68,9 @@ export function PortalCart() {
 
     setOrderNum(order.order_number)
 
-    await trackEvent(business.id, 'whatsapp_order', customer.id, { order_id: order.id, total })
+    // El total y las líneas que valen son los que devolvió el servidor, no los
+    // del carrito (que son orientativos).
+    await trackEvent(business.id, 'whatsapp_order', customer.id, { order_id: order.order_id, total: order.total })
 
     const waNumber = (business.wholesale_whatsapp || '').replace(/\D/g, '')
     const msg = buildWhatsAppMessage({
@@ -78,8 +79,8 @@ export function PortalCart() {
       customerName: customer.name,
       shopName:     customer.business_name || customer.name,
       phone:        customer.whatsapp || '—',
-      items:        items.map(i => ({ name: i.productName, qty: i.quantity, price: i.unitPrice })),
-      total,
+      items:        order.items.map(i => ({ name: i.product_name, qty: i.quantity, price: i.unit_price })),
+      total:        order.total,
       notes,
     })
 

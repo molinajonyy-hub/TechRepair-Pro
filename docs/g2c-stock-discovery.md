@@ -87,6 +87,13 @@ AHORA:            0 − 5    = −5
 
 ## G2-C.1 — BLOCKER pendiente antes del cierre de BETA-GATE-2
 
+> **Actualización (G2-C.1):** el discovery encontró que este writer era
+> inalcanzable desde la UI y que volverlo alcanzable duplicaba la salida del
+> checkout al convertir el pedido en comprobante. Decisión de producto: ningún
+> estado del pedido mueve stock; el comprobante es la única salida. Ver
+> `docs/g2c1-wholesale-stock-discovery.md`. El texto de abajo se conserva como
+> registro del hallazgo original.
+
 **El portal mayorista escribe stock desde el navegador, con el mismo clamp.**
 
 `src/portal/services/portalService.ts` · `_processWholesaleStock()`:
