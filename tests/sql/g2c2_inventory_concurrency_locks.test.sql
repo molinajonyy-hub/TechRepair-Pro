@@ -496,8 +496,10 @@ BEGIN
   LOOP
     v_n := v_n + 1;
     PERFORM pg_temp.assert(position('private.lock_inventory_rows(' IN s.prosrc) > 0
-      OR s.prosrc ~* 'order\s+by\s+(i\.)?id\s+for\s+(no\s+key\s+)?update',
-      '10.x ' || s.firma || ' bloquea inventario antes de escribir stock');
+      OR s.prosrc ~* 'order\s+by\s+(i\.)?id\s+for\s+no\s+key\s+update',
+      '10.x ' || s.firma || ' bloquea inventario antes de escribir stock (FOR NO KEY UPDATE)');
+    PERFORM pg_temp.assert(s.prosrc !~* 'from\s+(public\.)?inventory\y[^;]*\yfor\s+update\y',
+      '10.y ' || s.firma || ' no bloquea inventory con FOR UPDATE (G2-C.2R)');
   END LOOP;
   PERFORM pg_temp.assert(v_n = 7, '10.1 hay exactamente 7 writers de stock server-side (' || v_n || ')');
 
@@ -528,6 +530,61 @@ BEGIN
     to_regprocedure('public.delete_supplier_purchase_safe(uuid,uuid,uuid)'), 'EXECUTE')
     AND NOT has_function_privilege('anon', to_regprocedure('public.delete_supplier_purchase_safe(uuid,uuid,uuid)'), 'EXECUTE'),
     '10.8 ACL de delete_supplier_purchase_safe intacta');
+END $$;
+
+-- ============================================================================
+-- 11 · G2-C.2R · UN solo modo de lock de stock (FOR NO KEY UPDATE)
+-- ============================================================================
+-- Checkout, compra rapida y anulacion bloqueaban inventory FOR UPDATE: el unico
+-- modo que choca con el FOR KEY SHARE que toma un INSERT que referencia el
+-- producto (deadlock 3/3 contra el alta mayorista). Ahora comparten el contrato
+-- del helper. La compatibilidad con KEY SHARE se prueba con dos conexiones en
+-- scripts/inventory/g2c2-concurrency-local.mjs (escenarios K, WS y FK).
+DO $$
+DECLARE s record; v_src text; v_nk int; v_fu int;
+BEGIN
+  FOR s IN SELECT * FROM (VALUES
+      ('private.create_comprobante_checkout_atomic(uuid,text,text,jsonb)',                                         2, 0),
+      ('private.create_quick_inventory_purchase_atomic(uuid,text,uuid,text,text,date,text,numeric,numeric,jsonb)', 2, 0),
+      ('private.sec08e_annul_comprobante_impl(uuid,text,text,boolean,text)',                                       1, 3)
+    ) AS e(firma, no_key, for_update)
+  LOOP
+    SELECT prosrc INTO v_src FROM pg_proc WHERE oid = to_regprocedure(s.firma);
+    v_nk := array_length(regexp_split_to_array(v_src, 'FOR NO KEY UPDATE'), 1) - 1;
+    v_fu := array_length(regexp_split_to_array(v_src, 'FOR UPDATE'), 1) - 1;
+    PERFORM pg_temp.assert(v_src !~* 'from\s+(public\.)?inventory\y[^;]*\yfor\s+update\y',
+      '11.1 ' || s.firma || ': ningun lock de inventory es FOR UPDATE');
+    PERFORM pg_temp.assert(v_src ~* 'from\s+(public\.)?inventory\y[^;]*order\s+by\s+id\s+for\s+no\s+key\s+update',
+      '11.2 ' || s.firma || ': pre-lock de inventory ORDER BY id FOR NO KEY UPDATE');
+    PERFORM pg_temp.assert(v_nk = s.no_key,
+      '11.3 ' || s.firma || ': ' || v_nk || ' FOR NO KEY UPDATE (esperado ' || s.no_key || ')');
+    PERFORM pg_temp.assert(v_fu = s.for_update,
+      '11.4 ' || s.firma || ': ' || v_fu || ' FOR UPDATE de otras tablas conservados (esperado ' || s.for_update || ')');
+    PERFORM pg_temp.assert((SELECT prosecdef FROM pg_proc WHERE oid = to_regprocedure(s.firma)),
+      '11.5 ' || s.firma || ': sigue SECURITY DEFINER');
+    PERFORM pg_temp.assert(NOT has_function_privilege('authenticated', to_regprocedure(s.firma), 'EXECUTE'),
+      '11.6 ' || s.firma || ': sigue sin EXECUTE para authenticated (se entra por el wrapper)');
+  END LOOP;
+  -- La anulacion conserva FOR UPDATE justo donde no es inventory.
+  SELECT prosrc INTO v_src FROM pg_proc WHERE oid = to_regprocedure('private.sec08e_annul_comprobante_impl(uuid,text,text,boolean,text)');
+  PERFORM pg_temp.assert(v_src ~* 'from\s+comprobantes\s+where\s+id\s*=\s*p_comprobante_id\s+for\s+update',
+    '11.7 la anulacion sigue bloqueando el comprobante FOR UPDATE');
+  PERFORM pg_temp.assert(v_src ~* 'from\s+comprobante_payments[^;]*order\s+by\s+id\s+for\s+update'
+    AND v_src ~* 'from\s+account_movements[^;]*order\s+by\s+id\s+for\s+update',
+    '11.8 la anulacion sigue bloqueando pagos y cuenta corriente FOR UPDATE');
+  PERFORM pg_temp.assert(
+    (SELECT prosrc FROM pg_proc WHERE oid = to_regprocedure('private.lock_inventory_rows(uuid,uuid[])'))
+      !~* '\yfor\s+update\y',
+    '11.9 el helper no usa FOR UPDATE (mismo contrato que W1-W3)');
+  PERFORM pg_temp.assert(
+    (SELECT prosrc FROM pg_proc WHERE oid = to_regprocedure('private.create_comprobante_checkout_atomic(uuid,text,text,jsonb)'))
+      ~* 'from\s+inventory\s+where\s+id\s*=\s*\(v_item->>''inventory_id''\)::uuid\s+and\s+business_id\s*=\s*p_business_id\s+for\s+no\s+key\s+update',
+    '11.10 el checkout relee el stock por linea con FOR NO KEY UPDATE (sin upgrade a FOR UPDATE)');
+  -- G2-C.1 no se toca: el alta mayorista sigue bloqueando al CLIENTE (su tabla).
+  PERFORM pg_temp.assert(
+    (SELECT prosrc FROM pg_proc WHERE oid = to_regprocedure('public.create_wholesale_order_atomic(text,jsonb,text)'))
+      ~* 'from\s+public\.wholesale_customers\s+wc[^;]*for\s+update',
+    '11.11 G2-C.1 intacto: el alta mayorista sigue bloqueando su cliente');
 END $$;
 
 DO $$ BEGIN RAISE NOTICE 'G2-C.2 matriz de una sesion: OK'; END $$;

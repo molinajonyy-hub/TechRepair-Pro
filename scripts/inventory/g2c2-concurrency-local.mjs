@@ -125,6 +125,10 @@ const W = {
   wholesale: (t, items) =>
     `SELECT 'wholesale', public.create_wholesale_order_atomic('${t.slug}',
        jsonb_build_array(${items.map((i) => `jsonb_build_object('inventory_item_id','${i.p}','quantity',${i.q})`).join(',')}), 'g2c2');\n`,
+  quickPurchase: (t, items, key) =>
+    `SELECT 'quick', public.create_quick_inventory_purchase_atomic('${t.biz}','${key}','${t.prov}','Proveedor',NULL,
+       public.ar_today(),'efectivo',${items.reduce((s, i) => s + i.q * 600, 0)},0,
+       jsonb_build_array(${items.map((i) => `jsonb_build_object('inventory_id','${i.p}','product_name','x','quantity',${i.q},'unit_cost_ars',600)`).join(',')}));\n`,
 }
 const key = (s) => `${s}-${randomUUID().slice(0, 8)}`
 
@@ -600,38 +604,196 @@ E['S2'] = async () => {
   }
 }
 
-// EXTRA OBLIGATORIO · checkout [A,B] (FOR UPDATE) || alta mayorista [B,A]
-// (wholesale_order_items: chequeo FK FOR KEY SHARE en orden del payload).
-// La compuerta retiene B con un repuesto (NO KEY UPDATE): el checkout toma A y
-// encola en B; el alta toma KEY SHARE de B (compatible con la compuerta) y
-// encola en A (KEY SHARE vs FOR UPDATE del checkout). Al soltar la compuerta,
-// el checkout necesita FOR UPDATE de B, que choca con el KEY SHARE del alta.
-// Si PostgreSQL detecta un deadlock, es el residual G2-C.2R.
-let blockerWS = null
+// ── G2-C.2R · el grafo de locks contra las FK ────────────────────────────────
+// Un INSERT que referencia inventory (FK) toma FOR KEY SHARE sobre el producto.
+// FOR UPDATE choca con KEY SHARE; FOR NO KEY UPDATE no. Con checkout, compra
+// rapida y anulacion en FOR UPDATE, checkout [A,B] contra el alta mayorista [B,A]
+// daba deadlock 3/3 (victima: el POS). Con todos los writers de stock en
+// FOR NO KEY UPDATE, el insert que solo REFERENCIA el producto ya no espera, y
+// las dos operaciones terminan.
+//
+// Compuerta: un repuesto real retiene B (NO KEY UPDATE, compatible con KEY SHARE).
+// El writer ordenado toma A y encola en B; el insert por FK toma KEY SHARE de B y
+// de A sin esperar y termina; al soltarse la compuerta, el writer toma B y termina.
+
+// Carrera en la que el segundo writer es un insert que solo toma KEY SHARE.
+async function cruceFK(tag, { t, a, b, primero, segundo, segundoUid }) {
+  const r = await carrera3({
+    gateSql: holder(t.own, 'g', W.orderItem(t, b, 1), 2),
+    firstSql: late(t.own, 'c', primero, 0.4),
+    secondSql: late(segundoUid ?? t.own, 's', segundo, 0.8),
+  })
+  check(r.dl === 0, `${tag} CERO deadlocks (pg_stat_database.deadlocks +${r.dl})`)
+  sinError(`${tag} compuerta`, r.g); sinError(`${tag} writer de stock`, r.a); sinError(`${tag} insert por FK`, r.b)
+  return r
+}
+
+// WS · checkout [A,B] || alta mayorista [B,A] · 10 veces · ambas COMPLETAN.
 E['WS'] = async () => {
-  const intentos = []
-  for (let i = 0; i < 3; i++) {
+  for (let i = 1; i <= 10; i++) {
     const t = await negocio('WS', { wholesale: true }); const [a, b] = await productos(t, 2)
-    const r = await carrera3({
-      gateSql: holder(t.own, 'g', W.orderItem(t, b, 1), 2),
-      firstSql: late(t.own, 'c', W.checkout(t, [{ p: a, q: 1 }, { p: b, q: 1 }], key('cows')), 0.4),
-      secondSql: late(t.wcu, 's', W.wholesale(t, [{ p: b, q: 1 }, { p: a, q: 1 }]), 0.8),
+    const tag = `WS ${i}/10`
+    const r = await cruceFK(tag, {
+      t, a, b,
+      primero: W.checkout(t, [{ p: a, q: 1 }, { p: b, q: 1 }], key('cows')),
+      segundo: W.wholesale(t, [{ p: b, q: 1 }, { p: a, q: 1 }]), segundoUid: t.wcu,
     })
-    const co = jsonDe(r.a.out, 'checkout')
-    const ws = r.b.out.split('\n').find((l) => l.startsWith('wholesale|'))
-    intentos.push({ dl: r.dl, checkout: co, wholesale: ws ? ws.slice(10, 120) : (r.b.err.split('\n')[0] || '').slice(0, 120), mon: r.mon })
-    console.log(`   intento ${i + 1}: deadlocks +${r.dl} · checkout ${JSON.stringify(co)} · alta ${intentos.at(-1).wholesale}`)
-    for (const m of r.mon) console.log(`      ${m}`)
-    const req = await q(`SELECT coalesce(string_agg(status || ':' || coalesce(last_error_message,''), ','), '-') FROM public.comprobante_checkout_requests WHERE business_id = '${t.biz}';`)
-    console.log(`      checkout_requests: ${req}`)
+    const co = jsonDe(r.a.out, 'checkout'), ws = jsonDe(r.b.out, 'wholesale')
+    check(co?.status === 'created', `${tag} checkout del POS completed (${JSON.stringify(co)})`)
+    check(ws?.ok === true, `${tag} alta mayorista ok (${JSON.stringify(ws)?.slice(0, 60)})`)
+    const req = await val(`SELECT count(*) FROM public.comprobante_checkout_requests WHERE business_id = '${t.biz}' AND status <> 'completed';`)
+    check(req === '0', `${tag} ningun checkout quedo failed_retryable (${req})`)
+    // A: -1 (checkout). B: -1 (compuerta) -1 (checkout). El alta no mueve stock (G2-C.1).
+    verificar(tag, await estado([a, b], { [a]: 10, [b]: 10 }), { [a]: 9, [b]: 8 }, { [a]: 10, [b]: 10 })
   }
-  const reproducido = intentos.some((x) => x.dl > 0)
-  blockerWS = reproducido ? intentos : null
-  // Este caso NO es un PASS/FAIL del lote: el contrato dice que si se reproduce
-  // se documenta como BLOCKER y se detiene el merge (sin tocar W1/W2/W3/G2-C.1).
-  console.log(reproducido
-    ? '   >>> G2-C.2R BLOCKER · inventory FK lock graph: REPRODUCIDO (checkout FOR UPDATE vs alta mayorista KEY SHARE)'
-    : '   >>> checkout vs alta mayorista: NO se reprodujo deadlock en 3 intentos')
+}
+
+// FK · otros cruces de writers de stock contra inserts que solo toman KEY SHARE.
+E['FK'] = async () => {
+  for (let i = 1; i <= 3; i++) {
+    // FK2 · checkout [A,B] || repuestos de SERVICIO [B,A] en otra orden (el trigger no mueve stock).
+    {
+      const t = await negocio('FK2'); const [a, b] = await productos(t, 2)
+      const ordB = randomUUID()
+      await q(`BEGIN; SET LOCAL session_replication_role='replica';
+INSERT INTO public.orders(id, business_id, customer_id) VALUES ('${ordB}','${t.biz}','${t.cust}'); COMMIT;`)
+      const servicios = `INSERT INTO public.order_items(order_id,business_id,tipo,descripcion,product_id,cantidad,precio_unitario)
+        VALUES ('${ordB}','${t.biz}','servicio','g2c2 servicio','${b}',1,1000),
+               ('${ordB}','${t.biz}','servicio','g2c2 servicio','${a}',1,1000) RETURNING 'servicio', id;\n`
+      const tag = `FK2 ${i}/3 checkout || servicios [B,A]`
+      const r = await cruceFK(tag, { t, a, b, primero: W.checkout(t, [{ p: a, q: 1 }, { p: b, q: 1 }], key('cofk2')), segundo: servicios })
+      check(jsonDe(r.a.out, 'checkout')?.status === 'created', `${tag} checkout completed`)
+      check((r.b.out.match(/^servicio\|/gm) || []).length === 2, `${tag} los 2 items de servicio se insertaron`)
+      verificar(tag, await estado([a, b], { [a]: 10, [b]: 10 }), { [a]: 9, [b]: 8 }, { [a]: 10, [b]: 10 })
+    }
+    // FK3 · anulacion (reversa de stock) [A,B] || alta mayorista [B,A].
+    {
+      const t = await negocio('FK3', { wholesale: true }); const [a, b] = await productos(t, 2)
+      const comp = jsonDe(await q(como(t.own, 's') + W.checkout(t, [{ p: a, q: 1 }, { p: b, q: 1 }], key('cofk3'))), 'checkout').comprobante_id
+      const tag = `FK3 ${i}/3 anulacion || alta mayorista`
+      const r = await cruceFK(tag, { t, a, b, primero: W.annul(comp, key('anfk3')), segundo: W.wholesale(t, [{ p: b, q: 1 }, { p: a, q: 1 }]), segundoUid: t.wcu })
+      const an = jsonDe(r.a.out, 'annul'), ws = jsonDe(r.b.out, 'wholesale')
+      check(an?.ok === true && an?.stock_restored_count === 2, `${tag} anulacion ok con reversa de 2 productos (${JSON.stringify(an)?.slice(0, 80)})`)
+      check(ws?.ok === true, `${tag} alta mayorista ok`)
+      // A: -1 +1. B: -1 (venta) -1 (compuerta) +1 (reversa).
+      verificar(tag, await estado([a, b], { [a]: 10, [b]: 10 }), { [a]: 10, [b]: 9 }, { [a]: 10, [b]: 10 })
+    }
+    // FK4 · compra rapida [A,B] || alta mayorista [B,A].
+    {
+      const t = await negocio('FK4', { wholesale: true }); const [a, b] = await productos(t, 2)
+      const tag = `FK4 ${i}/3 compra rapida || alta mayorista`
+      const r = await cruceFK(tag, { t, a, b, primero: W.quickPurchase(t, [{ p: a, q: 1 }, { p: b, q: 1 }], key('qpfk4')), segundo: W.wholesale(t, [{ p: b, q: 1 }, { p: a, q: 1 }]), segundoUid: t.wcu })
+      const qp = jsonDe(r.a.out, 'quick'), ws = jsonDe(r.b.out, 'wholesale')
+      check(qp?.ok === true && qp?.replay === false, `${tag} compra rapida ok (${JSON.stringify(qp)})`)
+      check(ws?.ok === true, `${tag} alta mayorista ok`)
+      // A: +1. B: -1 (compuerta) +1 (compra).
+      verificar(tag, await estado([a, b], { [a]: 10, [b]: 10 }), { [a]: 11, [b]: 10 }, { [a]: 10, [b]: 10 })
+    }
+  }
+}
+
+// K · semantica del modo de lock (contratos A-F). El holder toma el lock canonico
+// y retiene; el late prueba cada tipo de acceso. Como postgres: el helper no es
+// ejecutable por roles de API. K-W1 repite los contratos con el lock REAL del
+// checkout vivo, no con el helper.
+const holderPg = (who, sql, hold = 2) =>
+  `SET application_name = 'g2c2-${who}';\nBEGIN;\n` + log(who, 'BEGIN') + sql + log(who, 'lock tomado') +
+  `SELECT pg_sleep(${hold}) \\g /dev/null\n` + 'COMMIT;\n' + log(who, 'COMMIT')
+const latePg = (who, sql, delay = 0.6, fin = 'COMMIT') =>
+  `SELECT pg_sleep(${delay}) \\g /dev/null\nSET application_name = 'g2c2-${who}';\nBEGIN;\n` + log(who, 'BEGIN') + sql +
+  log(who, 'devolvio') + `${fin};\n` + log(who, 'fin')
+const duracion = (out) => {
+  const tl = out.split('\n').filter((l) => l.startsWith('T|'))
+  const ms = (s) => { const [h, m2, rest] = s.split(':'); return (Number(h) * 3600 + Number(m2) * 60 + Number(rest)) * 1000 }
+  return tl.length >= 2 ? ms(tl[tl.length - 1].split('|')[1]) - ms(tl[0].split('|')[1]) : 99999
+}
+E['K'] = async () => {
+  const t = await negocio('K')
+  const casos = [
+    ['A · otro FOR NO KEY UPDATE sobre la misma fila', (x) => `SELECT 1 FROM public.inventory WHERE id = '${x}' FOR NO KEY UPDATE;\n`, true],
+    ['B · UPDATE de la fila', (x) => `UPDATE public.inventory SET min_stock = min_stock WHERE id = '${x}';\n`, true],
+    ['C · FOR UPDATE de un writer viejo', (x) => `SELECT 1 FROM public.inventory WHERE id = '${x}' FOR UPDATE;\n`, true],
+    ['D · FOR KEY SHARE (chequeo de FK)', (x) => `SELECT 1 FROM public.inventory WHERE id = '${x}' FOR KEY SHARE;\n`, false],
+    ['F · DELETE de la fila', (x) => `DELETE FROM public.inventory WHERE id = '${x}';\n`, true],
+  ]
+  for (const [nombre, sql, espera] of casos) {
+    const [x] = await productos(t, 1)
+    const r = await carrera({
+      holderSql: holderPg('h', `SELECT private.lock_inventory_rows('${t.biz}', ARRAY['${x}']::uuid[]) \\g /dev/null\n`),
+      lateSql: latePg('l', sql(x), 0.6, nombre.startsWith('F') ? 'ROLLBACK' : 'COMMIT'),
+      monitorAt: 1.1,
+    })
+    sinError(`K ${nombre} holder`, r.a); sinError(`K ${nombre} late`, r.b)
+    check(esperoLock(r.mon, 'l') === espera, `K helper · ${nombre}: ${espera ? 'ESPERA el lock' : 'NO espera'}`)
+    if (!espera) check(duracion(r.b.out) < 1000, `K helper · ${nombre}: termino en ${Math.round(duracion(r.b.out))} ms`)
+    check(r.dl === 0, `K helper · ${nombre}: cero deadlocks`)
+  }
+  // D bis · un INSERT real que referencia el producto (repuesto de servicio) no espera.
+  {
+    const [x] = await productos(t, 1)
+    const ordB = randomUUID()
+    await q(`BEGIN; SET LOCAL session_replication_role='replica';
+INSERT INTO public.orders(id, business_id, customer_id) VALUES ('${ordB}','${t.biz}','${t.cust}'); COMMIT;`)
+    const r = await carrera({
+      holderSql: holderPg('h', `SELECT private.lock_inventory_rows('${t.biz}', ARRAY['${x}']::uuid[]) \\g /dev/null\n`),
+      lateSql: late(t.own, 'l', `INSERT INTO public.order_items(order_id,business_id,tipo,descripcion,product_id,cantidad,precio_unitario)
+        VALUES ('${ordB}','${t.biz}','servicio','g2c2','${x}',1,1000) RETURNING 'servicio', id;\n`, 0.6),
+      monitorAt: 1.1,
+    })
+    sinError('K D bis holder', r.a); sinError('K D bis insert', r.b)
+    check(!esperoLock(r.mon, 'l') && duracion(r.b.out) < 1000, `K helper · D bis INSERT por FK (KEY SHARE) NO espera (${Math.round(duracion(r.b.out))} ms)`)
+  }
+  // K-W1 · el lock REAL del checkout vivo (W1): compatible con KEY SHARE, excluyente con FOR UPDATE.
+  for (const [nombre, sql, espera] of [
+    ['D · FOR KEY SHARE', (x) => `SELECT 1 FROM public.inventory WHERE id = '${x}' FOR KEY SHARE;\n`, false],
+    ['C · FOR UPDATE', (x) => `SELECT 1 FROM public.inventory WHERE id = '${x}' FOR UPDATE;\n`, true],
+    ['A · FOR NO KEY UPDATE', (x) => `SELECT 1 FROM public.inventory WHERE id = '${x}' FOR NO KEY UPDATE;\n`, true],
+  ]) {
+    const [x] = await productos(t, 1)
+    const r = await carrera({
+      holderSql: holder(t.own, 'h', W.checkout(t, [{ p: x, q: 1 }], key('cok')), 2),
+      lateSql: latePg('l', sql(x), 0.8),
+      monitorAt: 1.3,
+    })
+    sinError(`K-W1 ${nombre} checkout`, r.a); sinError(`K-W1 ${nombre} late`, r.b)
+    check(esperoLock(r.mon, 'l') === espera, `K checkout vivo · ${nombre}: ${espera ? 'ESPERA' : 'NO espera'}`)
+    if (!espera) check(duracion(r.b.out) < 1000, `K checkout vivo · ${nombre}: termino en ${Math.round(duracion(r.b.out))} ms`)
+  }
+}
+
+// S3 · pgbench SIN sleeps: checkout [A,B] || alta mayorista [B,A] || repuestos de
+// servicio [B,A]. Antes de G2-C.2R el primer cruce deadlockeaba 3/3.
+E['S3'] = async () => {
+  const t = await negocio('S3', { wholesale: true }); const [a, b] = await productos(t, 2)
+  const ordB = randomUUID()
+  await q(`BEGIN; SET LOCAL session_replication_role='replica';
+INSERT INTO public.orders(id, business_id, customer_id) VALUES ('${ordB}','${t.biz}','${t.cust}'); COMMIT;`)
+  const d0 = await deadlocks()
+  await pgbench('[A,B] checkout || [B,A] alta mayorista || [B,A] servicios', {
+    'g2c2_s3co.sql': pbComo(t.own) + `SELECT public.create_comprobante_checkout_atomic('${t.biz}', gen_random_uuid()::text, 'pbs3',
+       jsonb_build_object('tipo','remito','punto_venta','0001','condicion_fiscal','Consumidor Final','customer_id','${t.cust}','cc_total',0,'emitir_en_arca',false,
+         'items', jsonb_build_array(jsonb_build_object('inventory_id','${a}','descripcion','pb','tipo_linea','producto','cantidad',1,'precio_unitario',1000),
+                                    jsonb_build_object('inventory_id','${b}','descripcion','pb','tipo_linea','producto','cantidad',1,'precio_unitario',1000)),
+         'pagos', jsonb_build_array(jsonb_build_object('amount',2000,'amount_ars',2000,'payment_method','efectivo'))));\nCOMMIT;\n`,
+    'g2c2_s3ws.sql': pbComo(t.wcu) + `SELECT public.create_wholesale_order_atomic('${t.slug}',
+       jsonb_build_array(jsonb_build_object('inventory_item_id','${b}','quantity',1), jsonb_build_object('inventory_item_id','${a}','quantity',1)), 'pb');\nCOMMIT;\n`,
+    'g2c2_s3sv.sql': pbComo(t.own) + `INSERT INTO public.order_items(order_id,business_id,tipo,descripcion,product_id,cantidad,precio_unitario)
+       VALUES ('${ordB}','${t.biz}','servicio','pb','${b}',1,1000), ('${ordB}','${t.biz}','servicio','pb','${a}',1,1000);\nCOMMIT;\n`,
+  }, 12)
+  const dl = (await deadlocks()) - d0
+  check(dl === 0, `S3 CERO deadlocks bajo carga (antes de G2-C.2R: deadlock 3/3 en el cruce checkout || alta) (+${dl})`)
+  const fallidos = await val(`SELECT count(*) FROM public.comprobante_checkout_requests WHERE business_id = '${t.biz}' AND status <> 'completed';`)
+  check(fallidos === '0', `S3 cero checkouts failed_retryable (${fallidos})`)
+  const ventas = Number(await val(`SELECT count(*) FROM public.comprobante_checkout_requests WHERE business_id = '${t.biz}' AND status = 'completed';`))
+  const altas = Number(await val(`SELECT count(*) FROM public.wholesale_orders WHERE business_id = '${t.biz}';`))
+  const servicios = Number(await val(`SELECT count(*) FROM public.order_items WHERE order_id = '${ordB}';`))
+  check(ventas > 20 && altas > 20 && servicios > 20, `S3 carga real en los tres flujos: ${ventas} ventas, ${altas} altas, ${servicios} items de servicio`)
+  const est = await estado([a, b], { [a]: 10, [b]: 10 })
+  for (const [id, n] of [[a, 'A'], [b, 'B']]) {
+    check(est[id].stock === 10 - ventas, `S3 ${n} stock exacto: ${est[id].stock} == 10 - ${ventas} ventas (el alta y los servicios no mueven stock)`)
+    check(est[id].stock === 10 + est[id].suma, `S3 ${n} stock == 10 + SUM(quantity) ${est[id].suma}`)
+    check(est[id].balance && est[id].rotas === 0, `S3 ${n} cadena continua (balance euleriano) e invariante por fila`)
+  }
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -641,9 +803,8 @@ console.log(`G2-C.2 concurrencia · contenedor ${CT} · PostgreSQL ${cont}`)
 const helper = await val(`SELECT to_regprocedure('private.lock_inventory_rows(uuid,uuid[])') IS NOT NULL;`)
 // Sin la migracion la matriz solo corre en modo LINEA BASE (G2C2_BASELINE=1):
 // mide el "antes" con el mismo harness; sus fallas son el bug, no un rojo de CI.
-// WS no depende de G2-C.2 (checkout y alta mayorista no cambian).
 const BASELINE = process.env.G2C2_BASELINE === '1'
-if (helper !== 't' && !BASELINE && pedidos.some((k) => k !== 'WS')) {
+if (helper !== 't' && !BASELINE) {
   console.error('ABORTADO: falta private.lock_inventory_rows (la migracion G2-C.2 no esta aplicada). '
     + 'Para medir la linea base sobre main: G2C2_BASELINE=1.'); process.exit(2)
 }
@@ -657,11 +818,4 @@ for (const k of pedidos) {
 
 console.log(`\n${asserts} aserciones · ${fallas.length} fallas`)
 if (fallas.length) { fallas.forEach((f) => console.log('  · ' + f)); process.exit(1) }
-if (pedidos.some((k) => k !== 'WS')) console.log('G2-C.2 concurrencia OK')
-// El residual va con su propio codigo de salida: no es una falla de G2-C.2 (no
-// toca checkout ni el alta mayorista), pero mientras se reproduzca el rollout
-// queda detenido hasta revision humana.
-if (blockerWS) {
-  console.log('G2-C.2R BLOCKER · inventory FK lock graph REPRODUCIDO: rollout/merge detenido hasta revision humana.')
-  process.exit(3)
-}
+console.log('G2-C.2 + G2-C.2R concurrencia OK')

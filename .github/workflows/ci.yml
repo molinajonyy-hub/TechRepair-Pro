@@ -331,11 +331,12 @@ jobs:
   # contrato necesita un job propio que lo aplique desde cero (precondiciones y
   # postcondiciones fail-closed: si el replay no lo reproduce, `supabase start`
   # falla aca). La matriz de concurrencia abre conexiones REALES en paralelo.
-  #   read-modify-write de stock: lock de inventory ORDER BY id, por negocio.
-  # El ultimo paso es la sonda del residual G2-C.2R (checkout FOR UPDATE contra
-  # el alta mayorista, que toma FOR KEY SHARE en orden del payload). No es parte
-  # de G2-C.2 —no toca ninguno de los dos—, pero mientras se reproduzca el
-  # rollout queda detenido hasta revision humana: el paso sale con codigo 3.
+  #   read-modify-write de stock: lock de inventory ORDER BY id, por negocio,
+  #   FOR NO KEY UPDATE en TODOS los writers (G2-C.2R).
+  # G2-C.2R es obligatorio y verde: checkout [A,B] contra el alta mayorista [B,A]
+  # (FK FOR KEY SHARE en orden del payload) tiene que dar cero deadlocks y ambas
+  # operaciones completas, 10 de 10 (escenario WS), mas los cruces FK y la carga
+  # pgbench S3.
   g2c2-inventory-locks:
     name: G2-C.2 Inventory Concurrency Locks
     runs-on: ubuntu-latest
@@ -355,12 +356,10 @@ jobs:
           version: 2.109.1
       - name: Start local Supabase with the G2-C.2 candidate applied
         run: supabase start
-      - name: Run the G2-C.2 matrix (guard self-test + guard + SQL + real concurrency)
+      - name: Run the G2-C.2 + G2-C.2R matrix (guard self-test + guard + SQL + real concurrency)
         env:
           G2C2_PGBENCH_CLIENTS: '8'
         run: npm run test:g2c2
-      - name: Probe residual G2-C.2R (checkout vs wholesale order FK lock graph)
-        run: npm run test:residual:g2c2r
       - name: Tear down local Supabase
         if: always()
         run: supabase stop --no-backup || true

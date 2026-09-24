@@ -15,8 +15,8 @@
 //      (precondiciones, incluida la de order_items cross-tenant; postcondiciones
 //      que comparan prosecdef/proowner/proconfig/proacl contra un snapshot).
 //   2. El helper private.lock_inventory_rows: SECURITY INVOKER, search_path
-//      pg_catalog/pg_temp, filtra por business_id, ORDER BY id, FOR NO KEY UPDATE
-//      (o FOR UPDATE), y sin EXECUTE para PUBLIC/anon/authenticated/service_role.
+//      pg_catalog/pg_temp, filtra por business_id, ORDER BY id, FOR NO KEY UPDATE,
+//      y sin EXECUTE para PUBLIC/anon/authenticated/service_role.
 //   3. Los 4 writers de G2-C.2 se redefinen por firma y toman el lock ANTES del
 //      primer UPDATE de stock.
 //   4. El trigger de repuestos (W7): toda lectura/escritura de inventory acotada
@@ -24,10 +24,18 @@
 //      (business_id, order_id, product_id, tipo -> 0A000).
 //   5. En la migracion G2-C.2 y en TODA migracion posterior, cualquier funcion
 //      cuyo cuerpo escriba stock (`UPDATE inventory ... SET stock/stock_quantity =`)
-//      bloquea antes con el helper o con un pre-lock `ORDER BY id FOR UPDATE`.
+//      bloquea antes con el helper o con un pre-lock `ORDER BY id FOR NO KEY UPDATE`.
 //      El helper nunca se llama con business_id NULL, nunca se redefine sin
 //      tenant/orden, nunca recibe EXECUTE de roles de API, y el trigger de
 //      repuestos no se deshabilita ni se borra.
+//   6. G2-C.2R · UN solo modo de lock de stock: ningun writer canonico (W1-W7) ni
+//      el helper bloquea inventory con FOR UPDATE. FOR UPDATE es el unico modo que
+//      choca con el FOR KEY SHARE que toma cualquier INSERT que referencia
+//      inventory (FK): checkout FOR UPDATE contra el alta mayorista dio deadlock
+//      3/3. Checkout, compra rapida y anulacion (W1-W3) se redefinen en la misma
+//      migracion con FOR NO KEY UPDATE, y la postcondicion prueba que es el unico
+//      cambio. El guard mira la SENTENCIA: un FOR UPDATE de comprobantes, pagos o
+//      cuenta corriente (que la anulacion conserva) NO es de inventory y se permite.
 //
 // LIMITE HONESTO. Este guard NO cubre los writers de stock del navegador
 // (inventoryMovementsService.registerMovement, import de Excel en Inventory.tsx):
@@ -49,8 +57,40 @@ const WRITERS = {
   W6: { firma: 'public.repair_missing_stock_movements(uuid,boolean)', def: 'public.repair_missing_stock_movements' },
   W7: { firma: 'public.adjust_stock_on_order_item()', def: 'public.adjust_stock_on_order_item' },
 }
+// G2-C.2R: writers que ya bloqueaban ordenado y solo cambian el MODO del lock.
+const WRITERS_MODO = {
+  W1: { firma: 'private.create_comprobante_checkout_atomic(uuid,text,text,jsonb)', def: 'private.create_comprobante_checkout_atomic' },
+  W2: { firma: 'private.create_quick_inventory_purchase_atomic(uuid,text,uuid,text,text,date,text,numeric,numeric,jsonb)',
+        def: 'private.create_quick_inventory_purchase_atomic' },
+  W3: { firma: 'private.sec08e_annul_comprobante_impl(uuid,text,text,boolean,text)', def: 'private.sec08e_annul_comprobante_impl' },
+}
+const CANONICOS = new Set([...Object.values(WRITERS), ...Object.values(WRITERS_MODO)].map((w) => w.def))
 
 const read = (p) => readFileSync(p, 'utf8')
+
+/**
+ * Sentencias que bloquean INVENTORY con FOR UPDATE (el modo que choca con FK
+ * KEY SHARE). Mira cada sentencia completa: tiene que leer de `inventory` (no de
+ * inventory_movements) y terminar en FOR UPDATE (no FOR NO KEY UPDATE). Un
+ * FOR UPDATE de otra tabla (comprobantes, pagos, cuenta corriente) no cuenta.
+ * Recibe el cuerpo YA sin comentarios.
+ */
+export function lockInventarioForUpdate(cuerpo) {
+  // Una sentencia termina en ';' pero tambien donde plpgsql abre un bloque: el
+  // encabezado de un `FOR r IN SELECT ... LOOP` no lleva ';' y sin este corte se
+  // pegaria con la primera sentencia de adentro del loop.
+  return cuerpo.split(/;|\bLOOP\b|\bTHEN\b|\bELSE\b|\bBEGIN\b/i)
+    .filter((st) => {
+      const from = st.match(/\bFROM\s+(?:public\.)?inventory\b(?!_)(?:\s+(?:AS\s+)?(?!WHERE\b|JOIN\b|ORDER\b|FOR\b|GROUP\b|LIMIT\b)(\w+))?/i)
+      if (!from || !/\bFOR\s+UPDATE\b/i.test(st)) return false
+      // `FOR UPDATE OF x, y`: solo cuenta si alguno de los nombres es inventory o su alias.
+      const of = st.match(/\bFOR\s+UPDATE\s+OF\s+([\w\s,]+?)(?:\bSKIP\b|\bNOWAIT\b|$)/i)
+      if (!of) return true
+      const nombres = of[1].split(',').map((x) => x.trim().toLowerCase())
+      return nombres.includes('inventory') || (from[1] && nombres.includes(from[1].toLowerCase()))
+    })
+    .map((st) => st.replace(/\s+/g, ' ').trim().slice(0, 120))
+}
 
 function sinComentarios(sql) {
   let out = '', i = 0
@@ -75,7 +115,7 @@ export function funciones(sql) {
 
 const RE_ESCRIBE_STOCK = /UPDATE\s+(?:public\.)?inventory\b[^;]*?\bSET\b[^;]*?\bstock(?:_quantity)?\s*=/i
 const RE_HELPER_CALL = /private\.lock_inventory_rows\s*\(/i
-const RE_PRELOCK = /ORDER\s+BY\s+(?:i\.)?id\s+FOR\s+(?:NO\s+KEY\s+)?UPDATE/i
+const RE_PRELOCK = /ORDER\s+BY\s+(?:i\.)?id\s+FOR\s+NO\s+KEY\s+UPDATE/i
 
 /** Un cuerpo que escribe stock tiene que bloquear ANTES del primer UPDATE de stock. */
 function bloqueaAntes(cuerpo) {
@@ -92,7 +132,8 @@ function inspectHelper(f, etiqueta) {
   if (!/\bbusiness_id\s*=\s*p_business_id\b/i.test(f.cuerpo)) out.push(`${etiqueta}: el helper bloquea sin filtrar por business_id`)
   if (!/p_business_id\s+IS\s+NULL[\s\S]*?22023/i.test(f.cuerpo)) out.push(`${etiqueta}: el helper acepta business_id NULL (sin INVENTORY_LOCK_TENANT_REQUIRED / 22023)`)
   if (!/ORDER\s+BY\s+i\.id\b/i.test(f.cuerpo)) out.push(`${etiqueta}: el helper bloquea sin orden determinista (ORDER BY id)`)
-  if (!/FOR\s+(?:NO\s+KEY\s+)?UPDATE/i.test(f.cuerpo)) out.push(`${etiqueta}: el helper no toma lock de fila`)
+  if (!/FOR\s+NO\s+KEY\s+UPDATE/i.test(f.cuerpo)) out.push(`${etiqueta}: el helper no toma el lock FOR NO KEY UPDATE`)
+  if (/\bFOR\s+UPDATE\b/i.test(f.cuerpo)) out.push(`${etiqueta}: el helper bloquea con FOR UPDATE (choca con el FOR KEY SHARE de las FK: G2-C.2R)`)
   if (/SKIP\s+LOCKED|NOWAIT/i.test(f.cuerpo)) out.push(`${etiqueta}: el helper saltea filas bloqueadas (SKIP LOCKED/NOWAIT): no serializa`)
   return out
 }
@@ -128,9 +169,16 @@ function inspectMigracion(sql) {
   const f = []
   const s = sinComentarios(sql)
   if (!/^\s*BEGIN\s*;/m.test(s) || !/^\s*COMMIT\s*;/m.test(s)) f.push('la migracion perdio su BEGIN/COMMIT explicito (las migraciones corren en autocommit)')
-  for (let n = 1; n <= 7; n++) if (!new RegExp(`PRECONDICION ${n}:`).test(s)) f.push(`se perdio la PRECONDICION ${n}`)
+  for (let n = 1; n <= 8; n++) if (!new RegExp(`PRECONDICION ${n}:`).test(s)) f.push(`se perdio la PRECONDICION ${n}`)
   for (let n = 1; n <= 9; n++) if (!new RegExp(`POSTCONDICION ${n}:`).test(s)) f.push(`se perdio la POSTCONDICION ${n}`)
   if (!/PRECONDICION 6:[\s\S]*?order_items/.test(s) && !/order_items[\s\S]{0,600}PRECONDICION 6:/.test(s)) f.push('la PRECONDICION 6 ya no aborta ante order_items cross-tenant')
+  if (!/src_md5\s+IS\s+DISTINCT\s+FROM\s+orig_md5[\s\S]{0,200}PRECONDICION 8:/.test(s)) {
+    f.push('la PRECONDICION 8 ya no aborta ante drift de los cuerpos (md5 contra main)')
+  }
+  // G2-C.2R: la prueba de "solo cambio el modo de lock" de W1-W3.
+  if (!/md5\(replace\(v_src,\s*'FOR NO KEY UPDATE',\s*'FOR UPDATE'\)\)\s+IS\s+DISTINCT\s+FROM\s+s\.orig_md5/.test(s)) {
+    f.push('la POSTCONDICION 2 dejo de probar que W1-W3 solo cambian el modo de lock (md5 revertido contra main)')
+  }
   for (const campo of ['prosecdef', 'proowner', 'proconfig', 'proacl']) {
     if (!new RegExp(`v_now\\.${campo}\\s+IS\\s+DISTINCT\\s+FROM\\s+s\\.${campo}`).test(s)) f.push(`las postcondiciones dejaron de comparar ${campo} contra el snapshot`)
   }
@@ -156,6 +204,20 @@ function inspectMigracion(sql) {
   }
   const w7 = fns.find((x) => x.nombre === WRITERS.W7.def)
   if (w7) f.push(...inspectW7(w7, 'W7'))
+  // G2-C.2R: W1-W3 se redefinen con el MISMO contrato de lock que el helper.
+  for (const [w, { firma, def }] of Object.entries(WRITERS_MODO)) {
+    if (!s.includes(firma)) f.push(`${w}: la migracion dejo de apuntar la firma exacta ${firma}`)
+    const fn = fns.find((x) => x.nombre === def)
+    if (!fn) { f.push(`${w}: la migracion ya no redefine ${def} (G2-C.2R)`); continue }
+    if (!RE_PRELOCK.test(fn.cuerpo)) f.push(`${w}: ${def} perdio su pre-lock de inventory ORDER BY id FOR NO KEY UPDATE`)
+    else if (!bloqueaAntes(fn.cuerpo)) f.push(`${w}: ${def} bloquea DESPUES de escribir stock`)
+  }
+  // Ningun writer canonico bloquea inventory con FOR UPDATE.
+  for (const fn of fns.filter((x) => CANONICOS.has(x.nombre))) {
+    for (const st of lockInventarioForUpdate(fn.cuerpo)) {
+      f.push(`${fn.nombre} bloquea inventory con FOR UPDATE (debe ser FOR NO KEY UPDATE: G2-C.2R): ${st}`)
+    }
+  }
   return f.map((x) => `${MIG_DIR}/${MIG}: ${x}`)
 }
 
@@ -168,6 +230,11 @@ function inspectPosteriores(archivos) {
     for (const fn of funciones(s)) {
       if (RE_ESCRIBE_STOCK.test(fn.cuerpo) && !bloqueaAntes(fn.cuerpo)) {
         f.push(`${nombre}: ${fn.nombre} escribe stock de inventory sin lock canonico previo (read-modify-write sin lock)`)
+      }
+      if ((RE_ESCRIBE_STOCK.test(fn.cuerpo) || CANONICOS.has(fn.nombre)) && nombre !== MIG) {
+        for (const st of lockInventarioForUpdate(fn.cuerpo)) {
+          f.push(`${nombre}: ${fn.nombre} bloquea inventory con FOR UPDATE (debe ser FOR NO KEY UPDATE: G2-C.2R): ${st}`)
+        }
       }
       if (/private\.lock_inventory_rows\s*\(\s*NULL\b/i.test(fn.cuerpo)) f.push(`${nombre}: ${fn.nombre} llama al helper sin tenant`)
       if (fn.nombre === 'private.lock_inventory_rows' && nombre !== MIG) f.push(...inspectHelper(fn, nombre))
@@ -277,6 +344,51 @@ DECLARE v int; BEGIN
     ['una migracion posterior concede EXECUTE del helper', (s) => posterior(s, 'GRANT EXECUTE ON FUNCTION private.lock_inventory_rows(uuid, uuid[]) TO authenticated;')],
     ['una migracion posterior deshabilita el trigger de repuestos', (s) => posterior(s, 'ALTER TABLE public.order_items DISABLE TRIGGER trg_adjust_stock_on_order_item;')],
     ['una migracion posterior borra el helper', (s) => posterior(s, 'DROP FUNCTION IF EXISTS private.lock_inventory_rows(uuid, uuid[]);')],
+    // ── G2-C.2R · un solo modo de lock de stock (FOR NO KEY UPDATE) ─────────────
+    ['G2-C.2R: el pre-lock del checkout (W1) vuelve a FOR UPDATE',
+      (s) => conMig(s, "IN ('producto','repuesto'))\n        ORDER BY id FOR NO KEY UPDATE;", "IN ('producto','repuesto'))\n        ORDER BY id FOR UPDATE;")],
+    ['G2-C.2R: el lock por linea del checkout (W1) vuelve a FOR UPDATE',
+      (s) => conMig(s, 'AND business_id = p_business_id\n          FOR NO KEY UPDATE;', 'AND business_id = p_business_id\n          FOR UPDATE;')],
+    ['G2-C.2R: la compra rapida (W2) vuelve a FOR UPDATE',
+      (s) => conMig(s, '    ORDER BY id\n    FOR NO KEY UPDATE;', '    ORDER BY id\n    FOR UPDATE;')],
+    ['G2-C.2R: la anulacion (W3) vuelve a FOR UPDATE sobre inventory',
+      (s) => conMig(s, "IN ('producto','repuesto'))\n      ORDER BY id FOR NO KEY UPDATE;", "IN ('producto','repuesto'))\n      ORDER BY id FOR UPDATE;")],
+    ['G2-C.2R: el helper vuelve a FOR UPDATE',
+      (s) => conMig(s, '    ORDER BY i.id\n      FOR NO KEY UPDATE;', '    ORDER BY i.id\n      FOR UPDATE;')],
+    ['G2-C.2R: la migracion deja de redefinir el checkout',
+      (s) => conMig(s, 'CREATE OR REPLACE FUNCTION private.create_comprobante_checkout_atomic(', 'CREATE OR REPLACE FUNCTION private.otra_cosa(')],
+    ['G2-C.2R: se pierde la prueba de "solo cambio el modo" (md5 revertido)',
+      (s) => conMig(s, "md5(replace(v_src, 'FOR NO KEY UPDATE', 'FOR UPDATE')) IS DISTINCT FROM s.orig_md5", 'false')],
+    ['G2-C.2R: se pierde la precondicion de drift (md5 contra main)', (s) => conMig(s, 'PRECONDICION 8:', 'NOTA 8:')],
+    ['G2-C.2R: una migracion posterior redefine el checkout con inventory FOR UPDATE', (s) => posterior(s, `CREATE OR REPLACE FUNCTION private.create_comprobante_checkout_atomic(p_business_id uuid, p_idempotency_key text, p_request_hash text, p_payload jsonb)
+ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $function$
+BEGIN
+  PERFORM 1 FROM inventory WHERE business_id = p_business_id AND id IN (SELECT 1) ORDER BY id FOR UPDATE;
+  RETURN '{}'::jsonb;
+END $function$;`)],
+    ['G2-C.2R: una migracion posterior agrega un writer con pre-lock ORDER BY id FOR UPDATE', (s) => posterior(s, `CREATE OR REPLACE FUNCTION public.ajuste_viejo(b uuid, p uuid)
+ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $f$
+DECLARE v int; BEGIN
+  PERFORM 1 FROM public.inventory WHERE business_id = b AND id = p ORDER BY id FOR UPDATE;
+  SELECT stock_quantity INTO v FROM public.inventory WHERE id = p AND business_id = b;
+  UPDATE public.inventory SET stock_quantity = v + 1 WHERE id = p AND business_id = b;
+END $f$;`)],
+  ]
+
+  // CONTROLES · lo que el guard NO debe marcar: un FOR UPDATE de OTRA tabla en un
+  // writer de stock (la anulacion lo hace con comprobante, pagos y cuenta corriente).
+  const CONTROLES = [
+    ['un writer de stock posterior con FOR UPDATE de comprobantes y lock canonico de inventory', (s) => posterior(s, `CREATE OR REPLACE FUNCTION public.ajuste_ok(b uuid, c uuid, p uuid)
+ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $f$
+DECLARE v int; BEGIN
+  PERFORM 1 FROM public.comprobantes WHERE id = c AND business_id = b FOR UPDATE;
+  PERFORM private.lock_inventory_rows(b, ARRAY[p]);
+  SELECT stock_quantity INTO v FROM public.inventory WHERE id = p AND business_id = b;
+  UPDATE public.inventory SET stock_quantity = v - 1 WHERE id = p AND business_id = b;
+END $f$;`)],
+    ['una funcion posterior que no escribe stock y bloquea inventory_movements FOR UPDATE', (s) => posterior(s, `CREATE OR REPLACE FUNCTION public.lee_movs(m uuid)
+ RETURNS void LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog, pg_temp AS $f$
+BEGIN PERFORM 1 FROM public.inventory_movements WHERE id = m FOR UPDATE; END $f$;`)],
   ]
 
   let fallos = 0
@@ -289,8 +401,13 @@ DECLARE v int; BEGIN
     if (run(mutado).length === 0) { console.error(`  ✖ ${nombre}: NO detectado`); fallos++ }
     else console.log(`  ✔ ${nombre}: detectado`)
   }
-  if (fallos) { console.error(`SELF-TEST FALLO: ${fallos} mutacion(es) no detectada(s).`); process.exit(1) }
-  console.log(`SELF-TEST OK: las ${MUTACIONES.length} mutaciones del contrato G2-C.2 son detectadas.`)
+  for (const [nombre, mutar] of CONTROLES) {
+    const r = run(mutar(base))
+    if (r.length) { console.error(`  ✖ control "${nombre}": falso positivo -> ${r[0]}`); fallos++ }
+    else console.log(`  ✔ control "${nombre}": no se marca (correcto)`)
+  }
+  if (fallos) { console.error(`SELF-TEST FALLO: ${fallos} mutacion(es)/control(es) fallido(s).`); process.exit(1) }
+  console.log(`SELF-TEST OK: las ${MUTACIONES.length} mutaciones del contrato G2-C.2/G2-C.2R son detectadas y los ${CONTROLES.length} controles no dan falso positivo.`)
 }
 
 if (process.argv.includes('--self-test')) {
@@ -304,6 +421,7 @@ if (process.argv.includes('--self-test')) {
   }
   console.log('GUARD G2-C.2 OK · helper private.lock_inventory_rows (INVOKER, por negocio, ORDER BY id, sin EXECUTE de API) '
     + '· W4/W5/W6/W7 bloquean antes de escribir stock · W7 acotado al negocio e identidad inmutable '
+    + '· G2-C.2R: W1/W2/W3 bloquean inventory FOR NO KEY UPDATE y ningun writer canonico vuelve a FOR UPDATE sobre inventory '
     + '· ninguna migracion posterior reintroduce un read-modify-write de stock sin lock.')
   console.log('NOTA · alcance: NO cubre los writers de stock del navegador (registerMovement, import de Excel): G2-C.3.')
 }
