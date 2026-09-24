@@ -1,0 +1,56 @@
+Stack: throwaway local Supabase `g2c2-locks` (API 54321 / DB 54322), full replay of 276 migrations of
+origin/main 4383a9ff86cfa1dd1399828262cd2b96ebae4304. Tenant seed: harness/seed.sql + harness/seed2.sql.
+These two outputs were captured from the terminal (not tee'd); copied verbatim.
+
+══════ A · purchase(+5) holds  ×  order_item INSERT(-2) late ══════
+  purchase | {"ok": true, "replay": false, "purchase_id": "31675d05-efeb-4aec-9afe-5063fc9f97a2"}
+  B_purchase | 15:45:11.477 | BEGIN
+  B_purchase | 15:45:11.504 | writer returned; holding row lock (uncommitted)
+  A_orderitem | 15:45:12.479 | BEGIN
+  MON | 15:45:13.484 | g2c2-A_orderitem | active | Lock/transactionid | g2c2-B_purchase
+  MON | 15:45:13.484 | g2c2-B_purchase | active | Timeout/PgSleep |
+  B_purchase | 15:45:14.508 | COMMIT…
+  B_purchase | 15:45:14.522 | committed
+  A_orderitem | 15:45:14.534 | writer returned
+  A_orderitem | 15:45:14.537 | committed
+  order_item | 2986a3fe-a263-4e9d-9629-e1d1f5b4f041
+  STOCK | 00000000-0000-0000-0000-0000000c2210 | 8 | 8
+  MOV | 00000000-0000-0000-0000-0000000c2210 | purchase | 10 | 5 | 15 | row-invariant OK | supplier_purchase
+  MOV | 00000000-0000-0000-0000-0000000c2210 | order_usage | 10 | -2 | 8 | row-invariant OK | order
+  EXPECTED (serialized) final stock: 13
+
+══════ pgbench · NATURAL concurrency, no pg_sleep anywhere ══════
+Product ...0c22a0 (stock 10). 8 clients, 4 threads, 10 s.
+  script 1 (weight 3): order_items INSERT qty 1 (trigger adjust_stock_on_order_item)
+  script 2 (weight 1): create_supplier_purchase_atomic qty 1, purchase_date = previous month
+  transactions processed: 2865 (2145 order items + 720 purchases), failed: 0
+  movements=2865  sum(quantity)=-1425  expected stock = 10 + (-1425) = -1415   ACTUAL stock = 382
+  => 1797 units of drift from lost updates, with zero artificial delay.
+
+══════ pgbench · CONTROL, locking writers only ══════
+Product ...0c22a1 (stock 10). 8 clients, 4 threads, 10 s.
+  script 1 (weight 3): create_comprobante_checkout_atomic qty 1 (pre-lock ORDER BY id FOR UPDATE)
+  script 2 (weight 1): create_quick_inventory_purchase_atomic qty 1, p_date = previous month (pre-lock)
+  transactions processed: 1332 (1011 checkouts completed + 321 quick purchases), failed: 0
+  movements=1332  sum(quantity)=-690  expected stock = -680   ACTUAL stock = -680   => exact.
+
+══════ pgbench · NATURAL deadlocks, multi-item, no gate, no pg_sleep ══════
+Products ...0c22a2 (A) < ...0c22a3 (B). 8 clients, 4 threads, 15 s.
+  script 1: checkout items [A, B]                  (locks A then B: ORDER BY id)
+  script 2: supplier purchase items [B, A], prev month (payload order, no pre-lock)
+  pg_stat_database.deadlocks: before=2 after=16  => 14 deadlocks in 15 s
+  checkout requests: completed=161, failed_retryable 'deadlock detected'=14   (every victim was a POS checkout)
+  purchases created: 140
+  pgbench "failed transactions": 0  <- the RPCs swallow 40P01 into {status|ok:false, INTERNAL_ERROR}
+  stock A: actual -11 = expected -11; stock B: actual -11 = expected -11
+
+══════ Tenant isolation probe (inside BEGIN … ROLLBACK) ══════
+  before | 7                                   (tenant B product ...00000000c2ff)
+  A can read B product via RLS? | 0            (tenant A cannot even SELECT it)
+  inserted order_item | 316cf0d5-…             (tenant A, own order, product_id = B's product)
+  after (B product stock) | 4                  (the SECDEF trigger decremented tenant B's stock)
+  movement written | business_id = A | inventory_item_id = B's product | 7 | -3 | 4
+  after ROLLBACK | 7
+
+══════ Checkout victim persisted reason ══════
+  g2c2-DL2b-muea7fyx | failed_retryable | INTERNAL_ERROR | deadlock detected

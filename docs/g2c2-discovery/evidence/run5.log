@@ -1,0 +1,26 @@
+
+══════ DL2b · checkout[X,Y]  ×  purchase(PREVIOUS month) [Y,X], gate on Y ══════
+  checkout | {"error": "No se pudo completar la operacion", "status": "failed_retryable", "error_code": "INTERNAL_ERROR"}
+  purchase | {"ok": true, "replay": false, "purchase_id": "95244892-3000-4984-bb84-fee581bcecc4"}
+  0_gate_orderitem_Y | 15:52:30.499 | BEGIN
+  0_gate_orderitem_Y | 15:52:30.513 | writer returned; holding row lock (uncommitted)
+  1_checkout_XY | 15:52:31.105 | BEGIN
+  2_purchase_prev_YX | 15:52:31.705 | BEGIN
+  MON | 15:52:32.711 | g2c2-0_gate_orderitem_Y | active | Timeout/PgSleep | 
+  MON | 15:52:32.711 | g2c2-1_checkout_XY | active | Lock/transactionid | g2c2-0_gate_orderitem_Y
+  MON | 15:52:32.711 | g2c2-2_purchase_prev_YX | active | Lock/transactionid | g2c2-0_gate_orderitem_Y
+  0_gate_orderitem_Y | 15:52:33.517 | COMMIT…
+  0_gate_orderitem_Y | 15:52:33.521 | committed
+  1_checkout_XY | 15:52:34.523 | writer returned
+  2_purchase_prev_YX | 15:52:34.527 | writer returned
+  1_checkout_XY | 15:52:34.529 | committed
+  2_purchase_prev_YX | 15:52:34.530 | committed
+  order_item | a8ba8e1d-0053-4c8f-820a-a33ee771a650
+  pg_stat_database.deadlocks: before=1 after=2  => 1 deadlock(s) detected
+  STOCK | 00000000-0000-0000-0000-0000000c2281 | 11 | 11
+  STOCK | 00000000-0000-0000-0000-0000000c2282 | 11 | 11
+  MOV | 00000000-0000-0000-0000-0000000c2281 | purchase | 10 | 1 | 11 | row-invariant OK | supplier_purchase
+  MOV | 00000000-0000-0000-0000-0000000c2282 | order_usage | 10 | -1 | 9 | row-invariant OK | order
+  MOV | 00000000-0000-0000-0000-0000000c2282 | purchase | 10 | 1 | 11 | row-invariant OK | supplier_purchase
+  CHAIN | 00000000-0000-0000-0000-0000000c2281 | 1 | 11 | 11 | SERIALIZED: one continuous chain 10 -> ... -> stock_now
+  CHAIN | 00000000-0000-0000-0000-0000000c2282 | 2 | 10 | 11 | LOST UPDATE: no continuous chain; stock_now <> 10 + sum(quantity)

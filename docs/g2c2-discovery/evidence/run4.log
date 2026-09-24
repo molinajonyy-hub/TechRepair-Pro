@@ -1,0 +1,103 @@
+
+══════ I · checkout(-2, FOR UPDATE) holds  ×  delete_supplier_purchase_safe(-4) late ══════
+  delete_purchase | {"ok": true, "replay": false}
+  checkout | {"status": "created", "comprobante_id": "fc9f9687-2a57-4b67-9255-7049ab0ff11a"}
+  A_checkout | 15:50:41.266 | BEGIN
+  A_checkout | 15:50:41.311 | writer returned; holding row lock (uncommitted)
+  B_delete_purchase | 15:50:42.269 | BEGIN
+  MON | 15:50:43.271 | g2c2-A_checkout | active | Timeout/PgSleep | 
+  MON | 15:50:43.271 | g2c2-B_delete_purchase | active | Lock/transactionid | g2c2-A_checkout
+  A_checkout | 15:50:44.314 | COMMIT…
+  A_checkout | 15:50:44.327 | committed
+  B_delete_purchase | 15:50:44.348 | writer returned
+  B_delete_purchase | 15:50:44.351 | committed
+  STOCK | 00000000-0000-0000-0000-0000000c223e | 10 | 10
+  MOV | 00000000-0000-0000-0000-0000000c223e | purchase | 10 | 4 | 14 | row-invariant OK | supplier_purchase
+  MOV | 00000000-0000-0000-0000-0000000c223e | sale | 14 | -2 | 12 | row-invariant OK | comprobante
+  MOV | 00000000-0000-0000-0000-0000000c223e | cancellation | 14 | -4 | 10 | row-invariant OK | supplier_purchase
+  CHAIN | 00000000-0000-0000-0000-0000000c223e | 3 | 8 | 10 | LOST UPDATE: no continuous chain; stock_now <> 10 + sum(quantity)
+  EXPECTED (serialized) final stock: {"00000000-0000-0000-0000-0000000c223e":8}
+
+══════ DL1 · checkout[X,Y] (ORDER BY id)  ×  delete_supplier_purchase_safe [Y,X] (heap order) ══════
+  delete_purchase | {"ok": false, "error": "No se pudo eliminar la compra", "error_code": "INTERNAL_ERROR"}
+  checkout | {"status": "created", "comprobante_id": "81b31640-7842-43c9-a85e-dbce341909bd"}
+  0_gate_orderitem_X | 15:50:45.374 | BEGIN
+  0_gate_orderitem_X | 15:50:45.387 | writer returned; holding row lock (uncommitted)
+  1_checkout_XY | 15:50:45.979 | BEGIN
+  2_delete_purchase_YX | 15:50:46.578 | BEGIN
+  MON | 15:50:47.584 | g2c2-0_gate_orderitem_X | active | Timeout/PgSleep | 
+  MON | 15:50:47.584 | g2c2-1_checkout_XY | active | Lock/transactionid | g2c2-0_gate_orderitem_X
+  MON | 15:50:47.584 | g2c2-2_delete_purchase_YX | active | Lock/tuple | g2c2-1_checkout_XY
+  0_gate_orderitem_X | 15:50:48.392 | COMMIT…
+  0_gate_orderitem_X | 15:50:48.394 | committed
+  2_delete_purchase_YX | 15:50:49.395 | writer returned
+  2_delete_purchase_YX | 15:50:49.397 | committed
+  1_checkout_XY | 15:50:49.419 | writer returned
+  1_checkout_XY | 15:50:49.422 | committed
+  order_item | 388c42a6-8860-4f77-8aa1-4e529c0a4a08
+  pg_stat_database.deadlocks: before=0 after=1  => 1 deadlock(s) detected
+  STOCK | 00000000-0000-0000-0000-0000000c2238 | 9 | 9
+  STOCK | 00000000-0000-0000-0000-0000000c2239 | 10 | 10
+  MOV | 00000000-0000-0000-0000-0000000c2238 | purchase | 10 | 1 | 11 | row-invariant OK | supplier_purchase
+  MOV | 00000000-0000-0000-0000-0000000c2238 | order_usage | 11 | -1 | 10 | row-invariant OK | order
+  MOV | 00000000-0000-0000-0000-0000000c2238 | sale | 10 | -1 | 9 | row-invariant OK | comprobante
+  MOV | 00000000-0000-0000-0000-0000000c2239 | purchase | 10 | 1 | 11 | row-invariant OK | supplier_purchase
+  MOV | 00000000-0000-0000-0000-0000000c2239 | sale | 11 | -1 | 10 | row-invariant OK | comprobante
+  CHAIN | 00000000-0000-0000-0000-0000000c2238 | 3 | 9 | 9 | SERIALIZED: one continuous chain 10 -> ... -> stock_now
+  CHAIN | 00000000-0000-0000-0000-0000000c2239 | 2 | 10 | 10 | SERIALIZED: one continuous chain 10 -> ... -> stock_now
+
+══════ DL2 · checkout[X,Y] (ORDER BY id)  ×  purchase(PREVIOUS month) [Y,X] (payload order) ══════
+  purchase | {"ok": true, "replay": false, "purchase_id": "2e1778f6-5942-440c-a0ff-0d90a3f456e3"}
+  checkout | {"status": "created", "comprobante_id": "4a811da3-da06-4ef3-a9e7-0169daecb52b"}
+  0_gate_orderitem_X | 15:50:50.431 | BEGIN
+  0_gate_orderitem_X | 15:50:50.446 | writer returned; holding row lock (uncommitted)
+  1_checkout_XY | 15:50:51.035 | BEGIN
+  2_purchase_prev_YX | 15:50:51.643 | BEGIN
+  MON | 15:50:52.653 | g2c2-0_gate_orderitem_X | active | Timeout/PgSleep | 
+  MON | 15:50:52.653 | g2c2-1_checkout_XY | active | Lock/transactionid | g2c2-0_gate_orderitem_X
+  MON | 15:50:52.653 | g2c2-2_purchase_prev_YX | active | Lock/transactionid | g2c2-0_gate_orderitem_X
+  0_gate_orderitem_X | 15:50:53.448 | COMMIT…
+  0_gate_orderitem_X | 15:50:53.450 | committed
+  2_purchase_prev_YX | 15:50:53.459 | writer returned
+  2_purchase_prev_YX | 15:50:53.465 | committed
+  1_checkout_XY | 15:50:53.495 | writer returned
+  1_checkout_XY | 15:50:53.498 | committed
+  order_item | 2b86228f-a3d2-43b9-a921-4e7ff84f91d1
+  pg_stat_database.deadlocks: before=1 after=1  => 0 deadlock(s) detected
+  STOCK | 00000000-0000-0000-0000-0000000c223a | 10 | 10
+  STOCK | 00000000-0000-0000-0000-0000000c223b | 10 | 10
+  MOV | 00000000-0000-0000-0000-0000000c223a | order_usage | 10 | -1 | 9 | row-invariant OK | order
+  MOV | 00000000-0000-0000-0000-0000000c223a | sale | 11 | -1 | 10 | row-invariant OK | comprobante
+  MOV | 00000000-0000-0000-0000-0000000c223a | purchase | 10 | 1 | 11 | row-invariant OK | supplier_purchase
+  MOV | 00000000-0000-0000-0000-0000000c223b | sale | 11 | -1 | 10 | row-invariant OK | comprobante
+  MOV | 00000000-0000-0000-0000-0000000c223b | purchase | 10 | 1 | 11 | row-invariant OK | supplier_purchase
+  CHAIN | 00000000-0000-0000-0000-0000000c223a | 3 | 9 | 10 | LOST UPDATE: no continuous chain; stock_now <> 10 + sum(quantity)
+  CHAIN | 00000000-0000-0000-0000-0000000c223b | 2 | 10 | 10 | SERIALIZED: one continuous chain 10 -> ... -> stock_now
+
+══════ DL3 · CONTROL checkout[X,Y]  ×  quick_purchase(PREVIOUS month) [Y,X] (pre-lock ORDER BY id) ══════
+  quick | {"ok": true, "replay": false, "purchase_id": "23c47055-bd58-4169-b697-3cd5b214506b"}
+  checkout | {"status": "created", "comprobante_id": "2a978371-ae2b-4454-8573-1c2ec8327c2f"}
+  0_gate_orderitem_X | 15:50:54.513 | BEGIN
+  0_gate_orderitem_X | 15:50:54.526 | writer returned; holding row lock (uncommitted)
+  1_checkout_XY | 15:50:55.119 | BEGIN
+  2_quick_prev_YX | 15:50:55.719 | BEGIN
+  MON | 15:50:56.725 | g2c2-0_gate_orderitem_X | active | Timeout/PgSleep | 
+  MON | 15:50:56.725 | g2c2-1_checkout_XY | active | Lock/transactionid | g2c2-0_gate_orderitem_X
+  MON | 15:50:56.725 | g2c2-2_quick_prev_YX | active | Lock/tuple | g2c2-1_checkout_XY
+  0_gate_orderitem_X | 15:50:57.530 | COMMIT…
+  0_gate_orderitem_X | 15:50:57.532 | committed
+  1_checkout_XY | 15:50:57.567 | writer returned
+  1_checkout_XY | 15:50:57.569 | committed
+  2_quick_prev_YX | 15:50:57.588 | writer returned
+  2_quick_prev_YX | 15:50:57.591 | committed
+  order_item | 49b4155c-ffe8-45d3-b48a-723efe462079
+  pg_stat_database.deadlocks: before=1 after=1  => 0 deadlock(s) detected
+  STOCK | 00000000-0000-0000-0000-0000000c223c | 9 | 9
+  STOCK | 00000000-0000-0000-0000-0000000c223d | 10 | 10
+  MOV | 00000000-0000-0000-0000-0000000c223c | order_usage | 10 | -1 | 9 | row-invariant OK | order
+  MOV | 00000000-0000-0000-0000-0000000c223c | sale | 9 | -1 | 8 | row-invariant OK | comprobante
+  MOV | 00000000-0000-0000-0000-0000000c223c | purchase | 8 | 1 | 9 | row-invariant OK | supplier_purchase
+  MOV | 00000000-0000-0000-0000-0000000c223d | sale | 10 | -1 | 9 | row-invariant OK | comprobante
+  MOV | 00000000-0000-0000-0000-0000000c223d | purchase | 9 | 1 | 10 | row-invariant OK | supplier_purchase
+  CHAIN | 00000000-0000-0000-0000-0000000c223c | 3 | 9 | 9 | SERIALIZED: one continuous chain 10 -> ... -> stock_now
+  CHAIN | 00000000-0000-0000-0000-0000000c223d | 2 | 10 | 10 | SERIALIZED: one continuous chain 10 -> ... -> stock_now
