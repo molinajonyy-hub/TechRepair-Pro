@@ -117,7 +117,7 @@ El lock no va en los wrappers públicos: ahí quedaría antes del advisory de pe
 
 ### Matriz de una sesión: `tests/sql/g2c2_inventory_concurrency_locks.test.sql`
 
-106 aserciones de G2-C.2 (en verde localmente) más 30 de G2-C.2R (10.y y sección 11; corren en CI). Cubre:
+106 aserciones de G2-C.2 más 30 de G2-C.2R (10.y y sección 11): **136/136 en CI** (run 36024199245, head `f0e7f13`). Cubre:
 - **Helper:** ACL, `22023`, conteo por negocio, duplicados, NULL, vacíos y modo de lock.
 - **Cross-tenant:** producto ajeno; ítem propio sobre una orden ajena.
 - **INSERT / UPDATE cantidad / DELETE** con reversa exacta.
@@ -166,12 +166,14 @@ El lock no va en los wrappers públicos: ahí quedaría antes del advisory de pe
 
 **Escenarios de G2-C.2R** (el grafo de locks contra las FK, §7):
 
-| # | Carrera | Antes (W1–W3 en `FOR UPDATE`) | Esperado ahora |
+| # | Carrera | Antes (W1–W3 en `FOR UPDATE`) | Ahora (CI, run 36024199245) |
 |---|---|---|---|
-| K | contratos A–F del modo de lock: el helper retiene la fila y otra conexión prueba NO KEY UPDATE (A), `UPDATE` (B), `FOR UPDATE` (C), `FOR KEY SHARE` (D), `DELETE` (F); más un INSERT real por FK (D bis) y los mismos contratos contra el lock **vivo** del checkout (K-W1) | — | A, B, C y F esperan; D y D bis no esperan (< 1 s) |
-| WS | checkout [A,B] ∥ alta mayorista [B,A] con compuerta en B, **10 veces** | **deadlock 3/3**, víctima el checkout del POS | 0 deadlocks, checkout `created`, alta ok, ningún `failed_retryable`, stock A 9 / B 8, 10/10 |
-| FK | ×3 cada uno: checkout ∥ repuestos de servicio [B,A]; anulación ∥ alta mayorista; compra rápida ∥ alta mayorista | — | 0 deadlocks, ambos terminan, stock exacto |
-| S3 | pgbench sin sleeps: checkout [A,B] ∥ alta mayorista [B,A] ∥ servicios [B,A] (8 clientes en CI) | — | 0 deadlocks, 0 `failed_retryable`, stock = 10 − ventas, cadena por balance euleriano |
+| K | contratos A–F del modo de lock: el helper retiene la fila y otra conexión prueba NO KEY UPDATE (A), `UPDATE` (B), `FOR UPDATE` (C), `FOR KEY SHARE` (D), `DELETE` (F); más un INSERT real por FK (D bis) y los mismos contratos contra el lock **vivo** del checkout (K-W1) | — | A, B, C y F **esperan**; D **no espera** (2 ms), D bis tampoco (6 ms); contra el checkout vivo: D 2 ms, C y A esperan ✔ |
+| WS | checkout [A,B] ∥ alta mayorista [B,A] con compuerta en B, **10 veces** | **deadlock 3/3**, víctima el checkout del POS | **10/10**: deadlocks +0 en cada una, checkout `created`, alta ok, 0 `failed_retryable`, stock A 9 / B 8 exacto ✔ |
+| FK | ×3 cada uno: checkout ∥ repuestos de servicio [B,A]; anulación ∥ alta mayorista; compra rápida ∥ alta mayorista | — | **9/9** sin deadlocks, ambos terminan, stock exacto (A 9/B 8 · A 10/B 9 · A 11/B 10) ✔ |
+| S3 | pgbench sin sleeps: checkout [A,B] ∥ alta mayorista [B,A] ∥ servicios [B,A] (8 clientes en CI) | — | 5239 transacciones, 0 fallidas: 1687 ventas, 1780 altas, 3544 ítems de servicio. **0 deadlocks**, 0 `failed_retryable`, A = B = −1677 = 10 − 1687 exacto, cadena balanceada ✔ |
+
+**Harness completo en CI:** escenarios 1–12, 16, K, WS, FK y S1–S3, **645 aserciones, 0 fallas**. S1: 6201 transacciones, stock exacto. S2: 3530 transacciones, 0 deadlocks, stock exacto.
 
 El contrato E (sin lost update) lo siguen cubriendo 1–12, S1, S2 y S3, ahora con W1–W3 en NO KEY: los escenarios 3, 8, 9 y 10 ejercitan el checkout y la anulación contra otros writers.
 
@@ -202,7 +204,7 @@ El contrato E (sin lost update) lo siguen cubriendo 1–12, S1, S2 y S3, ahora c
 
 | Chequeo | Resultado |
 |---|---|
-| Migración sobre el replay de main | G2-C.2: aplica, 7 precondiciones y 9 postcondiciones OK. G2-C.2R (8 precondiciones): CI |
+| Migración sobre el replay de main | Aplica en el replay limpio de CI con W1–W3 incluidos: 8 precondiciones y 9 postcondiciones OK |
 | `guard:g2c2-inventory-locks` + self-test | OK · 40/40 mutaciones + 2 controles |
 | `guard:secdef` | Mismo rojo que main (sólo los 2 hallazgos previos de `sec08e-r2a`), ver nota abajo |
 | Los 126 `guard:*` del repo | Mismos 7 en rojo que en main (`secdef`, `secdef-exposure`, `realtime-notifications` ×2, `view-invoker`, `sec08e-r2a` ×2), con **salida idéntica** a main |
@@ -234,6 +236,7 @@ Durante la medición de línea base, el disco C: local quedó con **0,24 GB libr
 - R3 con el candidato apartado;
 - E2E;
 - el job de G2-C.2: migración, guard, SQL y escenarios 1–12 y 16 en verde. En S2, bajo carga con 8 clientes y 3951 transacciones: **0 deadlocks** y ningún checkout fallido.
+- G2-C.2R (head `f0e7f13`, run 36024199245): los 8 jobs en verde en el primer intento. Replay con la migración completa; G2-B, G2-C, G2-C.1 y SEC-08F con ella aplicada; R3 con el candidato apartado; E2E 178 ✔; job de G2-C.2 con guard 40+2, SQL 136/136 y concurrencia 645/645.
 
 ## 7. G2-C.2R · inventory FK lock graph (resuelto en esta misma migración)
 
@@ -279,7 +282,7 @@ Normalizar el modo de lock de stock de W1/W2/W3 a `FOR NO KEY UPDATE`, **en la m
 - E: sigue impidiendo lost updates (1–12, S1–S3);
 - F: bloquea un `DELETE` concurrente.
 
-**Resultado esperado:** WS 10/10 sin deadlocks, con el checkout completo y el alta ok; cruces FK y S3 en verde. Los números reales están en el PR #145, del job de CI.
+**Resultado (CI, run 36024199245, head `f0e7f13`):** WS **10/10** sin deadlocks (`pg_stat_database.deadlocks +0` en cada corrida), con el checkout `created` y el alta ok. Cruces FK 9/9. S3: 5239 transacciones bajo carga con 0 deadlocks y stock exacto. Detalle en §4.
 
 ## 8. Fuera de este lote
 
