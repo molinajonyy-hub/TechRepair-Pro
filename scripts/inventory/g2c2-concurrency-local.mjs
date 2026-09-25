@@ -129,6 +129,12 @@ const W = {
     `SELECT 'quick', public.create_quick_inventory_purchase_atomic('${t.biz}','${key}','${t.prov}','Proveedor',NULL,
        public.ar_today(),'efectivo',${items.reduce((s, i) => s + i.q * 600, 0)},0,
        jsonb_build_array(${items.map((i) => `jsonb_build_object('inventory_id','${i.p}','product_name','x','quantity',${i.q},'unit_cost_ars',600)`).join(',')}));\n`,
+  // G2-C.3A1 · items {p, d} (delta) | {p, t, e?} (target, expected). El orden del
+  // array es el del PAYLOAD: los escenarios lo invierten a proposito.
+  adjust: (t, items, source, k) =>
+    `SELECT 'adjust', public.apply_inventory_stock_adjustments_atomic('${t.biz}',
+       jsonb_build_array(${items.map((i) => `jsonb_build_object('inventory_id','${i.p}',${'d' in i ? `'delta',${i.d}` : `'target',${i.t}${'e' in i ? `,'expected',${i.e}` : ''}`})`).join(',')}),
+       '${source}', 'g2c3a1', '${k}');\n`,
 }
 const key = (s) => `${s}-${randomUUID().slice(0, 8)}`
 
@@ -796,6 +802,193 @@ INSERT INTO public.orders(id, business_id, customer_id) VALUES ('${ordB}','${t.b
   }
 }
 
+// ── G2-C.3A1 · autoridad de ajustes de stock contra los writers vivos ─────────
+// La RPC nueva (apply_inventory_stock_adjustments_atomic) sigue el mismo
+// contrato de lock: idempotencia -> private.lock_inventory_rows (ORDER BY id,
+// FOR NO KEY UPDATE) -> relectura -> UPDATE -> movimiento. Cada escenario repite
+// la carrera varias veces para cubrir intercalados reales.
+
+// C1 · dos ajustes DISTINTOS sobre el mismo producto: +3 || -2 (10 -> 11), en
+// ambos ordenes. Con registerMovement del navegador daba 8 (discovery A3).
+E['C1'] = async () => {
+  for (let i = 1; i <= 3; i++) {
+    for (const orden of ['+3-primero', '-2-primero']) {
+      const t = await negocio('C1'); const [p] = await productos(t, 1)
+      const [x, y] = orden === '+3-primero' ? [3, -2] : [-2, 3]
+      const r = await carrera({
+        holderSql: holder(t.own, 'h', W.adjust(t, [{ p, d: x }], 'manual', key('c1a'))),
+        lateSql: late(t.own, 'l', W.adjust(t, [{ p, d: y }], 'manual', key('c1b'))),
+      })
+      const tag = `C1 ${i}/3 ${orden}`
+      sinError(`${tag} holder`, r.a); sinError(`${tag} late`, r.b)
+      check(jsonDe(r.a.out, 'adjust')?.applied_count === 1 && jsonDe(r.b.out, 'adjust')?.applied_count === 1, `${tag} los dos ajustes aplicados`)
+      check(esperoLock(r.mon, 'l'), `${tag} el segundo ajuste ESPERO el lock del producto`)
+      check(r.dl === 0, `${tag} cero deadlocks`)
+      const est = await estado([p], { [p]: 10 })
+      check(est[p].movs === 2, `${tag} dos movimientos (${est[p].movs})`)
+      verificar(tag, est, { [p]: 11 }, { [p]: 10 })
+    }
+  }
+}
+
+// C2 · la MISMA clave de idempotencia en paralelo.
+//   a · mismo payload: la segunda espera en la clave y hace replay; UN efecto.
+//   b · payload distinto: la segunda recibe IDEMPOTENCY_CONFLICT; UN efecto.
+E['C2'] = async () => {
+  for (let i = 1; i <= 3; i++) {
+    {
+      const t = await negocio('C2a'); const [p] = await productos(t, 1)
+      const k = key('c2a'), sql = W.adjust(t, [{ p, d: 5 }], 'manual', k)
+      const r = await carrera({ holderSql: holder(t.own, 'h', sql), lateSql: late(t.own, 'l', sql) })
+      const tag = `C2a ${i}/3 misma clave + mismo payload`
+      sinError(`${tag} holder`, r.a); sinError(`${tag} late`, r.b)
+      const j1 = jsonDe(r.a.out, 'adjust'), j2 = jsonDe(r.b.out, 'adjust')
+      check(j1?.status === 'created' && j2?.status === 'existing', `${tag} una crea, la otra es replay (${j1?.status}/${j2?.status})`)
+      check(Boolean(j1 && j2) && JSON.stringify({ ...j1, status: '' }) === JSON.stringify({ ...j2, status: '' }),
+        `${tag} el replay devuelve la misma respuesta persistida`)
+      check(esperoLock(r.mon, 'l'), `${tag} la segunda ESPERO en la clave de idempotencia`)
+      check(r.dl === 0, `${tag} cero deadlocks`)
+      const n = await val(`SELECT count(*) FROM private.inventory_stock_adjustment_requests WHERE business_id = '${t.biz}';`)
+      check(n === '1', `${tag} una sola request persistida (${n})`)
+      const est = await estado([p], { [p]: 10 })
+      check(est[p].movs === 1, `${tag} UN solo movimiento (${est[p].movs})`)
+      verificar(tag, est, { [p]: 15 }, { [p]: 10 })
+    }
+    {
+      const t = await negocio('C2b'); const [p] = await productos(t, 1)
+      const k = key('c2b')
+      const r = await carrera({
+        holderSql: holder(t.own, 'h', W.adjust(t, [{ p, d: 5 }], 'manual', k)),
+        lateSql: late(t.own, 'l', W.adjust(t, [{ p, d: 7 }], 'manual', k)),
+      })
+      const tag = `C2b ${i}/3 misma clave + payload distinto`
+      sinError(`${tag} holder`, r.a)
+      check(/IDEMPOTENCY_CONFLICT/.test(r.b.err), `${tag} la segunda recibe IDEMPOTENCY_CONFLICT (${r.b.err.split('\n')[0].slice(0, 90)})`)
+      check(esperoLock(r.mon, 'l'), `${tag} la segunda ESPERO en la clave antes de decidir el conflicto`)
+      check(r.dl === 0, `${tag} cero deadlocks`)
+      const est = await estado([p], { [p]: 10 })
+      check(est[p].movs === 1, `${tag} sin segundo efecto: UN movimiento (${est[p].movs})`)
+      verificar(tag, est, { [p]: 15 }, { [p]: 10 })
+    }
+  }
+}
+
+// C3 · ajuste || checkout (W1) sobre el mismo producto, en ambos ordenes.
+//   a · manual +4 || venta -3: 10 -> 11.
+//   b · D1 bajo concurrencia real: import (expected 10, target 20) || venta -3.
+//       venta primero -> el import relee 7 bajo lock: STALE, no pisa la venta (7).
+//       import primero -> 10 -> 20 y la venta descuenta despues (17).
+E['C3'] = async () => {
+  for (let i = 1; i <= 2; i++) {
+    for (const orden of ['ajuste-primero', 'checkout-primero']) {
+      const t = await negocio('C3a'); const [p] = await productos(t, 1)
+      const aj = W.adjust(t, [{ p, d: 4 }], 'manual', key('c3a')), co = W.checkout(t, [{ p, q: 3 }], key('co-c3a'))
+      const r = await carrera(orden === 'ajuste-primero'
+        ? { holderSql: holder(t.own, 'h', aj), lateSql: late(t.own, 'l', co) }
+        : { holderSql: holder(t.own, 'h', co), lateSql: late(t.own, 'l', aj) })
+      const tag = `C3a ${i}/2 ${orden}`
+      sinError(`${tag} holder`, r.a); sinError(`${tag} late`, r.b)
+      const out = r.a.out + '\n' + r.b.out
+      check(jsonDe(out, 'checkout')?.status === 'created', `${tag} checkout created`)
+      check(jsonDe(out, 'adjust')?.applied_count === 1, `${tag} ajuste aplicado`)
+      check(esperoLock(r.mon, 'l'), `${tag} el late ESPERO el lock`)
+      check(r.dl === 0, `${tag} cero deadlocks`)
+      verificar(tag, await estado([p], { [p]: 10 }), { [p]: 11 }, { [p]: 10 })
+    }
+  }
+  for (let i = 1; i <= 2; i++) {
+    for (const orden of ['venta-primero', 'import-primero']) {
+      const t = await negocio('C3b'); const [p] = await productos(t, 1)
+      const imp = W.adjust(t, [{ p, t: 20, e: 10 }], 'import', key('c3b')), co = W.checkout(t, [{ p, q: 3 }], key('co-c3b'))
+      const r = await carrera(orden === 'venta-primero'
+        ? { holderSql: holder(t.own, 'h', co), lateSql: late(t.own, 'l', imp) }
+        : { holderSql: holder(t.own, 'h', imp), lateSql: late(t.own, 'l', co) })
+      const tag = `C3b ${i}/2 ${orden}`
+      sinError(`${tag} holder`, r.a); sinError(`${tag} late`, r.b)
+      const out = r.a.out + '\n' + r.b.out
+      const j = jsonDe(out, 'adjust')
+      check(jsonDe(out, 'checkout')?.status === 'created', `${tag} checkout created`)
+      check(esperoLock(r.mon, 'l'), `${tag} el late ESPERO el lock`)
+      check(r.dl === 0, `${tag} cero deadlocks`)
+      if (orden === 'venta-primero') {
+        check(j?.stale_count === 1 && j?.applied_count === 0 && j?.items?.[0]?.current_stock === 7,
+          `${tag} el import releyo 7 bajo lock y quedo STALE (${JSON.stringify(j?.items?.[0])?.slice(0, 120)})`)
+        verificar(tag, await estado([p], { [p]: 10 }), { [p]: 7 }, { [p]: 10 })
+      } else {
+        check(j?.applied_count === 1, `${tag} el import aplico 10 -> 20`)
+        verificar(tag, await estado([p], { [p]: 10 }), { [p]: 17 }, { [p]: 10 })
+      }
+    }
+  }
+}
+
+// C4 · ajuste || repuesto de orden (W7): -2 || -3 (10 -> 5), en ambos ordenes.
+E['C4'] = async () => {
+  for (let i = 1; i <= 2; i++) {
+    for (const orden of ['ajuste-primero', 'repuesto-primero']) {
+      const t = await negocio('C4'); const [p] = await productos(t, 1)
+      const aj = W.adjust(t, [{ p, d: -2 }], 'manual', key('c4')), item = W.orderItem(t, p, 3)
+      const r = await carrera(orden === 'ajuste-primero'
+        ? { holderSql: holder(t.own, 'h', aj), lateSql: late(t.own, 'l', item) }
+        : { holderSql: holder(t.own, 'h', item), lateSql: late(t.own, 'l', aj) })
+      const tag = `C4 ${i}/2 ${orden}`
+      sinError(`${tag} holder`, r.a); sinError(`${tag} late`, r.b)
+      check(jsonDe(r.a.out + '\n' + r.b.out, 'adjust')?.applied_count === 1, `${tag} ajuste aplicado`)
+      check(esperoLock(r.mon, 'l'), `${tag} el late ESPERO el lock`)
+      check(r.dl === 0, `${tag} cero deadlocks`)
+      verificar(tag, await estado([p], { [p]: 10 }), { [p]: 5 }, { [p]: 10 })
+    }
+  }
+}
+
+// C5 · lote [Y,X] (orden de payload INVERSO al de lock) contra writers [X,Y],
+// con compuerta (repuesto real que retiene X o Y). Si el ajuste bloqueara en el
+// orden del payload, "compuerta en X" cierra el ciclo con el checkout.
+E['C5'] = async () => {
+  const OPS = {
+    checkout: (t, x, y) => ({ sql: W.checkout(t, [{ p: x, q: 1 }, { p: y, q: 1 }], key('co-c5')), efecto: { x: -1, y: -1 } }),
+    ajuste: (t, x, y) => ({ sql: W.adjust(t, [{ p: y, d: 2 }, { p: x, d: -1 }], 'manual', key('aj-c5')), efecto: { x: -1, y: 2 } }),
+    target: (t, x, y) => ({ sql: W.adjust(t, [{ p: y, t: 30 }, { p: x, t: 5 }], 'manual', key('tg-c5')), efecto: null }),
+    compra: (t, x, y) => ({ sql: W.purchase(t, [{ p: y, q: 1 }, { p: x, q: 1 }], key('c5'), PREV_MONTH), efecto: { x: 1, y: 1 } }),
+  }
+  const casos = [['checkout', 'ajuste'], ['ajuste', 'checkout'], ['ajuste', 'compra'], ['ajuste', 'ajuste'], ['checkout', 'target']]
+  for (let i = 1; i <= 2; i++) {
+    for (const [primero, segundo] of casos) {
+      for (const compuerta of ['X', 'Y']) {
+        const t = await negocio('C5'); const [x, y] = await productos(t, 2)
+        const a = OPS[primero](t, x, y), b = OPS[segundo](t, x, y)
+        const r = await carrera3({
+          gateSql: holder(t.own, 'g', W.orderItem(t, compuerta === 'X' ? x : y, 1), 2),
+          firstSql: late(t.own, 'c', a.sql, 0.4),
+          secondSql: late(t.own, 's', b.sql, 0.8),
+        })
+        const tag = `C5 ${i}/2 ${primero} -> ${segundo} [payload Y,X] · compuerta en ${compuerta}`
+        sinError(`${tag} compuerta`, r.g); sinError(`${tag} ${primero}`, r.a); sinError(`${tag} ${segundo}`, r.b)
+        check(r.dl === 0, `${tag} CERO deadlocks (pg_stat_database.deadlocks +${r.dl})`)
+        const out = r.a.out + '\n' + r.b.out
+        if ([primero, segundo].includes('checkout')) check(jsonDe(out, 'checkout')?.status === 'created', `${tag} el checkout del POS no fue victima`)
+        if ([primero, segundo].includes('compra')) check(jsonDe(out, 'purchase')?.ok === true, `${tag} la compra termino ok`)
+        const ajustes = out.split('\n').filter((l) => l.startsWith('adjust|')).map((l) => JSON.parse(l.slice(7)))
+        const esperados = [primero, segundo].filter((o) => o === 'ajuste' || o === 'target').length
+        check(ajustes.length === esperados && ajustes.every((j) => j.applied_count + j.noop_count === 2),
+          `${tag} cada ajuste resolvio sus 2 productos (${ajustes.map((j) => j.applied_count).join('/')})`)
+        const est = await estado([x, y], { [x]: 10, [y]: 10 })
+        if (a.efecto && b.efecto) {
+          const esp = { [x]: 10 - (compuerta === 'X' ? 1 : 0), [y]: 10 - (compuerta === 'Y' ? 1 : 0) }
+          for (const op of [a, b]) { esp[x] += op.efecto.x; esp[y] += op.efecto.y }
+          verificar(tag, est, esp, { [x]: 10, [y]: 10 })
+        } else {
+          // target: el resultado depende del intercalado; se exige la cadena y la aritmetica.
+          for (const id of [x, y]) {
+            check(est[id].cadena && est[id].rotas === 0 && est[id].stock === 10 + est[id].suma && est[id].alias === est[id].stock,
+              `${tag} · ${id === x ? 'X' : 'Y'} cadena continua, invariante por fila, stock = 10 + SUM(quantity) y alias`)
+          }
+        }
+      }
+    }
+  }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 const pedidos = process.argv[2] ? process.argv[2].split(',') : Object.keys(E)
 const cont = await val(`SELECT current_setting('server_version') || ' · ' || current_database();`)
@@ -809,6 +1002,18 @@ if (helper !== 't' && !BASELINE) {
     + 'Para medir la linea base sobre main: G2C2_BASELINE=1.'); process.exit(2)
 }
 if (helper !== 't') console.log('AVISO: LINEA BASE · G2-C.2 NO aplicada: las fallas de abajo son el comportamiento previo.')
+// C1-C5 (G2-C.3A1) exigen la RPC de ajustes. Pedidos a mano sin ella: abortar.
+// Corrida por defecto (todo) sobre una base sin A1: se omiten y se avisa.
+let G2C3A1 = pedidos.filter((k) => /^C\d$/.test(k))
+if (G2C3A1.length) {
+  const rpc = await val(`SELECT to_regprocedure('public.apply_inventory_stock_adjustments_atomic(uuid,jsonb,text,text,text)') IS NOT NULL;`)
+  if (rpc !== 't') {
+    if (process.argv[2]) { console.error(`ABORTADO: ${G2C3A1.join(',')} exigen la migracion G2-C.3A1 (falta apply_inventory_stock_adjustments_atomic).`); process.exit(2) }
+    console.log('AVISO: G2-C.3A1 NO aplicada: se omiten C1-C5.')
+    pedidos.splice(0, pedidos.length, ...pedidos.filter((k) => !G2C3A1.includes(k)))
+    G2C3A1 = []
+  }
+}
 
 for (const k of pedidos) {
   if (!E[k]) { console.error(`escenario desconocido: ${k}`); process.exit(2) }
@@ -818,4 +1023,4 @@ for (const k of pedidos) {
 
 console.log(`\n${asserts} aserciones · ${fallas.length} fallas`)
 if (fallas.length) { fallas.forEach((f) => console.log('  · ' + f)); process.exit(1) }
-console.log('G2-C.2 + G2-C.2R concurrencia OK')
+console.log(G2C3A1.length === pedidos.length ? 'G2-C.3A1 concurrencia OK' : 'G2-C.2 + G2-C.2R concurrencia OK')

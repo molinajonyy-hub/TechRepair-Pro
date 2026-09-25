@@ -399,7 +399,13 @@ BEGIN
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname IN ('public', 'private') AND p.prokind = 'f'
      AND p.prosrc ~* 'update\s+(public\.)?inventory\y[^;]*\yset\y[^;]*\ystock(_quantity)?\y\s*=';
-  PERFORM pg_temp.assert(v_n = 7, '5.7 siguen siendo exactamente 7 writers de stock server-side (' || v_n || ')');
+  -- G2-C.3A1 agrega UNA autoridad de stock no documental (ajustes). Se descuenta
+  -- por firma exacta y solo si escribe stock: cualquier OTRO writer nuevo sigue
+  -- rompiendo 5.7.
+  PERFORM pg_temp.assert(v_n - (SELECT count(*)::int FROM pg_proc p
+                                 WHERE p.oid = to_regprocedure('private.apply_inventory_stock_adjustments_impl(uuid,jsonb,text,text,text)')
+                                   AND p.prosrc ~* 'update\s+(public\.)?inventory\y[^;]*\yset\y[^;]*\ystock(_quantity)?\y\s*=') = 7,
+    '5.7 siguen siendo exactamente 7 writers documentales de stock server-side, + la autoridad G2-C.3A1 si existe (' || v_n || ')');
   PERFORM pg_temp.assert(pg_get_function_result('public.preview_missing_stock_movements(uuid)'::regprocedure) =
     'TABLE(source text, sale_id uuid, item_id uuid, inventory_id uuid, product_name text, quantity numeric, current_stock integer, can_deduct boolean, sale_date timestamp with time zone)',
     '5.8 preview conserva exactamente su forma de retorno');
