@@ -501,7 +501,13 @@ BEGIN
     PERFORM pg_temp.assert(s.prosrc !~* 'from\s+(public\.)?inventory\y[^;]*\yfor\s+update\y',
       '10.y ' || s.firma || ' no bloquea inventory con FOR UPDATE (G2-C.2R)');
   END LOOP;
-  PERFORM pg_temp.assert(v_n = 7, '10.1 hay exactamente 7 writers de stock server-side (' || v_n || ')');
+  -- G2-C.3A1 agrega UNA autoridad de stock no documental (ajustes). Se descuenta
+  -- por firma exacta y solo si escribe stock: cualquier OTRO writer nuevo sigue
+  -- rompiendo 10.1, y el loop de arriba le exige el mismo lock que a W1-W7.
+  PERFORM pg_temp.assert(v_n - (SELECT count(*)::int FROM pg_proc p
+                                 WHERE p.oid = to_regprocedure('private.apply_inventory_stock_adjustments_impl(uuid,jsonb,text,text,text)')
+                                   AND p.prosrc ~* 'update\s+(public\.)?inventory\y[^;]*\yset\y[^;]*\ystock(_quantity)?\y\s*=') = 7,
+    '10.1 hay exactamente 7 writers documentales de stock server-side, + la autoridad G2-C.3A1 si existe (' || v_n || ')');
 
   PERFORM pg_temp.assert(
     (SELECT prosrc FROM pg_proc WHERE oid = to_regprocedure('public.adjust_stock_on_order_item()'))
