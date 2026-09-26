@@ -233,7 +233,7 @@ export function ModalAgregarItem({ isOpen, orderId, onClose, onItemAdded }: Moda
           cost_price_usd:     baseCurrency === 'USD' ? rawCosto : undefined,
           sale_price:         precio,
           exchange_rate_used: baseCurrency === 'USD' ? rate : undefined,
-          stock_quantity:     0,
+          // G2-C.3A2: sin stock — nace en 0 y el repuesto de la orden (W7) lo mueve.
           min_stock:          0,
         })
         inventoryProductId = newProduct.id

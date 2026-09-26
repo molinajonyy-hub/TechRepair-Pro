@@ -1,5 +1,4 @@
 import { supabase } from '../lib/supabase';
-import { inventoryMovementsService, MovementType } from './inventoryMovementsService';
 import { INVENTORY_OPERATIONAL_COLUMNS } from './inventoryCostAccess'
 
 export interface InventoryItem {
@@ -28,166 +27,18 @@ export interface InventoryItem {
   auto_update_price?: boolean;
 }
 
+/**
+ * Lecturas de inventario.
+ *
+ * G2-C.3A2: los helpers mutadores legacy (increaseStockFromPurchase,
+ * decreaseStockFromSale, decreaseStockFromOrder, restoreStockFromOrderRemoval,
+ * restoreStockFromCancelledSale, applyCreditNoteStock, manualAdjustment) se
+ * eliminaron: no tenían callers vivos y todos pasaban por el writer inseguro
+ * del navegador. Los documentos mueven stock con sus writers server-side
+ * (W1-W7); el stock no documental, con la RPC canónica
+ * (inventoryStockAdjustmentService).
+ */
 export const inventoryService = {
-  async increaseStockFromPurchase(
-    inventoryItemId: string,
-    quantity: number,
-    purchaseId: string,
-    businessId: string,
-    userId: string
-  ): Promise<void> {
-    if (quantity <= 0) {
-      throw new Error('La cantidad debe ser mayor a 0');
-    }
-
-    await inventoryMovementsService.registerMovement(
-      inventoryItemId,
-      'purchase',
-      quantity,
-      'purchase',
-      purchaseId,
-      'Ingreso desde compra a proveedor',
-      businessId,
-      userId
-    );
-  },
-
-  async decreaseStockFromSale(
-    inventoryItemId: string,
-    quantity: number,
-    comprobanteId: string,
-    businessId: string,
-    userId: string
-  ): Promise<void> {
-    if (quantity <= 0) {
-      throw new Error('La cantidad debe ser mayor a 0');
-    }
-
-    await inventoryMovementsService.registerMovement(
-      inventoryItemId,
-      'sale',
-      -quantity,
-      'comprobante',
-      comprobanteId,
-      'Salida por venta',
-      businessId,
-      userId
-    );
-  },
-
-  async decreaseStockFromOrder(
-    inventoryItemId: string,
-    quantity: number,
-    orderId: string,
-    businessId: string,
-    userId: string
-  ): Promise<void> {
-    if (quantity <= 0) {
-      throw new Error('La cantidad debe ser mayor a 0');
-    }
-
-    await inventoryMovementsService.registerMovement(
-      inventoryItemId,
-      'order_usage',
-      -quantity,
-      'order',
-      orderId,
-      'Uso en orden de servicio',
-      businessId,
-      userId
-    );
-  },
-
-  async restoreStockFromOrderRemoval(
-    inventoryItemId: string,
-    quantity: number,
-    orderId: string,
-    businessId: string,
-    userId: string
-  ): Promise<void> {
-    if (quantity <= 0) {
-      throw new Error('La cantidad debe ser mayor a 0');
-    }
-
-    await inventoryMovementsService.registerMovement(
-      inventoryItemId,
-      'return',
-      quantity,
-      'order',
-      orderId,
-      'Devolución por eliminación de repuesto en orden',
-      businessId,
-      userId
-    );
-  },
-
-  async restoreStockFromCancelledSale(
-    inventoryItemId: string,
-    quantity: number,
-    comprobanteId: string,
-    businessId: string,
-    userId: string
-  ): Promise<void> {
-    if (quantity <= 0) {
-      throw new Error('La cantidad debe ser mayor a 0');
-    }
-
-    await inventoryMovementsService.registerMovement(
-      inventoryItemId,
-      'cancellation',
-      quantity,
-      'comprobante',
-      comprobanteId,
-      'Devolución por anulación de venta',
-      businessId,
-      userId
-    );
-  },
-
-  async applyCreditNoteStock(
-    inventoryItemId: string,
-    quantity: number,
-    comprobanteId: string,
-    businessId: string,
-    userId: string
-  ): Promise<void> {
-    if (quantity <= 0) {
-      throw new Error('La cantidad debe ser mayor a 0');
-    }
-
-    await inventoryMovementsService.registerMovement(
-      inventoryItemId,
-      'credit_note',
-      quantity,
-      'credit_note',
-      comprobanteId,
-      'Devolución por nota de crédito',
-      businessId,
-      userId
-    );
-  },
-
-  async manualAdjustment(
-    inventoryItemId: string,
-    quantity: number,
-    note: string,
-    businessId: string,
-    userId: string
-  ): Promise<void> {
-    const movementType: MovementType = quantity > 0 ? 'in' : 'out';
-
-    await inventoryMovementsService.registerMovement(
-      inventoryItemId,
-      movementType,
-      quantity,
-      'manual',
-      undefined,
-      note || 'Ajuste manual',
-      businessId,
-      userId
-    );
-  },
-
   async getItemById(inventoryItemId: string, businessId?: string): Promise<InventoryItem | null> {
     let query = supabase
       .from('inventory')

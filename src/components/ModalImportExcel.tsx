@@ -2,10 +2,23 @@ import { useState, useRef } from 'react'
 import { Upload, Download, X, FileSpreadsheet, AlertCircle, CheckCircle } from 'lucide-react'
 import { ExcelService, ExcelRow } from '../services/excelService'
 
+export interface ImportExcelResult {
+  created: number
+  updated: number
+  /** Líneas informativas extra (p. ej. resumen de stock). */
+  details?: string[]
+  /** Avisos: filas omitidas, stale, archivo viejo, etc. */
+  warnings?: string[]
+}
+
 interface ModalImportExcelProps {
   isOpen: boolean
   onClose: () => void
-  onImport: (data: ExcelRow[]) => Promise<{ created: number; updated: number }>
+  /**
+   * `attemptId` identifica la INTENCIÓN (esta selección de archivo): reintentar
+   * después de un error reusa el mismo id; cambiar de archivo o cerrar lo rota.
+   */
+  onImport: (data: ExcelRow[], ctx: { attemptId: string }) => Promise<ImportExcelResult>
   title: string
   requiredColumns: string[]
   downloadTemplate?: () => void
@@ -22,9 +35,12 @@ export function ModalImportExcel({
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<ExcelRow[]>([])
   const [errors, setErrors] = useState<string[]>([])
+  /** Error del import (no del archivo): reintentable con el mismo intento. */
+  const [importError, setImportError] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
-  const [result, setResult] = useState<{ created: number; updated: number } | null>(null)
+  const [result, setResult] = useState<ImportExcelResult | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const attemptIdRef = useRef<string>('')
 
   if (!isOpen) return null
 
@@ -34,7 +50,10 @@ export function ModalImportExcel({
 
     setFile(selectedFile)
     setErrors([])
+    setImportError(null)
     setResult(null)
+    // Archivo nuevo = intención nueva.
+    attemptIdRef.current = crypto.randomUUID()
 
     try {
       const importResult = await ExcelService.importFromExcel<ExcelRow>(
@@ -62,6 +81,7 @@ export function ModalImportExcel({
 
     setImporting(true)
     setErrors([])
+    setImportError(null)
 
     try {
       const importResult = await ExcelService.importFromExcel<ExcelRow>(
@@ -75,10 +95,12 @@ export function ModalImportExcel({
       }
 
       const normalizedData = ExcelService.normalizeData(importResult.data)
-      const result = await onImport(normalizedData)
+      if (!attemptIdRef.current) attemptIdRef.current = crypto.randomUUID()
+      const result = await onImport(normalizedData, { attemptId: attemptIdRef.current })
       setResult(result)
     } catch (error) {
-      setErrors([error instanceof Error ? error.message : 'Error al importar datos'])
+      // Reintentable: el botón sigue activo y el retry reusa el mismo intento.
+      setImportError(`${error instanceof Error ? error.message : 'Error al importar datos'} — podés reintentar: lo ya aplicado no se duplica.`)
     } finally {
       setImporting(false)
     }
@@ -88,7 +110,9 @@ export function ModalImportExcel({
     setFile(null)
     setPreview([])
     setErrors([])
+    setImportError(null)
     setResult(null)
+    attemptIdRef.current = ''
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
@@ -322,7 +346,7 @@ export function ModalImportExcel({
               )}
 
               {/* Errors */}
-              {errors.length > 0 && (
+              {(errors.length > 0 || importError) && (
                 <div style={{
                   padding: '1rem',
                   backgroundColor: 'rgba(239, 68, 68, 0.1)',
@@ -336,7 +360,7 @@ export function ModalImportExcel({
                       Errores
                     </span>
                   </div>
-                  {errors.map((error, index) => (
+                  {[...errors, ...(importError ? [importError] : [])].map((error, index) => (
                     <p key={index} style={{ color: '#f87171', fontSize: '0.875rem', margin: '0.25rem 0 0 0' }}>
                       • {error}
                     </p>
@@ -362,6 +386,34 @@ export function ModalImportExcel({
                   <p style={{ color: '#22c55e', fontSize: '0.875rem', margin: 0 }}>
                     {result.created} registros creados, {result.updated} registros actualizados
                   </p>
+                  {result.details?.map((line, i) => (
+                    <p key={i} data-testid="import-result-detail" style={{ color: '#22c55e', fontSize: '0.875rem', margin: '0.25rem 0 0 0' }}>
+                      • {line}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              {/* Avisos (filas omitidas, stock que cambió desde la exportación, archivo viejo) */}
+              {result?.warnings && result.warnings.length > 0 && (
+                <div role="status" style={{
+                  padding: '1rem',
+                  backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                  border: '1px solid rgba(245, 158, 11, 0.25)',
+                  borderRadius: '0.5rem',
+                  marginBottom: '1.5rem'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <AlertCircle size={16} style={{ color: '#f59e0b' }} />
+                    <span style={{ color: '#f59e0b', fontSize: '0.875rem', fontWeight: 600 }}>
+                      Revisá
+                    </span>
+                  </div>
+                  {result.warnings.map((line, i) => (
+                    <p key={i} data-testid="import-result-warning" style={{ color: '#fbbf24', fontSize: '0.875rem', margin: '0.25rem 0 0 0' }}>
+                      • {line}
+                    </p>
+                  ))}
                 </div>
               )}
             </div>

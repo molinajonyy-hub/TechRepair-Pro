@@ -4,9 +4,15 @@
  * deben pasar por aquí en lugar de insertar en inventory directamente.
  */
 import { supabase } from '../lib/supabase'
-import { inventoryMovementsService } from './inventoryMovementsService'
 import type { InventoryItem } from '../hooks/useInventory'
 import { INVENTORY_OPERATIONAL_COLUMNS } from './inventoryCostAccess'
+import {
+  applyInventoryStockAdjustments,
+  assertNoStockFields,
+  initialStockKey,
+  inventoryStockAdjustmentService,
+  isStockInt,
+} from './inventoryStockAdjustmentService'
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -34,22 +40,41 @@ export interface CreateProductInput {
   exchange_rate_used?:  number
   auto_update_price?:   boolean
 
-  // Stock
-  stock_quantity?: number
+  // Stock — sólo parámetros; el SALDO no es un dato del producto (G2-C.3A2).
   min_stock?:      number
   location?:       string
   is_active?:      boolean
 }
 
+/**
+ * G2-C.3A2 — el producto SIEMPRE nace con stock 0 (default de la columna).
+ *
+ * `initialStock` sólo lo pasa el módulo Inventario: después del INSERT se
+ * aplica por la autoridad canónica (`initial_stock`, clave
+ * `initial-stock:<id>`). Un producto creado desde Proveedores, Gastos, POS u
+ * Órdenes NO lo pasa: nace en 0 y el documento posterior mueve el stock.
+ */
 export interface ProductCreationContext {
-  registerMovement?: boolean
-  movementType?:     'purchase' | 'in' | 'manual'
-  sourceType?:       'supplier_invoice' | 'expense' | 'purchase' | 'manual'
-  sourceId?:         string
-  sourceNote?:       string
-  unit_cost?:        number
-  currency?:         'ARS' | 'USD'
-  exchange_rate?:    number
+  initialStock?:       number
+  initialStockReason?: string
+}
+
+/**
+ * El producto quedó creado (stock 0) pero el stock inicial no se confirmó.
+ * NO se borra el producto (la respuesta pudo haberse perdido con el stock ya
+ * aplicado): se reintenta con la MISMA clave, que no duplica.
+ */
+export class InitialStockPendingError extends Error {
+  readonly product:  InventoryItem
+  readonly quantity: number
+  readonly cause:    unknown
+  constructor(product: InventoryItem, quantity: number, cause: unknown) {
+    super(`El producto se creó, pero el stock inicial no se confirmó: ${(cause as Error)?.message ?? 'error desconocido'}. Reintentá: no se duplica.`)
+    this.name = 'InitialStockPendingError'
+    this.product = product
+    this.quantity = quantity
+    this.cause = cause
+  }
 }
 
 export interface PriceResult {
@@ -126,11 +151,6 @@ export const productService = {
         return 'La cotización USD es inválida (se requiere para productos en USD).'
     }
 
-    if (input.stock_quantity !== undefined) {
-      const stock = Number(input.stock_quantity)
-      if (!isFinite(stock) || stock < 0) return 'El stock no puede ser negativo.'
-    }
-
     return null
   },
 
@@ -174,16 +194,15 @@ export const productService = {
     const costPrice = sanitizeNum(input.cost_price)
     const salePrice = sanitizeNum(input.sale_price)
     const basePrice = sanitizeNum(input.base_price ?? costPrice)
-    const stockQty  = isService ? 0 : sanitizeNum(input.stock_quantity)
     const minStock  = isService ? 0 : sanitizeNum(input.min_stock)
-
-    // Cuando registerMovement está activo el movimiento sube el stock desde 0.
-    // Insertar con 0 evita el double-stock: si insertamos qty Y después registerMovement
-    // suma qty más, el stock quedaría duplicado.
-    const insertStock = context.registerMovement && !isService ? 0 : stockQty
+    const initialStock = isService ? 0 : (context.initialStock ?? 0)
+    if (initialStock !== 0 && !isStockInt(initialStock)) {
+      throw new Error('El stock inicial tiene que ser un número entero.')
+    }
 
     const codeProvided = input.code?.trim() ?? ''
 
+    // Metadata SIN stock: la fila nace en 0 por el default de la columna.
     const baseRow = {
       business_id:         input.business_id,
       created_by:          input.created_by,
@@ -205,19 +224,9 @@ export const productService = {
       wholesale_price_ars: input.wholesale_price_ars != null ? sanitizeNum(input.wholesale_price_ars) : null,
       exchange_rate_used:  input.exchange_rate_used != null ? sanitizeNum(input.exchange_rate_used) : null,
       auto_update_price:   input.auto_update_price ?? false,
-      stock_quantity:      insertStock,
       min_stock:           minStock,
       location:            input.location?.trim() || null,
       is_active:           input.is_active ?? true,
-    }
-
-    if (import.meta.env.DEV) {
-      console.log('[CREATE_PRODUCT]', {
-        name: baseRow.name, tipo: baseRow.tipo,
-        cost: baseRow.cost_price, sale: baseRow.sale_price,
-        stock: stockQty, insertStock,
-        registerMovement: context.registerMovement,
-      })
     }
 
     // Insertar con retry automático ante colisión de código autogenerado
@@ -250,31 +259,20 @@ export const productService = {
       throw new Error('No se pudo generar un código único. Intentá ingresar un SKU manualmente.')
     }
 
-    // Registrar movimiento de stock inicial (el movimiento actualiza stock desde 0 → stockQty)
-    if (context.registerMovement && !isService && stockQty > 0) {
+    // Stock inicial por la autoridad canónica. Si falla NO se borra el producto:
+    // la respuesta pudo perderse con el stock ya aplicado. El caller reintenta
+    // con la misma clave (initial-stock:<id>) y el servidor no duplica.
+    if (initialStock !== 0) {
       try {
-        await inventoryMovementsService.registerMovement(
-          product.id,
-          (context.movementType ?? 'in') as any,
-          stockQty,
-          (context.sourceType as any) ?? 'manual',
-          context.sourceId,
-          context.sourceNote ?? 'Stock inicial al crear producto',
-          input.business_id,
-          input.created_by,
-          {
-            unit_cost:    context.unit_cost ?? costPrice,
-            currency:     context.currency  ?? (input.base_currency ?? 'ARS'),
-            exchange_rate: context.exchange_rate ?? input.exchange_rate_used ?? null,
-            supplier_id:  input.supplier_id ?? null,
-          }
-        )
-        // El movimiento actualizó stock_quantity en DB; corregir el objeto devuelto
-        product = { ...product, stock_quantity: stockQty }
-      } catch (movErr) {
-        // Rollback: eliminar producto para evitar inventario huérfano sin stock correcto
-        await supabase.from('inventory').delete().eq('id', product.id)
-        throw new Error(`Error al registrar stock inicial: ${(movErr as Error).message}`)
+        const applied = await inventoryStockAdjustmentService.applyInitialStock({
+          businessId:  input.business_id,
+          inventoryId: product.id,
+          quantity:    initialStock,
+          reason:      context.initialStockReason ?? null,
+        })
+        if (applied) product = { ...product, stock_quantity: applied.new_stock }
+      } catch (err) {
+        throw new InitialStockPendingError(product, initialStock, err)
       }
     }
 
@@ -287,6 +285,8 @@ export const productService = {
     updates:    Partial<CreateProductInput>,
     businessId: string
   ): Promise<void> {
+    // Fail-closed: la edición de datos no mueve stock (G2-C.3A2).
+    assertNoStockFields(updates, 'updateProduct')
     const { error } = await supabase
       .from('inventory')
       .update({ ...updates, updated_at: new Date().toISOString() })
@@ -297,10 +297,12 @@ export const productService = {
   },
 
   // ── Crear variante de un producto existente ────────────────────────────────
+  // G2-C.3A2: sólo metadata; la fila de inventario nace en 0. El stock inicial
+  // de las variantes lo aplica createProductWithVariants por la RPC canónica,
+  // DESPUÉS de crear todas las filas (así ningún rollback borra filas con stock).
   async createVariant(
     parentId: string,
     input:    CreateVariantInput,
-    context:  ProductCreationContext = {}
   ): Promise<ProductVariant> {
     const cleanName = input.name?.trim()
     if (!cleanName)             throw new Error('El nombre de la variante es obligatorio.')
@@ -311,8 +313,6 @@ export const productService = {
     const saleArs  = sanitizeNum(input.sale_price_ars)
     const stock    = sanitizeNum(input.stock)
     const skuProvided = input.sku?.trim() ?? ''
-
-    const insertStock = context.registerMovement ? 0 : stock
 
     const baseInvRow = {
       business_id:         input.business_id,
@@ -332,19 +332,11 @@ export const productService = {
       sale_price:          saleArs,
       wholesale_price_ars: input.wholesale_price_ars != null ? sanitizeNum(input.wholesale_price_ars) : null,
       exchange_rate_used:  input.exchange_rate_used != null ? sanitizeNum(input.exchange_rate_used) : null,
-      stock_quantity:      insertStock,
       min_stock:           sanitizeNum(input.min_stock),
       location:            input.location?.trim() || null,
       has_variants:        false,
       parent_id:           parentId,
       is_active:           input.active ?? true,
-    }
-
-    if (import.meta.env.DEV) {
-      console.log('[CREATE_VARIANT]', {
-        parent: parentId, variant: cleanName,
-        cost: costArs, sale: saleArs, stock, insertStock,
-      })
     }
 
     // Insertar fila de inventario con retry por colisión de código
@@ -409,48 +401,27 @@ export const productService = {
       throw new Error(`Error al crear variante: ${varErr.message}`)
     }
 
-    // Movimiento de stock inicial
-    if (context.registerMovement && stock > 0) {
-      try {
-        await inventoryMovementsService.registerMovement(
-          invData.id,
-          (context.movementType ?? 'in') as any,
-          stock,
-          (context.sourceType as any) ?? 'manual',
-          context.sourceId,
-          context.sourceNote ?? 'Stock inicial de variante',
-          input.business_id,
-          input.created_by,
-          {
-            unit_cost:    context.unit_cost ?? costArs,
-            currency:     context.currency  ?? input.cost_currency ?? 'ARS',
-            exchange_rate: context.exchange_rate ?? input.exchange_rate_used ?? null,
-          }
-        )
-      } catch (movErr) {
-        // El stock ya está en inventory.stock_quantity (correcto).
-        // El movimiento es auditoría; no hacemos rollback del producto por esto.
-        if (import.meta.env.DEV) {
-          console.warn('[CREATE_VARIANT] Fallo al registrar movimiento de stock (no crítico):', movErr)
-        }
-      }
-    }
-
     return varData as ProductVariant
   },
 
-  // ── Crear producto padre + variantes (operación atómica) ───────────────────
+  // ── Crear producto padre + variantes ───────────────────────────────────────
+  // (Variants v2 — oculto en beta: ProductFormModal no lo ofrece.)
+  // Fase 1: metadata (padre + variantes en 0). Si falla, rollback de filas que
+  // TODAVÍA no tienen stock ni movimientos. Fase 2: UN lote initial_stock
+  // (clave initial-stock:<padre>) — desde acá no hay rollback destructivo.
   async createProductWithVariants(
-    baseInput: Omit<CreateProductInput, 'stock_quantity' | 'tipo'>,
+    baseInput: Omit<CreateProductInput, 'tipo'>,
     variants:  CreateVariantInput[],
-    context:   ProductCreationContext = {}
   ): Promise<{ product: InventoryItem; variants: ProductVariant[] }> {
     if (!variants.length) throw new Error('Debés agregar al menos una variante.')
+    for (const v of variants) {
+      const stock = sanitizeNum(v.stock)
+      if (stock !== 0 && !isStockInt(stock)) throw new Error('El stock inicial de cada variante tiene que ser un número entero.')
+    }
 
     const product = await productService.createProduct({
       ...baseInput,
-      tipo:           'product',
-      stock_quantity: 0,
+      tipo: 'product',
     })
 
     await supabase
@@ -469,11 +440,11 @@ export const productService = {
           product_name: baseInput.name,
           category:     variants[i].category || baseInput.category,
           sort_order:   i,
-        }, context)
+        })
         createdVariants.push(v)
       }
     } catch (err) {
-      // Rollback completo: eliminar variantes creadas + sus filas de inventario + producto padre
+      // Rollback de metadata: ninguna de estas filas tiene stock ni movimientos.
       for (const v of createdVariants) {
         if (v.inventory_item_id) {
           await supabase.from('inventory').delete().eq('id', v.inventory_item_id)
@@ -482,6 +453,23 @@ export const productService = {
       }
       await supabase.from('inventory').delete().eq('id', product.id)
       throw err
+    }
+
+    const items = createdVariants
+      .map((v, i) => ({ inventory_id: v.inventory_item_id, delta: sanitizeNum(variants[i].stock) }))
+      .filter((it): it is { inventory_id: string; delta: number } => !!it.inventory_id && it.delta !== 0)
+    if (items.length) {
+      try {
+        await applyInventoryStockAdjustments({
+          businessId:     baseInput.business_id,
+          source:         'initial_stock',
+          items,
+          idempotencyKey: initialStockKey(product.id),
+          reason:         'Alta de variantes',
+        })
+      } catch (err) {
+        throw new InitialStockPendingError(product, items.reduce((a, it) => a + it.delta, 0), err)
+      }
     }
 
     return { product, variants: createdVariants }
