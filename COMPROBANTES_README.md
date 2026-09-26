@@ -192,21 +192,32 @@ const afipResponse = await afipService.emitirFacturaReal(datosAfip);
 
 ### Crear comprobante de prueba:
 
-```typescript
-import { facturacionService } from './services/facturacionService';
+> Desde Lote 3 la creación de comprobantes es **RPC-only**: el browser no tiene
+> `INSERT` sobre `comprobantes`. El POS crea por
+> `create_comprobante_checkout_atomic` y las notas de crédito por
+> `create_credit_note_from_comprobante`, ambas a través de `comprobanteService`.
+> Los constructores directos de `facturacionService` fueron retirados.
 
-const result = await facturacionService.crearComprobante({
+```typescript
+import { comprobanteService } from './services/comprobanteService';
+
+const result = await comprobanteService.crear({
+  business_id: 'uuid-negocio',
   order_id: 'uuid-orden',
   customer_id: 'uuid-cliente',
   tipo: 'factura_a',
   punto_venta: '0001',
   condicion_fiscal: 'Responsable Inscripto',
+  caja_id: 'uuid-caja',
   items: [
     {
       descripcion: 'Servicio técnico',
       cantidad: 1,
       precio_unitario: 10000
     }
+  ],
+  pagos: [
+    { payment_method: 'efectivo', amount: 10000, currency: 'ARS' }
   ]
 });
 ```
