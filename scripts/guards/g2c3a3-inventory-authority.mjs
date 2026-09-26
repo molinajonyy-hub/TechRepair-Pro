@@ -29,6 +29,7 @@ const VERSION = '20261009120000'
 const MIG = `${VERSION}_g2c3a3_inventory_authority_lockdown.sql`
 const TEST_SQL = 'tests/sql/g2c3a3_inventory_authority_lockdown.test.sql'
 const TEST_HTTP = 'scripts/security/g2c3a3-postgrest.mjs'
+const TEST_P7 = 'scripts/security/g2c3a3-precondition7-matrix.mjs'
 
 const GUARD_FN = 'private.tg_inventory_stock_authority_guard'
 const LEDGER_FN = 'private.tg_inventory_movements_append_only'
@@ -176,6 +177,28 @@ function inspectLedgerFn(f, et) {
 
 function defs(fns, n) { return fns.filter((f) => f.nombre === n) }
 
+// ── PRECONDICION 7 · compatibilidad PG17 ────────────────────────────────────
+// MAINTAIN es OPCIONAL exactamente para inventory/anon e inventory/authenticated
+// (produccion lo conserva de su GRANT ALL; el replay no). Se descuenta solo de
+// los SOBRANTES; nunca integra el baseline requerido y A3 no lo administra.
+const TOLERANCIA_P7 = /AND\s+NOT\s*\(\s*c\.oid\s*=\s*v_inv\s+AND\s+a\.privilege_type\s*=\s*'MAINTAIN'\s+AND\s+a\.grantee\s+IN\s*\(\s*'anon'::regrole\s*,\s*'authenticated'::regrole\s*\)\s*\)/i
+
+export function inspectToleranciaP7(code) {
+  const f = []
+  const ini = code.search(/IF\s+EXISTS\s*\(\s*\(SELECT\s+c\.relname::text\s*,\s*a\.grantee::regrole::text\s*,\s*a\.privilege_type/i)
+  const fin = ini < 0 ? -1 : code.indexOf("'PRECONDICION 7: los privilegios de TABLA", ini)
+  if (ini < 0 || fin < 0) return ['PRECONDICION 7: se perdio la comparacion de ACL de tabla']
+  const blk = code.slice(ini, fin)
+  const exclusiones = [...blk.matchAll(/AND\s+NOT\s*\(/gi)].length
+  const pos = blk.search(TOLERANCIA_P7)
+  if (pos < 0) f.push('PRECONDICION 7: la tolerancia PG17 ya no es exactamente inventory/{anon,authenticated}/MAINTAIN (o desaparecio y produccion vuelve a abortar)')
+  if (exclusiones !== 1) f.push(`PRECONDICION 7: la comparacion de ACL tiene ${exclusiones} exclusiones (solo se tolera la de MAINTAIN)`)
+  if (pos >= 0 && pos > blk.search(/\bEXCEPT\b/i)) f.push('PRECONDICION 7: la tolerancia no esta en la rama de SOBRANTES')
+  if (/'MAINTAIN'\s*\)/i.test(blk.replace(TOLERANCIA_P7, ''))) f.push('PRECONDICION 7: MAINTAIN paso al baseline requerido (debe ser opcional: el replay local no lo tiene)')
+  for (const m of code.matchAll(/\b(?:GRANT|REVOKE)\b[^;]*\bMAINTAIN\b[^;]*;/gi)) f.push(`A3 administra MAINTAIN (${one(m[0])}): la compatibilidad PG17 solo lo tolera`)
+  return f
+}
+
 // ── Migracion A3 ─────────────────────────────────────────────────────────────
 function inspectMigracion(sql) {
   const f = []
@@ -194,6 +217,7 @@ function inspectMigracion(sql) {
   }
   if (!/max\(version\)\s+FROM\s+supabase_migrations\.schema_migrations/i.test(code) || !/IS\s+DISTINCT\s+FROM\s+'20261008120000'/.test(code)) f.push('la PRECONDICION 4 dejo de exigir que A1 sea la migracion previa (A2 sin migracion)')
   if (!/INTO\s+STRICT\s+v_name/i.test(code)) f.push('la FK dejo de resolverse dinamicamente desde pg_catalog (INTO STRICT)')
+  f.push(...inspectToleranciaP7(code))
 
   // A3.1 · cierre del saldo.
   if (!/REVOKE\s+INSERT\s*,\s*UPDATE\s+ON\s+TABLE\s+public\.inventory\s+FROM\s+anon\s*,\s*authenticated\s*;/i.test(code)) f.push('A3.1: falta el REVOKE de INSERT/UPDATE de TABLA sobre inventory a anon/authenticated')
@@ -331,6 +355,7 @@ function inspectEvidencia(st) {
   if (!/has_column_privilege\s*\(/i.test(t) || !/has_table_privilege\s*\(/i.test(t)) f.push(`${TEST_SQL}: la suite perdio la matriz has_table_privilege / has_column_privilege`)
   for (let n = 1; n <= 18; n++) if (!new RegExp(`'A${n}\\.\\d`).test(t)) f.push(`${TEST_SQL}: falta el caso A${n}`)
   if (st.testHttp == null) f.push(`${TEST_HTTP}: falta la prueba por PostgREST`)
+  if (st.testP7 == null) f.push(`${TEST_P7}: falta la matriz de la PRECONDICION 7 (compatibilidad PG17 MAINTAIN)`)
   return f
 }
 
@@ -346,6 +371,7 @@ function load() {
     migraciones: nombres.map((nombre) => ({ nombre, sql: read(`${MIG_DIR}/${nombre}`) })),
     testSql: existsSync(TEST_SQL) ? read(TEST_SQL) : null,
     testHttp: existsSync(TEST_HTTP) ? read(TEST_HTTP) : null,
+    testP7: existsSync(TEST_P7) ? read(TEST_P7) : null,
   }
 }
 
@@ -463,9 +489,20 @@ function selfTest() {
     ['la suite ya no corre como la API', (st) => conTest(conTest(st, "EXECUTE format('SET LOCAL ROLE %I', p_role);", 'NULL;'), "EXECUTE 'SET LOCAL ROLE authenticated';", 'NULL;')],
     ['la suite pierde el caso A13', (st) => conTest(st, "'A13.", "'X13.")],
     ['falta la prueba por PostgREST', (st) => ({ ...st, testHttp: null })],
+    // ── PRECONDICION 7 · compatibilidad PG17 MAINTAIN ──
+    ['P7: la tolerancia desaparece (produccion vuelve a abortar)', (st) => conMig(st, "\n        AND NOT (c.oid = v_inv AND a.privilege_type = 'MAINTAIN'\n                 AND a.grantee IN ('anon'::regrole, 'authenticated'::regrole))", '')],
+    ['P7: la tolerancia se extiende a service_role', (st) => conMig(st, "('anon'::regrole, 'authenticated'::regrole))", "('anon'::regrole, 'authenticated'::regrole, 'service_role'::regrole))")],
+    ['P7: la tolerancia alcanza inventory_movements', (st) => conMig(st, "AND NOT (c.oid = v_inv AND a.privilege_type = 'MAINTAIN'", "AND NOT (a.privilege_type = 'MAINTAIN'")],
+    ['P7: la tolerancia se vuelve generica (cualquier privilegio)', (st) => conMig(st, "a.privilege_type = 'MAINTAIN'\n                 AND a.grantee IN", 'a.grantee IN')],
+    ['P7: una segunda exclusion en la comparacion', (st) => conMig(st, "AND a.grantee IN ('anon'::regrole, 'authenticated'::regrole))", "AND a.grantee IN ('anon'::regrole, 'authenticated'::regrole))\n        AND NOT (c.oid = v_mov)")],
+    ['P7: MAINTAIN pasa al baseline requerido', (st) => conMig(st, "('inventory_movements', 'authenticated', 'DELETE')) AS e(rel, grantee, priv)", "('inventory_movements', 'authenticated', 'DELETE'), ('inventory', 'anon', 'MAINTAIN')) AS e(rel, grantee, priv)")],
+    ['A3 concede MAINTAIN', (st) => antesDelCommit(st, 'GRANT MAINTAIN ON TABLE public.inventory TO anon, authenticated;')],
+    ['A3 revoca MAINTAIN', (st) => antesDelCommit(st, 'REVOKE MAINTAIN ON TABLE public.inventory FROM anon, authenticated;')],
+    ['falta la matriz de la PRECONDICION 7', (st) => ({ ...st, testP7: null })],
   ]
 
   const CONTROLES = [
+    ['un comentario de A3 menciona REVOKE MAINTAIN', (st) => antesDelCommit(st, '-- nunca: REVOKE MAINTAIN ON TABLE public.inventory FROM anon;\nSELECT 1;')],
     ['posterior: GRANT INSERT/UPDATE de una columna NUEVA de metadata', (st) => posterior(st, 'GRANT INSERT (portal_badge), UPDATE (portal_badge) ON public.inventory TO authenticated;')],
     ['posterior: GRANT SELECT de una columna', (st) => posterior(st, 'GRANT SELECT (portal_badge) ON public.inventory TO authenticated, anon;')],
     ['posterior: policy SELECT sobre el libro', (st) => posterior(st, 'CREATE POLICY p ON public.inventory_movements FOR SELECT TO authenticated USING (false);')],

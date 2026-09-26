@@ -251,15 +251,33 @@ BEGIN
   END IF;
 
   -- PRECONDICION 7 · ACL exactos del discovery (comparados como conjuntos, no
-  -- como texto). Tabla: inventory anon/authenticated = INSERT, UPDATE, DELETE,
-  -- TRUNCATE, REFERENCES, TRIGGER; inventory_movements authenticated = INSERT,
-  -- UPDATE, DELETE. Columnas: SOLO SELECT (SEC-08B), ningun INSERT/UPDATE de
-  -- columna (no hay un A3 parcial). service_role sin nada. Ningun rol de API es
-  -- miembro de postgres (el contexto canonico que distinguen los guards).
+  -- como texto). Baseline requerido de TABLA: inventory anon/authenticated =
+  -- INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER; inventory_movements
+  -- authenticated = INSERT, UPDATE, DELETE. Columnas: SOLO SELECT (SEC-08B),
+  -- ningun INSERT/UPDATE de columna (no hay un A3 parcial). service_role sin
+  -- nada. Ningun rol de API es miembro de postgres (el contexto canonico que
+  -- distinguen los guards).
+  --
+  -- Compatibilidad PostgreSQL 17: produccion conserva ademas MAINTAIN (PG17:
+  -- VACUUM/ANALYZE/REINDEX/CLUSTER/LOCK TABLE, sin escritura de datos) para
+  -- anon y authenticated sobre inventory, heredado de su GRANT ALL original; el
+  -- replay local no lo tiene (medido en el preflight del rollout de #150, misma
+  -- diferencia que SEC-08E R3 documenta para parts_used). Se tolera como
+  -- OPCIONAL exactamente para esas dos filas (inventory/anon/MAINTAIN e
+  -- inventory/authenticated/MAINTAIN): presente o ausente da igual, NO forma
+  -- parte del baseline requerido y A3 no lo concede, revoca ni modifica. No es
+  -- autoridad de escritura del saldo (stock/stock_quantity los cierra el REVOKE
+  -- de INSERT/UPDATE). Cualquier otro drift sigue siendo fail-closed: MAINTAIN
+  -- en inventory_movements, para service_role/PUBLIC u otro rol, cualquier otro
+  -- privilegio extra o un privilegio del baseline faltante -> RAISE.
   IF EXISTS (
     (SELECT c.relname::text, a.grantee::regrole::text, a.privilege_type
        FROM pg_class c, aclexplode(c.relacl) a
       WHERE c.oid IN (v_inv, v_mov) AND a.grantee <> c.relowner
+        -- Unicas filas opcionales (compatibilidad PG17). Solo se descuentan de
+        -- los SOBRANTES; el baseline requerido de abajo no las incluye.
+        AND NOT (c.oid = v_inv AND a.privilege_type = 'MAINTAIN'
+                 AND a.grantee IN ('anon'::regrole, 'authenticated'::regrole))
      EXCEPT
      SELECT * FROM (VALUES
        ('inventory', 'anon', 'INSERT'), ('inventory', 'anon', 'UPDATE'), ('inventory', 'anon', 'DELETE'),
