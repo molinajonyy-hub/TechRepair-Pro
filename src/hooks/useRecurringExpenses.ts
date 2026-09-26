@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -30,29 +30,49 @@ export interface RecurringExpenseWithStatus extends RecurringExpense {
 
 export type NewRecurringExpense = Omit<RecurringExpense, 'id' | 'created_at' | 'updated_at'>
 
-export function useRecurringExpenses() {
+export function recurringExpenseError(error: unknown): string {
+  return typeof error === 'object' && error !== null && 'message' in error
+    ? String(error.message)
+    : 'No se pudo completar la operación. Intentá nuevamente.'
+}
+
+export function useRecurringExpenses({ includeInactive = false, includePaymentStatus = true } = {}) {
   const { businessId } = useAuth()
   const [expenses, setExpenses] = useState<RecurringExpenseWithStatus[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const requestId = useRef(0)
+  const invalidateLoad = useCallback(() => { requestId.current++ }, [])
 
   const load = useCallback(async () => {
-    if (!businessId) return
+    const request = ++requestId.current
+    if (!businessId) {
+      setExpenses([])
+      setError('No hay un negocio seleccionado.')
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
-      // Cargar plantillas activas
-      const { data: templates, error: tErr } = await supabase
+      let query = supabase
         .from('recurring_expenses')
         .select('*')
         .eq('business_id', businessId)
-        .eq('is_active', true)
-        .order('name')
+      if (!includeInactive) query = query.eq('is_active', true)
+      const { data: templates, error: tErr } = await query.order('name')
 
+      if (request !== requestId.current) return
       if (tErr) throw tErr
 
       if (!templates || templates.length === 0) {
         setExpenses([])
+        return
+      }
+
+      // La gestión de plantillas no necesita consultar movimientos ni pagos.
+      if (!includePaymentStatus) {
+        setExpenses(templates.map(t => ({ ...t, paid_this_month: false })))
         return
       }
 
@@ -84,6 +104,7 @@ export function useRecurringExpenses() {
         }
       }
 
+      if (request !== requestId.current) return
       setExpenses(
         templates.map(t => ({
           ...t,
@@ -93,14 +114,18 @@ export function useRecurringExpenses() {
           paid_date: paidMap[t.id]?.date,
         }))
       )
-    } catch (e: any) {
-      setError(e.message || 'Error al cargar gastos recurrentes')
+    } catch (e: unknown) {
+      if (request === requestId.current) setError(recurringExpenseError(e))
     } finally {
-      setLoading(false)
+      if (request === requestId.current) setLoading(false)
     }
-  }, [businessId])
+  }, [businessId, includeInactive, includePaymentStatus])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    setExpenses([])
+    void load()
+    return invalidateLoad
+  }, [load, invalidateLoad])
 
   const loadHistory = async (expenseId: string) => {
     const { data } = await supabase
@@ -113,33 +138,35 @@ export function useRecurringExpenses() {
   }
 
   const create = async (data: NewRecurringExpense) => {
-    if (!businessId) return null
+    if (!businessId) throw new Error('No hay un negocio seleccionado.')
     const { data: created, error } = await supabase
       .from('recurring_expenses')
       .insert({ ...data, business_id: businessId })
       .select()
       .single()
     if (error) throw error
+    if (!created) throw new Error('No se pudo confirmar la creación del gasto recurrente.')
     await load()
     return created
   }
 
-  const update = async (id: string, updates: Partial<Pick<RecurringExpense, 'name' | 'amount' | 'currency' | 'day_of_month' | 'notes' | 'subcategory'>>) => {
-    const { error } = await supabase
+  const update = async (id: string, updates: Partial<Pick<RecurringExpense, 'name' | 'amount' | 'currency' | 'day_of_month' | 'notes' | 'subcategory' | 'is_active'>>) => {
+    if (!businessId) throw new Error('No hay un negocio seleccionado.')
+    const { data: updated, error } = await supabase
       .from('recurring_expenses')
       .update({ ...updates, updated_at: new Date().toISOString() })
       .eq('id', id)
+      .eq('business_id', businessId)
+      .select()
+      .single()
     if (error) throw error
+    if (!updated) throw new Error('No se pudo confirmar la actualización del gasto recurrente.')
     await load()
+    return updated
   }
 
   const deactivate = async (id: string) => {
-    const { error } = await supabase
-      .from('recurring_expenses')
-      .update({ is_active: false, updated_at: new Date().toISOString() })
-      .eq('id', id)
-    if (error) throw error
-    await load()
+    return update(id, { is_active: false })
   }
 
   return { expenses, loading, error, load, create, update, deactivate, loadHistory }
