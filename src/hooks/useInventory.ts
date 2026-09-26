@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
-import { inventoryService } from '../services/inventoryService'
 import { useRefreshOnWakeUp } from './useAppWakeUp'
 import { INVENTORY_OPERATIONAL_COLUMNS } from '../services/inventoryCostAccess'
+import {
+  assertNoStockFields,
+  inventoryStockAdjustmentService,
+  type StockAdjustmentItemResult,
+} from '../services/inventoryStockAdjustmentService'
 
 // Normaliza cualquier error (Supabase PostgrestError, Error nativo, string, objeto)
 // a una instancia de Error que además conserva los metadatos relevantes
@@ -60,6 +64,14 @@ export interface InventoryItem {
   auto_update_price?: boolean
 }
 
+/**
+ * G2-C.3A2 — metadata de un producto. NUNCA lleva stock: el INSERT crea el
+ * producto en 0 (default de la columna) y el stock inicial / ajuste pasa por la
+ * autoridad canónica (`inventoryStockAdjustmentService`).
+ */
+export type InventoryMetadataInput = Omit<InventoryItem, 'id' | 'created_at' | 'updated_at' | 'stock_quantity'>
+export type InventoryMetadataUpdate = Partial<Omit<InventoryItem, 'stock_quantity'>>
+
 export function useInventory() {
   const { businessId, user } = useAuth()
   const [items, setItems] = useState<InventoryItem[]>([])
@@ -97,10 +109,13 @@ export function useInventory() {
   }
 
   async function addItem(
-    item: Omit<InventoryItem, 'id' | 'created_at' | 'updated_at'>,
+    item: InventoryMetadataInput,
     options?: { skipReload?: boolean }
   ) {
     try {
+      // Fail-closed: un alta no puede fijar saldo. Nace en 0 (default de la
+      // columna); el stock inicial lo aplica la RPC canónica después.
+      assertNoStockFields(item, 'addItem')
       const { data, error: insertError } = await supabase
         .from('inventory')
         .insert({
@@ -123,10 +138,13 @@ export function useInventory() {
 
   async function updateItem(
     id: string,
-    updates: Partial<InventoryItem>,
+    updates: InventoryMetadataUpdate,
     options?: { skipReload?: boolean }
   ) {
     try {
+      // Fail-closed: la edición de datos no mueve stock. Un caller que mande
+      // stock/stock_quantity recibe un error explícito, no un descarte silencioso.
+      assertNoStockFields(updates, 'updateItem')
       let updateQuery = supabase
         .from('inventory')
         .update(updates)
@@ -165,20 +183,30 @@ export function useInventory() {
     }
   }
 
-  async function adjustStock(id: string, newQuantity: number, reason?: string) {
+  /**
+   * Ajuste manual por la autoridad canónica: target = nuevo stock, expected =
+   * stock que vio el usuario. Si cambió entretanto la fila vuelve `stale` y NO
+   * se aplica (sin recalcular ni pisar). La clave la da el flujo de UI: una por
+   * intención, reusada en el retry.
+   */
+  async function adjustStock(
+    id: string,
+    target: number,
+    expected: number,
+    options: { idempotencyKey: string; reason?: string }
+  ): Promise<StockAdjustmentItemResult> {
     try {
-      const { data: current } = await supabase
-        .from('inventory').select('stock_quantity').eq('id', id).maybeSingle()
-      const currentStock = current?.stock_quantity ?? 0
-      const delta = newQuantity - currentStock
-      if (delta === 0) { await loadInventory(); return }
-      await inventoryService.manualAdjustment(
-        id, delta,
-        reason || 'Ajuste manual desde inventario',
-        businessId || '',
-        user?.id || ''
-      )
-      await loadInventory()
+      if (!businessId) throw new Error('Negocio no identificado.')
+      const result = await inventoryStockAdjustmentService.applyManualTarget({
+        businessId,
+        inventoryId: id,
+        target,
+        expected,
+        idempotencyKey: options.idempotencyKey,
+        reason: options.reason ?? null,
+      })
+      await loadInventory({ background: true })
+      return result
     } catch (err: unknown) {
       throw toError(err)
     }
@@ -186,7 +214,8 @@ export function useInventory() {
 
   const categories = [...new Set(items.map((item) => item.category))].filter(Boolean).sort()
   const lowStockItems = items.filter((item) => item.stock_quantity > 0 && item.stock_quantity <= item.min_stock)
-  const outOfStockItems = items.filter((item) => item.stock_quantity === 0)
+  // Stock negativo (sobreventa, contrato G2-C) también cuenta como agotado.
+  const outOfStockItems = items.filter((item) => item.stock_quantity <= 0)
 
   return {
     items,

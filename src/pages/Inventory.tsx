@@ -29,8 +29,24 @@ import { StockRepairTool } from '../components/inventory/StockRepairTool'
 import { ExcelService, ExcelRow } from '../services/excelService'
 import { supabase } from '../lib/supabase'
 import { ProductMovementsModal } from '../components/inventory/ProductMovementsModal'
-import { ProductFormModalSafe as ProductFormModal } from '../components/products/ProductFormModal'
-import { INVENTORY_OPERATIONAL_COLUMNS, fetchInventoryCosts } from '../services/inventoryCostAccess'
+import { ProductFormModalSafe as ProductFormModal, VARIANTS_V2_ENABLED } from '../components/products/ProductFormModal'
+import { fetchInventoryCosts } from '../services/inventoryCostAccess'
+import {
+  inventoryStockAdjustmentService,
+  manualStockKey,
+  StockAdjustmentError,
+  withoutStockFields,
+} from '../services/inventoryStockAdjustmentService'
+import {
+  applyStockImport,
+  createImportAttempt,
+  describeStockImport,
+  planStockImport,
+  STOCK_ACTUAL_COLUMN,
+  STOCK_EXPECTED_COLUMN,
+  type ImportAttempt,
+  type StockImportRow,
+} from '../services/inventoryStockImport'
 
 const CATEGORIES = [
   'Pantallas',
@@ -102,6 +118,11 @@ export function Inventory() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [movementsItem, setMovementsItem] = useState<any>(null)
   const tableRef = useRef<HTMLDivElement | null>(null)
+  // G2-C.3A2 — autoridad canónica de stock
+  /** Sesión del formulario legacy: familia de claves de ajuste manual. */
+  const legacyFormSessionRef = useRef<string>(crypto.randomUUID())
+  /** Intento de import en curso (vive mientras dura la selección del archivo). */
+  const importAttemptRef = useRef<ImportAttempt | null>(null)
 
   const toggleExpanded = (id: string) => {
     setExpandedRows(prev => {
@@ -267,9 +288,10 @@ export function Inventory() {
     const eff = getEffectiveStock(item)
     return eff.stock_quantity > 0 && eff.stock_quantity <= eff.min_stock
   }
+  // Stock negativo (sobreventa, contrato G2-C) también es «agotado».
   const isOutOfStock = (item: any) => {
     const eff = getEffectiveStock(item)
-    return eff.stock_quantity === 0
+    return eff.stock_quantity <= 0
   }
 
   // Items pre-filtrados por búsqueda inteligente (memoizado)
@@ -364,10 +386,10 @@ export function Inventory() {
   //  - Incluye productos base sin variantes cuyo stock está agotado/bajo.
   //  - EXCLUYE productos base con variantes cuando el total de variantes > 0.
   const effectiveOutOfStockItems = useMemo(() => items.filter(item => {
-    if (isVariantItem(item)) return (item.stock_quantity || 0) === 0
+    if (isVariantItem(item)) return (item.stock_quantity || 0) <= 0
     const variants = variantsByParent[item.id] || []
-    if (variants.length === 0) return (item.stock_quantity || 0) === 0
-    return variants.reduce((sum, v) => sum + (v.stock_quantity || 0), 0) === 0
+    if (variants.length === 0) return (item.stock_quantity || 0) <= 0
+    return variants.reduce((sum, v) => sum + (v.stock_quantity || 0), 0) <= 0
   }), [items, variantsByParent])
 
   const effectiveLowStockItems = useMemo(() => items.filter(item => {
@@ -413,6 +435,7 @@ export function Inventory() {
   }
 
   const openAddModal = (parentItem?: any, tipo: 'product' | 'service' = 'product') => {
+    legacyFormSessionRef.current = crypto.randomUUID()
     setEditingItem(null)
     setVariantParentItem(parentItem || null)
     setUserManuallyEditedSalePrice(false)
@@ -558,83 +581,40 @@ export function Inventory() {
     })
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    return handleInventorySubmit(e)
-    e.preventDefault()
-    setIsSubmitting(true)
-    setFormError('')
+  const handleSubmit = (e: React.FormEvent) => handleInventorySubmit(e)
 
+  // ── G2-C.3A2 · stock del formulario legacy por la autoridad canónica ───────
+  // El INSERT/UPDATE de metadata nunca lleva stock. El stock inicial de una fila
+  // recién creada va por initial_stock (clave initial-stock:<id>) y un cambio
+  // de stock en edición por un ajuste manual target/expected.
+  const LEGACY_INITIAL_STOCK_REASON = 'Alta desde Inventario'
+
+  const applyLegacyInitialStock = async (inventoryId: string | undefined, qty: number): Promise<boolean> => {
+    if (!inventoryId || !qty || !businessId) return true
     try {
-      const isVariantMode = Boolean(variantParentItem)
-      const categoryValue = formData.category === 'NUEVA_CATEGORIA'
-        ? formData.newCategory.trim()
-        : formData.category.trim()
-
-      if (!isVariantMode && !categoryValue) {
-        setFormError('La categoría es requerida')
-        setIsSubmitting(false)
-        return
-      }
-
-      // Validar variantes si has_variants=true
-      if (!isVariantMode && formData.has_variants && formData.variants.length === 0) {
-        setFormError('Debe agregar al menos una variante')
-        setIsSubmitting(false)
-        return
-      }
-
-      if (!isVariantMode && formData.has_variants) {
-        // Validar que todas las variantes tengan nombre
-        const invalidVariants = formData.variants.filter(v => !v.name || v.name.trim() === '')
-        if (invalidVariants.length > 0) {
-          setFormError('Todas las variantes deben tener un nombre')
-          setIsSubmitting(false)
-          return
-        }
-      }
-
-      const submitData = {
-        ...formData,
-        category: categoryValue,
-        stock_quantity: formData.has_variants ? 0 : formData.stock_quantity,
-        has_variants: formData.has_variants
-      }
-
-      if (editingItem) {
-        await updateItem(editingItem.id, submitData)
-      } else {
-        const createdProduct = await addItem(submitData as any)
-
-        // Si tiene variantes, crear las variantes asociadas
-        if (formData.has_variants && createdProduct?.id) {
-          for (const variant of formData.variants) {
-            await addItem({
-              name: variant.name,
-              variant_name: variant.name,
-              description: submitData.description,
-              category: submitData.category,
-              stock_quantity: variant.stock_quantity,
-              min_stock: submitData.min_stock,
-              cost_price: submitData.cost_price,
-              cost_price_usd: submitData.cost_price_usd,
-              sale_price: variant.sale_price || submitData.sale_price,
-              location: submitData.location,
-              base_currency: submitData.base_currency,
-              base_price: submitData.base_price,
-              exchange_rate_used: submitData.exchange_rate_used,
-              auto_update_price: submitData.auto_update_price,
-              parent_id: createdProduct.id,
-              business_id: businessId
-            } as any)
-          }
-        }
-      }
-      setShowModal(false)
-    } catch (err: any) {
-      setFormError(err.message || 'Error al guardar producto')
-    } finally {
-      setIsSubmitting(false)
+      await inventoryStockAdjustmentService.applyInitialStock({
+        businessId, inventoryId, quantity: qty, reason: LEGACY_INITIAL_STOCK_REASON,
+      })
+      return true
+    } catch {
+      // El producto ya existe: NO se borra. Se informa y se ajusta desde Editar
+      // (la clave initial-stock:<id> impide duplicar si el servidor sí aplicó).
+      return false
     }
+  }
+
+  const applyLegacyStockEdit = async (item: any, target: number): Promise<'applied' | 'stale' | 'noop' | 'unchanged'> => {
+    const expected = Number(item?.stock_quantity ?? 0)
+    if (!businessId || !item?.id || target === expected) return 'unchanged'
+    const result = await inventoryStockAdjustmentService.applyManualTarget({
+      businessId,
+      inventoryId:    item.id,
+      target,
+      expected,
+      idempotencyKey: manualStockKey(item.id, legacyFormSessionRef.current, expected, target),
+      reason:         'Edición de producto',
+    })
+    return result.status
   }
 
   const handleInventorySubmit = async (e: React.FormEvent) => {
@@ -678,7 +658,7 @@ export function Inventory() {
         code: cleanedCode,
         description: cleanedDescription,
         category: categoryValue,
-        stock_quantity: isService ? 0 : formData.stock_quantity,
+        // G2-C.3A2: sin stock — la fila nace en 0 y el stock va por la RPC.
         min_stock: isService ? 0 : formData.min_stock,
         cost_price: formData.cost_price,
         cost_price_usd: formData.cost_price_usd,
@@ -709,7 +689,10 @@ export function Inventory() {
           supplier_code: buildVariantParentReference(variantParentItem.id)
         }
 
+        const stockIssues: string[] = []
         if (editingItem) {
+          // El modal de variante no muestra el stock: editar la variante acá no
+          // expresa ninguna intención de stock (se ajusta desde «Editar»).
           await updateItem(editingItem.id, variantPayload, { skipReload: true })
         } else {
           // Retry logic: si el código sugerido ya está tomado en DB (23505),
@@ -727,8 +710,11 @@ export function Inventory() {
               ? cleanedCode
               : `${parentCode}-VAR-${String(suffix + attempt).padStart(2, '0')}`
             try {
-              await addItem({ ...variantPayload, code: codeToTry } as any, { skipReload: true })
+              const createdVariant = await addItem({ ...variantPayload, code: codeToTry } as any, { skipReload: true })
               saved = true
+              if (!isService && !await applyLegacyInitialStock(createdVariant?.id, formData.stock_quantity)) {
+                stockIssues.push(`La variante "${variantName}" se creó, pero su stock inicial no se confirmó: ajustalo desde Editar.`)
+              }
             } catch (e: any) {
               lastErr = e
               if (!isDupe(e)) throw e
@@ -740,6 +726,7 @@ export function Inventory() {
         await refresh({ background: true })
         setExpandedRows(prev => new Set([...prev, variantParentItem.id]))
         closeModal()
+        if (stockIssues.length) alert(stockIssues.join('\n'))
         return
       }
 
@@ -780,8 +767,10 @@ export function Inventory() {
       const productPayload = {
         ...basePayload,
         name: baseName,
-        stock_quantity: formData.has_variants ? 0 : formData.stock_quantity
       }
+      // Stock propio del producto (con variantes legacy, el stock vive en los hijos).
+      const ownStock = formData.has_variants || isService ? 0 : formData.stock_quantity
+      const stockIssues: string[] = []
 
       const existingChildVariants = editingItem ? (variantsByParent[editingItem.id] || []) : []
       let parentProductId = editingItem?.id || ''
@@ -789,10 +778,16 @@ export function Inventory() {
 
       if (editingItem) {
         await updateItem(editingItem.id, productPayload, { skipReload: true })
+        if (!formData.has_variants && !isService && await applyLegacyStockEdit(editingItem, ownStock) === 'stale') {
+          stockIssues.push(`El stock de "${baseName}" cambió mientras editabas: no se modificó.`)
+        }
       } else {
         const createdProduct = await addItem(productPayload as any, { skipReload: true })
         parentProductId = createdProduct?.id || ''
         parentProductCode = createdProduct?.code || cleanedCode
+        if (!await applyLegacyInitialStock(createdProduct?.id, ownStock)) {
+          stockIssues.push(`"${baseName}" se creó, pero su stock inicial no se confirmó: ajustalo desde Editar.`)
+        }
       }
 
       if (formData.has_variants && parentProductId) {
@@ -853,7 +848,6 @@ export function Inventory() {
             description: cleanedDescription,
             category: categoryValue,
             subcategory: variantName,
-            stock_quantity: variant.stock_quantity || 0,
             min_stock: formData.min_stock,
             cost_price: variant.cost_price ?? formData.cost_price,
             cost_price_usd: variant.cost_price_usd ?? formData.cost_price_usd,
@@ -869,6 +863,10 @@ export function Inventory() {
           if (variant.id) {
             keptVariantIds.add(variant.id)
             await updateItem(variant.id, buildVariantPayload(variantCode), { skipReload: true })
+            const previous = existingChildVariants.find(v => v.id === variant.id)
+            if (previous && await applyLegacyStockEdit(previous, Number(variant.stock_quantity || 0)) === 'stale') {
+              stockIssues.push(`El stock de la variante "${variantName}" cambió mientras editabas: no se modificó.`)
+            }
           } else {
             // Retry en caso de 409: la constraint UNIQUE de `code` es global y no se
             // respeta `is_active`, así que un código generado puede chocar con
@@ -905,6 +903,9 @@ export function Inventory() {
             }
             if (createdVariant?.id) {
               keptVariantIds.add(createdVariant.id)
+              if (!await applyLegacyInitialStock(createdVariant.id, Number(variant.stock_quantity || 0))) {
+                stockIssues.push(`La variante "${variantName}" se creó, pero su stock inicial no se confirmó: ajustalo desde Editar.`)
+              }
             }
           }
         }
@@ -953,6 +954,7 @@ export function Inventory() {
       }
 
       closeModal()
+      if (stockIssues.length) alert(stockIssues.join('\n'))
     } catch (err: any) {
       const rawMsg = err?.message || ''
       const friendly = /duplicate key|unique|409|violates/i.test(rawMsg)
@@ -970,6 +972,18 @@ export function Inventory() {
       showLoading('Duplicando producto...')
       const isVariant = isVariantItem(item)
 
+      // SEC-08B — el costo no viaja en la lectura operativa, y `cost_price` es
+      // NOT NULL: sin esto la copia fallaba (23502) para todo actor con
+      // autoridad de costo. Se copia por la vista autorizada, igual que el
+      // export; sin autoridad queda 0 («sin costo cargado»), que es además lo
+      // que el trigger server-side fuerza en un INSERT no autorizado.
+      const sourceIds = [item.id, ...(isVariant ? [] : (variantsByParent[item.id] || []).map(v => v.id))]
+      const { costs } = await fetchInventoryCosts(sourceIds)
+      const costOf = (id: string) => {
+        const c = costs.get(id)
+        return { cost_price: c?.cost_price ?? 0, cost_price_usd: c?.cost_price_usd ?? 0 }
+      }
+
       const buildCopyPayload = (source: any, overrides: Record<string, any> = {}) => {
         const {
           id: _id,
@@ -977,8 +991,12 @@ export function Inventory() {
           updated_at: _ua,
           created_by: _cb,
           business_id: _bi,
-          ...rest
+          ...definition
         } = source
+        // G2-C.3A2 — DUPLICAR DEFINICIÓN ≠ DUPLICAR EXISTENCIA FÍSICA. La copia
+        // (simple, padre, variante o hijos) nace con stock 0, sin movimiento y
+        // sin RPC: strip explícito de stock / stock_quantity.
+        const rest: any = withoutStockFields(definition)
 
         // Si el producto está vinculado al dólar, recalcular sale_price
         // con el tipo de cambio ACTUAL para que la copia no quede desactualizada
@@ -996,7 +1014,7 @@ export function Inventory() {
           }
         }
 
-        return { ...rest, ...recalcPrices, ...overrides }
+        return { ...rest, ...costOf(source.id), ...recalcPrices, ...overrides }
       }
 
       // Genera un código único que no colisiona con ningún producto existente
@@ -1151,7 +1169,11 @@ export function Inventory() {
         'Nombre del producto': item.name,
         'Descripción': item.description || '',
         'Categoría': item.category,
-        'Stock actual': item.stock_quantity,
+        // G2-C.3A2 — «Stock actual» es editable; «Stock esperado» es el SNAPSHOT
+        // de esta exportación. Al importar, el stock sólo se ajusta si el real
+        // sigue siendo el esperado (si hubo ventas en el medio, no se pisa).
+        [STOCK_ACTUAL_COLUMN]: item.stock_quantity,
+        [STOCK_EXPECTED_COLUMN]: item.stock_quantity,
         'Stock mínimo': item.min_stock,
         ...(authorized ? {
           'Precio de costo (ARS)': costs.get(item.id)?.cost_price ?? 0,
@@ -1171,27 +1193,39 @@ export function Inventory() {
     }
   }
 
-  const handleImportInventory = async (data: ExcelRow[]) => {
+  /**
+   * G2-C.3A2 — import de Excel sin autoridad de stock en el navegador.
+   *
+   * 1. Metadata por fila (sin stock): UPDATE del existente o INSERT del nuevo
+   *    (nace en 0). Un error de fila se informa y no aborta el archivo.
+   * 2. Stock por la RPC canónica (ver inventoryStockImport): existentes por
+   *    `import` con target = «Stock actual» y expected = «Stock esperado»
+   *    (snapshot del export, NUNCA el stock leído ahora); nuevos por
+   *    `initial_stock`. Stale no pisa y no aborta: se resume al final.
+   *
+   * `attemptId` identifica el intento (la selección del archivo): un retry del
+   * mismo intento reusa las claves; un archivo nuevo rota.
+   */
+  const handleImportInventory = async (data: ExcelRow[], ctx?: { attemptId?: string }) => {
+    if (!businessId) throw new Error('Negocio no identificado.')
     showLoading('Importando inventario...')
+    const attemptId = ctx?.attemptId ?? crypto.randomUUID()
+    if (importAttemptRef.current?.id !== attemptId) importAttemptRef.current = createImportAttempt(attemptId)
+    const attempt = importAttemptRef.current
+
     let created = 0
     let updated = 0
+    const rowErrors: string[] = []
+    const stockRows: StockImportRow[] = []
 
     try {
-      for (const row of data) {
-        const code = row['Código/SKU'] || row['codigo'] || row['code']
-        
-        if (!code) {
-          console.warn('Fila sin código, saltando:', row)
-          continue
-        }
+      for (const [index, row] of data.entries()) {
+        const rawCode = row['Código/SKU'] || row['codigo'] || row['code']
+        const rowNumber = index + 2 // fila 1 = encabezado
 
-        // Buscar si existe por código
-        const { data: existingItem } = await supabase
-          .from('inventory')
-          .select(INVENTORY_OPERATIONAL_COLUMNS)
-          .eq('code', code)
-          .eq('business_id', businessId)
-          .single()
+        if (!rawCode) continue
+        const code = String(rawCode).trim()
+        if (!code) continue
 
         /**
          * SEC-08B — una celda de costo AUSENTE o VACÍA significa
@@ -1207,12 +1241,12 @@ export function Inventory() {
         const hasCostArs = rawCostArs !== undefined && rawCostArs !== null && String(rawCostArs).trim() !== ''
         const hasCostUsd = rawCostUsd !== undefined && rawCostUsd !== null && String(rawCostUsd).trim() !== ''
 
+        // Metadata SIN stock: el saldo no es un dato del producto.
         const itemData = {
-          code,
+          code: rawCode,
           name: row['Nombre del producto'] || row['nombre'] || row['name'] || '',
           description: row['Descripción'] || row['descripcion'] || row['description'] || '',
           category: row['Categoría'] || row['categoria'] || row['category'] || '',
-          stock_quantity: Number(row['Stock actual'] || row['stock'] || 0),
           min_stock: Number(row['Stock mínimo'] || row['stock_minimo'] || 1),
           ...(hasCostArs ? { cost_price: Number(rawCostArs) } : {}),
           ...(hasCostUsd ? { cost_price_usd: Number(rawCostUsd) } : {}),
@@ -1224,29 +1258,86 @@ export function Inventory() {
           business_id: businessId
         }
 
-        if (existingItem) {
-          // UPDATE: si la celda de costo no vino, `itemData` no la trae y la
-          // base conserva el valor que ya tenía.
-          await supabase
+        let inventoryId: string
+        let isNew: boolean
+        const createdInAttempt = attempt.createdByCode.get(code)
+
+        if (createdInAttempt) {
+          // Retry del MISMO intento: este intento ya lo creó (en 0). Sigue siendo
+          // «nuevo» para el stock, así el lote initial_stock repite su payload.
+          const { error: updateError } = await supabase
             .from('inventory')
             .update(itemData)
-            .eq('id', existingItem.id)
-          updated++
-        } else {
-          // INSERT: `inventory.cost_price` es NOT NULL sin default, así que un
-          // producto nuevo necesita un valor. 0 acá es «sin costo cargado», no
-          // un costo destruido: no había ninguno.
-          await supabase
-            .from('inventory')
-            .insert([{ cost_price: 0, ...itemData }])
+            .eq('id', createdInAttempt)
+            .eq('business_id', businessId)
+          // Un error de metadata no saca la fila del lote de stock: así el
+          // payload del lote es el mismo en cada retry del intento.
+          if (updateError) rowErrors.push(`fila ${rowNumber} (${code}): ${updateError.message}`)
+          inventoryId = createdInAttempt
+          isNew = true
           created++
+        } else {
+          const { data: existingItem, error: lookupError } = await supabase
+            .from('inventory')
+            .select('id')
+            .eq('code', rawCode)
+            .eq('business_id', businessId)
+            .maybeSingle()
+          if (lookupError) { rowErrors.push(`fila ${rowNumber} (${code}): ${lookupError.message}`); continue }
+
+          if (existingItem) {
+            // UPDATE: si la celda de costo no vino, `itemData` no la trae y la
+            // base conserva el valor que ya tenía. El stock NO viaja acá.
+            const { error: updateError } = await supabase
+              .from('inventory')
+              .update(itemData)
+              .eq('id', existingItem.id)
+              .eq('business_id', businessId)
+            if (updateError) rowErrors.push(`fila ${rowNumber} (${code}): ${updateError.message}`)
+            inventoryId = existingItem.id
+            isNew = false
+            updated++
+          } else {
+            // INSERT: `inventory.cost_price` es NOT NULL sin default, así que un
+            // producto nuevo necesita un valor. 0 acá es «sin costo cargado», no
+            // un costo destruido: no había ninguno. El stock nace en 0.
+            const { data: inserted, error: insertError } = await supabase
+              .from('inventory')
+              .insert([{ cost_price: 0, ...itemData }])
+              .select('id')
+              .single()
+            if (insertError || !inserted) { rowErrors.push(`fila ${rowNumber} (${code}): ${insertError?.message ?? 'no se pudo crear'}`); continue }
+            attempt.createdByCode.set(code, inserted.id)
+            inventoryId = inserted.id
+            isNew = true
+            created++
+          }
         }
+
+        stockRows.push({
+          rowNumber, code, inventoryId, isNew,
+          actual:   row[STOCK_ACTUAL_COLUMN] ?? row['stock'],
+          expected: row[STOCK_EXPECTED_COLUMN] ?? row['stock_esperado'],
+        })
+      }
+
+      const summary = await applyStockImport({
+        businessId, attemptId, plan: planStockImport(stockRows),
+      })
+      const { details, warnings } = describeStockImport(summary)
+      if (rowErrors.length) {
+        warnings.push(`${rowErrors.length} fila(s) no se pudieron guardar: ${rowErrors.slice(0, 10).join('; ')}${rowErrors.length > 10 ? '…' : ''}`)
       }
 
       await refresh({ background: true })
-      return { created, updated }
+      return { created, updated, details, warnings }
     } catch (error) {
-      console.error('Error importando inventario:', error)
+      // El mismo intento se puede reintentar: las claves hacen replay y los
+      // productos que este intento ya creó no se duplican.
+      await refresh({ background: true })
+      if (error instanceof StockAdjustmentError && error.label === 'IDEMPOTENCY_CONFLICT') {
+        throw new Error('El contenido a importar cambió respecto del intento anterior. Volvé a seleccionar el archivo para importarlo como un intento nuevo (lo ya aplicado no se repite).')
+      }
       throw error
     } finally {
       hideLoading()
@@ -1298,7 +1389,8 @@ export function Inventory() {
     const effective = getEffectiveStock(item)
     const displayStock = effective.stock_quantity
     const displayMinStock = effective.min_stock
-    const effectiveOutOfStock = !isService && displayStock === 0
+    // Negativo (sobreventa permitida por G2-C) = agotado, en rojo, con su valor real.
+    const effectiveOutOfStock = !isService && displayStock <= 0
     const effectiveLowStock = !isService && displayStock > 0 && displayStock <= displayMinStock
     const isExpanded = hasVariants && expandedRows.has(item.id)
     const effectivePrices = getEffectivePrices(item)
@@ -1711,7 +1803,8 @@ export function Inventory() {
                     <Plus size={14} style={{ flexShrink: 0 }} />
                     Producto simple
                   </button>
-                  <button
+                  {/* «Producto con variantes» (Variants v2) oculto en beta. */}
+                  {VARIANTS_V2_ENABLED && <button
                     type="button"
                     data-testid="inventory-new-product-variants"
                     onClick={() => openCreateProductModal('with_variants')}
@@ -1721,7 +1814,7 @@ export function Inventory() {
                   >
                     <Package size={14} style={{ flexShrink: 0 }} />
                     Producto con variantes
-                  </button>
+                  </button>}
                   <div style={{ height: '1px', background: 'var(--border-subtle)', margin: '0.25rem 0' }} />
                   <button
                     type="button"
@@ -3137,7 +3230,11 @@ export function Inventory() {
       {/* ProductFormModal — Producto simple, Servicio y Con variantes (también edición) */}
       <ProductFormModal
         isOpen={showProductFormModal}
-        onClose={() => { setShowProductFormModal(false); setProductFormEditItem(null) }}
+        onClose={() => {
+          setShowProductFormModal(false); setProductFormEditItem(null)
+          // Un cierre puede seguir a un guardado parcial (datos sí, stock stale): refrescar.
+          void refresh({ background: true })
+        }}
         editItem={productFormEditItem ?? undefined}
         onCreated={_product => {
           setShowProductFormModal(false)
@@ -3152,7 +3249,7 @@ export function Inventory() {
         initialTipo={productFormEditItem ? undefined : productFormTipo}
         registerStock={!productFormEditItem}
         sourceType={productFormEditItem ? undefined : 'manual'}
-        sourceNote={productFormEditItem ? undefined : 'Stock inicial desde Inventario'}
+        sourceNote={productFormEditItem ? undefined : 'Alta desde Inventario'}
       />
 
       {/* Herramienta de reparación de stock — solo owner/admin */}

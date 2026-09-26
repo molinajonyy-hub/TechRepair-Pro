@@ -118,6 +118,12 @@ jobs:
       - name: Fiscal date Part 2 — ARCA lookup runner is read-only
         run: npm run guard:fdp2-runner-readonly:self-test && npm run guard:fdp2-runner-readonly
 
+      # G2-C.3A2: el navegador deja de ser autoridad del stock. Estatico (src/ +
+      # migraciones) y de componentes: corre en PRs y forks. El self-test va
+      # primero; el E2E de los flujos vive en m7-local (job e2e-local).
+      - name: G2-C.3A2 — frontend stock authority (guard + component tests)
+        run: npm run test:g2c3a2
+
       - name: Production build
         run: npm run build
         env:

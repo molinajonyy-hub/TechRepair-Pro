@@ -8,11 +8,21 @@
  * Props de contexto (pre-relleno):
  *   initialName     — nombre del buscador donde no se encontró el producto
  *   initialCost     — costo unitario de la línea de factura/gasto
- *   initialQuantity — cantidad de la línea (para stock inicial)
+ *   initialQuantity — cantidad de la línea del documento. NO es existencia
+ *                     física: se ignora para el stock (G2-C.3A2).
  *   initialCurrency — moneda del contexto
  *   supplierId / supplierName — proveedor del contexto
- *   registerStock   — si true, suma stock al crear (con movimiento registrado)
- *   sourceType / sourceId — para trazar el movimiento
+ *   registerStock   — true SÓLO desde Inventario: permite cargar stock inicial,
+ *                     que se aplica por la autoridad canónica (initial_stock).
+ *                     false (default): el producto nace en 0 y el documento
+ *                     posterior (compra, gasto, venta, orden) mueve el stock.
+ *
+ * G2-C.3A2 — el formulario NUNCA escribe stock como dato del producto:
+ *   · alta desde Inventario → INSERT en 0 + RPC initial_stock (initial-stock:<id>);
+ *   · edición → UPDATE de metadata sin stock; si el usuario cambió el stock,
+ *     RPC manual con target = nuevo valor y expected = el stock que vio. Si
+ *     cambió entretanto (stale) no se pisa: se informa y se refresca.
+ *   · «Con variantes» (Variants v2) queda oculto durante la beta.
  */
 import { useState, useEffect, useCallback, useMemo, useRef, Component, type ErrorInfo } from 'react'
 import { X, RefreshCw, DollarSign, Package, Check, AlertCircle } from 'lucide-react'
@@ -25,6 +35,7 @@ import {
   calculateSaleFromMargin,
   convertToARS,
   convertToUSD,
+  InitialStockPendingError,
   type CreateProductInput,
   type ProductCreationContext,
   type CreateVariantInput,
@@ -32,6 +43,29 @@ import {
 } from '../../services/productService'
 import type { InventoryItem } from '../../hooks/useInventory'
 import { fetchInventoryCosts, hasInventoryCostAuthority } from '../../services/inventoryCostAccess'
+import {
+  inventoryStockAdjustmentService,
+  isStockInt,
+  manualStockKey,
+} from '../../services/inventoryStockAdjustmentService'
+
+/**
+ * Variants v2 («Con variantes») no es operativo para la beta: queda OCULTO y no
+ * seleccionable. La infraestructura se conserva; un caller que pida
+ * initialTipo='with_variants' degrada explícitamente a producto simple.
+ * El «Agregar variante» legacy de Inventario es otro flujo y sigue disponible.
+ */
+export const VARIANTS_V2_ENABLED = false
+
+const WITH_VARIANTS_DISABLED_NOTICE =
+  'La creación «Con variantes» no está disponible en la beta: se abrió como producto simple. ' +
+  'Para variantes usá «Agregar variante» desde Inventario.'
+
+/** Motivo de la RPC para el alta desde Inventario (estable: entra en el hash de idempotencia). */
+const INITIAL_STOCK_REASON = 'Alta desde Inventario'
+const MANUAL_EDIT_REASON = 'Edición de producto'
+
+type ProductFormSourceType = 'supplier_invoice' | 'expense' | 'purchase' | 'manual'
 
 // ─── Categorías ───────────────────────────────────────────────────────────────
 
@@ -58,16 +92,20 @@ export interface ProductFormModalProps {
   // Pre-relleno desde contexto (buscador, factura, gasto, etc.)
   initialName?:     string
   initialCost?:     number
+  /** Cantidad de la línea del documento. NO es stock: se ignora (el producto nace en 0). */
   initialQuantity?: number
   initialCurrency?: 'ARS' | 'USD'
+  /** 'with_variants' degrada a 'product' mientras VARIANTS_V2_ENABLED sea false. */
   initialTipo?:     'product' | 'service' | 'with_variants'
   supplierId?:      string
   supplierName?:    string
 
-  // Contexto de movimiento de stock
+  /** true SÓLO desde Inventario: habilita el stock inicial (RPC initial_stock). */
   registerStock?: boolean
-  sourceType?:    ProductCreationContext['sourceType']
+  /** Contexto informativo del alta (no mueve stock). */
+  sourceType?:    ProductFormSourceType
   sourceId?:      string
+  /** Motivo del stock inicial (sólo con registerStock). */
   sourceNote?:    string
 }
 
@@ -150,7 +188,6 @@ interface FormState {
   min_stock:        string
   location:         string
   is_active:        boolean
-  register_stock:   boolean          // registrar movimiento de inventario
   variants:         VariantRow[]     // solo para tipo 'with_variants'
 }
 
@@ -161,7 +198,7 @@ const EMPTY: FormState = {
   sale_price_ars: '', sale_price_usd: '', margin_pct: '', auto_update_price: false,
   wholesale_price: '', wholesale_price_usd: '', wholesale_currency: 'ARS',
   stock_quantity: '0', min_stock: '0', location: '',
-  is_active: true, register_stock: false,
+  is_active: true,
   variants: [emptyVariant(1)],
 }
 
@@ -190,9 +227,12 @@ function serializeForm(f: FormState): string {
 
 // Fusiona draft con EMPTY para garantizar que todos los campos existan
 function hydrateDraft(draft: Partial<FormState>): FormState {
+  // Un borrador viejo de «Con variantes» no reabre el flujo oculto.
+  const tipo = draft.tipo === 'with_variants' && !VARIANTS_V2_ENABLED ? 'product' : draft.tipo
   return {
     ...EMPTY,
     ...draft,
+    ...(tipo ? { tipo } : {}),
     variants: Array.isArray(draft.variants) && draft.variants.length > 0
       ? draft.variants.map(v => ({ ...emptyVariant(), ...v, _key: v._key ?? crypto.randomUUID() }))
       : EMPTY.variants,
@@ -206,12 +246,14 @@ const F = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 export function ProductFormModal({
   isOpen, onClose, onCreated, onSaved, onVariantSelected,
   editItem,
-  initialName, initialCost, initialQuantity, initialCurrency, initialTipo,
+  initialName, initialCost, initialCurrency, initialTipo,
   supplierId, supplierName,
-  registerStock = false, sourceType, sourceId, sourceNote,
+  registerStock = false, sourceNote,
 }: ProductFormModalProps) {
   const isEditMode = !!editItem
   const { businessId, user } = useAuth()
+  // Stock inicial: SÓLO en el alta desde Inventario (registerStock) y para productos.
+  const canSetInitialStock = registerStock && !isEditMode
 
   const [form, setForm]               = useState<FormState>(EMPTY)
   const [saving, setSaving]           = useState(false)
@@ -232,6 +274,14 @@ export function ProductFormModal({
   const [genDimensions, setGenDimensions] = useState<GeneratorDimension[]>([
     { _key: crypto.randomUUID(), name: 'Color', values: [] },
   ])
+  // G2-C.3A2 — autoridad de stock
+  const [notice, setNotice] = useState('')               // informativo (variantes deshabilitadas, stale)
+  /** Producto ya creado cuyo stock inicial no se confirmó: el retry reusa initial-stock:<id>. */
+  const [pendingInitialStock, setPendingInitialStock] = useState<{ product: InventoryItem; quantity: number } | null>(null)
+  /** Stock que el usuario VIO al abrir la edición: es el `expected` del ajuste manual. */
+  const stockBaselineRef = useRef<number>(0)
+  /** Una sesión de edición = una familia de intenciones de ajuste (clave de idempotencia). */
+  const editSessionRef = useRef<string>('')
 
   // ── Draft / unsaved-changes protection ─────────────────────────────────────
   const DRAFT_KEY = useMemo(
@@ -384,12 +434,13 @@ export function ProductFormModal({
         min_stock:     String(editItem.min_stock ?? 0),
         location:      editItem.location ?? '',
         is_active:     editItem.is_active ?? true,
-        register_stock:false,
         variants:      [emptyVariant(1)],
       }
+      stockBaselineRef.current = editItem.stock_quantity ?? 0
+      editSessionRef.current = crypto.randomUUID()
       setForm(editForm)
       cleanFormRef.current = serializeForm(editForm)
-      setError(''); setDuplicate(null); setShowCloseConfirm(false)
+      setError(''); setNotice(''); setPendingInitialStock(null); setDuplicate(null); setShowCloseConfirm(false)
       // Forzar actualización desde InfoDolar en modo edición también
       fetchRate(true)
       loadSuppliers()
@@ -398,10 +449,9 @@ export function ProductFormModal({
     }
 
     // ── Modo creación: pre-rellenar desde props de contexto ──────────────────
-    const resolvedTipo = initialTipo ?? 'product'
-    if (resolvedTipo === 'with_variants') {
-      // log para analytics (no console.log — ver CLAUDE.md)
-    }
+    // «Con variantes» oculto en beta: degradación explícita a producto simple.
+    const variantsBlocked = initialTipo === 'with_variants' && !VARIANTS_V2_ENABLED
+    const resolvedTipo = variantsBlocked ? 'product' : (initialTipo ?? 'product')
     const initialForm: FormState = {
       ...EMPTY,
       tipo:          resolvedTipo,
@@ -411,13 +461,15 @@ export function ProductFormModal({
       base_currency: initialCurrency  ?? 'ARS',
       cost_ars:      initialCurrency === 'ARS' ? String(initialCost ?? '') : '',
       cost_usd:      initialCurrency === 'USD' ? String(initialCost ?? '') : '',
-      stock_quantity: String(initialQuantity ?? 0),
-      register_stock: registerStock,
+      // initialQuantity es la cantidad del documento, no existencia física:
+      // el producto nace en 0 y el documento mueve el stock.
+      stock_quantity: '0',
       exchange_rate: currentRate,
     }
     setForm(initialForm)
     cleanFormRef.current = serializeForm(initialForm)
-    setError(''); setDuplicate(null); setShowCloseConfirm(false)
+    setError(''); setPendingInitialStock(null); setDuplicate(null); setShowCloseConfirm(false)
+    setNotice(variantsBlocked ? WITH_VARIANTS_DISABLED_NOTICE : '')
     // Forzar actualización desde InfoDolar Córdoba en cada apertura del modal
     // (force=true para evitar que el cache en módulo devuelva valor viejo)
     fetchRate(true)
@@ -677,7 +729,38 @@ export function ProductFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!businessId || !user) return
-    setError(''); setSaving(true)
+
+    // Fail-closed: «Con variantes» está oculto en beta (p. ej. un borrador viejo).
+    if (form.tipo === 'with_variants' && !VARIANTS_V2_ENABLED) {
+      setError(WITH_VARIANTS_DISABLED_NOTICE)
+      return
+    }
+
+    // El producto ya existe y sólo falta confirmar su stock inicial: se
+    // reintenta la MISMA intención (initial-stock:<id>), nunca se crea otro.
+    if (pendingInitialStock) {
+      setError(''); setSaving(true)
+      try {
+        const applied = await inventoryStockAdjustmentService.applyInitialStock({
+          businessId,
+          inventoryId: pendingInitialStock.product.id,
+          quantity:    pendingInitialStock.quantity,
+          reason:      sourceNote ?? INITIAL_STOCK_REASON,
+        })
+        const product = applied
+          ? { ...pendingInitialStock.product, stock_quantity: applied.new_stock }
+          : pendingInitialStock.product
+        setPendingInitialStock(null)
+        clearDraftOnSave(); onCreated(product); onClose()
+      } catch (err: unknown) {
+        setError(`El producto ya está creado, pero el stock inicial sigue sin confirmarse: ${(err as Error)?.message || 'error desconocido'}. Reintentá: no se duplica.`)
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
+
+    setError(''); setNotice(''); setSaving(true)
 
     try {
       const costARS = deriveCostARS(form)
@@ -699,7 +782,10 @@ export function ProductFormModal({
           ? { cost_price: costARS, cost_price_usd: costUSD }
           : { cost_price: undefined, cost_price_usd: undefined }
       const saleARS = parseFloat(form.sale_price_ars) || 0
-      const qty     = parseInt(form.stock_quantity) || 0
+      // Stock escrito en el formulario (entero; vacío = 0). Sólo se usa como
+      // stock inicial (Inventario) o como target de un ajuste manual (edición).
+      const stockText   = form.stock_quantity.trim()
+      const stockTyped  = stockText === '' ? 0 : Number(stockText)
       const catName = showCatInput && form.newCategory.trim()
         ? form.newCategory.trim()
         : form.category || 'Otros'
@@ -714,7 +800,7 @@ export function ProductFormModal({
         ? Math.round(convertToARS(parseFloat(form.wholesale_price_usd), rate))
         : (parseFloat(form.wholesale_price) || undefined)
 
-      const baseInput: Omit<CreateProductInput, 'tipo' | 'stock_quantity'> = {
+      const baseInput: Omit<CreateProductInput, 'tipo'> = {
         business_id:    businessId,
         created_by:     user.id,
         name:           form.name.trim(),
@@ -748,6 +834,15 @@ export function ProductFormModal({
 
       // ── Modo edición ───────────────────────────────────────────────────────
       if (isEditMode && editItem) {
+        // Stock: metadata y saldo van por caminos distintos. Si el usuario tocó
+        // el stock, se valida ANTES de guardar nada.
+        const stockExpected = stockBaselineRef.current
+        const wantsStockChange = form.tipo === 'product' && stockText !== '' && stockTyped !== stockExpected
+        if (wantsStockChange && !isStockInt(stockTyped)) {
+          setError('El stock tiene que ser un número entero.')
+          return
+        }
+
         const saleARSEdit = form.base_currency === 'USD' && parseFloat(form.sale_price_usd) > 0
           ? Math.round(convertToARS(parseFloat(form.sale_price_usd), rate))
           : saleARS
@@ -779,6 +874,43 @@ export function ProductFormModal({
           is_active:      form.is_active,
         }, businessId)
 
+        // Ajuste manual por la autoridad canónica: target = lo escrito,
+        // expected = lo que el usuario vio al abrir. Nunca un UPDATE de stock.
+        let stockNow = editItem.stock_quantity
+        if (wantsStockChange) {
+          let result
+          try {
+            result = await inventoryStockAdjustmentService.applyManualTarget({
+              businessId,
+              inventoryId:    editItem.id,
+              target:         stockTyped,
+              expected:       stockExpected,
+              idempotencyKey: manualStockKey(editItem.id, editSessionRef.current, stockExpected, stockTyped),
+              reason:         MANUAL_EDIT_REASON,
+            })
+          } catch (err: unknown) {
+            // Los datos ya se guardaron; el stock quedó sin confirmar. Volver a
+            // guardar reusa la misma clave: el servidor no duplica.
+            setError(`Se guardaron los datos del producto, pero el ajuste de stock no se confirmó: ${(err as Error)?.message || 'error desconocido'}. Volvé a guardar para reintentar (no se duplica).`)
+            return
+          }
+          if (result.status === 'stale') {
+            // Otro movimiento cambió el stock mientras se editaba: NO se pisa.
+            // Se muestra el valor real y el usuario decide si vuelve a ajustar.
+            const refreshed: FormState = { ...form, stock_quantity: String(result.current_stock) }
+            stockBaselineRef.current = result.current_stock
+            editSessionRef.current = crypto.randomUUID()
+            setForm(refreshed)
+            cleanFormRef.current = serializeForm(refreshed)
+            setNotice(
+              `Se guardaron los datos, pero el stock NO se modificó: pasó de ${stockExpected} a ${result.current_stock} ` +
+              'mientras editabas (una venta, compra u otro ajuste). Revisá el valor actualizado y guardá de nuevo si querés ajustarlo.'
+            )
+            return
+          }
+          stockNow = result.status === 'applied' ? result.new_stock : result.current_stock
+        }
+
         // Construir el ítem actualizado fusionando editItem + cambios del form
         const updatedItem: InventoryItem = {
           ...(editItem as InventoryItem),
@@ -792,7 +924,7 @@ export function ProductFormModal({
           ...costFields,
           sale_price:     saleARS,
           min_stock:      parseInt(form.min_stock) || 0,
-          stock_quantity: editItem.stock_quantity,  // no se modifica el stock desde edición
+          stock_quantity: stockNow,  // lo que decidió la RPC (o el mismo, sin ajuste)
           location:       form.location.trim() || undefined,
           is_active:      form.is_active,
         }
@@ -821,18 +953,16 @@ export function ProductFormModal({
           sale_price_ars:  parseFloat(v.sale_price) || saleARS || 0,
           wholesale_price_ars: parseFloat(v.wholesale) || undefined,
           exchange_rate_used:  form.base_currency === 'USD' ? rate : undefined,
-          stock:      parseInt(v.stock) || 0,
+          // Stock inicial sólo desde Inventario; fuera de ahí la variante nace en 0.
+          stock:      canSetInitialStock ? (parseInt(v.stock) || 0) : 0,
           min_stock:  parseInt(v.min_stock) || 0,
           location:   v.location.trim() || undefined,
           active:     v.is_active,
           is_default: v.is_default,
           sort_order: i,
         }))
-        const ctx: ProductCreationContext = registerStock
-          ? { registerMovement: true, movementType: 'in', sourceType, sourceId, sourceNote }
-          : {}
         const { product, variants: createdVariants } = await productService.createProductWithVariants(
-          baseInput, variantInputs, ctx
+          baseInput, variantInputs
         )
         if (onVariantSelected && createdVariants.length > 0) {
           setVariantPickerData({ product, variants: createdVariants })
@@ -843,24 +973,30 @@ export function ProductFormModal({
       }
 
       // ── Producto simple / servicio ──────────────────────────────────────────
+      // Metadata SIN stock (nace en 0). Stock inicial: sólo desde Inventario,
+      // por la RPC canónica (initial_stock). Fuera de Inventario no existe.
       const input: CreateProductInput = {
         ...baseInput,
-        tipo:           form.tipo as 'product' | 'service',
-        stock_quantity: form.tipo === 'service' ? 0 : qty,
+        tipo: form.tipo as 'product' | 'service',
       }
 
-      const ctx: ProductCreationContext = form.register_stock && form.tipo !== 'service' && qty > 0
-        ? {
-            registerMovement: true, movementType: 'in', sourceType, sourceId,
-            sourceNote: sourceNote ?? `Stock inicial desde ${sourceType ?? 'creación'}`,
-            unit_cost: costARS, currency: form.base_currency,
-            exchange_rate: form.base_currency === 'USD' ? rate : undefined,
-          }
+      const initialStock = canSetInitialStock && form.tipo === 'product' ? stockTyped : 0
+      if (initialStock !== 0 && !isStockInt(initialStock)) {
+        setError('El stock inicial tiene que ser un número entero.')
+        return
+      }
+      const ctx: ProductCreationContext = initialStock !== 0
+        ? { initialStock, initialStockReason: sourceNote ?? INITIAL_STOCK_REASON }
         : {}
 
       const product = await productService.createProduct(input, ctx)
       clearDraftOnSave(); onCreated(product); onClose()
     } catch (err: any) {
+      if (err instanceof InitialStockPendingError && form.tipo !== 'with_variants') {
+        // El producto existe (stock 0 o ya aplicado con la respuesta perdida).
+        // NO se borra: el próximo «Guardar» reintenta sólo el stock inicial.
+        setPendingInitialStock({ product: err.product, quantity: err.quantity })
+      }
       setError(err.message || 'Error al guardar el producto.')
     } finally {
       setSaving(false)
@@ -971,13 +1107,13 @@ export function ProductFormModal({
         {/* Body */}
         <form onSubmit={handleSubmit} style={{ overflowY: 'auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
-          {/* Tipo — 3 opciones (solo en modo creación) */}
-          {!isEditMode && <div style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
+          {/* Tipo (solo en modo creación). «Con variantes» oculto en beta. */}
+          {!isEditMode && <div data-testid="product-form-tipo" style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
             {([
               { v: 'product',       label: 'Producto',        color: '#6366f1' },
               { v: 'service',       label: 'Servicio',         color: '#06b6d4' },
               { v: 'with_variants', label: 'Con variantes',    color: '#f59e0b' },
-            ] as const).map(({ v, label, color }) => (
+            ] as const).filter(o => o.v !== 'with_variants' || VARIANTS_V2_ENABLED).map(({ v, label, color }) => (
               <button
                 key={v} type="button"
                 onClick={() => set('tipo', v)}
@@ -993,6 +1129,14 @@ export function ProductFormModal({
               </button>
             ))}
           </div>}
+
+          {/* Aviso informativo (variantes deshabilitadas en beta, stock desactualizado) */}
+          {notice && (
+            <div data-testid="product-form-notice" role="status" style={{ display: 'flex', gap: '0.5rem', padding: '0.75rem 1rem', background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '0.625rem' }}>
+              <AlertCircle size={16} color="#f59e0b" style={{ flexShrink: 0 }} />
+              <span style={{ color: '#fbbf24', fontSize: '0.82rem' }}>{notice}</span>
+            </div>
+          )}
 
           {/* Duplicado detectado */}
           {duplicate && (
@@ -1262,13 +1406,31 @@ export function ProductFormModal({
             </Row2>
           </Section>
 
-          {/* ── Sección: Stock (solo productos) ── */}
+          {/* ── Sección: Stock (solo productos) ──
+              G2-C.3A2: el saldo nunca viaja como dato del producto.
+                · Edición → «Stock actual»: un cambio es un ajuste manual (RPC).
+                · Alta desde Inventario → «Stock inicial» (RPC initial_stock).
+                · Alta contextual (proveedor, gasto, POS, orden) → nace en 0. */}
           {form.tipo === 'product' && (
             <Section label="Stock">
               <Row2>
-                <Field label="Stock inicial">
-                  <input data-testid="product-stock-input" value={form.stock_quantity} onChange={e => set('stock_quantity', e.target.value)} placeholder="0" type="number" min="0" style={inputS} />
-                </Field>
+                {isEditMode ? (
+                  <Field label="Stock actual">
+                    <input data-testid="product-stock-input" value={form.stock_quantity} onChange={e => set('stock_quantity', e.target.value)} placeholder="0" type="number" step="1" style={inputS} />
+                    <p style={hintS}>Si lo cambiás se registra como ajuste manual de stock.</p>
+                  </Field>
+                ) : canSetInitialStock ? (
+                  <Field label="Stock inicial">
+                    <input data-testid="product-stock-input" value={form.stock_quantity} onChange={e => set('stock_quantity', e.target.value)} placeholder="0" type="number" min="0" step="1" disabled={!!pendingInitialStock} style={inputS} />
+                    <p style={hintS}>Se registra como movimiento de stock inicial.</p>
+                  </Field>
+                ) : (
+                  <Field label="Stock inicial">
+                    <p data-testid="product-stock-contextual-hint" style={{ ...hintS, marginTop: 0 }}>
+                      El producto se crea con stock 0. El stock lo mueve el documento (compra, gasto, venta u orden).
+                    </p>
+                  </Field>
+                )}
                 <Field label="Stock mínimo">
                   <input value={form.min_stock} onChange={e => set('min_stock', e.target.value)} placeholder="0" type="number" min="0" style={inputS} />
                 </Field>
@@ -1276,25 +1438,6 @@ export function ProductFormModal({
               <Field label="Ubicación">
                 <input value={form.location} onChange={e => set('location', e.target.value)} placeholder="Ej: Estante A3, Caja 2" style={inputS} />
               </Field>
-
-              {/* Registrar movimiento de inventario */}
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', cursor: 'pointer', userSelect: 'none' }}>
-                <div
-                  onClick={() => set('register_stock', !form.register_stock)}
-                  style={{
-                    width: 18, height: 18, borderRadius: 4, flexShrink: 0,
-                    background: form.register_stock ? '#6366f1' : 'transparent',
-                    border: `2px solid ${form.register_stock ? '#6366f1' : 'rgba(255,255,255,0.2)'}`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                  }}
-                >
-                  {form.register_stock && <Check size={11} color="#fff" strokeWidth={3} />}
-                </div>
-                <span style={{ color: '#94a3b8', fontSize: '0.82rem' }}>
-                  Registrar movimiento de inventario al guardar
-                  {sourceType && <span style={{ color: '#475569' }}> ({sourceType})</span>}
-                </span>
-              </label>
             </Section>
           )}
 
@@ -1564,6 +1707,7 @@ export function ProductFormModal({
           >
             {saving
               ? <><RefreshCw size={14} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> Guardando...</>
+              : pendingInitialStock ? 'Reintentar stock inicial'
               : isEditMode ? 'Guardar cambios' : 'Guardar producto'}
           </button>
         </div>

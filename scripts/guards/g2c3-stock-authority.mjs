@@ -35,10 +35,10 @@
 //   6. Ninguna migracion posterior redefine la RPC sin el contrato, la borra,
 //      la expone, concede la tabla, le quita RLS, ni borra el helper de lock.
 //
-// LIMITE HONESTO (A1). Este guard NO prohibe todavia las escrituras de stock
-// desde el navegador (registerMovement, import de Excel, altas con stock,
-// inventory_movements desde la API): el frontend migra en G2-C.3A2 y los
-// privilegios se revocan en G2-C.3A3. A2 amplia este guard.
+// LIMITE HONESTO (A1). Este guard cubre el contrato DB. Las escrituras de stock
+// desde el navegador las cubre el guard complementario de G2-C.3A2
+// (scripts/guards/g2c3a2-frontend-stock-authority.mjs); los privilegios de API
+// sobre inventory / inventory_movements se revocan en G2-C.3A3.
 //
 // `--self-test` muta cada invariante en memoria y exige que el guard lo detecte.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -427,5 +427,5 @@ if (process.argv.includes('--self-test')) {
     + '· impl INVOKER sin API: idempotencia server-side (UNIQUE + sha256 + conflicto + replay persistido) -> lock canonico G2-C.2 con conteo exacto '
     + '-> UPDATE de stock + alias -> movimiento · sin FOR UPDATE, sin clamp, libro append-only, todo por business_id '
     + '· tabla de requests sin API · A1 aditivo (W1-W7, grants, policies y triggers de inventario intactos) · ninguna migracion posterior lo reabre.')
-  console.log('NOTA · alcance A1: todavia NO prohibe las escrituras de stock del navegador (registerMovement, import de Excel, altas con stock): G2-C.3A2/A3.')
+  console.log('NOTA · alcance A1: contrato DB. El frontend lo cubre scripts/guards/g2c3a2-frontend-stock-authority.mjs (G2-C.3A2); el cierre de privilegios es G2-C.3A3.')
 }
