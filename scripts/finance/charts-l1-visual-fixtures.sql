@@ -111,7 +111,11 @@ BEGIN
   DELETE FROM public.comprobante_checkout_requests WHERE business_id = v_biz;
   ALTER TABLE public.comprobante_checkout_requests ENABLE TRIGGER USER;
   DELETE FROM public.comprobantes WHERE business_id = v_biz;
+  -- `inventory_movements` es APPEND-ONLY desde G2-C.3A3: su trigger rechaza
+  -- DELETE (tambien para postgres). Mismo trato que las de arriba.
+  ALTER TABLE public.inventory_movements DISABLE TRIGGER USER;
   DELETE FROM public.inventory_movements WHERE business_id = v_biz;
+  ALTER TABLE public.inventory_movements ENABLE TRIGGER USER;
   DELETE FROM public.business_finance_entries WHERE business_id = v_biz;
   DELETE FROM public.supplier_purchases WHERE business_id = v_biz;
   DELETE FROM public.owner_withdrawals WHERE business_id = v_biz;
