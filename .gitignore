@@ -66,3 +66,10 @@ docs/fiscal-date-part2/classification.json
 docs/fiscal-date-part2/classification.json.sha256
 docs/fiscal-date-part2/arca-lookup-plan.json
 docs/fiscal-date-part2/backfill.sql
+
+# Cache de compilacion de Node (module.enableCompileCache / NODE_COMPILE_CACHE).
+# Un proceso Node resolvio su carpeta temporal como ruta RELATIVA y la creo dentro
+# del repo con un nombre tipo "C:\Users\...\Temp" (en Windows, Git muestra ":" y
+# "\" como caracteres Unicode privados). No es codigo: nunca se versiona.
+node-compile-cache/
+/C*Users*AppData*Local*Temp*/
