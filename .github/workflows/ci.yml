@@ -490,8 +490,26 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: 2.109.1
-      - name: Start local Supabase with the G2-C.3A3 candidate applied
-        run: supabase start
+      # PRECONDICION 7 (compatibilidad PostgreSQL 17): la matriz necesita la base
+      # en estado A1, asi que el stack arranca con A3 apartada; despues la CLI
+      # aplica A3 como en produccion (queda registrada en el ledger).
+      - name: Start local Supabase at A1 (G2-C.3A3 set aside)
+        shell: bash
+        run: |
+          set -euo pipefail
+          a3="supabase/migrations/20261009120000_g2c3a3_inventory_authority_lockdown.sql"
+          mv "$a3" "$RUNNER_TEMP/"
+          trap 'mv "$RUNNER_TEMP/$(basename "$a3")" "$a3"' EXIT
+          supabase start
+      - name: G2-C.3A3 PRECONDICION 7 matrix (PG17 MAINTAIN optional, any other drift aborts)
+        run: npm run test:p7:g2c3a3
+      - name: Apply the G2-C.3A3 candidate with the CLI (exactly one ledger row)
+        shell: bash
+        run: |
+          set -euo pipefail
+          supabase migration up --local
+          n=$(docker exec supabase_db_techrepair-vite psql -U postgres -d postgres -Atc "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '20261009120000'")
+          test "$n" = "1"
       - name: Run the G2-C.3A3 matrix (guards + self-tests + SQL as the API + PostgREST)
         run: npm run test:g2c3a3
       - name: Tear down local Supabase
