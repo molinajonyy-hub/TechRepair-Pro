@@ -682,10 +682,13 @@ BEGIN
   PERFORM pg_temp.assert(EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'private.inventory_stock_adjustment_requests'::regclass
                                    AND contype = 'u' AND conname = 'inventory_stock_adjustment_requests_key_uq'),
     'C.8 UNIQUE (business_id, idempotency_key) presente');
-  -- A1 es aditivo: el navegador conserva HOY sus privilegios (A3 los revoca).
-  PERFORM pg_temp.assert(has_column_privilege('authenticated', 'public.inventory', 'stock_quantity', 'UPDATE')
-                     AND has_table_privilege('authenticated', 'public.inventory_movements', 'INSERT'),
-    'C.9 A1 no revoca todavia la escritura directa (eso es A3)');
+  -- A1 es aditivo; el cierre de la escritura directa lo hace G2-C.3A3
+  -- (20261009120000), que ya forma parte del replay: A1 queda como la UNICA via
+  -- del navegador hacia el saldo que no nace de un documento.
+  PERFORM pg_temp.assert(NOT has_column_privilege('authenticated', 'public.inventory', 'stock_quantity', 'UPDATE')
+                     AND NOT has_table_privilege('authenticated', 'public.inventory_movements', 'INSERT')
+                     AND has_function_privilege('authenticated', 'public.apply_inventory_stock_adjustments_atomic(uuid,jsonb,text,text,text)', 'EXECUTE'),
+    'C.9 tras G2-C.3A3 la escritura directa esta cerrada y A1 es la via (A1 sigue ejecutable por authenticated)');
 END $$;
 
 \echo 'G2-C.3A1 · matriz OK'

@@ -214,15 +214,18 @@ const main = async () => {
       `${who}: sin autoridad el export NO puede incluir columnas de costo`)
 
     // IMPORT sin tocar nada: celda ausente o vacía = «no modificar».
+    // Desde G2-C.3A2/A3 el saldo del archivo viaja por la RPC canónica
+    // (applyStockImport); el PATCH lleva sólo metadata y costo, y tiene que
+    // EJECUTARSE: un PATCH rechazado conservaría el costo por la razón equivocada.
     for (const row of exported) {
       const raw = row['Precio de costo (ARS)']
       const has = raw !== undefined && raw !== null && String(raw).trim() !== ''
       const target = rows.find(r => r.code === row['Código/SKU'])
-      await patch(ids[who], `/inventory?id=eq.${target.id}&select=id`, {
+      const r = await patch(ids[who], `/inventory?id=eq.${target.id}&select=id`, {
         name: row['Nombre del producto'],
-        stock_quantity: row['Stock actual'],
         ...(has ? { cost_price: Number(raw) } : {}),
       })
+      expect(r.status === 200, `${who}: el import de metadata tiene que ejecutarse — ${r.status} ${r.text.slice(0, 120)}`)
     }
     expect(cost(ids.prod) === `${COST}.00`, `${who}: el round-trip destruyó el costo del padre (${cost(ids.prod)})`)
     expect(cost(ids.prod2) === `${COST_P2}.00`, `${who}: el round-trip destruyó el costo del 2º producto (${cost(ids.prod2)})`)
@@ -237,7 +240,7 @@ const main = async () => {
   const vr = await post(ids.sales, `/inventory?select=id,code`, {
     id: vId, business_id: ids.A, code: `PRES-V2-${vId.slice(0, 6)}`, name: 'Variante nueva',
     category: 'cat', cost_price: 0, cost_price_usd: 0, sale_price: SALE,
-    stock_quantity: 1, is_active: true, parent_id: ids.prod,
+    is_active: true, parent_id: ids.prod,  // sin saldo: el alta nace en 0 (G2-C.3A3)
   })
   expect(vr.status === 201, `sales no pudo crear la variante: ${vr.status} ${vr.text.slice(0, 140)}`)
   expect(cost(vId) === `${COST}.00`,
@@ -329,7 +332,7 @@ const main = async () => {
     nuevos.push(id)
     const r = await post(ids[who], `/inventory?select=id,code`, {
       id, business_id: ids.A, code: `PRES-N-${id.slice(0, 8)}`, name: 'Nuevo',
-      category: 'cat', sale_price: SALE, stock_quantity: 1, is_active: true, ...body,
+      category: 'cat', sale_price: SALE, is_active: true, ...body,  // sin saldo (G2-C.3A3)
     })
     return { id, r }
   }
