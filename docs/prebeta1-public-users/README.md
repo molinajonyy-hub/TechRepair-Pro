@@ -61,7 +61,7 @@ ninguna policy relaciona la fila con un tenant.
 | Relación derivable con un negocio | **ninguna** (no hay columna, ni FK, ni `created_by`, ni match por identidad) |
 | Órdenes con `technician_id` no nulo | 0 de 130 (0 referencian `public.users`) |
 | Órdenes con `assigned_profile_id` | 15 (el modelo moderno) |
-| Tráfico API (edge_logs, 72 h, ~5.700 requests REST) | 0 a `/rest/v1/users`, 0 embeds `users(` |
+| Tráfico API (edge_logs, 72 h, ~5.800 requests al gateway) | 0 a `/rest/v1/users`, 0 embeds `users(` |
 
 Las 3 filas son huérfanas y nadie las usa.
 

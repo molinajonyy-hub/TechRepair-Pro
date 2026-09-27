@@ -73,11 +73,82 @@ Nota: `mp_pos_beta_containment.test.sql` se declara "rollback-only" pero su `GRA
 autocommit y queda persistido: en una segunda corrida sobre la misma base falla antes (otro mensaje). No es un
 cambio de comportamiento del candidato; la comparación de arriba es sobre bases recién reseteadas.
 
-## Resto de la matriz
+## Jobs de CI reproducidos localmente (cada uno con su estado de arranque)
 
-_En curso: E2E `m7-local`, job `quality`, jobs SEC-08F / SEC-08E R3 / G2-C.3A3 reproducidos con sus estados de
-arranque, suites HTTP comparadas BASE vs POST._
+| Job de CI | Cómo se reprodujo | Resultado |
+|---|---|---|
+| `quality` | los 22 pasos del workflow (typecheck, `lint:errors`, tests de componentes, guards + self-tests, build, Deno) | **22/22 OK** (incluye el paso nuevo PRE-BETA-1) |
+| `prebeta1-public-users` (nuevo) | `db reset` con el candidato apartado → `test:prebeta1:before` → `migration up` → `test:prebeta1` | **OK** (ver `evidence/`) |
+| `sec08e-r3` | `db reset` con R3, SEC-08F, G2-B…G2-C.3A3 **y PRE-BETA-1** apartadas; R3 devuelta; `test:sec08e-r3` | **OK** · 274 aserciones + 82 tests de componentes |
+| `sec08f` | `db reset` con SEC-08F apartada (PRE-BETA-1 se aplica en el arranque); `test:sec08f` | **OK** · 189 aserciones PostgREST/JWT pre/post |
+| `g2c3a3-inventory-lockdown` | `db reset` con A3 **y PRE-BETA-1** apartadas → `test:p7:g2c3a3` → `migration up` (ledger = 2: A3 + PRE-BETA-1) → `test:g2c3a3` | **OK** · P7 41/41, guards y PostgREST 30/30 |
+| `g2b-immutability`, `g2c-stock-arithmetic`, `g2c1-wholesale-authority`, `g2c2-inventory-locks` (con concurrencia real, 8 clientes pgbench), `g2c3b0-stock-repair`, `g2c3a1-stock-adjustments` | sobre `main` + PRE-BETA-1 | **OK** los 6 |
+| `e2e-local` (`e2e:ci-local --project=m7-local`) | base recién reseteada con PRE-BETA-1 | 172 OK / 12 FALLA — **las mismas 12 fallan con el código de `origin/main` sobre BASE** (ver abajo) |
+
+Suite completa de componentes (`npm run test:components`): **1298/1298** (89 archivos).
+
+## E2E `m7-local`
+
+Las 12 fallas son de entorno o preexistentes; se reprodujeron idénticas desde un worktree de `origin/main`
+(f828899) contra BASE (`12 failed / 28 passed` sobre esos 3 specs):
+
+| Spec | Casos | Causa |
+|---|---|---|
+| `charts-l1-visual.spec.ts` | 6 | el gate de "0 errores de consola" ve `net::ERR_TUNNEL_CONNECTION_FAILED` / `ERR_CERT_AUTHORITY_INVALID`: recursos externos bloqueados por el proxy del sandbox |
+| `finance-caja-visual.spec.ts` | 4 | ídem |
+| `customer-core-parity.spec.ts` (alta rápida) | 2 | `toBeHidden()` de Email/Dirección en "Crear cliente rápido"; falla igual en `main` |
+
+Durante toda la corrida del E2E, el log de Postgres registra **0** `permission denied for table users`: el
+frontend no toca la tabla.
+
+Primera corrida descartada: el onboarding (3 casos) falló porque `scripts/guards/onboarding-compat-matrix.mjs`,
+corrido antes sobre la misma base, **borra** `get_my_business_profile()` / `update_my_business_profile(jsonb,
+boolean)` para simular un backend viejo y, al abortar por el 409 del gate R2B, no las restaura. Sobre una base
+recién reseteada los 3 pasan.
+
+## Suites HTTP/SQL de node (BASE vs POST)
+
+Corridas desde el worktree de `main` sobre BASE y desde esta rama sobre POST: **mismo exit y mismo mensaje en las
+12**.
+
+| Script | Resultado (BASE = POST) |
+|---|---|
+| `test:p0p2:negative-gates` (invitaciones) | OK |
+| `test:provisioning-concurrency` | OK (1 business, 1 profile, 4/4) |
+| `test:compat:onboarding` | FALLA en ambos: `409 CLIENT_UPDATE_REQUIRED` (harness anterior al gate R2B; no manda el header de contrato) |
+| `test:postgrest:sec08a`, `-phase-b`, `-phase-c` | FALLA en ambos: 409 del gate R2B |
+| `test:postgrest:sec08b`, `test:compat:sec08b`, `test:preservation:sec08b` | FALLA en ambos: 409 del gate R2B |
+| `test:sec08c` | SQL OK; la parte PostgREST FALLA en ambos: 409 del gate R2B |
+| `test:sql:lote3-authority`, `test:postgrest:lote3-authority` | FALLA en ambos (matriz de roles / 409) |
+
+CI no corre estos harnesses: la cobertura vigente de SEC-08A–E está en las suites SQL de arriba (todas OK en BASE y
+POST) y en los jobs `sec08e-r3` y `sec08f`. `test:sec08e-r2` y el runner R1 local exigen un ledger anterior a
+SEC-08E/R2A (certificaciones históricas) y no aplican a `main`.
 
 ## Riesgos residuales
 
-_Se completa al cerrar la matriz._
+1. **`customer_events.ce_insert` (`WITH CHECK (true)`)**: cualquier authenticated puede insertar eventos con un
+   `business_id` ajeno (escritura cross-tenant; la lectura sí está anclada). Preexistente desde el
+   `remote_baseline`, fuera de alcance. El guard lo reporta en cada corrida y trinquetea. **Requiere un P1 propio.**
+2. **Las 3 filas huérfanas con PII siguen en `public.users`** (cero DML por diseño). Sólo `postgres`/superusuario
+   las alcanza (SQL editor / dashboard). Decidir retención o borrado es una tarea aparte.
+3. **`orders.technician_id` y su FK siguen vivos** y `authenticated` conserva UPDATE sobre esa columna. Como el
+   chequeo de FK corre como el owner, un usuario podría distinguir "existe / no existe" un `id` de
+   `public.users` probando UUIDs (23503 vs OK): un oráculo de existencia sobre 3 UUIDv4 aleatorios, sin lectura
+   de datos. La PRECONDICIÓN 8 frena el deploy si alguien empieza a usar la columna. El retiro de la columna o
+   la migración a `assigned_profile_id` es el lote del técnico (excluido acá).
+4. **El técnico sigue sin mostrarse** en OrderDetail/impresión/Reports ("Sin asignar"): es exactamente lo que
+   se veía antes (0 órdenes con `technician_id`). Mostrar el perfil asignado es el bug excluido.
+5. **Privilegios latentes en otras tablas**: `anon`/`authenticated` conservan `TRUNCATE`/`REFERENCES`/`TRIGGER`
+   en varias tablas del baseline (p. ej. `orders`). PostgREST no los expone y el guard no los evalúa (su
+   alcance son las policies de tenant); conviene un lote de higiene de grants.
+6. **Límites del guard**: "anclada" = columna clave propia + fuente de identidad (medido en `pg_depend`); no
+   prueba la corrección semántica de la expresión (p. ej. `business_id IS NOT NULL AND <helper>` pasaría).
+   Las vistas (6 vistas definer expuestas, p. ej. `v_inventory_costs`) quedan fuera: las cubren los guards de
+   SEC-08B/E. GraphQL comparte privilegios con PostgREST, así que el mismo catálogo lo cubre.
+7. **Deploy**: la migración aborta si producción cambió desde el discovery (policies, ACL, consumidores,
+   `technician_id` en uso, otra migración después de A3). Es fail-closed a propósito: si aborta, re-discovery.
+8. **Higiene de tests encontrada (no tocada)**: `mp_pos_beta_containment.test.sql` filtra un `GRANT` fuera de
+   transacción; `onboarding-compat-matrix.mjs` deja RPCs borradas si aborta; 12 suites SQL, 10 suites de node
+   (9 por el 409 del gate R2B, 1 por su matriz de roles) y 12 casos E2E fallan igual en `main`.
+9. `scripts/test-supabase.ts` todavía nombra `users` (script suelto sin uso cuyo import ni resuelve); no se tocó.
