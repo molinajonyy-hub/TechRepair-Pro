@@ -243,21 +243,10 @@ export function useOrderSimple(orderId: string | undefined) {
           }
         }
 
-        // Cargar technician por separado
-        if (orderData.technician_id) {
-          try {
-            const { data } = await supabase
-              .from('users')
-              .select('id, name')
-              .eq('id', orderData.technician_id)
-              .single()
-            if (data) {
-              result.technician = data
-            }
-          } catch (err) {
-            if (import.meta.env.DEV) console.warn('Could not load technician:', err)
-          }
-        }
+        // PRE-BETA-1: el técnico ya no se lee de `public.users` (legacy/global,
+        // fuera de la API). `technician_id` está en NULL en el 100% de las
+        // órdenes, así que `technician` queda en null como hasta ahora; mostrar el
+        // perfil asignado (`assigned_profile_id`) es un lote aparte.
 
         // Cargar repuestos (order_parts — métricas de costo/margen)
         try {
@@ -408,10 +397,6 @@ export function useOrderSimple(orderId: string | undefined) {
       if (orderData.device_id) {
         const { data } = await supabase.from('devices').select('*').eq('id', orderData.device_id).single()
         result.device = data || null
-      }
-      if (orderData.technician_id) {
-        const { data } = await supabase.from('users').select('id, name').eq('id', orderData.technician_id).single()
-        result.technician = data || null
       }
 
       // Recargar repuestos

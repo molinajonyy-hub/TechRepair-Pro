@@ -1,0 +1,31 @@
+# Guard global · catalogo del replay limpio de main f828899 (snapshot identico a produccion, ver production_catalog_equivalence.md)
+Guard de aislamiento de tenants · catalogo local (supabase_db_techrepair-vite)
+
+Tablas SIN business_id expuestas a la API (inventario, no implica hueco):
+  · businesses                             authenticated:S  (anclada: self/tenant)
+  · personal_account_balances              authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_budgets                       authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_card_payments                 authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_card_purchases                authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_debt_payments                 authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_debts                         authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_recurring_expense_payments    authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_recurring_expenses            authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_savings_goals                 authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · system_admins                          authenticated:S  (anclada: self/tenant)
+  · users                                  anon:S anon:I anon:U anon:D authenticated:S authenticated:I authenticated:U authenticated:D  ← 5 hallazgo(s)
+
+DEUDA PREEXISTENTE (fuera de alcance, NO legitima — seguimiento abierto):
+  ⚠ customer_events.ce_insert CHECK_TRUE authenticated:I — INSERT con WITH CHECK (true) desde el remote_baseline: un authenticated puede insertar eventos con business_id ajeno (escritura cross-tenant; la lectura si esta anclada por ce_admin). Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ✖ PIN PRE-BETA-1: public.users tiene 4 policies
+  ✖ PIN PRE-BETA-1: public.users tiene grantees distintos del owner: anon, authenticated
+  ✖ PIN PRE-BETA-1: anon tiene acceso a public.users
+  ✖ PIN PRE-BETA-1: authenticated tiene acceso a public.users
+  ✖ USING_TRUE [GLOBAL] users.users_select authenticated:S (SELECT) — USING (true)
+  ✖ SIN_ANCLA [GLOBAL] users.users_insert authenticated:I (INSERT) — CHECK (current_user_role() = ANY (ARRAY['owner'::text, 'admin'::text])) (columnas propias: -; funciones: public.current_user_role)
+  ✖ SIN_ANCLA [GLOBAL] users.users_update authenticated:U (UPDATE) — USING (current_user_role() = ANY (ARRAY['owner'::text, 'admin'::text])) (columnas propias: -; funciones: public.current_user_role)
+  ✖ SIN_ANCLA [GLOBAL] users.users_update authenticated:U (UPDATE) — CHECK (current_user_role() = ANY (ARRAY['owner'::text, 'admin'::text])) (columnas propias: -; funciones: public.current_user_role)
+  ✖ SIN_ANCLA [GLOBAL] users.users_delete authenticated:D (DELETE) — USING (current_user_role() = ANY (ARRAY['owner'::text, 'admin'::text])) (columnas propias: -; funciones: public.current_user_role)
+
+GUARD FALLO: 9 problema(s).
+exit=1

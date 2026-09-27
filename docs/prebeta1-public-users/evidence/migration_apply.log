@@ -1,0 +1,7 @@
+# supabase migration up --local (CLI 2.109.1) sobre el replay limpio de main f828899
+Applying migration 20261010120000_prebeta1_public_users_api_retirement.sql...
+ledger:
+20261009120000 g2c3a3_inventory_authority_lockdown
+20261010120000 prebeta1_public_users_api_retirement
+public.users relacl: {postgres=arwdDxtm/postgres}
+policies: 0

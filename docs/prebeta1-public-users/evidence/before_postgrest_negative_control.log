@@ -1,0 +1,33 @@
+# PRE-BETA-1 · control negativo PostgREST/GraphQL · replay limpio de main f828899 (sin candidato; catalogo = produccion)
+
+=== PRE-BETA-1 · CONTROL NEGATIVO (current main, sin el candidato) ===
+
+--- 1. Lectura cross-tenant ---
+  ✓ BYPASS: tech de A lee email y telefono de la fila de B (200)
+  ✓ BYPASS: owner de B lista las filas de A y de B (2)
+  ✓ BYPASS: tech de A lee la fila de B tambien por GraphQL (usersCollection)
+  ✓ ruta del front: embed technician:users(...) responde 200 hoy (200)
+
+--- 2. Escritura cross-tenant ---
+  ✓ BYPASS: owner de A PATCH fila de B -> 204 y quedo escrito
+  ✓ BYPASS: admin de A cambia el role de la fila de B -> 204
+  ✓ BYPASS: owner de B desactiva la fila de A -> 204
+  ✓ BYPASS: owner de A inserta una fila arbitraria -> 201
+  ✓ BYPASS: owner de A DELETE fila de B -> 204 y desaparecio
+
+--- 3. Contexto ---
+  ✓ anon: 200 [] (solo por falta de policy TO anon; el GRANT existe) (200)
+  ✓ service_role: 403 42501 (ya sin privilegios hoy)
+
+--- Miembros por business_users_view (profiles, RLS por negocio) ---
+  ✓ ownerA lista los 4 miembros de su negocio (200, 4)
+  ✓ ownerA NO ve miembros del negocio B (200, 0)
+  ✓ adminA lista los 4 miembros de su negocio (200, 4)
+  ✓ adminA NO ve miembros del negocio B (200, 0)
+  ✓ ownerB lista los 2 miembros de su negocio (200, 2)
+  ✓ ownerB NO ve miembros del negocio A (200, 0)
+  ✓ techA: visibilidad de miembros acotada a su negocio (4 filas, 0 de B)
+  ✓ salesA: visibilidad de miembros acotada a su negocio (4 filas, 0 de B)
+
+PRE-BETA-1 CONTROL NEGATIVO OK · bypass reproducido · 19 verificaciones
+exit=0
