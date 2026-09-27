@@ -1,0 +1,17 @@
+# PRE-BETA-1 · control negativo SQL · replay limpio de main f828899 (280 migraciones, sin candidato; catalogo = produccion)
+NOTICE:  PASS: estado pre-fix: public.users conserva sus 4 policies y el SELECT de authenticated
+NOTICE:  PASS: BYPASS L1: owner de A lee email y telefono de la fila de B
+NOTICE:  PASS: BYPASS L2: tech de A (sin capability users) tambien lee la fila de B (USING true)
+NOTICE:  PASS: BYPASS L3: tech de B ve las filas de A y de B (tabla global)
+NOTICE:  PASS: BYPASS W1: owner de A hace UPDATE de la fila de B
+NOTICE:  PASS: BYPASS W1b: el telefono de B quedo pisado por A
+NOTICE:  PASS: BYPASS W2: admin de A hace UPDATE (incluso de role) de la fila de B
+NOTICE:  PASS: BYPASS W3: owner de B hace UPDATE de la fila de A (simetrico)
+NOTICE:  PASS: BYPASS W4: owner de A inserta una fila arbitraria en la tabla global
+NOTICE:  PASS: BYPASS W5: owner de A hace DELETE de la fila de B
+NOTICE:  PASS: BYPASS W5b: la fila de B desaparecio
+NOTICE:  PASS: contexto: tech de A no escribe ni su propia fila (la policy mira solo el rol)
+NOTICE:  PASS: LATENTE: anon y authenticated conservan SELECT/INSERT/UPDATE/DELETE/TRUNCATE de tabla
+NOTICE:  PASS: contexto: anon lee 0 filas hoy solo porque no hay policy TO anon (el GRANT existe)
+NOTICE:  PASS: contexto: service_role ya no tiene ningun privilegio sobre public.users
+ROLLBACK

@@ -1,0 +1,7 @@
+# Control negativo del hardening: el guard ANTERIOR (b332b61) sobre el replay de main + PRE-BETA-1, con cada mutacion en BEGIN/ROLLBACK
+guard ANTERIOR · caso A (id IS NOT NULL AND current_user_role() = owner): NO detectado (falso negativo)
+guard ANTERIOR · caso B (business_id IS NOT NULL AND auth.uid() IS NOT NULL): NO detectado (falso negativo)
+guard ANTERIOR · caso N1 (tenant OR rol): NO detectado (falso negativo)
+guard ANTERIOR · caso N3 (funcion arbitraria de public): NO detectado (falso negativo)
+
+# El guard endurecido sobre las mismas mutaciones: ver after_test_prebeta1.log (A2, B1, N1, N3 -> NO_DEMOSTRABLE)

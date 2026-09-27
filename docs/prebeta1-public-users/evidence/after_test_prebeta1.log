@@ -1,0 +1,280 @@
+# PRE-BETA-1 · npm run test:prebeta1 · replay limpio de main + PRE-BETA-1 aplicada con la CLI · guard endurecido (anclas explicitas + escritura ata business_id)
+
+> techrepair-pro@3.0.0 test:prebeta1
+> npm run guard:tenant-isolation:static:self-test && npm run guard:tenant-isolation:static && npm run guard:tenant-isolation:self-test && npm run guard:tenant-isolation && npm run test:sql:prebeta1 && npm run test:postgrest:prebeta1
+
+
+> techrepair-pro@3.0.0 guard:tenant-isolation:static:self-test
+> node scripts/guards/tenant-isolation.mjs --static --self-test
+
+  ✓ control: el arbol actual queda limpio
+  ✓ S1 .from('users') en src
+  ✓ S2 embed technician:users(...) en src
+  ✓ S3 hint users!fk en una Edge Function
+  ✓ S4 migracion posterior re-GRANT SELECT ON public.users
+  ✓ S5 migracion posterior crea policy USING (true) en users
+  ✓ S6 migracion posterior GRANT ON ALL TABLES IN SCHEMA public
+  ✓ S7 migracion posterior DISABLE RLS en users
+  ✓ control: getBusinessUsers( / business_users_view / auth.users no son public.users
+  ✓ control: GRANT sobre auth.users o business_users no cuenta
+SELF-TEST OK · 10 casos (estatico)
+
+> techrepair-pro@3.0.0 guard:tenant-isolation:static
+> node scripts/guards/tenant-isolation.mjs --static
+
+Guard de aislamiento (estatico) OK · 485 archivos de src/functions sin public.users · migraciones posteriores a PRE-BETA-1 sin reabrirla
+
+> techrepair-pro@3.0.0 guard:tenant-isolation:self-test
+> node scripts/guards/tenant-isolation.mjs --self-test
+
+  ✓ C0 control: el catalogo tal cual queda limpio (solo deuda reportada)
+  ✓ M1a reabrir public.users (GRANT SELECT + USING true)
+  ✓ M1b reabrir public.users solo con GRANT (aunque RLS niegue, el pin falla)
+  ✓ M1c dar acceso a service_role sobre public.users
+  ✓ M1e reabrir public.users con una policy "anclada" (el pin no admite excepciones)
+  ✓ M2 agregar USING (true) a una tabla de tenant
+  ✓ M2b agregar WITH CHECK (true) a un INSERT
+  ✓ M3a SELECT global a authenticated: RLS desactivado
+  ✓ M3b SELECT global a authenticated: policy solo por rol
+  ✓ M4 UPDATE/DELETE global para owner/admin (el patron de users)
+  ✓ M4b columna no clave + helper de rol
+  ✓ M5 tabla global insegura nueva (PII, sin business_id, FOR ALL true)
+  ✓ M5b tabla global nueva sin RLS expuesta a anon
+  ✓ A1 Caso A (tabla global): id IS NOT NULL AND current_user_role() = owner
+  ✓ A2 Caso A (tabla de tenant): id IS NOT NULL AND current_user_role() = owner
+  ✓ B1 Caso B: business_id IS NOT NULL AND auth.uid() IS NOT NULL (SELECT)
+  ✓ B2 Caso B en UPDATE (USING y WITH CHECK)
+  ✓ N1 OR con una rama sin ancla (tenant OR rol)
+  ✓ N2 tautologia business_id = business_id
+  ✓ N3 funcion arbitraria de public que "devuelve un tenant" (fuera de la allowlist)
+  ✓ N4 funcion arbitraria de private con la columna como argumento (fuera de la allowlist)
+  ✓ N5 helper de la allowlist aplicado a algo que no es la columna de la fila
+  ✓ N6 EXISTS sin correlacion con la fila (el usuario tiene "algun" perfil)
+  ✓ N7 EXISTS correlacionado pero sin anclar la fila de la subconsulta
+  ✓ N8 IN (subconsulta) sin WHERE que la ancle
+  ✓ N9 NOT(...) no se acepta como ancla (falso positivo revisable, a proposito)
+  ✓ N10 created_by = auth.uid() en una subconsulta no prueba pertenencia al negocio
+  ✓ N11 comparacion con auth.uid() de una columna que no es self (business_id = auth.uid())
+  ✓ N12 helper homonimo en otro schema (no es el helper revisado)
+  ✓ N13 literal en la lista del SELECT de un EXISTS no puede fingir la subconsulta
+  ✓ W1 INSERT con CHECK solo-self (created_by = auth.uid()) en tabla de tenant
+  ✓ W2 UPDATE con USING de tenant pero CHECK solo-self (la fila puede mudarse de negocio)
+  ✓ W3 INSERT anclado solo por el padre (EXISTS por FK): no ata business_id; el mismo EXISTS en SELECT si ancla
+  ✓ R1 la autoridad declarada de una excepcion deja de cumplirse (GRANT UPDATE(business_id)) -> falla
+  ✓ D2 una deuda por acceso cambia (personal_accounts_own) -> entrada vieja
+  ✓ H1 helper de la allowlist cambia de cuerpo (current_business_id) -> falla hasta re-revisar
+  ✓ P1 la policy de la allowlist cambia (pierde el filtro por auth.uid()) -> excepcion vieja + hallazgo
+  ✓ P2 la policy de la allowlist desaparece -> excepcion vieja
+  ✓ M7 deuda preexistente arreglada sin quitar la entrada (trinquete)
+  ✓ D1 la deuda cambia (roles) -> entrada vieja y el hallazgo vuelve a ser violacion
+  ✓ C1 control: tabla por usuario sin business_id (user_id = auth.uid()) no es hallazgo
+  ✓ C2 control: policy solo service_role no expone al navegador
+  ✓ C3 control: tenant actual, capability por argumento, membership y AND con restricciones extra
+  ✓ C4 control: hija por FK anclada via EXISTS al padre (c.id = fila.fk AND c.business_id = tenant)
+  ✓ C5 control: membership por EXISTS en profiles y OR de dos ramas ancladas
+  ✓ M6 tabla global legitima en allowlist (SELECT true) -> sin falso positivo
+  ✓ M6b la misma tabla con UPDATE (fuera del acceso declarado) -> detectado
+  ✓ M6c allowlist vieja (la tabla ya no existe) -> falla
+  ✓ M1d public.users no puede entrar en la allowlist de tablas
+  ✓ M1f public.users no puede entrar en la allowlist de policies
+  ✓ H2 el catalogo deja de informar un helper revisado -> falla
+  ✓ P3 una policy no demostrable sin allowlist de policy es violacion (woi_customer_select)
+  ✓ P4 allowlist de policy incompleta (sin autoridad) -> falla
+SELF-TEST OK · 53 casos (mutaciones reales en BEGIN/ROLLBACK + casos puros sobre el snapshot)
+
+> techrepair-pro@3.0.0 guard:tenant-isolation
+> node scripts/guards/tenant-isolation.mjs
+
+Guard de aislamiento de tenants · catalogo local (supabase_db_techrepair-vite)
+
+Tablas SIN business_id expuestas a la API (inventario, no implica hueco):
+  · businesses                             authenticated:S  (anclada: self/tenant)
+  · personal_account_balances              authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_budgets                       authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_card_payments                 authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_card_purchases                authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_debt_payments                 authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_debts                         authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_recurring_expense_payments    authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_recurring_expenses            authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_savings_goals                 authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · system_admins                          authenticated:S  (anclada: self/tenant)
+
+DEUDA PREEXISTENTE (fuera de alcance, NO legitima — seguimiento abierto):
+  ⚠ customer_events.ce_insert CHECK_TRUE authenticated:I — INSERT con WITH CHECK (true) desde el remote_baseline: un authenticated puede insertar eventos con business_id ajeno (escritura cross-tenant; la lectura si esta anclada por ce_admin). Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ⚠ personal_accounts.personal_accounts_own NO_DEMOSTRABLE authenticated:I — Mi Guita: CHECK solo-self (user_id = auth.uid()) y authenticated puede escribir business_id (FK a businesses, nullable): un usuario puede etiquetar SUS filas personales con el business_id de otro negocio. Hoy nadie las lee por business_id (base: 0 vistas/funciones; src: 0), asi que no hay fuga de datos, pero la columna no esta atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ⚠ personal_accounts.personal_accounts_own NO_DEMOSTRABLE authenticated:U — Mi Guita: CHECK solo-self (user_id = auth.uid()) y authenticated puede escribir business_id (FK a businesses, nullable): un usuario puede etiquetar SUS filas personales con el business_id de otro negocio. Hoy nadie las lee por business_id (base: 0 vistas/funciones; src: 0), asi que no hay fuga de datos, pero la columna no esta atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ⚠ personal_categories.personal_categories_own NO_DEMOSTRABLE authenticated:I — Mi Guita: CHECK solo-self (user_id = auth.uid()) y authenticated puede escribir business_id (FK a businesses, nullable): un usuario puede etiquetar SUS filas personales con el business_id de otro negocio. Hoy nadie las lee por business_id (base: 0 vistas/funciones; src: 0), asi que no hay fuga de datos, pero la columna no esta atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ⚠ personal_categories.personal_categories_own NO_DEMOSTRABLE authenticated:U — Mi Guita: CHECK solo-self (user_id = auth.uid()) y authenticated puede escribir business_id (FK a businesses, nullable): un usuario puede etiquetar SUS filas personales con el business_id de otro negocio. Hoy nadie las lee por business_id (base: 0 vistas/funciones; src: 0), asi que no hay fuga de datos, pero la columna no esta atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ⚠ personal_credit_cards.personal_credit_cards_own NO_DEMOSTRABLE authenticated:I — Mi Guita: CHECK solo-self (user_id = auth.uid()) y authenticated puede escribir business_id (FK a businesses, nullable): un usuario puede etiquetar SUS filas personales con el business_id de otro negocio. Hoy nadie las lee por business_id (base: 0 vistas/funciones; src: 0), asi que no hay fuga de datos, pero la columna no esta atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ⚠ personal_credit_cards.personal_credit_cards_own NO_DEMOSTRABLE authenticated:U — Mi Guita: CHECK solo-self (user_id = auth.uid()) y authenticated puede escribir business_id (FK a businesses, nullable): un usuario puede etiquetar SUS filas personales con el business_id de otro negocio. Hoy nadie las lee por business_id (base: 0 vistas/funciones; src: 0), asi que no hay fuga de datos, pero la columna no esta atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ⚠ personal_transactions.personal_transactions_own NO_DEMOSTRABLE authenticated:I — Mi Guita: CHECK solo-self (user_id = auth.uid()) y authenticated puede escribir business_id (FK a businesses, nullable): un usuario puede etiquetar SUS filas personales con el business_id de otro negocio. Hoy nadie las lee por business_id (base: 0 vistas/funciones; src: 0), asi que no hay fuga de datos, pero la columna no esta atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ⚠ personal_transactions.personal_transactions_own NO_DEMOSTRABLE authenticated:U — Mi Guita: CHECK solo-self (user_id = auth.uid()) y authenticated puede escribir business_id (FK a businesses, nullable): un usuario puede etiquetar SUS filas personales con el business_id de otro negocio. Hoy nadie las lee por business_id (base: 0 vistas/funciones; src: 0), asi que no hay fuga de datos, pero la columna no esta atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+
+OK · 0 violaciones · 346 expresiones demostradas tenant/self-scoped · 3 policy(s) por allowlist con huella (wholesale_customers.wc_own_insert, wholesale_customers.wc_own_update, wholesale_order_items.woi_customer_select) · 8 helpers revisados con huella vigente · PIN PRE-BETA-1 cumplido · 9 deuda(s) preexistente(s) reportada(s).
+
+> techrepair-pro@3.0.0 test:sql:prebeta1
+> docker cp tests/sql/prebeta1_public_users_isolation.test.sql supabase_db_techrepair-vite:/tmp/prebeta1.sql && docker exec supabase_db_techrepair-vite psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/prebeta1.sql
+
+BEGIN
+SET
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+NOTICE:  PASS: PRE-BETA-1 aplicada: 0 policies, ACL solo del owner, registrada en el ledger
+ assert 
+--------
+ 
+(1 row)
+
+SET
+INSERT 0 6
+INSERT 0 2
+INSERT 0 6
+INSERT 0 2
+INSERT 0 2
+INSERT 0 2
+SET
+SELECT 1
+DO
+NOTICE:  PASS: matriz 88 casos (6 actores de A/B + anon + service_role x 11 operaciones) -> 42501
+ assert 
+--------
+ 
+(1 row)
+
+NOTICE:  PASS: public.users intacta tras la matriz (huella md5 identica, 2 filas fixture)
+NOTICE:  PASS: anon: ningun privilegio de tabla ni de columna sobre public.users
+NOTICE:  PASS: authenticated: ningun privilegio de tabla ni de columna sobre public.users
+NOTICE:  PASS: service_role: ningun privilegio de tabla ni de columna sobre public.users
+ assert 
+--------
+ 
+ 
+ 
+ 
+(4 rows)
+
+NOTICE:  PASS: authenticator: ningun privilegio de tabla ni de columna sobre public.users
+NOTICE:  PASS: RLS sigue ON sin policies (deny-by-default ante un GRANT futuro)
+ assert 
+--------
+ 
+(1 row)
+
+SAVEPOINT
+GRANT
+ assert 
+--------
+ 
+(1 row)
+
+ROLLBACK
+NOTICE:  PASS: D1: aun con un GRANT futuro, RLS sin policies no lee ni escribe ninguna fila
+NOTICE:  PASS: L1: owner de A lista los 4 miembros de A y 0 de B (business_users_view / profiles)
+ assert 
+--------
+ 
+(1 row)
+
+NOTICE:  PASS: L2: owner de B lista sus 2 miembros y 0 de A
+ assert 
+--------
+ 
+(1 row)
+
+ assert 
+--------
+ 
+(1 row)
+
+NOTICE:  PASS: L3: tech y sales de A no ven miembros de B
+NOTICE:  PASS: L4: owner de A lee sus ordenes (sin embed de users) y no las de B
+ assert 
+--------
+ 
+(1 row)
+
+ assert 
+--------
+ 
+(1 row)
+
+NOTICE:  PASS: F1: la FK orders.technician_id sigue validando (23503 ante un id inexistente)
+ROLLBACK
+
+> techrepair-pro@3.0.0 test:postgrest:prebeta1
+> node scripts/security/prebeta1-users-postgrest.mjs
+
+
+=== PRE-BETA-1 · contrato post-fix ===
+
+--- Tenant A ---
+  ✓ techA lee la fila ajena -> 403 42501
+  ✓ ownerA lista la tabla global -> 403 42501
+  ✓ ownerA lee "su" fila -> 403 42501
+  ✓ ownerA UPDATE fila ajena -> 403 42501
+  ✓ adminA UPDATE role de la fila ajena -> 403 42501
+  ✓ ownerA DELETE fila ajena -> 403 42501
+  ✓ ownerA INSERT fila arbitraria -> 403 42501
+  ✓ ownerA UPSERT sobre la fila ajena -> 403 42501
+  ✓ ownerA embed technician:users desde orders -> 403 42501
+
+--- Tenant B ---
+  ✓ techB lee la fila ajena -> 403 42501
+  ✓ ownerB lista la tabla global -> 403 42501
+  ✓ ownerB lee "su" fila -> 403 42501
+  ✓ ownerB UPDATE fila ajena -> 403 42501
+  ✓ ownerB DELETE fila ajena -> 403 42501
+  ✓ ownerB INSERT fila arbitraria -> 403 42501
+  ✓ ownerB UPSERT sobre la fila ajena -> 403 42501
+  ✓ ownerB embed technician:users desde orders -> 403 42501
+
+--- anon ---
+  ✓ anon GET /users -> 401 42501
+  ✓ anon POST /users -> 401 42501
+  ✓ anon PATCH /users -> 401 42501
+  ✓ anon DELETE /users -> 401 42501
+
+--- service_role (contrato explicito: sin acceso) ---
+  ✓ service_role GET /users -> 403 42501
+  ✓ service_role POST /users -> 403 42501
+  ✓ service_role PATCH /users -> 403 42501
+  ✓ service_role DELETE /users -> 403 42501
+
+--- GraphQL (pg_graphql) ---
+  ✓ ownerA: GraphQL usersCollection no existe en su esquema
+  ✓ ownerA: GraphQL deleteFromusersCollection no existe
+  ✓ adminA: GraphQL usersCollection no existe en su esquema
+  ✓ adminA: GraphQL deleteFromusersCollection no existe
+  ✓ techA: GraphQL usersCollection no existe en su esquema
+  ✓ techA: GraphQL deleteFromusersCollection no existe
+  ✓ ownerB: GraphQL usersCollection no existe en su esquema
+  ✓ ownerB: GraphQL deleteFromusersCollection no existe
+  ✓ anon: GraphQL usersCollection no existe en su esquema
+  ✓ anon: GraphQL deleteFromusersCollection no existe
+  ✓ service_role: GraphQL usersCollection no existe en su esquema
+  ✓ service_role: GraphQL deleteFromusersCollection no existe
+  ✓ public.users intacta tras todos los rechazos (huella md5 identica)
+
+--- Lecturas de ordenes que manda el front (sin embed de users) ---
+  ✓ Reports: orders?select=updated_at -> 200, 1 orden de A
+  ✓ Reports: owner A no ve ordenes completadas de B
+  ✓ ordersService.getAll -> 200
+  ✓ ordersService.getById -> 200
+  ✓ useOrderSimple: la orden carga (technician_id NULL, assigned_profile_id intacto) -> 200
+  ✓ owner A no ve la orden de B
+
+--- Miembros por business_users_view (profiles, RLS por negocio) ---
+  ✓ ownerA lista los 4 miembros de su negocio (200, 4)
+  ✓ ownerA NO ve miembros del negocio B (200, 0)
+  ✓ adminA lista los 4 miembros de su negocio (200, 4)
+  ✓ adminA NO ve miembros del negocio B (200, 0)
+  ✓ ownerB lista los 2 miembros de su negocio (200, 2)
+  ✓ ownerB NO ve miembros del negocio A (200, 0)
+  ✓ techA: visibilidad de miembros acotada a su negocio (4 filas, 0 de B)
+  ✓ salesA: visibilidad de miembros acotada a su negocio (4 filas, 0 de B)
+
+PRE-BETA-1 PostgREST OK · 52 verificaciones
+exit=0

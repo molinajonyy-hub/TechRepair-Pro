@@ -1,0 +1,39 @@
+# Guard global (endurecido: anclas explicitas + escritura ata business_id) · catalogo del replay limpio de main (snapshot identico a produccion, ver production_catalog_equivalence.md)
+Guard de aislamiento de tenants · catalogo local (supabase_db_techrepair-vite)
+
+Tablas SIN business_id expuestas a la API (inventario, no implica hueco):
+  · businesses                             authenticated:S  (anclada: self/tenant)
+  · personal_account_balances              authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_budgets                       authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_card_payments                 authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_card_purchases                authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_debt_payments                 authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_debts                         authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_recurring_expense_payments    authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_recurring_expenses            authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · personal_savings_goals                 authenticated:S authenticated:I authenticated:U authenticated:D  (anclada: self/tenant)
+  · system_admins                          authenticated:S  (anclada: self/tenant)
+  · users                                  anon:S anon:I anon:U anon:D authenticated:S authenticated:I authenticated:U authenticated:D  ← 5 hallazgo(s)
+
+DEUDA PREEXISTENTE (fuera de alcance, NO legitima — seguimiento abierto):
+  ⚠ customer_events.ce_insert CHECK_TRUE authenticated:I — INSERT con WITH CHECK (true) desde el remote_baseline: un authenticated puede insertar eventos con business_id ajeno (escritura cross-tenant; la lectura si esta anclada por ce_admin). Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ⚠ personal_accounts.personal_accounts_own NO_DEMOSTRABLE authenticated:I — Mi Guita: CHECK solo-self (user_id = auth.uid()) y authenticated puede escribir business_id (FK a businesses, nullable): un usuario puede etiquetar SUS filas personales con el business_id de otro negocio. Hoy nadie las lee por business_id (base: 0 vistas/funciones; src: 0), asi que no hay fuga de datos, pero la columna no esta atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ⚠ personal_accounts.personal_accounts_own NO_DEMOSTRABLE authenticated:U — Mi Guita: CHECK solo-self (user_id = auth.uid()) y authenticated puede escribir business_id (FK a businesses, nullable): un usuario puede etiquetar SUS filas personales con el business_id de otro negocio. Hoy nadie las lee por business_id (base: 0 vistas/funciones; src: 0), asi que no hay fuga de datos, pero la columna no esta atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ⚠ personal_categories.personal_categories_own NO_DEMOSTRABLE authenticated:I — Mi Guita: CHECK solo-self (user_id = auth.uid()) y authenticated puede escribir business_id (FK a businesses, nullable): un usuario puede etiquetar SUS filas personales con el business_id de otro negocio. Hoy nadie las lee por business_id (base: 0 vistas/funciones; src: 0), asi que no hay fuga de datos, pero la columna no esta atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ⚠ personal_categories.personal_categories_own NO_DEMOSTRABLE authenticated:U — Mi Guita: CHECK solo-self (user_id = auth.uid()) y authenticated puede escribir business_id (FK a businesses, nullable): un usuario puede etiquetar SUS filas personales con el business_id de otro negocio. Hoy nadie las lee por business_id (base: 0 vistas/funciones; src: 0), asi que no hay fuga de datos, pero la columna no esta atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ⚠ personal_credit_cards.personal_credit_cards_own NO_DEMOSTRABLE authenticated:I — Mi Guita: CHECK solo-self (user_id = auth.uid()) y authenticated puede escribir business_id (FK a businesses, nullable): un usuario puede etiquetar SUS filas personales con el business_id de otro negocio. Hoy nadie las lee por business_id (base: 0 vistas/funciones; src: 0), asi que no hay fuga de datos, pero la columna no esta atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ⚠ personal_credit_cards.personal_credit_cards_own NO_DEMOSTRABLE authenticated:U — Mi Guita: CHECK solo-self (user_id = auth.uid()) y authenticated puede escribir business_id (FK a businesses, nullable): un usuario puede etiquetar SUS filas personales con el business_id de otro negocio. Hoy nadie las lee por business_id (base: 0 vistas/funciones; src: 0), asi que no hay fuga de datos, pero la columna no esta atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ⚠ personal_transactions.personal_transactions_own NO_DEMOSTRABLE authenticated:I — Mi Guita: CHECK solo-self (user_id = auth.uid()) y authenticated puede escribir business_id (FK a businesses, nullable): un usuario puede etiquetar SUS filas personales con el business_id de otro negocio. Hoy nadie las lee por business_id (base: 0 vistas/funciones; src: 0), asi que no hay fuga de datos, pero la columna no esta atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ⚠ personal_transactions.personal_transactions_own NO_DEMOSTRABLE authenticated:U — Mi Guita: CHECK solo-self (user_id = auth.uid()) y authenticated puede escribir business_id (FK a businesses, nullable): un usuario puede etiquetar SUS filas personales con el business_id de otro negocio. Hoy nadie las lee por business_id (base: 0 vistas/funciones; src: 0), asi que no hay fuga de datos, pero la columna no esta atada a la pertenencia. Fuera del alcance de PRE-BETA-1: requiere discovery propio (P1 de seguimiento).
+  ✖ PIN PRE-BETA-1: public.users tiene 4 policies
+  ✖ PIN PRE-BETA-1: public.users tiene grantees distintos del owner: anon, authenticated
+  ✖ PIN PRE-BETA-1: anon tiene acceso a public.users
+  ✖ PIN PRE-BETA-1: authenticated tiene acceso a public.users
+  ✖ USING_TRUE [GLOBAL] users.users_select authenticated:S (SELECT) — USING (true)
+  ✖ NO_DEMOSTRABLE [GLOBAL] users.users_insert authenticated:I (INSERT) — no demostrablemente tenant/self-scoped: CHECK (current_user_role() = ANY (ARRAY['owner'::text, 'admin'::text]))
+  ✖ NO_DEMOSTRABLE [GLOBAL] users.users_update authenticated:U (UPDATE) — no demostrablemente tenant/self-scoped: USING (current_user_role() = ANY (ARRAY['owner'::text, 'admin'::text]))
+  ✖ NO_DEMOSTRABLE [GLOBAL] users.users_update authenticated:U (UPDATE) — no demostrablemente tenant/self-scoped: CHECK (current_user_role() = ANY (ARRAY['owner'::text, 'admin'::text]))
+  ✖ NO_DEMOSTRABLE [GLOBAL] users.users_delete authenticated:D (DELETE) — no demostrablemente tenant/self-scoped: USING (current_user_role() = ANY (ARRAY['owner'::text, 'admin'::text]))
+
+GUARD FALLO: 9 problema(s).
+exit=1

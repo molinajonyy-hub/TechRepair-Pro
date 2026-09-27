@@ -25,10 +25,6 @@ export interface OrderDetail {
     issue: string
     diagnosis?: string
   }
-  technician?: {
-    id: string
-    name: string
-  } | null
 }
 
 // SEC-08A — sólo columnas operativas. `*` sobre `orders` responde 42501; los
@@ -38,8 +34,7 @@ const ORDER_SELECT = `
   created_by, comprobante_id, status, priority, notes, access_mode,
   created_at, updated_at, completed_at,
   customer:customers(id, name, phone, email, address),
-  device:devices(id, type, brand, model, serial, imei, issue, diagnosis),
-  technician:users(id, name)
+  device:devices(id, type, brand, model, serial, imei, issue, diagnosis)
 `
 
 export function useOrder(orderId: string | undefined) {

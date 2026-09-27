@@ -1,0 +1,66 @@
+Migracion: supabase/migrations/20261010120000_prebeta1_public_users_api_retirement.sql
+Estado A3 verificado · ACL base de public.users: {postgres=arwdDxtm/postgres,anon=arwdDxt/postgres,authenticated=arwdDxt/postgres}
+
+── Caso A · replay local (sin MAINTAIN, sin filas)
+   PASS  A: la migracion aplica completa (8 precondiciones + 4 postcondiciones)
+   PASS  A: antes, anon/authenticated tenian acceso y habia 4 policies (la transicion es real)
+   PASS  A: despues, anon/authenticated/service_role sin ningun privilegio (MAINTAIN incluido) y 0 policies
+   PASS  A: filas 0 -> 0 (cero DML)
+── Caso B · production-like: MAINTAIN anon/authenticated + 3 filas huerfanas
+   PASS  B: la migracion aplica completa (8 precondiciones + 4 postcondiciones)
+   PASS  B: antes, anon/authenticated tenian acceso y habia 4 policies (la transicion es real)
+   PASS  B: despues, anon/authenticated/service_role sin ningun privilegio (MAINTAIN incluido) y 0 policies
+   PASS  B: filas 3 -> 3 (cero DML)
+── Caso C · solo anon tiene MAINTAIN
+   PASS  C: la migracion aplica completa (8 precondiciones + 4 postcondiciones)
+   PASS  C: antes, anon/authenticated tenian acceso y habia 4 policies (la transicion es real)
+   PASS  C: despues, anon/authenticated/service_role sin ningun privilegio (MAINTAIN incluido) y 0 policies
+   PASS  C: filas 0 -> 0 (cero DML)
+── Caso P1a · FORCE RLS activado
+   PASS  P1a: aborta en PRECONDICION 1 (PRECONDICION 1: public.users cambio de tipo, owner, RLS/FORCE RLS o herencia)
+── Caso P1b · RLS desactivado
+   PASS  P1b: aborta en PRECONDICION 1 (PRECONDICION 1: public.users cambio de tipo, owner, RLS/FORCE RLS o herencia)
+── Caso P2 · PRE-BETA-1 ya registrada en el ledger
+   PASS  P2: aborta en PRECONDICION 2 (PRECONDICION 2: la ultima migracion aplicada es 20261010120000 (se esperaba G2-C.3A3 = 20261009120000))
+── Caso P3 · columna nueva (business_id) — el discovery ya no vale
+   PASS  P3: aborta en PRECONDICION 3 (PRECONDICION 3: las columnas de public.users no son las del discovery)
+── Caso P4 · nueva FK entrante desde otra tabla
+   PASS  P4: aborta en PRECONDICION 4 (PRECONDICION 4: los constraints / FKs entrantes de public.users no son los del discovery)
+── Caso P5a · PRE-BETA-1 parcial: falta users_select
+   PASS  P5a: aborta en PRECONDICION 5 (PRECONDICION 5: las policies de public.users no son las 4 del discovery (PRE-BETA-1 parcial o drift))
+── Caso P5b · policy reescrita (USING created_by = auth.uid())
+   PASS  P5b: aborta en PRECONDICION 5 (PRECONDICION 5: las policies de public.users no son las 4 del discovery (PRE-BETA-1 parcial o drift))
+── Caso P5c · policy extra
+   PASS  P5c: aborta en PRECONDICION 5 (PRECONDICION 5: las policies de public.users no son las 4 del discovery (PRE-BETA-1 parcial o drift))
+── Caso P6a · SELECT extra a service_role
+   PASS  P6a: aborta en PRECONDICION 6 (PRECONDICION 6: el ACL de public.users no es el del discovery)
+── Caso P6b · SELECT extra a PUBLIC
+   PASS  P6b: aborta en PRECONDICION 6 (PRECONDICION 6: el ACL de public.users no es el del discovery)
+── Caso P6c · production-like + MAINTAIN a service_role (lo tolerado no enmascara)
+   PASS  P6c: aborta en PRECONDICION 6 (PRECONDICION 6: el ACL de public.users no es el del discovery)
+── Caso P6d · baseline faltante: authenticated sin TRUNCATE (REVOKE parcial)
+   PASS  P6d: aborta en PRECONDICION 6 (PRECONDICION 6: el ACL de public.users no es el del discovery)
+── Caso P6e · privilegio de columna SELECT(name) a authenticated
+   PASS  P6e: aborta en PRECONDICION 6 (PRECONDICION 6: public.users tiene privilegios de columna (drift))
+── Caso P7a · vista sobre public.users
+   PASS  P7a: aborta en PRECONDICION 7 (PRECONDICION 7: public.users tiene triggers, publicacion o vistas/reglas dependientes)
+── Caso P7b · funcion que lee public.users
+   PASS  P7b: aborta en PRECONDICION 7 (PRECONDICION 7: funciones que nombran public.users: _pb1_f())
+── Caso P7c · funcion que lee users sin calificar
+   PASS  P7c: aborta en PRECONDICION 7 (PRECONDICION 7: funciones que nombran public.users: private._pb1_g())
+── Caso P7d · trigger sobre public.users
+   PASS  P7d: aborta en PRECONDICION 7 (PRECONDICION 7: public.users tiene triggers, publicacion o vistas/reglas dependientes)
+── Caso P7e · public.users en la publicacion realtime
+   PASS  P7e: aborta en PRECONDICION 7 (PRECONDICION 7: public.users tiene triggers, publicacion o vistas/reglas dependientes)
+── Caso P8 · una orden empezo a usar technician_id
+   PASS  P8: aborta en PRECONDICION 8 (PRECONDICION 8: hay ordenes con technician_id (el discovery lo midio 100% NULL))
+── Caso Z · control: MAINTAIN/SELECT extra en otra tabla (customers)
+   PASS  Z: la migracion aplica completa (8 precondiciones + 4 postcondiciones)
+   PASS  Z: antes, anon/authenticated tenian acceso y habia 4 policies (la transicion es real)
+   PASS  Z: despues, anon/authenticated/service_role sin ningun privilegio (MAINTAIN incluido) y 0 policies
+   PASS  Z: filas 3 -> 3 (cero DML)
+   PASS  la matriz no dejo rastro (ACL = {postgres=arwdDxtm/postgres,anon=arwdDxt/postgres,authenticated=arwdDxt/postgres}, policies = 4)
+
+36 verificaciones · 0 fallas
+PRE-BETA-1 · matriz de precondiciones OK
+exit=0

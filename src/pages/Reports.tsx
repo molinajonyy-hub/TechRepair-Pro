@@ -45,8 +45,14 @@ type PaymentRow = {
 
 type CompletedOrderRow = {
   updated_at?: string | null
-  technician?: { name?: string | null } | { name?: string | null }[] | null
 }
+
+// PRE-BETA-1: el ranking de técnicos embebía `technician:users(name)` por
+// `orders.technician_id`. `public.users` es legacy/global y salió de la API (el
+// embed ahora hace fallar TODA la consulta con 42501), y `technician_id` está en
+// NULL en el 100% de las órdenes: el agrupado ya caía siempre acá. Atribuir por
+// `assigned_profile_id` es un lote aparte.
+const UNASSIGNED_TECHNICIAN_LABEL = 'Sin asignar'
 
 type DeviceRow = {
   type?: string | null
@@ -167,13 +173,6 @@ const getExportRows = (
   ])
 }
 
-const getSingleRelation = <T,>(relation: T | T[] | null | undefined): T | null => {
-  if (Array.isArray(relation)) {
-    return relation[0] || null
-  }
-
-  return relation || null
-}
 
 const getPeriodRange = (period: ReportsPeriod, now: Date) => {
   switch (period) {
@@ -448,7 +447,7 @@ export function Reports() {
             .lt('payment_date', queryEnd.toISOString()),
           supabase
             .from('orders')
-            .select('updated_at, technician:users(name)')
+            .select('updated_at')
             .eq('business_id', businessId)
             .eq('status', 'completed')
             .gte('updated_at', periodRange.previousStart.toISOString())
@@ -494,8 +493,7 @@ export function Reports() {
             return accumulator
           }
 
-          const technician = getSingleRelation<{ name?: string | null }>(order.technician)
-          const label = technician?.name?.trim() || 'Sin asignar'
+          const label = UNASSIGNED_TECHNICIAN_LABEL
           accumulator[label] = (accumulator[label] || 0) + 1
           return accumulator
         }, {})

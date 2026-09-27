@@ -1,6 +1,6 @@
 import { supabase, type Order, type Customer, type Device, type Note,
   type PartUsed, type Supplier, type Expense,
-  type User, type StatusHistory } from '../lib/supabase'
+  type StatusHistory } from '../lib/supabase'
 import { getProfileCacheKey } from '../lib/profileCache'
 import { INVENTORY_OPERATIONAL_COLUMNS } from './inventoryCostAccess'
 import { PARTS_USED_OPERATIONAL_COLUMNS, hydratePartsUsedAmounts, isPreSec08eSchema, canReadPartsAmounts } from './partsUsedAccess'
@@ -359,8 +359,7 @@ export const ordersService = {
       .select(`
         ${ORDER_OPERATIONAL_COLUMNS},
         customer:customers(id, name, phone, email),
-        device:devices(id, brand, model, type),
-        technician:users(id, name)
+        device:devices(id, brand, model, type)
       `)
       .eq('business_id', businessId)
       .order('created_at', { ascending: false })
@@ -379,11 +378,10 @@ export const ordersService = {
     
     if (error) throw error
     // `as unknown` porque supabase-js tipa las relaciones embebidas como
-    // arrays; en runtime `customer`/`device`/`technician` son objetos.
+    // arrays; en runtime `customer`/`device` son objetos.
     return data as unknown as (Order & {
       customer: Customer
       device: Device
-      technician: User | null
     })[]
   },
 
@@ -394,7 +392,6 @@ export const ordersService = {
         ${ORDER_OPERATIONAL_COLUMNS},
         customer:customers(*),
         device:devices(*),
-        technician:users(id, name),
         notes(*),
         parts_used(id, order_id, code, description, quantity, created_at, created_by, business_id),
         status_history(*)
@@ -406,7 +403,6 @@ export const ordersService = {
     const order = data as unknown as Order & {
       customer: Customer
       device: Device
-      technician: User | null
       notes: Note[]
       parts_used: PartUsed[]
       status_history: StatusHistory[]
@@ -807,75 +803,12 @@ export const expensesService = {
 }
 
 // ============================================
-// Users Service
+// Users Service (retirado · PRE-BETA-1)
 // ============================================
-export const usersService = {
-  async getAll() {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .order('name', { ascending: true })
-    
-    if (error) throw error
-    return data as User[]
-  },
-
-  async getActiveTechnicians() {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('role', 'technician')
-      .eq('active', true)
-      .order('name', { ascending: true })
-    
-    if (error) throw error
-    return data as User[]
-  },
-
-  async create(user: Omit<User, 'id' | 'created_at'>) {
-    const { data, error } = await supabase
-      .from('users')
-      .insert(user)
-      .select()
-      .single()
-    
-    if (error) throw error
-    return data as User
-  },
-
-  async update(id: string, user: Partial<User>) {
-    const { data, error } = await supabase
-      .from('users')
-      .update(user)
-      .eq('id', id)
-      .select()
-      .single()
-    
-    if (error) throw error
-    return data as User
-  },
-
-  async toggleActive(id: string, active: boolean) {
-    const { data, error } = await supabase
-      .from('users')
-      .update({ active })
-      .eq('id', id)
-      .select()
-      .single()
-    
-    if (error) throw error
-    return data as User
-  },
-
-  async delete(id: string) {
-    const { error } = await supabase
-      .from('users')
-      .delete()
-      .eq('id', id)
-    
-    if (error) throw error
-  }
-}
+// `usersService` hacía CRUD directo sobre `public.users`, una tabla legacy y
+// GLOBAL (sin business_id) que salió de la API. No tenía callers: la gestión del
+// equipo vive en `src/services/usersService.ts` (profiles / business_users_view).
+// El técnico de las órdenes tampoco se embebe más (`technician:users(...)`).
 
 // ============================================
 // Brands Service
