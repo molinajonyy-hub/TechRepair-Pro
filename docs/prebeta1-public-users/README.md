@@ -157,31 +157,37 @@ y Reports sigue contando las órdenes completadas. **Control negativo:** contra 
 
 ## 6. Guard global anti-reincidencia (`scripts/guards/tenant-isolation.mjs`)
 
-- **Catálogo** (base local; `tenant-isolation-catalog.sql` es un único SELECT, sirve igual contra producción):
+Detalle completo (helpers aceptados y rechazados, formas reconocidas, excepciones y self-tests):
+[`guard-anchors.md`](guard-anchors.md).
+
+- **Catálogo** (base local; `tenant-isolation-catalog.sql` es un único SELECT, equivalente a producción):
   para cada tabla de `public` expuesta a anon/authenticated evalúa las policies PERMISSIVE aplicables:
-  `USING_TRUE`, `CHECK_TRUE`, `SIN_ANCLA` (no referencia una columna clave propia —`business_id`, `id`,
-  `user_id`, `owner_user_id`, `auth_user_id`, `created_by`, `profile_id`, `assigned_profile_id` o FK— o no llama a
-  una fuente de identidad —`auth.uid()`/`auth.jwt()`/helper de `public`/`private`—; columnas y funciones salen
-  de `pg_depend`), `RLS_OFF`; marca **GLOBAL** los hallazgos en tablas sin `business_id` y lista esas tablas
-  (hoy 11, todas ancladas: tablas por usuario `user_id = auth.uid()` y la raíz del tenant `businesses`).
-  Pin PRE-BETA-1: `public.users` sin grantees, sin ACL de columna, sin acceso de anon/authenticated/service_role,
-  sin policies.
-- **Allowlist** (`GLOBAL_ALLOWLIST`): tabla + razón + acceso (`rol:comando`); suprime sólo ese acceso; `users`
-  no puede entrar; una entrada vieja falla. Hoy vacía (no hay tablas globales legítimas expuestas).
-- **Deuda preexistente** (`DEUDA_PREEXISTENTE`, separada de la allowlist, **no** legítima): hoy
-  `customer_events.ce_insert` (`WITH CHECK (true)` para INSERT de authenticated). Se reporta en cada corrida y
-  trinquetea: si se arregla, la entrada queda vieja y el guard falla hasta quitarla.
+  `USING_TRUE`, `CHECK_TRUE`, `RLS_OFF` y `NO_DEMOSTRABLE`. `NO_DEMOSTRABLE` significa que la expresión no
+  **relaciona** una columna de la fila con una autoridad del usuario a través de un helper de la allowlist
+  **explícita** (self `auth.uid()`; tenant actual `current_business_id()`/`current_user_business_id()`;
+  membership `user_business_ids()`; capabilities atadas al negocio del argumento). El reconocedor es
+  estructural: en un `OR`, todas las ramas tienen que estar ancladas; en un `AND`, alcanza con una. Acepta
+  subconsultas/`EXISTS` sólo si están correlacionadas y ancladas. En una escritura sobre una tabla con
+  `business_id`, el CHECK tiene que atar el `business_id` de la fila (self o padre por FK no alcanzan). Los
+  helpers quedan fijados por huella de su definición. Marca **GLOBAL** los hallazgos en tablas sin `business_id` y lista esas tablas (hoy 11, todas
+  ancladas por usuario o raíz del tenant). Pin PRE-BETA-1 sin excepciones.
+- **Excepciones fail-closed:**
+  - `GLOBAL_ALLOWLIST` (vacía).
+  - `POLICY_ALLOWLIST` con huella y autoridad, 3 entradas: el JOIN mayorista, el alta del cliente en el
+    portal, y la edición del cliente, cuya autoridad (sin `UPDATE(business_id)`) se verifica en el catálogo.
+  - `DEUDA_PREEXISTENTE` con huella, **no** legítima: `customer_events.ce_insert` y las 4 tablas `personal_*`
+    cuyo CHECK sólo-self no ata `business_id`.
+
+  Si una policy cambia o desaparece, su entrada falla.
 - **Estático** (`--static`, job `quality`, sin DB): `src/` y `supabase/functions/` no consultan `public.users`;
   ninguna migración posterior le vuelve a dar GRANT/policy, debilita su RLS ni hace `GRANT … ON ALL TABLES`.
-- **Self-tests:** catálogo 19 casos con mutaciones reales en `BEGIN/ROLLBACK` (reabrir users por policy, por
-  GRANT y para service_role; `USING (true)`; `WITH CHECK (true)`; SELECT global por RLS off y por policy de
-  rol; UPDATE/DELETE global de owner/admin; ancla falsa con columna no clave; tabla global insegura nueva con y
-  sin RLS; trinquete de deuda; controles sin falso positivo: tabla por usuario, policy sólo service_role, tabla
-  global de allowlist; allowlist sólo cubre el acceso declarado; allowlist vieja; users en allowlist).
-  Estático 10 casos (incluye controles `getBusinessUsers(`, `business_users_view`, `auth.users`).
+- **Self-tests:** catálogo 53 casos (mutaciones reales en `BEGIN/ROLLBACK` + casos puros), incluidos el
+  caso A (`id IS NOT NULL AND current_user_role() = 'owner'`) y el caso B
+  (`business_id IS NOT NULL AND auth.uid() IS NOT NULL`); estático 10.
 
-Resultado: ANTES (= producción) `evidence/before_guard_catalog.log` → falla por `public.users`; DESPUÉS
-`evidence/after_guard_catalog.log` → 0 violaciones, pin cumplido, 1 deuda reportada.
+Resultado: ANTES (= producción) `evidence/before_guard_catalog.log` → falla sólo por `public.users`;
+DESPUÉS `evidence/after_guard_catalog.log` → 0 violaciones, 346 expresiones demostradas, 3 policies por
+allowlist con huella, 8 helpers con huella vigente, pin cumplido, 9 hallazgos de deuda reportados (5 entradas).
 
 ## 7. DESPUÉS (migración aplicada con la CLI sobre el replay limpio)
 

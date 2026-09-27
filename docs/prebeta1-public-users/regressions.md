@@ -125,11 +125,32 @@ CI no corre estos harnesses: la cobertura vigente de SEC-08A–E está en las su
 POST) y en los jobs `sec08e-r3` y `sec08f`. `test:sec08e-r2` y el runner R1 local exigen un ledger anterior a
 SEC-08E/R2A (certificaciones históricas) y no aplican a `main`.
 
+## Hardening del guard (revisión de #152)
+
+Cambio acotado a `scripts/guards/tenant-isolation.mjs` y `tenant-isolation-catalog.sql` (más docs y evidencia).
+Sin cambios en la migración, el frontend, las suites SQL/HTTP ni el workflow.
+
+| Verificación | Resultado |
+|---|---|
+| Guard estático + self-test | OK · 10/10 |
+| Guard de catálogo, self-test | OK · 53/53 (casos A y B, escrituras que no atan `business_id`, helpers homónimos, huellas y autoridades verificadas) |
+| Guard de catálogo sobre BASE (= producción) | falla **sólo** por `public.users` (pin + 5) + deuda: ninguna policy legítima quedó como falso positivo |
+| Clasificación nueva (modo estricto de escritura) | 6 policies cuyo CHECK no ata `business_id`: 2 legítimas → `POLICY_ALLOWLIST` con autoridad (`wholesale_customers` alta/edición; la de edición, verificada contra privilegios de columna); 4 → `DEUDA_PREEXISTENTE` (`personal_*`). No se modificó ninguna |
+| Guard de catálogo sobre POST | OK · 0 violaciones · 346 expresiones demostradas · 3 policies por allowlist con huella · 8 helpers con huella vigente · 9 hallazgos de deuda (5 entradas) |
+| Control negativo | el guard anterior (b332b61) no detectaba A, B, `OR` con rama sin ancla ni función arbitraria de `public`; el nuevo detecta los cuatro |
+| Equivalencia con producción | huellas de los 8 helpers, `fk_refs` y `business_id_write` idénticas (read-only) |
+| `test:prebeta1:before` / `migration up` / `test:prebeta1` | OK (SQL 88/88 → 42501; PostgREST/GraphQL 52/52; matriz de precondiciones 36/36) |
+
 ## Riesgos residuales
 
 1. **`customer_events.ce_insert` (`WITH CHECK (true)`)**: cualquier authenticated puede insertar eventos con un
    `business_id` ajeno (escritura cross-tenant; la lectura sí está anclada). Preexistente desde el
    `remote_baseline`, fuera de alcance. El guard lo reporta en cada corrida y trinquetea. **Requiere un P1 propio.**
+1b. **`personal_accounts`/`personal_categories`/`personal_credit_cards`/`personal_transactions`** (`*_own`): CHECK
+   sólo-self y `authenticated` puede escribir `business_id` (FK a `businesses`): un usuario puede etiquetar SUS
+   filas personales con el `business_id` de otro negocio. Hoy nadie las lee por `business_id` (sin fuga), pero
+   la columna no está atada a la pertenencia. Lo encontró el guard endurecido; queda como deuda con huella.
+   **Requiere un P1 propio.**
 2. **Las 3 filas huérfanas con PII siguen en `public.users`** (cero DML por diseño). Sólo `postgres`/superusuario
    las alcanza (SQL editor / dashboard). Decidir retención o borrado es una tarea aparte.
 3. **`orders.technician_id` y su FK siguen vivos** y `authenticated` conserva UPDATE sobre esa columna. Como el
@@ -142,10 +163,12 @@ SEC-08E/R2A (certificaciones históricas) y no aplican a `main`.
 5. **Privilegios latentes en otras tablas**: `anon`/`authenticated` conservan `TRUNCATE`/`REFERENCES`/`TRIGGER`
    en varias tablas del baseline (p. ej. `orders`). PostgREST no los expone y el guard no los evalúa (su
    alcance son las policies de tenant); conviene un lote de higiene de grants.
-6. **Límites del guard**: "anclada" = columna clave propia + fuente de identidad (medido en `pg_depend`); no
-   prueba la corrección semántica de la expresión (p. ej. `business_id IS NOT NULL AND <helper>` pasaría).
-   Las vistas (6 vistas definer expuestas, p. ej. `v_inventory_costs`) quedan fuera: las cubren los guards de
-   SEC-08B/E. GraphQL comparte privilegios con PostgREST, así que el mismo catálogo lo cubre.
+6. **Límites del guard** (ver `guard-anchors.md`): el reconocedor demuestra la **forma** de la relación
+   fila↔usuario; la corrección de cada helper se revisó a mano y quedó fijada por huella. Una policy legítima con
+   una forma nueva falla como `NO_DEMOSTRABLE` (falso positivo revisable, a propósito) y exige ampliar el
+   reconocedor con self-test o una entrada con huella en `POLICY_ALLOWLIST`. Las vistas (6 vistas definer
+   expuestas, p. ej. `v_inventory_costs`) quedan fuera: las cubren los guards de SEC-08B/E. GraphQL comparte
+   privilegios con PostgREST, así que el mismo catálogo lo cubre.
 7. **Deploy**: la migración aborta si producción cambió desde el discovery (policies, ACL, consumidores,
    `technician_id` en uso, otra migración después de A3). Es fail-closed a propósito: si aborta, re-discovery.
 8. **Higiene de tests encontrada (no tocada)**: `mp_pos_beta_containment.test.sql` filtra un `GRANT` fuera de

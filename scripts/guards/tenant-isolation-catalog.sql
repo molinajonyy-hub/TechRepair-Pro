@@ -6,13 +6,19 @@
 -- local (y sirve igual para un snapshot read-only de produccion).
 --
 -- Devuelve un JSON con, por cada tabla de `public` (r/p/f):
---   · rls / force_rls / has_business_id / fk_cols
+--   · rls / force_rls / has_business_id / fk_cols / fk_refs (columna -> tabla
+--     referenciada, FKs de una columna) / business_id_write (INSERT/UPDATE de
+--     la columna business_id para anon y authenticated)
 --   · acceso efectivo de anon y authenticated (tabla o columna; incluye
 --     herencia de roles: has_*_privilege)
 --   · policies: comando, permissive, roles, USING, WITH CHECK, las columnas
 --     PROPIAS que referencian y las funciones que llaman (ambas de pg_depend,
 --     no de parsear texto).
 -- Y el contrato PRE-BETA-1 de public.users (anon/authenticated/service_role).
+-- Y `helpers`: la huella (md5 de cuerpo normalizado + SECURITY DEFINER +
+-- proconfig) de los helpers de identidad/tenant REVISADOS (la allowlist de
+-- scripts/guards/tenant-isolation.mjs) y de las funciones de las que dependen
+-- para su autoridad. Si un helper cambia, el guard falla hasta re-revisarlo.
 -- ============================================================================
 SELECT json_build_object(
   'tables', coalesce((
@@ -28,6 +34,20 @@ SELECT json_build_object(
           FROM pg_constraint k, unnest(k.conkey) AS col(n), pg_attribute a
           WHERE k.conrelid = c.oid AND k.contype = 'f' AND a.attrelid = c.oid AND a.attnum = col.n
         ), '[]'::json) AS fk_cols,
+        coalesce((
+          SELECT json_object_agg(a.attname, r.relname)
+          FROM pg_constraint k JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = k.conkey[1]
+               JOIN pg_class r ON r.oid = k.confrelid
+          WHERE k.conrelid = c.oid AND k.contype = 'f' AND cardinality(k.conkey) = 1
+        ), '{}'::json) AS fk_refs,
+        -- Quien puede ESCRIBIR business_id (verifica autoridades declaradas en la
+        -- allowlist de policies, p. ej. "business_id no es actualizable").
+        CASE WHEN EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'business_id' AND NOT a.attisdropped)
+          THEN (SELECT json_object_agg(r, json_build_object(
+                  'I', has_column_privilege(r, c.oid, 'business_id', 'INSERT'),
+                  'U', has_column_privilege(r, c.oid, 'business_id', 'UPDATE')))
+                FROM unnest(ARRAY['anon', 'authenticated']) AS r)
+        END AS business_id_write,
         (SELECT json_object_agg(r, json_build_object(
             'S', has_table_privilege(r, c.oid, 'SELECT') OR has_any_column_privilege(r, c.oid, 'SELECT'),
             'I', has_table_privilege(r, c.oid, 'INSERT') OR has_any_column_privilege(r, c.oid, 'INSERT'),
@@ -72,5 +92,20 @@ SELECT json_build_object(
                    OR has_any_column_privilege(r, c.oid, 'SELECT, INSERT, UPDATE, REFERENCES'))
                  FROM unnest(ARRAY['anon', 'authenticated', 'service_role']) AS r))
     FROM pg_class c WHERE c.oid = to_regclass('public.users')
+  ),
+  'helpers', (
+    SELECT json_object_agg(sig, (
+      SELECT md5(replace(p.prosrc, E'\r', '') || '|' || p.prosecdef::text || '|' || coalesce(array_to_string(p.proconfig, ','), ''))
+      FROM pg_proc p WHERE p.oid = to_regprocedure(sig)))
+    FROM unnest(ARRAY[
+      'public.current_business_id()',
+      'public.current_user_business_id()',
+      'public.user_business_ids()',
+      'public.current_user_can_in_business(uuid,text)',
+      'public.can_view_inventory_cost(uuid)',
+      'public.can_view_supplier_finance(uuid)',
+      'public.can_view_payment_allocations(uuid)',
+      'public.user_can_view_order_amounts(uuid,uuid)'
+    ]) AS sig
   )
 )::jsonb AS catalog;  -- jsonb: una sola linea canonica
