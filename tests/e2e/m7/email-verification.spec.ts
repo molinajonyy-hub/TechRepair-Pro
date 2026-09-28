@@ -33,16 +33,26 @@
 //   4c. alta estilo mayorista -> 0 tenants SaaS
 //   5. el producto no es alcanzable por URL mientras tanto
 //
+//   PRE-BETA-2D — el CORREO real (plantilla token_hash versionada, la que 2E
+//   deja en producción), sin atajos de la admin API:
+//   6. signup → correo → escáner (GET) → click en OTRA pestaña → confirmado,
+//      /no-business; la pestaña original avanza sola
+//   7. el enlace de alta YA USADO nunca cae en la pantalla de recovery
+//   8. GoTrue degradó el redirect al Site URL: `/?token_hash=…&type=signup`
+//      igual confirma (fallback de la raíz)
+//   9. política: 7 caracteres no se registran; `error_description` no se pinta
+//
 // ⚠️ Los casos 4x cambiaron de contrato en 20260823180000 (P0-P1 fase B):
 // confirmar el correo ya no provisiona. Crear el tenant es una acción explícita
 // del usuario contra `provision_my_business()`.
 //
-// Los correos locales se leen en Inbucket: http://127.0.0.1:54424
+// Los correos locales se leen en Mailpit ([local_smtp] de supabase/config.toml).
 // ============================================================================
 import { test, expect } from '@playwright/test'
 import { createClient } from '@supabase/supabase-js'
 import { consultarJSON } from '../setup/sqlLocal.ts'
 import { assertDestinoLocalSeguro } from '../setup/assertLocalTarget.ts'
+import { borrarCorreos, esEnlaceTokenHash, esperarEnlace, ultimoCorreo } from '../setup/mailpit.ts'
 
 // Sesión propia: este spec NO usa el storageState del owner.
 test.use({ storageState: { cookies: [], origins: [] } })
@@ -299,4 +309,129 @@ test('@m7 5. sin sesión el producto no es alcanzable por URL', async ({ page })
     await expect(page).toHaveURL(/\/login/, { timeout: 15_000 })
     await expect(page.locator('.main-layout-content')).toHaveCount(0)
   }
+})
+
+// ── PRE-BETA-2D — el correo real, con la plantilla token_hash ──────────────
+
+/** Enlace de confirmación del correo local (contrato de supabase/templates/confirmation.html). */
+const enlaceDeAlta = (email: string) => esperarEnlace(email, esEnlaceTokenHash('signup'))
+
+test('@m7 6. alta real por correo: escáner + click en otra pestaña → confirmada y en /no-business, sin provisionar', async ({ page, context, baseURL }) => {
+  const email = emailUnico(`correo-${Date.now()}`)
+  await borrarPorEmail(email)
+  await borrarCorreos(email)
+
+  await registrarse(page, email)
+  await expect(page).toHaveURL(/\/verificar-email/, { timeout: 25_000 })
+
+  const enlace = await enlaceDeAlta(email)
+  const url = new URL(enlace)
+  expect(url.origin).toBe(new URL(baseURL!).origin)
+  expect(url.pathname).toBe('/auth/callback')
+  expect(url.searchParams.get('type')).toBe('signup')
+  expect(enlace).not.toContain('/auth/v1/verify')
+  const correo = await ultimoCorreo(email)
+  expect(correo?.subject).toBe('Confirmá tu correo — TechRepair Pro')
+  expect(correo?.html).toContain('techrepairpro.soporte@gmail.com')
+
+  // El escáner de correo pre-abre el enlace sin JS: no confirma nada.
+  expect((await fetch(enlace)).status).toBe(200)
+  const id = await idDe(email)
+  expect(
+    consultarJSON<{ ok: boolean }>(`SELECT email_confirmed_at IS NULL AS ok FROM auth.users WHERE id = '${id}'`).ok,
+    'un GET sin JS no confirma la cuenta',
+  ).toBe(true)
+
+  // El usuario hace click: el enlace se abre en OTRA pestaña.
+  const pestana = await context.newPage()
+  await pestana.goto(enlace)
+  await expect(pestana).toHaveURL(/\/no-business/, { timeout: 25_000 })
+  await expect(pestana.getByTestId('no-business-create')).toBeVisible()
+  expect(pestana.url()).not.toContain('token_hash')
+
+  // La pestaña original (/verificar-email) avanza sola al ver la sesión.
+  await expect(page).toHaveURL(/\/no-business/, { timeout: 25_000 })
+
+  // Confirmar no provisiona.
+  expect(contarBusinesses(id!)).toBe(0)
+  expect(
+    consultarJSON<{ ok: boolean }>(`SELECT email_confirmed_at IS NOT NULL AS ok FROM auth.users WHERE id = '${id}'`).ok,
+  ).toBe(true)
+
+  await borrarPorEmail(email)
+})
+
+test('@m7 7. un enlace de alta YA USADO nunca cae en la pantalla de recovery', async ({ page, browser }) => {
+  const email = emailUnico(`usado-${Date.now()}`)
+  await borrarPorEmail(email)
+  await borrarCorreos(email)
+
+  await registrarse(page, email)
+  await expect(page).toHaveURL(/\/verificar-email/, { timeout: 25_000 })
+  const enlace = await enlaceDeAlta(email)
+
+  await page.goto(enlace)
+  await expect(page).toHaveURL(/\/no-business/, { timeout: 25_000 })
+
+  // Segundo click en el MISMO navegador (ya confirmado): sigue normal.
+  await page.goto(enlace)
+  await expect(page).toHaveURL(/\/no-business/, { timeout: 25_000 })
+
+  // En otro dispositivo, sin sesión: al login con motivo de ALTA, no a recovery.
+  const otro = await browser.newContext({ storageState: { cookies: [], origins: [] } })
+  const p2 = await otro.newPage()
+  const urls: string[] = []
+  p2.on('framenavigated', f => { if (f === p2.mainFrame()) urls.push(f.url()) })
+  await p2.goto(enlace)
+  await expect(p2).toHaveURL(/\/login\?motivo=link_invalido/, { timeout: 25_000 })
+  await expect(p2.getByTestId('login-error')).toContainText('enlace de confirmación')
+  expect(urls.some(u => u.includes('/reset-password')), urls.join(' | ')).toBe(false)
+  await otro.close()
+
+  await borrarPorEmail(email)
+})
+
+test('@m7 8. redirect degradado al Site URL: /?token_hash=…&type=signup igual confirma', async ({ page, baseURL }) => {
+  const email = emailUnico(`raiz-${Date.now()}`)
+  await borrarPorEmail(email)
+  await borrarCorreos(email)
+
+  await registrarse(page, email)
+  await expect(page).toHaveURL(/\/verificar-email/, { timeout: 25_000 })
+  const enlace = new URL(await enlaceDeAlta(email))
+
+  // Lo que arma GoTrue cuando el redirect_to no está permitido: la RAÍZ del Site URL.
+  const raiz = new URL(`/?token_hash=${enlace.searchParams.get('token_hash')}&type=signup`, baseURL!)
+  await page.goto(raiz.toString())
+  await expect(page).toHaveURL(/\/no-business/, { timeout: 25_000 })
+  expect(page.url()).not.toContain('token_hash')
+
+  const id = await idDe(email)
+  expect(
+    consultarJSON<{ ok: boolean }>(`SELECT email_confirmed_at IS NOT NULL AS ok FROM auth.users WHERE id = '${id}'`).ok,
+  ).toBe(true)
+
+  await borrarPorEmail(email)
+})
+
+test('@m7 9. política y errores: 7 caracteres no se registran; un error_description arbitrario no se pinta', async ({ page }) => {
+  const email = emailUnico(`politica-${Date.now()}`)
+  await borrarPorEmail(email)
+
+  await page.goto('/login?modo=registro')
+  await expect(page.getByTestId('login-confirm-password')).toBeVisible({ timeout: 15_000 })
+  await page.fill('[data-testid="login-email"]', email)
+  await page.fill('[data-testid="login-password"]', 'corta12')
+  await page.fill('[data-testid="login-confirm-password"]', 'corta12')
+  await page.click('[data-testid="login-submit"]')
+  await expect(page.getByText('Usá al menos 8 caracteres.')).toBeVisible()
+  expect(await idDe(email), 'no se creó el usuario').toBeNull()
+
+  await page.goto('/login?error=x&error_description=TechRepair+fue+hackeado')
+  await expect(page.getByTestId('login-error')).toContainText('No pudimos completar el inicio de sesión')
+  await expect(page.locator('body')).not.toContainText(/hackeado/i)
+
+  await page.goto('/auth/callback?error=x&error_description=TechRepair+fue+hackeado')
+  await expect(page.locator('body')).toContainText('No pudimos completar el inicio de sesión')
+  await expect(page.locator('body')).not.toContainText(/hackeado/i)
 })
