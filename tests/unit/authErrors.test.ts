@@ -30,11 +30,23 @@ test('A2. alta: weak_password (Leaked Password Protection) → copy propio', () 
   assert.equal(e.signUpErrorMessage(err), COMPROMISED_PASSWORD_MESSAGE)
 })
 
-test('A3. alta: email ya registrado (código nuevo y mensaje viejo)', () => {
-  assert.equal(e.classifySignUpError(api(422, 'user_already_exists', 'User already registered')), 'already_registered')
-  assert.equal(e.classifySignUpError(api(422, 'email_exists', 'Email address already exists')), 'already_registered')
-  assert.equal(e.classifySignUpError({ message: 'User already registered' }), 'already_registered')
-  assert.equal(e.signUpErrorMessage(api(422, 'user_already_exists', 'User already registered')), e.SIGNUP_ERROR_MESSAGE.already_registered)
+test('A3. alta: email ya registrado se CLASIFICA igual, pero la UI no confirma que la cuenta exista', () => {
+  const senales = [
+    api(422, 'user_already_exists', 'User already registered'),
+    api(422, 'email_exists', 'Email address already exists'),
+    { message: 'User already registered' },                // GoTrue viejo, sin código
+    { message: 'A user with this email has already been registered' },
+  ]
+  const neutro = 'No pudimos completar el registro. Si ya tenés una cuenta, iniciá sesión o recuperá tu contraseña.'
+  assert.equal(e.SIGNUP_ERROR_MESSAGE.already_registered, neutro)
+  for (const err of senales) {
+    // La detección técnica no cambió…
+    assert.equal(e.classifySignUpError(err), 'already_registered', JSON.stringify(err))
+    // …pero el texto visible es condicional: no afirma que la cuenta exista.
+    const msg = e.signUpErrorMessage(err)
+    assert.equal(msg, neutro)
+    assert.doesNotMatch(msg, /ya tiene una cuenta|ya está registrad|already/i)
+  }
 })
 
 test('A4. alta: fallo del SMTP → copy propio con el soporte canónico', () => {

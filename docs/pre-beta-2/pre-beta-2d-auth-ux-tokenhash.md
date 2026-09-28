@@ -10,7 +10,7 @@ Google OAuth, usuarios ni DB productiva. No hay migraciones. No se hizo deploy.
 | Base | `origin/main` = **`d50cad830fdd9c283cba9b33ac9edfec46a51ebc`** (merge de #154). Verificado con `fetch` al inicio: **no avanzó**, así que no hubo cambios nuevos de Auth, Login, Signup, Recovery, VerifyEmail, Onboarding, portal, landing, config local ni plantillas que revisar. |
 | Producción servida al inicio | `d50cad8` en `www.techrepairpro.app/version.json` **y** en `clicmayorista.com.ar/version.json` (build 2026-09-28 13:44 UTC) |
 | Rama | `claude/pre-beta-2d-auth-ux-hardening` |
-| Commits | `beb1b20` feat(auth) · `82f8d8e` chore(supabase) · `ffa0399` test(e2e) · este informe |
+| Commits | `beb1b20` feat(auth) · `82f8d8e` chore(supabase) · `ffa0399` test(e2e) · `5ad24c4` este informe · follow-up de cierre: decisiones del owner + copy neutro de cuenta existente (§16) |
 | Versiones | Node 24.14.1 (local) · Supabase CLI **2.109.1** (la misma que fija CI) · GoTrue local **v2.192.0** · Mailpit v1.30.2 · GoTrue prod v2.197.0 (2A) |
 | Informes previos | `pre-beta-2a-discovery.md`, `pre-beta-2b-auth-production-inventory.md`, `pre-beta-2c-email-hardening.md` (leídos completos; no se repite su discovery) |
 
@@ -61,7 +61,7 @@ Google OAuth, usuarios ni DB productiva. No hay migraciones. No se hizo deploy.
 `quality`), `tests/e2e/m7/{password-recovery,email-verification}.spec.ts`, `tests/e2e/landing.spec.ts`,
 `tests/unit/passwordRecovery.test.ts`, `tests/components/portalLoginNoDemo.test.tsx`.
 
-41 archivos, +3099 / −297 (sin CRLF; `--stat` = `--stat --ignore-all-space`). **0 migraciones.**
+Conteo real del PR #155 contra `d50cad8`, con el follow-up de cierre incluido: **42 archivos, +3658 / −297** (antes del follow-up: 42 archivos, +3552 / −297) (sin CRLF; `--stat` = `--stat --ignore-all-space`). **0 migraciones.**
 
 ---
 
@@ -100,7 +100,7 @@ versiones viejas. El texto visible sale siempre de un mapa. Valor desconocido �
 |---|---|---|---|
 | `weak_password` | `AuthWeakPasswordError` / `code=weak_password` | según `reasons`: `pwned` o vacío → «Esta contraseña no es segura. Elegí otra que no hayas usado en otros servicios.»; `length` → «Usá una contraseña más larga.»; `characters` → «Combiná letras, números y símbolos.» | igual |
 | `rate_limited` | 429, `over_email_send_rate_limit`, `over_request_rate_limit` | «Hiciste varios intentos seguidos. Esperá unos minutos y volvé a probar.» | igual |
-| `already_registered` | `user_already_exists`, `email_exists`, «already registered» | «Este email ya tiene una cuenta. Iniciá sesión o recuperá tu contraseña.» (sin cambio: ver §16) | «Este email ya está registrado. Intentá iniciar sesión.» |
+| `already_registered` | `user_already_exists`, `email_exists`, «already registered» | «No pudimos completar el registro. Si ya tenés una cuenta, iniciá sesión o recuperá tu contraseña.» (**neutro**: no confirma que la cuenta exista; §16.1) | «No pudimos completar el registro. Si ya tenés una cuenta, intentá iniciar sesión.» |
 | `invalid_email` | `email_address_invalid` | «Revisá el email: no parece una dirección válida.» | igual |
 | `email_send_failed` | 500 con «error sending…», `email_address_not_authorized` | «No pudimos enviar el correo de confirmación… escribinos a `CONTACTO_SOPORTE`.» | «…Si sigue fallando, contactá al negocio.» |
 | `network` | `AuthRetryableFetchError` / status 0 / 502-504 | «No pudimos conectarnos. Revisá tu conexión e intentá de nuevo.» | igual |
@@ -173,6 +173,9 @@ en la rama de reintento (I6). Autoridad server-side (`is_active`, RLS) intacta.
   `/reset-password` inválido, error de envío del alta, y las dos plantillas.
 - Regresión bloqueada tres veces: guard S1 (ninguna casilla `@techrepairpro.com` en `src/`), test SC2, y
   el guard T4 (las plantillas sólo contienen `CONTACTO_SOPORTE`).
+- **Limitación operativa (decisión del owner, §16.4):** la casilla actual **no se monitorea
+  regularmente**. 2D la mantiene sin cambios para no ampliar el alcance; la solución es el requisito
+  **P0 pre-beta «SaaS Support Inbox»**.
 
 ---
 
@@ -323,13 +326,13 @@ dejarlo un ciclo más (es inocuo) y retirarlo en un lote propio con su E2E.
 | Nivel | Archivo | Casos |
 |---|---|---|
 | unit | `passwordPolicy.test.ts` | 7 → rechazo, 8 OK, 72/73 bytes, multibyte, emojis, espacios, par, placeholder, `weak_password` por motivos, reexport sin duplicar, sin números mágicos en las 3 superficies, ResetPassword → copy propio (10) |
-| unit | `authErrors.test.ts` | 429 del alta, `weak_password`, ya registrado, SMTP, red, desconocido sin texto crudo, overrides, login, reenvío, URL (`hackeado` nunca), copy sin inglés (11) |
+| unit | `authErrors.test.ts` | 429 del alta, `weak_password`, ya registrado (`user_already_exists`, `email_exists` y mensajes legacy siguen dando `already_registered`, con copy neutro), SMTP, red, desconocido sin texto crudo, overrides, login, reenvío, URL (`hackeado` nunca), copy sin inglés (11) |
 | unit | `authEmailLink.test.ts` | fallback: tipos válidos, 17 rechazos (path, fragmento, tipo, extras, duplicados, forma), destino fijo, `replaceState` en la misma entrada, enum compartido y orden de arranque (5) |
 | unit | `mailpitConfig.test.ts` | `[local_smtp]` canónico / `[inbucket]` compat, config commiteado, mínimo 8, plantillas cableadas, sin «Confirm Email apagado» (5) |
 | unit | `passwordRecovery.test.ts` (+4) | `otp_expired` con/sin evidencia, vencimiento de la marca, sin storage, la marca guarda sólo la hora |
-| comp | `authUxHardening.test.tsx` | L1–L16, C1–C2, V1 (19) |
+| comp | `authUxHardening.test.tsx` | L1–L16 + L6b (cuenta existente → copy neutro), C1–C2, V1 (20) |
 | comp | `inactiveProfile.test.tsx` | I1–I6 (6) |
-| comp | `portalAuthUx.test.tsx` | P1–P8 (7) |
+| comp | `portalAuthUx.test.tsx` | P1–P9 (P9: las tres señales de cuenta existente → el mismo copy neutro) (8) |
 | comp | `portalAuthUxScreens.test.tsx` | U1–U4 (5) |
 | comp | `landingSignupIntent.test.tsx` | hero, header, final, pricing+plan, mobile, Ingresar (6) |
 | comp | `signupIntent.test.ts` | `?modo=`, ruta, saneado, plan entre pestañas, sin storage (5) |
@@ -372,6 +375,22 @@ Step nuevo en `quality` (Node 20): guard + self-test + 10 suites de componente d
 (`e2e-local`, CLI 2.109.1) levanta el stack con el `config.toml` commiteado: **ejercita `[local_smtp]`
 y las plantillas versionadas en cada PR**.
 
+Primera corrida sobre `5ad24c4`: CI #489 completamente verde + Vercel verde (reportado por el owner).
+
+### 14.5 Follow-up de cierre (decisiones del owner) — CONFIRMADO POR TEST
+
+Cambio acotado a copy + tests + este informe (§16.1). No se repitió el E2E: no cambia ningún flujo, sólo
+dos strings; el CI del PR corre el E2E igual.
+
+| Gate | Resultado |
+|---|---|
+| unit Auth (`authErrors`, `passwordPolicy`, `authEmailLink`, `passwordRecovery`, `mailpitConfig`, `authRedirect`, `noHardcodedCredentials`) | **83/83** |
+| vitest Auth + portal (17 suites: las 7 de 2D + `emailVerification`, `passwordRecovery`, `wholesaleEmailConfirmation`, `portalLoginNoDemo`, `routingRecoveryOnboarding`, `invitationsLifecycle`, `mobileSession1a`, `authProfileLinking`, `canonicalProvisioning`, `portalAccessLockdown`) | **224/224** |
+| guards `auth-email-templates`, `auth-redirect`, `no-hardcoded-credentials` (+ self-tests) | OK |
+| `tsc --noEmit` / ESLint `--quiet` | 0 / 0 |
+| `vite build` + escaneo | OK; 0 archivos con el copy anterior de cuenta existente, el copy neutro presente |
+| Búsqueda en el repo del copy anterior de app y portal | 0 apariciones en código, tests e informe de 2D (sólo queda la cita histórica en el informe de 2A, que está en `main` y no se reescribe) |
+
 ---
 
 ## 15. Hallazgos nuevos
@@ -379,31 +398,76 @@ y las plantillas versionadas en cada PR**.
 | # | Hallazgo | Sev. | Tratamiento |
 |---|---|---|---|
 | H1 | **CI nunca corre `npm run test:unit`**: el job `quality` usa Node 20 (no ejecuta `.ts`) y ningún otro job los llama. Los ~1200 tests de `tests/unit/` son sólo locales. | P2 (proceso) | 2D mitiga en su área (guard `.mjs` + vitest en CI). Lote aparte: un step Node 22 con `npm run test:unit`. |
-| H2 | La plantilla de **alta es compartida** por TechRepair Pro y el portal de Clic: un cliente mayorista recibe «Confirmá tu correo — TechRepair Pro» (2B ya había anotado el sender). | P3 | Decisión del owner (§16). Técnicamente posible bifurcar con `{{ if .Data.wholesale_registration }}`, pero agrega riesgo a la plantilla que confirma TODAS las altas. |
+| H2 | La plantilla de **alta es compartida** por TechRepair Pro y el portal de Clic: un cliente mayorista recibe «Confirmá tu correo — TechRepair Pro» (2B ya había anotado el sender). | P3 | **DECIDIDO (§16.2):** en la beta se mantiene «TechRepair Pro» también para Clic Mayorista; sin lógica condicional de branding. |
 | H3 | Un `redirect_to` del portal fuera de la allowlist degradaría al Site URL (`www.techrepairpro.app`): confirmaría el correo, pero la sesión quedaría en el origen equivocado y el cliente mayorista vería «Creá tu taller». Hoy **no ocurre**: `https://clicmayorista.com.ar/auth/callback` está en la allowlist exacta. | P2 latente | 2E: **no** quitar esa entrada al reemplazar los comodines (§17 paso 3). |
 | H4 | `src/lib/signupIntent.ts` no puede probarse con `node --test`: `src/types/subscription.ts` reexporta `./subscriptionAccess` sin extensión. | P4 | Test en vitest. Sin cambio en billing. |
 | H5 | Login: el mínimo 6 del cliente también se exigía al **ingresar**. | — | Quitado (§2). |
 
-Pendientes de 2A que **no** estaban en el alcance de 2D y siguen abiertos: P3-7 links de invitación con
-`window.location.origin`, P3-8 `services/auth.ts` muerto, P3-1 invitación pendiente bloquea negocio
-propio, P3-11 onboarding de una sola oportunidad, «olvidé mi contraseña» dentro del portal.
+### 15.1 Pendientes abiertos — fuera de 2D (no se pierden)
+
+| Pendiente | Prioridad | Nota |
+|---|---|---|
+| **SaaS Support Inbox** (`soporte@techrepairpro.app` con recepción inbound y bandeja privada del SaaS Admin) | **P0 pre-beta** | §16.4. No se implementa en #155. |
+| CI no ejecuta `npm run test:unit` (~1200 tests) | P2 infraestructura, **antes del Release Candidate** | H1 |
+| P3-7 links de invitación con `window.location.origin` | P3 | 2A |
+| P3-8 `services/auth.ts` muerto (redirect a `/reset-password` fuera de la allowlist) | P3 | 2A |
+| P3-1 invitación pendiente puede bloquear el negocio propio | P3 | 2A |
+| P3-11 onboarding de una sola oportunidad | P3 | 2A |
+| «Olvidé mi contraseña» dentro del portal mayorista | P3 | 2A P2-3 (parte no cubierta) |
 
 ---
 
-## 16. Decisiones del owner
+## 16. Decisiones del owner — CERRADAS
 
-1. **Enumeración en el alta** (2A P3-5, sin cambio en 2D): si GoTrue responde `user_already_exists`, la
-   UI dice «Este email ya tiene una cuenta». 2A lo midió en local (422); en producción no se re-verificó
-   (la memoria histórica decía 200 sin correo). El mensaje sólo aparece donde GoTrue ya lo revela en la
-   respuesta HTTP. ¿Se mantiene o se neutraliza?
-2. **Marca de la plantilla de alta para el portal** (H2): ¿«TechRepair Pro» también para Clic Mayorista?
-3. **Copy de la plantilla de alta en 2E**: producción ya usa `token_hash`; la versionada agrega soporte,
-   advertencia y copy. ¿Se pega también (recomendado) o sólo recovery?
-4. Confirmar que la casilla `CONTACTO_SOPORTE` se monitorea (ya pedido en 2C): ahora aparece en más
-   pantallas y en los dos correos.
-5. **Leaked Password Protection**: confirmar en el Dashboard que el toggle está disponible para el plan
-   del proyecto antes de 2E (no verificado en 2D: sin acceso al Dashboard). Si no lo está, el frontend
-   igual queda listo y el paso 6 se omite.
+### 16.1 Enumeración en alta
+**DECIDIDO:** neutralizar en TechRepair Pro y en el Portal Mayorista. La clasificación técnica
+`already_registered` permanece (`user_already_exists`, `email_exists` y los mensajes legacy «already
+registered» siguen detectándose igual), pero el copy visible **no afirma que la cuenta exista**:
+
+- App: «No pudimos completar el registro. Si ya tenés una cuenta, iniciá sesión o recuperá tu contraseña.»
+- Portal: «No pudimos completar el registro. Si ya tenés una cuenta, intentá iniciar sesión.»
+
+Aplicado en el follow-up de cierre (`src/lib/authErrors.ts`, `PORTAL_SIGNUP_COPY` en
+`src/portal/services/portalService.ts`); fijado por unit A3, componente L6b y portal P9. Alcance: la
+**UI**. La respuesta HTTP de GoTrue (`/auth/v1/signup`) sigue siendo la del servidor: riesgo residual de
+infraestructura, igual que `/auth/v1/recover` (§18.5).
+
+### 16.2 Branding del correo mayorista
+**DECIDIDO:** durante la beta, la plantilla compartida de confirmación sigue usando la marca
+**TechRepair Pro** también para las altas de Clic Mayorista. **No** se agrega lógica condicional de
+branding en esta etapa.
+
+### 16.3 Plantillas en PRE-BETA-2E
+**DECIDIDO:** en 2E se aplican **ambas** plantillas versionadas — `confirmation.html` y `recovery.html` —
+cada una con **smoke inmediato** y **rollback guardado** (texto anterior copiado antes de pegar). Ver §17
+paso 4.
+
+### 16.4 `CONTACTO_SOPORTE`
+**DECIDIDO:** la casilla actual `techrepairpro.soporte@gmail.com` **no se monitorea regularmente** y **no
+debe considerarse solución operativa definitiva**. Mientras no exista la bandeja de abajo,
+`CONTACTO_SOPORTE` queda **sin cambios** (no se amplía el alcance de 2D).
+
+**Requisito P0 pre-beta — SaaS Support Inbox** (NO implementado en #155; sólo documentado):
+
+- canal `soporte@techrepairpro.app`;
+- recepción inbound;
+- consultas/tickets guardados en una bandeja privada del SaaS Admin;
+- visible sólo para la autoridad SaaS interna;
+- estados: Nuevo / En seguimiento / Esperando cliente / Resuelto;
+- responder desde la bandeja;
+- convertir un ticket en Tarea;
+- integrarlo después con la filosofía de «compañero operativo».
+
+Cuando exista, `CONTACTO_SOPORTE` y las dos plantillas se actualizan juntos (el guard T4 obliga a que
+coincidan).
+
+### 16.5 Leaked Password Protection
+**DECIDIDO:** en 2E se intenta activar **sólo si el plan actual de Supabase expone la función**. Si no
+está disponible:
+
+- se documenta `NOT AVAILABLE ON CURRENT PLAN`;
+- **no** bloquea 2E;
+- el frontend ya queda preparado (`weak_password` con copy propio en alta, portal y ResetPassword).
 
 ---
 
@@ -418,9 +482,9 @@ plantilla y cada valor que se cambie (rollback).
 | 1 | Merge + deploy 2D | Merge del PR; esperar el deploy de Vercel. | — | revert del merge |
 | 2 | Verificar versión productiva | `https://www.techrepairpro.app/version.json` **y** `https://clicmayorista.com.ar/version.json` → `commit` = SHA del merge. Sin esto, **no seguir**: los pasos 4–6 dependen del frontend nuevo. | abrir `/login?modo=registro` → pestaña «Crear cuenta», placeholder «Mínimo 8 caracteres»; `/login?error=x&error_description=prueba` → genérico | — |
 | 3 | Redirect URLs exactas | **Agregar primero** (sin borrar nada): `https://www.techrepairpro.app/auth/callback`, `https://techrepairpro.app/auth/callback`, `https://clicmayorista.com.ar/auth/callback` (ya está), `https://www.clicmayorista.com.ar/auth/callback`. Guardar. **Después** quitar `https://www.techrepairpro.app/**`, `https://techrepairpro.app/**` y **`http://localhost:5173/**`**. Site URL queda `https://www.techrepairpro.app`. | recovery QA pedido desde `www` → el enlace apunta a `www…/auth/callback`; login con Google QA vuelve a `/auth/callback` | volver a agregar las entradas borradas |
-| 4 | Recovery → `token_hash` | Authentication → Emails → **Reset password**: asunto `Restablecé tu contraseña — TechRepair Pro`, cuerpo = `supabase/templates/recovery.html` completo. (Opcional, decisión §16.3: **Confirm signup** = `confirmation.html`, asunto `Confirmá tu correo — TechRepair Pro`.) | Recovery QA: el enlace es `https://www.techrepairpro.app/auth/callback?token_hash=…&type=recovery` (sin `/auth/v1/verify`, sin dominio de tracking); formulario; cambiar contraseña; login con la vieja falla, con la nueva entra; reabrir el mismo enlace → «El enlace ya no es válido». Si hay M365: el click **después** del escaneo de Safe Links funciona. | pegar el texto guardado (el frontend soporta los dos formatos: rollback sin deploy) |
+| 4 | Plantillas versionadas (§16.3: **las dos**) | **4a · Reset password**: asunto `Restablecé tu contraseña — TechRepair Pro`, cuerpo = `supabase/templates/recovery.html` completo. **4b · Confirm signup**: asunto `Confirmá tu correo — TechRepair Pro`, cuerpo = `supabase/templates/confirmation.html` completo. Antes de pegar cada una, guardar el asunto y el cuerpo actuales (rollback). Una por vez, cada una con su smoke antes de pasar a la siguiente. | **4a:** recovery QA → el enlace es `https://www.techrepairpro.app/auth/callback?token_hash=…&type=recovery` (sin `/auth/v1/verify`, sin dominio de tracking); formulario; cambiar contraseña; login con la vieja falla, con la nueva entra; reabrir el mismo enlace → «El enlace ya no es válido». Si hay M365: el click **después** del escaneo de Safe Links funciona. **4b:** alta QA → correo en español con soporte visible y enlace `…/auth/callback?token_hash=…&type=signup`; confirmación en otra pestaña → `/no-business`. | pegar el texto guardado de esa plantilla (el frontend soporta los dos formatos: rollback sin deploy) |
 | 5 | Password minimum → 8 | Authentication → Providers → Email → Minimum password length = **8**. Requisitos: ninguno. **«Require current password when updating» queda OFF** (recovery lo necesita). | alta QA con 7 caracteres: la UI la frena antes del servidor; alta con 8: OK; **login de una cuenta existente con contraseña de 6–7: sigue entrando** | volver a 6 |
-| 6 | Leaked Password Protection → ON | Authentication → Providers → Email (o Attack Protection) → Leaked password protection ON (si el plan lo permite, §16.5). | alta QA con una contraseña conocida filtrada (p. ej. `password123`): la UI muestra «Esta contraseña no es segura. Elegí otra que no hayas usado en otros servicios.»; recovery con la misma → mismo copy en el formulario; el advisor `auth_leaked_password_protection` desaparece | OFF |
+| 6 | Leaked Password Protection → ON (§16.5) | Authentication → Providers → Email (o Attack Protection) → Leaked password protection ON **sólo si el plan actual expone la función**. Si no: registrar `NOT AVAILABLE ON CURRENT PLAN` y seguir con el paso 7 (**no bloquea 2E**). | alta QA con una contraseña conocida filtrada (p. ej. `password123`): la UI muestra «Esta contraseña no es segura. Elegí otra que no hayas usado en otros servicios.»; recovery con la misma → mismo copy en el formulario; el advisor `auth_leaked_password_protection` desaparece | OFF |
 | 7 | Security notifications | Authentication → Emails → notificaciones: **Password changed** y **Email changed** ON (copy en español opcional). | al terminar un recovery QA llega «contraseña cambiada» | OFF |
 | 8 | Smokes productivos completos | Con cuentas QA (nunca clientes): alta + confirmación en otra pestaña; link de alta reusado (no cae en recovery); reenvío + 429; login sin confirmar + reenvío; recovery completo; Google nuevo y existente; invitación a un QA; **portal** `clicmayorista.com.ar`: alta, login sin confirmar → reenvío, confirmación en el mismo origen; perfil desactivado (si hay un QA inactivo); Resend → Emails: `delivered`, sin bounces nuevos; Logs → Auth: sin 500 en `/signup`, `/recover`, `/resend`, `/verify`. | — | por paso |
 
@@ -441,10 +505,11 @@ funcionando hasta vencer (§12.2).
 | 2 | Un typo al pegar la plantilla en el Dashboard rompe todas las confirmaciones o recoveries | pegar el archivo completo; smoke inmediato; rollback sin deploy |
 | 3 | `otp_expired` legacy abierto en otro dispositivo cae en la pantalla neutra (no en «recovery vencido») | es el comportamiento correcto sin evidencia; la pantalla ofrece «¿Olvidaste tu contraseña?»; desaparece cuando todos los recoveries sean `token_hash` |
 | 4 | La marca de pedido de recovery dura 24 h: un alta legacy vencida abierta en ese navegador en esa ventana se nombraría «recovery vencido» | producción ya confirma altas con `token_hash` (errores con `type`); impacto: copy, ninguna capacidad |
-| 5 | Enumeración en el alta (§16.1) y en `/auth/v1/recover` (infraestructura, Lote B) | decisión del owner / aceptado |
-| 6 | H1: los tests `.ts` de `tests/unit` no corren en CI | lote aparte |
+| 5 | Enumeración: la **UI** del alta ya es neutra (§16.1); las respuestas HTTP de GoTrue en `/auth/v1/signup` y `/auth/v1/recover` siguen siendo las del servidor | riesgo residual de infraestructura, aceptado (Lote B / §16.1) |
+| 6 | H1: los tests `.ts` de `tests/unit` no corren en CI | P2 infraestructura, antes del Release Candidate (§15.1) |
 | 7 | H3: portal fuera de la allowlist → sesión en el origen equivocado | mantener la entrada exacta del portal en 2E |
 | 8 | Bounce rate de Resend (2C) sensible a smokes contra casillas sin MX | smokes sólo con casillas reales |
+| 9 | `CONTACTO_SOPORTE` no se monitorea regularmente (§16.4): el soporte visible en pantallas y correos no tiene hoy una respuesta garantizada | P0 pre-beta «SaaS Support Inbox» (§15.1) |
 
 ## 19. Rollback de 2D
 

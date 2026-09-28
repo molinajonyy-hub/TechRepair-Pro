@@ -80,7 +80,9 @@ export function classifySignUpError(error: unknown): SignUpFailure {
 }
 
 export const SIGNUP_ERROR_MESSAGE: Record<Exclude<SignUpFailure, 'weak_password'>, string> = {
-  already_registered: 'Este email ya tiene una cuenta. Iniciá sesión o recuperá tu contraseña.',
+  // Neutro a propósito (decisión del owner, PRE-BETA-2D): la clasificación
+  // sigue existiendo, pero el texto NO confirma que la cuenta exista.
+  already_registered: 'No pudimos completar el registro. Si ya tenés una cuenta, iniciá sesión o recuperá tu contraseña.',
   rate_limited: 'Hiciste varios intentos seguidos. Esperá unos minutos y volvé a probar.',
   invalid_email: 'Revisá el email: no parece una dirección válida.',
   email_send_failed: `No pudimos enviar el correo de confirmación. Probá de nuevo en unos minutos. Si sigue fallando, escribinos a ${CONTACTO_SOPORTE}.`,

@@ -254,7 +254,8 @@ export async function registerCustomer(input: {
 
 /** Copy del portal sobre el contrato de errores del alta. */
 const PORTAL_SIGNUP_COPY = {
-  already_registered: 'Este email ya está registrado. Intentá iniciar sesión.',
+  // Neutro: no confirma que la cuenta exista (misma decisión que la app).
+  already_registered: 'No pudimos completar el registro. Si ya tenés una cuenta, intentá iniciar sesión.',
   email_send_failed: 'No pudimos enviar el correo de confirmación. Probá de nuevo en unos minutos. Si sigue fallando, contactá al negocio.',
 } as const
 

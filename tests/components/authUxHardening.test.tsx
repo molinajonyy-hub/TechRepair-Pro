@@ -12,6 +12,7 @@
 //   L4  registro: confirmación distinta → rechazo
 //   L5  registro: 8 caracteres → signUp → /verificar-email
 //   L6  weak_password (Leaked Password Protection) → copy propio
+//   L6b cuenta existente → copy neutro (no confirma que la cuenta exista)
 //   L7  429 del alta → copy propio, nunca «Email rate limit exceeded»
 //   L8  error desconocido → genérico, sin texto de GoTrue
 //   L9  login: una contraseña vieja de 6 caracteres igual se intenta
@@ -178,6 +179,15 @@ describe('PRE-BETA-2D · Login — registro', () => {
     await registrar('segura-123')
     expect((await screen.findByTestId('login-error')).textContent).toContain(COMPROMISED_PASSWORD_MESSAGE)
     expect(texto()).not.toMatch(/known to be weak/i)
+  })
+
+  it('L6b. cuenta existente → copy neutro que NO confirma que la cuenta exista', async () => {
+    estado.signUpError = { name: 'AuthApiError', status: 422, code: 'user_already_exists', message: 'User already registered' }
+    montar('/login?modo=registro')
+    await registrar('segura-123')
+    const alerta = (await screen.findByTestId('login-error')).textContent ?? ''
+    expect(alerta).toContain('No pudimos completar el registro. Si ya tenés una cuenta, iniciá sesión o recuperá tu contraseña.')
+    expect(texto()).not.toMatch(/ya tiene una cuenta|already registered/i)
   })
 
   it('L7. 429 del alta → copy propio, nunca «Email rate limit exceeded»', async () => {

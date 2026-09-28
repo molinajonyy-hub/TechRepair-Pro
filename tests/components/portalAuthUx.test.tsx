@@ -9,6 +9,7 @@
 //   P6  guard estático: el servicio no tiene console.* ni loguea el email
 //   P7  reenvío por la API oficial, callback canónico, 429 y error
 //   P8  alta: errores cerrados (weak_password, 429, ya registrado, desconocido)
+//   P9  cuenta existente: copy neutro para todas las señales (anti-enumeración)
 // ─────────────────────────────────────────────────────────────────────────────
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -179,7 +180,7 @@ describe('PRE-BETA-2D · portal — alta', () => {
     const casos: Array<[unknown, RegExp | string]> = [
       [{ name: 'AuthWeakPasswordError', code: 'weak_password', status: 422, reasons: ['pwned'], message: 'Password is known to be weak' }, COMPROMISED_PASSWORD_MESSAGE],
       [api(429, 'over_email_send_rate_limit', 'Email rate limit exceeded'), 'Hiciste varios intentos seguidos. Esperá unos minutos y volvé a probar.'],
-      [api(422, 'user_already_exists', 'User already registered'), 'Este email ya está registrado. Intentá iniciar sesión.'],
+      [api(422, 'user_already_exists', 'User already registered'), 'No pudimos completar el registro. Si ya tenés una cuenta, intentá iniciar sesión.'],
       [api(500, 'unexpected_failure', 'Error sending confirmation email'), /contactá al negocio/],
       [api(500, 'unexpected_failure', 'Database error saving new user'), 'No pudimos crear la cuenta. Intentá nuevamente en unos minutos.'],
     ]
@@ -191,6 +192,21 @@ describe('PRE-BETA-2D · portal — alta', () => {
       if (typeof esperado === 'string') expect(msg).toBe(esperado)
       else expect(msg).toMatch(esperado)
       expect(msg).not.toMatch(/known to be weak|rate limit exceeded|already registered|Error sending|Database error/i)
+    }
+  })
+
+  it('P9. cuenta existente: las tres señales dan el MISMO copy neutro (no confirma la cuenta)', async () => {
+    const neutro = 'No pudimos completar el registro. Si ya tenés una cuenta, intentá iniciar sesión.'
+    for (const err of [
+      api(422, 'user_already_exists', 'User already registered'),
+      api(422, 'email_exists', 'Email address already exists'),
+      { message: 'User already registered' },
+    ]) {
+      estado.signUpError = err
+      const r = await registerCustomer(entradaRegistro)
+      const msg = r.status === 'error' ? r.error : ''
+      expect(msg).toBe(neutro)
+      expect(msg).not.toMatch(/ya está registrad|ya tiene una cuenta|already/i)
     }
   })
 })
