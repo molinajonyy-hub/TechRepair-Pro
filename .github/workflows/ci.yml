@@ -53,6 +53,16 @@ jobs:
       - name: Guard — no hardcoded credentials in the bundle (PRE-BETA-2B)
         run: npm run guard:no-hardcoded-credentials:self-test && npm run guard:no-hardcoded-credentials && npm run test:components -- tests/components/portalLoginNoDemo.test.tsx
 
+      # PRE-BETA-2D: contrato de Auth que 2E despliega en producción. El guard
+      # (.mjs, corre en Node 20) fija las plantillas token_hash versionadas, el
+      # soporte canónico y el config LOCAL ([local_smtp], mínimo 8). Los tests de
+      # componente fijan errores cerrados (nunca el texto de GoTrue ni de
+      # `error_description`), la política 8/72 bytes, el perfil desactivado, el
+      # portal (sin confirmar + reenvío, sin PII en logs) y los CTAs de la landing.
+      # Los .ts de tests/unit quedan para `npm run test:unit`.
+      - name: PRE-BETA-2D — auth UX hardening + token_hash templates
+        run: npm run guard:auth-email-templates:self-test && npm run guard:auth-email-templates && npm run test:components -- tests/components/authUxHardening.test.tsx tests/components/inactiveProfile.test.tsx tests/components/portalAuthUx.test.tsx tests/components/portalAuthUxScreens.test.tsx tests/components/landingSignupIntent.test.tsx tests/components/supportContact.test.tsx tests/components/signupIntent.test.ts tests/components/emailVerification.test.tsx tests/components/passwordRecovery.test.tsx tests/components/wholesaleEmailConfirmation.test.tsx
+
       # P0-P1: invariantes de provisioning. Es estático —lee migraciones y
       # `src/`— así que no necesita DB ni credenciales y puede correr acá, en
       # PRs y en forks. El self-test va primero: un guard que no puede fallar no
