@@ -35,7 +35,9 @@
 //   node scripts/guards/no-hardcoded-credentials.mjs --self-test
 //   node scripts/guards/no-hardcoded-credentials.mjs --root <dir>
 // ============================================================================
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -203,11 +205,36 @@ function selfTest() {
     if (!ok) malos++
     console.log(`  ${ok ? 'OK  ' : 'MAL '} ${etiqueta} (esperado ${esperadas.join('+') || 'nada'}, dio ${reglas.join('+') || 'nada'})`)
   }
+  // Control negativo por archivo, con el CLI real: una credencial introducida a
+  // propósito en un árbol temporal tiene que hacerlo salir con 1 sin imprimirla,
+  // y el mismo árbol limpio tiene que pasar. Es .mjs puro: corre también en el
+  // job `quality` de CI, que usa Node 20 y no puede ejecutar tests .ts.
+  const raiz = mkdtempSync(join(tmpdir(), 'no-cred-selftest-'))
+  try {
+    const archivo = join(raiz, 'src', 'portal', 'Login.tsx')
+    mkdirSync(join(raiz, 'src', 'portal'), { recursive: true })
+    const correr = () => spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--root', raiz], { encoding: 'utf8' })
+
+    writeFileSync(archivo, `const DEMO_PASSWORD = '${V}'\nexport const f = () => doLogin('qa@example.com', DEMO_PASSWORD)\n`)
+    const sucio = correr()
+    const okSucio = sucio.status === 1 && !`${sucio.stdout}${sucio.stderr}`.includes(V)
+    if (!okSucio) malos++
+    console.log(`  ${okSucio ? 'OK  ' : 'MAL '} CLI real con credencial introducida (esperado exit 1 sin filtrar el valor, dio exit ${sucio.status})`)
+
+    writeFileSync(archivo, "const [password, setPassword] = useState('')\n")
+    const limpio = correr()
+    const okLimpio = limpio.status === 0
+    if (!okLimpio) malos++
+    console.log(`  ${okLimpio ? 'OK  ' : 'MAL '} CLI real con el árbol limpio (esperado exit 0, dio exit ${limpio.status})`)
+  } finally {
+    rmSync(raiz, { recursive: true, force: true })
+  }
+
   if (malos) {
     console.error(`\nSELF-TEST FALLIDO: ${malos} caso(s).`)
     process.exit(1)
   }
-  console.log(`\nself-test OK: ${casos.length} casos; el guard caza credenciales y no filtra el valor encontrado.`)
+  console.log(`\nself-test OK: ${casos.length} casos + control negativo por CLI; el guard caza credenciales y no filtra el valor encontrado.`)
 }
 
 // ── CLI ───────────────────────────────────────────────────────────────────────

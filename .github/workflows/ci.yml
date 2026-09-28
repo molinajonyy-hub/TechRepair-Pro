@@ -46,15 +46,17 @@ jobs:
       - name: SEC-08E R1 — client contract and compatibility
         run: npm run test:components -- tests/components/sec08eClientContract.test.ts tests/components/sec08eUpdateUx.test.tsx tests/components/sec08eReload.test.ts tests/components/sec08ePartsUsedAccess.test.ts tests/components/mobileFoundations.test.tsx tests/components/portalUpdateDetector.test.tsx
 
+      # PRE-BETA-2B · BLK-1: el login del portal traía la contraseña de una cuenta
+      # demo real de producción. El valor nunca se imprime; ver el guard. El
+      # self-test incluye el control negativo por CLI (es .mjs: corre en Node 20);
+      # el test .ts de tests/unit queda para `npm run test:unit`.
+      - name: Guard — no hardcoded credentials in the bundle (PRE-BETA-2B)
+        run: npm run guard:no-hardcoded-credentials:self-test && npm run guard:no-hardcoded-credentials && npm run test:components -- tests/components/portalLoginNoDemo.test.tsx
+
       # P0-P1: invariantes de provisioning. Es estático —lee migraciones y
       # `src/`— así que no necesita DB ni credenciales y puede correr acá, en
       # PRs y en forks. El self-test va primero: un guard que no puede fallar no
       # prueba nada, y este ya reemplazó a la barrera que vivía en un trigger.
-      # PRE-BETA-2B · BLK-1: el login del portal traía la contraseña de una cuenta
-      # demo real de producción. El valor nunca se imprime; ver el guard.
-      - name: Guard — no hardcoded credentials in the bundle (PRE-BETA-2B)
-        run: npm run guard:no-hardcoded-credentials:self-test && npm run guard:no-hardcoded-credentials && node --test tests/unit/noHardcodedCredentials.test.ts
-
       - name: Guard — autoridad de provisioning
         run: npm run guard:provisioning-authority:self-test && npm run guard:provisioning-authority
 
