@@ -1,9 +1,15 @@
 # PRE-BETA-2C — Resend / SMTP hardening + deliverability
 
-**Fecha:** 2026-09-28 · **Estado:** **STOP — MANUAL ACTION PENDING** (rotación de la API key del SMTP
-y smoke de Gmail, §D y §G). Con esas dos acciones hechas y verificadas, BLK-2 pasa a
-**CLOSED FOR CONTROLLED BETA / deliverability expansion pending** (§K): no hay cuenta QA de un segundo
-proveedor. **No** se modificó nada en producción, ni en Supabase ni en Resend ni en el DNS.
+**Fecha:** 2026-09-28 · **Estado:** **CLOSED** — BLK-2 **CLOSED FOR CONTROLLED BETA / deliverability
+expansion pending** (§K). La expansión pendiente es **únicamente** medir un proveedor distinto de Gmail
+y **no bloquea la beta controlada**.
+
+Los únicos cambios en producción son los dos que aprobaba el lote, y los hizo el owner:
+
+- rotación de la API key del SMTP (§D.4);
+- alta QA del smoke de Gmail (§G.2).
+
+El agente no escribió nada en Supabase, en Resend ni en el DNS.
 
 | Dato | Valor |
 |---|---|
@@ -18,10 +24,10 @@ proveedor. **No** se modificó nada en producción, ni en Supabase ni en Resend 
 |---|---|
 | **CONFIRMADO EN RESEND** | leído por mí el 2026-09-28, sólo lectura, en el panel de Resend con la sesión del owner (Chrome) |
 | **CONFIRMADO EN DASHBOARD** | valor del Dashboard de Supabase reportado por el owner en 2B y no releído (no hay `SUPABASE_ACCESS_TOKEN`) |
+| **REPORTADO POR EL OWNER** | observado por el owner en su casilla o en los paneles durante las acciones manuales de 2C (2026-09-28) |
 | **CONFIRMADO EN PROD** | medido read-only: agregados SQL sobre `auth.*`, logs de Auth y DNS público |
 | **CONFIRMADO POR CÓDIGO / TEST** | `bc7cb25` |
 | **FUENTE OFICIAL** | pricing y docs públicos de Resend, consultados el 2026-09-28 |
-| **MANUAL ACTION PENDING** | lo tiene que hacer el owner |
 
 **Evidencia sin PII ni secretos.** De los correos sólo se registra fecha, estado, asunto y **dominio**
 del destinatario, nunca la dirección. El token de la API key no se leyó ni se registró (ni siquiera el
@@ -33,7 +39,7 @@ prefijo que muestra el panel). No se leyeron ni se pidieron la password del SMTP
 
 | Premisa | Resultado | Etiqueta |
 |---|---|---|
-| Custom SMTP ON, `smtp.resend.com:465`, usuario `resend`, password configurada | se mantiene; evidencia indirecta: Resend registra 5 envíos autenticados con la única key de la cuenta (§B.2, §D) | CONFIRMADO EN DASHBOARD + indirecto EN RESEND |
+| Custom SMTP ON, `smtp.resend.com:465`, usuario `resend`, password configurada | se mantiene. Evidencia indirecta: Resend registra 5 envíos autenticados con la única key de la cuenta (§B.2, §D). **Después de 2C**, la password es la key nueva restringida (§D.4) y el smoke salió con ella. | CONFIRMADO EN DASHBOARD + EN RESEND |
 | Sender `TechRepair Pro <no-reply@techrepairpro.app>` | se mantiene (§E) | CONFIRMADO EN DASHBOARD |
 | Intervalo mínimo 60 s · rate limit 30 correos/h | sin cambios (§B.3) | CONFIRMADO EN DASHBOARD |
 | Dominio `techrepairpro.app` **Verified** | `status verified`, `spf_status verified`, `dkim_status verified`; alta en Resend 2026-08-22; DNS en Vercel | CONFIRMADO EN RESEND |
@@ -98,6 +104,10 @@ prefijo que muestra el panel). No se leyeron ni se pidieron la password del SMTP
 **Lectura.** El tráfico de la ventana es compatible con pruebas internas de recovery, y no se atribuyó a
 usuarios reales. **Todavía no hay volumen de beta medible.**
 
+**Después de la medición:** el smoke de §G.2 sumó **1 correo** (2026-09-28 13:13 UTC, *delivered*,
+`gmail.com`). Quedan 6 correos en la ventana, con un bounce: la tasa pasa al 17 %, que sigue siendo el
+mismo rebote a `@techrepairpro.app` (§E). La decisión de capacidad no cambia.
+
 ### B.3 Decisión de capacidad
 
 - **El cuello de botella es Resend, no Supabase.** 30/h permite hasta 720 correos/día; Resend corta a
@@ -142,9 +152,9 @@ falta tracking (por ejemplo, para marketing), va en un dominio de envío separad
 
 ---
 
-## D. API key del SMTP — **no cumple el target → STOP**
+## D. API key del SMTP — rotada a privilegio mínimo y verificada
 
-### D.1 Estado — CONFIRMADO EN RESEND
+### D.1 Estado inicial (antes de la rotación) — CONFIRMADO EN RESEND
 
 | Campo | Valor |
 |---|---|
@@ -166,9 +176,9 @@ ninguna de las 19 edge functions desplegadas es de correo (la única de nombre a
 **Evaluación.** El permiso ya es el mínimo. Falta la **restricción de dominio**. Hoy el riesgo práctico
 es bajo, porque la cuenta tiene un solo dominio; pero si se agrega otro, esta credencial, guardada
 fuera de nuestro control en Supabase, podría enviar como él. **No cumple** «Sending access restringida
-a `techrepairpro.app`» → STOP para acción manual.
+a `techrepairpro.app`» → STOP para acción manual, **resuelto en §D.4**.
 
-### D.2 Procedimiento de rotación — MANUAL ACTION PENDING (owner)
+### D.2 Procedimiento de rotación — ejecutado por el owner (resultado en §D.4)
 
 Hacerlo en una ventana sin altas reales (hoy el volumen es ~0). Entre el paso 8 y el 10, si la key
 nueva fallara, las altas por email devolverían error.
@@ -202,6 +212,22 @@ Supabase no se puede leer. Por eso, «volver atrás» no significa volver a pega
 - si la causa fuera la restricción de dominio, documentarlo antes de aceptar *All domains*. El From es
   `no-reply@techrepairpro.app`, que coincide exactamente con el dominio restringido, así que no se
   espera ese fallo.
+
+### D.4 Resultado de la rotación (2026-09-28)
+
+| Chequeo | Resultado | Etiqueta |
+|---|---|---|
+| Keys en la cuenta | **1** | CONFIRMADO EN RESEND |
+| Key nueva | `TechRepair Pro — Supabase Auth SMTP`, **active**, creada 2026-09-28 13:06:57 UTC | CONFIRMADO EN RESEND |
+| Permission | **Sending access** (`sending_access`) ✅ | CONFIRMADO EN RESEND |
+| Domain | **`techrepairpro.app`**: su `domain_id` coincide con el del dominio verificado ✅ | CONFIRMADO EN RESEND |
+| Supabase la usa | *last used* 13:13:13.258 UTC = el `POST /emails` 200 de Resend Logs = el correo del smoke (§G.2) | CONFIRMADO EN RESEND |
+| GoTrue recargó la config | reinicio de GoTrue a las 13:07:55 UTC (avisos de arranque en los logs de Auth), compatible con el guardado de SMTP Settings. Sin errores de SMTP en la ventana 12:30–14:30 UTC. | CONFIRMADO EN PROD |
+| Key vieja `Onboarding` | **revocada**: ya no figura en la cuenta | CONFIRMADO EN RESEND + REPORTADO POR EL OWNER |
+| Auth sigue enviando después de revocar | el owner reporta la prueba. Resend registra **un único envío** después de la rotación (13:13:13 UTC, con la key nueva) y no permite fechar la revocación. La conclusión no depende de esa hora: Supabase ya autentica con la key nueva, y la vieja no tenía otros consumidores (5 usos = los 5 correos de Auth, §D.1). | REPORTADO POR EL OWNER + CONFIRMADO EN RESEND |
+| Token | nunca pasó por el chat, los logs, el repo ni la terminal | REPORTADO POR EL OWNER |
+
+**Target cumplido:** credencial del SMTP con *Sending access*, restringida a `techrepairpro.app`.
 
 ---
 
@@ -265,7 +291,7 @@ Basta cualquiera de los dos para que DMARC dé PASS. La confirmación en headers
 
 | Proveedor | Cuenta QA | Estado |
 |---|---|---|
-| Gmail | **sí** (del owner) | entrega histórica **delivered** ×4 (§B.2); bandeja/spam y SPF/DKIM/DMARC **sin medir** → smoke G.2 |
+| Gmail | **sí** (del owner) | ✅ **PASS**: Recibidos, SPF/DKIM/DMARC PASS (§G.2). Antes: 4 *delivered* históricos (§B.2). |
 | Outlook/Hotmail | **no** | no cubierto. Hay cuentas `hotmail.com` en prod, pero no consta que sean QA → no se usan. |
 | Yahoo / iCloud | no | no cubierto |
 | M365 con Safe Links | no | **diferido a 2E**, después de pasar recovery a `token_hash`. Hoy la plantilla de recovery es `{{ .ConfirmationURL }}` y un escáner la consume. |
@@ -274,7 +300,7 @@ Decisión del owner (2026-09-28): el smoke se hace con **alta de una cuenta QA n
 sin confirmar, así que «reenviar confirmación» no envía nada, y un recovery exigiría aceptar el riesgo
 de la plantilla actual. **La cuenta la crea el owner**: el agente no crea cuentas en producción.
 
-### G.2 Procedimiento — MANUAL ACTION PENDING (owner), después de D.2 paso 8
+### G.2 Procedimiento y resultado — ejecutado por el owner (2026-09-28), después de D.2 paso 8
 
 1. En `https://www.techrepairpro.app/login` → *Crear cuenta*, usar la Gmail QA con un alias
    identificable, por ejemplo `+prebeta2c` (Gmail lo entrega en la misma casilla, y así la cuenta queda
@@ -289,15 +315,21 @@ de la plantilla actual. **La cuenta la crea el owner**: el agente no crea cuenta
    es lo esperado.
 6. Seguir con D.2 paso 10 (Resend: delivered + *Last used* de la key nueva).
 
-| Campo | Gmail |
-|---|---|
-| Recibido | _pendiente_ |
-| Bandeja / spam | _pendiente_ |
-| Latencia (alta → llegada) | _pendiente_ |
-| From visible | _pendiente_ (esperado: `TechRepair Pro <no-reply@techrepairpro.app>`) |
-| Asunto | _pendiente_ |
-| Link directo, sin tracking | _pendiente_ |
-| SPF / DKIM / DMARC | _pendiente_ (esperado: PASS / PASS / PASS) |
+| Campo | Gmail | Etiqueta |
+|---|---|---|
+| Recibido | **sí** | REPORTADO POR EL OWNER; Resend: *delivered* a `gmail.com` (CONFIRMADO EN RESEND) |
+| Bandeja / spam | **Recibidos** (no spam) | REPORTADO POR EL OWNER |
+| Latencia (alta → llegada) | **~7 s** extremo a extremo. Tramos medidos: `POST /signup` 200 a las 13:13:10 UTC → Resend lo recibe 13:13:13.04 → lo entrega 13:13:13.96 | REPORTADO POR EL OWNER + CONFIRMADO EN PROD/RESEND |
+| From visible | `TechRepair Pro <no-reply@techrepairpro.app>` | REPORTADO POR EL OWNER |
+| Asunto | `Confirmá tu correo — TechRepair Pro` (coincide con el de Resend) | REPORTADO POR EL OWNER + CONFIRMADO EN RESEND |
+| Link directo, sin tracking | `/auth/callback?token_hash=…&type=signup`: el contrato de §E de 2B, sin dominio de tracking | REPORTADO POR EL OWNER |
+| Confirmación | `POST /verify` 200 a las 13:13:32 UTC; la cuenta QA quedó confirmada (única alta del día con proveedor email) | CONFIRMADO EN PROD |
+| SPF | **PASS** | REPORTADO POR EL OWNER |
+| DKIM | **PASS**, `d=techrepairpro.app` | REPORTADO POR EL OWNER |
+| DMARC | **PASS** | REPORTADO POR EL OWNER |
+
+**Gmail: PASS.** Confirma en un correo real la alineación de §F. Los headers completos no se copiaron,
+por diseño.
 
 ---
 
@@ -400,17 +432,20 @@ Consulta read-only que usé por MCP (logs unificados):
 |---|---|
 | Custom SMTP operativo | ✅ 5 envíos aceptados por Resend; último 2026-09-16 |
 | Dominio verificado en Resend | ✅ |
-| SPF / DKIM / DMARC correctos | ✅ en DNS y en Resend; ⏳ PASS en headers pendiente de §G.2 |
-| Tracking OFF | ✅ open y click OFF, sin subdominio |
-| API key con privilegio mínimo | ❌ **Sending access, pero All domains** → rotación §D.2 (**MANUAL ACTION PENDING**) |
+| SPF / DKIM / DMARC correctos | ✅ en DNS, en Resend y en un correo real (Gmail: PASS / PASS / PASS) |
+| Tracking OFF | ✅ open y click OFF, sin subdominio; el link llegó directo |
+| API key con privilegio mínimo | ✅ *Sending access* + `techrepairpro.app`; la vieja, revocada (§D.4) |
 | Capacidad Free/Pro decidida | ✅ Free para la beta controlada, con disparadores de upgrade (§B.3, §I) |
-| Gmail + otro proveedor | ⏳ Gmail pendiente de §G.2; **sin cuenta QA de un segundo proveedor** |
+| Gmail + otro proveedor | ✅ Gmail PASS; ⏳ **sin cuenta QA de un segundo proveedor** |
 | Procedimiento operativo documentado | ✅ §J |
 
-**BLK-2: STOP — pendiente de acción del owner** (§D.2 + §G.2). Cuando la key nueva esté verificada, la
-vieja revocada y el smoke de Gmail en PASS, BLK-2 queda **CLOSED FOR CONTROLLED BETA / deliverability
-expansion pending**. **No** queda `CLOSED` pleno sin un segundo proveedor, porque eso sería fingir
-cobertura.
+**BLK-2: CLOSED FOR CONTROLLED BETA / deliverability expansion pending.**
+
+La expansión pendiente es **únicamente** medir la entrega en un proveedor distinto de Gmail
+(Outlook/Hotmail, Yahoo o iCloud) cuando haya una cuenta QA. **No bloquea la beta controlada.** M365 con
+Safe Links no forma parte de esta expansión: se mide en 2E, con recovery ya en `token_hash`.
+
+No se marca `CLOSED` pleno sin ese segundo proveedor, para no declarar una cobertura que no se midió.
 
 ---
 
@@ -419,9 +454,9 @@ cobertura.
 | # | Riesgo | Tratamiento |
 |---|---|---|
 | 1 | El tope diario de 100 en Free es duro (sin overage) y el recovery falla en silencio al superarlo | umbrales de §B.3 + revisión de Usage; Pro con cualquier disparador |
-| 2 | Bounce rate del 20 % en 15 días por un correo a `@techrepairpro.app`, que no tiene MX; con volumen bajo, cada bounce pesa mucho frente al 4 % de Resend | no enviar correos de Auth a esas 2 cuentas; smokes sólo con casillas reales |
-| 3 | La key del SMTP no está restringida al dominio | §D.2 |
-| 4 | Sólo Gmail; Outlook, Yahoo, iCloud y M365 sin medir | ampliar con cuentas QA; M365 en 2E |
+| 2 | Bounce rate del 17–20 % (1 de 6) por un correo a `@techrepairpro.app`, que no tiene MX; con volumen bajo, cada bounce pesa mucho frente al 4 % de Resend | no enviar correos de Auth a esas 2 cuentas; smokes sólo con casillas reales. Se diluye con tráfico real. |
+| 3 | ~~La key del SMTP no está restringida al dominio~~ | **Cerrado** (§D.4) |
+| 4 | Sólo Gmail medido; Outlook, Yahoo, iCloud y M365 sin medir | expansión pendiente (§K), no bloqueante; M365 en 2E |
 | 5 | Recovery con `{{ .ConfirmationURL }}` consumible por escáneres (M365 Safe Links) | 2D + 2E (BLK-3) |
 | 6 | DMARC `p=none` y raíz sin SPF: no hay enforcement contra la suplantación del dominio | evaluar tras semanas de tráfico (§F) |
 | 7 | Texto crudo de GoTrue en el 429 del alta; `AUTH_ERROR` genérico en el reenvío | 2D |
@@ -433,33 +468,39 @@ cobertura.
 
 ## M. Acciones manuales
 
-**Realizadas en 2C:** ninguna en producción. Todo fue lectura:
+**Realizadas por el owner (2026-09-28), las únicas escrituras en producción de 2C:**
 
-- SQL de sólo lectura con agregados sobre `auth.users`, `auth.identities`,
-  `auth.audit_log_entries` y `auth.one_time_tokens`;
-- consultas a logs;
-- DNS público;
-- panel de Resend en una pestaña de Chrome del owner, cerrada al terminar.
+1. Resend: alta de la key `TechRepair Pro — Supabase Auth SMTP` (*Sending access* +
+   `techrepairpro.app`, 13:06:57 UTC).
+2. Supabase → SMTP Settings: reemplazo sólo de la *Password* (GoTrue recargó a las 13:07:55 UTC).
+3. Alta de 1 cuenta QA en Gmail por `www.techrepairpro.app` (13:13:10 UTC), confirmada por su link
+   (13:13:32 UTC). Queda en onboarding sin negocio, como estaba previsto.
+4. Resend: revocación de la key `Onboarding`.
 
-La pantalla del asistente de tracking se abrió **sin enviar**. En el navegador integrado de la app
-quedó una pestaña en el login de Resend, sin sesión y sin datos.
+**Del agente:** sólo lectura.
 
-**Pendientes (owner):**
+- SQL de sólo lectura con agregados sobre `auth.users`, `auth.identities`, `auth.audit_log_entries` y
+  `auth.one_time_tokens`.
+- Consultas a logs.
+- DNS público.
+- Panel de Resend en pestañas de Chrome del owner, cerradas al terminar.
+- La pantalla del asistente de tracking se abrió **sin enviar**. En el navegador integrado de la app
+  quedó una pestaña en el login de Resend, sin sesión y sin datos.
 
-1. §D.2 — rotar la API key del SMTP a *Sending access* + `techrepairpro.app`, verificar y recién
-   después revocar `Onboarding`.
-2. §G.2 — alta QA en Gmail, completar la tabla de §G.2 y pasar los resultados para cerrar BLK-2.
-3. Opcional: conseguir una cuenta QA de Outlook/Hotmail para cerrar la expansión de entregabilidad.
+**Pendiente (no bloqueante):** conseguir una cuenta QA de otro proveedor (Outlook/Hotmail, Yahoo o
+iCloud) y repetir §G.2 para cerrar la expansión de entregabilidad.
 
 ## N. Rollback
 
 - **Repo:** sólo documentación → revertir el commit.
-- **Rotación de la key:** ver §D.3. El token viejo no se recupera: no revocar `Onboarding` hasta
-  verificar la nueva.
+- **Rotación de la key (ya hecha):** `Onboarding` está revocada y su token no se recupera, así que no hay
+  vuelta a la key vieja. Si la key nueva fallara o se comprometiera: crear otra key *Sending access* +
+  `techrepairpro.app`, reemplazar sólo la *Password* del SMTP en Supabase, verificar con un envío y
+  recién después revocar la anterior (§D.3).
 - **Tracking:** nunca se tocó. Si alguien lo activara por error, desactivar open/click y borrar el
   subdominio de tracking.
 
-## O. Gates — CONFIRMADO POR TEST (2026-09-28, sobre esta rama)
+## O. Gates — CONFIRMADO POR TEST (2026-09-28, corrida final sobre esta rama, con la evidencia del owner ya incorporada)
 
 Cambio sólo de documentación → sin TypeScript, ESLint, build ni suites grandes: no hay código que
 verificar. CI corre igual su pipeline completo sobre el PR.
