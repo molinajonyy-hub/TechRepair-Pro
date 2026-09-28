@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Building2, Plus, Loader2, AlertTriangle, Mail } from 'lucide-react';
+import { RefreshCw, Building2, Plus, Loader2, AlertTriangle, Mail, Lock, LogOut } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { provisionMyBusiness } from '../services/provisioningService';
 import { peekInviteToken, acceptInviteePath } from '../lib/pendingInvite';
 import { logger } from '../lib/logger';
+import { colors } from '../lib/tokens';
+import { CONTACTO_SOPORTE } from '../config/contacto';
 
 /**
  * P0-P4 — Recovery explícito para un usuario autenticado y confirmado que
@@ -157,6 +159,37 @@ export function NoBusiness() {
         <Loader2 size={32} style={{ color: '#6366f1', animation: 'tr-spin 0.8s linear infinite' }} />
         <p style={{ marginTop: '1rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>Cargando tu negocio...</p>
         <style>{`@keyframes tr-spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  // ── D. Perfil desactivado: estado TERMINAL (PRE-BETA-2D) ─────────────────
+  // Antes caía en la rama C y decía «puede ser un problema de conexión» con un
+  // Reintentar que nunca iba a funcionar. La cuenta existe y el negocio
+  // también: lo que falta es que alguien con autoridad la vuelva a habilitar.
+  // Va ANTES de la invitación: un usuario desactivado no sale de este estado
+  // aceptando otra cosa ni creando un negocio. La autoridad sigue siendo el
+  // servidor (`is_active` + RLS); esta pantalla sólo lo explica.
+  if (authState === 'AUTH_ERROR' && profileErrorKind === 'inactive') {
+    return shell(
+      <div data-testid="no-business-inactive" style={{ textAlign: 'center' }}>
+        <div style={{ width: 64, height: 64, borderRadius: '50%', background: colors.warningBg, border: `2px solid ${colors.warningBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}>
+          <Lock size={28} style={{ color: colors.warning }} />
+        </div>
+        <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+          Tu acceso a este negocio está desactivado
+        </h1>
+        <p style={{ margin: '0 0 0.75rem', color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+          Un administrador del negocio desactivó tu usuario. Si creés que es un error, pedile que te vuelva a habilitar.
+        </p>
+        <p style={{ margin: '0 0 1.5rem', color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: 1.6 }}>
+          Si sos el titular del negocio, escribinos a{' '}
+          <a href={`mailto:${CONTACTO_SOPORTE}`} style={{ color: colors.indigo, fontWeight: 600 }}>{CONTACTO_SOPORTE}</a>.
+        </p>
+        <button data-testid="no-business-inactive-salir" onClick={() => void handleSignOut()} disabled={loading} style={{ ...primaryStyle, opacity: loading ? 0.6 : 1 }}>
+          <LogOut size={16} />
+          Cerrar sesión
+        </button>
       </div>
     );
   }

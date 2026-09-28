@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { usePortal } from '../contexts/PortalContext'
 import { registerCustomer } from '../services/portalService'
+import { PASSWORD_PLACEHOLDER, validatePasswordPair } from '../../lib/passwordPolicy'
 import { PortalLayout, PortalCard, PortalButton, PortalInput, PT } from '../components/PortalLayout'
 
 const PROVINCES = [
@@ -30,8 +31,10 @@ export function PortalRegister() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!business) return
-    if (form.password.length < 6) { setError('La contraseña debe tener al menos 6 caracteres'); return }
-    if (form.password !== form.confirmPassword) { setError('Las contraseñas no coinciden'); return }
+    // PRE-BETA-2D — la misma política que el registro principal y el recovery.
+    const fallas = validatePasswordPair(form.password, form.confirmPassword)
+    if (fallas.password) { setError(fallas.password); return }
+    if (fallas.confirm) { setError(fallas.confirm); return }
     setLoading(true); setError('')
     const res = await registerCustomer({
       businessId:   business.id,
@@ -125,12 +128,12 @@ export function PortalRegister() {
               Cuenta
             </p>
             <PortalInput label="Email" type="email" value={form.email} onChange={set('email')} required placeholder="tu@email.com" />
-            <PortalInput label="Contraseña" type="password" value={form.password} onChange={set('password')} required placeholder="Mínimo 6 caracteres" />
-            <PortalInput label="Repetir contraseña" type="password" value={form.confirmPassword} onChange={set('confirmPassword')} required placeholder="••••••••" />
+            <PortalInput label="Contraseña" type="password" value={form.password} onChange={set('password')} required placeholder={PASSWORD_PLACEHOLDER} />
+            <PortalInput label="Repetir contraseña" type="password" value={form.confirmPassword} onChange={set('confirmPassword')} required placeholder="Repetí la contraseña" />
           </PortalCard>
 
           {error && (
-            <div style={{ padding: '0.875rem 1rem', background: `${PT.danger}15`, border: `1px solid ${PT.danger}40`, borderRadius: PT.radius, color: PT.danger, fontSize: '0.875rem' }}>
+            <div data-testid="portal-register-error" role="alert" style={{ padding: '0.875rem 1rem', background: `${PT.danger}15`, border: `1px solid ${PT.danger}40`, borderRadius: PT.radius, color: PT.danger, fontSize: '0.875rem' }}>
               {error}
             </div>
           )}

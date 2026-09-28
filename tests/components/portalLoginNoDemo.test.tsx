@@ -36,6 +36,8 @@ vi.mock('../../src/portal/services/portalService', () => ({
     estado.llamadas.push(args)
     return estado.respuesta
   },
+  // PRE-BETA-2D: la pantalla también ofrece reenviar la confirmación.
+  resendWholesaleConfirmation: async () => 'sent',
 }))
 
 vi.mock('../../src/portal/components/WholesaleBrandHeader', () => ({

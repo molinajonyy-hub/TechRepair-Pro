@@ -6,6 +6,7 @@ import {
   readPendingConfirmationEmail,
   clearPendingConfirmationEmail,
 } from '../contexts/AuthContext'
+import { CONTACTO_SOPORTE } from '../config/contacto'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EMAIL VERIFICATION P0 — pantalla de correo pendiente.
@@ -24,6 +25,7 @@ type Estado =
   | 'CONFIRMED'
   | 'LINK_EXPIRED_OR_INVALID'
   | 'ALREADY_CONFIRMED'
+  | 'RESEND_FAILED'
   | 'AUTH_ERROR'
 
 /** Segundos de cooldown del botón de reenvío. */
@@ -66,11 +68,20 @@ const MENSAJE: Record<Estado, { tono: 'info' | 'ok' | 'warn'; texto: string }> =
     tono: 'ok',
     texto: 'Tu correo ya estaba confirmado. Podés continuar.',
   },
+  // PRE-BETA-2D — el reenvío fallido ya no se presenta como «no pudimos
+  // verificar tu cuenta»: lo que falló es el envío (típicamente el SMTP).
+  RESEND_FAILED: {
+    tono: 'warn',
+    texto: 'No pudimos reenviar el correo. Probá de nuevo en unos minutos.',
+  },
   AUTH_ERROR: {
     tono: 'warn',
     texto: 'No pudimos verificar el estado de tu cuenta. Probá de nuevo en un momento.',
   },
 }
+
+/** Estados en los que conviene dejar visible el contacto de soporte. */
+const MUESTRA_SOPORTE: ReadonlySet<Estado> = new Set(['RESEND_FAILED', 'AUTH_ERROR'])
 
 const TONO_COLOR = {
   info: 'var(--text-secondary)',
@@ -184,7 +195,7 @@ export function VerifyEmail() {
         setEstado('RESEND_RATE_LIMITED')
         setCooldown(RESEND_COOLDOWN_S)
       } else {
-        setEstado('AUTH_ERROR')
+        setEstado('RESEND_FAILED')
       }
     } finally {
       setReenviando(false)
@@ -278,6 +289,13 @@ export function VerifyEmail() {
             <AlertTriangle size={13} style={{ verticalAlign: '-2px', marginRight: '0.35rem' }} />
             Si no lo ves, revisá la carpeta de spam o correo no deseado.
           </p>
+
+          {MUESTRA_SOPORTE.has(estado) && (
+            <p style={S.hint} data-testid="verify-email-soporte">
+              Si sigue sin llegar, escribinos a{' '}
+              <a href={`mailto:${CONTACTO_SOPORTE}`} style={{ color: '#6366f1', fontWeight: 600 }}>{CONTACTO_SOPORTE}</a>.
+            </p>
+          )}
         </div>
       </div>
     </div>

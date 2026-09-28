@@ -55,13 +55,47 @@
 // usa PKCE.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import {
+  isWeakPasswordError,
+  validatePasswordPair,
+  weakPasswordMessage,
+  type PasswordFieldErrors,
+} from './passwordPolicy.ts'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRE-BETA-2D — `token_hash` + transición.
+//
+// La plantilla de Recovery pasa a `{{ .RedirectTo }}?token_hash=…&type=recovery`
+// (supabase/templates/recovery.html; en producción recién en 2E). Ese camino lo
+// resuelve `/auth/callback` con `verifyOtp` y SABE que es un recovery por el
+// `type`. La captura del fragmento de arriba se CONSERVA: los correos enviados
+// con `{{ .ConfirmationURL }}` antes del cambio siguen vivos hasta que vencen.
+//
+// `otp_expired` en el fragmento NO trae `type`: por sí solo no prueba que el
+// enlace fuera de recovery (puede ser un alta, un magic link o un cambio de
+// email con la plantilla por defecto). Sólo se lo presenta como «el enlace para
+// restablecer la contraseña ya no es válido» si ESTE navegador pidió un enlace
+// de recovery hace poco (`markRecoveryRequested`). Si no, va a una pantalla
+// neutra (`/login?motivo=enlace_vencido`) que ofrece las dos salidas.
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const RECOVERY_PATH = '/reset-password'
 export const RECOVERY_MARKER_KEY = 'techrepair.auth.password-recovery'
 /** Cuánto vale la marca «esta sesión vino de un enlace de recovery». */
 export const RECOVERY_MARKER_TTL_MS = 60 * 60 * 1000
-/** Límite de bcrypt en GoTrue: más de 72 bytes se trunca en silencio. */
-export const PASSWORD_MAX_BYTES = 72
-export const PASSWORD_MIN_LENGTH = 8
+/** Pantalla neutra para un enlace vencido sin evidencia de qué era. */
+export const NEUTRAL_EXPIRED_LINK_PATH = '/login?motivo=enlace_vencido'
+/** «Este navegador pidió un enlace de recovery» (sin email, sin token). */
+export const RECOVERY_REQUEST_MARKER_KEY = 'techrepair.auth.recovery-requested'
+/**
+ * Cuánto vale la evidencia de un pedido de recovery. El enlace vence a la hora,
+ * pero el caso «vencido» se da justamente cuando se abre tarde: se cubre el día.
+ */
+export const RECOVERY_REQUEST_MARKER_TTL_MS = 24 * 60 * 60 * 1000
+
+// La política de contraseña vive en un solo lugar (PRE-BETA-2D).
+export { PASSWORD_MAX_BYTES, PASSWORD_MIN_LENGTH } from './passwordPolicy.ts'
+export type { PasswordFieldErrors }
 
 /**
  * idle          → no hay un recovery en curso en esta carga de la página.
@@ -83,6 +117,9 @@ export type ParsedRecoveryUrl =
   | { kind: 'invalid' }
   | { kind: 'expired' }
 
+/** Lo que hizo la captura de arranque. `expired_unattributed` = vencido sin evidencia de recovery. */
+export type RecoveryBootResult = ParsedRecoveryUrl['kind'] | 'expired_unattributed'
+
 const CALLBACK_PATH = '/auth/callback'
 
 /**
@@ -93,10 +130,9 @@ const CALLBACK_PATH = '/auth/callback'
  * · en `/auth/callback`, `error_code=otp_expired` → expired
  * · cualquier otra cosa (OAuth implícito, errores de OAuth, anclas) → none
  *
- * El error `otp_expired` no trae `type`, por eso se acota a `/auth/callback`:
- * en esta app el único enlace de GoTrue que redirige ahí con ese error es el de
- * recovery (la confirmación de alta usa `token_hash` + `verifyOtp`, y no hay
- * magic link, invitación de GoTrue ni cambio de email).
+ * `expired` sólo dice «un enlace de GoTrue vencido volvió al callback»: el error
+ * no trae `type`. A QUIÉN se le atribuye lo decide `captureRecoveryAtBoot` con
+ * la evidencia del navegador (ver el encabezado PRE-BETA-2D).
  */
 export function parseRecoveryFragment(hash: string, pathname: string): ParsedRecoveryUrl {
   const raw = hash.startsWith('#') ? hash.slice(1) : hash
@@ -169,12 +205,19 @@ interface BootHistory {
 export function captureRecoveryAtBoot(
   location: BootLocation,
   history: BootHistory,
-  options: { isPortalHost: boolean },
-): ParsedRecoveryUrl['kind'] {
+  options: { isPortalHost: boolean; now?: number },
+): RecoveryBootResult {
   if (options.isPortalHost) return 'none'
 
   const parsed = parseRecoveryFragment(location.hash, location.pathname)
   if (parsed.kind === 'none') return 'none'
+
+  // PRE-BETA-2D — un vencido sin evidencia de recovery NO se presenta como
+  // recovery. Igual se saca el fragmento de la URL, en la misma entrada.
+  if (parsed.kind === 'expired' && !hasRecentRecoveryRequest(options.now)) {
+    history.replaceState(history.state, '', NEUTRAL_EXPIRED_LINK_PATH)
+    return 'expired_unattributed'
+  }
 
   // Sin fragmento y en la pantalla correcta, en la MISMA entrada del historial.
   history.replaceState(history.state, '', RECOVERY_PATH)
@@ -299,6 +342,50 @@ export function finishRecovery(): void {
   setPhase('idle')
 }
 
+// ── Evidencia «este navegador pidió un enlace de recovery» (PRE-BETA-2D) ──────
+//
+// localStorage y no sessionStorage: el enlace del correo se abre en otra
+// pestaña. Sólo la hora del pedido: ni el email ni nada que identifique la
+// cuenta. Es una pista de UX para elegir el texto de un enlace vencido; no
+// habilita nada (el formulario sigue exigiendo sesión + marca del mismo usuario).
+
+function localStore(): Storage | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage
+  } catch {
+    return null
+  }
+}
+
+export function markRecoveryRequested(at: number = Date.now()): void {
+  try {
+    localStore()?.setItem(RECOVERY_REQUEST_MARKER_KEY, JSON.stringify({ v: 1, at }))
+  } catch {
+    // sin storage, un enlace vencido cae en la pantalla neutra: sigue siendo correcto
+  }
+}
+
+export function hasRecentRecoveryRequest(now: number = Date.now()): boolean {
+  try {
+    const raw = localStore()?.getItem(RECOVERY_REQUEST_MARKER_KEY)
+    if (!raw) return false
+    const parsed = JSON.parse(raw) as { v?: unknown; at?: unknown }
+    if (parsed.v !== 1 || typeof parsed.at !== 'number') return false
+    const age = now - parsed.at
+    return age >= 0 && age <= RECOVERY_REQUEST_MARKER_TTL_MS
+  } catch {
+    return false
+  }
+}
+
+export function clearRecoveryRequested(): void {
+  try {
+    localStore()?.removeItem(RECOVERY_REQUEST_MARKER_KEY)
+  } catch {
+    // nada que limpiar
+  }
+}
+
 // ── Listener global ───────────────────────────────────────────────────────────
 
 export interface RecoveryAuthEvents {
@@ -319,27 +406,9 @@ export function installRecoveryAuthListener(auth: RecoveryAuthEvents): void {
 
 // ── Validación y mensajes (puros) ─────────────────────────────────────────────
 
-export interface PasswordFieldErrors {
-  password?: string
-  confirm?: string
-}
-
+/** La misma política que el alta (`src/lib/passwordPolicy.ts`). */
 export function validateNewPassword(password: string, confirm: string): PasswordFieldErrors {
-  const errors: PasswordFieldErrors = {}
-  if (password.length < PASSWORD_MIN_LENGTH) {
-    errors.password = `Usá al menos ${PASSWORD_MIN_LENGTH} caracteres.`
-  } else if (password.trim().length === 0) {
-    errors.password = 'La contraseña no puede ser sólo espacios.'
-  } else if (new TextEncoder().encode(password).length > PASSWORD_MAX_BYTES) {
-    // El límite es de 72 BYTES UTF-8 (bcrypt), no de caracteres: el copy no da un número.
-    errors.password = 'Usá una contraseña más corta.'
-  }
-  if (!confirm) {
-    errors.confirm = 'Repetí la contraseña.'
-  } else if (confirm !== password) {
-    errors.confirm = 'Las contraseñas no coinciden.'
-  }
-  return errors
+  return validatePasswordPair(password, confirm)
 }
 
 interface AuthErrorLike {
@@ -366,8 +435,9 @@ export function classifyPasswordUpdateError(error: unknown): PasswordUpdateFailu
   if (code === 'same_password') {
     return { kind: 'field', message: 'La nueva contraseña tiene que ser distinta de la anterior.' }
   }
-  if (code === 'weak_password') {
-    return { kind: 'field', message: 'Esa contraseña es muy débil. Probá con una más larga o menos común.' }
+  if (isWeakPasswordError(error)) {
+    // Leaked Password Protection (2E) y requisitos del servidor: copy propio.
+    return { kind: 'field', message: weakPasswordMessage(error) }
   }
   if (
     name === 'AuthSessionMissingError'

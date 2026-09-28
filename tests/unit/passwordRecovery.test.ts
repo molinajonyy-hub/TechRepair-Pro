@@ -103,13 +103,63 @@ test('boot: aunque GoTrue caiga al Site URL, el recovery igual termina en /reset
   assert.equal(history.calls[0].url, '/reset-password')
 })
 
-test('boot: enlace usado → expired_link, sin tokens en memoria', async () => {
+// PRE-BETA-2D — `otp_expired` no trae `type`: sólo se lo atribuye a recovery con
+// evidencia de ESTE navegador (un pedido de «olvidé mi contraseña» reciente).
+function useLocalStorage(storage: unknown) {
+  Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true, writable: true })
+}
+
+test('boot: enlace usado CON evidencia de recovery → expired_link, sin tokens en memoria', async () => {
   const r = await fresh()
+  useLocalStorage(new MemoryStorage())
+  r.markRecoveryRequested()
   const history = fakeHistory()
   assert.equal(r.captureRecoveryAtBoot({ pathname: '/auth/callback', hash: USED_HASH }, history, { isPortalHost: false }), 'expired')
   assert.equal(history.calls[0].url, '/reset-password')
   assert.equal(r.getRecoveryPhase(), 'expired_link')
   assert.equal(r.hasPendingRecoveryTokens(), false)
+  useLocalStorage(undefined)
+})
+
+test('boot: enlace usado SIN evidencia → pantalla neutra, NO «restablecer contraseña»', async () => {
+  const r = await fresh()
+  useLocalStorage(new MemoryStorage())
+  const history = fakeHistory()
+  assert.equal(r.captureRecoveryAtBoot({ pathname: '/auth/callback', hash: USED_HASH }, history, { isPortalHost: false }), 'expired_unattributed')
+  assert.equal(history.calls.length, 1, 'igual saca el fragmento de la URL, en la misma entrada')
+  assert.equal(history.calls[0].url, '/login?motivo=enlace_vencido')
+  assert.equal(r.getRecoveryPhase(), 'idle', 'no se marca ninguna fase de recovery')
+  useLocalStorage(undefined)
+})
+
+test('boot: la evidencia vence; sin storage no hay evidencia (y no rompe)', async () => {
+  const r = await fresh()
+  useLocalStorage(new MemoryStorage())
+  const t0 = 1_800_000_000_000
+  r.markRecoveryRequested(t0)
+  assert.equal(r.hasRecentRecoveryRequest(t0 + 60_000), true)
+  assert.equal(r.hasRecentRecoveryRequest(t0 + r.RECOVERY_REQUEST_MARKER_TTL_MS + 1), false)
+  const history = fakeHistory()
+  assert.equal(
+    r.captureRecoveryAtBoot({ pathname: '/auth/callback', hash: USED_HASH }, history, { isPortalHost: false, now: t0 + r.RECOVERY_REQUEST_MARKER_TTL_MS + 1 }),
+    'expired_unattributed',
+  )
+  r.clearRecoveryRequested()
+  assert.equal(r.hasRecentRecoveryRequest(t0), false)
+
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('SecurityError') } })
+  assert.doesNotThrow(() => r.markRecoveryRequested())
+  assert.equal(r.hasRecentRecoveryRequest(), false)
+  useLocalStorage(undefined)
+})
+
+test('marca de pedido: guarda sólo la hora, nunca el email ni un token', async () => {
+  const r = await fresh()
+  const store = new MemoryStorage()
+  useLocalStorage(store)
+  r.markRecoveryRequested(123)
+  assert.equal(store.getItem(r.RECOVERY_REQUEST_MARKER_KEY), JSON.stringify({ v: 1, at: 123 }))
+  useLocalStorage(undefined)
 })
 
 test('boot: fragmento malformado → invalid_link', async () => {

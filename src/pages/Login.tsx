@@ -4,8 +4,41 @@ import { Lock, Mail, Eye, EyeOff, Loader2, User, ArrowLeft } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { sanitizeInternalPath, getAuthCallbackUrl } from '../lib/authRedirect'
-import { classifyRecoveryRequestError, RECOVERY_REQUEST_SENT_MESSAGE } from '../lib/passwordRecovery'
+import {
+  classifyRecoveryRequestError,
+  markRecoveryRequested,
+  RECOVERY_REQUEST_SENT_MESSAGE,
+} from '../lib/passwordRecovery'
+import { PASSWORD_PLACEHOLDER, validatePasswordPair } from '../lib/passwordPolicy'
+import {
+  AUTH_URL_ERROR_MESSAGE,
+  GOOGLE_START_ERROR_MESSAGE,
+  classifyAuthUrlError,
+  classifySignInError,
+  signUpErrorMessage,
+  type SignInFailure,
+} from '../lib/authErrors'
+import { initialLoginMode, planFromInternalPath, rememberSignupPlan, type LoginMode } from '../lib/signupIntent'
 import { S, focusOn, blurOn } from '../components/auth/authCardStyles'
+
+/** Login con email y contraseña: textos propios, nunca el de GoTrue. */
+const SIGN_IN_ERROR_MESSAGE: Record<SignInFailure, string> = {
+  email_not_confirmed: 'Tu cuenta todavía no está confirmada. Revisá tu correo y hacé click en el enlace que te enviamos.',
+  invalid_credentials: 'Email o contraseña incorrectos. Verificá tus datos.',
+  rate_limited: 'Demasiados intentos seguidos. Esperá un minuto y volvé a probar.',
+  network: 'No pudimos conectarnos. Revisá tu conexión e intentá de nuevo.',
+  unknown: 'No pudimos iniciar sesión. Intentá nuevamente en un momento.',
+}
+
+/**
+ * `?motivo=` lo escriben pantallas propias (/auth/callback, la captura de
+ * arranque). Enum cerrado: un valor desconocido no pinta nada.
+ */
+const MOTIVO_MESSAGE: Readonly<Record<string, string>> = {
+  link_invalido: 'Ese enlace de confirmación venció o ya no es válido. Iniciá sesión para pedir uno nuevo.',
+  enlace_vencido:
+    'El enlace que abriste venció o ya se usó. Si querías restablecer tu contraseña, tocá «¿Olvidaste tu contraseña?» para pedir uno nuevo. Si estabas confirmando tu correo, iniciá sesión y te ofrecemos reenviarlo.',
+}
 
 // ── Componente ───────────────────────────────────────────────────────
 
@@ -16,10 +49,9 @@ export function Login() {
   const emailInputRef = useRef<HTMLInputElement>(null)
 
   // `?modo=recuperar` abre directo el pedido de enlace: lo usa «Pedir un enlace
-  // nuevo» desde /reset-password cuando el anterior venció.
-  const [mode, setMode]                         = useState<'login' | 'register' | 'forgot'>(
-    () => new URLSearchParams(location.search).get('modo') === 'recuperar' ? 'forgot' : 'login',
-  )
+  // nuevo» desde /reset-password cuando el anterior venció. `?modo=registro`
+  // abre «Crear cuenta»: lo usan los CTAs de prueba de la landing (PRE-BETA-2D).
+  const [mode, setMode]                         = useState<LoginMode>(() => initialLoginMode(location.search))
   const [email, setEmail]                       = useState('')
   const [password, setPassword]                 = useState('')
   const [confirmPassword, setConfirmPassword]   = useState('')
@@ -59,25 +91,21 @@ export function Login() {
     '/dashboard',
   )
 
-  // Detectar errores OAuth que redirigen de vuelta al login (ej: acceso denegado)
+  // Errores que vuelven por la URL (OAuth, GoTrue). PRE-BETA-2D: el texto sale
+  // de un mapa cerrado. `?error_description=` lo escribe cualquiera que arme un
+  // link hacia el dominio oficial, así que no se lee ni se muestra jamás.
   useEffect(() => {
     const params = new URLSearchParams(location.search)
-    const oauthError = params.get('error')
-    const oauthErrorDesc = params.get('error_description')
-    if (oauthError) {
-      const msg = oauthErrorDesc
-        ? decodeURIComponent(oauthErrorDesc.replace(/\+/g, ' '))
-        : oauthError === 'access_denied'
-        ? 'Cancelaste el inicio de sesión con Google.'
-        : `Error de Google: ${oauthError}`
-      setError(msg)
+    const errorKind = classifyAuthUrlError(params)
+    if (errorKind) {
+      setError(AUTH_URL_ERROR_MESSAGE[errorKind])
       return
     }
-    // Enlace de confirmación vencido abierto en un dispositivo sin sesión:
-    // /auth/callback no puede ofrecer el reenvío ahí (haría falta sesión), así
-    // que deriva acá con un motivo del enum, no con un mensaje del servidor.
-    if (params.get('motivo') === 'link_invalido') {
-      setError('Ese enlace de confirmación venció o ya no es válido. Iniciá sesión para pedir uno nuevo.')
+    // Enlaces vencidos: /auth/callback (sin sesión) y la captura de arranque
+    // derivan acá con un motivo del enum, no con un mensaje del servidor.
+    const motivo = params.get('motivo')
+    if (motivo && Object.prototype.hasOwnProperty.call(MOTIVO_MESSAGE, motivo)) {
+      setError(MOTIVO_MESSAGE[motivo])
     }
   }, [location.search])
 
@@ -112,7 +140,6 @@ export function Login() {
   }, [authLoading])
 
   const validateEmail    = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
-  const validatePassword = (v: string) => v.length >= 6
 
   const clearErrors = () => {
     setError(''); setSuccess('')
@@ -127,7 +154,7 @@ export function Login() {
     setResendState(res.status === 'sent' ? 'sent' : res.status === 'rate_limited' ? 'limited' : 'idle')
   }
 
-  const handleModeChange = (m: 'login' | 'register' | 'forgot') => {
+  const handleModeChange = (m: LoginMode) => {
     setMode(m); clearErrors()
     setEmail(''); setPassword(''); setConfirmPassword(''); setFullName('')
   }
@@ -155,6 +182,10 @@ export function Login() {
         setError('No pudimos enviar el pedido. Revisá tu conexión e intentá de nuevo.')
         return
       }
+      // PRE-BETA-2D — evidencia local (sólo la hora) de que este navegador pidió
+      // un recovery: permite nombrar bien un enlace legacy vencido. No revela
+      // nada: se marca igual exista o no la cuenta.
+      markRecoveryRequested()
       setSuccess(RECOVERY_REQUEST_SENT_MESSAGE)
     } catch {
       setError('No pudimos enviar el pedido. Revisá tu conexión e intentá de nuevo.')
@@ -170,11 +201,14 @@ export function Login() {
     if (!email.trim())          { setEmailError('Por favor ingresá tu email'); emailInputRef.current?.focus(); return }
     if (!validateEmail(email))  { setEmailError('Por favor ingresá un email válido'); emailInputRef.current?.focus(); return }
     if (!password.trim())       { setPasswordError('Por favor ingresá tu contraseña'); return }
-    if (!validatePassword(password)) { setPasswordError('La contraseña debe tener al menos 6 caracteres'); return }
 
+    // PRE-BETA-2D — la política (src/lib/passwordPolicy.ts) aplica a contraseñas
+    // NUEVAS. El login no la exige: hay cuentas creadas con el mínimo anterior,
+    // y bloquearles el ingreso desde el formulario sería romperles el acceso.
     if (mode === 'register') {
-      if (!confirmPassword.trim()) { setConfirmError('Por favor confirmá tu contraseña'); return }
-      if (password !== confirmPassword) { setConfirmError('Las contraseñas no coinciden'); return }
+      const fallas = validatePasswordPair(password, confirmPassword)
+      if (fallas.password) { setPasswordError(fallas.password); return }
+      if (fallas.confirm) { setConfirmError(fallas.confirm); return }
     }
 
     setIsLoading(true)
@@ -195,6 +229,10 @@ export function Login() {
           // con TTL, ver src/lib/pendingInvite.ts) porque `sessionStorage` es POR
           // PESTAÑA y el enlace del correo suele abrirse en una nueva.
           sessionStorage.setItem('post_login_redirect', from)
+          // PRE-BETA-2D — el plan elegido en la landing sobrevive a la
+          // confirmación en otra pestaña (donde `post_login_redirect` no existe).
+          const plan = planFromInternalPath(from)
+          if (plan) rememberSignupPlan(plan)
           // NO es un error: con Confirm Email ON, Supabase crea el usuario y
           // devuelve `session: null`. El destino es la pantalla dedicada, que
           // ofrece reenviar y verificar. Antes se volvía al formulario de
@@ -205,42 +243,22 @@ export function Login() {
         }
         navigate('/no-business', { replace: true })
       }
-    } catch (err: any) {
-      const raw: string = (err?.message || '').toLowerCase()
-      let msg: string
+    } catch (err: unknown) {
+      // PRE-BETA-2D — clasificación CERRADA (src/lib/authErrors.ts). Ningún
+      // camino muestra `err.message`: el alta devolvía el texto crudo de GoTrue
+      // en inglés («Email rate limit exceeded») en todo lo no mapeado.
       if (mode === 'login') {
-        // Cuatro casos DISTINTOS que antes colapsaban en uno solo.
-        //
-        // El bug: `email not confirmed` estaba en la misma rama que las
-        // credenciales inválidas, así que a quien sólo le faltaba hacer click
-        // en el correo se le decía que su contraseña estaba mal. Con Confirm
-        // Email ON eso pasa a ser el error MÁS común del login.
-        //
-        // Se sigue sin filtrar texto interno: los mensajes salen de acá, no de
-        // `err.message`.
-        const status = (err as { status?: number })?.status
-        if (raw.includes('email not confirmed') || raw.includes('not confirmed')) {
-          msg = 'Tu cuenta todavía no está confirmada. Revisá tu correo y hacé click en el enlace que te enviamos.'
-          // Con sesión no hay: signInWithPassword falla. Se ofrece la pantalla
-          // de verificación, que sabe reenviar el correo.
+        // `email not confirmed` va en su propia rama: con Confirm Email ON es el
+        // error MÁS común del login, y antes se le decía «contraseña incorrecta».
+        const kind = classifySignInError(err)
+        if (kind === 'email_not_confirmed') {
+          // Sin sesión no hay /verificar-email: el reenvío se ofrece acá mismo.
           setPendingConfirmationEmail(email.trim())
-        } else if (status === 429 || raw.includes('rate limit') || raw.includes('too many')) {
-          msg = 'Demasiados intentos seguidos. Esperá un minuto y volvé a probar.'
-        } else if (raw.includes('invalid login') || raw.includes('invalid credentials')) {
-          msg = 'Email o contraseña incorrectos. Verificá tus datos.'
-        } else {
-          msg = 'No pudimos iniciar sesión. Intentá nuevamente en un momento.'
         }
+        setError(SIGN_IN_ERROR_MESSAGE[kind])
       } else {
-        if (raw.includes('already registered') || raw.includes('already been registered')) {
-          msg = 'Este email ya tiene una cuenta. Iniciá sesión o recuperá tu contraseña.'
-        } else if (raw.includes('email') && (raw.includes('send') || raw.includes('500') || raw.includes('smtp') || raw.includes('resend'))) {
-          msg = 'No pudimos enviar el email de confirmación. Si el problema persiste, contactá al administrador.'
-        } else {
-          msg = err?.message || 'Error al crear la cuenta. Intentá nuevamente.'
-        }
+        setError(signUpErrorMessage(err))
       }
-      setError(msg)
       setIsLoading(false)
     }
   }
@@ -250,9 +268,9 @@ export function Login() {
     sessionStorage.setItem('post_login_redirect', from)
     try {
       await signInWithGoogle()
-    } catch (err: any) {
+    } catch {
       sessionStorage.removeItem('post_login_redirect')
-      setError(err.message || 'No se pudo iniciar sesión con Google.')
+      setError(GOOGLE_START_ERROR_MESSAGE)
       setIsGoogleLoading(false)
     }
   }
@@ -354,7 +372,7 @@ export function Login() {
               color: '#f87171', fontSize: '0.875rem',
               marginBottom: '1.25rem',
               display: 'flex', alignItems: 'flex-start', gap: '0.5rem',
-            }} role="alert">
+            }} role="alert" data-testid="login-error">
               <span style={{ fontSize: '1rem', flexShrink: 0 }}>⚠️</span>
               {error}
             </div>
@@ -496,7 +514,7 @@ export function Login() {
                 <Lock size={17} style={{ ...S.iconLeft, color: passwordError ? '#f87171' : '#334155' }} />
                 <input
                   id="password" data-testid="login-password" type={showPassword ? 'text' : 'password'} value={password}
-                  placeholder="••••••••"
+                  placeholder={mode === 'register' ? PASSWORD_PLACEHOLDER : '••••••••'}
                   autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                   disabled={disabled}
                   style={S.inputWithRight(!!passwordError, disabled)}
@@ -531,7 +549,7 @@ export function Login() {
                   <input
                     id="confirmPassword" data-testid="login-confirm-password"
                     type={showConfirm ? 'text' : 'password'} value={confirmPassword}
-                    placeholder="••••••••" autoComplete="new-password" disabled={disabled}
+                    placeholder="Repetí la contraseña" autoComplete="new-password" disabled={disabled}
                     style={S.inputWithRight(!!confirmError, disabled)}
                     onChange={e => { setConfirmPassword(e.target.value); setConfirmError(''); setError('') }}
                     onFocus={e => focusOn(e, !!confirmError)}

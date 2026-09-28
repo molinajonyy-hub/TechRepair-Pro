@@ -5,8 +5,9 @@ import { supabase } from '../lib/supabase'
 import { S, blurOn, focusOn } from '../components/auth/authCardStyles'
 import { colors } from '../lib/tokens'
 import { PORTAL_DOMAINS } from '../portal/portalDomains'
+import { PASSWORD_PLACEHOLDER } from '../lib/passwordPolicy'
+import { CONTACTO_SOPORTE } from '../config/contacto'
 import {
-  PASSWORD_MIN_LENGTH,
   classifyPasswordUpdateError,
   finishRecovery,
   getRecoveryPhase,
@@ -210,6 +211,10 @@ export function ResetPassword() {
                   <ArrowLeft size={14} /> Volver al inicio de sesión
                 </button>
               </div>
+              <p style={{ ...subtitulo, fontSize: '0.8125rem', marginTop: '1.25rem' }} data-testid="reset-password-soporte">
+                ¿No te llega el correo? Escribinos a{' '}
+                <a href={`mailto:${CONTACTO_SOPORTE}`} style={{ color: colors.indigo, fontWeight: 600 }}>{CONTACTO_SOPORTE}</a>.
+              </p>
             </div>
           )}
 
@@ -262,7 +267,7 @@ export function ResetPassword() {
                       ref={passwordRef}
                       type={showPwd ? 'text' : 'password'}
                       value={password}
-                      placeholder={`Mínimo ${PASSWORD_MIN_LENGTH} caracteres`}
+                      placeholder={PASSWORD_PLACEHOLDER}
                       autoComplete="new-password"
                       disabled={saving}
                       aria-invalid={Boolean(fieldErrors.password)}

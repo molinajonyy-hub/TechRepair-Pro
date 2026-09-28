@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Eye, EyeOff, AlertCircle } from 'lucide-react'
 import { usePortal } from '../contexts/PortalContext'
-import { loginCustomer } from '../services/portalService'
+import { loginCustomer, resendWholesaleConfirmation } from '../services/portalService'
 import { WholesaleBrandHeader } from '../components/WholesaleBrandHeader'
 
 const F = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif"
@@ -107,9 +107,17 @@ export function PortalLogin() {
   const [showPw,      setShowPw]      = useState(false)
   const [loading,     setLoading]     = useState(false)
   const [error,       setError]       = useState('')
+  /**
+   * PRE-BETA-2D — email cuyo login falló por falta de confirmación. Sin sesión
+   * no hay otra pantalla que pueda reenviar: se ofrece acá mismo.
+   */
+  const [pendingEmail, setPendingEmail] = useState('')
+  const [resendState,  setResendState]  = useState<'idle' | 'sending' | 'sent' | 'limited' | 'error'>('idle')
 
   const doLogin = async (em: string, pw: string) => {
     setError('')
+    setPendingEmail('')
+    setResendState('idle')
     if (bizLoading) { setError('El portal todavía está cargando. Intentá en un momento.'); return }
     if (!business)  { setError('No se pudo cargar el portal. Recargá la página.'); return }
 
@@ -121,7 +129,11 @@ export function PortalLogin() {
       return
     }
 
-    if (result.error)    { setError(result.error); return }
+    if (result.error) {
+      setError(result.error)
+      if (result.reason === 'email_not_confirmed') setPendingEmail(em.trim())
+      return
+    }
     if (!result.customer){ setError('No existe un cliente mayorista vinculado a este email.'); return }
 
     const c = result.customer
@@ -135,6 +147,13 @@ export function PortalLogin() {
     e.preventDefault()
     setLoading(true)
     try { await doLogin(email, password) } finally { setLoading(false) }
+  }
+
+  const handleResend = async () => {
+    if (!pendingEmail || resendState === 'sending' || resendState === 'sent' || resendState === 'limited') return
+    setResendState('sending')
+    const outcome = await resendWholesaleConfirmation(pendingEmail)
+    setResendState(outcome === 'rate_limited' ? 'limited' : outcome)
   }
 
   const busy = loading || bizLoading
@@ -262,7 +281,40 @@ export function PortalLogin() {
                 lineHeight: 1.45,
               }}>
                 <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
-                <span>{error}</span>
+                <span data-testid="portal-login-error">{error}</span>
+              </div>
+            )}
+
+            {/* Reenvío: sólo cuando el login falló por correo sin confirmar. */}
+            {pendingEmail && (
+              <div style={{ textAlign: 'center', fontSize: '0.845rem', lineHeight: 1.45 }}>
+                {resendState === 'sent' ? (
+                  <span data-testid="portal-login-resend-sent" style={{ color: '#1c7c3c' }}>
+                    Te reenviamos el correo de confirmación. Revisá tu bandeja y la carpeta de spam.
+                  </span>
+                ) : resendState === 'limited' ? (
+                  <span data-testid="portal-login-resend-limited" style={{ color: '#6e6e73' }}>
+                    Ya enviamos varios correos en poco tiempo. Esperá unos minutos antes de pedir otro.
+                  </span>
+                ) : (
+                  <>
+                    {resendState === 'error' && (
+                      <span data-testid="portal-login-resend-error" style={{ display: 'block', color: '#c0001a', marginBottom: '0.25rem' }}>
+                        No pudimos reenviar el correo. Probá de nuevo en unos minutos.
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void handleResend()}
+                      disabled={resendState === 'sending'}
+                      data-testid="portal-login-resend"
+                      className="pl-register-link"
+                      style={{ background: 'none', border: 'none', padding: '0.25rem', cursor: resendState === 'sending' ? 'wait' : 'pointer' }}
+                    >
+                      {resendState === 'sending' ? 'Enviando…' : 'Reenviar correo de confirmación'}
+                    </button>
+                  </>
+                )}
               </div>
             )}
 

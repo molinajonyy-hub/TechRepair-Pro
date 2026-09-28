@@ -5,7 +5,7 @@
 #
 # ── COMMITTED CONFIG ──────────────────────────────────────────────────────────
 # Local-stack ports are remapped +100 from the CLI defaults (api 54421 / db 54422 /
-# shadow 54420 / studio 54423 / inbucket 54424 / analytics 54427 / pooler 54429) so
+# shadow 54420 / studio 54423 / local_smtp (Mailpit) 54424 / analytics 54427 / pooler 54429) so
 # this stack can run alongside another local Supabase project without colliding.
 # Containers are namespaced by `project_id`, so if you only run one stack you may
 # revert to the 543xx defaults locally (do not commit that change).
@@ -110,9 +110,13 @@ api_url = "http://127.0.0.1"
 # OpenAI API Key to use for Supabase AI in the Supabase Studio.
 openai_api_key = "env(OPENAI_API_KEY)"
 
-# Email testing server. Emails sent with the local dev setup are not actually sent - rather, they
-# are monitored, and you can view the emails that would have been sent from the web interface.
-[inbucket]
+# Email testing server (Mailpit). Emails sent with the local dev setup are not actually sent -
+# rather, they are monitored, and you can view the emails that would have been sent from the web
+# interface. PRE-BETA-2D: la sección se llamaba `[inbucket]`, deprecada por la CLI (2.109.1 avisa
+# «[inbucket] is deprecated»); `[local_smtp]` tiene las mismas claves y el mismo contenedor
+# (`supabase_inbucket_<project_id>`, API de Mailpit en /api/v1). Los E2E leen el puerto desde acá
+# (tests/e2e/setup/mailpit.ts), con `[inbucket]` sólo como compatibilidad.
+[local_smtp]
 enabled = true
 # Port to use for the email testing server web interface.
 port = 54424
@@ -199,7 +203,10 @@ enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts
 enable_manual_linking = false
 # Passwords shorter than this value will be rejected as weak. Minimum 6, recommended 8 or more.
-minimum_password_length = 6
+# PRE-BETA-2D — 8, igual que la política del frontend (src/lib/passwordPolicy.ts). SÓLO el stack
+# local: producción sigue en 6 hasta PRE-BETA-2E, que lo sube en el Dashboard DESPUÉS del deploy
+# del frontend que ya exige 8 (así nadie ve el rechazo crudo del servidor).
+minimum_password_length = 8
 # Passwords that do not meet the following requirements will be rejected as weak. Supported values
 # are: `letters_digits`, `lower_upper_letters_digits`, `lower_upper_letters_digits_symbols`
 password_requirements = ""
@@ -244,8 +251,9 @@ double_confirm_changes = true
 # EMAIL VERIFICATION P0 — ENCENDIDO EN LOCAL, a propósito.
 #
 # Esto es SÓLO el stack local: la configuración de Auth de producción vive en
-# el panel de Supabase, no en este archivo. Producción sigue con Confirm Email
-# APAGADO y lo activa el owner a mano después del deploy.
+# el panel de Supabase, no en este archivo. Producción también lo tiene
+# ENCENDIDO (`mailer_autoconfirm=false`, verificado en PRE-BETA-2A/2B; este
+# comentario decía lo contrario hasta PRE-BETA-2D).
 #
 # Se enciende acá porque el flujo NO se puede probar de otra forma. MEDIDO:
 # con `enable_confirmations = false`, GoTrue igual rechaza el login de un
@@ -258,7 +266,7 @@ double_confirm_changes = true
 # la admin API y `email_confirm: true` (ver tests/e2e/setup/seedE2E.ts), así
 # que siguen logueando igual. Ningún spec hace signup por UI.
 #
-# Los correos locales se leen en Inbucket: http://127.0.0.1:54424
+# Los correos locales se leen en Mailpit: http://127.0.0.1:54424 (sección [local_smtp]).
 enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
@@ -279,10 +287,19 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
-# Uncomment to customize email template
-# [auth.email.template.invite]
-# subject = "You have been invited"
-# content_path = "./supabase/templates/invite.html"
+# PRE-BETA-2D — plantillas `token_hash` versionadas. El stack local prueba EXACTAMENTE el
+# contrato que PRE-BETA-2E pega en producción:
+#   confirmación: {{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=signup
+#   recovery:     {{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=recovery
+# Producción: confirmación YA usa ese contrato; recovery sigue en {{ .ConfirmationURL }} hasta 2E.
+# Invite / magic link / email change quedan con la plantilla por defecto: la app no los usa.
+[auth.email.template.confirmation]
+subject = "Confirmá tu correo — TechRepair Pro"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Restablecé tu contraseña — TechRepair Pro"
+content_path = "./supabase/templates/recovery.html"
 
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]

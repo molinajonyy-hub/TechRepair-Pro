@@ -6,6 +6,7 @@ import {
   completeRecoveryHandoff,
   installRecoveryAuthListener,
 } from './passwordRecovery'
+import { redirectRootEmailLinkAtBoot } from './authEmailLink'
 import { PORTAL_DOMAINS } from '../portal/portalDomains'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
@@ -24,6 +25,10 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // El orden importa: esta llamada tiene que quedar arriba de `createClient`.
 // Ver src/lib/passwordRecovery.ts.
 if (typeof window !== 'undefined') {
+  // PRE-BETA-2D — un enlace `token_hash` que GoTrue degradó al Site URL
+  // (`/?token_hash=…&type=…`) se lleva a /auth/callback antes de que monte el
+  // router. Sólo ese contrato exacto; ver src/lib/authEmailLink.ts.
+  redirectRootEmailLinkAtBoot(window.location, window.history)
   captureRecoveryAtBoot(window.location, window.history, {
     isPortalHost: Boolean(PORTAL_DOMAINS[window.location.hostname]),
   })

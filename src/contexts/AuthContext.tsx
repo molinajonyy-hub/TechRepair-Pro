@@ -4,6 +4,8 @@ import { supabase } from '../lib/supabase';
 import { getProfileCacheKey } from '../lib/profileCache';
 import { getAuthCallbackUrl } from '../lib/authRedirect';
 import { clearInviteToken } from '../lib/pendingInvite';
+import { classifyResendResult } from '../lib/authErrors';
+import { clearSignupPlan } from '../lib/signupIntent';
 
 export type UserRole = 'owner' | 'admin' | 'manager' | 'tech' | 'sales' | 'cashier' | 'viewer';
 
@@ -675,20 +677,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         },
       });
 
-      if (!error) {
-        return { status: 'sent' };
-      }
-
-      // 429 es el único fallo accionable por el usuario. Se detecta por status
-      // Y por mensaje: distintas versiones de GoTrue lo reportan distinto.
-      const status = (error as { status?: number }).status;
-      const message = error.message?.toLowerCase() ?? '';
-      if (status === 429 || message.includes('rate limit') || message.includes('too many')) {
-        return { status: 'rate_limited' };
-      }
-
-      if (import.meta.env.DEV) console.warn('Error reenviando la confirmación:', error);
-      return { status: 'error' };
+      // 429 es el único fallo accionable por el usuario. La detección (status,
+      // código y mensaje de versiones viejas de GoTrue) vive en un solo lugar,
+      // compartido con el portal mayorista: src/lib/authErrors.ts.
+      const outcome = classifyResendResult(error);
+      if (outcome === 'error' && import.meta.env.DEV) console.warn('Error reenviando la confirmación:', error);
+      return { status: outcome };
     } catch (error) {
       if (import.meta.env.DEV) console.warn('Error reenviando la confirmación:', error);
       return { status: 'error' };
@@ -771,6 +765,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // invitación ajena (el servidor la rechazaría por correo, pero la pantalla
       // no tiene por qué aparecer).
       clearInviteToken();
+      // PRE-BETA-2D: idem con el plan elegido en la landing.
+      clearSignupPlan();
     } finally {
       setLoading(false);
     }

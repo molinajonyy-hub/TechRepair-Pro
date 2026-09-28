@@ -9,6 +9,7 @@ import { Lock, Zap, LogOut } from 'lucide-react'
 import { useSubscription } from '../hooks/useSubscription'
 import { useAuth } from '../contexts/AuthContext'
 import { STATUS_LABELS, type SubscriptionStatus } from '../types/subscription'
+import { CONTACTO_SOPORTE } from '../config/contacto'
 
 export function SubscriptionSuspended() {
   const navigate = useNavigate()
@@ -71,8 +72,13 @@ export function SubscriptionSuspended() {
         </button>
       </div>
 
-      <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', maxWidth: 400 }}>
-        ¿Necesitás ayuda? Contactanos en soporte@techrepairpro.com
+      {/* PRE-BETA-2D — contacto canónico. Antes decía una casilla de un dominio
+          `.com` que no es del producto (sin MX: no podía recibir nada). */}
+      <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', maxWidth: 400 }} data-testid="subscription-suspended-soporte">
+        ¿Necesitás ayuda? Escribinos a{' '}
+        <a href={`mailto:${CONTACTO_SOPORTE}`} style={{ color: 'var(--color-primary-light)', fontWeight: 600 }}>
+          {CONTACTO_SOPORTE}
+        </a>
       </p>
     </div>
   )

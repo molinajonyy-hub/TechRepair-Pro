@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Confirmá tu correo — TechRepair Pro</title>
+    <!--
+      PRE-BETA-2D · Plantilla «Confirm signup» de Supabase Auth (versionada).
+      Asunto: Confirmá tu correo — TechRepair Pro
+      Enlace: RedirectTo + ?token_hash=TokenHash&type=signup (ver el botón).
+      RedirectTo es el emailRedirectTo del cliente: getAuthCallbackUrl() → /auth/callback.
+      Sin imágenes remotas ni dominios de tracking. El soporte coincide con
+      CONTACTO_SOPORTE (src/config/contacto.ts); lo verifica scripts/guards/auth-email-templates.mjs.
+      Stack LOCAL: supabase/config.toml. Producción: se pega en PRE-BETA-2E
+      (docs/pre-beta-2/pre-beta-2d-auth-ux-tokenhash.md).
+    -->
+  </head>
+  <body style="margin:0;padding:0;background:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c1c1e;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f7;padding:24px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border-radius:12px;padding:32px 28px;">
+            <tr>
+              <td style="font-size:18px;font-weight:800;color:#4f46e5;padding-bottom:20px;">TechRepair Pro</td>
+            </tr>
+            <tr>
+              <td style="font-size:20px;font-weight:700;padding-bottom:12px;">Confirmá tu correo</td>
+            </tr>
+            <tr>
+              <td style="font-size:15px;line-height:1.6;padding-bottom:24px;">
+                Recibimos un pedido para crear una cuenta con este correo. Tocá el botón para confirmarlo y activar tu cuenta.
+              </td>
+            </tr>
+            <tr>
+              <td style="padding-bottom:24px;">
+                <a href="{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=signup" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:12px 22px;border-radius:10px;">Confirmar mi correo</a>
+              </td>
+            </tr>
+            <tr>
+              <td style="font-size:13px;line-height:1.6;color:#6e6e73;padding-bottom:16px;">
+                El enlace sirve una sola vez. Si no creaste una cuenta, ignorá este correo: no se va a activar nada.
+              </td>
+            </tr>
+            <tr>
+              <td style="font-size:13px;line-height:1.6;color:#6e6e73;border-top:1px solid #e5e5ea;padding-top:16px;">
+                ¿Necesitás ayuda? Escribinos a <a href="mailto:techrepairpro.soporte@gmail.com" style="color:#4f46e5;">techrepairpro.soporte@gmail.com</a>.
+                Este correo se envía automáticamente: no respondas a esta dirección.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

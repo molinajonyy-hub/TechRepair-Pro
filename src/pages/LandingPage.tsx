@@ -10,6 +10,7 @@ import { PLANS, type SubscriptionPlan } from '../types/subscription'
 import { initLandingAnalytics, track } from '../lib/analytics'
 import { useTheme } from '../hooks/useTheme'
 import { CONTACTO_SOPORTE } from '../config/contacto'
+import { signupPath } from '../lib/signupIntent'
 import '../css/landing.css'
 
 // ─── Acentos temables del mockup ──────────────────────────────────────────────
@@ -891,10 +892,13 @@ export function LandingPage() {
   const navigate = useNavigate()
   const rootRef = useRef<HTMLDivElement | null>(null)
 
+  // PRE-BETA-2D — los CTAs de prueba abren «Crear cuenta», no «Iniciar sesión».
+  // El destino sigue siendo /onboarding (viaja como `redirectTo` y el Login lo
+  // sanea); con sesión, el Login redirige ahí como antes.
   const startTrial = useCallback((source: string) => {
     if (source === 'hero') track('hero_trial_click', { source })
     track('signup_started', { source })
-    navigate('/onboarding')
+    navigate(signupPath())
   }, [navigate])
 
   const openDemo = useCallback(() => {
@@ -907,7 +911,7 @@ export function LandingPage() {
     // ya es un id válido. Se pasa por query param y el onboarding lo revalida.
     track('plan_selected', { plan })
     track('signup_started', { source: 'pricing', plan })
-    navigate(`/onboarding?plan=${plan}`)
+    navigate(signupPath(plan))
   }, [navigate])
 
   // Analytics + reveals + section tracking

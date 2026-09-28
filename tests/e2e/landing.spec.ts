@@ -52,16 +52,18 @@ test.describe('@landing @smoke Carga y estructura', () => {
     await expect(h1).toContainText(/bajo control/i)
   })
 
-  test('el CTA "Probar gratis 14 días" del hero es visible y va a onboarding', async ({ page }) => {
+  test('el CTA "Probar gratis 14 días" del hero es visible y abre "Crear cuenta"', async ({ page }) => {
     await page.goto('/landing')
     const cta = page.locator('#top').getByRole('button', { name: /probar gratis 14 días/i })
     await expect(cta).toBeVisible()
     await installNavSpy(page)
     await cta.click()
-    // El destino es /onboarding (el guard puede luego rebotar a /login sin sesión).
+    // PRE-BETA-2D: el destino es el REGISTRO, con /onboarding preservado como
+    // redirectTo. Antes iba a /onboarding y sin sesión caía en «Iniciar sesión».
     await expect.poll(() => navTargets(page)).toEqual(
-      expect.arrayContaining([expect.stringContaining('/onboarding')]),
+      expect.arrayContaining([expect.stringContaining('/login?modo=registro&redirectTo=%2Fonboarding')]),
     )
+    await expect(page.getByTestId('login-confirm-password')).toBeVisible()
   })
 
   test('sin scroll horizontal en 360px y 1280px', async ({ page }) => {
@@ -144,16 +146,16 @@ test.describe('@landing Planes', () => {
     }
   })
 
-  test('seleccionar un plan navega al onboarding conservando el plan', async ({ page }) => {
+  test('seleccionar un plan abre el registro conservando el plan', async ({ page }) => {
     await page.goto('/landing')
     await installNavSpy(page)
     await page.locator('#planes .lp-plan.is-featured')
       .getByRole('button', { name: /probar gratis 14 días/i })
       .click()
 
-    // El plan se conserva en el destino de navegación (?plan=pro)...
+    // El plan se conserva en el destino post-registro (/onboarding?plan=pro)...
     await expect.poll(() => navTargets(page)).toEqual(
-      expect.arrayContaining([expect.stringContaining('/onboarding?plan=pro')]),
+      expect.arrayContaining([expect.stringContaining('/login?modo=registro&redirectTo=%2Fonboarding%3Fplan%3Dpro')]),
     )
     // ...y en el evento de analítica.
     const events = await dataLayer(page)
