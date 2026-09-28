@@ -1,13 +1,9 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Eye, EyeOff, AlertCircle, Zap } from 'lucide-react'
+import { Eye, EyeOff, AlertCircle } from 'lucide-react'
 import { usePortal } from '../contexts/PortalContext'
 import { loginCustomer } from '../services/portalService'
 import { WholesaleBrandHeader } from '../components/WholesaleBrandHeader'
-
-const IS_DEV = import.meta.env.DEV
-const DEMO_EMAIL    = 'demo@clicmayorista.com'
-const DEMO_PASSWORD = 'Demo1234'
 
 const F = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif"
 
@@ -110,7 +106,6 @@ export function PortalLogin() {
   const [password,    setPassword]    = useState('')
   const [showPw,      setShowPw]      = useState(false)
   const [loading,     setLoading]     = useState(false)
-  const [demoLoading, setDemoLoading] = useState(false)
   const [error,       setError]       = useState('')
 
   const doLogin = async (em: string, pw: string) => {
@@ -142,12 +137,7 @@ export function PortalLogin() {
     try { await doLogin(email, password) } finally { setLoading(false) }
   }
 
-  const handleDemo = async () => {
-    setDemoLoading(true)
-    try { await doLogin(DEMO_EMAIL, DEMO_PASSWORD) } finally { setDemoLoading(false) }
-  }
-
-  const busy = loading || demoLoading || bizLoading
+  const busy = loading || bizLoading
 
   return (
     <div data-theme="light" style={{
@@ -194,42 +184,6 @@ export function PortalLogin() {
           flexDirection: 'column',
           gap: '1rem',
         }}>
-
-          {/* Dev demo */}
-          {IS_DEV && (
-            <div style={{
-              padding: '0.875rem 1rem',
-              background: 'rgba(99,102,241,0.07)',
-              border: '1px dashed rgba(99,102,241,0.3)',
-              borderRadius: 14,
-              display: 'flex', flexDirection: 'column', gap: '0.625rem',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <Zap size={13} color="#818cf8" />
-                <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                  Modo Dev
-                </span>
-              </div>
-              <button
-                onClick={handleDemo}
-                disabled={busy}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem',
-                  padding: '0.5rem 0.875rem',
-                  background: 'rgba(99,102,241,0.13)',
-                  border: '1px solid rgba(99,102,241,0.35)',
-                  borderRadius: 10,
-                  color: '#818cf8',
-                  fontFamily: F, fontSize: '0.85rem', fontWeight: 700,
-                  cursor: busy ? 'not-allowed' : 'pointer',
-                  opacity: busy ? 0.6 : 1,
-                }}
-              >
-                <Zap size={14} />
-                {demoLoading ? 'Ingresando...' : 'Ingresar como demo'}
-              </button>
-            </div>
-          )}
 
           {/* ── Form ── */}
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
