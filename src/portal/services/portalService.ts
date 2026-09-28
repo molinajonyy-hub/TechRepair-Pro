@@ -1,5 +1,13 @@
 import { supabase } from '../../lib/supabase'
 import { getAuthCallbackUrl } from '../../lib/authRedirect'
+import { logger } from '../../lib/logger'
+import {
+  classifyResendResult,
+  classifySignInError,
+  signUpErrorMessage,
+  type ResendOutcome,
+  type SignInFailure,
+} from '../../lib/authErrors'
 import {
   PORTAL_PUBLIC_RPC, PORTAL_PUBLIC_COLUMNS, isMissingObject,
   PORTAL_FEATURES_RPC, portalCanOrder, classifyPortalError,
@@ -92,7 +100,8 @@ export async function getCustomerByAuthId(businessId: string): Promise<Wholesale
   if (error) {
     // 403 = sin permiso (grant faltante) — silencioso para no romper el flujo
     if (error.code === '42501' || error.message.includes('permission denied')) return null
-    console.warn('[portalService] getCustomerByAuthId error:', error.message)
+    // Sin PII: sólo el código de PostgREST (PRE-BETA-2D).
+    logger.warn('AUTH', 'portal: no se pudo leer el cliente mayorista', { code: error.code })
     return null
   }
   return (data as WholesaleCustomer | null)
@@ -219,12 +228,12 @@ export async function registerCustomer(input: {
     },
   })
 
+  // PRE-BETA-2D — errores CERRADOS, mismo contrato que el registro principal
+  // (src/lib/authErrors.ts). Antes volvía `authErr.message` crudo de GoTrue.
+  // Sólo cambia el copy donde el portal no es TechRepair: el soporte del
+  // cliente mayorista es el negocio, no nosotros.
   if (authErr || !authData.user) {
-    const msg = authErr?.message || 'Error al crear cuenta'
-    const friendly = msg.toLowerCase().includes('already')
-      ? 'Este email ya está registrado. Intentá iniciar sesión.'
-      : msg
-    return { status: 'error', error: friendly }
+    return { status: 'error', error: signUpErrorMessage(authErr, PORTAL_SIGNUP_COPY) }
   }
 
   // Sin sesión = Confirm Email está ON. El alta se completa al confirmar.
@@ -237,9 +246,17 @@ export async function registerCustomer(input: {
   const { customer, error } = await insertWholesaleCustomer(
     input.businessId, authData.user.id, input.email, meta,
   )
-  if (error || !customer) return { status: 'error', error: error || 'Error al crear la cuenta' }
+  if (error || !customer) {
+    return { status: 'error', error: 'No pudimos completar tu solicitud. Intentá de nuevo en unos minutos.' }
+  }
   return { status: 'created', customer }
 }
+
+/** Copy del portal sobre el contrato de errores del alta. */
+const PORTAL_SIGNUP_COPY = {
+  already_registered: 'Este email ya está registrado. Intentá iniciar sesión.',
+  email_send_failed: 'No pudimos enviar el correo de confirmación. Probá de nuevo en unos minutos. Si sigue fallando, contactá al negocio.',
+} as const
 
 /**
  * Completa el alta mayorista de un usuario que YA confirmó su correo.
@@ -289,7 +306,7 @@ export async function completePendingWholesaleRegistration(
   if (error) {
     // 23505 = ya existía (carrera entre dos pestañas). No es un fallo.
     if (!error.includes('duplicate') && !error.includes('23505')) {
-      console.warn('[portalService] no se pudo completar el alta mayorista:', error)
+      logger.warn('AUTH', 'portal: no se pudo completar el alta mayorista')
     }
     return null
   }
@@ -297,17 +314,46 @@ export async function completePendingWholesaleRegistration(
   return customer
 }
 
+/**
+ * Motivo del fallo de login, para que la pantalla ofrezca la salida correcta
+ * (p. ej. reenviar la confirmación). El texto visible va aparte, en `error`.
+ */
+export type PortalLoginFailure = SignInFailure | 'not_in_portal' | 'suspended' | 'lookup_failed'
+
+export interface PortalLoginResult {
+  customer: WholesaleCustomer | null
+  error: string | null
+  reason?: PortalLoginFailure
+}
+
+/** Copy del login del portal. Mapa cerrado: el texto de GoTrue nunca llega a la pantalla. */
+export const PORTAL_LOGIN_ERROR_MESSAGE: Record<PortalLoginFailure, string> = {
+  email_not_confirmed: 'Tu correo todavía no está confirmado. Revisá el email que te enviamos.',
+  invalid_credentials: 'Email o contraseña incorrectos',
+  rate_limited: 'Hiciste varios intentos seguidos. Esperá unos minutos y volvé a probar.',
+  network: 'Error de conexión. Revisá tu internet e intentá de nuevo.',
+  unknown: 'No pudimos iniciar sesión. Intentá nuevamente en un momento.',
+  lookup_failed: 'Error al verificar la cuenta. Intentá de nuevo.',
+  not_in_portal: 'Esta cuenta no pertenece a este portal. Verificá que estés en el portal correcto.',
+  suspended: 'Tu cuenta fue suspendida. Contactá al negocio para más información.',
+}
+
+const fallo = (reason: PortalLoginFailure): PortalLoginResult =>
+  ({ customer: null, error: PORTAL_LOGIN_ERROR_MESSAGE[reason], reason })
+
+// PRE-BETA-2D — este camino NO loguea nada de la cuenta: ni email, ni auth user
+// id, ni el estado del cliente mayorista. Antes lo hacía con console.log y
+// quedaba en el bundle productivo. Lo fija tests/components/portalAuthUx.test.tsx.
 export async function loginCustomer(
   email: string, password: string, businessId: string
-): Promise<{ customer: WholesaleCustomer | null; error: string | null }> {
-  console.log('[loginCustomer] signInWithPassword', { email, businessId })
+): Promise<PortalLoginResult> {
   const { data: signInData, error: authErr } = await supabase.auth.signInWithPassword({ email, password })
   if (authErr || !signInData.user) {
-    console.error('[loginCustomer] signInWithPassword error:', authErr?.message)
-    return { customer: null, error: 'Email o contraseña incorrectos' }
+    // Antes TODO fallo decía «Email o contraseña incorrectos», incluido el
+    // correo sin confirmar, que es justamente el caso de un alta nueva.
+    return fallo(authErr ? classifySignInError(authErr) : 'unknown')
   }
   const authUserId = signInData.user.id
-  console.log('[loginCustomer] signInWithPassword OK — authUserId:', authUserId)
 
   // Buscar directamente por auth_user_id sin llamar getUser() de nuevo
   const { data, error: queryErr } = await supabase
@@ -318,23 +364,20 @@ export async function loginCustomer(
     .maybeSingle()
 
   if (queryErr) {
-    console.error('[loginCustomer] wholesale_customers query error:', queryErr.message)
     await supabase.auth.signOut()
-    return { customer: null, error: 'Error al verificar la cuenta. Intentá de nuevo.' }
+    return fallo('lookup_failed')
   }
 
   const customer = data as WholesaleCustomer | null
-  console.log('[loginCustomer] wholesale_customer:', customer ? `found (approved=${customer.approved})` : 'not found')
 
   if (!customer) {
     await supabase.auth.signOut()
-    return { customer: null, error: 'Esta cuenta no pertenece a este portal. Verificá que estés en el portal correcto.' }
+    return fallo('not_in_portal')
   }
   if (customer.suspended) {
     await supabase.auth.signOut()
-    return { customer: null, error: 'Tu cuenta fue suspendida. Contactá al negocio para más información.' }
+    return fallo('suspended')
   }
-  console.log('[loginCustomer] customer encontrado:', { approved: customer.approved, suspended: customer.suspended })
 
   await supabase
     .from('wholesale_customers')
@@ -346,6 +389,26 @@ export async function loginCustomer(
 
 export async function logoutCustomer(): Promise<void> {
   await supabase.auth.signOut()
+}
+
+/**
+ * Reenvía el correo de confirmación de un alta del portal con la API oficial de
+ * Supabase (sin endpoint propio). El enlace vuelve al callback canónico del
+ * origen actual (`clicmayorista.com.ar/auth/callback` en producción), donde se
+ * completa el alta mayorista. GoTrue responde igual exista o no la cuenta, así
+ * que el resultado no revela nada nuevo.
+ */
+export async function resendWholesaleConfirmation(email: string): Promise<ResendOutcome> {
+  try {
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+      options: { emailRedirectTo: getAuthCallbackUrl() },
+    })
+    return classifyResendResult(error)
+  } catch {
+    return 'error'
+  }
 }
 
 // ─── Catalog ──────────────────────────────────────────────────────────────────

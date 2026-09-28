@@ -29,15 +29,14 @@ import {
   businessSetupService, BusinessSetupError, type BusinessSetup,
 } from '../services/businessSetupService'
 import { PLANS, type SubscriptionPlan } from '../types/subscription'
+import { clearSignupPlan, isValidPlan, readSignupPlan } from '../lib/signupIntent'
 import { CONDICIONES_FISCALES as CONDICIONES_UI } from '../lib/fiscalCondition'
 import { isPlaceholderBusinessName } from '../lib/businessIdentity'
 
 // Plan elegido en la landing (?plan=...). Persistido temporalmente para
-// sobrevivir un refresh durante el onboarding. Se valida contra PLANS.
+// sobrevivir un refresh durante el onboarding. Se valida contra PLANS
+// (`isValidPlan` vive en src/lib/signupIntent.ts, junto al CTA que lo emite).
 const ORIGIN_PLAN_KEY = 'trp_origin_plan'
-function isValidPlan(v: string | null): v is SubscriptionPlan {
-  return !!v && PLANS.some(p => p.id === v)
-}
 
 const RUBROS = [
   { id: 'celulares',        label: 'Celulares y smartphones' },
@@ -134,7 +133,10 @@ export function Onboarding() {
   useEffect(() => {
     const fromUrl = new URLSearchParams(window.location.search).get('plan')
     const stored = (() => { try { return sessionStorage.getItem(ORIGIN_PLAN_KEY) } catch { return null } })()
-    const candidate = fromUrl ?? stored
+    // PRE-BETA-2D — si el alta se confirmó en OTRA pestaña, el plan llega por
+    // localStorage (src/lib/signupIntent.ts). Se consume una sola vez.
+    const candidate = fromUrl ?? stored ?? readSignupPlan()
+    clearSignupPlan()
     if (isValidPlan(candidate)) {
       setOriginPlan(candidate)
       try { sessionStorage.setItem(ORIGIN_PLAN_KEY, candidate) } catch { /* no-op */ }

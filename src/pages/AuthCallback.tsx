@@ -4,17 +4,20 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { sanitizeInternalPath } from '../lib/authRedirect'
 import { markRecoveryLinkRejected, markRecoverySession } from '../lib/passwordRecovery'
+import { AUTH_URL_ERROR_MESSAGE, classifyAuthUrlError } from '../lib/authErrors'
+import { isEmailLinkType } from '../lib/authEmailLink'
 import { acceptInviteePath, peekInviteToken } from '../lib/pendingInvite'
 import { PORTAL_DOMAINS } from '../portal/portalDomains'
 
 /**
  * Callback único de autenticación. Soporta TRES caminos:
  *
- *   A. OAuth PKCE          `?code=...`
- *      Lo resuelve supabase-js solo (`detectSessionInUrl`). Acá sólo se espera
- *      a que AuthContext termine de resolver auth + profile y se navega.
+ *   A. OAuth (Google) por flujo implícito: vuelve con `#access_token=…` en el
+ *      fragmento y lo resuelve supabase-js solo (`detectSessionInUrl`). Este
+ *      cliente no usa PKCE. Acá sólo se espera a que AuthContext termine de
+ *      resolver auth + profile y se navega.
  *
- *   B. Confirmación de correo  `?token_hash=...&type=signup`
+ *   B. Enlace de correo  `?token_hash=...&type=signup|recovery`
  *      Se verifica con `supabase.auth.verifyOtp({ token_hash, type })`.
  *
  *      POR QUÉ token_hash Y NO ConfirmationURL/PKCE: el flujo PKCE exige el
@@ -22,25 +25,21 @@ import { PORTAL_DOMAINS } from '../portal/portalDomains'
  *      caso real es registrarse en la compu y abrir el correo en el celular:
  *      ahí no hay verifier y el link muere. `verifyOtp` con `token_hash` no
  *      depende del navegador de origen, así que la confirmación es válida
- *      cross-device.
+ *      cross-device. Además el enlace apunta a la app, no a GoTrue: un escáner
+ *      de correo que lo pre-abra no consume el token (lo consume este JS).
  *
- *   C. Error del proveedor `?error=...`
+ *   C. Error que vuelve por la query `?error=...`
+ *      PRE-BETA-2D: `error_description` NO se muestra ni se lee. El texto sale
+ *      de un mapa cerrado (`classifyAuthUrlError`).
  *
- *   (Recovery por fragmento `#access_token=…&type=recovery`, y su error
+ *   (Recovery legacy por fragmento `#access_token=…&type=recovery`, y el error
  *   `#error_code=otp_expired`, NUNCA llegan a este componente: los captura
- *   `src/lib/passwordRecovery.ts` al arrancar, antes de crear el cliente, y la
- *   URL ya es `/reset-password` cuando monta el router. BETA-GATE-1 · Lote B.)
+ *   `src/lib/passwordRecovery.ts` al arrancar, antes de crear el cliente.
+ *   BETA-GATE-1 · Lote B; clasificación de `otp_expired` en PRE-BETA-2D.)
  *
  * Nada de esto confía en un query param como autoridad: el estado final
  * siempre se relee de la sesión/servidor. No existe `?verified=true`.
  */
-
-/** Tipos de OTP que este callback acepta. Cerrado a propósito. */
-const TIPOS_OTP = ['signup', 'email', 'recovery'] as const
-type TipoOtp = (typeof TIPOS_OTP)[number]
-
-const esTipoOtp = (v: string | null): v is TipoOtp =>
-  !!v && (TIPOS_OTP as readonly string[]).includes(v)
 
 /** Destino tras confirmar, respetando el dominio dedicado del portal. */
 function destinoPostConfirmacion(): string {
@@ -87,16 +86,11 @@ export function AuthCallback() {
 
     const params = new URLSearchParams(window.location.search)
 
-    // C. Error explícito del proveedor.
-    const err = params.get('error')
-    const errDesc = params.get('error_description')
-    if (err) {
-      const msg = errDesc
-        ? decodeURIComponent(errDesc.replace(/\+/g, ' '))
-        : err === 'access_denied'
-          ? 'Cancelaste el inicio de sesión.'
-          : 'No pudimos completar la autenticación.'
-      setUrlError(msg)
+    // C. Error que vuelve por la URL. Mapa cerrado: `error_description` lo
+    // escribe cualquiera que arme el link, así que ni se lee.
+    const errorKind = classifyAuthUrlError(params)
+    if (errorKind) {
+      setUrlError(AUTH_URL_ERROR_MESSAGE[errorKind])
       setFase('error')
       setTimeout(() => navigate('/login', { replace: true }), 3000)
       return
@@ -105,13 +99,13 @@ export function AuthCallback() {
     const tokenHash = params.get('token_hash')
     const tipo = params.get('type')
 
-    // A. Sin token_hash es el camino PKCE de siempre: no se toca.
+    // A. Sin token_hash es el camino OAuth implícito de siempre: no se toca.
     if (!tokenHash) {
       setFase('listo')
       return
     }
 
-    if (!esTipoOtp(tipo)) {
+    if (!isEmailLinkType(tipo)) {
       navigate('/verificar-email?estado=LINK_EXPIRED_OR_INVALID', { replace: true })
       return
     }
