@@ -333,6 +333,8 @@ cambiada» y «email cambiado» en 2E.
 
 ## F. Plan para PRE-BETA-2C (Resend) — sin configurarlo
 
+> **Resultado de 2C:** ver `docs/pre-beta-2/pre-beta-2c-email-hardening.md`.
+
 La arquitectura objetivo **ya está en producción**: Supabase Auth → Custom SMTP → Resend →
 `techrepairpro.app` verificado. Se descarta el subdominio `mail.` que proponía 2A: el dominio raíz
 ya está verificado y no tiene MX ni otro emisor cuya reputación proteger. **No hay DNS que crear.**
