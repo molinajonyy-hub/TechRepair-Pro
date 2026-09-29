@@ -71,6 +71,15 @@ jobs:
       - name: PRE-BETA-2F — invitation email delivery
         run: npm run test:prebeta2f
 
+      # PRE-BETA-3A-0: guardrails de beta. Fija que Mi Guita no se promete, que
+      # los CTAs del embudo usan --text-on-accent (inmunes al remapeo de texto
+      # blanco inline en light mode) y que banner de suscripción, rutas
+      # /subscription/*, header del Dashboard, Ctrl+K y Primeros pasos se
+      # filtran por capacidad efectiva; el rebote de permiso se explica.
+      # Suma a CI los tests de RBAC visual, navegación mobile y primeros pasos.
+      - name: PRE-BETA-3A-0 — beta UX and capability guardrails
+        run: npm run test:prebeta3a0
+
       # P0-P1: invariantes de provisioning. Es estático —lee migraciones y
       # `src/`— así que no necesita DB ni credenciales y puede correr acá, en
       # PRs y en forks. El self-test va primero: un guard que no puede fallar no

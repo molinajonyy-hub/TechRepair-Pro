@@ -12,6 +12,19 @@
    Dark mode por defecto · Indigo + Cyan · Profesional y tecnológico
    ══════════════════════════════════════════════════════════════════════════ */
 
+/* ── Tokens INVARIANTES de tema ───────────────────────────────────────────────
+   Viven fuera de los bloques dark/light a propósito: valen lo mismo en los dos.
+
+   --text-on-accent (PRE-BETA-3A-0): texto sobre fondos de acento (CTAs índigo).
+   El barrido de light mode remapea a --text-primary todo `color: #fff` INLINE
+   (ver `[data-theme="light"] :is([style*="color: rgb(255, 255, 255)"] …)` más
+   abajo), y eso dejaba los CTAs del embudo con texto casi negro sobre índigo.
+   Un inline `var(--text-on-accent)` no matchea ese patrón, así que el texto
+   queda blanco en los dos temas sin tocar la regla global. */
+:root {
+  --text-on-accent: #ffffff;
+}
+
 /* ── DARK MODE (default) ──────────────────────────────────────────────────── */
 
 :root,

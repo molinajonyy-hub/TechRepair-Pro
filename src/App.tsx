@@ -311,12 +311,19 @@ function AppContent() {
                 <Route path="/admin/leads" element={<AdminLeads />} />
               </Route>
 
-              {/* Subscription (siempre accesible) */}
-              <Route path="/subscription" element={<Subscription />} />
-              <Route path="/subscription/plans" element={<Plans />} />
-              <Route path="/subscription/pending"  element={<PaymentPending />} />
-              <Route path="/subscription/success"  element={<SubscriptionSuccess />} />
-              <Route path="/subscription/failure"  element={<SubscriptionFailure />} />
+              {/* ── Suscripción — PRE-BETA-3A-0 ──
+                  El plan, el checkout y sus retornos son del actor con la
+                  capacidad `subscription` (el sidebar ya la exigía; la URL no).
+                  `/subscription/suspended` queda FUERA del guard a propósito:
+                  `SubscriptionGuard` manda ahí a CUALQUIER miembro de un negocio
+                  suspendido, tenga o no esa capacidad. */}
+              <Route element={<ProtectedRouteByPermission permission="subscription" />}>
+                <Route path="/subscription" element={<Subscription />} />
+                <Route path="/subscription/plans" element={<Plans />} />
+                <Route path="/subscription/pending"  element={<PaymentPending />} />
+                <Route path="/subscription/success"  element={<SubscriptionSuccess />} />
+                <Route path="/subscription/failure"  element={<SubscriptionFailure />} />
+              </Route>
               <Route path="/subscription/suspended" element={<SubscriptionSuspended />} />
               <Route path="/tutorials" element={<Tutorials />} />
               <Route path="/whatsapp" element={<WhatsAppPage />} />

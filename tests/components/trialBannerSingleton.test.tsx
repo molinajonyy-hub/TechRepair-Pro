@@ -18,6 +18,13 @@ vi.mock('../../src/hooks/useSubscription', () => ({
   useSubscription: () => subscriptionState,
 }))
 
+// PRE-BETA-3A-0: el banner exige la capacidad `subscription`. Estos tests
+// describen lo que ve el DUEÑO; los casos sin capacidad viven en
+// prebeta3a0Guardrails.test.tsx. `usePermissions` corre de verdad.
+vi.mock('../../src/contexts/AuthContext', () => ({
+  useAuth: () => ({ businessId: 'biz-trial', role: 'owner', isOwner: true, profile: { permissions: null } }),
+}))
+
 function CurrentPath() {
   return <span data-testid="current-path">{useLocation().pathname}</span>
 }

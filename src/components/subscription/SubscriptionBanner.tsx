@@ -6,17 +6,27 @@
  * - past_due: payment overdue, grace period warning
  * - trial ending soon (≤3 days)
  * - period ending soon (≤5 days for active)
+ *
+ * PRE-BETA-3A-0 — sólo lo ve quien tiene la capacidad `subscription`. El estado
+ * del plan y sus CTA (Ver planes / Regularizar / Gestionar) son del dueño: a un
+ * técnico o cajero invitado le ofrecían una pantalla que después no podía usar.
+ * Filtro por capacidad efectiva, nunca por nombre de rol.
  */
 import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, Clock, CreditCard, X } from 'lucide-react'
 import { useState } from 'react'
 import { useSubscription } from '../../hooks/useSubscription'
+import { usePermissions } from '../../hooks/usePermissions'
+
+const CLOSE_LABEL = 'Cerrar aviso de suscripción'
 
 function BannerInner() {
   const { isTrial, isPastDue, daysUntilTrialEnd, daysUntilGraceEnd, daysUntilPeriodEnd, isActive, loading } = useSubscription()
+  const { can } = usePermissions()
   const navigate = useNavigate()
   const [dismissed, setDismissed] = useState(false)
 
+  if (!can('subscription')) return null
   if (loading || dismissed) return null
 
   // Trial expiring soon (≤ 5 days)
@@ -41,7 +51,7 @@ function BannerInner() {
         <button onClick={() => navigate('/subscription')} style={styles.actionBtn('#f59e0b')}>
           Regularizar
         </button>
-        <button onClick={() => setDismissed(true)} style={styles.closeBtn}>
+        <button type="button" onClick={() => setDismissed(true)} style={styles.closeBtn} aria-label={CLOSE_LABEL}>
           <X size={14} />
         </button>
       </div>
@@ -64,7 +74,7 @@ function BannerInner() {
         <button onClick={() => navigate('/subscription/plans')} style={styles.actionBtn('#60a5fa')}>
           Ver planes
         </button>
-        <button onClick={() => setDismissed(true)} style={styles.closeBtn}>
+        <button type="button" onClick={() => setDismissed(true)} style={styles.closeBtn} aria-label={CLOSE_LABEL}>
           <X size={14} />
         </button>
       </div>
@@ -82,7 +92,7 @@ function BannerInner() {
         <button onClick={() => navigate('/subscription')} style={styles.actionBtn('#a78bfa')}>
           Gestionar
         </button>
-        <button onClick={() => setDismissed(true)} style={styles.closeBtn}>
+        <button type="button" onClick={() => setDismissed(true)} style={styles.closeBtn} aria-label={CLOSE_LABEL}>
           <X size={14} />
         </button>
       </div>

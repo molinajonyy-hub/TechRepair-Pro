@@ -11,26 +11,42 @@ import { mobilePrimaryPaths, resolveMobilePrimaryNavigation } from '../config/mo
 import { zIndex } from '../lib/tokens'
 import { SubscriptionGuard } from '../components/subscription/SubscriptionGuard'
 import { SubscriptionBanner } from '../components/subscription/SubscriptionBanner'
+import { PermissionNotice } from '../components/auth/PermissionNotice'
 import { SystemStatusProvider } from '../contexts/SystemStatusContext'
 import { Suspense, useEffect } from 'react'
 import { backgroundPrefetch } from '../services/refreshCriticalData'
 import logoSvg from '../assets/logo.svg'
 
+// Primer prefijo que matchea gana: los más específicos van antes que su
+// prefijo general (`/orders/new` antes de `/orders/`, `/admin/*` explícitos).
+// Una ruta que no figure acá cae a «Inicio», que es justamente el título
+// equivocado que PRE-BETA-3A-0 corrige en Garantías, Gastos, etc.
 const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/orders/new', 'Nueva orden'],
   ['/orders/', 'Detalle de orden'],
   ['/orders', 'Órdenes'],
+  ['/warranties', 'Garantías'],
   ['/comprobantes', 'POS y comprobantes'],
   ['/customers', 'Clientes'],
+  ['/cuentas', 'Cuentas corrientes'],
   ['/tasks', 'Tareas'],
   ['/caja', 'Caja'],
+  ['/expenses', 'Gastos'],
   ['/inventory', 'Inventario'],
   ['/suppliers', 'Proveedores'],
+  ['/offers', 'Ofertas'],
+  ['/mayorista', 'Mayorista'],
+  ['/portal-clic', 'Portal Clic'],
   ['/finance', 'Finanzas'],
   ['/reports', 'Reportes'],
   ['/users', 'Usuarios'],
+  ['/currency-settings', 'Moneda'],
   ['/settings', 'Configuración'],
   ['/subscription', 'Suscripción'],
+  ['/admin/subscriptions', 'Suscripciones'],
+  ['/admin/leads', 'Leads'],
+  ['/tutorials', 'Tutoriales'],
+  ['/whatsapp', 'WhatsApp'],
   ['/dashboard', 'Inicio'],
 ]
 
@@ -98,7 +114,7 @@ export function MainLayout() {
 
   return (
     <SystemStatusProvider>
-    <CommandPalette />
+    <CommandPalette access={navigationAccess} />
     <div
       className="app-shell-mobile"
       style={{
@@ -152,6 +168,9 @@ export function MainLayout() {
             </div>
           ) : (
             <SubscriptionGuard>
+              {/* PRE-BETA-3A-0: explica el rebote de ProtectedRouteByPermission
+                  (antes silencioso). Va antes del contenido y del banner. */}
+              <PermissionNotice />
               <SubscriptionBanner />
               <Suspense fallback={
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>

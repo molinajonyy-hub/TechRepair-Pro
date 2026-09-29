@@ -76,6 +76,17 @@ export function Dashboard() {
    */
   const puedeVerFinanzas = can('finance')
 
+  /**
+   * PRE-BETA-3A-0 — el header no ofrece acciones que el actor no puede hacer.
+   *
+   * `orders_create` es la autoridad efectiva de la recepción: es lo que exige
+   * `NewOrder` y la RPC `create_order_intake`. `orders` sólo habilita ver y
+   * trabajar órdenes existentes (un `viewer` la tiene y no puede crear). Todos
+   * los CTA de «Nueva orden» de esta pantalla usan la misma capacidad.
+   */
+  const puedeCrearOrden = can('orders_create')
+  const puedeEmitirComprobante = can('comprobantes')
+
   const { stats, loading: statsLoading, error: statsError, refresh: refreshStats } = useDashboardStats()
   const { data: finData, loading: finLoading, cajaError: finCajaError } =
     useFinancialDashboard(puedeVerFinanzas ? businessId : null, puedeVerFinanzas ? cajaId : null)
@@ -159,14 +170,18 @@ export function Dashboard() {
         description="Resumen general del sistema y actividad reciente"
         actions={
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            <AppButton variant="primary" size="sm" leftIcon={<NewOrderIcon size={15} />}
-              onClick={() => navigate('/orders/new')}>
-              Nueva Orden
-            </AppButton>
-            <AppButton variant="indigo" size="sm" leftIcon={<InvoiceIcon size={15} />}
-              onClick={() => navigate('/comprobantes', { state: { openNew: true } })}>
-              Nuevo Comprobante
-            </AppButton>
+            {puedeCrearOrden && (
+              <AppButton variant="primary" size="sm" leftIcon={<NewOrderIcon size={15} />}
+                onClick={() => navigate('/orders/new')}>
+                Nueva Orden
+              </AppButton>
+            )}
+            {puedeEmitirComprobante && (
+              <AppButton variant="indigo" size="sm" leftIcon={<InvoiceIcon size={15} />}
+                onClick={() => navigate('/comprobantes', { state: { openNew: true } })}>
+                Nuevo Comprobante
+              </AppButton>
+            )}
             {/* P0-P6: los CTA de caja y gasto llevan a rutas que exigen
                 `finance`. Mostrarlos a quien no la tiene sólo produce un rebote
                 que el usuario no entiende. */}
@@ -250,7 +265,9 @@ export function Dashboard() {
             icon={<OrderIcon size={28} />}
             title="¡Bienvenido a TechRepair Pro!"
             description="Todo listo para arrancar. Creá una orden, registrá un cobro o cargá tu inventario."
-            action={{ label: 'Crear primera orden', icon: <NewOrderIcon size={15} />, onClick: () => navigate('/orders/new'), variant: 'primary' }}
+            action={puedeCrearOrden
+              ? { label: 'Crear primera orden', icon: <NewOrderIcon size={15} />, onClick: () => navigate('/orders/new'), variant: 'primary' }
+              : undefined}
           />
         </div>
       ) : (
@@ -359,7 +376,7 @@ export function Dashboard() {
               acceso directo a una pantalla que después rebota es peor que no
               ofrecerlo — el usuario no entiende por qué "no funciona". */}
           {([
-            { label: 'Nueva Orden',    icon: <NewOrderIcon size={22} />,     color: 'var(--accent-primary)', bg: 'var(--accent-primary-subtle)', onClick: () => navigate('/orders/new'), need: 'orders' as const },
+            { label: 'Nueva Orden',    icon: <NewOrderIcon size={22} />,     color: 'var(--accent-primary)', bg: 'var(--accent-primary-subtle)', onClick: () => navigate('/orders/new'), need: 'orders_create' as const },
             { label: 'Nuevo Comprobante', icon: <InvoiceIcon size={22} />, color: 'var(--accent-primary)', bg: 'var(--accent-primary-subtle)', onClick: () => navigate('/comprobantes', { state: { openNew: true } }), need: 'comprobantes' as const },
             { label: 'Nuevo Cliente',  icon: <NewClientIcon size={22} />,    color: 'var(--accent-secondary)',bg: 'var(--accent-secondary-subtle)',onClick: () => navigate('/customers/new'), need: 'customers' as const },
             { label: 'Nuevo Producto', icon: <CurrencyIcon size={22} />,     color: 'var(--info)',           bg: 'var(--info-subtle)',            onClick: () => navigate('/inventory'), need: 'inventory' as const },
@@ -432,7 +449,9 @@ export function Dashboard() {
           {activeTab === 'orders' && (
             recentOrders.length === 0
               ? <AppEmptyState icon={<OrderIcon size={24} />} title="No hay órdenes registradas" compact
-                  action={{ label: 'Nueva orden', icon: <NewOrderIcon size={14} />, onClick: () => navigate('/orders/new') }} />
+                  action={puedeCrearOrden
+                    ? { label: 'Nueva orden', icon: <NewOrderIcon size={14} />, onClick: () => navigate('/orders/new') }
+                    : undefined} />
               : (
                 <table className="table table-clickable">
                   <thead>

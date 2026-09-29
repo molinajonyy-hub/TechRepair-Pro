@@ -72,7 +72,6 @@ const TRIAL_FEATURES_LIST = [
   'Cuentas corrientes',
   'Reportes y exportaciones',
   'WhatsApp templates',
-  'Mi Guita — Finanzas Personales',
   'Garantías y postventa',
 ]
 
@@ -89,7 +88,9 @@ const OB_BTN_PRIMARY_STYLE: React.CSSProperties = {
   width: '100%', padding: '14px',
   background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
   border: 'none', borderRadius: 12,
-  color: '#fff', fontWeight: 700, fontSize: '0.95rem',
+  // PRE-BETA-3A-0: token invariante; un `#fff` inline se remapea a texto
+  // oscuro en light mode (ver --text-on-accent en index.css).
+  color: 'var(--text-on-accent)', fontWeight: 700, fontSize: '0.95rem',
   cursor: 'pointer',
   boxShadow: '0 4px 16px rgba(99,102,241,0.3)',
 }
@@ -445,7 +446,7 @@ export function Onboarding() {
             {error && <p data-testid="onboarding-error" role="alert" style={{ margin: '0 0 0.75rem', color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>}
             <div style={{ display: 'flex', gap: '0.75rem' }}>
               <button data-testid="onboarding-logo-skip" onClick={() => setStep(3)} style={{ flex: 1, padding: '12px', background: 'var(--input-bg)', border: '1px solid var(--border-color)', borderRadius: 12, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>Omitir</button>
-              <button data-testid="onboarding-step2-submit" className="ob-btn-primary" onClick={() => void handleStep2()} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
+              <button data-testid="onboarding-step2-submit" className="ob-btn-primary" onClick={() => void handleStep2()} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: 'var(--text-on-accent)', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
                 {saving ? 'Guardando...' : logoFile ? 'Guardar logo →' : 'Continuar →'}
               </button>
             </div>
@@ -472,7 +473,7 @@ export function Onboarding() {
               {error && <p data-testid="onboarding-error" role="alert" style={{ margin: 0, color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>}
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 <button onClick={() => setStep(4)} style={{ flex: 1, padding: '12px', background: 'var(--input-bg)', border: '1px solid var(--border-color)', borderRadius: 12, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>Omitir</button>
-                <button data-testid="onboarding-step3-submit" className="ob-btn-primary" onClick={handleStep3} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
+                <button data-testid="onboarding-step3-submit" className="ob-btn-primary" onClick={handleStep3} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: 'var(--text-on-accent)', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
                   {saving ? 'Guardando...' : 'Continuar →'}
                 </button>
               </div>
@@ -510,7 +511,7 @@ export function Onboarding() {
               {error && <p data-testid="onboarding-error" role="alert" style={{ margin: 0, color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>}
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem' }}>
                 <button onClick={() => setStep(5)} style={{ flex: 1, padding: '12px', background: 'var(--input-bg)', border: '1px solid var(--border-color)', borderRadius: 12, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.875rem', cursor: 'pointer' }}>Omitir</button>
-                <button data-testid="onboarding-step4-submit" className="ob-btn-primary" onClick={handleStep4} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
+                <button data-testid="onboarding-step4-submit" className="ob-btn-primary" onClick={handleStep4} disabled={saving} style={{ flex: 2, padding: '12px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', border: 'none', borderRadius: 12, color: 'var(--text-on-accent)', fontWeight: 700, fontSize: '0.875rem', cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.65 : 1 }}>
                   {saving ? 'Guardando...' : 'Continuar →'}
                 </button>
               </div>

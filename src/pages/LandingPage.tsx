@@ -744,7 +744,7 @@ function PricingSection({ onSelect }: { onSelect: (plan: SubscriptionPlan) => vo
 
         <p className="lp-fineprint lp-reveal">
           <ShieldCheck size={14} aria-hidden="true" />
-          Mi Guita (finanzas personales) y la facturación ARCA están incluidas desde el plan Pro.
+          La facturación ARCA/CAE y las herramientas avanzadas de gestión están incluidas desde el plan Pro.
         </p>
       </div>
     </section>

@@ -223,7 +223,7 @@ const menuSections: NavSection[] = [
     sectionLabel: 'Principal',
     items: [
       { path: '/dashboard',   label: 'Inicio',        icon: <DashboardIcon /> },
-      { path: '/orders',      label: 'Ordenes',        icon: <OrdersIcon />,       permission: 'orders' },
+      { path: '/orders',      label: 'Órdenes',        icon: <OrdersIcon />,       permission: 'orders' },
       { path: '/comprobantes',label: 'Comprobantes',   icon: <ComprobantesIcon />, permission: 'comprobantes' },
       { path: '/warranties',  label: 'Garantías',      icon: <WarrantyIcon />,     permission: 'orders' },
       // El gate combina plan + capacidad operativa, igual que `mobileNavigation`.

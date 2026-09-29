@@ -15,6 +15,11 @@ const h = vi.hoisted(() => ({
   get:        vi.fn(),
   navigate:   vi.fn(),
   businessId: 'biz-1' as string | null,
+  // PRE-BETA-3A-0: el checklist filtra por capacidad efectiva, así que el
+  // actor es explícito. Los tests históricos modelan al DUEÑO (el único que
+  // puede completar los 5 pasos); los casos por rol viven en su propio bloque.
+  role:        'owner' as string,
+  permissions: null as unknown,
 }))
 const mockGet = h.get
 const mockNavigate = h.navigate
@@ -24,8 +29,15 @@ vi.mock('../../src/services/firstStepsService', async (orig) => {
   return { ...actual, firstStepsService: { get: h.get } }
 })
 
+// El hook de permisos corre de verdad sobre este contexto: se mockea el
+// borde (auth), no la regla.
 vi.mock('../../src/contexts/AuthContext', () => ({
-  useAuth: () => ({ businessId: h.businessId }),
+  useAuth: () => ({
+    businessId: h.businessId,
+    role:       h.role,
+    isOwner:    h.role === 'owner',
+    profile:    { permissions: h.permissions },
+  }),
 }))
 
 vi.mock('react-router-dom', async (orig) => {
@@ -55,6 +67,8 @@ const stepDone = (id: string) =>
 
 beforeEach(() => {
   h.businessId = 'biz-1'
+  h.role = 'owner'
+  h.permissions = null
   localStorage.clear()
   mockGet.mockReset()
   mockNavigate.mockReset()
@@ -254,6 +268,91 @@ describe('FirstStepsChecklist — dismiss es preferencia de UI, no estado', () =
     h.businessId = 'biz-2'
     renderCard()
     await waitFor(() => expect(screen.getByTestId('setup-checklist')).toBeTruthy())
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRE-BETA-3A-0 — el checklist sólo ofrece pasos que el actor puede hacer.
+// `get_my_first_steps` es por TENANT: un invitado recibe el mismo progreso que
+// el dueño, y antes se le ofrecían destinos que lo rebotaban a /dashboard.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('FirstStepsChecklist — pasos filtrados por capacidad (PRE-BETA-3A-0)', () => {
+  const visibles = () =>
+    Array.from(document.querySelectorAll('[data-testid^="setup-step-"]'))
+      .map(el => el.getAttribute('data-testid')!.replace('setup-step-', ''))
+
+  it('owner conserva los cinco pasos', async () => {
+    mockGet.mockResolvedValue({ ...NOTHING })
+    renderCard()
+    await waitFor(() => expect(screen.getByTestId('setup-checklist')).toBeTruthy())
+
+    expect(visibles()).toEqual(['customer', 'order', 'inventory', 'cobro', 'logo'])
+    expect(screen.getByTestId('setup-checklist-progress').textContent).toBe('0/5')
+  })
+
+  it('tech sólo ve la orden (orders_create); nada de clientes, inventario, cobro ni logo', async () => {
+    h.role = 'tech'
+    mockGet.mockResolvedValue({ ...NOTHING })
+    renderCard()
+    await waitFor(() => expect(screen.getByTestId('setup-checklist')).toBeTruthy())
+
+    expect(visibles()).toEqual(['order'])
+    // El progreso se cuenta sobre los pasos VISIBLES, no sobre los 5 del tenant.
+    expect(screen.getByTestId('setup-checklist-progress').textContent).toBe('0/1')
+    for (const oculto of ['customer', 'inventory', 'cobro', 'logo']) {
+      expect(screen.queryByTestId(`setup-step-${oculto}`)).toBeNull()
+    }
+  })
+
+  it('el progreso ignora pasos ocultos ya hechos por otro miembro', async () => {
+    h.role = 'tech'
+    // El dueño ya cargó cliente, logo e inventario; el técnico no puede hacerlos
+    // y no deben inflar ni aparecer en SU progreso.
+    mockGet.mockResolvedValue({ ...NOTHING, has_customer: true, has_logo: true, has_inventory: true })
+    renderCard()
+    await waitFor(() => expect(screen.getByTestId('setup-checklist')).toBeTruthy())
+
+    expect(screen.getByTestId('setup-checklist-progress').textContent).toBe('0/1')
+  })
+
+  it('tech con su único paso hecho no dibuja la tarjeta', async () => {
+    h.role = 'tech'
+    mockGet.mockResolvedValue({ ...NOTHING, has_order: true })
+    renderCard()
+    await waitFor(() => expect(mockGet).toHaveBeenCalled())
+
+    expect(screen.queryByTestId('setup-checklist')).toBeNull()
+  })
+
+  it('un actor sin ningún paso posible (viewer) no ve la tarjeta', async () => {
+    h.role = 'viewer'
+    mockGet.mockResolvedValue({ ...NOTHING })
+    renderCard()
+    await waitFor(() => expect(mockGet).toHaveBeenCalled())
+
+    expect(screen.queryByTestId('setup-checklist')).toBeNull()
+  })
+
+  it('cashier: cliente y cobro, sin orden si un override le quita orders_create', async () => {
+    h.role = 'cashier'
+    h.permissions = { orders_create: false }
+    mockGet.mockResolvedValue({ ...NOTHING })
+    renderCard()
+    await waitFor(() => expect(screen.getByTestId('setup-checklist')).toBeTruthy())
+
+    // Capacidad EFECTIVA (defaults + overrides), no nombre de rol.
+    expect(visibles()).toEqual(['customer', 'cobro'])
+    expect(screen.getByTestId('setup-checklist-progress').textContent).toBe('0/2')
+  })
+
+  it('cada paso visible navega a un destino que el actor puede abrir', async () => {
+    h.role = 'tech'
+    mockGet.mockResolvedValue({ ...NOTHING })
+    renderCard()
+    await waitFor(() => expect(screen.getByTestId('setup-checklist')).toBeTruthy())
+
+    fireEvent.click(screen.getByTestId('setup-step-order'))
+    expect(mockNavigate).toHaveBeenCalledWith('/orders/new')
   })
 })
 

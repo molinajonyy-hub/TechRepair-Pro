@@ -8,8 +8,15 @@ const subscriptionService = vi.hoisted(() => ({
   getPayments: vi.fn(),
 }))
 
+// PRE-BETA-3A-0: el banner exige la capacidad `subscription`; el actor de este
+// test es el dueño (el único que ve el estado del trial).
 vi.mock('../../src/contexts/AuthContext', () => ({
-  useAuth: () => ({ businessId: 'trial-date-integration-business' }),
+  useAuth: () => ({
+    businessId: 'trial-date-integration-business',
+    role: 'owner',
+    isOwner: true,
+    profile: { permissions: null },
+  }),
 }))
 
 vi.mock('../../src/services/subscriptionService', () => subscriptionService)

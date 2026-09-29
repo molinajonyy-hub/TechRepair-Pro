@@ -375,7 +375,9 @@ const S = {
     background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
     border: 'none',
     borderRadius: '0.875rem',
-    color: '#fff',
+    // PRE-BETA-3A-0: token invariante; un `#fff` inline se remapea a texto
+    // oscuro en light mode.
+    color: 'var(--text-on-accent)',
     fontWeight: 700,
     fontSize: '0.9rem',
     display: 'flex',

@@ -22,27 +22,51 @@
  *
  * Ante error de lectura la tarjeta NO se dibuja: mejor no mostrar nada que
  * mostrar un 0/5 falso.
+ *
+ * PRE-BETA-3A-0 — CADA PASO DECLARA LA CAPACIDAD QUE EXIGE SU DESTINO.
+ * `get_my_first_steps` es SECURITY DEFINER por tenant: un técnico invitado
+ * recibe el mismo progreso que el dueño. Antes se le ofrecían los cinco pasos
+ * y cuatro rebotaban a /dashboard (cliente, inventario, cobro, logo). Ahora se
+ * muestran sólo los que el actor puede hacer, el progreso se cuenta SOBRE ESOS
+ * pasos, y si no queda ninguno la tarjeta no se dibuja. El filtro es por
+ * capacidad efectiva (defaults del rol + overrides), nunca por nombre de rol;
+ * la autoridad real sigue siendo RLS + current_user_can().
  */
 import { useFirstSteps } from '../../hooks/useFirstSteps'
+import { usePermissions } from '../../hooks/usePermissions'
 import { SetupChecklist, type SetupChecklistItem } from './SetupChecklist'
 import type { FirstSteps } from '../../services/firstStepsService'
+import type { PermissionKey } from '../../config/permissions'
+
+interface FirstStep {
+  id: string
+  label: string
+  href: string
+  key: keyof FirstSteps
+  /** Capacidad que exige el destino (la ruta o la pantalla de alta). */
+  need: PermissionKey
+}
 
 /** Orden de presentación: el camino natural de un taller que arranca. */
-const STEPS: { id: string; label: string; href: string; key: keyof FirstSteps }[] = [
-  { id: 'customer',  label: 'Registrar tu primer cliente',          href: '/customers/new', key: 'has_customer'  },
-  { id: 'order',     label: 'Crear tu primera orden de reparación', href: '/orders/new',    key: 'has_order'     },
-  { id: 'inventory', label: 'Agregar un producto al inventario',    href: '/inventory',     key: 'has_inventory' },
-  { id: 'cobro',     label: 'Hacer tu primer cobro',                href: '/comprobantes',  key: 'has_cobro'     },
-  { id: 'logo',      label: 'Subir el logo del negocio',            href: '/settings',      key: 'has_logo'      },
+export const FIRST_STEPS: readonly FirstStep[] = [
+  { id: 'customer',  label: 'Registrar tu primer cliente',          href: '/customers/new', key: 'has_customer',  need: 'customers'     },
+  { id: 'order',     label: 'Crear tu primera orden de reparación', href: '/orders/new',    key: 'has_order',     need: 'orders_create' },
+  { id: 'inventory', label: 'Agregar un producto al inventario',    href: '/inventory',     key: 'has_inventory', need: 'inventory'     },
+  { id: 'cobro',     label: 'Hacer tu primer cobro',                href: '/comprobantes',  key: 'has_cobro',     need: 'comprobantes'  },
+  { id: 'logo',      label: 'Subir el logo del negocio',            href: '/settings',      key: 'has_logo',      need: 'settings'      },
 ]
 
 export function FirstStepsChecklist() {
   const { steps, loading, dismissed, dismiss } = useFirstSteps()
+  const { can } = usePermissions()
 
   if (loading || dismissed || !steps) return null
-  if (STEPS.every(step => steps[step.key])) return null
 
-  const items: SetupChecklistItem[] = STEPS.map(s => ({
+  const visibles = FIRST_STEPS.filter(step => can(step.need))
+  if (visibles.length === 0) return null
+  if (visibles.every(step => steps[step.key])) return null
+
+  const items: SetupChecklistItem[] = visibles.map(s => ({
     id:    s.id,
     label: s.label,
     href:  s.href,

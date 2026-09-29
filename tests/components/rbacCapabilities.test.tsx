@@ -81,6 +81,7 @@ vi.mock('../../src/lib/supabase', () => {
 
 import { AuthProvider } from '../../src/contexts/AuthContext'
 import { ProtectedRouteByPermission } from '../../src/components/auth/ProtectedRouteByPermission'
+import { PermissionNotice } from '../../src/components/auth/PermissionNotice'
 import {
   effectivePermissions,
 } from '../../src/hooks/usePermissions'
@@ -316,6 +317,88 @@ describe('E · Mi Guita fail-closed', () => {
 
   it('espera la respuesta del servidor antes de decidir', () => {
     expect(src).toMatch(/systemOwnerLoading\) return/)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PRE-BETA-3A-0 — suscripción por capacidad y rebote explicado.
+function SondaDenied() {
+  const location = useLocation()
+  const denied = (location.state as { deniedPermission?: string } | null)?.deniedPermission ?? ''
+  return <span data-testid="denied">{denied}</span>
+}
+
+function montarConAviso(permission: Parameters<typeof ProtectedRouteByPermission>[0]['permission'], ruta: string) {
+  return render(
+    <MemoryRouter initialEntries={[ruta]}>
+      <AuthProvider>
+        <Sonda />
+        <SondaDenied />
+        <Routes>
+          <Route element={<ProtectedRouteByPermission permission={permission} />}>
+            <Route path={ruta} element={<div data-testid="permitido">PERMITIDO</div>} />
+          </Route>
+          <Route path="/dashboard" element={<><PermissionNotice /><div data-testid="dashboard">DASHBOARD</div></>} />
+        </Routes>
+      </AuthProvider>
+    </MemoryRouter>,
+  )
+}
+
+describe('G · suscripción por capacidad + permiso denegado visible (PRE-BETA-3A-0)', () => {
+  it('tech NO puede abrir /subscription/plans: rebota con deniedPermission y aviso humano', async () => {
+    estado.perfil = perfil('tech')
+    montarConAviso('subscription', '/subscription/plans')
+
+    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeTruthy())
+    expect(screen.queryByTestId('permitido')).toBeNull()
+    // El guard sigue escribiendo la capacidad en el state (contrato P0-P6)…
+    expect(screen.getByTestId('denied').textContent).toBe('subscription')
+    // …y ahora alguien la lee: aviso no bloqueante, sin claves internas.
+    const aviso = screen.getByRole('status')
+    expect(aviso.textContent).toContain('No tenés permiso para entrar a Suscripción. Pedíselo al dueño del negocio.')
+    expect(aviso.textContent).not.toContain('subscription')
+  })
+
+  it('owner abre /subscription/plans (no se rompe la operación legítima)', async () => {
+    estado.perfil = perfil('owner')
+    montarConAviso('subscription', '/subscription/plans')
+    await waitFor(() => expect(screen.getByTestId('permitido')).toBeTruthy())
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('la decisión es por capacidad: admin (subscription=false) rebota, admin con override entra', async () => {
+    estado.perfil = perfil('admin')
+    const primero = montarConAviso('subscription', '/subscription')
+    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeTruthy())
+    primero.unmount()
+
+    estado.perfil = perfil('admin', { subscription: true })
+    montarConAviso('subscription', '/subscription')
+    await waitFor(() => expect(screen.getByTestId('permitido')).toBeTruthy())
+  })
+
+  it('deniedPermission viaja en el state para cualquier guard (tech → /finance)', async () => {
+    estado.perfil = perfil('tech')
+    montarConAviso('finance', '/finance')
+    await waitFor(() => expect(screen.getByTestId('denied').textContent).toBe('finance'))
+    expect(screen.getByRole('status').textContent).toContain('Finanzas / Caja')
+  })
+
+  it('App.tsx gatea las 5 rutas de suscripción y deja /subscription/suspended abierta', () => {
+    const app = leerCodigo('src/App.tsx')
+    const inicio = app.indexOf('<ProtectedRouteByPermission permission="subscription" />')
+    expect(inicio, 'falta el guard de suscripción').toBeGreaterThan(-1)
+    const cierre = app.indexOf('</Route>', inicio)
+    const bloque = app.slice(inicio, cierre)
+    for (const ruta of ['/subscription"', '/subscription/plans"', '/subscription/pending"', '/subscription/success"', '/subscription/failure"']) {
+      expect(bloque, `${ruta} fuera del guard`).toContain(`path="${ruta}`)
+    }
+    // `SubscriptionGuard` redirige ahí a CUALQUIER miembro de un negocio suspendido.
+    expect(bloque).not.toContain('/subscription/suspended')
+    expect(app).toContain('path="/subscription/suspended"')
+    // Y no quedó una segunda copia sin guard de las rutas protegidas.
+    expect(app.match(/path="\/subscription\/plans"/g)).toHaveLength(1)
   })
 })
 
