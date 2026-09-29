@@ -1,15 +1,12 @@
 # PRE-BETA-2E — Rollout de configuración de Auth productiva + smokes
 
-**Fecha del registro:** 2026-09-29 · **Estado:** **CERTIFIED / CLOSED FOR CONTROLLED BETA**
+**Fecha del registro:** 2026-09-29 · **Estado:** **CERTIFIED / CLOSED**
 
 - Configuración **E1–E4 CONFIRMADA** por el owner.
 - **BLK-3 CLOSED** (§3).
-- Smokes **PASS**, salvo **uno sin evidencia**: Google con una identidad **nueva** (nunca vista por
-  Supabase). Queda **pendiente**, no se inventa, y **no bloquea** (§5).
+- Smokes del gate **E5 PASS**, incluido Google con cuenta **existente** y con identidad **nueva**
+  (nunca vista por Supabase): el criterio del plan «Google nuevo y existente» está completo (§5).
 - El pendiente humano de **invitaciones** quedó **completado mediante PRE-BETA-2F**.
-
-No se marca `CLOSED` pleno sin ese sub-smoke, con el mismo criterio que 2C aplicó a BLK-2: no
-declarar una cobertura que no se midió.
 
 ## 0. Por qué existe este documento
 
@@ -42,8 +39,9 @@ Lo que reportó el owner sobre 2E (2026-09-29), sin agregarle nada:
 - Leaked Password Protection: **NOT AVAILABLE ON CURRENT PLAN**;
 - logout roto en la pantalla «Solicitud en revisión» de Clic → post-beta;
 - el smoke humano de 2F completa el pendiente de invitaciones de 2E;
-- confirmaciones E1–E5 con detalle (§2, §5), incluida la aclaración de que **no** hay evidencia
-  explícita del smoke de Google con una identidad nueva.
+- confirmaciones E1–E5 con detalle (§2, §5). En la primera tanda el owner aclaró que no tenía
+  evidencia del smoke de Google con una identidad nueva y pidió no inventarlo; después lo ejecutó en
+  producción: **PASS** (§2.1, §5.1).
 
 ---
 
@@ -71,7 +69,7 @@ Lo que reportó el owner sobre 2E (2026-09-29), sin agregarle nada:
 | 5 | *Minimum password length* = **8**; *Require current password when updating* **OFF** | OWNER-CONFIRMADO **E3** | **CONFIRMADO** |
 | 6 | Leaked Password Protection ON **sólo si el plan la expone** (2D §16.5) | OWNER: **NOT AVAILABLE ON CURRENT PLAN** | **CUMPLIDO según §16.5** — documentado, no bloquea; el frontend ya maneja `weak_password` (2D) |
 | 7 | Notificaciones *Password changed* y *Email changed* ON | OWNER-CONFIRMADO **E4**: las dos **ON** | **CONFIRMADO** |
-| 8 | Smokes productivos completos | ver §2.1 | **PASS**, salvo Google con identidad nueva (**pendiente**) |
+| 8 | Smokes productivos completos | ver §2.1 | **PASS** (gate E5 completo) |
 
 **E1 — Redirect URLs finales (OWNER-CONFIRMADO):**
 
@@ -102,7 +100,7 @@ updating* = OFF.
 | **invitación a un QA** | 2F §15.3–§15.4 | **PASS — completado mediante PRE-BETA-2F** |
 | **recovery completo** | OWNER-CONFIRMADO (E2): llegó al callback con `token_hash` / `type=recovery`; abrió `/reset-password`; permitió cambiar la contraseña; la nueva funcionó; el enlace reutilizado se detectó como ya usado / no válido | **PASS** |
 | **Google, cuenta existente** | OWNER-CONFIRMADO: «google ok» durante el rollout productivo | **PASS** |
-| **Google, identidad NUEVA** (nunca vista por Supabase) | SIN REGISTRO. El owner aclara explícitamente que no tiene evidencia suficiente | **PENDIENTE** — no se inventa (§5) |
+| **Google, identidad NUEVA** (nunca vista por Supabase) | OWNER-CONFIRMADO: ventana incógnita, cuenta Google que nunca había usado TechRepair Pro; «Continuar con Google» completó OAuth; volvió a TechRepair autenticada; terminó en el flujo de usuario sin negocio; no se creó ningún taller manual durante el smoke | **PASS** (§5.1) |
 | **portal Clic** — alta, correo de confirmación, confirmación en el mismo origen | OWNER-CONFIRMADO: alta; correo de confirmación; el callback vuelve a `clicmayorista.com.ar`; termina en «Solicitud en revisión» | **PASS** para el flujo que era gate. El logout que no responde en esa pantalla es deuda **post-beta** (§6) y no invalida el smoke |
 | portal Clic — login sin confirmar → reenvío | SIN REGISTRO en producción. TESTS 2D: `portalAuthUx*` (componentes, en CI) | sin registro productivo; no forma parte del gate E1–E5 |
 | **notificación *Password changed*** | OWNER-CONFIRMADO: llegó durante el smoke de recovery | **PASS** |
@@ -136,7 +134,7 @@ sobre ellos. E1 confirma la Site URL sin cambios.
 
 ---
 
-## 5. Estado del gate E1–E5 y la verificación pendiente
+## 5. Gate E1–E5 — completo
 
 | Ítem | Estado |
 |---|---|
@@ -144,39 +142,23 @@ sobre ellos. E1 confirma la Site URL sin cambios.
 | E2 *Reset password* `token_hash` + smoke | **CONFIRMADO** — BLK-3 CLOSED |
 | E3 mínimo 8 · *Require current password* OFF | **CONFIRMADO** |
 | E4 *Password changed* / *Email changed* ON | **CONFIRMADO** |
-| E5 PASS de recovery, Google, portal Clic, notificaciones | **PASS**, salvo **Google con identidad nueva: PENDIENTE** |
+| E5 PASS de recovery, Google (nuevo y existente), portal Clic, notificaciones | **PASS** |
 
-### 5.1 Google con identidad nueva — por qué no es un blocker real
+**PRE-BETA-2E: CERTIFIED / CLOSED.**
 
-El plan (2D §17 paso 8) pide literalmente «Google nuevo y existente». El de identidad nueva **no se
-hizo con evidencia**, así que queda pendiente. Sin embargo, con la evidencia del repo **no bloquea**:
+### 5.1 Google — nuevo y existente
 
-1. **Lo único que 2E cambió en el camino OAuth es E1** (redirect exacto a `/auth/callback`). Ese
-   camino es el mismo para una identidad nueva y para una existente, y el de cuenta existente dio
-   **PASS** con la configuración de E1 ya aplicada.
-2. **El alta de un usuario nuevo no tiene rama por proveedor.** 2A §4: la única señal es
-   `email_confirmed_at` leído server-side; Google y email terminan en el mismo estado
-   (`AUTHENTICATED_WITHOUT_BUSINESS` → `/no-business`); test `canonicalProvisioning` «Google y email
-   convergen». En producción ya había **4 owners de Google provisionados** por ese camino (2A §3,
-   flujo 9).
-3. **2D no tocó nada exclusivo de identidades nuevas de Google**: sólo cambió el copy de error de
-   Google (2D §3.4). El llamado OAuth (`signInWithOAuth` + `getAuthCallbackUrl()`) no cambió.
-4. El alta de una cuenta **nueva** por correo (mismo estado final) dio PASS en producción (2F).
+El plan (2D §17 paso 8) pide literalmente «Google nuevo y existente». Los dos quedaron PASS en
+producción, con la configuración de E1 ya aplicada:
 
-**Riesgo residual:** la creación de la identidad nueva del lado de GoTrue con la allowlist nueva.
-Es bajo, pero el impacto sería alto para la beta: las altas nuevas con Google son un camino
-principal de los beta testers.
+| Caso | Evidencia (OWNER-CONFIRMADO) |
+|---|---|
+| cuenta **existente** | «google ok» durante el rollout productivo |
+| identidad **nueva** | ventana incógnita, con una cuenta Google que nunca había usado TechRepair Pro. «Continuar con Google» completó OAuth y volvió a TechRepair autenticada. Terminó en el flujo de usuario sin negocio. No se creó ningún taller manual durante el smoke |
 
-**Clasificación: P1 pre-beta — verificación de ~5 minutos.** Recomendado correrla **antes de invitar
-testers que vayan a entrar con Google**. Con cualquier cuenta de Google que nunca haya entrado:
-
-1. «Continuar con Google» desde `https://www.techrepairpro.app/login`;
-2. vuelve a `/auth/callback` y termina en `/no-business` → «Creá tu taller»;
-3. la creación del taller por la autoridad canónica funciona;
-4. logout y login con Google otra vez → entra al taller.
-
-Con ese PASS, un commit sólo de documentación pasa este registro y `pre-beta-2-closeout.md` a
-**CERTIFIED / CLOSED** pleno.
+Alcance del smoke de identidad nueva: prueba el OAuth, el regreso al callback con la allowlist de
+E1 y el estado «sin negocio». La creación del taller **no** formó parte del smoke (el plan no la
+pedía); ese camino no depende del proveedor (2A §4).
 
 ---
 
@@ -184,7 +166,6 @@ Con ese PASS, un commit sólo de documentación pasa este registro y `pre-beta-2
 
 | Hallazgo | Prioridad | Fuente |
 |---|---|---|
-| Smoke de Google con identidad nueva | **P1 pre-beta** (verificación, §5.1) | OWNER |
 | Logout que no responde en la pantalla «Solicitud en revisión» de Clic Mayorista | post-beta | OWNER |
 | Leaked Password Protection no disponible en el plan actual | documentado (2D §16.5); no bloquea | OWNER |
 | Copy versionado de *Confirm signup* (`confirmation.html`) sin registro de haberse pegado | P3 — el contrato funcional ya está vigente y el flujo dio PASS | §2 paso 4b |

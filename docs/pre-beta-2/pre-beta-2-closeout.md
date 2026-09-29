@@ -4,18 +4,14 @@
 
 ## Veredicto
 
-**PRE-BETA-2 — CERTIFIED / CLOSED FOR CONTROLLED BETA.**
+**PRE-BETA-2 — CERTIFIED / CLOSED.**
 
 - Las seis etapas están cerradas.
-- Los tres bloqueantes de 2A están cerrados; BLK-2 lo está *for controlled beta*, desde 2C.
-- La configuración de Auth de 2E está **confirmada** (E1–E4).
-- Queda **una sola verificación sin evidencia**: el smoke de **Google con una identidad nueva**.
-  - No se inventa; queda como **P1 pre-beta**.
-  - Con la evidencia del repo **no es un blocker real** (`pre-beta-2e-auth-production-rollout.md` §5.1).
-
-No se declara `CLOSED` pleno sin ese sub-smoke. Es el mismo criterio que 2C aplicó a BLK-2: no
-declarar una cobertura que no se midió. Con el PASS del sub-smoke, un commit sólo de documentación
-deja este archivo en **PRE-BETA-2 — CERTIFIED / CLOSED**.
+- Los tres bloqueantes de 2A están cerrados. BLK-2 lo está *for controlled beta* desde 2C: es un
+  estado de deliverability propio de 2C y no cambia con este cierre.
+- La configuración de Auth de 2E está **confirmada** (E1–E4) y el gate de smokes E5 está **completo**,
+  incluido Google con cuenta existente **y** con identidad nueva.
+- No queda ningún gate abierto (§3).
 
 ---
 
@@ -27,7 +23,7 @@ deja este archivo en **PRE-BETA-2 — CERTIFIED / CLOSED**.
 | **2B** | Contención de la cuenta demo + inventario de Auth productiva | **CLOSED** — BLK-1 CLOSED | `pre-beta-2b-auth-production-inventory.md` · PR #153 MERGED |
 | **2C** | Resend / SMTP: endurecimiento, rotación de key, deliverability | **CLOSED** — BLK-2 CLOSED FOR CONTROLLED BETA | `pre-beta-2c-email-hardening.md` · PR #154 MERGED |
 | **2D** | UX de auth + contrato `token_hash` en el repo | **CLOSED** — en producción (ancestro de `ba12efc`) | `pre-beta-2d-auth-ux-tokenhash.md` · PR #155 MERGED |
-| **2E** | Rollout de configuración de Auth productiva + smokes | **CERTIFIED / CLOSED FOR CONTROLLED BETA** — E1–E4 confirmados, BLK-3 CLOSED, 1 sub-smoke pendiente | `pre-beta-2e-auth-production-rollout.md` |
+| **2E** | Rollout de configuración de Auth productiva + smokes | **CERTIFIED / CLOSED** — E1–E5 confirmados, BLK-3 CLOSED | `pre-beta-2e-auth-production-rollout.md` |
 | **2F** | Invitaciones por correo | **CERTIFIED / CLOSED** — completó el smoke de invitaciones de 2E | `pre-beta-2f-invitation-email-delivery.md` §15 · PR #156 MERGED |
 
 ## 2. Bloqueantes de 2A
@@ -38,11 +34,10 @@ deja este archivo en **PRE-BETA-2 — CERTIFIED / CLOSED**.
 | **BLK-2** — SMTP productivo | **CLOSED FOR CONTROLLED BETA** · ampliación de deliverability pendiente (segundo proveedor ≠ Gmail), **no bloquea** | 2C §K |
 | **BLK-3** — contrato de plantillas | **CLOSED** | 2D (en producción) + 2E paso 4a (E2: `recovery.html` con `token_hash`, smoke con reuso rechazado) |
 
-## 3. Lo único pendiente de PRE-BETA-2
+## 3. Gates abiertos de PRE-BETA-2
 
-| Pendiente | Tipo | ¿Blocker real? | Acción |
-|---|---|---|---|
-| Smoke de **Google con identidad nueva** (2D §17 paso 8, «Google nuevo y existente») | verificación sin evidencia | **No.** Lo que 2E cambió en OAuth (E1) ya lo probó Google con cuenta existente (PASS); el alta de un usuario nuevo no tiene rama por proveedor y ya había 4 owners de Google provisionados en producción; 2D sólo cambió el copy de error de Google (2E §5.1) | **P1 pre-beta.** Correrlo antes de invitar testers que entren con Google (~5 min; pasos en 2E §5.1) |
+**Ninguno.** El gate de evidencia de 2E (E1–E5) está completo; el último ítem, Google con identidad
+nueva, dio **PASS** en producción (2E §5.1).
 
 ---
 
@@ -66,7 +61,6 @@ deja este archivo en **PRE-BETA-2 — CERTIFIED / CLOSED**.
 
 | Deuda | Prioridad | Fuente |
 |---|---|---|
-| Smoke de Google con identidad nueva | **P1 pre-beta** | 2E §5.1 |
 | Deliverability con un proveedor distinto de Gmail | no bloquea | 2C §K |
 | El ban de la cuenta demo del portal vence el **2027-09-28**: extenderlo o dejar una contraseña aleatoria **antes** de esa fecha | acción del owner con fecha | 2B §A.5 / §D |
 | Copy versionado de *Confirm signup* sin registro de haberse pegado (el contrato `token_hash` ya estaba vigente y el flujo dio PASS) | P3 | 2E §2 paso 4b |
