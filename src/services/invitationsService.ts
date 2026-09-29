@@ -257,8 +257,142 @@ export async function listPendingInvitations(businessId: string): Promise<Invita
   return data || []
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PRE-BETA-2F — Entrega por correo (Edge Function `send-business-invitation`).
+//
+// La Edge Function es la CAPA DE ENTREGA, no una segunda autoridad: crea la
+// invitación con la misma RPC canónica (con el JWT del actor) y después manda el
+// correo. Crear y enviar son dos resultados distintos, y así se informan:
+//   · `invitation` → lo que decidió la DB;
+//   · `delivery`   → si el correo salió o no.
+//
+// Si la capa de entrega no responde con su contrato (función no desplegada, caída,
+// CORS, red), la invitación igual se crea por la RPC canónica y se informa como
+// «creada, correo no enviado»: el link manual sigue siendo el fallback. La RPC es
+// idempotente, así que un intento previo que sí llegó a crearla devuelve la MISMA.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type DeliveryStatus = 'sent' | 'failed'
+
+export interface InvitationDelivery {
+  status: DeliveryStatus
+  /** Código controlado del fallo (p. ej. `provider_error`). Nunca texto del proveedor. */
+  code: string | null
+}
+
+export interface DeliveredInvitation {
+  invitation: Pick<Invitation, 'id' | 'email' | 'role' | 'status' | 'expires_at'>
+  delivery: InvitationDelivery
+}
+
+/** El Edge no respondió con su contrato: se trata como capa de entrega no disponible. */
+export const DELIVERY_UNAVAILABLE = 'delivery_unavailable'
+
+type Obj = Record<string, unknown>
+const esObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+type RespuestaEntrega =
+  | { tipo: 'ok'; invitation: DeliveredInvitation['invitation']; delivery: InvitationDelivery }
+  | { tipo: 'error'; code: string }
+  | { tipo: 'no-disponible' }
+
+/**
+ * Códigos del Edge que significan «la capa de entrega no puede operar»: la
+ * invitación se sigue pudiendo crear por la RPC directa.
+ */
+const EDGE_NO_DISPONIBLE = new Set(['AUTHORIZATION_UNAVAILABLE', 'INVITATION_UNAVAILABLE'])
+
+/** Parser acotado: copia sólo campos del contrato; nunca propaga texto libre del servidor. */
+export function parseDeliveryResponse(raw: unknown): RespuestaEntrega {
+  if (!esObj(raw)) return { tipo: 'no-disponible' }
+  if (raw.ok === false && typeof raw.error === 'string' && /^[A-Z_]{3,64}$/.test(raw.error)) {
+    return EDGE_NO_DISPONIBLE.has(raw.error) ? { tipo: 'no-disponible' } : { tipo: 'error', code: raw.error }
+  }
+  if (raw.ok !== true || !esObj(raw.invitation) || !esObj(raw.delivery)) return { tipo: 'no-disponible' }
+
+  const inv = raw.invitation
+  if (typeof inv.id !== 'string' || typeof inv.email !== 'string' || typeof inv.role !== 'string'
+      || typeof inv.expires_at !== 'string') {
+    return { tipo: 'no-disponible' }
+  }
+  const status = raw.delivery.status
+  if (status !== 'sent' && status !== 'failed') return { tipo: 'no-disponible' }
+  const code = typeof raw.delivery.code === 'string' && /^[a-z_]{3,64}$/.test(raw.delivery.code)
+    ? raw.delivery.code
+    : null
+
+  return {
+    tipo: 'ok',
+    invitation: { id: inv.id, email: inv.email, role: inv.role, status: 'pending', expires_at: inv.expires_at },
+    delivery: { status, code: status === 'sent' ? null : (code ?? 'provider_error') },
+  }
+}
+
+/** Códigos del Edge que el frontend sabe explicar; el resto es UNKNOWN. */
+const CODIGOS_EDGE: ReadonlySet<InvitationErrorCode> = new Set<InvitationErrorCode>([
+  'NOT_AUTHENTICATED', 'FORBIDDEN', 'INVALID_EMAIL', 'INVALID_ROLE', 'NO_BUSINESS',
+  'INVITATION_NOT_FOUND', 'INVITATION_EXPIRED', 'INVITATION_CANCELLED',
+  'INVITATION_ALREADY_USED', 'INVITATION_NOT_PENDING',
+])
+
+const errorDeEdge = (code: string): InvitationError =>
+  new InvitationError(CODIGOS_EDGE.has(code as InvitationErrorCode) ? (code as InvitationErrorCode) : 'UNKNOWN')
+
+async function invocarEntrega(body: Record<string, unknown>): Promise<RespuestaEntrega> {
+  let respuesta: { data: unknown; error: unknown }
+  try {
+    // Slug literal: el guard de CORS (G3) clasifica cada Edge Function llamada desde el navegador.
+    respuesta = await supabase.functions.invoke('send-business-invitation', { body })
+  } catch {
+    return { tipo: 'no-disponible' }
+  }
+  if (!respuesta.error) return parseDeliveryResponse(respuesta.data)
+  // supabase-js descarta el body en respuestas no-2xx: se lee del contexto si está.
+  try {
+    const context = (respuesta.error as { context?: { json?: () => Promise<unknown> } }).context
+    if (context?.json) return parseDeliveryResponse(await context.json())
+  } catch { /* sin body legible */ }
+  return { tipo: 'no-disponible' }
+}
+
+/**
+ * Crea (o recupera) la invitación y la envía por correo.
+ *
+ * Lanza `InvitationError` sólo si la invitación NO quedó creada (permisos, correo o
+ * rol inválidos, etc.). Si quedó creada y el correo falló, devuelve
+ * `delivery.status = 'failed'`: nunca se miente diciendo que no se creó.
+ */
+export async function createAndSendInvitation(email: string, role: string): Promise<DeliveredInvitation> {
+  const res = await invocarEntrega({ action: 'create_and_send', email, role })
+  if (res.tipo === 'ok') return { invitation: res.invitation, delivery: res.delivery }
+  if (res.tipo === 'error') throw errorDeEdge(res.code)
+
+  // Capa de entrega no disponible: la invitación no se pierde. Misma RPC canónica.
+  const fila = await createInvitation(email, role)
+  return {
+    invitation: { id: fila.id, email: fila.email, role: fila.role, status: fila.status, expires_at: fila.expires_at },
+    delivery: { status: 'failed', code: DELIVERY_UNAVAILABLE },
+  }
+}
+
+/**
+ * Reenvía el correo de una invitación pending (mismo token, misma fila). Destinatario
+ * y token los resuelve el servidor desde la fila; acá sólo viaja el id.
+ *
+ * Lanza `InvitationError` si la invitación ya no se puede reenviar (vencida,
+ * cancelada, usada, de otro negocio). Un fallo de entrega NO lanza.
+ */
+export async function resendInvitationEmail(invitationId: string): Promise<InvitationDelivery> {
+  const res = await invocarEntrega({ action: 'resend', invitation_id: invitationId })
+  if (res.tipo === 'ok') return res.delivery
+  if (res.tipo === 'error') throw errorDeEdge(res.code)
+  return { status: 'failed', code: DELIVERY_UNAVAILABLE }
+}
+
 export const invitationsService = {
   createInvitation,
+  createAndSendInvitation,
+  resendInvitationEmail,
   acceptInvitation,
   cancelInvitation,
   listPendingInvitations,
