@@ -537,3 +537,9 @@ verify_jwt = true
 
 [functions.arca-selfservice-setup]
 verify_jwt = true
+
+# PRE-BETA-2F: invitation email delivery. Browser-called; verify_jwt = false only so the CORS
+# preflight (OPTIONS) reaches the function. The user JWT is validated in code before any data
+# access (same pattern as mp-subscription) and every read/write runs with that JWT (RLS).
+[functions.send-business-invitation]
+verify_jwt = false
