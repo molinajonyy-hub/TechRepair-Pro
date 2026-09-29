@@ -8,6 +8,10 @@ import { invitationUrl } from '../lib/invitationLink';
 import { usersService, BusinessUser } from '../services/usersService';
 import { invitationsService, InvitationError, type Invitation } from '../services/invitationsService';
 import { showToast } from '../utils/toast';
+import {
+  AppPermissions, PermissionKey, PERMISSION_LABELS, PERMISSION_GROUPS,
+  resolvePermissions, ALL_PERMISSIONS, CONFIGURABLE_PERMISSIONS,
+} from '../config/permissions';
 
 /**
  * `showToast` arma el mensaje con innerHTML. Un correo es texto que escribió una
@@ -16,10 +20,6 @@ import { showToast } from '../utils/toast';
  */
 const textoSeguro = (value: string): string =>
   value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
-import {
-  AppPermissions, PermissionKey, PERMISSION_LABELS, PERMISSION_GROUPS,
-  resolvePermissions, ALL_PERMISSIONS, CONFIGURABLE_PERMISSIONS,
-} from '../config/permissions';
 
 const roleOptions = [
   { value: 'admin', label: 'Administrador' },

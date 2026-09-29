@@ -337,6 +337,8 @@ postcondición de migración.
 ## 12. Handoffs (fuera de alcance, registrados)
 
 - **Envío automático de emails de invitación**: sigue sin existir. El owner comparte el link a mano.
+  > **Handoff de envío automático resuelto por PRE-BETA-2F** — ver
+  > [`docs/pre-beta-2/pre-beta-2f-invitation-email-delivery.md`](pre-beta-2/pre-beta-2f-invitation-email-delivery.md).
 - **`expire_old_invitations()` sin agendar**: mitigado en la lectura y en el accept, pero el cron
   sigue sin existir. Un job diario cerraría el hueco de presentación.
 - **`PermissionsMatrix` en el modal de invitación no persiste nada**: el bloque muerto que lo

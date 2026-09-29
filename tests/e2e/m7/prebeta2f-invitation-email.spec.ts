@@ -23,7 +23,8 @@ test.use({ storageState: { cookies: [], origins: [] } })
 const HARNESS = process.env.INVITATION_E2E_HARNESS_URL ?? 'http://127.0.0.1:5198'
 const PASSWORD = 'e2e-invitacion-2f-pass-123'
 const rand = () => Math.random().toString(36).slice(2, 8)
-const emailUnico = (sufijo: string) => `e2e-inv2f-${sufijo}-${rand()}@e2e.local`
+// Minúsculas: es la forma que guarda la DB (lower(btrim(email))) y la que recibe el correo.
+const emailUnico = (sufijo: string) => `e2e-inv2f-${sufijo}-${rand()}@e2e.local`.toLowerCase()
 
 interface Mensaje {
   idempotencyKey: string
