@@ -473,6 +473,10 @@ está disponible:
 
 ## 17. PRE-BETA-2E exact rollout order (NO ejecutado)
 
+> **Ejecución registrada después** en
+> [`pre-beta-2e-auth-production-rollout.md`](pre-beta-2e-auth-production-rollout.md) (2026-09-29).
+> Este plan se conserva tal como se escribió.
+
 **Precondiciones:** PR de 2D mergeado y desplegado; owner con acceso al Dashboard; una ventana sin altas
 reales; cuenta QA Gmail (y M365 con Safe Links si existe). Guardar **antes** el texto actual de cada
 plantilla y cada valor que se cambie (rollback).
