@@ -1,6 +1,7 @@
 # PRE-BETA-2F — Invitation Email Delivery
 
-**Fecha:** 2026-09-29 · **Estado:** **READY FOR REVIEW** — PR draft, sin merge, sin deploy.
+**Fecha:** 2026-09-29 · **Estado:** **CERTIFIED / CLOSED** — rollout productivo ejecutado por el owner
+y smokes productivos PASS (§15).
 
 «Enviar Invitación» ahora manda un correo. La invitación la sigue creando la **misma** autoridad de
 DB de P0-P2; lo nuevo es una capa de entrega (Edge Function `send-business-invitation`) y el
@@ -10,9 +11,12 @@ reenvío. El link manual queda como fallback.
 |---|---|
 | Base | `origin/main` = `802688019147a2134d689e4529f42b685f6d4c39` (merge de #155, PRE-BETA-2D). Verificado con `git fetch` al inicio. |
 | Rama | `claude/pre-beta-2f-invitation-email-delivery` |
-| Producción | **0 cambios.** Sin deploy de Edge Functions, sin secretos, sin `db push`, sin tocar Resend ni el Dashboard. |
-| Migraciones | **0.** Ni una. La autoridad de invitaciones no cambió (§8). |
-| Rollout | propuesto en §11, **no ejecutado**. |
+| PR | [#156](https://github.com/molinajonyy-hub/TechRepair-Pro/pull/156) — **MERGED** (2026-09-29 21:13:59Z) |
+| Head revisado | `79091d2ac7f5bfeeb3123f8a3d553bb6d0e1b199` (el mismo que se revisó antes del rollout) |
+| Merge commit | `ba12efcd6e146cc6da1887ab2fb157f493af16fe` |
+| Producción | Rollout ejecutado **por el owner** (§15): Edge Function desplegada **antes** del merge, secret configurado, frontend `ba12efc` servido. El agente no tocó producción. |
+| Migraciones | **0.** Sin `db push`. La autoridad de invitaciones no cambió (§8). |
+| Rollout | §11 (plan) · §15 (evidencia productiva) |
 
 ---
 
@@ -319,7 +323,10 @@ navegador → aceptado → mismo negocio, rol `tech`, **businesses +0, trials +0
 
 ---
 
-## 11. Rollout propuesto — NO EJECUTADO
+## 11. Rollout — plan (EJECUTADO por el owner el 2026-09-29, evidencia en §15)
+
+El plan se conserva tal como se revisó. Se ejecutó en este orden: la función se desplegó **antes**
+del merge.
 
 **Orden recomendado: la función ANTES del merge.** El brief lo proponía después del merge; se
 invierte a propósito porque es el orden seguro:
@@ -380,14 +387,94 @@ invierte a propósito porque es el orden seguro:
 - `PermissionsMatrix` del modal de invitación sigue sin persistir (P0-P2 §12). Fuera de alcance.
 - `showToast` (`src/utils/toast.ts`) interpola con `innerHTML` en toda la app. Este lote escapa su
   propio texto dinámico; el arreglo global queda como tarea aparte.
-- El E2E de CI cubre el handler con Resend simulado; el envío real sólo lo prueba el smoke humano.
+- El E2E de CI cubre el handler con Resend simulado; el envío real lo cubrió el smoke humano
+  productivo (§15.3–§15.4, PASS).
 
 ---
 
 ## 14. Confirmaciones
 
-- **0 cambios en producción.** Nada desplegado, ningún secreto creado, ningún `db push`.
+- **El agente no tocó producción** en ningún momento del lote: el deploy, el secret y los smokes
+  productivos los hizo el owner (§15). Ningún `db push`.
 - **0 migraciones.**
 - `create_business_invitation` y `accept_business_invitation` **sin cambios**. RLS sin cambios.
 - Sin `service_role` en el frontend ni en la función. Sin `inviteUserByEmail`.
 - El guard de plantillas de Auth (`auth-email-templates`) no se tocó.
+
+---
+
+## 15. Evidencia productiva — CERTIFIED / CLOSED (2026-09-29)
+
+**Etiqueta:** todo lo de esta sección es **REPORTADO POR EL OWNER** (rollout y smokes ejecutados por
+él en producción). Sin PII: no se registran direcciones de correo ni tokens. El agente no ejecutó
+nada en producción. Lo único verificable desde el repo/GitHub es el merge del PR (§15.1).
+
+### 15.1 Rollout
+
+| Paso (§11) | Resultado | Fuente |
+|---|---|---|
+| Key de Resend **nueva**, separada del SMTP de Auth, *Sending access* restringida a `techrepairpro.app` | hecho | owner |
+| Secret `RESEND_INVITES_API_KEY` en Supabase (producción) | configurado | owner |
+| Deploy de `send-business-invitation` | desplegada **ANTES** del merge | owner |
+| Merge de #156 | `ba12efcd6e146cc6da1887ab2fb157f493af16fe`, head revisado `79091d2` | GitHub (verificable) |
+| `https://www.techrepairpro.app/version.json` | `commit` = `ba12efc` | owner |
+| Migraciones / `db push` | ninguna | owner + repo (0 archivos en `supabase/migrations/`) |
+
+### 15.2 Smokes server-side
+
+| # | Request | Esperado (§11 paso 6) | Resultado |
+|---|---|---|---|
+| 1 | `OPTIONS` con `Origin: https://www.techrepairpro.app` | 204, `Access-Control-Allow-Origin` exacto, `POST, OPTIONS` | **PASS** |
+| 2 | `OPTIONS` con `Origin: https://evil.example` | 204 **sin** `Access-Control-Allow-Origin` | **PASS** |
+| 3 | `POST` sin JWT | 401 `{"ok":false,"error":"NOT_AUTHENTICATED"}` | **PASS** |
+| 4 | `GET` | 405 `{"ok":false,"error":"METHOD_NOT_ALLOWED"}` | **PASS** |
+
+### 15.3 Smoke humano — invitación nueva
+
+| Paso | Resultado |
+|---|---|
+| el owner crea una invitación desde TechRepair | OK |
+| el correo sale automáticamente | OK |
+| Resend registra el correo como **Delivered** | OK |
+| el enlace lleva a la ruta canónica de TechRepair (`/accept-invite`) | OK |
+| usuario sin sesión → login/registro **preservando** el `redirectTo` de la invitación | OK |
+| alta de una cuenta con **exactamente** el correo invitado + confirmación del correo | OK |
+| aceptar la invitación | OK |
+| el invitado queda dentro del **taller existente**, con sus datos y rol correctos | OK |
+| **no** se crea un taller manual | OK — invariante P0-P2 sostenida en producción |
+
+### 15.4 Smoke de «Reenviar correo»
+
+| Paso | Resultado |
+|---|---|
+| otra invitación `pending` | creada |
+| «Reenviar correo» | toast de reenvío exitoso |
+| segundo correo | recibido / **Delivered** |
+| la invitación sigue siendo la misma `pending` | OK |
+| limpieza | la invitación QA se **canceló** manualmente después del smoke |
+
+### 15.5 Lo que el reporte no detalla (no se inventa)
+
+Estos checks del plan (§11) no aparecen explícitos en el reporte del owner. No se marcan como
+fallidos ni como hechos:
+
+- verificación explícita de open/click tracking OFF en el dominio de Resend (paso 3). Lo observado
+  —el enlace llega a la ruta canónica— es consistente con tracking OFF, pero no lo prueba;
+- inspección del bundle servido (paso 7), más allá de `version.json`;
+- asunto y From del correo recibido (paso 8);
+- deltas por SQL (`businesses`, `trials`) y logout/login posterior (paso 8). El reporte sí cubre la
+  invariante a nivel de producto: el invitado quedó en el taller existente y no se creó un taller.
+
+Ninguno cambia el resultado: los contratos centrales —correo entregado, enlace canónico, alta con el
+correo invitado, membresía en el negocio existente, reenvío con la misma invitación— están PASS.
+
+### 15.6 Veredicto
+
+**PRE-BETA-2F = CERTIFIED / CLOSED.**
+
+Efectos fuera de 2F:
+- cierra el **pendiente humano de invitaciones** que había quedado abierto en PRE-BETA-2E
+  (ver `pre-beta-2e-auth-production-rollout.md`);
+- «envío automático de invitaciones» deja de ser deuda (`docs/p0-p2-invitations.md` §12);
+- cierra **P3-7** (links de invitación con `window.location.origin`), listado como pendiente en
+  2D §15.1.
