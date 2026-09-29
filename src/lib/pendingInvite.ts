@@ -27,6 +27,7 @@
 // tiene acceso al localStorage del origen ya tiene la sesión. Y aunque se filtre,
 // el servidor exige que el correo del actor coincida con el de la invitación.
 // ─────────────────────────────────────────────────────────────────────────────
+import { invitationPath } from './invitationLink'
 
 const CLAVE = 'trp_pending_invite'
 
@@ -118,7 +119,10 @@ export function clearInviteToken(): void {
   }
 }
 
-/** Ruta interna canónica de aceptación, con el token ya codificado. */
+/**
+ * Ruta interna canónica de aceptación, con el token ya codificado.
+ * PRE-BETA-2F: la forma sale de la fuente única del enlace (`invitationLink`).
+ */
 export function acceptInviteePath(token: string): string {
-  return `/accept-invite?token=${encodeURIComponent(token.trim())}`
+  return invitationPath(token)
 }

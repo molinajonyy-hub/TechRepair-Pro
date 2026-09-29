@@ -309,6 +309,27 @@ if (hayDeno) {
   console.log('  ✓ Edge local del asistente ARCA listo (127.0.0.1:5199).')
 }
 
+// ─── 7b. Edge local de invitaciones (PRE-BETA-2F) ──────────────────────────
+// Handler REAL de `send-business-invitation` servido por Deno contra este mismo
+// stack, con el JWT del navegador (sin service_role). Sólo Resend es simulado:
+// nunca sale un correo real desde CI.
+const INVITE_HARNESS_URL = 'http://127.0.0.1:5198/__e2e/stats'
+let inviteHarness = null
+if (hayDeno) {
+  console.log('  · levantando el Edge local de invitaciones (Resend simulado)…')
+  inviteHarness = spawn(process.execPath, ['scripts/e2e/invitation-edge-harness-run.mjs'], { stdio: ['ignore', 'inherit', 'inherit'] })
+  let listo = false
+  for (let i = 0; i < 180 && !listo; i++) {
+    try { listo = (await fetch(INVITE_HARNESS_URL)).ok } catch { await new Promise((r) => setTimeout(r, 1000)) }
+  }
+  if (!listo) {
+    inviteHarness.kill()
+    harness?.kill()
+    abortar('El Edge local de invitaciones no respondió en 180 s.')
+  }
+  console.log('  ✓ Edge local de invitaciones listo (127.0.0.1:5198).')
+}
+
 // ─── 7. Playwright ──────────────────────────────────────────────────────────
 console.log(`  · corriendo Playwright: ${ARGS_PLAYWRIGHT.join(' ')}`)
 console.log('─'.repeat(72) + '\n')
@@ -317,6 +338,7 @@ const pw = spawnSync('npx', ['playwright', 'test', ...ARGS_PLAYWRIGHT], {
   shell: process.platform === 'win32',
 })
 harness?.kill()
+inviteHarness?.kill()
 // El código de Playwright se propaga tal cual: el job debe ponerse rojo por
 // TESTS, no por otra cosa. La limpieza del stack la hace el workflow con
 // `if: always()` — un paso aparte, porque si esto falla igual hay que limpiar.

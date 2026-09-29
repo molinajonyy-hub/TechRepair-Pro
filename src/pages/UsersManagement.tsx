@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
-import { Plus, X, Mail, UserCheck, UserX, RefreshCw, Copy, Clock, Shield, Check } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Plus, X, Mail, UserCheck, UserX, RefreshCw, Copy, Clock, Shield, Check, Send } from 'lucide-react';
 import { CloseButton } from '../components/ui/CloseButton';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubscription } from '../hooks/useSubscription';
 import { supabase } from '../lib/supabase';
+import { invitationUrl } from '../lib/invitationLink';
 import { usersService, BusinessUser } from '../services/usersService';
 import { invitationsService, InvitationError, type Invitation } from '../services/invitationsService';
 import { showToast } from '../utils/toast';
@@ -11,6 +12,14 @@ import {
   AppPermissions, PermissionKey, PERMISSION_LABELS, PERMISSION_GROUPS,
   resolvePermissions, ALL_PERMISSIONS, CONFIGURABLE_PERMISSIONS,
 } from '../config/permissions';
+
+/**
+ * `showToast` arma el mensaje con innerHTML. Un correo es texto que escribió una
+ * persona (y la DB admite `<` o `"` en la parte local): se escapa antes de
+ * mostrarlo. Nunca se interpola sin escapar.
+ */
+const textoSeguro = (value: string): string =>
+  value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 
 const roleOptions = [
   { value: 'admin', label: 'Administrador' },
@@ -215,6 +224,11 @@ export function UsersManagement() {
   const [invitePerms, setInvitePerms] = useState<AppPermissions>(() => resolvePermissions('tech'));
   const [inviting, setInviting] = useState(false);
 
+  // PRE-BETA-2F — reenvío por fila. El ref corta el doble click antes de que el
+  // estado alcance a re-renderizar el botón deshabilitado.
+  const [resending, setResending] = useState<ReadonlySet<string>>(() => new Set());
+  const resendEnCurso = useRef<Set<string>>(new Set());
+
   // Edit permissions modal
   const [editingUser, setEditingUser] = useState<BusinessUser | null>(null);
 
@@ -285,27 +299,33 @@ export function UsersManagement() {
     try {
       // P0-P2: no se manda `businessId`. El servidor lo deriva de auth.uid();
       // un business_id de entrada nunca es autorización.
-      const invitacion = await invitationsService.createInvitation(inviteEmail.trim(), inviteRole);
+      // PRE-BETA-2F: la invitación la crea la MISMA RPC canónica (vía la capa de
+      // entrega) y el correo sale solo. Crear y enviar son resultados distintos.
+      const { invitation: invitacion, delivery } =
+        await invitationsService.createAndSendInvitation(inviteEmail.trim(), inviteRole);
 
       // La RPC es idempotente: si ya había una invitación pendiente para ese
       // correo devuelve ESA, con el mismo token. Se detecta comparando contra la
       // lista que ya teníamos para decírselo al usuario en vez de simular un
       // envío nuevo.
       const yaExistia = invitations.some(inv => inv.id === invitacion.id);
+      const destinatario = textoSeguro(invitacion.email);
 
-      const inviteLink = `${window.location.origin}/accept-invite?token=${invitacion.token}`;
-      let copied = false;
-      try {
-        await navigator.clipboard.writeText(inviteLink);
-        copied = true;
-      } catch { /* clipboard bloqueado: el link igual se ve en la tabla */ }
-
-      showToast(
-        yaExistia
-          ? `Ya existía una invitación pendiente para ese correo.${copied ? ' Copiamos el link al portapapeles.' : ''}`
-          : `Invitación creada.${copied ? ' El link se copió al portapapeles.' : ' Copiá el link desde la lista.'}`,
-        yaExistia ? 'info' : 'success',
-      );
+      if (delivery.status === 'failed') {
+        showToast(
+          'La invitación quedó creada, pero no pudimos enviar el correo. Podés reenviarlo o copiar el link.',
+          'warning',
+          7000,
+        );
+      } else if (yaExistia) {
+        showToast(
+          `Ya había una invitación pendiente para ${destinatario}. Si no le llegó el correo, usá «Reenviar correo».`,
+          'info',
+          6000,
+        );
+      } else {
+        showToast(`Invitación enviada a ${destinatario}.`, 'success');
+      }
 
       setInviteEmail('');
       setInviteRole('tech');
@@ -326,12 +346,43 @@ export function UsersManagement() {
   };
 
   const handleCopyToken = async (token: string) => {
-    const inviteLink = `${window.location.origin}/accept-invite?token=${token}`;
+    // Misma fuente que el enlace del correo: nunca el origen de la pestaña.
+    const inviteLink = invitationUrl(token);
     try {
       await navigator.clipboard.writeText(inviteLink);
       showToast('Link de invitación copiado al portapapeles', 'success');
     } catch {
       showToast('No pudimos copiar automáticamente. Copiá el link desde la tabla.', 'warning');
+    }
+  };
+
+  const handleResendEmail = async (invitationId: string) => {
+    if (resendEnCurso.current.has(invitationId)) return;
+    resendEnCurso.current.add(invitationId);
+    setResending(prev => new Set(prev).add(invitationId));
+    try {
+      // Sólo viaja el id: destinatario y token los resuelve el servidor desde la fila.
+      const delivery = await invitationsService.resendInvitationEmail(invitationId);
+      if (delivery.status === 'sent') {
+        showToast('Invitación reenviada.', 'success');
+      } else {
+        showToast('No pudimos reenviar el correo. El link sigue disponible.', 'warning', 6000);
+      }
+    } catch (error) {
+      // Vencida, cancelada, ya usada o de otro negocio: el link tampoco sirve, así
+      // que se muestra el motivo y se refresca la lista.
+      showToast(
+        error instanceof InvitationError ? error.message : 'No pudimos reenviar el correo. El link sigue disponible.',
+        'error',
+      );
+      await reloadInvitations().catch(() => { /* la lista se recarga en la próxima acción */ });
+    } finally {
+      resendEnCurso.current.delete(invitationId);
+      setResending(prev => {
+        const next = new Set(prev);
+        next.delete(invitationId);
+        return next;
+      });
     }
   };
 
@@ -427,7 +478,7 @@ export function UsersManagement() {
         </div>
         <div className="page-hdr-right">
           {canManageUsers && (
-            <button onClick={() => setShowInvitations(v => !v)} style={{
+            <button onClick={() => setShowInvitations(v => !v)} data-testid="invitations-toggle" aria-expanded={showInvitations} style={{
               display: 'flex', alignItems: 'center', gap: '0.5rem',
               padding: '0.5rem 0.875rem',
               background: showInvitations ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.04)',
@@ -440,7 +491,7 @@ export function UsersManagement() {
             </button>
           )}
           {canManageUsers && (
-            <button onClick={() => setShowInviteModal(true)} className="btn btn-primary btn-lift">
+            <button onClick={() => setShowInviteModal(true)} data-testid="invite-open" className="btn btn-primary btn-lift">
               <Plus size={18} />
               Invitar Usuario
             </button>
@@ -455,7 +506,9 @@ export function UsersManagement() {
             <div style={{ padding: '1rem', backgroundColor: 'rgba(245,158,11,0.1)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
               <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#fbbf24', marginBottom: '0.25rem' }}>Invitaciones Pendientes</h3>
               <p style={{ fontSize: '0.875rem', color: '#94a3b8' }}>
-                {invitations.length === 0 ? 'No hay invitaciones pendientes' : 'Compartí el link con el usuario para que acepte la invitación'}
+                {invitations.length === 0
+                  ? 'No hay invitaciones pendientes'
+                  : 'Le enviamos el enlace por correo. Si no le llegó, reenvialo o copiá el link y compartilo a mano.'}
               </p>
             </div>
             {invitations.length > 0 ? (
@@ -470,16 +523,18 @@ export function UsersManagement() {
                   </tr>
                 </thead>
                 <tbody>
-                  {invitations.map(inv => (
-                    <tr key={inv.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  {invitations.map(inv => {
+                    const reenviando = resending.has(inv.id);
+                    return (
+                    <tr key={inv.id} data-testid="pending-invitation-row" data-invitation-id={inv.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                       <td style={{ padding: '0.75rem 1rem', color: '#ffffff' }}>{inv.email}</td>
                       <td style={{ padding: '0.75rem 1rem' }}>{getRoleBadge(inv.role)}</td>
                       <td style={{ padding: '0.75rem 1rem' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <code style={{ padding: '0.25rem 0.5rem', backgroundColor: 'rgba(15,23,42,0.8)', borderRadius: '0.25rem', color: '#6366f1', fontSize: '0.75rem', fontFamily: 'monospace', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
-                            {`${window.location.origin}/accept-invite?token=${inv.token}`}
+                          <code data-testid="invitation-link" style={{ padding: '0.25rem 0.5rem', backgroundColor: 'rgba(15,23,42,0.8)', borderRadius: '0.25rem', color: '#6366f1', fontSize: '0.75rem', fontFamily: 'monospace', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+                            {invitationUrl(inv.token)}
                           </code>
-                          <button onClick={() => void handleCopyToken(inv.token)} style={smallActionButtonStyle('#6366f1', 'rgba(99,102,241,0.1)', 'rgba(99,102,241,0.3)')} title="Copiar link">
+                          <button onClick={() => void handleCopyToken(inv.token)} data-testid="invitation-copy" style={smallActionButtonStyle('#6366f1', 'rgba(99,102,241,0.1)', 'rgba(99,102,241,0.3)')} title="Copiar link" aria-label="Copiar link de invitación">
                             <Copy size={14} />
                           </button>
                         </div>
@@ -491,12 +546,28 @@ export function UsersManagement() {
                         </div>
                       </td>
                       <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
-                        <button onClick={() => void handleRevokeInvitation(inv.id)} style={dangerButtonStyle}>
-                          <X size={14} /> Cancelar
-                        </button>
+                        <div style={{ display: 'inline-flex', gap: '0.5rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                          <button
+                            onClick={() => void handleResendEmail(inv.id)}
+                            disabled={reenviando}
+                            aria-busy={reenviando}
+                            data-testid="invitation-resend"
+                            style={{
+                              ...smallActionButtonStyle('#818cf8', 'rgba(99,102,241,0.1)', 'rgba(99,102,241,0.3)'),
+                              display: 'inline-flex', fontSize: '0.875rem',
+                              opacity: reenviando ? 0.55 : 1, cursor: reenviando ? 'not-allowed' : 'pointer',
+                            }}
+                          >
+                            <Send size={14} /> {reenviando ? 'Reenviando...' : 'Reenviar correo'}
+                          </button>
+                          <button onClick={() => void handleRevokeInvitation(inv.id)} data-testid="invitation-cancel" style={dangerButtonStyle}>
+                            <X size={14} /> Cancelar
+                          </button>
+                        </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             ) : (
@@ -615,12 +686,14 @@ export function UsersManagement() {
                   value={inviteEmail}
                   onChange={e => setInviteEmail(e.target.value)}
                   placeholder="usuario@ejemplo.com"
+                  aria-label="Email del usuario a invitar"
+                  data-testid="invite-email"
                   style={inputStyle}
                 />
               </div>
               <div style={{ marginBottom: '1rem' }}>
                 <label style={inputLabelStyle}>Rol</label>
-                <select value={inviteRole} onChange={e => handleInviteRoleChange(e.target.value)} style={inputStyle}>
+                <select value={inviteRole} onChange={e => handleInviteRoleChange(e.target.value)} aria-label="Rol del usuario a invitar" data-testid="invite-role" style={inputStyle}>
                   {roleOptions.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
               </div>
@@ -644,9 +717,11 @@ export function UsersManagement() {
               <button
                 onClick={() => void handleInvite()}
                 disabled={inviting}
+                aria-busy={inviting}
+                data-testid="invite-submit"
                 style={{ ...primaryButtonStyle, opacity: inviting ? 0.5 : 1, cursor: inviting ? 'not-allowed' : 'pointer' }}
               >
-                {inviting ? 'Enviando...' : 'Enviar Invitación'}
+                {inviting ? 'Enviando invitación...' : 'Enviar Invitación'}
               </button>
             </div>
           </div>
