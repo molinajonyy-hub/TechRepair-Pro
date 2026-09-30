@@ -34,6 +34,8 @@ const estado = vi.hoisted(() => ({
   perfilPendiente: null as null | (() => void),
   /** Deja colgada `update_my_business_onboarding` para observar el «guardando». */
   guardadoPendiente: null as null | (() => void),
+  /** Error que devuelve Storage al subir el logo. */
+  uploadError: null as null | { message: string },
 }))
 
 const trackMock = vi.hoisted(() => vi.fn())
@@ -74,7 +76,7 @@ vi.mock('../../src/lib/supabase', () => ({
     },
     storage: {
       from: () => ({
-        upload: async () => ({ error: null }),
+        upload: async () => ({ error: estado.uploadError }),
         getPublicUrl: (path: string) => ({ data: { publicUrl: `https://cdn.test/${path}` } }),
       }),
     },
@@ -134,6 +136,7 @@ beforeEach(() => {
   estado.rpc = {}
   estado.perfilPendiente = null
   estado.guardadoPendiente = null
+  estado.uploadError = null
   trackMock.mockReset()
   window.localStorage.clear()
   window.sessionStorage.clear()
@@ -301,6 +304,37 @@ describe('A · modelo del onboarding: una sola definición', () => {
     fireEvent.click(screen.getByTestId('onboarding-logo-skip'))
     await waitFor(() => expect(screen.getByTestId('onboarding-whatsapp')).toBeInTheDocument())
     expect((screen.getByTestId('onboarding-whatsapp') as HTMLInputElement).value).toBe('3511111111')
+  })
+
+  it('fallo del logo → «Quitar logo» → «Continuar»: Contacto llega sin el error del logo', async () => {
+    // jsdom no implementa createObjectURL; la vista previa del logo lo usa.
+    const original = URL.createObjectURL
+    URL.createObjectURL = vi.fn(() => 'blob:vista-previa')
+    try {
+      ownerConNegocio({ name: 'Tecno', rubro: 'redes' })
+      estado.uploadError = { message: 'new row violates row-level security policy' }
+      montar('/onboarding')
+      await waitFor(() => expect(screen.getByTestId('onboarding-logo-input')).toBeInTheDocument())
+
+      fireEvent.change(screen.getByTestId('onboarding-logo-input'), {
+        target: { files: [new File(['x'], 'logo.png', { type: 'image/png' })] },
+      })
+      fireEvent.click(screen.getByTestId('onboarding-step2-submit'))
+      await waitFor(() => expect(screen.getByTestId('onboarding-error')).toBeInTheDocument())
+      expect(etiquetaProgreso()).toBe('Paso 2 de 4')
+
+      fireEvent.click(screen.getByRole('button', { name: 'Quitar logo' }))
+      expect(screen.queryByTestId('onboarding-error')).toBeNull()
+
+      fireEvent.click(screen.getByTestId('onboarding-step2-submit'))
+      await waitFor(() => expect(screen.getByTestId('onboarding-whatsapp')).toBeInTheDocument())
+      expect(etiquetaProgreso()).toBe('Paso 3 de 4')
+      expect(screen.queryByTestId('onboarding-error')).toBeNull()
+      // Sin logo no hay nada que persistir: avanzar no llama al servidor.
+      expect(llamadasA('update_my_business_onboarding')).toHaveLength(0)
+    } finally {
+      URL.createObjectURL = original
+    }
   })
 
   it('mientras guarda: sin doble submit y sin «Atrás»/«Omitir» que lo pisen', async () => {

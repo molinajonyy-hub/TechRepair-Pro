@@ -219,7 +219,11 @@ export function Onboarding() {
   }
 
   const handleStep2 = async () => {
-    if (!logoFile) { setStep(siguiente); return }
+    if (!logoFile) {
+      setError('')
+      setStep(siguiente)
+      return
+    }
 
     setSaving(true); setError('')
     try {
@@ -379,7 +383,7 @@ export function Onboarding() {
             />
           </label>
           {logoFile && (
-            <AuthFlowTextButton onClick={() => { setLogoFile(null); setLogoPreview(setup?.logoUrl ?? null) }}>
+            <AuthFlowTextButton onClick={() => { setLogoFile(null); setLogoPreview(setup?.logoUrl ?? null); setError('') }}>
               Quitar logo
             </AuthFlowTextButton>
           )}
