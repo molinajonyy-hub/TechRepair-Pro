@@ -30,12 +30,13 @@ vi.mock('../../src/services/api', () => ({
 // (permisos reales de `usePermissions`) en un negocio Full. Los casos sin gate
 // viven en prebeta3a2CustomerCreation.test.tsx.
 vi.mock('../../src/contexts/AuthContext', () => ({
-  useAuth: () => ({ businessId: 'biz-1', role: 'owner', isOwner: true, profile: { permissions: null } }),
+  useAuth: () => ({ businessId: 'biz-1', role: 'owner', isOwner: true, hasBusinessAccess: true, profile: { permissions: null } }),
 }))
 vi.mock('../../src/hooks/useSubscription', async () => {
   const { resolveEntitlement } = await vi.importActual<typeof import('../../src/lib/entitlements')>('../../src/lib/entitlements')
-  const { hasFeature } = resolveEntitlement({ subscription_status: 'active', subscription_plan: 'full' })
-  return { useSubscription: () => ({ hasFeature }) }
+  const subscription = { subscription_status: 'active', subscription_plan: 'full' } as const
+  const { hasFeature } = resolveEntitlement(subscription)
+  return { useSubscription: () => ({ hasFeature, subscription, loading: false }) }
 })
 vi.mock('../../src/contexts/LoadingContext', () => ({
   useLoading: () => ({ showLoading: vi.fn(), hideLoading: vi.fn() }),

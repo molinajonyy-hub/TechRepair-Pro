@@ -543,15 +543,16 @@ test.describe('@customer-core UI-CONSISTENCY-2A · contraste del selector DNI/CU
 // ── PRE-BETA-3A-2 · gate Mayorista ──────────────────────────────────────────
 // El negocio E2E es Full y el usuario es owner: con eso el gate está abierto
 // (los tests de arriba ya crean mayoristas). Para el caso SIN gate se simula un
-// negocio Pro parcheando SÓLO la respuesta real de la suscripción en el
+// negocio Básico (desde PRE-BETA-3A-2 Mayorista es Pro+, así que Pro ya no sirve
+// como "sin gate") parcheando SÓLO la respuesta real de la suscripción en el
 // navegador: la DB, la sesión y RLS siguen siendo las reales, y nada queda
 // modificado para el resto de la suite.
-async function simulateProPlan(page: Page) {
+async function simulateBasicoPlan(page: Page) {
   await page.route('**/rest/v1/businesses?**', async (route) => {
     if (!route.request().url().includes('subscription_plan')) return route.fallback()
     const response = await route.fetch()
     const body = await response.json()
-    const patch = (row: Record<string, unknown>) => ({ ...row, subscription_plan: 'pro', subscription_status: 'active' })
+    const patch = (row: Record<string, unknown>) => ({ ...row, subscription_plan: 'basico', subscription_status: 'active' })
     await route.fulfill({ response, json: Array.isArray(body) ? body.map(patch) : patch(body) })
   })
 }
@@ -566,10 +567,10 @@ test.describe('@customer-core PRE-BETA-3A-2 · gate Mayorista', () => {
   test.beforeEach(() => cleanup())
   test.afterAll(() => cleanup())
 
-  test('sin gate (Pro): ninguna de las dos altas ofrece ni persiste Mayorista', async ({ page }) => {
-    const fullName = `${MARK} Pro Full`
-    const quickName = `${MARK} Pro Rapido`
-    await simulateProPlan(page)
+  test('sin gate (Básico): ninguna de las dos altas ofrece ni persiste Mayorista', async ({ page }) => {
+    const fullName = `${MARK} Basico Full`
+    const quickName = `${MARK} Basico Rapido`
+    await simulateBasicoPlan(page)
 
     let loaded = subscriptionLoaded(page)
     await page.goto('/customers/new')
@@ -604,11 +605,11 @@ test.describe('@customer-core PRE-BETA-3A-2 · gate Mayorista', () => {
     }
   })
 
-  test('sin gate (Pro): un mayorista existente se edita sin convertirse ni perder datos', async ({ page }) => {
+  test('sin gate (Básico): un mayorista existente se edita sin convertirse ni perder datos', async ({ page }) => {
     const name = `${MARK} Mayorista Existente`
     ejecutarSQL(`INSERT INTO public.customers (business_id, name, phone, customer_type, business_name, contact_person, document)
                  VALUES ('${E2E.business}', '${name}', '${PHONE}', 'mayorista', 'Existente SRL', 'Ana', 'CUIT 20301234567');`)
-    await simulateProPlan(page)
+    await simulateBasicoPlan(page)
 
     const loaded = subscriptionLoaded(page)
     await page.goto('/customers')

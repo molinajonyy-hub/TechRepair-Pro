@@ -24,7 +24,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../src/services/api', () => ({
   customersService: { getAll: mocks.getAll, update: mocks.update, create: mocks.create },
 }))
-vi.mock('../../src/contexts/AuthContext', () => ({ useAuth: () => ({ businessId: 'biz-1' }) }))
+vi.mock('../../src/contexts/AuthContext', () => ({
+  useAuth: () => ({ businessId: 'biz-1', role: 'owner', hasBusinessAccess: true }),
+}))
 vi.mock('../../src/contexts/LoadingContext', () => ({
   useLoading: () => ({ showLoading: vi.fn(), hideLoading: vi.fn() }),
 }))
@@ -33,11 +35,13 @@ vi.mock('../../src/hooks/usePermissions', () => ({
   usePermissions: () => ({ can: () => true }),
   effectivePermissions: () => ({ orders_create: true }),
 }))
-// PRE-BETA-3A-2 — gate Mayorista abierto: negocio Full + `can` → true.
+// PRE-BETA-3A-2 — gate Mayorista abierto: owner en un negocio Full con la
+// suscripción confirmada (la autoridad central cierra sin datos confirmados).
 vi.mock('../../src/hooks/useSubscription', async () => {
   const { resolveEntitlement } = await vi.importActual<typeof import('../../src/lib/entitlements')>('../../src/lib/entitlements')
-  const { hasFeature } = resolveEntitlement({ subscription_status: 'active', subscription_plan: 'full' })
-  return { useSubscription: () => ({ hasFeature }) }
+  const subscription = { subscription_status: 'active', subscription_plan: 'full' } as const
+  const { hasFeature } = resolveEntitlement(subscription)
+  return { useSubscription: () => ({ hasFeature, subscription, loading: false }) }
 })
 vi.mock('../../src/features/order-intake/service', () => ({
   createOrderIntake: vi.fn(), uploadIntakePhotos: vi.fn(), loadAssignableProfiles: mocks.loadProfiles,

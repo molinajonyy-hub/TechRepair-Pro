@@ -77,8 +77,9 @@ export type CustomerCoreMode = 'create' | 'update'
 /**
  * PRE-BETA-3A-2 — Qué puede hacer el actor con el TIPO de cliente.
  *
- * El gate Mayorista (feature `mayorista` del negocio Y permiso `wholesale` del
- * actor) decide si se OFRECE mayorista. Lo que ya existe no se toca:
+ * El gate Mayorista (el acceso a Mayorista de la autoridad central: feature
+ * `mayorista` del negocio Y owner/admin o capacidad `wholesale` del actor)
+ * decide si se OFRECE mayorista. Lo que ya existe no se toca:
  *
  *  - `full`      → gate activo: minorista o mayorista, como siempre.
  *  - `retail`    → sin gate. Un alta nueva, o una fila minorista, sólo puede

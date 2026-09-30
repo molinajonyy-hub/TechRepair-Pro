@@ -629,16 +629,18 @@ export function Mayorista() {
   }
 
   // ── Guard de acceso al módulo (Rules of Hooks: después de todos los hooks) ──
-  // Orden: 1) permisos cargando → loader · 2) sin feature → paywall ·
-  // 3) con feature pero sin acceso válido / rol inválido → acceso restringido ·
+  // Defensa en profundidad del guard de ruta: MISMA decisión central
+  // (`useWholesaleAccess`, PRE-BETA-3A-2), mismos desenlaces.
+  // Orden: 1) permisos cargando → loader · 2) actor sin acceso → acceso
+  // restringido · 3) actor con acceso pero sin feature → paywall ·
   // 4) carga de datos → loader · 5) módulo (read-only o gestión).
   if (wholesale.loading) return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
       <Loader2 size={28} style={{ animation: 'tr-spin 1s linear infinite', color: '#6366f1' }} />
     </div>
   )
-  if (!wholesale.hasMayoristaFeature) return <UpgradeRequired feature="mayorista" />
-  if (!wholesale.canView) return (
+  if (wholesale.decision === 'plan_required') return <UpgradeRequired feature="mayorista" />
+  if (!wholesale.canAccess) return (
     <WholesaleRestrictedAccess
       title="Acceso restringido"
       description="No tenés permisos para acceder al módulo Mayorista."

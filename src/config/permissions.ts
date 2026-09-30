@@ -43,6 +43,12 @@ export interface AppPermissions {
    * miembros deban verla. Antes el gate era «feature activa + rol ∈ los 7», así
    * que un técnico veía Mayorista sólo porque el plan del negocio era Full.
    * Ahora hacen falta las dos cosas: feature del negocio Y capacidad del actor.
+   *
+   * PRE-BETA-3A-2: owner y admin tienen acceso AUTOMÁTICO y no dependen de esta
+   * clave (ni de un override `wholesale: false`). Para el resto de los roles es
+   * la capacidad que el owner/admin habilita por persona; ninguno la trae por
+   * defecto. La decisión final NO es `can('wholesale')`: es
+   * `canAccessWholesale()` en src/lib/permissions/wholesalePermissions.ts.
    */
   wholesale: boolean
   /**
@@ -174,7 +180,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
     settings_sensitive: false,
     subscription: false,
     users: false,
-    wholesale: true,
+    // PRE-BETA-3A-2: Mayorista se habilita por persona, no por rol.
+    wholesale: false,
     personal_finance: false,
   },
   tech: {
@@ -214,7 +221,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, AppPermissions> = {
     settings_sensitive: false,
     subscription: false,
     users: false,
-    wholesale: true,
+    // PRE-BETA-3A-2: Mayorista se habilita por persona, no por rol.
+    wholesale: false,
     personal_finance: false,
   },
   cashier: {

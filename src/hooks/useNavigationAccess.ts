@@ -36,12 +36,15 @@ export function isNavigationItemAuthorized(
 ): boolean {
   if (item.systemOwnerOnly && !access.isSystemOwner) return false
 
+  // PRE-BETA-3A-2: la MISMA decisión que el guard de `/mayorista`
+  // (`useWholesaleAccess`). No se consulta `can('wholesale')` acá: owner/admin
+  // entran aunque tengan un override `wholesale: false`. `mayoristaEnabled` es
+  // una preferencia de menú del negocio, no una autorización: sólo oculta.
   if (item.wholesaleView) {
-    return access.wholesale.canView
-      && access.mayoristaEnabled
-      && access.can('wholesale')
+    return access.wholesale.canAccess && access.mayoristaEnabled
   }
 
+  // Portal Clic NO es Mayorista: no depende del plan ni de `wholesale`.
   if (item.clicPortalManage) return access.wholesale.canManageClicPortal
 
   if (item.permission && !access.can(item.permission)) {

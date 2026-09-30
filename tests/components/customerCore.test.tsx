@@ -44,11 +44,14 @@ vi.mock('../../src/hooks/usePermissions', () => ({
   effectivePermissions: () => ({ orders_create: true }),
 }))
 // PRE-BETA-3A-2 — la paridad de mayorista necesita el gate abierto: negocio
-// Full (resuelto por la autoridad real de entitlements) + `can` → true.
+// Full con suscripción CONFIRMADA (resuelto por la autoridad real de
+// entitlements) + owner con acceso al negocio. Sin suscripción confirmada la
+// autoridad central (`useWholesaleAccess`) queda cerrada.
 vi.mock('../../src/hooks/useSubscription', async () => {
   const { resolveEntitlement } = await vi.importActual<typeof import('../../src/lib/entitlements')>('../../src/lib/entitlements')
-  const { hasFeature } = resolveEntitlement({ subscription_status: 'active', subscription_plan: 'full' })
-  return { useSubscription: () => ({ hasFeature }) }
+  const subscription = { subscription_status: 'active', subscription_plan: 'full' } as const
+  const { hasFeature } = resolveEntitlement(subscription)
+  return { useSubscription: () => ({ hasFeature, subscription, loading: false }) }
 })
 vi.mock('../../src/features/order-intake/service', () => ({
   createOrderIntake: vi.fn(),
@@ -57,7 +60,9 @@ vi.mock('../../src/features/order-intake/service', () => ({
 }))
 // ORDERS-V2-0 — Nueva Orden dejó de traerse la tabla de clientes al browser:
 // el selector busca server-side y el catálogo de equipos sale de la DB.
-vi.mock('../../src/contexts/AuthContext', () => ({ useAuth: () => ({ businessId: 'biz-a' }) }))
+vi.mock('../../src/contexts/AuthContext', () => ({
+  useAuth: () => ({ businessId: 'biz-a', role: 'owner', hasBusinessAccess: true }),
+}))
 vi.mock('../../src/services/posCustomerSearchService', () => ({
   searchPosCustomers: async () => ({ status: 'ok', items: [], truncated: false }),
 }))

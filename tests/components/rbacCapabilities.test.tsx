@@ -269,10 +269,13 @@ describe('C · estructura del sidebar', () => {
     expect(navigationGate).toMatch(/item\.systemOwnerOnly && !access\.isSystemOwner\) return false/)
   })
 
-  it('Mayorista exige feature Y capacidad, no sólo el plan', () => {
-    expect(navigationGate).toMatch(/access\.wholesale\.canView/)
+  it('Mayorista usa la autoridad central (feature + owner/admin o capacidad), no sólo el plan', () => {
+    // PRE-BETA-3A-2: el menú consume la MISMA decisión que el guard de ruta.
+    expect(navigationGate).toMatch(/access\.wholesale\.canAccess/)
     expect(navigationGate).toMatch(/access\.mayoristaEnabled/)
-    expect(navigationGate).toMatch(/access\.can\('wholesale'\)/)
+    // owner/admin entran aunque tengan override `wholesale: false`: el menú no
+    // puede volver a exigir `can('wholesale')` por su cuenta.
+    expect(navigationGate).not.toMatch(/access\.can\('wholesale'\)/)
   })
 
   it('Mi Guita declara un gate', () => {

@@ -83,12 +83,12 @@ test('CASO B — Básico: NO Mayorista (paywall), NO features Pro', () => {
 })
 
 // ── CASO C — cliente Pro ────────────────────────────────────────────────────
-test('CASO C — Pro: features Pro sí, Mayorista NO (es Full-only)', () => {
+test('CASO C — Pro: features Pro sí, Mayorista SÍ (PRE-BETA-3A-2: Pro+)', () => {
   const r = resolveEntitlement({ subscription_status: 'active', subscription_plan: 'pro' }, NOW)
   assert.equal(r.hasFeature('arca'), true)
   assert.equal(r.hasFeature('personal_finance'), true)
   assert.equal(r.hasFeature('currentAccounts'), true)
-  assert.equal(r.hasFeature('mayorista'), false)
+  assert.equal(r.hasFeature('mayorista'), true)
   assert.equal(r.hasFeature('audit'), false)
   assert.equal(r.hasFeature('multisucursal'), false)
 })
@@ -130,10 +130,18 @@ test('override vencido NO rescata un estado bloqueado', () => {
 })
 
 // ── Default optimista (sin datos cargados) ──────────────────────────────────
-test('sin datos (null): default optimista trialing → features Pro, NO Mayorista', () => {
+// PRE-BETA-3A-2: el trial hereda Pro, que ahora trae Mayorista, así que el
+// default optimista también. Por eso la autoridad de Mayorista
+// (`useWholesaleAccess`) NO confía en este default: exige suscripción confirmada.
+test('sin datos (null): default optimista trialing → features Pro, incluida Mayorista', () => {
   const r = resolveEntitlement({ subscription_status: undefined, subscription_plan: undefined }, NOW)
   assert.equal(r.effectiveStatus, 'trialing')
   assert.equal(r.isAllowed, true)
   assert.equal(r.hasFeature('arca'), true)
-  assert.equal(r.hasFeature('mayorista'), false)
+  assert.equal(r.hasFeature('mayorista'), true)
+})
+
+test('trial confirmado: Mayorista SÍ (hereda Pro, sin excepción)', () => {
+  const r = resolveEntitlement({ subscription_status: 'trialing', subscription_plan: null }, NOW)
+  assert.equal(r.hasFeature('mayorista'), true)
 })

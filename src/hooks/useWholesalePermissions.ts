@@ -1,29 +1,16 @@
-// Hook integrador: cablea el motor PURO de permisos mayoristas
-// (src/lib/permissions/wholesalePermissions) con las fuentes de verdad existentes
-// (AuthContext + useSubscription) y el dato de owner real / portal habilitado del
-// negocio actual. Única fuente de los permisos de UI de Mayorista / Portal Clic.
+// Hook integrador de la pantalla Mayorista y de Portal Clic.
+//
+// El acceso a Mayorista NO se decide acá: sale de `useWholesaleAccess` (autoridad
+// central, PRE-BETA-3A-2). Este hook sólo le suma el dato de owner real / portal
+// habilitado del negocio actual, que es lo que gobierna Portal Clic.
 
 import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { useSubscription } from './useSubscription'
 import { supabase } from '../lib/supabase'
-import {
-  canViewWholesale,
-  canManageWholesale,
-  isWholesaleReadOnly,
-  canManageClicPortal,
-} from '../lib/permissions/wholesalePermissions'
+import { canManageClicPortal } from '../lib/permissions/wholesalePermissions'
+import { useWholesaleAccess, type WholesaleAccess } from './useWholesaleAccess'
 
-export interface WholesalePermissions {
-  /** true mientras se resuelven perfil / suscripción / datos del negocio. */
-  loading: boolean
-  hasMayoristaFeature: boolean
-  /** Ve el módulo Mayorista (los 7 roles, con feature + acceso). */
-  canView: boolean
-  /** Gestiona (escribe) Mayorista (owner/admin/manager/sales). */
-  canManage: boolean
-  /** Solo lectura (tech/cashier/viewer). */
-  isReadOnly: boolean
+export interface WholesalePermissions extends WholesaleAccess {
   /** Administra la config privada de Portal Clic (owner real + portal habilitado). */
   canManageClicPortal: boolean
   isBusinessOwner: boolean
@@ -36,8 +23,8 @@ interface BizRow {
 }
 
 export function useWholesalePermissions(): WholesalePermissions {
-  const { user, role, hasBusinessAccess, businessId, profileLoading } = useAuth()
-  const { hasFeature, loading: subLoading } = useSubscription()
+  const { user, businessId } = useAuth()
+  const access = useWholesaleAccess()
 
   const [biz, setBiz] = useState<BizRow | null>(null)
   const [bizLoading, setBizLoading] = useState<boolean>(true)
@@ -65,18 +52,13 @@ export function useWholesalePermissions(): WholesalePermissions {
     }
   }, [businessId])
 
-  const hasMayoristaFeature = hasFeature('mayorista')
   const isBusinessOwner =
     !!user?.id && !!biz?.owner_user_id && user.id === biz.owner_user_id
   const wholesalePortalEnabled = biz?.wholesale_portal_enabled === true
-  const loading = profileLoading || subLoading || bizLoading
 
   return {
-    loading,
-    hasMayoristaFeature,
-    canView: canViewWholesale({ role, hasMayoristaFeature, hasBusinessAccess }),
-    canManage: canManageWholesale({ role, hasMayoristaFeature, hasBusinessAccess }),
-    isReadOnly: isWholesaleReadOnly({ role, hasMayoristaFeature, hasBusinessAccess }),
+    ...access,
+    loading: access.loading || bizLoading,
     canManageClicPortal: canManageClicPortal({ isBusinessOwner, wholesalePortalEnabled }),
     isBusinessOwner,
     wholesalePortalEnabled,

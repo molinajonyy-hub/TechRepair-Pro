@@ -18,6 +18,9 @@ const DOCUMENT = 'src/features/customer-core/document.ts'
 const HOOK = 'src/features/customer-core/useCustomerCore.ts'
 const GATE = 'src/features/customer-core/useWholesaleCustomerGate.ts'
 const QUICK = 'src/pages/NewOrder.tsx'
+// PRE-BETA-3A-2 — autoridad central de acceso a Mayorista (el gate del core delega acá).
+const AUTHORITY = 'src/lib/permissions/wholesalePermissions.ts'
+const AUTHORITY_HOOK = 'src/hooks/useWholesaleAccess.ts'
 
 const read = (path) => readFileSync(path, 'utf8')
 
@@ -78,10 +81,16 @@ function mountsCoreFieldProps(text) {
 function inspectAccess(model, hook, gate) {
   const findings = []
 
-  if (!/hasFeature\('mayorista'\)\s*&&\s*can\('wholesale'\)/.test(gate)) {
-    findings.push('gate Mayorista sin feature `mayorista` Y permiso `wholesale`')
+  const gateCode = gate.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')
+  // PRE-BETA-3A-2: el core no decide Mayorista; usa la MISMA decisión que el
+  // menú, el guard de ruta y la página.
+  if (!/return useWholesaleAccess\(\)\.canAccess\b/.test(gateCode)) {
+    findings.push('gate Mayorista no delega en la autoridad central (useWholesaleAccess)')
   }
-  if (/\brole\b|isOwner/.test(gate.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''))) {
+  if (/hasFeature\(|can\(\s*['"]wholesale['"]\s*\)/.test(gateCode)) {
+    findings.push('gate Mayorista recalculado en el core (segunda matriz)')
+  }
+  if (/\brole\b|isOwner/.test(gateCode)) {
     findings.push('gate Mayorista resuelto por rol hardcodeado')
   }
   if (!/useWholesaleCustomerGate\(\)/.test(hook)) {
@@ -101,6 +110,31 @@ function inspectAccess(model, hook, gate) {
   }
   if (!/if \(access === 'preserved'\) return common\b/.test(model)) {
     findings.push('la edición `preserved` vuelve a escribir tipo o datos mayoristas')
+  }
+  return findings
+}
+
+/**
+ * PRE-BETA-3A-2 — contrato de la autoridad central de Mayorista:
+ * feature Y (owner | admin | capacidad `wholesale`), owner/admin sin depender de
+ * `can('wholesale')`, y cerrada hasta tener la suscripción confirmada.
+ */
+function inspectAuthority(engine, hook) {
+  const findings = []
+  if (!/WHOLESALE_AUTOMATIC_ROLES: readonly BusinessRole\[\] = \[\s*'owner', 'admin',\s*\] as const/.test(engine)) {
+    findings.push('roles automáticos de Mayorista distintos de owner/admin')
+  }
+  if (!/if \(!hasAutomaticWholesaleAccess\(input\.role\) && input\.hasWholesaleCapability !== true\) \{/.test(engine)) {
+    findings.push('owner/admin dependen de la capacidad `wholesale` (un override false los deja afuera)')
+  }
+  if (!/if \(input\.hasMayoristaFeature !== true\) return 'plan_required'/.test(engine)) {
+    findings.push('acceso Mayorista sin la feature `mayorista` del negocio')
+  }
+  if (!/const decision = decideWholesaleAccess\(input\)/.test(hook)) {
+    findings.push('useWholesaleAccess no usa la decisión central')
+  }
+  if (!/const hasMayoristaFeature = !loading && subscription != null && hasFeature\('mayorista'\)/.test(hook)) {
+    findings.push('gate Mayorista abierto sin suscripción confirmada (el trial optimista ya trae Mayorista)')
   }
   return findings
 }
@@ -150,6 +184,8 @@ if (process.argv.includes('--self-test')) {
   const hook = read(HOOK)
   const gate = read(GATE)
   const quick = read(QUICK)
+  const engine = read(AUTHORITY)
+  const authorityHook = read(AUTHORITY_HOOK)
 
   const expectSurface = (snippet, label) => {
     const hits = inspectSurface(snippet)
@@ -220,9 +256,9 @@ if (process.argv.includes('--self-test')) {
       throw new Error(`self-test no detectó: ${label}`)
     }
   }
-  expectAccess([model, hook, mutate(gate, "hasFeature('mayorista') && can('wholesale')", "hasFeature('mayorista')")], 'feature `mayorista` Y permiso')
-  expectAccess([model, hook, mutate(gate, "hasFeature('mayorista') && can('wholesale')", "can('wholesale')")], 'feature `mayorista` Y permiso')
-  expectAccess([model, hook, mutate(gate, "return hasFeature('mayorista') && can('wholesale')", "const { role } = useAuth()\n  return hasFeature('mayorista') && can('wholesale') && role !== 'tech'")], 'rol hardcodeado')
+  expectAccess([model, hook, mutate(gate, 'return useWholesaleAccess().canAccess', "return hasFeature('mayorista') && can('wholesale')")], 'no delega en la autoridad central')
+  expectAccess([model, hook, mutate(gate, 'return useWholesaleAccess().canAccess', "return useWholesaleAccess().canAccess && can('wholesale')")], 'recalculado en el core')
+  expectAccess([model, hook, mutate(gate, 'return useWholesaleAccess().canAccess', "const { role } = useAuth()\n  return useWholesaleAccess().canAccess || role === 'owner'")], 'rol hardcodeado')
   expectAccess([model, mutate(hook, 'useWholesaleCustomerGate()', 'true'), gate], 'no resuelve el gate')
   expectAccess([model, mutate(hook, 'if (submitCount > 0) return errors', 'return errors'), gate], 'tocado / intento')
   expectAccess([model, mutate(hook, '    errors: visibleErrors,\n', '    errors,\n'), gate], 'errores crudos')
@@ -233,7 +269,23 @@ if (process.argv.includes('--self-test')) {
   if (inspectAccess(model, hook, gate).length) {
     throw new Error(`self-test falso positivo en gate/validación visible: ${inspectAccess(model, hook, gate).join(', ')}`)
   }
-  console.log('customer-core guard self-test OK: gates de documento, mayorista, limpieza, validación visible y acceso detectados')
+
+  const expectAuthority = ([mutatedEngine, mutatedHook], label) => {
+    const hits = inspectAuthority(mutatedEngine, mutatedHook)
+    if (!hits.some((hit) => hit.includes(label))) {
+      throw new Error(`self-test no detectó: ${label}`)
+    }
+  }
+  expectAuthority([mutate(engine, "'owner', 'admin',\n] as const", "'owner', 'admin', 'manager',\n] as const"), authorityHook], 'roles automáticos')
+  expectAuthority([mutate(engine, 'if (!hasAutomaticWholesaleAccess(input.role) && input.hasWholesaleCapability !== true) {', 'if (input.hasWholesaleCapability !== true) {'), authorityHook], 'dependen de la capacidad')
+  expectAuthority([mutate(engine, "if (input.hasMayoristaFeature !== true) return 'plan_required'", "if (false) return 'plan_required'"), authorityHook], 'sin la feature')
+  expectAuthority([engine, mutate(authorityHook, 'const decision = decideWholesaleAccess(input)', "const decision = can('wholesale') ? 'allowed' : 'actor_denied'")], 'no usa la decisión central')
+  expectAuthority([engine, mutate(authorityHook, "!loading && subscription != null && hasFeature('mayorista')", "hasFeature('mayorista')")], 'sin suscripción confirmada')
+
+  if (inspectAuthority(engine, authorityHook).length) {
+    throw new Error(`self-test falso positivo en la autoridad central: ${inspectAuthority(engine, authorityHook).join(', ')}`)
+  }
+  console.log('customer-core guard self-test OK: gates de documento, mayorista, limpieza, validación visible, acceso y autoridad central detectados')
   process.exit(0)
 }
 
@@ -253,6 +305,7 @@ for (const [path, label] of SURFACES) {
 for (const finding of inspectQuick(read(QUICK))) failures.push(`alta rápida (${QUICK}): ${finding}`)
 for (const finding of inspectCore(read(CORE), read(DOCUMENT))) failures.push(`core: ${finding}`)
 for (const finding of inspectAccess(read(CORE), read(HOOK), read(GATE))) failures.push(`core: ${finding}`)
+for (const finding of inspectAuthority(read(AUTHORITY), read(AUTHORITY_HOOK))) failures.push(`autoridad Mayorista: ${finding}`)
 
 if (failures.length) {
   console.error('UI-CONSISTENCY-1 / PRE-BETA-3A-2 guard FAIL:')

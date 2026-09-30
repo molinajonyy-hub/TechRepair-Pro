@@ -220,7 +220,7 @@ const accessPara = (rol: string, features: PlanFeatureSet = TRIAL_FEATURES, over
     hasFeature: (f: PlanFeature) => Boolean(features[f]),
     isSystemOwner: false,
     mayoristaEnabled: true,
-    wholesale: { canView: false, canManageClicPortal: false } as NavigationAccess['wholesale'],
+    wholesale: { canAccess: false, canManageClicPortal: false } as NavigationAccess['wholesale'],
   }
 }
 const ids = (access: NavigationAccess) => authorizedQuickActions(access).map(a => a.id)

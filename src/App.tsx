@@ -10,6 +10,7 @@ import { PortalRouter, PORTAL_DOMAINS } from './portal/PortalRouter'
 import { ProtectedRouteByFeature } from './components/auth/ProtectedRouteByFeature'
 import { ProtectedRouteByPermission } from './components/auth/ProtectedRouteByPermission'
 import { ProtectedRouteBySystemOwner } from './components/auth/ProtectedRouteBySystemOwner'
+import { ProtectedRouteByWholesaleAccess } from './components/auth/ProtectedRouteByWholesaleAccess'
 import { UpdateBanner } from './components/UpdateBanner'
 import { AnalyticsRouteTracker } from './components/AnalyticsRouteTracker'
 
@@ -295,12 +296,26 @@ function AppContent() {
                 </Route>
               </Route>
 
-              {/* ── Rutas PRO — mayorista ── */}
-              {/* P0-P6: que el NEGOCIO tenga la feature no implica que todos
-                  sus miembros entren. Hacen falta las dos: feature + capacidad. */}
+              {/* ── Rutas PRO — mayorista ──
+                  PRE-BETA-3A-2: feature `mayorista` (Pro+) Y (owner | admin |
+                  capacidad `wholesale`). Un solo guard con la autoridad central
+                  (`useWholesaleAccess`), la misma que usa el menú: el par
+                  permiso+feature no podía dejar entrar a un owner/admin con
+                  override `wholesale: false`. */}
+              <Route element={<ProtectedRouteByWholesaleAccess />}>
+                <Route path="/mayorista" element={<Mayorista />} />
+              </Route>
+
+              {/* ── Portal Clic — herramienta INTERNA, no es Mayorista ──
+                  PRE-BETA-3A-2: queda PENDIENTE de decisión. Tiene que ser sólo
+                  de la cuenta interna, y hoy no hay autoridad server-backed que
+                  identifique UNA cuenta: `system_admins` admite varios usuarios
+                  y roles. Hasta que exista, se conserva EXACTAMENTE la protección
+                  previa (nada se abre): este par de guards + la página exige
+                  owner REAL del negocio con `wholesale_portal_enabled`, flag que
+                  sólo un platform admin puede cambiar. */}
               <Route element={<ProtectedRouteByPermission permission="wholesale" />}>
               <Route element={<ProtectedRouteByFeature feature="mayorista" />}>
-                <Route path="/mayorista" element={<Mayorista />} />
                 <Route path="/portal-clic" element={<AdminPortalClic />} />
               </Route>
               </Route>

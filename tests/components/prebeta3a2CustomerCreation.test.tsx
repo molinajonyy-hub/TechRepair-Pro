@@ -1,11 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // PRE-BETA-3A-2 · Alta de cliente canónica + gate Mayorista.
 //
-// Autoridades REALES en juego: `usePermissions` (defaults del rol + overrides)
-// y `resolveEntitlement` (plan / trial → features). Sólo se simulan la sesión
-// (`useAuth`) y el snapshot de suscripción, para poder mover plan y actor.
+// Autoridades REALES en juego: `usePermissions` (defaults del rol + overrides),
+// `resolveEntitlement` (plan / trial → features) y la autoridad central de
+// Mayorista (`useWholesaleAccess`). Sólo se simulan la sesión (`useAuth`) y el
+// snapshot de suscripción, para poder mover plan y actor.
 //
-//   A. Gate Mayorista = feature `mayorista` Y permiso `wholesale`, sin roles.
+//   A. Gate Mayorista = acceso Mayorista: feature `mayorista` (Pro+, trial
+//      incluido) Y (owner | admin | capacidad `wholesale`).
 //   B. Full page y alta rápida: mismas opciones y mismo payload, con y sin gate.
 //   C. Técnico de recepción: orders_create sí, customers no, wholesale no.
 //   D. Mayorista existente sin gate: se conserva, no se convierte ni se borra.
@@ -17,11 +19,12 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 type Plan = { subscription_status: string; subscription_plan: string | null }
-type Actor = { businessId: string; role: string; isOwner: boolean; profile: { permissions: unknown } }
+type Actor = { businessId: string; role: string; isOwner: boolean; hasBusinessAccess: boolean; profile: { permissions: unknown } }
 
 const state = vi.hoisted(() => ({
-  actor: { businessId: 'biz-1', role: 'owner', isOwner: true, profile: { permissions: null } } as Actor,
-  plan: { subscription_status: 'active', subscription_plan: 'full' } as Plan,
+  actor: { businessId: 'biz-1', role: 'owner', isOwner: true, hasBusinessAccess: true, profile: { permissions: null } } as Actor,
+  /** `null` = suscripción sin confirmar (falló la lectura). */
+  plan: { subscription_status: 'active', subscription_plan: 'full' } as Plan | null,
 }))
 
 const mocks = vi.hoisted(() => ({
@@ -36,8 +39,14 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../src/contexts/AuthContext', () => ({ useAuth: () => state.actor }))
 vi.mock('../../src/hooks/useSubscription', async () => {
   const { resolveEntitlement } = await vi.importActual<typeof import('../../src/lib/entitlements')>('../../src/lib/entitlements')
+  type Input = Parameters<typeof resolveEntitlement>[0]
   return {
-    useSubscription: () => ({ hasFeature: resolveEntitlement(state.plan as Parameters<typeof resolveEntitlement>[0]).hasFeature }),
+    useSubscription: () => ({
+      // Sin datos confirmados `useSubscription` resuelve el trial optimista.
+      hasFeature: resolveEntitlement((state.plan ?? { subscription_status: null, subscription_plan: null }) as Input).hasFeature,
+      subscription: state.plan,
+      loading: false,
+    }),
   }
 })
 vi.mock('../../src/services/api', () => ({
@@ -72,11 +81,17 @@ import { Customers } from '../../src/pages/Customers'
 import { NewCustomer } from '../../src/pages/NewCustomer'
 import { NewOrder } from '../../src/pages/NewOrder'
 
-const OWNER: Actor = { businessId: 'biz-1', role: 'owner', isOwner: true, profile: { permissions: null } }
+const OWNER: Actor = { businessId: 'biz-1', role: 'owner', isOwner: true, hasBusinessAccess: true, profile: { permissions: null } }
 const FULL: Plan = { subscription_status: 'active', subscription_plan: 'full' }
 const PRO: Plan = { subscription_status: 'active', subscription_plan: 'pro' }
+const BASICO: Plan = { subscription_status: 'active', subscription_plan: 'basico' }
+const TRIAL: Plan = { subscription_status: 'trialing', subscription_plan: null }
 
-function as(actor: Partial<Actor>, plan: Plan) {
+/** Miembro no owner, con overrides opcionales sobre los defaults de su rol. */
+const member = (role: string, permissions: unknown = null): Partial<Actor> =>
+  ({ role, isOwner: false, profile: { permissions } })
+
+function as(actor: Partial<Actor>, plan: Plan | null) {
   state.actor = { ...OWNER, ...actor }
   state.plan = plan
 }
@@ -129,17 +144,26 @@ function invalidNodes(root: HTMLElement) {
 }
 
 // ── A. Gate Mayorista ────────────────────────────────────────────────────────
-describe('A · gate Mayorista = feature `mayorista` Y permiso `wholesale`', () => {
-  const CASES: Array<{ name: string; actor: Partial<Actor>; plan: Plan; offered: boolean }> = [
-    { name: 'trial + owner (el trial da features Pro)', actor: {}, plan: { subscription_status: 'trialing', subscription_plan: null }, offered: false },
-    { name: 'Pro + owner', actor: {}, plan: PRO, offered: false },
-    { name: 'Básico + owner', actor: {}, plan: { subscription_status: 'active', subscription_plan: 'basico' }, offered: false },
-    { name: 'Full + owner (wholesale por default del rol)', actor: {}, plan: FULL, offered: true },
-    // Sin roles hardcodeados: los overrides mandan en los dos sentidos.
-    { name: 'Full + admin con wholesale=false', actor: { role: 'admin', isOwner: false, profile: { permissions: { wholesale: false } } }, plan: FULL, offered: false },
-    { name: 'Full + tech con wholesale=true', actor: { role: 'tech', isOwner: false, profile: { permissions: { wholesale: true } } }, plan: FULL, offered: true },
-    { name: 'Full + cashier (wholesale=false por default)', actor: { role: 'cashier', isOwner: false }, plan: FULL, offered: false },
+describe('A · gate Mayorista = feature `mayorista` (Pro+) Y (owner | admin | `wholesale`)', () => {
+  const CASES: Array<{ name: string; actor: Partial<Actor>; plan: Plan | null; offered: boolean }> = [
+    // PLAN
+    { name: 'Básico + owner', actor: {}, plan: BASICO, offered: false },
+    { name: 'Pro + owner', actor: {}, plan: PRO, offered: true },
+    { name: 'Full + owner', actor: {}, plan: FULL, offered: true },
+    { name: 'trial + owner (el trial hereda Pro)', actor: {}, plan: TRIAL, offered: true },
     { name: 'Full vencido (sin acceso) + owner', actor: {}, plan: { subscription_status: 'canceled', subscription_plan: 'full' }, offered: false },
+    { name: 'suscripción sin confirmar + owner (fail-closed)', actor: {}, plan: null, offered: false },
+    // ROLES — owner/admin automáticos; el resto sólo con `wholesale`.
+    { name: 'Pro + admin', actor: member('admin'), plan: PRO, offered: true },
+    { name: 'Pro + admin con wholesale=false (automático igual)', actor: member('admin', { wholesale: false }), plan: PRO, offered: true },
+    { name: 'Pro + manager (sin wholesale por default)', actor: member('manager'), plan: PRO, offered: false },
+    { name: 'Pro + manager con wholesale=true', actor: member('manager', { wholesale: true }), plan: PRO, offered: true },
+    { name: 'Pro + sales (sin wholesale por default)', actor: member('sales'), plan: PRO, offered: false },
+    { name: 'Pro + sales con wholesale=true', actor: member('sales', { wholesale: true }), plan: PRO, offered: true },
+    { name: 'Full + tech con wholesale=true', actor: member('tech', { wholesale: true }), plan: FULL, offered: true },
+    { name: 'Full + cashier (wholesale=false por default)', actor: member('cashier'), plan: FULL, offered: false },
+    { name: 'Básico + manager con wholesale=true (sin feature)', actor: member('manager', { wholesale: true }), plan: BASICO, offered: false },
+    { name: 'Pro + owner sin acceso al negocio', actor: { hasBusinessAccess: false }, plan: PRO, offered: false },
   ]
 
   for (const shell of SHELLS) {
@@ -206,7 +230,7 @@ describe('B · paridad de las dos altas, con y sin gate', () => {
   })
 
   it('sin gate: las dos altas sólo crean Minorista y no mandan datos mayoristas', async () => {
-    as({}, PRO)
+    as({}, BASICO)
     const full = await createPlain('full')
     const quick = await createPlain('quick')
     for (const payload of [full, quick]) {
@@ -227,7 +251,7 @@ describe('B · paridad de las dos altas, con y sin gate', () => {
 
       // El negocio baja de plan con el formulario abierto. El próximo render ya
       // no ofrece Mayorista, y el estado viejo tampoco puede colarse al payload.
-      as({}, PRO)
+      as({}, BASICO)
       fireEvent.change(scope.getByLabelText('Teléfono'), { target: { value: '3510000000' } })
       expect(scope.queryByTestId('customer-type-mayorista')).not.toBeInTheDocument()
       expect(scope.queryByLabelText('Razón social')).not.toBeInTheDocument()
@@ -314,8 +338,8 @@ describe('D · un mayorista existente se PRESERVA cuando falta el gate', () => {
   }
 
   const NO_GATE: Array<{ name: string; actor: Partial<Actor>; plan: Plan }> = [
-    { name: 'el negocio bajó a Pro', actor: {}, plan: PRO },
-    { name: 'el actor perdió `wholesale`', actor: { role: 'sales', isOwner: false, profile: { permissions: { wholesale: false } } }, plan: FULL },
+    { name: 'el negocio bajó a Básico', actor: {}, plan: BASICO },
+    { name: 'el actor no tiene `wholesale`', actor: member('sales', { wholesale: false }), plan: FULL },
   ]
 
   for (const scenario of NO_GATE) {
@@ -354,7 +378,7 @@ describe('D · un mayorista existente se PRESERVA cuando falta el gate', () => {
   }
 
   it('un mayorista histórico SIN razón social sigue siendo editable en sus datos comunes', async () => {
-    as({}, PRO)
+    as({}, BASICO)
     const dialog = await editRow({ ...WHOLESALE_ROW, business_name: null, contact_person: null })
     expect(within(dialog).getByTestId('customer-business-name-readonly')).toHaveTextContent('Sin cargar')
 
@@ -377,7 +401,7 @@ describe('D · un mayorista existente se PRESERVA cuando falta el gate', () => {
   })
 
   it('sin gate, un minorista no puede pasar a mayorista', async () => {
-    as({}, PRO)
+    as({}, BASICO)
     const dialog = await editRow({ id: 'c2', name: 'Juan', phone: '351', customer_type: 'minorista' })
     expect(within(dialog).queryByTestId('customer-type-mayorista')).not.toBeInTheDocument()
     expect(within(dialog).queryByTestId('customer-type-locked')).not.toBeInTheDocument()
@@ -477,7 +501,7 @@ describe('E · nada rojo antes de interactuar; el intento revela y no escribe', 
 describe('F · cancelar y reabrir el alta rápida vuelve al estado inicial', () => {
   for (const gate of [true, false]) {
     it(`${gate ? 'con' : 'sin'} gate: valores, tipo, tocados, errores y disclosure limpios`, async () => {
-      as({}, gate ? FULL : PRO)
+      as({}, gate ? FULL : BASICO)
       const { scope, cta, root } = await openShell('quick')
       if (gate) {
         fireEvent.click(scope.getByTestId('customer-type-mayorista'))
