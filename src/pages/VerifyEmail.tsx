@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Mail, Loader2, RefreshCw, CheckCircle2, AlertTriangle, LogOut } from 'lucide-react'
+import { Mail, RefreshCw, CheckCircle2, AlertTriangle, LogOut } from 'lucide-react'
 import {
   useAuth,
   readPendingConfirmationEmail,
   clearPendingConfirmationEmail,
 } from '../contexts/AuthContext'
 import { CONTACTO_SOPORTE } from '../config/contacto'
+import {
+  AuthFlowShell, AuthFlowLoading, AuthFlowActions, AuthFlowNote,
+  AuthFlowPrimaryButton, AuthFlowSecondaryButton, AuthFlowTextButton,
+} from '../components/auth/AuthFlowShell'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EMAIL VERIFICATION P0 — pantalla de correo pendiente.
@@ -16,6 +20,9 @@ import { CONTACTO_SOPORTE } from '../config/contacto'
 //
 // Los estados son un enum cerrado y los textos salen de un mapa: nunca se
 // muestra un mensaje crudo de Supabase ni de Postgres.
+//
+// PRE-BETA-3A-1a — sólo cambió la capa visual (AuthFlowShell). Estados,
+// reenvío, cooldown, salida y navegación son los mismos.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type Estado =
@@ -209,146 +216,89 @@ export function VerifyEmail() {
   }
 
   if (loading) {
-    return (
-      <div style={S.page}>
-        <Loader2 className="animate-spin" size={30} style={{ color: '#6366f1' }} />
-      </div>
-    )
+    return <AuthFlowLoading />
   }
 
   const mensaje = MENSAJE[estado]
   const botonReenvioDeshabilitado = reenviando || cooldown > 0 || !emailObjetivo
 
   return (
-    <div style={S.page} data-testid="verify-email-page">
-      <div style={S.shell}>
-        <div style={S.card}>
-          <div style={S.iconWrap}>
-            <Mail size={30} style={{ color: '#6366f1' }} />
-          </div>
+    <AuthFlowShell
+      testId="verify-email-page"
+      align="center"
+      icon={<Mail size={26} />}
+      title="Confirmá tu correo"
+    >
+      <p
+        style={{ ...S.message, color: TONO_COLOR[mensaje.tono] }}
+        role="status"
+        data-testid="verify-email-estado"
+        data-estado={estado}
+      >
+        {mensaje.texto}
+      </p>
 
-          <h1 style={S.title}>Confirmá tu correo</h1>
+      {emailRedactado && (
+        <p style={S.email} data-testid="verify-email-address">{emailRedactado}</p>
+      )}
 
-          <p
-            style={{ ...S.message, color: TONO_COLOR[mensaje.tono] }}
-            role="status"
-            data-testid="verify-email-estado"
-            data-estado={estado}
-          >
-            {mensaje.texto}
-          </p>
+      <AuthFlowActions layout="stack">
+        <AuthFlowPrimaryButton
+          onClick={handleYaConfirme}
+          loading={verificando}
+          data-testid="verify-email-ya-confirme"
+          leftIcon={<CheckCircle2 size={16} />}
+        >
+          {verificando
+            ? 'Verificando…'
+            : isAuthenticated
+              ? 'Ya confirmé, continuar'
+              : 'Ya confirmé, iniciar sesión'}
+        </AuthFlowPrimaryButton>
 
-          {emailRedactado && (
-            <p style={S.email} data-testid="verify-email-address">{emailRedactado}</p>
-          )}
+        <AuthFlowSecondaryButton
+          onClick={handleReenviar}
+          disabled={botonReenvioDeshabilitado}
+          loading={reenviando}
+          data-testid="verify-email-reenviar"
+          leftIcon={<RefreshCw size={16} />}
+        >
+          {reenviando
+            ? 'Enviando…'
+            : cooldown > 0
+              ? `Reenviar en ${cooldown}s`
+              : 'Reenviar correo'}
+        </AuthFlowSecondaryButton>
 
-          <div style={S.actions}>
-            <button
-              type="button"
-              onClick={handleYaConfirme}
-              disabled={verificando}
-              data-testid="verify-email-ya-confirme"
-              style={{ ...S.primary, opacity: verificando ? 0.6 : 1, cursor: verificando ? 'wait' : 'pointer' }}
-            >
-              {verificando
-                ? <><Loader2 size={16} className="animate-spin" /> Verificando…</>
-                : isAuthenticated
-                  ? <><CheckCircle2 size={16} /> Ya confirmé, continuar</>
-                  : <><CheckCircle2 size={16} /> Ya confirmé, iniciar sesión</>}
-            </button>
+        <AuthFlowTextButton
+          onClick={handleSalir}
+          data-testid="verify-email-salir"
+          leftIcon={<LogOut size={15} />}
+        >
+          {isAuthenticated ? 'Cerrar sesión / usar otra cuenta' : 'Usar otra cuenta'}
+        </AuthFlowTextButton>
+      </AuthFlowActions>
 
-            <button
-              type="button"
-              onClick={handleReenviar}
-              disabled={botonReenvioDeshabilitado}
-              data-testid="verify-email-reenviar"
-              style={{
-                ...S.secondary,
-                opacity: botonReenvioDeshabilitado ? 0.55 : 1,
-                cursor: botonReenvioDeshabilitado ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {reenviando
-                ? <><Loader2 size={16} className="animate-spin" /> Enviando…</>
-                : cooldown > 0
-                  ? <><RefreshCw size={16} /> Reenviar en {cooldown}s</>
-                  : <><RefreshCw size={16} /> Reenviar correo</>}
-            </button>
+      <AuthFlowNote>
+        <AlertTriangle size={13} aria-hidden="true" />
+        Si no lo ves, revisá la carpeta de spam o correo no deseado.
+      </AuthFlowNote>
 
-            <button
-              type="button"
-              onClick={handleSalir}
-              data-testid="verify-email-salir"
-              style={S.ghost}
-            >
-              <LogOut size={15} /> {isAuthenticated ? 'Cerrar sesión / usar otra cuenta' : 'Usar otra cuenta'}
-            </button>
-          </div>
-
-          <p style={S.hint}>
-            <AlertTriangle size={13} style={{ verticalAlign: '-2px', marginRight: '0.35rem' }} />
-            Si no lo ves, revisá la carpeta de spam o correo no deseado.
-          </p>
-
-          {MUESTRA_SOPORTE.has(estado) && (
-            <p style={S.hint} data-testid="verify-email-soporte">
-              Si sigue sin llegar, escribinos a{' '}
-              <a href={`mailto:${CONTACTO_SOPORTE}`} style={{ color: '#6366f1', fontWeight: 600 }}>{CONTACTO_SOPORTE}</a>.
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
+      {MUESTRA_SOPORTE.has(estado) && (
+        <AuthFlowNote testId="verify-email-soporte">
+          Si sigue sin llegar, escribinos a{' '}
+          <a href={`mailto:${CONTACTO_SOPORTE}`}>{CONTACTO_SOPORTE}</a>.
+        </AuthFlowNote>
+      )}
+    </AuthFlowShell>
   )
 }
 
 // ── Estilos ──────────────────────────────────────────────────────────────────
-// Mismos tokens de tema que Login: la pantalla acompaña light y dark sin ramas.
+// Sólo lo propio de esta pantalla: el marco, la tarjeta y los botones son los
+// de AuthFlowShell. Tokens de tema: acompaña light y dark sin ramas.
 
 const S = {
-  page: {
-    minHeight: '100dvh',
-    background: 'var(--auth-bg)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '1.5rem',
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  } as const,
-
-  shell: { width: '100%', maxWidth: '420px' } as const,
-
-  card: {
-    background: 'var(--auth-card-bg)',
-    backdropFilter: 'blur(24px)',
-    WebkitBackdropFilter: 'blur(24px)',
-    border: '1px solid var(--border-color)',
-    borderRadius: '1.5rem',
-    padding: 'clamp(1.75rem, 5vw, 2.5rem)',
-    boxShadow: 'var(--shadow-xl)',
-    textAlign: 'center',
-  } as const,
-
-  iconWrap: {
-    width: '64px',
-    height: '64px',
-    borderRadius: '1.125rem',
-    background: 'rgba(99,102,241,0.12)',
-    border: '1px solid rgba(99,102,241,0.25)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    margin: '0 auto 1.25rem',
-  } as const,
-
-  title: {
-    margin: '0 0 0.625rem',
-    fontSize: '1.35rem',
-    fontWeight: 800,
-    letterSpacing: '-0.02em',
-    color: 'var(--text-primary)',
-  } as const,
-
   message: {
     margin: '0 0 0.5rem',
     fontSize: '0.9rem',
@@ -361,66 +311,5 @@ const S = {
     fontWeight: 600,
     color: 'var(--text-primary)',
     wordBreak: 'break-all',
-  } as const,
-
-  actions: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '0.625rem',
-  } as const,
-
-  primary: {
-    width: '100%',
-    padding: '0.875rem',
-    background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-    border: 'none',
-    borderRadius: '0.875rem',
-    // PRE-BETA-3A-0: token invariante; un `#fff` inline se remapea a texto
-    // oscuro en light mode.
-    color: 'var(--text-on-accent)',
-    fontWeight: 700,
-    fontSize: '0.9rem',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '0.5rem',
-    boxShadow: '0 4px 16px rgba(99,102,241,0.35)',
-  } as const,
-
-  secondary: {
-    width: '100%',
-    padding: '0.8rem',
-    background: 'transparent',
-    border: '1px solid var(--border-color)',
-    borderRadius: '0.875rem',
-    color: 'var(--text-secondary)',
-    fontWeight: 600,
-    fontSize: '0.875rem',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '0.5rem',
-  } as const,
-
-  ghost: {
-    width: '100%',
-    padding: '0.6rem',
-    background: 'transparent',
-    border: 'none',
-    color: 'var(--text-muted)',
-    fontWeight: 600,
-    fontSize: '0.8rem',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '0.4rem',
-  } as const,
-
-  hint: {
-    margin: '1.25rem 0 0',
-    fontSize: '0.75rem',
-    color: 'var(--text-muted)',
-    lineHeight: 1.5,
   } as const,
 }

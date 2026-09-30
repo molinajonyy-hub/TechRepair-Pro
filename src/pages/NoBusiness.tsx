@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Building2, Plus, Loader2, AlertTriangle, Mail, Lock, LogOut } from 'lucide-react';
+import { RefreshCw, Building2, Plus, AlertTriangle, Mail, Lock, LogOut } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { provisionMyBusiness } from '../services/provisioningService';
 import { peekInviteToken, acceptInviteePath } from '../lib/pendingInvite';
 import { logger } from '../lib/logger';
-import { colors } from '../lib/tokens';
 import { CONTACTO_SOPORTE } from '../config/contacto';
+import {
+  AuthFlowShell, AuthFlowLoading, AuthFlowForm, AuthFlowField, AuthFlowError,
+  AuthFlowActions, AuthFlowPrimaryButton, AuthFlowSecondaryButton, AuthFlowTextButton,
+} from '../components/auth/AuthFlowShell';
 
 /**
  * P0-P4 — Recovery explícito para un usuario autenticado y confirmado que
@@ -30,6 +33,10 @@ import { CONTACTO_SOPORTE } from '../config/contacto';
  * La diferencia entre B y C es la que evita fabricar negocios duplicados a
  * partir de un corte de red: `authState === 'AUTH_ERROR'` significa «no pudimos
  * averiguar si tenés negocio», no «no tenés».
+ *
+ * PRE-BETA-3A-1a — sólo cambió la capa visual: marco, tarjeta y botones vienen
+ * de AuthFlowShell. Los estados, el ORDEN de las ramas, los handlers y los
+ * `data-testid` son los mismos.
  */
 export function NoBusiness() {
   const {
@@ -126,43 +133,9 @@ export function NoBusiness() {
     }
   };
 
-  const card: React.CSSProperties = {
-    width: '100%', maxWidth: 460,
-    background: 'var(--auth-card-bg)', border: '1px solid var(--border-color)',
-    borderRadius: 22, padding: '2.25rem',
-    boxShadow: '0 4px 6px rgba(0,0,0,0.1), 0 24px 48px rgba(0,0,0,0.2)',
-  };
-
-  const shell = (hijo: React.ReactNode) => (
-    <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--auth-bg)', padding: '1.25rem' }}>
-      <div style={card}>{hijo}</div>
-    </div>
-  );
-
-  const inputStyle: React.CSSProperties = {
-    width: '100%', boxSizing: 'border-box', padding: '12px 15px', fontSize: '0.95rem',
-    background: 'var(--input-bg)', border: '1.5px solid var(--input-border)',
-    borderRadius: 12, color: 'var(--text-primary)',
-  };
-
-  const primaryStyle: React.CSSProperties = {
-    width: '100%', padding: '14px',
-    background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-    // PRE-BETA-3A-0: token invariante; un `#fff` inline se remapea a texto
-    // oscuro en light mode.
-    border: 'none', borderRadius: 12, color: 'var(--text-on-accent)', fontWeight: 700, fontSize: '0.95rem',
-    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-  };
-
   // ── Espera: no se decide nada todavía ────────────────────────────────────
   if (esperando) {
-    return shell(
-      <div data-testid="no-business-loading" style={{ textAlign: 'center', padding: '1rem 0' }}>
-        <Loader2 size={32} style={{ color: '#6366f1', animation: 'tr-spin 0.8s linear infinite' }} />
-        <p style={{ marginTop: '1rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>Cargando tu negocio...</p>
-        <style>{`@keyframes tr-spin { to { transform: rotate(360deg); } }`}</style>
-      </div>
-    );
+    return <AuthFlowLoading label="Cargando tu negocio..." testId="no-business-loading" />;
   }
 
   // ── D. Perfil desactivado: estado TERMINAL (PRE-BETA-2D) ─────────────────
@@ -173,150 +146,144 @@ export function NoBusiness() {
   // aceptando otra cosa ni creando un negocio. La autoridad sigue siendo el
   // servidor (`is_active` + RLS); esta pantalla sólo lo explica.
   if (authState === 'AUTH_ERROR' && profileErrorKind === 'inactive') {
-    return shell(
-      <div data-testid="no-business-inactive" style={{ textAlign: 'center' }}>
-        <div style={{ width: 64, height: 64, borderRadius: '50%', background: colors.warningBg, border: `2px solid ${colors.warningBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}>
-          <Lock size={28} style={{ color: colors.warning }} />
-        </div>
-        <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-          Tu acceso a este negocio está desactivado
-        </h1>
-        <p style={{ margin: '0 0 0.75rem', color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.6 }}>
-          Un administrador del negocio desactivó tu usuario. Si creés que es un error, pedile que te vuelva a habilitar.
-        </p>
-        <p style={{ margin: '0 0 1.5rem', color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: 1.6 }}>
-          Si sos el titular del negocio, escribinos a{' '}
-          <a href={`mailto:${CONTACTO_SOPORTE}`} style={{ color: colors.indigo, fontWeight: 600 }}>{CONTACTO_SOPORTE}</a>.
-        </p>
-        <button data-testid="no-business-inactive-salir" onClick={() => void handleSignOut()} disabled={loading} style={{ ...primaryStyle, opacity: loading ? 0.6 : 1 }}>
-          <LogOut size={16} />
+    return (
+      <AuthFlowShell
+        cardTestId="no-business-inactive"
+        align="center"
+        tone="warning"
+        icon={<Lock size={26} />}
+        title="Tu acceso a este negocio está desactivado"
+        description={
+          <>
+            <p>Un administrador del negocio desactivó tu usuario. Si creés que es un error, pedile que te vuelva a habilitar.</p>
+            <p>
+              Si sos el titular del negocio, escribinos a{' '}
+              <a href={`mailto:${CONTACTO_SOPORTE}`}>{CONTACTO_SOPORTE}</a>.
+            </p>
+          </>
+        }
+      >
+        <AuthFlowPrimaryButton
+          data-testid="no-business-inactive-salir"
+          onClick={() => void handleSignOut()}
+          disabled={loading}
+          leftIcon={<LogOut size={16} />}
+        >
           Cerrar sesión
-        </button>
-      </div>
+        </AuthFlowPrimaryButton>
+      </AuthFlowShell>
     );
   }
 
   // ── A. Invitación vigente ────────────────────────────────────────────────
   if (invitacionPendiente) {
     const token = peekInviteToken();
-    return shell(
-      <div data-testid="no-business-invitation" style={{ textAlign: 'center' }}>
-        <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(99,102,241,0.12)', border: '2px solid rgba(99,102,241,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}>
-          <Mail size={28} style={{ color: '#818cf8' }} />
-        </div>
-        <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-          Tenés una invitación pendiente
-        </h1>
-        <p style={{ margin: '0 0 1.5rem', color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.6 }}>
-          Te invitaron a un negocio existente. Aceptala para entrar a ese equipo en vez de crear uno nuevo.
-        </p>
-        <button
-          data-testid="no-business-aceptar-invitacion"
-          onClick={() => navigate(token ? acceptInviteePath(token) : '/accept-invite')}
-          style={primaryStyle}
-        >
-          Aceptar la invitación
-        </button>
-        <button onClick={() => setInvitacionPendiente(false)} style={{ marginTop: '0.875rem', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.8rem', cursor: 'pointer' }}>
-          No es para mí, quiero crear mi propio negocio
-        </button>
-      </div>
+    return (
+      <AuthFlowShell
+        cardTestId="no-business-invitation"
+        align="center"
+        icon={<Mail size={26} />}
+        title="Tenés una invitación pendiente"
+        description="Te invitaron a un negocio existente. Aceptala para entrar a ese equipo en vez de crear uno nuevo."
+      >
+        <AuthFlowActions layout="stack">
+          <AuthFlowPrimaryButton
+            data-testid="no-business-aceptar-invitacion"
+            onClick={() => navigate(token ? acceptInviteePath(token) : '/accept-invite')}
+          >
+            Aceptar la invitación
+          </AuthFlowPrimaryButton>
+          <AuthFlowTextButton onClick={() => setInvitacionPendiente(false)}>
+            No es para mí, quiero crear mi propio negocio
+          </AuthFlowTextButton>
+        </AuthFlowActions>
+      </AuthFlowShell>
     );
   }
 
   // ── C. Estado inconsistente: reintentar, NUNCA crear ─────────────────────
   if (authState === 'AUTH_ERROR') {
     const esVinculo = profileErrorKind === 'link_failed';
-    return shell(
-      <div data-testid="no-business-error" style={{ textAlign: 'center' }}>
-        <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(251,191,36,0.12)', border: '2px solid rgba(251,191,36,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}>
-          <AlertTriangle size={28} style={{ color: '#fbbf24' }} />
-        </div>
-        <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.35rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-          No pudimos cargar tu negocio
-        </h1>
-        <p style={{ margin: '0 0 1.5rem', color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.6 }}>
-          {esVinculo
-            ? 'Tu cuenta existe pero no pudimos vincularla a su negocio. Escribinos y lo resolvemos.'
-            : 'Puede ser un problema de conexión. Probá de nuevo en unos segundos.'}
-        </p>
+    return (
+      <AuthFlowShell
+        cardTestId="no-business-error"
+        align="center"
+        tone="warning"
+        icon={<AlertTriangle size={26} />}
+        title="No pudimos cargar tu negocio"
+        description={esVinculo
+          ? 'Tu cuenta existe pero no pudimos vincularla a su negocio. Escribinos y lo resolvemos.'
+          : 'Puede ser un problema de conexión. Probá de nuevo en unos segundos.'}
+      >
         {/* A propósito NO se ofrece «crear negocio» acá: no sabemos si el usuario
             ya tiene uno, y crear otro sería duplicar su tenant. */}
-        <button data-testid="no-business-reintentar" onClick={() => void handleRefresh()} disabled={loading} style={{ ...primaryStyle, opacity: loading ? 0.6 : 1 }}>
-          {loading ? <Loader2 size={16} style={{ animation: 'tr-spin 0.8s linear infinite' }} /> : <RefreshCw size={16} />}
-          Reintentar
-        </button>
-        <style>{`@keyframes tr-spin { to { transform: rotate(360deg); } }`}</style>
-        <button onClick={() => void handleSignOut()} style={{ marginTop: '0.875rem', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.8rem', cursor: 'pointer' }}>
-          Cerrar sesión
-        </button>
-      </div>
+        <AuthFlowActions layout="stack">
+          <AuthFlowPrimaryButton
+            data-testid="no-business-reintentar"
+            onClick={() => void handleRefresh()}
+            loading={loading}
+            leftIcon={<RefreshCw size={16} />}
+          >
+            Reintentar
+          </AuthFlowPrimaryButton>
+          <AuthFlowTextButton onClick={() => void handleSignOut()}>
+            Cerrar sesión
+          </AuthFlowTextButton>
+        </AuthFlowActions>
+      </AuthFlowShell>
     );
   }
 
   // ── B. Owner sin negocio: alta EXPLÍCITA ─────────────────────────────────
-  return shell(
-    <div data-testid="no-business-create">
-      <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
-        <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(99,102,241,0.12)', border: '2px solid rgba(99,102,241,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' }}>
-          <Building2 size={28} style={{ color: '#818cf8' }} />
-        </div>
-        <h1 style={{ margin: '0 0 0.5rem', fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>
-          Creá tu taller
-        </h1>
-        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.6 }}>
-          {user?.email
-            ? <>Tu cuenta <strong style={{ color: 'var(--text-primary)' }}>{user.email}</strong> todavía no tiene un negocio.</>
-            : 'Tu cuenta todavía no tiene un negocio.'}
-        </p>
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <div>
-          <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
-            Nombre del negocio
-          </label>
+  return (
+    <AuthFlowShell
+      cardTestId="no-business-create"
+      align="center"
+      icon={<Building2 size={26} />}
+      title="Creá tu taller"
+      description={user?.email
+        ? <>Tu cuenta <strong>{user.email}</strong> todavía no tiene un negocio.</>
+        : 'Tu cuenta todavía no tiene un negocio.'}
+    >
+      <AuthFlowForm>
+        <AuthFlowField label="Nombre del negocio" htmlFor="no-business-name">
           <input
+            id="no-business-name"
             data-testid="no-business-name"
+            className="form-control"
             autoFocus
+            autoComplete="organization"
             value={businessName}
             onChange={e => setBusinessName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && void handleCreateBusiness()}
             placeholder="Ej: Tecno Reparaciones"
-            style={inputStyle}
           />
-        </div>
+        </AuthFlowField>
 
-        {error && (
-          <p data-testid="no-business-error" role="alert" style={{ margin: 0, color: '#ef4444', fontSize: '0.82rem' }}>{error}</p>
-        )}
+        {error && <AuthFlowError testId="no-business-error">{error}</AuthFlowError>}
 
-        <button
+        <AuthFlowPrimaryButton
           data-testid="no-business-crear"
           onClick={() => void handleCreateBusiness()}
-          disabled={loading}
-          style={{ ...primaryStyle, opacity: loading ? 0.6 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}
+          loading={loading}
+          leftIcon={<Plus size={16} />}
         >
-          {loading
-            ? <Loader2 size={16} style={{ animation: 'tr-spin 0.8s linear infinite' }} />
-            : <Plus size={16} />}
           {loading ? 'Creando...' : 'Crear mi taller'}
-        </button>
-        <style>{`@keyframes tr-spin { to { transform: rotate(360deg); } }`}</style>
+        </AuthFlowPrimaryButton>
 
-        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem' }}>
-          <button onClick={() => void handleRefresh()} disabled={loading} style={{ flex: 1, padding: '10px', background: 'var(--input-bg)', border: '1px solid var(--border-color)', borderRadius: 10, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' }}>
+        <AuthFlowActions layout="pair">
+          <AuthFlowSecondaryButton onClick={() => void handleRefresh()} disabled={loading}>
             Actualizar
-          </button>
-          <button onClick={() => navigate('/accept-invite')} style={{ flex: 1, padding: '10px', background: 'var(--input-bg)', border: '1px solid var(--border-color)', borderRadius: 10, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' }}>
+          </AuthFlowSecondaryButton>
+          <AuthFlowSecondaryButton onClick={() => navigate('/accept-invite')}>
             Tengo una invitación
-          </button>
-        </div>
+          </AuthFlowSecondaryButton>
+        </AuthFlowActions>
 
-        <button onClick={() => void handleSignOut()} style={{ background: 'none', border: 'none', color: 'var(--text-subtle)', fontSize: '0.78rem', cursor: 'pointer', marginTop: '0.25rem' }}>
+        <AuthFlowTextButton onClick={() => void handleSignOut()}>
           Cerrar sesión
-        </button>
-      </div>
-    </div>
+        </AuthFlowTextButton>
+      </AuthFlowForm>
+    </AuthFlowShell>
   );
 }

@@ -359,8 +359,8 @@ describe('F · onboarding como configuración', () => {
     fireEvent.click(screen.getByTestId('onboarding-step3-submit'))
     await waitFor(() => expect(screen.getByTestId('onboarding-cuit')).toBeTruthy())
     fireEvent.click(screen.getByTestId('onboarding-step4-submit'))
-    await waitFor(() => expect(screen.getByTestId('onboarding-step5-submit')).toBeTruthy())
-    fireEvent.click(screen.getByTestId('onboarding-step5-submit'))
+    // PRE-BETA-3A-1a: el paso fiscal es el último; sin trial en el medio, el
+    // siguiente es el estado final.
     await waitFor(() => expect(screen.getByTestId('onboarding-finish')).toBeTruthy())
 
     const antes = estado.llamadas.filter(l => l.nombre === 'get_my_profile').length
