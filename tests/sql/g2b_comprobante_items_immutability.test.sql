@@ -371,23 +371,47 @@ END $$;
 -- 15 · el period lock del ORIGEN no se puede evadir moviendo la linea.
 -- Con el reparenting cerrado la evasion es inexpresable; ademas se comprueba
 -- que el period lock efectivamente aplica sobre `comprobante_items` (G2-P1-C).
+--
+-- FECHA DEL FIXTURE, timezone-safe. Antes era `(ar_today() - 60)::timestamptz`:
+-- el cast implicito date -> timestamptz usa la timezone de la SESION (UTC en CI)
+-- y la fecha economica se calcula `AT TIME ZONE 'America/Argentina/Cordoba'`.
+-- Si `ar_today() - 60` caia un dia 1 (el 2026-09-30 daba 2026-08-01), el
+-- comprobante quedaba el 31 del mes ANTERIOR mientras se cerraba el otro mes y
+-- el UPDATE pasaba: rojo falso. Ahora: dia 15 de un mes ya terminado, el instante
+-- se arma explicitamente en hora de Cordoba y la MISMA fecha va al comprobante y
+-- al cierre. Las aserciones previas al UPDATE hacen imposible otro falso diagnostico.
 DO $$
-DECLARE v_res text; v_item uuid;
+DECLARE v_res text; v_item uuid; v_cierre jsonb;
+        v_fecha date := (date_trunc('month', public.ar_today()::timestamp)
+                         - interval '2 months' + interval '14 days')::date;
 BEGIN
+  -- close_period y comprobante_impacto_economico resuelven el actor por auth.uid().
+  PERFORM set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000b209', true);
+
   -- Borrador limpio con fecha en un periodo que se cierra.
   INSERT INTO comprobantes(id, business_id, tipo, estado, estado_fiscal, estado_comercial,
                            numero, fecha, total, total_cobrado, saldo_pendiente)
     VALUES ('00000000-0000-0000-0000-00000000b2f3','00000000-0000-0000-0000-00000000b201',
             'remito','borrador','no_fiscal','pendiente','CERRADO-1',
-            (public.ar_today() - 60)::timestamptz, 0, 0, 0);
+            (v_fecha::timestamp AT TIME ZONE 'America/Argentina/Cordoba'), 0, 0, 0);
   INSERT INTO comprobante_items(comprobante_id, business_id, descripcion, tipo_linea,
                                 cantidad, precio_unitario, subtotal)
     VALUES ('00000000-0000-0000-0000-00000000b2f3','00000000-0000-0000-0000-00000000b201',
             'Linea vieja','producto',1,100,100)
     RETURNING id INTO v_item;
 
-  PERFORM public.close_period('00000000-0000-0000-0000-00000000b201'::uuid,
-                              (public.ar_today() - 60));
+  -- close_period DEVUELVE {ok:false} en vez de lanzar: se verifica el resultado.
+  v_cierre := public.close_period('00000000-0000-0000-0000-00000000b201'::uuid, v_fecha);
+  PERFORM pg_temp.assert(COALESCE((v_cierre->>'ok')::boolean, false),
+    format('G2-P1-C · fixture: close_period cerro el periodo de %s (%s)', v_fecha, v_cierre));
+  PERFORM pg_temp.assert(
+    public.is_period_closed('00000000-0000-0000-0000-00000000b201'::uuid, v_fecha),
+    format('G2-P1-C · fixture: el periodo de %s quedo cerrado', v_fecha));
+  PERFORM pg_temp.assert(
+    (SELECT i.fecha_economica
+       FROM public.comprobante_impacto_economico('00000000-0000-0000-0000-00000000b201'::uuid,
+                                                 '00000000-0000-0000-0000-00000000b2f3'::uuid) i) = v_fecha,
+    format('G2-P1-C · fixture: la fecha economica del comprobante es %s, la misma que se cerro', v_fecha));
 
   v_res := pg_temp.como_authenticated('00000000-0000-0000-0000-00000000b209'::uuid,
     format('UPDATE comprobante_items SET cantidad = 9 WHERE id = %L', v_item));

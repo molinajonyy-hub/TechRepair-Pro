@@ -147,14 +147,16 @@ test('@m7 1. owner nuevo: recovery -> onboarding -> dashboard, 1 solo business',
   await page.click('[data-testid="onboarding-step3-submit"]')
 
   await page.waitForSelector('[data-testid="onboarding-cuit"]', { timeout: 25_000 })
+  await expect(page.getByTestId('onboarding-progress-label')).toHaveText('Paso 4 de 4')
   await page.click('[data-testid="onboarding-cond-monotributo"]')
   await page.fill('[data-testid="onboarding-cuit"]', '20123456789')
   await page.click('[data-testid="onboarding-step4-submit"]')
 
-  await page.waitForSelector('[data-testid="onboarding-step5-submit"]', { timeout: 25_000 })
-  await page.click('[data-testid="onboarding-step5-submit"]')
-
+  // PRE-BETA-3A-1a: el paso fiscal es el último. Sin trial en el medio, lo
+  // siguiente es el estado final, que no vende planes ni repite «Primeros pasos».
   await page.waitForSelector('[data-testid="onboarding-finish"]', { timeout: 25_000 })
+  await expect(page.getByTestId('onboarding-progress-label')).toHaveText('Configuración completa')
+  await expect(page.getByTestId('onboarding-done')).not.toContainText(/Trial|14 días|plan/i)
   await page.click('[data-testid="onboarding-finish"]')
   await page.waitForURL(/\/dashboard/, { timeout: 25_000 })
 

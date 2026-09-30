@@ -80,6 +80,13 @@ jobs:
       - name: PRE-BETA-3A-0 — beta UX and capability guardrails
         run: npm run test:prebeta3a0
 
+      # PRE-BETA-3A-1a: onboarding de configuración (4 pasos + final, sin trial ni
+      # checklist propio) y shell compartido de /verificar-email, /no-business y
+      # /onboarding. Suma el guard del perfil canónico del negocio y las suites
+      # de routing/onboarding (P0-P4/P5) y de provisioning, que no corrían en CI.
+      - name: PRE-BETA-3A-1a — onboarding + post-login shell
+        run: npm run test:prebeta3a1a
+
       # P0-P1: invariantes de provisioning. Es estático —lee migraciones y
       # `src/`— así que no necesita DB ni credenciales y puede correr acá, en
       # PRs y en forks. El self-test va primero: un guard que no puede fallar no

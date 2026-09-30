@@ -108,6 +108,7 @@ import { effectivePermissions } from '../../src/hooks/usePermissions'
 import { ALL_PERMISSIONS } from '../../src/config/permissions'
 import { PLAN_FEATURES, TRIAL_FEATURES, type PlanFeature, type PlanFeatureSet } from '../../src/config/planFeatures'
 import { S as authStyles } from '../../src/components/auth/authCardStyles'
+import { AuthFlowPrimaryButton } from '../../src/components/auth/AuthFlowShell'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const leer = (rel: string) => readFileSync(join(here, '../../', rel), 'utf8')
@@ -410,35 +411,62 @@ describe('A1 · CTAs del embudo con --text-on-accent (inmunes al remapeo light)'
     expect(authStyles.tab(true, false).color).toBe('var(--text-on-accent)')
   })
 
+  // PRE-BETA-3A-1a: VerifyEmail, NoBusiness y Onboarding ya no definen sus CTAs
+  // inline: usan AuthFlowPrimaryButton (AppButton `indigo`), cuyo blanco viene
+  // de la CLASE `.btn-fill-indigo`. El remapeo de light mode sólo matchea el
+  // atributo `style`, así que el contrato («inmune al remapeo») se mide ahora
+  // sobre el primitivo compartido y sobre su uso, no sobre un literal por página.
   it.each([
     'src/components/auth/authCardStyles.ts',
+    'src/components/auth/AuthFlowShell.tsx',
     'src/pages/VerifyEmail.tsx',
     'src/pages/NoBusiness.tsx',
     'src/pages/Onboarding.tsx',
   ])('%s no vuelve a `#fff` inline', (rel) => {
     const src = leer(rel)
     expect(src).not.toMatch(/color:\s*['"](#fff|#ffffff|white)['"]/i)
-    expect(src).toContain("'var(--text-on-accent)'")
   })
 
-  it('Onboarding: estilo base + los 3 primarios inline (pasos 2, 3 y 4) usan el token', () => {
-    const src = leer('src/pages/Onboarding.tsx')
-    for (const paso of ['step2', 'step3', 'step4']) {
-      const linea = src.split('\n').find(l => l.includes(`data-testid="onboarding-${paso}-submit"`)) ?? ''
-      expect(linea, `paso ${paso}`).toContain("color: 'var(--text-on-accent)'")
+  it('authCardStyles conserva el token (Login y /reset-password siguen usándolo)', () => {
+    expect(leer('src/components/auth/authCardStyles.ts')).toContain("'var(--text-on-accent)'")
+  })
+
+  it('el CTA primario del shell pinta el blanco por CLASE: ningún patrón del remapeo lo alcanza', () => {
+    render(<AuthFlowPrimaryButton data-testid="cta">Continuar</AuthFlowPrimaryButton>)
+    const cta = screen.getByTestId('cta')
+    expect(cta.className).toContain('btn-fill-indigo')
+    const estilo = cta.getAttribute('style') ?? ''
+    expect(patrones.some(p => estilo.includes(p))).toBe(false)
+    // …y la clase declara blanco en una regla que no depende del tema.
+    expect(css).toMatch(/\n\.btn-fill-indigo\s*\{[^}]*color:\s*#fff;/)
+    expect(css).not.toMatch(/\[data-theme="light"\][^{]*\.btn-fill-indigo/)
+  })
+
+  it.each([
+    ['src/pages/Onboarding.tsx', ['onboarding-step1-submit', 'onboarding-step2-submit', 'onboarding-step3-submit', 'onboarding-step4-submit', 'onboarding-finish', 'onboarding-ir-dashboard']],
+    ['src/pages/NoBusiness.tsx', ['no-business-crear', 'no-business-reintentar', 'no-business-aceptar-invitacion', 'no-business-inactive-salir']],
+    ['src/pages/VerifyEmail.tsx', ['verify-email-ya-confirme']],
+  ] as const)('%s: cada CTA primario del embudo usa AuthFlowPrimaryButton', (rel, testIds) => {
+    const src = leer(rel)
+    for (const id of testIds) {
+      const i = src.indexOf(`data-testid="${id}"`)
+      expect(i, `${id} no está en ${rel}`).toBeGreaterThan(-1)
+      // El testid pertenece al elemento abierto más cercano hacia atrás.
+      const apertura = src.lastIndexOf('<', i)
+      expect(src.slice(apertura, apertura + 22), id).toBe('<AuthFlowPrimaryButton')
     }
-    expect(src).toMatch(/OB_BTN_PRIMARY_STYLE[\s\S]{0,400}color: 'var\(--text-on-accent\)'/)
   })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe('A2 / D2 · Mi Guita no se promete', () => {
-  it('el listado del trial del onboarding no menciona Mi Guita', () => {
+  it('el onboarding no menciona Mi Guita (y ya no tiene paso de trial)', () => {
     const src = leer('src/pages/Onboarding.tsx')
-    const lista = src.slice(src.indexOf('const TRIAL_FEATURES_LIST'), src.indexOf(']', src.indexOf('const TRIAL_FEATURES_LIST')))
-    expect(lista).not.toMatch(/Mi Guita/i)
-    // El paso del trial sigue existiendo: sale del onboarding recién en 3A-1a.
-    expect(src).toContain('data-testid="onboarding-step5-submit"')
+    expect(src).not.toMatch(/Mi Guita/i)
+    // PRE-BETA-3A-1a sacó el paso del trial del onboarding: con él se fueron
+    // la lista de features y su CTA. Lo cubre en detalle prebeta3a1aOnboardingShell.
+    expect(src).not.toContain('TRIAL_FEATURES_LIST')
+    expect(src).not.toContain('onboarding-step5-submit')
   })
 
   it('la landing usa el texto aprobado y no nombra Mi Guita en pricing', () => {
