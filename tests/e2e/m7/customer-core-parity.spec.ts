@@ -167,11 +167,16 @@ test.describe('@customer-core UI-CONSISTENCY-1 · paridad entre superficies de a
     await expect(page.getByTestId('customer-name-input')).toHaveValue(name)
 
     await page.getByTestId('customer-type-mayorista').click()
-    // El gate que faltaba: sin razón social, no se guarda.
-    await expect(page.getByTestId('customer-edit-save-button')).toBeDisabled()
+    // El gate que faltaba: sin razón social, no se guarda. PRE-BETA-3A-2: el
+    // CTA no se deshabilita por validación; el intento revela el motivo.
+    await expect(page.getByTestId('customer-edit-save-button')).toBeEnabled()
+    await page.getByTestId('customer-edit-save-button').click()
+    await expect(page.getByText('Un cliente mayorista necesita razón social.')).toBeVisible()
+    await expect(page.getByText('Editar Cliente')).toBeVisible()
+    expect(readCustomer(name).customer_type).toBe('minorista')
 
     await page.getByTestId('customer-business-name-input').fill('Editada SRL')
-    await expect(page.getByTestId('customer-edit-save-button')).toBeEnabled()
+    await expect(page.getByText('Un cliente mayorista necesita razón social.')).toHaveCount(0)
     await page.getByTestId('customer-edit-save-button').click()
 
     await expect(page.getByText('Editar Cliente')).not.toBeVisible()
@@ -241,7 +246,8 @@ test.describe('@customer-core CUSTOMER-CREATION-PARITY-1A · responsive y tema',
         await expectReachable(fullCta)
         const fullActionPosition = await page.getByTestId('mobile-action-bar').evaluate((element) => getComputedStyle(element).position)
         expect(fullActionPosition).toBe(width < 1024 ? 'fixed' : 'static')
-        await expectTouchTargets(page.locator('.customer-create-page .customer-create-fields input, .customer-create-page .customer-create-fields textarea, .customer-create-page .customer-create-fields button, .customer-create-page .page-hdr-right .btn, .customer-create-page [data-testid="customer-save-button"]'))
+        // PRE-BETA-3A-2: el header es AppPageHeader (`.page-top`), no `.page-hdr`.
+        await expectTouchTargets(page.locator('.customer-create-page .customer-create-fields input, .customer-create-page .customer-create-fields textarea, .customer-create-page .customer-create-fields button, .customer-create-page .page-top .btn, .customer-create-page [data-testid="customer-save-button"]'))
 
         await page.goto('/orders/new')
         const trigger = page.getByRole('button', { name: 'Crear cliente rápido' })
@@ -283,15 +289,22 @@ test.describe('@customer-core CUSTOMER-CREATION-PARITY-1A · validación y tecla
   test.beforeEach(() => cleanup())
   test.afterAll(() => cleanup())
 
+  // PRE-BETA-3A-2 — el error se muestra al salir del campo (no mientras se
+  // tipea) y el intento de envío lo bloquea sin CTA muerto.
   test('el email vacío es válido y el inválido muestra el mismo error en ambos shells', async ({ page }) => {
     await page.goto('/customers/new')
     await page.getByLabel('Nombre completo').fill('Email Full')
     await page.getByLabel('Teléfono').fill(PHONE)
     await expect(page.getByTestId('customer-save-button')).toBeEnabled()
     await page.getByLabel('Email').fill('email-invalido')
+    await expect(page.getByText('Ingresá un email válido.')).toHaveCount(0)
+    await page.getByLabel('Email').blur()
     await expect(page.getByText('Ingresá un email válido.')).toBeVisible()
     await expect(page.getByLabel('Email')).toHaveAttribute('aria-invalid', 'true')
-    await expect(page.getByTestId('customer-save-button')).toBeDisabled()
+    await expect(page.getByTestId('customer-save-button')).toBeEnabled()
+    await page.getByTestId('customer-save-button').click()
+    await expect(page).toHaveURL(/\/customers\/new$/)
+    await expect(page.getByLabel('Email')).toBeFocused()
 
     await page.goto('/orders/new')
     await page.getByRole('button', { name: 'Crear cliente rápido' }).click()
@@ -301,9 +314,49 @@ test.describe('@customer-core CUSTOMER-CREATION-PARITY-1A · validación y tecla
     await expect(dialog.getByRole('button', { name: 'Crear cliente' })).toBeEnabled()
     await dialog.getByTestId('customer-additional-toggle').click()
     await dialog.getByLabel('Email').fill('email-invalido')
+    await dialog.getByLabel('Email').blur()
     await expect(dialog.getByText('Ingresá un email válido.')).toBeVisible()
     await expect(dialog.getByLabel('Email')).toHaveAttribute('aria-invalid', 'true')
-    await expect(dialog.getByRole('button', { name: 'Crear cliente' })).toBeDisabled()
+    await dialog.getByRole('button', { name: 'Crear cliente' }).click()
+    await expect(dialog).toBeVisible()
+
+    for (const name of ['Email Full', 'Email Quick']) {
+      const row = consultarJSON<{ count: number }>(`
+        SELECT count(*)::int AS count FROM public.customers
+         WHERE business_id = '${E2E.business}' AND name = '${name}'
+      `)
+      expect(row.count, name).toBe(0)
+    }
+  })
+
+  test('formulario limpio sin rojo; el intento revela y no escribe; corregir crea una vez', async ({ page }) => {
+    const name = `${MARK} Touched Full`
+    await page.goto('/customers/new')
+    const form = page.locator('.customer-create-form')
+    await expect(page.getByLabel('Nombre completo')).toBeVisible()
+    await expect(form.locator('[aria-invalid="true"]')).toHaveCount(0)
+    await expect(form.locator('.form-error')).toHaveCount(0)
+
+    await page.getByLabel('Nombre completo').focus()
+    await page.getByLabel('Nombre completo').blur()
+    await expect(page.getByText('El nombre es obligatorio.')).toBeVisible()
+    await expect(page.getByText('El teléfono es obligatorio.')).toHaveCount(0)
+
+    await page.getByLabel('Nombre completo').fill(name)
+    await expect(page.getByText('El nombre es obligatorio.')).toHaveCount(0)
+    await page.getByTestId('customer-save-button').click()
+    await expect(page.getByText('El teléfono es obligatorio.')).toBeVisible()
+    await expect(page.getByLabel('Teléfono')).toBeFocused()
+    await expect(page).toHaveURL(/\/customers\/new$/)
+
+    await page.getByLabel('Teléfono').fill(PHONE)
+    await page.getByLabel('Teléfono').press('Enter')
+    await page.waitForURL(/\/customers\/[0-9a-f-]{36}$/)
+    const row = consultarJSON<{ count: number }>(`
+      SELECT count(*)::int AS count FROM public.customers
+       WHERE business_id = '${E2E.business}' AND name = '${name}'
+    `)
+    expect(row.count).toBe(1)
   })
 
   test('Enter envía ambos formularios una sola vez y conserva la selección del wizard', async ({ page }) => {
@@ -355,6 +408,7 @@ test.describe('@customer-core CUSTOMER-CREATION-PARITY-1B · ciclo del alta ráp
     await dialog.getByLabel('Email').fill('email-invalido')
     await dialog.getByLabel('Dirección').fill(ADDRESS)
     await dialog.getByLabel('Notas').fill(NOTES)
+    // Pasar de Email a Dirección ya lo tocó: el error se ve.
     await expect(dialog.getByText('Ingresá un email válido.')).toBeVisible()
 
     await dialog.getByRole('button', { name: 'Cancelar' }).click()
@@ -483,5 +537,100 @@ test.describe('@customer-core UI-CONSISTENCY-2A · contraste del selector DNI/CU
     })
     // Hay fondo propio en el seleccionado, no sólo un matiz de texto.
     expect(fondos.sel).not.toBe(fondos.noSel)
+  })
+})
+
+// ── PRE-BETA-3A-2 · gate Mayorista ──────────────────────────────────────────
+// El negocio E2E es Full y el usuario es owner: con eso el gate está abierto
+// (los tests de arriba ya crean mayoristas). Para el caso SIN gate se simula un
+// negocio Pro parcheando SÓLO la respuesta real de la suscripción en el
+// navegador: la DB, la sesión y RLS siguen siendo las reales, y nada queda
+// modificado para el resto de la suite.
+async function simulateProPlan(page: Page) {
+  await page.route('**/rest/v1/businesses?**', async (route) => {
+    if (!route.request().url().includes('subscription_plan')) return route.fallback()
+    const response = await route.fetch()
+    const body = await response.json()
+    const patch = (row: Record<string, unknown>) => ({ ...row, subscription_plan: 'pro', subscription_status: 'active' })
+    await route.fulfill({ response, json: Array.isArray(body) ? body.map(patch) : patch(body) })
+  })
+}
+
+/** Espera a que el gate se resuelva con datos confirmados, no con el default. */
+function subscriptionLoaded(page: Page) {
+  return page.waitForResponse((response) =>
+    response.url().includes('/rest/v1/businesses') && response.url().includes('subscription_plan'))
+}
+
+test.describe('@customer-core PRE-BETA-3A-2 · gate Mayorista', () => {
+  test.beforeEach(() => cleanup())
+  test.afterAll(() => cleanup())
+
+  test('sin gate (Pro): ninguna de las dos altas ofrece ni persiste Mayorista', async ({ page }) => {
+    const fullName = `${MARK} Pro Full`
+    const quickName = `${MARK} Pro Rapido`
+    await simulateProPlan(page)
+
+    let loaded = subscriptionLoaded(page)
+    await page.goto('/customers/new')
+    await loaded
+    await expect(page.getByLabel('Nombre completo')).toBeVisible()
+    await expect(page.getByTestId('customer-type-mayorista')).toHaveCount(0)
+    await expect(page.getByTestId('customer-type-minorista')).toHaveCount(0)
+    await expect(page.getByLabel('Razón social')).toHaveCount(0)
+    await page.getByLabel('Nombre completo').fill(fullName)
+    await page.getByLabel('Teléfono').fill(PHONE)
+    await page.getByTestId('customer-save-button').click()
+    await page.waitForURL(/\/customers\/[0-9a-f-]{36}$/)
+
+    loaded = subscriptionLoaded(page)
+    await page.goto('/orders/new')
+    await loaded
+    await page.getByRole('button', { name: 'Crear cliente rápido' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Crear cliente rápido' })
+    await expect(dialog.getByLabel('Nombre completo')).toBeVisible()
+    await expect(dialog.getByTestId('customer-type-mayorista')).toHaveCount(0)
+    await dialog.getByLabel('Nombre completo').fill(quickName)
+    await dialog.getByLabel('Teléfono').fill(PHONE)
+    await dialog.getByRole('button', { name: 'Crear cliente' }).click()
+    await expect(dialog).not.toBeVisible()
+    await expect(page.getByRole('button', { name: new RegExp(quickName) })).toHaveClass(/is-selected/)
+
+    for (const name of [fullName, quickName]) {
+      const row = readCustomer(name)
+      expect(row.customer_type, name).toBe('minorista')
+      expect(row.business_name, name).toBeNull()
+      expect(row.contact_person, name).toBeNull()
+    }
+  })
+
+  test('sin gate (Pro): un mayorista existente se edita sin convertirse ni perder datos', async ({ page }) => {
+    const name = `${MARK} Mayorista Existente`
+    ejecutarSQL(`INSERT INTO public.customers (business_id, name, phone, customer_type, business_name, contact_person, document)
+                 VALUES ('${E2E.business}', '${name}', '${PHONE}', 'mayorista', 'Existente SRL', 'Ana', 'CUIT 20301234567');`)
+    await simulateProPlan(page)
+
+    const loaded = subscriptionLoaded(page)
+    await page.goto('/customers')
+    await loaded
+    const listRow = page.getByRole('row').filter({ hasText: name })
+    await expect(listRow).toBeVisible()
+    await listRow.getByTitle('Editar cliente').click()
+    const dialog = page.getByRole('dialog', { name: 'Editar Cliente' })
+    await expect(dialog.getByTestId('customer-type-locked')).toContainText('Mayorista')
+    await expect(dialog.getByTestId('customer-type-minorista')).toHaveCount(0)
+    await expect(dialog.getByTestId('customer-business-name-readonly')).toHaveText('Existente SRL')
+    await expect(dialog.getByTestId('customer-contact-person-readonly')).toHaveText('Ana')
+
+    await dialog.getByLabel('Teléfono').fill('3517777777')
+    await dialog.getByTestId('customer-edit-save-button').click()
+    await expect(dialog).not.toBeVisible()
+
+    const row = readCustomer(name)
+    expect(row.phone).toBe('3517777777')
+    expect(row.customer_type).toBe('mayorista')
+    expect(row.business_name).toBe('Existente SRL')
+    expect(row.contact_person).toBe('Ana')
+    expect(row.document).toBe('CUIT 20301234567')
   })
 })

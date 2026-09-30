@@ -33,6 +33,12 @@ vi.mock('../../src/hooks/usePermissions', () => ({
   usePermissions: () => ({ can: () => true }),
   effectivePermissions: () => ({ orders_create: true }),
 }))
+// PRE-BETA-3A-2 — gate Mayorista abierto: negocio Full + `can` → true.
+vi.mock('../../src/hooks/useSubscription', async () => {
+  const { resolveEntitlement } = await vi.importActual<typeof import('../../src/lib/entitlements')>('../../src/lib/entitlements')
+  const { hasFeature } = resolveEntitlement({ subscription_status: 'active', subscription_plan: 'full' })
+  return { useSubscription: () => ({ hasFeature }) }
+})
 vi.mock('../../src/features/order-intake/service', () => ({
   createOrderIntake: vi.fn(), uploadIntakePhotos: vi.fn(), loadAssignableProfiles: mocks.loadProfiles,
 }))
@@ -175,13 +181,16 @@ describe('estadísticas de la lista de clientes', () => {
 describe('alta rápida · el error de mayorista se muestra UNA sola vez', () => {
   const MESSAGE = 'Un cliente mayorista necesita razón social.'
 
-  async function openWholesaleDialog() {
+  // PRE-BETA-3A-2 — la razón social recién aparecida no está tocada: su error
+  // se revela con el intento de envío (o al salir del campo), no antes.
+  async function openWholesaleDialog({ attempt = true } = {}) {
     render(<MemoryRouter><NewOrder /></MemoryRouter>)
     fireEvent.click(await screen.findByRole('button', { name: 'Crear cliente rápido' }))
     const dialog = screen.getByRole('dialog', { name: 'Crear cliente rápido' })
     fireEvent.click(within(dialog).getByTestId('customer-type-mayorista'))
     fireEvent.change(within(dialog).getByLabelText('Nombre completo'), { target: { value: 'QA Contacto' } })
     fireEvent.change(within(dialog).getByLabelText('Teléfono'), { target: { value: '3510000001' } })
+    if (attempt) fireEvent.click(within(dialog).getByRole('button', { name: 'Crear cliente' }))
   }
 
   it('renderiza exactamente un mensaje visible para el error de razón social', async () => {
@@ -209,11 +218,16 @@ describe('alta rápida · el error de mayorista se muestra UNA sola vez', () => 
   })
 
   it('bloquea el guardado y no persiste ningún cliente', async () => {
-    await openWholesaleDialog()
+    await openWholesaleDialog({ attempt: false })
 
+    // Antes del intento: ni rojo ni mensaje, y el CTA NO está muerto.
+    expect(screen.queryByText(MESSAGE)).not.toBeInTheDocument()
     const cta = screen.getByRole('button', { name: 'Crear cliente' })
-    expect(cta).toBeDisabled()
+    expect(cta).not.toBeDisabled()
 
+    fireEvent.click(cta)
+    expect(mocks.create).not.toHaveBeenCalled()
+    expect(screen.getAllByText(MESSAGE)).toHaveLength(1)
     fireEvent.click(cta)
     expect(mocks.create).not.toHaveBeenCalled()
     expect(screen.getAllByText(MESSAGE)).toHaveLength(1)
@@ -293,13 +307,18 @@ describe('alta canónica · paridad visual y de interacción', () => {
     })
   })
 
+  // PRE-BETA-3A-2 — mismo contrato en los dos shells: el email inválido se
+  // muestra al salir del campo y el intento de envío no escribe nada.
   it('muestra la misma validación explícita de email en ambos shells', async () => {
     const full = render(<MemoryRouter><NewCustomer /></MemoryRouter>)
     fireEvent.change(screen.getByLabelText('Nombre completo'), { target: { value: 'Cliente' } })
     fireEvent.change(screen.getByLabelText('Teléfono'), { target: { value: '3510000001' } })
     fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'invalido' } })
+    expect(screen.queryByText('Ingresá un email válido.')).not.toBeInTheDocument()
+    fireEvent.blur(screen.getByLabelText('Email'))
     expect(screen.getByText('Ingresá un email válido.')).toBeVisible()
-    expect(screen.getByTestId('customer-save-button')).toBeDisabled()
+    fireEvent.click(screen.getByTestId('customer-save-button'))
+    expect(mocks.create).not.toHaveBeenCalled()
     full.unmount()
 
     const dialog = await openQuickDialog()
@@ -307,8 +326,11 @@ describe('alta canónica · paridad visual y de interacción', () => {
     fireEvent.change(within(dialog).getByLabelText('Teléfono'), { target: { value: '3510000001' } })
     fireEvent.click(within(dialog).getByTestId('customer-additional-toggle'))
     fireEvent.change(within(dialog).getByLabelText('Email'), { target: { value: 'invalido' } })
+    expect(within(dialog).queryByText('Ingresá un email válido.')).not.toBeInTheDocument()
+    fireEvent.blur(within(dialog).getByLabelText('Email'))
     expect(within(dialog).getByText('Ingresá un email válido.')).toBeVisible()
-    expect(within(dialog).getByRole('button', { name: 'Crear cliente' })).toBeDisabled()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Crear cliente' }))
+    expect(mocks.create).not.toHaveBeenCalled()
   })
 
   it('conserva “Nombre completo” al pasar a mayorista', async () => {
@@ -344,6 +366,7 @@ describe('alta canónica · paridad visual y de interacción', () => {
     fireEvent.change(within(dialog).getByLabelText('Persona de contacto'), { target: { value: 'Ana' } })
     fireEvent.click(within(dialog).getByTestId('customer-additional-toggle'))
     fireEvent.change(within(dialog).getByLabelText('Email'), { target: { value: 'email-invalido' } })
+    fireEvent.blur(within(dialog).getByLabelText('Email'))
     fireEvent.change(within(dialog).getByLabelText('Dirección'), { target: { value: 'Dirección vieja' } })
     fireEvent.change(within(dialog).getByLabelText('Notas'), { target: { value: 'Notas viejas' } })
     expect(within(dialog).getByText('Ingresá un email válido.')).toBeVisible()

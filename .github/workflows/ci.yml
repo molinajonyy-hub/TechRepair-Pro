@@ -87,6 +87,16 @@ jobs:
       - name: PRE-BETA-3A-1a — onboarding + post-login shell
         run: npm run test:prebeta3a1a
 
+      # PRE-BETA-3A-2: alta de cliente canónica + gate Mayorista (feature
+      # `mayorista` Y permiso `wholesale`, sin roles). Fija que nada se ve rojo
+      # antes de interactuar, que el CTA no se deshabilita por validación, que
+      # la alta rápida no se gatea por `customers` y que un mayorista existente
+      # sin gate se conserva. Suma a CI las suites de Customer Core, que no
+      # corrían acá. Es gate de UX: el servidor todavía no impide
+      # `customer_type = 'mayorista'` (ver el PR).
+      - name: PRE-BETA-3A-2 — customer creation + wholesale gate
+        run: npm run test:prebeta3a2
+
       # P0-P1: invariantes de provisioning. Es estático —lee migraciones y
       # `src/`— así que no necesita DB ni credenciales y puede correr acá, en
       # PRs y en forks. El self-test va primero: un guard que no puede fallar no

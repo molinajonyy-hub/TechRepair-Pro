@@ -1,19 +1,11 @@
-import { useEffect, useId, useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { ChevronDown, Lock } from 'lucide-react'
 import { AppInput, AppTextarea, FormGrid } from '../../ui'
 import { DOCUMENT_TYPES } from './document'
-import type {
-  CustomerCoreErrors,
-  CustomerCoreField,
-  CustomerCoreValues,
-  CustomerType,
-} from './model'
+import type { CustomerCoreField, CustomerType } from './model'
+import type { CustomerCoreFieldProps } from './useCustomerCore'
 
-export interface CustomerCreateFieldsProps {
-  values: CustomerCoreValues
-  errors: CustomerCoreErrors
-  setField: (field: CustomerCoreField, value: string) => void
-  setCustomerType: (customerType: CustomerType) => void
+export interface CustomerCreateFieldsProps extends CustomerCoreFieldProps {
   additionalInitiallyOpen?: boolean
 }
 
@@ -28,42 +20,96 @@ const CUSTOMER_TYPE_OPTIONS: ReadonlyArray<{ value: CustomerType; label: string 
  * El estado, la validación y el payload siguen perteneciendo al Customer Core;
  * cada shell conserva por separado su submit, navegación y manejo de errores
  * del servicio.
+ *
+ * PRE-BETA-3A-2 — el tipo de cliente se dibuja según el acceso que resolvió el
+ * core, no según un rol:
+ *  - `full`      → selector Minorista / Mayorista, como siempre;
+ *  - `retail`    → no hay nada que elegir: el cliente es minorista y no se
+ *                  ofrece una opción que el actor no puede usar;
+ *  - `preserved` → mayorista existente, visible y bloqueado, con sus datos
+ *                  mayoristas de sólo lectura.
  */
 export function CustomerCreateFields({
   values,
   errors,
+  customerTypeAccess,
   setField,
   setCustomerType,
+  onFieldBlur,
+  submitCount = 0,
   additionalInitiallyOpen = false,
 }: CustomerCreateFieldsProps) {
   const [additionalOpen, setAdditionalOpen] = useState(additionalInitiallyOpen)
   const additionalId = useId()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const pendingFocus = useRef(false)
 
-  // Un email inválido nunca queda escondido detrás del disclosure mientras el
-  // CTA está deshabilitado.
+  // Un email inválido nunca queda escondido detrás del disclosure cuando se
+  // muestra: ni al tocarlo ni al intentar guardar con el bloque cerrado.
   useEffect(() => {
     if (errors.email) setAdditionalOpen(true)
-  }, [errors.email])
+  }, [errors.email, submitCount])
+
+  useEffect(() => {
+    if (submitCount > 0) pendingFocus.current = true
+  }, [submitCount])
+
+  // Tras un intento de envío, el foco va al primer campo que bloquea, en orden
+  // de lectura. Si está dentro del disclosure todavía cerrado, espera al render
+  // en que el efecto de arriba lo abre.
+  useEffect(() => {
+    if (!pendingFocus.current) return
+    const invalid = rootRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')
+    if (!invalid) {
+      pendingFocus.current = false
+      return
+    }
+    if (invalid.closest('[hidden]')) return
+    invalid.focus()
+    pendingFocus.current = false
+  })
+
+  const blur = (field: CustomerCoreField) => () => onFieldBlur?.(field)
+  const wholesale = values.customerType === 'mayorista'
 
   return (
-    <div className="customer-create-fields">
-      <fieldset className="customer-create-fieldset customer-create-section">
-        <legend className="customer-create-section-title">Tipo de cliente</legend>
-        <div className="seg-field customer-create-segment">
-          {CUSTOMER_TYPE_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className="seg-field-option"
-              data-testid={`customer-type-${option.value}`}
-              aria-pressed={values.customerType === option.value}
-              onClick={() => setCustomerType(option.value)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </fieldset>
+    <div className="customer-create-fields" ref={rootRef}>
+      {customerTypeAccess === 'full' && (
+        <fieldset className="customer-create-fieldset customer-create-section">
+          <legend className="customer-create-section-title">Tipo de cliente</legend>
+          <div className="seg-field customer-create-segment">
+            {CUSTOMER_TYPE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className="seg-field-option"
+                data-testid={`customer-type-${option.value}`}
+                aria-pressed={values.customerType === option.value}
+                onClick={() => setCustomerType(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      )}
+
+      {customerTypeAccess === 'preserved' && (
+        <section className="customer-create-section" aria-labelledby="customer-create-type-title">
+          <h2 id="customer-create-type-title" className="customer-create-section-title">
+            Tipo de cliente
+          </h2>
+          <div className="customer-create-type-locked" data-testid="customer-type-locked">
+            <Lock aria-hidden="true" size={16} />
+            <div>
+              <p className="customer-create-type-locked-value">Mayorista</p>
+              <p className="customer-create-type-locked-note">
+                Se conserva como mayorista. Cambiar el tipo o sus datos mayoristas requiere acceso a Mayorista.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="customer-create-section" aria-labelledby="customer-create-primary-title">
         <h2 id="customer-create-primary-title" className="customer-create-section-title">
@@ -78,6 +124,7 @@ export function CustomerCreateFields({
               value={values.name}
               error={errors.name}
               onChange={(event) => setField('name', event.target.value)}
+              onBlur={blur('name')}
               placeholder="Ej: Juan Pérez"
               autoComplete="name"
               required
@@ -90,6 +137,7 @@ export function CustomerCreateFields({
               value={values.phone}
               error={errors.phone}
               onChange={(event) => setField('phone', event.target.value)}
+              onBlur={blur('phone')}
               placeholder="Ej: +54 9 11 1234-5678"
               required
             />
@@ -131,7 +179,7 @@ export function CustomerCreateFields({
         </div>
       </section>
 
-      {values.customerType === 'mayorista' && (
+      {customerTypeAccess === 'full' && wholesale && (
         <section className="customer-create-section" aria-labelledby="customer-create-wholesale-title">
           <h2 id="customer-create-wholesale-title" className="customer-create-section-title">
             Datos mayoristas
@@ -145,6 +193,7 @@ export function CustomerCreateFields({
                 value={values.businessName}
                 error={errors.businessName}
                 onChange={(event) => setField('businessName', event.target.value)}
+                onBlur={blur('businessName')}
                 autoComplete="organization"
                 required
               />
@@ -161,6 +210,24 @@ export function CustomerCreateFields({
               Al cobrarle se usarán automáticamente los precios mayoristas del inventario.
             </p>
           </div>
+        </section>
+      )}
+
+      {customerTypeAccess === 'preserved' && (
+        <section className="customer-create-section" aria-labelledby="customer-create-wholesale-title">
+          <h2 id="customer-create-wholesale-title" className="customer-create-section-title">
+            Datos mayoristas
+          </h2>
+          <dl className="customer-create-readonly" data-testid="customer-wholesale-readonly">
+            <div>
+              <dt>Razón social</dt>
+              <dd data-testid="customer-business-name-readonly">{values.businessName || 'Sin cargar'}</dd>
+            </div>
+            <div>
+              <dt>Persona de contacto</dt>
+              <dd data-testid="customer-contact-person-readonly">{values.contactPerson || 'Sin cargar'}</dd>
+            </div>
+          </dl>
         </section>
       )}
 
@@ -193,6 +260,7 @@ export function CustomerCreateFields({
             value={values.email}
             error={errors.email}
             onChange={(event) => setField('email', event.target.value)}
+            onBlur={blur('email')}
             placeholder="Ej: juan@email.com"
           />
           <FormGrid>

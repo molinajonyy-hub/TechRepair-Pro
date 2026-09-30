@@ -3063,7 +3063,7 @@ tbody tr:hover td {
   color: var(--accent-primary);
 }
 
-.customer-create-page .page-hdr-right .btn {
+.customer-create-page .page-top .btn {
   min-height: var(--mobile-touch-target);
 }
 
@@ -3145,6 +3145,61 @@ tbody tr:hover td {
   color: var(--text-muted);
   font-size: 0.8125rem;
   line-height: 1.5;
+}
+
+/* PRE-BETA-3A-2 — mayorista existente sin gate: visible y bloqueado. Mismo
+   par de superficie que `.seg-field` (--input-bg / --input-border), para que
+   se lea como el control que reemplaza pero sin affordance de botón. El
+   candado y el texto dicen "bloqueado"; no depende del color. */
+.customer-create-type-locked {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--input-border);
+  border-radius: 0.5rem;
+  background: var(--input-bg);
+  color: var(--text-muted);
+}
+
+.customer-create-type-locked > svg {
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+}
+
+.customer-create-type-locked-value {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.customer-create-type-locked-note {
+  margin: 0.125rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.customer-create-readonly {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: 0.75rem 1rem;
+  margin: 0;
+}
+
+.customer-create-readonly dt {
+  margin: 0 0 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.customer-create-readonly dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  overflow-wrap: anywhere;
 }
 
 .customer-create-disclosure-heading {

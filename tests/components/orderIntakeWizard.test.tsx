@@ -9,6 +9,12 @@ const mocks=vi.hoisted(()=>({
 }))
 vi.mock('../../src/hooks/usePermissions',()=>({usePermissions:()=>({can:()=>true}),effectivePermissions:()=>({orders_create:true})}))
 vi.mock('../../src/contexts/AuthContext',()=>({useAuth:()=>({businessId:'biz-a'})}))
+// PRE-BETA-3A-2: el alta rápida ofrece Mayorista sólo con gate (feature Full + `wholesale`).
+vi.mock('../../src/hooks/useSubscription',async()=>{
+  const {resolveEntitlement}=await vi.importActual<typeof import('../../src/lib/entitlements')>('../../src/lib/entitlements')
+  const {hasFeature}=resolveEntitlement({subscription_status:'active',subscription_plan:'full'})
+  return {useSubscription:()=>({hasFeature})}
+})
 vi.mock('../../src/services/api',()=>({customersService:{create:mocks.customerCreate}}))
 // ORDERS-V2-0: la búsqueda de clientes dejó de ser un filtro en memoria sobre
 // `customersService.getAll()` y pasó a la autoridad server-side compartida.

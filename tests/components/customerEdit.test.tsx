@@ -26,9 +26,17 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../src/services/api', () => ({
   customersService: { getAll: mocks.getAll, update: mocks.update },
 }))
+// PRE-BETA-3A-2 — estos casos ejercitan la edición CON gate Mayorista: owner
+// (permisos reales de `usePermissions`) en un negocio Full. Los casos sin gate
+// viven en prebeta3a2CustomerCreation.test.tsx.
 vi.mock('../../src/contexts/AuthContext', () => ({
-  useAuth: () => ({ businessId: 'biz-1' }),
+  useAuth: () => ({ businessId: 'biz-1', role: 'owner', isOwner: true, profile: { permissions: null } }),
 }))
+vi.mock('../../src/hooks/useSubscription', async () => {
+  const { resolveEntitlement } = await vi.importActual<typeof import('../../src/lib/entitlements')>('../../src/lib/entitlements')
+  const { hasFeature } = resolveEntitlement({ subscription_status: 'active', subscription_plan: 'full' })
+  return { useSubscription: () => ({ hasFeature }) }
+})
 vi.mock('../../src/contexts/LoadingContext', () => ({
   useLoading: () => ({ showLoading: vi.fn(), hideLoading: vi.fn() }),
 }))
@@ -96,19 +104,20 @@ describe('UI-CONSISTENCY-1 · edición de cliente', () => {
     expect(screen.getByTestId('customer-notes-input')).toHaveValue('Cliente viejo')
   })
 
+  // PRE-BETA-3A-2 — el CTA ya no se deshabilita por validación: sólo lo bloquea
+  // el guardado en curso. El intento revela el motivo en el campo y NO escribe.
   it('NO deja guardar un mayorista sin razón social', async () => {
     await openEditor()
 
     fireEvent.change(screen.getByTestId('customer-business-name-input'), { target: { value: '' } })
+    expect(saveButton()).not.toBeDisabled()
+    fireEvent.click(saveButton())
 
     // ORDERS-V2-0 — el error ahora lo renderiza `AppInput`, que lo cuelga del
     // `aria-describedby` del campo en vez de gritarlo como resumen. Es el
     // mismo patrón que ya usaban las dos altas; se afirma el cableado, no el
     // rol, para no volver a tener dos mensajes para un solo error.
     expectFieldError('Razón social', 'Un cliente mayorista necesita razón social.')
-    expect(saveButton()).toBeDisabled()
-
-    fireEvent.click(saveButton())
     expect(mocks.update).not.toHaveBeenCalled()
   })
 
@@ -118,26 +127,25 @@ describe('UI-CONSISTENCY-1 · edición de cliente', () => {
     await openEditor(RETAIL_ROW)
 
     fireEvent.click(screen.getByTestId('customer-type-mayorista'))
+    fireEvent.click(saveButton())
 
     // ORDERS-V2-0 — el error ahora lo renderiza `AppInput`, que lo cuelga del
     // `aria-describedby` del campo en vez de gritarlo como resumen. Es el
     // mismo patrón que ya usaban las dos altas; se afirma el cableado, no el
     // rol, para no volver a tener dos mensajes para un solo error.
     expectFieldError('Razón social', 'Un cliente mayorista necesita razón social.')
-    expect(saveButton()).toBeDisabled()
-
-    fireEvent.click(saveButton())
     expect(mocks.update).not.toHaveBeenCalled()
 
     // Y con razón social vuelve a poder guardarse.
     fireEvent.change(screen.getByTestId('customer-business-name-input'), { target: { value: 'Demo SRL' } })
-    expect(saveButton()).not.toBeDisabled()
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1))
+    expect(mocks.update.mock.calls[0][1]).toMatchObject({ customer_type: 'mayorista', business_name: 'Demo SRL' })
   })
 
   it('un minorista NO necesita razón social', async () => {
     await openEditor(RETAIL_ROW)
 
-    expect(saveButton()).not.toBeDisabled()
     fireEvent.click(saveButton())
 
     await waitFor(() => expect(mocks.update).toHaveBeenCalled())

@@ -14,7 +14,7 @@ import { PatternGrid } from '../features/order-intake/PatternGrid'
 import { useDeviceCatalog } from '../features/order-intake/useDeviceCatalog'
 import { INITIAL_INTAKE_DRAFT, isValidImei, normalizeImei, parseLocalizedAmount, type AccessMode, type IntakeDraft } from '../features/order-intake/model'
 import { createOrderIntake, loadAssignableProfiles, uploadIntakePhotos } from '../features/order-intake/service'
-import { CustomerCreateFields, CustomerPicker, firstCustomerCoreError, useCustomerCore, type CustomerPickerOption } from '../features/customer-core'
+import { CustomerCreateFields, CustomerPicker, useCustomerCore, type CustomerPickerOption } from '../features/customer-core'
 
 const STEPS = ['Cliente','Equipo','Identificación','Estado y fotos','Checklist','Acceso','Problema','Asignación','Presupuesto','Resumen'] as const
 const CHECKS = [['display','Pantalla'],['touch','Táctil'],['cameras','Cámaras'],['audio','Audio'],['charging','Carga'],['wifi','Wi‑Fi'],['buttons','Botones'],['biometrics','Biometría']] as const
@@ -229,27 +229,35 @@ function Summary({title,onEdit,children}:{title:string;onEdit:()=>void;children:
 
 const QUICK_CUSTOMER_FORM_ID = 'quick-customer-form'
 
-/** Alta rápida: shell de diálogo sobre el cuerpo canónico de creación. */
+/**
+ * Alta rápida: shell de diálogo sobre el cuerpo canónico de creación.
+ *
+ * PRE-BETA-3A-2 — NO se gatea por `customers`: la autoridad es la de la
+ * recepción (`orders_create`), y un técnico sin el módulo Clientes necesita
+ * crear al cliente que tiene enfrente. Lo único que se aplica acá es el gate
+ * Mayorista, que ya resuelve el core.
+ */
 function QuickCustomerDialog({open,onClose,onCreated}:{open:boolean;onClose:()=>void;onCreated:(customer:Customer)=>void}){
-  const {values,errors,setField,setCustomerType,reset,toCreatePayload}=useCustomerCore()
+  const {reset,attemptSubmit,toCreatePayload,fieldProps}=useCustomerCore()
   const [saving,setSaving]=useState(false);const [error,setError]=useState('')
   const submitLock=useRef(false)
-  const invalid=Object.keys(errors).length>0
   const close=()=>{reset();setError('');onClose()}
   const created=(customer:Customer)=>{reset();setError('');onCreated(customer)}
   const save=async(event:React.FormEvent<HTMLFormElement>)=>{
     event.preventDefault()
-    if(submitLock.current||firstCustomerCoreError(errors))return
+    if(submitLock.current)return
+    // El CTA sólo lo bloquea el guardado en curso; el intento revela los bloqueos.
+    if(!attemptSubmit())return
     submitLock.current=true
     setSaving(true);setError('')
     try{const customer=await customersService.create(toCreatePayload());created(customer)}
     catch(cause){setError(cause instanceof Error?cause.message:'No se pudo crear el cliente.')}
     finally{setSaving(false);submitLock.current=false}
   }
-  return <ResponsiveDialog isOpen={open} onClose={close} title="Crear cliente rápido" subtitle="Queda disponible para esta orden y futuras recepciones." size="lg" mobilePresentation="fullscreen" footer={<div className="customer-create-dialog-actions"><AppButton variant="secondary" onClick={close}>Cancelar</AppButton><AppButton type="submit" form={QUICK_CUSTOMER_FORM_ID} variant="primary" loading={saving} disabled={invalid} data-testid="quick-customer-save-button">Crear cliente</AppButton></div>}>
+  return <ResponsiveDialog isOpen={open} onClose={close} title="Crear cliente rápido" subtitle="Queda disponible para esta orden y futuras recepciones." size="lg" mobilePresentation="fullscreen" footer={<div className="customer-create-dialog-actions"><AppButton variant="secondary" onClick={close}>Cancelar</AppButton><AppButton type="submit" form={QUICK_CUSTOMER_FORM_ID} variant="primary" loading={saving} data-testid="quick-customer-save-button">Crear cliente</AppButton></div>}>
     <form id={QUICK_CUSTOMER_FORM_ID} className="customer-create-form customer-create-form--quick" onSubmit={save} noValidate>
       {error&&<p className="form-error customer-create-server-error" role="alert">{error}</p>}
-      <CustomerCreateFields values={values} errors={errors} setField={setField} setCustomerType={setCustomerType} additionalInitiallyOpen={false}/>
+      <CustomerCreateFields {...fieldProps} additionalInitiallyOpen={false}/>
     </form>
   </ResponsiveDialog>
 }

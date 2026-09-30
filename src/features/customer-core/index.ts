@@ -10,5 +10,6 @@
 export * from './document'
 export * from './model'
 export * from './useCustomerCore'
+export * from './useWholesaleCustomerGate'
 export * from './CustomerCreateFields'
 export * from './CustomerPicker'
