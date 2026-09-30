@@ -161,7 +161,9 @@ export const S = {
       : 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
     border: 'none',
     borderRadius: '0.875rem',
-    color: '#fff',
+    // PRE-BETA-3A-0: token, no `#fff` inline — el remapeo de light mode lo
+    // volvía texto oscuro sobre índigo (ver --text-on-accent en index.css).
+    color: 'var(--text-on-accent)',
     fontWeight: 700,
     fontSize: '0.9375rem',
     cursor: disabled ? 'not-allowed' : 'pointer',
@@ -211,7 +213,7 @@ export const S = {
       : 'transparent',
     border: 'none',
     borderRadius: '0.625rem',
-    color: active ? '#fff' : 'var(--text-muted)',
+    color: active ? 'var(--text-on-accent)' : 'var(--text-muted)',
     fontWeight: 600,
     fontSize: '0.875rem',
     cursor: disabled ? 'not-allowed' : 'pointer',

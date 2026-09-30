@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
+
+// `MainLayout` arrastra el cliente de Supabase al importarse; el test sólo usa
+// la función pura de títulos, así que el cliente es un stub sin red.
+vi.mock('../../src/lib/supabase', () => ({
+  supabase: { from: () => ({}), rpc: async () => ({ data: null, error: null }) },
+}))
+
 import { resolveMobilePrimaryNavigation } from '../../src/config/mobileNavigation'
+import { mobilePageTitle } from '../../src/layouts/MainLayout'
 import { ROLE_DEFAULT_PERMISSIONS, resolvePermissions, type AppPermissions } from '../../src/config/permissions'
 import {
   isNavigationItemAuthorized,
@@ -51,6 +59,38 @@ describe('MOBILE-1 · navegación por capabilities', () => {
     const brokenGate = vi.fn(() => true)
     expect(brokenGate()).toBe(true)
     expect(isNavigationItemAuthorized({ systemOwnerOnly: true }, access)).not.toBe(brokenGate())
+  })
+
+  it('PRE-BETA-3A-0: la barra móvil nombra cada módulo (antes caían a «Inicio»)', () => {
+    const esperados: Array<[string, string]> = [
+      ['/warranties', 'Garantías'],
+      ['/expenses', 'Gastos'],
+      ['/offers', 'Ofertas'],
+      ['/cuentas', 'Cuentas corrientes'],
+      ['/mayorista', 'Mayorista'],
+      ['/tutorials', 'Tutoriales'],
+      ['/whatsapp', 'WhatsApp'],
+      ['/currency-settings', 'Moneda'],
+      ['/portal-clic', 'Portal Clic'],
+      ['/admin/subscriptions', 'Suscripciones'],
+      ['/admin/leads', 'Leads'],
+    ]
+    for (const [ruta, titulo] of esperados) {
+      expect(mobilePageTitle(ruta), ruta).toBe(titulo)
+    }
+  })
+
+  it('PRE-BETA-3A-0: el orden de prefijos no se pisa entre rutas parecidas', () => {
+    expect(mobilePageTitle('/orders/new')).toBe('Nueva orden')
+    expect(mobilePageTitle('/orders/123')).toBe('Detalle de orden')
+    expect(mobilePageTitle('/orders')).toBe('Órdenes')
+    expect(mobilePageTitle('/settings')).toBe('Configuración')
+    expect(mobilePageTitle('/currency-settings')).toBe('Moneda')
+    expect(mobilePageTitle('/subscription/plans')).toBe('Suscripción')
+    expect(mobilePageTitle('/admin/subscriptions')).toBe('Suscripciones')
+    expect(mobilePageTitle('/finance/health')).toBe('Finanzas')
+    expect(mobilePageTitle('/dashboard')).toBe('Inicio')
+    expect(mobilePageTitle('/')).toBe('Inicio')
   })
 
   it('system_admin puede ver SaaS Admin sin convertirlo en destino primario', () => {

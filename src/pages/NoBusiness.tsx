@@ -148,7 +148,9 @@ export function NoBusiness() {
   const primaryStyle: React.CSSProperties = {
     width: '100%', padding: '14px',
     background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-    border: 'none', borderRadius: 12, color: '#fff', fontWeight: 700, fontSize: '0.95rem',
+    // PRE-BETA-3A-0: token invariante; un `#fff` inline se remapea a texto
+    // oscuro en light mode.
+    border: 'none', borderRadius: 12, color: 'var(--text-on-accent)', fontWeight: 700, fontSize: '0.95rem',
     cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
   };
 

@@ -9,15 +9,19 @@
  *   - Resultados de búsqueda global en tiempo real (con query)
  *
  * Integración:
- *   1. Renderizar <CommandPalette /> en MainLayout.
+ *   1. Renderizar <CommandPalette access={navigationAccess} /> en MainLayout.
  *   2. Para abrir desde código: window.dispatchEvent(new Event('tr-open-palette'))
  *
  * Uso interno:
  *   El componente registra el handler de Ctrl+K internamente.
- *   No necesita props — es completamente autónomo.
+ *
+ * PRE-BETA-3A-0 — las acciones rápidas declaran su capacidad/plan y se filtran
+ * con `isNavigationItemAuthorized`, el MISMO contrato que Sidebar y bottom nav.
+ * `access` llega por prop desde MainLayout (el snapshot de `useNavigationAccess`
+ * que ya comparten Sidebar y bottom nav) para no sumar otro fetch.
  */
 
-import { useState, useEffect, useRef, useCallback, memo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Search, X, User, Package, FileText, Wrench,
@@ -33,13 +37,18 @@ import { colors } from '../../lib/tokens'
 import { currencyService } from '../../services/currencyService'
 import { resolveProductPricing } from '../../lib/pricing/productPricing'
 import { searchSellableProducts, productDisplayName } from '../../services/productSearchService'
+import {
+  isNavigationItemAuthorized,
+  type NavigationAccess,
+  type NavigationGate,
+} from '../../hooks/useNavigationAccess'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ResultType = 'customer' | 'order' | 'inventory' | 'comprobante' | 'supplier' | 'device'
 type ActionType = 'navigation' | 'action'
 
-interface PaletteItem {
+interface PaletteItem extends Pick<NavigationGate, 'permission' | 'planFeature'> {
   id:       string
   type:     ResultType | ActionType
   icon:     LucideIcon
@@ -50,28 +59,38 @@ interface PaletteItem {
   /** Precio ARS vigente (productos): mismo valor resuelto que Inventario y POS. */
   price?:   string
   path?:    string
+  /** `location.state` con el que se navega a `path` (p. ej. abrir el alta). */
+  navState?: Record<string, unknown>
   action?:  () => void
   group:    string
 }
 
 // ─── Acciones rápidas (sin query) ─────────────────────────────────────────────
 
-const QUICK_ACTIONS: PaletteItem[] = [
-  { id: 'new-order',        type: 'action',     group: 'Crear', icon: Plus,         label: 'Nueva Orden',           path: '/orders/new' },
-  { id: 'new-comp',         type: 'action',     group: 'Crear', icon: FileText,     label: 'Nuevo Comprobante',     path: '/comprobantes' },
-  { id: 'new-customer',     type: 'action',     group: 'Crear', icon: User,         label: 'Nuevo Cliente',         path: '/customers/new' },
-  { id: 'new-expense',      type: 'action',     group: 'Crear', icon: DollarSign,   label: 'Registrar Gasto',       path: '/expenses' },
+// Cada acción declara la MISMA capacidad/plan que exige su ruta en App.tsx (o,
+// para la recepción, `orders_create`, que es lo que exige NewOrder). Nunca un
+// nombre de rol: la autoridad real sigue siendo RLS + current_user_can().
+export const QUICK_ACTIONS: readonly PaletteItem[] = [
+  { id: 'new-order',        type: 'action',     group: 'Crear', icon: Plus,         label: 'Nueva Orden',           path: '/orders/new',    permission: 'orders_create' },
+  { id: 'new-comp',         type: 'action',     group: 'Crear', icon: FileText,     label: 'Nuevo Comprobante',     path: '/comprobantes',  permission: 'comprobantes', navState: { openNew: true } },
+  { id: 'new-customer',     type: 'action',     group: 'Crear', icon: User,         label: 'Nuevo Cliente',         path: '/customers/new', permission: 'customers' },
+  { id: 'new-expense',      type: 'action',     group: 'Crear', icon: DollarSign,   label: 'Registrar Gasto',       path: '/expenses',      permission: 'finance' },
   { id: 'go-dashboard',     type: 'navigation', group: 'Ir a',  icon: BarChart3,    label: 'Inicio / Dashboard',    path: '/' },
-  { id: 'go-orders',        type: 'navigation', group: 'Ir a',  icon: Wrench,       label: 'Órdenes',               path: '/orders' },
-  { id: 'go-inventory',     type: 'navigation', group: 'Ir a',  icon: Package,      label: 'Inventario',            path: '/inventory' },
-  { id: 'go-customers',     type: 'navigation', group: 'Ir a',  icon: Users,        label: 'Clientes',              path: '/customers' },
-  { id: 'go-suppliers',     type: 'navigation', group: 'Ir a',  icon: Truck,        label: 'Proveedores',           path: '/suppliers' },
-  { id: 'go-comprobantes',  type: 'navigation', group: 'Ir a',  icon: FileText,     label: 'Comprobantes',          path: '/comprobantes' },
-  { id: 'go-caja',          type: 'navigation', group: 'Ir a',  icon: ShoppingCart, label: 'Caja',                  path: '/caja' },
-  { id: 'go-cuentas',       type: 'navigation', group: 'Ir a',  icon: Users,        label: 'Cuentas Corrientes',    path: '/cuentas' },
-  { id: 'go-finance',       type: 'navigation', group: 'Ir a',  icon: BarChart3,    label: 'Finanzas',              path: '/finance' },
-  { id: 'go-tasks',         type: 'navigation', group: 'Ir a',  icon: ClipboardList,label: 'Tareas',                path: '/tasks' },
+  { id: 'go-orders',        type: 'navigation', group: 'Ir a',  icon: Wrench,       label: 'Órdenes',               path: '/orders',        permission: 'orders' },
+  { id: 'go-inventory',     type: 'navigation', group: 'Ir a',  icon: Package,      label: 'Inventario',            path: '/inventory',     permission: 'inventory' },
+  { id: 'go-customers',     type: 'navigation', group: 'Ir a',  icon: Users,        label: 'Clientes',              path: '/customers',     permission: 'customers' },
+  { id: 'go-suppliers',     type: 'navigation', group: 'Ir a',  icon: Truck,        label: 'Proveedores',           path: '/suppliers',     permission: 'inventory' },
+  { id: 'go-comprobantes',  type: 'navigation', group: 'Ir a',  icon: FileText,     label: 'Comprobantes',          path: '/comprobantes',  permission: 'comprobantes' },
+  { id: 'go-caja',          type: 'navigation', group: 'Ir a',  icon: ShoppingCart, label: 'Caja',                  path: '/caja',          permission: 'finance' },
+  { id: 'go-cuentas',       type: 'navigation', group: 'Ir a',  icon: Users,        label: 'Cuentas Corrientes',    path: '/cuentas',       permission: 'finance', planFeature: 'currentAccounts' },
+  { id: 'go-finance',       type: 'navigation', group: 'Ir a',  icon: BarChart3,    label: 'Finanzas',              path: '/finance',       permission: 'finance', planFeature: 'advancedFinance' },
+  { id: 'go-tasks',         type: 'navigation', group: 'Ir a',  icon: ClipboardList,label: 'Tareas',                path: '/tasks',         permission: 'orders',  planFeature: 'tasks' },
 ]
+
+/** Acciones rápidas que el actor puede ejecutar de verdad (capacidad + plan). */
+export function authorizedQuickActions(access: NavigationAccess): PaletteItem[] {
+  return QUICK_ACTIONS.filter(item => isNavigationItemAuthorized(item, access))
+}
 
 // ─── Config visual por tipo de resultado ─────────────────────────────────────
 
@@ -178,7 +197,7 @@ const ResultRow = memo(function ResultRow({ item, isActive, onSelect, onHover }:
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-export function CommandPalette() {
+export function CommandPalette({ access }: { access: NavigationAccess }) {
   const { businessId } = useAuth()
   const navigate = useNavigate()
 
@@ -206,8 +225,12 @@ export function CommandPalette() {
     return () => { alive = false }
   }, [businessId])
 
-  // Mostrar acciones rápidas cuando no hay query
-  const displayItems = query.length >= 2 ? results : QUICK_ACTIONS
+  // Mostrar acciones rápidas cuando no hay query — sólo las que el actor puede
+  // ejecutar. Ofrecer una que después rebota es peor que no ofrecerla.
+  // Memo por `access`: tipear en la paleta no recalcula el filtro ni rearma el
+  // listener de teclado que depende de `displayItems`.
+  const quickActions = useMemo(() => authorizedQuickActions(access), [access])
+  const displayItems = query.length >= 2 ? results : quickActions
 
   // ── Open/close ────────────────────────────────────────────────────────────
 
@@ -393,7 +416,8 @@ export function CommandPalette() {
 
   const handleSelect = useCallback((item: PaletteItem) => {
     closePalette()
-    if (item.path) navigate(item.path)
+    // `navState` viaja igual que desde Inicio: «Nuevo Comprobante» abre el alta.
+    if (item.path) navigate(item.path, item.navState ? { state: item.navState } : undefined)
     if (item.action) item.action()
   }, [navigate, closePalette])
 
