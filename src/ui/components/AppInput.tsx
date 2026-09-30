@@ -42,11 +42,13 @@ export const AppInput = forwardRef<HTMLInputElement, AppInputProps>(
         )}
         <div className={leftIcon || rightIcon ? 'input-group' : undefined}>
           {leftIcon && <span className="input-icon">{leftIcon}</span>}
+          {/* El error se marca con `border-error`, no con `borderColor` inline:
+              en tema claro, el remap global de inputs legacy con `style`
+              usa `!important` y puede pisar el borde de error. */}
           <input
             ref={ref}
             id={inputId}
             className={`form-control ${error ? 'border-error' : ''} ${className}`}
-            style={error ? { borderColor: 'var(--error)', ...(props.style || {}) } : props.style}
             aria-invalid={!!error}
             aria-describedby={error ? `${inputId}-error` : hint ? `${inputId}-hint` : undefined}
             {...semanticProps}
@@ -96,8 +98,7 @@ export const AppSelect = forwardRef<HTMLSelectElement, AppSelectProps>(({
       <select
         ref={ref}
         id={selectId}
-        className={`form-select ${className}`}
-        style={error ? { borderColor: 'var(--error)', ...(props.style || {}) } : props.style}
+        className={`form-select ${error ? 'border-error' : ''} ${className}`}
         aria-invalid={!!error}
         {...props}
       >
@@ -133,9 +134,8 @@ export const AppTextarea = forwardRef<HTMLTextAreaElement, AppTextareaProps>(({
       <textarea
         ref={ref}
         id={textareaId}
-        className={`form-control ${className}`}
+        className={`form-control ${error ? 'border-error' : ''} ${className}`}
         rows={minRows}
-        style={error ? { borderColor: 'var(--error)', ...(props.style || {}) } : props.style}
         aria-invalid={!!error}
         {...props}
       />

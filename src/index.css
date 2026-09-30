@@ -2671,6 +2671,18 @@ tbody tr:hover td {
 /* border-error helper */
 .border-error { border-color: var(--error) !important; }
 
+/* Un consumidor puede pasar `style` por otros motivos, y eso mete al campo en
+   el remap legacy de tema claro de `input[style]` (que debe seguir existiendo).
+   Si además tiene `.border-error`, el estado de error tiene prioridad. Misma
+   especificidad que el remap: gana por orden, así que va DESPUÉS de él. */
+[data-theme="light"] .border-error:is(
+  input[style],
+  select[style],
+  textarea[style]
+) {
+  border-color: var(--error) !important;
+}
+
 /* Tabla interactiva — filas con cursor pointer y hover */
 .table-clickable tbody tr { cursor: pointer; }
 .table-clickable tbody tr:hover td { background: var(--bg-hover); color: var(--text-primary); }
