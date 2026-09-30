@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -109,6 +110,49 @@ describe('MOBILE-0 · foundations compartidas', () => {
       expect(document.body.style.overflow).toBe('')
     },
   )
+
+  // El efecto de foco dependía de la identidad de `onClose`. Con el `onClose`
+  // inline que pasan casi todos los padres, cada render del diálogo abierto
+  // mandaba el foco a «Cerrar»: tipear tecla a tecla perdía caracteres y un
+  // espacio cerraba el diálogo (medido en el alta rápida y en Editar cliente).
+  it('ResponsiveDialog no roba el foco cuando el padre re-renderiza con un onClose inline', async () => {
+    const nextFrame = () => act(() => new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve())))
+    const closedWith: string[] = []
+    function Harness() {
+      const [open, setOpen] = useState(false)
+      const [value, setValue] = useState('')
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Abrir</button>
+          <ResponsiveDialog isOpen={open} onClose={() => { closedWith.push(value); setOpen(false) }} title="Foco estable">
+            <input aria-label="Nombre" value={value} onChange={(event) => setValue(event.target.value)} />
+          </ResponsiveDialog>
+        </>
+      )
+    }
+
+    render(<Harness />)
+    const trigger = screen.getByRole('button', { name: 'Abrir' })
+    trigger.focus()
+    fireEvent.click(trigger)
+    await nextFrame()
+    // Contrato previo intacto: al abrir, el foco va a «Cerrar».
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cerrar' }))
+
+    const input = screen.getByLabelText('Nombre')
+    input.focus()
+    for (const text of ['J', 'Ju', 'Jua', 'Juan', 'Juan ']) {
+      fireEvent.change(input, { target: { value: text } })
+      await nextFrame()
+      expect(document.activeElement).toBe(input)
+    }
+
+    // Escape usa el onClose VIGENTE (ve el último valor) y el foco vuelve al disparador.
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(closedWith).toEqual(['Juan '])
+    expect(screen.queryByRole('dialog', { name: 'Foco estable' })).not.toBeInTheDocument()
+    expect(document.activeElement).toBe(trigger)
+  })
 
   it('prepara semántica segura sin type=number para DNI y montos', () => {
     render(
