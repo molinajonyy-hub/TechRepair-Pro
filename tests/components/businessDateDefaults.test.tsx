@@ -178,7 +178,7 @@ describe('control de fuente: los defaults que se graban no vuelven a pasar por U
 
   test.each(SUPERFICIES)('%s inicializa sus fechas con businessToday()', (archivo, estados) => {
     const fuente = readFileSync(archivo, 'utf8')
-    expect(fuente).toMatch(/import \{ businessToday \} from '(\.\.\/)+lib\/businessDate'/)
+    expect(fuente).toMatch(/import \{[^}]*\bbusinessToday\b[^}]*\} from '(\.\.\/)+lib\/businessDate'/)
     for (const estado of estados) {
       const declaracion = new RegExp(`const \\[${estado}\\]\\s*=\\s*useState\\(([^\\n]*)\\)`)
       const m = declaracion.exec(fuente)

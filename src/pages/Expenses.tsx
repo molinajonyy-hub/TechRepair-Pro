@@ -21,7 +21,7 @@ import { suppliersService, type CreatePurchaseInput } from '../services/supplier
 import { purchasePayloadHash, resolvePurchaseKey } from '../utils/purchaseIdempotency'
 import { financeErrorMessage } from '../lib/financeErrors'
 import { expenseCategoryKey, expenseFinanceType } from '../lib/expenseFinanceType'
-import { businessToday } from '../lib/businessDate'
+import { businessToday, firstDayOfMonth } from '../lib/businessDate'
 import { ProductFormModalSafe as ProductFormModal } from '../components/products/ProductFormModal'
 import type { InventoryItem } from '../hooks/useInventory'
 
@@ -68,8 +68,6 @@ interface LineItem {
 
 const fmtARS  = (n: number) => '$' + Math.round(n).toLocaleString('es-AR')
 import { fmtDateFull as fmtDate } from '../utils/dateUtils'
-const today = () => new Date().toISOString().split('T')[0]
-const firstDayOfMonth = () => { const d = new Date(); d.setDate(1); return d.toISOString().split('T')[0] }
 const mkItem = (): LineItem => ({ _id: crypto.randomUUID(), inventory_id: null, product_name: '', cantidad: '1', costo_unitario: '' })
 
 const PAYMENT_METHOD_LABELS: Record<string, { label: string; color: string }> = {
@@ -940,8 +938,8 @@ export function Expenses() {
   const [filterCat, setFilterCat]       = useState('all')
   const [filterMethod, setFilterMethod] = useState('all')
   const [filterTipo, setFilterTipo]     = useState('all')
-  const [dateFrom, setDateFrom]         = useState(firstDayOfMonth())
-  const [dateTo, setDateTo]             = useState(today())
+  const [dateFrom, setDateFrom]         = useState(() => firstDayOfMonth(businessToday()))
+  const [dateTo, setDateTo]             = useState(() => businessToday())
 
   const loadCategories = useCallback(async () => {
     if (!businessId) return
@@ -984,7 +982,7 @@ export function Expenses() {
     return list
   }, [expenses, filterCat, filterMethod, filterTipo, searchTerm])
 
-  const todayStr  = today()
+  const todayStr  = businessToday()
   const totalHoy  = expenses.filter(e => e.date === todayStr).reduce((s, e) => s + (e.amount || 0), 0)
   const totalMes  = expenses.reduce((s, e) => s + (e.amount || 0), 0)
   const alerts    = expenses.filter(e => (e.amount || 0) >= ALERT_THRESHOLD)

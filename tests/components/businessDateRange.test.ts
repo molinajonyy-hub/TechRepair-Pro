@@ -14,6 +14,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 
 import {
   addCalendarDays,
+  addCalendarMonths,
+  businessDayStartInstant,
   businessToday,
   calendarWeekday,
   firstDayOfMonth,
@@ -118,6 +120,32 @@ describe('aritmetica de calendario (sin zona)', () => {
   test('rechaza lo que no es una fecha YYYY-MM-DD', () => {
     expect(() => addCalendarDays('30/09/2026', 1)).toThrow(RangeError)
     expect(() => calendarWeekday('2026-9-30')).toThrow(RangeError)
+    expect(() => addCalendarMonths('2026/09/30', 1)).toThrow(RangeError)
+    expect(() => businessDayStartInstant('2026-09-30T00:00:00Z')).toThrow(RangeError)
+  })
+
+  test('addCalendarMonths cruza años y se queda en el ultimo dia si el mes destino es mas corto', () => {
+    expect(addCalendarMonths('2026-09-01', 1)).toBe('2026-10-01')
+    expect(addCalendarMonths('2026-12-01', 1)).toBe('2027-01-01')
+    expect(addCalendarMonths('2027-01-01', -1)).toBe('2026-12-01')
+    expect(addCalendarMonths('2026-09-30', -1)).toBe('2026-08-30')
+    expect(addCalendarMonths('2026-12-31', -1)).toBe('2026-11-30')
+    expect(addCalendarMonths('2027-03-31', -1)).toBe('2027-02-28')
+    expect(addCalendarMonths('2028-03-31', -1)).toBe('2028-02-29')
+    expect(addCalendarMonths('2026-01-31', 1)).toBe('2026-02-28')
+    expect(addCalendarMonths('2026-09-15', -12)).toBe('2025-09-15')
+    expect(addCalendarMonths('2026-09-15', 0)).toBe('2026-09-15')
+  })
+
+  test('businessDayStartInstant es la medianoche argentina del dia de negocio', () => {
+    for (const fecha of ['2026-01-01', '2026-06-21', '2026-09-30', '2026-12-31', '2028-02-29']) {
+      const inicio = new Date(businessDayStartInstant(fecha)).getTime()
+      expect(businessDayStartInstant(fecha)).toBe(`${fecha}T00:00:00-03:00`)
+      // El instante cae en `fecha` y el milisegundo anterior en el dia anterior,
+      // segun la autoridad canonica (Intl con zona explicita), no el offset fijo.
+      expect(businessToday(new Date(inicio))).toBe(fecha)
+      expect(businessToday(new Date(inicio - 1))).toBe(addCalendarDays(fecha, -1))
+    }
   })
 })
 

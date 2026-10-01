@@ -21,6 +21,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import { logger } from '../lib/logger'
+import { addCalendarDays, businessToday } from '../lib/businessDate'
 import {
   loadGeneral,
   loadCaja,
@@ -141,8 +142,11 @@ export function useFinancialDashboard(businessId: string | null | undefined, ope
     const req = ++generalReq.current
     setGeneralLoading(true)
 
-    const weekAgoISO  = new Date(Date.now() - 7  * 86_400_000).toISOString().slice(0, 10)
-    const monthAgoISO = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10)
+    // comprobante_payments.date es fecha de negocio (el checkout la graba con
+    // ar_today()): la ventana se cuenta en dias de calendario argentinos.
+    const hoy         = businessToday()
+    const weekAgoISO  = addCalendarDays(hoy, -7)
+    const monthAgoISO = addCalendarDays(hoy, -30)
 
     const res = await loadGeneral(supabasePort, businessId, weekAgoISO, monthAgoISO)
 

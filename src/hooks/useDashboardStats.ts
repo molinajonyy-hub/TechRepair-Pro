@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { getFinancialSummary } from '../services/financialMetricsService'
 import { todayAR, daysAgoAR } from '../utils/dateUtils'
+import { addCalendarDays, businessToday } from '../lib/businessDate'
 import { hasCogsAuthority } from '../services/inventoryCostAccess'
 
 export interface RecentOrder {
@@ -188,8 +189,11 @@ export function useDashboardStats() {
       setLoading(true)
       setError(null)
 
+      // Fecha de negocio argentina para lo financiero (business_finance_entries.date
+      // es un DATE de negocio). `today` sigue cortando los conteos de órdenes,
+      // que no son financieros y quedan fuera de FINANCE BUSINESS DATE.
+      const hoy      = businessToday()
       const today    = new Date().toISOString().split('T')[0]
-      const weekAgo  = new Date(Date.now() -  7 * 24 * 60 * 60 * 1000).toISOString()
       const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
       // Para parts y payments usamos ventana de 90 días — evita traer todo el historial
       const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
@@ -289,8 +293,8 @@ export function useDashboardStats() {
           .from('business_finance_entries')
           .select('type, amount_ars, date')
           .eq('business_id', businessId)
-          .gte('date', ninetyDaysAgo.split('T')[0])
-          .lte('date', today),
+          .gte('date', addCalendarDays(hoy, -90))
+          .lte('date', hoy),
 
         // 12. comprobante_items emitidos últimos 90 días (ventas directas sin orden)
         supabase
@@ -341,9 +345,9 @@ export function useDashboardStats() {
       let revenueToday     = 0
       let revenueThisWeek  = 0
       let revenueThisMonth = 0
-      const todayDate    = today                          // 'YYYY-MM-DD'
-      const weekAgoDate  = weekAgo.split('T')[0]
-      const monthAgoDate = monthAgo.split('T')[0]
+      const todayDate    = hoy                            // 'YYYY-MM-DD' de negocio
+      const weekAgoDate  = addCalendarDays(hoy, -7)
+      const monthAgoDate = addCalendarDays(hoy, -30)
 
       if (!financeResult.error && financeResult.data) {
         const incomeEntries = financeResult.data.filter(e => e.type === 'income')

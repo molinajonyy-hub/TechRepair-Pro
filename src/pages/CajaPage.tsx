@@ -15,6 +15,7 @@ import { useCaja } from '../contexts/CajaContext'
 import { currencyService } from '../services/currencyService'
 import { formatDisplayMessage } from '../utils/formatMessage'
 import { showToast } from '../utils/toast'
+import { businessDayStartInstant, businessToday } from '../lib/businessDate'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -342,7 +343,9 @@ export function CajaPage() {
   const loadHistorial = useCallback(async () => {
     if (!businessId) return
     const now    = new Date()
-    const today  = now.toISOString().split('T')[0]
+    // «Hoy» = desde las 00:00 del dia de negocio argentino (opened_at es un
+    // timestamptz). «7 días» / «30 días» son ventanas moviles de instantes.
+    const desdeHoy = businessDayStartInstant(businessToday(now))
     const weekAgo  = new Date(now.getTime() - 7  * 24 * 60 * 60 * 1000).toISOString()
     const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
@@ -351,7 +354,7 @@ export function CajaPage() {
       .eq('business_id', businessId).eq('status', 'cerrada')
       .order('opened_at', { ascending: false })
 
-    if (historialFilter === 'hoy')   q = q.gte('opened_at', today)
+    if (historialFilter === 'hoy')   q = q.gte('opened_at', desdeHoy)
     if (historialFilter === 'semana') q = q.gte('opened_at', weekAgo)
     if (historialFilter === 'mes')   q = q.gte('opened_at', monthAgo)
     // 'todo' → sin filtro de fecha, trae todas (sin LIMIT)
