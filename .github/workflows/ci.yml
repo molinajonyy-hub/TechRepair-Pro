@@ -162,6 +162,12 @@ jobs:
       - name: Fiscal date — sale vs fiscal issue date on document surfaces
         run: npm run test:components -- tests/components/fiscalDateSaleLabel.test.tsx tests/components/fiscalPostReconciliacion.test.tsx
 
+      # FINANCE BUSINESS DATE: the Finance presets (Hoy, Ayer, Semana, Este mes,
+      # Mes ant.) are Argentina civil-date ranges, never UTC dates. Every vector
+      # also runs under several process time zones, UTC included.
+      - name: Finance — preset date ranges use the Argentina business date
+        run: npm run test:components -- tests/components/businessDateRange.test.ts
+
       # FISCAL DATE Part 2: the ARCA lookup runner must stay read-only. The guard
       # walks its local import graph and fails if emission, number reservation,
       # attempt completion, a DB write, service_role or any operation other than
