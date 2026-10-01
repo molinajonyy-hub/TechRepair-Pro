@@ -1,0 +1,43 @@
+.recurring-expenses {
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  background: var(--bg-card-solid);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+}
+
+.recurring-expenses__header,
+.recurring-expenses__row,
+.recurring-expenses__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.recurring-expenses__header { justify-content: space-between; }
+.recurring-expenses__header > div { flex: 1 1 260px; min-width: 0; }
+.recurring-expenses h2 { font-size: 1rem; margin: 0; }
+.recurring-expenses h3 { font-size: 0.9rem; margin: 0; overflow-wrap: anywhere; }
+.recurring-expenses p { font-size: 0.85rem; color: var(--text-secondary); margin: 0.5rem 0; }
+.recurring-expenses__filter { max-width: 220px; margin-top: 1rem; }
+.recurring-expenses__list { list-style: none; margin: 1rem 0 0; padding: 0; }
+.recurring-expenses__row { padding: 1rem 0; border-top: 1px solid var(--border-subtle); }
+.recurring-expenses__detail { flex: 1 1 180px; min-width: 0; }
+.recurring-expenses__amount { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.recurring-expenses__amount small { color: var(--text-secondary); font-weight: 400; }
+.recurring-expenses__form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 1rem; }
+.recurring-expenses .btn,
+.recurring-expenses select,
+.recurring-expenses__actions .btn,
+.recurring-expenses__form input,
+.recurring-expenses__form select { min-height: 44px; }
+
+@media (max-width: 600px) {
+  .recurring-expenses__header > .btn { width: 100%; }
+  .recurring-expenses__row { align-items: flex-start; }
+  .recurring-expenses__amount { flex-basis: 100%; }
+  .recurring-expenses__row > .recurring-expenses__actions { width: 100%; }
+  .recurring-expenses__actions > .btn { flex: 1; }
+}

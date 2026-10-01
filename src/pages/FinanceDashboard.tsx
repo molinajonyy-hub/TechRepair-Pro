@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { AccountingChangeBanner } from '../components/finance/AccountingChangeBanner'
 import { FinanceInsightsPanel } from '../components/finance/FinanceInsightsPanel'
+import { RecurringExpensesPanel } from '../components/finance/RecurringExpensesPanel'
 import type { FinanceInsight } from '../services/insightsService'
 import { suppliersService } from '../services/suppliersService'
 
@@ -640,6 +641,7 @@ export function FinanceDashboard() {
       {/* ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'gastos' && (
         <>
+          <RecurringExpensesPanel />
           {PeriodFilter}
           {data && (
             <>
