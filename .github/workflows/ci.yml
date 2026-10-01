@@ -20,12 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Node 20 sin cambios: este gate ya funcionaba y nada de lo que corre acá
-      # necesita otra cosa. El bump a 22 vive sólo en el job E2E, que es el
-      # único que lo necesita (ver el comentario allá).
+      # Node 22, como el resto de los jobs: PRE-BETA-3A-2 corre tests TypeScript
+      # con `node --test` (tests/unit/*.test.ts), y eso necesita el type
+      # stripping nativo (sin flag desde 22.18). En Node 20 mueren con
+      # ERR_UNKNOWN_FILE_EXTENSION antes de ejecutar un solo test.
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -734,7 +735,7 @@ jobs:
       # `assertLocalTarget.ts` para no duplicar el guard de destino, y eso
       # necesita el type stripping nativo (sin flag desde 22.18). En Node 20
       # mueren con ERR_UNKNOWN_FILE_EXTENSION antes de llegar a los tests.
-      # `quality` se queda en 20: ya funcionaba y no lo necesita.
+      # (`quality` tambien corre en 22: PRE-BETA-3A-2 usa `node --test` sobre .ts.)
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
