@@ -16,6 +16,7 @@ import { ProductFormModalSafe as ProductFormModal } from '../components/products
 import type { InventoryItem } from '../hooks/useInventory'
 import type { ProductVariant } from '../services/productService'
 import { resolvePurchaseKey } from '../utils/purchaseIdempotency'
+import { businessToday } from '../lib/businessDate'
 import suppliersService, {
   type SupplierWithStats,
   type SupplierPurchase,
@@ -300,7 +301,7 @@ interface ModalNuevaCompraProps {
 }
 
 function ModalNuevaCompra({ onClose, onSaved, supplier, businessId, userId, canFinance }: ModalNuevaCompraProps) {
-  const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0])
+  const [purchaseDate, setPurchaseDate] = useState(() => businessToday())
   const [dueDate, setDueDate] = useState('')
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [paymentMethod, setPaymentMethod] = useState('efectivo')
@@ -779,7 +780,7 @@ interface ModalRegistrarPagoProps {
 }
 
 function ModalRegistrarPago({ onClose, onSaved, supplier, purchases, businessId, userId, defaultPurchaseId }: ModalRegistrarPagoProps) {
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0])
+  const [paymentDate, setPaymentDate] = useState(() => businessToday())
   const [amount, setAmount] = useState(0)
   const [method, setMethod] = useState('efectivo')
   const [purchaseId, setPurchaseId] = useState<string>(defaultPurchaseId || '')
