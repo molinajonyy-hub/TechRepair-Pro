@@ -1,11 +1,6 @@
 /**
  * Plans.tsx — Pantalla de selección de plan con checkout Mercado Pago.
  * Diseño iOS premium. Trial users ven Pro recomendado.
- *
- * BETA-1 — con `isBillingCheckoutEnabled()` en false la pantalla es
- * INFORMATIVA: muestra planes y precios, pero el CTA de cada plan es un enlace
- * al canal de ayuda y nada llama a `createSubscription`. Es el destino de todos
- * los paywalls («Ver planes»), así que contenerla acá contiene a todos.
  */
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -13,8 +8,6 @@ import { Loader2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSubscription } from '../hooks/useSubscription'
 import { createSubscription } from '../services/subscriptionService'
-import { isBillingCheckoutEnabled } from '../config/betaBilling'
-import { SupportContactButton } from '../components/ui/SupportContactButton'
 import { PLANS, type SubscriptionPlan } from '../types/subscription'
 
 type Cycle = 'monthly' | 'annual'
@@ -70,12 +63,8 @@ export function Plans() {
   const [error, setError]     = useState('')
 
   const isAnnual = cycle === 'annual'
-  const checkoutEnabled = isBillingCheckoutEnabled()
 
   async function handleSelect(planId: SubscriptionPlan) {
-    // Con el checkout apagado este handler no está enlazado a ningún control;
-    // el corte queda igual por si alguien vuelve a cablearlo.
-    if (!checkoutEnabled) return
     if (!businessId || !user?.email) return
     setError(''); setLoading(planId)
     try {
@@ -104,7 +93,7 @@ export function Plans() {
         {isTrial ? (
           <span className="badge badge-info" style={{ display: 'inline-block', marginBottom: '0.875rem', fontSize: '0.82rem', padding: '0.4rem 1rem', maxWidth: '100%', whiteSpace: 'normal' }}>
             {daysUntilTrialEnd !== null && daysUntilTrialEnd <= 3 && daysUntilTrialEnd > 0
-              ? `Tu prueba vence en ${daysUntilTrialEnd} día${daysUntilTrialEnd !== 1 ? 's' : ''}. ${checkoutEnabled ? 'Elegí un plan' : 'Escribinos'} para mantener el acceso.`
+              ? `Tu prueba vence en ${daysUntilTrialEnd} día${daysUntilTrialEnd !== 1 ? 's' : ''}. Elegí un plan para mantener el acceso.`
               : 'Tu prueba gratuita incluye funciones del Plan Pro'}
           </span>
         ) : currentPlan && (
@@ -113,10 +102,8 @@ export function Plans() {
           </span>
         )}
 
-        <p style={{ margin: '0 0 1.75rem', color: 'var(--text-muted)', fontSize: '0.9rem' }} data-testid="plans-subtitle">
-          {checkoutEnabled
-            ? 'Sin contratos. Cancelás cuando querés.'
-            : 'Durante la beta los planes se activan con nuestro equipo: elegí el que te sirve y escribinos.'}
+        <p style={{ margin: '0 0 1.75rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+          Sin contratos. Cancelás cuando querés.
         </p>
 
         {/* Toggle mensual / anual */}
@@ -211,44 +198,29 @@ export function Plans() {
                 ))}
               </div>
 
-              {/* CTA — con el checkout apagado es un enlace a Ayuda, no un pago */}
-              {checkoutEnabled ? (
-                <button
-                  onClick={() => handleSelect(plan.id)}
-                  disabled={!!loading}
-                  className={isPro ? 'btn btn-primary btn-lift' : 'btn btn-ghost'}
-                  style={{
-                    width: '100%', justifyContent: 'center', padding: '14px', fontSize: '0.9rem',
-                    opacity: loading && !isBusy ? 0.5 : 1,
-                    border: isPro ? undefined : `1px solid ${s.border}`,
-                  }}
-                >
-                  {isBusy ? (
-                    <Loader2 size={17} style={{ animation: 'tr-spin 0.7s linear infinite' }} />
-                  ) : null}
-                  {isBusy ? 'Redirigiendo...' : `Elegir ${plan.name}`}
-                </button>
-              ) : (
-                <SupportContactButton
-                  label="Contactar para activar"
-                  mensaje={`Hola, quiero activar el plan ${plan.name} de TechRepair Pro.`}
-                  className={isPro ? 'btn btn-primary btn-lift' : 'btn btn-ghost'}
-                  style={{
-                    width: '100%', padding: '14px', fontSize: '0.9rem',
-                    border: isPro ? undefined : `1px solid ${s.border}`,
-                  }}
-                  data-testid={`plan-contact-${plan.id}`}
-                />
-              )}
+              {/* CTA */}
+              <button
+                onClick={() => handleSelect(plan.id)}
+                disabled={!!loading}
+                className={isPro ? 'btn btn-primary btn-lift' : 'btn btn-ghost'}
+                style={{
+                  width: '100%', justifyContent: 'center', padding: '14px', fontSize: '0.9rem',
+                  opacity: loading && !isBusy ? 0.5 : 1,
+                  border: isPro ? undefined : `1px solid ${s.border}`,
+                }}
+              >
+                {isBusy ? (
+                  <Loader2 size={17} style={{ animation: 'tr-spin 0.7s linear infinite' }} />
+                ) : null}
+                {isBusy ? 'Redirigiendo...' : `Elegir ${plan.name}`}
+              </button>
             </div>
           )
         })}
       </div>
 
       <p style={{ textAlign: 'center', color: '#334155', fontSize: '0.78rem', marginTop: '2rem' }}>
-        {checkoutEnabled
-          ? 'Pagos procesados de forma segura por Mercado Pago · Sin contratos · Cancelás cuando querés'
-          : 'Durante la beta no se realizan cobros desde la app · Sin contratos'}
+        Pagos procesados de forma segura por Mercado Pago · Sin contratos · Cancelás cuando querés
       </p>
 
       {/* Botón volver */}

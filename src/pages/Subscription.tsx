@@ -21,9 +21,7 @@ import {
   type SubscriptionStatus,
 } from '../types/subscription'
 import { PLAN_FEATURES, type PlanFeature } from '../config/planFeatures'
-import { isBillingCheckoutEnabled } from '../config/betaBilling'
 import { classifySubscriptionWall, hasPaidSubscription } from '../lib/subscriptionWall'
-import { SupportContactButton } from '../components/ui/SupportContactButton'
 import { supabase } from '../lib/supabase'
 
 function StatusIcon({ status }: { status: SubscriptionStatus }) {
@@ -54,23 +52,16 @@ export function Subscription() {
   const status       = (subscription?.subscription_status as SubscriptionStatus) || 'pending_activation'
   const plan         = PLANS.find(p => p.id === subscription?.subscription_plan)
 
-  // ── BETA-1 ────────────────────────────────────────────────────────────────
-  // `checkoutEnabled`: con el flag apagado esta pantalla no inicia pagos.
-  // `paid`: hay una suscripción real de Mercado Pago detrás. Las acciones de
-  //   administración (verificar pago, método de pago, cancelar) operan sobre
-  //   ese preapproval: sin él no tienen sobre qué actuar, así que se ocultan.
-  //   CON él se conservan aunque el checkout esté apagado — son la única forma
-  //   de que un suscriptor real corte o corrija sus cobros, y ninguna crea un
-  //   checkout nuevo.
-  const checkoutEnabled = isBillingCheckoutEnabled()
-  const paid            = hasPaidSubscription(subscription)
-  const trialEnded      = classifySubscriptionWall({
+  // ── BETA-1 · sólo presentación ────────────────────────────────────────────
+  // `paid`: hay una suscripción de Mercado Pago detrás. Un acceso otorgado a
+  //   mano también tiene `current_period_end`, pero no tiene un «próximo cobro».
+  // `trialEnded`: suspendida porque venció la prueba, no por falta de pago. Se
+  //   muestra con el tono informativo del trial, no con el rojo de una deuda.
+  const paid       = hasPaidSubscription(subscription)
+  const trialEnded = classifySubscriptionWall({
     ...subscription,
     subscription_status: isSuspended ? 'suspended' : null,
   }) === 'trial_ended'
-  const plansLabel = (fallback: string) => (checkoutEnabled ? fallback : 'Ver planes')
-  // Un trial vencido se muestra con el tono informativo del trial, no con el
-  // rojo de una suspensión por pago.
   const displayStatus: SubscriptionStatus = trialEnded ? 'trialing' : status
 
   // Cargar cantidad de usuarios activos
@@ -184,7 +175,7 @@ export function Subscription() {
             {/* BETA-1: un trial vencido no es una deuda. */}
             {trialEnded && (
               <p style={{ color: 'var(--text-muted)', margin: '0.5rem 0 0', fontSize: '0.875rem' }} data-testid="subscription-trial-ended">
-                Tu período de prueba terminó. Tus datos siguen guardados y protegidos.
+                Tu período de prueba terminó. Elegí un plan para seguir usando TechRepair Pro; tus datos siguen guardados y protegidos.
               </p>
             )}
 
@@ -197,13 +188,9 @@ export function Subscription() {
                 <div style={{ marginTop: '0.625rem' }}>
                   <p style={{ margin: 0, fontSize: '0.875rem', color: isVencido ? '#f87171' : isUrgent ? '#fbbf24' : '#60a5fa', fontWeight: isUrgent || isVencido ? 600 : 400 }}>
                     {isVencido
-                      ? (checkoutEnabled
-                          ? 'Tu período de prueba venció. Elegí un plan para mantener el acceso premium.'
-                          : 'Tu período de prueba venció. Escribinos para continuar.')
+                      ? 'Tu período de prueba venció. Elegí un plan para mantener el acceso premium.'
                       : isUrgent
-                        ? (checkoutEnabled
-                            ? `Tu prueba vence en ${d} día${d !== 1 ? 's' : ''}. Actualizá ahora para no perder el acceso.`
-                            : `Tu prueba vence en ${d} día${d !== 1 ? 's' : ''}. Escribinos si necesitás más tiempo.`)
+                        ? `Tu prueba vence en ${d} día${d !== 1 ? 's' : ''}. Actualizá ahora para no perder el acceso.`
                         : `Período de prueba: ${d} días restantes con acceso completo al Plan Pro.`}
                   </p>
                   {(isUrgent || isVencido) && (
@@ -212,7 +199,7 @@ export function Subscription() {
                       className="btn btn-primary btn-lift"
                       style={{ marginTop: '0.5rem', padding: '0.4rem 1rem', fontSize: '0.78rem' }}
                     >
-                      {plansLabel(isVencido ? 'Activar plan ahora' : 'Elegir plan')}
+                      {isVencido ? 'Activar plan ahora' : 'Elegir plan'}
                     </button>
                   )}
                 </div>
@@ -238,21 +225,14 @@ export function Subscription() {
             {(isSuspended || isCanceled || isTrial) && (
               <button onClick={() => navigate('/subscription/plans')} className="btn btn-primary btn-lift">
                 <Zap size={16} />
-                {plansLabel(isSuspended || isCanceled ? 'Reactivar' : 'Elegir plan')}
+                {/* Quien nunca tuvo un plan no «reactiva»: elige uno. */}
+                {(isSuspended || isCanceled) && !trialEnded ? 'Reactivar' : 'Elegir plan'}
               </button>
             )}
             {(isActive || isPastDue) && (
               <button onClick={() => navigate('/subscription/plans')} className="btn btn-ghost">
-                {plansLabel('Cambiar plan')}
+                Cambiar plan
               </button>
-            )}
-            {/* BETA-1: sin checkout, activar / extender / cambiar se pide por Ayuda. */}
-            {!checkoutEnabled && (
-              <SupportContactButton
-                label="Contactar soporte"
-                className="btn btn-ghost"
-                data-testid="subscription-help"
-              />
             )}
           </div>
         </div>
@@ -412,10 +392,9 @@ export function Subscription() {
         )}
       </div>
 
-      {/* Management actions — BETA-1: con el checkout apagado sólo si hay una
-          suscripción real de Mercado Pago que administrar (ver `paid`). */}
-      {(isActive || isPastDue || isTrial) && (checkoutEnabled || paid) && (
-        <div className="card" style={{ marginBottom: '1.5rem' }} data-testid="subscription-management">
+      {/* Management actions */}
+      {(isActive || isPastDue || isTrial) && (
+        <div className="card" style={{ marginBottom: '1.5rem' }}>
           <div className="card-header"><h3 className="card-title">Administrar suscripción</h3></div>
           <div className="card-body" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
             {/* Verificar pago — útil cuando el webhook tardó */}

@@ -17,6 +17,9 @@
  * Las tres las escribe sólo el webhook / la Edge Function, nunca el trial ni
  * las RPC de SaaS Admin. Si no hay ninguna, no hubo billing: no se habla de pagos.
  *
+ * Sólo cambia QUÉ SE DICE. La salida de todos los muros sigue siendo la misma
+ * de siempre: Planes, y de ahí el checkout de Mercado Pago.
+ *
  * Puro (sin Supabase/import.meta) → testeable con `node --test`, igual que
  * `lib/entitlements.ts`.
  */
@@ -74,73 +77,54 @@ export function classifySubscriptionWall(
 
 // ─── Presentación del muro ────────────────────────────────────────────────────
 
-export type SubscriptionWallAction = 'help' | 'plans'
-
 export interface SubscriptionWallView {
   title:       string
   description: string
   badge:       string
   /** `info` = terminó la prueba · `danger` = billing · `neutral` = el resto. */
   tone:        'info' | 'danger' | 'neutral'
-  /** A dónde lleva el CTA primario. `help` nunca toca Planes ni el checkout. */
-  primary:     SubscriptionWallAction
-  /** Texto del CTA cuando `primary === 'plans'`. */
-  plansLabel:  string | null
+  /** Texto del CTA primario. Siempre lleva a Planes. */
+  plansLabel:  string
 }
 
 const DATOS_PROTEGIDOS = 'Tus datos siguen guardados y protegidos.'
 
-/**
- * Copy y CTA por tipo de muro. Con el checkout apagado (beta) la salida es
- * SIEMPRE Ayuda. Con el checkout prendido vuelve el CTA a Planes, salvo en los
- * casos donde un plan no resuelve nada (`suspended_other`).
- */
+/** Copy por tipo de muro. El CTA primario de todos es Planes. */
 export function describeSubscriptionWall(
   kind: Exclude<SubscriptionWallKind, 'none'>,
-  checkoutEnabled: boolean,
 ): SubscriptionWallView {
   switch (kind) {
     case 'trial_ended':
       return {
         title: 'Tu período de prueba terminó',
-        description: checkoutEnabled
-          ? `${DATOS_PROTEGIDOS} Elegí un plan para seguir usando TechRepair Pro, o escribinos si necesitás ayuda.`
-          : `${DATOS_PROTEGIDOS} Escribinos para continuar con la beta o elegir un plan.`,
+        description: `${DATOS_PROTEGIDOS} Elegí un plan para seguir usando TechRepair Pro.`,
         badge: 'Prueba finalizada',
         tone: 'info',
-        primary: checkoutEnabled ? 'plans' : 'help',
-        plansLabel: checkoutEnabled ? 'Ver planes' : null,
+        plansLabel: 'Ver planes',
       }
     case 'billing_suspended':
       return {
         title: 'Cuenta suspendida',
-        description: checkoutEnabled
-          ? 'Tu suscripción fue suspendida por falta de pago. Para restaurar el acceso, actualizá tu método de pago o elegí un nuevo plan.'
-          : `Tu suscripción fue suspendida por falta de pago. ${DATOS_PROTEGIDOS} Escribinos y te ayudamos a regularizarla.`,
+        description: 'Tu suscripción fue suspendida por falta de pago. Para restaurar el acceso, actualizá tu método de pago o elegí un nuevo plan.',
         badge: 'Suspendida',
         tone: 'danger',
-        primary: checkoutEnabled ? 'plans' : 'help',
-        plansLabel: checkoutEnabled ? 'Ver planes y reactivar' : null,
+        plansLabel: 'Ver planes y reactivar',
       }
     case 'canceled':
       return {
         title: 'Suscripción cancelada',
-        description: checkoutEnabled
-          ? 'Tu suscripción fue cancelada. Para volver a usar TechRepair Pro, reactivá tu plan.'
-          : `Tu suscripción fue cancelada. ${DATOS_PROTEGIDOS} Escribinos para volver a usar TechRepair Pro.`,
+        description: 'Tu suscripción fue cancelada. Para volver a usar TechRepair Pro, reactivá tu plan.',
         badge: 'Cancelada',
         tone: 'neutral',
-        primary: checkoutEnabled ? 'plans' : 'help',
-        plansLabel: checkoutEnabled ? 'Reactivar mi cuenta' : null,
+        plansLabel: 'Reactivar mi cuenta',
       }
     case 'suspended_other':
       return {
         title: 'Cuenta suspendida',
-        description: `El acceso de este negocio está suspendido. ${DATOS_PROTEGIDOS} Escribinos y lo revisamos.`,
+        description: `El acceso de este negocio está suspendido. ${DATOS_PROTEGIDOS} Elegí un plan para reactivarlo.`,
         badge: 'Suspendida',
         tone: 'neutral',
-        primary: 'help',
-        plansLabel: null,
+        plansLabel: 'Ver planes',
       }
   }
 }

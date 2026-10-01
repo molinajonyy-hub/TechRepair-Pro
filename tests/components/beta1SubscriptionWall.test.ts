@@ -1,18 +1,16 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// BETA-1 · Clasificación pura, flag de checkout y canal de soporte.
+// BETA-1 · Clasificación pura del muro y canal de soporte.
 //
 //   W  `classifySubscriptionWall` separa «terminó la prueba» de «falta de pago»
-//   V  `describeSubscriptionWall`: copy y CTA por tipo, con el flag en los dos
-//      valores (reversibilidad)
-//   F  el flag de beta nace apagado y tiene una sola autoridad
+//   V  `describeSubscriptionWall`: copy por tipo; el CTA primario es Planes
 //   C  `config/contacto.ts` es el único que arma el enlace de ayuda
-//   G  control de fuente: nadie fuera de `subscriptionService` llama a
-//      `mp-subscription`, y quien importa el checkout consulta el flag
+//   G  control de fuente: no queda ningún candado de cobros, y WhatsApp es
+//      ayuda — ninguna pantalla de billing lo usa para activar un plan
 //
 // Sin mocks: son funciones puras y lecturas de archivos.
 // ─────────────────────────────────────────────────────────────────────────────
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import {
   classifySubscriptionWall,
@@ -21,10 +19,6 @@ import {
   type BillingSnapshot,
   type SubscriptionWallKind,
 } from '../../src/lib/subscriptionWall'
-import {
-  BETA_BILLING_CHECKOUT_ENABLED,
-  isBillingCheckoutEnabled,
-} from '../../src/config/betaBilling'
 import {
   CONTACTO_SOPORTE,
   MENSAJE_SOPORTE_DEFAULT,
@@ -124,58 +118,50 @@ describe('W · clasificación del bloqueo', () => {
 describe('V · copy y CTA del muro', () => {
   const DEUDA = /falta de pago|m[eé]todo de pago|verificar pago|deuda|pago vencido/i
 
-  it('trial_ended: título exacto y datos protegidos', () => {
-    const v = describeSubscriptionWall('trial_ended', false)
+  const TIPOS: Array<Exclude<SubscriptionWallKind, 'none'>> = ['trial_ended', 'billing_suspended', 'suspended_other', 'canceled']
+  const texto = (tipo: Exclude<SubscriptionWallKind, 'none'>) => {
+    const v = describeSubscriptionWall(tipo)
+    return `${v.title} ${v.description} ${v.badge} ${v.plansLabel}`
+  }
+
+  it('trial_ended: título exacto, datos protegidos y la salida es elegir un plan', () => {
+    const v = describeSubscriptionWall('trial_ended')
     expect(v.title).toBe('Tu período de prueba terminó')
     expect(v.description).toMatch(/datos siguen guardados y protegidos/i)
-    expect(v.description).toMatch(/continuar con la beta o elegir un plan/i)
+    expect(v.description).toMatch(/Elegí un plan/)
     expect(v.badge).toBe('Prueba finalizada')
+    expect(v.plansLabel).toBe('Ver planes')
+    expect(v.tone).toBe('info')
   })
 
-  it.each([false, true])('trial_ended NUNCA habla de pagos (checkout=%s)', (checkout) => {
-    const v = describeSubscriptionWall('trial_ended', checkout)
-    expect(`${v.title} ${v.description} ${v.badge} ${v.plansLabel ?? ''}`).not.toMatch(DEUDA)
+  it('trial_ended NUNCA habla de pagos', () => {
+    expect(texto('trial_ended')).not.toMatch(DEUDA)
   })
 
   it('suspended_other tampoco inventa una deuda', () => {
-    for (const checkout of [false, true]) {
-      const v = describeSubscriptionWall('suspended_other', checkout)
-      expect(`${v.title} ${v.description}`).not.toMatch(DEUDA)
-      expect(v.primary).toBe('help')
+    expect(texto('suspended_other')).not.toMatch(DEUDA)
+    expect(texto('suspended_other')).not.toMatch(/prueba terminó/)
+  })
+
+  it('billing_suspended SÍ habla de falta de pago: ahí hay una suscripción paga', () => {
+    const v = describeSubscriptionWall('billing_suspended')
+    expect(v.title).toBe('Cuenta suspendida')
+    expect(v.description).toBe('Tu suscripción fue suspendida por falta de pago. Para restaurar el acceso, actualizá tu método de pago o elegí un nuevo plan.')
+    expect(v.plansLabel).toBe('Ver planes y reactivar')
+    expect(v.tone).toBe('danger')
+  })
+
+  it('canceled conserva su copy y su CTA de reactivación', () => {
+    const v = describeSubscriptionWall('canceled')
+    expect(v.title).toBe('Suscripción cancelada')
+    expect(v.plansLabel).toBe('Reactivar mi cuenta')
+  })
+
+  it('TODO muro tiene un CTA a Planes y ninguno manda a soporte para activar', () => {
+    for (const tipo of TIPOS) {
+      expect(describeSubscriptionWall(tipo).plansLabel, tipo).toMatch(/plan|reactivar/i)
+      expect(texto(tipo), tipo).not.toMatch(/escribinos|contact|whatsapp|soporte/i)
     }
-  })
-
-  it('billing_suspended conserva la semántica de falta de pago en los dos valores del flag', () => {
-    expect(describeSubscriptionWall('billing_suspended', false).description).toMatch(/suspendida por falta de pago/)
-    expect(describeSubscriptionWall('billing_suspended', true).description).toMatch(/suspendida por falta de pago/)
-  })
-
-  it('con el checkout APAGADO todo muro sale por Ayuda, nunca por Planes', () => {
-    const tipos: Array<Exclude<SubscriptionWallKind, 'none'>> = ['trial_ended', 'billing_suspended', 'suspended_other', 'canceled']
-    for (const tipo of tipos) {
-      const v = describeSubscriptionWall(tipo, false)
-      expect(v.primary, tipo).toBe('help')
-      expect(v.plansLabel, tipo).toBeNull()
-    }
-  })
-
-  it('con el checkout PRENDIDO vuelve el CTA a Planes (el flag es reversible)', () => {
-    expect(describeSubscriptionWall('trial_ended', true)).toMatchObject({ primary: 'plans', plansLabel: 'Ver planes' })
-    expect(describeSubscriptionWall('billing_suspended', true)).toMatchObject({ primary: 'plans', plansLabel: 'Ver planes y reactivar' })
-    expect(describeSubscriptionWall('canceled', true)).toMatchObject({ primary: 'plans', plansLabel: 'Reactivar mi cuenta' })
-  })
-})
-
-// ═══════════════════════════════════════════════════════════════════════════
-describe('F · flag de beta', () => {
-  it('nace apagado y la función lee la constante', () => {
-    expect(BETA_BILLING_CHECKOUT_ENABLED).toBe(false)
-    expect(isBillingCheckoutEnabled()).toBe(false)
-  })
-
-  it('hay UNA sola definición del flag en src/', () => {
-    const definiciones = archivos('src').filter(p => /BETA_BILLING_CHECKOUT_ENABLED\s*=/.test(readFileSync(p, 'utf8')))
-    expect(definiciones.map(rel)).toEqual(['src/config/betaBilling.ts'])
   })
 })
 
@@ -203,8 +189,8 @@ describe('C · canal de soporte canónico', () => {
 
   it('el mensaje precargado va codificado y es el que pide la pantalla', () => {
     vi.stubEnv('VITE_CONTACT_WHATSAPP', WHATSAPP_TEST)
-    const canal = canalSoporte('Hola, quiero activar el plan Básico & más')
-    expect(new URL(canal.url).searchParams.get('text')).toBe('Hola, quiero activar el plan Básico & más')
+    const canal = canalSoporte('Hola, me aparece un error & no puedo seguir')
+    expect(new URL(canal.url).searchParams.get('text')).toBe('Hola, me aparece un error & no puedo seguir')
   })
 
   it('sin WhatsApp configurado cae al correo: la pantalla nunca queda sin salida', () => {
@@ -220,52 +206,61 @@ describe('C · canal de soporte canónico', () => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Control de fuente. Mientras el flag esté apagado, que un componente vuelva a
-// enlazar el checkout por su cuenta tiene que romper acá, no en producción.
-describe('G · control de fuente del checkout', () => {
+// Control de fuente. Dos contratos de producto que no deben volver a torcerse:
+//   · Mercado Pago es autoservicio: no hay ningún flag que lo apague.
+//   · WhatsApp es AYUDA: ninguna pantalla de billing lo usa para activar un plan.
+describe('G · control de fuente', () => {
   const fuentes = archivos('src')
   const leer = (p: string) => readFileSync(p, 'utf8')
   const sinComentarios = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+
+  it('no existe ningún candado de cobros: ni el módulo ni sus identificadores', () => {
+    expect(existsSync('src/config/betaBilling.ts')).toBe(false)
+    const culpables = fuentes.filter(p => /betaBilling|BETA_BILLING|isBillingCheckoutEnabled|BILLING_CHECKOUT_DISABLED/.test(leer(p)))
+    expect(culpables.map(rel)).toEqual([])
+  })
+
+  it('createSubscription llega a la Edge Function sin ninguna condición previa', () => {
+    const src = sinComentarios(leer('src/services/subscriptionService.ts'))
+    const cuerpo = src.slice(src.indexOf('export async function createSubscription'))
+    const hastaLaLlamada = cuerpo.slice(0, cuerpo.indexOf("callEdge<CreateSubscriptionResponse>('create'"))
+    expect(hastaLaLlamada).not.toMatch(/\bif\b|\bthrow\b|\breturn\b/)
+  })
+
+  it('Planes inicia el checkout: llama a createSubscription y redirige al init_point', () => {
+    const src = sinComentarios(leer('src/pages/Plans.tsx'))
+    expect(src).toMatch(/await createSubscription\(/)
+    expect(src).toMatch(/window\.location\.href = res\.init_point/)
+    expect(src).toMatch(/onClick=\{\(\) => handleSelect\(plan\.id\)\}/)
+  })
+
+  it('las pantallas de billing NO usan el canal de ayuda para activar un plan', () => {
+    for (const p of [
+      'src/pages/Plans.tsx',
+      'src/pages/Subscription.tsx',
+      'src/pages/PaymentPending.tsx',
+      'src/pages/SubscriptionSuccess.tsx',
+      'src/pages/SubscriptionFailure.tsx',
+      'src/components/subscription/SubscriptionBanner.tsx',
+      'src/components/subscription/FeaturePaywall.tsx',
+      'src/components/subscription/UpgradeRequired.tsx',
+      'src/components/subscription/FeatureGate.tsx',
+    ]) {
+      const src = sinComentarios(leer(p))
+      expect(src, p).not.toMatch(/config\/contacto|canalSoporte|SupportContactButton|whatsappSoporte/)
+      expect(src, p).not.toMatch(/Contactar para activar/i)
+    }
+  })
 
   it('sólo subscriptionService invoca la Edge Function mp-subscription', () => {
     const invocan = fuentes.filter(p => /['"`]mp-subscription['"`]/.test(sinComentarios(leer(p))))
     expect(invocan.map(rel)).toEqual(['src/services/subscriptionService.ts'])
   })
 
-  it('createSubscription corta ANTES de llamar a la Edge Function', () => {
-    const src = leer('src/services/subscriptionService.ts')
-    const cuerpo = src.slice(src.indexOf('export async function createSubscription'))
-    const corte = cuerpo.indexOf('if (!isBillingCheckoutEnabled()) throw')
-    const llamada = cuerpo.indexOf("callEdge<CreateSubscriptionResponse>('create'")
-    expect(corte).toBeGreaterThan(-1)
-    expect(llamada).toBeGreaterThan(corte)
-  })
-
-  it('todo archivo que importa una acción de pago consulta el flag', () => {
-    const ACCIONES = /\b(createSubscription|cancelSubscription|getUpdatePaymentLink|reconcilePayment)\b/
-    const consumidores = fuentes.filter(p => {
-      if (rel(p) === 'src/services/subscriptionService.ts') return false
-      const src = sinComentarios(leer(p))
-      return /from ['"][^'"]*services\/subscriptionService['"]/.test(src) && ACCIONES.test(src)
-    })
-    // Hoy son exactamente estas dos pantallas. Una tercera es una decisión, no un descuido.
-    expect(consumidores.map(rel).sort()).toEqual(['src/pages/Plans.tsx', 'src/pages/Subscription.tsx'])
-    for (const p of consumidores) {
-      expect(leer(p), rel(p)).toContain('isBillingCheckoutEnabled()')
-    }
-  })
-
-  it('nadie arma una URL de checkout de Mercado Pago del lado del navegador', () => {
-    const culpables = fuentes.filter(p => /mercadopago\.com(\.ar)?\/subscriptions\/checkout|preapproval_plan_id=/.test(sinComentarios(leer(p))))
-    expect(culpables.map(rel)).toEqual([])
-  })
-
   it('los componentes de ayuda no hardcodean teléfonos ni wa.me: el enlace sale de contacto.ts', () => {
     for (const p of [
       'src/pages/Ayuda.tsx',
       'src/pages/SubscriptionSuspended.tsx',
-      'src/pages/Plans.tsx',
-      'src/pages/Subscription.tsx',
       'src/components/ui/SupportContactButton.tsx',
       'src/components/ui/PremiumErrorBoundary.tsx',
     ]) {

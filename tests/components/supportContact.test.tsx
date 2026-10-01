@@ -1,23 +1,23 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // PRE-BETA-2D — contacto de soporte canónico (`CONTACTO_SOPORTE`).
 //
-//   SC1 /subscription/suspended ofrece el canal de ayuda canónico
+//   SC1 /subscription/suspended ofrece soporte por Ayuda, no por la casilla legal
 //   SC2 la casilla vieja `soporte@techrepairpro.com` (dominio `.com` sin MX, que
 //       no es del producto) no vuelve a ningún archivo de src/
 //   SC3 las plantillas de correo usan el mismo literal que la constante
 //
 // BETA-1 cambió SC1: la pantalla mostraba `CONTACTO_SOPORTE` como mailto, pero
-// esa casilla es el contacto LEGAL y no un canal atendido. Ahora el CTA sale de
-// `canalSoporte()` (WhatsApp cuando está configurado; el correo queda sólo como
-// respaldo) y la línea de soporte lleva a /ayuda. La autoridad sigue siendo
-// `config/contacto.ts`.
+// esa casilla es el contacto LEGAL y no un canal atendido. Ahora la línea de
+// soporte lleva a /ayuda, que resuelve el canal con `canalSoporte()` (WhatsApp
+// cuando está configurado; el correo queda sólo como respaldo). La autoridad
+// sigue siendo `config/contacto.ts`.
 // ─────────────────────────────────────────────────────────────────────────────
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { CONTACTO_SOPORTE, canalSoporte } from '../../src/config/contacto'
+import { CONTACTO_SOPORTE } from '../../src/config/contacto'
 
 vi.mock('../../src/hooks/useSubscription', () => ({
   useSubscription: () => ({
@@ -41,30 +41,17 @@ function archivos(dir: string): string[] {
 }
 
 describe('PRE-BETA-2D · soporte canónico', () => {
-  afterEach(() => { vi.unstubAllEnvs() })
-
-  it('SC1. la pantalla de cuenta suspendida ofrece el canal de ayuda canónico', () => {
-    // Número de fantasía: no es un teléfono asignable.
-    vi.stubEnv('VITE_CONTACT_WHATSAPP', '5490000000000')
+  it('SC1. la pantalla de cuenta suspendida ofrece soporte por Ayuda', () => {
     render(<MemoryRouter><SubscriptionSuspended /></MemoryRouter>)
-
-    const cta = screen.getByTestId('subscription-wall-help')
-    expect(cta.getAttribute('href')).toBe(canalSoporte().url)
-    expect(cta.getAttribute('href')).toMatch(/^https:\/\/wa\.me\/5490000000000\?text=/)
 
     // El testid de PRE-BETA-2D se conserva; ahora lleva a Ayuda.
     const linea = screen.getByTestId('subscription-suspended-soporte')
+    expect(linea.textContent).toContain('Necesito ayuda')
     expect(linea.querySelector('a')?.getAttribute('href')).toBe('/ayuda')
 
-    // La casilla legal no se presenta como soporte cuando hay un canal atendido.
+    // La casilla legal no se presenta como soporte en el muro.
     expect(document.body.textContent).not.toContain(CONTACTO_SOPORTE)
-    expect(document.body.textContent).not.toContain('soporte@techrepairpro.com')
-  })
-
-  it('SC1b. sin WhatsApp configurado el respaldo sigue siendo CONTACTO_SOPORTE', () => {
-    vi.stubEnv('VITE_CONTACT_WHATSAPP', '')
-    render(<MemoryRouter><SubscriptionSuspended /></MemoryRouter>)
-    expect(screen.getByTestId('subscription-wall-help').getAttribute('href')).toBe(`mailto:${CONTACTO_SOPORTE}`)
+    expect(document.querySelector('a[href^="mailto:"]')).toBeNull()
     expect(document.body.textContent).not.toContain('soporte@techrepairpro.com')
   })
 

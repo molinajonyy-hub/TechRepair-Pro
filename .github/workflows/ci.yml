@@ -98,15 +98,16 @@ jobs:
       - name: PRE-BETA-3A-2 — customer creation + wholesale gate
         run: npm run test:prebeta3a2
 
-      # BETA-1: fin del trial + candado de cobros + Ayuda. Fija que un trial
-      # vencido sin suscripción paga nunca se presenta como «falta de pago», que
-      # con el checkout apagado ninguna interacción de banner, Planes, paywalls
-      # o Suscripción invoca `mp-subscription` (medido sobre
-      # `supabase.functions.invoke`, con el servicio real), que el flag es
-      # reversible, y que «Ayuda» está en el sidebar y en «Más» con el canal de
-      # `config/contacto.ts`. Incluye el control de fuente: nadie fuera de
-      # `subscriptionService` llama a la Edge Function.
-      - name: BETA-1 — trial end + beta billing lock + help
+      # BETA-1: fin del trial + Ayuda, con Mercado Pago en autoservicio. Fija
+      # que un trial vencido sin suscripción paga nunca se presenta como «falta
+      # de pago» y que su CTA primario es Planes; que Planes llega de verdad a
+      # `mp-subscription` (medido sobre `supabase.functions.invoke`, con el
+      # servicio real) para un trial vigente, uno vencido y una cuenta
+      # cancelada; que Suscripción conserva verificar / método / cancelar; y que
+      # «Ayuda» está en el sidebar y en «Más» con el canal de
+      # `config/contacto.ts`. Control de fuente: no existe ningún candado de
+      # cobros y ninguna pantalla de billing usa WhatsApp para activar un plan.
+      - name: BETA-1 — trial end + Mercado Pago self-service + help
         run: npm run test:beta1
 
       # P0-P1: invariantes de provisioning. Es estático —lee migraciones y
