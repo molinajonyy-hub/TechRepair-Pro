@@ -83,10 +83,15 @@ COMMIT;
 
 /** Cierra el período contable que cubre HOY (para provocar PERIOD_CLOSED). */
 export function cerrarPeriodoHoy(): void {
+  // El período se resuelve con la MISMA fecha que usa la RPC
+  // (replace_comprobante_payment → public.ar_today(), hora de Argentina), no con
+  // el mes de now() en la zona de la sesión (UTC). Entre las 21:00 y las 24:00
+  // de Argentina del último día del mes, UTC ya está en el mes siguiente: el
+  // lock caía en el mes equivocado y la RPC completaba el reemplazo.
   ejecutarSQL(`
-DELETE FROM public.finance_period_locks WHERE business_id='${E2E.business}' AND period_start = date_trunc('month', now())::date;
+DELETE FROM public.finance_period_locks WHERE business_id='${E2E.business}' AND period_start = date_trunc('month', public.ar_today())::date;
 INSERT INTO public.finance_period_locks (business_id, period_start, period_end, status, closed_at, closed_by, close_reason)
-VALUES ('${E2E.business}', date_trunc('month', now())::date, (date_trunc('month', now()) + interval '1 month - 1 day')::date,
+VALUES ('${E2E.business}', date_trunc('month', public.ar_today())::date, (date_trunc('month', public.ar_today()) + interval '1 month - 1 day')::date,
         'closed', now(), '${E2E.owner}', 'E2E period_closed fixture');`)
 }
 

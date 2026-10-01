@@ -26,6 +26,7 @@
 // Las capturas quedan en tests/e2e/evidencia/prebeta-p1/.
 // ============================================================================
 import { test, expect, type Page, type ConsoleMessage } from '@playwright/test'
+import { consultarJSON } from '../setup/sqlLocal.ts'
 
 const VIEWPORTS = [
   { nombre: 'desktop-1440', width: 1440, height: 900 },
@@ -343,54 +344,83 @@ test.describe('@visual-caja P1-A — Finanzas → Caja', () => {
     })
   }
 
-  test('P1-D · el 0 % contextual se ve de verdad en el navegador', async ({ page }) => {
-    // El mes ANTERIOR de los fixtures es exactamente el caso C de §13:
-    //   consumo devengado > 0 · CERO entradas de inventario · 1 compra a
-    //   proveedor registrada. Es el escenario que producía el "0 %" mudo que se
-    //   leía como "no compré mercadería".
-    await page.setViewportSize({ width: 1440, height: 900 })
-    await page.goto('/finance')
-    await page.waitForSelector('[data-testid="finance-charts-l1"]', { timeout: 30_000 })
+  test.describe('P1-D · período del negocio', () => {
+    // Los fixtures y la base fechan en hora de Argentina (public.ar_today());
+    // "Mes ant." lo calcula el navegador con SU reloj. El runner de CI corre en
+    // UTC: entre las 21:00 y las 24:00 AR del último día del mes, su "mes
+    // anterior" es el mes ACTUAL del fixture (run 506: 57,6 %). Se usa la zona
+    // del usuario real del producto, y además el test exige ver la respuesta
+    // del período correcto antes de mirar el valor.
+    test.use({ timezoneId: 'America/Argentina/Cordoba' })
 
-    const mesAnterior = page.locator('[data-testid="finance-dashboard-date-filter"]')
-      .locator('button', { hasText: /mes ant/i })
-    await expect(mesAnterior).toBeVisible({ timeout: 15_000 })
-    await mesAnterior.click()
+    test('P1-D · el 0 % contextual se ve de verdad en el navegador', async ({ page }) => {
+      // El mes ANTERIOR de los fixtures es exactamente el caso C de §13:
+      //   consumo devengado > 0 · CERO entradas de inventario · 1 compra a
+      //   proveedor registrada. Es el escenario que producía el "0 %" mudo que se
+      //   leía como "no compré mercadería".
+      // Ese mes, con la MISMA definición que usa el fixture (ar_today()).
+      const periodo = consultarJSON<{ desde: string; hasta: string }>(`
+        SELECT (date_trunc('month', public.ar_today()) - interval '1 month')::date::text AS desde,
+               (date_trunc('month', public.ar_today()) - interval '1 day')::date::text  AS hasta
+      `)
 
-    await expect
-      .poll(async () => page.getByTestId('card-inventory-capital').getAttribute('data-state'),
-            { timeout: 30_000 })
-      .not.toBe('loading')
-    await expect
-      .poll(async () => (await page.getByTestId('replenishment-value').innerText()).trim(),
-            { timeout: 30_000 })
-      .toMatch(/^0([.,]0+)?\s*%$/)
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.goto('/finance')
+      await page.waitForSelector('[data-testid="finance-charts-l1"]', { timeout: 30_000 })
 
-    // El 0 % viene acompañado del HECHO, no de una acusación.
-    await expect(page.getByTestId('replenishment-text'))
-      .toHaveText('No se registraron entradas de mercadería en inventario durante este período.')
+      const mesAnterior = page.locator('[data-testid="finance-dashboard-date-filter"]')
+        .locator('button', { hasText: /mes ant/i })
+      await expect(mesAnterior).toBeVisible({ timeout: 15_000 })
 
-    // Y como hay compras a proveedores cargadas, aparece el aviso condicional.
-    const nota = page.getByTestId('replenishment-supplier-note')
-    await expect(nota).toBeVisible()
-    await expect(nota).toContainText(
-      'Hay compras a proveedores registradas. Si corresponden a mercadería recibida, ' +
-      'revisá que se haya ingresado al inventario.')
-    expect(await nota.getAttribute('role'), 'es una nota, no una alerta crítica').toBe('note')
+      // Señal autoritativa: la respuesta de la RPC del bloque para EXACTAMENTE el
+      // mes anterior del fixture. Un render del mes actual (o de otro rango) no
+      // puede satisfacer el test.
+      const respuestaMesAnterior = page.waitForResponse((resp) => {
+        if (!resp.url().includes('/rest/v1/rpc/get_finance_charts_l1')) return false
+        const body = resp.request().postDataJSON() as { p_period_start?: string; p_period_end?: string } | null
+        return body?.p_period_start === periodo.desde && body?.p_period_end === periodo.hasta
+      }, { timeout: 30_000 })
+      await mesAnterior.click()
+      const respuesta = await respuestaMesAnterior
+      expect(respuesta.ok(), `get_finance_charts_l1 ${periodo.desde}..${periodo.hasta}`).toBe(true)
+      const flujos = (await respuesta.json())?.inventory_flows
+      expect(Number(flujos?.replenishment_pct), 'el servidor mide 0 % en el mes anterior del fixture').toBe(0)
 
-    const tarjeta = await page.getByTestId('card-inventory-capital').innerText()
-    for (const prohibido of [
-      /descapitaliz/i, /no repusiste/i, /no compraste/i,
-      /ten[eé]s un error/i, /faltan compras/i,
-      /(hubo|recibiste|compraste)\s+mercader[ií]a/i,
-    ]) {
-      expect(tarjeta, `apareció lenguaje prohibido: ${prohibido}`).not.toMatch(prohibido)
-    }
-    // El importe de las compras a proveedores NO se presenta como reposición.
-    expect(tarjeta).not.toMatch(/reposici[oó]n registrada[\s\S]{0,40}145\.000/i)
+      await expect
+        .poll(async () => page.getByTestId('card-inventory-capital').getAttribute('data-state'),
+              { timeout: 30_000 })
+        .not.toBe('loading')
+      await expect
+        .poll(async () => (await page.getByTestId('replenishment-value').innerText()).trim(),
+              { timeout: 30_000 })
+        .toMatch(/^0([.,]0+)?\s*%$/)
 
-    await page.getByTestId('card-inventory-capital').screenshot({
-      path: 'tests/e2e/evidencia/prebeta-p1/resumen-reposicion-cero-contextual.png',
+      // El 0 % viene acompañado del HECHO, no de una acusación.
+      await expect(page.getByTestId('replenishment-text'))
+        .toHaveText('No se registraron entradas de mercadería en inventario durante este período.')
+
+      // Y como hay compras a proveedores cargadas, aparece el aviso condicional.
+      const nota = page.getByTestId('replenishment-supplier-note')
+      await expect(nota).toBeVisible()
+      await expect(nota).toContainText(
+        'Hay compras a proveedores registradas. Si corresponden a mercadería recibida, ' +
+        'revisá que se haya ingresado al inventario.')
+      expect(await nota.getAttribute('role'), 'es una nota, no una alerta crítica').toBe('note')
+
+      const tarjeta = await page.getByTestId('card-inventory-capital').innerText()
+      for (const prohibido of [
+        /descapitaliz/i, /no repusiste/i, /no compraste/i,
+        /ten[eé]s un error/i, /faltan compras/i,
+        /(hubo|recibiste|compraste)\s+mercader[ií]a/i,
+      ]) {
+        expect(tarjeta, `apareció lenguaje prohibido: ${prohibido}`).not.toMatch(prohibido)
+      }
+      // El importe de las compras a proveedores NO se presenta como reposición.
+      expect(tarjeta).not.toMatch(/reposici[oó]n registrada[\s\S]{0,40}145\.000/i)
+
+      await page.getByTestId('card-inventory-capital').screenshot({
+        path: 'tests/e2e/evidencia/prebeta-p1/resumen-reposicion-cero-contextual.png',
+      })
     })
   })
 

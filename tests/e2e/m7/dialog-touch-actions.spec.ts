@@ -84,8 +84,10 @@ test.describe('@dialogtouch DIALOG-TOUCH-1 · acciones del footer', () => {
       const cancelar = footer.getByRole('button', { name: 'Cancelar' })
       const crear = footer.getByRole('button', { name: 'Crear cliente' })
 
-      // ── Estado inicial: el CTA arranca deshabilitado (faltan nombre y telefono).
-      await expect(crear).toBeDisabled()
+      // ── Estado inicial (contrato PRE-BETA-3A-2): el CTA arranca HABILITADO
+      //    aunque falten nombre y telefono. Solo lo bloquea un guardado en curso;
+      //    el intento revela los bloqueos en vez de esconder el boton.
+      await expect(crear).toBeEnabled()
       expect(await alto(crear)).toBeGreaterThanOrEqual(TOUCH_TARGET)
       expect(await alto(cancelar)).toBeGreaterThanOrEqual(TOUCH_TARGET)
 
@@ -93,15 +95,38 @@ test.describe('@dialogtouch DIALOG-TOUCH-1 · acciones del footer', () => {
       expect(await recibeElHit(page, 'Cancelar')).toEqual([true, true, true])
       await sinOverflowHorizontal(page)
 
-      // ── Habilitado tras los campos minimos del customer core.
+      // ── Click con el formulario vacio: NO crea al cliente, muestra la
+      //    validacion canonica del customer core, lleva el foco al primer bloqueo
+      //    y el dialogo sigue abierto.
+      const altas: string[] = []
+      const registrarAlta = (request: { method(): string; url(): string }) => {
+        if (request.method() === 'POST' && request.url().includes('/rest/v1/customers')) altas.push(request.url())
+      }
+      page.on('request', registrarAlta)
+      await crear.click()
+      await expect(dialog.getByText('El nombre es obligatorio.')).toBeVisible()
+      await expect(dialog.getByText('El teléfono es obligatorio.')).toBeVisible()
+      await expect(dialog.getByLabel('Nombre completo')).toBeFocused()
+      await expect(dialog).toBeVisible()
+      await expect(crear).toBeEnabled()
+      expect(await alto(crear)).toBeGreaterThanOrEqual(TOUCH_TARGET)
+      await sinOverflowHorizontal(page)
+
+      // ── Con los campos minimos del customer core los bloqueos desaparecen.
       await dialog.getByLabel('Nombre completo').fill('Cliente Dialog Touch')
       await dialog.getByLabel('Teléfono').fill('1122334455')
+      await expect(dialog.getByText('El nombre es obligatorio.')).toHaveCount(0)
+      await expect(dialog.getByText('El teléfono es obligatorio.')).toHaveCount(0)
       await expect(crear).toBeEnabled()
 
       const altoHabilitado = await alto(crear)
       expect(altoHabilitado).toBeGreaterThanOrEqual(TOUCH_TARGET)
       expect(await recibeElHit(page, 'Crear cliente')).toEqual([true, true, true])
       await sinOverflowHorizontal(page)
+
+      // El intento vacio no escribio nada: hasta aca no salio ningun alta.
+      page.off('request', registrarAlta)
+      expect(altas).toEqual([])
 
       // ── Loading: se demora el alta para poder medir el estado intermedio. El
       //    spinner reemplaza al texto; el alto no puede moverse.
