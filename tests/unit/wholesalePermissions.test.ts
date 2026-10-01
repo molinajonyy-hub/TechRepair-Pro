@@ -1,4 +1,4 @@
-// PRE-BETA-3A-2 — motor PURO de acceso a Mayorista y de Portal Clic.
+// PRE-BETA-3A-2 — motor PURO de acceso a Mayorista.
 //
 // Contrato de producto:
 //   acceso = feature `mayorista` (Pro+) Y acceso al negocio
@@ -15,7 +15,6 @@ import {
   canAccessWholesale,
   canManageWholesale,
   isWholesaleReadOnly,
-  canManageClicPortal,
   hasAutomaticWholesaleAccess,
   isBusinessRole,
   WHOLESALE_ROLES,
@@ -182,42 +181,12 @@ test('los conjuntos manage/readonly particionan los 7 roles', () => {
   for (const r of WHOLESALE_MANAGE_ROLES) assert.equal(WHOLESALE_READONLY_ROLES.includes(r), false)
 })
 
-// ── Portal Clic (NO es Mayorista) ───────────────────────────────────────────
-test('canManageClicPortal: owner real + portal habilitado → administra', () => {
-  assert.equal(canManageClicPortal({ isBusinessOwner: true, wholesalePortalEnabled: true }), true)
-})
-
-test('canManageClicPortal: NO owner real (admin/otro) aunque portal habilitado → no administra', () => {
-  assert.equal(canManageClicPortal({ isBusinessOwner: false, wholesalePortalEnabled: true }), false)
-})
-
-test('canManageClicPortal: owner real pero portal deshabilitado → no administra', () => {
-  assert.equal(canManageClicPortal({ isBusinessOwner: true, wholesalePortalEnabled: false }), false)
-})
-
-test('canManageClicPortal: ni owner ni portal → no administra (fail-closed)', () => {
-  assert.equal(canManageClicPortal({ isBusinessOwner: false, wholesalePortalEnabled: false }), false)
-})
-
-test('Portal Clic NO se concede por Full / Mayorista / wholesale', () => {
-  // Un owner/admin/manager con acceso Mayorista completo (feature + capacidad)
-  // no administra Portal Clic si no es el owner REAL con el portal habilitado.
-  for (const role of ['owner', 'admin', 'manager'] as const) {
-    assert.equal(canAccessWholesale(input(role, { hasWholesaleCapability: true })), true, role)
-  }
-  assert.equal(canManageClicPortal({ isBusinessOwner: true, wholesalePortalEnabled: false }), false)
-  assert.equal(canManageClicPortal({ isBusinessOwner: false, wholesalePortalEnabled: true }), false)
-})
-
-// GAP PRE-BETA-3A-2 (reportado, no resuelto): Portal Clic tiene que ser SÓLO de
-// la cuenta interna, y la autoridad vigente no está atada a una identidad:
-// concede a CUALQUIER owner real de CUALQUIER negocio al que un platform admin
-// le haya prendido `wholesale_portal_enabled`. Este test prueba que el gap
-// existe; cuando exista una autoridad server-backed de identidad interna, se
-// reemplaza por el test positivo/negativo de esa autoridad.
-test('GAP: la autoridad de Portal Clic no identifica una cuenta — dos owners distintos entran', () => {
-  const ownerDeClic = { isBusinessOwner: true, wholesalePortalEnabled: true }
-  const ownerDeOtroNegocioConFlag = { isBusinessOwner: true, wholesalePortalEnabled: true }
-  assert.equal(canManageClicPortal(ownerDeClic), true)
-  assert.equal(canManageClicPortal(ownerDeOtroNegocioConFlag), true)
+// ── Portal Clic ya NO es parte de este motor ──────────────────────────────
+// PRE-BETA-3A-2S: Portal Clic es una herramienta interna con autoridad
+// server-side propia (public.current_user_has_internal_tool_access). Su matriz
+// vive en tests/sql/prebeta3a2s_portal_clic_authority.test.sql y en
+// tests/components/prebeta3a2WholesaleAccess.test.tsx (seccion C).
+test('el motor Mayorista no exporta una autoridad de Portal Clic', async () => {
+  const mod = await import('../../src/lib/permissions/wholesalePermissions.ts')
+  assert.equal('canManageClicPortal' in mod, false)
 })

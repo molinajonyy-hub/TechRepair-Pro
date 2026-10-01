@@ -7,6 +7,7 @@ import { usePermissions } from './usePermissions'
 import { useSubscription } from './useSubscription'
 import { useSystemOwner } from './useSystemOwner'
 import { useWholesalePermissions } from './useWholesalePermissions'
+import { useInternalToolAccess } from './useInternalToolAccess'
 
 export interface NavigationAccess {
   can: (permission: PermissionKey) => boolean
@@ -14,6 +15,8 @@ export interface NavigationAccess {
   isSystemOwner: boolean
   mayoristaEnabled: boolean
   wholesale: ReturnType<typeof useWholesalePermissions>
+  /** PRE-BETA-3A-2S: principal de la herramienta interna Portal Clic (server-side). */
+  portalClic: boolean
 }
 
 export interface NavigationGate {
@@ -44,8 +47,9 @@ export function isNavigationItemAuthorized(
     return access.wholesale.canAccess && access.mayoristaEnabled
   }
 
-  // Portal Clic NO es Mayorista: no depende del plan ni de `wholesale`.
-  if (item.clicPortalManage) return access.wholesale.canManageClicPortal
+  // Portal Clic NO es Mayorista: lo decide la autoridad interna (la misma que
+  // la ruta), no el plan, el rol, `wholesale` ni el flag del portal.
+  if (item.clicPortalManage) return access.portalClic
 
   if (item.permission && !access.can(item.permission)) {
     if (!(item.systemOwnerAlso && access.isSystemOwner)) return false
@@ -64,6 +68,7 @@ export function useNavigationAccess(): NavigationAccess {
   const { hasFeature } = useSubscription()
   const { isSystemOwner } = useSystemOwner()
   const wholesale = useWholesalePermissions()
+  const portalClic = useInternalToolAccess('portal_clic')
   const [mayoristaEnabled, setMayoristaEnabled] = useState(true)
 
   useEffect(() => {
@@ -82,5 +87,5 @@ export function useNavigationAccess(): NavigationAccess {
     return () => { active = false }
   }, [businessId])
 
-  return { can, hasFeature, isSystemOwner, mayoristaEnabled, wholesale }
+  return { can, hasFeature, isSystemOwner, mayoristaEnabled, wholesale, portalClic: portalClic.allowed }
 }

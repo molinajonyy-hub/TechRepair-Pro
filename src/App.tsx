@@ -11,6 +11,7 @@ import { ProtectedRouteByFeature } from './components/auth/ProtectedRouteByFeatu
 import { ProtectedRouteByPermission } from './components/auth/ProtectedRouteByPermission'
 import { ProtectedRouteBySystemOwner } from './components/auth/ProtectedRouteBySystemOwner'
 import { ProtectedRouteByWholesaleAccess } from './components/auth/ProtectedRouteByWholesaleAccess'
+import { ProtectedRouteByInternalTool } from './components/auth/ProtectedRouteByInternalTool'
 import { UpdateBanner } from './components/UpdateBanner'
 import { AnalyticsRouteTracker } from './components/AnalyticsRouteTracker'
 
@@ -307,17 +308,13 @@ function AppContent() {
               </Route>
 
               {/* ── Portal Clic — herramienta INTERNA, no es Mayorista ──
-                  PRE-BETA-3A-2: queda PENDIENTE de decisión. Tiene que ser sólo
-                  de la cuenta interna, y hoy no hay autoridad server-backed que
-                  identifique UNA cuenta: `system_admins` admite varios usuarios
-                  y roles. Hasta que exista, se conserva EXACTAMENTE la protección
-                  previa (nada se abre): este par de guards + la página exige
-                  owner REAL del negocio con `wholesale_portal_enabled`, flag que
-                  sólo un platform admin puede cambiar. */}
-              <Route element={<ProtectedRouteByPermission permission="wholesale" />}>
-              <Route element={<ProtectedRouteByFeature feature="mayorista" />}>
+                  PRE-BETA-3A-2S: la autoriza la base (principal único de
+                  `portal_clic` en el negocio: private.internal_tool_principals).
+                  No depende del plan, del rol del tenant, de `wholesale`, de
+                  system_admins ni de wholesale_portal_enabled. Menú y página
+                  usan la misma autoridad. */}
+              <Route element={<ProtectedRouteByInternalTool tool="portal_clic" />}>
                 <Route path="/portal-clic" element={<AdminPortalClic />} />
-              </Route>
               </Route>
 
               {/* ── Rutas SaaS Admin — solo system owner ── */}

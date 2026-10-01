@@ -198,7 +198,7 @@ type NavItem = {
   portalAdmin?: boolean;
   /** If true, gated by canAccessWholesale (feature mayorista + owner/admin o capacidad `wholesale`). */
   wholesaleView?: boolean;
-  /** If true, gated by canManageClicPortal (owner REAL del negocio + portal habilitado). */
+  /** If true, gated by the internal-tool authority of Portal Clic (server-side principal). */
   clicPortalManage?: boolean;
   /** If set, this item is hidden unless the active plan has this feature */
   planFeature?: import('../../config/planFeatures').PlanFeature;

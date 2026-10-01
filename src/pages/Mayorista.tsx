@@ -17,7 +17,7 @@ import { TabCatalogoPortal } from './mayorista/TabCatalogoPortal'
 import {
   getWholesaleCustomers, updateCustomerStatus,
   getWholesaleOrders, updateOrderStatus,
-  getOrCreateCustomerFromPortal,
+  getOrCreateCustomerFromWholesale,
 } from '../portal/services/portalService'
 import { ORDER_STATUS_LABEL, ORDER_STATUS_COLOR, type WholesaleCustomer, type WholesaleOrder } from '../portal/types'
 import { getPortalUrl } from '../portal/PortalRouter'
@@ -407,14 +407,7 @@ export function Mayorista() {
   const handleConvertirComprobante = async (order: WholesaleOrder) => {
     if (!businessId) return
     setConverting(true); setConvertError('')
-    const cust = order.customer as any
-    const { customerId, error } = await getOrCreateCustomerFromPortal(
-      businessId,
-      cust?.email || '',
-      cust?.name || 'Cliente mayorista',
-      cust?.whatsapp || null,
-      'mayorista',
-    )
+    const { customerId, error } = await getOrCreateCustomerFromWholesale(businessId, order.customer_id)
     setConverting(false)
     if (error || !customerId) {
       setConvertError(error || 'No se pudo obtener el cliente')

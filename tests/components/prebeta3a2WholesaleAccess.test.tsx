@@ -12,7 +12,8 @@
 //
 //   A. Hook: plan, roles, overrides y fail-closed.
 //   B. Ruta y navegación deciden LO MISMO (misma autoridad).
-//   C. Portal Clic no se concede por Full / Mayorista / wholesale + GAP.
+//   C. Portal Clic: autoridad interna server-side (PRE-BETA-3A-2S); no se
+//      concede por owner / Full / wholesale / system_admin / portal encendido.
 //   D. Matriz de permisos: `wholesale` bloqueado para admin, editable para el resto.
 // ─────────────────────────────────────────────────────────────────────────────
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -42,8 +43,11 @@ const state = vi.hoisted(() => ({
   /** `null` = suscripción sin confirmar (falló la lectura). */
   plan: null as Plan | null,
   subLoading: false,
-  /** Fila de `businesses` que ve `useWholesalePermissions` (Portal Clic). */
+  /** Fila de `businesses` (owner / flag del portal): NO debe decidir Portal Clic. */
   biz: { owner_user_id: null as string | null, wholesale_portal_enabled: false },
+  /** Respuesta de la autoridad interna (public.current_user_has_internal_tool_access); null = error. */
+  principal: false as boolean | null,
+  rpcs: [] as Array<{ fn: string; args: Record<string, unknown> }>,
   mayoristaEnabled: true,
   systemAdmin: false,
   users: [] as Record<string, unknown>[],
@@ -84,7 +88,15 @@ vi.mock('../../src/lib/supabase', () => {
   return {
     supabase: {
       from: (table: string) => chain(table),
-      rpc: async () => ({ data: null, error: null }),
+      rpc: async (fn: string, args: Record<string, unknown>) => {
+        state.rpcs.push({ fn, args })
+        if (fn === 'current_user_has_internal_tool_access') {
+          return state.principal === null
+            ? { data: null, error: { message: 'network down' } }
+            : { data: state.principal, error: null }
+        }
+        return { data: null, error: null }
+      },
     },
   }
 })
@@ -100,6 +112,8 @@ vi.mock('../../src/services/usersService', () => ({
 import { useWholesaleAccess, type WholesaleAccess } from '../../src/hooks/useWholesaleAccess'
 import { useNavigationAccess, isNavigationItemAuthorized, type NavigationAccess } from '../../src/hooks/useNavigationAccess'
 import { ProtectedRouteByWholesaleAccess } from '../../src/components/auth/ProtectedRouteByWholesaleAccess'
+import { ProtectedRouteByInternalTool } from '../../src/components/auth/ProtectedRouteByInternalTool'
+import { __resetInternalToolAccessCache } from '../../src/hooks/useInternalToolAccess'
 import { UsersManagement } from '../../src/pages/UsersManagement'
 
 const FULL: Plan = { subscription_status: 'active', subscription_plan: 'full' }
@@ -131,6 +145,9 @@ beforeEach(() => {
   as(actor('owner'), FULL)
   state.subLoading = false
   state.biz = { owner_user_id: null, wholesale_portal_enabled: false }
+  state.principal = false
+  state.rpcs = []
+  __resetInternalToolAccessCache()
   state.mayoristaEnabled = true
   state.systemAdmin = false
   state.users = []
@@ -266,71 +283,96 @@ describe('B · ruta y navegación usan el MISMO contrato', () => {
     expect(isNavigationItemAuthorized({ wholesaleView: true }, nav!)).toBe(false)
   })
 
-  it('App.tsx: /mayorista va SOLO por el guard central y /portal-clic NO cuelga de él', () => {
+  it('App.tsx: /mayorista va SOLO por el guard central y /portal-clic por la autoridad interna', () => {
     const here = dirname(fileURLToPath(import.meta.url))
     const app = readFileSync(join(here, '../../src/App.tsx'), 'utf8')
       .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
     const bloqueMayorista = app.match(/<Route element=\{<ProtectedRouteByWholesaleAccess \/>\}>([\s\S]*?)<\/Route>/)
     expect(bloqueMayorista?.[1]).toContain('path="/mayorista"')
     expect(bloqueMayorista?.[1]).not.toContain('/portal-clic')
-    // El par viejo ya no gobierna /mayorista.
-    const viejo = app.match(/<Route element=\{<ProtectedRouteByPermission permission="wholesale" \/>\}>([\s\S]*?)<\/Route>\s*<\/Route>/)
-    expect(viejo?.[1] ?? '').not.toContain('path="/mayorista"')
+    const bloqueClic = app.match(/<Route element=\{<ProtectedRouteByInternalTool tool="portal_clic" \/>\}>([\s\S]*?)<\/Route>/)
+    expect(bloqueClic?.[1]).toContain('path="/portal-clic"')
+    // Ningún guard de permiso/feature/system owner gobierna /mayorista ni /portal-clic.
+    expect(app).not.toMatch(/ProtectedRouteByPermission permission="wholesale"/)
+    expect(app).not.toMatch(/ProtectedRouteByFeature feature="mayorista"/)
   })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe('C · Portal Clic no es Mayorista', () => {
+describe('C · Portal Clic: autoridad interna server-side', () => {
   let nav: NavigationAccess | null = null
   function NavProbe() { nav = useNavigationAccess(); return null }
 
-  async function portalVisible(): Promise<boolean> {
+  async function portal(): Promise<{ menu: boolean; ruta: boolean }> {
     nav = null
-    render(<NavProbe />)
+    render(
+      <MemoryRouter initialEntries={['/portal-clic']}>
+        <NavProbe />
+        <Routes>
+          <Route element={<ProtectedRouteByInternalTool tool="portal_clic" />}>
+            <Route path="/portal-clic" element={<div data-testid="portal-clic">PORTAL CLIC</div>} />
+          </Route>
+          <Route path="/dashboard" element={<div data-testid="dashboard">DASHBOARD</div>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.queryByTestId('portal-clic') ?? screen.queryByTestId('dashboard')).not.toBeNull())
     await waitFor(() => expect(nav?.wholesale.loading).toBe(false))
-    return isNavigationItemAuthorized({ clicPortalManage: true }, nav!)
+    return { menu: isNavigationItemAuthorized({ clicPortalManage: true }, nav!), ruta: !!screen.queryByTestId('portal-clic') }
   }
 
-  it('owner Full con acceso Mayorista completo, sin portal habilitado → NO', async () => {
-    as(actor('owner'), FULL)
+  const NEGATIVOS: Array<{ name: string; actor: Actor; plan: Plan; biz: { owner_user_id: string | null; wholesale_portal_enabled: boolean }; sys?: boolean }> = [
+    { name: 'owner Full, dueño real, portal encendido', actor: actor('owner'), plan: FULL, biz: { owner_user_id: USER_ID, wholesale_portal_enabled: true } },
+    { name: 'owner Pro con Mayorista', actor: actor('owner'), plan: PRO, biz: { owner_user_id: USER_ID, wholesale_portal_enabled: true } },
+    { name: 'admin con acceso automático', actor: actor('admin'), plan: FULL, biz: { owner_user_id: null, wholesale_portal_enabled: true } },
+    { name: 'manager con wholesale', actor: actor('manager', { wholesale: true }), plan: FULL, biz: { owner_user_id: null, wholesale_portal_enabled: true } },
+    { name: 'system_admin (super_admin) owner de un Full', actor: actor('owner'), plan: FULL, biz: { owner_user_id: USER_ID, wholesale_portal_enabled: true }, sys: true },
+  ]
+
+  for (const c of NEGATIVOS) {
+    it(`${c.name}, sin ser el principal → ni menú ni ruta`, async () => {
+      as(c.actor, c.plan)
+      state.biz = c.biz
+      state.systemAdmin = c.sys === true
+      state.principal = false
+      const got = await portal()
+      expect(got).toEqual({ menu: false, ruta: false })
+    })
+  }
+
+  it('el principal (según la base) entra por menú y ruta aunque el portal esté apagado y el plan sea Básico', async () => {
+    as(actor('owner'), BASICO)
     state.biz = { owner_user_id: USER_ID, wholesale_portal_enabled: false }
-    expect(await portalVisible()).toBe(false)
-    expect(nav!.wholesale.canAccess).toBe(true)
+    state.principal = true
+    const got = await portal()
+    expect(got).toEqual({ menu: true, ruta: true })
+    // La pregunta viaja con la herramienta y el negocio actual, no con identidad hardcodeada.
+    const call = state.rpcs.find(r => r.fn === 'current_user_has_internal_tool_access')
+    expect(call?.args).toEqual({ p_tool_key: 'portal_clic', p_business_id: 'biz-1' })
   })
 
-  it('manager con wholesale en un negocio Full CON portal habilitado → NO (no es el owner real)', async () => {
-    as(actor('manager', { wholesale: true }), FULL)
-    state.biz = { owner_user_id: '99999999-9999-4999-8999-999999999999', wholesale_portal_enabled: true }
-    expect(await portalVisible()).toBe(false)
-    expect(nav!.wholesale.canAccess).toBe(true)
-  })
-
-  it('admin con acceso automático, portal habilitado → NO (no es el owner real)', async () => {
-    as(actor('admin'), FULL)
-    state.biz = { owner_user_id: '99999999-9999-4999-8999-999999999999', wholesale_portal_enabled: true }
-    expect(await portalVisible()).toBe(false)
-  })
-
-  // GAP (reportado, no resuelto en PRE-BETA-3A-2): hoy NO existe una autoridad
-  // server-backed que identifique UNA cuenta interna. Estos dos tests prueban el
-  // gap tal cual está; se reemplazan cuando exista esa autoridad.
-  it('GAP: cualquier owner real con el portal habilitado lo ve — no hay identidad interna', async () => {
-    as(actor('owner'), BASICO) // ni siquiera depende del plan
+  it('si la autoridad interna falla (error de red) → cerrado', async () => {
+    as(actor('owner'), FULL)
     state.biz = { owner_user_id: USER_ID, wholesale_portal_enabled: true }
-    expect(await portalVisible()).toBe(true)
+    state.principal = null
+    const got = await portal()
+    expect(got).toEqual({ menu: false, ruta: false })
   })
 
-  it('GAP: `system_admins` no es "sólo mi cuenta" — admite varios usuarios y roles, y cualquier fila activa es system owner', () => {
+  it('el frontend no hardcodea identidad ni slug para Portal Clic', () => {
     const here = dirname(fileURLToPath(import.meta.url))
-    const hook = readFileSync(join(here, '../../src/hooks/useSystemOwner.ts'), 'utf8')
-    const baseline = readFileSync(join(here, '../../supabase/migrations/20260628190324_remote_baseline.sql'), 'utf8')
-    // El hook sólo mira user_id + is_active: no filtra rol ni identidad.
-    expect(hook).toMatch(/\.from\('system_admins'\)/)
-    expect(hook).toMatch(/\.eq\('is_active', true\)/)
-    expect(hook).not.toMatch(/\.eq\('role'/)
-    // La tabla modela VARIOS administradores con TRES roles y una RPC para sumar más.
-    expect(baseline).toMatch(/"system_admins_role_chk" CHECK \(\("role" = ANY \(ARRAY\['super_admin'::"text", 'billing_admin'::"text", 'support_readonly'::"text"\]\)\)\)/)
-    expect(baseline).toMatch(/CREATE OR REPLACE FUNCTION "public"\."admin_grant_role"/)
+    // En el menú, la rama de Portal Clic devuelve SOLO la autoridad interna.
+    const navSrc = readFileSync(join(here, '../../src/hooks/useNavigationAccess.ts'), 'utf8')
+    expect(navSrc).toMatch(/if \(item\.clicPortalManage\) return access\.portalClic\n/)
+    for (const rel of ['src/hooks/useInternalToolAccess.ts', 'src/components/auth/ProtectedRouteByInternalTool.tsx',
+                       'src/pages/AdminPortalClic.tsx']) {
+      // Sin comentarios: los comentarios SÍ nombran lo que ya no decide.
+      const src = readFileSync(join(here, '../../', rel), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+      expect(src, rel).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)
+      expect(src, rel).not.toMatch(/@[a-z0-9-]+\.[a-z]{2,}/i)
+      expect(src, rel).not.toMatch(/owner_user_id|wholesale_portal_enabled|system_admins|isSystemOwner/)
+    }
   })
 })
 

@@ -48,7 +48,8 @@ describe('MOBILE-1 · navegación por capabilities', () => {
       hasFeature: () => true,
       isSystemOwner: false,
       mayoristaEnabled: true,
-      wholesale: { canAccess: false, canManageClicPortal: false },
+      wholesale: { canAccess: false },
+      portalClic: false,
     } as NavigationAccess
 
     expect(isNavigationItemAuthorized({ systemOwnerOnly: true }, access)).toBe(false)
@@ -99,7 +100,8 @@ describe('MOBILE-1 · navegación por capabilities', () => {
       hasFeature: () => false,
       isSystemOwner: true,
       mayoristaEnabled: false,
-      wholesale: { canAccess: false, canManageClicPortal: false },
+      wholesale: { canAccess: false },
+      portalClic: false,
     } as NavigationAccess
 
     expect(isNavigationItemAuthorized({ systemOwnerOnly: true }, access)).toBe(true)
