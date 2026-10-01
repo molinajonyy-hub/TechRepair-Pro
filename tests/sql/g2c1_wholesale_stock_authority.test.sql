@@ -37,14 +37,14 @@ CREATE TEMP TABLE g2c1_ids(k text PRIMARY KEY, v uuid NOT NULL) ON COMMIT DROP;
 INSERT INTO g2c1_ids VALUES
   ('BIZ_A',   '00000000-0000-0000-0000-00000000c301'),  -- plan full, portal g2c1-a
   ('BIZ_B',   '00000000-0000-0000-0000-00000000c302'),  -- otro tenant, portal g2c1-b
-  ('BIZ_P',   '00000000-0000-0000-0000-00000000c303'),  -- plan pro: SIN mayorista, portal g2c1-p
+  ('BIZ_P',   '00000000-0000-0000-0000-00000000c303'),  -- plan basico: SIN mayorista (PRE-BETA-3A-2S: Pro ya lo tiene), portal g2c1-p
   ('BIZ_D',   '00000000-0000-0000-0000-00000000c304'),  -- plan full, portal APAGADO g2c1-off
   ('OWN_A',   '00000000-0000-0000-0000-00000000c309'),
   ('OWN_B',   '00000000-0000-0000-0000-00000000c30a'),
   ('OWN_P',   '00000000-0000-0000-0000-00000000c30b'),
   ('OWN_D',   '00000000-0000-0000-0000-00000000c30c'),
   ('ADMIN_A', '00000000-0000-0000-0000-00000000c311'),  -- admin: wholesale por default
-  ('SALES_A', '00000000-0000-0000-0000-00000000c312'),  -- sales: wholesale por default
+  ('SALES_A', '00000000-0000-0000-0000-00000000c312'),  -- sales CON wholesale (override: PRE-BETA-3A-2S lo saco del default)
   ('TECH_A',  '00000000-0000-0000-0000-00000000c313'),  -- tech: SIN wholesale
   ('SALESX_A','00000000-0000-0000-0000-00000000c314'),  -- sales con override wholesale=false
   ('WCU_A',   '00000000-0000-0000-0000-00000000c321'),  -- cliente de A, aprobado
@@ -216,7 +216,7 @@ INSERT INTO public.businesses(id, name, owner_user_id, subscription_plan, subscr
                               wholesale_portal_enabled, wholesale_portal_slug) VALUES
   (pg_temp.id('BIZ_A'), 'G2C1 A', pg_temp.id('OWN_A'), 'full', 'active', true,  'g2c1-a'),
   (pg_temp.id('BIZ_B'), 'G2C1 B', pg_temp.id('OWN_B'), 'full', 'active', true,  'g2c1-b'),
-  (pg_temp.id('BIZ_P'), 'G2C1 P', pg_temp.id('OWN_P'), 'pro',  'active', true,  'g2c1-p'),
+  (pg_temp.id('BIZ_P'), 'G2C1 P', pg_temp.id('OWN_P'), 'basico', 'active', true, 'g2c1-p'),
   (pg_temp.id('BIZ_D'), 'G2C1 D', pg_temp.id('OWN_D'), 'full', 'active', false, 'g2c1-off');
 INSERT INTO public.profiles(id, business_id, role, is_active, permissions) VALUES
   (pg_temp.id('OWN_A'),    pg_temp.id('BIZ_A'), 'owner', true, NULL),
@@ -224,7 +224,7 @@ INSERT INTO public.profiles(id, business_id, role, is_active, permissions) VALUE
   (pg_temp.id('OWN_P'),    pg_temp.id('BIZ_P'), 'owner', true, NULL),
   (pg_temp.id('OWN_D'),    pg_temp.id('BIZ_D'), 'owner', true, NULL),
   (pg_temp.id('ADMIN_A'),  pg_temp.id('BIZ_A'), 'admin', true, NULL),
-  (pg_temp.id('SALES_A'),  pg_temp.id('BIZ_A'), 'sales', true, NULL),
+  (pg_temp.id('SALES_A'),  pg_temp.id('BIZ_A'), 'sales', true, '{"wholesale": true}'::jsonb),
   (pg_temp.id('TECH_A'),   pg_temp.id('BIZ_A'), 'tech',  true, NULL),
   (pg_temp.id('SALESX_A'), pg_temp.id('BIZ_A'), 'sales', true, '{"wholesale": false}'::jsonb);
 -- Los clientes del portal NO tienen perfil: son externos al negocio.

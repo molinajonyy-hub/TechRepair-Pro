@@ -43,6 +43,16 @@ vi.mock('../../src/hooks/usePermissions', () => ({
   usePermissions: () => ({ can: () => true }),
   effectivePermissions: () => ({ orders_create: true }),
 }))
+// PRE-BETA-3A-2 — la paridad de mayorista necesita el gate abierto: negocio
+// Full con suscripción CONFIRMADA (resuelto por la autoridad real de
+// entitlements) + owner con acceso al negocio. Sin suscripción confirmada la
+// autoridad central (`useWholesaleAccess`) queda cerrada.
+vi.mock('../../src/hooks/useSubscription', async () => {
+  const { resolveEntitlement } = await vi.importActual<typeof import('../../src/lib/entitlements')>('../../src/lib/entitlements')
+  const subscription = { subscription_status: 'active', subscription_plan: 'full' } as const
+  const { hasFeature } = resolveEntitlement(subscription)
+  return { useSubscription: () => ({ hasFeature, subscription, loading: false }) }
+})
 vi.mock('../../src/features/order-intake/service', () => ({
   createOrderIntake: vi.fn(),
   uploadIntakePhotos: vi.fn(),
@@ -50,7 +60,9 @@ vi.mock('../../src/features/order-intake/service', () => ({
 }))
 // ORDERS-V2-0 — Nueva Orden dejó de traerse la tabla de clientes al browser:
 // el selector busca server-side y el catálogo de equipos sale de la DB.
-vi.mock('../../src/contexts/AuthContext', () => ({ useAuth: () => ({ businessId: 'biz-a' }) }))
+vi.mock('../../src/contexts/AuthContext', () => ({
+  useAuth: () => ({ businessId: 'biz-a', role: 'owner', hasBusinessAccess: true }),
+}))
 vi.mock('../../src/services/posCustomerSearchService', () => ({
   searchPosCustomers: async () => ({ status: 'ok', items: [], truncated: false }),
 }))
@@ -195,7 +207,7 @@ describe('cambio de tipo de cliente', () => {
       values({ customerType: 'mayorista', businessName: 'Comercio Demo', contactPerson: 'Ana' }),
       'minorista'
     )
-    const payload = toUpdatePayload(retail)
+    const payload = toUpdatePayload(retail, 'full')
     expect(payload.business_name).toBeNull()
     expect(payload.contact_person).toBeNull()
     expect(payload.customer_type).toBe('minorista')
@@ -208,8 +220,8 @@ describe('cambio de tipo de cliente', () => {
 
   it('un minorista nunca persiste campos mayoristas aunque queden en el formulario', () => {
     const dirty = values({ customerType: 'minorista', businessName: 'Sobra', contactPerson: 'Sobra' })
-    expect(toCreatePayload(dirty).business_name).toBeUndefined()
-    expect(toUpdatePayload(dirty).business_name).toBeNull()
+    expect(toCreatePayload(dirty, 'full').business_name).toBeUndefined()
+    expect(toUpdatePayload(dirty, 'full').business_name).toBeNull()
   })
 })
 
@@ -324,16 +336,24 @@ describe('paridad full page ↔ alta rápida', () => {
     expect(screen.getByTestId('customer-save-button')).toBeInTheDocument()
   })
 
+  // PRE-BETA-3A-2 — el CTA ya no se deshabilita por validación (con los errores
+  // ocultos hasta tocar, eso era un bloqueo sin explicación). El bloqueo es el
+  // mismo: el intento revela la razón social y no se escribe nada.
   it('el alta full page bloquea el guardado de un mayorista sin razón social', async () => {
     render(<MemoryRouter><NewCustomer /></MemoryRouter>)
     fireEvent.change(screen.getByTestId('customer-name-input'), { target: { value: 'Comercio Demo' } })
     fireEvent.change(screen.getByTestId('customer-phone-input'), { target: { value: '3512345678' } })
     fireEvent.click(screen.getByTestId('customer-type-mayorista'))
 
-    expect(screen.getByTestId('customer-save-button')).toBeDisabled()
+    expect(screen.getByTestId('customer-save-button')).not.toBeDisabled()
+    fireEvent.click(screen.getByTestId('customer-save-button'))
+    expect(await screen.findByText('Un cliente mayorista necesita razón social.')).toBeInTheDocument()
+    expect(mocks.customerCreate).not.toHaveBeenCalled()
 
     fireEvent.change(screen.getByTestId('customer-business-name-input'), { target: { value: 'Demo SRL' } })
-    expect(screen.getByTestId('customer-save-button')).not.toBeDisabled()
+    expect(screen.queryByText('Un cliente mayorista necesita razón social.')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('customer-save-button'))
+    await waitFor(() => expect(mocks.customerCreate).toHaveBeenCalledTimes(1))
   })
 
   it('elegir mayorista pasa el documento a CUIT en las dos superficies', async () => {
@@ -353,8 +373,8 @@ describe('paridad full page ↔ alta rápida', () => {
 describe('límites del lote', () => {
   it('el payload sólo toca columnas de `customers`', () => {
     const keys = new Set([
-      ...Object.keys(toCreatePayload(values())),
-      ...Object.keys(toUpdatePayload(values())),
+      ...Object.keys(toCreatePayload(values(), 'full')),
+      ...Object.keys(toUpdatePayload(values(), 'full')),
     ])
     // Ni negocio, ni autoría, ni nada financiero: eso lo pone el servicio o la DB.
     for (const forbidden of ['business_id', 'created_by', 'id', 'created_at', 'updated_at', 'active', 'city']) {
@@ -368,14 +388,14 @@ describe('límites del lote', () => {
 
   it('customer_type sólo emite valores que acepta el CHECK de la DB', () => {
     // customers_customer_type_check = minorista | mayorista.
-    expect(toCreatePayload(values({ customerType: 'mayorista', businessName: 'X' })).customer_type).toBe('mayorista')
-    expect(toCreatePayload(values()).customer_type).toBe('minorista')
+    expect(toCreatePayload(values({ customerType: 'mayorista', businessName: 'X' }), 'full').customer_type).toBe('mayorista')
+    expect(toCreatePayload(values(), 'full').customer_type).toBe('minorista')
     expect(customerCoreFromRecord({ customer_type: 'basura-inesperada' }).customerType).toBe('minorista')
   })
 
   it('el core es puro: no escribe nada por su cuenta', () => {
-    toCreatePayload(values())
-    toUpdatePayload(values())
+    toCreatePayload(values(), 'full')
+    toUpdatePayload(values(), 'full')
     expect(mocks.customerCreate).not.toHaveBeenCalled()
     expect(mocks.customerUpdate).not.toHaveBeenCalled()
   })

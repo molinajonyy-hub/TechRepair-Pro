@@ -5,7 +5,7 @@ import {
   Loader2, Tag, RefreshCw, AlertCircle,
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { useWholesalePermissions } from '../hooks/useWholesalePermissions'
+import { useInternalToolAccess } from '../hooks/useInternalToolAccess'
 import { WholesaleRestrictedAccess } from '../components/wholesale/WholesaleRestrictedAccess'
 import { getPortalUrl } from '../portal/PortalRouter'
 import {
@@ -386,7 +386,8 @@ function ProductCard({ product, onEdit, onToggleVisible, onToggleFeatured }: {
 
 export function AdminPortalClic() {
   const { businessId } = useAuth()
-  const wholesale = useWholesalePermissions()
+  // PRE-BETA-3A-2S: la misma autoridad interna que la ruta y el menú.
+  const portalClic = useInternalToolAccess('portal_clic')
   const [products, setProducts] = useState<AdminProduct[]>([])
   const [loading,  setLoading]  = useState(true)
   const [error,    setError]    = useState('')
@@ -405,7 +406,7 @@ export function AdminPortalClic() {
     finally { setLoading(false) }
   }, [businessId])
 
-  useEffect(() => { if (wholesale.canManageClicPortal) load() }, [load, wholesale.canManageClicPortal])
+  useEffect(() => { if (portalClic.allowed) load() }, [load, portalClic.allowed])
 
   // Todos los hooks deben estar antes de cualquier early return (Rules of Hooks)
   const patchProduct = useCallback((inventoryId: string, patch: Partial<ProductSettings>) => {
@@ -439,8 +440,8 @@ export function AdminPortalClic() {
   }), [products])
 
   // Early return DESPUÉS de todos los hooks (Rules of Hooks)
-  if (wholesale.loading) return null
-  if (!wholesale.canManageClicPortal) return <WholesaleRestrictedAccess />
+  if (portalClic.loading) return null
+  if (!portalClic.allowed) return <WholesaleRestrictedAccess />
 
   const toggleField = async (p: AdminProduct, field: 'is_visible' | 'is_featured') => {
     const newVal = !p.settings[field]

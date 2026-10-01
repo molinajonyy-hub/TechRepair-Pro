@@ -54,7 +54,7 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeatureSet> = {
     advancedRoles:    false,
     audit:            false,
     multisucursal:    false,
-    mayorista:        false,
+    mayorista:        true,
     personal_finance: true,
     maxUsers:         3,
   },
@@ -73,12 +73,19 @@ export const PLAN_FEATURES: Record<PlanId, PlanFeatureSet> = {
   },
 }
 
-// Durante el trial se otorgan features del plan Pro
+// Durante el trial se otorgan features del plan Pro (incluye Mayorista desde
+// PRE-BETA-3A-2: Mayorista es Pro+). No hay excepciones por feature.
 export const TRIAL_FEATURES: PlanFeatureSet = { ...PLAN_FEATURES.pro }
 
 // Plan mínimo requerido por feature (para el copy del upgrade CTA)
-// NOTA: la fuente de verdad server-side es el RPC `get_business_subscription_features`.
-// Esta matriz DEBE coincidir con PLAN_FEATURES y con ese RPC (ver test planEntitlements).
+// NOTA: la fuente de verdad server-side es el RPC `get_business_subscription_features`
+// (y `business_has_feature`, que usan las RLS). Esta matriz DEBE coincidir con
+// PLAN_FEATURES y con ese RPC (ver test planEntitlements).
+//
+// PRE-BETA-3A-2: `mayorista` pasa a Pro+ por contrato de producto. El servidor
+// todavía la resuelve como Full-only (`_feat_full` / `subscription_plan = 'full'`);
+// alinearlo es parte de PRE-BETA-3A-2S. Hasta entonces el cliente puede ofrecer
+// Mayorista a un Pro/trial que las RLS de `wholesale_*` siguen rechazando.
 export const FEATURE_REQUIRED_PLAN: Record<PlanFeature, 'pro' | 'full'> = {
   arca:             'pro',
   currentAccounts:  'pro',
@@ -88,7 +95,7 @@ export const FEATURE_REQUIRED_PLAN: Record<PlanFeature, 'pro' | 'full'> = {
   advancedRoles:    'full',
   audit:            'full',
   multisucursal:    'full',
-  mayorista:        'full',  // mayorista es Full-only (antes decía 'pro' por error)
+  mayorista:        'pro',   // PRE-BETA-3A-2: Mayorista es Pro+ (Básico no)
   personal_finance: 'pro',
 }
 

@@ -656,51 +656,39 @@ export async function updateOrderStatus(
 }
 
 /**
- * Busca o crea un cliente en la tabla `customers` (TechRepair Pro) a partir
- * de un cliente del portal. Necesario para "Convertir en comprobante".
+ * PRE-BETA-3A-2S — Cliente de `customers` para convertir un pedido del portal en
+ * comprobante. La decide la base (RPC get_or_create_customer_from_wholesale_atomic):
+ * exige gestión Mayorista, identifica al cliente del portal por id (tenant-bound),
+ * lo busca por email exacto y, si no existe, lo crea como mayorista. Nunca
+ * reclasifica un cliente existente ni elige entre homónimos: con más de un
+ * cliente con ese email devuelve el error para que el operador decida.
+ *
+ * Reemplaza el INSERT directo del navegador (con `ilike(name)` como fallback),
+ * que saltaba la autoridad Mayorista de `customers`.
  */
-export async function getOrCreateCustomerFromPortal(
+export async function getOrCreateCustomerFromWholesale(
   businessId: string,
-  email: string,
-  name: string,
-  phone?: string | null,
-  customerType: 'mayorista' | 'minorista' = 'mayorista',
-): Promise<{ customerId: string | null; error: string | null }> {
-  // 1. Buscar cliente existente por email
-  const { data: existing } = await supabase
-    .from('customers')
-    .select('id')
-    .eq('business_id', businessId)
-    .eq('email', email)
-    .maybeSingle()
-
-  if (existing?.id) return { customerId: existing.id, error: null }
-
-  // 2. Buscar por nombre exacto como fallback
-  const { data: byName } = await supabase
-    .from('customers')
-    .select('id')
-    .eq('business_id', businessId)
-    .ilike('name', name)
-    .maybeSingle()
-
-  if (byName?.id) return { customerId: byName.id, error: null }
-
-  // 3. Crear nuevo cliente
-  const { data: created, error } = await supabase
-    .from('customers')
-    .insert({
-      business_id:   businessId,
-      name,
-      email:         email || null,
-      phone:         phone  || null,
-      customer_type: customerType,
-    })
-    .select('id')
-    .single()
-
-  if (error) return { customerId: null, error: error.message }
-  return { customerId: created.id, error: null }
+  wholesaleCustomerId: string,
+): Promise<{ customerId: string | null; created: boolean; error: string | null }> {
+  if (!businessId || !wholesaleCustomerId) {
+    return { customerId: null, created: false, error: 'Falta el negocio o el cliente del portal.' }
+  }
+  const { data, error } = await supabase.rpc('get_or_create_customer_from_wholesale_atomic', {
+    p_business_id:           businessId,
+    p_wholesale_customer_id: wholesaleCustomerId,
+  })
+  if (error) {
+    const ambiguous = error.message?.includes('CUSTOMER_MATCH_AMBIGUOUS')
+    return {
+      customerId: null,
+      created: false,
+      error: ambiguous
+        ? 'Hay más de un cliente con el email de este cliente mayorista. Elegí el cliente manualmente.'
+        : error.message,
+    }
+  }
+  const result = data as { customer_id?: string; created?: boolean } | null
+  return { customerId: result?.customer_id ?? null, created: result?.created === true, error: null }
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────────

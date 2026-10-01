@@ -45,6 +45,16 @@ export function AppModal({
   const subtitleId = useId()
   const keyboardOffset = useKeyboardAwareBottomOffset(isOpen)
 
+  // El efecto de foco depende SÓLO de `isOpen`. Casi todos los padres pasan
+  // `onClose` inline, con identidad nueva en cada render: si fuera dependencia,
+  // cada render del diálogo abierto re-ejecutaba el efecto — la limpieza
+  // devolvía el foco afuera y el rAF lo mandaba a «Cerrar». Medido: en el alta
+  // rápida de Nueva Orden el foco saltaba a «Cerrar» tras la primera tecla y un
+  // espacio cerraba el diálogo; en Editar cliente sólo entraba un carácter.
+  // Escape sigue llamando al `onClose` vigente, vía ref.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
+
   // Escape, focus trap y restauración de foco.
   useEffect(() => {
     if (!isOpen) return
@@ -56,7 +66,7 @@ export function AppModal({
     const h = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
-        onClose()
+        onCloseRef.current()
         return
       }
       if (e.key !== 'Tab' || !dialogRef.current) return
@@ -85,7 +95,7 @@ export function AppModal({
       document.removeEventListener('keydown', h)
       previouslyFocused?.focus()
     }
-  }, [isOpen, onClose])
+  }, [isOpen])
 
   // Bloquear scroll del body
   useEffect(() => {

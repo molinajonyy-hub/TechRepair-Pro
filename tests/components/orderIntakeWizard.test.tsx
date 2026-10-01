@@ -8,7 +8,15 @@ const mocks=vi.hoisted(()=>({
   loadBrands:vi.fn(),loadModels:vi.fn(),ensureCatalog:vi.fn(),
 }))
 vi.mock('../../src/hooks/usePermissions',()=>({usePermissions:()=>({can:()=>true}),effectivePermissions:()=>({orders_create:true})}))
-vi.mock('../../src/contexts/AuthContext',()=>({useAuth:()=>({businessId:'biz-a'})}))
+vi.mock('../../src/contexts/AuthContext',()=>({useAuth:()=>({businessId:'biz-a',role:'owner',hasBusinessAccess:true})}))
+// PRE-BETA-3A-2: el alta rápida ofrece Mayorista sólo con acceso Mayorista
+// (autoridad central: feature con suscripción confirmada + owner/admin o `wholesale`).
+vi.mock('../../src/hooks/useSubscription',async()=>{
+  const {resolveEntitlement}=await vi.importActual<typeof import('../../src/lib/entitlements')>('../../src/lib/entitlements')
+  const subscription={subscription_status:'active',subscription_plan:'full'} as const
+  const {hasFeature}=resolveEntitlement(subscription)
+  return {useSubscription:()=>({hasFeature,subscription,loading:false})}
+})
 vi.mock('../../src/services/api',()=>({customersService:{create:mocks.customerCreate}}))
 // ORDERS-V2-0: la búsqueda de clientes dejó de ser un filtro en memoria sobre
 // `customersService.getAll()` y pasó a la autoridad server-side compartida.

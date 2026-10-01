@@ -15,7 +15,6 @@ import { AppButton, ResponsiveDialog } from '../ui'
 import {
   CustomerCreateFields,
   documentSearchTokens,
-  firstCustomerCoreError,
   useCustomerCore,
   type CustomerCoreRecord,
 } from '../features/customer-core'
@@ -88,7 +87,10 @@ export function Customers() {
   // podía dejar un mayorista SIN razón social — dato inválido que ninguna de
   // las altas permitía crear.
   const [editingCustomer, setEditingCustomer] = useState<any | null>(null)
-  const { values: editForm, errors: editErrors, setField: setEditField, setCustomerType: setEditCustomerType, reset: resetEditForm, toUpdatePayload } =
+  // PRE-BETA-3A-2 — el core también resuelve el gate Mayorista. Sin gate, un
+  // mayorista existente queda `preserved`: se editan sus datos comunes y el
+  // PATCH no toca tipo, razón social ni contacto.
+  const { reset: resetEditForm, attemptSubmit: attemptEditSave, toUpdatePayload, fieldProps: editFieldProps } =
     useCustomerCore({ mode: 'update' })
   const [editLoading, setEditLoading] = useState(false)
   const [editError, setEditError] = useState('')
@@ -101,9 +103,9 @@ export function Customers() {
 
   const handleEditSave = async () => {
     if (!editingCustomer) return
-    // El motivo ya se muestra al lado del campo que falla; el alerta de arriba
-    // queda reservada para errores del servidor y no repite el mismo texto.
-    if (firstCustomerCoreError(editErrors)) return
+    // El motivo se muestra al lado del campo que falla (el intento lo revela);
+    // el alerta de arriba queda reservada para errores del servidor.
+    if (!attemptEditSave()) return
     setEditLoading(true)
     setEditError('')
     try {
@@ -559,7 +561,6 @@ export function Customers() {
               form={CUSTOMER_EDIT_FORM_ID}
               variant="primary"
               loading={editLoading}
-              disabled={editLoading || Object.keys(editErrors).length > 0}
               data-testid="customer-edit-save-button"
             >
               Guardar cambios
@@ -576,13 +577,7 @@ export function Customers() {
           {editError && (
             <p className="form-error customer-create-server-error" role="alert">{editError}</p>
           )}
-          <CustomerCreateFields
-            values={editForm}
-            errors={editErrors}
-            setField={setEditField}
-            setCustomerType={setEditCustomerType}
-            additionalInitiallyOpen
-          />
+          <CustomerCreateFields {...editFieldProps} additionalInitiallyOpen />
         </form>
       </ResponsiveDialog>
 

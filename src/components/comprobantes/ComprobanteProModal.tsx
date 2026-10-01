@@ -9,7 +9,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react'
 import { ProductFormModalSafe as ProductFormModal } from '../products/ProductFormModal'
 import type { InventoryItem as InventoryItemFull } from '../../hooks/useInventory'
-import { isWholesaleCustomer, getProductPriceForCustomer } from '../../utils/pricing'
+import { isWholesaleCustomer, getProductPriceForCustomer, resolvesWholesalePricing } from '../../utils/pricing'
 import { resolveProductPricing } from '../../lib/pricing/productPricing'
 import {
   X, Search, Plus, DollarSign, Package, Wrench, Tag,
@@ -32,6 +32,7 @@ import { salesPointService } from '../../services/salesPointService'
 import { ArcaService } from '../../services/arcaService'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { useWholesaleAccess } from '../../hooks/useWholesaleAccess'
 import { useCaja } from '../../contexts/CajaContext'
 import { formatDisplayMessage } from '../../utils/formatMessage'
 import {
@@ -358,6 +359,9 @@ export function ComprobanteProModal({
   orderId,
 }: ComprobanteProModalProps) {
   const { businessId, user } = useAuth()
+  // PRE-BETA-3A-2S: el precio mayorista exige acceso Mayorista del actor, igual
+  // que el checkout. Sin acceso, un cliente mayorista se cotiza minorista.
+  const { canAccess: puedeCotizarMayorista } = useWholesaleAccess()
   const { isOpen: cajaIsOpen, cajaId } = useCaja()
   const { flatMethods } = usePaymentCommissions()
 
@@ -442,7 +446,11 @@ export function ComprobanteProModal({
       ?? (selectedClienteCache?.id === clienteId ? selectedClienteCache : null),
     [clientes, clienteId, selectedClienteCache],
   )
-  const esClienteMayorista = useMemo(() => usarPrecioMayorista || isWholesaleCustomer(selectedCliente), [usarPrecioMayorista, selectedCliente])
+  const esClienteMayorista = useMemo(() => resolvesWholesalePricing({
+    customerIsWholesale: isWholesaleCustomer(selectedCliente),
+    forceWholesale: usarPrecioMayorista,
+    canAccessWholesale: puedeCotizarMayorista,
+  }), [usarPrecioMayorista, selectedCliente, puedeCotizarMayorista])
   const [showRecalcPrompt, setShowRecalcPrompt] = useState(false)
   const prevClienteIdRef = useRef<string>('')
 
@@ -903,10 +911,12 @@ export function ComprobanteProModal({
     if (!prev || prev === clienteId) { prevClienteIdRef.current = clienteId; return }
     prevClienteIdRef.current = clienteId
     if (!lineas.some(l => l.inventory_id)) return
+    // Sin acceso Mayorista el precio no cambia con el tipo de cliente: no hay nada que recalcular.
+    if (!puedeCotizarMayorista) return
     const wasW = isWholesaleCustomer(clientes.find(c => c.id === prev) ?? null)
     const nowW = isWholesaleCustomer(clientes.find(c => c.id === clienteId) ?? null)
     if (wasW !== nowW) setShowRecalcPrompt(true)
-  }, [clienteId, clientes, lineas])
+  }, [clienteId, clientes, lineas, puedeCotizarMayorista])
 
   // Ref estable para activeSearchIdx: evita re-registrar el listener en cada cambio
   const activeSearchIdxRef = useRef<number | null>(null)

@@ -37,6 +37,24 @@ export function isWholesaleCustomer(customer: CustomerForPricing | null | undefi
   return customer?.customer_type === 'mayorista'
 }
 
+/**
+ * PRE-BETA-3A-2S — ¿La venta se cotiza a precio mayorista?
+ *
+ * Espejo del checkout (private.create_comprobante_checkout_atomic): el precio
+ * mayorista exige que el actor tenga acceso Mayorista (useWholesaleAccess) Y
+ * que la venta sea mayorista (cliente mayorista, o el flujo de Mayorista que lo
+ * pide explícitamente). Sin acceso se cotiza minorista: si el POS mandara el
+ * precio mayorista, el servidor lo trataría como override manual y rechazaría
+ * la venta a quien no puede modificar precios.
+ */
+export function resolvesWholesalePricing(input: {
+  customerIsWholesale: boolean
+  forceWholesale: boolean
+  canAccessWholesale: boolean
+}): boolean {
+  return input.canAccessWholesale && (input.forceWholesale || input.customerIsWholesale)
+}
+
 function safeNum(v: number | string | null | undefined): number {
   if (v == null) return 0
   const n = typeof v === 'string' ? Number(v.replace(',', '.')) : Number(v)

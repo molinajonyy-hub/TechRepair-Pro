@@ -16,11 +16,26 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const TOUCH_TARGET = 44
+/**
+ * `boundingBox()` mide la caja RENDERIZADA (getBoundingClientRect, con la
+ * transformacion aplicada). Con `min-height: 44px` cumplido, Chromium puede
+ * devolver 43.999969482421875 = 44 - 2^-15: ruido float32 de la matriz de
+ * `modalIn` (scale), no un alto de layout. El layout se redondea a 1/64 px, asi
+ * que el alto real inmediatamente inferior a 44 es 43.984375, y ese SIGUE
+ * fallando (43.994375 < 44), igual que 43.9 o 43. La tolerancia absorbe solo
+ * ese ruido; no baja el contrato.
+ */
+const TOUCH_EPSILON = 0.01
 const MOBILE_VIEWPORTS = [
   { width: 320, height: 568 },
   { width: 390, height: 844 },
   { width: 430, height: 932 },
 ]
+
+/** Unica asercion de alto tactil del spec: ningun estado compara en flotante estricto. */
+function expectTouchTarget(height: number, etiqueta: string): void {
+  expect(height + TOUCH_EPSILON, `${etiqueta}: ${height}px`).toBeGreaterThanOrEqual(TOUCH_TARGET)
+}
 
 async function alto(locator: Locator): Promise<number> {
   const box = await locator.boundingBox()
@@ -84,24 +99,49 @@ test.describe('@dialogtouch DIALOG-TOUCH-1 · acciones del footer', () => {
       const cancelar = footer.getByRole('button', { name: 'Cancelar' })
       const crear = footer.getByRole('button', { name: 'Crear cliente' })
 
-      // ── Estado inicial: el CTA arranca deshabilitado (faltan nombre y telefono).
-      await expect(crear).toBeDisabled()
-      expect(await alto(crear)).toBeGreaterThanOrEqual(TOUCH_TARGET)
-      expect(await alto(cancelar)).toBeGreaterThanOrEqual(TOUCH_TARGET)
+      // ── Estado inicial (contrato PRE-BETA-3A-2): el CTA arranca HABILITADO
+      //    aunque falten nombre y telefono. Solo lo bloquea un guardado en curso;
+      //    el intento revela los bloqueos en vez de esconder el boton.
+      await expect(crear).toBeEnabled()
+      expectTouchTarget(await alto(crear), 'Crear cliente (inicial)')
+      expectTouchTarget(await alto(cancelar), 'Cancelar (inicial)')
 
       // ── El secundario si es operable: tiene que recibir el click en toda su caja.
       expect(await recibeElHit(page, 'Cancelar')).toEqual([true, true, true])
       await sinOverflowHorizontal(page)
 
-      // ── Habilitado tras los campos minimos del customer core.
+      // ── Click con el formulario vacio: NO crea al cliente, muestra la
+      //    validacion canonica del customer core, lleva el foco al primer bloqueo
+      //    y el dialogo sigue abierto.
+      const altas: string[] = []
+      const registrarAlta = (request: { method(): string; url(): string }) => {
+        if (request.method() === 'POST' && request.url().includes('/rest/v1/customers')) altas.push(request.url())
+      }
+      page.on('request', registrarAlta)
+      await crear.click()
+      await expect(dialog.getByText('El nombre es obligatorio.')).toBeVisible()
+      await expect(dialog.getByText('El teléfono es obligatorio.')).toBeVisible()
+      await expect(dialog.getByLabel('Nombre completo')).toBeFocused()
+      await expect(dialog).toBeVisible()
+      await expect(crear).toBeEnabled()
+      expectTouchTarget(await alto(crear), 'Crear cliente (tras intento vacio)')
+      await sinOverflowHorizontal(page)
+
+      // ── Con los campos minimos del customer core los bloqueos desaparecen.
       await dialog.getByLabel('Nombre completo').fill('Cliente Dialog Touch')
       await dialog.getByLabel('Teléfono').fill('1122334455')
+      await expect(dialog.getByText('El nombre es obligatorio.')).toHaveCount(0)
+      await expect(dialog.getByText('El teléfono es obligatorio.')).toHaveCount(0)
       await expect(crear).toBeEnabled()
 
       const altoHabilitado = await alto(crear)
-      expect(altoHabilitado).toBeGreaterThanOrEqual(TOUCH_TARGET)
+      expectTouchTarget(altoHabilitado, 'Crear cliente (habilitado)')
       expect(await recibeElHit(page, 'Crear cliente')).toEqual([true, true, true])
       await sinOverflowHorizontal(page)
+
+      // El intento vacio no escribio nada: hasta aca no salio ningun alta.
+      page.off('request', registrarAlta)
+      expect(altas).toEqual([])
 
       // ── Loading: se demora el alta para poder medir el estado intermedio. El
       //    spinner reemplaza al texto; el alto no puede moverse.
@@ -112,7 +152,7 @@ test.describe('@dialogtouch DIALOG-TOUCH-1 · acciones del footer', () => {
       await crear.click()
       await expect(crear).toBeDisabled()
       const altoLoading = await alto(crear)
-      expect(altoLoading).toBeGreaterThanOrEqual(TOUCH_TARGET)
+      expectTouchTarget(altoLoading, 'Crear cliente (loading)')
       expect(altoLoading).toBeCloseTo(altoHabilitado, 0)
       await page.unroute('**/rest/v1/customers*')
     })
@@ -138,7 +178,7 @@ test.describe('@dialogtouch DIALOG-TOUCH-1 · acciones del footer', () => {
     await esperarAnimaciones(scanner)
 
     const cerrar = scanner.locator('.modal-footer').getByRole('button', { name: 'Cerrar' })
-    expect(await alto(cerrar)).toBeGreaterThanOrEqual(TOUCH_TARGET)
+    expectTouchTarget(await alto(cerrar), 'Cerrar (escaner)')
     expect(await recibeElHit(page, 'Cerrar')).toEqual([true, true, true])
   })
 })

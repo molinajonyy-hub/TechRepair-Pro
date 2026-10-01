@@ -17,7 +17,7 @@ import { TabCatalogoPortal } from './mayorista/TabCatalogoPortal'
 import {
   getWholesaleCustomers, updateCustomerStatus,
   getWholesaleOrders, updateOrderStatus,
-  getOrCreateCustomerFromPortal,
+  getOrCreateCustomerFromWholesale,
 } from '../portal/services/portalService'
 import { ORDER_STATUS_LABEL, ORDER_STATUS_COLOR, type WholesaleCustomer, type WholesaleOrder } from '../portal/types'
 import { getPortalUrl } from '../portal/PortalRouter'
@@ -407,14 +407,7 @@ export function Mayorista() {
   const handleConvertirComprobante = async (order: WholesaleOrder) => {
     if (!businessId) return
     setConverting(true); setConvertError('')
-    const cust = order.customer as any
-    const { customerId, error } = await getOrCreateCustomerFromPortal(
-      businessId,
-      cust?.email || '',
-      cust?.name || 'Cliente mayorista',
-      cust?.whatsapp || null,
-      'mayorista',
-    )
+    const { customerId, error } = await getOrCreateCustomerFromWholesale(businessId, order.customer_id)
     setConverting(false)
     if (error || !customerId) {
       setConvertError(error || 'No se pudo obtener el cliente')
@@ -629,16 +622,18 @@ export function Mayorista() {
   }
 
   // ── Guard de acceso al módulo (Rules of Hooks: después de todos los hooks) ──
-  // Orden: 1) permisos cargando → loader · 2) sin feature → paywall ·
-  // 3) con feature pero sin acceso válido / rol inválido → acceso restringido ·
+  // Defensa en profundidad del guard de ruta: MISMA decisión central
+  // (`useWholesaleAccess`, PRE-BETA-3A-2), mismos desenlaces.
+  // Orden: 1) permisos cargando → loader · 2) actor sin acceso → acceso
+  // restringido · 3) actor con acceso pero sin feature → paywall ·
   // 4) carga de datos → loader · 5) módulo (read-only o gestión).
   if (wholesale.loading) return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
       <Loader2 size={28} style={{ animation: 'tr-spin 1s linear infinite', color: '#6366f1' }} />
     </div>
   )
-  if (!wholesale.hasMayoristaFeature) return <UpgradeRequired feature="mayorista" />
-  if (!wholesale.canView) return (
+  if (wholesale.decision === 'plan_required') return <UpgradeRequired feature="mayorista" />
+  if (!wholesale.canAccess) return (
     <WholesaleRestrictedAccess
       title="Acceso restringido"
       description="No tenés permisos para acceder al módulo Mayorista."

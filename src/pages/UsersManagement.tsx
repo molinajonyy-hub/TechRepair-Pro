@@ -12,6 +12,8 @@ import {
   AppPermissions, PermissionKey, PERMISSION_LABELS, PERMISSION_GROUPS,
   resolvePermissions, ALL_PERMISSIONS, CONFIGURABLE_PERMISSIONS,
 } from '../config/permissions';
+import { hasAutomaticWholesaleAccess } from '../lib/permissions/wholesalePermissions';
+import { colors } from '../lib/tokens';
 
 /**
  * `showToast` arma el mensaje con innerHTML. Un correo es texto que escribió una
@@ -30,12 +32,23 @@ const roleOptions = [
   { value: 'viewer', label: 'Visualizador' },
 ];
 
+/**
+ * PRE-BETA-3A-2 — `wholesale` no se configura para owner/admin: su acceso a
+ * Mayorista es automático (autoridad central), así que un override sería letra
+ * muerta en la UI.
+ */
+function isLockedPermission(role: string, key: PermissionKey): boolean {
+  return key === 'wholesale' && hasAutomaticWholesaleAccess(role);
+}
+
 /** Build a partial override diff from full resolved perms vs. role defaults */
 function buildOverrideDiff(role: string, perms: AppPermissions): Partial<AppPermissions> | null {
   const defaults = resolvePermissions(role);
   const diff: Partial<AppPermissions> = {};
   let hasDiff = false;
   for (const key of ALL_PERMISSIONS) {
+    // Un override heredado sobre una clave bloqueada se descarta al guardar.
+    if (isLockedPermission(role, key)) continue;
     if (perms[key] !== defaults[key]) {
       diff[key] = perms[key];
       hasDiff = true;
@@ -54,7 +67,7 @@ interface PermissionsMatrixProps {
 
 function PermissionsMatrix({ role, value, onChange, disabled }: PermissionsMatrixProps) {
   const toggle = (key: PermissionKey) => {
-    if (disabled) return;
+    if (disabled || isLockedPermission(role, key)) return;
     onChange({ ...value, [key]: !value[key] });
   };
 
@@ -81,13 +94,14 @@ function PermissionsMatrix({ role, value, onChange, disabled }: PermissionsMatri
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
               {keys.map(key => {
-                const isOn = value[key];
+                const locked = isLockedPermission(role, key);
+                const isOn = locked ? true : value[key];
                 const isDefault = defaults[key];
-                const isCustomized = isOn !== isDefault;
+                const isCustomized = !locked && isOn !== isDefault;
                 return (
                   <label key={key} style={{
                     display: 'flex', alignItems: 'center', gap: '0.75rem',
-                    cursor: disabled ? 'default' : 'pointer',
+                    cursor: disabled || locked ? 'default' : 'pointer',
                     padding: '0.375rem 0.5rem',
                     borderRadius: '0.375rem',
                     backgroundColor: isCustomized ? 'rgba(99,102,241,0.07)' : 'transparent',
@@ -113,6 +127,11 @@ function PermissionsMatrix({ role, value, onChange, disabled }: PermissionsMatri
                         {isCustomized && (
                           <span style={{ marginLeft: '0.4rem', fontSize: '0.65rem', color: '#818cf8' }}>
                             personalizado
+                          </span>
+                        )}
+                        {locked && (
+                          <span data-testid={`permission-locked-${key}`} style={{ marginLeft: '0.4rem', fontSize: '0.65rem', color: colors.text.muted }}>
+                            automático para este rol
                           </span>
                         )}
                       </div>

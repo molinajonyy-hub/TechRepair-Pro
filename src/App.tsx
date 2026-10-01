@@ -10,6 +10,8 @@ import { PortalRouter, PORTAL_DOMAINS } from './portal/PortalRouter'
 import { ProtectedRouteByFeature } from './components/auth/ProtectedRouteByFeature'
 import { ProtectedRouteByPermission } from './components/auth/ProtectedRouteByPermission'
 import { ProtectedRouteBySystemOwner } from './components/auth/ProtectedRouteBySystemOwner'
+import { ProtectedRouteByWholesaleAccess } from './components/auth/ProtectedRouteByWholesaleAccess'
+import { ProtectedRouteByInternalTool } from './components/auth/ProtectedRouteByInternalTool'
 import { UpdateBanner } from './components/UpdateBanner'
 import { AnalyticsRouteTracker } from './components/AnalyticsRouteTracker'
 
@@ -295,14 +297,24 @@ function AppContent() {
                 </Route>
               </Route>
 
-              {/* ── Rutas PRO — mayorista ── */}
-              {/* P0-P6: que el NEGOCIO tenga la feature no implica que todos
-                  sus miembros entren. Hacen falta las dos: feature + capacidad. */}
-              <Route element={<ProtectedRouteByPermission permission="wholesale" />}>
-              <Route element={<ProtectedRouteByFeature feature="mayorista" />}>
+              {/* ── Rutas PRO — mayorista ──
+                  PRE-BETA-3A-2: feature `mayorista` (Pro+) Y (owner | admin |
+                  capacidad `wholesale`). Un solo guard con la autoridad central
+                  (`useWholesaleAccess`), la misma que usa el menú: el par
+                  permiso+feature no podía dejar entrar a un owner/admin con
+                  override `wholesale: false`. */}
+              <Route element={<ProtectedRouteByWholesaleAccess />}>
                 <Route path="/mayorista" element={<Mayorista />} />
-                <Route path="/portal-clic" element={<AdminPortalClic />} />
               </Route>
+
+              {/* ── Portal Clic — herramienta INTERNA, no es Mayorista ──
+                  PRE-BETA-3A-2S: la autoriza la base (principal único de
+                  `portal_clic` en el negocio: private.internal_tool_principals).
+                  No depende del plan, del rol del tenant, de `wholesale`, de
+                  system_admins ni de wholesale_portal_enabled. Menú y página
+                  usan la misma autoridad. */}
+              <Route element={<ProtectedRouteByInternalTool tool="portal_clic" />}>
+                <Route path="/portal-clic" element={<AdminPortalClic />} />
               </Route>
 
               {/* ── Rutas SaaS Admin — solo system owner ── */}
