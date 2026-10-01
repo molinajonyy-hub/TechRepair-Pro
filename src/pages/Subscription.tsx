@@ -46,6 +46,7 @@ export function Subscription() {
   const [showHistory, setShowHistory] = useState(false)
   const [reconciling, setReconciling] = useState(false)
   const [reconcileMsg, setReconcileMsg] = useState('')
+  const [manageError, setManageError] = useState('')
   const [saasPayments, setSaasPayments] = useState<any[]>([])
   const [activeUserCount, setActiveUserCount] = useState<number | null>(null)
 
@@ -76,25 +77,30 @@ export function Subscription() {
     if (!businessId) return
     try {
       setCanceling(true)
+      setManageError('')
       await cancelSubscription(businessId)
       await refresh()
       setCancelConfirm(false)
-    } catch (err: any) {
-      alert(err.message)
+    } catch (err) {
+      setManageError(err instanceof Error ? err.message : 'No pudimos cancelar la suscripción.')
     } finally {
       setCanceling(false)
     }
   }
 
+  // BETA-MP: «Verificar pago» le pide al servidor que consulte a Mercado Pago. El
+  // resultado puede cambiar el estado (activar, o reflejar una baja), así que
+  // siempre se relee; el mensaje es el del servidor.
   async function handleReconcile() {
     if (!businessId) return
     setReconciling(true); setReconcileMsg('')
     try {
-      const { activated, message } = await reconcilePayment(businessId)
+      const { message } = await reconcilePayment(businessId)
       setReconcileMsg(message)
-      if (activated) await refresh()
-    } catch { setReconcileMsg('Error al verificar. Intentá de nuevo.') }
-    finally { setReconciling(false) }
+      await refresh()
+    } catch (err) {
+      setReconcileMsg(err instanceof Error ? err.message : 'Error al verificar. Intentá de nuevo.')
+    } finally { setReconciling(false) }
   }
 
   // Cargar pagos SaaS al abrir historial
@@ -107,10 +113,11 @@ export function Subscription() {
     if (!businessId) return
     try {
       setUpdatingPayment(true)
+      setManageError('')
       const url = await getUpdatePaymentLink(businessId)
       window.open(url, '_blank')
-    } catch (err: any) {
-      alert(err.message)
+    } catch (err) {
+      setManageError(err instanceof Error ? err.message : 'No pudimos obtener el enlace de Mercado Pago.')
     } finally {
       setUpdatingPayment(false)
     }
@@ -428,6 +435,13 @@ export function Subscription() {
               </div>
             )}
           </div>
+          {/* El motivo que devuelve el servidor (p. ej. «no hay una suscripción
+              de Mercado Pago para cancelar»), en la pantalla y no en un alert(). */}
+          {manageError && (
+            <div className="alert-inline alert-error" role="alert" data-testid="subscription-manage-error" style={{ margin: '0 1.25rem 1.25rem' }}>
+              {manageError}
+            </div>
+          )}
         </div>
       )}
     </div>

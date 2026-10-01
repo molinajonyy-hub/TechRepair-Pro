@@ -1,33 +1,39 @@
 /**
- * mp-subscription — Mercado Pago Subscription Management
+ * mp-subscription — Billing SaaS · acciones autenticadas (BETA-MP)
  *
  * POST /functions/v1/mp-subscription
- * Body: { action, ...params }
+ * Body: { action, business_id, ... }
  *
- * ─── MP Preapproval API ──────────────────────────────────────
- * Subscriptions in MP are called "preapprovals".
- * When using a plan (preapproval_plan_id), the amount/frequency come from the plan.
- * The flow:
- *   1. POST /preapproval → returns init_point (MP checkout URL)
- *   2. User pays in MP checkout
- *   3. MP calls our webhook with subscription_preapproval event (status=authorized)
- *   4. We activate the business
+ *   create                  abre un checkout de Mercado Pago. NO cambia el acceso del negocio.
+ *   status                  lectura local (DB). No consulta ni sincroniza Mercado Pago.
+ *   reconcile               consulta Mercado Pago y lleva la DB al estado confirmado.
+ *   update_payment_method   link de MP para la suscripción del negocio autorizado.
+ *   cancel                  cancela en MP la suscripción del negocio autorizado.
  *
- * ─── Preapproval statuses ──────────────────────────────────────
- *   pending    → created, awaiting user payment setup
- *   authorized → payment method confirmed, subscription active
- *   paused     → payment failed, MP retrying (grace period)
- *   cancelled  → subscription cancelled
+ * Este archivo es SÓLO cableado: CORS, validación del JWT y construcción de las
+ * dependencias. Las reglas viven en `_shared/billing/` y se prueban sin red:
  *
- * ─── Security ──────────────────────────────────────────────────
- * - MP_ACCESS_TOKEN is ONLY in this Edge Function env (never frontend)
- * - Requires valid Supabase JWT from authenticated user (validated in-function;
- *   the gateway runs with verify_jwt=false so the CORS preflight can reach us)
- * - Verifies user belongs to the target business before any MP call
+ *   subscriptionActions.ts   las cinco acciones + la autorización uniforme
+ *   preapproval.ts           el camino canónico que comparte con `mp-webhook`
+ *   planCatalog.ts           MP_PLAN_* ↔ plan/ciclo
+ *
+ * ─── Seguridad ─────────────────────────────────────────────────
+ * - El frontend propone, Mercado Pago confirma, el backend decide. Ninguna
+ *   acción activa un plan por lo que diga el navegador.
+ * - MP_ACCESS_TOKEN vive sólo en los secrets de las Edge Functions.
+ * - El gateway corre con verify_jwt=false para que el preflight OPTIONS llegue;
+ *   el JWT se valida acá (`getAuthUser`).
+ * - Toda acción exige la capacidad `subscription` del usuario EN ese negocio,
+ *   evaluada por la base con el JWT del usuario (`current_user_can_in_business`).
+ * - Los datos se escriben con `service_role`, sólo después de autorizar.
  */
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { BROWSER_CLIENT_METADATA_HEADERS } from '../_shared/clientContract.ts'
+import { BROWSER_CLIENT_METADATA_HEADERS, userDataApiHeaders } from '../_shared/clientContract.ts'
+import { createMpClient } from '../_shared/billing/mpClient.ts'
+import { buildPlanCatalog } from '../_shared/billing/planCatalog.ts'
+import { createCapabilityAuthorizer, createSupabaseBillingStore } from '../_shared/billing/store.ts'
+import { handleBillingAction, type ActionContext } from '../_shared/billing/subscriptionActions.ts'
 
 // ─────────────────────────────────────────────────────────────────
 // CORS — single source of truth (buildCorsHeaders + jsonResponse)
@@ -122,90 +128,33 @@ function jsonResponse(req: Request, body: unknown, status = 200): Response {
   })
 }
 
-const MP_BASE = 'https://api.mercadopago.com'
+// Origen del frontend para la URL de retorno por defecto del checkout.
+const APP_ORIGIN = parseOrigins(Deno.env.get('APP_URL'))[0] ?? CANONICAL_ORIGINS[0]
+
+const CLIENT_OPTIONS = { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
 
 // ─────────────────────────────────────────────────────────────────
-// MP API helper — all calls go through here
+// Cliente con el JWT del USUARIO (anon key + Authorization del request).
+// Sirve para validar la sesión y para preguntarle a la base, como ese usuario,
+// si puede gestionar la suscripción del negocio.
 // ─────────────────────────────────────────────────────────────────
-async function mpFetch(
-  path: string,
-  options: RequestInit = {},
-  idempotencyKey?: string
-): Promise<Record<string, any>> {
-  const token = Deno.env.get('MP_ACCESS_TOKEN')
-  if (!token) throw new Error('MP_ACCESS_TOKEN is not configured in Edge Function secrets')
-
-  const headers: Record<string, string> = {
-    'Authorization':  `Bearer ${token}`,
-    'Content-Type':   'application/json',
-  }
-
-  // Idempotency key prevents duplicate charges on network retries
-  // Use a stable key (e.g. business_id + action) not a random UUID
-  if (idempotencyKey) {
-    headers['X-Idempotency-Key'] = idempotencyKey
-  }
-
-  const res = await fetch(`${MP_BASE}${path}`, {
-    ...options,
-    headers: { ...headers, ...(options.headers ?? {}) },
-  })
-
-  const body = await res.json()
-
-  if (!res.ok) {
-    // MP error format: { message, error, status, cause: [...] }
-    const cause = Array.isArray(body.cause)
-      ? body.cause.map((c: any) => `${c.code}: ${c.description}`).join('; ')
-      : ''
-    throw new Error(
-      `MP API error ${res.status} on ${path}: ${body.message ?? body.error ?? JSON.stringify(body)}${cause ? ` (${cause})` : ''}`
-    )
-  }
-
-  return body
+function createUserClient(req: Request, authHeader: string) {
+  // <any> Database generic: this function predates generated DB types. Type-only.
+  return createClient<any>(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_ANON_KEY')!,
+    { global: { headers: userDataApiHeaders(req, authHeader) }, auth: CLIENT_OPTIONS },
+  )
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Plan ID resolver: reads from Edge Function secrets
-// Secret naming convention: MP_PLAN_BASICO_MONTHLY, MP_PLAN_PRO_ANNUAL, etc.
-// ─────────────────────────────────────────────────────────────────
-function getMPPlanId(plan: string, cycle: string): string {
-  const key = `MP_PLAN_${plan.toUpperCase()}_${cycle.toUpperCase()}`
-  return Deno.env.get(key) ?? ''
-}
-
-// Plan display names for the reason field (shown to user in MP checkout)
-const PLAN_NAMES: Record<string, string> = {
-  basico:    'TechRepair Pro — Plan Básico',
-  pro:       'TechRepair Pro — Plan Pro',
-  full:      'TechRepair Pro — Plan Full',
-}
-
-const CYCLE_NAMES: Record<string, string> = {
-  monthly:   'mensual',
-  quarterly: 'trimestral',
-  annual:    'anual',
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Auth helper — verifies Supabase JWT and returns authenticated user
-// Uses a user-scoped client (anon key + user JWT) for reliable verification
-// ─────────────────────────────────────────────────────────────────
 async function getAuthUser(req: Request) {
   const authHeader = req.headers.get('Authorization')
   if (!authHeader?.startsWith('Bearer ')) return null
 
-  // Create a user-scoped client with the token from the request
-  const userClient = createClient(
-    Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_ANON_KEY')!,
-    { global: { headers: { Authorization: authHeader } } }
-  )
-
+  const userClient = createUserClient(req, authHeader)
   const { data: { user }, error } = await userClient.auth.getUser()
   if (error || !user) return null
-  return user
+  return { id: user.id, email: user.email ?? null, client: userClient }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -221,261 +170,53 @@ serve(async (req) => {
   }
 
   try {
-    // <any> Database generic: this function predates generated DB types; without
-    // it supabase-js infers table rows as `never` under strict type-checking
-    // (deno check). Type-only — erased at runtime.
-    const supabase = createClient<any>(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    )
-
     // In-function auth (gateway runs verify_jwt=false so OPTIONS can reach us).
     const user = await getAuthUser(req)
     if (!user) return jsonResponse(req, { error: 'Unauthorized' }, 401)
 
-    const body = await req.json()
-    const { action } = body
-
-    switch (action) {
-      case 'create':               return await handleCreate(supabase, user, body, req)
-      case 'cancel':               return await handleCancel(supabase, user, body, req)
-      case 'status':               return await handleStatus(supabase, user, body, req)
-      case 'update_payment_method': return await handleUpdatePaymentMethod(supabase, user, body, req)
-      default:
-        return jsonResponse(req, { error: `Unknown action: ${action}` }, 400)
+    let body: unknown
+    try {
+      body = await req.json()
+    } catch {
+      return jsonResponse(req, { error: 'Invalid JSON body' }, 400)
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return jsonResponse(req, { error: 'Invalid JSON body' }, 400)
     }
 
-  } catch (err: any) {
-    console.error('[mp-subscription] Unhandled error:', err)
-    return jsonResponse(req, { error: err?.message ?? 'Internal server error' }, 500)
+    // service_role: escribe sólo DESPUÉS de que `handleBillingAction` autorizó.
+    const serviceClient = createClient<any>(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+      { auth: CLIENT_OPTIONS },
+    )
+
+    const ctx: ActionContext = {
+      store: createSupabaseBillingStore(serviceClient),
+      authorizer: createCapabilityAuthorizer(user.client),
+      mp: createMpClient({
+        fetchImpl: (input, init) => fetch(input, init),
+        accessToken: () => Deno.env.get('MP_ACCESS_TOKEN'),
+      }),
+      catalog: buildPlanCatalog((key) => Deno.env.get(key)),
+      now: () => new Date(),
+      newId: () => crypto.randomUUID(),
+      allowedOrigins: ALLOWED_ORIGINS,
+      appOrigin: APP_ORIGIN,
+      // Sólo ids, estados y códigos. Nunca emails, tokens ni cuerpos de Mercado Pago.
+      log: (event) => console.log(JSON.stringify({ fn: 'mp-subscription', ...event })),
+    }
+
+    const result = await handleBillingAction(ctx, {
+      user: { id: user.id, email: user.email },
+      body: body as Record<string, unknown>,
+      origin: stripSlash(req.headers.get('Origin') ?? '') || null,
+    })
+    return jsonResponse(req, result.body, result.status)
+
+  } catch (err) {
+    // El detalle queda en el log del servidor; al navegador no le llega.
+    console.error('[mp-subscription] Unhandled error:', err instanceof Error ? err.message : 'unknown')
+    return jsonResponse(req, { error: 'Internal server error' }, 500)
   }
 })
-
-// ─────────────────────────────────────────────────────────────────
-// CREATE SUBSCRIPTION
-// ─────────────────────────────────────────────────────────────────
-async function handleCreate(
-  supabase: ReturnType<typeof createClient<any>>,
-  user: any,
-  body: Record<string, any>,
-  req: Request
-) {
-  const { business_id, plan, billing_cycle, payer_email, back_url } = body
-
-  if (!business_id || !plan || !billing_cycle || !payer_email) {
-    return jsonResponse(req, { error: 'Missing required fields: business_id, plan, billing_cycle, payer_email' }, 400)
-  }
-
-  // ── Verify user belongs to this business ─────────────────────
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('id, role')
-    .eq('user_id', user.id)
-    .eq('business_id', business_id)
-    .eq('is_active', true)
-    .maybeSingle()
-
-  if (!profile) {
-    return jsonResponse(req, {
-      error: 'Forbidden: user does not belong to this business',
-      debug: { userId: user.id, businessId: business_id, profileError: profileError?.message }
-    }, 403)
-  }
-
-  // ── Resolve MP Plan ID ────────────────────────────────────────
-  const planId = getMPPlanId(plan, billing_cycle)
-  if (!planId) {
-    return jsonResponse(req, {
-      error: `MP plan ID not configured. Set secret MP_PLAN_${plan.toUpperCase()}_${billing_cycle.toUpperCase()} in Supabase Edge Function secrets.`
-    }, 500)
-  }
-
-  // ── Check for existing pending preapproval (re-subscription) ──
-  const { data: existing } = await supabase
-    .from('businesses')
-    .select('mp_preapproval_id, subscription_status')
-    .eq('id', business_id)
-    .single()
-
-  // If there's an existing active/authorized preapproval, cancel it first
-  if (existing?.mp_preapproval_id && ['active', 'past_due'].includes(existing.subscription_status)) {
-    try {
-      await mpFetch(`/preapproval/${existing.mp_preapproval_id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: 'cancelled' }),
-      }, `cancel-${existing.mp_preapproval_id}`)
-    } catch (e) {
-      console.warn('[mp-subscription] Could not cancel existing preapproval:', e)
-      // Continue anyway — don't block re-subscription
-    }
-  }
-
-  // ── Marcar negocio como pending_activation en DB ─────────────
-  await supabase
-    .from('businesses')
-    .update({
-      mp_preapproval_plan_id: planId,
-      mp_payer_email:         payer_email,
-      subscription_plan:      plan,
-      subscription_status:    'pending_activation',
-      updated_at:             new Date().toISOString(),
-    })
-    .eq('id', business_id)
-
-  // ── Construir URL de checkout de MP (redirect flow) ───────────
-  // En lugar de crear el preapproval via API (que requiere card_token_id),
-  // redirigimos al usuario al checkout del plan donde MP maneja todo.
-  // IMPORTANTE: devolvemos la URL como JSON (init_point); NO emitimos un redirect
-  // HTTP — el frontend hace window.location.assign(init_point).
-  // Cuando el usuario pague, MP llama al webhook y activamos el negocio.
-  const appUrl = back_url ?? `${Deno.env.get('APP_URL') ?? ''}/subscription/pending`
-  const checkoutUrl = `https://www.mercadopago.com.ar/subscriptions/checkout?preapproval_plan_id=${planId}&payer_email=${encodeURIComponent(payer_email)}&external_reference=${business_id}&back_url=${encodeURIComponent(appUrl)}`
-
-  console.log(`[mp-subscription] Redirecting business ${business_id} to MP checkout for plan ${planId}`)
-
-  return jsonResponse(req, {
-    init_point:     checkoutUrl,
-    preapproval_id: null,
-  })
-}
-
-// ─────────────────────────────────────────────────────────────────
-// CANCEL SUBSCRIPTION
-// ─────────────────────────────────────────────────────────────────
-async function handleCancel(
-  supabase: ReturnType<typeof createClient<any>>,
-  user: any,
-  body: Record<string, any>,
-  req: Request
-) {
-  const { business_id } = body
-  if (!business_id) return jsonResponse(req, { error: 'Missing business_id' }, 400)
-
-  // Verify ownership
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, role')
-    .eq('user_id', user.id)
-    .eq('business_id', business_id)
-    .eq('is_active', true)
-    .maybeSingle()
-
-  if (!profile) return jsonResponse(req, { error: 'Forbidden' }, 403)
-
-  const { data: biz } = await supabase
-    .from('businesses')
-    .select('mp_preapproval_id')
-    .eq('id', business_id)
-    .single()
-
-  if (!biz?.mp_preapproval_id) {
-    return jsonResponse(req, { error: 'No active subscription found for this business' }, 404)
-  }
-
-  // ── Cancel in MP ──────────────────────────────────────────────
-  // PUT /preapproval/:id { status: 'cancelled' }
-  await mpFetch(`/preapproval/${biz.mp_preapproval_id}`, {
-    method: 'PUT',
-    body:   JSON.stringify({ status: 'cancelled' }),
-  }, `cancel-${biz.mp_preapproval_id}-user`)
-
-  // ── Update DB immediately (webhook will also confirm) ─────────
-  await supabase
-    .from('businesses')
-    .update({
-      subscription_status: 'canceled',
-      updated_at:          new Date().toISOString(),
-    })
-    .eq('id', business_id)
-
-  // Log event
-  await supabase.from('subscription_events').insert({
-    business_id,
-    provider:    'mercadopago',
-    event_type:  'user_cancelled',
-    external_id: biz.mp_preapproval_id,
-    raw_payload: { cancelled_by: user.id, timestamp: new Date().toISOString() },
-    processed:   true,
-  })
-
-  console.log(`[mp-subscription] Cancelled preapproval ${biz.mp_preapproval_id} for business ${business_id}`)
-
-  return jsonResponse(req, { success: true })
-}
-
-// ─────────────────────────────────────────────────────────────────
-// GET LIVE STATUS
-// Returns DB data + live MP status for reconciliation
-// ─────────────────────────────────────────────────────────────────
-async function handleStatus(
-  supabase: ReturnType<typeof createClient<any>>,
-  user: any,
-  body: Record<string, any>,
-  req: Request
-) {
-  const { business_id } = body
-  if (!business_id) return jsonResponse(req, { error: 'Missing business_id' }, 400)
-
-  const { data: biz } = await supabase
-    .from('businesses')
-    .select(`
-      subscription_status,
-      subscription_plan,
-      mp_preapproval_id,
-      mp_payer_email,
-      current_period_start,
-      current_period_end,
-      grace_until,
-      last_payment_status,
-      trial_ends_at
-    `)
-    .eq('id', business_id)
-    .single()
-
-  if (!biz?.mp_preapproval_id) {
-    return jsonResponse(req, biz ?? {})
-  }
-
-  // Fetch live from MP for real-time status
-  let mpLive: Record<string, any> | null = null
-  try {
-    mpLive = await mpFetch(`/preapproval/${biz.mp_preapproval_id}`)
-  } catch (e) {
-    console.warn('[mp-subscription] Could not fetch live status:', e)
-  }
-
-  return jsonResponse(req, { ...biz, mp_live: mpLive })
-}
-
-// ─────────────────────────────────────────────────────────────────
-// UPDATE PAYMENT METHOD
-// Returns the init_point for the existing preapproval so the user
-// can re-enter their card in the MP checkout
-// ─────────────────────────────────────────────────────────────────
-async function handleUpdatePaymentMethod(
-  supabase: ReturnType<typeof createClient<any>>,
-  user: any,
-  body: Record<string, any>,
-  req: Request
-) {
-  const { business_id } = body
-  if (!business_id) return jsonResponse(req, { error: 'Missing business_id' }, 400)
-
-  const { data: biz } = await supabase
-    .from('businesses')
-    .select('mp_preapproval_id')
-    .eq('id', business_id)
-    .single()
-
-  if (!biz?.mp_preapproval_id) {
-    return jsonResponse(req, { error: 'No subscription found for this business' }, 404)
-  }
-
-  // Fetch the preapproval — init_point is always available
-  const preapproval = await mpFetch(`/preapproval/${biz.mp_preapproval_id}`)
-
-  return jsonResponse(req, {
-    init_point:     preapproval.init_point,
-    preapproval_id: biz.mp_preapproval_id,
-  })
-}

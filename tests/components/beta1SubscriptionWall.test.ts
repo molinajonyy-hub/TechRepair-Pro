@@ -288,8 +288,10 @@ describe('G · control de fuente', () => {
     ]) {
       expect(sinComentarios(leer(p)), p).not.toMatch(/\balert\(/)
     }
-    // Subscription.tsx ya traía dos (cancelar / método de pago): no se suman más.
-    expect(sinComentarios(leer('src/pages/Subscription.tsx')).match(/\balert\(/g) ?? []).toHaveLength(2)
+    // Subscription.tsx traía dos (cancelar / método de pago) y BETA-1 fijó «no se
+    // suman más». BETA-MP los reemplazó por un mensaje en la pantalla con el motivo
+    // del servidor: el tope baja de 2 a 0.
+    expect(sinComentarios(leer('src/pages/Subscription.tsx')).match(/\balert\(/g) ?? []).toHaveLength(0)
   })
 })
 

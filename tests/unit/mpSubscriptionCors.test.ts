@@ -15,6 +15,8 @@ import { readFileSync } from 'node:fs'
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf-8')
 
 const fn      = read('../../supabase/functions/mp-subscription/index.ts')
+// BETA-MP: el armado del checkout se movió a `_shared/billing/subscriptionActions.ts`.
+const actions = read('../../supabase/functions/_shared/billing/subscriptionActions.ts')
 const service = read('../../src/services/subscriptionService.ts')
 
 // ── Origin allowlist: BOTH www and apex are real production origins ──────────
@@ -76,9 +78,13 @@ test('todas las respuestas usan jsonResponse/buildCorsHeaders (sin json( roto)',
 })
 
 test('checkout devuelve JSON (init_point), no un redirect HTTP', () => {
-  assert.match(fn, /init_point:\s*checkoutUrl/)
-  assert.doesNotMatch(fn, /Response\.redirect/)
-  assert.doesNotMatch(fn, /status:\s*30[1278]/)
+  assert.match(actions, /init_point:\s*checkoutUrl/)
+  // …y el borde lo devuelve como JSON, con el status que decidió la acción.
+  assert.match(fn, /return jsonResponse\(req, result\.body, result\.status\)/)
+  for (const src of [fn, actions]) {
+    assert.doesNotMatch(src, /Response\.redirect/)
+    assert.doesNotMatch(src, /status:\s*30[1278]/)
+  }
 })
 
 // ── verify_jwt stays false → function validates the JWT itself ───────────────

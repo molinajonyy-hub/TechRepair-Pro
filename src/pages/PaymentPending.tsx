@@ -1,78 +1,92 @@
 /**
  * PaymentPending.tsx
  *
- * Espera la confirmación del webhook de Mercado Pago.
- * Polling sobre subscription_checkout_sessions (fuente de verdad del webhook)
- * + fallback sobre businesses.subscription_status.
+ * A dónde vuelve el usuario desde el checkout de Mercado Pago.
  *
- * No activa la suscripción aquí — eso lo hace el webhook.
+ * BETA-MP: esta pantalla NO es autoridad de nada. No activa, no elige plan y no
+ * lee parámetros de la URL de retorno. Sólo le pide al servidor que consulte a
+ * Mercado Pago (`reconcilePayment`) y muestra lo que el servidor confirmó:
+ *
+ *   «Pago confirmado»  ⇔  la sesión de ESTE checkout quedó `paid` en el servidor.
+ *
+ * Que el negocio ya esté `active` no alcanza: puede estarlo por un plan anterior
+ * o por un acceso otorgado a mano. Mientras Mercado Pago no confirme, el negocio
+ * conserva exactamente el acceso que tenía.
  */
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, CheckCircle, Clock, XCircle } from 'lucide-react'
+import { Loader2, CheckCircle, Clock, XCircle, Info } from 'lucide-react'
 import { useSubscription } from '../hooks/useSubscription'
-import { getLatestCheckoutSession, syncSubscriptionStatus } from '../services/subscriptionService'
+import { reconcilePayment } from '../services/subscriptionService'
 import { useAuth } from '../contexts/AuthContext'
+import type { CheckoutSummary } from '../types/subscription'
 
-const MAX_CHECKS = 24  // 2 minutos a intervalos de 5s
+const POLL_MS    = 8000
+const MAX_CHECKS = 15  // ~2 minutos
 
 export function PaymentPending() {
   const navigate = useNavigate()
   const { businessId } = useAuth()
-  const { isActive, refresh } = useSubscription()
+  const { isAllowed, refresh } = useSubscription()
 
-  const [checks, setChecks]             = useState(0)
-  const [sessionStatus, setSessionStatus] = useState<string | null>(null)
-  const [checking, setChecking]         = useState(false)
+  const [checks, setChecks]     = useState(0)
+  // `undefined`: todavía no hay respuesta del servidor. `null`: no hay checkout.
+  const [checkout, setCheckout] = useState<CheckoutSummary | null | undefined>(undefined)
+  const [message, setMessage]   = useState('')
+  const [error, setError]       = useState('')
+  const checking = useRef(false)
 
-  const doCheck = async () => {
-    if (!businessId || checking) return
-    setChecking(true)
+  const doCheck = useCallback(async () => {
+    if (!businessId || checking.current) return
+    checking.current = true
     try {
-      // 1. Consultar checkout_session (actualizado por el webhook)
-      const session = await getLatestCheckoutSession(businessId)
-      setSessionStatus(session.status)
-
-      if (session.status === 'paid') {
-        await refresh()
-        return
-      }
-      if (session.status === 'failed' || session.status === 'canceled') return
-
-      // 2. Fallback: sincronizar desde MP live
-      await syncSubscriptionStatus(businessId)
-      await refresh()
+      const result = await reconcilePayment(businessId)
+      setError('')
+      setCheckout(result.checkout)
+      setMessage(result.message)
+      if (result.checkout?.status === 'paid') await refresh()
+    } catch (e) {
+      // Un error de red o del servicio no es «pago rechazado»: se muestra y se sigue.
+      setError(e instanceof Error ? e.message : 'No pudimos verificar el pago.')
     } finally {
-      setChecking(false)
+      checking.current = false
       setChecks(c => c + 1)
     }
-  }
+  }, [businessId, refresh])
 
-  // Polling automático cada 5 segundos
+  const status     = checkout?.status
+  const isPaid     = status === 'paid'
+  const isFailed   = status === 'failed' || status === 'canceled' || status === 'expired'
+  const noCheckout = checkout === null
+  const isTimeout  = checks >= MAX_CHECKS && !isPaid && !isFailed && !noCheckout
+
+  // Polling: se detiene apenas el servidor da una respuesta definitiva.
   useEffect(() => {
-    if (isActive || checks >= MAX_CHECKS) return
-    if (sessionStatus === 'failed' || sessionStatus === 'canceled') return
-    const t = setTimeout(doCheck, checks === 0 ? 1000 : 5000)
+    if (isPaid || isFailed || noCheckout || checks >= MAX_CHECKS) return
+    const t = setTimeout(doCheck, checks === 0 ? 1000 : POLL_MS)
     return () => clearTimeout(t)
-  }, [checks, isActive, sessionStatus])
+  }, [checks, isPaid, isFailed, noCheckout, doCheck])
 
-  // Redirigir cuando se activa
+  // Sólo con la confirmación del servidor.
   useEffect(() => {
-    if (isActive) setTimeout(() => navigate('/subscription/success', { replace: true }), 800)
-  }, [isActive, navigate])
+    if (!isPaid) return
+    const t = setTimeout(() => navigate('/subscription/success', { replace: true }), 800)
+    return () => clearTimeout(t)
+  }, [isPaid, navigate])
 
-  // Estados derivados
-  const isPaid     = sessionStatus === 'paid' || isActive
-  const isFailed   = sessionStatus === 'failed' || sessionStatus === 'canceled'
-  const isTimeout  = checks >= MAX_CHECKS && !isPaid && !isFailed
+  // Mientras no haya confirmación, el acceso es el que ya tenía el negocio.
+  const accessNote = isAllowed
+    ? 'Mientras tanto seguís usando TechRepair Pro con tu acceso actual.'
+    : 'Tu acceso se habilita cuando Mercado Pago confirme el pago.'
 
   if (isPaid) {
     return (
       <StatusScreen
+        testId="payment-confirmed"
         icon={<CheckCircle size={36} color="#22c55e" />}
         color="rgba(34,197,94,0.12)"
         title="¡Pago confirmado!"
-        message="Tu suscripción está activa. Redirigiendo..."
+        message="Mercado Pago confirmó tu suscripción. Redirigiendo..."
       />
     )
   }
@@ -80,10 +94,13 @@ export function PaymentPending() {
   if (isFailed) {
     return (
       <StatusScreen
+        testId="payment-not-completed"
         icon={<XCircle size={36} color="#ef4444" />}
         color="rgba(239,68,68,0.1)"
-        title="El pago no pudo procesarse"
-        message="El pago fue rechazado o cancelado. Podés intentarlo nuevamente."
+        title="El pago no se completó"
+        message={`${status === 'expired'
+          ? 'El checkout venció sin que Mercado Pago confirmara un pago.'
+          : 'Mercado Pago informó que la suscripción no se concretó.'} No se cambió nada en tu cuenta. Podés intentarlo de nuevo.`}
         actions={[
           { label: 'Intentar nuevamente', primary: true, onClick: () => navigate('/subscription/plans') },
           { label: 'Ir al inicio', primary: false, onClick: () => navigate('/') },
@@ -92,16 +109,34 @@ export function PaymentPending() {
     )
   }
 
+  if (noCheckout) {
+    return (
+      <StatusScreen
+        testId="payment-no-checkout"
+        icon={<Info size={36} color="#6366f1" />}
+        color="rgba(99,102,241,0.1)"
+        title="No hay un pago en curso"
+        message={message || 'No encontramos un checkout abierto para este negocio.'}
+        actions={[
+          { label: 'Ver planes', primary: true, onClick: () => navigate('/subscription/plans') },
+          { label: 'Mi suscripción', primary: false, onClick: () => navigate('/subscription') },
+        ]}
+      />
+    )
+  }
+
   if (isTimeout) {
     return (
       <StatusScreen
+        testId="payment-unconfirmed"
         icon={<Clock size={36} color="#fbbf24" />}
         color="rgba(251,191,36,0.1)"
-        title="Verificando tu pago"
-        message="El pago puede tardar unos minutos. Tu suscripción se activará automáticamente cuando Mercado Pago confirme el cobro."
+        title="Todavía no recibimos la confirmación"
+        message={`${error || message || 'Mercado Pago puede tardar unos minutos en confirmar el pago.'} ${accessNote}`}
         actions={[
           { label: 'Verificar ahora', primary: true, onClick: doCheck },
           { label: 'Ir al inicio', primary: false, onClick: () => navigate('/') },
+          { label: 'Necesito ayuda', primary: false, onClick: () => navigate('/ayuda') },
         ]}
       />
     )
@@ -109,25 +144,27 @@ export function PaymentPending() {
 
   return (
     <StatusScreen
+      testId="payment-verifying"
       icon={<Loader2 size={36} color="#6366f1" style={{ animation: 'tr-spin 0.7s linear infinite' }} />}
       color="rgba(99,102,241,0.1)"
       title="Verificando tu pago..."
-      message={`Esperando confirmación de Mercado Pago. Verificación ${checks + 1}/${MAX_CHECKS}.`}
+      message={`Esperando la confirmación de Mercado Pago. ${accessNote}`}
     />
   )
 }
 
 // ── Sub-componente pantalla de estado ─────────────────────────────────────────
 
-function StatusScreen({ icon, color, title, message, actions }: {
+function StatusScreen({ icon, color, title, message, actions, testId }: {
   icon:     React.ReactNode
   color:    string
   title:    string
   message:  string
   actions?: { label: string; primary: boolean; onClick: () => void }[]
+  testId:   string
 }) {
   return (
-    <div style={{
+    <div data-testid={testId} role="status" style={{
       minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
       flexDirection: 'column', gap: '1.5rem', textAlign: 'center', padding: '2rem',
     }}>

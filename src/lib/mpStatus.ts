@@ -25,19 +25,11 @@ export function normalizeMercadoPagoStatus(raw: string | null | undefined): MpPa
   return (allowed as string[]).includes(v) ? (v as MpPaymentStatus) : 'pending'
 }
 
-/** Map an MP preapproval status to our internal subscription status. */
-export function mapPreapprovalToInternal(
-  mpStatus: string | null | undefined,
-  currentStatus: InternalSubscriptionStatus,
-): InternalSubscriptionStatus {
-  switch ((mpStatus ?? '').trim().toLowerCase()) {
-    case 'authorized': return 'active'
-    case 'paused':     return 'past_due'
-    case 'cancelled':  return 'canceled'
-    case 'pending':    return currentStatus === 'active' ? 'past_due' : 'pending_activation'
-    default:           return currentStatus
-  }
-}
+// BETA-MP: el mapeo «estado del preapproval → estado del negocio» NO vive en el
+// cliente. Hay un único lugar que lo decide, del lado servidor:
+// `supabase/functions/_shared/billing/preapproval.ts` (applyPreapprovalEvidence),
+// que comparten el webhook y `reconcile`. Acá existía una copia que nadie usaba
+// y que además mandaba `pending` a `pending_activation`.
 
 /** Is the trial window expired? (true only when trialing AND past trial_ends_at). */
 export function isTrialExpired(

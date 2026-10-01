@@ -2,6 +2,11 @@
  * Source-level contract guards for the billing hardening. The webhook runs in
  * Deno and the security objects live in SQL, so these assert on source text
  * (same approach as whatsappEmbeddedSignupDisabled.test.ts).
+ *
+ * BETA-MP: the webhook rules moved out of `mp-webhook/index.ts` into
+ * `supabase/functions/_shared/billing/`. `index.ts` keeps the signature check and
+ * the wiring; the claim, the ledger upsert and the out-of-order guard are read
+ * from the shared modules. Behaviour is covered by tests/components/betaMp/.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -9,8 +14,11 @@ import { readFileSync } from 'node:fs'
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf-8')
 
-const webhook   = read('../../supabase/functions/mp-webhook/index.ts')
-const service   = read('../../src/services/subscriptionService.ts')
+const webhook    = read('../../supabase/functions/mp-webhook/index.ts')
+const webhookLib = read('../../supabase/functions/_shared/billing/webhook.ts')
+const store      = read('../../supabase/functions/_shared/billing/store.ts')
+const canonical  = read('../../supabase/functions/_shared/billing/preapproval.ts')
+const service    = read('../../src/services/subscriptionService.ts')
 // NOTE: estas migraciones se archivaron a migrations/_legacy/ en el baseline
 // (Fase 0). El CLI las ignora; siguen siendo evidencia y se leen desde ahí.
 const trigger   = read('../../supabase/migrations/_legacy/20260623140000_billing_stageD_protect_trigger.sql')
@@ -20,7 +28,7 @@ const platform  = read('../../supabase/migrations/_legacy/20260623120000_billing
 
 // ── Webhook: reliability + mandatory signature + idempotency ────────────────
 test('webhook AWAIT-ea el procesamiento (sin fire-and-forget)', () => {
-  assert.match(webhook, /await processWebhook\(/)
+  assert.match(webhook, /await processWebhookNotification\(/)
   assert.doesNotMatch(webhook, /aceptando sin validar firma/, 'no debe aceptar sin firma')
 })
 
@@ -31,12 +39,13 @@ test('webhook exige firma: missing_secret→500, inválida→401', () => {
 })
 
 test('webhook usa claim idempotente (unique 23505 + upsert onConflict)', () => {
-  assert.match(webhook, /23505/)
-  assert.match(webhook, /onConflict:\s*'provider,external_payment_id'/)
+  assert.match(webhookLib, /ctx\.store\.claimEvent\(/)
+  assert.match(store, /23505/)
+  assert.match(store, /onConflict:\s*'provider,external_payment_id'/)
 })
 
 test('webhook tolera eventos fuera de orden (isStale)', () => {
-  assert.match(webhook, /isStale\(/)
+  assert.match(canonical, /isStale\(/)
 })
 
 // ── Frontend: no direct writes to subscription columns ──────────────────────

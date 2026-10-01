@@ -13,8 +13,9 @@ import type {
   SubscriptionEvent,
   CreateSubscriptionRequest,
   CreateSubscriptionResponse,
+  CheckoutSummary,
+  ReconcileResult,
   SubscriptionPlan,
-  BillingCycle,
 } from '../types/subscription'
 
 // ── Helper: authenticated edge function call ──────────────────
@@ -128,6 +129,10 @@ export async function getSubscriptionEvents(businessId: string): Promise<Subscri
 }
 
 // ── Create subscription (calls Edge Function) ─────────────────
+// BETA-MP: abrir el checkout es una PROPUESTA. La Edge Function registra la
+// intención en `subscription_checkout_sessions` (el navegador no escribe esa
+// tabla) y NO cambia el estado ni el plan del negocio. El acceso sólo cambia
+// cuando Mercado Pago confirma una suscripción.
 export async function createSubscription(
   req: Omit<CreateSubscriptionRequest, 'back_url'>
 ): Promise<CreateSubscriptionResponse> {
@@ -135,51 +140,15 @@ export async function createSubscription(
     ...req,
     back_url: `${window.location.origin}/subscription/pending`,
   })
-
-  // Registrar la sesión de checkout para auditoría y seguimiento del webhook
-  const plan = (await import('../types/subscription')).PLANS.find(p => p.id === req.plan)
-  if (plan) {
-    const cycle = req.billing_cycle as BillingCycle
-    const amount = cycle === 'annual' ? plan.price_annual
-                 : cycle === 'quarterly' ? plan.price_quarterly
-                 : plan.price_monthly
-    const extRef = `${req.business_id}_${req.plan}_${Date.now()}`
-    await supabase.from('subscription_checkout_sessions').insert({
-      business_id:        req.business_id,
-      plan_id:            req.plan,
-      billing_cycle:      cycle,
-      amount,
-      mp_preference_id:   res.preapproval_id ?? null,
-      external_reference: extRef,
-      status:             'pending',
-    })
-  }
-
   return res
 }
 
-// ── Sync from MP (live reconciliation) ───────────────────────
-// Called on the PaymentPending page to check if webhook already arrived.
-// Returns the current subscription status from our DB (refreshed by calling
-// the edge function which queries MP live and we read the DB side).
-export async function syncSubscriptionStatus(businessId: string): Promise<BusinessSubscription | null> {
-  // First try to get current DB state (fast)
-  const current = await getSubscription(businessId)
-
-  // If not yet active, also call the edge fn which fetches live MP status
-  // (This doesn't update the DB — only the webhook does that — but it lets us
-  // show the correct state in the PaymentPending polling screen)
-  if (current?.subscription_status === 'pending_activation') {
-    try {
-      await callEdge('status', { business_id: businessId })
-    } catch {
-      // Non-critical — return DB state as-is
-    }
-    // Re-read from DB after potential webhook update
-    return getSubscription(businessId)
-  }
-
-  return current
+// ── Estado del último checkout (lectura local) ───────────────
+// `status` NO consulta a Mercado Pago ni sincroniza nada: devuelve lo que el
+// servidor ya registró. Para preguntarle a Mercado Pago está `reconcilePayment`.
+export async function getCheckoutStatus(businessId: string): Promise<CheckoutSummary | null> {
+  const res = await callEdge<{ checkout?: CheckoutSummary | null }>('status', { business_id: businessId })
+  return res.checkout ?? null
 }
 
 // ── Cancel subscription (calls Edge Function) ─────────────────
@@ -302,41 +271,17 @@ export async function adminRevokeLegacyAccess(businessId: string, reason: string
   if (error) throw error
 }
 
-// ── Consultar estado de checkout session (para polling en PaymentPending) ────
-export async function getLatestCheckoutSession(businessId: string): Promise<{
-  status: string | null; plan_id: string | null; id: string | null
-}> {
-  const { data } = await supabase
-    .from('subscription_checkout_sessions')
-    .select('id, status, plan_id')
-    .eq('business_id', businessId)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  return { status: data?.status ?? null, plan_id: data?.plan_id ?? null, id: data?.id ?? null }
-}
-
-// ── Reconciliación manual: sincronizar desde MP live (botón "Verificar pago") ─
-export async function reconcilePayment(businessId: string): Promise<{
-  activated: boolean; message: string
-}> {
-  try {
-    const result = await callEdge<{ activated?: boolean; status?: string; message?: string }>(
-      'reconcile', { business_id: businessId }
-    )
-    return {
-      activated: result.activated ?? false,
-      message:   result.message ?? 'Verificación completada',
-    }
-  } catch {
-    // Fallback: leer estado actual desde DB
-    const sub = await getSubscription(businessId)
-    return {
-      activated: sub?.subscription_status === 'active',
-      message:   sub?.subscription_status === 'active'
-        ? 'Tu suscripción ya está activa.'
-        : 'No se detectó pago aprobado todavía.',
-    }
+// ── Reconciliación: el servidor consulta Mercado Pago («Verificar pago») ──────
+// La Edge Function relee la suscripción en Mercado Pago y lleva la base al
+// estado confirmado por el mismo camino que el webhook. `activated` lo decide
+// el servidor: si la llamada falla, el error sube tal cual — no se lo
+// reemplaza por una lectura local, que diría «activa» de un plan anterior.
+export async function reconcilePayment(businessId: string): Promise<ReconcileResult> {
+  const result = await callEdge<Partial<ReconcileResult>>('reconcile', { business_id: businessId })
+  return {
+    activated: result.activated === true,
+    message:   result.message ?? 'Verificación completada',
+    checkout:  result.checkout ?? null,
   }
 }
 
@@ -370,20 +315,4 @@ export function formatSubscriptionPrice(amount: number, currency = 'ARS'): strin
     currency,
     minimumFractionDigits: 0,
   }).format(amount)
-}
-
-// ── Get billing cycle MP plan ID ─────────────────────────────
-export function getPlanId(plan: SubscriptionPlan, cycle: BillingCycle): string {
-  const envMap: Record<string, string> = {
-    'basico_monthly':   import.meta.env.VITE_MP_PLAN_BASICO_MONTHLY   || '',
-    'basico_quarterly': import.meta.env.VITE_MP_PLAN_BASICO_QUARTERLY || '',
-    'basico_annual':    import.meta.env.VITE_MP_PLAN_BASICO_ANNUAL    || '',
-    'pro_monthly':      import.meta.env.VITE_MP_PLAN_PRO_MONTHLY      || '',
-    'pro_quarterly':    import.meta.env.VITE_MP_PLAN_PRO_QUARTERLY    || '',
-    'pro_annual':       import.meta.env.VITE_MP_PLAN_PRO_ANNUAL       || '',
-    'full_monthly':     import.meta.env.VITE_MP_PLAN_FULL_MONTHLY     || '',
-    'full_quarterly':   import.meta.env.VITE_MP_PLAN_FULL_QUARTERLY   || '',
-    'full_annual':      import.meta.env.VITE_MP_PLAN_FULL_ANNUAL      || '',
-  }
-  return envMap[`${plan}_${cycle}`] || ''
 }

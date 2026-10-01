@@ -1,126 +1,127 @@
-# TechRepair Pro — Guía de Configuración Mercado Pago
+# TechRepair Pro — Mercado Pago para suscripciones SaaS
 
-## 1. Crear cuenta en Mercado Pago Developers
+Esta guía cubre **Billing SaaS**: el cobro de los planes Básico / Pro / Full de TechRepair Pro
+(`mp-subscription` + `mp-webhook`). No cubre el medio de pago manual «MercadoPago» del POS, que
+es un registro interno y no usa la red de Mercado Pago, ni Merchant Connect (`mp-oauth` /
+`mp-payments`), que queda para después de la beta.
 
-1. Ir a https://www.mercadopago.com.ar/developers/es/
-2. Ingresar con tu cuenta de MP o crear una
-3. Crear una **aplicación** desde el panel de developers
-
----
-
-## 2. Obtener credenciales
-
-En el panel de tu aplicación → **Credenciales**:
-
-| Variable           | Dónde encontrarla             |
-|--------------------|-------------------------------|
-| `MP_ACCESS_TOKEN`  | Credenciales → Access Token   |
-| `MP_PUBLIC_KEY`    | Credenciales → Public Key (frontend, si necesitás) |
-
-**Importante:** Usá las credenciales de **prueba** (TEST-...) para desarrollo
-y las de **producción** (APP_USR-...) solo en producción.
+> **Estado (BETA-MP, 2026-10-01).** El pipeline nunca completó un pago en producción. El código
+> de este repositorio está probado con tests de integración y contra un stack Supabase local,
+> con Mercado Pago **simulado**. Lo que Mercado Pago hace de verdad todavía no se midió: ver
+> [docs/beta-mp/runbook-rollout.md](docs/beta-mp/runbook-rollout.md).
+>
+> Arquitectura, matriz de riesgos y decisiones: [docs/beta-mp/README.md](docs/beta-mp/README.md).
 
 ---
 
-## 3. Crear Planes de Suscripción en MP
+## 1. Principio
 
-Ve a **tu panel MP → Suscripciones → Planes de suscripción** → **Nuevo plan**
+**El frontend propone. Mercado Pago confirma. El backend decide.**
 
-Crear 9 planes (3 planes × 3 ciclos):
-
-| Plan    | Ciclo       | Precio ARS | Frecuencia |
-|---------|-------------|------------|------------|
-| Básico  | Mensual     | $15.000    | 1 mes      |
-| Básico  | Trimestral  | $39.000    | 3 meses    |
-| Básico  | Anual       | $144.000   | 12 meses   |
-| Pro     | Mensual     | $25.000    | 1 mes      |
-| Pro     | Trimestral  | $64.500    | 3 meses    |
-| Pro     | Anual       | $240.000   | 12 meses   |
-| Full    | Mensual     | $45.000    | 1 mes      |
-| Full    | Trimestral  | $117.000   | 3 meses    |
-| Full    | Anual       | $432.000   | 12 meses   |
-
-Cada plan creado tiene un ID que empieza con `2c938084...`
-
-> ⚠️ **Fuente de verdad del importe cobrado.** El monto que realmente se cobra lo
-> define el **plan de Mercado Pago** (panel MP), NO el frontend. Los precios de
-> arriba DEBEN coincidir exactamente con `src/types/subscription.ts` (`PLANS`),
-> que es lo que ve el usuario. Si actualizás precios, hacelo en AMBOS lugares.
-> (Corrección 2026-06-23: esta tabla tenía precios viejos $4.900/$9.900/$19.900
-> que no coincidían con los $15.000/$25.000/$45.000 mostrados al usuario.)
+- Abrir un checkout no cambia el estado ni el plan del negocio.
+- Un negocio queda activo sólo cuando el servidor consulta a Mercado Pago y la suscripción está
+  `authorized`.
+- El plan que se otorga es el que Mercado Pago informa (`preapproval_plan_id`), no el que eligió
+  el navegador.
+- Volver de Mercado Pago a una URL de la app no activa nada.
 
 ---
 
-## 4. Variables de entorno — Frontend (.env.local)
+## 2. Aplicación y credenciales
 
-Crear archivo `.env.local` en la raíz del proyecto:
+1. Crear una aplicación en https://www.mercadopago.com.ar/developers/
+2. En **Credenciales** tomar el Access Token.
+
+| Variable | Dónde vive |
+|---|---|
+| `MP_ACCESS_TOKEN` | Sólo en los secrets de las Edge Functions. Nunca en el frontend |
+
+Para probar se usan las credenciales de un usuario vendedor **de prueba** y un usuario
+comprador de prueba (panel de developers → cuentas de prueba). Las tarjetas de prueba vigentes
+están en la documentación de Mercado Pago: no se copian acá porque cambian.
+
+---
+
+## 3. Planes de suscripción en Mercado Pago
+
+Panel → **Suscripciones → Planes** → nuevo plan. Uno por cada combinación que se venda:
+
+| Plan | Ciclo | Importe ARS | Frecuencia |
+|---|---|---|---|
+| Básico | Mensual | $15.000 | 1 mes |
+| Básico | Anual | $144.000 | 12 meses |
+| Pro | Mensual | $25.000 | 1 mes |
+| Pro | Anual | $240.000 | 12 meses |
+| Full | Mensual | $45.000 | 1 mes |
+| Full | Anual | $432.000 | 12 meses |
+
+Planes ofrece hoy mensual y anual. El ciclo trimestral ($39.000 / $64.500 / $117.000, cada 3
+meses) está en el modelo pero no en la pantalla: sus secrets son opcionales.
+
+> ⚠️ **El importe que se cobra lo define el plan de Mercado Pago**, no el frontend. Los valores
+> de arriba tienen que coincidir con `src/types/subscription.ts` (`PLANS`), que es lo que ve el
+> usuario. Si se cambia un precio, se cambia en los dos lugares.
+>
+> La frecuencia del plan también importa: al abrir un checkout el servidor consulta el plan y
+> rechaza (503) uno cuya frecuencia no coincide con el ciclo pedido.
+
+---
+
+## 4. Variables de entorno del frontend
+
+El frontend **no** necesita los ids de plan ni ninguna credencial de Mercado Pago. Sólo:
 
 ```env
-VITE_SUPABASE_URL=https://vrdxxmjzxhfgqlnxmbwx.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJ...
-
-# IDs de planes de Mercado Pago (de paso 3)
-VITE_MP_PLAN_BASICO_MONTHLY=2c938084xxxxxxxxxx
-VITE_MP_PLAN_BASICO_QUARTERLY=2c938084xxxxxxxxxx
-VITE_MP_PLAN_BASICO_ANNUAL=2c938084xxxxxxxxxx
-
-VITE_MP_PLAN_PRO_MONTHLY=2c938084xxxxxxxxxx
-VITE_MP_PLAN_PRO_QUARTERLY=2c938084xxxxxxxxxx
-VITE_MP_PLAN_PRO_ANNUAL=2c938084xxxxxxxxxx
-
-VITE_MP_PLAN_FULL_MONTHLY=2c938084xxxxxxxxxx
-VITE_MP_PLAN_FULL_QUARTERLY=2c938084xxxxxxxxxx
-VITE_MP_PLAN_FULL_ANNUAL=2c938084xxxxxxxxxx
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
 ```
 
-> Los IDs de plan son solo para mostrar precios en frontend. El backend
-> los resuelve por sus propios secrets (ver sección 5).
+Las variables `VITE_MP_PLAN_*` que pedía una versión anterior de esta guía ya no se leen.
 
 ---
 
-## 5. Secrets de Supabase Edge Functions
+## 5. Secrets de las Edge Functions
 
-Instalar Supabase CLI si no lo tenés:
-```bash
-npm install -g supabase
-supabase login
-supabase link --project-ref vrdxxmjzxhfgqlnxmbwx
-```
+Sólo nombres; los valores se cargan con `supabase secrets set` y no se versionan.
 
-Cargar los secrets:
-```bash
-supabase secrets set \
-  MP_ACCESS_TOKEN="APP_USR-XXXX-XXXX-XXXX-XXXX" \
-  MP_WEBHOOK_SECRET="tu-webhook-secret-de-mp" \
-  APP_URL="https://techrepairpro-nine.vercel.app" \
-  MP_PLAN_BASICO_MONTHLY="2c938084xxxxxxxxxx" \
-  MP_PLAN_BASICO_QUARTERLY="2c938084xxxxxxxxxx" \
-  MP_PLAN_BASICO_ANNUAL="2c938084xxxxxxxxxx" \
-  MP_PLAN_PRO_MONTHLY="2c938084xxxxxxxxxx" \
-  MP_PLAN_PRO_QUARTERLY="2c938084xxxxxxxxxx" \
-  MP_PLAN_PRO_ANNUAL="2c938084xxxxxxxxxx" \
-  MP_PLAN_FULL_MONTHLY="2c938084xxxxxxxxxx" \
-  MP_PLAN_FULL_QUARTERLY="2c938084xxxxxxxxxx" \
-  MP_PLAN_FULL_ANNUAL="2c938084xxxxxxxxxx"
-```
+| Secret | Uso |
+|---|---|
+| `MP_ACCESS_TOKEN` | API de Mercado Pago |
+| `MP_WEBHOOK_SECRET` | Firma del webhook. Sin él `mp-webhook` responde 500 |
+| `MP_PLAN_BASICO_MONTHLY`, `MP_PLAN_BASICO_ANNUAL` | Id del plan de MP |
+| `MP_PLAN_PRO_MONTHLY`, `MP_PLAN_PRO_ANNUAL` | Id del plan de MP |
+| `MP_PLAN_FULL_MONTHLY`, `MP_PLAN_FULL_ANNUAL` | Id del plan de MP |
+| `MP_PLAN_*_QUARTERLY` | Opcional |
+| `APP_URL` | Origen del frontend: `https://www.techrepairpro.app` |
+| `MP_CORS_ORIGIN` | Opcional: orígenes extra, separados por coma |
 
-> `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` son auto-inyectados
-> por Supabase — no hace falta setearlos manualmente.
+`SUPABASE_URL`, `SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY` los inyecta Supabase.
+
+Los ids `MP_PLAN_*` son la **única** tabla que traduce «plan de Mercado Pago» a «plan de
+TechRepair Pro», en las dos direcciones:
+
+- Un id que no está en ningún secret no otorga ningún plan.
+- El mismo id en dos secrets deja a esos dos planes sin venderse y sin otorgarse.
 
 ---
 
-## 6. Deploy de Edge Functions
+## 6. Base de datos
 
-> ⚠️ **`mp-webhook` DEBE deployarse con `verify_jwt = false`.** Mercado Pago llama
-> al webhook SIN un JWT de Supabase; su seguridad es la **firma HMAC** (`x-signature`),
-> no el JWT. Si se deploya con `verify_jwt = true`, el gateway de Supabase rechaza
-> (401) las llamadas de MP **antes** de llegar a la función → el webhook nunca procesa
-> (esto pasó en producción: `subscription_events`/`payments` quedaron vacíos hasta el
-> 2026-06-23, cuando se corrigió a `verify_jwt=false` en la versión 18).
-> `mp-subscription` también va con `verify_jwt = false` (hace su propio `getAuthUser`).
+La migración de este lote es
+`supabase/migrations/20261012120000_beta_mp_checkout_session_server_authority.sql`. Va **antes**
+que las Edge Functions.
 
-Para que el flag sea **reproducible** en `supabase functions deploy`, declararlo en
-`supabase/config.toml`:
+```bash
+supabase db push --dry-run
+```
+
+Tiene que listar esa migración y ninguna otra. Recién entonces `supabase db push`.
+
+---
+
+## 7. Deploy de las Edge Functions
+
+Las dos van con `verify_jwt = false`, y está declarado en `supabase/config.toml`:
 
 ```toml
 [functions.mp-webhook]
@@ -130,130 +131,126 @@ verify_jwt = false
 verify_jwt = false
 ```
 
+- `mp-webhook`: Mercado Pago llama sin un JWT de Supabase. Su seguridad es la firma HMAC
+  (`x-signature`), que la función exige siempre. Con `verify_jwt = true` el gateway responde 401
+  antes de llegar a la función y ninguna notificación se procesa.
+- `mp-subscription`: valida el JWT adentro y necesita que el preflight `OPTIONS` llegue sin JWT.
+
 ```bash
-supabase functions deploy mp-subscription   # verify_jwt=false
-supabase functions deploy mp-webhook         # verify_jwt=false (NUNCA true)
+supabase functions deploy mp-webhook --no-verify-jwt
 ```
 
-Si se deploya desde el dashboard, dejar **"Verify JWT" apagado** en ambas funciones.
-
-Las URLs resultantes son:
-- `https://vrdxxmjzxhfgqlnxmbwx.supabase.co/functions/v1/mp-subscription`
-- `https://vrdxxmjzxhfgqlnxmbwx.supabase.co/functions/v1/mp-webhook`
-
----
-
-## 7. Correr la migración SQL
-
-En el panel Supabase → **SQL Editor**, pegar y ejecutar el contenido de:
-```
-supabase/migrations/20260416_mercadopago_subscriptions.sql
-```
-
-O con CLI:
 ```bash
-supabase db push
+supabase functions deploy mp-subscription --no-verify-jwt
+```
+
+Verificación antes de desplegar (`tsc` sólo cubre `src/`):
+
+```bash
+deno check supabase/functions/mp-subscription/index.ts supabase/functions/mp-webhook/index.ts
 ```
 
 ---
 
-## 8. Configurar Webhook en Mercado Pago
+## 8. Webhook en Mercado Pago
 
-1. Panel MP → **Tu aplicación** → **Webhooks** → **Agregar webhook**
-2. URL: `https://vrdxxmjzxhfgqlnxmbwx.supabase.co/functions/v1/mp-webhook`
-3. Eventos a suscribir:
-   - ✅ `payment`
-   - ✅ `subscription_preapproval`
-   - ✅ `subscription_authorized_payment`
-4. Copiar el **Webhook secret** que genera MP y setearlo como `MP_WEBHOOK_SECRET` en el paso 5
-
----
-
-## 9. Flujo completo de suscripción
-
-```
-Usuario elige plan
-    ↓
-Frontend llama mp-subscription (action: create)
-    ↓
-Edge Function crea preapproval en MP con el plan ID
-    ↓
-MP devuelve init_point (URL de checkout)
-    ↓
-Frontend redirige usuario a init_point
-    ↓
-Usuario ingresa tarjeta en checkout de MP
-    ↓
-MP redirige a /subscription/pending (back_url)
-    ↓
-[Pantalla de espera — polling cada 5 segundos]
-    ↓
-MP llama nuestro webhook (subscription_preapproval, status=authorized)
-    ↓
-Webhook verifica firma, consulta MP, actualiza businesses.subscription_status = 'active'
-    ↓
-Supabase realtime notifica al frontend
-    ↓
-PaymentPending detecta que isActive=true → redirige a /subscription
-```
+1. Panel → la aplicación → **Webhooks**.
+2. URL: `https://<ref>.supabase.co/functions/v1/mp-webhook`
+3. Eventos:
+   - ✅ `subscription_preapproval` — alta, cambios y baja de la suscripción. Decide el acceso.
+   - ✅ `subscription_authorized_payment` — cada cobro. Alimenta el ledger `payments`.
+   - `payment` — opcional. Se registra y **no escribe nada**: no es una autoridad de billing.
+4. La clave secreta que genera Mercado Pago es `MP_WEBHOOK_SECRET`.
 
 ---
 
-## 10. Flujo de cobro recurrente (cada período)
+## 9. Flujo de alta
 
 ```
-MP procesa cobro automático (fin del período)
+Usuario elige plan y ciclo en Planes
     ↓
-MP llama webhook (subscription_authorized_payment)
+Frontend → mp-subscription (create)
     ↓
-Webhook busca authorized_payment (status: processed/scheduled/recycling/cancelled)
+La función exige la capacidad `subscription` del usuario en ese negocio,
+resuelve el plan de MP por secret, lo verifica en Mercado Pago,
+registra la intención en subscription_checkout_sessions
+y devuelve el init_point            ← el negocio NO cambia
     ↓
-Webhook busca /v1/payments/{payment_id} para status real (approved/rejected)
+El navegador va al checkout de Mercado Pago
     ↓
-Si approved → subscription_status = active, actualiza current_period_end
-Si rejected → subscription_status = past_due, grace_until = now + 3 días
+El usuario paga y Mercado Pago lo devuelve a /subscription/pending
     ↓
-Si vence grace_until sin pago → subscription_status = suspended
-(Ejecutar expire_trials() y enforce_grace_period() via cron o pg_cron)
+Mercado Pago llama a mp-webhook (subscription_preapproval)
+    ↓
+La función valida la firma, relee el preapproval en Mercado Pago,
+resuelve el negocio por la referencia del checkout,
+toma el plan de preapproval_plan_id
+y recién ahí escribe businesses      ← acá cambia el acceso
+    ↓
+/subscription/pending muestra «Pago confirmado» cuando el servidor
+informa que ESE checkout quedó pagado
 ```
+
+Si el webhook no llega, **Verificar pago** (`mp-subscription: reconcile`) hace que el servidor
+consulte a Mercado Pago y aplique exactamente las mismas reglas.
+
+La referencia del checkout (`external_reference`) la genera el servidor, una por checkout, y
+viaja en la URL del checkout del plan. Que Mercado Pago la conserve en la suscripción no está
+documentado: es lo primero que mide el smoke. Si no la conserva, el pago no se vincula y no se
+activa nada.
 
 ---
 
-## 11. Cron job para expirar pruebas y gracia
+## 10. Cobro recurrente
 
-Agregar en Supabase → **Database → Extensions**: habilitar `pg_cron`
-
-```sql
--- Ejecutar cada día a las 3 AM
-SELECT cron.schedule('expire-trials', '0 3 * * *', $$SELECT public.expire_trials();$$);
-SELECT cron.schedule('enforce-grace', '0 3 * * *', $$SELECT public.enforce_grace_period();$$);
+```
+Mercado Pago cobra el período
+    ↓
+mp-webhook (subscription_authorized_payment)
+    ↓
+La función relee el cobro, el pago y la suscripción en Mercado Pago
+    ↓
+Registra el cobro en payments (una fila por cobro, se actualiza si cambia)
+    ↓
+aprobado  → active + período nuevo, si la suscripción sigue authorized
+rechazado → past_due + 3 días de gracia (un segundo rechazo no renueva la gracia)
+    ↓
+Vencida la gracia → suspended   (cron billing-enforce-grace)
 ```
 
----
-
-## 12. Testing con credenciales de prueba
-
-MP provee tarjetas de prueba para Argentina:
-
-| Tarjeta     | Número               | CVV  | Vencimiento |
-|-------------|----------------------|------|-------------|
-| Visa (éxito) | 4509 9535 6623 3704 | 123  | 11/25       |
-| Mastercard   | 5031 7557 3453 0604 | 123  | 11/25       |
-| Rechazo      | 4000 0000 0000 0002 | 123  | 11/25       |
-
-Email del pagador de prueba: `test_user_XXXXXXXX@testuser.com`
-(MP te da estos emails al crear usuarios de prueba en el panel)
+El cron (`billing-expire-trials`, `billing-enforce-grace`) ya corre en producción.
 
 ---
 
-## 13. Verificar integración
+## 11. Acciones de `mp-subscription`
 
-Checklist:
-- [ ] Migración SQL ejecutada correctamente
-- [ ] Edge functions deployadas y accesibles
-- [ ] Webhook configurado en panel MP con los 3 eventos
-- [ ] `MP_WEBHOOK_SECRET` seteado en secrets y en panel MP
-- [ ] Probar flujo completo con tarjeta de prueba
-- [ ] Verificar que `businesses.subscription_status` cambia a `active` post-pago
-- [ ] Verificar que el webhook llega y se procesa en `subscription_events`
-- [ ] Verificar que el banner de suscripción aparece en la UI correctamente
+| Acción | Qué hace | Escribe |
+|---|---|---|
+| `create` | Abre un checkout | Sólo la sesión de checkout |
+| `status` | Lectura local del estado y del último checkout. No consulta Mercado Pago | Nada |
+| `reconcile` | Consulta Mercado Pago y lleva la base al estado confirmado | Lo mismo que el webhook |
+| `update_payment_method` | Devuelve el enlace de Mercado Pago de la suscripción del negocio | Nada |
+| `cancel` | Cancela en Mercado Pago, lo confirma releyendo y refleja la baja | Lo mismo que el webhook |
+
+Todas exigen la capacidad `subscription` del usuario en el negocio que nombran. Ninguna acepta
+un id de suscripción, un id de plan o un email de pagador del navegador.
+
+---
+
+## 12. Verificación
+
+```bash
+npm run test:beta-mp
+```
+
+Tests de integración, guard estático y contratos de fuente. Corre en CI.
+
+```bash
+npm run test:beta-mp:local
+```
+
+Matriz contra un stack Supabase local con la migración aplicada. Corre en CI (job
+`beta-mp-billing`).
+
+Ninguno de los dos habla con Mercado Pago. La certificación real es el smoke de
+[docs/beta-mp/runbook-rollout.md](docs/beta-mp/runbook-rollout.md).
