@@ -118,10 +118,12 @@ describe('W · clasificación del bloqueo', () => {
 describe('V · copy y CTA del muro', () => {
   const DEUDA = /falta de pago|m[eé]todo de pago|verificar pago|deuda|pago vencido/i
 
-  const TIPOS: Array<Exclude<SubscriptionWallKind, 'none'>> = ['trial_ended', 'billing_suspended', 'suspended_other', 'canceled']
-  const texto = (tipo: Exclude<SubscriptionWallKind, 'none'>) => {
+  type Muro = Exclude<SubscriptionWallKind, 'none'>
+  /** Los muros que un plan resuelve. `suspended_other` no es uno de ellos. */
+  const CON_PLANES: Muro[] = ['trial_ended', 'billing_suspended', 'canceled']
+  const texto = (tipo: Muro) => {
     const v = describeSubscriptionWall(tipo)
-    return `${v.title} ${v.description} ${v.badge} ${v.plansLabel}`
+    return `${v.title} ${v.description} ${v.badge} ${v.primaryLabel}`
   }
 
   it('trial_ended: título exacto, datos protegidos y la salida es elegir un plan', () => {
@@ -130,38 +132,44 @@ describe('V · copy y CTA del muro', () => {
     expect(v.description).toMatch(/datos siguen guardados y protegidos/i)
     expect(v.description).toMatch(/Elegí un plan/)
     expect(v.badge).toBe('Prueba finalizada')
-    expect(v.plansLabel).toBe('Ver planes')
-    expect(v.tone).toBe('info')
+    expect(v).toMatchObject({ primary: 'plans', primaryLabel: 'Ver planes', tone: 'info' })
   })
 
   it('trial_ended NUNCA habla de pagos', () => {
     expect(texto('trial_ended')).not.toMatch(DEUDA)
   })
 
-  it('suspended_other tampoco inventa una deuda', () => {
-    expect(texto('suspended_other')).not.toMatch(DEUDA)
-    expect(texto('suspended_other')).not.toMatch(/prueba terminó/)
-  })
-
   it('billing_suspended SÍ habla de falta de pago: ahí hay una suscripción paga', () => {
     const v = describeSubscriptionWall('billing_suspended')
     expect(v.title).toBe('Cuenta suspendida')
     expect(v.description).toBe('Tu suscripción fue suspendida por falta de pago. Para restaurar el acceso, actualizá tu método de pago o elegí un nuevo plan.')
-    expect(v.plansLabel).toBe('Ver planes y reactivar')
-    expect(v.tone).toBe('danger')
+    expect(v).toMatchObject({ primary: 'plans', primaryLabel: 'Ver planes y reactivar', tone: 'danger' })
   })
 
   it('canceled conserva su copy y su CTA de reactivación', () => {
     const v = describeSubscriptionWall('canceled')
     expect(v.title).toBe('Suscripción cancelada')
-    expect(v.plansLabel).toBe('Reactivar mi cuenta')
+    expect(v).toMatchObject({ primary: 'plans', primaryLabel: 'Reactivar mi cuenta' })
   })
 
-  it('TODO muro tiene un CTA a Planes y ninguno manda a soporte para activar', () => {
-    for (const tipo of TIPOS) {
-      expect(describeSubscriptionWall(tipo).plansLabel, tipo).toMatch(/plan|reactivar/i)
+  it('los muros que un plan resuelve salen por Planes y no mandan a soporte para activar', () => {
+    for (const tipo of CON_PLANES) {
+      const v = describeSubscriptionWall(tipo)
+      expect(v.primary, tipo).toBe('plans')
+      expect(v.primaryLabel, tipo).toMatch(/plan|reactivar/i)
       expect(texto(tipo), tipo).not.toMatch(/escribinos|contact|whatsapp|soporte/i)
     }
+  })
+
+  it('suspended_other sale por Ayuda: pagar no levanta esa suspensión', () => {
+    const v = describeSubscriptionWall('suspended_other')
+    expect(v.title).toBe('Cuenta suspendida')
+    expect(v).toMatchObject({ primary: 'help', primaryLabel: 'Contactar soporte', tone: 'neutral' })
+    expect(v.description).toMatch(/datos siguen guardados y protegidos/i)
+    // Neutro: ni una deuda inventada, ni un trial, ni la promesa de que un plan lo arregla.
+    expect(texto('suspended_other')).not.toMatch(DEUDA)
+    expect(texto('suspended_other')).not.toMatch(/prueba terminó/)
+    expect(texto('suspended_other')).not.toMatch(/\bplan(es)?\b|pag[aáo]|reactiv|suscripci[oó]n/i)
   })
 })
 

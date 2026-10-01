@@ -8,7 +8,8 @@
  * pagara nada y una suscripción paga que dejó de cobrarse. La pantalla ya no
  * asume la segunda: `classifySubscriptionWall` las separa y el copy sale de
  * `describeSubscriptionWall`. La salida no cambió: el CTA primario va a Planes
- * (y de ahí al checkout). Ayuda es el secundario.
+ * (y de ahí al checkout) y Ayuda es el secundario. Sólo una suspensión que no
+ * es de trial ni de billing sale por Ayuda: pagar no la levanta.
  */
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { Clock, LifeBuoy, Lock, Zap, LogOut } from 'lucide-react'
@@ -42,6 +43,7 @@ export function SubscriptionSuspended() {
   if (kind === 'none') return <Navigate to="/dashboard" replace />
 
   const view = describeSubscriptionWall(kind)
+  const helpIsPrimary = view.primary === 'help'
   const tone = TONE[view.tone]
   const Icon = kind === 'trial_ended' ? Clock : Lock
 
@@ -81,27 +83,34 @@ export function SubscriptionSuspended() {
 
       {/* Actions */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', width: '100%', maxWidth: 320 }}>
-        <button
-          onClick={() => navigate('/subscription/plans')}
-          className="btn btn-primary btn-lift"
-          style={{ justifyContent: 'center', padding: '0.875rem', fontSize: '1rem' }}
-        >
-          <Zap size={18} />
-          {view.plansLabel}
-        </button>
+        {!helpIsPrimary && (
+          <button
+            onClick={() => navigate('/subscription/plans')}
+            className="btn btn-primary btn-lift"
+            style={{ justifyContent: 'center', padding: '0.875rem', fontSize: '1rem' }}
+          >
+            <Zap size={18} />
+            {view.primaryLabel}
+          </button>
+        )}
 
         {/* PRE-BETA-2D fijó acá el contacto de soporte (y este testid). BETA-1:
             la casilla legal no es un canal atendido, así que en vez del mailto
             lleva a Ayuda, que `SubscriptionGuard` deja abierta con el negocio
-            bloqueado. Es el secundario: activar un plan no pasa por soporte. */}
+            bloqueado. Es el secundario cuando un plan resuelve el bloqueo, y el
+            primario —y único— cuando no (`suspended_other`). */}
         <div data-testid="subscription-suspended-soporte" style={{ display: 'flex' }}>
           <Link
             to="/ayuda"
-            className="btn btn-ghost"
-            style={{ flex: 1, justifyContent: 'center', padding: '0.75rem', minHeight: 44 }}
+            className={helpIsPrimary ? 'btn btn-primary btn-lift' : 'btn btn-ghost'}
+            style={{
+              flex: 1, justifyContent: 'center', minHeight: 44,
+              padding: helpIsPrimary ? '0.875rem' : '0.75rem',
+              fontSize: helpIsPrimary ? '1rem' : undefined,
+            }}
           >
-            <LifeBuoy size={16} aria-hidden="true" />
-            Necesito ayuda
+            <LifeBuoy size={helpIsPrimary ? 18 : 16} aria-hidden="true" />
+            {helpIsPrimary ? view.primaryLabel : 'Necesito ayuda'}
           </Link>
         </div>
 

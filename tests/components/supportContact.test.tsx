@@ -44,9 +44,11 @@ describe('PRE-BETA-2D · soporte canónico', () => {
   it('SC1. la pantalla de cuenta suspendida ofrece soporte por Ayuda', () => {
     render(<MemoryRouter><SubscriptionSuspended /></MemoryRouter>)
 
-    // El testid de PRE-BETA-2D se conserva; ahora lleva a Ayuda.
+    // El testid de PRE-BETA-2D se conserva; ahora lleva a Ayuda. El negocio de
+    // este test está suspendido sin trial vencido ni billing, así que Ayuda es
+    // su CTA primario («Contactar soporte»).
     const linea = screen.getByTestId('subscription-suspended-soporte')
-    expect(linea.textContent).toContain('Necesito ayuda')
+    expect(linea.textContent).toContain('Contactar soporte')
     expect(linea.querySelector('a')?.getAttribute('href')).toBe('/ayuda')
 
     // La casilla legal no se presenta como soporte en el muro.

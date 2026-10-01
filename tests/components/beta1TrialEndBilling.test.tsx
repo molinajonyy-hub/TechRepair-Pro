@@ -285,14 +285,48 @@ describe('T · estado «tu prueba terminó»', () => {
     expect(opciones.body).toMatchObject({ action: 'create', plan: 'full' })
   })
 
-  it('suspendida sin billing y sin trial vencido: mensaje neutro, sin deuda inventada, con salida a Planes', () => {
+  it('suspendida sin billing y sin trial vencido: NO navega a Planes; su CTA primario es Ayuda', async () => {
     suscripcion('suspended', { trial_ends_at: enDias(5) })
     montar('/subscription/suspended')
     const muro = screen.getByTestId('subscription-wall')
     expect(muro).toHaveAttribute('data-wall-kind', 'suspended_other')
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Cuenta suspendida')
+
+    // Neutro: sin deuda, sin trial, sin prometer que un plan lo reactiva.
     expect(muro.textContent).not.toMatch(DEUDA)
     expect(muro.textContent).not.toMatch(/prueba terminó/)
-    expect(screen.getByRole('button', { name: 'Ver planes' })).toBeInTheDocument()
+    expect(muro.textContent).not.toMatch(/\bplan(es)?\b|reactiv/i)
+
+    // Ningún control del muro lleva a Planes.
+    expect(within(muro).queryByRole('button', { name: /plan|reactivar/i })).toBeNull()
+    expect(muro.querySelector('a[href*="/subscription"]')).toBeNull()
+
+    // El primario —y único enlace— es Ayuda.
+    const enlaces = within(muro).getAllByRole('link')
+    expect(enlaces).toHaveLength(1)
+    const primario = enlaces[0]
+    expect(primario).toHaveTextContent('Contactar soporte')
+    expect(primario).toHaveAttribute('href', '/ayuda')
+    expect(primario.className).toContain('btn-primary')
+    expect(screen.queryByText('Necesito ayuda')).toBeNull()
+
+    fireEvent.click(primario)
+    expect(ruta()).toBe('/ayuda')
+    await new Promise(r => setTimeout(r, 0))
+    expect(h.invoke).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['trial vencido', trialVencido, 'Ver planes'],
+    ['suspensión por pago', suspendidaPorPago, 'Ver planes y reactivar'],
+    ['cuenta cancelada', cancelada, 'Reactivar mi cuenta'],
+  ] as const)('%s: el primario sigue siendo Planes y Ayuda queda de secundario', (_caso, preparar, cta) => {
+    preparar()
+    montar('/subscription/suspended')
+    const ayuda = screen.getByRole('link', { name: 'Necesito ayuda' })
+    expect(ayuda.className).toContain('btn-ghost')
+    fireEvent.click(screen.getByRole('button', { name: cta }))
+    expect(ruta()).toBe('/subscription/plans')
   })
 
   it('mientras carga no adelanta ningún motivo', () => {

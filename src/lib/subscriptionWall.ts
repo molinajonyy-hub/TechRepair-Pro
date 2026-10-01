@@ -17,8 +17,9 @@
  * Las tres las escribe sólo el webhook / la Edge Function, nunca el trial ni
  * las RPC de SaaS Admin. Si no hay ninguna, no hubo billing: no se habla de pagos.
  *
- * Sólo cambia QUÉ SE DICE. La salida de todos los muros sigue siendo la misma
- * de siempre: Planes, y de ahí el checkout de Mercado Pago.
+ * La salida sigue siendo la de siempre —Planes, y de ahí el checkout de Mercado
+ * Pago— para todo muro que un plan resuelve. La excepción es `suspended_other`:
+ * pagar no levanta esa suspensión, así que su CTA es Ayuda.
  *
  * Puro (sin Supabase/import.meta) → testeable con `node --test`, igual que
  * `lib/entitlements.ts`.
@@ -83,13 +84,18 @@ export interface SubscriptionWallView {
   badge:       string
   /** `info` = terminó la prueba · `danger` = billing · `neutral` = el resto. */
   tone:        'info' | 'danger' | 'neutral'
-  /** Texto del CTA primario. Siempre lleva a Planes. */
-  plansLabel:  string
+  /**
+   * A dónde lleva el CTA primario. `plans` cuando elegir un plan resuelve el
+   * bloqueo; `help` cuando no (una suspensión que no es de trial ni de billing
+   * no se levanta pagando).
+   */
+  primary:      'plans' | 'help'
+  primaryLabel: string
 }
 
 const DATOS_PROTEGIDOS = 'Tus datos siguen guardados y protegidos.'
 
-/** Copy por tipo de muro. El CTA primario de todos es Planes. */
+/** Copy y CTA primario por tipo de muro. */
 export function describeSubscriptionWall(
   kind: Exclude<SubscriptionWallKind, 'none'>,
 ): SubscriptionWallView {
@@ -100,7 +106,8 @@ export function describeSubscriptionWall(
         description: `${DATOS_PROTEGIDOS} Elegí un plan para seguir usando TechRepair Pro.`,
         badge: 'Prueba finalizada',
         tone: 'info',
-        plansLabel: 'Ver planes',
+        primary: 'plans',
+        primaryLabel: 'Ver planes',
       }
     case 'billing_suspended':
       return {
@@ -108,7 +115,8 @@ export function describeSubscriptionWall(
         description: 'Tu suscripción fue suspendida por falta de pago. Para restaurar el acceso, actualizá tu método de pago o elegí un nuevo plan.',
         badge: 'Suspendida',
         tone: 'danger',
-        plansLabel: 'Ver planes y reactivar',
+        primary: 'plans',
+        primaryLabel: 'Ver planes y reactivar',
       }
     case 'canceled':
       return {
@@ -116,15 +124,17 @@ export function describeSubscriptionWall(
         description: 'Tu suscripción fue cancelada. Para volver a usar TechRepair Pro, reactivá tu plan.',
         badge: 'Cancelada',
         tone: 'neutral',
-        plansLabel: 'Reactivar mi cuenta',
+        primary: 'plans',
+        primaryLabel: 'Reactivar mi cuenta',
       }
     case 'suspended_other':
       return {
         title: 'Cuenta suspendida',
-        description: `El acceso de este negocio está suspendido. ${DATOS_PROTEGIDOS} Elegí un plan para reactivarlo.`,
+        description: `El acceso de este negocio está suspendido. ${DATOS_PROTEGIDOS} Escribinos y lo revisamos.`,
         badge: 'Suspendida',
         tone: 'neutral',
-        plansLabel: 'Ver planes',
+        primary: 'help',
+        primaryLabel: 'Contactar soporte',
       }
   }
 }
