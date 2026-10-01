@@ -68,6 +68,35 @@ export function firstDayOfMonth(fecha: string): string {
 }
 
 /**
+ * `fecha` corrida `meses` meses de calendario. Si el dia no existe en el mes
+ * destino, se queda en el ultimo dia de ese mes (31/03 − 1 mes = 28 o 29/02),
+ * en vez de desbordar al mes siguiente como `Date#setMonth`.
+ */
+export function addCalendarMonths(fecha: string, meses: number): string {
+  const [y, m, d] = partes(fecha)
+  const destino = new Date(Date.UTC(y, m - 1 + meses, 1))
+  const anio = destino.getUTCFullYear()
+  const mes = destino.getUTCMonth()
+  const ultimoDia = new Date(Date.UTC(anio, mes + 1, 0)).getUTCDate()
+  return desdeUTC(new Date(Date.UTC(anio, mes, Math.min(d, ultimoDia))))
+}
+
+/** Offset de Argentina: UTC-3 todo el año, sin horario de verano (ver arriba). */
+const ARGENTINA_UTC_OFFSET = '-03:00'
+
+/**
+ * Primer instante del dia de negocio `fecha` (00:00 en Argentina), con offset
+ * explicito. Es el limite para filtrar columnas `timestamptz` por dia de
+ * negocio: comparar un timestamptz contra 'YYYY-MM-DD' pelado lo interpreta como
+ * medianoche en la zona de la sesion de la base (UTC), o sea las 21:00 AR del
+ * dia anterior.
+ */
+export function businessDayStartInstant(fecha: string): string {
+  partes(fecha)
+  return `${fecha}T00:00:00${ARGENTINA_UTC_OFFSET}`
+}
+
+/**
  * Rango [from, to] de un preset de Finanzas, en fecha de negocio argentina.
  *
  *   today       hoy..hoy

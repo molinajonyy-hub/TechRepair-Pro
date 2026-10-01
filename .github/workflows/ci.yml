@@ -168,8 +168,12 @@ jobs:
       # 2A: the date defaults that get RECORDED (expense, supplier invoice,
       # supplier purchase and payment, owner withdrawal) start on the Argentina
       # business date, checked on the real screens at night-time AR instants.
-      - name: Finance — business date (preset ranges and recorded date defaults)
-        run: npm run test:components -- tests/components/businessDateRange.test.ts tests/components/businessDateDefaults.test.tsx
+      # 2B: finance filters, reads and KPIs (expenses list and "Gastado hoy",
+      # caja history "Hoy", dashboard sales windows and revenue, inventory
+      # valuation snapshot, recurring "paid this month", finance service
+      # periods) query Argentina business dates, checked on the real hooks.
+      - name: Finance — business date (ranges, recorded defaults, filters and reads)
+        run: npm run test:components -- tests/components/businessDateRange.test.ts tests/components/businessDateDefaults.test.tsx tests/components/businessDateReads.test.tsx
 
       # FISCAL DATE Part 2: the ARCA lookup runner must stay read-only. The guard
       # walks its local import graph and fails if emission, number reservation,

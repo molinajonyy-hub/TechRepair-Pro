@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { addCalendarMonths, businessToday, firstDayOfMonth } from '../lib/businessDate'
 
 export interface RecurringExpense {
   id: string
@@ -56,11 +57,9 @@ export function useRecurringExpenses() {
         return
       }
 
-      // Mes actual
-      const now = new Date()
-      const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-      const monthEnd = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, '0')}-01`
+      // Mes de negocio actual: [primer dia, primer dia del mes siguiente)
+      const monthStart = firstDayOfMonth(businessToday())
+      const monthEnd = addCalendarMonths(monthStart, 1)
 
       const ids = templates.map(t => t.id)
 

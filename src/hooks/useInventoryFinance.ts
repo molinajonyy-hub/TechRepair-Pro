@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { attachInventoryCosts } from '../services/inventoryCostAccess'
+import { businessToday } from '../lib/businessDate'
 
 export interface InventoryFinanceItem {
   id: string
@@ -211,7 +212,8 @@ export function useInventoryFinance(businessId?: string | null) {
       const processedHistory: ValuationSnapshot[] = historyData || []
 
       // 6. Guardar snapshot de hoy si no existe
-      const today = new Date().toISOString().split('T')[0]
+      // El snapshot se fecha por dia de negocio argentino (fecha es un DATE).
+      const today = businessToday()
       const hasToday = processedHistory.some(h => h.fecha === today)
       const totalValorAll = processedItems.reduce((s, i) => s + i.valor_venta, 0)
       const totalGananciaAll = totalValorAll - totalCapital

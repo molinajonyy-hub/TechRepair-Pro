@@ -1,4 +1,7 @@
 import { supabase } from '../lib/supabase'
+import {
+  addCalendarDays, addCalendarMonths, businessToday, calendarWeekday, firstDayOfMonth,
+} from '../lib/businessDate'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -160,30 +163,24 @@ export const getCategoryLabel = (type: EntryType, category: string): string => {
 
 export type PeriodType = 'today' | 'week' | 'month' | 'year' | 'custom'
 
+// Fecha de negocio argentina (src/lib/businessDate.ts), no la zona del browser.
 export function getPeriodDates(period: PeriodType, customFrom?: string, customTo?: string) {
-  const today = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const hoy = businessToday()
 
   switch (period) {
     case 'today':
-      return { from: fmt(today), to: fmt(today) }
+      return { from: hoy, to: hoy }
     case 'week': {
-      const dow = today.getDay() === 0 ? 6 : today.getDay() - 1
-      const mon = new Date(today)
-      mon.setDate(today.getDate() - dow)
-      return { from: fmt(mon), to: fmt(today) }
+      // Semana que arranca el lunes.
+      const dow = (calendarWeekday(hoy) + 6) % 7
+      return { from: addCalendarDays(hoy, -dow), to: hoy }
     }
     case 'month':
-      return {
-        from: `${today.getFullYear()}-${pad(today.getMonth() + 1)}-01`,
-        to: fmt(today),
-      }
+      return { from: firstDayOfMonth(hoy), to: hoy }
     case 'year':
-      return { from: `${today.getFullYear()}-01-01`, to: fmt(today) }
+      return { from: `${hoy.slice(0, 4)}-01-01`, to: hoy }
     case 'custom':
-      return { from: customFrom || fmt(today), to: customTo || fmt(today) }
+      return { from: customFrom || hoy, to: customTo || hoy }
   }
 }
 
@@ -328,10 +325,8 @@ export const financeService = {
 
   // For monthly evolution: load last 12 months regardless of period filter
   async getLastMonths(businessId: string, months = 6): Promise<FinanceEntry[]> {
-    const from = new Date()
-    from.setMonth(from.getMonth() - months)
-    const fromStr = from.toISOString().split('T')[0]
-    const toStr = new Date().toISOString().split('T')[0]
+    const toStr = businessToday()
+    const fromStr = addCalendarMonths(toStr, -months)
 
     const { data, error } = await supabase
       .from(TABLE)
