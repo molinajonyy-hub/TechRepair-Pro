@@ -8,8 +8,7 @@ import {
   PersonalSelect, showToast, fmtMoney,
 } from '../components/ui'
 import { logger } from '../../lib/logger'
-
-const today = () => new Date().toISOString().split('T')[0]
+import { businessToday } from '../../lib/businessDate'
 
 export function OwnerWithdrawalPage() {
   const { user, businessId } = useAuth()
@@ -22,7 +21,7 @@ export function OwnerWithdrawalPage() {
 
   const [amount, setAmount] = useState('')
   const [destinationId, setDestinationId] = useState('')
-  const [date, setDate] = useState(today())
+  const [date, setDate] = useState(() => businessToday())
   const [notes, setNotes] = useState('')
   const [confirmed, setConfirmed] = useState(false)
 

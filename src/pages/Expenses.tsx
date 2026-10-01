@@ -21,6 +21,7 @@ import { suppliersService, type CreatePurchaseInput } from '../services/supplier
 import { purchasePayloadHash, resolvePurchaseKey } from '../utils/purchaseIdempotency'
 import { financeErrorMessage } from '../lib/financeErrors'
 import { expenseCategoryKey, expenseFinanceType } from '../lib/expenseFinanceType'
+import { businessToday } from '../lib/businessDate'
 import { ProductFormModalSafe as ProductFormModal } from '../components/products/ProductFormModal'
 import type { InventoryItem } from '../hooks/useInventory'
 
@@ -282,7 +283,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
   const [categoria, setCategoria]     = useState(categories[0]?.name || '')
   const [metodo, setMetodo]           = useState('efectivo')
   const [descripcion, setDescripcion] = useState('')
-  const [fecha, setFecha]             = useState(today())
+  const [fecha, setFecha]             = useState(() => businessToday())
   const [recurrente, setRecurrente]   = useState(false)
   const [frecuencia, setFrecuencia]   = useState('mensual')
   const [notas, setNotas]             = useState('')
@@ -298,7 +299,7 @@ function NewExpenseModal({ categories, businessId, userId, onSaved, onClose }: N
   const [facPartialAmt, setFacPartialAmt] = useState('')
   const [facDescripcion, setFacDescripcion] = useState('')
   const [facNotas, setFacNotas]           = useState('')
-  const [facFecha, setFacFecha]           = useState(today())
+  const [facFecha, setFacFecha]           = useState(() => businessToday())
   const FAC_METHODS = [
     { id: 'efectivo',      short: 'Efec.',  color: '#22c55e' },
     { id: 'transferencia', short: 'Trans.', color: '#3b82f6' },
