@@ -10,6 +10,10 @@ import { inventoryReportsService } from '../services/inventoryReportsService'
 import { inventoryService } from '../services/inventoryService'
 import { STATUS_CONFIG } from '../types/orderStatus'
 import { COST_RESTRICTED_LABEL } from '../services/inventoryCostAccess'
+import {
+  addCalendarDays, addCalendarMonths, businessDateOfInstant, businessDayStartInstant,
+  businessToday, calendarWeekday, firstDayOfMonth, formatCalendarDate,
+} from '../lib/businessDate'
 
 type ReportsPeriod = 'today' | 'week' | 'month' | 'quarter' | 'year'
 
@@ -99,39 +103,24 @@ const isMissingColumnError = (error: SupabaseQueryError | null | undefined) => {
   return error.code === '42703' || (message.includes('column') && message.includes('does not exist'))
 }
 
-const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate())
+// ─── Períodos en FECHA DE NEGOCIO argentina ──────────────────────────────────
+// Todo límite es una fecha de calendario 'YYYY-MM-DD' (src/lib/businessDate.ts)
+// y todo rango es semiabierto [start, end). Nada sale de la zona del browser.
+//   · order_payments.payment_date es DATE: se filtra y se agrupa por fecha.
+//   · orders.updated_at, customers.created_at y devices.created_at son
+//     timestamptz: el límite es las 00:00 AR de la fecha
+//     (businessDayStartInstant) y cada fila se lleva a su día de negocio
+//     (businessDateOfInstant) antes de comparar.
 
-const startOfWeek = (date: Date) => {
-  const result = startOfDay(date)
-  const day = result.getDay()
-  const diff = day === 0 ? -6 : 1 - day
-  result.setDate(result.getDate() + diff)
-  return result
+/** Lunes de la semana de `fecha` (Reportes cuenta la semana de lunes a domingo). */
+const startOfWeek = (fecha: string) => addCalendarDays(fecha, -((calendarWeekday(fecha) + 6) % 7))
+
+const startOfQuarter = (fecha: string) => {
+  const primero = firstDayOfMonth(fecha)
+  return addCalendarMonths(primero, -((Number(primero.slice(5, 7)) - 1) % 3))
 }
 
-const startOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1)
-
-const startOfQuarter = (date: Date) => new Date(date.getFullYear(), Math.floor(date.getMonth() / 3) * 3, 1)
-
-const startOfYear = (date: Date) => new Date(date.getFullYear(), 0, 1)
-
-const addDays = (date: Date, amount: number) => {
-  const result = new Date(date)
-  result.setDate(result.getDate() + amount)
-  return result
-}
-
-const addMonths = (date: Date, amount: number) => {
-  const result = new Date(date)
-  result.setMonth(result.getMonth() + amount)
-  return result
-}
-
-const addYears = (date: Date, amount: number) => {
-  const result = new Date(date)
-  result.setFullYear(result.getFullYear() + amount)
-  return result
-}
+const startOfYear = (fecha: string) => addCalendarMonths(firstDayOfMonth(fecha), -(Number(fecha.slice(5, 7)) - 1))
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('es-AR', {
@@ -174,58 +163,58 @@ const getExportRows = (
 }
 
 
-const getPeriodRange = (period: ReportsPeriod, now: Date) => {
+const getPeriodRange = (period: ReportsPeriod, hoy: string) => {
   switch (period) {
     case 'today': {
-      const start = startOfDay(now)
+      const start = hoy
       return {
         currentStart: start,
-        currentEnd: addDays(start, 1),
-        previousStart: addDays(start, -1),
+        currentEnd: addCalendarDays(start, 1),
+        previousStart: addCalendarDays(start, -1),
         previousEnd: start,
         comparisonLabel: 'vs ayer',
         periodLabel: 'hoy',
       }
     }
     case 'week': {
-      const start = startOfWeek(now)
+      const start = startOfWeek(hoy)
       return {
         currentStart: start,
-        currentEnd: addDays(start, 7),
-        previousStart: addDays(start, -7),
+        currentEnd: addCalendarDays(start, 7),
+        previousStart: addCalendarDays(start, -7),
         previousEnd: start,
         comparisonLabel: 'vs semana anterior',
         periodLabel: 'esta semana',
       }
     }
     case 'month': {
-      const start = startOfMonth(now)
+      const start = firstDayOfMonth(hoy)
       return {
         currentStart: start,
-        currentEnd: addMonths(start, 1),
-        previousStart: addMonths(start, -1),
+        currentEnd: addCalendarMonths(start, 1),
+        previousStart: addCalendarMonths(start, -1),
         previousEnd: start,
         comparisonLabel: 'vs mes anterior',
         periodLabel: 'este mes',
       }
     }
     case 'quarter': {
-      const start = startOfQuarter(now)
+      const start = startOfQuarter(hoy)
       return {
         currentStart: start,
-        currentEnd: addMonths(start, 3),
-        previousStart: addMonths(start, -3),
+        currentEnd: addCalendarMonths(start, 3),
+        previousStart: addCalendarMonths(start, -3),
         previousEnd: start,
         comparisonLabel: 'vs trimestre anterior',
         periodLabel: 'este trimestre',
       }
     }
     case 'year': {
-      const start = startOfYear(now)
+      const start = startOfYear(hoy)
       return {
         currentStart: start,
-        currentEnd: addYears(start, 1),
-        previousStart: addYears(start, -1),
+        currentEnd: addCalendarMonths(start, 12),
+        previousStart: addCalendarMonths(start, -12),
         previousEnd: start,
         comparisonLabel: 'vs ano anterior',
         periodLabel: 'este ano',
@@ -234,53 +223,55 @@ const getPeriodRange = (period: ReportsPeriod, now: Date) => {
   }
 }
 
-const buildRevenueBuckets = (period: ReportsPeriod, now: Date) => {
+type RevenueBucket = { start: string; end: string; label: string }
+
+const monthLabel = (fecha: string) => formatCalendarDate(fecha, { month: 'short' }).replace('.', '')
+
+const buildRevenueBuckets = (period: ReportsPeriod, hoy: string): { title: string; buckets: RevenueBucket[] } => {
   if (period === 'today') {
-    const start = addDays(startOfDay(now), -6)
+    const start = addCalendarDays(hoy, -6)
 
     return {
       title: 'Ingresos ultimos 7 dias',
       buckets: Array.from({ length: 7 }, (_, index) => {
-        const bucketStart = addDays(start, index)
-        const bucketEnd = addDays(bucketStart, 1)
+        const bucketStart = addCalendarDays(start, index)
 
         return {
           start: bucketStart,
-          end: bucketEnd,
-          label: bucketStart.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' }),
+          end: addCalendarDays(bucketStart, 1),
+          label: formatCalendarDate(bucketStart, { day: '2-digit', month: 'short' }),
         }
       }),
     }
   }
 
   if (period === 'week') {
-    const start = startOfWeek(now)
+    const start = startOfWeek(hoy)
 
     return {
       title: 'Ingresos por dia',
       buckets: Array.from({ length: 7 }, (_, index) => {
-        const bucketStart = addDays(start, index)
-        const bucketEnd = addDays(bucketStart, 1)
+        const bucketStart = addCalendarDays(start, index)
 
         return {
           start: bucketStart,
-          end: bucketEnd,
-          label: bucketStart.toLocaleDateString('es-AR', { weekday: 'short' }).replace('.', ''),
+          end: addCalendarDays(bucketStart, 1),
+          label: formatCalendarDate(bucketStart, { weekday: 'short' }).replace('.', ''),
         }
       }),
     }
   }
 
   if (period === 'month') {
-    const start = startOfMonth(now)
-    const end = addMonths(start, 1)
-    const buckets: Array<{ start: Date; end: Date; label: string }> = []
+    const start = firstDayOfMonth(hoy)
+    const end = addCalendarMonths(start, 1)
+    const buckets: RevenueBucket[] = []
     let cursor = start
     let bucketNumber = 1
 
     while (cursor < end) {
       const bucketStart = cursor
-      const bucketEnd = addDays(bucketStart, 7) < end ? addDays(bucketStart, 7) : end
+      const bucketEnd = addCalendarDays(bucketStart, 7) < end ? addCalendarDays(bucketStart, 7) : end
 
       buckets.push({
         start: bucketStart,
@@ -299,66 +290,62 @@ const buildRevenueBuckets = (period: ReportsPeriod, now: Date) => {
   }
 
   if (period === 'quarter') {
-    const start = startOfQuarter(now)
+    const start = startOfQuarter(hoy)
 
     return {
       title: 'Ingresos por mes',
       buckets: Array.from({ length: 3 }, (_, index) => {
-        const bucketStart = addMonths(start, index)
-        const bucketEnd = addMonths(bucketStart, 1)
+        const bucketStart = addCalendarMonths(start, index)
 
         return {
           start: bucketStart,
-          end: bucketEnd,
-          label: bucketStart.toLocaleDateString('es-AR', { month: 'short' }).replace('.', ''),
+          end: addCalendarMonths(bucketStart, 1),
+          label: monthLabel(bucketStart),
         }
       }),
     }
   }
 
-  const start = startOfYear(now)
+  const start = startOfYear(hoy)
   return {
     title: 'Ingresos por mes',
     buckets: Array.from({ length: 12 }, (_, index) => {
-      const bucketStart = addMonths(start, index)
-      const bucketEnd = addMonths(bucketStart, 1)
+      const bucketStart = addCalendarMonths(start, index)
 
       return {
         start: bucketStart,
-        end: bucketEnd,
-        label: bucketStart.toLocaleDateString('es-AR', { month: 'short' }).replace('.', ''),
+        end: addCalendarMonths(bucketStart, 1),
+        label: monthLabel(bucketStart),
       }
     }),
   }
 }
 
-const sumPaymentsBetween = (payments: PaymentRow[], start: Date, end: Date) =>
+/** `payment_date` es un DATE: se compara la fecha tal cual, sin construir un Date. */
+const sumPaymentsBetween = (payments: PaymentRow[], start: string, end: string) =>
   payments.reduce((sum, payment) => {
-    if (!payment.payment_date) {
-      return sum
-    }
-
-    const paymentDate = new Date(payment.payment_date)
-    if (paymentDate >= start && paymentDate < end) {
+    const paymentDate = payment.payment_date?.slice(0, 10)
+    if (paymentDate && paymentDate >= start && paymentDate < end) {
       return sum + (payment.amount || 0)
     }
 
     return sum
   }, 0)
 
-const countDatesBetween = (dates: string[], start: Date, end: Date) =>
+/** Instantes (timestamptz) contados por su día de negocio argentino. */
+const countDatesBetween = (dates: string[], start: string, end: string) =>
   dates.filter((value) => {
-    const currentDate = new Date(value)
-    return currentDate >= start && currentDate < end
+    const businessDate = businessDateOfInstant(value)
+    return businessDate >= start && businessDate < end
   }).length
 
-async function loadCustomerCountForRange(businessId: string, start: Date, end: Date) {
+async function loadCustomerCountForRange(businessId: string, start: string, end: string) {
   const runQuery = async (scopedByBusiness: boolean) => {
     let query = supabase
       .from('customers')
       .select('*', { count: 'exact', head: true })
-      .gte('created_at', start.toISOString())
-      .lt('created_at', end.toISOString())
+      .gte('created_at', businessDayStartInstant(start))
+      .lt('created_at', businessDayStartInstant(end))
 
     if (scopedByBusiness) {
       query = query.eq('business_id', businessId)
@@ -422,9 +409,9 @@ export function Reports() {
         setReportLoading(true)
         setReportError(null)
 
-        const now = new Date()
-        const periodRange = getPeriodRange(selectedPeriod, now)
-        const revenueConfig = buildRevenueBuckets(selectedPeriod, now)
+        const hoy = businessToday()
+        const periodRange = getPeriodRange(selectedPeriod, hoy)
+        const revenueConfig = buildRevenueBuckets(selectedPeriod, hoy)
         const earliestStart = revenueConfig.buckets[0]?.start || periodRange.previousStart
         const queryStart = earliestStart < periodRange.previousStart ? earliestStart : periodRange.previousStart
         const queryEnd = revenueConfig.buckets[revenueConfig.buckets.length - 1]?.end || periodRange.currentEnd
@@ -443,15 +430,15 @@ export function Reports() {
             .from('order_payments')
             .select('amount, payment_date, orders!inner(business_id)')
             .eq('orders.business_id', businessId)
-            .gte('payment_date', queryStart.toISOString())
-            .lt('payment_date', queryEnd.toISOString()),
+            .gte('payment_date', queryStart)
+            .lt('payment_date', queryEnd),
           supabase
             .from('orders')
             .select('updated_at')
             .eq('business_id', businessId)
             .eq('status', 'completed')
-            .gte('updated_at', periodRange.previousStart.toISOString())
-            .lt('updated_at', periodRange.currentEnd.toISOString()),
+            .gte('updated_at', businessDayStartInstant(periodRange.previousStart))
+            .lt('updated_at', businessDayStartInstant(periodRange.currentEnd)),
           loadCustomerCountForRange(businessId, periodRange.currentStart, periodRange.currentEnd),
           loadCustomerCountForRange(businessId, periodRange.previousStart, periodRange.previousEnd),
           inventoryService.getLowStockItems(businessId),
@@ -461,8 +448,8 @@ export function Reports() {
             .from('devices')
             .select('type, created_at, customers!inner(business_id)')
             .eq('customers.business_id', businessId)
-            .gte('created_at', periodRange.currentStart.toISOString())
-            .lt('created_at', periodRange.currentEnd.toISOString()),
+            .gte('created_at', businessDayStartInstant(periodRange.currentStart))
+            .lt('created_at', businessDayStartInstant(periodRange.currentEnd)),
         ])
 
         const payments = paymentsResult.status === 'fulfilled' && !paymentsResult.value.error
@@ -488,7 +475,7 @@ export function Reports() {
             return accumulator
           }
 
-          const updatedAt = new Date(order.updated_at)
+          const updatedAt = businessDateOfInstant(order.updated_at)
           if (updatedAt < periodRange.currentStart || updatedAt >= periodRange.currentEnd) {
             return accumulator
           }

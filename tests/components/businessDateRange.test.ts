@@ -15,10 +15,12 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest'
 import {
   addCalendarDays,
   addCalendarMonths,
+  businessDateOfInstant,
   businessDayStartInstant,
   businessToday,
   calendarWeekday,
   firstDayOfMonth,
+  formatCalendarDate,
   getBusinessDateRange,
   type BusinessPeriodPreset,
 } from '../../src/lib/businessDate'
@@ -135,6 +137,20 @@ describe('aritmetica de calendario (sin zona)', () => {
     expect(addCalendarMonths('2026-01-31', 1)).toBe('2026-02-28')
     expect(addCalendarMonths('2026-09-15', -12)).toBe('2025-09-15')
     expect(addCalendarMonths('2026-09-15', 0)).toBe('2026-09-15')
+  })
+
+  test('businessDateOfInstant lleva un timestamptz a su dia de negocio argentino', () => {
+    expect(businessDateOfInstant('2026-10-01T01:30:00+00:00')).toBe('2026-09-30')
+    expect(businessDateOfInstant('2026-10-01T03:00:00Z')).toBe('2026-10-01')
+    expect(businessDateOfInstant('2027-01-01T02:59:59.999Z')).toBe('2026-12-31')
+    expect(businessDateOfInstant(new Date('2028-03-01T02:00:00Z'))).toBe('2028-02-29')
+  })
+
+  test('formatCalendarDate muestra la fecha de calendario tal cual, sin convertir zonas', () => {
+    expect(formatCalendarDate('2026-09-30', { day: '2-digit', month: '2-digit', year: 'numeric' })).toBe('30/09/2026')
+    expect(formatCalendarDate('2027-01-01', { day: '2-digit', month: '2-digit', year: 'numeric' })).toBe('01/01/2027')
+    expect(formatCalendarDate('2026-10-04', { weekday: 'long' })).toBe('domingo')
+    expect(() => formatCalendarDate('30/09/2026', { day: '2-digit' })).toThrow(RangeError)
   })
 
   test('businessDayStartInstant es la medianoche argentina del dia de negocio', () => {

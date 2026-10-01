@@ -2,6 +2,8 @@
 // Todas las fechas se guardan en UTC en la DB. Este módulo centraliza la
 // conversión a hora local de Córdoba, Argentina (UTC-3, sin horario de verano).
 
+import { addCalendarDays, businessDateOfInstant, businessDayStartInstant, businessToday } from '../lib/businessDate.ts'
+
 export const TZ_AR = 'America/Argentina/Cordoba'
 
 // ─── Parser interno ───────────────────────────────────────────────────────────
@@ -10,7 +12,7 @@ export const TZ_AR = 'America/Argentina/Cordoba'
 
 function parse(d: string): Date {
   if (!d) return new Date(0)
-  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return new Date(d + 'T00:00:00-03:00')
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return new Date(businessDayStartInstant(d))
   return new Date(d)
 }
 
@@ -76,34 +78,19 @@ export const fmtDateTimeFull = (d: string): string =>
 
 // ─── Comparaciones de día ─────────────────────────────────────────────────────
 
+// El calendario de negocio tiene UNA sola implementación: src/lib/businessDate.ts.
+// Estas funciones conservan su API pública y delegan; no vuelven a calcular el
+// día con Intl ni con strings de locale.
+
 /** Compara si un datetime UTC cae en el día de hoy en Argentina */
-export const isToday = (d: string): boolean => {
-  const opts: Intl.DateTimeFormatOptions = { timeZone: TZ_AR, year: 'numeric', month: '2-digit', day: '2-digit' }
-  return new Date(d).toLocaleDateString('es-AR', opts) ===
-         new Date().toLocaleDateString('es-AR', opts)
-}
+export const isToday = (d: string): boolean =>
+  businessDateOfInstant(parse(d)) === businessToday()
 
 /** Devuelve "YYYY-MM-DD" del día actual en Argentina (para queries de DB) */
-export const todayAR = (): string => {
-  const s = new Date().toLocaleDateString('es-AR', {
-    timeZone: TZ_AR, year: 'numeric', month: '2-digit', day: '2-digit',
-  })
-  // es-AR: "dd/mm/aaaa"
-  const [day, month, year] = s.split('/')
-  return `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`
-}
+export const todayAR = (): string => businessToday()
 
 /**
  * Devuelve "YYYY-MM-DD" del día en Argentina hace `n` días (n=0 → hoy AR).
- * Se ancla al mediodía AR (offset fijo -03:00, sin horario de verano) y se
- * reformatea en TZ_AR, por lo que el corte diario es siempre el calendario
- * argentino, no UTC. Útil para ventanas "hoy/últimos 7 días" en queries de DB.
+ * Útil para ventanas "hoy/últimos 7 días" en queries de DB.
  */
-export const daysAgoAR = (n: number): string => {
-  const anchor = new Date(todayAR() + 'T12:00:00-03:00').getTime() - n * 86400000
-  const s = new Date(anchor).toLocaleDateString('es-AR', {
-    timeZone: TZ_AR, year: 'numeric', month: '2-digit', day: '2-digit',
-  })
-  const [day, month, year] = s.split('/')
-  return `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`
-}
+export const daysAgoAR = (n: number): string => addCalendarDays(businessToday(), -n)
