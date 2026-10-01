@@ -16,11 +16,26 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const TOUCH_TARGET = 44
+/**
+ * `boundingBox()` mide la caja RENDERIZADA (getBoundingClientRect, con la
+ * transformacion aplicada). Con `min-height: 44px` cumplido, Chromium puede
+ * devolver 43.999969482421875 = 44 - 2^-15: ruido float32 de la matriz de
+ * `modalIn` (scale), no un alto de layout. El layout se redondea a 1/64 px, asi
+ * que el alto real inmediatamente inferior a 44 es 43.984375, y ese SIGUE
+ * fallando (43.994375 < 44), igual que 43.9 o 43. La tolerancia absorbe solo
+ * ese ruido; no baja el contrato.
+ */
+const TOUCH_EPSILON = 0.01
 const MOBILE_VIEWPORTS = [
   { width: 320, height: 568 },
   { width: 390, height: 844 },
   { width: 430, height: 932 },
 ]
+
+/** Unica asercion de alto tactil del spec: ningun estado compara en flotante estricto. */
+function expectTouchTarget(height: number, etiqueta: string): void {
+  expect(height + TOUCH_EPSILON, `${etiqueta}: ${height}px`).toBeGreaterThanOrEqual(TOUCH_TARGET)
+}
 
 async function alto(locator: Locator): Promise<number> {
   const box = await locator.boundingBox()
@@ -88,8 +103,8 @@ test.describe('@dialogtouch DIALOG-TOUCH-1 · acciones del footer', () => {
       //    aunque falten nombre y telefono. Solo lo bloquea un guardado en curso;
       //    el intento revela los bloqueos en vez de esconder el boton.
       await expect(crear).toBeEnabled()
-      expect(await alto(crear)).toBeGreaterThanOrEqual(TOUCH_TARGET)
-      expect(await alto(cancelar)).toBeGreaterThanOrEqual(TOUCH_TARGET)
+      expectTouchTarget(await alto(crear), 'Crear cliente (inicial)')
+      expectTouchTarget(await alto(cancelar), 'Cancelar (inicial)')
 
       // ── El secundario si es operable: tiene que recibir el click en toda su caja.
       expect(await recibeElHit(page, 'Cancelar')).toEqual([true, true, true])
@@ -109,7 +124,7 @@ test.describe('@dialogtouch DIALOG-TOUCH-1 · acciones del footer', () => {
       await expect(dialog.getByLabel('Nombre completo')).toBeFocused()
       await expect(dialog).toBeVisible()
       await expect(crear).toBeEnabled()
-      expect(await alto(crear)).toBeGreaterThanOrEqual(TOUCH_TARGET)
+      expectTouchTarget(await alto(crear), 'Crear cliente (tras intento vacio)')
       await sinOverflowHorizontal(page)
 
       // ── Con los campos minimos del customer core los bloqueos desaparecen.
@@ -120,7 +135,7 @@ test.describe('@dialogtouch DIALOG-TOUCH-1 · acciones del footer', () => {
       await expect(crear).toBeEnabled()
 
       const altoHabilitado = await alto(crear)
-      expect(altoHabilitado).toBeGreaterThanOrEqual(TOUCH_TARGET)
+      expectTouchTarget(altoHabilitado, 'Crear cliente (habilitado)')
       expect(await recibeElHit(page, 'Crear cliente')).toEqual([true, true, true])
       await sinOverflowHorizontal(page)
 
@@ -137,7 +152,7 @@ test.describe('@dialogtouch DIALOG-TOUCH-1 · acciones del footer', () => {
       await crear.click()
       await expect(crear).toBeDisabled()
       const altoLoading = await alto(crear)
-      expect(altoLoading).toBeGreaterThanOrEqual(TOUCH_TARGET)
+      expectTouchTarget(altoLoading, 'Crear cliente (loading)')
       expect(altoLoading).toBeCloseTo(altoHabilitado, 0)
       await page.unroute('**/rest/v1/customers*')
     })
@@ -163,7 +178,7 @@ test.describe('@dialogtouch DIALOG-TOUCH-1 · acciones del footer', () => {
     await esperarAnimaciones(scanner)
 
     const cerrar = scanner.locator('.modal-footer').getByRole('button', { name: 'Cerrar' })
-    expect(await alto(cerrar)).toBeGreaterThanOrEqual(TOUCH_TARGET)
+    expectTouchTarget(await alto(cerrar), 'Cerrar (escaner)')
     expect(await recibeElHit(page, 'Cerrar')).toEqual([true, true, true])
   })
 })
