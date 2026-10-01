@@ -13,6 +13,7 @@ import { AccountingChangeBanner } from '../components/finance/AccountingChangeBa
 import { FinanceInsightsPanel } from '../components/finance/FinanceInsightsPanel'
 import type { FinanceInsight } from '../services/insightsService'
 import { suppliersService } from '../services/suppliersService'
+import { getBusinessDateRange, type BusinessPeriodPreset } from '../lib/businessDate'
 
 // Charts L1 — Recharts pesa lo suyo, así que el bloque entero se carga bajo
 // demanda: sólo lo baja quien abre Finanzas, y en su propio chunk.
@@ -21,7 +22,7 @@ const FinanceChartsL1 = lazy(() => import('../components/finance/charts/FinanceC
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type FinanceTab = 'resumen' | 'caja' | 'ventas' | 'gastos' | 'movimientos' | 'auditoria'
-type PeriodPreset = 'today' | 'yesterday' | 'week' | 'month' | 'last_month' | 'custom'
+type PeriodPreset = BusinessPeriodPreset | 'custom'
 
 interface ExpenseCat  { category: string; total: number }
 interface TopMethod   { method: string; total: number }
@@ -75,33 +76,6 @@ const fmtShort = (n: number) => {
 
 const fmtDate = (d: string) =>
   new Date(d + 'T12:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })
-
-function getDateRange(preset: PeriodPreset): { from: string; to: string } {
-  const now   = new Date()
-  const toISO = (d: Date) => d.toISOString().split('T')[0]
-  switch (preset) {
-    case 'today':
-      return { from: toISO(now), to: toISO(now) }
-    case 'yesterday': {
-      const y = new Date(now); y.setDate(now.getDate() - 1)
-      return { from: toISO(y), to: toISO(y) }
-    }
-    case 'week': {
-      const s = new Date(now); s.setDate(now.getDate() - now.getDay())
-      return { from: toISO(s), to: toISO(now) }
-    }
-    case 'month': {
-      const s = new Date(now.getFullYear(), now.getMonth(), 1)
-      return { from: toISO(s), to: toISO(now) }
-    }
-    case 'last_month': {
-      const s = new Date(now.getFullYear(), now.getMonth() - 1, 1)
-      const e = new Date(now.getFullYear(), now.getMonth(), 0)
-      return { from: toISO(s), to: toISO(e) }
-    }
-    default: return { from: toISO(now), to: toISO(now) }
-  }
-}
 
 const PERIOD_LABELS: Record<PeriodPreset, string> = {
   today: 'Hoy', yesterday: 'Ayer', week: 'Semana',
@@ -229,9 +203,11 @@ export function FinanceDashboard() {
     setDeadStockValue(typeof v === 'number' && Number.isFinite(v) ? v : null)
   }, [])
 
+  // Fecha de NEGOCIO argentina (la misma que `ar_today()` en la base), no la del
+  // browser ni la de UTC: ver src/lib/businessDate.ts.
   const { from, to } = preset === 'custom'
     ? { from: customFrom, to: customTo }
-    : getDateRange(preset)
+    : getBusinessDateRange(preset)
 
   // ── Main data load ──────────────────────────────────────────────────────────
   const load = useCallback(async () => {
