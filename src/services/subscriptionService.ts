@@ -7,6 +7,7 @@
 import { supabase } from '../lib/supabase'
 import { FunctionsHttpError, FunctionsRelayError, FunctionsFetchError } from '@supabase/supabase-js'
 import { logger } from '../lib/logger'
+import { BILLING_CHECKOUT_DISABLED_MESSAGE, isBillingCheckoutEnabled } from '../config/betaBilling'
 import type {
   BusinessSubscription,
   Payment,
@@ -131,6 +132,11 @@ export async function getSubscriptionEvents(businessId: string): Promise<Subscri
 export async function createSubscription(
   req: Omit<CreateSubscriptionRequest, 'back_url'>
 ): Promise<CreateSubscriptionResponse> {
+  // BETA-1 — única puerta al checkout. Con el flag apagado no se llega a la
+  // Edge Function aunque alguna pantalla vuelva a enlazar un CTA de pago: la
+  // acción `create` además deja el negocio en `pending_activation`.
+  if (!isBillingCheckoutEnabled()) throw new Error(BILLING_CHECKOUT_DISABLED_MESSAGE)
+
   const res = await callEdge<CreateSubscriptionResponse>('create', {
     ...req,
     back_url: `${window.location.origin}/subscription/pending`,

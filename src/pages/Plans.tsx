@@ -1,6 +1,11 @@
 /**
  * Plans.tsx — Pantalla de selección de plan con checkout Mercado Pago.
  * Diseño iOS premium. Trial users ven Pro recomendado.
+ *
+ * BETA-1 — con `isBillingCheckoutEnabled()` en false la pantalla es
+ * INFORMATIVA: muestra planes y precios, pero el CTA de cada plan es un enlace
+ * al canal de ayuda y nada llama a `createSubscription`. Es el destino de todos
+ * los paywalls («Ver planes»), así que contenerla acá contiene a todos.
  */
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -8,6 +13,8 @@ import { Loader2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSubscription } from '../hooks/useSubscription'
 import { createSubscription } from '../services/subscriptionService'
+import { isBillingCheckoutEnabled } from '../config/betaBilling'
+import { SupportContactButton } from '../components/ui/SupportContactButton'
 import { PLANS, type SubscriptionPlan } from '../types/subscription'
 
 type Cycle = 'monthly' | 'annual'
@@ -44,7 +51,10 @@ const PLAN_CARD_FEATURES: Record<SubscriptionPlan, string[]> = {
 const PLAN_STYLES = {
   basico: { accent: '#64748b', border: 'rgba(100,116,139,0.2)', bg: 'rgba(100,116,139,0.04)', glow: '' },
   pro:    { accent: '#6366f1', border: 'rgba(99,102,241,0.45)', bg: 'rgba(99,102,241,0.07)', glow: '0 0 0 1px rgba(99,102,241,0.4), 0 20px 48px rgba(99,102,241,0.15)' },
-  full:   { accent: '#475569', border: 'rgba(148,163,184,0.2)', bg: 'rgba(30,41,59,0.5)',    glow: '' },
+  // BETA-1: el fondo era `rgba(30,41,59,0.5)`, un slate oscuro fijo. En el tema
+  // claro (el default) dejaba la tarjeta gris oscura con el CTA ilegible. Un
+  // neutro translúcido se lee igual sobre los dos temas.
+  full:   { accent: '#475569', border: 'rgba(148,163,184,0.2)', bg: 'rgba(100,116,139,0.08)', glow: '' },
 }
 
 function fmt(n: number) {
@@ -60,8 +70,12 @@ export function Plans() {
   const [error, setError]     = useState('')
 
   const isAnnual = cycle === 'annual'
+  const checkoutEnabled = isBillingCheckoutEnabled()
 
   async function handleSelect(planId: SubscriptionPlan) {
+    // Con el checkout apagado este handler no está enlazado a ningún control;
+    // el corte queda igual por si alguien vuelve a cablearlo.
+    if (!checkoutEnabled) return
     if (!businessId || !user?.email) return
     setError(''); setLoading(planId)
     try {
@@ -88,9 +102,9 @@ export function Plans() {
         </h1>
 
         {isTrial ? (
-          <span className="badge badge-info" style={{ display: 'inline-block', marginBottom: '0.875rem', fontSize: '0.82rem', padding: '0.4rem 1rem' }}>
+          <span className="badge badge-info" style={{ display: 'inline-block', marginBottom: '0.875rem', fontSize: '0.82rem', padding: '0.4rem 1rem', maxWidth: '100%', whiteSpace: 'normal' }}>
             {daysUntilTrialEnd !== null && daysUntilTrialEnd <= 3 && daysUntilTrialEnd > 0
-              ? `Tu prueba vence en ${daysUntilTrialEnd} día${daysUntilTrialEnd !== 1 ? 's' : ''}. Elegí un plan para mantener el acceso.`
+              ? `Tu prueba vence en ${daysUntilTrialEnd} día${daysUntilTrialEnd !== 1 ? 's' : ''}. ${checkoutEnabled ? 'Elegí un plan' : 'Escribinos'} para mantener el acceso.`
               : 'Tu prueba gratuita incluye funciones del Plan Pro'}
           </span>
         ) : currentPlan && (
@@ -99,8 +113,10 @@ export function Plans() {
           </span>
         )}
 
-        <p style={{ margin: '0 0 1.75rem', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-          Sin contratos. Cancelás cuando querés.
+        <p style={{ margin: '0 0 1.75rem', color: 'var(--text-muted)', fontSize: '0.9rem' }} data-testid="plans-subtitle">
+          {checkoutEnabled
+            ? 'Sin contratos. Cancelás cuando querés.'
+            : 'Durante la beta los planes se activan con nuestro equipo: elegí el que te sirve y escribinos.'}
         </p>
 
         {/* Toggle mensual / anual */}
@@ -195,29 +211,44 @@ export function Plans() {
                 ))}
               </div>
 
-              {/* CTA */}
-              <button
-                onClick={() => handleSelect(plan.id)}
-                disabled={!!loading}
-                className={isPro ? 'btn btn-primary btn-lift' : 'btn btn-ghost'}
-                style={{
-                  width: '100%', justifyContent: 'center', padding: '14px', fontSize: '0.9rem',
-                  opacity: loading && !isBusy ? 0.5 : 1,
-                  border: isPro ? undefined : `1px solid ${s.border}`,
-                }}
-              >
-                {isBusy ? (
-                  <Loader2 size={17} style={{ animation: 'tr-spin 0.7s linear infinite' }} />
-                ) : null}
-                {isBusy ? 'Redirigiendo...' : `Elegir ${plan.name}`}
-              </button>
+              {/* CTA — con el checkout apagado es un enlace a Ayuda, no un pago */}
+              {checkoutEnabled ? (
+                <button
+                  onClick={() => handleSelect(plan.id)}
+                  disabled={!!loading}
+                  className={isPro ? 'btn btn-primary btn-lift' : 'btn btn-ghost'}
+                  style={{
+                    width: '100%', justifyContent: 'center', padding: '14px', fontSize: '0.9rem',
+                    opacity: loading && !isBusy ? 0.5 : 1,
+                    border: isPro ? undefined : `1px solid ${s.border}`,
+                  }}
+                >
+                  {isBusy ? (
+                    <Loader2 size={17} style={{ animation: 'tr-spin 0.7s linear infinite' }} />
+                  ) : null}
+                  {isBusy ? 'Redirigiendo...' : `Elegir ${plan.name}`}
+                </button>
+              ) : (
+                <SupportContactButton
+                  label="Contactar para activar"
+                  mensaje={`Hola, quiero activar el plan ${plan.name} de TechRepair Pro.`}
+                  className={isPro ? 'btn btn-primary btn-lift' : 'btn btn-ghost'}
+                  style={{
+                    width: '100%', padding: '14px', fontSize: '0.9rem',
+                    border: isPro ? undefined : `1px solid ${s.border}`,
+                  }}
+                  data-testid={`plan-contact-${plan.id}`}
+                />
+              )}
             </div>
           )
         })}
       </div>
 
       <p style={{ textAlign: 'center', color: '#334155', fontSize: '0.78rem', marginTop: '2rem' }}>
-        Pagos procesados de forma segura por Mercado Pago · Sin contratos · Cancelás cuando querés
+        {checkoutEnabled
+          ? 'Pagos procesados de forma segura por Mercado Pago · Sin contratos · Cancelás cuando querés'
+          : 'Durante la beta no se realizan cobros desde la app · Sin contratos'}
       </p>
 
       {/* Botón volver */}

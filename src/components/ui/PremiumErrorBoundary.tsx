@@ -22,6 +22,7 @@
 
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { logger } from '../../lib/logger'
+import { canalSoporte } from '../../config/contacto'
 
 // ─── Props y State ────────────────────────────────────────────────────────────
 
@@ -144,6 +145,7 @@ interface FullFallbackProps {
 
 function FullFallback({ error, errorInfo, context, retryCount, onRetry }: FullFallbackProps) {
   const isDev = import.meta.env.DEV
+  const soporte = canalSoporte('Hola, TechRepair Pro me muestra un error y no puedo continuar.')
 
   return (
     // data-theme="dark": pantalla de error de marca, deliberadamente oscura en
@@ -199,6 +201,22 @@ function FullFallback({ error, errorInfo, context, retryCount, onRetry }: FullFa
             Recargar página
           </button>
         </div>
+
+        {/* BETA-1 — salida a Ayuda. Enlace plano a propósito: esta pantalla se
+            muestra cuando el árbol de React (router incluido) ya falló, así
+            que no puede depender de `navigate` ni de otra ruta de la app. */}
+        <p style={{ margin: 0, textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem', lineHeight: 1.6 }}>
+          ¿Sigue fallando?{' '}
+          <a
+            href={soporte.url}
+            target={soporte.tipo === 'whatsapp' ? '_blank' : undefined}
+            rel={soporte.tipo === 'whatsapp' ? 'noopener noreferrer' : undefined}
+            data-testid="error-boundary-help"
+            style={{ color: '#a5b4fc', fontWeight: 700 }}
+          >
+            {soporte.etiqueta}
+          </a>
+        </p>
 
         {/* Detalle técnico (solo dev) */}
         {isDev && error && (

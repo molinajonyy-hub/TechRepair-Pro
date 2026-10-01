@@ -21,6 +21,9 @@ import {
   type SubscriptionStatus,
 } from '../types/subscription'
 import { PLAN_FEATURES, type PlanFeature } from '../config/planFeatures'
+import { isBillingCheckoutEnabled } from '../config/betaBilling'
+import { classifySubscriptionWall, hasPaidSubscription } from '../lib/subscriptionWall'
+import { SupportContactButton } from '../components/ui/SupportContactButton'
 import { supabase } from '../lib/supabase'
 
 function StatusIcon({ status }: { status: SubscriptionStatus }) {
@@ -50,6 +53,25 @@ export function Subscription() {
 
   const status       = (subscription?.subscription_status as SubscriptionStatus) || 'pending_activation'
   const plan         = PLANS.find(p => p.id === subscription?.subscription_plan)
+
+  // ── BETA-1 ────────────────────────────────────────────────────────────────
+  // `checkoutEnabled`: con el flag apagado esta pantalla no inicia pagos.
+  // `paid`: hay una suscripción real de Mercado Pago detrás. Las acciones de
+  //   administración (verificar pago, método de pago, cancelar) operan sobre
+  //   ese preapproval: sin él no tienen sobre qué actuar, así que se ocultan.
+  //   CON él se conservan aunque el checkout esté apagado — son la única forma
+  //   de que un suscriptor real corte o corrija sus cobros, y ninguna crea un
+  //   checkout nuevo.
+  const checkoutEnabled = isBillingCheckoutEnabled()
+  const paid            = hasPaidSubscription(subscription)
+  const trialEnded      = classifySubscriptionWall({
+    ...subscription,
+    subscription_status: isSuspended ? 'suspended' : null,
+  }) === 'trial_ended'
+  const plansLabel = (fallback: string) => (checkoutEnabled ? fallback : 'Ver planes')
+  // Un trial vencido se muestra con el tono informativo del trial, no con el
+  // rojo de una suspensión por pago.
+  const displayStatus: SubscriptionStatus = trialEnded ? 'trialing' : status
 
   // Cargar cantidad de usuarios activos
   useState(() => {
@@ -139,14 +161,14 @@ export function Subscription() {
       )}
 
       {/* Status card */}
-      <div className="card" style={{ marginBottom: '1.5rem', borderColor: STATUS_COLORS[status] + '40' }}>
+      <div className="card" style={{ marginBottom: '1.5rem', borderColor: STATUS_COLORS[displayStatus] + '40' }}>
         <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
           <div style={{
             width: 64, height: 64, borderRadius: '50%',
-            background: STATUS_COLORS[status] + '18',
+            background: STATUS_COLORS[displayStatus] + '18',
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
-            <StatusIcon status={status} />
+            <StatusIcon status={displayStatus} />
           </div>
 
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -154,10 +176,17 @@ export function Subscription() {
               <h2 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.25rem' }}>
                 {plan ? `Plan ${plan.name}` : 'Sin plan activo'}
               </h2>
-              <span className="badge" style={{ background: STATUS_COLORS[status] + '20', color: STATUS_COLORS[status] }}>
-                {STATUS_LABELS[status]}
+              <span className="badge" style={{ background: STATUS_COLORS[displayStatus] + '20', color: STATUS_COLORS[displayStatus] }}>
+                {trialEnded ? 'Prueba finalizada' : STATUS_LABELS[status]}
               </span>
             </div>
+
+            {/* BETA-1: un trial vencido no es una deuda. */}
+            {trialEnded && (
+              <p style={{ color: 'var(--text-muted)', margin: '0.5rem 0 0', fontSize: '0.875rem' }} data-testid="subscription-trial-ended">
+                Tu período de prueba terminó. Tus datos siguen guardados y protegidos.
+              </p>
+            )}
 
             {/* Contextual info */}
             {isTrial && daysUntilTrialEnd !== null && (() => {
@@ -168,9 +197,13 @@ export function Subscription() {
                 <div style={{ marginTop: '0.625rem' }}>
                   <p style={{ margin: 0, fontSize: '0.875rem', color: isVencido ? '#f87171' : isUrgent ? '#fbbf24' : '#60a5fa', fontWeight: isUrgent || isVencido ? 600 : 400 }}>
                     {isVencido
-                      ? 'Tu período de prueba venció. Elegí un plan para mantener el acceso premium.'
+                      ? (checkoutEnabled
+                          ? 'Tu período de prueba venció. Elegí un plan para mantener el acceso premium.'
+                          : 'Tu período de prueba venció. Escribinos para continuar.')
                       : isUrgent
-                        ? `Tu prueba vence en ${d} día${d !== 1 ? 's' : ''}. Actualizá ahora para no perder el acceso.`
+                        ? (checkoutEnabled
+                            ? `Tu prueba vence en ${d} día${d !== 1 ? 's' : ''}. Actualizá ahora para no perder el acceso.`
+                            : `Tu prueba vence en ${d} día${d !== 1 ? 's' : ''}. Escribinos si necesitás más tiempo.`)
                         : `Período de prueba: ${d} días restantes con acceso completo al Plan Pro.`}
                   </p>
                   {(isUrgent || isVencido) && (
@@ -179,7 +212,7 @@ export function Subscription() {
                       className="btn btn-primary btn-lift"
                       style={{ marginTop: '0.5rem', padding: '0.4rem 1rem', fontSize: '0.78rem' }}
                     >
-                      {isVencido ? 'Activar plan ahora' : 'Elegir plan'}
+                      {plansLabel(isVencido ? 'Activar plan ahora' : 'Elegir plan')}
                     </button>
                   )}
                 </div>
@@ -190,7 +223,9 @@ export function Subscription() {
                 Período de gracia: {daysUntilGraceEnd} día{daysUntilGraceEnd !== 1 ? 's' : ''} restante{daysUntilGraceEnd !== 1 ? 's' : ''}
               </p>
             )}
-            {isActive && daysUntilPeriodEnd !== null && (
+            {/* «Próximo cobro» sólo si hay una suscripción que cobre: un acceso
+                otorgado a mano también tiene `current_period_end`. */}
+            {isActive && paid && daysUntilPeriodEnd !== null && (
               <p style={{ color: 'var(--text-muted)', margin: '0.5rem 0 0', fontSize: '0.875rem' }}>
                 Próximo cobro: {daysUntilPeriodEnd <= 0 ? 'hoy' : `en ${daysUntilPeriodEnd} días`}
                 {subscription?.current_period_end && ` (${new Date(subscription.current_period_end).toLocaleDateString('es-AR')})`}
@@ -203,13 +238,21 @@ export function Subscription() {
             {(isSuspended || isCanceled || isTrial) && (
               <button onClick={() => navigate('/subscription/plans')} className="btn btn-primary btn-lift">
                 <Zap size={16} />
-                {isSuspended || isCanceled ? 'Reactivar' : 'Elegir plan'}
+                {plansLabel(isSuspended || isCanceled ? 'Reactivar' : 'Elegir plan')}
               </button>
             )}
             {(isActive || isPastDue) && (
               <button onClick={() => navigate('/subscription/plans')} className="btn btn-ghost">
-                Cambiar plan
+                {plansLabel('Cambiar plan')}
               </button>
+            )}
+            {/* BETA-1: sin checkout, activar / extender / cambiar se pide por Ayuda. */}
+            {!checkoutEnabled && (
+              <SupportContactButton
+                label="Contactar soporte"
+                className="btn btn-ghost"
+                data-testid="subscription-help"
+              />
             )}
           </div>
         </div>
@@ -369,9 +412,10 @@ export function Subscription() {
         )}
       </div>
 
-      {/* Management actions */}
-      {(isActive || isPastDue || isTrial) && (
-        <div className="card" style={{ marginBottom: '1.5rem' }}>
+      {/* Management actions — BETA-1: con el checkout apagado sólo si hay una
+          suscripción real de Mercado Pago que administrar (ver `paid`). */}
+      {(isActive || isPastDue || isTrial) && (checkoutEnabled || paid) && (
+        <div className="card" style={{ marginBottom: '1.5rem' }} data-testid="subscription-management">
           <div className="card-header"><h3 className="card-title">Administrar suscripción</h3></div>
           <div className="card-body" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
             {/* Verificar pago — útil cuando el webhook tardó */}

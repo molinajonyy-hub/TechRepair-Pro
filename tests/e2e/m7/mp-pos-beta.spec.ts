@@ -50,7 +50,12 @@ test.describe('@mp-pos-beta preservation', () => {
     await page.goto('/mp/callback?code=old-code&state=forged')
     await expect(page).toHaveURL(/\/landing$/)
     await page.goto('/subscription/plans')
-    await expect(page.getByText('Pagos procesados de forma segura por Mercado Pago', { exact: false })).toBeVisible()
+    // BETA-1: la ruta sigue presente, pero con el checkout apagado Planes es
+    // informativo — ya no promete «Pagos procesados … por Mercado Pago» y cada
+    // plan ofrece contacto en lugar de un pago.
+    await expect(page.getByRole('heading', { name: 'Elegí tu plan' })).toBeVisible()
+    await expect(page.getByTestId('plan-contact-pro')).toBeVisible()
+    await expect(page.getByRole('button', { name: /^Elegir / })).toHaveCount(0)
     await page.goto('/settings')
     await expect(page.getByText('Conectar Mercado Pago', { exact: true })).toHaveCount(0)
     await expect(page.getByText('Tipo integración', { exact: true })).toHaveCount(0)

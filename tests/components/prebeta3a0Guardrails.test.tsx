@@ -31,6 +31,8 @@ const h = vi.hoisted(() => ({
     daysUntilPeriodEnd: null as number | null,
     isActive: false,
     loading: false,
+    // BETA-1: el aviso de «método de pago» exige una suscripción paga real.
+    subscription: null as { mp_preapproval_id: string } | null,
   },
 }))
 
@@ -121,6 +123,7 @@ beforeEach(() => {
   Object.assign(h.sub, {
     isTrial: true, isPastDue: false, daysUntilTrialEnd: 6,
     daysUntilGraceEnd: null, daysUntilPeriodEnd: null, isActive: false, loading: false,
+    subscription: null,
   })
 })
 
@@ -151,7 +154,7 @@ describe('C4 · banner de suscripción sólo con la capacidad `subscription`', (
     expect(screen.queryByRole('button', { name: 'Regularizar' })).toBeNull()
     pastDue.unmount()
 
-    Object.assign(h.sub, { isPastDue: false, isActive: true, daysUntilPeriodEnd: 2 })
+    Object.assign(h.sub, { isPastDue: false, isActive: true, daysUntilPeriodEnd: 2, subscription: { mp_preapproval_id: 'pre_test' } })
     montar()
     expect(screen.queryByRole('button', { name: 'Gestionar' })).toBeNull()
   })
@@ -167,7 +170,8 @@ describe('C4 · banner de suscripción sólo con la capacidad `subscription`', (
     const variantes: Array<Partial<typeof h.sub>> = [
       { isTrial: true, daysUntilTrialEnd: 6 },
       { isTrial: false, isPastDue: true, daysUntilGraceEnd: 3 },
-      { isTrial: false, isPastDue: false, isActive: true, daysUntilPeriodEnd: 2 },
+      // BETA-1: «vence tu suscripción» sólo aplica a una suscripción paga.
+      { isTrial: false, isPastDue: false, isActive: true, daysUntilPeriodEnd: 2, subscription: { mp_preapproval_id: 'pre_test' } },
     ]
     for (const v of variantes) {
       Object.assign(h.sub, v)

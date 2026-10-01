@@ -11,17 +11,25 @@
  * del plan y sus CTA (Ver planes / Regularizar / Gestionar) son del dueño: a un
  * técnico o cajero invitado le ofrecían una pantalla que después no podía usar.
  * Filtro por capacidad efectiva, nunca por nombre de rol.
+ *
+ * BETA-1 — ningún CTA del banner inicia un pago. «Ver planes» lleva a Planes,
+ * que con el checkout apagado es informativo; el texto del trial deja de pedir
+ * «elegí un plan» y pide escribirnos. El aviso de «método de pago» sólo aparece
+ * si hay una suscripción paga: un acceso otorgado a mano también tiene
+ * `current_period_end` y no tiene ningún método de pago que revisar.
  */
 import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, Clock, CreditCard, X } from 'lucide-react'
 import { useState } from 'react'
 import { useSubscription } from '../../hooks/useSubscription'
 import { usePermissions } from '../../hooks/usePermissions'
+import { isBillingCheckoutEnabled } from '../../config/betaBilling'
+import { hasPaidSubscription } from '../../lib/subscriptionWall'
 
 const CLOSE_LABEL = 'Cerrar aviso de suscripción'
 
 function BannerInner() {
-  const { isTrial, isPastDue, daysUntilTrialEnd, daysUntilGraceEnd, daysUntilPeriodEnd, isActive, loading } = useSubscription()
+  const { subscription, isTrial, isPastDue, daysUntilTrialEnd, daysUntilGraceEnd, daysUntilPeriodEnd, isActive, loading } = useSubscription()
   const { can } = usePermissions()
   const navigate = useNavigate()
   const [dismissed, setDismissed] = useState(false)
@@ -31,8 +39,9 @@ function BannerInner() {
 
   // Trial expiring soon (≤ 5 days)
   const trialEndingSoon = isTrial && daysUntilTrialEnd !== null && daysUntilTrialEnd <= 5 && daysUntilTrialEnd >= 0
-  // Period ending soon (≤ 3 days)
-  const periodEndingSoon = isActive && daysUntilPeriodEnd !== null && daysUntilPeriodEnd <= 3 && daysUntilPeriodEnd >= 0
+  // Period ending soon (≤ 3 days) — sólo para una suscripción que cobra.
+  const periodEndingSoon = isActive && hasPaidSubscription(subscription)
+    && daysUntilPeriodEnd !== null && daysUntilPeriodEnd <= 3 && daysUntilPeriodEnd >= 0
 
   if (!isTrial && !isPastDue && !trialEndingSoon && !periodEndingSoon) return null
 
@@ -69,7 +78,10 @@ function BannerInner() {
       <div style={styles.banner('#60a5fa', 'rgba(96,165,250,0.08)', 'rgba(96,165,250,0.25)')}>
         <Clock size={16} />
         <span>
-          <strong>{text}</strong> Elegí un plan para continuar sin interrupciones.
+          <strong>{text}</strong>{' '}
+          {isBillingCheckoutEnabled()
+            ? 'Elegí un plan para continuar sin interrupciones.'
+            : 'Mirá los planes y escribinos para continuar sin interrupciones.'}
         </span>
         <button onClick={() => navigate('/subscription/plans')} style={styles.actionBtn('#60a5fa')}>
           Ver planes
