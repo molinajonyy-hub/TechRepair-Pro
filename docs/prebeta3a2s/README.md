@@ -1,10 +1,16 @@
 # PRE-BETA-3A-2S — Autoridad server-side de Mayorista + Portal Clic
 
-Estado: **candidato, NO cerrado.** La parte SQL se validó en un PostgreSQL 16 local con un
-shim mínimo de Supabase (roles, `auth.uid()`, `storage`), **no** en la imagen oficial de
-Supabase (PG17). En esta sesión, los registros de imágenes estaban bloqueados (Docker Hub
-devolvió 429, ECR/ghcr devolvieron 403). La validación en el stack oficial la hace el job de
-CI `prebeta3a2s-server-authority`, que sigue pendiente. No se corrieron E2E.
+**Estado:** **CERTIFIED / READY FOR MERGE**. El cierre y la evidencia están en
+[`prebeta3a2-closeout.md`](./prebeta3a2-closeout.md).
+
+- **SIN merge, SIN deploy, SIN `db push`, SIN binding de Portal Clic.** Las migraciones todavía
+  no están aplicadas en producción. El binding se hace a mano, después del rollout.
+- El implementation head es `52d567bb4c17dfb6710c8f0d1e036c1464a17a2d`.
+  - El CI final de implementación (run 36809551100, PR #160) dio **13/13 PASS**.
+  - La certificación previa aislada (run 36806206654, PR #161, cerrado sin merge) también dio
+    **13/13 PASS**.
+  - Los dos runs incluyen el job `prebeta3a2s-server-authority` sobre Supabase oficial (PG17) y los
+    E2E.
 
 ## Contrato
 
