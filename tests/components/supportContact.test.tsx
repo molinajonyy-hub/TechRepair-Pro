@@ -1,10 +1,16 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // PRE-BETA-2D — contacto de soporte canónico (`CONTACTO_SOPORTE`).
 //
-//   SC1 /subscription/suspended muestra el canónico como mailto
+//   SC1 /subscription/suspended ofrece soporte por Ayuda, no por la casilla legal
 //   SC2 la casilla vieja `soporte@techrepairpro.com` (dominio `.com` sin MX, que
 //       no es del producto) no vuelve a ningún archivo de src/
 //   SC3 las plantillas de correo usan el mismo literal que la constante
+//
+// BETA-1 cambió SC1: la pantalla mostraba `CONTACTO_SOPORTE` como mailto, pero
+// esa casilla es el contacto LEGAL y no un canal atendido. Ahora la línea de
+// soporte lleva a /ayuda, que resuelve el canal con `canalSoporte()` (WhatsApp
+// cuando está configurado; el correo queda sólo como respaldo). La autoridad
+// sigue siendo `config/contacto.ts`.
 // ─────────────────────────────────────────────────────────────────────────────
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
@@ -14,7 +20,12 @@ import { join } from 'node:path'
 import { CONTACTO_SOPORTE } from '../../src/config/contacto'
 
 vi.mock('../../src/hooks/useSubscription', () => ({
-  useSubscription: () => ({ subscription: { subscription_status: 'suspended' } }),
+  useSubscription: () => ({
+    subscription: { subscription_status: 'suspended' },
+    loading: false,
+    isSuspended: true,
+    isCanceled: false,
+  }),
 }))
 vi.mock('../../src/contexts/AuthContext', () => ({
   useAuth: () => ({ signOut: async () => {} }),
@@ -30,11 +41,19 @@ function archivos(dir: string): string[] {
 }
 
 describe('PRE-BETA-2D · soporte canónico', () => {
-  it('SC1. la pantalla de cuenta suspendida muestra CONTACTO_SOPORTE como mailto', () => {
+  it('SC1. la pantalla de cuenta suspendida ofrece soporte por Ayuda', () => {
     render(<MemoryRouter><SubscriptionSuspended /></MemoryRouter>)
+
+    // El testid de PRE-BETA-2D se conserva; ahora lleva a Ayuda. El negocio de
+    // este test está suspendido sin trial vencido ni billing, así que Ayuda es
+    // su CTA primario («Contactar soporte»).
     const linea = screen.getByTestId('subscription-suspended-soporte')
-    expect(linea.textContent).toContain(CONTACTO_SOPORTE)
-    expect(linea.querySelector('a')?.getAttribute('href')).toBe(`mailto:${CONTACTO_SOPORTE}`)
+    expect(linea.textContent).toContain('Contactar soporte')
+    expect(linea.querySelector('a')?.getAttribute('href')).toBe('/ayuda')
+
+    // La casilla legal no se presenta como soporte en el muro.
+    expect(document.body.textContent).not.toContain(CONTACTO_SOPORTE)
+    expect(document.querySelector('a[href^="mailto:"]')).toBeNull()
     expect(document.body.textContent).not.toContain('soporte@techrepairpro.com')
   })
 

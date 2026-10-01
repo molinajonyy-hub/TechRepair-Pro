@@ -54,6 +54,7 @@ const WhatsAppPage = lazy(() => import('./pages/WhatsApp'))
 const AdminLeads = lazy(() => import('./pages/AdminLeads').then(m => ({ default: m.AdminLeads })))
 const AdminPortalClic = lazy(() => import('./pages/AdminPortalClic').then(m => ({ default: m.AdminPortalClic })))
 const AdminSubscriptions = lazy(() => import('./pages/AdminSubscriptions').then(m => ({ default: m.AdminSubscriptions })))
+const Ayuda = lazy(() => import('./pages/Ayuda').then(m => ({ default: m.Ayuda })))
 const CajaPage = lazy(() => import('./pages/CajaPage').then(m => ({ default: m.CajaPage })))
 const CuentasCorrientes = lazy(() => import('./pages/CuentasCorrientes').then(m => ({ default: m.CuentasCorrientes })))
 const CurrencySettings = lazy(() => import('./pages/CurrencySettings').then(m => ({ default: m.CurrencySettings })))
@@ -338,6 +339,10 @@ function AppContent() {
               </Route>
               <Route path="/subscription/suspended" element={<SubscriptionSuspended />} />
               <Route path="/tutorials" element={<Tutorials />} />
+              {/* BETA-1 — Ayuda: sin gate de capacidad (es para cualquier
+                  miembro) y exenta en `SubscriptionGuard`, para que el fin de
+                  la prueba tenga una salida. */}
+              <Route path="/ayuda" element={<Ayuda />} />
               <Route path="/whatsapp" element={<WhatsAppPage />} />
             </Route>
           </Route>

@@ -21,6 +21,7 @@ import {
   type SubscriptionStatus,
 } from '../types/subscription'
 import { PLAN_FEATURES, type PlanFeature } from '../config/planFeatures'
+import { classifySubscriptionWall, hasPaidSubscription } from '../lib/subscriptionWall'
 import { supabase } from '../lib/supabase'
 
 function StatusIcon({ status }: { status: SubscriptionStatus }) {
@@ -50,6 +51,18 @@ export function Subscription() {
 
   const status       = (subscription?.subscription_status as SubscriptionStatus) || 'pending_activation'
   const plan         = PLANS.find(p => p.id === subscription?.subscription_plan)
+
+  // ── BETA-1 · sólo presentación ────────────────────────────────────────────
+  // `paid`: hay una suscripción de Mercado Pago detrás. Un acceso otorgado a
+  //   mano también tiene `current_period_end`, pero no tiene un «próximo cobro».
+  // `trialEnded`: suspendida porque venció la prueba, no por falta de pago. Se
+  //   muestra con el tono informativo del trial, no con el rojo de una deuda.
+  const paid       = hasPaidSubscription(subscription)
+  const trialEnded = classifySubscriptionWall({
+    ...subscription,
+    subscription_status: isSuspended ? 'suspended' : null,
+  }) === 'trial_ended'
+  const displayStatus: SubscriptionStatus = trialEnded ? 'trialing' : status
 
   // Cargar cantidad de usuarios activos
   useState(() => {
@@ -139,14 +152,14 @@ export function Subscription() {
       )}
 
       {/* Status card */}
-      <div className="card" style={{ marginBottom: '1.5rem', borderColor: STATUS_COLORS[status] + '40' }}>
+      <div className="card" style={{ marginBottom: '1.5rem', borderColor: STATUS_COLORS[displayStatus] + '40' }}>
         <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
           <div style={{
             width: 64, height: 64, borderRadius: '50%',
-            background: STATUS_COLORS[status] + '18',
+            background: STATUS_COLORS[displayStatus] + '18',
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
-            <StatusIcon status={status} />
+            <StatusIcon status={displayStatus} />
           </div>
 
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -154,10 +167,17 @@ export function Subscription() {
               <h2 style={{ color: 'var(--text-primary)', margin: 0, fontSize: '1.25rem' }}>
                 {plan ? `Plan ${plan.name}` : 'Sin plan activo'}
               </h2>
-              <span className="badge" style={{ background: STATUS_COLORS[status] + '20', color: STATUS_COLORS[status] }}>
-                {STATUS_LABELS[status]}
+              <span className="badge" style={{ background: STATUS_COLORS[displayStatus] + '20', color: STATUS_COLORS[displayStatus] }}>
+                {trialEnded ? 'Prueba finalizada' : STATUS_LABELS[status]}
               </span>
             </div>
+
+            {/* BETA-1: un trial vencido no es una deuda. */}
+            {trialEnded && (
+              <p style={{ color: 'var(--text-muted)', margin: '0.5rem 0 0', fontSize: '0.875rem' }} data-testid="subscription-trial-ended">
+                Tu período de prueba terminó. Elegí un plan para seguir usando TechRepair Pro; tus datos siguen guardados y protegidos.
+              </p>
+            )}
 
             {/* Contextual info */}
             {isTrial && daysUntilTrialEnd !== null && (() => {
@@ -190,7 +210,9 @@ export function Subscription() {
                 Período de gracia: {daysUntilGraceEnd} día{daysUntilGraceEnd !== 1 ? 's' : ''} restante{daysUntilGraceEnd !== 1 ? 's' : ''}
               </p>
             )}
-            {isActive && daysUntilPeriodEnd !== null && (
+            {/* «Próximo cobro» sólo si hay una suscripción que cobre: un acceso
+                otorgado a mano también tiene `current_period_end`. */}
+            {isActive && paid && daysUntilPeriodEnd !== null && (
               <p style={{ color: 'var(--text-muted)', margin: '0.5rem 0 0', fontSize: '0.875rem' }}>
                 Próximo cobro: {daysUntilPeriodEnd <= 0 ? 'hoy' : `en ${daysUntilPeriodEnd} días`}
                 {subscription?.current_period_end && ` (${new Date(subscription.current_period_end).toLocaleDateString('es-AR')})`}
@@ -203,7 +225,8 @@ export function Subscription() {
             {(isSuspended || isCanceled || isTrial) && (
               <button onClick={() => navigate('/subscription/plans')} className="btn btn-primary btn-lift">
                 <Zap size={16} />
-                {isSuspended || isCanceled ? 'Reactivar' : 'Elegir plan'}
+                {/* Quien nunca tuvo un plan no «reactiva»: elige uno. */}
+                {(isSuspended || isCanceled) && !trialEnded ? 'Reactivar' : 'Elegir plan'}
               </button>
             )}
             {(isActive || isPastDue) && (

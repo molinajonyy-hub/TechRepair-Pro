@@ -44,7 +44,10 @@ const PLAN_CARD_FEATURES: Record<SubscriptionPlan, string[]> = {
 const PLAN_STYLES = {
   basico: { accent: '#64748b', border: 'rgba(100,116,139,0.2)', bg: 'rgba(100,116,139,0.04)', glow: '' },
   pro:    { accent: '#6366f1', border: 'rgba(99,102,241,0.45)', bg: 'rgba(99,102,241,0.07)', glow: '0 0 0 1px rgba(99,102,241,0.4), 0 20px 48px rgba(99,102,241,0.15)' },
-  full:   { accent: '#475569', border: 'rgba(148,163,184,0.2)', bg: 'rgba(30,41,59,0.5)',    glow: '' },
+  // BETA-1: el fondo era `rgba(30,41,59,0.5)`, un slate oscuro fijo. En el tema
+  // claro (el default) dejaba la tarjeta gris oscura con el CTA ilegible. Un
+  // neutro translúcido se lee igual sobre los dos temas.
+  full:   { accent: '#475569', border: 'rgba(148,163,184,0.2)', bg: 'rgba(100,116,139,0.08)', glow: '' },
 }
 
 function fmt(n: number) {
@@ -88,7 +91,7 @@ export function Plans() {
         </h1>
 
         {isTrial ? (
-          <span className="badge badge-info" style={{ display: 'inline-block', marginBottom: '0.875rem', fontSize: '0.82rem', padding: '0.4rem 1rem' }}>
+          <span className="badge badge-info" style={{ display: 'inline-block', marginBottom: '0.875rem', fontSize: '0.82rem', padding: '0.4rem 1rem', maxWidth: '100%', whiteSpace: 'normal' }}>
             {daysUntilTrialEnd !== null && daysUntilTrialEnd <= 3 && daysUntilTrialEnd > 0
               ? `Tu prueba vence en ${daysUntilTrialEnd} día${daysUntilTrialEnd !== 1 ? 's' : ''}. Elegí un plan para mantener el acceso.`
               : 'Tu prueba gratuita incluye funciones del Plan Pro'}

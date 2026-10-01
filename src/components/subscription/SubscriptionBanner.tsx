@@ -11,17 +11,22 @@
  * del plan y sus CTA (Ver planes / Regularizar / Gestionar) son del dueño: a un
  * técnico o cajero invitado le ofrecían una pantalla que después no podía usar.
  * Filtro por capacidad efectiva, nunca por nombre de rol.
+ *
+ * BETA-1 — el aviso de «método de pago» sólo aparece si hay una suscripción
+ * paga: un acceso otorgado a mano (SaaS Admin) también tiene
+ * `current_period_end` y no tiene ningún método de pago que revisar.
  */
 import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, Clock, CreditCard, X } from 'lucide-react'
 import { useState } from 'react'
 import { useSubscription } from '../../hooks/useSubscription'
 import { usePermissions } from '../../hooks/usePermissions'
+import { hasPaidSubscription } from '../../lib/subscriptionWall'
 
 const CLOSE_LABEL = 'Cerrar aviso de suscripción'
 
 function BannerInner() {
-  const { isTrial, isPastDue, daysUntilTrialEnd, daysUntilGraceEnd, daysUntilPeriodEnd, isActive, loading } = useSubscription()
+  const { subscription, isTrial, isPastDue, daysUntilTrialEnd, daysUntilGraceEnd, daysUntilPeriodEnd, isActive, loading } = useSubscription()
   const { can } = usePermissions()
   const navigate = useNavigate()
   const [dismissed, setDismissed] = useState(false)
@@ -31,8 +36,9 @@ function BannerInner() {
 
   // Trial expiring soon (≤ 5 days)
   const trialEndingSoon = isTrial && daysUntilTrialEnd !== null && daysUntilTrialEnd <= 5 && daysUntilTrialEnd >= 0
-  // Period ending soon (≤ 3 days)
-  const periodEndingSoon = isActive && daysUntilPeriodEnd !== null && daysUntilPeriodEnd <= 3 && daysUntilPeriodEnd >= 0
+  // Period ending soon (≤ 3 days) — sólo para una suscripción que cobra.
+  const periodEndingSoon = isActive && hasPaidSubscription(subscription)
+    && daysUntilPeriodEnd !== null && daysUntilPeriodEnd <= 3 && daysUntilPeriodEnd >= 0
 
   if (!isTrial && !isPastDue && !trialEndingSoon && !periodEndingSoon) return null
 

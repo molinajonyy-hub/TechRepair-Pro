@@ -13,8 +13,10 @@ import { useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useSubscription } from '../../hooks/useSubscription'
 
-// Paths that bypass the guard entirely
-const ALLOWED_PATHS = ['/subscription', '/settings']
+// Paths that bypass the guard entirely.
+// BETA-1: `/ayuda` también — el fin de la prueba manda a contactar soporte, y
+// el item «Ayuda» del menú no puede rebotar de vuelta al muro.
+const ALLOWED_PATHS = ['/subscription', '/settings', '/ayuda']
 
 interface Props { children: React.ReactNode }
 

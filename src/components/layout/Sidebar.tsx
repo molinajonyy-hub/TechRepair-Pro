@@ -166,6 +166,13 @@ const TutorialesIcon = () => (
     <path d="M6 12v5c3 3 9 3 12 0v-5"/>
   </svg>
 );
+const AyudaIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <circle cx="12" cy="12" r="10"/>
+    <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/>
+    <line x1="12" y1="17" x2="12.01" y2="17"/>
+  </svg>
+);
 const AdminSubsIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
@@ -276,6 +283,9 @@ const menuSections: NavSection[] = [
       { path: '/currency-settings', label: 'Moneda',        icon: <MonedaIcon />,    permission: 'settings' },
       { path: '/subscription',      label: 'Suscripción',   icon: <SuscripcionIcon />, permission: 'subscription' },
       { path: '/tutorials',         label: 'Tutoriales',    icon: <TutorialesIcon /> },
+      // BETA-1 — sin `permission`: la ayuda es para cualquier miembro. El drawer
+      // «Más» de mobile sale de esta misma lista, así que aparece en los dos.
+      { path: '/ayuda',             label: 'Ayuda',         icon: <AyudaIcon /> },
     ],
   },
   {

@@ -46,6 +46,7 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/admin/subscriptions', 'Suscripciones'],
   ['/admin/leads', 'Leads'],
   ['/tutorials', 'Tutoriales'],
+  ['/ayuda', 'Ayuda'],
   ['/whatsapp', 'WhatsApp'],
   ['/dashboard', 'Inicio'],
 ]
