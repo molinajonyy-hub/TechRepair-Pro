@@ -23,7 +23,7 @@
 // (`ar_today()`) tienen la misma regla vigente: UTC-3 todo el año, sin horario
 // de verano. Devuelven el mismo dia civil.
 // ============================================================================
-import { argentinaCivilDate } from './fiscalCalendar'
+import { argentinaCivilDate } from './fiscalCalendar.ts'
 
 export type BusinessPeriodPreset = 'today' | 'yesterday' | 'week' | 'month' | 'last_month'
 
@@ -47,6 +47,15 @@ function desdeUTC(d: Date): string {
 /** Dia civil argentino de `now` (por defecto, ahora), como YYYY-MM-DD. */
 export function businessToday(now: Date = new Date()): string {
   return argentinaCivilDate(now)
+}
+
+/**
+ * Dia de negocio al que pertenece un INSTANTE (un timestamptz como
+ * '2026-10-01T01:30:00+00:00' o un Date). Para agrupar o comparar
+ * created_at/updated_at por dia argentino. No recibe fechas de calendario.
+ */
+export function businessDateOfInstant(instant: Date | string): string {
+  return argentinaCivilDate(instant instanceof Date ? instant : new Date(instant))
 }
 
 /** `fecha` corrida `dias` dias de calendario (negativo = hacia atras). */
@@ -94,6 +103,16 @@ const ARGENTINA_UTC_OFFSET = '-03:00'
 export function businessDayStartInstant(fecha: string): string {
   partes(fecha)
   return `${fecha}T00:00:00${ARGENTINA_UTC_OFFSET}`
+}
+
+/**
+ * Texto de una fecha de calendario para mostrar ('30 sept', 'mié', 'oct').
+ * La fecha se representa y se formatea en UTC, asi que no hay zona que
+ * convertir: el dia que entra es el dia que sale, en cualquier browser.
+ */
+export function formatCalendarDate(fecha: string, opciones: Intl.DateTimeFormatOptions, locale = 'es-AR'): string {
+  const [y, m, d] = partes(fecha)
+  return new Intl.DateTimeFormat(locale, { ...opciones, timeZone: 'UTC' }).format(new Date(Date.UTC(y, m - 1, d)))
 }
 
 /**

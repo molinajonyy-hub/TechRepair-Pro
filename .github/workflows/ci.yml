@@ -172,8 +172,11 @@ jobs:
       # caja history "Hoy", dashboard sales windows and revenue, inventory
       # valuation snapshot, recurring "paid this month", finance service
       # periods) query Argentina business dates, checked on the real hooks.
-      - name: Finance — business date (ranges, recorded defaults, filters and reads)
-        run: npm run test:components -- tests/components/businessDateRange.test.ts tests/components/businessDateDefaults.test.tsx tests/components/businessDateReads.test.tsx
+      # 2C: Reports periods are Argentina calendar ranges [from, to): DATE
+      # columns get 'YYYY-MM-DD', timestamptz columns get 00:00 AR with an
+      # explicit offset; dateUtils delegates to the single business calendar.
+      - name: Finance — business date (ranges, recorded defaults, reads, reports)
+        run: npm run test:components -- tests/components/businessDateRange.test.ts tests/components/businessDateDefaults.test.tsx tests/components/businessDateReads.test.tsx tests/components/businessDateReports.test.tsx tests/components/businessDateUtils.test.ts
 
       # FISCAL DATE Part 2: the ARCA lookup runner must stay read-only. The guard
       # walks its local import graph and fails if emission, number reservation,
