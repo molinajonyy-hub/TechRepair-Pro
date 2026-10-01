@@ -6,10 +6,11 @@
  *   2. the server-side RPC `get_business_subscription_features` (encoded here as
  *      the canonical matrix), so client and DB cannot silently drift.
  *
- * PRE-BETA-3A-2: `mayorista` pasa a Pro+ por contrato de producto. El servidor
- * todavía no (ver el test «GAP PRE-BETA-3A-2S» al final): hasta que 3A-2S alinee
- * el RPC y `business_has_feature`, la matriz canónica de acá es el CONTRATO, y
- * ese test deja la divergencia a la vista en vez de esconderla.
+ * PRE-BETA-3A-2: `mayorista` pasa a Pro+ por contrato de producto.
+ * PRE-BETA-3A-2S alinea el servidor: los tests de paridad del final leen la
+ * ÚLTIMA definición migrada de `get_business_subscription_features`,
+ * `get_wholesale_portal_features`, `business_has_feature` y
+ * `private.plan_feature_enabled` y exigen la misma matriz que el cliente.
  *
  * planFeatures.ts is pure (no import.meta) so it is imported directly.
  * subscription.ts uses import.meta → its prices are read from source text.
@@ -109,14 +110,13 @@ test('FEATURE_REQUIRED_PLAN: el plan requerido tiene la feature y el inferior no
   }
 })
 
-// ── GAP PRE-BETA-3A-2S: el servidor sigue resolviendo `mayorista` Full-only ───
-// No es un test del contrato: prueba que la divergencia EXISTE en la última
-// definición migrada. Cuando PRE-BETA-3A-2S alinee el servidor, este test falla
-// a propósito y se reemplaza por la paridad (Pro+) contra esas funciones.
-function lastDefinition(fn: string): string {
+// ── PARIDAD PRE-BETA-3A-2S: el servidor resuelve la MISMA matriz ─────────────
+// Lee la ÚLTIMA definición migrada de cada función (la que queda efectiva al
+// replayar supabase/migrations en orden) y exige la matriz canónica de arriba.
+function lastDefinition(schema: string, fn: string): string {
   const dir = new URL('../../supabase/migrations/', import.meta.url)
   const files = readdirSync(dir).filter(f => f.endsWith('.sql')).sort()
-  const header = new RegExp(`CREATE OR REPLACE FUNCTION "?public"?\\."?${fn}"?\\(`, 'g')
+  const header = new RegExp(`CREATE (?:OR REPLACE )?FUNCTION "?${schema}"?\\."?${fn}"?\\(`, 'g')
   let last = ''
   for (const f of files) {
     const sql = readFileSync(new URL(f, dir), 'utf-8')
@@ -126,15 +126,36 @@ function lastDefinition(fn: string): string {
       last = sql.slice(m.index, end > 0 ? end : undefined)
     }
   }
-  assert.ok(last, `no se encontró la definición de ${fn}`)
+  assert.ok(last, `no se encontró la definición de ${schema}.${fn}`)
   return last
 }
 
-test('GAP PRE-BETA-3A-2S: business_has_feature y el RPC siguen dando mayorista sólo a Full', () => {
-  const hasFeature = lastDefinition('business_has_feature')
-  assert.match(hasFeature, /WHEN 'mayorista'\s+THEN b\.subscription_plan = 'full'/)
-  const rpc = lastDefinition('get_business_subscription_features')
-  assert.match(rpc, /'mayorista',\s+"?public"?\."?_feat_full"?\(/)
-  // …mientras el contrato del cliente ya es Pro+.
+test('PARIDAD 3A-2S: get_business_subscription_features resuelve cada feature con el tier del contrato', () => {
+  const rpc = lastDefinition('public', 'get_business_subscription_features')
+  for (const f of [...PRO_TIER, ...FULL_ONLY]) {
+    const m = rpc.match(new RegExp(`'${f}',\\s+"?public"?\\."?_feat_(pro|full)"?\\(`))
+    assert.ok(m, `el RPC no resuelve ${f}`)
+    assert.equal(m[1], PRO_TIER.includes(f) ? 'pro' : 'full', `${f}: el RPC usa _feat_${m[1]}`)
+  }
+})
+
+test('PARIDAD 3A-2S: el portal público resuelve mayorista como Pro+', () => {
+  const portal = lastDefinition('public', 'get_wholesale_portal_features')
+  assert.match(portal, /'mayorista',\s+"?public"?\."?_feat_pro"?\(/)
+  assert.doesNotMatch(portal, /'mayorista',\s+"?public"?\."?_feat_full"?\(/)
+})
+
+test('PARIDAD 3A-2S: business_has_feature delega en la única regla de plan, y mayorista es Pro+', () => {
+  const hasFeature = lastDefinition('public', 'business_has_feature')
+  assert.match(hasFeature, /private\.business_feature_enabled\(\s*public\.current_user_business_id\(\)\s*,\s*p_feature\s*\)/)
+  const rule = lastDefinition('private', 'plan_feature_enabled')
+  const branch = (f: string) => rule.match(new RegExp(`WHEN '${f}'\\s+THEN ([^\\n]+)`))?.[1].trim()
+  for (const f of [...PRO_TIER, ...FULL_ONLY]) {
+    const b = branch(f)
+    if (b === undefined) continue // sin rama propia: ELSE true (p. ej. personal_finance)
+    if (PRO_TIER.includes(f)) assert.equal(b, "p_plan IN ('pro','full') OR p_status = 'trialing'", `${f}: ${b}`)
+    else assert.equal(b, "p_plan = 'full'", `${f}: ${b}`)
+  }
+  assert.ok(branch('mayorista'), 'la regla de plan tiene una rama explícita para mayorista')
   assert.equal(PLAN_FEATURES.pro.mayorista, true)
 })
