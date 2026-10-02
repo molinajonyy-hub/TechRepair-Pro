@@ -131,8 +131,9 @@ export async function getSubscriptionEvents(businessId: string): Promise<Subscri
 // ── Create subscription (calls Edge Function) ─────────────────
 // BETA-MP: abrir el checkout es una PROPUESTA. La Edge Function registra la
 // intención en `subscription_checkout_sessions` (el navegador no escribe esa
-// tabla) y NO cambia el estado ni el plan del negocio. El acceso sólo cambia
-// cuando Mercado Pago confirma una suscripción.
+// tabla), crea el preapproval en Mercado Pago con el precio del servidor y
+// devuelve su checkout. NO cambia el estado ni el plan del negocio: el acceso
+// sólo cambia cuando Mercado Pago confirma esa suscripción.
 export async function createSubscription(
   req: Omit<CreateSubscriptionRequest, 'back_url'>
 ): Promise<CreateSubscriptionResponse> {

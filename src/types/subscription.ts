@@ -126,9 +126,9 @@ export interface MPPayment {
 
 // ─── Create subscription request (frontend → edge fn) ─────────
 // BETA-MP: esto es una PROPUESTA. El servidor valida `business_id` contra la
-// capacidad del usuario, resuelve el plan de Mercado Pago por sus secrets, toma
-// el email del pagador del JWT (ignora `payer_email`) y sólo acepta `back_url`
-// si apunta a `/subscription/pending` de un origen permitido.
+// capacidad del usuario, toma el importe y la frecuencia de SU catálogo, el email
+// del pagador del JWT (ignora `payer_email`) y sólo acepta `back_url` si apunta a
+// `/subscription/pending` de un origen permitido.
 export interface CreateSubscriptionRequest {
   business_id: string
   plan: SubscriptionPlan
@@ -137,10 +137,12 @@ export interface CreateSubscriptionRequest {
   back_url: string
 }
 
+/**
+ * El checkout del preapproval que el servidor creó en Mercado Pago para esta
+ * intención. Su id queda en el servidor: al navegador sólo le llega el enlace.
+ */
 export interface CreateSubscriptionResponse {
   init_point: string
-  /** Siempre `null`: la suscripción todavía no existe cuando se abre el checkout. */
-  preapproval_id: string | null
 }
 
 // ─── Checkout y reconciliación (edge fn → frontend) ───────────
@@ -169,6 +171,9 @@ export interface ReconcileResult {
 
 // ─── Plan catalog ─────────────────────────────────────────────
 // Precios: mensual / trimestral / anual (anual = 20% off vs mensual × 12)
+// Lo que se COBRA lo decide el servidor (`PLAN_PRICES` en
+// supabase/functions/_shared/billing/planCatalog.ts). Mensual y anual tienen que
+// coincidir con esa tabla: tests/unit/billingContracts.test.ts falla si difieren.
 export const PLANS: PlanDefinition[] = [
   {
     id: 'basico',

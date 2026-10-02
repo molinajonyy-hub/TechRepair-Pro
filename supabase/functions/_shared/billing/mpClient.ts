@@ -5,14 +5,16 @@
  * webhook y lo que manda el navegador nunca son fuente de estado.
  *
  * Endpoints usados (todos documentados por Mercado Pago):
+ *   POST /preapproval                   crear la suscripción en `pending` («sin plan
+ *                                       asociado, con pago pendiente»): devuelve el `id`
+ *                                       y el `init_point` ANTES de que alguien pague
  *   GET  /preapproval/{id}              suscripción
- *   GET  /preapproval/search            búsqueda; filtros documentados: `preapproval_plan_id`,
- *                                       `payer_email`, `payer_id`, `q`. `external_reference`
- *                                       NO es un filtro: viene en cada resultado.
  *   PUT  /preapproval/{id}              cancelar
- *   GET  /preapproval_plan/{id}         plan
  *   GET  /authorized_payments/{id}      cobro recurrente
  *   GET  /v1/payments/{id}              pago
+ *
+ * No se usa ningún endpoint de búsqueda: una suscripción se lee SIEMPRE por un
+ * id que el servidor ya conoce. Buscar por plan, email o fecha sería adivinar.
  *
  * `fetch` y el token se inyectan: el módulo no toca `Deno.env` ni la red por su
  * cuenta, así que corre igual en Deno y en los tests.
@@ -41,11 +43,16 @@ export interface MpPreapproval {
   auto_recurring?: MpAutoRecurring | null
 }
 
-export interface MpPlan {
-  id: string
-  status?: string | null
-  init_point?: string | null
-  auto_recurring?: MpAutoRecurring | null
+/** Lo que el servidor le pide a Mercado Pago al abrir un checkout. Nada de esto sale del navegador. */
+export interface NewPendingPreapproval {
+  reason: string
+  externalReference: string
+  payerEmail: string
+  backUrl: string
+  frequency: number
+  frequencyType: string
+  amount: number
+  currency: string
 }
 
 export interface MpAuthorizedPayment {
@@ -71,31 +78,48 @@ export interface MpPayment {
   date_created?: string | null
 }
 
-export interface MpSearchPage {
-  results: MpPreapproval[]
-  /** `paging.total` cuando MP lo informa. */
-  total: number | null
-}
-
 export interface MpClient {
+  /**
+   * Crea un preapproval `pending`. Devuelve lo que respondió Mercado Pago, sin
+   * validar: quien llama decide si esa respuesta sirve para abrir un checkout.
+   */
+  createPendingPreapproval(input: NewPendingPreapproval): Promise<MpPreapproval>
   /** `null` si Mercado Pago responde 404. Cualquier otra falla lanza `MpApiError`. */
   getPreapproval(id: string): Promise<MpPreapproval | null>
-  searchPreapprovalsByPlan(mpPlanId: string, page: { offset: number; limit: number }): Promise<MpSearchPage>
   cancelPreapproval(id: string): Promise<void>
-  getPlan(id: string): Promise<MpPlan | null>
   getAuthorizedPayment(id: string): Promise<MpAuthorizedPayment | null>
   getPayment(id: string): Promise<MpPayment | null>
 }
 
-/** Falla al hablar con Mercado Pago. El mensaje nunca incluye el token ni el cuerpo de MP. */
+/**
+ * Falla al hablar con Mercado Pago. El mensaje nunca incluye el token ni el
+ * cuerpo de MP. `detail` es el motivo que dio MP, recortado y sin emails: sólo
+ * va al log del servidor, para poder leer un 400 en el smoke.
+ */
 export class MpApiError extends Error {
   readonly status: number
   readonly operation: string
-  constructor(operation: string, status: number) {
+  readonly detail: string | null
+  constructor(operation: string, status: number, detail: string | null = null) {
     super(`Mercado Pago ${operation} respondió ${status}`)
     this.name = 'MpApiError'
     this.operation = operation
     this.status = status
+    this.detail = detail
+  }
+}
+
+const EMAIL_RE = /[^\s@"'<>]+@[^\s@"'<>]+/g
+
+/** `message` / `error` de una respuesta de error de MP: sin emails, a lo sumo 200 caracteres. */
+async function errorDetail(res: Response): Promise<string | null> {
+  try {
+    const body = (await res.json()) as { message?: unknown; error?: unknown } | null
+    const parts = [body?.error, body?.message].filter((p): p is string => typeof p === 'string' && p.trim() !== '')
+    if (parts.length === 0) return null
+    return parts.join(': ').replace(EMAIL_RE, '[email]').slice(0, 200)
+  } catch {
+    return null
   }
 }
 
@@ -142,21 +166,37 @@ export function createMpClient(deps: MpClientDeps): MpClient {
   const seg = (value: string) => encodeURIComponent(value)
 
   return {
-    getPreapproval: (id) => getJson<MpPreapproval>('GET preapproval', `/preapproval/${seg(id)}`),
-
-    async searchPreapprovalsByPlan(mpPlanId, page) {
-      const query = new URLSearchParams({
-        preapproval_plan_id: mpPlanId,
-        offset: String(page.offset),
-        limit: String(page.limit),
+    async createPendingPreapproval(input) {
+      const operation = 'POST preapproval'
+      const res = await call(operation, '/preapproval', {
+        method: 'POST',
+        body: JSON.stringify({
+          reason: input.reason,
+          external_reference: input.externalReference,
+          payer_email: input.payerEmail,
+          auto_recurring: {
+            frequency: input.frequency,
+            frequency_type: input.frequencyType,
+            transaction_amount: input.amount,
+            currency_id: input.currency,
+          },
+          back_url: input.backUrl,
+          // Sin medio de pago: lo carga quien paga, en el checkout de Mercado Pago.
+          status: 'pending',
+        }),
+        // La referencia es única por sesión: un reintento de red del mismo
+        // checkout no crea una segunda suscripción.
+        headers: { 'X-Idempotency-Key': `create-${input.externalReference}` },
       })
-      const body = await getJson<{ results?: unknown; paging?: { total?: unknown } }>(
-        'GET preapproval/search', `/preapproval/search?${query.toString()}`,
-      )
-      const results = Array.isArray(body?.results) ? (body.results as MpPreapproval[]) : []
-      const total = typeof body?.paging?.total === 'number' ? body.paging.total : null
-      return { results, total }
+      if (!res.ok) throw new MpApiError(operation, res.status, await errorDetail(res))
+      try {
+        return (await res.json()) as MpPreapproval
+      } catch {
+        throw new MpApiError(`${operation} (respuesta no JSON)`, res.status)
+      }
     },
+
+    getPreapproval: (id) => getJson<MpPreapproval>('GET preapproval', `/preapproval/${seg(id)}`),
 
     async cancelPreapproval(id) {
       const res = await call('PUT preapproval (cancel)', `/preapproval/${seg(id)}`, {
@@ -168,7 +208,6 @@ export function createMpClient(deps: MpClientDeps): MpClient {
       if (!res.ok) throw new MpApiError('PUT preapproval (cancel)', res.status)
     },
 
-    getPlan: (id) => getJson<MpPlan>('GET preapproval_plan', `/preapproval_plan/${seg(id)}`),
     getAuthorizedPayment: (id) => getJson<MpAuthorizedPayment>('GET authorized_payment', `/authorized_payments/${seg(id)}`),
     getPayment: (id) => getJson<MpPayment>('GET payment', `/v1/payments/${seg(id)}`),
   }
@@ -204,6 +243,16 @@ const LEDGER_STATUSES: readonly LedgerPaymentStatus[] =
 export function ledgerPaymentStatus(raw: unknown): LedgerPaymentStatus {
   const value = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
   return (LEDGER_STATUSES as readonly string[]).includes(value) ? (value as LedgerPaymentStatus) : 'pending'
+}
+
+/**
+ * El `init_point` de UN preapproval, o `null` si no sirve: tiene que ser una URL
+ * https de Mercado Pago y, si nombra un preapproval, tiene que ser ese.
+ */
+export function preapprovalCheckoutUrl(pre: MpPreapproval): string | null {
+  if (!isMercadoPagoUrl(pre.init_point)) return null
+  const named = new URL(pre.init_point).searchParams.get('preapproval_id')
+  return named === null || named === pre.id ? pre.init_point : null
 }
 
 /** `true` sólo para URLs https de un dominio de Mercado Pago. */

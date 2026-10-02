@@ -8,8 +8,17 @@
 // fija la ESTRUCTURA que esos tests no ven y que un refactor puede torcer sin
 // romperlos: que las Edge Functions sigan siendo cableado, que la autorizacion
 // vaya antes de todo, que abrir un checkout no pueda escribir el negocio, que el
-// plan salga de Mercado Pago, que el navegador no toque la tabla de checkout y
-// que ninguna migracion POSTERIOR reabra lo que cierra la 20261012120000.
+// navegador no toque la tabla de checkout y que ninguna migracion POSTERIOR
+// reabra lo que cierran la 20261012120000 y la 20261013120000.
+//
+// PLAN B (2026-10-02): el checkout por URL de un plan de Mercado Pago no conserva
+// `external_reference`, asi que el SERVIDOR crea el preapproval y guarda su id
+// antes de devolver el checkout. El guard fija esa cadena:
+//   precio del catalogo del servidor → POST /preapproval → respuesta validada →
+//   id vinculado a la sesion → recien entonces el init_point;
+// y que la activacion resuelva el negocio SOLO por ese id (nunca por
+// referencia sola, email, importe o fecha), con el plan de esa sesion y con las
+// condiciones de Mercado Pago iguales a las de la sesion.
 //
 //   node scripts/guards/beta-mp-billing-authority.mjs [--self-test]
 // ─────────────────────────────────────────────────────────────────────────────
@@ -18,6 +27,7 @@ import { join } from 'node:path'
 
 const MIG_DIR = 'supabase/migrations'
 const MIGRATION = '20261012120000_beta_mp_checkout_session_server_authority.sql'
+const PLAN_B_MIGRATION = '20261013120000_beta_mp_plan_b_session_preapproval_unique.sql'
 const BILLING = 'supabase/functions/_shared/billing'
 
 const read = (p) => readFileSync(p, 'utf8')
@@ -80,30 +90,99 @@ function inspectEdge(s) {
   if (!/rpc\('current_user_can_in_business', \{\s*p_business_id: businessId,\s*p_key: BILLING_CAPABILITY,?\s*\}\)/.test(store)) f.push('el autorizador no usa current_user_can_in_business(business, subscription)')
   if (!/return result\.data === true/.test(store)) f.push('el autorizador acepta algo distinto de un true literal')
 
-  // Abrir un checkout no escribe el negocio ni cancela nada.
-  const create = tramo(actions, 'async function createCheckout', 'function describePlanProblem') + tramo(actions, 'async function openSession', 'function isWithinTtl')
-  if (!create) f.push('no se encontro createCheckout')
-  if (/updateBusinessBilling|cancelPreapproval|applyPreapprovalEvidence/.test(create)) f.push('create escribe businesses, cancela o aplica evidencia (abrir un checkout no cambia el acceso)')
-  if (/req\.body\.(payer_email|preapproval_plan_id|preapproval_id|mp_plan_id)/.test(actions)) f.push('una accion confia en payer_email / ids de plan o preapproval mandados por el navegador')
-  if (/updateBusinessBilling\(/.test(actions)) f.push('subscriptionActions escribe businesses fuera del camino canonico')
-  if (!/const payerEmail = req\.user\.email\n/.test(actions)) f.push('el email del pagador dejo de salir del JWT')
-
-  // El plan de MP se valida contra el ciclo pedido con una tabla CERRADA de
-  // equivalencias (anual = 12 months o 1 years; mensual y trimestral, una sola).
-  if (!/if \(!matchesBillingCycleFrequency\(billingCycle, recurring\.frequency, recurring\.frequency_type\)\) return 'frequency_mismatch'/.test(actions)) {
-    f.push('create dejo de validar la frecuencia del plan de Mercado Pago contra el ciclo pedido')
+  // Abrir un checkout no escribe el negocio, no aplica evidencia y no toca la
+  // suscripcion vigente.
+  const create = tramo(actions, 'async function createCheckout', 'function checkoutProblem')
+  const openCheckout = tramo(actions, 'async function findOpenCheckout', 'async function closeSession')
+  const discard = tramo(actions, 'async function discardUnlinkedPreapproval', 'function sessionAgeMs')
+  if (!create || !openCheckout || !discard) f.push('no se encontro createCheckout / findOpenCheckout / discardUnlinkedPreapproval')
+  if (/updateBusinessBilling|applyPreapprovalEvidence/.test(create + openCheckout + discard)) f.push('create escribe businesses o aplica evidencia (abrir un checkout no cambia el acceso)')
+  if (/business\.mp_preapproval_id/.test(create + openCheckout + discard)) f.push('create mira o toca la suscripcion vigente del negocio')
+  if (/cancelPreapproval\(/.test(create + openCheckout)) f.push('create cancela un preapproval fuera de discardUnlinkedPreapproval')
+  if (!/if \(reported !== '' && reported !== reference\) return\n[\s\S]*if \(await ctx\.store\.findCheckoutSessionByPreapprovalId\(createdId\)\) return\n\s*await ctx\.mp\.cancelPreapproval\(createdId\)/.test(discard)) {
+    f.push('discardUnlinkedPreapproval puede cancelar un preapproval que no es el recien creado (otra referencia o ya vinculado a otra sesion)')
   }
+  if (/updateBusinessBilling\(/.test(actions)) f.push('subscriptionActions escribe businesses fuera del camino canonico')
+
+  // Plan B · lo que se cobra y a quien lo decide el servidor.
+  if (/req\.body\.(payer_email|preapproval_plan_id|preapproval_id|mp_preapproval_id|mp_plan_id|external_reference|amount|price|transaction_amount|currency|currency_id|frequency|frequency_type|auto_recurring|reason)\b/.test(actions)) {
+    f.push('una accion confia en un dato del navegador (payer_email, ids, referencia, importe, moneda o frecuencia)')
+  }
+  if (!/const payerEmail = req\.user\.email\n/.test(actions)) f.push('el email del pagador dejo de salir del JWT')
+  if (!/const terms = ctx\.catalog\.termsFor\(plan, billingCycle\)\n\s*if \(!terms\) \{/.test(create)) f.push('create dejo de tomar importe y frecuencia del catalogo del servidor (o ya no falla cerrado sin precio)')
+  if (!/createPendingPreapproval\(\{[\s\S]*externalReference: reference,\s*payerEmail,[\s\S]*frequency: terms\.frequency,\s*frequencyType: terms\.frequencyType,\s*amount: terms\.amount,\s*currency: terms\.currency,\s*\}\)/.test(create)) {
+    f.push('el preapproval dejo de crearse con la referencia, el pagador y las condiciones que fija el servidor')
+  }
+
+  // Plan B · la cadena: sesion → POST → respuesta validada → vinculo → checkout.
+  const paso = (marca) => create.indexOf(marca)
+  const insertar = paso('ctx.store.insertCheckoutSession(')
+  const crear = paso('ctx.mp.createPendingPreapproval(')
+  const validar = paso('checkoutProblem(created, reference, expected)')
+  const vincular = paso('ctx.store.updateCheckoutSession(session.id, { mp_preapproval_id: created.id }')
+  const entregar = paso('init_point: checkoutUrl')
+  if ([insertar, crear, validar, vincular, entregar].some((i) => i < 0)) f.push('create perdio un paso de la cadena sesion → preapproval → validacion → vinculo → checkout')
+  else if (!(insertar < crear && crear < validar && validar < vincular && vincular < entregar)) f.push('create entrega el checkout antes de guardar el id del preapproval (o valida/vincula en otro orden)')
+  if (!/const checkoutUrl = problem \? null : preapprovalCheckoutUrl\(created\)\n\s*if \(!checkoutUrl\) \{[\s\S]{0,400}return fail\(502, 'checkout_unavailable'/.test(create)) f.push('una respuesta invalida de Mercado Pago ya no corta el checkout')
+  if (!/\} catch \(error\) \{\s*await discardUnlinkedPreapproval\(ctx, created, reference\)\s*await closeSession\(ctx, session\.id, 'failed'\)\s*throw error\s*\}/.test(create)) {
+    f.push('si el vinculo no se puede guardar, create ya no falla cerrado (sin checkout y sin preapproval pagable)')
+  }
+  const validacion = tramo(actions, 'function checkoutProblem', 'type OpenCheckout')
+  for (const [regla, re] of [
+    ['estado pending', /if \(preapprovalState\(pre\.status\) !== 'pending'\) return 'not_pending'/],
+    ['referencia de la sesion', /if \(reported !== '' && reported !== reference\) return 'reference_mismatch'/],
+    ['condiciones del catalogo', /const terms = checkoutTermsProblem\(expected, pre\.auto_recurring\)\n\s*if \(terms\) return terms/],
+    ['init_point propio', /if \(!preapprovalCheckoutUrl\(pre\)\) return 'no_init_point'/],
+  ]) if (!re.test(validacion)) f.push(`checkoutProblem dejo de exigir: ${regla}`)
+
+  // La frecuencia se valida con una tabla CERRADA de equivalencias (anual = 12
+  // months o 1 years; mensual y trimestral, una sola).
   const catalog = codigo(s.catalog)
   const tabla = tramo(catalog, 'export const CYCLE_FREQUENCIES', '\n}\n').replace(/\s+/g, ' ')
   const esperada = "monthly: [{ frequency: 1, frequencyType: 'months' }], quarterly: [{ frequency: 3, frequencyType: 'months' }], annual: [{ frequency: 12, frequencyType: 'months' }, { frequency: 1, frequencyType: 'years' }],"
   if (!tabla.includes(esperada)) f.push('la tabla de frecuencias equivalentes cambio (se amplio o se achico sin evidencia de Mercado Pago)')
   if (!/\.some\(\(f\) => f\.frequency === amount && f\.frequencyType === unit\)/.test(catalog)) f.push('la frecuencia dejo de compararse de forma exacta contra la tabla')
+  const condiciones = tramo(catalog, 'export function checkoutTermsProblem', '\n}\n')
+  for (const [regla, re] of [
+    ['importe', /Math\.abs\(got - want\) >= 0\.005\) return 'amount_mismatch'/],
+    ['moneda', /currency !== expected\.currency\.trim\(\)\.toUpperCase\(\)\) return 'currency_mismatch'/],
+    ['frecuencia', /if \(!matchesBillingCycleFrequency\(expected\.billingCycle, r\.frequency, r\.frequency_type\)\) return 'frequency_mismatch'/],
+  ]) if (!re.test(condiciones)) f.push(`checkoutTermsProblem dejo de comparar: ${regla}`)
+  if (/Deno\.env|getEnv|MP_PLAN_/.test(catalog)) f.push('el catalogo volvio a depender de secrets / planes del panel de Mercado Pago')
 
-  // Un solo camino escribe el acceso, y el plan sale de Mercado Pago.
-  if (/subscription_plan:\s*session\.plan_id|subscription_plan\s*=\s*session\.plan_id/.test(pre + webhook)) f.push('el plan otorgado sale de la sesion (lo que pidio el navegador) y no de Mercado Pago')
-  if (!/const entry = ctx\.catalog\.byMpPlanId\(pre\.preapproval_plan_id\)/.test(pre)) f.push('el plan dejo de resolverse por el preapproval_plan_id de Mercado Pago')
-  if (!/if \(!entry\) return outcome\(pre, mpState, \{ \.\.\.base, kind: 'not_applied', reason: 'unknown_plan' \}\)/.test(pre)) f.push('un plan desconocido ya no falla cerrado al vincular')
-  if (!/if \(!reference\) return outcome\(pre, mpState, \{ kind: 'not_applied', reason: 'no_reference' \}\)/.test(pre)) f.push('un preapproval sin referencia valida ya no falla cerrado')
+  // Mercado Pago se lee por id. Nada de busquedas ni de planes del panel.
+  const mp = codigo(s.mpClient)
+  if (/preapproval\/search|preapproval_plan\/|payer_email=/.test(mp)) f.push('mpClient volvio a buscar suscripciones (por plan, email, etc.) o a leer planes del panel')
+  if (!/status: 'pending',/.test(tramo(mp, 'async createPendingPreapproval', 'getPreapproval:'))) f.push('el preapproval dejo de crearse en estado pending')
+
+  // Un solo camino escribe el acceso. El negocio se resuelve por el id del
+  // preapproval que el servidor vinculo; el plan es el de ESA sesion.
+  const unbound = tramo(pre, 'async function applyToUnbound', 'async function noteUnauthorized')
+  if (!/const session = await ctx\.store\.findCheckoutSessionByPreapprovalId\(pre\.id\)\n\s*if \(!session\) return outcome\(pre, mpState, \{ kind: 'not_applied', reason: 'unknown_preapproval' \}\)/.test(unbound)) {
+    f.push('un preapproval que el servidor no vinculo ya no falla cerrado (unknown_preapproval)')
+  }
+  if (/findCheckoutSessionByReference/.test(pre + webhook)) f.push('el camino canonico vuelve a resolver un negocio por external_reference (Mercado Pago puede no devolverla)')
+  if (!/if \(referenceConflicts\(pre, session\)\) \{/.test(unbound)) f.push('se dejo de contrastar la external_reference que devuelve Mercado Pago')
+  if (!/return reported !== '' && reported !== session\.external_reference/.test(pre)) f.push('referenceConflicts cambio: una referencia ausente tiene que valer y una distinta no')
+  const condicionesOk = unbound.indexOf('if (termsProblem) {')
+  const otorgar = unbound.indexOf('subscription_plan: session.plan_id,')
+  if (otorgar < 0) f.push('el plan otorgado dejo de salir de la sesion que origino el preapproval')
+  if (condicionesOk < 0 || !/const termsProblem = checkoutTermsProblem\(\s*\{ billingCycle: session\.billing_cycle, amount: session\.amount, currency: session\.currency \}, pre\.auto_recurring,\s*\)/.test(unbound)) {
+    f.push('se dejo de comparar lo que cobra Mercado Pago con las condiciones de la sesion')
+  } else if (otorgar >= 0 && condicionesOk > otorgar) f.push('el plan se otorga antes de comparar las condiciones')
+  if (!/if \(mpState !== 'authorized'\) \{/.test(unbound) || unbound.indexOf("if (mpState !== 'authorized') {") > otorgar) f.push('un preapproval que no esta authorized puede activar')
+  if (!/\.eq\('mp_preapproval_id', preapprovalId\)\.maybeSingle\(\)/.test(tramo(store, 'async findCheckoutSessionByPreapprovalId', 'async findCheckoutSessionByReference'))) {
+    f.push('la sesion dejo de buscarse por el id exacto del preapproval (maybeSingle)')
+  }
+  if (/\.(eq|ilike|like|gte|lte)\('(payer_email|mp_payer_email|amount|created_at|current_period_start)'/.test(store)) f.push('el store busca por email, importe o fecha: eso no es identidad')
+
+  // reconcile: relee por id los preapprovals de las sesiones de ESE negocio.
+  const reconcile = tramo(actions, 'async function reconcile', 'interface ReconcileFacts')
+  if (!/const pre = await ctx\.mp\.getPreapproval\(session\.mp_preapproval_id as string\)/.test(reconcile)) f.push('reconcile dejo de leer el preapproval por el id guardado en la sesion')
+  if (!/if \(!pre \|\| pre\.id !== session\.mp_preapproval_id\) continue/.test(reconcile)) f.push('reconcile aplica un preapproval que no es el de la sesion')
+  if ((reconcile.match(/applyPreapprovalEvidence\(ctx, \w+, \{ source: 'reconcile', expectBusinessId: businessId \}\)/g) ?? []).length !== 2) f.push('reconcile aplica evidencia sin fijar el negocio autorizado')
+  if (/payer_email|\.amount|date_created/.test(reconcile)) f.push('reconcile usa email, importe o fecha para encontrar un pago')
+
   for (const [nombre, src] of [['preapproval', pre], ['webhook', webhook], ['subscriptionActions', actions], ['store', store]]) {
     if (/subscription_status\s*[:=]\s*'pending_activation'/.test(src)) f.push(`${nombre}.ts escribe pending_activation`)
   }
@@ -163,6 +242,13 @@ function inspectMigraciones(s) {
   const grantACliente = /GRANT[^;]*ON\s+(TABLE\s+)?(public\.)?"?subscription_checkout_sessions"?[^;]*\bTO\b[^;]*\b(anon|authenticated|PUBLIC)\b/i
   if (grantACliente.test(sql)) f.push('la migracion le da la tabla de checkout a un rol de cliente')
 
+  // Plan B: un preapproval pertenece a una sola sesion (y por lo tanto a un solo negocio).
+  const planB = sinComentariosSql(s.planBMigration)
+  if (!/CREATE UNIQUE INDEX IF NOT EXISTS uq_scs_mp_preapproval\s+ON public\.subscription_checkout_sessions \(mp_preapproval_id\)\s+WHERE mp_preapproval_id IS NOT NULL;/.test(planB)) f.push('Plan B: falta el indice unico (mp_preapproval_id) de la sesion de checkout')
+  if (!/^BEGIN;[\s\S]*^COMMIT;\s*$/m.test(planB)) f.push('Plan B: la migracion no corre en una transaccion explicita')
+  if (/\b(UPDATE|DELETE FROM|INSERT INTO)\s+public\.(businesses|payments|subscription_events|subscription_checkout_sessions)\b/i.test(planB)) f.push('Plan B: la migracion hace DML (tenia que ser cero)')
+  if (/\b(GRANT|REVOKE|CREATE POLICY|DROP POLICY)\b/i.test(planB)) f.push('Plan B: la migracion toca grants o policies (no tenia que cambiar el acceso)')
+
   for (const { nombre, sql: crudo } of s.migraciones) {
     if (nombre <= MIGRATION) continue
     const posterior = sinComentariosSql(crudo)
@@ -170,6 +256,7 @@ function inspectMigraciones(s) {
     if (/CREATE POLICY[^;]*ON\s+(public\.)?"?subscription_checkout_sessions"?[^;]*FOR\s+(INSERT|UPDATE|ALL)/i.test(posterior)) f.push(`${nombre}: recrea una policy de escritura sobre la tabla de checkout`)
     if (/CREATE\s+UNIQUE\s+INDEX[^;]*subscription_events[^;]*\(\s*"?provider"?\s*,\s*"?event_type"?\s*,\s*"?external_id"?\s*\)/i.test(posterior)) f.push(`${nombre}: vuelve al dedupe de eventos por recurso`)
     if (/DROP INDEX[^;]*uq_subscription_events_notification/i.test(posterior)) f.push(`${nombre}: elimina el dedupe por notificacion`)
+    if (nombre > PLAN_B_MIGRATION && /DROP INDEX[^;]*uq_scs_mp_preapproval/i.test(posterior)) f.push(`${nombre}: elimina la unicidad preapproval → sesion`)
   }
   return f
 }
@@ -187,7 +274,11 @@ function estado() {
   const migraciones = readdirSync(MIG_DIR).filter((n) => n.endsWith('.sql')).sort().map((nombre) => ({ nombre, sql: read(join(MIG_DIR, nombre)) }))
   const migration = migraciones.find((m) => m.nombre === MIGRATION)
   if (!migration) throw new Error(`falta la migracion ${MIGRATION}`)
+  const planB = migraciones.find((m) => m.nombre === PLAN_B_MIGRATION)
+  if (!planB) throw new Error(`falta la migracion ${PLAN_B_MIGRATION}`)
   return {
+    planBMigration: planB.sql,
+    mpClient: read(`${BILLING}/mpClient.ts`),
     subIndex: read('supabase/functions/mp-subscription/index.ts'),
     hookIndex: read('supabase/functions/mp-webhook/index.ts'),
     actions: read(`${BILLING}/subscriptionActions.ts`),
@@ -230,16 +321,52 @@ if (process.argv.includes('--self-test')) {
     ['router: lee antes de autorizar', con('actions', '  // ── Autorización uniforme: antes de cualquier lectura o escritura ─────────\n', '  await ctx.store.getBusinessBilling(businessId)\n'), 'ANTES de autorizar'],
     ['autorizador: acepta truthy', con('store', 'return result.data === true', 'return Boolean(result.data)'), 'true literal'],
     ['autorizador: otra capacidad', con('store', 'p_key: BILLING_CAPABILITY,', "p_key: 'orders',"), 'current_user_can_in_business'],
-    ['create: escribe el negocio', con('actions', "  ctx.log({ event: 'checkout_opened'", "  await ctx.store.updateBusinessBilling(businessId, { subscription_plan: plan }, ctx.now().toISOString())\n  ctx.log({ event: 'checkout_opened'"), 'abrir un checkout'],
-    ['create: cancela la suscripcion vigente', con('actions', "  ctx.log({ event: 'checkout_opened'", "  if (business.mp_preapproval_id) await ctx.mp.cancelPreapproval(business.mp_preapproval_id)\n  ctx.log({ event: 'checkout_opened'"), 'abrir un checkout'],
-    ['create: email del body', con('actions', 'const payerEmail = req.user.email\n', 'const payerEmail = String(req.body.payer_email)\n'), 'payer_email'],
-    ['create: sin validar la frecuencia', con('actions', "  if (!matchesBillingCycleFrequency(billingCycle, recurring.frequency, recurring.frequency_type)) return 'frequency_mismatch'\n", ''), 'validar la frecuencia'],
+    ['create: escribe el negocio', con('actions', "  ctx.log({\n    event: 'checkout_opened'", "  await ctx.store.updateBusinessBilling(businessId, { subscription_plan: plan }, ctx.now().toISOString())\n  ctx.log({\n    event: 'checkout_opened'"), 'abrir un checkout'],
+    ['create: activa al abrir el checkout', con('actions', "  ctx.log({\n    event: 'checkout_opened'", "  await applyPreapprovalEvidence(ctx, created, { source: 'reconcile' })\n  ctx.log({\n    event: 'checkout_opened'"), 'abrir un checkout'],
+    ['create: cancela la suscripcion vigente', con('actions', "  ctx.log({\n    event: 'checkout_opened'", "  if (business.mp_preapproval_id) await ctx.mp.cancelPreapproval(business.mp_preapproval_id)\n  ctx.log({\n    event: 'checkout_opened'"), 'suscripcion vigente'],
+    ['create: email del body', con('actions', 'const payerEmail = req.user.email\n', 'const payerEmail = String(req.body.payer_email)\n'), 'dato del navegador'],
+    ['create: importe del body', con('actions', '  const terms = ctx.catalog.termsFor(plan, billingCycle)\n', '  const terms = { ...ctx.catalog.termsFor(plan, billingCycle)!, amount: Number(req.body.amount) }\n'), 'dato del navegador'],
+    ['create: importe fijo, sin catalogo', con('actions', '  const terms = ctx.catalog.termsFor(plan, billingCycle)\n', "  const terms = { amount: 1, currency: 'ARS', frequency: 1, frequencyType: 'months' as const }\n"), 'catalogo del servidor'],
+    ['create: referencia del body', con('actions', '      externalReference: reference,\n', '      externalReference: String(req.body.external_reference),\n'), 'dato del navegador'],
+    ['create: cobra otro importe que el de la sesion', con('actions', '      amount: terms.amount,\n      currency: terms.currency,\n    })\n  } catch (error) {\n    await closeSession', '      amount: 1,\n      currency: terms.currency,\n    })\n  } catch (error) {\n    await closeSession'), 'condiciones que fija el servidor'],
+    ['create: entrega el checkout sin guardar el id', con('actions', '    await ctx.store.updateCheckoutSession(session.id, { mp_preapproval_id: created.id }, ctx.now().toISOString())\n', '    await Promise.resolve()\n'), 'perdio un paso'],
+    ['create: guarda el id DESPUES de armar la respuesta', {
+      ...base,
+      actions: mutar(
+        mutar(base.actions, '    await ctx.store.updateCheckoutSession(session.id, { mp_preapproval_id: created.id }, ctx.now().toISOString())\n', '    await Promise.resolve()\n'),
+        '  return { status: 200, body: { init_point: checkoutUrl, checkout: summary } }\n}',
+        '  const respuesta = { status: 200, body: { init_point: checkoutUrl, checkout: summary } }\n  void ctx.store.updateCheckoutSession(session.id, { mp_preapproval_id: created.id }, ctx.now().toISOString())\n  return respuesta\n}',
+      ),
+    }, 'antes de guardar el id'],
+    ['create: no valida la respuesta de Mercado Pago', con('actions', '  const checkoutUrl = problem ? null : preapprovalCheckoutUrl(created)\n', '  const checkoutUrl = preapprovalCheckoutUrl(created)\n'), 'respuesta invalida'],
+    ['create: el vinculo falla y sigue', con('actions', "    await discardUnlinkedPreapproval(ctx, created, reference)\n    await closeSession(ctx, session.id, 'failed')\n    throw error\n  }\n\n  ctx.log({", "    await discardUnlinkedPreapproval(ctx, created, reference)\n    await closeSession(ctx, session.id, 'failed')\n  }\n\n  ctx.log({"), 'ya no falla cerrado'],
+    ['discard: cancela el preapproval de otra sesion', con('actions', '    if (await ctx.store.findCheckoutSessionByPreapprovalId(createdId)) return\n', ''), 'no es el recien creado'],
+    ['discard: cancela aunque lleve otra referencia', con('actions', "  if (reported !== '' && reported !== reference) return\n  try {", '  try {'), 'no es el recien creado'],
+    ['checkout: acepta un preapproval ya authorized', con('actions', "  if (preapprovalState(pre.status) !== 'pending') return 'not_pending'\n", ''), 'dejo de exigir: estado pending'],
+    ['checkout: acepta otra referencia', con('actions', "  if (reported !== '' && reported !== reference) return 'reference_mismatch'\n", ''), 'dejo de exigir: referencia'],
+    ['checkout: no compara las condiciones', con('actions', '  if (terms) return terms\n', ''), 'dejo de exigir: condiciones'],
+    ['checkout: cualquier init_point', con('actions', "  if (!preapprovalCheckoutUrl(pre)) return 'no_init_point'\n", ''), 'dejo de exigir: init_point'],
     ['frecuencia: cualquier cantidad de years es anual', con('catalog', 'f.frequency === amount && f.frequencyType === unit', 'f.frequencyType === unit'), 'forma exacta'],
     ['frecuencia: mensual acepta 1 years', con('catalog', "monthly:   [{ frequency: 1, frequencyType: 'months' }],", "monthly:   [{ frequency: 1, frequencyType: 'months' }, { frequency: 1, frequencyType: 'years' }],"), 'tabla de frecuencias'],
     ['frecuencia: el anual pierde 1 years', con('catalog', ", { frequency: 1, frequencyType: 'years' }],", '],'), 'tabla de frecuencias'],
-    ['plan desde la sesion', con('preapproval', "    subscription_plan: entry.plan,\n    subscription_provider: 'mercadopago',", "    subscription_plan: session.plan_id,\n    subscription_provider: 'mercadopago',"), 'lo que pidio el navegador'],
-    ['plan desconocido activa', con('preapproval', "  if (!entry) return outcome(pre, mpState, { ...base, kind: 'not_applied', reason: 'unknown_plan' })\n\n  if (session.status === 'paid')", "  if (session.status === 'paid')"), 'plan desconocido'],
-    ['sin referencia vincula igual', con('preapproval', "  if (!reference) return outcome(pre, mpState, { kind: 'not_applied', reason: 'no_reference' })\n", ''), 'sin referencia'],
+    ['condiciones: no compara el importe', con('catalog', "Math.abs(got - want) >= 0.005) return 'amount_mismatch'", "false) return 'amount_mismatch'"), 'dejo de comparar: importe'],
+    ['condiciones: no compara la moneda', con('catalog', "currency !== expected.currency.trim().toUpperCase()) return 'currency_mismatch'", "false) return 'currency_mismatch'"), 'dejo de comparar: moneda'],
+    ['condiciones: no compara la frecuencia', con('catalog', "  if (!matchesBillingCycleFrequency(expected.billingCycle, r.frequency, r.frequency_type)) return 'frequency_mismatch'\n", ''), 'dejo de comparar: frecuencia'],
+    ['catalogo: vuelve a los planes del panel', con('catalog', 'export const BILLING_CURRENCY', "export const planDelPanel = (getEnv: (k: string) => string) => getEnv('MP_PLAN_PRO_MONTHLY')\nexport const BILLING_CURRENCY"), 'planes del panel'],
+    ['mp: busca suscripciones por email', con('mpClient', '// ── Normalización de estados', "export const buscar = (email: string) => fetch(`https://api.mercadopago.com/preapproval/search?payer_email=${email}`)\n// ── Normalización de estados"), 'volvio a buscar'],
+    ['mp: crea el preapproval ya authorized', con('mpClient', "          status: 'pending',", "          status: 'authorized',"), 'crearse en estado pending'],
+    ['canonico: un id desconocido vincula por referencia', con('preapproval', "  if (!session) return outcome(pre, mpState, { kind: 'not_applied', reason: 'unknown_preapproval' })\n", "  if (!session && !(await ctx.store.findCheckoutSessionByReference(reportedReference(pre)))) return outcome(pre, mpState, { kind: 'not_applied', reason: 'unknown_preapproval' })\n"), 'por external_reference'],
+    ['canonico: un id desconocido no falla cerrado', con('preapproval', "  if (!session) return outcome(pre, mpState, { kind: 'not_applied', reason: 'unknown_preapproval' })\n", "  if (!session) throw new Error('sin sesion')\n"), 'unknown_preapproval'],
+    ['canonico: no contrasta la referencia de MP', con('preapproval', '  if (referenceConflicts(pre, session)) {', '  if (false) {'), 'dejo de contrastar'],
+    ['canonico: exige la referencia (Mercado Pago no la devuelve)', con('preapproval', "return reported !== '' && reported !== session.external_reference", 'return reported !== session.external_reference'), 'referenceConflicts cambio'],
+    ['canonico: no compara las condiciones', con('preapproval', '  if (termsProblem) {', '  if (false) {'), 'se dejo de comparar lo que cobra'],
+    ['canonico: plan fijo en vez del de la sesion', con('preapproval', '    subscription_plan: session.plan_id,\n', "    subscription_plan: 'full',\n"), 'dejo de salir de la sesion'],
+    ['canonico: pending activa', con('preapproval', "  if (mpState !== 'authorized') {", "  if (mpState === 'cancelled') {"), 'no esta authorized'],
+    ['store: busca la sesion por email del pagador', con('store', '/** Capacidad canónica', "export const porEmail = (c: SupabaseLike, email: string) => c.from('subscription_checkout_sessions').select('id').eq('payer_email', email)\n/** Capacidad canónica"), 'no es identidad'],
+    ['store: la sesion por preapproval admite varias filas', con('store', ".select(SESSION_COLUMNS)\n        .eq('mp_preapproval_id', preapprovalId).maybeSingle())", ".select(SESSION_COLUMNS)\n        .eq('mp_preapproval_id', preapprovalId).limit(1).maybeSingle())"), 'id exacto'],
+    ['reconcile: no fija el negocio', con('actions', "    const applied = await applyPreapprovalEvidence(ctx, pre, { source: 'reconcile', expectBusinessId: businessId })", "    const applied = await applyPreapprovalEvidence(ctx, pre, { source: 'reconcile' })"), 'sin fijar el negocio'],
+    ['reconcile: aplica un preapproval que no es el de la sesion', con('actions', '    if (!pre || pre.id !== session.mp_preapproval_id) continue\n', '    if (!pre) continue\n'), 'no es el de la sesion'],
+    ['reconcile: busca por email', con('actions', '  // 1. La suscripción ya vinculada al negocio.\n  if (before.mp_preapproval_id) {', '  const porEmail = before.mp_payer_email ?? req_payer_email\n  if (before.mp_preapproval_id) {'), 'email, importe o fecha'],
     ['vuelve pending_activation', con('preapproval', "    if (current !== 'trialing') patch.subscription_status = 'canceled'", "    if (current !== 'trialing') patch.subscription_status = 'pending_activation'"), 'pending_activation'],
     ['sin guarda de orden', con('preapproval', 'if (isStale(pre.last_modified, business.mp_last_modified)) {', 'if (false) {'), 'fuera de orden'],
     ['dedupe sin notificacion', con('webhook', '    notification_id: notification.notificationId,\n', ''), 'por notificacion'],
@@ -259,6 +386,10 @@ if (process.argv.includes('--self-test')) {
     ['posterior: policy de insert', posterior('CREATE POLICY scs_insert ON public.subscription_checkout_sessions FOR INSERT WITH CHECK (true);'), 'policy de escritura'],
     ['posterior: dedupe por recurso', posterior('CREATE UNIQUE INDEX uq_x ON public.subscription_events (provider, event_type, external_id) WHERE external_id IS NOT NULL;'), 'por recurso'],
     ['posterior: borra el dedupe', posterior('DROP INDEX public.uq_subscription_events_notification;'), 'dedupe por notificacion'],
+    ['Plan B: el indice deja de ser unico', con('planBMigration', 'CREATE UNIQUE INDEX IF NOT EXISTS uq_scs_mp_preapproval', 'CREATE INDEX IF NOT EXISTS uq_scs_mp_preapproval'), 'falta el indice unico'],
+    ['Plan B: la migracion vincula a mano el smoke', con('planBMigration', 'COMMIT;\n', "UPDATE public.businesses SET mp_preapproval_id = '33b5f5ad' WHERE name = 'x';\nCOMMIT;\n"), 'Plan B: la migracion hace DML'],
+    ['Plan B: la migracion abre la tabla', con('planBMigration', 'COMMIT;\n', 'GRANT SELECT ON TABLE public.subscription_checkout_sessions TO authenticated;\nCOMMIT;\n'), 'toca grants o policies'],
+    ['posterior: borra la unicidad preapproval → sesion', posterior('DROP INDEX IF EXISTS public.uq_scs_mp_preapproval;'), 'unicidad preapproval'],
   ]
   for (const [nombre, st, esperado] of casos) {
     const hits = run(st)
@@ -274,4 +405,4 @@ if (fallas.length) {
   for (const x of fallas) console.error(`- ${x}`)
   process.exit(1)
 }
-console.log('BETA-MP guard OK: Edge Functions como cableado, autorizacion uniforme antes de todo, checkout sin escritura de businesses, plan desde Mercado Pago, webhook con firma obligatoria e idempotencia por notificacion, navegador sin acceso a la sesion de checkout, migraciones sin reapertura.')
+console.log('BETA-MP guard OK: Edge Functions como cableado, autorizacion uniforme antes de todo, checkout sin escritura de businesses, preapproval creado por el servidor y vinculado antes de responder, activacion por id de preapproval (sin referencia sola, email, importe ni fecha) con el plan y las condiciones de la sesion, webhook con firma obligatoria e idempotencia por notificacion, navegador sin acceso a la sesion de checkout, migraciones sin reapertura.')

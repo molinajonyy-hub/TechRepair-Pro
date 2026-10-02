@@ -11,6 +11,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { PLAN_PRICES, buildPlanCatalog } from '../../supabase/functions/_shared/billing/planCatalog.ts'
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf-8')
 
@@ -18,7 +19,11 @@ const webhook    = read('../../supabase/functions/mp-webhook/index.ts')
 const webhookLib = read('../../supabase/functions/_shared/billing/webhook.ts')
 const store      = read('../../supabase/functions/_shared/billing/store.ts')
 const canonical  = read('../../supabase/functions/_shared/billing/preapproval.ts')
+const actions    = read('../../supabase/functions/_shared/billing/subscriptionActions.ts')
+const mpClient   = read('../../supabase/functions/_shared/billing/mpClient.ts')
 const service    = read('../../src/services/subscriptionService.ts')
+const types      = read('../../src/types/subscription.ts')
+const plansPage  = read('../../src/pages/Plans.tsx')
 // NOTE: estas migraciones se archivaron a migrations/_legacy/ en el baseline
 // (Fase 0). El CLI las ignora; siguen siendo evidencia y se leen desde ahí.
 const trigger   = read('../../supabase/migrations/_legacy/20260623140000_billing_stageD_protect_trigger.sql')
@@ -46,6 +51,43 @@ test('webhook usa claim idempotente (unique 23505 + upsert onConflict)', () => {
 
 test('webhook tolera eventos fuera de orden (isStale)', () => {
   assert.match(canonical, /isStale\(/)
+})
+
+// ── Plan B: el precio que se cobra es el que se muestra ─────────────────────
+// El servidor crea el preapproval con `PLAN_PRICES`; Planes muestra `PLANS`. Son
+// dos tablas (Deno y Vite no comparten módulos): si difieren, el cliente ve un
+// precio y Mercado Pago cobra otro. Este contrato es la guarda contra ese drift.
+test('PLAN_PRICES (servidor) coincide con PLANS (pantalla de Planes), mensual y anual', () => {
+  const precioEnPantalla = (plan: string, ciclo: 'monthly' | 'annual'): number => {
+    const bloque = types.slice(types.indexOf(`id: '${plan}'`))
+    const match = bloque.match(new RegExp(`price_${ciclo}:\\s*([\\d_]+)`))
+    assert.ok(match, `PLANS no tiene price_${ciclo} para ${plan}`)
+    return Number(match[1].replaceAll('_', ''))
+  }
+  assert.deepEqual(Object.keys(PLAN_PRICES).sort(), ['basico', 'full', 'pro'])
+  for (const plan of ['basico', 'pro', 'full'] as const) {
+    for (const ciclo of ['monthly', 'annual'] as const) {
+      assert.equal(PLAN_PRICES[plan][ciclo], precioEnPantalla(plan, ciclo), `${plan}/${ciclo}: el servidor cobra otro importe que el que muestra Planes`)
+    }
+  }
+})
+
+test('el servidor no vende un ciclo que Planes no ofrece (trimestral sin precio)', () => {
+  for (const plan of ['basico', 'pro', 'full'] as const) {
+    assert.equal(PLAN_PRICES[plan].quarterly, undefined)
+    assert.equal(buildPlanCatalog().termsFor(plan, 'quarterly'), null)
+  }
+  assert.match(plansPage, /type Cycle = 'monthly' \| 'annual'/)
+})
+
+test('create no lee importe, moneda, frecuencia ni referencia del body', () => {
+  assert.doesNotMatch(actions, /req\.body\.(amount|price|transaction_amount|currency|currency_id|frequency|frequency_type|auto_recurring|external_reference|reason)\b/)
+  assert.match(actions, /const terms = ctx\.catalog\.termsFor\(plan, billingCycle\)/)
+})
+
+test('Mercado Pago se lee por id: no hay endpoints de búsqueda ni planes del panel', () => {
+  assert.doesNotMatch(mpClient, /preapproval\/search|preapproval_plan\/|searchPreapprovals/)
+  assert.doesNotMatch(actions + canonical + webhookLib, /MP_PLAN_|byMpPlanId|mpPlanIdFor/)
 })
 
 // ── Frontend: no direct writes to subscription columns ──────────────────────

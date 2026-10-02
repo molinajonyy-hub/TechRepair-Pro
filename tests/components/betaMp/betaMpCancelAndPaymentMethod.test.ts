@@ -96,7 +96,25 @@ describe('cancel', () => {
     expect(w.db.business(TRIAL).subscription_status).toBe('trialing')
   })
 
-  it('si el preapproval que devuelve MP pertenece a la sesión de OTRO negocio → 409, sin cancelar', async () => {
+  it('Mercado Pago no devuelve la referencia: cancela igual, el vínculo es el id del negocio', async () => {
+    w.mp.dropsExternalReference = true
+    const res = await cancel()
+    expect(res.status).toBe(200)
+    expect(w.mp.preapprovals.get('pre_a')?.status).toBe('cancelled')
+    expect(biz().subscription_status).toBe('canceled')
+  })
+
+  it('si la sesión que originó el preapproval del negocio es de OTRO negocio → 409, sin cancelar', async () => {
+    // Inconsistencia de datos forzada: la sesión de pre_a figura a nombre de B.
+    w.sessionOf('pre_a').business_id = BIZ_B
+    const res = await cancel()
+    expect(res.status).toBe(409)
+    expect(res.body.code).toBe('subscription_mismatch')
+    expect(w.mp.callsTo('PUT', '/preapproval/')).toEqual([])
+    expect(biz().subscription_status).toBe('active')
+  })
+
+  it('si el preapproval que devuelve MP lleva la referencia de la sesión de OTRO negocio → 409, sin cancelar', async () => {
     // Inconsistencia de datos: A apunta al preapproval de la sesión de B.
     const referenciaDeB = w.db.tables.subscription_checkout_sessions.find((s) => s.business_id === BIZ_B)!.external_reference
     w.mp.preapprovals.get('pre_a')!.external_reference = referenciaDeB
@@ -151,6 +169,21 @@ describe('update_payment_method', () => {
   it('una referencia vieja con el id de OTRO negocio → 409', async () => {
     w.mp.preapprovals.get('pre_a')!.external_reference = BIZ_B
     expect((await link()).status).toBe(409)
+  })
+
+  it('una suscripción vinculada sin sesión de origen: una referencia con el id de OTRO negocio → 409', async () => {
+    w.sessionOf('pre_a').mp_preapproval_id = null
+    w.mp.preapprovals.get('pre_a')!.external_reference = BIZ_B
+    expect((await link()).status).toBe(409)
+    w.mp.preapprovals.get('pre_a')!.external_reference = BIZ_A
+    expect((await link()).status).toBe(200)
+  })
+
+  it('el init_point de OTRO preapproval no se devuelve', async () => {
+    w.mp.preapprovals.get('pre_a')!.init_point = 'https://www.mercadopago.com.ar/subscriptions/checkout?preapproval_id=pre_b'
+    const res = await link()
+    expect(res.status).toBe(502)
+    expect(res.body.init_point).toBeUndefined()
   })
 
   it('un init_point que no es de Mercado Pago no se devuelve', async () => {

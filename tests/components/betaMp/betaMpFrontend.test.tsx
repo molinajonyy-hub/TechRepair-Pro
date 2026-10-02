@@ -246,12 +246,21 @@ describe('P · PaymentPending no es autoridad de activación', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 describe('S · servicio: el navegador propone, no registra', () => {
   it('createSubscription no escribe subscription_checkout_sessions ni ninguna otra tabla', async () => {
-    h.invoke.mockResolvedValue({ data: { init_point: '#mp', preapproval_id: null }, error: null })
+    h.invoke.mockResolvedValue({ data: { init_point: '#mp', checkout: { status: 'pending', plan: 'full', billing_cycle: 'monthly' } }, error: null })
     const res = await createSubscription({ business_id: 'biz-beta-mp', plan: 'full', billing_cycle: 'monthly', payer_email: 'owner@invalid.test' })
 
     expect(res.init_point).toBe('#mp')
     expect(h.from).not.toHaveBeenCalled()
     expect(h.invoke).toHaveBeenCalledTimes(1)
+  })
+
+  it('createSubscription sólo propone negocio, plan y ciclo: ni importe, ni referencia, ni preapproval', async () => {
+    h.invoke.mockResolvedValue({ data: { init_point: '#mp' }, error: null })
+    await createSubscription({ business_id: 'biz-beta-mp', plan: 'pro', billing_cycle: 'annual', payer_email: 'owner@invalid.test' })
+
+    const enviado = h.invoke.mock.calls[0][1].body as Record<string, unknown>
+    expect(Object.keys(enviado).sort()).toEqual(['action', 'back_url', 'billing_cycle', 'business_id', 'payer_email', 'plan'])
+    expect(enviado).toMatchObject({ action: 'create', plan: 'pro', billing_cycle: 'annual' })
   })
 
   it('getCheckoutStatus lee el estado por la Edge Function (`status`), no por la tabla', async () => {

@@ -2,23 +2,24 @@
 // BETA-MP · Mercado Pago simulado, a nivel HTTP.
 //
 // Responde a las mismas rutas que usa `_shared/billing/mpClient.ts`, así que el
-// cliente real (URLs, headers, parseo, manejo de 404/5xx) también queda bajo
-// prueba. Lo comparten los tests de vitest y la matriz contra el stack local
-// (`scripts/billing/beta-mp-local.mjs`), por eso usa sólo sintaxis TypeScript
-// borrable: Node lo importa sin transpilar.
+// cliente real (URLs, headers, cuerpo del POST, parseo, manejo de 404/5xx)
+// también queda bajo prueba. Lo comparten los tests de vitest y la matriz contra
+// el stack local (`scripts/billing/beta-mp-local.mjs`), por eso usa sólo sintaxis
+// TypeScript borrable: Node lo importa sin transpilar.
 //
-// NO es Mercado Pago. Modela lo que la documentación dice de cada endpoint; lo
-// que MP hace de verdad con el checkout de un plan se mide en el smoke.
+// NO es Mercado Pago. Modela lo que la documentación dice de cada endpoint más lo
+// que se midió en el smoke real del 2026-10-02 (ver `dropsExternalReference`).
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type MpRow = Record<string, unknown>
-export interface MpCall { method: string; path: string }
+export interface MpCall { method: string; path: string; body?: MpRow; idempotencyKey?: string | null }
 
 export const FAKE_MP_TOKEN = 'TEST-token'
 
+const CHECKOUT_BASE = 'https://www.mercadopago.com.ar/subscriptions/checkout'
+
 export class FakeMercadoPago {
   preapprovals = new Map<string, MpRow>()
-  plans = new Map<string, MpRow>()
   authorizedPayments = new Map<string, MpRow>()
   payments = new Map<string, MpRow>()
   calls: MpCall[] = []
@@ -28,9 +29,20 @@ export class FakeMercadoPago {
   cancelIsIgnored = false
   /** El PUT de cancelación responde 500. */
   cancelFails = false
-  /** Simula que /preapproval/search ignora `offset` (devuelve siempre la primera página). */
-  searchIgnoresOffset = false
+  /** `POST /preapproval` responde este status con un cuerpo de error de MP. */
+  createFailsWith: number | null = null
+  /**
+   * Mercado Pago NO devuelve `external_reference` (ni al crear ni al leer). Es lo
+   * que se midió en el smoke real del 2026-10-02 para el checkout de un plan:
+   * el preapproval quedó `authorized` con la referencia vacía.
+   */
+  dropsExternalReference = false
+  /** Altera la respuesta de `POST /preapproval` antes de devolverla (y de guardarla). */
+  tamperCreated: ((row: MpRow) => void) | null = null
+  /** Ids que usará `POST /preapproval`, en orden. Sin cola: `pre_auto_<n>`. */
+  nextIds: string[] = []
   now: () => Date
+  private seq = 0
 
   constructor(now: () => Date) {
     this.now = now
@@ -40,93 +52,103 @@ export class FakeMercadoPago {
     return this.calls.filter((c) => c.method === method && c.path.startsWith(pathPrefix))
   }
 
+  /** Los `POST /preapproval` que llegaron, con su cuerpo. */
+  created(): MpCall[] {
+    return this.calls.filter((c) => c.method === 'POST' && c.path === '/preapproval')
+  }
+
+  private view(row: MpRow): MpRow {
+    return this.dropsExternalReference ? { ...row, external_reference: '' } : row
+  }
+
   fetchImpl = async (input: string, init?: RequestInit): Promise<Response> => {
     const url = new URL(input)
     const method = (init?.method ?? 'GET').toUpperCase()
-    this.calls.push({ method, path: url.pathname + url.search })
-    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
+    const headers = new Headers(init?.headers)
+    const body = init?.body ? JSON.parse(String(init.body)) as MpRow : undefined
+    this.calls.push({ method, path: url.pathname + url.search, body, idempotencyKey: headers.get('x-idempotency-key') })
+    const json = (payload: unknown, status = 200) => new Response(JSON.stringify(payload), { status })
     if (this.down) return json({ message: 'internal error' }, 500)
-    const auth = new Headers(init?.headers).get('authorization')
-    if (auth !== `Bearer ${FAKE_MP_TOKEN}`) return json({ message: 'unauthorized' }, 401)
+    if (headers.get('authorization') !== `Bearer ${FAKE_MP_TOKEN}`) return json({ message: 'unauthorized' }, 401)
 
-    if (method === 'GET' && url.pathname === '/preapproval/search') {
-      const planId = url.searchParams.get('preapproval_plan_id')
-      const offset = this.searchIgnoresOffset ? 0 : Number(url.searchParams.get('offset') ?? 0)
-      const limit = Number(url.searchParams.get('limit') ?? 20)
-      const all = [...this.preapprovals.values()].filter((p) => p.preapproval_plan_id === planId)
-      return json({ paging: { offset, limit, total: all.length }, results: all.slice(offset, offset + limit) })
+    if (method === 'POST' && url.pathname === '/preapproval') {
+      if (this.createFailsWith !== null) {
+        return json({ message: 'Invalid value for payer_email: alguien@invalid.test', error: 'bad_request', status: this.createFailsWith }, this.createFailsWith)
+      }
+      const request = body ?? {}
+      // La misma clave de idempotencia devuelve el mismo recurso.
+      const key = headers.get('x-idempotency-key')
+      const replay = key ? [...this.preapprovals.values()].find((p) => p.__idempotency_key === key) : undefined
+      if (replay) return json(this.view(replay), 201)
+
+      const id = this.nextIds.shift() ?? `pre_auto_${(this.seq += 1)}`
+      const nowIso = this.now().toISOString()
+      const row: MpRow = {
+        id, status: request.status ?? 'pending', preapproval_plan_id: null,
+        reason: request.reason ?? null,
+        external_reference: request.external_reference ?? null,
+        payer_email: request.payer_email ?? null,
+        back_url: request.back_url ?? null,
+        auto_recurring: request.auto_recurring ?? null,
+        date_created: nowIso, last_modified: nowIso, next_payment_date: null,
+        init_point: `${CHECKOUT_BASE}?preapproval_id=${id}`,
+        __idempotency_key: key,
+      }
+      this.tamperCreated?.(row)
+      if (typeof row.id === 'string' && row.id) this.preapprovals.set(row.id, row)
+      return json(this.view(row), 201)
     }
-    const one = (prefix: string, store: Map<string, MpRow>) => {
+
+    const one = (prefix: string, store: Map<string, MpRow>, map: (row: MpRow) => MpRow = (row) => row) => {
       if (!url.pathname.startsWith(prefix)) return null
       const row = store.get(decodeURIComponent(url.pathname.slice(prefix.length)))
-      return row ? json(row) : json({ message: 'not found' }, 404)
+      return row ? json(map(row)) : json({ message: 'not found' }, 404)
     }
     if (method === 'PUT' && url.pathname.startsWith('/preapproval/')) {
       const row = this.preapprovals.get(decodeURIComponent(url.pathname.slice('/preapproval/'.length)))
       if (!row) return json({ message: 'not found' }, 404)
       if (this.cancelFails) return json({ message: 'internal error' }, 500)
-      const body = JSON.parse(String(init?.body ?? '{}')) as MpRow
-      if (!this.cancelIsIgnored && body.status === 'cancelled') {
+      if (!this.cancelIsIgnored && body?.status === 'cancelled') {
         row.status = 'cancelled'
         row.last_modified = this.now().toISOString()
       }
-      return json(row)
+      return json(this.view(row))
     }
     if (method === 'GET') {
-      return one('/preapproval_plan/', this.plans) ?? one('/preapproval/', this.preapprovals)
+      return one('/preapproval/', this.preapprovals, (row) => this.view(row))
         ?? one('/authorized_payments/', this.authorizedPayments) ?? one('/v1/payments/', this.payments)
         ?? json({ message: 'not found' }, 404)
     }
     return json({ message: 'not found' }, 404)
   }
 
-  /** Planes de prueba: `[id, importe, frecuencia, unidad]`, como los devuelve Mercado Pago. */
-  seedPlans(plans: TestPlan[]): void {
-    for (const [id, amount, frequency, frequencyType] of plans) {
-      this.plans.set(id, {
-        id, status: 'active',
-        init_point: `https://www.mercadopago.com.ar/subscriptions/checkout?preapproval_plan_id=${id}`,
-        auto_recurring: { frequency, frequency_type: frequencyType, transaction_amount: amount, currency_id: 'ARS' },
-      })
-    }
+  /** Quien abrió el checkout completó el pago: el preapproval pasa a `authorized`. */
+  authorize(id: string, patch: MpRow = {}): MpRow {
+    const row = this.preapprovals.get(id)
+    if (!row) throw new Error(`Mercado Pago simulado: no existe el preapproval ${id}`)
+    const now = this.now()
+    Object.assign(row, {
+      status: 'authorized', last_modified: now.toISOString(),
+      next_payment_date: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    }, patch)
+    return row
   }
 
-  /** Lo que Mercado Pago tendría después de que alguien completa (o no) un checkout. */
-  seedPreapproval(id: string, patch: MpRow): MpRow {
+  /**
+   * Un preapproval que existe en la cuenta de Mercado Pago pero que el servidor
+   * NO creó (otra app, un plan del panel, el checkout por URL del Plan A).
+   */
+  seedForeignPreapproval(id: string, patch: MpRow = {}): MpRow {
     const nowIso = this.now().toISOString()
     const row: MpRow = {
       id, status: 'authorized', preapproval_plan_id: null, external_reference: null,
       payer_email: 'pagador@invalid.test', date_created: nowIso, last_modified: nowIso,
       next_payment_date: new Date(this.now().getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      init_point: `https://www.mercadopago.com.ar/subscriptions/checkout?preapproval_id=${id}`,
+      init_point: `${CHECKOUT_BASE}?preapproval_id=${id}`,
+      auto_recurring: { frequency: 1, frequency_type: 'months', transaction_amount: 25000, currency_id: 'ARS' },
       ...patch,
     }
     this.preapprovals.set(id, row)
     return row
   }
 }
-
-/** Secrets de plan del entorno de prueba. Trimestral queda SIN configurar a propósito. */
-export const PLAN_ENV: Record<string, string> = {
-  MP_PLAN_BASICO_MONTHLY: 'mpplan_basico_m',
-  MP_PLAN_BASICO_ANNUAL: 'mpplan_basico_a',
-  MP_PLAN_PRO_MONTHLY: 'mpplan_pro_m',
-  MP_PLAN_PRO_ANNUAL: 'mpplan_pro_a',
-  MP_PLAN_FULL_MONTHLY: 'mpplan_full_m',
-  MP_PLAN_FULL_ANNUAL: 'mpplan_full_a',
-}
-
-export type TestPlan = [id: string, amount: number, frequency: number, frequencyType: string]
-
-/**
- * Los planes tal como los devolvió Mercado Pago en el preflight real del
- * 2026-10-01/02 (`GET /preapproval_plan/search`): los mensuales son
- * `1` / `"months"` y los ANUALES creados desde el panel son `1` / `"years"`,
- * no `12` / `"months"`. Los importes anuales son los medidos (144000 / 240000 /
- * 432000).
- */
-export const TEST_PLANS: TestPlan[] = [
-  ['mpplan_basico_m', 15000, 1, 'months'], ['mpplan_basico_a', 144000, 1, 'years'],
-  ['mpplan_pro_m', 25000, 1, 'months'], ['mpplan_pro_a', 240000, 1, 'years'],
-  ['mpplan_full_m', 45000, 1, 'months'], ['mpplan_full_a', 432000, 1, 'years'],
-]
