@@ -6,12 +6,13 @@
 >
 > Principio: **el frontend propone, Mercado Pago confirma, el backend decide.**
 
-Dos lotes:
+Tres lotes:
 
 | Lote | Base | Qué hizo | Estado |
 |---|---|---|---|
 | BETA-MP (PR #167) | `main` `e44d691` | Autoridad del servidor: autorización uniforme, checkout sin efecto sobre el negocio, `reconcile`, dedupe por notificación, ledger. **Plan A**: checkout por URL de un plan de Mercado Pago | Mergeado (`ecbba69`). Migración `20261012120000` aplicada y funciones v32 / v25 desplegadas en producción |
-| **BETA-MP Plan B** (este lote) | `main` `ecbba69` | El backend crea el preapproval por API y lo vincula a la sesión antes de devolver el checkout. La identidad de un pago es ese id | Código, migración `20261013120000` y tests listos. **Nada desplegado** |
+| BETA-MP Plan B (PR #168) | `main` `ecbba69` | El backend crea el preapproval por API y lo vincula a la sesión antes de devolver el checkout. La identidad de un pago es ese id | Mergeado (`cefc38f`). Corrió en producción hasta `POST /preapproval` |
+| **Plan B · email del pagador** (este lote) | `main` `cefc38f` | El primer intento usa el email del login; si Mercado Pago lo rechaza, el usuario indica el de su cuenta de Mercado Pago. El email no es autoridad | Código y tests listos. **Sin desplegar. Sin migración** |
 
 - [Runbook de rollout y smoke controlado](runbook-rollout.md) — la evidencia real del smoke del
   2026-10-02, por qué el Plan A queda **CONFIRMED UNSUPPORTED**, el hallazgo del webhook y lo que
@@ -23,8 +24,15 @@ Dos lotes:
 checkout de un plan de Mercado Pago. El pago se aprobó y Mercado Pago creó un preapproval
 `authorized` con `external_reference` **vacía**: no había forma de saber a qué negocio
 pertenecía sin adivinar (email, importe, fecha). El código no activó a nadie, que es lo que
-tenía que hacer. Además `mp-webhook` no recibió ninguna notificación de Mercado Pago. Las
-secciones 1 a 3 describen el estado anterior a BETA-MP y se conservan como registro; la
+tenía que hacer. Además `mp-webhook` no recibió ninguna notificación de Mercado Pago.
+
+**Por qué existe el lote del email del pagador.** Con el Plan B en producción, `POST /preapproval`
+con el email del login de TechRepair Pro respondió `400 User bad request`; el mismo POST con el
+email real de una cuenta de Mercado Pago respondió `201` (`pending`, con `id`,
+`external_reference`, `init_point`, `auto_recurring` y `application_id`). Mercado Pago exige un
+`payer_email` y el del login no se puede asumir como el de una cuenta de Mercado Pago.
+
+Las secciones 1 a 3 describen el estado anterior a BETA-MP y se conservan como registro; la
 arquitectura vigente es la de la sección 4.
 
 ---
@@ -152,13 +160,13 @@ respuesta es 503: nunca permite.
 El navegador propone `business_id`, `plan` y `billing_cycle`. `create`:
 
 1. Toma importe, moneda y frecuencia de `PLAN_PRICES` (`planCatalog.ts`). Un ciclo sin precio
-   responde 503. Importe, moneda, frecuencia, referencia, `payer_email` o ids que mande el
-   navegador se ignoran.
+   responde 503. Importe, moneda, frecuencia, referencia, estados o ids que mande el navegador se
+   ignoran.
 2. Inserta la sesión en `subscription_checkout_sessions` con `external_reference = trpcs_<uuid>`
    generada por el servidor.
 3. Llama a `POST /preapproval` de Mercado Pago: `status: "pending"`, esa referencia, el email del
-   JWT, `auto_recurring` del catálogo y una `back_url` que sólo puede ser `/subscription/pending`
-   de un origen permitido. Sin plan de Mercado Pago y sin medio de pago.
+   pagador (ver abajo), `auto_recurring` del catálogo y una `back_url` que sólo puede ser
+   `/subscription/pending` de un origen permitido. Sin plan de Mercado Pago y sin medio de pago.
 4. Valida la respuesta: tiene que traer un `id`, estar `pending`, cobrar exactamente lo pedido,
    no informar otra referencia y traer un `init_point` de Mercado Pago que sea el de **ese**
    preapproval. Si algo falla: 502, sin checkout, la sesión queda `failed`.
@@ -170,6 +178,32 @@ El navegador propone `business_id`, `plan` y `billing_cycle`. `create`:
 veces el mismo plan y ciclo devuelve el mismo preapproval mientras siga `pending`, sea del mismo
 pagador y cobre lo que hoy dice el catálogo. Si ese preapproval ya está `authorized` (se pagó y
 la confirmación todavía no llegó) responde 409 en lugar de abrir un segundo cobro.
+
+### El email del pagador no es autoridad
+
+Mercado Pago exige un `payer_email` para crear el preapproval, y el email del login de TechRepair
+Pro no siempre es el de una cuenta de Mercado Pago (medido: `400 User bad request`).
+
+| Paso | Qué pasa |
+|---|---|
+| Primer intento | `create` sin `mp_payer_email`: el servidor usa el email del JWT. Si Mercado Pago lo acepta, el usuario va directo al checkout y no ve nada más |
+| Mercado Pago rechaza **ese POST** por el pagador | `422 mp_payer_email_required`. Sin checkout, sin preapproval, sesión `failed`, negocio intacto |
+| Reintento | El usuario indica el email de su cuenta de Mercado Pago; `create` con `mp_payer_email`. El servidor lo valida (texto, sin espacios, formato, ≤ 254) antes de llamar a Mercado Pago; inválido → `400 invalid_payer_email` |
+| Mercado Pago rechaza también ese email | `422 mp_payer_email_rejected`. El frontend muestra el error y **no reintenta solo** |
+
+Qué es y qué no es ese email:
+
+- Es un parámetro de `POST /preapproval`, y queda anotado en `payer_email` de la sesión como
+  registro de lo que se envió.
+- **No** resuelve un `business_id`, no vincula un preapproval, no activa, no se usa para buscar
+  suscripciones, no participa en `reconcile` ni en el webhook. `mp_payer_email` se lee del body
+  en un solo lugar (`resolvePayerEmail`) y sólo `create` lo usa.
+- Dos negocios pueden usar el mismo email: cada uno tiene su sesión y su preapproval, y pagar
+  uno activa sólo a ese.
+- El pedido de otro email sale de una lista **cerrada** (`isPayerRejection`): el `400` de
+  `POST /preapproval` con el mensaje medido o uno que nombre `payer_email`. Cualquier otro error
+  de Mercado Pago sigue siendo `502 mp_unavailable`. La limitación está en el
+  [runbook](runbook-rollout.md#qué-rechazo-dispara-el-pedido-de-email-lista-cerrada).
 
 ### Identidad de un pago: el id del preapproval
 
@@ -229,6 +263,11 @@ vea.
 Las dos son idempotentes, transaccionales, con precondiciones y postcondiciones fail-closed y
 cero DML.
 
+El lote del email del pagador **no trae migración**: `payer_email` ya existía en la sesión y
+sigue guardando el email que se le mandó a Mercado Pago. Lo único que quedó viejo es el
+`COMMENT` de esa columna en la base («del JWT, no del body»); no se abrió una migración sólo
+para corregir un comentario.
+
 ### Webhook
 
 Se conservan la firma obligatoria, el `await` real, `verify_jwt = false`, el uso de
@@ -241,12 +280,16 @@ notificó» de «notificó y lo rechazamos». El webhook dejó de ser condición
 
 ### Frontend
 
-Sin cambios de comportamiento en este lote: el navegador manda lo mismo y recibe un `init_point`.
-`CreateSubscriptionResponse` ya no declara `preapproval_id` (el id queda en el servidor).
-
-- `subscriptionService`: `createSubscription` no escribe ninguna tabla; `reconcilePayment`
-  devuelve lo que decidió el servidor y deja subir el error; `getCheckoutStatus` lee por la Edge
-  Function.
+- `Plans`: «Elegir» intenta el checkout sin email. Sólo si el servidor responde
+  `mp_payer_email_required` abre `MercadoPagoEmailDialog` («Necesitamos un dato de Mercado
+  Pago», un único campo). El diálogo no precarga el email del login, valida el formato antes de
+  llamar, muestra el error del servidor si el reintento falla y no reintenta por su cuenta. El
+  email aceptado se recuerda sólo en el estado de la pantalla, para no volver a pedirlo en esa
+  visita: no se guarda en el navegador ni en el perfil.
+- `subscriptionService`: `createSubscription` no escribe ninguna tabla y ya no manda el email
+  del login; los errores de la Edge Function conservan su `code` (`SubscriptionActionError`);
+  `reconcilePayment` devuelve lo que decidió el servidor y deja subir el error;
+  `getCheckoutStatus` lee por la Edge Function.
 - `PaymentPending`: confirma sólo cuando el servidor informa el checkout `paid`. No lee la URL de
   retorno ni decide por `isActive`. Llama a `reconcile` cada 8 segundos: si el webhook no llega,
   esa llamada es la que activa.
@@ -258,8 +301,8 @@ Sin cambios de comportamiento en este lote: el navegador manda lo mismo y recibe
 
 | Gate | Qué corre | Dónde |
 |---|---|---|
-| `npm run test:beta-mp` | Guard estático (73 sabotajes en su self-test) + guard read-only de los SQL del runbook + 28 contratos de fuente (incluido «el precio del servidor es el de Planes») + 309 tests de integración sobre el código real de las Edge Functions | CI, job `quality` |
-| `npm run test:beta-mp:local` | 33 aserciones SQL como los roles de la API + 54 comprobaciones del mismo código sobre PostgreSQL / PostgREST / supabase-js reales, con el RPC de capacidad real | CI, job `beta-mp-billing` |
+| `npm run test:beta-mp` | Guard estático (96 sabotajes en su self-test) + guard read-only de los SQL del runbook + 32 contratos de fuente (incluido «el precio del servidor es el de Planes» y «el email del pagador se lee en un solo lugar») + 395 tests sobre el código real de las Edge Functions y de las pantallas de suscripción | CI, job `quality` |
+| `npm run test:beta-mp:local` | 33 aserciones SQL como los roles de la API + 64 comprobaciones del mismo código sobre PostgreSQL / PostgREST / supabase-js reales, con el RPC de capacidad real | CI, job `beta-mp-billing` |
 | `tests/deno/mpWebhookSignature.test.ts` | El handler real de `mp-webhook` en Deno: sin secret → 500; firma ausente, incorrecta o de otro recurso → 401 sin tocar nada; firma válida → recién ahí reclama el evento | CI, `npm run test:deno` |
 | `npm run test:beta1` | Regresión de BETA-1 | CI, job `quality` |
 
@@ -267,12 +310,16 @@ Los tests de integración usan un PostgREST en memoria que conoce columnas, CHEC
 y los GRANT de `service_role`, y un Mercado Pago simulado a nivel HTTP que implementa
 `POST /preapproval` y puede omitir `external_reference`, como se midió en producción.
 
-Además de los sabotajes del guard (que corren en CI), al cerrar el lote se aplicaron a mano 46
-mutaciones del código, una por vez, y las 46 hicieron fallar la suite de comportamiento: vincular
-un id desconocido por referencia, no contrastar la referencia, exigirla, no comparar condiciones,
-plan fijo, importe o email del navegador, entregar el checkout sin guardar el id, cancelar la
-suscripción vigente al abrir el checkout, `reconcile` sin fijar el negocio, etc. Esa pasada no
-está automatizada en CI.
+Además de los sabotajes del guard (que corren en CI), al cerrar cada lote se aplicaron a mano
+mutaciones del código, una por vez: 74 en total (46 del Plan B, 28 del email del pagador), y las
+74 hicieron fallar la suite de comportamiento. Del Plan B: vincular un id desconocido por
+referencia, no contrastar la referencia, exigirla, no comparar condiciones, plan fijo, importe o
+email del navegador, entregar el checkout sin guardar el id, cancelar la suscripción vigente al
+abrir el checkout, `reconcile` sin fijar el negocio, etc. Del email del pagador: pedirlo sin
+haber probado con el del JWT, no usar el que indicó el usuario, no validarlo, reemplazar uno
+inválido por el del JWT en silencio, tratar cualquier error de Mercado Pago como «pedí otro
+email», volver a pedirlo después del segundo rechazo, registrar el email en el log, pedírselo a
+todos desde la pantalla, guardarlo en el navegador. Esa pasada no está automatizada en CI.
 
 **Ninguno de estos gates habla con Mercado Pago.**
 
@@ -282,8 +329,10 @@ está automatizada en CI.
 
 1. **El Plan B no está certificado contra Mercado Pago.** Ver «Lo que no se puede afirmar hasta
    el próximo smoke» en el [runbook](runbook-rollout.md#lo-que-no-se-puede-afirmar-hasta-el-próximo-smoke).
-   Los dos que más importan: que `POST /preapproval` responda como dice la documentación, y qué
-   exige Mercado Pago sobre el `payer_email` cuando quien paga usa una cuenta con otro email.
+   La creación del preapproval ya se midió; **nadie pagó todavía uno creado por el Plan B**.
+   Sobre el `payer_email` quedan dos cosas sin medir: si un email aceptado al crear obliga a
+   pagar con esa cuenta (hoy el pedido de otro email sólo aparece cuando falla la creación), y
+   si «User bad request» puede significar algo distinto del pagador.
 2. **El webhook no está certificado.** En el smoke real Mercado Pago no llamó a `mp-webhook`. La
    activación ya no depende de él, pero el ledger `payments` y la mora por cobro rechazado sí:
    sin notificaciones no se registran cobros ni se detecta un rechazo.

@@ -126,14 +126,19 @@ export interface MPPayment {
 
 // ─── Create subscription request (frontend → edge fn) ─────────
 // BETA-MP: esto es una PROPUESTA. El servidor valida `business_id` contra la
-// capacidad del usuario, toma el importe y la frecuencia de SU catálogo, el email
-// del pagador del JWT (ignora `payer_email`) y sólo acepta `back_url` si apunta a
-// `/subscription/pending` de un origen permitido.
+// capacidad del usuario, toma el importe y la frecuencia de SU catálogo y sólo
+// acepta `back_url` si apunta a `/subscription/pending` de un origen permitido.
 export interface CreateSubscriptionRequest {
   business_id: string
   plan: SubscriptionPlan
   billing_cycle: BillingCycle
-  payer_email: string
+  /**
+   * Email de la cuenta de Mercado Pago de quien va a pagar. Sólo se manda al
+   * reintentar, cuando el servidor respondió que no pudo iniciar la suscripción
+   * con el email del login. Es un dato que Mercado Pago exige para crear la
+   * suscripción: no identifica al negocio ni otorga nada.
+   */
+  mp_payer_email?: string
   back_url: string
 }
 

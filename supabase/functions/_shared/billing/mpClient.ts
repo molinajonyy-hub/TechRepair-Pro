@@ -43,10 +43,18 @@ export interface MpPreapproval {
   auto_recurring?: MpAutoRecurring | null
 }
 
-/** Lo que el servidor le pide a Mercado Pago al abrir un checkout. Nada de esto sale del navegador. */
+/**
+ * Lo que el servidor le pide a Mercado Pago al abrir un checkout. Importe,
+ * frecuencia, referencia y URL de retorno los decide el servidor.
+ */
 export interface NewPendingPreapproval {
   reason: string
   externalReference: string
+  /**
+   * Email de la cuenta de Mercado Pago de quien va a pagar. Mercado Pago lo exige
+   * para crear el preapproval. Es el del JWT o, si ese no sirve, el que el usuario
+   * indique. Es un parámetro de este POST y nada más: no identifica a un negocio.
+   */
   payerEmail: string
   backUrl: string
   frequency: number
@@ -109,6 +117,33 @@ export class MpApiError extends Error {
   }
 }
 
+/** La operación de `createPendingPreapproval`, tal como queda en `MpApiError.operation`. */
+export const CREATE_PREAPPROVAL_OPERATION = 'POST preapproval'
+
+/**
+ * ¿Mercado Pago rechazó la CREACIÓN del preapproval por el pagador?
+ *
+ * Evidencia real (producción, 2026-10-02): `POST /preapproval` con un
+ * `payer_email` que no es el de una cuenta de Mercado Pago respondió
+ * `400 {"message":"User bad request","status":400}`; el mismo POST, con el email
+ * real de una cuenta, respondió `201` (`pending`).
+ *
+ * Lista CERRADA: sólo el 400 de esa operación con ese mensaje, o uno que nombre
+ * `payer_email`. Cualquier otro 400, y todo lo que no sea 400, sigue siendo un
+ * error de Mercado Pago y no se convierte en «probá con otro email».
+ *
+ * Limitación conocida: «User bad request» no dice que la causa sea el email. Es
+ * el único dato que da Mercado Pago, así que se trata como compatible con un
+ * pagador que no reconoce — y sólo sirve para PEDIR otro email, nunca para
+ * decidir nada sobre un negocio.
+ */
+export function isPayerRejection(error: unknown): error is MpApiError {
+  if (!(error instanceof MpApiError)) return false
+  if (error.operation !== CREATE_PREAPPROVAL_OPERATION || error.status !== 400) return false
+  const detail = (error.detail ?? '').trim().toLowerCase()
+  return /(^|:\s)user bad request$/.test(detail) || /payer[_ ]?email/.test(detail)
+}
+
 const EMAIL_RE = /[^\s@"'<>]+@[^\s@"'<>]+/g
 
 /** `message` / `error` de una respuesta de error de MP: sin emails, a lo sumo 200 caracteres. */
@@ -167,7 +202,7 @@ export function createMpClient(deps: MpClientDeps): MpClient {
 
   return {
     async createPendingPreapproval(input) {
-      const operation = 'POST preapproval'
+      const operation = CREATE_PREAPPROVAL_OPERATION
       const res = await call(operation, '/preapproval', {
         method: 'POST',
         body: JSON.stringify({

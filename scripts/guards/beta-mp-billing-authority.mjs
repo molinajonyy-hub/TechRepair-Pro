@@ -108,7 +108,43 @@ function inspectEdge(s) {
   if (/req\.body\.(payer_email|preapproval_plan_id|preapproval_id|mp_preapproval_id|mp_plan_id|external_reference|amount|price|transaction_amount|currency|currency_id|frequency|frequency_type|auto_recurring|reason)\b/.test(actions)) {
     f.push('una accion confia en un dato del navegador (payer_email, ids, referencia, importe, moneda o frecuencia)')
   }
-  if (!/const payerEmail = req\.user\.email\n/.test(actions)) f.push('el email del pagador dejo de salir del JWT')
+
+  // El email del pagador (`payer_email`). Mercado Pago lo exige para crear el
+  // preapproval y el del login no siempre es el de una cuenta de Mercado Pago
+  // (medido: 400 «User bad request»). Es un PARAMETRO de ese POST, no identidad:
+  //   · el primer intento usa el del JWT; el del body solo entra por
+  //     resolvePayerEmail, validado, y solo en `create`;
+  //   · solo viaja a createPendingPreapproval y a la columna payer_email de la
+  //     sesion (registro de lo enviado);
+  //   · el pedido de otro email sale UNICAMENTE del rechazo medido de ese POST.
+  const resolver = tramo(actions, 'function resolvePayerEmail', 'async function createCheckout')
+  if (!resolver) f.push('no se encontro resolvePayerEmail')
+  if ((actions.match(/req\.body\.mp_payer_email/g) ?? []).length !== 1 || !/const raw = req\.body\.mp_payer_email\n/.test(resolver)) {
+    f.push('mp_payer_email se lee del body fuera de resolvePayerEmail (solo `create` puede recibirlo, y validado)')
+  }
+  if (!/if \(raw === undefined \|\| raw === null\) \{\s*return req\.user\.email\s*\? \{ ok: true, email: req\.user\.email, explicit: false \}\s*: \{ ok: false, response: PAYER_EMAIL_REQUIRED\(\) \}\s*\}/.test(resolver)) {
+    f.push('el primer intento de create dejo de usar el email del JWT')
+  }
+  if (!/if \(typeof raw !== 'string'\) return invalid\(/.test(resolver)
+      || !/const email = raw\.trim\(\)\.toLowerCase\(\)\n\s*if \(email === ''\) return invalid\(/.test(resolver)
+      || !/if \(email\.length > MAX_PAYER_EMAIL_LENGTH \|\| email\.indexOf\('@'\) > MAX_PAYER_EMAIL_LOCAL_LENGTH \|\| !PAYER_EMAIL_RE\.test\(email\)\) \{\s*return invalid\(/.test(resolver)) {
+    f.push('mp_payer_email dejo de validarse en el servidor (tipo, vacio, longitud o formato)')
+  }
+  if (!/const payer = resolvePayerEmail\(req\)\n\s*if \(!payer\.ok\) return payer\.response\n\s*const payerEmail = payer\.email\n/.test(create)) f.push('create dejo de tomar el pagador de resolvePayerEmail')
+  if (!/payer_email: payerEmail,\s*\}\)/.test(create)) f.push('la sesion dejo de registrar el payer_email que se le mando a Mercado Pago')
+  if (!/\} catch \(error\) \{\s*await closeSession\(ctx, session\.id, 'failed'\)\s*if \(isPayerRejection\(error\)\) \{[\s\S]{0,420}return payer\.explicit\s*\? fail\(422, 'mp_payer_email_rejected',[^\n]*\n\s*: PAYER_EMAIL_REQUIRED\(\)\s*\}\s*throw error\s*\}/.test(create)) {
+    f.push('el pedido de otro email dejo de salir solo del rechazo del pagador en POST /preapproval (o un email ya indicado vuelve a pedirse en loop, o se tapan otros errores de Mercado Pago)')
+  }
+  if ((actions.match(/PAYER_EMAIL_REQUIRED\(\)/g) ?? []).length !== 2) f.push('mp_payer_email_required se responde en un lugar que no es «sin email en el JWT» ni «Mercado Pago rechazo el del JWT»')
+  // Fuera de `create`, ninguna accion sabe nada de un email.
+  const zonaEmail = tramo(actions, 'interface CheckoutIntent', 'function checkoutProblem')
+  const fueraDeCreate = actions.replace(zonaEmail, '').replace(openCheckout, '')
+    // Lo unico que queda fuera de esa zona y nombra un email: el import del
+    // clasificador y el tipo del usuario autenticado.
+    .replace(/\bisPayerRejection\b/, '').replace(/email: string \| null/, '')
+  if (/payer|mp_payer_email|\bemail\b/i.test(fueraDeCreate)) {
+    f.push('una accion que no es create usa un email (el email del pagador no es identidad)')
+  }
   if (!/const terms = ctx\.catalog\.termsFor\(plan, billingCycle\)\n\s*if \(!terms\) \{/.test(create)) f.push('create dejo de tomar importe y frecuencia del catalogo del servidor (o ya no falla cerrado sin precio)')
   if (!/createPendingPreapproval\(\{[\s\S]*externalReference: reference,\s*payerEmail,[\s\S]*frequency: terms\.frequency,\s*frequencyType: terms\.frequencyType,\s*amount: terms\.amount,\s*currency: terms\.currency,\s*\}\)/.test(create)) {
     f.push('el preapproval dejo de crearse con la referencia, el pagador y las condiciones que fija el servidor')
@@ -181,7 +217,21 @@ function inspectEdge(s) {
   if (!/const pre = await ctx\.mp\.getPreapproval\(session\.mp_preapproval_id as string\)/.test(reconcile)) f.push('reconcile dejo de leer el preapproval por el id guardado en la sesion')
   if (!/if \(!pre \|\| pre\.id !== session\.mp_preapproval_id\) continue/.test(reconcile)) f.push('reconcile aplica un preapproval que no es el de la sesion')
   if ((reconcile.match(/applyPreapprovalEvidence\(ctx, \w+, \{ source: 'reconcile', expectBusinessId: businessId \}\)/g) ?? []).length !== 2) f.push('reconcile aplica evidencia sin fijar el negocio autorizado')
-  if (/payer_email|\.amount|date_created/.test(reconcile)) f.push('reconcile usa email, importe o fecha para encontrar un pago')
+  if (/payer|e-?mail|\.amount|date_created/i.test(reconcile)) f.push('reconcile usa email, importe o fecha para encontrar un pago')
+
+  // El email que informa Mercado Pago (`pre.payer_email`) solo se anota en el
+  // negocio como bitacora. Ni el camino canonico ni el webhook deciden por el.
+  const bitacora = /if \(typeof pre\.payer_email === 'string' && pre\.payer_email\) patch\.mp_payer_email = pre\.payer_email|mp_payer_email: typeof pre\.payer_email === 'string' && pre\.payer_email \? pre\.payer_email : null,/g
+  if ((pre.match(bitacora) ?? []).length !== 2) f.push('el camino canonico dejo de anotar el payer_email de Mercado Pago como bitacora')
+  if (/payer|e-?mail/i.test(pre.replace(bitacora, '') + webhook)) f.push('el camino canonico o el webhook usan un email para decidir (el email del pagador no es identidad)')
+
+  // El rechazo que dispara «ingresa otro email» es una lista CERRADA: el 400 de
+  // POST /preapproval con el mensaje medido, o uno que nombre payer_email.
+  const rechazo = tramo(mp, 'export function isPayerRejection', '\n}\n')
+  if (!/if \(!\(error instanceof MpApiError\)\) return false\n\s*if \(error\.operation !== CREATE_PREAPPROVAL_OPERATION \|\| error\.status !== 400\) return false\n/.test(rechazo)
+      || !/return \/\(\^\|:\\s\)user bad request\$\/\.test\(detail\) \|\| \/payer\[_ \]\?email\/\.test\(detail\)$/.test(rechazo)) {
+    f.push('isPayerRejection se amplio: cualquier otro error de Mercado Pago no puede convertirse en «proba con otro email»')
+  }
 
   for (const [nombre, src] of [['preapproval', pre], ['webhook', webhook], ['subscriptionActions', actions], ['store', store]]) {
     if (/subscription_status\s*[:=]\s*'pending_activation'/.test(src)) f.push(`${nombre}.ts escribe pending_activation`)
@@ -215,6 +265,21 @@ function inspectFrontend(s) {
   const reconcile = tramo(service, 'export async function reconcilePayment', '\n}\n')
   if (/catch|getSubscription\(/.test(reconcile)) f.push('reconcilePayment vuelve a tapar el error con una lectura local')
   if (!/activated: result\.activated === true/.test(reconcile)) f.push('reconcilePayment no exige un true literal del servidor')
+
+  // Planes: el email de Mercado Pago se pide SOLO si el servidor lo requiere, no
+  // se precarga con el del login y no se guarda en el navegador.
+  const plans = codigo(s.plansPage), dialog = codigo(s.emailDialog)
+  if (!/const handleSelect = \(planId: SubscriptionPlan\) => startCheckout\(planId, mpPayerEmail\)/.test(plans) || !/const \[mpPayerEmail, setMpPayerEmail\] = useState\(''\)/.test(plans)) {
+    f.push('Planes dejo de intentar primero sin email (el flujo normal no pide nada)')
+  }
+  if (!/\} else if \(subscriptionErrorCode\(e\) === MP_PAYER_EMAIL_REQUIRED\) \{\s*setPayerPrompt\(/.test(plans) || (plans.match(/setPayerPrompt\(\{/g) ?? []).length !== 2) {
+    f.push('Planes abre el pedido de email por algo que no es el codigo mp_payer_email_required del servidor')
+  }
+  if (!/if \(email\) \{\s*setPayerPrompt\(\{ plan: planId, email, error: messageOf\(e\) \}\)\s*\} else if/.test(plans)) f.push('Planes reintenta solo cuando falla el email indicado (tiene que mostrar el error y esperar al usuario)')
+  if (!/\{payerPrompt && \(\s*<MercadoPagoEmailDialog/.test(plans)) f.push('el dialogo del email de Mercado Pago dejo de ser condicional')
+  if (/localStorage|sessionStorage|document\.cookie|indexedDB/.test(plans + dialog)) f.push('el email de Mercado Pago se guarda en el navegador (tiene que ser estado efimero de la pantalla)')
+  if (/user\??\.email|useAuth\(\)\.user/.test(plans + dialog) || /useAuth/.test(dialog)) f.push('Planes presenta o manda el email del login como email de Mercado Pago')
+  if (/supabase|\.from\(|\.rpc\(/.test(dialog)) f.push('el dialogo del email de Mercado Pago accede a datos por su cuenta')
   return f
 }
 
@@ -288,6 +353,8 @@ function estado() {
     catalog: read(`${BILLING}/planCatalog.ts`),
     service: read('src/services/subscriptionService.ts'),
     pendingPage: read('src/pages/PaymentPending.tsx'),
+    plansPage: read('src/pages/Plans.tsx'),
+    emailDialog: read('src/components/subscription/MercadoPagoEmailDialog.tsx'),
     successPage: read('src/pages/SubscriptionSuccess.tsx'),
     srcFiles: archivosTs('src').map((path) => ({ path, src: read(path) })),
     config: read('supabase/config.toml'),
@@ -324,7 +391,30 @@ if (process.argv.includes('--self-test')) {
     ['create: escribe el negocio', con('actions', "  ctx.log({\n    event: 'checkout_opened'", "  await ctx.store.updateBusinessBilling(businessId, { subscription_plan: plan }, ctx.now().toISOString())\n  ctx.log({\n    event: 'checkout_opened'"), 'abrir un checkout'],
     ['create: activa al abrir el checkout', con('actions', "  ctx.log({\n    event: 'checkout_opened'", "  await applyPreapprovalEvidence(ctx, created, { source: 'reconcile' })\n  ctx.log({\n    event: 'checkout_opened'"), 'abrir un checkout'],
     ['create: cancela la suscripcion vigente', con('actions', "  ctx.log({\n    event: 'checkout_opened'", "  if (business.mp_preapproval_id) await ctx.mp.cancelPreapproval(business.mp_preapproval_id)\n  ctx.log({\n    event: 'checkout_opened'"), 'suscripcion vigente'],
-    ['create: email del body', con('actions', 'const payerEmail = req.user.email\n', 'const payerEmail = String(req.body.payer_email)\n'), 'dato del navegador'],
+    ['create: email del campo viejo del body', con('actions', '  const payerEmail = payer.email\n', '  const payerEmail = String(req.body.payer_email)\n'), 'dato del navegador'],
+    ['email: mp_payer_email sin pasar por la validacion', con('actions', '  const payerEmail = payer.email\n', '  const payerEmail = typeof req.body.mp_payer_email === "string" ? req.body.mp_payer_email : payer.email\n'), 'fuera de resolvePayerEmail'],
+    ['email: pide otro sin haber intentado con el del JWT', con('actions', '  if (raw === undefined || raw === null) {', '  if (raw === undefined) return { ok: false, response: PAYER_EMAIL_REQUIRED() }\n  if (raw === null) {'), 'primer intento'],
+    ['email: sin validar el formato', con('actions', ' || !PAYER_EMAIL_RE.test(email)) {', ') {'), 'dejo de validarse'],
+    ['email: sin normalizar', con('actions', '  const email = raw.trim().toLowerCase()\n', '  const email = raw\n'), 'dejo de validarse'],
+    ['email: acepta lo que no es texto', con('actions', "  if (typeof raw !== 'string') return invalid('El email de Mercado Pago no es válido.')\n", ''), 'dejo de validarse'],
+    ['email: cualquier error de MP pide otro email', con('actions', '    if (isPayerRejection(error)) {', '    if (error instanceof MpApiError) {'), 'rechazo del pagador'],
+    ['email: el email ya indicado vuelve a pedirse (loop)', con('actions', '      return payer.explicit\n', '      return false\n'), 'rechazo del pagador'],
+    ['email: el rechazo del pagador tapa el resto de los errores', con('actions', "        : PAYER_EMAIL_REQUIRED()\n    }\n    throw error\n", "        : PAYER_EMAIL_REQUIRED()\n    }\n    return PAYER_EMAIL_REQUIRED()\n"), 'rechazo del pagador'],
+    ['email: reconcile lee el email del body', con('actions', '  // 1. La suscripción ya vinculada al negocio.\n  if (before.mp_preapproval_id) {', '  const email = body_email\n  if (before.mp_preapproval_id) {'), 'email, importe o fecha'],
+    ['email: cancel acepta mp_payer_email', con('actions', "  const alreadyCancelled = preapprovalState(pre.status) === 'cancelled'\n", "  const alreadyCancelled = preapprovalState(pre.status) === 'cancelled' || req.body.mp_payer_email === pre.payer_email\n"), 'fuera de resolvePayerEmail'],
+    ['email: status devuelve la sesion por email del pagador', con('actions', '  const [latest] = await ctx.store.listCheckoutSessions(businessId, 1)\n  return {\n    status: 200,\n    body: { source', '  const [latest] = (await ctx.store.listCheckoutSessions(businessId, 5)).filter((s) => s.payer_email)\n  return {\n    status: 200,\n    body: { source'), 'no es create usa un email'],
+    ['email: el canonico resuelve la sesion por el email del pagador', con('preapproval', "  if (!session) return outcome(pre, mpState, { kind: 'not_applied', reason: 'unknown_preapproval' })\n", "  if (!session && !pre.payer_email) return outcome(pre, mpState, { kind: 'not_applied', reason: 'unknown_preapproval' })\n"), 'usan un email para decidir'],
+    ['email: el webhook mira el email del pagador', con('webhook', "  const applied = await applyPreapprovalEvidence(ctx, pre, { source: 'webhook' })\n", "  if (pre.payer_email) ctx.log({ event: 'x' })\n  const applied = await applyPreapprovalEvidence(ctx, pre, { source: 'webhook' })\n"), 'usan un email para decidir'],
+    ['email: cualquier 400 de MP es rechazo del pagador', con('mpClient', "  return /(^|:\\s)user bad request$/.test(detail) || /payer[_ ]?email/.test(detail)\n", '  return true\n'), 'isPayerRejection se amplio'],
+    ['email: rechazo del pagador con cualquier status', con('mpClient', 'error.operation !== CREATE_PREAPPROVAL_OPERATION || error.status !== 400', 'error.operation !== CREATE_PREAPPROVAL_OPERATION'), 'isPayerRejection se amplio'],
+    ['email: rechazo del pagador en cualquier operacion', con('mpClient', 'error.operation !== CREATE_PREAPPROVAL_OPERATION || error.status !== 400', 'error.status !== 400'), 'isPayerRejection se amplio'],
+    ['Planes: pide el email a todos', con('plansPage', '  const handleSelect = (planId: SubscriptionPlan) => startCheckout(planId, mpPayerEmail)', "  const handleSelect = (planId: SubscriptionPlan) => setPayerPrompt({ plan: planId, email: '', error: '' })"), 'intentar primero sin email'],
+    ['Planes: abre el pedido ante cualquier error', con('plansPage', '      } else if (subscriptionErrorCode(e) === MP_PAYER_EMAIL_REQUIRED) {', '      } else if (e) {'), 'no es el codigo'],
+    ['Planes: reintenta solo cuando falla el email', con('plansPage', '        setPayerPrompt({ plan: planId, email, error: messageOf(e) })\n', '        void startCheckout(planId, email)\n'), 'no es el codigo'],
+    ['Planes: guarda el email en el navegador', con('plansPage', '      if (email) setMpPayerEmail(email)\n', "      if (email) { setMpPayerEmail(email); localStorage.setItem('mp_payer_email', email) }\n"), 'se guarda en el navegador'],
+    ['Planes: manda el email del login como email de MP', con('plansPage', '  const { businessId } = useAuth()', '  const { businessId, user } = useAuth()\n  const loginEmail = user?.email'), 'email del login'],
+    ['Dialogo: precarga el email del login', con('emailDialog', "import { AppButton, AppInput, AppModal } from '../../ui'", "import { AppButton, AppInput, AppModal } from '../../ui'\nimport { useAuth } from '../../contexts/AuthContext'"), 'email del login'],
+    ['Dialogo: siempre visible', con('plansPage', '      {payerPrompt && (', '      {(payerPrompt ?? { plan: "pro", email: "", error: "" }) && ('), 'dejo de ser condicional'],
     ['create: importe del body', con('actions', '  const terms = ctx.catalog.termsFor(plan, billingCycle)\n', '  const terms = { ...ctx.catalog.termsFor(plan, billingCycle)!, amount: Number(req.body.amount) }\n'), 'dato del navegador'],
     ['create: importe fijo, sin catalogo', con('actions', '  const terms = ctx.catalog.termsFor(plan, billingCycle)\n', "  const terms = { amount: 1, currency: 'ARS', frequency: 1, frequencyType: 'months' as const }\n"), 'catalogo del servidor'],
     ['create: referencia del body', con('actions', '      externalReference: reference,\n', '      externalReference: String(req.body.external_reference),\n'), 'dato del navegador'],

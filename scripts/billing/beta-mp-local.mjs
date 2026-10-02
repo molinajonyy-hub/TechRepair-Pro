@@ -323,6 +323,53 @@ const main = async () => {
   n = await notify('subscription_preapproval', pre('a'))
   check(n.result === 'processed' && sql(`SELECT subscription_status || ':' || subscription_plan || ':' || mp_preapproval_id FROM public.businesses WHERE id = '${ids.A}';`) === antesWebhook, 'el webhook de la cancelación llega después y no cambia nada')
   check(business('C').subscription_status === 'active' && mp.preapprovals.get(pre('c')).status === 'authorized', 'cancelar A no tocó la suscripción de C')
+  // ── 9. El email del pagador no es autoridad ───────────────────────────────
+  // Medido en producción (2026-10-02): POST /preapproval con el email del login
+  // → 400 «User bad request»; con el email real de una cuenta de MP → 201.
+  section('9. payer_email: primero el del JWT; si Mercado Pago lo rechaza, el que indique el usuario')
+  const cuentaMp = `cuenta-mp-${run}@${TAG}`
+  mp.payerAccounts = new Set([cuentaMp])
+  const antesPagador = huella('B')
+  const sesionesB = () => count('subscription_checkout_sessions', `business_id = '${ids.B}'`)
+  const preapprovalsAntes = mp.preapprovals.size
+  let nB = sesionesB()
+  r = await call('ownerB', { action: 'create', business_id: ids.B, plan: 'basico', billing_cycle: 'monthly' })
+  check(r.status === 422 && r.body.code === 'mp_payer_email_required' && r.body.init_point === undefined,
+    `el email del JWT no es una cuenta de Mercado Pago: 422 mp_payer_email_required, sin checkout (${r.status} ${r.body.code})`)
+  check(mp.preapprovals.size === preapprovalsAntes && huella('B') === antesPagador
+    && count('subscription_checkout_sessions', `business_id = '${ids.B}' AND status = 'failed' AND mp_preapproval_id IS NULL AND payer_email = 'ownerb@${TAG}'`) === 1
+    && sesionesB() === nB + 1,
+  'no se creó ningún preapproval, el negocio no cambió y el intento quedó registrado como failed')
+  nB = sesionesB()
+  r = await call('ownerB', { action: 'create', business_id: ids.B, plan: 'basico', billing_cycle: 'monthly', mp_payer_email: 'no-es-un-email' })
+  check(r.status === 400 && r.body.code === 'invalid_payer_email' && sesionesB() === nB, 'mp_payer_email con formato inválido: 400 local, sin sesión')
+  mp.nextIds.push(pre('d'))
+  r = await call('ownerB', { action: 'create', business_id: ids.B, plan: 'basico', billing_cycle: 'monthly', mp_payer_email: `  ${cuentaMp.toUpperCase()} `, amount: 1, external_reference: 'x' })
+  const sesionD = r.status === 200 ? session(pre('d')) : null
+  check(r.status === 200 && preOf(r) === pre('d') && sesionD.business_id === ids.B && sesionD.user_id === ids.ownerB
+    && sesionD.payer_email === cuentaMp && sesionD.status === 'pending' && Number(sesionD.amount) === 15000,
+  'reintento con el email de la cuenta de Mercado Pago: 200, sesión de B vinculada, email normalizado, importe del servidor')
+  check(mp.created().at(-1).body.payer_email === cuentaMp && mp.created().at(-1).body.auto_recurring.transaction_amount === 15000
+    && mp.created().at(-1).body.external_reference === sesionD.external_reference,
+  'a Mercado Pago le llegó ese email como payer_email, con el importe y la referencia del servidor')
+  check(huella('B') === antesPagador, 'el negocio sigue igual: abrir el checkout con otro email no cambia nada')
+  // El mismo email en otro negocio: otra sesión, otro preapproval. No cruza.
+  mp.nextIds.push(pre('e'))
+  r = await call('ownerC', { action: 'create', business_id: ids.C, plan: 'basico', billing_cycle: 'monthly', mp_payer_email: cuentaMp })
+  check(r.status === 200 && preOf(r) === pre('e') && session(pre('e')).business_id === ids.C && session(pre('d')).business_id === ids.B,
+    'el mismo payer_email en dos negocios: cada uno su sesión y su preapproval')
+  r = await call('ownerA', { action: 'create', business_id: ids.B, plan: 'basico', billing_cycle: 'monthly', mp_payer_email: cuentaMp })
+  check(r.status === 403, 'conocer el email del pagador de B no autoriza a operar B: 403')
+  // Un preapproval ajeno con ESE email, authorized: no activa ni reemplaza nada.
+  mp.seedForeignPreapproval(pre('mismo_email'), { payer_email: cuentaMp, auto_recurring: { frequency: 1, frequency_type: 'months', transaction_amount: 15000, currency_id: 'ARS' } })
+  n = await notify('subscription_preapproval', pre('mismo_email'))
+  check(n.detail === 'not_applied:unknown_preapproval' && huella('B') === antesPagador, 'un preapproval desconocido con el mismo email no activa (webhook)')
+  mp.calls.length = 0
+  r = await call('ownerB', { action: 'reconcile', business_id: ids.B, mp_payer_email: cuentaMp })
+  check(r.status === 200 && business('B').mp_preapproval_id === pre('b') && mp.calls.every((c) => c.method === 'GET' && /^\/preapproval\/[^/?]+$/.test(c.path))
+    && !mp.calls.some((c) => c.path.includes(pre('mismo_email'))),
+  'reconcile ignora el email: sólo relee por id los preapprovals de las sesiones de B')
+  mp.payerAccounts = null
 }
 
 const cleanup = () => {
