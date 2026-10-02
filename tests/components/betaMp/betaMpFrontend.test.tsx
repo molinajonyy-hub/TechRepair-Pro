@@ -16,7 +16,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
 const h = vi.hoisted(() => ({
@@ -52,9 +52,12 @@ vi.mock('../../../src/contexts/AuthContext', () => ({
 vi.mock('../../../src/hooks/useSubscription', () => ({ useSubscription: () => h.sub }))
 
 import { PaymentPending } from '../../../src/pages/PaymentPending'
+import { Plans } from '../../../src/pages/Plans'
 import { Subscription } from '../../../src/pages/Subscription'
 import { SubscriptionSuccess } from '../../../src/pages/SubscriptionSuccess'
-import { createSubscription, getCheckoutStatus, reconcilePayment } from '../../../src/services/subscriptionService'
+import {
+  MP_PAYER_EMAIL_REQUIRED, SubscriptionActionError, createSubscription, getCheckoutStatus, reconcilePayment, subscriptionErrorCode,
+} from '../../../src/services/subscriptionService'
 
 type Estado = 'trialing' | 'active' | 'suspended'
 
@@ -247,20 +250,31 @@ describe('P · PaymentPending no es autoridad de activación', () => {
 describe('S · servicio: el navegador propone, no registra', () => {
   it('createSubscription no escribe subscription_checkout_sessions ni ninguna otra tabla', async () => {
     h.invoke.mockResolvedValue({ data: { init_point: '#mp', checkout: { status: 'pending', plan: 'full', billing_cycle: 'monthly' } }, error: null })
-    const res = await createSubscription({ business_id: 'biz-beta-mp', plan: 'full', billing_cycle: 'monthly', payer_email: 'owner@invalid.test' })
+    const res = await createSubscription({ business_id: 'biz-beta-mp', plan: 'full', billing_cycle: 'monthly' })
 
     expect(res.init_point).toBe('#mp')
     expect(h.from).not.toHaveBeenCalled()
     expect(h.invoke).toHaveBeenCalledTimes(1)
   })
 
-  it('createSubscription sólo propone negocio, plan y ciclo: ni importe, ni referencia, ni preapproval', async () => {
+  it('createSubscription sólo propone negocio, plan y ciclo: ni email, ni importe, ni referencia, ni preapproval', async () => {
     h.invoke.mockResolvedValue({ data: { init_point: '#mp' }, error: null })
-    await createSubscription({ business_id: 'biz-beta-mp', plan: 'pro', billing_cycle: 'annual', payer_email: 'owner@invalid.test' })
+    await createSubscription({ business_id: 'biz-beta-mp', plan: 'pro', billing_cycle: 'annual' })
 
     const enviado = h.invoke.mock.calls[0][1].body as Record<string, unknown>
-    expect(Object.keys(enviado).sort()).toEqual(['action', 'back_url', 'billing_cycle', 'business_id', 'payer_email', 'plan'])
+    expect(Object.keys(enviado).sort()).toEqual(['action', 'back_url', 'billing_cycle', 'business_id', 'plan'])
     expect(enviado).toMatchObject({ action: 'create', plan: 'pro', billing_cycle: 'annual' })
+  })
+
+  it('un error del servidor conserva su `code`: la pantalla decide qué mostrar por el código, no por el texto', async () => {
+    const { FunctionsHttpError } = await import('@supabase/supabase-js')
+    h.invoke.mockResolvedValue({ data: null, error: new FunctionsHttpError(new Response(JSON.stringify({ error: 'Mensaje', code: 'mp_payer_email_required' }), { status: 422 })) })
+    const fallo = await createSubscription({ business_id: 'biz-beta-mp', plan: 'pro', billing_cycle: 'monthly' }).catch((e: unknown) => e)
+
+    expect(fallo).toBeInstanceOf(SubscriptionActionError)
+    expect(fallo).toMatchObject({ message: 'Mensaje', code: 'mp_payer_email_required', status: 422 })
+    expect(subscriptionErrorCode(fallo)).toBe(MP_PAYER_EMAIL_REQUIRED)
+    expect(subscriptionErrorCode(new Error('mp_payer_email_required'))).toBeNull()
   })
 
   it('getCheckoutStatus lee el estado por la Edge Function (`status`), no por la tabla', async () => {
@@ -287,6 +301,234 @@ describe('S · servicio: el navegador propone, no registra', () => {
     suscripcion('active', { subscription_plan: 'basico' })
     h.invoke.mockResolvedValue({ data: null, error: new Error('boom') })
     await expect(reconcilePayment('biz-beta-mp')).rejects.toThrow()
+    expect(h.from).not.toHaveBeenCalled()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Evidencia real (2026-10-02): `POST /preapproval` con el email del login dio
+// 400 «User bad request»; con el email real de una cuenta de Mercado Pago, 201.
+// Planes NO le pide el email a todos: primero intenta con el del login (el
+// servidor lo toma del JWT) y sólo si Mercado Pago lo rechaza pide el otro.
+describe('E · Planes: el email de Mercado Pago se pide sólo si hace falta', () => {
+  const CHECKOUT = '#checkout-mercado-pago'
+  const ETIQUETA = 'Email de tu cuenta de Mercado Pago'
+  const TITULO = 'Necesitamos un dato de Mercado Pago'
+  const REQUERIDO = { error: 'Mercado Pago no pudo iniciar la suscripción con el email de tu cuenta de TechRepair Pro.', code: 'mp_payer_email_required' }
+  const RECHAZADO = { error: 'Mercado Pago tampoco pudo iniciar la suscripción con ese email.', code: 'mp_payer_email_rejected' }
+
+  const montarPlanes = () => render(<MemoryRouter><Plans /></MemoryRouter>)
+  const creates = () => h.invoke.mock.calls.filter(([, o]) => o.body.action === 'create').map(([, o]) => o.body as Record<string, unknown>)
+  const elegir = (plan: string) => fireEvent.click(screen.getByRole('button', { name: `Elegir ${plan}` }))
+  const campo = () => screen.getByLabelText(ETIQUETA) as HTMLInputElement
+  const continuar = () => fireEvent.click(screen.getByRole('button', { name: 'Continuar con Mercado Pago' }))
+  const escribir = (valor: string) => fireEvent.change(campo(), { target: { value: valor } })
+
+  /** El servidor: responde a cada `create` según el `mp_payer_email` que reciba. */
+  function servidor(responder: (body: Record<string, unknown>) => { status: number; body: Record<string, unknown> }) {
+    h.invoke.mockImplementation(async (_fn: string, o: { body: Record<string, unknown> }) => {
+      const { status, body } = responder(o.body)
+      if (status === 200) return { data: body, error: null }
+      const { FunctionsHttpError } = await import('@supabase/supabase-js')
+      return { data: null, error: new FunctionsHttpError(new Response(JSON.stringify(body), { status })) }
+    })
+  }
+  /** Mercado Pago sólo acepta `cuenta@mp.invalid`: el email del login no sirve. */
+  const soloAceptaLaCuentaDeMp = () => servidor((body) => {
+    if (body.mp_payer_email === undefined) return { status: 422, body: REQUERIDO }
+    if (body.mp_payer_email === 'cuenta@mp.invalid') return { status: 200, body: { init_point: CHECKOUT } }
+    return { status: 422, body: RECHAZADO }
+  })
+
+  beforeEach(() => { window.location.hash = '' })
+  afterEach(() => { window.location.hash = '' })
+
+  it('flujo normal: «Elegir» va directo al checkout y no aparece ningún campo de email', async () => {
+    servidor(() => ({ status: 200, body: { init_point: CHECKOUT } }))
+    montarPlanes()
+    expect(screen.queryByLabelText(ETIQUETA)).toBeNull()
+    elegir('Pro')
+    await waitFor(() => expect(window.location.hash).toBe(CHECKOUT))
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByLabelText(ETIQUETA)).toBeNull()
+    // El navegador sólo propone negocio, plan y ciclo: ni el email del login.
+    expect(creates()).toEqual([{
+      action: 'create', business_id: 'biz-beta-mp', plan: 'pro', billing_cycle: 'monthly',
+      back_url: `${window.location.origin}/subscription/pending`,
+    }])
+  })
+
+  it('Mercado Pago no acepta el email del login → recién ahí pide el email, con un solo campo', async () => {
+    soloAceptaLaCuentaDeMp()
+    montarPlanes()
+    elegir('Pro')
+
+    const dialogo = await screen.findByRole('dialog')
+    expect(dialogo.textContent).toContain(TITULO)
+    expect(dialogo.textContent).toContain('Mercado Pago no pudo iniciar la suscripción con el email de tu cuenta de TechRepair Pro.')
+    expect(dialogo.textContent).toContain('Ingresá el email asociado a tu cuenta de Mercado Pago.')
+    expect(dialogo.querySelectorAll('input')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Continuar con Mercado Pago' })).not.toBeNull()
+    // No abrió ningún checkout.
+    expect(window.location.hash).toBe('')
+    expect(creates()).toHaveLength(1)
+  })
+
+  it('no precarga ni muestra el email del login como si fuera el de Mercado Pago', async () => {
+    soloAceptaLaCuentaDeMp()
+    montarPlanes()
+    elegir('Pro')
+    const dialogo = await screen.findByRole('dialog')
+    expect(campo().value).toBe('')
+    expect(dialogo.textContent).not.toContain('owner@invalid.test')
+  })
+
+  it('reintento con el email de la cuenta de Mercado Pago → va al checkout', async () => {
+    soloAceptaLaCuentaDeMp()
+    montarPlanes()
+    elegir('Full')
+    await screen.findByRole('dialog')
+    escribir('  cuenta@mp.invalid ')
+    continuar()
+    await waitFor(() => expect(window.location.hash).toBe(CHECKOUT))
+
+    expect(creates()).toHaveLength(2)
+    expect(creates()[0].mp_payer_email).toBeUndefined()
+    expect(creates()[1]).toMatchObject({ action: 'create', plan: 'full', billing_cycle: 'monthly', mp_payer_email: 'cuenta@mp.invalid' })
+    // El reintento manda SÓLO eso de más: ni importe, ni referencia, ni estado.
+    expect(Object.keys(creates()[1]).sort()).toEqual(['action', 'back_url', 'billing_cycle', 'business_id', 'mp_payer_email', 'plan'])
+  })
+
+  it.each([
+    ['vacío', '', 'Ingresá el email de tu cuenta de Mercado Pago.'],
+    ['sólo espacios', '   ', 'Ingresá el email de tu cuenta de Mercado Pago.'],
+    ['sin arroba', 'cuenta.mp.invalid', 'Revisá el email: no tiene un formato válido.'],
+    ['sin dominio', 'cuenta@', 'Revisá el email: no tiene un formato válido.'],
+    ['con espacios en el medio', 'cuen ta@mp.invalid', 'Revisá el email: no tiene un formato válido.'],
+  ])('email %s: lo dice en el campo y NO llama al servidor', async (_caso, valor, mensaje) => {
+    soloAceptaLaCuentaDeMp()
+    montarPlanes()
+    elegir('Pro')
+    await screen.findByRole('dialog')
+    escribir(valor)
+    continuar()
+
+    expect((await screen.findByText(mensaje)).className).toContain('form-error')
+    expect(campo().getAttribute('aria-invalid')).toBe('true')
+    expect(creates()).toHaveLength(1)
+    expect(window.location.hash).toBe('')
+  })
+
+  it('segundo fallo: muestra el error del servidor y NO reintenta solo', async () => {
+    soloAceptaLaCuentaDeMp()
+    montarPlanes()
+    elegir('Pro')
+    await screen.findByRole('dialog')
+    escribir('otra@mp.invalid')
+    continuar()
+
+    expect(await screen.findByText(RECHAZADO.error)).not.toBeNull()
+    // Sigue abierto, con lo que escribió, y sin checkout.
+    expect(screen.getByRole('dialog')).not.toBeNull()
+    expect(campo().value).toBe('otra@mp.invalid')
+    expect(window.location.hash).toBe('')
+    // Ni un intento más sin que el usuario lo pida.
+    await act(async () => { await new Promise((r) => setTimeout(r, 60)) })
+    expect(creates()).toHaveLength(2)
+    expect(creates().map((c) => c.mp_payer_email)).toEqual([undefined, 'otra@mp.invalid'])
+  })
+
+  it('después de un segundo fallo puede corregir el email: el error se va al editar y el nuevo intento es SUYO', async () => {
+    soloAceptaLaCuentaDeMp()
+    montarPlanes()
+    elegir('Pro')
+    await screen.findByRole('dialog')
+    escribir('otra@mp.invalid')
+    continuar()
+    await screen.findByText(RECHAZADO.error)
+
+    escribir('cuenta@mp.invalid')
+    expect(screen.queryByText(RECHAZADO.error)).toBeNull()
+    continuar()
+    await waitFor(() => expect(window.location.hash).toBe(CHECKOUT))
+    expect(creates().map((c) => c.mp_payer_email)).toEqual([undefined, 'otra@mp.invalid', 'cuenta@mp.invalid'])
+  })
+
+  it('un error que NO es del email (Mercado Pago caído) no abre el pedido: se muestra el error de siempre', async () => {
+    servidor(() => ({ status: 502, body: { error: 'No pudimos consultar a Mercado Pago. Probá de nuevo en unos minutos.', code: 'mp_unavailable' } }))
+    montarPlanes()
+    elegir('Pro')
+
+    expect(await screen.findByText('No pudimos consultar a Mercado Pago. Probá de nuevo en unos minutos.')).not.toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByLabelText(ETIQUETA)).toBeNull()
+  })
+
+  it.each([
+    ['otro código con el mismo status', { status: 422, body: { error: 'x', code: 'otra_cosa' } }],
+    ['sin código', { status: 422, body: { error: 'x' } }],
+    ['el texto parecido sin el código', { status: 400, body: { error: REQUERIDO.error } }],
+  ])('%s → tampoco abre el pedido', async (_caso, respuesta) => {
+    servidor(() => respuesta)
+    montarPlanes()
+    elegir('Pro')
+    await waitFor(() => expect(creates()).toHaveLength(1))
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)) })
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('es fácil de cerrar: «Cancelar» lo cierra, no crea nada y deja volver a elegir', async () => {
+    soloAceptaLaCuentaDeMp()
+    montarPlanes()
+    elegir('Pro')
+    await screen.findByRole('dialog')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(creates()).toHaveLength(1)
+    expect((screen.getByRole('button', { name: 'Elegir Pro' }) as HTMLButtonElement).disabled).toBe(false)
+    // «Cerrar» (la X) y Escape hacen lo mismo.
+    elegir('Pro')
+    await screen.findByRole('dialog')
+    fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    elegir('Pro')
+    await screen.findByRole('dialog')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('no vuelve a pedirlo en la misma visita: el siguiente plan manda el email que ya funcionó', async () => {
+    soloAceptaLaCuentaDeMp()
+    montarPlanes()
+    elegir('Pro')
+    await screen.findByRole('dialog')
+    escribir('cuenta@mp.invalid')
+    continuar()
+    await waitFor(() => expect(window.location.hash).toBe(CHECKOUT))
+
+    // (jsdom no navega) El usuario elige otro plan en la misma pantalla.
+    window.location.hash = ''
+    fireEvent.click(screen.getByRole('button', { name: 'Cerrar' }))
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Elegir Básico' }) as HTMLButtonElement).disabled).toBe(false))
+    elegir('Básico')
+    await waitFor(() => expect(window.location.hash).toBe(CHECKOUT))
+    expect(creates().at(-1)).toMatchObject({ plan: 'basico', mp_payer_email: 'cuenta@mp.invalid' })
+    expect(creates()).toHaveLength(3)
+  })
+
+  it('el email vive sólo en la pantalla: no se guarda en el navegador', async () => {
+    soloAceptaLaCuentaDeMp()
+    montarPlanes()
+    elegir('Pro')
+    await screen.findByRole('dialog')
+    escribir('cuenta@mp.invalid')
+    continuar()
+    await waitFor(() => expect(window.location.hash).toBe(CHECKOUT))
+
+    const guardado = JSON.stringify({ ...window.localStorage }) + JSON.stringify({ ...window.sessionStorage }) + document.cookie
+    expect(guardado).not.toContain('cuenta@mp.invalid')
     expect(h.from).not.toHaveBeenCalled()
   })
 })

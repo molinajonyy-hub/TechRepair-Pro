@@ -29,8 +29,19 @@ export class FakeMercadoPago {
   cancelIsIgnored = false
   /** El PUT de cancelación responde 500. */
   cancelFails = false
-  /** `POST /preapproval` responde este status con un cuerpo de error de MP. */
+  /** `POST /preapproval` responde este status con un cuerpo de error de MP que NO habla del pagador. */
   createFailsWith: number | null = null
+  /**
+   * Emails que son de una cuenta de Mercado Pago. `null` = cualquiera sirve.
+   *
+   * Con una lista, `POST /preapproval` con otro `payer_email` responde lo que se
+   * midió en producción el 2026-10-02 con el email del login de TechRepair Pro:
+   * `400 {"message":"User bad request","status":400}`. El mismo POST con el email
+   * real de una cuenta respondió 201.
+   */
+  payerAccounts: Set<string> | null = null
+  /** Cuerpo del 400 cuando el pagador no es una cuenta de Mercado Pago. */
+  payerRejectionBody: MpRow = { message: 'User bad request', status: 400 }
   /**
    * Mercado Pago NO devuelve `external_reference` (ni al crear ni al leer). Es lo
    * que se midió en el smoke real del 2026-10-02 para el checkout de un plan:
@@ -73,9 +84,12 @@ export class FakeMercadoPago {
 
     if (method === 'POST' && url.pathname === '/preapproval') {
       if (this.createFailsWith !== null) {
-        return json({ message: 'Invalid value for payer_email: alguien@invalid.test', error: 'bad_request', status: this.createFailsWith }, this.createFailsWith)
+        return json({ message: 'Invalid value for back_url (contacto: alguien@invalid.test)', error: 'bad_request', status: this.createFailsWith }, this.createFailsWith)
       }
       const request = body ?? {}
+      if (this.payerAccounts !== null && !this.payerAccounts.has(String(request.payer_email))) {
+        return json(this.payerRejectionBody, 400)
+      }
       // La misma clave de idempotencia devuelve el mismo recurso.
       const key = headers.get('x-idempotency-key')
       const replay = key ? [...this.preapprovals.values()].find((p) => p.__idempotency_key === key) : undefined

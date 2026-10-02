@@ -372,7 +372,8 @@ describe('B · Planes + Mercado Pago (autoservicio)', () => {
       business_id: 'biz-beta1',
       plan,
       billing_cycle: 'monthly',
-      payer_email: 'owner@invalid.test',
+      // BETA-MP Plan B: el navegador ya no manda el email del login. El servidor
+      // lo toma del JWT y sólo pide otro si Mercado Pago lo rechaza.
       back_url: `${window.location.origin}/subscription/pending`,
     })
     expect(h.invoke.mock.calls.filter(([, o]) => o?.body?.action === 'create')).toHaveLength(1)
@@ -387,7 +388,7 @@ describe('B · Planes + Mercado Pago (autoservicio)', () => {
 
   it('servicio: createSubscription llega a mp-subscription y devuelve el init_point', async () => {
     const res = await createSubscription({
-      business_id: 'biz-beta1', plan: 'pro', billing_cycle: 'monthly', payer_email: 'owner@invalid.test',
+      business_id: 'biz-beta1', plan: 'pro', billing_cycle: 'monthly',
     })
     expect(res.init_point).toBe(INIT_POINT)
     expect(h.invoke).toHaveBeenCalledTimes(1)

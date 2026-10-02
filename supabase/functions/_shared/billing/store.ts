@@ -89,6 +89,11 @@ export interface NewCheckoutSession {
   amount: number
   currency: string
   external_reference: string
+  /**
+   * El `payer_email` que se le mandó a Mercado Pago para ESTE checkout: el del
+   * JWT o el que indicó el usuario. Queda como registro de lo enviado. No es
+   * identidad: ninguna consulta de este store busca por él.
+   */
   payer_email: string
 }
 

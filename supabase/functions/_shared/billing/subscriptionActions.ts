@@ -12,13 +12,23 @@
  * `authorizer.canManageBilling(business_id)`, evaluada con el JWT del usuario.
  * No hay una verificación por handler que alguno pueda olvidarse.
  *
- * Del body sólo se usan `action`, `business_id`, `plan`, `billing_cycle` y
- * `back_url` (validado contra la allowlist). Importe, moneda, frecuencia,
- * referencia, `payer_email` e ids de preapproval que mande el navegador se
- * ignoran: el email sale del JWT, el precio del catálogo del servidor y los ids
- * de la base.
+ * Del body sólo se usan `action`, `business_id`, `plan`, `billing_cycle`,
+ * `back_url` (validado contra la allowlist) y, sólo en `create`,
+ * `mp_payer_email`. Importe, moneda, frecuencia, referencia, estados e ids de
+ * preapproval que mande el navegador se ignoran: el precio sale del catálogo del
+ * servidor y los ids de la base.
+ *
+ * `mp_payer_email` NO es autoridad. Mercado Pago exige un `payer_email` para
+ * crear el preapproval y el email del login de TechRepair Pro no siempre es el de
+ * una cuenta de Mercado Pago (medido en producción el 2026-10-02: 400 «User bad
+ * request»). El primer intento usa el email del JWT; si Mercado Pago lo rechaza,
+ * `create` responde `mp_payer_email_required` y el usuario indica el suyo. Ese
+ * email se le manda a Mercado Pago y se anota en la sesión, y nada más: no
+ * resuelve un negocio, no vincula un preapproval, no participa en `reconcile` ni
+ * en el webhook. La identidad sigue siendo JWT → capacidad → sesión → id del
+ * preapproval creado por el servidor.
  */
-import { MpApiError, preapprovalCheckoutUrl, preapprovalState } from './mpClient.ts'
+import { MpApiError, isPayerRejection, preapprovalCheckoutUrl, preapprovalState } from './mpClient.ts'
 import type { MpPreapproval } from './mpClient.ts'
 import { checkoutTermsProblem, isBillingCycle, isBillingPlan } from './planCatalog.ts'
 import type { BillingCycle, BillingPlan, CheckoutTerms, ExpectedTerms, PlanCatalog } from './planCatalog.ts'
@@ -44,7 +54,7 @@ const PENDING_PATH = '/subscription/pending'
 
 export interface ActionUser {
   id: string
-  /** Email del JWT verificado. Es el único email de pagador que se usa. */
+  /** Email del JWT verificado. Es el `payer_email` del primer intento de `create`. */
   email: string | null
 }
 
@@ -137,13 +147,58 @@ interface CheckoutIntent {
 
 const IN_PROGRESS = () => fail(409, 'checkout_in_progress', 'Ya estamos preparando tu checkout. Probá de nuevo en unos segundos.')
 
+// ── Email del pagador ───────────────────────────────────────────────────────
+
+/** RFC 5321: 64 para la parte local, 254 para la dirección completa. */
+const MAX_PAYER_EMAIL_LENGTH = 254
+const MAX_PAYER_EMAIL_LOCAL_LENGTH = 64
+// Deliberadamente simple: una sola `@`, sin espacios ni caracteres de control,
+// dominio con al menos un punto. Si es de una cuenta real lo decide Mercado Pago.
+const PAYER_EMAIL_RE = /^[^\s@\u0000-\u001f\u007f<>"]+@[^\s@\u0000-\u001f\u007f<>"]+\.[^\s@\u0000-\u001f\u007f<>".]{2,}$/
+
+/**
+ * `create` necesita el email de la cuenta de Mercado Pago de quien paga, y el del
+ * login de TechRepair Pro no siempre lo es: en ese caso el usuario indica el suyo.
+ */
+const PAYER_EMAIL_REQUIRED = () => fail(422, 'mp_payer_email_required',
+  'Mercado Pago no pudo iniciar la suscripción con el email de tu cuenta de TechRepair Pro. Ingresá el email asociado a tu cuenta de Mercado Pago.')
+
+type PayerEmail =
+  /** `explicit`: lo indicó el usuario. Si no, es el del JWT (primer intento). */
+  | { ok: true; email: string; explicit: boolean }
+  | { ok: false; response: ActionResponse }
+
+/**
+ * El `payer_email` que se le va a mandar a Mercado Pago. ÚNICO lugar donde se lee
+ * `mp_payer_email` del body, y lo que devuelve sólo viaja a `POST /preapproval` y
+ * a la columna `payer_email` de la sesión. Nunca decide nada sobre un negocio.
+ */
+function resolvePayerEmail(req: ActionRequest): PayerEmail {
+  const raw = req.body.mp_payer_email
+  if (raw === undefined || raw === null) {
+    // Primer intento: el email del JWT. Sin email en el JWT no hay con qué intentar.
+    return req.user.email
+      ? { ok: true, email: req.user.email, explicit: false }
+      : { ok: false, response: PAYER_EMAIL_REQUIRED() }
+  }
+  const invalid = (error: string): PayerEmail => ({ ok: false, response: fail(400, 'invalid_payer_email', error) })
+  if (typeof raw !== 'string') return invalid('El email de Mercado Pago no es válido.')
+  const email = raw.trim().toLowerCase()
+  if (email === '') return invalid('Ingresá el email de tu cuenta de Mercado Pago.')
+  if (email.length > MAX_PAYER_EMAIL_LENGTH || email.indexOf('@') > MAX_PAYER_EMAIL_LOCAL_LENGTH || !PAYER_EMAIL_RE.test(email)) {
+    return invalid('El email de Mercado Pago no tiene un formato válido. Revisalo e intentá de nuevo.')
+  }
+  return { ok: true, email, explicit: true }
+}
+
 async function createCheckout(ctx: ActionContext, req: ActionRequest, businessId: string): Promise<ActionResponse> {
   const { plan, billing_cycle: billingCycle } = req.body
   if (!isBillingPlan(plan) || !isBillingCycle(billingCycle)) {
     return fail(400, 'invalid_plan', 'El plan o el ciclo elegido no es válido.')
   }
-  const payerEmail = req.user.email
-  if (!payerEmail) return fail(400, 'no_email', 'Tu cuenta no tiene un email para asociar al pago.')
+  const payer = resolvePayerEmail(req)
+  if (!payer.ok) return payer.response
+  const payerEmail = payer.email
 
   // Importe, moneda y frecuencia: del catálogo del servidor, para el plan y el
   // ciclo validados. El navegador no aporta ninguno de los tres.
@@ -208,6 +263,17 @@ async function createCheckout(ctx: ActionContext, req: ActionRequest, businessId
     })
   } catch (error) {
     await closeSession(ctx, session.id, 'failed')
+    if (isPayerRejection(error)) {
+      // Mercado Pago no creó nada: no hay checkout ni preapproval que vincular.
+      // Al log va el motivo de MP (sin emails), nunca el email que se intentó.
+      ctx.log({
+        event: 'payer_email_rejected', business_id: businessId, session_id: session.id,
+        explicit: payer.explicit, detail: error.detail,
+      })
+      return payer.explicit
+        ? fail(422, 'mp_payer_email_rejected', 'Mercado Pago tampoco pudo iniciar la suscripción con ese email. Revisá que sea el de tu cuenta de Mercado Pago o escribinos desde Ayuda.')
+        : PAYER_EMAIL_REQUIRED()
+    }
     throw error
   }
 

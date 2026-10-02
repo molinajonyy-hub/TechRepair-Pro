@@ -236,7 +236,7 @@ describe('precio, pagador y plan: los decide el servidor', () => {
     expect(sessions()[0]).toMatchObject({ plan_id: 'basico', amount: 15000 })
   })
 
-  it('el email del pagador sale del JWT: el `payer_email` del body se ignora', async () => {
+  it('primer intento: el email del pagador es el del JWT, y el campo viejo `payer_email` del body se ignora', async () => {
     await create('pro', 'monthly', { payer_email: 'atacante@evil.test' })
     expect(sessions()[0].payer_email).toBe('aaaaaaaa@invalid.test')
     expect(posted().payer_email).toBe('aaaaaaaa@invalid.test')
@@ -252,10 +252,11 @@ describe('precio, pagador y plan: los decide el servidor', () => {
     expect(sessions()[0].mp_preapproval_id).not.toBe('pre_ajeno')
   })
 
-  it('un usuario sin email no abre un checkout', async () => {
+  it('un usuario sin email en el JWT no abre un checkout: se le pide el de su cuenta de Mercado Pago', async () => {
     const res = await w.call(OWNER_A, { action: 'create', business_id: BIZ_A, plan: 'pro', billing_cycle: 'monthly' }, { email: null })
-    expect(res.status).toBe(400)
-    expect(res.body.code).toBe('no_email')
+    expect(res.status).toBe(422)
+    expect(res.body.code).toBe('mp_payer_email_required')
+    expect(res.body.init_point).toBeUndefined()
     expect(w.mp.created()).toEqual([])
   })
 

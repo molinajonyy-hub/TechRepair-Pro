@@ -7,7 +7,8 @@ import { useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useSubscription } from '../hooks/useSubscription'
-import { createSubscription } from '../services/subscriptionService'
+import { createSubscription, MP_PAYER_EMAIL_REQUIRED, subscriptionErrorCode } from '../services/subscriptionService'
+import { MercadoPagoEmailDialog } from '../components/subscription/MercadoPagoEmailDialog'
 import { PLANS, type SubscriptionPlan } from '../types/subscription'
 
 type Cycle = 'monthly' | 'annual'
@@ -54,32 +55,63 @@ function fmt(n: number) {
   return '$' + Math.round(n).toLocaleString('es-AR')
 }
 
+/** El fallback abierto: qué plan se estaba contratando y qué respondió el servidor. */
+interface PayerEmailPrompt {
+  plan: SubscriptionPlan
+  /** El email que se intentó y no funcionó; vacío si todavía no se pidió ninguno. */
+  email: string
+  /** Por qué no funcionó ese email. */
+  error: string
+}
+
+const messageOf = (e: unknown) => (e instanceof Error && e.message) || 'Error al iniciar el pago'
+
 export function Plans() {
-  const { businessId, user } = useAuth()
+  const { businessId } = useAuth()
   const { isTrial, daysUntilTrialEnd, currentPlan } = useSubscription()
   const navigate = useNavigate()
   const [cycle, setCycle]     = useState<Cycle>('monthly')
   const [loading, setLoading] = useState<string | null>(null)
   const [error, setError]     = useState('')
+  // Email de la cuenta de Mercado Pago que el usuario indicó y Mercado Pago aceptó
+  // en ESTA visita. Estado efímero: no se guarda en el navegador ni en el perfil.
+  const [mpPayerEmail, setMpPayerEmail] = useState('')
+  const [payerPrompt, setPayerPrompt]   = useState<PayerEmailPrompt | null>(null)
 
   const isAnnual = cycle === 'annual'
 
-  async function handleSelect(planId: SubscriptionPlan) {
-    if (!businessId || !user?.email) return
+  /**
+   * Un intento de checkout. Sin `email`, el servidor usa el del login: es el
+   * camino normal y no pide nada. Con `email`, es el reintento del fallback.
+   */
+  async function startCheckout(planId: SubscriptionPlan, email: string) {
+    if (!businessId) return
     setError(''); setLoading(planId)
     try {
       const res = await createSubscription({
         business_id:   businessId,
         plan:          planId,
         billing_cycle: cycle,
-        payer_email:   user.email,
+        ...(email ? { mp_payer_email: email } : {}),
       })
+      if (email) setMpPayerEmail(email)
       window.location.href = res.init_point
-    } catch (e: any) {
-      setError(e.message || 'Error al iniciar el pago')
+    } catch (e: unknown) {
       setLoading(null)
+      if (email) {
+        // El reintento falló: se muestra el motivo y NO se reintenta solo. El
+        // usuario corrige el email o cierra.
+        setPayerPrompt({ plan: planId, email, error: messageOf(e) })
+      } else if (subscriptionErrorCode(e) === MP_PAYER_EMAIL_REQUIRED) {
+        // Mercado Pago no aceptó el email del login: recién ahí se pide el suyo.
+        setPayerPrompt({ plan: planId, email: '', error: '' })
+      } else {
+        setError(messageOf(e))
+      }
     }
   }
+
+  const handleSelect = (planId: SubscriptionPlan) => startCheckout(planId, mpPayerEmail)
 
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto' }}>
@@ -229,6 +261,18 @@ export function Plans() {
           Volver
         </button>
       </div>
+
+      {/* Fallback: sólo si Mercado Pago no pudo iniciar con el email del login. */}
+      {payerPrompt && (
+        <MercadoPagoEmailDialog
+          planName={PLANS.find(p => p.id === payerPrompt.plan)?.name ?? ''}
+          attemptedEmail={payerPrompt.email}
+          submitting={loading === payerPrompt.plan}
+          error={payerPrompt.error}
+          onSubmit={email => startCheckout(payerPrompt.plan, email)}
+          onClose={() => { setPayerPrompt(null); setLoading(null) }}
+        />
+      )}
     </div>
   )
 }

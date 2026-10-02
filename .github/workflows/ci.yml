@@ -128,6 +128,12 @@ jobs:
       # notificación y tolerante al desorden; `reconcile` recupera sin webhook
       # leyendo por id y es idempotente; el navegador no confirma un pago por
       # `isActive` ni por la URL; el precio del servidor es el de Planes.
+      # EMAIL DEL PAGADOR (POST /preapproval real: el email del login dio 400
+      # «User bad request», el de una cuenta de MP dio 201): el primer intento usa
+      # el del JWT y sólo ese rechazo, de esa operación, pide `mp_payer_email`;
+      # ese email es un parámetro del POST y nunca resuelve un negocio, vincula un
+      # preapproval ni participa en `reconcile` o en el webhook; Planes lo pide
+      # sólo por el código del servidor y no lo guarda en el navegador.
       # Guard estático (self-test primero) + guard read-only de los SQL del
       # runbook + contratos de fuente. NO certifica Mercado Pago: eso es el smoke.
       # La base real y el RPC de capacidad los cubre el job `beta-mp-billing`.

@@ -1,14 +1,19 @@
 # BETA-MP — Runbook de rollout y smoke controlado (Plan B)
 
-> **Nada de este PR fue desplegado.** No se aplicó la migración `20261013120000`, no se
-> redesplegó ninguna Edge Function y no se hizo ninguna compra con este código. Cada paso que
-> escribe en producción necesita la autorización explícita del owner.
+> **El microfix del email del pagador (este PR) no fue desplegado.** Cada paso que escribe en
+> producción necesita la autorización explícita del owner. No trae migración.
+>
+> El Plan B (PR #168) se mergeó el 2026-10-02 y corrió en producción lo suficiente como para
+> medir `POST /preapproval`: ver [la evidencia](#evidencia-real-de-post-preapproval-2026-10-02).
 
 Contexto y arquitectura: [README](README.md).
 
 ---
 
 ## Estado medido (producción, sólo lectura, 2026-10-02 ~13:10 UTC)
+
+Medición anterior al merge del Plan B. Lo que pasó después está en la evidencia de
+`POST /preapproval`; el estado de la base y de las funciones no se volvió a medir.
 
 | Dato | Valor |
 |---|---|
@@ -132,15 +137,87 @@ procesada de punta a punta (pasos 5 y 13 del smoke).
 
 ---
 
+## Evidencia real de `POST /preapproval` (2026-10-02)
+
+Con el Plan B ya mergeado, `create` llegó a `POST /preapproval` en producción.
+
+| Intento | `payer_email` | Respuesta de Mercado Pago |
+|---|---|---|
+| El de la app | El email del login de TechRepair Pro (un alias `+…` de una casilla de Gmail) | **`400`** `{"message":"User bad request","status":400}` |
+| El mismo POST, a mano | El email real de una cuenta de Mercado Pago | **`201`** |
+
+Lo que devolvió el `201`:
+
+| Campo | Valor medido | Qué confirma |
+|---|---|---|
+| `status` | `pending` | El preapproval se crea sin medio de pago, como dice la documentación |
+| `id` | Presente (`ba83bbb6…c29b`) | El servidor conoce el id antes de que nadie pague |
+| `external_reference` | **Conservada** (la que se mandó) | La referencia sí vuelve cuando el preapproval lo crea la API (no así en el checkout por URL de un plan) |
+| `init_point` | `…?preapproval_id=<ese id>` | El checkout es el de ese preapproval |
+| `auto_recurring` | 15000 ARS / `1` / `months` | Mercado Pago cobra lo que pidió el servidor |
+| `application_id` | Presente | El preapproval queda a nombre de la aplicación del token |
+
+Ese preapproval fue **sólo un diagnóstico**: se canceló a mano y no se asocia a ningún negocio.
+
+**Conclusión.** Mercado Pago exige un `payer_email`, y el email del login de TechRepair Pro no
+se puede asumir como el de una cuenta de Mercado Pago. La forma de la respuesta de
+`POST /preapproval` (incógnitas 1 y 3 de la versión anterior de este runbook) quedó confirmada.
+
+### Lo que cambia: el email del pagador, con fallback
+
+No se le pide el email de Mercado Pago a todo el mundo.
+
+1. El usuario toca «Elegir». El navegador manda negocio, plan y ciclo — **sin email**.
+2. El backend intenta `POST /preapproval` con el email del JWT.
+3. Si Mercado Pago lo acepta: checkout directo. El usuario no ve ningún paso extra.
+4. Si Mercado Pago rechaza **ese POST** con el rechazo medido, `create` responde
+   `422 mp_payer_email_required`, no entrega ningún checkout y la sesión queda `failed`.
+5. Planes muestra «Necesitamos un dato de Mercado Pago» con un único campo, «Email de tu cuenta
+   de Mercado Pago», y reintenta `create` con `mp_payer_email`.
+6. Si ese email funciona: checkout. Si tampoco: `422 mp_payer_email_rejected`, el error se
+   muestra en el diálogo y **no hay reintento automático**: el usuario corrige o cierra.
+
+**El email no es autoridad.** Es un parámetro que Mercado Pago exige para crear el
+preapproval. Se le manda a Mercado Pago y se anota en la sesión (`payer_email`) como registro de
+lo enviado, y nada más: no resuelve un `business_id`, no vincula un preapproval, no activa, no
+se usa para buscar suscripciones, no participa en `reconcile` ni en el webhook. La cadena de
+autoridad no cambió: JWT → capacidad `subscription` → sesión del servidor → preapproval creado
+por el servidor → `mp_preapproval_id` guardado → Mercado Pago confirma → el backend aplica.
+
+En el navegador el email es estado efímero de la pantalla: no se guarda en `localStorage` ni en
+el perfil, y se pierde al recargar. Si el usuario ya lo ingresó en esa visita, el siguiente
+plan que elija lo manda directo.
+
+#### Qué rechazo dispara el pedido de email (lista cerrada)
+
+Sólo un `400` de **`POST /preapproval`** cuyo mensaje sea `User bad request` o nombre
+`payer_email`, y sólo cuando el intento fue con el email del JWT. Cualquier otro `400`, un
+`401`/`403`/`5xx`, un timeout o un error de otra operación siguen siendo `502 mp_unavailable`,
+con el motivo de Mercado Pago en el log.
+
+**Limitación conocida.** «User bad request» no dice que la causa sea el email: es el único dato
+que devuelve Mercado Pago, y se midió una sola vez. Si Mercado Pago usara ese mismo mensaje
+para otro problema, el usuario vería el pedido de email y, al reintentar, el error
+`mp_payer_email_rejected`. El costo de equivocarse es un paso de más para el usuario; nunca una
+activación incorrecta, porque el email no decide nada.
+
+**Sin medir todavía.** Que un `payer_email` aceptado al crear obligue a pagar con esa misma
+cuenta. Si Mercado Pago acepta el email del login pero después rechaza el checkout porque quien
+paga usa otra cuenta, hoy el usuario no tiene desde dónde indicar otro email: el pedido sólo
+aparece cuando falla la creación.
+
+---
+
 ## Plan B — qué cambia
 
 El **backend** crea la suscripción por API (`POST /preapproval`, «sin plan asociado, con pago
 pendiente») y conoce su id **antes** de que nadie pague.
 
-1. El navegador propone `business_id`, `plan` y `billing_cycle`. Nada más se usa.
+1. El navegador propone `business_id`, `plan` y `billing_cycle`. Nada más se usa, salvo
+   `mp_payer_email` en el reintento descripto arriba.
 2. El backend autoriza la capacidad `subscription`, toma importe y frecuencia de **su**
    catálogo, registra la sesión con `trpcs_<uuid>`, crea el preapproval `pending` en Mercado
-   Pago (referencia del servidor, email del JWT, `back_url` permitida), valida la respuesta,
+   Pago (referencia del servidor, email del pagador, `back_url` permitida), valida la respuesta,
    **guarda el `id` del preapproval en la sesión** y recién entonces devuelve el `init_point`
    de ese preapproval.
 3. La activación resuelve el negocio por ese id. `external_reference` se contrasta cuando
@@ -160,25 +237,23 @@ Los planes del panel (`MP_PLAN_*`) dejan de usarse.
 | 3 · Sandbox de Mercado Pago | Las funciones contra la API de MP con credenciales de prueba | Lo que MP hace con un preapproval creado por API | Producción |
 | 4 · Producción | Smoke controlado de este runbook | Secrets, webhook y cobro reales | — |
 
-**Para el Plan B están demostrados los niveles 1 y 2.** El nivel 4 se ejecutó una sola vez, con
-el Plan A, y es la evidencia de arriba. El Plan B no se ejecutó contra Mercado Pago.
+**Para el Plan B están demostrados los niveles 1 y 2, y del nivel 4 sólo la creación del
+preapproval** (`POST /preapproval`, medido a mano). Nadie pagó todavía un preapproval creado por
+el Plan B: la activación de punta a punta contra Mercado Pago sigue sin medirse.
 
 ### Lo que no se puede afirmar hasta el próximo smoke
 
-Depende de Mercado Pago y no está medido:
+Depende de Mercado Pago:
 
-1. **Que `POST /preapproval` con `status: "pending"` y sin medio de pago responda con `id`,
-   `status = pending`, `auto_recurring` e `init_point`.** Es lo documentado («suscripción sin
-   plan asociado con pago pendiente»). Si la respuesta no trae alguno de esos datos, o trae otro
-   importe o frecuencia, `create` responde 502 `checkout_unavailable`, no entrega ningún
-   checkout y deja en el log `preapproval_rejected` con el motivo. Se ve en el paso 1.
-2. **Qué exige Mercado Pago sobre `payer_email`.** Es obligatorio y se manda el email del JWT.
-   Si quien paga entra a Mercado Pago con una cuenta de **otro** email, Mercado Pago puede
-   rechazar el checkout. No está medido. Es el riesgo de producto más grande del Plan B: si se
-   confirma, hay que decidir cómo se le pide al usuario el email de su cuenta de Mercado Pago
-   (hoy no se le pregunta, y un email mandado por el navegador se ignora).
-3. Que el preapproval creado por API **sí** conserve `external_reference`. No hace falta para
-   activar; queda registrado en la auditoría (`reference_echoed`).
+1. ~~Que `POST /preapproval` con `status: "pending"` responda con `id`, `status = pending`,
+   `auto_recurring` e `init_point`.~~ **CONFIRMED** (2026-10-02). Si alguna vez la respuesta no
+   trae alguno de esos datos, `create` responde 502 `checkout_unavailable` y no entrega checkout.
+2. **Qué exige Mercado Pago sobre `payer_email`.** Medido a medias: un email que no es de una
+   cuenta de Mercado Pago da `400 User bad request` al crear (**CONFIRMED**, y es lo que resuelve
+   este microfix). **Sin medir:** si un email aceptado al crear obliga a pagar con esa cuenta, y
+   si «User bad request» puede significar otra cosa.
+3. ~~Que el preapproval creado por API conserve `external_reference`.~~ **CONFIRMED**: la
+   conserva. No hace falta para activar; queda registrado en la auditoría (`reference_echoed`).
 4. Que Mercado Pago acepte `12` / `months` para el anual y cómo lo devuelve. Se aceptan
    `12` / `months` y `1` / `years` al leer; cualquier otra forma falla cerrado.
 5. **Que Mercado Pago notifique** un preapproval creado por la aplicación. Ver el segundo
@@ -325,10 +400,10 @@ con el `business_id` del negocio de prueba.
 
 | # | Paso | Resultado esperado |
 |---|---|---|
-| 1 | **Crear el checkout.** Con el owner del negocio de prueba, Planes → Básico mensual. | Redirige a Mercado Pago, a una URL `…/subscriptions/checkout?preapproval_id=…`. En la base: una sesión `pending` con `plan_id = basico`, `amount = 15000`, **`mp_preapproval_id` no nulo** e igual al de la URL. En el log: `checkout_opened` con ese `preapproval_id`. Un 502 `checkout_unavailable` es la incógnita 1: leer `preapproval_rejected` en el log. Un 502 `mp_unavailable` con `status: 400` trae en `detail` el motivo de Mercado Pago |
+| 1 | **Crear el checkout.** Con el owner del negocio de prueba, Planes → Básico mensual. | **Si el email del login es el de una cuenta de Mercado Pago:** redirige directo, sin pedir nada. **Si no** (el caso medido): aparece «Necesitamos un dato de Mercado Pago»; en el log, `payer_email_rejected` con `explicit: false` y `detail: "User bad request"`; en la base, una sesión `failed` sin preapproval. Ingresar el email de la cuenta de Mercado Pago que va a pagar → «Continuar con Mercado Pago». En los dos casos termina en una URL `…/subscriptions/checkout?preapproval_id=…`, con una sesión `pending`, `plan_id = basico`, `amount = 15000`, **`mp_preapproval_id` no nulo** e igual al de la URL, y `checkout_opened` en el log. Un 502 `checkout_unavailable`: leer `preapproval_rejected`. Un 502 `mp_unavailable` con `status: 400` trae en `detail` el motivo de Mercado Pago (no era un rechazo del pagador) |
 | 2 | **Consultar el preapproval creado.** `GET /preapproval/{id}` con el token. | `status = pending`, `auto_recurring` = 15000 / 1 / months, `payer_email` del usuario. Anotar si trae `external_reference` (incógnita 3) y su `application_id` |
 | 3 | **El negocio conserva su acceso mientras no paga.** Volver a la app sin pagar. Consultar. | La fila de `businesses` es idéntica a la del preflight. `/subscription/pending` dice «Verificando tu pago» |
-| 4 | **Pagar.** Completar el checkout. | Mercado Pago confirma y vuelve a `/subscription/pending`. Si Mercado Pago rechaza el checkout por la cuenta que paga, es la incógnita 2: **PARAR** y anotar el mensaje |
+| 4 | **Pagar.** Completar el checkout con la cuenta de Mercado Pago del email usado en el paso 1. | Mercado Pago confirma y vuelve a `/subscription/pending`. Si Mercado Pago rechaza el checkout por la cuenta que paga, es la parte sin medir de la incógnita 2: **PARAR** y anotar el mensaje |
 | 5 | **¿Llegó el webhook?** Logs de `mp-webhook`. | `Received type=subscription_preapproval` y una línea `preapproval_evidence` con `kind: "activated"`, `source: "webhook"`. **Si no hay ningún request de Mercado Pago, es el segundo hallazgo: anotarlo y seguir** — el paso 6 activa igual |
 | 6 | **Activación.** Consultar (sección 2). | `subscription_status = active`, `subscription_plan = basico`, `access_source = mercado_pago`, `mp_preapproval_id` = el del paso 1, `current_period_end` = la próxima fecha de cobro de Mercado Pago. La sesión quedó `paid`. Un evento `billing_state_applied` con `origen = webhook` **o** `reconcile` (lo que haya llegado primero), `vinculo = preapproval_id` |
 | 7 | **«Verificar pago», dos veces.** Mi Suscripción → Verificar pago. | «Tu suscripción al plan Básico está activa.» Sin filas nuevas en `billing_state_applied` y sin cambios en `businesses` |
@@ -368,7 +443,17 @@ Un evento `preapproval_superseded` con `processed = false` significa que, en un 
 no se pudo cancelar la suscripción anterior: hay que cancelarla a mano en Mercado Pago.
 
 Una sesión `failed` significa que `create` no llegó a entregar un checkout (Mercado Pago no
-respondió, respondió algo inválido o no se pudo guardar el vínculo). No tiene preapproval.
+respondió, rechazó el email del pagador, respondió algo inválido o no se pudo guardar el
+vínculo). No tiene preapproval. Su columna `payer_email` dice con qué email se intentó: es un
+registro de lo enviado, no una identidad.
+
+Eventos del log de `mp-subscription` sobre el email del pagador (nunca incluyen el email):
+
+| Evento | Significado |
+|---|---|
+| `payer_email_rejected` · `explicit: false` | Mercado Pago rechazó el email del JWT. El navegador recibió `mp_payer_email_required` |
+| `payer_email_rejected` · `explicit: true` | Mercado Pago rechazó también el email que indicó el usuario. El navegador recibió `mp_payer_email_rejected` |
+| `mp_unavailable` · `operation: "POST preapproval"` | Otro error de Mercado Pago al crear. `detail` trae su motivo. **No** es un rechazo del pagador |
 
 ---
 

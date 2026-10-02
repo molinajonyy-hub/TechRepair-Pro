@@ -10,7 +10,10 @@ es un registro interno y no usa la red de Mercado Pago, ni Merchant Connect (`mp
 > negocio: Mercado Pago no conservó `external_reference`. Ese camino («Plan A») queda
 > **CONFIRMED UNSUPPORTED**. El código de este repositorio implementa el Plan B —el servidor crea
 > la suscripción por API— y está probado con tests de integración y contra un stack Supabase
-> local, con Mercado Pago **simulado**. El Plan B todavía no se midió contra Mercado Pago: ver
+> local, con Mercado Pago **simulado**. Del Plan B se midió en producción sólo la creación de la
+> suscripción (`POST /preapproval`): con el email del login de TechRepair Pro dio `400 User bad
+> request`, y con el email real de una cuenta de Mercado Pago, `201`. Por eso el email del
+> pagador tiene un fallback (sección 9). Nadie pagó todavía una suscripción creada así: ver
 > [docs/beta-mp/runbook-rollout.md](docs/beta-mp/runbook-rollout.md).
 >
 > Arquitectura, matriz de riesgos y decisiones: [docs/beta-mp/README.md](docs/beta-mp/README.md).
@@ -26,6 +29,9 @@ es un registro interno y no usa la red de Mercado Pago, ni Merchant Connect (`mp
   `authorized`.
 - La suscripción la crea el servidor, y su id queda guardado antes de que nadie pague: ese id es
   la identidad del pago. El email del pagador, el importe y las fechas no identifican a nadie.
+- El email del pagador es un dato que Mercado Pago exige para crear la suscripción. Primero se
+  usa el del login; si Mercado Pago lo rechaza, el usuario indica el de su cuenta de Mercado
+  Pago. Nunca decide a qué negocio pertenece un pago.
 - El plan que se otorga es el de la intención que el servidor registró al crear esa suscripción,
   y sólo si Mercado Pago informa el importe y la frecuencia de esa intención.
 - Volver de Mercado Pago a una URL de la app no activa nada.
@@ -187,7 +193,19 @@ Frontend → mp-subscription (create)
 La función exige la capacidad `subscription` del usuario en ese negocio,
 toma importe y frecuencia de SU catálogo,
 registra la intención en subscription_checkout_sessions,
-crea en Mercado Pago un preapproval `pending` (POST /preapproval),
+crea en Mercado Pago un preapproval `pending` (POST /preapproval)
+con el email del login como pagador
+    │
+    ├─ Mercado Pago rechaza ese email (400 «User bad request»)
+    │      ↓
+    │  la función responde mp_payer_email_required, sin checkout
+    │      ↓
+    │  Planes pide «Email de tu cuenta de Mercado Pago» (un solo campo)
+    │      ↓
+    │  Frontend → mp-subscription (create, con mp_payer_email)
+    │      ↓
+    │  si Mercado Pago tampoco lo acepta: error en pantalla, sin reintento automático
+    ↓
 valida la respuesta y GUARDA EL ID del preapproval en la sesión,
 y recién entonces devuelve su init_point   ← el negocio NO cambia
     ↓
@@ -249,7 +267,12 @@ El cron (`billing-expire-trials`, `billing-enforce-grace`) ya corre en producci�
 | `cancel` | Cancela en Mercado Pago, lo confirma releyendo y refleja la baja | Lo mismo que el webhook |
 
 Todas exigen la capacidad `subscription` del usuario en el negocio que nombran. Ninguna acepta
-un id de suscripción, una referencia, un importe o un email de pagador del navegador.
+un id de suscripción, una referencia, un importe o un estado del navegador.
+
+`create` acepta además `mp_payer_email`, opcional: el email de la cuenta de Mercado Pago de quien
+va a pagar, para cuando Mercado Pago no acepta el del login. Se valida en el servidor, se le
+manda a Mercado Pago como `payer_email` y se anota en la sesión. No es identidad: no decide a
+qué negocio pertenece nada, y las otras cuatro acciones lo ignoran.
 
 ---
 

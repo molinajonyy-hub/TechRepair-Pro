@@ -18,6 +18,32 @@ import type {
   SubscriptionPlan,
 } from '../types/subscription'
 
+/**
+ * Error de una acción de `mp-subscription`. `code` es el que decidió el servidor
+ * (p. ej. `mp_payer_email_required`): la pantalla lo usa para elegir qué
+ * mostrar, nunca para decidir acceso.
+ */
+export class SubscriptionActionError extends Error {
+  readonly code: string | null
+  readonly status: number | null
+  constructor(message: string, code: string | null = null, status: number | null = null) {
+    super(message)
+    this.name = 'SubscriptionActionError'
+    this.code = code
+    this.status = status
+  }
+}
+
+/**
+ * `create` no pudo iniciar la suscripción con el email del login: Mercado Pago
+ * necesita el de la cuenta de Mercado Pago de quien va a pagar.
+ */
+export const MP_PAYER_EMAIL_REQUIRED = 'mp_payer_email_required'
+
+export function subscriptionErrorCode(error: unknown): string | null {
+  return error instanceof SubscriptionActionError ? error.code : null
+}
+
 // ── Helper: authenticated edge function call ──────────────────
 // Uses supabase.functions.invoke() which automatically sets both
 // the 'apikey' (anon key) and 'Authorization' (user JWT) headers
@@ -35,15 +61,22 @@ async function callEdge<T>(action: string, payload: Record<string, unknown>): Pr
     // Distinguir los 3 tipos de error de supabase-js para dar un mensaje útil
     // y registrar un código técnico (sin exponer internals en producción).
     if (error instanceof FunctionsHttpError) {
-      // La función respondió con un status de error; el body trae { error }.
+      // La función respondió con un status de error; el body trae { error, code }.
       let serverMessage = ''
+      let serverCode: string | null = null
       try {
-        serverMessage = ((await error.context.json()) as { error?: string })?.error ?? ''
+        const body = (await error.context.json()) as { error?: unknown; code?: unknown } | null
+        if (typeof body?.error === 'string') serverMessage = body.error
+        if (typeof body?.code === 'string') serverCode = body.code
       } catch {
         /* body no-JSON: ignorar */
       }
       logger.error('GENERAL', `mp-subscription HTTP ${error.context.status} (${action})`, serverMessage)
-      throw new Error(serverMessage || `La función de pago devolvió un error (${error.context.status}).`)
+      throw new SubscriptionActionError(
+        serverMessage || `La función de pago devolvió un error (${error.context.status}).`,
+        serverCode,
+        error.context.status,
+      )
     }
     if (error instanceof FunctionsRelayError) {
       logger.error('GENERAL', `mp-subscription relay error (${action})`, error.message)
@@ -134,6 +167,11 @@ export async function getSubscriptionEvents(businessId: string): Promise<Subscri
 // tabla), crea el preapproval en Mercado Pago con el precio del servidor y
 // devuelve su checkout. NO cambia el estado ni el plan del negocio: el acceso
 // sólo cambia cuando Mercado Pago confirma esa suscripción.
+//
+// El primer intento va SIN email: el servidor usa el del login. Si Mercado Pago
+// lo rechaza, la llamada falla con `MP_PAYER_EMAIL_REQUIRED` y se reintenta con
+// `mp_payer_email`, el que indique el usuario. Ese email es sólo un dato que
+// Mercado Pago exige para crear la suscripción: no identifica al negocio.
 export async function createSubscription(
   req: Omit<CreateSubscriptionRequest, 'back_url'>
 ): Promise<CreateSubscriptionResponse> {

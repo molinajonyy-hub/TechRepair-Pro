@@ -11,6 +11,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { CREATE_PREAPPROVAL_OPERATION, MpApiError, isPayerRejection } from '../../supabase/functions/_shared/billing/mpClient.ts'
 import { PLAN_PRICES, buildPlanCatalog } from '../../supabase/functions/_shared/billing/planCatalog.ts'
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf-8')
@@ -88,6 +89,62 @@ test('create no lee importe, moneda, frecuencia ni referencia del body', () => {
 test('Mercado Pago se lee por id: no hay endpoints de búsqueda ni planes del panel', () => {
   assert.doesNotMatch(mpClient, /preapproval\/search|preapproval_plan\/|searchPreapprovals/)
   assert.doesNotMatch(actions + canonical + webhookLib, /MP_PLAN_|byMpPlanId|mpPlanIdFor/)
+})
+
+// ── El email del pagador no es autoridad ────────────────────────────────────
+// Evidencia real (2026-10-02): `POST /preapproval` con el email del login dio
+// 400 «User bad request»; con el email real de una cuenta de Mercado Pago, 201.
+// El usuario puede indicar ese email, y es SÓLO un parámetro de ese POST.
+const sinComentarios = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+
+test('`mp_payer_email` se lee en un solo lugar, y sólo `create` lo usa', () => {
+  const code = sinComentarios(actions)
+  assert.equal((code.match(/req\.body\.mp_payer_email/g) ?? []).length, 1)
+  assert.match(code, /function resolvePayerEmail\(req: ActionRequest\): PayerEmail \{\s*const raw = req\.body\.mp_payer_email\n/)
+  // Sin el campo, el primer intento es con el email del JWT.
+  assert.match(code, /if \(raw === undefined \|\| raw === null\) \{\s*return req\.user\.email\s*\? \{ ok: true, email: req\.user\.email, explicit: false \}/)
+  for (const fn of ['async function reconcile', 'async function cancelSubscription', 'async function updatePaymentMethod', 'async function readStatus']) {
+    const start = code.indexOf(fn)
+    assert.ok(start > 0, `falta ${fn}`)
+    const body = code.slice(start, code.indexOf('\n}\n', start))
+    assert.doesNotMatch(body, /payer|e-?mail/i, `${fn} usa un email`)
+  }
+})
+
+test('ni el camino canónico, ni el webhook, ni el store resuelven nada por email', () => {
+  // Lo único que el camino canónico hace con un email es anotar el que informa MP.
+  const bitacora = /if \(typeof pre\.payer_email === 'string' && pre\.payer_email\) patch\.mp_payer_email = pre\.payer_email|mp_payer_email: typeof pre\.payer_email === 'string' && pre\.payer_email \? pre\.payer_email : null,/g
+  assert.doesNotMatch(sinComentarios(canonical).replace(bitacora, ''), /payer|e-?mail/i)
+  assert.doesNotMatch(sinComentarios(webhookLib), /payer|e-?mail/i)
+  assert.doesNotMatch(store, /\.(eq|ilike|like|in|contains)\('(payer_email|mp_payer_email)'/)
+  // En el cliente de Mercado Pago el email aparece una sola vez: en el cuerpo del POST.
+  const mp = sinComentarios(mpClient)
+  assert.doesNotMatch(mp, /payer_email=|\/search/)
+  assert.deepEqual(mp.match(/payer_email: [^\n]+/g), ['payer_email: input.payerEmail,'])
+})
+
+test('sólo el rechazo medido del pagador pide otro email (lista cerrada)', () => {
+  const rejected = (operation: string, status: number, detail: string | null) => isPayerRejection(new MpApiError(operation, status, detail))
+  assert.equal(CREATE_PREAPPROVAL_OPERATION, 'POST preapproval')
+  assert.equal(rejected('POST preapproval', 400, 'User bad request'), true)
+  assert.equal(rejected('POST preapproval', 400, 'Invalid value for payer_email'), true)
+  assert.equal(rejected('POST preapproval', 400, 'Invalid value for back_url'), false)
+  assert.equal(rejected('POST preapproval', 400, null), false)
+  assert.equal(rejected('POST preapproval', 500, 'User bad request'), false)
+  assert.equal(rejected('GET preapproval', 400, 'User bad request'), false)
+  assert.equal(isPayerRejection(new Error('User bad request')), false)
+})
+
+test('Planes pide el email sólo por el código del servidor, sin precargar el del login ni guardarlo', () => {
+  const plans = sinComentarios(plansPage)
+  const dialog = sinComentarios(read('../../src/components/subscription/MercadoPagoEmailDialog.tsx'))
+  assert.match(plans, /subscriptionErrorCode\(e\) === MP_PAYER_EMAIL_REQUIRED/)
+  assert.match(service, /export const MP_PAYER_EMAIL_REQUIRED = 'mp_payer_email_required'/)
+  assert.match(sinComentarios(actions), /fail\(422, 'mp_payer_email_required',/)
+  assert.doesNotMatch(plans + dialog, /localStorage|sessionStorage|document\.cookie/)
+  assert.doesNotMatch(plans + dialog, /user\??\.email/)
+  assert.match(dialog, /label="Email de tu cuenta de Mercado Pago"/)
+  assert.match(dialog, /title="Necesitamos un dato de Mercado Pago"/)
 })
 
 // ── Frontend: no direct writes to subscription columns ──────────────────────
